@@ -154,13 +154,16 @@ export const CODEX_MAX_LINE_LENGTH: number = 32 * 1024 * 1024;
 /**
  * The ten server-initiated REQUEST methods of the pinned protocol, read from the
  * generated `ServerRequest` union at `codex-cli 0.149.1` (regenerate, never
- * transcribe — `docs/reference/provider-wire/codex.md §Regeneration`).
+ * transcribe — `docs/reference/provider-wire/codex.md`; re-verified against the
+ * installed binary's own generation on 2026-08-27).
  *
- * Used as a ROUTING FILTER, not as a handler table: an inbound frame carrying a
- * `method` and an `id` is answerable only when its method is in this set. Any
- * other method+id frame is our own echoed request and is reported rather than
- * answered — answering it would inject a bogus response into the server's own
- * correlation table.
+ * An OBSERVABILITY ANNOTATION, deliberately NOT a routing filter. Routing keys on
+ * correlation instead (`#isEchoOfOurOwnRequest`), because a census is a snapshot
+ * of one pinned release and the wire is additive across releases: gating the
+ * fail-closed answer on membership here would leave a request method added by a
+ * newer admitted build unanswered, hanging that turn forever. Membership rides
+ * the `unhandled-server-request` diagnostic as `censused` instead, so an
+ * uncensused method is loud without being treated as unanswerable.
  *
  * Module-private: a shared export of this set belongs with the event normalizer
  * (T3.5), not with the transport.
@@ -180,6 +183,45 @@ const CODEX_SERVER_REQUEST_METHODS: ReadonlySet<string> = new Set([
 
 /** JSON-RPC "method not found" — the fail-closed answer to an unhandled server request. */
 const JSON_RPC_METHOD_NOT_FOUND = -32601;
+
+/**
+ * The provider's ONLY terminal-turn notification.
+ *
+ * Read from the generated `ServerNotification` union at `codex-cli 0.149.1`
+ * (regenerated 2026-08-27): the `turn/*` family is exactly `turn/started`,
+ * `turn/completed`, `turn/diff/updated`, `turn/plan/updated`, and
+ * `turn/moderationMetadata`. There is no `turn/failed` and no `turn/interrupted`
+ * — a failed or interrupted turn arrives on THIS method and is discriminated by
+ * `turn.status`, so a terminal set keyed on method strings would be wrong.
+ */
+const CODEX_TURN_COMPLETED_NOTIFICATION = "turn/completed";
+
+/**
+ * The `TurnStatus` values that end a turn.
+ *
+ * The generated enum is `completed | interrupted | failed | inProgress`.
+ * `inProgress` is excluded ON PURPOSE rather than by oversight: the notification
+ * carries the whole `Turn`, and treating a non-terminal status as terminal would
+ * retire a route while the provider is still running the turn — a steer or
+ * interrupt would then be refused as "no active turn" mid-flight. Fail closed by
+ * keeping the route.
+ */
+const CODEX_TERMINAL_TURN_STATUSES: ReadonlySet<string> = new Set([
+  "completed",
+  "interrupted",
+  "failed",
+]);
+
+/**
+ * How many unmatched terminal turn ids one session remembers (see `startRun`).
+ *
+ * Small and fixed: the memory exists to survive a same-chunk response/completion
+ * interleave, whose window is one microtask, plus the ordinary post-interrupt
+ * duplicate. Anything that accumulates beyond a handful is a provider emitting
+ * terminals for turns this driver never started, which is exactly the case an
+ * unbounded set must not turn into a leak.
+ */
+const CODEX_TERMINATED_TURN_MEMORY = 64;
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 30_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
@@ -319,11 +361,23 @@ export class CodexProviderRequestError extends Error {
  */
 export class CodexSessionAlreadyLiveError extends Error {
   readonly sessionId: string;
+  /**
+   * Which holder refused the create. Discriminated by CLASS-LOCAL state rather
+   * than by a second dotted code: the error-contract registry is closed, and
+   * both arms are the same refusal — a create that would orphan a process —
+   * differing only in whether that process has finished coming up.
+   */
+  readonly holderState: "live" | "establishing";
 
-  constructor(sessionId: string) {
-    super(`A live Codex session is already bound to "${sessionId}"; create would orphan it.`);
+  constructor(sessionId: string, holderState: "live" | "establishing") {
+    super(
+      holderState === "live"
+        ? `A live Codex session is already bound to "${sessionId}"; create would orphan it.`
+        : `A create or resume for Codex session "${sessionId}" is already in flight; create would orphan whichever process loses.`,
+    );
     this.name = "CodexSessionAlreadyLiveError";
     this.sessionId = sessionId;
+    this.holderState = holderState;
   }
 }
 
@@ -382,7 +436,7 @@ export type CodexTransportDiagnostic =
   | { kind: "line-too-long"; retainedLength: number; limit: number }
   | { kind: "unknown-response-id"; responseId: string }
   | { kind: "echoed-client-frame"; method: string }
-  | { kind: "unhandled-server-request"; method: string }
+  | { kind: "unhandled-server-request"; method: string; censused: boolean }
   | { kind: "notification-write-failed"; method: string }
   | { kind: "unconsumed-server-notification"; method: string }
   | { kind: "process-exited"; exitCode: number; signalCode: number | null };
@@ -978,17 +1032,24 @@ export class CodexAppServerConnection {
     const id = message["id"];
     const isRequest = id !== undefined && id !== null;
     if (isRequest) {
-      if (!CODEX_SERVER_REQUEST_METHODS.has(method)) {
+      if (this.#isEchoOfOurOwnRequest(id, method)) {
         // Our own frame, echoed back by a tty whose ECHO was still on. Never
         // answered: a response to it would corrupt the server's correlation.
         this.#reportDiagnostic({ kind: "echoed-client-frame", method });
         return;
       }
-      // Fail closed. Approvals and elicitations route through the daemon's own
-      // pipeline (T3.5 and beyond); answering with an error refuses cleanly and
-      // can never be mistaken for consent, while leaving it unanswered would
-      // hang the provider's turn.
-      this.#reportDiagnostic({ kind: "unhandled-server-request", method });
+      // Fail closed, for EVERY other method+id frame — censused or not.
+      // Approvals and elicitations route through the daemon's own pipeline (T3.5
+      // and beyond); answering with an error refuses cleanly and can never be
+      // mistaken for consent, while leaving it unanswered would hang the
+      // provider's turn. That hang is the whole reason membership in the pinned
+      // census does not gate this arm: a newer admitted build may speak a
+      // request method this pin never saw.
+      this.#reportDiagnostic({
+        kind: "unhandled-server-request",
+        method,
+        censused: CODEX_SERVER_REQUEST_METHODS.has(method),
+      });
       void this.#writeFrame({
         jsonrpc: "2.0",
         id,
@@ -1006,6 +1067,29 @@ export class CodexAppServerConnection {
       return;
     }
     this.#reportDiagnostic({ kind: "unconsumed-server-notification", method });
+  }
+
+  /**
+   * True only for a frame this connection SENT and is still awaiting a reply to.
+   *
+   * Correlation, not a name test: an echo is by definition one of our own
+   * outbound requests coming back, so it must match a pending entry on BOTH the
+   * id and the method. Matching the id alone would be wrong — the two directions
+   * mint request ids in independent namespaces, so a server request can carry an
+   * id we also used — and matching the method alone would be wrong for the same
+   * reason in reverse.
+   *
+   * The pending entry is deliberately left in place: the real reply is still
+   * owed, and consuming the entry here would strand the caller until its
+   * deadline. In practice this arm is near-dead — the termios prelude disables
+   * ECHO before the sentinel, and no request is sent before the sentinel — which
+   * is precisely why the OTHER arm has to be the safe default.
+   */
+  #isEchoOfOurOwnRequest(id: unknown, method: string): boolean {
+    if (typeof id !== "number" && typeof id !== "string") {
+      return false;
+    }
+    return this.#pending.get(String(id))?.method === method;
   }
 
   #handleInboundResponse(message: Record<string, unknown>, line: string): void {
@@ -1085,6 +1169,34 @@ interface CodexSessionRecord {
   readonly threadId: string;
   readonly spawnConfig: CodexSessionConfig;
   readonly activeTurnIdByRunId: Map<RunId, string>;
+  /**
+   * Turn ids whose terminal notification arrived while no route pointed at them.
+   * Insertion-ordered and capped (`CODEX_TERMINATED_TURN_MEMORY`); consumed by
+   * `startRun`. See the note there for the interleave this exists to survive.
+   */
+  readonly terminatedTurnIds: Set<string>;
+}
+
+/**
+ * Records a terminal turn id in a session's bounded FIFO memory.
+ *
+ * Re-inserted rather than skipped on a repeat so a duplicate terminal refreshes
+ * its position instead of aging out while still relevant. Eviction is oldest
+ * first, which is the right end: the hazard this memory covers is resolved
+ * within one microtask of the turn starting, so the oldest entry is always the
+ * least likely to still be claimed.
+ */
+function rememberTerminatedTurn(record: CodexSessionRecord, turnId: string): void {
+  const memory = record.terminatedTurnIds;
+  memory.delete(turnId);
+  memory.add(turnId);
+  while (memory.size > CODEX_TERMINATED_TURN_MEMORY) {
+    const oldest = memory.values().next();
+    if (oldest.done === true) {
+      break;
+    }
+    memory.delete(oldest.value);
+  }
 }
 
 /** Construction inputs for the lifecycle manager. */
@@ -1117,6 +1229,14 @@ export class CodexLifecycleManager {
   readonly #turnStartTimeoutMs: number;
   readonly #sessions = new Map<SessionId, CodexSessionRecord>();
   readonly #sessionIdByRunId = new Map<RunId, SessionId>();
+  /**
+   * Session ids with an establishment in flight, mapped to a rejection-swallowed
+   * view of it. Published SYNCHRONOUSLY, before the establishment's first
+   * suspension, so no concurrent caller can observe a free slot for a session
+   * that is already spawning. Mirrors the Claude leg's
+   * `#sessionsBeingEstablished`.
+   */
+  readonly #sessionsBeingEstablished = new Map<SessionId, Promise<void>>();
 
   constructor(options: CodexLifecycleOptions) {
     this.#options = options;
@@ -1128,11 +1248,26 @@ export class CodexLifecycleManager {
   async createSession(params: CreateSessionParams): Promise<ProviderSessionHandle> {
     // Refused BEFORE anything is spawned, so a mis-sequenced caller costs no
     // process. See `CodexSessionAlreadyLiveError` for why replacing is wrong.
-    if (this.#sessions.has(params.sessionId)) {
-      throw new CodexSessionAlreadyLiveError(params.sessionId);
+    //
+    // The check reads BOTH the live map and the in-flight map, and there is no
+    // `await` between this read and the claim below. A create that tested only
+    // `#sessions` would be a synchronous guard in front of two suspensions: two
+    // overlapping creates for one session id would both pass it, both spawn, and
+    // the later install would orphan the earlier process with nothing holding a
+    // reference to close it.
+    const holderState = this.#describeSlotHolder(params.sessionId);
+    if (holderState !== undefined) {
+      throw new CodexSessionAlreadyLiveError(params.sessionId, holderState);
     }
+    return await this.#withSessionSlotClaimed(
+      params.sessionId,
+      async () => await this.#establishCreatedSession(params),
+    );
+  }
+
+  async #establishCreatedSession(params: CreateSessionParams): Promise<ProviderSessionHandle> {
     const config = parseCodexSessionConfig(params.config);
-    const connection = new CodexAppServerConnection(this.#options);
+    const connection = new CodexAppServerConnection(this.#connectionOptionsFor(params.sessionId));
     try {
       // Inside the guard: `open()` tears its own process down on the paths it
       // owns, but a caller-supplied subscriber that throws is not one of them,
@@ -1142,8 +1277,12 @@ export class CodexLifecycleManager {
       const response = await connection.request("thread/start", {
         cwd: config.cwd,
         // Pinned as defense in depth so no config or profile override can select
-        // an auto-review path that bypasses the daemon's approval pipeline
-        // (`docs/reference/provider-wire/codex.md`).
+        // an auto-review path that bypasses the daemon's approval pipeline.
+        // `ThreadStartParams` carries this field (verified against the pinned
+        // binary's own generated schema at `codex-cli 0.149.1`, regenerated
+        // 2026-08-27 — `docs/reference/provider-wire/codex.md`), so the pin is
+        // accepted rather than an unknown-field risk. It is NOT sufficient on its
+        // own: see the per-turn pin in `startRun`.
         approvalsReviewer: "user",
       });
       const thread = readThread(response, "thread/start");
@@ -1153,6 +1292,7 @@ export class CodexLifecycleManager {
         threadId: thread.id,
         spawnConfig: config,
         activeTurnIdByRunId: new Map(),
+        terminatedTurnIds: new Set(),
       });
       // `id` is the resume key; `sessionId` groups a thread tree (fork/subagent
       // threads share it), so the two are NOT interchangeable.
@@ -1172,15 +1312,52 @@ export class CodexLifecycleManager {
    * it never converts into a fresh thread.
    */
   async resumeSession(params: ResumeSessionParams): Promise<DriverResumeResult> {
+    // Resume CLAIMS the slot rather than refusing a held one, which is a
+    // deliberate divergence from the Claude leg (which refuses): this driver
+    // supersedes a live leg on resume and releases it explicitly, so serializing
+    // behind the holder is what makes that release reachable. A resume that read
+    // the slot as empty mid-establishment would find `existing === undefined`,
+    // install over the winner, and orphan its process.
+    return await this.#withSessionSlotClaimed(
+      params.sessionId,
+      async () => await this.#establishResumedSession(params),
+    );
+  }
+
+  async #establishResumedSession(params: ResumeSessionParams): Promise<DriverResumeResult> {
+    // Read INSIDE the claimed establishment, never at the call site: the claim
+    // chains behind any predecessor, so this read must happen after that
+    // predecessor has installed its record for the supersede to see it.
     const existing = this.#sessions.get(params.sessionId);
     const spawnConfig = existing?.spawnConfig ?? this.#options.resumeSpawnConfig;
-    const connection = new CodexAppServerConnection(this.#options);
+    const connection = new CodexAppServerConnection(this.#connectionOptionsFor(params.sessionId));
     try {
       await connection.open(spawnConfig);
       const response = await connection.request("thread/resume", {
         threadId: params.resumeHandle,
+        // The same defense-in-depth pin as `thread/start`; `ThreadResumeParams`
+        // carries the field at the pin (verified 2026-08-27 against the binary's
+        // generated schema). A resumed thread must not inherit an auto-review
+        // reviewer from whatever config the provider reloads with it.
+        approvalsReviewer: "user",
       });
       const thread = readThread(response, "thread/resume");
+      // I-005-5's identity gate, and it runs BEFORE the position check because it
+      // is the stronger one. Codex may answer a resume it cannot honour by
+      // handing back a DIFFERENT thread; for a zero-turn session that thread has
+      // `turns: []`, which is a perfectly well-formed history, so the position
+      // check below cannot tell it from a genuine resume. Only the id can.
+      // Adopting it would be the silent replacement this invariant forbids.
+      if (thread.id !== params.resumeHandle) {
+        throw new CodexTransportError(
+          `Resume handle ${params.resumeHandle} was answered by thread ${thread.id}; the provider started a replacement thread rather than resuming.`,
+          {
+            method: "thread/resume",
+            requestedThreadId: params.resumeHandle,
+            answeredThreadId: thread.id,
+          },
+        );
+      }
       if (!Array.isArray(thread.turns)) {
         // `Thread.turns` is populated on `thread/resume` by contract. If it is
         // absent we cannot know the position, and fabricating 0 would make a
@@ -1197,6 +1374,7 @@ export class CodexLifecycleManager {
         threadId: thread.id,
         spawnConfig,
         activeTurnIdByRunId: new Map(),
+        terminatedTurnIds: new Set(),
       });
       // The replacement record starts with an empty turn map, so every route
       // that pointed at the superseded leg is now dead. Swept here rather than
@@ -1247,6 +1425,16 @@ export class CodexLifecycleManager {
       {
         threadId: record.threadId,
         input: [{ type: "text", text: runConfig.input, text_elements: [] }],
+        // The pin that actually carries the security property. A TURN is what
+        // generates approval requests, and `TurnStartParams.approvalsReviewer` is
+        // documented as overriding routing for "this turn and subsequent turns"
+        // — so a config- or profile-selected `auto_review` reviewer would win on
+        // every turn if only the thread-level pin were sent. Pinning it here is
+        // idempotent rather than redundant, and `turn/steer` needs no pin because
+        // it requires an already-active turn and creates none. Field verified
+        // present on `TurnStartParams` at `codex-cli 0.149.1` (regenerated
+        // 2026-08-27 — `docs/reference/provider-wire/codex.md`).
+        approvalsReviewer: "user",
         ...(runConfig.model === undefined ? {} : { model: runConfig.model }),
         ...(runConfig.clientUserMessageId === undefined
           ? {}
@@ -1258,6 +1446,19 @@ export class CodexLifecycleManager {
     const turnId = readTurnId(response, "turn/start");
     record.activeTurnIdByRunId.set(params.runId, turnId);
     this.#sessionIdByRunId.set(params.runId, record.sessionId);
+    // The turn can already be OVER by the time this install runs. Resolving the
+    // `turn/start` response schedules this continuation as a microtask, while
+    // `#ingest` keeps draining the rest of the read chunk SYNCHRONOUSLY — so for
+    // a fast turn whose response and `turn/completed` arrive in one chunk, the
+    // sweep runs first, matches nothing, and this install would leave a route
+    // that `hasActiveTurn` reports live for the daemon's lifetime. Consulting the
+    // record's short memory of unmatched terminals closes that window; the
+    // `delete` is the consume, so a later turn reusing the id (it cannot — turn
+    // ids are UUIDv7) could not be retired twice.
+    if (record.terminatedTurnIds.delete(turnId)) {
+      record.activeTurnIdByRunId.delete(params.runId);
+      this.#sessionIdByRunId.delete(params.runId);
+    }
   }
 
   /** Interrupts the provider turn bound to a run. */
@@ -1276,6 +1477,19 @@ export class CodexLifecycleManager {
    * an unknown or already-closed session resolves without throwing.
    */
   async closeSession(params: CloseSessionParams): Promise<void> {
+    // A close arriving mid-establishment must not read the slot as empty and
+    // no-op: the in-flight create or resume would install its record a moment
+    // later and that process would outlive the session the daemon believes it
+    // closed. One `await` suffices even against a queue of establishments,
+    // because each claim chains behind its predecessor — awaiting the newest
+    // transitively awaits them all. Safe from deadlock: no establishment path
+    // calls `closeSession` (they close their own CONNECTION directly), so the
+    // wait can never be on this call.
+    const establishment = this.#sessionsBeingEstablished.get(params.sessionId);
+    if (establishment !== undefined) {
+      await establishment;
+    }
+
     const record = this.#sessions.get(params.sessionId);
     if (record === undefined) {
       return;
@@ -1320,6 +1534,142 @@ export class CodexLifecycleManager {
       return false;
     }
     return this.#sessions.get(sessionId)?.activeTurnIdByRunId.has(runId) === true;
+  }
+
+  /**
+   * Names the current holder of a session slot, or `undefined` when it is free.
+   *
+   * One predicate, so the live and in-flight views can never drift into
+   * disagreeing about what "taken" means.
+   */
+  #describeSlotHolder(sessionId: SessionId): "live" | "establishing" | undefined {
+    if (this.#sessions.has(sessionId)) {
+      return "live";
+    }
+    if (this.#sessionsBeingEstablished.has(sessionId)) {
+      return "establishing";
+    }
+    return undefined;
+  }
+
+  /**
+   * Claims the session slot and runs the establishment behind any predecessor.
+   *
+   * The read of the predecessor and the publication of the claim happen in ONE
+   * synchronous run, which is the whole point. An `await` between them — even an
+   * `await` that finds the slot empty — yields a microtask, and two callers
+   * dispatched in the same tick would both observe an empty slot, both resume,
+   * and the second would overwrite the first's claim while both establishments
+   * ran concurrently. Chaining rather than waiting-for-absence is what keeps that
+   * impossible: `establish` is invoked lazily inside the chained body, so a later
+   * caller's establishment begins only once the earlier one has settled and
+   * installed whatever it installs.
+   *
+   * The stored view is rejection-swallowed: `closeSession` awaits it purely to
+   * sequence, and a stored promise that could reject would surface as an
+   * unhandled rejection whenever nobody closes the session.
+   */
+  async #withSessionSlotClaimed<TEstablished>(
+    sessionId: SessionId,
+    establish: () => Promise<TEstablished>,
+  ): Promise<TEstablished> {
+    const predecessor = this.#sessionsBeingEstablished.get(sessionId);
+    const establishment = (async (): Promise<TEstablished> => {
+      if (predecessor !== undefined) {
+        await predecessor;
+      }
+      return await establish();
+    })();
+    const settled = establishment.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.#sessionsBeingEstablished.set(sessionId, settled);
+    try {
+      return await establishment;
+    } finally {
+      // Identity-checked: only ever clear OUR claim. A later caller chains onto
+      // this one and publishes its own, so clearing unconditionally here would
+      // free a slot that is still occupied.
+      if (this.#sessionsBeingEstablished.get(sessionId) === settled) {
+        this.#sessionsBeingEstablished.delete(sessionId);
+      }
+    }
+  }
+
+  /**
+   * Per-session connection options, with the manager interposed on the server
+   * notification stream.
+   *
+   * The manager has to SEE the stream to retire routes on turn termination, but
+   * it is not the consumer of it — the event normalizer (T3.5) is. Interposing
+   * rather than competing keeps one sink: the manager observes, then hands the
+   * frame on unchanged, in order, with the delegate's `(method, params)` shape
+   * untouched. When no delegate is supplied the transport's own
+   * `unconsumed-server-notification` diagnostic is preserved by re-reporting it
+   * here, since the sink is now always present from the transport's point of
+   * view.
+   */
+  #connectionOptionsFor(sessionId: SessionId): CodexConnectionOptions {
+    const delegate = this.#options.onServerNotification;
+    const reportDiagnostic = this.#options.reportDiagnostic;
+    return {
+      ...this.#options,
+      onServerNotification: (method: string, params: unknown): void => {
+        this.#observeServerNotification(sessionId, method, params);
+        if (delegate === undefined) {
+          reportDiagnostic({ kind: "unconsumed-server-notification", method });
+          return;
+        }
+        delegate(method, params);
+      },
+    };
+  }
+
+  /**
+   * Retires the route bound to a turn the provider has just ended.
+   *
+   * Without this, only `interruptRun` and `closeSession` ever clear a route, so a
+   * turn that simply FINISHES leaks both map entries for the daemon's lifetime
+   * and `hasActiveTurn` keeps reporting the run live — which would let a later
+   * intervention target a turn id the provider retired long ago.
+   */
+  #observeServerNotification(sessionId: SessionId, method: string, params: unknown): void {
+    if (method !== CODEX_TURN_COMPLETED_NOTIFICATION) {
+      return;
+    }
+    const payload = isPlainObject(params) ? params : {};
+    const rawTurn = payload["turn"];
+    const turn = isPlainObject(rawTurn) ? rawTurn : {};
+    const turnId = turn["id"];
+    const status = turn["status"];
+    if (typeof turnId !== "string" || turnId.length === 0) {
+      return;
+    }
+    if (typeof status !== "string" || !CODEX_TERMINAL_TURN_STATUSES.has(status)) {
+      return;
+    }
+    const record = this.#sessions.get(sessionId);
+    if (record === undefined) {
+      // No record means no route can exist for this turn yet, and none can be
+      // installed against a session this manager does not hold. Nothing to
+      // remember.
+      return;
+    }
+    // Keyed by TURN id, not by run id. A run whose route was superseded (by a
+    // resume) or already retired (by an interrupt) must not have a NEWER turn
+    // cleared out from under it by a late terminal for the old one.
+    let matchedRoute = false;
+    for (const [runId, activeTurnId] of record.activeTurnIdByRunId) {
+      if (activeTurnId === turnId) {
+        record.activeTurnIdByRunId.delete(runId);
+        this.#sessionIdByRunId.delete(runId);
+        matchedRoute = true;
+      }
+    }
+    if (!matchedRoute) {
+      rememberTerminatedTurn(record, turnId);
+    }
   }
 
   /**

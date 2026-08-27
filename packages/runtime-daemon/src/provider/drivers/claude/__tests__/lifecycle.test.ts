@@ -569,6 +569,248 @@ describe("ClaudeSessionLifecycle.startRun spawn-bound realization (agreeing runs
   });
 });
 
+// `ExecutionPosture` is an intersection of two discriminated unions: `mode`,
+// `networkAccess`, `allowedDomains` (allowed-domains arm only), `writableRoots`,
+// `profileName`, and `credentialPolicyRef` (sandboxed arms only). Comparing a
+// projection of that — as an earlier revision did, on `mode` + `networkAccess`
+// alone — admits a run into a process whose sandbox differs on an axis nobody
+// checked, and the run's recorded effective posture is then a lie. One test per
+// axis, so a re-narrowing cannot pass by covering only the popular ones.
+describe("ClaudeSessionLifecycle.startRun execution-posture axes", () => {
+  const ALLOWED_DOMAINS_POSTURE: ExecutionPosture = {
+    mode: "workspace-sandboxed",
+    credentialPolicyRef: "policy://default",
+    networkAccess: "allowed-domains",
+    allowedDomains: ["api.example.com", "docs.example.com"],
+    writableRoots: ["/workspace", "/tmp/scratch"],
+    profileName: "default",
+  };
+
+  async function arrangeSession(
+    harness: LifecycleHarness,
+    executionPosture: ExecutionPosture,
+  ): Promise<void> {
+    await harness.lifecycle.createSession({
+      sessionId: TEST_SESSION_ID,
+      config: {},
+      executionPosture,
+    });
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "review the diff",
+    });
+  }
+
+  const DIVERGENT_POSTURES: ReadonlyArray<{
+    readonly axis: string;
+    readonly runPosture: ExecutionPosture;
+  }> = [
+    {
+      axis: "allowedDomains (an added domain widens the network reach)",
+      runPosture: {
+        ...ALLOWED_DOMAINS_POSTURE,
+        allowedDomains: ["api.example.com", "docs.example.com", "exfil.example.net"],
+      },
+    },
+    {
+      axis: "writableRoots (an added root widens what the process may write)",
+      runPosture: {
+        ...ALLOWED_DOMAINS_POSTURE,
+        writableRoots: ["/workspace", "/tmp/scratch", "/etc"],
+      },
+    },
+    {
+      axis: "credentialPolicyRef",
+      runPosture: { ...ALLOWED_DOMAINS_POSTURE, credentialPolicyRef: "policy://elevated" },
+    },
+    {
+      axis: "profileName",
+      runPosture: { ...ALLOWED_DOMAINS_POSTURE, profileName: "permissive" },
+    },
+    {
+      axis: "writableRoots (a duplicated root is a real difference, not noise)",
+      runPosture: {
+        ...ALLOWED_DOMAINS_POSTURE,
+        writableRoots: ["/workspace", "/workspace"],
+      },
+    },
+  ];
+
+  it.each(DIVERGENT_POSTURES)("never starts a run diverging on $axis", async ({ runPosture }) => {
+    const harness = buildHarness();
+    await arrangeSession(harness, ALLOWED_DOMAINS_POSTURE);
+
+    await expect(
+      harness.lifecycle.startRun({ ...buildStartRunParams(), executionPosture: runPosture }),
+    ).rejects.toMatchObject({
+      code: "driver.unavailable",
+      fields: { reason: "execution_posture_mismatch" },
+    });
+    expect(harness.transport.spawnedChannels[0]?.sentTextFrames).toStrictEqual([]);
+  });
+
+  it("names the first divergent axis in the refusal detail", async () => {
+    const harness = buildHarness();
+    await arrangeSession(harness, ALLOWED_DOMAINS_POSTURE);
+
+    // The detail rides the error MESSAGE (`fields` carries only the closed-set
+    // reason), so an operator reading a refusal learns WHICH axis diverged
+    // without having to diff two postures by hand.
+    await expect(
+      harness.lifecycle.startRun({
+        ...buildStartRunParams(),
+        executionPosture: { ...ALLOWED_DOMAINS_POSTURE, writableRoots: ["/etc"] },
+      }),
+    ).rejects.toThrow(/writableRoots/);
+  });
+
+  it("admits a posture whose set axes agree but are ordered differently", async () => {
+    const harness = buildHarness();
+    await arrangeSession(harness, ALLOWED_DOMAINS_POSTURE);
+
+    // A caller that lists the same roots and domains in another order has
+    // declared the SAME posture; refusing it would force relaunches over
+    // serialization order rather than over a real difference.
+    await harness.lifecycle.startRun({
+      ...buildStartRunParams(),
+      executionPosture: {
+        ...ALLOWED_DOMAINS_POSTURE,
+        allowedDomains: ["docs.example.com", "api.example.com"],
+        writableRoots: ["/tmp/scratch", "/workspace"],
+      },
+    });
+
+    expect(harness.transport.spawnedChannels[0]?.sentTextFrames).toStrictEqual([
+      { text: "review the diff" },
+    ]);
+  });
+
+  it("never starts a posture-declaring run in a session spawned with no posture", async () => {
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "review the diff",
+    });
+
+    await expect(
+      harness.lifecycle.startRun({
+        ...buildStartRunParams(),
+        executionPosture: ALLOWED_DOMAINS_POSTURE,
+      }),
+    ).rejects.toMatchObject({ fields: { reason: "execution_posture_mismatch" } });
+  });
+
+  it("admits a run declaring no posture into a posture-bound session", async () => {
+    const harness = buildHarness();
+    await arrangeSession(harness, ALLOWED_DOMAINS_POSTURE);
+
+    // The one-directional rule is unchanged by the axis widening.
+    await harness.lifecycle.startRun(buildStartRunParams());
+
+    expect(harness.transport.spawnedChannels[0]?.sentTextFrames).toStrictEqual([
+      { text: "review the diff" },
+    ]);
+  });
+});
+
+// A boolean "is a schema bound?" admits a run carrying schema B into a process
+// spawned with schema A, so the provider constrains output to a shape the run
+// never asked for. Identity is a canonical digest: key ORDER is not semantic in
+// JSON, array order is.
+describe("ClaudeSessionLifecycle.startRun output-schema identity", () => {
+  const SPAWN_SCHEMA: Record<string, unknown> = {
+    type: "object",
+    properties: { verdict: { type: "string" }, score: { type: "number" } },
+    required: ["verdict", "score"],
+  };
+
+  async function arrangeSchemaBoundSession(
+    harness: LifecycleHarness,
+    outputSchema: Record<string, unknown>,
+  ): Promise<void> {
+    await harness.lifecycle.createSession({ ...buildCreateSessionParams(), outputSchema });
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "review the diff",
+    });
+  }
+
+  it("never starts a run whose schema differs from the spawn-bound one", async () => {
+    const harness = buildHarness();
+    await arrangeSchemaBoundSession(harness, SPAWN_SCHEMA);
+
+    await expect(
+      harness.lifecycle.startRun({
+        ...buildStartRunParams(),
+        outputSchema: {
+          type: "object",
+          properties: { verdict: { type: "string" } },
+          required: ["verdict"],
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: "driver.unavailable",
+      fields: { reason: "output_schema_mismatch" },
+    });
+    expect(harness.transport.spawnedChannels[0]?.sentTextFrames).toStrictEqual([]);
+  });
+
+  it("admits the same schema written with its keys in a different order", async () => {
+    const harness = buildHarness();
+    await arrangeSchemaBoundSession(harness, SPAWN_SCHEMA);
+
+    await harness.lifecycle.startRun({
+      ...buildStartRunParams(),
+      outputSchema: {
+        required: ["verdict", "score"],
+        properties: { score: { type: "number" }, verdict: { type: "string" } },
+        type: "object",
+      },
+    });
+
+    expect(harness.transport.spawnedChannels[0]?.sentTextFrames).toStrictEqual([
+      { text: "review the diff" },
+    ]);
+  });
+
+  it("refuses a schema differing only in ARRAY order, which is semantic", async () => {
+    const harness = buildHarness();
+    await arrangeSchemaBoundSession(harness, SPAWN_SCHEMA);
+
+    await expect(
+      harness.lifecycle.startRun({
+        ...buildStartRunParams(),
+        outputSchema: { ...SPAWN_SCHEMA, required: ["score", "verdict"] },
+      }),
+    ).rejects.toMatchObject({ fields: { reason: "output_schema_mismatch" } });
+  });
+
+  it("keeps the unbound arm: a schema-declaring run in a schema-less session", async () => {
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "review the diff",
+    });
+
+    await expect(
+      harness.lifecycle.startRun({ ...buildStartRunParams(), outputSchema: SPAWN_SCHEMA }),
+    ).rejects.toMatchObject({ fields: { reason: "output_schema_unbound" } });
+  });
+
+  it("admits a run declaring no schema into a schema-bound session", async () => {
+    const harness = buildHarness();
+    await arrangeSchemaBoundSession(harness, SPAWN_SCHEMA);
+
+    await harness.lifecycle.startRun(buildStartRunParams());
+
+    expect(harness.transport.spawnedChannels[0]?.sentTextFrames).toStrictEqual([
+      { text: "review the diff" },
+    ]);
+  });
+});
+
 describe("ClaudeSessionLifecycle.interruptRun", () => {
   it("sends the interrupt control request against the run's live channel", async () => {
     const harness = buildHarness();
@@ -642,7 +884,93 @@ describe("ClaudeSessionLifecycle.closeSession", () => {
     ).resolves.toBeUndefined();
   });
 
-  it("drops the route even when disposal fails, and surfaces the disposal failure", async () => {
+  // A dispose that rejects leaves a provider process RUNNING. Freeing the slot
+  // then would let the next create spawn a second process under one canonical
+  // session — the double-process hazard the slot claim exists to prevent,
+  // reached by a different road — so the slot is quarantined with the channel
+  // retained, which is the only remaining handle on that process.
+  it("quarantines the session when disposal fails, and still surfaces the failure", async () => {
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    const channel = harness.transport.spawnedChannels[0];
+    if (channel === undefined) {
+      throw new Error("unreachable: the session must have spawned a channel");
+    }
+    channel.disposeFailure = new Error("the provider process would not exit");
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "review the diff",
+    });
+    await harness.lifecycle.startRun(buildStartRunParams());
+
+    await expect(harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID })).rejects.toThrow(
+      "the provider process would not exit",
+    );
+
+    // (a) Routes go unconditionally: no run may reach a closing process.
+    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
+    // (b) The slot is held, so no second process can be spawned beneath it. The
+    // reason stays the closed-set `session_already_live` — the slot IS taken —
+    // while the message names quarantine, so an operator can tell a live session
+    // from a process that would not die. No reason arm is minted for a state
+    // nothing branches on.
+    await expect(harness.lifecycle.createSession(buildCreateSessionParams())).rejects.toMatchObject(
+      {
+        code: "driver.unavailable",
+        fields: { reason: "session_already_live" },
+      },
+    );
+    await expect(harness.lifecycle.createSession(buildCreateSessionParams())).rejects.toThrow(
+      /quarantined/,
+    );
+    expect(harness.transport.spawnRequests).toHaveLength(1);
+  });
+
+  it("refuses a resume for a quarantined session through the failed arm", async () => {
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    const channel = harness.transport.spawnedChannels[0];
+    if (channel === undefined) {
+      throw new Error("unreachable: the session must have spawned a channel");
+    }
+    channel.disposeFailure = new Error("the provider process would not exit");
+    await expect(harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID })).rejects.toThrow();
+
+    const result = await harness.lifecycle.resumeSession({
+      sessionId: TEST_SESSION_ID,
+      resumeHandle: TEST_PINNED_PROVIDER_SESSION_ID,
+    });
+
+    expect(result.status).toBe("failed");
+    expect(harness.transport.resumeRequests).toHaveLength(0);
+  });
+
+  it("retries the RETAINED channel on the next close and frees the slot on success", async () => {
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    const channel = harness.transport.spawnedChannels[0];
+    if (channel === undefined) {
+      throw new Error("unreachable: the session must have spawned a channel");
+    }
+    channel.disposeFailure = new Error("the provider process would not exit");
+    await expect(harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID })).rejects.toThrow();
+
+    // The process finally exits: the retry must reach THAT channel, not report a
+    // success against a session record that no longer exists.
+    channel.disposeFailure = undefined;
+    await expect(
+      harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID }),
+    ).resolves.toBeUndefined();
+
+    expect(channel.disposals).toStrictEqual(["session_closed", "session_closed"]);
+    // Only now is the slot free.
+    await expect(
+      harness.lifecycle.createSession(buildCreateSessionParams()),
+    ).resolves.toBeDefined();
+    expect(harness.transport.spawnRequests).toHaveLength(2);
+  });
+
+  it("keeps the slot quarantined when the retry also fails", async () => {
     const harness = buildHarness();
     await harness.lifecycle.createSession(buildCreateSessionParams());
     const channel = harness.transport.spawnedChannels[0];
@@ -651,14 +979,14 @@ describe("ClaudeSessionLifecycle.closeSession", () => {
     }
     channel.disposeFailure = new Error("the provider process would not exit");
 
+    await expect(harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID })).rejects.toThrow();
     await expect(harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID })).rejects.toThrow(
       "the provider process would not exit",
     );
-    // The session is forgotten, so a later create is admitted rather than
-    // refused by a stale live-session record.
-    await expect(
-      harness.lifecycle.createSession(buildCreateSessionParams()),
-    ).resolves.toBeDefined();
+
+    await expect(harness.lifecycle.createSession(buildCreateSessionParams())).rejects.toMatchObject(
+      { fields: { reason: "session_already_live" } },
+    );
   });
 });
 

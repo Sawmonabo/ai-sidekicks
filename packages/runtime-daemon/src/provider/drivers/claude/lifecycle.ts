@@ -74,7 +74,7 @@ import {
   type StartRunParams,
   type SubagentPolicy,
 } from "@ai-sidekicks/contracts";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { CLAUDE_DRIVER_NAME } from "./capabilities.js";
 
@@ -153,6 +153,32 @@ export interface ClaudeSessionChannel {
   readonly providerSessionId: string;
   sendUserText(frame: ClaudeUserTextFrame): Promise<void>;
   sendControlRequest(request: ClaudeControlRequest): Promise<ClaudeControlResponse>;
+
+  /**
+   * Tears the provider process down. `dispose` is this band's WHOLE teardown
+   * surface: the driver holds no kill, no signal escalation, and no reaper, so
+   * process supervision (SIGTERM then SIGKILL, exit confirmation, orphan sweep)
+   * lives entirely behind this method in the transport implementation.
+   *
+   * TRANSPORT OBLIGATION — a `dispose` that REJECTS must retain supervision of
+   * the underlying process and owns its eventual termination. The rejection is
+   * a report, never a handoff: nothing above this interface can finish the job.
+   *
+   * What the driver does with a rejection depends on whose process it is:
+   *
+   *   * A channel bound to the session's OWN identity is retained in the
+   *     lifecycle's quarantine, its slot is held against any further create or
+   *     resume, and the next `closeSession` for that session retries THIS
+   *     channel. The driver keeps a handle, so the transport has a retrier.
+   *   * A REFUSED channel — one whose announced provider session id diverged
+   *     from the pinned or resumed id — is deliberately NOT retained. It is
+   *     bound to a foreign identity, so quarantining the session slot would
+   *     punish the slot for someone else's process and leave create
+   *     un-retryable after a divergence. The driver drops its reference and
+   *     surfaces the rejection in the refusal error text only; no lifecycle
+   *     operation ever revisits it. From that moment the transport is the sole
+   *     owner of that process, which is what this obligation exists to pin.
+   */
   dispose(reason: ClaudeChannelDisposalReason): Promise<void>;
 }
 
@@ -247,7 +273,8 @@ export type ClaudeSessionUnavailableReason =
   | "run_dispatch_unresolved"
   | "cost_cap_mismatch"
   | "execution_posture_mismatch"
-  | "output_schema_unbound";
+  | "output_schema_unbound"
+  | "output_schema_mismatch";
 
 const SESSION_UNAVAILABLE_MESSAGES: Readonly<Record<ClaudeSessionUnavailableReason, string>> = {
   session_already_live:
@@ -263,6 +290,8 @@ const SESSION_UNAVAILABLE_MESSAGES: Readonly<Record<ClaudeSessionUnavailableReas
   // `#assertSpawnBoundRealization`.)
   execution_posture_mismatch:
     "The run's execution posture does not match the posture the Claude session was spawned with.",
+  output_schema_mismatch:
+    "The run's output schema differs from the schema the Claude session was spawned with.",
   output_schema_unbound:
     "The run requires schema-constrained output but the Claude session was spawned without a schema.",
 };
@@ -389,11 +418,132 @@ function classifyRecoveryCondition(error: unknown): RecoveryCondition {
 // (see `#assertSpawnBoundRealization`). Only the closed-literal axes are kept:
 // they are the sandbox-defeating ones, and comparing them needs no canonical
 // serializer whose key ordering could manufacture a false refusal.
+// The axes of `ExecutionPosture` that a spawn realizes, in the order a mismatch
+// is reported. Enumerated from the contract type rather than sampled: the type is
+// an intersection of two discriminated unions, so `allowedDomains` exists only on
+// the `allowed-domains` network arm and `credentialPolicyRef` only on the two
+// sandboxed mode arms. Comparing a subset would admit a run into a process whose
+// sandbox differs on an axis nobody checked, and the run's recorded effective
+// posture would then be a lie.
+//
+// `allowedDomains` and `writableRoots` are SETS — a caller that lists the same
+// roots in a different order has declared the same posture, so they compare
+// order-insensitively. Every other axis is a scalar and compares strictly.
+const CLAUDE_POSTURE_SCALAR_AXES = [
+  "mode",
+  "networkAccess",
+  "credentialPolicyRef",
+  "profileName",
+] as const;
+const CLAUDE_POSTURE_SET_AXES = ["allowedDomains", "writableRoots"] as const;
+
+type ClaudePostureScalarAxis = (typeof CLAUDE_POSTURE_SCALAR_AXES)[number];
+type ClaudePostureSetAxis = (typeof CLAUDE_POSTURE_SET_AXES)[number];
+
+function readPostureScalarAxis(
+  posture: ExecutionPosture,
+  axis: ClaudePostureScalarAxis,
+): string | undefined {
+  // Each axis is read through the union-widened view rather than a direct member
+  // access: `credentialPolicyRef` is typed `never` on the `trusted` arm and
+  // `profileName` is optional, so neither is reachable on the bare union.
+  const widened = posture as Partial<Record<ClaudePostureScalarAxis, string>>;
+  return widened[axis];
+}
+
+function readPostureSetAxis(
+  posture: ExecutionPosture,
+  axis: ClaudePostureSetAxis,
+): readonly string[] | undefined {
+  const widened = posture as Partial<Record<ClaudePostureSetAxis, readonly string[]>>;
+  return widened[axis];
+}
+
+// Order-insensitive, multiplicity-sensitive. A duplicate is a real difference:
+// two identical writable roots and one are not the same declaration, and
+// silently collapsing them would be this finding's mistake in miniature.
+function postureSetAxisDiffers(
+  runValue: readonly string[] | undefined,
+  spawnValue: readonly string[] | undefined,
+): boolean {
+  if (runValue === undefined || spawnValue === undefined) {
+    return runValue !== spawnValue;
+  }
+  if (runValue.length !== spawnValue.length) {
+    return true;
+  }
+  const sortedRun = [...runValue].sort();
+  const sortedSpawn = [...spawnValue].sort();
+  return sortedRun.some((entry, index) => entry !== sortedSpawn[index]);
+}
+
+// Names the FIRST axis on which a run-declared posture diverges from the posture
+// its session was spawned under, or `undefined` when every axis agrees.
+function findPostureDivergence(
+  runPosture: ExecutionPosture,
+  spawnPosture: ExecutionPosture,
+): string | undefined {
+  for (const axis of CLAUDE_POSTURE_SCALAR_AXES) {
+    const runValue = readPostureScalarAxis(runPosture, axis);
+    const spawnValue = readPostureScalarAxis(spawnPosture, axis);
+    if (runValue !== spawnValue) {
+      return `${axis} (run ${String(runValue)}, session ${String(spawnValue)})`;
+    }
+  }
+  for (const axis of CLAUDE_POSTURE_SET_AXES) {
+    const runValue = readPostureSetAxis(runPosture, axis);
+    const spawnValue = readPostureSetAxis(spawnPosture, axis);
+    if (postureSetAxisDiffers(runValue, spawnValue)) {
+      return `${axis} (run ${JSON.stringify(runValue)}, session ${JSON.stringify(spawnValue)})`;
+    }
+  }
+  return undefined;
+}
+
+// A stable serialization: object keys sorted recursively, array order PRESERVED.
+// Array order is semantic in JSON Schema (`prefixItems`, `allOf` short-circuit
+// order), so sorting arrays would call two different schemas equal. Keys are
+// emitted through `JSON.stringify` so escaping is the platform's problem, and
+// `undefined`-valued keys are dropped because `JSON.stringify` drops them too —
+// a schema object cannot distinguish an absent key from one set to `undefined`.
+function canonicalizeJsonValue(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value) ?? "null";
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalizeJsonValue).join(",")}]`;
+  }
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, entryValue]) => entryValue !== undefined)
+    // Code-unit ordering, deliberately not `localeCompare`: a digest whose key
+    // order depends on the host locale is not deterministic.
+    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
+  return `{${entries
+    .map(([key, entryValue]) => `${JSON.stringify(key)}:${canonicalizeJsonValue(entryValue)}`)
+    .join(",")}}`;
+}
+
+// Identity for an output schema. A boolean "is one bound?" admits a run carrying
+// schema B into a process spawned with schema A — the provider would then
+// constrain output to a shape the run never asked for.
+function digestOutputSchema(outputSchema: Record<string, unknown>): string {
+  return createHash("sha256").update(canonicalizeJsonValue(outputSchema)).digest("hex");
+}
+
 interface ClaudeSpawnBinding {
   readonly admittedCostCapCents: number | undefined;
-  readonly executionPostureMode: ExecutionPosture["mode"] | undefined;
-  readonly executionPostureNetworkAccess: ExecutionPosture["networkAccess"] | undefined;
-  readonly outputSchemaBound: boolean;
+  // The COMPLETE posture the process was spawned under, retained so every axis
+  // can be compared. Storing a projection is what let axes drift unchecked.
+  readonly executionPosture: ExecutionPosture | undefined;
+  readonly outputSchemaDigest: string | undefined;
+}
+
+// A session whose channel outlived its close. Only the channel is retained: the
+// spawn binding is meaningless now (no run may start) and keeping it would invite
+// a future reader to treat a quarantined slot as startable.
+interface QuarantinedClaudeSession {
+  readonly sessionId: SessionId;
+  readonly channel: ClaudeSessionChannel;
 }
 
 interface LiveClaudeSession {
@@ -433,6 +583,15 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   // settles when the establishment does and never rejects, so `closeSession` can
   // await it without risking an unhandled rejection.
   readonly #sessionsBeingEstablished: Map<SessionId, Promise<void>> = new Map();
+  // Sessions whose provider process REFUSED to exit. A session slot is therefore
+  // one of exactly four states — EMPTY, ESTABLISHING (`#sessionsBeingEstablished`),
+  // LIVE (`#liveSessions`), or QUARANTINED (here) — and no create or resume
+  // proceeds in any of the latter three. Quarantine exists because forgetting a
+  // session whose dispose rejected would drop the only reference to a running
+  // process while freeing its slot: the next create would spawn a SECOND process
+  // under one canonical session, which is the hazard the slot claim was added to
+  // prevent, reached by a different road.
+  readonly #quarantinedSessions: Map<SessionId, QuarantinedClaudeSession> = new Map();
   readonly #sessionIdByRunId: Map<RunId, SessionId> = new Map();
 
   constructor(dependencies: ClaudeSessionLifecycleDependencies) {
@@ -634,17 +793,41 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       await establishment;
     }
 
+    // A previous close left the process alive. Retry THAT channel rather than
+    // reporting the session closed: the retained reference is the only handle
+    // anyone still has on it.
+    const quarantined = this.#quarantinedSessions.get(params.sessionId);
+    if (quarantined !== undefined) {
+      await quarantined.channel.dispose("session_closed");
+      // Reached only if the retry resolved; a second rejection propagates with
+      // the slot still quarantined, so the caller can retry again.
+      this.#quarantinedSessions.delete(params.sessionId);
+      return;
+    }
+
     const live = this.#liveSessions.get(params.sessionId);
     // Idempotent: closing an already-closed session is the teardown path's
     // normal double-call, not a fault.
     if (live === undefined) {
       return;
     }
-    // Forget FIRST, so a disposal that throws cannot leave a route pointing at a
-    // channel the daemon has been told to close. The disposal failure still
-    // propagates — a leaked provider process is not something to swallow.
+    // Routes go FIRST and unconditionally: a route pointing at a channel the
+    // daemon has been told to close would dispatch a run into a closing process.
+    // `#forgetSession` also drops the live record, which is correct — the session
+    // is no longer live either way. What must NOT be dropped is the channel
+    // itself, so a rejected disposal moves it to quarantine rather than losing
+    // it. The rejection still propagates: a provider process that would not exit
+    // is not something to swallow.
     this.#forgetSession(params.sessionId);
-    await live.channel.dispose("session_closed");
+    try {
+      await live.channel.dispose("session_closed");
+    } catch (error) {
+      this.#quarantinedSessions.set(params.sessionId, {
+        sessionId: params.sessionId,
+        channel: live.channel,
+      });
+      throw error;
+    }
   }
 
   findChannelForRun(runId: RunId): ClaudeSessionChannel | undefined {
@@ -670,12 +853,11 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   }
 
   #buildSpawnBinding(params: CreateSessionParams | ResumeSessionParams): ClaudeSpawnBinding {
-    const posture = params.executionPosture;
+    const outputSchema = params.outputSchema;
     return {
       admittedCostCapCents: params.admittedCostCapCents,
-      executionPostureMode: posture?.mode,
-      executionPostureNetworkAccess: posture?.networkAccess,
-      outputSchemaBound: params.outputSchema !== undefined,
+      executionPosture: params.executionPosture,
+      outputSchemaDigest: outputSchema === undefined ? undefined : digestOutputSchema(outputSchema),
     };
   }
 
@@ -712,23 +894,42 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     }
 
     const runPosture = params.executionPosture;
-    if (
-      runPosture !== undefined &&
-      (runPosture.mode !== live.spawnBinding.executionPostureMode ||
-        runPosture.networkAccess !== live.spawnBinding.executionPostureNetworkAccess)
-    ) {
-      throw new ClaudeSessionUnavailableError("execution_posture_mismatch", {
-        sessionId: live.sessionId,
-        runId: params.runId,
-        detail: `Run posture ${runPosture.mode}/${runPosture.networkAccess}, session posture ${String(live.spawnBinding.executionPostureMode)}/${String(live.spawnBinding.executionPostureNetworkAccess)}.`,
-      });
+    if (runPosture !== undefined) {
+      const spawnPosture = live.spawnBinding.executionPosture;
+      if (spawnPosture === undefined) {
+        throw new ClaudeSessionUnavailableError("execution_posture_mismatch", {
+          sessionId: live.sessionId,
+          runId: params.runId,
+          detail: `The run declares execution posture ${runPosture.mode}, but the Claude session was spawned with none.`,
+        });
+      }
+      const divergentAxis = findPostureDivergence(runPosture, spawnPosture);
+      if (divergentAxis !== undefined) {
+        throw new ClaudeSessionUnavailableError("execution_posture_mismatch", {
+          sessionId: live.sessionId,
+          runId: params.runId,
+          detail: `Execution posture diverges on ${divergentAxis}.`,
+        });
+      }
     }
 
-    if (params.outputSchema !== undefined && !live.spawnBinding.outputSchemaBound) {
-      throw new ClaudeSessionUnavailableError("output_schema_unbound", {
-        sessionId: live.sessionId,
-        runId: params.runId,
-      });
+    const runOutputSchema = params.outputSchema;
+    if (runOutputSchema !== undefined) {
+      const spawnOutputSchemaDigest = live.spawnBinding.outputSchemaDigest;
+      if (spawnOutputSchemaDigest === undefined) {
+        throw new ClaudeSessionUnavailableError("output_schema_unbound", {
+          sessionId: live.sessionId,
+          runId: params.runId,
+        });
+      }
+      const runOutputSchemaDigest = digestOutputSchema(runOutputSchema);
+      if (runOutputSchemaDigest !== spawnOutputSchemaDigest) {
+        throw new ClaudeSessionUnavailableError("output_schema_mismatch", {
+          sessionId: live.sessionId,
+          runId: params.runId,
+          detail: `Run schema digest ${runOutputSchemaDigest.slice(0, 16)}, session schema digest ${spawnOutputSchemaDigest.slice(0, 16)}.`,
+        });
+      }
     }
   }
 
@@ -745,6 +946,9 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     }
     if (this.#sessionsBeingEstablished.has(sessionId)) {
       return `A create or resume for session ${sessionId} is already in flight;`;
+    }
+    if (this.#quarantinedSessions.has(sessionId)) {
+      return `The Claude process for session ${sessionId} refused to exit and is quarantined pending a successful close;`;
     }
     return undefined;
   }
@@ -798,6 +1002,17 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   // Disposal of a channel we are refusing to adopt. The refusal is the
   // load-bearing signal, so a disposal failure must not mask it — it is folded
   // into the operator-visible detail instead of being swallowed or rethrown.
+  // Disposes a channel the driver is REFUSING to adopt, and answers with a note
+  // for the refusal text. The rejection is deliberately not rethrown: the caller
+  // is already failing for a better reason (the identity divergence), and
+  // replacing that with a teardown error would hide why the session was refused.
+  //
+  // Nothing is retained. That is a decision, not an oversight — the process
+  // belongs to a foreign provider session id, so holding the canonical slot for
+  // it would make create un-retryable after a divergence, and this band mints no
+  // reaper to revisit it. Ownership therefore passes to the transport under the
+  // obligation documented on `ClaudeSessionChannel.dispose`, which is where a
+  // transport implementation's review must check it.
   async #disposeRefusedChannel(
     channel: ClaudeSessionChannel,
     reason: ClaudeChannelDisposalReason,
