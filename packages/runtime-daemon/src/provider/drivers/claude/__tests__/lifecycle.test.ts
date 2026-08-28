@@ -32,14 +32,22 @@ import {
   DriverResumeResultSchema,
   type CallbackToolResult,
   type ExecutionPosture,
+  type SubagentPolicy,
 } from "@ai-sidekicks/contracts";
 import { describe, expect, it, vi } from "vitest";
 
+import type { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
 import {
   ClaudeAuthenticationRequiredError,
   ClaudeControlRequestRefusedError,
   ClaudeSessionLifecycle,
   ClaudeSessionUnavailableError,
+  ClaudeSubagentConcurrencyGate,
+  CLAUDE_CALLBACK_MCP_SERVER_NAME,
+  CLAUDE_SUBAGENT_MAX_DEPTH_CEILING,
+  composeClaudeCallbackMcpServer,
+  composeClaudeProviderToolName,
+  composeClaudeSandboxSettings,
   type ClaudeSessionLifecycleDependencies,
 } from "../lifecycle.js";
 import {
@@ -49,6 +57,7 @@ import {
   buildStartRunParams,
   FakeClaudeRunDispatchResolver,
   FakeClaudeSessionTransport,
+  makeSilentDriverDiagnostics,
   TEST_BINDING_ID,
   TEST_PINNED_PROVIDER_SESSION_ID,
   TEST_RUN_ID,
@@ -59,6 +68,7 @@ interface LifecycleHarness {
   readonly lifecycle: ClaudeSessionLifecycle;
   readonly transport: FakeClaudeSessionTransport;
   readonly runDispatchResolver: FakeClaudeRunDispatchResolver;
+  readonly diagnostics: DriverDiagnosticsEmitter;
 }
 
 function buildHarness(
@@ -66,18 +76,32 @@ function buildHarness(
 ): LifecycleHarness {
   const transport = new FakeClaudeSessionTransport();
   const runDispatchResolver = new FakeClaudeRunDispatchResolver();
+  const diagnostics = makeSilentDriverDiagnostics();
   const dependencies: ClaudeSessionLifecycleDependencies = {
     transport,
     runDispatchResolver,
+    diagnostics,
     mintProviderSessionId: () => TEST_PINNED_PROVIDER_SESSION_ID,
     mintBindingId: () => TEST_BINDING_ID,
     ...overrides,
   };
-  return { lifecycle: new ClaudeSessionLifecycle(dependencies), transport, runDispatchResolver };
+  return {
+    lifecycle: new ClaudeSessionLifecycle(dependencies),
+    transport,
+    runDispatchResolver,
+    diagnostics: dependencies.diagnostics,
+  };
 }
 
 const SANDBOXED_POSTURE: ExecutionPosture = {
   mode: "workspace-sandboxed",
+  credentialPolicyRef: "policy://default",
+  networkAccess: "none",
+  writableRoots: ["/workspace"],
+};
+
+const READONLY_POSTURE: ExecutionPosture = {
+  mode: "readonly-sandboxed",
   credentialPolicyRef: "policy://default",
   networkAccess: "none",
   writableRoots: ["/workspace"],
@@ -1632,5 +1656,498 @@ describe("ClaudeSessionUnavailableError", () => {
     expect(error.code).toBe("driver.unavailable");
     expect(error.fields.driverId).toBe("claude");
     expect(error).toBeInstanceOf(Error);
+  });
+});
+
+// --------------------------------------------------------------------------
+// T3.15 — the R8 parity driver legs, Claude arm.
+// --------------------------------------------------------------------------
+//
+// Spec coverage under test:
+//   `Spec-005 §Interfaces And Contracts` — `rollbackTo` reports the `bindingId`
+//     the daemon rebinds on; the goal operations answer the typed results.
+//   `Spec-005 §Parity Capability Mechanism Grades` — this provider's EMULATED
+//     cells: the goal as a spawn-bound system-prompt append, the concurrency cap
+//     as a daemon-side boundary serialization, and the callback-tool registry as
+//     a daemon-hosted ephemeral MCP server.
+//   `Spec-012 §Required Behavior` — a registry with no dispatcher to adjudicate
+//     through is withheld rather than offered.
+//   `Spec-016 §Provider-Native Subagents` — a definition that cannot be held at
+//     the daemon boundary is withheld and recorded, never silently admitted.
+//   CP-005-1 — a rewind is a spawn, so it re-realizes every spawn-bound leg.
+
+describe("ClaudeSessionLifecycle.rollbackTo (T3.15 leg 1, EMULATED as a fork)", () => {
+  it("reports the rebinding `bindingId` on the applied arm", async () => {
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+
+    // The INPUT binding is deliberately NOT the minted one, so a driver that
+    // echoed the caller's `bindingId` back — reporting the binding of the
+    // process the rewind just replaced — fails here.
+    const result = await harness.lifecycle.rollbackTo({
+      sessionId: TEST_SESSION_ID,
+      bindingId: "binding-predecessor",
+      position: 4,
+    });
+
+    // The rewind relaunches the process, so the daemon rebinds onto a new one;
+    // an applied rollback reporting the predecessor's binding would leave the
+    // caller pointing at a process that is gone.
+    expect(result).toStrictEqual({
+      status: "applied",
+      sessionPosition: 4,
+      bindingId: TEST_BINDING_ID,
+    });
+  });
+
+  it("refuses a rewind the provider answered with the SAME session id", async () => {
+    // A rewind that answers with the id it was given did not fork: the
+    // pre-rewind conversation the fork was supposed to preserve is gone.
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.transport.announcedForkedProviderSessionId = TEST_PINNED_PROVIDER_SESSION_ID;
+
+    const result = await harness.lifecycle.rollbackTo({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+      position: 4,
+    });
+
+    expect(result.status).toBe("degraded");
+    expect((result as { fallbackAction: string }).fallbackAction).toContain("rewind-not-forked");
+  });
+});
+
+describe("ClaudeSessionLifecycle session goals (T3.15 leg 2, EMULATED)", () => {
+  it("answers `degraded` and names the boundary the goal binds at", async () => {
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+
+    const result = await harness.lifecycle.setSessionGoal({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+      runId: TEST_RUN_ID,
+      goalText: "land the parity legs",
+    });
+
+    // The goal is realized as a system-prompt append, which is bound at process
+    // start; answering `applied` would tell the daemon the session is governed
+    // by an instruction its model has never seen.
+    expect(result).toStrictEqual({
+      status: "degraded",
+      fallbackAction: "goal-appended-at-next-session-spawn",
+    });
+  });
+
+  it("answers `applied` for a clear on a session that carried no goal", async () => {
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+
+    expect(
+      await harness.lifecycle.clearSessionGoal({
+        sessionId: TEST_SESSION_ID,
+        bindingId: TEST_BINDING_ID,
+        runId: TEST_RUN_ID,
+      }),
+    ).toStrictEqual({
+      status: "applied",
+    });
+  });
+
+  it("carries a goal recorded AFTER the spawn into the rewind's relaunch", async () => {
+    // The rewind IS the "next session spawn" the set answer named. Reusing the
+    // predecessor's legs verbatim would skip the very next spawn.
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    await harness.lifecycle.setSessionGoal({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+      runId: TEST_RUN_ID,
+      goalText: "land the parity legs",
+    });
+
+    await harness.lifecycle.rollbackTo({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+      position: 4,
+    });
+
+    expect(harness.transport.rewindRequests[0]?.goalText).toBe("land the parity legs");
+  });
+
+  it("does not RE-drop the goal on a second rewind", async () => {
+    // The regression a verbatim leg reuse would leave: the first rewind picks
+    // the goal up, and the second reads legs that must already carry it.
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    await harness.lifecycle.setSessionGoal({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+      runId: TEST_RUN_ID,
+      goalText: "land the parity legs",
+    });
+
+    await harness.lifecycle.rollbackTo({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+      position: 4,
+    });
+    await harness.lifecycle.rollbackTo({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+      position: 3,
+    });
+
+    expect(harness.transport.rewindRequests[1]?.goalText).toBe("land the parity legs");
+  });
+});
+
+describe("ClaudeSessionLifecycle callback-tool registry (T3.15 leg 3, Claude arm)", () => {
+  const SEARCH_TOOL = {
+    name: "search_workspace",
+    description: "Searches the workspace.",
+    inputSchema: { type: "object" },
+  };
+
+  it("serves the registry as an ephemeral MCP server when a dispatcher is bound", async () => {
+    const harness = buildHarness();
+
+    await harness.lifecycle.createSession({
+      ...buildCreateSessionParams(),
+      callbackTools: [SEARCH_TOOL],
+      onCallbackToolCall: async (): Promise<CallbackToolResult> =>
+        await Promise.resolve({ status: "completed" }),
+    });
+
+    const spawnRequest = harness.transport.spawnRequests[0];
+    expect(spawnRequest?.callbackToolServer?.serverName).toBe(CLAUDE_CALLBACK_MCP_SERVER_NAME);
+    expect(spawnRequest?.callbackTools).toStrictEqual([SEARCH_TOOL]);
+  });
+
+  it("injects NO registry and records the withholding when no dispatcher is bound", async () => {
+    const harness = buildHarness();
+
+    await harness.lifecycle.createSession({
+      ...buildCreateSessionParams(),
+      callbackTools: [SEARCH_TOOL],
+    });
+
+    // Withheld rather than served-and-refused: a tool the model never learns
+    // exists costs it no turns.
+    const spawnRequest = harness.transport.spawnRequests[0];
+    expect(spawnRequest?.callbackTools).toBeUndefined();
+    expect(spawnRequest?.callbackToolServer).toBeUndefined();
+    const withholdings = harness.diagnostics.recentRecordsOfKind("callback_tool_registry_withheld");
+    expect(withholdings).toHaveLength(1);
+    expect(withholdings[0]?.details["reason"]).toBe("no-dispatcher-bound");
+  });
+
+  it("serves no registry and records nothing when no tools were offered", async () => {
+    const harness = buildHarness();
+
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+
+    expect(harness.transport.spawnRequests[0]?.callbackToolServer).toBeUndefined();
+    expect(harness.diagnostics.recentRecordsOfKind("callback_tool_registry_withheld")).toHaveLength(
+      0,
+    );
+  });
+});
+
+describe("composeClaudeCallbackMcpServer (T3.15 leg 3)", () => {
+  it("mangles each tool into the provider-facing MCP name", () => {
+    const descriptor = composeClaudeCallbackMcpServer([
+      { name: "search_workspace", description: "d", inputSchema: {} },
+    ]);
+
+    expect(composeClaudeProviderToolName(descriptor.serverName, "search_workspace")).toBe(
+      "mcp__sidekicks__search_workspace",
+    );
+    expect(descriptor.registryNamesByProviderName.get("mcp__sidekicks__search_workspace")).toBe(
+      "search_workspace",
+    );
+  });
+
+  it("maps EVERY served tool back, so no invocation can arrive unmappable", () => {
+    const tools = ["alpha", "beta", "gamma"].map((name) => ({
+      name,
+      description: name,
+      inputSchema: {},
+    }));
+
+    const descriptor = composeClaudeCallbackMcpServer(tools);
+
+    expect(descriptor.registryNamesByProviderName.size).toBe(descriptor.tools.length);
+    for (const tool of descriptor.tools) {
+      const providerName = composeClaudeProviderToolName(descriptor.serverName, tool.name);
+      expect(descriptor.registryNamesByProviderName.get(providerName)).toBe(tool.name);
+    }
+  });
+
+  it("de-duplicates a repeated name last-wins rather than serving it twice", () => {
+    // Serving one provider-facing name twice would make the reverse map's answer
+    // depend on iteration order.
+    const descriptor = composeClaudeCallbackMcpServer([
+      { name: "search", description: "first", inputSchema: {} },
+      { name: "search", description: "second", inputSchema: {} },
+    ]);
+
+    expect(descriptor.tools).toHaveLength(1);
+    expect(descriptor.tools[0]?.description).toBe("second");
+  });
+});
+
+describe("ClaudeSubagentConcurrencyGate (T3.15 leg 4)", () => {
+  function buildGate(maxConcurrent: number): {
+    readonly gate: ClaudeSubagentConcurrencyGate;
+    readonly diagnostics: DriverDiagnosticsEmitter;
+  } {
+    const diagnostics = makeSilentDriverDiagnostics();
+    return {
+      gate: new ClaudeSubagentConcurrencyGate({
+        sessionId: TEST_SESSION_ID,
+        diagnostics,
+        maxConcurrent,
+      }),
+      diagnostics,
+    };
+  }
+
+  it("never admits beyond the cap, even when a release and an arrival interleave", async () => {
+    // The hand-over race: a release that decremented and then woke a waiter in a
+    // microtask leaves a window in which a THIRD caller reads a free slot the
+    // waiter has already been promised.
+    const { gate } = buildGate(1);
+    const releaseFirst = await gate.admit("subagent-a");
+    const secondAdmission = gate.admit("subagent-b");
+    expect(gate.heldSlotCount).toBe(1);
+
+    releaseFirst();
+    const thirdAdmission = gate.admit("subagent-c");
+
+    expect(gate.heldSlotCount).toBe(1);
+    const releaseSecond = await secondAdmission;
+    expect(gate.heldSlotCount).toBe(1);
+    releaseSecond();
+    await thirdAdmission;
+    expect(gate.heldSlotCount).toBe(1);
+  });
+
+  it("admits waiters in arrival order", async () => {
+    const { gate } = buildGate(1);
+    const release = await gate.admit("holder");
+    const admitted: string[] = [];
+    const waiters = ["first", "second", "third"].map(async (name) => {
+      const releaseWaiter = await gate.admit(name);
+      admitted.push(name);
+      releaseWaiter();
+    });
+
+    release();
+    await Promise.all(waiters);
+
+    // A waiter set resolved in arbitrary order starves whichever subagent is
+    // unlucky, inside a run that has a wall-clock budget.
+    expect(admitted).toStrictEqual(["first", "second", "third"]);
+  });
+
+  it("frees exactly one slot for a doubly-released admission", async () => {
+    const { gate } = buildGate(2);
+    const release = await gate.admit("subagent-a");
+    await gate.admit("subagent-b");
+
+    release();
+    release();
+
+    expect(gate.heldSlotCount).toBe(1);
+  });
+
+  it("floors a sub-one cap at one rather than deadlocking every call", async () => {
+    const { gate } = buildGate(0);
+
+    const release = await gate.admit("subagent-a");
+
+    expect(gate.heldSlotCount).toBe(1);
+    release();
+  });
+
+  it("fails every waiter on disposal rather than hanging the provider turn", async () => {
+    const { gate } = buildGate(1);
+    await gate.admit("holder");
+    const waiting = gate.admit("waiter");
+
+    gate.dispose();
+
+    await expect(waiting).rejects.toBeInstanceOf(ClaudeSessionUnavailableError);
+    await expect(gate.admit("later")).rejects.toBeInstanceOf(ClaudeSessionUnavailableError);
+  });
+
+  it("records a breach at most once per new ceiling", () => {
+    const { gate, diagnostics } = buildGate(2);
+
+    gate.observeLiveSubagentCount(3);
+    gate.observeLiveSubagentCount(3);
+    gate.observeLiveSubagentCount(4);
+    gate.observeLiveSubagentCount(2);
+
+    // The provider can create subagents without any of them calling a tool, so
+    // the daemon can see more live subagents than the gate ever admitted. That
+    // is a breach, it is recorded, and it never fails a run.
+    const breaches = diagnostics.recentRecordsOfKind("subagent_concurrency_breach");
+    expect(breaches).toHaveLength(2);
+    expect(breaches.map((record) => record.details["liveSubagentCount"])).toStrictEqual([3, 4]);
+  });
+});
+
+/** The realized depth ceiling on a spawn's enabled policy, or `undefined`. */
+function readRealizedMaxDepth(harness: LifecycleHarness): number | undefined {
+  const policy = harness.transport.spawnRequests[0]?.subagentPolicy;
+  return policy?.enabled === true ? policy.maxDepth : undefined;
+}
+
+describe("ClaudeSessionLifecycle subagent admission wiring (T3.15 leg 4)", () => {
+  const ENABLED_POLICY: SubagentPolicy = {
+    enabled: true,
+    maxConcurrent: 2,
+    maxDepth: 1,
+    definitions: [],
+  };
+
+  it("installs a gate for an enabled policy and none for a disabled one", async () => {
+    const enabledHarness = buildHarness();
+    await enabledHarness.lifecycle.createSession({
+      ...buildCreateSessionParams(),
+      subagentPolicy: ENABLED_POLICY,
+    });
+    const disabledHarness = buildHarness();
+    await disabledHarness.lifecycle.createSession({
+      ...buildCreateSessionParams(),
+      subagentPolicy: { enabled: false },
+    });
+
+    expect(enabledHarness.transport.spawnRequests[0]?.subagentAdmission).toBeDefined();
+    expect(disabledHarness.transport.spawnRequests[0]?.subagentAdmission).toBeUndefined();
+  });
+
+  it("installs a FRESH gate on a rewind rather than carrying the predecessor's", async () => {
+    // A rewind relaunches the process, so every subagent the old gate held slots
+    // for died with it; carrying it forward would hold a permanently reduced cap
+    // against calls that no longer exist.
+    const harness = buildHarness();
+    await harness.lifecycle.createSession({
+      ...buildCreateSessionParams(),
+      subagentPolicy: ENABLED_POLICY,
+    });
+    const predecessorGate = harness.transport.spawnRequests[0]?.subagentAdmission;
+    await predecessorGate?.admit("held-across-the-rewind");
+
+    await harness.lifecycle.rollbackTo({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+      position: 4,
+    });
+
+    const rewoundGate = harness.transport.rewindRequests[0]?.subagentAdmission;
+    expect(rewoundGate).toBeDefined();
+    expect(rewoundGate).not.toBe(predecessorGate);
+    // And the predecessor's own waiters are failed rather than left hanging on a
+    // process that is gone.
+    await expect(predecessorGate?.admit("orphan")).rejects.toBeInstanceOf(
+      ClaudeSessionUnavailableError,
+    );
+  });
+
+  it("fails the gate's waiters when the session is closed", async () => {
+    const harness = buildHarness();
+    await harness.lifecycle.createSession({
+      ...buildCreateSessionParams(),
+      subagentPolicy: ENABLED_POLICY,
+    });
+    const gate = harness.transport.spawnRequests[0]?.subagentAdmission;
+
+    await harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID });
+
+    await expect(gate?.admit("after-close")).rejects.toBeInstanceOf(ClaudeSessionUnavailableError);
+  });
+
+  it("records every definition it could not hold at the daemon boundary", async () => {
+    const harness = buildHarness();
+
+    await harness.lifecycle.createSession({
+      ...buildCreateSessionParams(),
+      subagentPolicy: {
+        enabled: true,
+        maxConcurrent: 2,
+        maxDepth: 1,
+        definitions: [
+          // `bypassPermissions` skips the daemon's interception point, so this
+          // definition's beyond-cap calls could not be held at a boundary that
+          // is not there.
+          { name: "unmediated", permissionMode: "bypassPermissions" },
+          { name: "mediated", permissionMode: "default" },
+        ],
+      },
+    });
+
+    const withheld = harness.diagnostics.recentRecordsOfKind("subagent_definition_disabled");
+    expect(withheld).toHaveLength(1);
+    expect(withheld[0]?.details["definitionName"]).toBe("unmediated");
+    // The admitted one still ships: withholding is per-definition, not per-spawn.
+    const realizedPolicy = harness.transport.spawnRequests[0]?.subagentPolicy;
+    expect(
+      realizedPolicy?.enabled === true
+        ? realizedPolicy.definitions.map((definition) => definition.name)
+        : undefined,
+    ).toStrictEqual(["mediated"]);
+  });
+
+  it("clamps the depth ceiling while honouring a policy that asked for less", async () => {
+    const clampedHarness = buildHarness();
+    await clampedHarness.lifecycle.createSession({
+      ...buildCreateSessionParams(),
+      subagentPolicy: { enabled: true, maxConcurrent: 1, maxDepth: 99, definitions: [] },
+    });
+    const modestHarness = buildHarness();
+    await modestHarness.lifecycle.createSession({
+      ...buildCreateSessionParams(),
+      subagentPolicy: { enabled: true, maxConcurrent: 1, maxDepth: 2, definitions: [] },
+    });
+
+    expect(readRealizedMaxDepth(clampedHarness)).toBe(CLAUDE_SUBAGENT_MAX_DEPTH_CEILING);
+    expect(readRealizedMaxDepth(modestHarness)).toBe(2);
+  });
+});
+
+describe("composeClaudeSandboxSettings (T3.15 leg 5)", () => {
+  it("pins the always-armed permission prompt on every sandboxed arm", () => {
+    // RATIFIED MAPPING (user decision, 2026-08-25): `supervised` maps to
+    // `on-request` UNCONDITIONALLY. On this provider that is realized as
+    // `allowUnsandboxedCommands: false`, so no tool call reaches the model's
+    // hands without passing the daemon.
+    for (const posture of [SANDBOXED_POSTURE, READONLY_POSTURE]) {
+      const settings = composeClaudeSandboxSettings(posture);
+      expect(settings.sandbox.allowUnsandboxedCommands).toBe(false);
+      expect(settings.sandbox.enabled).toBe(true);
+      // A host whose sandbox cannot be brought up must REFUSE to start rather
+      // than start unsandboxed under a recorded sandboxed posture.
+      expect(settings.sandbox.failIfUnavailable).toBe(true);
+    }
+  });
+
+  it("writes nowhere on the read-only arm, with an EMPTY list rather than an omitted one", () => {
+    // An omitted list requests the provider's default, which is a different
+    // statement from "writes nowhere".
+    expect(
+      composeClaudeSandboxSettings(READONLY_POSTURE).sandbox.filesystem.allowWrite,
+    ).toStrictEqual([]);
+  });
+
+  it("omits the network restriction entirely for `full`, and empties it for `none`", () => {
+    const trusted = composeClaudeSandboxSettings(TRUSTED_POSTURE);
+    const denied = composeClaudeSandboxSettings(SANDBOXED_POSTURE);
+
+    // The ABSENCE is the statement; an empty list would mean the opposite.
+    expect(trusted.sandbox.network).toBeUndefined();
+    expect(denied.sandbox.network).toStrictEqual({ allowedDomains: [] });
   });
 });

@@ -22,6 +22,7 @@ import {
   buildStartRunParams,
   FakeClaudeRunDispatchResolver,
   FakeClaudeSessionTransport,
+  makeSilentDriverDiagnostics,
   TEST_BINDING_ID,
   TEST_PINNED_PROVIDER_SESSION_ID,
   TEST_RUN_ID,
@@ -44,6 +45,7 @@ function buildHarness(): DriverHarness {
   const driver = new ClaudeDriver({
     transport,
     runDispatchResolver,
+    diagnostics: makeSilentDriverDiagnostics(),
     mintProviderSessionId: () => TEST_PINNED_PROVIDER_SESSION_ID,
     mintBindingId: () => TEST_BINDING_ID,
   });

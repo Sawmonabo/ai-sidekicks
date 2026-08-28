@@ -54,6 +54,8 @@ import {
   type CodexInboundFrameMethod,
   type CodexInboundFrameTransport,
   type CodexNormalizedFamilyEmission,
+  CodexTerminalEmissionGate,
+  type CodexTerminalRunFrame,
 } from "../event-normalizer.js";
 import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
 import {
@@ -1187,5 +1189,107 @@ describe("deriveCodexChildThreadAnnouncement (T3.11, NS-91)", () => {
         threadSourceKind: "subAgent",
       }).declaredParentThreadId,
     ).toBeNull();
+  });
+});
+
+// --------------------------------------------------------------------------
+// T3.14 P1-1 / P1-2-driver — the terminal-emission boundary.
+// --------------------------------------------------------------------------
+//
+// Spec coverage under test:
+//   `Spec-006 §Run Lifecycle (run_lifecycle)` — a daemon-initiated close is
+//     stamped `intendedClose` so the recovery classifier reads a clean shutdown
+//     as a clean shutdown rather than as a crash.
+//   `Spec-005 §Required Behavior` — at most one terminal per
+//     `(runId, runVersion)` epoch reaches the emission pipeline, so the ordinary
+//     post-interrupt double is absorbed at the driver rather than failing loud
+//     against Plan-006's partial unique index.
+
+describe("CodexTerminalEmissionGate (T3.14 P1-1, P1-2-driver)", () => {
+  const PROJECTED_ROUTE = { decision: "project" } as const;
+
+  function terminalFrame(overrides: Partial<CodexTerminalRunFrame> = {}): CodexTerminalRunFrame {
+    return {
+      runId: "run-1",
+      runVersion: 1,
+      rawWireType: "turn/completed",
+      route: PROJECTED_ROUTE,
+      ...overrides,
+    };
+  }
+
+  it("stamps `intendedClose: false` for a terminal no close preceded", () => {
+    const gate = new CodexTerminalEmissionGate();
+
+    expect(gate.admitTerminalFrame(terminalFrame())).toStrictEqual({
+      emit: true,
+      runId: "run-1",
+      runVersion: 1,
+      intendedClose: false,
+    });
+  });
+
+  it("stamps `intendedClose: true` once a daemon-initiated close is signalled", () => {
+    const gate = new CodexTerminalEmissionGate();
+
+    gate.signalIntendedClose();
+
+    expect(gate.intendedCloseSignalled()).toBe(true);
+    expect(gate.admitTerminalFrame(terminalFrame())).toMatchObject({
+      emit: true,
+      intendedClose: true,
+    });
+  });
+
+  it("suppresses a second terminal for the SAME epoch", () => {
+    // The ordinary post-interrupt double. Absorbed here rather than left to
+    // fail loud against the schema backstop on a condition the driver could
+    // have handled.
+    const gate = new CodexTerminalEmissionGate();
+    gate.admitTerminalFrame(terminalFrame());
+
+    expect(gate.admitTerminalFrame(terminalFrame({ rawWireType: "turn/failed" }))).toStrictEqual({
+      emit: false,
+      suppressionReason: "duplicate-terminal-epoch",
+    });
+    expect(gate.hasSettledEpoch("run-1", 1)).toBe(true);
+  });
+
+  it("admits a NEW epoch for the same run", () => {
+    // The key is the epoch, not the run: a re-dispatched run version is a
+    // different settlement and must not be swallowed by its predecessor's.
+    const gate = new CodexTerminalEmissionGate();
+    gate.admitTerminalFrame(terminalFrame());
+
+    expect(gate.admitTerminalFrame(terminalFrame({ runVersion: 2 }))).toMatchObject({ emit: true });
+    expect(gate.hasSettledEpoch("run-1", 2)).toBe(true);
+  });
+
+  it("settles no run for a frame the router did not route to the session's thread", () => {
+    // Routing is CONSUMED, never re-decided: a child thread's terminal must not
+    // settle the parent's run, and this boundary adds no second source of truth
+    // for whose stream a frame came from.
+    const gate = new CodexTerminalEmissionGate();
+
+    const decision = gate.admitTerminalFrame(
+      terminalFrame({ route: { decision: "suppress-child-transcript", childThreadId: "child-1" } }),
+    );
+
+    expect(decision).toStrictEqual({ emit: false, suppressionReason: "not-the-session-thread" });
+    // And it consumed no epoch, so the parent's own terminal still settles.
+    expect(gate.hasSettledEpoch("run-1", 1)).toBe(false);
+  });
+
+  it("evicts oldest-first so the memory stays proportional to the hazard", () => {
+    // A long session's run count is unbounded while the window a duplicate
+    // arrives in is not.
+    const gate = new CodexTerminalEmissionGate({ settledEpochMemory: 2 });
+    gate.admitTerminalFrame(terminalFrame({ runId: "run-a" }));
+    gate.admitTerminalFrame(terminalFrame({ runId: "run-b" }));
+    gate.admitTerminalFrame(terminalFrame({ runId: "run-c" }));
+
+    expect(gate.hasSettledEpoch("run-a", 1)).toBe(false);
+    expect(gate.hasSettledEpoch("run-b", 1)).toBe(true);
+    expect(gate.hasSettledEpoch("run-c", 1)).toBe(true);
   });
 });

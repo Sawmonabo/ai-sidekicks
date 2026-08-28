@@ -139,7 +139,11 @@ import {
 } from "@ai-sidekicks/contracts";
 
 import type { DriverDiagnosticRecord, DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
-import type { ChildThreadAnnouncement, ThreadFrameFamilyClass } from "../../thread-frame-router.js";
+import type {
+  ChildThreadAnnouncement,
+  ThreadFrameFamilyClass,
+  ThreadFrameRoute,
+} from "../../thread-frame-router.js";
 
 // --------------------------------------------------------------------------
 // The wire channel a frame arrives on.
@@ -1270,4 +1274,139 @@ export function classifyClaudeFrameFamilyForRouting(frameKind: string): ThreadFr
     default:
       return { scope: "unknown" };
   }
+}
+
+// --------------------------------------------------------------------------
+// The terminal-emission boundary (Plan-005 T3.14 P1-1 + P1-2-driver).
+// --------------------------------------------------------------------------
+//
+// The Claude leg's half of the boundary the Codex normalizer carries for its
+// own provider. Same two properties, same reasoning, one provider-specific
+// difference worth stating: the Claude leg already carries an explicit
+// intended-close signal on its own transport in `ClaudeChannelDisposalReason
+// .session_closed`, so the lifecycle module has a typed place to read the
+// intent from rather than inferring it from a teardown's timing.
+//
+//   P1-1 — INTENDED CLOSE. `closeSession` signals into this boundary before
+//   it disposes the channel, so the `result/*` terminal the disposal provokes
+//   is stamped as a clean shutdown rather than classified as a crash
+//   (`Spec-006 §Run Lifecycle (run_lifecycle)`).
+//
+//   P1-2-driver — DUPLICATE SUPPRESSION. At most one terminal per
+//   `(runId, runVersion)` epoch, absorbed here rather than left to fail loud
+//   on Plan-006's partial unique index.
+//
+// Routing is CONSUMED, never re-decided: only a frame the T3.11 router routed
+// to the session's own thread settles a run, so a subagent's `result/*` never
+// settles the parent's.
+
+/** One terminal `run_lifecycle` frame as the emission boundary sees it. */
+export interface ClaudeTerminalRunFrame {
+  readonly runId: string;
+  /**
+   * The run epoch, supplied by the caller: the provider has no notion of a
+   * daemon run version and `StartRunParams` carries none, so the emission
+   * pipeline that owns the run record supplies the second half of the key.
+   */
+  readonly runVersion: number;
+  /** The frame kind that produced the terminal, carried as data only. */
+  readonly rawWireType: string;
+  /** The T3.11 router's decision for this frame, consumed unchanged. */
+  readonly route: ThreadFrameRoute;
+}
+
+/** Why a terminal frame did not settle its run. */
+export type ClaudeTerminalSuppressionReason = "duplicate-terminal-epoch" | "not-the-session-thread";
+
+/** The boundary's decision for one terminal frame. */
+export type ClaudeTerminalEmissionDecision =
+  | {
+      readonly emit: true;
+      readonly runId: string;
+      readonly runVersion: number;
+      /** P1-1: `true` exactly when a daemon-initiated close preceded it. */
+      readonly intendedClose: boolean;
+    }
+  | { readonly emit: false; readonly suppressionReason: ClaudeTerminalSuppressionReason };
+
+/**
+ * The Claude terminal-emission gate — one instance per provider session, held
+ * by the lifecycle module for that session's lifetime.
+ *
+ * Session-scoped for the same reason its Codex sibling is: `closeSession` is a
+ * session operation, and at teardown the lifecycle module does not yet know
+ * which run the provider is about to terminate.
+ */
+export class ClaudeTerminalEmissionGate {
+  /** See the Codex sibling: bounded to the duplicate window, not to session age. */
+  static readonly DEFAULT_SETTLED_EPOCH_MEMORY = 256;
+
+  readonly #settledEpochMemory: number;
+  readonly #settledEpochKeysInOrder: string[] = [];
+  readonly #settledEpochKeys = new Set<string>();
+  #intendedCloseSignalled = false;
+
+  constructor(options?: { readonly settledEpochMemory?: number }) {
+    this.#settledEpochMemory =
+      options?.settledEpochMemory ?? ClaudeTerminalEmissionGate.DEFAULT_SETTLED_EPOCH_MEMORY;
+  }
+
+  /**
+   * Signal a daemon-initiated close (P1-1). Called at the top of
+   * `closeSession`, before the channel is disposed with
+   * `ClaudeChannelDisposalReason.session_closed`, so the terminal the
+   * disposal provokes is already inside the intent.
+   */
+  signalIntendedClose(): void {
+    this.#intendedCloseSignalled = true;
+  }
+
+  /** Whether a daemon-initiated close has been signalled for this session. */
+  intendedCloseSignalled(): boolean {
+    return this.#intendedCloseSignalled;
+  }
+
+  /**
+   * Admit one terminal frame, returning whether it may be emitted and — when
+   * it may — the `intendedClose` flag to stamp on its payload. Suppression is
+   * a return value, not a throw: a duplicate terminal is ordinary provider
+   * behaviour this boundary exists to absorb.
+   */
+  admitTerminalFrame(frame: ClaudeTerminalRunFrame): ClaudeTerminalEmissionDecision {
+    if (frame.route.decision !== "project") {
+      return { emit: false, suppressionReason: "not-the-session-thread" };
+    }
+    const epochKey = composeClaudeTerminalEpochKey(frame.runId, frame.runVersion);
+    if (this.#settledEpochKeys.has(epochKey)) {
+      return { emit: false, suppressionReason: "duplicate-terminal-epoch" };
+    }
+    this.#settledEpochKeys.add(epochKey);
+    this.#settledEpochKeysInOrder.push(epochKey);
+    if (this.#settledEpochKeysInOrder.length > this.#settledEpochMemory) {
+      const evicted = this.#settledEpochKeysInOrder.shift();
+      if (evicted !== undefined) {
+        this.#settledEpochKeys.delete(evicted);
+      }
+    }
+    return {
+      emit: true,
+      runId: frame.runId,
+      runVersion: frame.runVersion,
+      intendedClose: this.#intendedCloseSignalled,
+    };
+  }
+
+  /** Whether this epoch has already been settled by an emitted terminal. */
+  hasSettledEpoch(runId: string, runVersion: number): boolean {
+    return this.#settledEpochKeys.has(composeClaudeTerminalEpochKey(runId, runVersion));
+  }
+}
+
+/**
+ * The `(runId, runVersion)` uniqueness key. NUL is the separator because the
+ * daemon's provider-output validation seam rejects it in every identity it
+ * admits, and `runVersion` is a number and contributes none either.
+ */
+function composeClaudeTerminalEpochKey(runId: string, runVersion: number): string {
+  return `${runId}\u0000${String(runVersion)}`;
 }

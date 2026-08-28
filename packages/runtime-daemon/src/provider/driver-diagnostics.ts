@@ -85,6 +85,29 @@ export type DriverProviderName = "codex" | "claude";
  *   - `thread_child_transcript_suppressed` — first suppression of a registered
  *     child thread's transcript projection (deduplicated per thread so child
  *     content deltas do not flood the channel).
+ *
+ * The remaining five are owned by named Plan-005 T3.15 legs (callback-tool
+ * hosting, leg 3; `subagentPolicy` pass-through, leg 4). They live here rather
+ * than on a second diagnostic surface because the closed-union-plus-counter-map
+ * pairing above is the property worth keeping: a parallel record type would let
+ * a T3.15 refusal go unmetered, which is exactly what this union prevents.
+ *
+ *   - `callback_tool_seam_absent` — leg 3's runtime backstop: an invocation or
+ *     a routed provider ask reached the host while no Plan-012 evaluation seam
+ *     is registered. Answered refused, never completed-without-Cedar and never
+ *     left unanswered.
+ *   - `callback_tool_registry_withheld` — leg 3's fail-closed spawn rule: the
+ *     callback-tool registry was withheld from the provider because the daemon
+ *     could not guarantee every invocation would be adjudicated.
+ *   - `callback_tool_invocation_refused` — an invocation naming no registered
+ *     tool, or carrying arguments the registered input schema rejects.
+ *     Answered `failed` without ever reaching the approval pipeline.
+ *   - `subagent_definition_disabled` — leg 4's fail-closed spawn rule: a
+ *     subagent definition the daemon cannot boundary-mediate is disabled at
+ *     spawn rather than admitted unenforceable.
+ *   - `subagent_concurrency_breach` — leg 4's observability-only enforcement:
+ *     concurrent subagents observed above the declared cap. A breach surfaces
+ *     here and never fails the run.
  */
 export type DriverDiagnosticKind =
   | "unmapped_wire_kind"
@@ -98,7 +121,12 @@ export type DriverDiagnosticKind =
   | "thread_quarantine_shed"
   | "thread_pending_hold_shed"
   | "thread_registration_refused"
-  | "thread_child_transcript_suppressed";
+  | "thread_child_transcript_suppressed"
+  | "callback_tool_seam_absent"
+  | "callback_tool_registry_withheld"
+  | "callback_tool_invocation_refused"
+  | "subagent_definition_disabled"
+  | "subagent_concurrency_breach";
 
 /**
  * One operator-visible daemon diagnostic.
@@ -143,6 +171,11 @@ export const DRIVER_DIAGNOSTIC_COUNTER_NAMES: Readonly<Record<DriverDiagnosticKi
     thread_pending_hold_shed: "driver.thread_router.pending_hold_shed",
     thread_registration_refused: "driver.thread_router.registration_refused",
     thread_child_transcript_suppressed: "driver.thread_router.child_transcript_suppressed",
+    callback_tool_seam_absent: "driver.callback_tool.seam_absent",
+    callback_tool_registry_withheld: "driver.callback_tool.registry_withheld",
+    callback_tool_invocation_refused: "driver.callback_tool.invocation_refused",
+    subagent_definition_disabled: "driver.subagent.definition_disabled",
+    subagent_concurrency_breach: "driver.subagent.concurrency_breach",
   });
 
 // --------------------------------------------------------------------------

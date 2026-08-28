@@ -14,17 +14,20 @@ import type {
   StartRunParams,
 } from "@ai-sidekicks/contracts";
 
+import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
 import type {
   ClaudeAuthProbeReading,
   ClaudeChannelDisposalReason,
   ClaudeControlRequest,
   ClaudeControlResponse,
   ClaudeResumedSessionAttachment,
+  ClaudeRewoundSessionAttachment,
   ClaudeRunDispatch,
   ClaudeRunDispatchResolver,
   ClaudeSessionAttachment,
   ClaudeSessionChannel,
   ClaudeSessionResumeRequest,
+  ClaudeSessionRewindRequest,
   ClaudeSessionSpawnRequest,
   ClaudeSessionTransport,
   ClaudeUserTextFrame,
@@ -130,6 +133,20 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
   // Claude CLI exhibits, and the mechanism I-005-5's identity gate catches.
   announcedProviderSessionId: string | undefined = undefined;
   resumedSessionPosition: number = 12;
+  // The rewind (T3.15 leg 1) leg. Defaults model the honest happy path: a fork
+  // announces a NEW provider session id, which is exactly what the driver's
+  // fork check requires — a fake that echoed the handle back would make every
+  // rewind test exercise the refusal arm instead.
+  readonly rewindRequests: ClaudeSessionRewindRequest[] = [];
+  rewindFailure: Error | undefined = undefined;
+  rewoundSessionPosition: number | undefined = undefined;
+  mintForkedProviderSessionId: () => string = (): string =>
+    `forked-${String(this.rewindRequests.length)}`;
+  // When set, the fork announces THIS id — the "provider did not fork" arm.
+  announcedForkedProviderSessionId: string | undefined = undefined;
+  // When true, the fork hands back the SAME channel object it was rewinding, so
+  // the disposal carve-out in the not-forked arm is reachable.
+  rewindReturnsPredecessorChannel: boolean = false;
   // The zero-turn auth probe's outcome. Set the failure to drive the two
   // negative arms: a `ClaudeAuthenticationRequiredError` for a determinate
   // logged-out reading, anything else for a probe that could not be taken.
@@ -168,6 +185,36 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
       providerSessionId: announced,
       channel,
       sessionPosition: this.resumedSessionPosition,
+    };
+  }
+
+  async rewindSession(
+    request: ClaudeSessionRewindRequest,
+  ): Promise<ClaudeRewoundSessionAttachment> {
+    this.rewindRequests.push(request);
+    await this.establishmentGate;
+    if (this.rewindFailure !== undefined) {
+      throw this.rewindFailure;
+    }
+    await Promise.resolve();
+    const announced = this.announcedForkedProviderSessionId ?? this.mintForkedProviderSessionId();
+    if (this.rewindReturnsPredecessorChannel) {
+      const predecessor = this.spawnedChannels[this.spawnedChannels.length - 1];
+      if (predecessor !== undefined) {
+        return {
+          providerSessionId: announced,
+          channel: predecessor,
+          sessionPosition: this.rewoundSessionPosition ?? request.targetPosition,
+        };
+      }
+    }
+    const channel = new FakeClaudeSessionChannel(announced);
+    channel.onTurnTerminalFailure = this.onTurnTerminalFailure;
+    this.spawnedChannels.push(channel);
+    return {
+      providerSessionId: announced,
+      channel,
+      sessionPosition: this.rewoundSessionPosition ?? request.targetPosition,
     };
   }
 
@@ -230,4 +277,16 @@ export function buildCancelParams(): ApplyInterventionParams {
     clientIdempotencyKey: "3f1d2b4c-0000-4000-8000-000000000003",
     payload: { reason: "participant cancelled the run" },
   };
+}
+
+/**
+ * The T3.11 diagnostic band, silenced. The default log sink writes to the
+ * console, which would make every policy diagnostic a line of test output; the
+ * emitter still retains its records, which is what the assertions read.
+ */
+export function makeSilentDriverDiagnostics(): DriverDiagnosticsEmitter {
+  return new DriverDiagnosticsEmitter({
+    logSink: { record: () => undefined },
+    counterSink: { increment: () => undefined },
+  });
 }

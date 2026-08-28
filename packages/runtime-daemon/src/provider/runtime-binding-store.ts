@@ -72,9 +72,14 @@
 import { randomUUID } from "node:crypto";
 
 import type {
+  CallbackToolInvocation,
+  CallbackToolResult,
   DriverCliVersionReport,
   ExecutionPosture,
+  McpServerStatusProducer,
+  ResumeSessionParams,
   SessionCallbackTool,
+  SessionId,
   SubagentPolicy,
 } from "@ai-sidekicks/contracts";
 import type { Database, Statement, Transaction } from "better-sqlite3";
@@ -368,6 +373,156 @@ const SPAWN_CONFIG_MEMBER_CHECKS = {
   providerAccountId: (value) => typeof value === "string",
   resolvedExecutablePath: (value) => typeof value === "string",
 } satisfies Readonly<Record<keyof RuntimeBindingSpawnConfig, (value: unknown) => boolean>>;
+
+// --------------------------------------------------------------------------
+// `spawn_config` -> `ResumeSessionParams` re-realization (Plan-005 T3.14)
+// --------------------------------------------------------------------------
+
+/**
+ * The two FUNCTION legs a resume re-injects fresh (Plan-005 T3.14, CP-005-1).
+ *
+ * Separate from the stored record ON PURPOSE. `spawn_config` holds DATA LEGS
+ * ONLY, so the caller that re-realizes a spawn must supply these itself — and
+ * because they are a distinct parameter rather than optional members of the
+ * stored shape, "resume and forget to rebind the dispatcher" is a decision the
+ * call site has to make in the open rather than an omission that reads as
+ * ordinary absence.
+ *
+ * Both members stay OPTIONAL: a leg that registered no callback tools has
+ * nothing to dispatch, and the MCP census sink is producer-only. What the shape
+ * forbids is supplying them by accident.
+ */
+export interface ResumeFunctionLegInjection {
+  readonly onCallbackToolCall?:
+    | ((invocation: CallbackToolInvocation) => Promise<CallbackToolResult>)
+    | undefined;
+  readonly onMcpServerStatus?: McpServerStatusProducer | undefined;
+}
+
+/**
+ * Which `spawn_config` members are RESUME LEGS — members whose value is handed
+ * back to the driver on `ResumeSessionParams` — and which are consumed
+ * elsewhere in the relaunch.
+ *
+ * `satisfies Readonly<Record<keyof RuntimeBindingSpawnConfig, ...>>` for the
+ * same reason `SPAWN_CONFIG_MEMBER_CHECKS` uses it, one step further: adding a
+ * member to the stored record without deciding whether a resumed leg re-realizes
+ * it is a COMPILE error. Without this table the failure mode is silent — a new
+ * spawn-bound surface lands, `spawn_config` faithfully stores it, and the resume
+ * path keeps composing the four legs it was written against, so the resumed
+ * process sheds the new surface with nothing anywhere reporting it. That is the
+ * exact class of loss CP-005-1 exists to prevent, and prose cannot enforce it.
+ *
+ * `"relaunch-input"` names the members that ARE re-realized but NOT through this
+ * parameter object: `providerAccountId` pins the credential home and
+ * `resolvedExecutablePath` names the binary, both consumed by the spawn
+ * resolution that precedes the driver call rather than by the driver itself.
+ *
+ * The table is not documentation. `ResumeLegSpawnConfigKey` below reads it, and
+ * the composer's `satisfies` clause is checked against that key set, so a member
+ * marked `"resume-leg"` and then not composed does not compile.
+ *
+ * MODULE-PRIVATE AND UNANNOTATED, both deliberately. `satisfies` without an
+ * explicit type is what preserves the per-key LITERAL types that
+ * `ResumeLegSpawnConfigKey` reads; annotating this const — which exporting it
+ * would require under `isolatedDeclarations` — widens every value to the union,
+ * collapses that key set to `never`, and makes the composer's own `satisfies`
+ * clause vacuously true. Verified by perturbation: under the annotated form,
+ * deleting a resume leg from the composer compiles clean.
+ *
+ * The lint suppression below is for that same reason — `no-unused-vars` does
+ * not count the `typeof` read in `ResumeLegSpawnConfigKey`, and both ways of
+ * satisfying it (annotate, or export-and-annotate) void the check.
+ */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- read as a type by `ResumeLegSpawnConfigKey`
+const SPAWN_CONFIG_RESUME_DISPOSITION = {
+  executionPosture: "resume-leg",
+  callbackTools: "resume-leg",
+  subagentPolicy: "resume-leg",
+  outputSchema: "resume-leg",
+  admittedCostCapCents: "resume-leg",
+  providerAccountId: "relaunch-input",
+  resolvedExecutablePath: "relaunch-input",
+} satisfies Readonly<Record<keyof RuntimeBindingSpawnConfig, "resume-leg" | "relaunch-input">>;
+
+/** The `spawn_config` members a resumed leg re-realizes through its params. */
+type ResumeLegSpawnConfigKey = {
+  [Key in keyof typeof SPAWN_CONFIG_RESUME_DISPOSITION]: (typeof SPAWN_CONFIG_RESUME_DISPOSITION)[Key] extends "resume-leg"
+    ? Key
+    : never;
+}[keyof typeof SPAWN_CONFIG_RESUME_DISPOSITION];
+
+/**
+ * Raised when a binding cannot describe a resumable leg.
+ *
+ * A DISTINCT error type rather than a bare `Error`: the caller that hits this is
+ * the recovery dispatcher, whose only correct response is to relaunch the leg
+ * fresh rather than to retry the resume, and it cannot make that choice off a
+ * message string.
+ */
+export class RuntimeBindingNotResumableError extends Error {
+  readonly bindingId: string;
+  readonly runId: string;
+
+  constructor(message: string, bindingId: string, runId: string) {
+    super(message);
+    this.name = "RuntimeBindingNotResumableError";
+    this.bindingId = bindingId;
+    this.runId = runId;
+  }
+}
+
+/**
+ * Re-realize a resumed leg's full spawn-bound surface from its durable binding
+ * row (Plan-005 T3.14 / CP-005-1).
+ *
+ * Resume is a FRESH PROCESS SPAWN, so every surface the original
+ * `CreateSessionParams` bound has to be re-supplied or the relaunched leg sheds
+ * it: a posture-less resume relaunches UNSANDBOXED and a schema-less one
+ * unconstrained. Recovery does not hold the original client request, so this row
+ * is the source, read through the store's own typed `spawnConfig` accessor —
+ * never by re-parsing the column at the call site, which would be a second
+ * reader of a closed key set with its own idea of what the members mean.
+ *
+ * REFUSES rather than degrades when `resumeHandle` is NULL. A binding with no
+ * handle names no provider-side session to resume, and composing params around
+ * an empty handle would push the failure into the provider, where it surfaces as
+ * an opaque protocol refusal instead of the local, classifiable condition it is.
+ */
+export function composeResumeSessionParams(
+  sessionId: SessionId,
+  binding: RuntimeBinding,
+  functionLegs: ResumeFunctionLegInjection,
+): ResumeSessionParams {
+  const resumeHandle = binding.resumeHandle;
+  if (resumeHandle === null || resumeHandle.length === 0) {
+    throw new RuntimeBindingNotResumableError(
+      `RuntimeBindingStore: binding ${binding.id} (run ${binding.runId}, driver ${binding.driverName}) carries no resume handle — the leg must be relaunched fresh, not resumed`,
+      binding.id,
+      binding.runId,
+    );
+  }
+  const spawnConfig = binding.spawnConfig;
+  // Enumerated member-by-member rather than spread from `spawnConfig`: a spread
+  // would carry the `relaunch-input` members onto a params object that does not
+  // declare them. The `satisfies` clause is what makes the enumeration
+  // TRUSTWORTHY rather than merely current — a missing resume leg and a stray
+  // one are both compile errors against the disposition table above.
+  const resumeLegs = {
+    executionPosture: spawnConfig.executionPosture,
+    callbackTools: spawnConfig.callbackTools,
+    subagentPolicy: spawnConfig.subagentPolicy,
+    outputSchema: spawnConfig.outputSchema,
+    admittedCostCapCents: spawnConfig.admittedCostCapCents,
+  } satisfies { [Key in ResumeLegSpawnConfigKey]: RuntimeBindingSpawnConfig[Key] };
+  return {
+    sessionId,
+    resumeHandle,
+    ...resumeLegs,
+    onCallbackToolCall: functionLegs.onCallbackToolCall,
+    onMcpServerStatus: functionLegs.onMcpServerStatus,
+  };
+}
 
 // --------------------------------------------------------------------------
 // RuntimeBindingStore

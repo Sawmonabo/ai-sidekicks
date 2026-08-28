@@ -6,6 +6,18 @@
 //   * `CodexLifecycleManager` (T3.1) — `createSession`, `resumeSession`,
 //     `startRun`, `interruptRun`, `closeSession`.
 //   * `CodexInterventionDispatcher` (T3.2) — `applyIntervention`.
+//   * `CodexLifecycleManager` (T3.15) — `rollbackTo`, `setSessionGoal`,
+//     `clearSessionGoal`, the three R8 parity operations whose Codex mechanism
+//     is a request on the session's own connection (`thread/fork`,
+//     `thread/goal/set`, `thread/goal/clear`).
+//
+// The three T3.15 operations are NOT capability-gated here, and that is
+// deliberate rather than an omission: I-005-2's static refusal is the
+// registry's `checkCapability`, which reads the snapshot captured at
+// registration. A second gate in this class would read a DIFFERENT snapshot
+// through `readCapabilities` — a live one — so the two could disagree about
+// whether a call that already passed the gate may proceed, and the driver would
+// be answering a question the registry has already answered.
 //
 // `implements Pick<ProviderDriver, ...>` rather than a hand-written interface, so
 // each signature is checked against the canonical contract and drifts with it. The
@@ -41,20 +53,32 @@
 
 import type {
   ApplyInterventionParams,
+  ClearSessionGoalParams,
   CloseSessionParams,
   CreateSessionParams,
   DriverAuthProbeResult,
+  DriverGoalResult,
   DriverInterventionResult,
   DriverResumeResult,
+  DriverRollbackResult,
+  DriverTransportConfig,
   InterruptRunParams,
   ProviderDriver,
   ProviderSessionHandle,
   ResumeSessionParams,
+  RollbackToParams,
+  SetSessionGoalParams,
   StartRunParams,
 } from "@ai-sidekicks/contracts";
 
 import { CodexInterventionDispatcher, type CodexCapabilitySnapshotReader } from "./intervention.js";
-import { CodexLifecycleManager, type CodexLifecycleOptions } from "./lifecycle.js";
+import {
+  CodexDriverConfigError,
+  CodexLifecycleManager,
+  resolveCodexTransportSelection,
+  type CodexLifecycleOptions,
+  type CodexTransportSelection,
+} from "./lifecycle.js";
 
 export {
   CodexAppServerConnection,
@@ -67,12 +91,24 @@ export {
   CodexTransportError,
   CODEX_APP_SERVER_BIN_ENV_VAR,
   CODEX_APP_SERVER_READY_SENTINEL,
+  CODEX_APP_SERVER_SHELL_ARGV0,
   CODEX_APP_SERVER_SHELL_PRELUDE,
   CODEX_DEFAULT_EXECUTABLE_PATH,
   CODEX_MAX_LINE_LENGTH,
+  CODEX_ROUTED_SERVER_REQUEST_METHODS,
+  CODEX_SUBAGENT_DEFINITION_WITHHELD_REASON,
+  CODEX_SUPPRESSED_REALTIME_NOTIFICATION_METHODS,
+  composeCodexSubagentConfigOverrides,
+  composeCodexThreadPosture,
+  composeCodexThreadPostureConfig,
+  composeCodexTransportArgv,
+  composeCodexTurnSandboxPolicy,
+  describeCodexPostureDivergence,
   normalizeProviderFailureDetail,
   parseCodexRunConfig,
   parseCodexSessionConfig,
+  resolveCodexTransportSelection,
+  type CodexBearerCredentialResolver,
   type CodexConnectionOptions,
   type CodexDiagnosticSink,
   type CodexLifecycleOptions,
@@ -81,10 +117,24 @@ export {
   type CodexRunConfig,
   type CodexScheduleTimeout,
   type CodexServerNotificationSink,
+  type CodexServerRequestDecision,
+  type CodexSessionServerRequest,
+  type CodexSessionServerRequestResponder,
   type CodexSessionConfig,
   type CodexSessionSlotState,
+  type CodexThreadPostureParams,
   type CodexTransportDiagnostic,
+  type CodexTransportSelection,
+  type CodexWebsocketBearerCredential,
+  type CodexWebsocketTransportConnector,
 } from "./lifecycle.js";
+
+export {
+  CodexTerminalEmissionGate,
+  type CodexTerminalEmissionDecision,
+  type CodexTerminalRunFrame,
+  type CodexTerminalSuppressionReason,
+} from "./event-normalizer.js";
 
 export {
   CodexInterventionDispatcher,
@@ -99,6 +149,18 @@ export {
 export interface CodexDriverOptions extends CodexLifecycleOptions {
   /** Read live at every intervention dispatch — see the note above. */
   readonly readCapabilities: CodexCapabilitySnapshotReader;
+  /**
+   * The daemon driver-registry transport config (T3.15 leg 6). ABSENT is the
+   * V1 default and means `stdio`; a present config selects `unix-socket` or
+   * `websocket` per its discriminated shape.
+   *
+   * Consumed HERE, at construction, and nowhere else. Resolving it once at the
+   * composition root is what makes it real configuration rather than a field
+   * the registry fills in and no code path reads: every connection this driver
+   * opens is handed the already-decided selection, so two connections of one
+   * driver cannot disagree about which process they reach.
+   */
+  readonly transportConfig?: DriverTransportConfig | undefined;
 }
 
 /** The Codex provider driver: lifecycle operations plus intervention dispatch. */
@@ -110,13 +172,41 @@ export class CodexDriver implements Pick<
   | "interruptRun"
   | "closeSession"
   | "applyIntervention"
+  | "rollbackTo"
+  | "setSessionGoal"
+  | "clearSessionGoal"
   | "probeAuth"
 > {
   readonly #lifecycle: CodexLifecycleManager;
   readonly #interventions: CodexInterventionDispatcher;
 
+  readonly #transportSelection: CodexTransportSelection;
+
   constructor(options: CodexDriverOptions) {
-    this.#lifecycle = new CodexLifecycleManager(options);
+    // Selection first: a misconfigured transport fails the driver's
+    // CONSTRUCTION, not its first session. A registry that accepted a
+    // websocket arm with no resolver and only discovered it when a participant
+    // started a run would have reported a healthy driver for the whole
+    // interval in between.
+    this.#transportSelection = resolveCodexTransportSelection(options.transportConfig);
+    if (this.#transportSelection.transport === "websocket") {
+      if (options.resolveBearerCredential === undefined) {
+        throw new CodexDriverConfigError(
+          "A websocket transport is configured but no bearer-credential resolver was injected; refusing to register a driver that would start an unauthenticated listener.",
+          "DriverTransportConfig.bearerTokenRef",
+        );
+      }
+      if (options.websocketConnector === undefined) {
+        throw new CodexDriverConfigError(
+          "A websocket transport is configured but no transport connector was injected; refusing to register a driver that would silently reach a different process.",
+          "DriverTransportConfig.endpoint",
+        );
+      }
+    }
+    this.#lifecycle = new CodexLifecycleManager({
+      ...options,
+      transportSelection: this.#transportSelection,
+    });
     this.#interventions = new CodexInterventionDispatcher({
       // The manager structurally satisfies `CodexInterventionRuntime`; composing
       // them here is what keeps the two modules free of a circular import.
@@ -149,7 +239,24 @@ export class CodexDriver implements Pick<
     return this.#interventions.applyIntervention(params);
   }
 
+  rollbackTo(params: RollbackToParams): Promise<DriverRollbackResult> {
+    return this.#lifecycle.rollbackTo(params);
+  }
+
+  setSessionGoal(params: SetSessionGoalParams): Promise<DriverGoalResult> {
+    return this.#lifecycle.setSessionGoal(params);
+  }
+
+  clearSessionGoal(params: ClearSessionGoalParams): Promise<DriverGoalResult> {
+    return this.#lifecycle.clearSessionGoal(params);
+  }
+
   probeAuth(): Promise<DriverAuthProbeResult> {
     return this.#lifecycle.probeAuth();
+  }
+
+  /** The transport this driver reaches its provider processes over. */
+  get transportSelection(): CodexTransportSelection {
+    return this.#transportSelection;
   }
 }

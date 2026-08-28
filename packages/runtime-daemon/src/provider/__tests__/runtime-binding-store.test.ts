@@ -44,7 +44,12 @@
 // Refs: Plan-005 §Phase 2 / T2.2 + T2.6, `Spec-005 §Required Behavior`,
 // `Spec-005 §State And Data Implications`, invariant I-005-1.
 
-import type { DriverCliVersionReport, ExecutionPosture } from "@ai-sidekicks/contracts";
+import type {
+  CallbackToolResult,
+  DriverCliVersionReport,
+  ExecutionPosture,
+  SessionId,
+} from "@ai-sidekicks/contracts";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -58,6 +63,8 @@ import {
   RESUME_HANDLE_MAX_LEN,
 } from "../provider-output-validation.js";
 import {
+  composeResumeSessionParams,
+  RuntimeBindingNotResumableError,
   RuntimeBindingStore,
   type RuntimeBindingSpawnConfig,
   withSpawnedVersionCarriers,
@@ -1592,5 +1599,132 @@ describe("RuntimeBindingStore — spawned-version carriers (T3.23)", () => {
       resolvedExecutablePath: codexBuildPath,
     });
     expect(found?.resumeHandle).toBe("thread-abc");
+  });
+});
+
+// ----------------------------------------------------------------------------
+// T3.15 R4 — the resumed leg's spawn-bound surface, re-realized from the row.
+// ----------------------------------------------------------------------------
+//
+// Spec coverage under test:
+//   `Spec-005 §Required Behavior` — a resumed leg runs under the same
+//     spawn-bound surface the original spawn declared. CP-005-1: resume is a
+//     FRESH process spawn, so every leg is re-supplied or the relaunch sheds it
+//     — a posture-less resume relaunches UNSANDBOXED.
+//   I-005-5 — a binding that names no resumable provider session refuses
+//     locally and classifiably rather than pushing an empty handle at the
+//     provider.
+
+describe("composeResumeSessionParams (T3.15 R4, CP-005-1)", () => {
+  const SESSION_ID = "11111111-1111-4111-8111-111111111111" as SessionId;
+  const NO_FUNCTION_LEGS = {
+    onCallbackToolCall: undefined,
+    onMcpServerStatus: undefined,
+  };
+
+  it("re-realizes every spawn-bound leg from the durable row", () => {
+    const store = makeStore();
+    const binding = store.create({
+      runId: RUN_ID,
+      driverName: DRIVER_NAME,
+      contractVersion: CONTRACT_VERSION,
+      spawnConfig: FULL_SPAWN_CONFIG,
+      resumeHandle: "opaque-handle-abc",
+    });
+
+    const params = composeResumeSessionParams(SESSION_ID, binding, NO_FUNCTION_LEGS);
+
+    expect(params).toStrictEqual({
+      sessionId: SESSION_ID,
+      resumeHandle: "opaque-handle-abc",
+      executionPosture: EXECUTION_POSTURE,
+      callbackTools: FULL_SPAWN_CONFIG.callbackTools,
+      subagentPolicy: FULL_SPAWN_CONFIG.subagentPolicy,
+      outputSchema: FULL_SPAWN_CONFIG.outputSchema,
+      admittedCostCapCents: 2500,
+      onCallbackToolCall: undefined,
+      onMcpServerStatus: undefined,
+    });
+  });
+
+  it("carries no `relaunch-input` member onto the resume params", () => {
+    // A spread from `spawnConfig` would carry members the params shape does not
+    // declare — the resolved executable path and the paying account among them,
+    // which the relaunch path owns rather than the resume path.
+    const store = makeStore();
+    const binding = store.create({
+      runId: RUN_ID,
+      driverName: DRIVER_NAME,
+      contractVersion: CONTRACT_VERSION,
+      spawnConfig: FULL_SPAWN_CONFIG,
+      resumeHandle: "opaque-handle-abc",
+    });
+
+    const params = composeResumeSessionParams(SESSION_ID, binding, NO_FUNCTION_LEGS);
+
+    expect(Object.keys(params)).not.toContain("resolvedExecutablePath");
+    expect(Object.keys(params)).not.toContain("providerAccountId");
+  });
+
+  it("binds the injected function legs, which no row can carry", () => {
+    const store = makeStore();
+    const binding = store.create({
+      runId: RUN_ID,
+      driverName: DRIVER_NAME,
+      contractVersion: CONTRACT_VERSION,
+      spawnConfig: FULL_SPAWN_CONFIG,
+      resumeHandle: "opaque-handle-abc",
+    });
+    const onCallbackToolCall = async (): Promise<CallbackToolResult> =>
+      await Promise.resolve({ status: "completed" });
+
+    const params = composeResumeSessionParams(SESSION_ID, binding, {
+      onCallbackToolCall,
+      onMcpServerStatus: undefined,
+    });
+
+    expect(params.onCallbackToolCall).toBe(onCallbackToolCall);
+  });
+
+  it("refuses a binding with no resume handle, typed for the recovery dispatcher", () => {
+    // The dispatcher's only correct response is to relaunch fresh rather than
+    // retry, and it cannot make that choice off a message string.
+    const store = makeStore();
+    const binding = store.create({
+      runId: RUN_ID,
+      driverName: DRIVER_NAME,
+      contractVersion: CONTRACT_VERSION,
+      spawnConfig: FULL_SPAWN_CONFIG,
+    });
+
+    let thrown: unknown;
+    try {
+      composeResumeSessionParams(SESSION_ID, binding, NO_FUNCTION_LEGS);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(RuntimeBindingNotResumableError);
+    expect((thrown as RuntimeBindingNotResumableError).runId).toBe(RUN_ID);
+    expect((thrown as RuntimeBindingNotResumableError).bindingId).toBe(binding.id);
+  });
+
+  it("re-realizes a leg a row that stored NOTHING leaves absent, rather than inventing one", () => {
+    // The honest absent case: an empty `spawn_config` yields absent legs, which
+    // the driver then treats as "not declared" — never as a default posture.
+    const store = makeStore();
+    const binding = store.create({
+      runId: RUN_ID,
+      driverName: DRIVER_NAME,
+      contractVersion: CONTRACT_VERSION,
+      spawnConfig: {},
+      resumeHandle: "opaque-handle-abc",
+    });
+
+    const params = composeResumeSessionParams(SESSION_ID, binding, NO_FUNCTION_LEGS);
+
+    expect(params.executionPosture).toBeUndefined();
+    expect(params.outputSchema).toBeUndefined();
+    expect(params.admittedCostCapCents).toBeUndefined();
   });
 });

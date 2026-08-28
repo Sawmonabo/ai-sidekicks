@@ -39,8 +39,10 @@ import {
   type SpawnResponse,
   type ApplyInterventionParams,
   type DrainResult,
+  type ExecutionPosture,
 } from "@ai-sidekicks/contracts";
 
+import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
 import {
   CodexAppServerConnection,
   CodexDriver,
@@ -52,18 +54,29 @@ import {
   CodexTransportError,
   CODEX_APP_SERVER_BIN_ENV_VAR,
   CODEX_APP_SERVER_READY_SENTINEL,
+  CODEX_APP_SERVER_SHELL_ARGV0,
   CODEX_APP_SERVER_SHELL_PRELUDE,
   CODEX_MAX_LINE_LENGTH,
+  CODEX_ROUTED_SERVER_REQUEST_METHODS,
+  CodexDriverConfigError,
+  composeCodexTransportArgv,
+  type CodexServerRequestDecision,
+  type CodexWebsocketBearerCredential,
+  type CodexSessionServerRequestResponder,
+  describeCodexPostureDivergence,
   normalizeProviderFailureDetail,
   parseCodexRunConfig,
   parseCodexSessionConfig,
+  resolveCodexTransportSelection,
   type CodexPtySessionListeners,
   type CodexPtySessionSubscriber,
   type CodexScheduleTimeout,
   type CodexSessionConfig,
   type CodexTransportDiagnostic,
+  type CodexTransportSelection,
   CODEX_INTERVENTION_FALLBACK_ACTION,
 } from "../index.js";
+import { CODEX_NEGOTIATION_GATED_METHODS } from "../event-normalizer.js";
 
 // --------------------------------------------------------------------------
 // Fakes
@@ -433,7 +446,20 @@ interface Harness {
   server: FakeCodexAppServer;
   driver: CodexDriver;
   diagnostics: CodexTransportDiagnostic[];
+  driverDiagnostics: DriverDiagnosticsEmitter;
   scheduler: ReturnType<typeof makeManualScheduler>;
+}
+
+/**
+ * The T3.11 diagnostic band, silenced. The default log sink writes to the
+ * console, which would make every policy diagnostic a line of test output; the
+ * emitter still retains the records, which is what the assertions read.
+ */
+function makeSilentDriverDiagnostics(): DriverDiagnosticsEmitter {
+  return new DriverDiagnosticsEmitter({
+    logSink: { record: () => undefined },
+    counterSink: { increment: () => undefined },
+  });
 }
 
 function createHarness(
@@ -447,9 +473,11 @@ function createHarness(
   // the logged-out reading re-register this method.
   server.on("getAuthStatus", () => ({ result: { authMethod: "chatgpt", authToken: null } }));
   const diagnostics: CodexTransportDiagnostic[] = [];
+  const driverDiagnostics = makeSilentDriverDiagnostics();
   const scheduler = makeManualScheduler();
   const driver = new CodexDriver({
     ptyHost: server,
+    diagnostics: driverDiagnostics,
     subscribeToPtySession:
       options.subscribeToPtySession ??
       ((ptySessionId, listeners) => server.subscribe(ptySessionId, listeners)),
@@ -462,7 +490,7 @@ function createHarness(
     newBindingId: () => "binding-abc",
     readCapabilities: () => makeCapabilities(options.steer ?? true),
   });
-  return { server, driver, diagnostics, scheduler };
+  return { server, driver, diagnostics, driverDiagnostics, scheduler };
 }
 
 function threadStartResult(turnCount = 0): JsonRpcAnswer {
@@ -538,12 +566,14 @@ function createManagerHarness(options: ManagerHarnessOptions = {}): ManagerHarne
   // the logged-out reading re-register this method.
   server.on("getAuthStatus", () => ({ result: { authMethod: "chatgpt", authToken: null } }));
   const diagnostics: CodexTransportDiagnostic[] = [];
+  const driverDiagnostics = makeSilentDriverDiagnostics();
   const notifications: Array<{ method: string; params: unknown }> = [];
   const scheduler = makeManualScheduler();
   let firstDiagnosticThrown = false;
   let firstNotificationThrown = false;
   const manager = new CodexLifecycleManager({
     ptyHost: server,
+    diagnostics: driverDiagnostics,
     subscribeToPtySession: (ptySessionId, listeners) => {
       const dispose = server.subscribe(ptySessionId, listeners);
       if (options.throwingSubscriptionDisposer !== true) {
@@ -601,7 +631,15 @@ describe("CodexDriver spawn and handshake", () => {
     const spawnRequest = harness.server.spawnRequests[0];
     expect(spawnRequest).toBeDefined();
     expect(spawnRequest?.command).toBe("/bin/sh");
-    expect(spawnRequest?.args).toEqual(["-c", CODEX_APP_SERVER_SHELL_PRELUDE]);
+    // The stdio default: the prelude script, its `$0` label, and the single
+    // positional word naming the subcommand. `"$@"` carries the transport argv
+    // (T3.15 leg 6) as positional parameters the shell never re-parses.
+    expect(spawnRequest?.args).toEqual([
+      "-c",
+      CODEX_APP_SERVER_SHELL_PRELUDE,
+      CODEX_APP_SERVER_SHELL_ARGV0,
+      "app-server",
+    ]);
     expect(spawnRequest?.cwd).toBe(SESSION_CWD);
   });
 
@@ -611,8 +649,12 @@ describe("CodexDriver spawn and handshake", () => {
     // deliverable at all; `-echo` stops the reader seeing its own frames; `&&`
     // makes a failed `stty` abort the launch instead of degrading into silent
     // truncation; `exec` leaves no shell between PtyHost and the provider.
+    // `"$@"` rather than a literal `app-server`: the subcommand and every
+    // transport flag reach the provider as POSITIONAL parameters, so a
+    // daemon-configured socket path or credential-file path cannot be
+    // re-parsed by the shell (T3.15 leg 6).
     expect(CODEX_APP_SERVER_SHELL_PRELUDE).toBe(
-      `stty -icanon -echo && printf '%s\\n' ${CODEX_APP_SERVER_READY_SENTINEL} && exec "$${CODEX_APP_SERVER_BIN_ENV_VAR}" app-server`,
+      `stty -icanon -echo && printf '%s\\n' ${CODEX_APP_SERVER_READY_SENTINEL} && exec "$${CODEX_APP_SERVER_BIN_ENV_VAR}" "$@"`,
     );
   });
 
@@ -1061,6 +1103,7 @@ describe("CodexDriver resumeSession (I-005-5, Spec-005 §Fallback Behavior)", ()
     const scheduler = makeManualScheduler();
     const driver = new CodexDriver({
       ptyHost: server,
+      diagnostics: makeSilentDriverDiagnostics(),
       // The disposer is caller-supplied code, so it is a real throw source on a
       // path whose whole obligation is to RETURN rather than throw.
       subscribeToPtySession: (ptySessionId, listeners) => {
@@ -1139,11 +1182,16 @@ describe("CodexAppServerConnection transport", () => {
     const harness = createHarness();
     await createdSession(harness);
 
+    // `attestation/generate` rather than an approval method: the approval and
+    // callback-tool asks are ROUTED since T3.15 leg 3 and answer with their own
+    // refusal shapes. This one is censused and deliberately unrouted — the
+    // driver declines attestation at negotiation — so it still witnesses the
+    // fail-closed default arm on a method the pinned census knows.
     harness.server.emitFrame({
       jsonrpc: "2.0",
       id: 77,
-      method: "execCommandApproval",
-      params: { command: "rm -rf /" },
+      method: "attestation/generate",
+      params: {},
     });
     await Promise.resolve();
 
@@ -1154,7 +1202,7 @@ describe("CodexAppServerConnection transport", () => {
     expect(replies[0]?.["error"]).toMatchObject({ code: -32601 });
     expect(harness.diagnostics).toContainEqual({
       kind: "unhandled-server-request",
-      method: "execCommandApproval",
+      method: "attestation/generate",
       // A method the pin's `ServerRequest` census knows. Recorded on the
       // diagnostic rather than gating the answer -- see the uncensused case.
       censused: true,
@@ -1248,8 +1296,8 @@ describe("CodexAppServerConnection transport", () => {
     harness.server.emitFrame({
       jsonrpc: "2.0",
       id: sentId,
-      method: "execCommandApproval",
-      params: { command: "rm -rf /" },
+      method: "attestation/generate",
+      params: {},
     });
     await Promise.resolve();
 
@@ -1428,6 +1476,7 @@ describe("CodexDriver session ownership (Spec-005 §Required Behavior)", () => {
     const scheduler = makeManualScheduler();
     const manager = new CodexLifecycleManager({
       ptyHost: server,
+      diagnostics: makeSilentDriverDiagnostics(),
       subscribeToPtySession: (ptySessionId, listeners) => server.subscribe(ptySessionId, listeners),
       reportDiagnostic: () => {},
       scheduleTimeout: scheduler.schedule,
@@ -3136,5 +3185,813 @@ describe("Codex driver config read-shapes", () => {
 
     expect(detail).not.toContain("sk-secret-value");
     expect(detail).toMatch(/no diagnostic message/);
+  });
+});
+
+// --------------------------------------------------------------------------
+// T3.15 — the R8 parity driver legs, Codex arm.
+// --------------------------------------------------------------------------
+//
+// Spec coverage under test:
+//   `Spec-005 §Interfaces And Contracts` — `rollbackTo` / `setSessionGoal` /
+//     `clearSessionGoal` reach the pinned methods and answer the typed results;
+//     a `rollbackTo` that applies reports the `bindingId` the daemon rebinds on.
+//   `Spec-005 §Parity Capability Mechanism Grades` — the Codex cells this leg
+//     realizes NATIVELY (`thread/fork`, `thread/goal/*`) versus the ones it
+//     withholds (the callback-tool registry, subagent definitions).
+//   `Spec-016 §Provider-Native Subagents` — the two caps the provider enforces
+//     are supplied at every thread establishment; the definitions are withheld
+//     and recorded rather than silently dropped.
+//   CP-005-1 — a resumed or forked thread re-realizes every spawn-bound leg.
+
+/** The params of the first frame the provider received for a method. */
+function firstParamsFor(harness: Harness, method: string): Record<string, unknown> {
+  return (harness.server.framesForMethod(method)[0]?.["params"] ?? {}) as Record<string, unknown>;
+}
+
+function readConfigOverrides(params: unknown): Record<string, unknown> {
+  const config = (params as Record<string, unknown>)["config"];
+  return (config ?? {}) as Record<string, unknown>;
+}
+
+const WORKSPACE_POSTURE_WITH_NETWORK: ExecutionPosture = {
+  mode: "workspace-sandboxed",
+  credentialPolicyRef: "policy://default",
+  networkAccess: "full",
+  writableRoots: ["/work/session"],
+};
+
+/**
+ * A live session whose turn ledger is already populated.
+ *
+ * Seeded through `resumeSession` rather than by running turns: a resumed thread
+ * carries its own history, which is the same axis a rewind indexes, and it gets
+ * there without making these rollback assertions depend on the turn-dispatch
+ * band.
+ */
+async function resumedSessionWithTurns(
+  harness: Harness,
+  turnCount: number,
+  params: Partial<Parameters<CodexDriver["resumeSession"]>[0]> = {},
+): Promise<void> {
+  harness.server.on("thread/resume", () => threadStartResult(turnCount));
+  await harness.driver.resumeSession({
+    sessionId: SESSION_ID,
+    resumeHandle: THREAD_ID,
+    ...params,
+  });
+}
+
+describe("CodexDriver rollbackTo (T3.15 leg 1, native `thread/fork`)", () => {
+  it("reports the rebinding `bindingId` on the applied arm", async () => {
+    const harness = createHarness();
+    await resumedSessionWithTurns(harness, 2);
+    harness.server.on("thread/fork", () => ({
+      result: {
+        thread: { id: "thread-forked", sessionId: "session-tree-1", turns: [{ id: "turn-0" }] },
+      },
+    }));
+
+    // The INPUT binding is deliberately NOT the minted one. Passing the same
+    // string for both would let a driver that echoed the caller's `bindingId`
+    // straight back — reporting the OLD binding for a rollback that just
+    // repointed onto a new thread — pass this assertion.
+    const result = await harness.driver.rollbackTo({
+      sessionId: SESSION_ID,
+      bindingId: "binding-predecessor",
+      position: 1,
+    });
+
+    // The daemon rebinds the run onto a NEW provider thread, so an applied
+    // rollback reporting the predecessor's binding would leave the caller
+    // pointing at a thread the fork replaced.
+    expect(result).toStrictEqual({
+      status: "applied",
+      sessionPosition: 1,
+      bindingId: "binding-abc",
+    });
+  });
+
+  it("re-realizes posture and subagent caps on the fork (CP-005-1)", async () => {
+    const harness = createHarness();
+    await resumedSessionWithTurns(harness, 2, {
+      executionPosture: WORKSPACE_POSTURE_WITH_NETWORK,
+      subagentPolicy: { enabled: true, maxConcurrent: 3, maxDepth: 1, definitions: [] },
+    });
+    harness.server.on("thread/fork", () => ({
+      result: {
+        thread: { id: "thread-forked", sessionId: "session-tree-1", turns: [{ id: "turn-0" }] },
+        sandbox: { networkAccess: true },
+      },
+    }));
+
+    await harness.driver.rollbackTo({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+      position: 1,
+    });
+
+    const forkParams = firstParamsFor(harness, "thread/fork");
+    expect(forkParams["sandbox"]).toBe("workspace-write");
+    // A fork mints a NEW thread; omitting the overrides would leave the rewound
+    // session governed by whatever that thread inherited.
+    expect(readConfigOverrides(forkParams)).toStrictEqual({
+      "sandbox_workspace_write.network_access": true,
+      "agents.max_concurrent_threads_per_session": 3,
+      "agents.max_depth": 1,
+    });
+  });
+
+  it("refuses a position that names no recorded boundary rather than forking the whole thread", async () => {
+    const harness = createHarness();
+    await createdSession(harness);
+
+    const result = await harness.driver.rollbackTo({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+      position: 0,
+    });
+
+    expect(result).toStrictEqual({
+      status: "degraded",
+      fallbackAction: "rewind-target-not-a-recorded-boundary",
+    });
+    // The refusal is LOCAL: a fork that omitted the boundary would rewind the
+    // whole thread, which is the one outcome a rollback must never report.
+    expect(harness.server.framesForMethod("thread/fork")).toHaveLength(0);
+  });
+});
+
+describe("CodexDriver resumeSession re-realization (T3.15 legs 4-5, CP-005-1)", () => {
+  it("re-sends posture and subagent caps on `thread/resume`", async () => {
+    // A resume is a FRESH SPAWN. Omitting the overrides would leave the resumed
+    // thread running under the provider's persisted config rather than the one
+    // its caller declared.
+    const harness = createHarness();
+    await resumedSessionWithTurns(harness, 1, {
+      executionPosture: WORKSPACE_POSTURE_WITH_NETWORK,
+      subagentPolicy: { enabled: true, maxConcurrent: 2, maxDepth: 1, definitions: [] },
+    });
+
+    const resumeParams = firstParamsFor(harness, "thread/resume");
+    expect(resumeParams["sandbox"]).toBe("workspace-write");
+    expect(readConfigOverrides(resumeParams)).toStrictEqual({
+      "sandbox_workspace_write.network_access": true,
+      "agents.max_concurrent_threads_per_session": 2,
+      "agents.max_depth": 1,
+    });
+  });
+});
+
+describe("CodexDriver session goals (T3.15 leg 2, native)", () => {
+  it("sends only the daemon-owned objective on `thread/goal/set`", async () => {
+    const harness = createHarness();
+    await createdSession(harness);
+    harness.server.on("thread/goal/set", () => ({ result: {} }));
+
+    const result = await harness.driver.setSessionGoal({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+      runId: RUN_ID,
+      goalText: "land the parity legs",
+    });
+
+    expect(result).toStrictEqual({ status: "applied" });
+    // `status` and `tokenBudget` are provider-side goal state this daemon does
+    // not own; sending either would make the driver a second author of them.
+    expect(firstParamsFor(harness, "thread/goal/set")).toStrictEqual({
+      threadId: THREAD_ID,
+      objective: "land the parity legs",
+    });
+  });
+
+  it("answers `applied` for a clear on a thread that carried no goal", async () => {
+    const harness = createHarness();
+    await createdSession(harness);
+    harness.server.on("thread/goal/clear", () => ({ result: { cleared: false } }));
+
+    expect(
+      await harness.driver.clearSessionGoal({
+        sessionId: SESSION_ID,
+        bindingId: "binding-abc",
+        runId: RUN_ID,
+      }),
+    ).toStrictEqual({
+      status: "applied",
+    });
+  });
+});
+
+describe("CodexDriver subagent caps (T3.15 leg 4)", () => {
+  it("disables subagents on the DEPTH axis, never with a zero concurrency cap", async () => {
+    // Verified against the pinned build: `agents.max_concurrent_threads_per_session: 0`
+    // is refused `-32600`, so a zero cap would fail every session that tried to
+    // disable subagents rather than disabling them.
+    const harness = createHarness();
+    harness.server.on("thread/start", () => threadStartResult());
+
+    await harness.driver.createSession({
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+      subagentPolicy: { enabled: false },
+    });
+
+    expect(readConfigOverrides(firstParamsFor(harness, "thread/start"))).toStrictEqual({
+      "agents.max_concurrent_threads_per_session": 1,
+      "agents.max_depth": 0,
+    });
+  });
+
+  it("routes an enabled policy below the provider floor to the same disabled encoding", async () => {
+    // Fail-closed rather than clamped UP: clamping would grant a subagent slot
+    // to a caller who asked for none.
+    const harness = createHarness();
+    harness.server.on("thread/start", () => threadStartResult());
+
+    await harness.driver.createSession({
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+      subagentPolicy: { enabled: true, maxConcurrent: 0, maxDepth: 3, definitions: [] },
+    });
+
+    expect(readConfigOverrides(firstParamsFor(harness, "thread/start"))).toStrictEqual({
+      "agents.max_concurrent_threads_per_session": 1,
+      "agents.max_depth": 0,
+    });
+  });
+
+  it("records every withheld subagent definition rather than dropping it", async () => {
+    const harness = createHarness();
+    harness.server.on("thread/start", () => threadStartResult());
+
+    await harness.driver.createSession({
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+      subagentPolicy: {
+        enabled: true,
+        maxConcurrent: 2,
+        maxDepth: 1,
+        definitions: [
+          { name: "reviewer", description: "reviews the diff" },
+          { name: "researcher", description: "researches the API" },
+        ],
+      },
+    });
+
+    const withheld = harness.driverDiagnostics.recentRecordsOfKind("subagent_definition_disabled");
+    expect(withheld).toHaveLength(2);
+    expect(withheld.map((record) => record.details["definitionName"])).toStrictEqual([
+      "reviewer",
+      "researcher",
+    ]);
+  });
+});
+
+describe("CodexDriver posture realization (T3.15 leg 5)", () => {
+  it("records a divergence when the provider's readback narrows the requested axis", async () => {
+    // The config table FAILS OPEN — an unrecognized key is accepted and ignored
+    // — so a leg that silently stopped applying looks exactly like one that
+    // applied a denial. The readback is the only place that is checkable.
+    const harness = createHarness();
+    harness.server.on("thread/start", () => ({
+      result: {
+        thread: { id: THREAD_ID, sessionId: "session-tree-1", turns: [] },
+        sandbox: { networkAccess: false },
+      },
+    }));
+
+    await harness.driver.createSession({
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+      executionPosture: WORKSPACE_POSTURE_WITH_NETWORK,
+    });
+
+    const diverged = harness.diagnostics.filter(
+      (diagnostic) => diagnostic.kind === "posture-realization-diverged",
+    );
+    expect(diverged).toHaveLength(1);
+    expect(diverged[0]).toMatchObject({
+      requestedNetworkAccess: true,
+      realizedNetworkAccess: false,
+    });
+  });
+
+  it("stays silent when the readback matches the request", async () => {
+    const harness = createHarness();
+    harness.server.on("thread/start", () => ({
+      result: {
+        thread: { id: THREAD_ID, sessionId: "session-tree-1", turns: [] },
+        sandbox: { networkAccess: true },
+      },
+    }));
+
+    await harness.driver.createSession({
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+      executionPosture: WORKSPACE_POSTURE_WITH_NETWORK,
+    });
+
+    expect(
+      harness.diagnostics.filter(
+        (diagnostic) => diagnostic.kind === "posture-realization-diverged",
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("reports no divergence on the arm that cannot express the axis at thread scope", () => {
+    // `read-only` realizes network-denied whatever the request, so reporting it
+    // would be reporting the design. The turn-level `sandboxPolicy` is that
+    // arm's expression of the axis, and every run supplies it.
+    expect(
+      describeCodexPostureDivergence(
+        {
+          mode: "readonly-sandboxed",
+          credentialPolicyRef: "policy://default",
+          networkAccess: "full",
+          writableRoots: [],
+        },
+        { networkAccess: false },
+      ),
+    ).toBeNull();
+  });
+
+  it("reports a realization WIDER than the request as well as a narrower one", () => {
+    expect(
+      describeCodexPostureDivergence(
+        {
+          mode: "workspace-sandboxed",
+          credentialPolicyRef: "policy://default",
+          networkAccess: "none",
+          writableRoots: [],
+        },
+        { networkAccess: true },
+      ),
+    ).toStrictEqual({ requestedNetworkAccess: false, realizedNetworkAccess: true });
+  });
+});
+
+describe("CodexDriver callback-tool withholding (T3.15 leg 3, Codex arm)", () => {
+  it("withholds the registry and records it on BOTH diagnostic sinks", async () => {
+    const harness = createHarness();
+    harness.server.on("thread/start", () => threadStartResult());
+
+    await harness.driver.createSession({
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+      callbackTools: [{ name: "search", description: "search", inputSchema: { type: "object" } }],
+    });
+
+    // `dynamicTools` is experimental-generation-only at the pin and this driver
+    // negotiates `experimentalApi: false`, so the registration is unreachable.
+    expect(
+      harness.diagnostics.filter((diagnostic) => diagnostic.kind === "callback-tools-withheld"),
+    ).toHaveLength(1);
+    const censused = harness.driverDiagnostics.recentRecordsOfKind(
+      "callback_tool_registry_withheld",
+    );
+    expect(censused).toHaveLength(1);
+    expect(censused[0]?.details["reason"]).toBe("provider-registration-unavailable");
+    // A counter row naming no session cannot answer "why did MY tools stop
+    // appearing" on a daemon running more than one.
+    expect(censused[0]?.details["sessionId"]).toBe(SESSION_ID);
+  });
+});
+
+describe("Codex server-request routing census (T3.15 `driver_ask` reachability)", () => {
+  it("routes the seven reachable ask methods and no others", () => {
+    expect([...CODEX_ROUTED_SERVER_REQUEST_METHODS].sort()).toStrictEqual([
+      "applyPatchApproval",
+      "execCommandApproval",
+      "item/commandExecution/requestApproval",
+      "item/fileChange/requestApproval",
+      "item/permissions/requestApproval",
+      "item/tool/call",
+      "mcpServer/elicitation/request",
+    ]);
+  });
+
+  it("leaves `item/tool/requestUserInput` unrouted and asserted gated instead", () => {
+    // Asserted unreachable off the normalizer's own negotiation census rather
+    // than given a handler that could never run at `experimentalApi: false`.
+    expect(CODEX_ROUTED_SERVER_REQUEST_METHODS).not.toContain("item/tool/requestUserInput");
+    expect(CODEX_NEGOTIATION_GATED_METHODS).toContain("item/tool/requestUserInput");
+  });
+});
+
+describe("CodexDriver realtime suppression (T3.15 leg 7)", () => {
+  it("opts out of every censused realtime method in the `initialize` frame it actually sends", async () => {
+    // Read off the frame the provider RECEIVED, not off the exported constant:
+    // asserting the constant against itself would pass with the negotiation leg
+    // deleted.
+    const harness = createHarness();
+    await createdSession(harness);
+
+    const capabilities = firstParamsFor(harness, "initialize")["capabilities"];
+    const optOut = (capabilities as Record<string, unknown>)["optOutNotificationMethods"];
+    expect(optOut).toStrictEqual([
+      "thread/realtime/started",
+      "thread/realtime/closed",
+      "thread/realtime/error",
+      "thread/realtime/itemAdded",
+      "thread/realtime/sdp",
+      "thread/realtime/outputAudio/delta",
+      "thread/realtime/transcript/delta",
+      "thread/realtime/transcript/done",
+    ]);
+  });
+});
+
+describe("CodexDriver transport construction (T3.15 leg 6)", () => {
+  const websocketTransportConfig = {
+    transport: "websocket" as const,
+    endpoint: "wss://codex.internal/app-server",
+    bearerTokenRef: "keyring://codex/app-server",
+  };
+
+  function buildDriverOptions(): ConstructorParameters<typeof CodexDriver>[0] {
+    return {
+      ptyHost: new FakeCodexAppServer(),
+      diagnostics: makeSilentDriverDiagnostics(),
+      subscribeToPtySession: () => () => undefined,
+      reportDiagnostic: () => undefined,
+      scheduleTimeout: makeManualScheduler().schedule,
+      executablePath: EXECUTABLE_PATH,
+      resumeSpawnConfig: RESUME_SPAWN_CONFIG,
+      newBindingId: () => "binding-abc",
+      readCapabilities: () => makeCapabilities(true),
+    };
+  }
+
+  it("refuses construction when a websocket transport has no bearer resolver", () => {
+    // The refusal is at CONSTRUCTION, not at the first session: a registry that
+    // accepted this would report a healthy driver for the whole interval before
+    // a participant started a run.
+    expect(
+      () => new CodexDriver({ ...buildDriverOptions(), transportConfig: websocketTransportConfig }),
+    ).toThrow(CodexDriverConfigError);
+  });
+
+  it("refuses construction when a websocket transport has no connector", () => {
+    expect(
+      () =>
+        new CodexDriver({
+          ...buildDriverOptions(),
+          transportConfig: websocketTransportConfig,
+          resolveBearerCredential: async (): Promise<CodexWebsocketBearerCredential> =>
+            await Promise.resolve({
+              mode: "capability-token",
+              tokenFilePath: "/run/codex/ws.token",
+            }),
+        }),
+    ).toThrow(CodexDriverConfigError);
+  });
+
+  it("defaults to stdio when no transport is configured", () => {
+    const driver = new CodexDriver(buildDriverOptions());
+    expect(driver.transportSelection.transport).toBe("stdio");
+  });
+
+  it("resolves the bearer ref at connection time, once per connection, never at construction", async () => {
+    // REF-NOT-VALUE, and the half of it construction-refusal tests cannot
+    // reach: the ref is carried as a locator and exchanged for a credential
+    // when a connection is actually opened. A resolver called at construction
+    // — or called once and cached — would pin one credential for the driver's
+    // whole lifetime, so a rotation would be picked up by nothing and every
+    // later connection would present a secret the issuer has already retired.
+    const resolvedRefs: string[] = [];
+    const server = new FakeCodexAppServer();
+    server.on("initialize", () => ({ result: { userAgent: "codex-driver/0.149.1" } }));
+    server.on("getAuthStatus", () => ({ result: { authMethod: "chatgpt", authToken: null } }));
+    server.on("thread/start", () => threadStartResult());
+    const connectedEndpoints: string[] = [];
+    const driver = new CodexDriver({
+      ...buildDriverOptions(),
+      ptyHost: server,
+      subscribeToPtySession: (ptySessionId, listeners) => server.subscribe(ptySessionId, listeners),
+      transportConfig: websocketTransportConfig,
+      resolveBearerCredential: async (bearerTokenRef): Promise<CodexWebsocketBearerCredential> => {
+        resolvedRefs.push(bearerTokenRef);
+        return await Promise.resolve({
+          mode: "capability-token",
+          tokenFilePath: "/run/codex/ws.token",
+        });
+      },
+      websocketConnector: {
+        connect: async (request): Promise<void> => {
+          connectedEndpoints.push(request.endpoint);
+          await Promise.resolve();
+        },
+      },
+    });
+
+    // Constructed, not yet connected: nothing has asked the keyring anything.
+    expect(resolvedRefs).toStrictEqual([]);
+
+    await driver.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    expect(resolvedRefs).toStrictEqual([websocketTransportConfig.bearerTokenRef]);
+
+    // A SECOND connection re-resolves rather than reusing the first answer.
+    await driver.createSession({
+      sessionId: "22222222-2222-4222-8222-222222222222" as SessionId,
+      config: SESSION_CONFIG,
+    });
+    expect(resolvedRefs).toStrictEqual([
+      websocketTransportConfig.bearerTokenRef,
+      websocketTransportConfig.bearerTokenRef,
+    ]);
+    expect(connectedEndpoints).toStrictEqual([
+      websocketTransportConfig.endpoint,
+      websocketTransportConfig.endpoint,
+    ]);
+  });
+});
+
+// --------------------------------------------------------------------------
+// T3.15 R3 — routed server requests reach the daemon, and every path answers.
+// --------------------------------------------------------------------------
+//
+// Spec coverage under test:
+//   `Spec-012 §Required Behavior` — every tool invocation and approval ask is
+//     adjudicated. A responder that is absent, refuses, or throws all answer
+//     the method's own REFUSAL shape: never `-32601` (a protocol error where a
+//     decision was asked for), never an allow, and never silence.
+//   `Spec-005 §Required Behavior` — an unrouted method+id frame still answers,
+//     so no provider turn hangs on a method this pin never saw.
+
+interface RoutedAskHarness {
+  readonly harness: Harness;
+  readonly askProvider: (method: string, params?: unknown) => Promise<Record<string, unknown>>;
+}
+
+async function routedAskHarness(
+  responder: CodexSessionServerRequestResponder | undefined,
+): Promise<RoutedAskHarness> {
+  const server = new FakeCodexAppServer();
+  server.on("initialize", () => ({ result: { userAgent: "codex-driver/0.149.1" } }));
+  server.on("getAuthStatus", () => ({ result: { authMethod: "chatgpt", authToken: null } }));
+  server.on("thread/start", () => threadStartResult());
+  const scheduler = makeManualScheduler();
+  const driverDiagnostics = makeSilentDriverDiagnostics();
+  const diagnostics: CodexTransportDiagnostic[] = [];
+  const driver = new CodexDriver({
+    ptyHost: server,
+    diagnostics: driverDiagnostics,
+    subscribeToPtySession: (ptySessionId, listeners) => server.subscribe(ptySessionId, listeners),
+    reportDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+    scheduleTimeout: scheduler.schedule,
+    executablePath: EXECUTABLE_PATH,
+    resumeSpawnConfig: RESUME_SPAWN_CONFIG,
+    newBindingId: () => "binding-abc",
+    readCapabilities: () => makeCapabilities(true),
+    ...(responder === undefined ? {} : { answerServerRequest: responder }),
+  });
+  await driver.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+  const harness: Harness = { server, driver, diagnostics, driverDiagnostics, scheduler };
+
+  let nextAskId = 9000;
+  const askProvider = async (
+    method: string,
+    params: unknown = {},
+  ): Promise<Record<string, unknown>> => {
+    const askId = (nextAskId += 1);
+    const before = server.writtenLines.length;
+    server.onData(
+      "pty-session-1",
+      new TextEncoder().encode(
+        `${JSON.stringify({ jsonrpc: "2.0", id: askId, method, params })}\r\n`,
+      ),
+    );
+    await drainMicrotasks();
+    for (const line of server.writtenLines.slice(before)) {
+      const frame = JSON.parse(line) as Record<string, unknown>;
+      if (frame["id"] === askId) {
+        return frame;
+      }
+    }
+    throw new Error(`the driver never answered the ${method} ask`);
+  };
+  return { harness, askProvider };
+}
+
+describe("CodexAppServerConnection routed server requests (T3.15 R3)", () => {
+  it("answers an allowed `item/tool/call` with the provider's own success shape", async () => {
+    const { askProvider } = await routedAskHarness({
+      answer: async (): Promise<CodexServerRequestDecision> =>
+        await Promise.resolve({
+          decision: "allow",
+          payload: { contentItems: [{ type: "inputText", text: "ok" }] },
+        }),
+    });
+
+    const answer = await askProvider("item/tool/call", { toolName: "search", arguments: {} });
+
+    expect(answer["error"]).toBeUndefined();
+    expect(answer["result"]).toStrictEqual({
+      success: true,
+      contentItems: [{ type: "inputText", text: "ok" }],
+    });
+  });
+
+  it("answers a refused ask with the method's REFUSAL shape, never `-32601`", async () => {
+    const { askProvider } = await routedAskHarness({
+      answer: async (): Promise<CodexServerRequestDecision> =>
+        await Promise.resolve({ decision: "refuse", reason: "policy denied" }),
+    });
+
+    const answer = await askProvider("item/commandExecution/requestApproval");
+
+    // A `-32601` for an approval would be a protocol error where a DECISION was
+    // asked for; the provider must read a refusal it understands, in that
+    // method's OWN vocabulary.
+    expect(answer["error"]).toBeUndefined();
+    expect(answer["result"]).toStrictEqual({ decision: "decline" });
+  });
+
+  it("refuses each approval spelling in that method's own vocabulary", async () => {
+    // The refusal shapes are read from the pinned generation's response types,
+    // and they genuinely differ: a single shape reused across methods would be
+    // a protocol violation on whichever ones it did not fit.
+    const { askProvider } = await routedAskHarness({
+      answer: async (): Promise<CodexServerRequestDecision> =>
+        await Promise.resolve({ decision: "refuse", reason: "policy denied" }),
+    });
+
+    expect((await askProvider("execCommandApproval"))["result"]).toStrictEqual({
+      decision: { denied: { rejection: "policy denied" } },
+    });
+    expect((await askProvider("item/permissions/requestApproval"))["result"]).toStrictEqual({
+      permissions: {},
+      scope: "turn",
+    });
+    expect((await askProvider("mcpServer/elicitation/request"))["result"]).toStrictEqual({
+      action: "decline",
+    });
+  });
+
+  it("refuses when NO responder is registered rather than leaving the ask unanswered", async () => {
+    const { harness, askProvider } = await routedAskHarness(undefined);
+
+    const answer = await askProvider("item/tool/call");
+
+    expect((answer["result"] as Record<string, unknown>)["success"]).toBe(false);
+    expect(
+      harness.diagnostics.filter(
+        (diagnostic) => diagnostic.kind === "unrouted-server-request-refused",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("treats a THROWING responder as undecided, which is a refusal", async () => {
+    const { harness, askProvider } = await routedAskHarness({
+      answer: async (): Promise<CodexServerRequestDecision> => {
+        await Promise.resolve();
+        throw new Error("the approval pipeline is down");
+      },
+    });
+
+    const answer = await askProvider("item/fileChange/requestApproval");
+
+    // Never an allow, and never an unanswered frame.
+    expect(answer["result"]).toStrictEqual({ decision: "decline" });
+    expect(
+      harness.diagnostics.filter(
+        (diagnostic) => diagnostic.kind === "server-request-responder-failed",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("answers the legacy approval spelling the same way as the modern one", async () => {
+    // Routing the modern trio while leaving the legacy pair on `-32601` would
+    // make the daemon's answer depend on which spelling the provider chose for
+    // the same question.
+    const { askProvider } = await routedAskHarness({
+      answer: async (): Promise<CodexServerRequestDecision> =>
+        await Promise.resolve({ decision: "allow" }),
+    });
+
+    const legacy = await askProvider("execCommandApproval");
+    const modern = await askProvider("item/commandExecution/requestApproval");
+
+    expect(legacy["error"]).toBeUndefined();
+    expect(modern["error"]).toBeUndefined();
+  });
+
+  it("still answers `-32601` for a method the routing table does not name", async () => {
+    const { harness, askProvider } = await routedAskHarness({
+      answer: async (): Promise<CodexServerRequestDecision> =>
+        await Promise.resolve({ decision: "allow" }),
+    });
+
+    const answer = await askProvider("attestation/generate");
+
+    // Declined at negotiation, so `-32601` is the honest answer rather than a
+    // gap — and it is still an ANSWER, so the turn does not hang.
+    expect((answer["error"] as Record<string, unknown>)["code"]).toBe(-32601);
+    expect(
+      harness.diagnostics.filter((diagnostic) => diagnostic.kind === "unhandled-server-request"),
+    ).toHaveLength(1);
+  });
+});
+
+describe("composeCodexTransportArgv (T3.15 leg 6, the authenticated listener)", () => {
+  it("starts a websocket listener WITH bearer auth on every credential mode", () => {
+    const selection: CodexTransportSelection = {
+      transport: "websocket",
+      endpoint: "ws://127.0.0.1:8451",
+      // A REF to the credential, never the credential. It is resolved at
+      // connection time, so nothing here holds a secret value.
+      bearerTokenRef: "keyring://codex/ws",
+    };
+
+    expect(
+      composeCodexTransportArgv(selection, {
+        mode: "capability-token",
+        tokenFilePath: "/run/codex/ws.token",
+      }),
+    ).toStrictEqual([
+      "app-server",
+      "--listen",
+      "ws://127.0.0.1:8451",
+      "--ws-auth",
+      "capability-token",
+      "--ws-token-file",
+      "/run/codex/ws.token",
+    ]);
+    expect(
+      composeCodexTransportArgv(selection, {
+        mode: "capability-token-digest",
+        tokenSha256: "a".repeat(64),
+      }),
+    ).toStrictEqual([
+      "app-server",
+      "--listen",
+      "ws://127.0.0.1:8451",
+      "--ws-auth",
+      "capability-token",
+      "--ws-token-sha256",
+      "a".repeat(64),
+    ]);
+  });
+
+  it("refuses to compose an UNAUTHENTICATED websocket listener", () => {
+    // The whole point of the leg: a listener started without auth is reachable
+    // by anything that can open a socket to it.
+    expect(() =>
+      composeCodexTransportArgv(
+        {
+          transport: "websocket",
+          endpoint: "ws://127.0.0.1:8451",
+          bearerTokenRef: "keyring://codex/ws",
+        },
+        null,
+      ),
+    ).toThrow(CodexDriverConfigError);
+  });
+
+  it("bridges the unix arm through the provider's own proxy, needing no credential", () => {
+    expect(
+      composeCodexTransportArgv(
+        { transport: "unix-socket", socketPath: "/run/codex/app-server.sock" },
+        null,
+      ),
+    ).toStrictEqual(["app-server", "proxy", "--sock", "/run/codex/app-server.sock"]);
+  });
+
+  it("leaves the stdio default implicit rather than naming a flag spelling", () => {
+    expect(composeCodexTransportArgv({ transport: "stdio" }, null)).toStrictEqual(["app-server"]);
+  });
+});
+
+describe("resolveCodexTransportSelection (T3.15 leg 6)", () => {
+  it("normalizes a `unix://` endpoint off the scheme the provider prints", () => {
+    expect(
+      resolveCodexTransportSelection({
+        transport: "unix-socket",
+        endpoint: "unix:///run/codex/app-server.sock",
+      }),
+    ).toStrictEqual({ transport: "unix-socket", socketPath: "/run/codex/app-server.sock" });
+  });
+
+  it("carries a websocket endpoint VERBATIM rather than rewriting it", () => {
+    // Its host and port are the provider's to parse; a driver that rewrote them
+    // could reach an address the operator did not name.
+    expect(
+      resolveCodexTransportSelection({
+        transport: "websocket",
+        endpoint: "ws://127.0.0.1:8451/app",
+        bearerTokenRef: "keyring://codex/ws",
+      }),
+    ).toStrictEqual({
+      transport: "websocket",
+      endpoint: "ws://127.0.0.1:8451/app",
+      // Carried as a REF, never resolved here: the credential is read at
+      // connection time so a rotated one is picked up by the next connection
+      // rather than pinned for the driver's lifetime.
+      bearerTokenRef: "keyring://codex/ws",
+    });
+  });
+
+  it("defaults an absent config to stdio", () => {
+    expect(resolveCodexTransportSelection(undefined)).toStrictEqual({ transport: "stdio" });
   });
 });
