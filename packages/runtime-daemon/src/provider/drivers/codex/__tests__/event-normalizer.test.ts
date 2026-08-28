@@ -14,11 +14,15 @@
 // Fixture discipline: the two `__fixtures__/` modules are METHOD census
 // vectors derived from `docs/reference/provider-wire/codex.md` at pin
 // `codex-cli 0.149.1`. The reference reproduces no inbound PAYLOAD body
-// verbatim, so frames the reference does not census — the delta-family members
-// `turn/diff/updated` and `turn/plan/updated`, whose wire names come from the
-// pinned binary's own `codex app-server generate-json-schema` output at
-// codex-cli 0.149.1 — are exercised through typed constructors in this file
-// rather than through a manufactured golden file.
+// verbatim, so these are method vectors and never payload golden files. The
+// delta-family members `turn/diff/updated` and `turn/plan/updated` — whose
+// wire names come from the pinned binary's own `codex app-server
+// generate-json-schema` output at that pin — went uncensused by the reference
+// until 2026-08-28 and were reachable here only through typed constructors.
+// They are census rows now, so the fixture-driven `it.each` covers them; the
+// typed-constructor test is KEPT because it binds each literal to
+// `CodexInboundFrameMethod` at COMPILE time, which an `it.each` mapping census
+// rows to plain strings cannot do.
 
 import {
   EVENT_DISPOSITION_BY_KIND,
@@ -298,8 +302,7 @@ const EXPECTED_NORMALIZED_ROWS: ReadonlyMap<CodexInboundFrameMethod, ExpectedNor
     ],
     // `turn/diff/updated` | `turn/plan/updated` — disposition from the Plan-006
     // delta row, wire names from the binary's generator at codex-cli 0.149.1
-    // (the delta row itself carries truncated forms pending its correction).
-    // Not censused by codex.md, so typed constructors, no golden file.
+    // (the delta row carried truncated forms until its 2026-08-28 correction).
     [
       "turn/diff/updated",
       {
@@ -466,11 +469,14 @@ describe("Codex event normalizer — every fixture frame normalizes as expected"
   });
 
   it("normalizes the two corpus-described delta frames through typed constructors", () => {
-    // codex.md censuses neither name. Their DISPOSITION comes from
+    // Their DISPOSITION comes from
     // `Plan-006 §Event-Kind Disposition Table (surveyed-runtime normalized census)`'s Codex delta row and their WIRE
     // NAMES from the pinned binary's own generator output at codex-cli
-    // 0.149.1 (the delta row spells both truncated; its correction is queued).
-    // So they are exercised as typed values, not as manufactured golden files.
+    // 0.149.1 (the delta row carried both truncated until 2026-08-28).
+    // Exercised as typed values here on top of the census coverage above: the
+    // annotation binds each literal to `CodexInboundFrameMethod` at compile
+    // time, so dropping a member from the union fails to BUILD rather than
+    // failing a string lookup at run time.
     const diffFrame: CodexInboundFrameMethod = "turn/diff/updated";
     const planFrame: CodexInboundFrameMethod = "turn/plan/updated";
 
@@ -986,18 +992,19 @@ describe("Codex event normalizer — negotiation-gated methods are declared, not
 // --------------------------------------------------------------------------
 
 describe("Codex event normalizer — the truncated delta names stay off the census", () => {
-  it("refuses the Plan-006 delta row's truncated wire names", () => {
+  it("refuses the truncated wire names the Plan-006 delta row once carried", () => {
     // `Plan-006 §Event-Kind Disposition Table (surveyed-runtime normalized census)`
-    // spells this family "`turn/diff` | `turn/plan` | `turn/moderationMetadata`".
-    // Regenerating the protocol schema from the
+    // spelled this family "`turn/diff` | `turn/plan` | `turn/moderationMetadata`"
+    // until its 2026-08-28 correction. Regenerating the protocol schema from the
     // pinned binary (`codex app-server generate-json-schema` at codex-cli
     // 0.149.1) emits `turn/diff/updated` and `turn/plan/updated`; the bare
     // forms appear nowhere in its 75-arm `ServerNotification` root.
     //
-    // This guard exists because the doc correction is queued but not landed:
-    // until it lands, the delta table remains a live invitation to "restore"
-    // the truncated names. Doing so must fail here rather than silently route
-    // real frames to the unknown seam.
+    // The guard OUTLIVES the correction it was written against. The truncated
+    // spellings are the intuitive ones, they survive in older revisions of this
+    // corpus, and they are one keystroke from the real ones — so "restoring"
+    // either must fail here rather than silently route real frames to the
+    // unknown seam.
     for (const truncatedName of ["turn/diff", "turn/plan"]) {
       expect(CODEX_INBOUND_FRAME_METHODS).not.toContain(truncatedName);
       expect(() => normalizeCodexInboundFrame(truncatedName)).toThrow(

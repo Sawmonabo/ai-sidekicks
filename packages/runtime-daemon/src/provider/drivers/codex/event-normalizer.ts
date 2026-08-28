@@ -277,20 +277,21 @@ export type CodexInboundFrameMethod =
   // settled by `Plan-006 §Event-Kind Disposition Table (surveyed-runtime normalized census)`
   // but whose WIRE NAMES are taken from the binary.
   //
-  // The Plan-006 delta row spells this family "`turn/diff` | `turn/plan` |
-  // `turn/moderationMetadata`". Two of those three names do not exist on the
-  // wire: regenerating the protocol schema from the pinned binary itself
+  // The Plan-006 delta row spelled this family "`turn/diff` | `turn/plan` |
+  // `turn/moderationMetadata`", and two of those three names do not exist on
+  // the wire: regenerating the protocol schema from the pinned binary itself
   // (`codex app-server generate-json-schema --out <dir>` at codex-cli
   // 0.149.1) emits `turn/diff/updated` and `turn/plan/updated`. Only
   // `turn/moderationMetadata` is genuinely bare, and it is mapped above with
   // the other gated notifications. The generator output is canonical over
   // prose under the regenerate-don't-transcribe rule, so the generated names
-  // are used here; the Plan-006 delta-table row still carries the truncated
-  // forms and its correction is queued separately.
+  // were used here from the start; the Plan-006 delta-table row was corrected
+  // to match on 2026-08-28, so doc and code now agree.
   //
-  // NOT carried in `__fixtures__/`: a golden vector must be derivable from the
-  // version-pinned reference doc, and the committed codex.md censuses neither
-  // name (that reference-doc gap is queued with the Plan-006 correction).
+  // Carried in `__fixtures__/` since that same 2026-08-28 pass: a golden
+  // vector must be derivable from the version-pinned reference doc, and
+  // `codex.md §Adjacent currency facts` now censuses both names by hand of the
+  // same generation — which is exactly what had kept them out before.
   | "turn/diff/updated"
   | "turn/plan/updated";
 
@@ -975,16 +976,16 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
 
   // ------------------------------------------------------------------
   // Delta-family members whose disposition Plan-006 settles and whose wire
-  // names come from the pinned binary's generator. No golden fixture is
-  // minted for these two (see header).
+  // names come from the pinned binary's generator; censused in `__fixtures__/`
+  // since 2026-08-28 (see header).
   // ------------------------------------------------------------------
 
   // Wire name from the binary's own `codex app-server generate-json-schema`
-  // output at codex-cli 0.149.1; the Plan-006 delta-table row carries the
-  // truncated `turn/diff` pending its queued correction.
+  // output at codex-cli 0.149.1; the Plan-006 delta-table row carried the
+  // truncated `turn/diff` until its 2026-08-28 correction.
   //
-  // Disposition from that same delta row: "`turn/diff` ... -> `diff` ->
-  // persisted (32)". Row 32 puts the `diff` census kind in `tool_activity` /
+  // Disposition from that same delta row: "`diff` -> persisted (32)".
+  // Row 32 puts the `diff` census kind in `tool_activity` /
   // `tool.result` — NOT in `artifact_publication`. That is the corpus's call
   // and it is followed here verbatim. Full grounding in this module's header:
   // "Why `artifact_publication` is reachable from no Codex frame".
@@ -997,8 +998,8 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     normalizedKind: "diff",
   },
   // Wire name from the binary's own `codex app-server generate-json-schema`
-  // output at codex-cli 0.149.1; the Plan-006 delta-table row carries the
-  // truncated `turn/plan` pending its queued correction.
+  // output at codex-cli 0.149.1; the Plan-006 delta-table row carried the
+  // truncated `turn/plan` until its 2026-08-28 correction.
   //
   // Disposition from that same delta row: "`plan` -> `proposed_plan` (35)";
   // row 35 puts `proposed_plan` in `assistant_output` / `assistant.message`.
