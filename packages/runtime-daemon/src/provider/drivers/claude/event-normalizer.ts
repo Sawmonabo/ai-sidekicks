@@ -82,8 +82,11 @@
 //   - `SubagentStart` / `SubagentStop`. Plan-005 T3.11 claims them by name
 //     ("Claude `SubagentStart` / `SubagentStop` normalize into
 //     `subagent.started` / `subagent.completed` ... carrying
-//     `parent_tool_use_id` copied verbatim"), so they land in PR-B beside the
-//     reorder buffer that pairs them, not here.
+//     `parent_tool_use_id` copied verbatim"), and T3.11 landed them in this
+//     file as the dedicated subagent-lifecycle band below
+//     ({@link normalizeClaudeSubagentLifecycle}) rather than as census rows:
+//     the census carries only reference-recorded kinds, and these two are
+//     recorded by the plan row, not by claude.md.
 //   - The four adjacent stream subtypes claude.md records at the pin but no
 //     disposition table covers: `command_lifecycle`, `queued_notification`,
 //     `model_refusal_fallback`, `model_refusal_no_fallback`. All four are
@@ -128,11 +131,15 @@
 // `docs/reference/provider-wire/claude.md`, `Plan-006 §Event-Kind Disposition Table (surveyed-runtime normalized census)`.
 
 import {
+  EVENT_DISPOSITION_BY_KIND,
   SESSION_EVENT_TYPES,
   type EventCategory,
   type NormalizedEventKind,
   type SessionEventType,
 } from "@ai-sidekicks/contracts";
+
+import type { DriverDiagnosticRecord, DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
+import type { ChildThreadAnnouncement, ThreadFrameFamilyClass } from "../../thread-frame-router.js";
 
 // --------------------------------------------------------------------------
 // The wire channel a frame arrives on.
@@ -881,13 +888,14 @@ export function composeClaudeWireFrameKind(frameType: string, subtype: string | 
 }
 
 /**
- * The single seam Plan-005 T3.11 (PR-B) replaces.
+ * The bare resolver's refusal for a kind outside the census.
  *
- * Today it refuses loudly. T3.11 re-points this one function at the typed
- * daemon-diagnostic default branch (`DriverDiagnosticRecord`
- * `{ provider, rawWireType, dispositionReason }` onto `driver-diagnostics.ts`)
- * without touching the resolver above it. Kept as a named function precisely
- * so that swap is an edit to one body rather than a restructure of a dispatch.
+ * T3.11 landed the daemon-diagnostic default branch as
+ * {@link resolveClaudeFrameEmissionRoute} below — the driver core's entry
+ * point, which converts this refusal into a typed `DriverDiagnosticRecord`
+ * onto `driver-diagnostics.ts` and never throws. THIS function remains the
+ * bare resolver's contract for direct misuse: a caller that bypasses the
+ * diagnostic-aware route must still fail loudly rather than silently.
  */
 function refuseUnmappedClaudeWireFrame(frameKind: string): never {
   throw new UnknownClaudeWireFrameError(frameKind);
@@ -1031,7 +1039,7 @@ export const CLAUDE_FAMILY_REACHABILITY: readonly ClaudeFamilyReachability[] = O
       "command_output",
     ] as const),
     shortfallReason:
-      "same unobservable `assistant` / `user` message frames as `assistant_output`; the Claude plugin delta family is dispositioned into this category by `Plan-006 §Event-Kind Disposition Table (surveyed-runtime normalized census)` but claude.md records no wire string for any plugin frame, so no row can name one. The two Claude subagent-lifecycle kinds that WOULD land here (`SubagentStart` / `SubagentStop` -> `subagent.started` / `subagent.completed`) are claimed by name by Plan-005 T3.11, so they arrive in PR-B beside the reorder buffer that pairs them",
+      "same unobservable `assistant` / `user` message frames as `assistant_output`; the Claude plugin delta family is dispositioned into this category by `Plan-006 §Event-Kind Disposition Table (surveyed-runtime normalized census)` but claude.md records no wire string for any plugin frame, so no row can name one. The two Claude subagent-lifecycle kinds that DO land here (`SubagentStart` / `SubagentStop` -> `subagent.started` / `subagent.completed`) arrive through the T3.11 subagent-lifecycle band (`normalizeClaudeSubagentLifecycle`) rather than through this census, whose rows carry only reference-recorded kinds",
   }),
   Object.freeze({
     family: "artifact_publication",
@@ -1041,3 +1049,225 @@ export const CLAUDE_FAMILY_REACHABILITY: readonly ClaudeFamilyReachability[] = O
       "no census kind targets this family at all, for either provider. The two kinds carrying a file-change capability, `diff` (row 32) and `command_output` (row 33), are both routed to `tool_activity` / `tool.result`, and the `files_persisted` discard reason states that the capability is carried by those rows plus `artifact_publication` — i.e. publication is reached by the daemon's own artifact surface (Plan-014), never by a provider frame crossing this seam. There are no unreached census kinds here because there are no candidate kinds",
   }),
 ]);
+
+// --------------------------------------------------------------------------
+// T3.11 — the daemon-diagnostic default branch (P0-1).
+// --------------------------------------------------------------------------
+
+/** The census-mapped emission answer, or the frame's routed diagnostic. */
+export type ClaudeFrameEmissionRoute =
+  | { readonly route: "emit"; readonly normalization: ClaudeNormalizedFamilyEmission }
+  | { readonly route: "not-evented"; readonly normalization: ClaudeNotEventedFrameDisposition }
+  | { readonly route: "diagnostic"; readonly record: DriverDiagnosticRecord };
+
+/**
+ * The T3.11 P0-1 default branch — the driver core's entry point onto this
+ * table. Total over EVERY composed frame kind and never throws: a kind
+ * outside the pinned census, an interim `typePending` kind whose literal has
+ * not landed, and a censused kind whose target has no registered payload
+ * variant all route to a typed `DriverDiagnosticRecord` emitted through the
+ * injected `driver-diagnostics.ts` surface — never a `session_events`
+ * envelope and never a silent drop. `EVENT_DISPOSITION_BY_KIND` is the single
+ * disposition source consulted for the interim-`typePending` verdict (the
+ * Plan-006 T1.8 interim-disposition seam).
+ */
+export function resolveClaudeFrameEmissionRoute(
+  frameKind: string,
+  diagnostics: DriverDiagnosticsEmitter,
+): ClaudeFrameEmissionRoute {
+  const normalization = CLAUDE_FRAME_NORMALIZATION_BY_KIND.get(frameKind as ClaudeWireFrameKind);
+  if (normalization === undefined) {
+    const record: DriverDiagnosticRecord = {
+      provider: "claude",
+      kind: "unmapped_wire_kind",
+      rawWireType: frameKind,
+      dispositionReason:
+        "wire kind outside the pinned Claude inbound census; routed to the daemon diagnostic default branch per Plan-005 T3.11 P0-1, never silently dropped and never forced into an envelope",
+      details: {},
+    };
+    diagnostics.emit(record);
+    return { route: "diagnostic", record };
+  }
+  if (normalization.disposition === "not-evented") {
+    return { route: "not-evented", normalization };
+  }
+  if (normalization.normalizedKind !== null) {
+    const registryDisposition = EVENT_DISPOSITION_BY_KIND.get(normalization.normalizedKind);
+    if (registryDisposition !== undefined && registryDisposition.typePending !== undefined) {
+      const record: DriverDiagnosticRecord = {
+        provider: "claude",
+        kind: "unmapped_wire_kind",
+        rawWireType: frameKind,
+        dispositionReason:
+          "interim typePending kind whose SessionEventType literal has not landed; routed to the diagnostic branch until the census amendment lands its literal (Plan-006 T1.8 interim-disposition seam)",
+        details: { normalizedKind: normalization.normalizedKind },
+      };
+      diagnostics.emit(record);
+      return { route: "diagnostic", record };
+    }
+  }
+  if (normalization.emissionReadiness === "payload-variant-pending") {
+    const record: DriverDiagnosticRecord = {
+      provider: "claude",
+      kind: "payload_variant_pending",
+      rawWireType: frameKind,
+      dispositionReason:
+        "censused kind whose target SessionEventType has no registered SessionEventSchema payload variant; envelope construction forbidden by Plan-006 T1.10's flip-is-not-emission rule, so the frame routes to the diagnostic branch",
+      details: { eventType: normalization.eventType },
+    };
+    diagnostics.emit(record);
+    return { route: "diagnostic", record };
+  }
+  return { route: "emit", normalization };
+}
+
+// --------------------------------------------------------------------------
+// T3.11 — subagent-lifecycle normalization (NS-91 + the B10 subagent leg).
+// --------------------------------------------------------------------------
+
+/**
+ * The two Claude subagent-lifecycle signals, arriving in the PARENT's own
+ * stream with `parent_tool_use_id` on them. Deliberately outside the census
+ * union above: the census carries only kinds the version-pinned reference
+ * records, and claude.md §Gaps records the message-frame surface as
+ * unobservable without credentials — these two are claimed by name by
+ * Plan-005 T3.11 ("Claude `SubagentStart` / `SubagentStop` normalize into
+ * `subagent.started` / `subagent.completed` ... carrying `parent_tool_use_id`
+ * copied verbatim"), which is their corpus record.
+ */
+export const CLAUDE_SUBAGENT_START_SIGNAL = "SubagentStart";
+export const CLAUDE_SUBAGENT_STOP_SIGNAL = "SubagentStop";
+
+/** One Claude subagent-lifecycle signal, as the driver core read it. */
+export interface ClaudeSubagentLifecycleSignal {
+  readonly signal: "SubagentStart" | "SubagentStop";
+  /** The provider-attributed subagent identity, verbatim off the wire. */
+  readonly subagentId: string;
+  /** `parent_tool_use_id`, copied verbatim so the subagent tree pairs. */
+  readonly parentToolUseId: string | null;
+}
+
+/** The normalized subagent-lifecycle emission plus its router registration. */
+export interface ClaudeSubagentLifecycleNormalization {
+  readonly family: EventCategory;
+  readonly eventType: SessionEventType;
+  readonly subagentId: string;
+  readonly parentToolUseId: string | null;
+  /**
+   * The parent-linked announcement the thread-frame router registers a
+   * `SubagentStart` under — the arrival in the parent's OWN stream is the
+   * declared lineage, so the announcement names the session's own thread as
+   * parent. `null` for a `SubagentStop`, which completes an existing
+   * registration rather than creating one.
+   */
+  readonly announcement: ChildThreadAnnouncement | null;
+}
+
+/**
+ * Normalize one Claude subagent-lifecycle signal into its `subagent.started`
+ * / `subagent.completed` emission (`tool_activity`, provider-attributed,
+ * Spec-006 B1) and, for a start, the router announcement that registers the
+ * child ahead of the refusal rule. The subagent identity doubles as the child
+ * thread identity — Claude multiplexes children over the parent stream with
+ * no thread-id member, so the provider-attributed subagent id IS the child's
+ * identity axis.
+ */
+export function normalizeClaudeSubagentLifecycle(
+  lifecycleSignal: ClaudeSubagentLifecycleSignal,
+  sessionThreadId: string,
+): ClaudeSubagentLifecycleNormalization {
+  if (lifecycleSignal.signal === "SubagentStart") {
+    return Object.freeze({
+      family: "tool_activity",
+      eventType: "subagent.started",
+      subagentId: lifecycleSignal.subagentId,
+      parentToolUseId: lifecycleSignal.parentToolUseId,
+      announcement: Object.freeze({
+        childThreadId: lifecycleSignal.subagentId,
+        declaredParentThreadId: sessionThreadId,
+        subagentId: lifecycleSignal.subagentId,
+      }),
+    });
+  }
+  return Object.freeze({
+    family: "tool_activity",
+    eventType: "subagent.completed",
+    subagentId: lifecycleSignal.subagentId,
+    parentToolUseId: lifecycleSignal.parentToolUseId,
+    announcement: null,
+  });
+}
+
+// --------------------------------------------------------------------------
+// T3.11 — family classification for the thread-frame router (NS-91).
+// --------------------------------------------------------------------------
+
+/**
+ * Classify one Claude frame kind's FAMILY for the thread-frame router
+ * (`Spec-005 §Required Behavior`'s family-scoped routing rule). The censused
+ * connection- and account-scoped families — `system/api_retry` →
+ * `usage.api_retry`, `rate_limit_event` → `usage.rate_limit_update`, and the
+ * capability/initialization and control-channel frames — route without a
+ * thread identity, because their own shapes carry none; thread-scoped
+ * families demand one; an unlisted shape is `unknown`, never presumed
+ * connection-scoped.
+ */
+export function classifyClaudeFrameFamilyForRouting(frameKind: string): ThreadFrameFamilyClass {
+  switch (frameKind) {
+    // Connection- and account-scoped: retry / rate-limit / initialization
+    // frames (the pinned stream-surface census's connection-scoped class) and
+    // the control channel, which is a connection-level discipline in both
+    // directions.
+    case "system/api_retry":
+    case "system/api_error":
+    case "system/rate_limit_event":
+    case "system/init":
+    case "system/worker_shutting_down":
+    case "control_request/can_use_tool":
+    case "control_request/elicitation":
+    case "control_request/request_user_dialog":
+    case "control_request/hook_callback":
+    case "control_request/mcp_message":
+    case "control_request/mcp_set_servers":
+    case "control_request/interrupt":
+    case "control_request/set_permission_mode":
+    case "control_request/set_model":
+    case "control_request/get_usage":
+    case "control_request/get_context_usage":
+    case "control_request/get_session_cost":
+    case "control_request/list_models":
+    case "control_request/get_binary_version":
+    case "control_request/apply_flag_settings":
+    case "control_request/rewind_files":
+    case "control_response/success":
+    case "control_response/error":
+      return { scope: "connection" };
+    // Thread-scoped usage: the compaction marker rides the thread it compacts.
+    case "system/compact_boundary":
+      return { scope: "thread", capability: "usage" };
+    // Subagent lifecycle signals: thread-scoped lifecycle (the start is also
+    // the router's registration input via its parent-linked announcement).
+    case CLAUDE_SUBAGENT_START_SIGNAL:
+    case CLAUDE_SUBAGENT_STOP_SIGNAL:
+      return { scope: "thread", capability: "lifecycle" };
+    // Thread-scoped content: the stream-json result terminals and the
+    // remaining system-channel subtypes, all riding the session's own stream.
+    case "result/success":
+    case "result/error_max_turns":
+    case "result/error_max_budget_usd":
+    case "result/error_during_execution":
+    case "result/error_max_structured_output_retries":
+    case "system/hook_started":
+    case "system/hook_progress":
+    case "system/hook_response":
+    case "system/notification":
+    case "system/files_persisted":
+    case "system/tool_use_summary":
+    case "system/memory_recall":
+    case "system/local_command_output":
+    case "system/task_progress":
+      return { scope: "thread", capability: "content" };
+    default:
+      return { scope: "unknown" };
+  }
+}

@@ -20,6 +20,7 @@ import {
   NORMALIZED_EVENT_KINDS,
   SESSION_EVENT_CATEGORY_BY_TYPE,
   SESSION_EVENT_TYPES,
+  TOOL_ACTIVITY_EVENT_TYPES,
   type EventCategory,
   type NormalizedEventKind,
   type SessionEventType,
@@ -44,14 +45,20 @@ import {
   CLAUDE_RESULT_SUBTYPE_CARRYING_RESULT_FIELD,
   CLAUDE_WIRE_PIN_VERSION,
 } from "../__fixtures__/stream-surface-census.js";
+import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
 import {
   CLAUDE_FAMILY_REACHABILITY,
   CLAUDE_FRAME_NORMALIZATION_BY_KIND,
+  CLAUDE_SUBAGENT_START_SIGNAL,
+  CLAUDE_SUBAGENT_STOP_SIGNAL,
   CLAUDE_WIRE_FRAME_KINDS,
   UnknownClaudeWireFrameError,
+  classifyClaudeFrameFamilyForRouting,
   composeClaudeWireFrameKind,
+  normalizeClaudeSubagentLifecycle,
   normalizeClaudeWireFrame,
   resolveClaudeEmissionReadiness,
+  resolveClaudeFrameEmissionRoute,
   type ClaudeFrameNormalization,
   type ClaudeNormalizedFamilyEmission,
   type ClaudeWireFrameKind,
@@ -680,5 +687,140 @@ describe("family reachability ledger", () => {
     // contradicting the taxonomy.
     expect(EVENT_DISPOSITION_BY_KIND.get("diff")?.category).toBe("tool_activity");
     expect(EVENT_DISPOSITION_BY_KIND.get("command_output")?.category).toBe("tool_activity");
+  });
+});
+
+// --------------------------------------------------------------------------
+// T3.11 — emission routing, family classification, subagent lifecycle.
+// --------------------------------------------------------------------------
+
+describe("resolveClaudeFrameEmissionRoute (T3.11 P0-1)", () => {
+  function makeDiagnostics() {
+    return new DriverDiagnosticsEmitter({ logSink: { record: () => undefined } });
+  }
+
+  it("mirrors the mapping table's verdict for every censused kind — the route arm IS the row's disposition", () => {
+    const diagnostics = makeDiagnostics();
+    for (const frameKind of CLAUDE_WIRE_FRAME_KINDS) {
+      const row = CLAUDE_FRAME_NORMALIZATION_BY_KIND.get(frameKind);
+      const route = resolveClaudeFrameEmissionRoute(frameKind, diagnostics);
+      if (row?.disposition === "not-evented") {
+        expect(route.route, frameKind).toBe("not-evented");
+      } else if (row?.emissionReadiness === "payload-variant-pending") {
+        expect(route.route, frameKind).toBe("diagnostic");
+        if (route.route === "diagnostic") {
+          expect(route.record.kind, frameKind).toBe("payload_variant_pending");
+        }
+      } else {
+        expect(route.route, frameKind).toBe("emit");
+      }
+    }
+    // A censused kind never lands on the unmapped arm.
+    expect(diagnostics.recentRecordsOfKind("unmapped_wire_kind")).toHaveLength(0);
+  });
+
+  it("routes an unmapped kind to the diagnostic default branch — emitted, never thrown, never enveloped", () => {
+    const diagnostics = makeDiagnostics();
+    const route = resolveClaudeFrameEmissionRoute("system/unheard_of", diagnostics);
+    expect(route.route).toBe("diagnostic");
+    if (route.route === "diagnostic") {
+      expect(route.record.kind).toBe("unmapped_wire_kind");
+      expect(route.record.rawWireType).toBe("system/unheard_of");
+      expect(route.record.provider).toBe("claude");
+    }
+    expect(diagnostics.emittedRecordCount()).toBe(1);
+    // The bare resolver keeps its throwing contract for direct misuse; the
+    // diagnostic route is the driver-core entry point.
+    expect(() => normalizeClaudeWireFrame("system/unheard_of")).toThrow(
+      UnknownClaudeWireFrameError,
+    );
+  });
+});
+
+describe("classifyClaudeFrameFamilyForRouting (T3.11, NS-91)", () => {
+  it("classifies every censused kind plus the two lifecycle signals — none falls to unknown", () => {
+    const routableKinds = [
+      ...CLAUDE_WIRE_FRAME_KINDS,
+      CLAUDE_SUBAGENT_START_SIGNAL,
+      CLAUDE_SUBAGENT_STOP_SIGNAL,
+    ];
+    for (const frameKind of routableKinds) {
+      expect(classifyClaudeFrameFamilyForRouting(frameKind).scope, frameKind).not.toBe("unknown");
+    }
+  });
+
+  it("classifies the retry / rate-limit / init frames and the control channel connection-scoped — routable without a thread id", () => {
+    for (const connectionScopedKind of [
+      "system/api_retry",
+      "system/rate_limit_event",
+      "system/init",
+      "control_request/can_use_tool",
+      "control_response/success",
+    ]) {
+      expect(classifyClaudeFrameFamilyForRouting(connectionScopedKind)).toEqual({
+        scope: "connection",
+      });
+    }
+  });
+
+  it("classifies the compaction marker thread-scoped usage and the lifecycle signals thread-scoped lifecycle", () => {
+    expect(classifyClaudeFrameFamilyForRouting("system/compact_boundary")).toEqual({
+      scope: "thread",
+      capability: "usage",
+    });
+    for (const lifecycleSignal of [CLAUDE_SUBAGENT_START_SIGNAL, CLAUDE_SUBAGENT_STOP_SIGNAL]) {
+      expect(classifyClaudeFrameFamilyForRouting(lifecycleSignal)).toEqual({
+        scope: "thread",
+        capability: "lifecycle",
+      });
+    }
+  });
+
+  it("classifies an unlisted shape unknown — never presumed connection-scoped", () => {
+    expect(classifyClaudeFrameFamilyForRouting("novel/unheard_of")).toEqual({ scope: "unknown" });
+  });
+});
+
+describe("normalizeClaudeSubagentLifecycle (T3.11, NS-91 + B10)", () => {
+  it("normalizes SubagentStart into subagent.started with the parent-linked announcement", () => {
+    const normalization = normalizeClaudeSubagentLifecycle(
+      { signal: "SubagentStart", subagentId: "subagent-7", parentToolUseId: "toolu_01" },
+      "session-thread",
+    );
+    expect(normalization.family).toBe("tool_activity");
+    expect(normalization.eventType).toBe("subagent.started");
+    expect(normalization.parentToolUseId).toBe("toolu_01");
+    // The arrival in the parent's own stream IS the declared lineage, and the
+    // subagent id doubles as the child thread identity.
+    expect(normalization.announcement).toEqual({
+      childThreadId: "subagent-7",
+      declaredParentThreadId: "session-thread",
+      subagentId: "subagent-7",
+    });
+  });
+
+  it("normalizes SubagentStop into subagent.completed with no announcement", () => {
+    const normalization = normalizeClaudeSubagentLifecycle(
+      { signal: "SubagentStop", subagentId: "subagent-7", parentToolUseId: "toolu_01" },
+      "session-thread",
+    );
+    expect(normalization.eventType).toBe("subagent.completed");
+    expect(normalization.announcement).toBeNull();
+  });
+
+  it("both lifecycle emissions target registered tool_activity event types — the pair survives suppression", () => {
+    for (const [signal, expectedEventType] of [
+      ["SubagentStart", "subagent.started"],
+      ["SubagentStop", "subagent.completed"],
+    ] as const) {
+      const normalization = normalizeClaudeSubagentLifecycle(
+        { signal, subagentId: "subagent-7", parentToolUseId: null },
+        "session-thread",
+      );
+      expect(normalization.eventType).toBe(expectedEventType);
+      // Registered union members on the tool_activity roster — the child's
+      // only timeline presence, and it survives transcript suppression.
+      expect(TOOL_ACTIVITY_EVENT_TYPES).toContain(normalization.eventType);
+    }
   });
 });

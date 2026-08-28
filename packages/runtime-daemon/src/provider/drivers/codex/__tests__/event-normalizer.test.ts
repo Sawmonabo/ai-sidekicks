@@ -55,6 +55,15 @@ import {
   type CodexInboundFrameTransport,
   type CodexNormalizedFamilyEmission,
 } from "../event-normalizer.js";
+import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
+import {
+  classifyCodexFrameFamilyForRouting,
+  CODEX_SUBAGENT_ATTRIBUTED_THREAD_SOURCE_KINDS,
+  CODEX_THREAD_STARTED_METHOD,
+  CODEX_THREAD_TOKEN_USAGE_METHOD,
+  deriveCodexChildThreadAnnouncement,
+  resolveCodexFrameEmissionRoute,
+} from "../event-normalizer.js";
 import { CODEX_TOOL_NAMES } from "../tools.js";
 
 // --------------------------------------------------------------------------
@@ -1028,5 +1037,155 @@ describe("Codex event normalizer — the truncated delta names stay off the cens
     // consistency" with its two siblings would break a name that is correct.
     expect(CODEX_INBOUND_FRAME_METHODS).toContain("turn/moderationMetadata");
     expect(CODEX_INBOUND_FRAME_METHODS).not.toContain("turn/moderationMetadata/updated");
+  });
+});
+
+// --------------------------------------------------------------------------
+// T3.11 — emission routing, family classification, child announcements.
+// --------------------------------------------------------------------------
+
+describe("resolveCodexFrameEmissionRoute (T3.11 P0-1)", () => {
+  function makeDiagnostics() {
+    return new DriverDiagnosticsEmitter({ logSink: { record: () => undefined } });
+  }
+
+  it("mirrors the mapping table's verdict for every censused method — the route arm IS the row's disposition", () => {
+    const diagnostics = makeDiagnostics();
+    for (const method of CODEX_INBOUND_FRAME_METHODS) {
+      const row = CODEX_FRAME_NORMALIZATION_BY_METHOD.get(method);
+      const route = resolveCodexFrameEmissionRoute(method, diagnostics);
+      if (row?.disposition === "not-evented") {
+        expect(route.route, method).toBe("not-evented");
+      } else if (row?.emissionReadiness === "payload-variant-pending") {
+        expect(route.route, method).toBe("diagnostic");
+        if (route.route === "diagnostic") {
+          expect(route.record.kind, method).toBe("payload_variant_pending");
+        }
+      } else {
+        expect(route.route, method).toBe("emit");
+      }
+    }
+    // A censused method never lands on the unmapped arm.
+    expect(diagnostics.recentRecordsOfKind("unmapped_wire_kind")).toHaveLength(0);
+  });
+
+  it("routes an unmapped method to the diagnostic default branch — emitted, never thrown, never enveloped", () => {
+    const diagnostics = makeDiagnostics();
+    const route = resolveCodexFrameEmissionRoute("thread/unheard-of", diagnostics);
+    expect(route.route).toBe("diagnostic");
+    if (route.route === "diagnostic") {
+      expect(route.record.kind).toBe("unmapped_wire_kind");
+      expect(route.record.rawWireType).toBe("thread/unheard-of");
+      expect(route.record.provider).toBe("codex");
+    }
+    expect(diagnostics.emittedRecordCount()).toBe(1);
+    // The bare resolver keeps its throwing contract for direct misuse; the
+    // diagnostic route is the driver-core entry point.
+    expect(() => normalizeCodexInboundFrame("thread/unheard-of")).toThrow(
+      UnknownCodexInboundFrameError,
+    );
+  });
+});
+
+describe("classifyCodexFrameFamilyForRouting (T3.11, NS-91)", () => {
+  it("classifies every censused method plus the two router-band methods — none falls to unknown", () => {
+    const routableMethods = [
+      ...CODEX_INBOUND_FRAME_METHODS,
+      CODEX_THREAD_STARTED_METHOD,
+      CODEX_THREAD_TOKEN_USAGE_METHOD,
+    ];
+    for (const method of routableMethods) {
+      expect(classifyCodexFrameFamilyForRouting(method).scope, method).not.toBe("unknown");
+    }
+  });
+
+  it("classifies the account-plane and notice families connection-scoped", () => {
+    for (const connectionScopedMethod of [
+      "error",
+      "account/rateLimits/updated",
+      "account/chatgptAuthTokens/refresh",
+      "model/safetyBuffering/updated",
+      "project/changed",
+    ]) {
+      expect(classifyCodexFrameFamilyForRouting(connectionScopedMethod)).toEqual({
+        scope: "connection",
+      });
+    }
+  });
+
+  it("classifies the usage reading and the compaction marker thread-scoped usage", () => {
+    expect(classifyCodexFrameFamilyForRouting(CODEX_THREAD_TOKEN_USAGE_METHOD)).toEqual({
+      scope: "thread",
+      capability: "usage",
+    });
+    expect(classifyCodexFrameFamilyForRouting("thread/compacted")).toEqual({
+      scope: "thread",
+      capability: "usage",
+    });
+  });
+
+  it("classifies thread/started lifecycle and the approval asks interactive-request", () => {
+    expect(classifyCodexFrameFamilyForRouting(CODEX_THREAD_STARTED_METHOD)).toEqual({
+      scope: "thread",
+      capability: "lifecycle",
+    });
+    for (const interactiveMethod of [
+      "item/commandExecution/requestApproval",
+      "item/tool/requestUserInput",
+      "execCommandApproval",
+    ]) {
+      expect(classifyCodexFrameFamilyForRouting(interactiveMethod)).toEqual({
+        scope: "thread",
+        capability: "interactive-request",
+      });
+    }
+  });
+
+  it("classifies an unlisted shape unknown — the realtime family and novel methods are never presumed connection-scoped", () => {
+    for (const unlistedMethod of ["realtime/audioDelta", "novel/unheard-of"]) {
+      expect(classifyCodexFrameFamilyForRouting(unlistedMethod)).toEqual({ scope: "unknown" });
+    }
+  });
+});
+
+describe("deriveCodexChildThreadAnnouncement (T3.11, NS-91)", () => {
+  it("marks the subagent-attributed ThreadSourceKind arms with the child thread id as subagent identity", () => {
+    for (const threadSourceKind of CODEX_SUBAGENT_ATTRIBUTED_THREAD_SOURCE_KINDS) {
+      expect(
+        deriveCodexChildThreadAnnouncement({
+          threadId: "child-thread",
+          parentThreadId: "parent-thread",
+          threadSourceKind,
+        }),
+      ).toEqual({
+        childThreadId: "child-thread",
+        declaredParentThreadId: "parent-thread",
+        subagentId: "child-thread",
+      });
+    }
+  });
+
+  it("marks a compaction child provider-internal — spend attributes to the parent run", () => {
+    expect(
+      deriveCodexChildThreadAnnouncement({
+        threadId: "compaction-thread",
+        parentThreadId: "parent-thread",
+        threadSourceKind: "subAgentCompact",
+      }),
+    ).toEqual({
+      childThreadId: "compaction-thread",
+      declaredParentThreadId: "parent-thread",
+      subagentId: null,
+    });
+  });
+
+  it("carries an absent parent linkage verbatim — the router, not this helper, refuses it", () => {
+    expect(
+      deriveCodexChildThreadAnnouncement({
+        threadId: "child-thread",
+        parentThreadId: null,
+        threadSourceKind: "subAgent",
+      }).declaredParentThreadId,
+    ).toBeNull();
   });
 });

@@ -190,12 +190,15 @@
 // §Event-Kind Disposition Table.
 
 import {
+  EVENT_DISPOSITION_BY_KIND,
   SESSION_EVENT_TYPES,
   type EventCategory,
   type NormalizedEventKind,
   type SessionEventType,
 } from "@ai-sidekicks/contracts";
 
+import type { DriverDiagnosticRecord, DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
+import type { ChildThreadAnnouncement, ThreadFrameFamilyClass } from "../../thread-frame-router.js";
 import type { CodexToolName } from "./tools.js";
 
 // --------------------------------------------------------------------------
@@ -1074,13 +1077,14 @@ export const CODEX_FRAME_NORMALIZATION_BY_METHOD: ReadonlyMap<
 );
 
 /**
- * The single seam Plan-005 T3.11 (PR-B) replaces.
+ * The bare resolver's refusal for a method outside the census.
  *
- * Today it refuses loudly. T3.11 re-points this one function at the typed
- * daemon-diagnostic default branch (`DriverDiagnosticRecord`
- * `{ provider, rawWireType, dispositionReason }` onto `driver-diagnostics.ts`)
- * without touching the resolver above it. Kept as a named function precisely
- * so that swap is an edit to one body rather than a restructure of a dispatch.
+ * T3.11 landed the daemon-diagnostic default branch as
+ * {@link resolveCodexFrameEmissionRoute} below — the driver core's entry
+ * point, which converts this refusal into a typed `DriverDiagnosticRecord`
+ * onto `driver-diagnostics.ts` and never throws. THIS function remains the
+ * bare resolver's contract for direct misuse: a caller that bypasses the
+ * diagnostic-aware route must still fail loudly rather than silently.
  */
 function refuseUnmappedCodexInboundFrame(nativeMethod: string): never {
   throw new UnknownCodexInboundFrameError(nativeMethod);
@@ -1107,4 +1111,202 @@ export function normalizeCodexInboundFrame(nativeMethod: string): CodexFrameNorm
     refuseUnmappedCodexInboundFrame(nativeMethod);
   }
   return normalization;
+}
+
+// --------------------------------------------------------------------------
+// T3.11 — the daemon-diagnostic default branch (P0-1).
+// --------------------------------------------------------------------------
+
+/** The census-mapped emission answer, or the frame's routed diagnostic. */
+export type CodexFrameEmissionRoute =
+  | { readonly route: "emit"; readonly normalization: CodexNormalizedFamilyEmission }
+  | { readonly route: "not-evented"; readonly normalization: CodexNotEventedFrameDisposition }
+  | { readonly route: "diagnostic"; readonly record: DriverDiagnosticRecord };
+
+/**
+ * The T3.11 P0-1 default branch — the driver core's entry point onto this
+ * table. Total over EVERY method string and never throws: a method outside
+ * the pinned census, an interim `typePending` kind whose literal has not
+ * landed, and a censused kind whose target has no registered payload variant
+ * all route to a typed `DriverDiagnosticRecord` emitted through the injected
+ * `driver-diagnostics.ts` surface — never a `session_events` envelope and
+ * never a silent drop. `EVENT_DISPOSITION_BY_KIND` is the single disposition
+ * source consulted for the interim-`typePending` verdict (the Plan-006 T1.8
+ * interim-disposition seam).
+ */
+export function resolveCodexFrameEmissionRoute(
+  nativeMethod: string,
+  diagnostics: DriverDiagnosticsEmitter,
+): CodexFrameEmissionRoute {
+  const normalization = CODEX_FRAME_NORMALIZATION_BY_METHOD.get(
+    nativeMethod as CodexInboundFrameMethod,
+  );
+  if (normalization === undefined) {
+    const record: DriverDiagnosticRecord = {
+      provider: "codex",
+      kind: "unmapped_wire_kind",
+      rawWireType: nativeMethod,
+      dispositionReason:
+        "wire method outside the pinned Codex inbound census; routed to the daemon diagnostic default branch per Plan-005 T3.11 P0-1, never silently dropped and never forced into an envelope",
+      details: {},
+    };
+    diagnostics.emit(record);
+    return { route: "diagnostic", record };
+  }
+  if (normalization.disposition === "not-evented") {
+    return { route: "not-evented", normalization };
+  }
+  if (normalization.normalizedKind !== null) {
+    const registryDisposition = EVENT_DISPOSITION_BY_KIND.get(normalization.normalizedKind);
+    if (registryDisposition !== undefined && registryDisposition.typePending !== undefined) {
+      const record: DriverDiagnosticRecord = {
+        provider: "codex",
+        kind: "unmapped_wire_kind",
+        rawWireType: nativeMethod,
+        dispositionReason:
+          "interim typePending kind whose SessionEventType literal has not landed; routed to the diagnostic branch until the census amendment lands its literal (Plan-006 T1.8 interim-disposition seam)",
+        details: { normalizedKind: normalization.normalizedKind },
+      };
+      diagnostics.emit(record);
+      return { route: "diagnostic", record };
+    }
+  }
+  if (normalization.emissionReadiness === "payload-variant-pending") {
+    const record: DriverDiagnosticRecord = {
+      provider: "codex",
+      kind: "payload_variant_pending",
+      rawWireType: nativeMethod,
+      dispositionReason:
+        "censused kind whose target SessionEventType has no registered SessionEventSchema payload variant; envelope construction forbidden by Plan-006 T1.10's flip-is-not-emission rule, so the frame routes to the diagnostic branch",
+      details: { eventType: normalization.eventType },
+    };
+    diagnostics.emit(record);
+    return { route: "diagnostic", record };
+  }
+  return { route: "emit", normalization };
+}
+
+// --------------------------------------------------------------------------
+// T3.11 — family classification for the thread-frame router (NS-91).
+// --------------------------------------------------------------------------
+
+/**
+ * The two router-band wire names the census union deliberately does not
+ * carry. Both are recorded by the corpus — Plan-005 T3.11's routing and
+ * usage-delta legs name them verbatim, and `Spec-005 §References`' vendor
+ * -schema entry (codex-cli `0.150.1`, regenerated 2026-08-28) records their
+ * generated shapes (`ThreadStartedNotification` with `Thread.parentThreadId`;
+ * `ThreadTokenUsageUpdatedNotification` with required `threadId` / `turnId`)
+ * — but neither is dispositioned by the Plan-006 table into a family
+ * emission of its own: `thread/started` is the REGISTRATION INPUT to the
+ * thread-frame router, and `thread/tokenUsage/updated` is the READING the
+ * usage-delta accountant meters, each consumed at its own T3.11 band rather
+ * than projected through the mapping table above.
+ */
+export const CODEX_THREAD_STARTED_METHOD = "thread/started";
+export const CODEX_THREAD_TOKEN_USAGE_METHOD = "thread/tokenUsage/updated";
+
+/**
+ * The `ThreadSourceKind` arms that mark a provider-attributed SUBAGENT child
+ * (spend rides the (`runId`, `provider`, `subagentId`) triple), versus the
+ * provider-internal arm (`subAgentCompact` — a compaction thread) whose spend
+ * attributes to the parent run at run scope. Per the generated schema at
+ * codex-cli `0.150.1` (`Spec-005 §References`).
+ */
+export const CODEX_SUBAGENT_ATTRIBUTED_THREAD_SOURCE_KINDS: readonly string[] = Object.freeze([
+  "subAgent",
+  "subAgentReview",
+  "subAgentThreadSpawn",
+  "subAgentOther",
+]);
+
+/**
+ * Derive the router's `ChildThreadAnnouncement` from a Codex `thread/started`
+ * notification's identity members, verbatim off the wire. The child thread id
+ * doubles as the provider-attributed subagent identity on the subagent-
+ * attributed source kinds; a compaction child carries none, so its spend
+ * attributes to the parent run.
+ */
+export function deriveCodexChildThreadAnnouncement(threadStarted: {
+  readonly threadId: string;
+  readonly parentThreadId: string | null;
+  readonly threadSourceKind: string;
+}): ChildThreadAnnouncement {
+  const subagentAttributed = CODEX_SUBAGENT_ATTRIBUTED_THREAD_SOURCE_KINDS.includes(
+    threadStarted.threadSourceKind,
+  );
+  return {
+    childThreadId: threadStarted.threadId,
+    declaredParentThreadId: threadStarted.parentThreadId,
+    subagentId: subagentAttributed ? threadStarted.threadId : null,
+  };
+}
+
+/**
+ * Classify one Codex inbound method's FAMILY for the thread-frame router
+ * (`Spec-005 §Required Behavior`'s family-scoped routing rule). The census is
+ * the discriminator: connection- and account-scoped families route without a
+ * thread identity, thread-scoped families demand one, and an unlisted shape
+ * is `unknown` — never presumed connection-scoped.
+ */
+export function classifyCodexFrameFamilyForRouting(nativeMethod: string): ThreadFrameFamilyClass {
+  switch (nativeMethod) {
+    // Connection- and account-scoped: notices, account-plane quota, auth
+    // brokering, attestation, model-level capability signals — frames whose
+    // own shape carries no thread identity.
+    case "error":
+    case "warning":
+    case "configWarning":
+    case "deprecationNotice":
+    case "guardianWarning":
+    case "account/rateLimits/updated":
+    case "account/chatgptAuthTokens/refresh":
+    case "attestation/generate":
+    case "model/safetyBuffering/updated":
+      return { scope: "connection" };
+    // Thread-scoped usage: the cumulative token reading the accountant
+    // meters, and the thread-level compaction marker.
+    case CODEX_THREAD_TOKEN_USAGE_METHOD:
+    case "thread/compacted":
+      return { scope: "thread", capability: "usage" };
+    // Thread-scoped lifecycle: the thread-start announcement (the router's
+    // registration input).
+    case CODEX_THREAD_STARTED_METHOD:
+      return { scope: "thread", capability: "lifecycle" };
+    // Thread-scoped interactive requests: the approval / input / tool asks.
+    case "item/tool/call":
+    case "item/tool/requestUserInput":
+    case "mcpServer/elicitation/request":
+    case "item/commandExecution/requestApproval":
+    case "item/fileChange/requestApproval":
+    case "item/permissions/requestApproval":
+    case "execCommandApproval":
+    case "applyPatchApproval":
+      return { scope: "thread", capability: "interactive-request" };
+    // Thread-scoped content and thread-level bookkeeping.
+    case "thread/goal/updated":
+    case "thread/goal/cleared":
+    case "item/autoApprovalReview/started":
+    case "item/autoApprovalReview/completed":
+    case "process/outputDelta":
+    case "process/exited":
+    case "turn/moderationMetadata":
+    case "autoApprovalReview/strictReviewRequired":
+    case "thread/reverted":
+    case "thread/queue/changed":
+    case "thread/project/updated":
+    case "thread/environment/connected":
+    case "thread/environment/disconnected":
+    case "thread/settings/updated":
+    case "turn/diff/updated":
+    case "turn/plan/updated":
+      return { scope: "thread", capability: "content" };
+    // Project-level bookkeeping rides the connection, not a thread.
+    case "project/changed":
+      return { scope: "connection" };
+    default:
+      // The realtime family and anything the census does not list: unknown.
+      // Never presumed connection-scoped.
+      return { scope: "unknown" };
+  }
 }
