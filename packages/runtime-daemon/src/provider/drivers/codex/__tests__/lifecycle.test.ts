@@ -22,7 +22,7 @@
 // framing, correlation, deadline, and teardown code. Nothing in the module under
 // test is stubbed.
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   deriveMainChannelId,
@@ -30,12 +30,14 @@ import {
   DRIVER_FAILURE_DETAIL_MAX_LEN,
   type DriverCapabilities,
   type DriverCapabilityFlag,
+  type DriverResumeResult,
   type PtyHost,
   type PtySignal,
   type RunId,
   type SessionId,
   type SpawnRequest,
   type SpawnResponse,
+  type ApplyInterventionParams,
   type DrainResult,
 } from "@ai-sidekicks/contracts";
 
@@ -60,6 +62,7 @@ import {
   type CodexScheduleTimeout,
   type CodexSessionConfig,
   type CodexTransportDiagnostic,
+  CODEX_INTERVENTION_FALLBACK_ACTION,
 } from "../index.js";
 
 // --------------------------------------------------------------------------
@@ -438,6 +441,11 @@ function createHarness(
 ): Harness {
   const server = new FakeCodexAppServer();
   server.on("initialize", () => ({ result: { userAgent: "codex-driver/0.149.1" } }));
+  // Answered by default so the P3-3 resume-failure auth classification resolves:
+  // these tests run on a manual scheduler where its deadline would never fire,
+  // and a logged-in provider is the realistic baseline. Cases that care about
+  // the logged-out reading re-register this method.
+  server.on("getAuthStatus", () => ({ result: { authMethod: "chatgpt", authToken: null } }));
   const diagnostics: CodexTransportDiagnostic[] = [];
   const scheduler = makeManualScheduler();
   const driver = new CodexDriver({
@@ -524,6 +532,11 @@ function createManagerHarness(options: ManagerHarnessOptions = {}): ManagerHarne
   // Answered, because the manager's teardown awaits it and these tests run on a
   // manual scheduler where the courtesy deadline would never fire.
   server.on("thread/unsubscribe", () => ({ result: {} }));
+  // Answered by default so the P3-3 resume-failure auth classification resolves:
+  // these tests run on a manual scheduler where its deadline would never fire,
+  // and a logged-in provider is the realistic baseline. Cases that care about
+  // the logged-out reading re-register this method.
+  server.on("getAuthStatus", () => ({ result: { authMethod: "chatgpt", authToken: null } }));
   const diagnostics: CodexTransportDiagnostic[] = [];
   const notifications: Array<{ method: string; params: unknown }> = [];
   const scheduler = makeManualScheduler();
@@ -1042,6 +1055,9 @@ describe("CodexDriver resumeSession (I-005-5, Spec-005 §Fallback Behavior)", ()
     server.on("thread/resume", () => ({
       error: { code: -32600, message: "thread not found" },
     }));
+    // The typed refusal above admits the P3-3 classification, which asks this
+    // connection one question before the release under test happens.
+    server.on("getAuthStatus", () => ({ result: { authMethod: "chatgpt", authToken: null } }));
     const scheduler = makeManualScheduler();
     const driver = new CodexDriver({
       ptyHost: server,
@@ -1476,6 +1492,437 @@ describe("CodexDriver approval reviewer pinning", () => {
     for (const frame of turnFrames) {
       expect(frame["params"]).toMatchObject({ approvalsReviewer: "user" });
     }
+  });
+});
+
+// --------------------------------------------------------------------------
+// Zero-turn auth probe (P0-5) — `getAuthStatus` over a dedicated connection
+// --------------------------------------------------------------------------
+
+describe("CodexLifecycleManager probeAuth (T3.14 P0-5)", () => {
+  function probingHarness(answer: JsonRpcAnswer | undefined): ManagerHarness {
+    const harness = createManagerHarness();
+    if (answer !== undefined) {
+      harness.server.on("getAuthStatus", () => answer);
+    }
+    return harness;
+  }
+
+  it("never asks the provider to refresh, and never asks for the token", async () => {
+    const harness = probingHarness({ result: { authMethod: "chatgpt", authToken: null } });
+
+    await harness.manager.probeAuth();
+
+    // `refreshToken: false` is the load-bearing half: the pinned providers rotate
+    // refresh tokens single-use with no grace window, so a probe that refreshed
+    // would END the login it was checking rather than observe it. Both members
+    // are asserted PRESENT, not merely falsy — `GetAuthStatusParams` types them
+    // required-but-nullable, so omitting either leaves the behaviour to the
+    // provider's default.
+    expect(harness.server.framesForMethod("getAuthStatus")[0]?.["params"]).toEqual({
+      includeToken: false,
+      refreshToken: false,
+    });
+  });
+
+  it("reports authenticated and names the auth method, never the token", async () => {
+    const harness = probingHarness({
+      result: {
+        authMethod: "chatgpt",
+        authToken: "sk-should-never-be-read",
+        requiresOpenaiAuth: true,
+      },
+    });
+
+    const result = await harness.manager.probeAuth();
+
+    expect(result.status).toBe("authenticated");
+    expect(result.detail).toContain("chatgpt");
+    // `authMethod` is a closed mechanism enum and safe as diagnostics; the token
+    // is credential material this driver must never echo, anywhere.
+    expect(JSON.stringify(result)).not.toContain("sk-should-never-be-read");
+  });
+
+  it("reports unauthenticated when no auth method is resolved", async () => {
+    const harness = probingHarness({
+      result: { authMethod: null, authToken: null, requiresOpenaiAuth: true },
+    });
+
+    await expect(harness.manager.probeAuth()).resolves.toMatchObject({
+      status: "unauthenticated",
+    });
+  });
+
+  it("still refuses, but says so differently, when the provider needs no OpenAI sign-in", async () => {
+    const harness = probingHarness({
+      result: { authMethod: null, authToken: null, requiresOpenaiAuth: false },
+    });
+
+    const result = await harness.manager.probeAuth();
+
+    // Conservative on the admission axis, precise on the diagnostic one: "no
+    // OpenAI credential is needed" is not evidence the credential this
+    // configuration DOES need is present.
+    expect(result.status).toBe("unauthenticated");
+    expect(result.detail).toContain("requires no OpenAI sign-in");
+  });
+
+  it("reports indeterminate — not unauthenticated — when the probe surface refuses", async () => {
+    const harness = probingHarness({
+      error: { code: -32601, message: "Method not found" },
+    });
+
+    const result = await harness.manager.probeAuth();
+
+    // Probe health and credential state are different facts with different
+    // operator actions. Claiming `unauthenticated` here would send an operator to
+    // re-authenticate a credential that was never in question.
+    expect(result.status).toBe("indeterminate");
+  });
+
+  it("reports indeterminate when the answer is unreadable", async () => {
+    const harness = probingHarness({ result: { authMethod: 17 } });
+
+    await expect(harness.manager.probeAuth()).resolves.toMatchObject({
+      status: "indeterminate",
+    });
+  });
+
+  it("returns indeterminate rather than throwing when the spawn itself fails", async () => {
+    const harness = probingHarness(undefined);
+    harness.server.spawnResponse = {
+      kind: "spawn_response",
+      session_id: "",
+      error: "no such file",
+    };
+
+    // Total by contract: a throw would hand the admission leg a third channel it
+    // has no rule for, and would collapse "the probe is unhealthy" into "the
+    // transport is down".
+    await expect(harness.manager.probeAuth()).resolves.toMatchObject({
+      status: "indeterminate",
+    });
+  });
+
+  it("spawns from the constructed resume environment and tears the child down", async () => {
+    const harness = probingHarness({ result: { authMethod: "apikey" } });
+
+    await harness.manager.probeAuth();
+
+    // The probe is a spawn like any other on this manager: its environment is
+    // CONSTRUCTED from `resumeSpawnConfig`, never inherited from the daemon.
+    const spawn = harness.server.spawnRequests[0];
+    expect(spawn?.cwd).toBe(RESUME_SPAWN_CONFIG.cwd);
+    expect(spawn?.env).toEqual([
+      ["HOME", "/home/agent"],
+      [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
+    ]);
+    expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
+  });
+
+  it("claims no session slot, so a create for any session still succeeds after it", async () => {
+    const harness = probingHarness({ result: { authMethod: "chatgpt" } });
+    harness.server.uniqueSpawnSessionIds = true;
+
+    await harness.manager.probeAuth();
+
+    // A probe that installed a record or held a transition would have made the
+    // cheap admission check the most expensive thing in the lifecycle.
+    await expect(
+      harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG }),
+    ).resolves.toMatchObject({ resumeHandle: THREAD_ID });
+  });
+
+  it("starts no thread — the probe is zero-turn, not a discardable session", async () => {
+    const harness = probingHarness({ result: { authMethod: "chatgpt" } });
+
+    await harness.manager.probeAuth();
+
+    expect(harness.server.framesForMethod("thread/start")).toEqual([]);
+    expect(harness.server.framesForMethod("turn/start")).toEqual([]);
+  });
+});
+
+// --------------------------------------------------------------------------
+// Steer on the wire — P0-3's key ride-through and P3-1's acknowledgement grade
+// --------------------------------------------------------------------------
+
+describe("CodexDriver spawn-environment hygiene (T3.14 P0-4)", () => {
+  // A variable that exists in the DAEMON's environment and in no supplied
+  // config. Any appearance of it in a child environment means some path spread
+  // `process.env`, which is the whole failure P0-4 forbids: the child
+  // environment is CONSTRUCTED, never inherited. It is also the shape a deny
+  // list depends on — a policy can only strip what the constructor put there, so
+  // a driver that adds entries of its own would defeat the strip no matter how
+  // the list is resolved.
+  const DAEMON_CANARY_ENV_VAR = "AI_SIDEKICKS_T314_ENV_CANARY";
+
+  beforeEach(() => {
+    process.env[DAEMON_CANARY_ENV_VAR] = "must-not-reach-a-provider-child";
+  });
+
+  afterEach(() => {
+    delete process.env[DAEMON_CANARY_ENV_VAR];
+  });
+
+  function spawnedEnvNames(request: SpawnRequest | undefined): string[] {
+    return (request?.env ?? []).map(([name]) => name);
+  }
+
+  it("keeps the daemon's own environment out of a created session's child", async () => {
+    const harness = createHarness();
+    await createdSession(harness);
+
+    expect(spawnedEnvNames(harness.server.spawnRequests[0])).not.toContain(DAEMON_CANARY_ENV_VAR);
+  });
+
+  it("keeps it out of a resume relaunch, which is a fresh spawn like any other", async () => {
+    const harness = createHarness();
+    harness.server.on("thread/resume", () => threadStartResult(1));
+
+    await harness.driver.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
+
+    // Called out separately because a resume takes a DIFFERENT config object
+    // (`resumeSpawnConfig`) down a different code path, so the create-path
+    // assertion above does not cover it.
+    expect(harness.server.spawnRequests[0]?.env).toEqual([
+      ["HOME", "/home/agent"],
+      [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
+    ]);
+  });
+
+  it("keeps it out of the auth probe's child, which is the third spawn path", async () => {
+    const harness = createManagerHarness();
+
+    await harness.manager.probeAuth();
+
+    expect(harness.server.spawnRequests[0]?.env).toEqual([
+      ["HOME", "/home/agent"],
+      [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
+    ]);
+  });
+});
+
+describe("CodexDriver resume-failure taxonomy (T3.14 P3-3)", () => {
+  const REFUSED_RESUME: JsonRpcAnswer = {
+    error: { code: -32600, message: "thread not found" },
+  };
+
+  function refusingHarness(authAnswer: JsonRpcAnswer): Harness {
+    const harness = createHarness();
+    harness.server.on("thread/resume", () => REFUSED_RESUME);
+    harness.server.on("getAuthStatus", () => authAnswer);
+    return harness;
+  }
+
+  async function resume(harness: Harness): Promise<DriverResumeResult> {
+    return await harness.driver.resumeSession({
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+    });
+  }
+
+  it("reports reauth-required when the refusing provider resolves no auth method", async () => {
+    const harness = refusingHarness({ result: { authMethod: null, requiresOpenaiAuth: true } });
+
+    // The two conditions name two DIFFERENT operator actions, so this is the
+    // whole point of the leg: an expired credential must not be reported as
+    // "reconcile this by hand".
+    await expect(resume(harness)).resolves.toMatchObject({
+      status: "failed",
+      recoveryCondition: "reauth-required",
+    });
+  });
+
+  it("reports recovery-needed when the refusing provider is still authenticated", async () => {
+    const harness = refusingHarness({ result: { authMethod: "chatgpt", authToken: null } });
+
+    await expect(resume(harness)).resolves.toMatchObject({
+      status: "failed",
+      recoveryCondition: "recovery-needed",
+    });
+  });
+
+  it("never spends a credential rotation to classify a failure", async () => {
+    const harness = refusingHarness({ result: { authMethod: null } });
+
+    await resume(harness);
+
+    // Same pin as the admission probe, and load-bearing for the same reason:
+    // the pinned providers rotate refresh tokens single-use with no grace
+    // window, so classifying a failure by refreshing would END the login it was
+    // asking about.
+    expect(harness.server.framesForMethod("getAuthStatus")[0]?.["params"]).toEqual({
+      includeToken: false,
+      refreshToken: false,
+    });
+  });
+
+  it("asks nothing when the failure was not a typed provider refusal", async () => {
+    const harness = createHarness();
+    // A well-formed reply carrying no turn history: the connection is alive and
+    // WOULD answer, but the cause is a transport-level defect rather than a
+    // refusal the provider issued, so it carries no proof the child is healthy.
+    harness.server.on("thread/resume", () => ({
+      result: { thread: { id: THREAD_ID, sessionId: "session-tree-1" } },
+    }));
+    harness.server.on("getAuthStatus", () => ({ result: { authMethod: null } }));
+
+    const result = await resume(harness);
+
+    // The negative control that makes the gate real: this auth answer would
+    // classify `reauth-required` if it were consulted at all.
+    expect(harness.server.framesForMethod("getAuthStatus")).toHaveLength(0);
+    expect(result).toMatchObject({ status: "failed", recoveryCondition: "recovery-needed" });
+  });
+
+  it("does not upgrade an unreadable auth answer into reauth-required", async () => {
+    const harness = refusingHarness({ result: { authMethod: 17 } });
+
+    // An unhealthy probe is evidence about the PROBE, never about the
+    // credential, so `indeterminate` takes the conservative arm.
+    await expect(resume(harness)).resolves.toMatchObject({
+      recoveryCondition: "recovery-needed",
+    });
+  });
+
+  it("keeps the classification from displacing the typed failure it rides on", async () => {
+    const harness = createHarness();
+    harness.server.on("thread/resume", () => REFUSED_RESUME);
+    harness.server.on("getAuthStatus", () => ({
+      error: { code: -32601, message: "no such method" },
+    }));
+
+    const result = await resume(harness);
+
+    // A build that does not answer the question must still produce I-005-5's
+    // typed result — with the resume's OWN cause on the detail, not the probe's.
+    expect(result).toMatchObject({ status: "failed", recoveryCondition: "recovery-needed" });
+    expect(result).not.toHaveProperty("bindingId");
+    expect((result as { providerFailureDetail: string }).providerFailureDetail).toContain(
+      "thread not found",
+    );
+  });
+
+  it("classifies before releasing the connection, and still releases it", async () => {
+    const harness = refusingHarness({ result: { authMethod: null } });
+
+    await resume(harness);
+
+    // Ordering, asserted by consequence: the question reached a live child, and
+    // that child is not left running afterwards.
+    expect(harness.server.framesForMethod("getAuthStatus")).toHaveLength(1);
+    expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
+  });
+});
+
+describe("CodexLifecycleManager steer wire shape (T3.14 P0-3, P3-1)", () => {
+  const STEER_KEY = "9a1d8f30-0000-4000-8000-0000000000aa";
+
+  /** A harness with one live session and one live turn, ready to be steered. */
+  async function steerableHarness(steerAnswer: JsonRpcAnswer): Promise<Harness> {
+    const harness = createHarness();
+    await createdSession(harness);
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    harness.server.on("turn/steer", () => steerAnswer);
+    await harness.driver.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "one" },
+    });
+    return harness;
+  }
+
+  function steerIntervention(expectedTurnId?: string): ApplyInterventionParams {
+    return {
+      type: "steer",
+      targetRunId: RUN_ID,
+      expectedRunVersion: 1,
+      clientIdempotencyKey: STEER_KEY,
+      payload: {
+        content: "focus on the failing test",
+        ...(expectedTurnId === undefined ? {} : { expectedTurnId }),
+      },
+    };
+  }
+
+  it("carries the requester's idempotency key on the wire as clientUserMessageId", async () => {
+    const harness = await steerableHarness({ result: { turnId: TURN_ID } });
+
+    await harness.driver.applyIntervention(steerIntervention(TURN_ID));
+
+    // Verbatim, on the pinned `TurnSteerParams` member — the same carrier
+    // `turn/start` uses. A key re-minted at the driver boundary would hand the
+    // provider a fresh value on every retry and defeat the dedupe it exists for.
+    expect(harness.server.framesForMethod("turn/steer")[0]?.["params"]).toMatchObject({
+      threadId: THREAD_ID,
+      expectedTurnId: TURN_ID,
+      clientUserMessageId: STEER_KEY,
+    });
+  });
+
+  it("pins the steer to the live turn when the caller named none", async () => {
+    const harness = await steerableHarness({ result: { turnId: TURN_ID } });
+
+    const result = await harness.driver.applyIntervention(steerIntervention());
+
+    // The provider REQUIRES the precondition, so an absent caller expectation
+    // becomes the live turn on the wire — and the acknowledgement is graded
+    // against THAT, not against the caller's absent hint.
+    expect(harness.server.framesForMethod("turn/steer")[0]?.["params"]).toMatchObject({
+      expectedTurnId: TURN_ID,
+    });
+    expect(result).toEqual({ status: "applied" });
+  });
+
+  it("reads the flat turnId acknowledgement, not turn/start's nested turn object", async () => {
+    // `TurnSteerResponse` is `{ turnId }`; `TurnStartResponse` is `{ turn: { id } }`.
+    // Reading the wrong one would return null for every successful steer and
+    // degrade the entire happy path.
+    const harness = await steerableHarness({ result: { turnId: TURN_ID } });
+
+    await expect(harness.driver.applyIntervention(steerIntervention(TURN_ID))).resolves.toEqual({
+      status: "applied",
+    });
+  });
+
+  it("degrades when the provider acknowledges a different turn", async () => {
+    const harness = await steerableHarness({ result: { turnId: "turn-99" } });
+
+    await expect(harness.driver.applyIntervention(steerIntervention(TURN_ID))).resolves.toEqual({
+      status: "degraded",
+      fallbackAction: CODEX_INTERVENTION_FALLBACK_ACTION,
+    });
+  });
+
+  it("degrades rather than throwing when the acknowledgement names no turn", async () => {
+    const harness = await steerableHarness({ result: {} });
+
+    // The request WAS answered, so this is an acknowledgement carrying no
+    // evidence — not an outage. Throwing would tell the orchestration layer a
+    // live provider is unreachable.
+    await expect(harness.driver.applyIntervention(steerIntervention(TURN_ID))).resolves.toEqual({
+      status: "degraded",
+      fallbackAction: CODEX_INTERVENTION_FALLBACK_ACTION,
+    });
+  });
+
+  it("sends no client-supplied identifier on the interrupt path", async () => {
+    const harness = await steerableHarness({ result: { turnId: TURN_ID } });
+    harness.server.on("turn/interrupt", () => ({ result: {} }));
+
+    await harness.driver.applyIntervention({
+      type: "interrupt",
+      targetRunId: RUN_ID,
+      expectedRunVersion: 1,
+      clientIdempotencyKey: STEER_KEY,
+      payload: {},
+    });
+
+    // `TurnInterruptParams` is `{ threadId, turnId }` at the pin. An invented
+    // carrier here would be an unregistered wire field.
+    const params = harness.server.framesForMethod("turn/interrupt")[0]?.["params"];
+    expect(Object.keys(params as Record<string, unknown>).sort()).toEqual(["threadId", "turnId"]);
   });
 });
 

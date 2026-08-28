@@ -10,7 +10,7 @@
 // `implements Pick<ProviderDriver, ...>` rather than a hand-written interface, so
 // each signature is checked against the canonical contract and drifts with it. The
 // remaining operations of the 14-op surface (`getCapabilities`, `listModels`,
-// `listModes`, `probeAuth`, `rollbackTo`, `respondToRequest`, `setSessionGoal`,
+// `listModes`, `rollbackTo`, `respondToRequest`, `setSessionGoal`,
 // `clearSessionGoal`) are authored by the sibling Phase-3 tasks; this class is
 // widened to the full `ProviderDriver` when they land, which the `Pick` makes a
 // purely additive edit.
@@ -43,6 +43,7 @@ import type {
   ApplyInterventionParams,
   CloseSessionParams,
   CreateSessionParams,
+  DriverAuthProbeResult,
   DriverInterventionResult,
   DriverResumeResult,
   InterruptRunParams,
@@ -109,6 +110,7 @@ export class CodexDriver implements Pick<
   | "interruptRun"
   | "closeSession"
   | "applyIntervention"
+  | "probeAuth"
 > {
   readonly #lifecycle: CodexLifecycleManager;
   readonly #interventions: CodexInterventionDispatcher;
@@ -145,5 +147,9 @@ export class CodexDriver implements Pick<
 
   applyIntervention(params: ApplyInterventionParams): Promise<DriverInterventionResult> {
     return this.#interventions.applyIntervention(params);
+  }
+
+  probeAuth(): Promise<DriverAuthProbeResult> {
+    return this.#lifecycle.probeAuth();
   }
 }

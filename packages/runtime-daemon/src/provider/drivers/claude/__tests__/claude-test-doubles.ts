@@ -15,6 +15,7 @@ import type {
 } from "@ai-sidekicks/contracts";
 
 import type {
+  ClaudeAuthProbeReading,
   ClaudeChannelDisposalReason,
   ClaudeControlRequest,
   ClaudeControlResponse,
@@ -129,6 +130,12 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
   // Claude CLI exhibits, and the mechanism I-005-5's identity gate catches.
   announcedProviderSessionId: string | undefined = undefined;
   resumedSessionPosition: number = 12;
+  // The zero-turn auth probe's outcome. Set the failure to drive the two
+  // negative arms: a `ClaudeAuthenticationRequiredError` for a determinate
+  // logged-out reading, anything else for a probe that could not be taken.
+  probeAuthFailure: Error | undefined = undefined;
+  probeAuthDetail: string | undefined = undefined;
+  probeAuthCallCount: number = 0;
 
   async spawnSession(request: ClaudeSessionSpawnRequest): Promise<ClaudeSessionAttachment> {
     this.spawnRequests.push(request);
@@ -162,6 +169,17 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
       channel,
       sessionPosition: this.resumedSessionPosition,
     };
+  }
+
+  async probeAuth(): Promise<ClaudeAuthProbeReading> {
+    this.probeAuthCallCount += 1;
+    await Promise.resolve();
+    if (this.probeAuthFailure !== undefined) {
+      throw this.probeAuthFailure;
+    }
+    // Spawns nothing and mints no channel, which is the point being modelled:
+    // a probe that established a session would not be a zero-turn probe.
+    return this.probeAuthDetail === undefined ? {} : { detail: this.probeAuthDetail };
   }
 }
 

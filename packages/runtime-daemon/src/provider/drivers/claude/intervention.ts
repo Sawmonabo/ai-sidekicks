@@ -40,6 +40,31 @@
 //   * no live channel for the target run => PROPAGATES as
 //     `ClaudeSessionUnavailableError`, for the same reason. This is a routing
 //     fault, not an unsupported capability, and I-005-4 governs the latter.
+//
+// P0-3 — THE CALLER'S IDEMPOTENCY KEY HAS NO WIRE HOME HERE, AND NONE IS
+// INVENTED. `ApplyInterventionParams` carries the requester's
+// `clientIdempotencyKey` on every arm, and P0-3's obligation is that a driver
+// thread it to the wire UNCHANGED — never re-minting it, since a fresh value per
+// retry defeats the `interventions` UNIQUE guard the key exists to feed. The
+// pinned `interrupt` control request carries `{ subtype, cancel_queued }` and no
+// client-supplied identifier, and the transport's own `request_id` is
+// response-correlation state that a retry MUST vary, so it is not that home
+// either. So this band sends nothing, for the same reason `interruptRun` drops
+// `reason`: an unregistered wire field is a worse answer than an absent one.
+// Both dispatched arms are consequently free of the key by construction, and the
+// steer arm writes nothing at all.
+//
+// P3-1 — AN AMBIGUOUS ACK NEVER READS AS SUCCESS. A `control_response` success
+// is not self-evidently an applied CANCEL. Under the `interrupt_receipt_v1`
+// capability the success payload carries `still_queued`, the uuids of async user
+// messages that SURVIVED the interrupt (the wire reference's capability note),
+// and a cancel that leaves queued messages behind has not cancelled the run's
+// remaining input — reporting `applied` there would tell the daemon a
+// participant's cancellation took hold while messages it was meant to stop are
+// still waiting to run. That success degrades. An interrupt (`cancelQueued`
+// false) is graded differently on the same field, because survival is precisely
+// what distinguishes it from a cancel: there, a non-empty list is the contract
+// working, not a partial application.
 
 import {
   DriverInterventionResultSchema,
@@ -58,6 +83,28 @@ import { ClaudeSessionUnavailableError, type ClaudeRunChannelLookup } from "./li
 // `DriverInterventionResultSchema.parse`, so an over-long or misshapen action
 // fails here instead of travelling as a malformed envelope.
 export const CLAUDE_STEER_FALLBACK_ACTION: string = "queue_and_interrupt";
+
+// The success-payload key carrying the uuids of async user messages that
+// outlived an interrupt. Present only on builds advertising the optional
+// `interrupt_receipt_v1` capability token, which is why absence is read as "this
+// build reported nothing" and never as "nothing survived".
+const CLAUDE_INTERRUPT_RECEIPT_SURVIVOR_KEY = "still_queued";
+
+/**
+ * Counts the queued messages the provider reports as having survived (P3-1).
+ *
+ * Total over an arbitrary payload on purpose: this value crosses the provider
+ * trust boundary, so a missing key, a null, or a non-array all read as "reported
+ * nothing" rather than throwing. Zero is therefore returned for both "the build
+ * has no receipt capability" and "the receipt was empty" — the two are
+ * deliberately not distinguished here, because degrading a cancel on a build
+ * that never promised a receipt would fail closed on an absent guarantee rather
+ * than on an observed survivor.
+ */
+function countSurvivingQueuedMessages(payload: Record<string, unknown> | undefined): number {
+  const survivors = payload?.[CLAUDE_INTERRUPT_RECEIPT_SURVIVOR_KEY];
+  return Array.isArray(survivors) ? survivors.length : 0;
+}
 
 export interface ClaudeInterventionDispatcherDependencies {
   readonly channelLookup: ClaudeRunChannelLookup;
@@ -110,6 +157,14 @@ export class ClaudeInterventionDispatcher {
       // nothing about what the daemon should do instead. The key is omitted
       // rather than set to `undefined` — under `exactOptionalPropertyTypes` and a
       // `.strict()` envelope those are different values.
+      return DriverInterventionResultSchema.parse({ status: "degraded" });
+    }
+    if (cancelQueued && countSurvivingQueuedMessages(response.response) > 0) {
+      // A cancel the provider acknowledged while reporting survivors (P3-1).
+      // Also no `fallbackAction`: the survivors are already queued, so the
+      // documented `queue_and_interrupt` fallback would re-queue what is queued,
+      // and naming any other verb here would invent daemon behaviour this band
+      // has no standing to specify.
       return DriverInterventionResultSchema.parse({ status: "degraded" });
     }
     return DriverInterventionResultSchema.parse({ status: "applied" });

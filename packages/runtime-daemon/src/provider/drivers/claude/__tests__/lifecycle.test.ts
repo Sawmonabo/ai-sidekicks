@@ -23,6 +23,10 @@
 //     and a differently-capped process; a run declaring no cap is admitted into a
 //     capped session, because the native cap sits beneath the daemon accountant
 //     rather than being it.
+//   * P0-5 (T3.14) — the zero-turn auth probe classifies the transport's reading
+//     onto the contract's three values, is TOTAL over every throw, and keeps
+//     `unauthenticated` distinguishable from `indeterminate` through a typed
+//     error rather than a message-substring test.
 
 import {
   DriverResumeResultSchema,
@@ -1458,6 +1462,95 @@ describe("ClaudeSessionLifecycle adoption window", () => {
 // the refused-channel disposal path's whole job is to not throw, so a renderer
 // that could throw would defeat the guard calling it. Exercised through the
 // resume failure path, which is the surface that persists the detail.
+describe("ClaudeSessionLifecycle.probeAuth (T3.14 P0-5)", () => {
+  it("reports authenticated when the transport takes the reading", async () => {
+    const harness = buildHarness();
+
+    const result = await harness.lifecycle.probeAuth();
+
+    expect(result.status).toBe("authenticated");
+    expect(harness.transport.probeAuthCallCount).toBe(1);
+  });
+
+  it("carries the transport's own detail when it supplied one", async () => {
+    const harness = buildHarness();
+    harness.transport.probeAuthDetail = "credential home: default";
+
+    await expect(harness.lifecycle.probeAuth()).resolves.toMatchObject({
+      status: "authenticated",
+      detail: "credential home: default",
+    });
+  });
+
+  it("names the evidence rather than a credential source when the transport gave no detail", async () => {
+    const harness = buildHarness();
+
+    const result = await harness.lifecycle.probeAuth();
+
+    // The pinned CLI publishes no authless protocol probe, so reaching the
+    // provider IS the whole of the evidence — the default detail must not imply
+    // a credential source the probe never observed.
+    expect(result.detail).toBe("the provider answered the zero-turn auth probe");
+  });
+
+  it("reports unauthenticated only for the TYPED logged-out signal", async () => {
+    const harness = buildHarness();
+    harness.transport.probeAuthFailure = new ClaudeAuthenticationRequiredError(
+      "no credentials on this node",
+    );
+
+    await expect(harness.lifecycle.probeAuth()).resolves.toMatchObject({
+      status: "unauthenticated",
+    });
+  });
+
+  it("reports indeterminate for a probe it could not take", async () => {
+    const harness = buildHarness();
+    harness.transport.probeAuthFailure = new Error("claude binary not found");
+
+    // Fail-closed for admission, and still distinguishable: an operator sent to
+    // re-authenticate a credential that was never in question has been told the
+    // wrong thing.
+    const result = await harness.lifecycle.probeAuth();
+
+    expect(result.status).toBe("indeterminate");
+    expect(result.detail).toContain("claude binary not found");
+  });
+
+  it("classifies by type, not by message text", async () => {
+    const harness = buildHarness();
+    // A generic failure whose WORDS look like a credential problem. A
+    // substring test would misclassify it as a determinate logout.
+    harness.transport.probeAuthFailure = new Error("not authenticated: upstream 401");
+
+    await expect(harness.lifecycle.probeAuth()).resolves.toMatchObject({
+      status: "indeterminate",
+    });
+  });
+
+  it("never throws, even when the transport throws a non-Error", async () => {
+    const harness = buildHarness();
+    harness.transport.probeAuthFailure = "just a string" as unknown as Error;
+
+    await expect(harness.lifecycle.probeAuth()).resolves.toMatchObject({
+      status: "indeterminate",
+    });
+  });
+
+  it("establishes nothing, so a create still succeeds after it", async () => {
+    const harness = buildHarness();
+
+    await harness.lifecycle.probeAuth();
+
+    // A probe that spawned a session would not be zero-turn, and one that held
+    // the session slot would stall the admission check it exists to make cheap.
+    expect(harness.transport.spawnRequests).toStrictEqual([]);
+    await expect(
+      harness.lifecycle.createSession(buildCreateSessionParams()),
+    ).resolves.toMatchObject({ providerSessionId: TEST_PINNED_PROVIDER_SESSION_ID });
+  });
+});
+
 describe("provider failure detail rendering", () => {
   function buildErrorWithHostileProperties(hostile: {
     readonly message?: boolean;

@@ -10,6 +10,13 @@
 //     and zero control requests, because a driver that delivered the steer text
 //     and then reported `degraded` would double-apply the intervention the daemon
 //     is about to queue.
+//   * P0-3 (T3.14) — the requester's `clientIdempotencyKey` has no pinned wire
+//     home on the interrupt control request, so no substitute is invented: the
+//     dispatched request carries exactly `{ subtype, cancelQueued }`.
+//   * P3-1 (T3.14) — an acknowledged CANCEL that reports surviving queued
+//     messages (`still_queued`, the `interrupt_receipt_v1` receipt) degrades
+//     instead of reading as success; the same field on an INTERRUPT is the
+//     contract working, and applies.
 
 import {
   DRIVER_FALLBACK_ACTION_MAX_LEN,
@@ -172,6 +179,85 @@ describe("ClaudeInterventionDispatcher native interrupt and cancel", () => {
     await expect(dispatcher.applyIntervention(buildInterruptParams())).rejects.toBeInstanceOf(
       ClaudeSessionUnavailableError,
     );
+  });
+});
+
+describe("ClaudeInterventionDispatcher cancel receipt grading (P3-1)", () => {
+  it("degrades a cancel the provider acknowledged while reporting survivors", async () => {
+    const harness = buildHarness();
+    harness.channel.controlResponse = {
+      subtype: "success",
+      response: { still_queued: ["3f1b0c22-0000-4000-8000-000000000001"] },
+    };
+
+    const result = await harness.dispatcher.applyIntervention(buildCancelParams());
+
+    // Reporting `applied` here would tell the daemon a participant's cancellation
+    // took hold while messages it was meant to stop are still queued to run.
+    expect(result).toStrictEqual({ status: "degraded" });
+    expect(result.fallbackAction).toBeUndefined();
+    expect(DriverInterventionResultSchema.safeParse(result).success).toBe(true);
+  });
+
+  it("applies a cancel whose receipt reports an empty survivor list", async () => {
+    const harness = buildHarness();
+    harness.channel.controlResponse = { subtype: "success", response: { still_queued: [] } };
+
+    await expect(harness.dispatcher.applyIntervention(buildCancelParams())).resolves.toStrictEqual({
+      status: "applied",
+    });
+  });
+
+  it("applies a cancel on a build that advertises no receipt capability", async () => {
+    const harness = buildHarness();
+    harness.channel.controlResponse = { subtype: "success" };
+
+    // Absent means "this build reported nothing", never "messages survived".
+    // Degrading here would fail closed on a guarantee the build never made.
+    await expect(harness.dispatcher.applyIntervention(buildCancelParams())).resolves.toStrictEqual({
+      status: "applied",
+    });
+  });
+
+  it("applies an interrupt that reports survivors — survival is what defines it", async () => {
+    const harness = buildHarness();
+    harness.channel.controlResponse = {
+      subtype: "success",
+      response: { still_queued: ["3f1b0c22-0000-4000-8000-000000000001"] },
+    };
+
+    // An interrupt is precisely the operation queued input is meant to outlive;
+    // grading it the way a cancel is graded would degrade the normal path.
+    await expect(
+      harness.dispatcher.applyIntervention(buildInterruptParams()),
+    ).resolves.toStrictEqual({ status: "applied" });
+  });
+
+  it("reads a malformed receipt as reporting nothing rather than throwing", async () => {
+    const harness = buildHarness();
+    harness.channel.controlResponse = {
+      subtype: "success",
+      response: { still_queued: "not-an-array" },
+    };
+
+    // The payload crosses the provider trust boundary, so an unreadable receipt
+    // must not turn a delivered cancel into an exception.
+    await expect(harness.dispatcher.applyIntervention(buildCancelParams())).resolves.toStrictEqual({
+      status: "applied",
+    });
+  });
+
+  it("invents no client identifier on the dispatched control request (P0-3)", async () => {
+    const harness = buildHarness();
+
+    await harness.dispatcher.applyIntervention(buildCancelParams());
+
+    // The pinned `interrupt` control request carries no client-supplied id, and
+    // the transport's own `request_id` is correlation state a retry must vary —
+    // so the key travels nowhere rather than into an unregistered wire field.
+    expect(harness.channel.controlRequests).toStrictEqual([
+      { subtype: "interrupt", cancelQueued: true },
+    ]);
   });
 });
 

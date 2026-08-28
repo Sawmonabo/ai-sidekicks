@@ -134,21 +134,33 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  DRIVER_AUTH_DETAIL_MAX_LEN,
   DRIVER_FAILURE_DETAIL_MAX_LEN,
+  DriverAuthProbeResultSchema,
   DriverResumeResultSchema,
   SessionIdSchema,
   type CloseSessionParams,
   type CreateSessionParams,
+  type DriverAuthProbeResult,
   type DriverResumeResult,
   type InterruptRunParams,
   type ProviderSessionHandle,
   type PtyHost,
+  type RecoveryCondition,
   type ResumeSessionParams,
   type RunId,
   type SessionId,
   type SpawnRequest,
   type StartRunParams,
 } from "@ai-sidekicks/contracts";
+
+// TYPE-ONLY, and only in this direction. `intervention.ts` declares the port this
+// manager structurally satisfies and imports nothing from here, so the runtime
+// module graph stays exactly as acyclic as it was — a type-only import erases at
+// compile time. Importing the two steer shapes rather than restating them is what
+// makes a drift between the port and its implementation a compile error instead
+// of a silently-unsatisfied `runtime:` binding at the `index.ts` composition.
+import type { CodexSteerAcknowledgement, CodexSteerRunRequest } from "./intervention.js";
 
 // --------------------------------------------------------------------------
 // Transport constants
@@ -283,6 +295,41 @@ const DEFAULT_TURN_START_TIMEOUT_MS = 60_000;
  * responsive peer; an unresponsive one is exactly the peer not worth waiting on.
  */
 const UNSUBSCRIBE_TIMEOUT_MS = 5_000;
+
+/**
+ * The pinned in-band, zero-turn authentication probe surface (P0-5 / C-17).
+ *
+ * `getAuthStatus` is a member of the DEFAULT-generated `ClientRequest` union —
+ * not an experimental one — so it is answerable over the same connection this
+ * driver already negotiates with `experimentalApi: false`. It is preferred over
+ * the `codex login status` and `codex doctor --json` CLI surfaces the same
+ * decision names because those spawn a second process and parse human- or
+ * report-shaped output, while this reads the provider's own typed answer on the
+ * channel the driver already owns.
+ */
+const CODEX_AUTH_STATUS_METHOD = "getAuthStatus";
+
+/**
+ * Deadline for the probe's single request.
+ *
+ * Deliberately far shorter than a turn's: `getAuthStatus` reads local credential
+ * state and answers immediately, and the probe exists to refuse admission BEFORE
+ * work queues behind it. A probe that took a full turn deadline to fail would
+ * cost more than the turn it is protecting.
+ */
+const CODEX_AUTH_PROBE_TIMEOUT_MS = 10_000;
+
+/**
+ * Deadline for the resume-failure auth classification (P3-3).
+ *
+ * Deliberately tighter than the admission probe's. The two answer different
+ * questions: the probe runs BEFORE work is admitted and can afford to wait,
+ * while this one runs on a caller that is ALREADY FAILING and is waiting on a
+ * result it will get either way. The classification only refines which operator
+ * action to name, so it must never be the reason a failed resume takes ten
+ * seconds to say it failed.
+ */
+const CODEX_RESUME_AUTH_CLASSIFICATION_TIMEOUT_MS = 2_000;
 
 const DEFAULT_PTY_ROWS = 24;
 const DEFAULT_PTY_COLS = 120;
@@ -702,6 +749,153 @@ export function parseCodexRunConfig(agentConfig: unknown): CodexRunConfig {
     ...(model === undefined ? {} : { model }),
     ...(clientUserMessageId === undefined ? {} : { clientUserMessageId }),
   };
+}
+
+/**
+ * Builds a probe result, TOTALLY — an over-long or refused detail never throws.
+ *
+ * The envelope bounds `detail` at `DRIVER_AUTH_DETAIL_MAX_LEN`, two orders of
+ * magnitude tighter than the failure-detail bound a normalized provider cause is
+ * cut to, so the two cannot share one normalizer. When the envelope still
+ * refuses the bounded string the detail is DROPPED rather than allowed to throw:
+ * `status` alone carries the fail-closed admission decision and the detail only
+ * tells an operator why, so losing it costs diagnostics and never correctness.
+ */
+function buildAuthProbeResult(
+  status: DriverAuthProbeResult["status"],
+  detail: string,
+): DriverAuthProbeResult {
+  const bounded =
+    detail.length > DRIVER_AUTH_DETAIL_MAX_LEN
+      ? detail.slice(0, DRIVER_AUTH_DETAIL_MAX_LEN)
+      : detail;
+  const parsed = DriverAuthProbeResultSchema.safeParse({ status, detail: bounded });
+  return parsed.success ? parsed.data : DriverAuthProbeResultSchema.parse({ status });
+}
+
+/**
+ * Maps a `getAuthStatus` answer onto the contract's three-value probe result.
+ *
+ * `GetAuthStatusResponse` is `{ authMethod, authToken, requiresOpenaiAuth }` at
+ * the pin, and only the first is read. `authToken` is deliberately never touched
+ * on any path — the request asks for it not to be sent at all, and a driver that
+ * then read it would be one binary change away from logging a credential.
+ *
+ * `authMethod` is a closed mechanism enum (`chatgpt`, `apikey`, `bedrockApiKey`,
+ * …), so it is safe as `detail` in a way the `account/read` descriptor the
+ * contract warns about is not: that one carries a plan name and a seat EMAIL,
+ * and this probe never asks for it.
+ *
+ * The `null` case reports UNAUTHENTICATED even when the provider says it
+ * requires no OpenAI sign-in. That reading is deliberately the conservative one:
+ * "no OpenAI credential is needed" is not evidence that whatever credential this
+ * configuration DOES need is present, and the difference is carried in `detail`
+ * so an operator can tell a genuine logout from a non-OpenAI configuration
+ * without the probe having to guess on the admission side.
+ */
+function classifyCodexAuthStatus(response: unknown): DriverAuthProbeResult {
+  if (!isPlainObject(response)) {
+    return buildAuthProbeResult(
+      "indeterminate",
+      `the Codex app-server "${CODEX_AUTH_STATUS_METHOD}" response was not an object`,
+    );
+  }
+  const authMethod = response["authMethod"];
+  if (typeof authMethod === "string" && authMethod.length > 0) {
+    return buildAuthProbeResult("authenticated", `auth method: ${authMethod}`);
+  }
+  if (authMethod !== null && authMethod !== undefined) {
+    // Present but not a string: the surface answered in a shape this driver
+    // cannot read, which is probe ill-health rather than a credential verdict.
+    return buildAuthProbeResult(
+      "indeterminate",
+      `the Codex app-server "${CODEX_AUTH_STATUS_METHOD}" response carried an unreadable authMethod`,
+    );
+  }
+  return buildAuthProbeResult(
+    "unauthenticated",
+    response["requiresOpenaiAuth"] === false
+      ? "no auth method is resolved; the configured provider reports it requires no OpenAI sign-in"
+      : "no auth method is resolved for this credential home",
+  );
+}
+
+/**
+ * Asks one connection the auth question, with the credential-safety pin applied.
+ *
+ * Both askers route through here so the two `false` members live in ONE place.
+ * They are not stylistic: `includeToken: false` keeps credential material off
+ * the wire, and `refreshToken: false` is what keeps the question non-destructive
+ * — the pinned providers rotate refresh tokens single-use with no grace window,
+ * so an asker that refreshed would end the login it was checking. A second call
+ * site that inlined its own params could lose either half silently, and the loss
+ * would only show up as operators being logged out by the thing meant to observe
+ * them. Both are sent explicitly because `GetAuthStatusParams` types them
+ * required-but-nullable.
+ */
+async function requestCodexAuthStatus(
+  connection: CodexAppServerConnection,
+  timeoutMs: number,
+): Promise<unknown> {
+  return await connection.request(
+    CODEX_AUTH_STATUS_METHOD,
+    { includeToken: false, refreshToken: false },
+    timeoutMs,
+  );
+}
+
+/**
+ * Classifies a FAILED resume into the closed `RecoveryCondition` (P3-3).
+ *
+ * The two conditions name two different operator actions — `reauth-required`
+ * means "re-authenticate this provider on the node, then recovery may retry",
+ * `recovery-needed` means "reconcile this by hand" — so the classification is
+ * made by ASKING, not by reading the refusal. This provider publishes no typed
+ * auth error code for the app-server surface, and its `account/read` answers
+ * without credentials at all (so a success there is not evidence a credential is
+ * usable). A message-substring sniff over the refusal text would therefore be
+ * both the only alternative and an unstable one. Instead the still-open
+ * connection is asked the credential question directly, which is a positive
+ * determination of the state the operator would have to act on.
+ *
+ * IT IS ASKED ONLY OF A PROVIDER THAT DEMONSTRABLY ANSWERED. The ask is gated on
+ * the resume having failed with `CodexProviderRequestError` — a typed JSON-RPC
+ * refusal, which is proof that the child is alive, parsing, and replying, and
+ * which does not close the transport. Every other cause (a deadline, a transport
+ * fault, a handshake failure, an exited process, or a local defect on our own
+ * side of the boundary) carries no such proof, and asking a wedged or dead
+ * connection would make a failing recovery path wait out a second deadline to
+ * learn nothing. This is the difference between one more question and a second
+ * way to hang.
+ *
+ * ORDERING IS LOAD-BEARING: this runs BEFORE the connection is released, because
+ * it is that connection's credential state that is in question.
+ *
+ * FAIL-SAFE DIRECTION. Every path that does not produce a determinate logged-out
+ * reading answers `recovery-needed` — the conservative arm, which asks for
+ * reconciliation rather than promising an operator that re-authenticating will
+ * fix this. `indeterminate` deliberately does not earn `reauth-required` either:
+ * an unhealthy probe is not evidence about the credential. The resume's own
+ * cause is not lost on any path; it is already carried on
+ * `providerFailureDetail`.
+ */
+async function classifyResumeRecoveryCondition(
+  connection: CodexAppServerConnection,
+  cause: unknown,
+): Promise<RecoveryCondition> {
+  if (!(cause instanceof CodexProviderRequestError) || connection.isClosed) {
+    return "recovery-needed";
+  }
+  try {
+    const reading = classifyCodexAuthStatus(
+      await requestCodexAuthStatus(connection, CODEX_RESUME_AUTH_CLASSIFICATION_TIMEOUT_MS),
+    );
+    return reading.status === "unauthenticated" ? "reauth-required" : "recovery-needed";
+  } catch {
+    // Contained: this classification must never displace the typed `failed`
+    // result I-005-5 requires the resume path to return.
+    return "recovery-needed";
+  }
 }
 
 /**
@@ -1754,13 +1948,14 @@ export class CodexLifecycleManager {
       // typed result. A close that escaped here would turn the `recovery-needed`
       // condition back into an exception, which is exactly the loss I-005-5
       // forbids.
+      // Classified BEFORE the release, because the classification asks this very
+      // connection whether the credential is still good (P3-3). A refused resume
+      // leaves the transport open, so the child is still there to answer.
+      const recoveryCondition = await classifyResumeRecoveryCondition(connection, cause);
       await this.#releaseAbandonedConnection(connection);
       return DriverResumeResultSchema.parse({
         status: "failed",
-        // Always `recovery-needed` at this task: `reauth-required` is an
-        // authentication classification, and distinguishing provider failure
-        // causes is T3.14/T3.22's leg.
-        recoveryCondition: "recovery-needed",
+        recoveryCondition,
         // The driver observed a refused resume, not the span of work that was in
         // flight; classifying that span needs run state the driver does not hold.
         recoverySpanClassification: "unclassifiable",
@@ -1897,6 +2092,76 @@ export class CodexLifecycleManager {
     });
   }
 
+  /**
+   * Zero-turn authentication probe (P0-5). NEVER throws.
+   *
+   * WHY A DEDICATED CONNECTION. `probeAuth()` takes no parameters and holds no
+   * session, and its whole purpose is to detect a logged-out provider BEFORE a
+   * turn is spent — so it cannot borrow a live session's connection (there may be
+   * none, which is precisely the case that matters) and must not create one
+   * (that would make the probe a session-establishing operation). It spawns its
+   * own child from `resumeSpawnConfig`, the same CONSTRUCTED environment every
+   * other spawn on this manager uses, asks one question, and tears the child down
+   * in a `finally`. It claims NO session slot: it installs no record, starts no
+   * thread, and is bound to no session id, so a probe running concurrently with a
+   * create or a close cannot refuse either of them.
+   *
+   * WHY IT SPENDS NO CREDENTIAL. `includeToken: false` keeps credential material
+   * off the wire entirely, and `refreshToken: false` is the load-bearing half:
+   * the pinned providers rotate refresh tokens single-use with no grace window,
+   * so a probe that refreshed on a cadence would not observe a credential — it
+   * would END the login it was checking. Both members are sent explicitly because
+   * `GetAuthStatusParams` types them required-but-nullable; omitting them would
+   * leave the refresh behaviour to the provider's default.
+   *
+   * WHY IT IS TOTAL. Every unresolvable outcome — a spawn failure, a handshake
+   * failure, a deadline, a refusal, an unreadable answer — becomes
+   * `indeterminate`, which the contract defines as fail-closed for admission
+   * while staying distinguishable from `unauthenticated`. Throwing instead would
+   * hand the admission leg a third channel it has no rule for, and would collapse
+   * "the probe is unhealthy" into "the transport is down".
+   */
+  async probeAuth(): Promise<DriverAuthProbeResult> {
+    const connection = new CodexAppServerConnection(this.#probeConnectionOptions());
+    try {
+      await connection.open(this.#options.resumeSpawnConfig);
+      return classifyCodexAuthStatus(
+        await requestCodexAuthStatus(connection, CODEX_AUTH_PROBE_TIMEOUT_MS),
+      );
+    } catch (cause) {
+      return buildAuthProbeResult("indeterminate", normalizeProviderFailureDetail(cause));
+    } finally {
+      // Contained, so a teardown fault cannot displace the probe's answer — the
+      // same containment the abandoned-establishment paths use, and for the same
+      // reason. `close()` is idempotent, so this is safe on the path where
+      // `open()` already tore its own child down.
+      await this.#releaseAbandonedConnection(connection);
+    }
+  }
+
+  /**
+   * Connection options for a probe that owns no session.
+   *
+   * Deliberately NOT `#connectionOptionsFor`: that binds every inbound
+   * notification to a session id, and this connection has none. Attributing a
+   * probe's frames to a session would put a foreign process's notifications into
+   * that session's stream — the exact confusion the thread-frame routing exists
+   * to prevent. A probe starts no thread, so any notification it receives is by
+   * construction unconsumed, and that is what it is recorded as.
+   */
+  #probeConnectionOptions(): CodexConnectionOptions {
+    const reportDiagnostic = this.#options.reportDiagnostic;
+    return {
+      ...this.#options,
+      onServerNotification: (method: string): void => {
+        reportDiagnosticFromDetachedFrame(reportDiagnostic, {
+          kind: "unconsumed-server-notification",
+          method,
+        });
+      },
+    };
+  }
+
   /** Interrupts the provider turn bound to a run. */
   async interruptRun(params: InterruptRunParams): Promise<void> {
     const { record, turnId } = this.#requireActiveTurn(params.runId);
@@ -1976,17 +2241,33 @@ export class CodexLifecycleManager {
     }
   }
 
-  /** Steer is routed here by the intervention dispatcher (T3.2). */
-  async steerRun(runId: RunId, content: string, expectedTurnId?: string): Promise<void> {
-    const { record, turnId } = this.#requireActiveTurn(runId);
-    await record.connection.request("turn/steer", {
+  /** Steer is routed here by the intervention dispatcher (T3.2, enriched at T3.14). */
+  async steerRun(request: CodexSteerRunRequest): Promise<CodexSteerAcknowledgement> {
+    const { record, turnId } = this.#requireActiveTurn(request.runId);
+    // The provider REQUIRES an active-turn precondition. A caller-supplied
+    // expectation wins so a stale steer is refused by the provider rather than
+    // silently retargeted at whatever turn is running now. Held in a local
+    // because it is also half of the acknowledgement comparison: the dispatcher
+    // grades the ack against what actually went on the wire, not against the
+    // caller's optional hint (P3-1).
+    const targetedTurnId = request.expectedTurnId ?? turnId;
+    const response = await record.connection.request("turn/steer", {
       threadId: record.threadId,
-      input: [{ type: "text", text: content, text_elements: [] }],
-      // The provider REQUIRES an active-turn precondition. A caller-supplied
-      // expectation wins so a stale steer is refused by the provider rather than
-      // silently retargeted at whatever turn is running now.
-      expectedTurnId: expectedTurnId ?? turnId,
+      input: [{ type: "text", text: request.content, text_elements: [] }],
+      expectedTurnId: targetedTurnId,
+      // P0-3: the REQUESTER's key, verbatim and never re-minted here — a fresh
+      // value per retry is exactly what the daemon's `interventions` dedupe guard
+      // exists to prevent. `clientUserMessageId` is the pinned home for a
+      // caller-supplied message id, the same member `turn/start` above already
+      // carries. Field verified present on `TurnSteerParams` in the default
+      // generation of the installed `codex-cli 0.150.1` (regenerated 2026-08-28);
+      // `docs/reference/provider-wire/codex.md` pins `0.149.1` and does not print
+      // that params type, but records the member on the sibling `TurnStartParams`
+      // as byte-identical back to the `0.141.0` floor, and directs consumers to
+      // re-verify load-bearing shapes against the then-installed binary.
+      clientUserMessageId: request.clientIdempotencyKey,
     });
+    return { targetedTurnId, acknowledgedTurnId: readSteeredTurnId(response) };
   }
 
   /** True when the run has a live provider turn. */
@@ -2096,6 +2377,19 @@ export class CodexLifecycleManager {
    * `unconsumed-server-notification` diagnostic is preserved by re-reporting it
    * here, since the sink is now always present from the transport's point of
    * view.
+   *
+   * FRAME ROUTING IS CONSUMED HERE, NOT OWNED HERE. Both pinned providers
+   * multiplex subagent, review, and compaction CHILD threads over the session's
+   * own connection, so a frame arriving on this connection is not by that fact
+   * the session's own. Deciding whose stream it came from — the thread-identity
+   * registry, the fail-closed routing decision, and the bounded quarantine — is
+   * `provider/thread-frame-router.ts`'s (T3.11). This seam therefore adds NO
+   * routing decision of its own: it stamps the session this CONNECTION belongs
+   * to and hands the frame on, and the terminal-emission boundary downstream
+   * consumes the router's decision rather than re-deriving one. A second
+   * decision here would be a second source of truth for the same question, and
+   * the two would disagree exactly when a child thread's terminal must not
+   * settle the parent's run.
    */
   #connectionOptionsFor(sessionId: SessionId): CodexConnectionOptions {
     const delegate = this.#options.onServerNotification;
@@ -2297,6 +2591,25 @@ function readThread(response: unknown, method: string): ThreadView {
     );
   }
   return { id, sessionId, turns: thread["turns"] };
+}
+
+/**
+ * Reads the turn a `turn/steer` acknowledgement named, or `null` when it named none.
+ *
+ * TOTAL rather than throwing, unlike `readTurnId` beside it, and the difference
+ * is the point: a steer whose ack is unreadable is not a transport fault — the
+ * request WAS answered — it is an acknowledgement carrying no evidence, and
+ * P3-1 grades that as a degraded intervention rather than as an outage. Throwing
+ * here would tell the orchestration layer to treat a live provider as unreachable.
+ *
+ * `TurnSteerResponse` is the flat `{ turnId }` at the pin, deliberately NOT the
+ * `{ turn: { id } }` shape `turn/start` answers with — reading the wrong one
+ * would return `null` for every successful steer.
+ */
+function readSteeredTurnId(response: unknown): string | null {
+  const record = isPlainObject(response) ? response : {};
+  const turnId = record["turnId"];
+  return typeof turnId === "string" && turnId.length > 0 ? turnId : null;
 }
 
 function readTurnId(response: unknown, method: string): string {

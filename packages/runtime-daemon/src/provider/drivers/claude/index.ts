@@ -10,7 +10,7 @@
 // WHY `Pick<ProviderDriver, ...>` AND NOT `implements ProviderDriver`. This class
 // implements the six operations PR-A owns. The other eight — `rollbackTo`,
 // `respondToRequest`, `setSessionGoal`, `clearSessionGoal`, `listModels`,
-// `listModes`, `getCapabilities`, `probeAuth` — are authored by sibling Phase-3
+// `listModes`, `getCapabilities` — are authored by sibling Phase-3
 // tasks (T3.8 capabilities/models/modes, T3.14 interactive requests + auth probe,
 // T3.15 the R8 parity operations). Declaring the full interface today would force
 // throwing stubs into the driver, and a driver that answers a contract operation
@@ -25,6 +25,7 @@ import type {
   ApplyInterventionParams,
   CloseSessionParams,
   CreateSessionParams,
+  DriverAuthProbeResult,
   DriverInterventionResult,
   DriverResumeResult,
   InterruptRunParams,
@@ -87,6 +88,7 @@ export type ClaudeDriverOperations = Pick<
   | "interruptRun"
   | "applyIntervention"
   | "closeSession"
+  | "probeAuth"
 >;
 
 export type ClaudeDriverDependencies = ClaudeSessionLifecycleDependencies;
@@ -124,5 +126,9 @@ export class ClaudeDriver implements ClaudeDriverOperations {
 
   async closeSession(params: CloseSessionParams): Promise<void> {
     await this.#lifecycle.closeSession(params);
+  }
+
+  async probeAuth(): Promise<DriverAuthProbeResult> {
+    return await this.#lifecycle.probeAuth();
   }
 }

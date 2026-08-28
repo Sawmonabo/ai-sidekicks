@@ -57,12 +57,15 @@
 // T3.14's P3-3 to register and re-home.
 
 import {
+  DRIVER_AUTH_DETAIL_MAX_LEN,
   DRIVER_FAILURE_DETAIL_MAX_LEN,
+  DriverAuthProbeResultSchema,
   DriverResumeResultSchema,
   type CallbackToolInvocation,
   type CallbackToolResult,
   type CloseSessionParams,
   type CreateSessionParams,
+  type DriverAuthProbeResult,
   type DriverResumeResult,
   type ExecutionPosture,
   type InterruptRunParams,
@@ -262,9 +265,88 @@ export interface ClaudeResumedSessionAttachment extends ClaudeSessionAttachment 
   readonly sessionPosition: number;
 }
 
+/**
+ * What a transport reports when the zero-turn auth probe found a usable credential.
+ *
+ * Resolving IS the authenticated verdict; there is no negative arm, because the
+ * two negative outcomes are already carried by typed throws (see the port). A
+ * three-armed reading would have given a transport a second way to say "logged
+ * out" and this band two shapes to agree with each other about.
+ */
+export interface ClaudeAuthProbeReading {
+  /**
+   * Operator-facing, non-PII, and OPTIONAL — e.g. which credential source
+   * answered.
+   *
+   * MUST NOT carry credential material or a seat email. The pinned CLI's
+   * `CLAUDE_CODE_OAUTH_TOKEN` is a credential the wire reference says is never
+   * to be echoed, persisted, or written to a workspace, and a probe detail is
+   * all three waiting to happen. The driver contract bounds this at
+   * `DRIVER_AUTH_DETAIL_MAX_LEN` and treats it as diagnostics only: `status`
+   * alone carries the fail-closed admission decision.
+   */
+  readonly detail?: string | undefined;
+}
+
 export interface ClaudeSessionTransport {
+  /**
+   * Starts a provider process for a new session.
+   *
+   * SPAWN-ENVIRONMENT OBLIGATION (P0-4), owned here for the same reason the auth
+   * probe is: THIS BAND SPAWNS NOTHING, so the only place the rule can bind is
+   * the port. The child environment is CONSTRUCTED, never inherited — the
+   * transport composes it from the curated base plus the run-provisioned
+   * variables and strips the effective credential policy's denied names, and no
+   * path spreads the daemon's own `process.env` into a child. It applies
+   * identically to `resumeSession`, which is a fresh spawn and not a reattach.
+   * Beneath it sits the provider-native layer this CLI needs: `CLAUDE_*` and
+   * `CLAUDECODE*` are stripped so an ambient developer configuration cannot
+   * reach an agent's process, and configuration is supplied through `--settings`
+   * rather than the ambient `~/.claude`, so two sessions on one node cannot read
+   * each other's settings.
+   *
+   * AUTH-FAILURE OBLIGATION, shared with `resumeSession` below (P3-3): a
+   * DETERMINATE logged-out failure throws `ClaudeAuthenticationRequiredError`,
+   * and every other failure throws anything else. That typed distinction is the
+   * only route by which this band reports `reauth-required` instead of
+   * `recovery-needed` — `classifyRecoveryCondition` keys on the class and never
+   * on message text, so a transport that reported a logout as a generic error
+   * would silently downgrade the operator's remediation to "reconcile by hand".
+   */
   spawnSession(request: ClaudeSessionSpawnRequest): Promise<ClaudeSessionAttachment>;
+  /**
+   * Re-attaches to an existing provider session.
+   *
+   * Carries the same auth-failure obligation as `spawnSession`: this is the call
+   * whose rejection `#establishResumedSession` classifies, so an expired
+   * credential MUST arrive as `ClaudeAuthenticationRequiredError`.
+   */
   resumeSession(request: ClaudeSessionResumeRequest): Promise<ClaudeResumedSessionAttachment>;
+  /**
+   * The zero-turn authentication probe (P0-5), owned by the transport because
+   * THIS BAND SPAWNS NOTHING.
+   *
+   * The pinned wire reference records that no authless protocol probe exists for
+   * this provider: reaching a working `system/init` IS the authentication
+   * evidence, and only the layer that can start a process can obtain it. So the
+   * probe is a port obligation rather than a method here, and this band supplies
+   * the classification instead.
+   *
+   * TRANSPORT OBLIGATIONS, all four load-bearing:
+   *   1. It spends NO turn and admits no run. A probe that cost a turn would
+   *      defeat its own purpose, which is to refuse admission before one is spent.
+   *   2. It returns, logs, and persists NO credential material — in particular
+   *      never the `CLAUDE_CODE_OAUTH_TOKEN` value, whether it read one or not.
+   *   3. It throws `ClaudeAuthenticationRequiredError` for a DETERMINATE
+   *      logged-out reading, and any other error for one it could not take. That
+   *      typed distinction is the whole reason this band can report
+   *      `unauthenticated` separately from `indeterminate` without sniffing a
+   *      message string — the same rule `classifyRecoveryCondition` already
+   *      applies on the resume path.
+   *   4. Any process it starts is torn down before the returned promise settles,
+   *      on every path including the throwing ones.
+   */
+  probeAuth(): Promise<ClaudeAuthProbeReading>;
 }
 
 // --------------------------------------------------------------------------
@@ -473,6 +555,36 @@ function sanitizeFailureDetail(detail: string): string {
     ? trimmed
     : trimmed.slice(0, DRIVER_FAILURE_DETAIL_MAX_LEN);
 }
+
+/**
+ * Builds a probe result, TOTALLY — an over-long or refused detail never throws.
+ *
+ * `DRIVER_AUTH_DETAIL_MAX_LEN` is two orders of magnitude tighter than the
+ * failure-detail bound `sanitizeFailureDetail` cuts to, so a sanitized cause
+ * still needs its own trim before the strict envelope sees it. When the envelope
+ * refuses even the trimmed string the detail is DROPPED rather than allowed to
+ * throw: `status` carries the fail-closed admission decision and the detail only
+ * tells an operator why, so losing it costs diagnostics and never correctness.
+ */
+function buildAuthProbeResult(
+  status: DriverAuthProbeResult["status"],
+  detail: string,
+): DriverAuthProbeResult {
+  const sanitized = sanitizeFailureDetail(detail);
+  const bounded =
+    sanitized.length > DRIVER_AUTH_DETAIL_MAX_LEN
+      ? sanitized.slice(0, DRIVER_AUTH_DETAIL_MAX_LEN)
+      : sanitized;
+  const parsed = DriverAuthProbeResultSchema.safeParse({ status, detail: bounded });
+  return parsed.success ? parsed.data : DriverAuthProbeResultSchema.parse({ status });
+}
+
+// Stands in when a transport reports an authenticated reading with no detail of
+// its own. Names the EVIDENCE rather than asserting a credential source the
+// probe did not report: the pinned CLI publishes no authless protocol probe, so
+// reaching a working provider handshake is the whole of what an authenticated
+// verdict rests on, and the detail should not imply more than that.
+const CLAUDE_AUTH_PROBE_REACHED_DETAIL = "the provider answered the zero-turn auth probe";
 
 function classifyRecoveryCondition(error: unknown): RecoveryCondition {
   return error instanceof ClaudeAuthenticationRequiredError ? "reauth-required" : "recovery-needed";
@@ -889,6 +1001,47 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     // to it.
     this.#sessionIdByRunId.set(params.runId, dispatch.sessionId);
     await live.channel.sendUserText({ text: dispatch.openingText });
+  }
+
+  /**
+   * Zero-turn authentication probe (P0-5). NEVER throws.
+   *
+   * The classification, and nothing else: the transport owns the observation
+   * (this band spawns no process and reads no environment variable, which is why
+   * it could not obtain one), and this method maps the three ways that
+   * observation can land onto the contract's three-value result.
+   *
+   *   resolved                              -> `authenticated`
+   *   `ClaudeAuthenticationRequiredError`   -> `unauthenticated`
+   *   any other throw                       -> `indeterminate`
+   *
+   * The last arm is fail-closed for admission and still distinguishable from the
+   * middle one, which is the distinction the three-value enum exists to keep: an
+   * operator must be able to tell a logged-out provider from a probe that could
+   * not run. Claiming `unauthenticated` for an unhealthy probe would send them to
+   * re-authenticate a credential that was never in question.
+   *
+   * NO SESSION SLOT is claimed. The probe holds no session id, installs no live
+   * session, and starts no run, so it cannot refuse a concurrent create or close
+   * — and a `probeAuth` that queued behind a session transition would stall the
+   * very admission check it exists to make cheap.
+   */
+  async probeAuth(): Promise<DriverAuthProbeResult> {
+    try {
+      const reading = await this.#transport.probeAuth();
+      return buildAuthProbeResult(
+        "authenticated",
+        reading.detail ?? CLAUDE_AUTH_PROBE_REACHED_DETAIL,
+      );
+    } catch (cause) {
+      // Typed, never sniffed — the same rule the resume path's recovery
+      // classification follows, and for the same reason: a message-substring
+      // test would silently reclassify on any provider wording change.
+      return buildAuthProbeResult(
+        cause instanceof ClaudeAuthenticationRequiredError ? "unauthenticated" : "indeterminate",
+        describeFailure(cause),
+      );
+    }
   }
 
   async interruptRun(params: InterruptRunParams): Promise<void> {
