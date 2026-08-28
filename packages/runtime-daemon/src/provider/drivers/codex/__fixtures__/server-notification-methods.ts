@@ -263,7 +263,14 @@ export const CODEX_SERVER_NOTIFICATION_METHOD_VECTORS: readonly CodexServerNotif
     // §Adjacent currency facts — "`account/rateLimits/read` (pull) +
     // `account/rateLimits/updated` (push) — rate limits are first-class";
     // "`thread/compact/start` + `thread/compacted` — compaction is
-    // controllable"; "Guardian routing: `guardianWarning`,
+    // controllable"; "`turn/diff/updated` + `turn/plan/updated` — the per-turn
+    // diff and plan snapshot notifications. Both are present in the
+    // default-generated `ServerNotification` union" (those two rows alone added
+    // to the reference 2026-08-28, closing the gap that had kept these two
+    // delta-family members out of this census; their `experimentalGatedAtPin`
+    // is `false` for this file's ONE declared reason — absence from the
+    // §The experimental gate enumeration, never a gate claim read off
+    // §Adjacent currency facts); "Guardian routing: `guardianWarning`,
     // `item/autoApprovalReview/started`, `item/autoApprovalReview/completed`,
     // `thread/approveGuardianDeniedAction`"; "New at the pin and worth knowing
     // about: ... the notifications `model/safetyBuffering/updated` and
@@ -280,6 +287,18 @@ export const CODEX_SERVER_NOTIFICATION_METHOD_VECTORS: readonly CodexServerNotif
     },
     {
       method: "thread/compacted",
+      experimentalGatedAtPin: false,
+      presentInPinnedGeneratedSchema: true,
+      referenceSection: "Adjacent currency facts",
+    },
+    {
+      method: "turn/diff/updated",
+      experimentalGatedAtPin: false,
+      presentInPinnedGeneratedSchema: true,
+      referenceSection: "Adjacent currency facts",
+    },
+    {
+      method: "turn/plan/updated",
       experimentalGatedAtPin: false,
       presentInPinnedGeneratedSchema: true,
       referenceSection: "Adjacent currency facts",

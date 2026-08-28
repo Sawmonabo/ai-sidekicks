@@ -101,10 +101,18 @@ export const CLI_VERSION_SEMVER_MAX_LEN = 64;
 /**
  * Thrown when a provider-declared output field fails write-seam validation.
  *
- * Mirrors the daemon typed-error convention (`SessionNotFoundError`): a stable
- * `code` literal in the `driver.*` dotted namespace (consistent with T2.3's
- * `driver.capability_unsupported`, reusable by T2.4) and an optional `fields`
- * carrying STRUCTURED throw-site detail — `{ field, reason }`.
+ * Discriminated by CLASS IDENTITY, never by a dotted `code` member.
+ * `docs/architecture/contracts/error-contracts.md §Driver` is a CLOSED
+ * registry and carries no `driver.provider_output_invalid` row, so a `code`
+ * here would be an unregistered literal asserting a wire contract that does not
+ * exist — the call `CodexSessionAlreadyLiveError` and `CodexDriverConfigError`
+ * already make in the driver trees ("discriminated by CLASS-LOCAL state rather
+ * than by a second dotted code: the error-contract registry is closed"). Nor is
+ * one reachable: `mapJsonRpcError` discriminates by `instanceof` over a fixed
+ * class list this type is not on, so this error never rides the wire as a typed
+ * envelope at all. Callers get the class plus an optional `fields` carrying
+ * STRUCTURED throw-site detail — `{ field, reason }` — which every throw site
+ * in this module sets.
  *
  * Deliberately leak-safe: the message is a short stable sentence and the
  * `fields` carry only `field` (which column), `reason` (a human label), and —
@@ -117,7 +125,6 @@ export const CLI_VERSION_SEMVER_MAX_LEN = 64;
  * resume handle), so it never enters the error surface.
  */
 export class ProviderOutputValidationError extends Error {
-  readonly code = "driver.provider_output_invalid" as const;
   readonly fields?: Record<string, unknown>;
 
   constructor(message: string, fields?: Record<string, unknown>) {

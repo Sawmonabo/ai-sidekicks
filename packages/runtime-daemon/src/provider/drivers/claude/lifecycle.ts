@@ -44,11 +44,13 @@
 // module spawns nothing, reads no environment variable, and therefore cannot
 // echo, persist, or log a `CLAUDE_CODE_OAUTH_TOKEN`.
 //
-// Typed-error convention: mirrors `provider-registry.ts` and
-// `provider-output-validation.ts` — a `readonly code` literal drawn from the
-// `driver.*` namespace already registered in
-// `docs/architecture/contracts/error-contracts.md` §Driver, plus a structured
-// `fields` bag. PR-A mints NO new dotted code: `driver.unavailable` carries the
+// Typed-error convention: mirrors `provider-registry.ts` — a `readonly code`
+// literal drawn from the `driver.*` namespace already registered in
+// `docs/architecture/contracts/error-contracts.md` §Driver (closed at seven),
+// plus a structured `fields` bag. Internal validation errors (e.g.
+// `ProviderOutputValidationError`) carry NO code — class identity
+// discriminates; a dotted literal belongs only to registered wire/domain
+// errors. PR-A mints NO new dotted code: `driver.unavailable` carries the
 // driver-side refusals to service a session/run operation and
 // `driver.capability_unsupported` carries a provider's typed control-request
 // refusal ("registry membership is not availability"). A finer taxonomy is

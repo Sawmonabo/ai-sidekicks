@@ -42,11 +42,14 @@
 // is realized simply by `checkCapability` being the only gate and the registry
 // never calling/special-casing `applyIntervention` — there is no exclusion branch.
 //
-// Typed-error convention: mirrors the immediate-neighbor `provider-output-
-// validation.ts` (`ProviderOutputValidationError`) and `ipc/session-errors.ts` —
-// a stable `code` literal in the `driver.*` dotted namespace and a leak-safe
-// message + structured `fields`. Both error classes are exported because T2.5's
-// integration test asserts the gate throws the right type/code.
+// Typed-error convention: mirrors `ipc/session-errors.ts` — a stable `code`
+// literal in the `driver.*` dotted namespace, REGISTERED in
+// `docs/architecture/contracts/error-contracts.md` §Driver (closed at seven),
+// and a leak-safe message + structured `fields`. Internal validation errors
+// (`ProviderOutputValidationError`) deliberately carry NO code — class identity
+// discriminates; only registered wire/domain errors mint one. Both error
+// classes are exported because T2.5's integration test asserts the gate throws
+// the right type/code.
 //
 // Spec coverage: `Spec-005 §Required Behavior` (every provider integration implements a normalized
 // driver contract — the registry is keyed on that contract), `Spec-005 §Required Behavior` (runtime

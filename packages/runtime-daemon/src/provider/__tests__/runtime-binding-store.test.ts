@@ -500,7 +500,6 @@ describe("RuntimeBindingStore — contract_version canonical-semver identity", (
       }
       expect(thrown).toBeInstanceOf(ProviderOutputValidationError);
       const validationError = thrown as ProviderOutputValidationError;
-      expect(validationError.code).toBe("driver.provider_output_invalid");
       expect(validationError.fields?.["field"]).toBe("contract_version");
     });
   }
@@ -1416,7 +1415,6 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
       // A TYPED, leak-safe refusal — never a raw SqliteError from the DDL CHECK.
       expect(thrown).toBeInstanceOf(ProviderOutputValidationError);
       const validationError = thrown as ProviderOutputValidationError;
-      expect(validationError.code).toBe("driver.provider_output_invalid");
       expect(validationError.fields?.["field"]).toBe(field);
       // The daemon-controlled driver name is carried (which driver misbehaved);
       // the provider-supplied VALUES are not. The message is a fixed sentence

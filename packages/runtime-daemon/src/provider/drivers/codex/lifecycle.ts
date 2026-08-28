@@ -296,9 +296,11 @@ const UNSPECIFIED_PROVIDER_FAILURE_DETAIL =
 // --------------------------------------------------------------------------
 
 /**
- * Transport or process-level failure. Mirrors the house convention (a stable
- * `code` literal plus leak-safe structured `fields`) used by
- * `provider-registry.ts` and `provider-output-validation.ts`.
+ * Transport or process-level failure. Mirrors the house convention for
+ * REGISTERED codes (a stable `code` literal plus leak-safe structured
+ * `fields`) used by `provider-registry.ts`; internal validation errors like
+ * `ProviderOutputValidationError` carry no code — class identity
+ * discriminates.
  */
 export class CodexTransportError extends Error {
   readonly code = "driver.unavailable" as const;

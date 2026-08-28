@@ -869,7 +869,6 @@ describe("DriverCapabilitiesWriter — invalid cliVersion report", () => {
       thrown = error;
     }
     expect(thrown).toBeInstanceOf(ProviderOutputValidationError);
-    expect((thrown as ProviderOutputValidationError).code).toBe("driver.provider_output_invalid");
     expect((thrown as ProviderOutputValidationError).fields?.["field"]).toBe(expectedField);
 
     // No txn ever opened — all three driver tables untouched + no event emitted.
@@ -1285,9 +1284,18 @@ describe("DriverCapabilitiesWriter — structurally-malformed result (leak-safe)
     } catch (error) {
       thrown = error;
     }
-    // The DISCRIMINATOR vs pre-fix is the error TYPE + code (pre-fix: raw TypeError).
+    // The DISCRIMINATOR vs pre-fix is the error CLASS (pre-fix: raw TypeError).
+    // The class carries no dotted `code` — the driver error-contract registry is
+    // closed and has no row for this refusal — so class identity plus the
+    // leak-safe structured detail IS the contract under test. The three
+    // malformed shapes land on three different guard arms (`capabilities`,
+    // `flags`, `tools`), so the `field` VALUE is arm-specific; what every arm
+    // owes is that both structured members are present and are strings.
     expect(thrown).toBeInstanceOf(ProviderOutputValidationError);
-    expect((thrown as ProviderOutputValidationError).code).toBe("driver.provider_output_invalid");
+    const validationError = thrown as ProviderOutputValidationError;
+    expect(validationError.name).toBe("ProviderOutputValidationError");
+    expect(typeof validationError.fields?.["field"]).toBe("string");
+    expect(typeof validationError.fields?.["reason"]).toBe("string");
 
     // No txn ever opened — all three driver tables untouched + no event emitted.
     expect(countCapabilityRows(DRIVER_NAME)).toBe(0);
@@ -1312,6 +1320,22 @@ describe("DriverCapabilitiesWriter — structurally-malformed result (leak-safe)
       capabilities: { flags: makeFlags(), contractVersion: CONTRACT_VERSION },
       tools: null,
     });
+  });
+
+  it("NEGATIVE CONTROL: the class-identity guard is not vacuous — a raw TypeError fails it", () => {
+    // `expectLeakSafeReject`'s discriminator is `toBeInstanceOf`, and the shape
+    // it discriminates AGAINST is the pre-fix raw TypeError. Pin that the two
+    // are actually separable: a TypeError IS an `Error`, so the same assertion
+    // written one level up the prototype chain would pass for both and prove
+    // nothing. This is what makes the assertions above load-bearing now that
+    // no dotted `code` member backs them up.
+    const rawTypeError = new TypeError("Cannot read properties of null (reading 'flags')");
+    expect(rawTypeError).toBeInstanceOf(Error);
+    expect(rawTypeError).not.toBeInstanceOf(ProviderOutputValidationError);
+    // ...and the typed refusal passes the guard the TypeError fails.
+    expect(new ProviderOutputValidationError("x", { field: "tools", reason: "y" })).toBeInstanceOf(
+      ProviderOutputValidationError,
+    );
   });
 });
 
@@ -1353,7 +1377,6 @@ describe("DriverCapabilitiesWriter — sparse tools array (leak-safe, shape guar
     }
     // Leak-safe typed error (pre-fix: raw TypeError from inside the txn).
     expect(thrown).toBeInstanceOf(ProviderOutputValidationError);
-    expect((thrown as ProviderOutputValidationError).code).toBe("driver.provider_output_invalid");
     expect((thrown as ProviderOutputValidationError).fields?.["field"]).toBe("tools");
     // The reason names the density/sparse contract (the documented rule).
     expect((thrown as ProviderOutputValidationError).fields?.["reason"]).toMatch(/dense|sparse/i);

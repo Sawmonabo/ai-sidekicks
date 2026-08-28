@@ -310,8 +310,12 @@ preconditions:
   - Reference (P2-5, campaign B19): [`codex.md`](../reference/provider-wire/codex.md) (§Method namespace, §Capability shapes, §Server-requests) — the version-pinned Codex wire surfaces this normalizer maps (at the pin that reference file records); the Codex driver `__fixtures__/` land with this Phase-3 code (fixture golden vectors regenerated from the pinned binary per the §3.4 regenerate-don't-transcribe rule). The B10 amendment (§Campaign B10 Amendment below) enriches this normalizer with the default-branch diagnostic (T3.11).
   - Estimate: 1-2 PRs
 
-- **T3.6** through **T3.10** — Symmetric tasks for Claude driver (`drivers/claude/{index,lifecycle,intervention,capabilities,tools,event-normalizer}.ts`). Claude declares `steer: false` per the V1 capability matrix — T3.7 (Claude intervention dispatcher) exercises the degraded-fallback path: `applyIntervention({ type: 'steer', ... })` returns `{ status: 'degraded', fallbackAction: 'queue_and_interrupt' }` per ADR-011's documented fallback for no-native-steer providers.
-  - Reference (P2-5, campaign B19): [`claude.md`](../reference/provider-wire/claude.md) (§CLI / wire surface, §Control protocol and result surface, §Gaps recorded) — the version-pinned Claude wire surfaces these symmetric Claude driver tasks map (at the pin that reference file records); the Claude driver `__fixtures__/` land with this Phase-3 code. The B10 amendment enriches T3.10 (Claude normalizer) with the same default-branch diagnostic (T3.11) and T3.9 (Claude tool metadata) with the MCP floor + negative test (T3.13).
+- **T3.6** — Symmetric to T3.1: Claude driver entry + lifecycle methods (`drivers/claude/{index,lifecycle}.ts`).
+- **T3.7** — Symmetric to T3.2: Claude intervention dispatcher (`drivers/claude/intervention.ts`). Claude declares `steer: false` per the V1 capability matrix — this task exercises the degraded-fallback path: `applyIntervention({ type: 'steer', ... })` returns `{ status: 'degraded', fallbackAction: 'queue_and_interrupt' }` per ADR-011's documented fallback for no-native-steer providers.
+- **T3.8** — Symmetric to T3.3: Claude capability declaration + refresh (`drivers/claude/capabilities.ts`).
+- **T3.9** — Symmetric to T3.4: Claude per-tool metadata declaration (`drivers/claude/tools.ts`). The B10 amendment enriches this task with the MCP floor + negative test (T3.13).
+- **T3.10** — Symmetric to T3.5: Claude event normalizer (`drivers/claude/event-normalizer.ts`). The B10 amendment enriches this normalizer with the same default-branch diagnostic (T3.11).
+  - Reference (P2-5, campaign B19): [`claude.md`](../reference/provider-wire/claude.md) (§CLI / wire surface, §Control protocol and result surface, §Gaps recorded) — the version-pinned Claude wire surfaces the symmetric Claude driver tasks T3.6-T3.10 map (at the pin that reference file records); the Claude driver `__fixtures__/` land with this Phase-3 code. (Row split from the combined `T3.6 through T3.10` declaration 2026-08-28 so the Gate-3 task oracle recognizes all five ids — content unchanged, no obligation moves.)
 
 - **T3.11 — Event-normalizer default-branch diagnostic + reorder buffer + telemetry producers (EXTENDs T3.5 Codex + T3.10 Claude, campaign B10).**
   - Files: `packages/runtime-daemon/src/provider/drivers/codex/event-normalizer.ts` (EXTEND T3.5); `packages/runtime-daemon/src/provider/drivers/claude/event-normalizer.ts` (EXTEND T3.10); `packages/runtime-daemon/src/provider/driver-diagnostics.ts` (new — the daemon diagnostic surface both normalizers route to, Codex round 3: the typed `DriverDiagnosticRecord` plus the emitter that lands each record on the structured daemon log stream and the OpenTelemetry counters; a "daemon diagnostic channel" with no owning file would leave every routed-to-diagnostic promise unimplementable)
@@ -953,6 +957,53 @@ shipped:
       Shipped surface: findByRuns(runIds) via a prepare-once json_each() IN-subquery (immune to SQLITE_MAX_VARIABLE_NUMBER, deterministic ORDER BY, superseded history included -- the caller owns liveness intersection per the T2.1/T2.2 design notes); the seven-member RuntimeBindingSpawnConfig frozen-copy carrier required at every binding write with loud refusal on omission and on an unreadable stored record at both write seams; and the cliVersion raw+semver pair with canonical-identity semver validation (semver.valid(v) === v), TOCTOU-safe snapshot-before-validate with throwing accessors translated to the typed leak-safe ProviderOutputValidationError, and the both-or-neither pair CHECK mirrored in the schema doc.
       verifies_invariant records I-005-2 at the daemon-persistence layer on the established multi-layer convention (this phase's PR #159 entry and the Phase-1 PR #369 entry both invoke it): the hydration miss discriminants are what keep an undeclared-or-stale cache refusing rather than fabricating support. The 0011 migration's five-member SQL comment predates this PR's seven-member mint and is left as a dated artifact (behaviorally inert; the schema doc is canonical) -- recorded in PR #372's Review Notes.
       Review: one consolidated 3-reviewer round folded nine findings; Codex round 1 ack_with_findings -- two accepted (canonical-semver seam gate; typed accessor-throw refusal, d97b1bc9), one rejected on T3.23's recorded ownership of the always-supply obligation. No census moves; no wire method, error code, event type, table, or column is minted.
+  - phase: 3
+    task: [T3.1, T3.2, T3.3, T3.4, T3.5, T3.6, T3.7, T3.8, T3.9, T3.10]
+    pr: 375
+    sha: 395ff9f0
+    merged_at: 2026-08-28
+    files:
+      - packages/runtime-daemon/src/provider/drivers/claude/__fixtures__/control-request-subtype-census.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/__fixtures__/stream-surface-census.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/__tests__/claude-capabilities.test.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/__tests__/claude-driver.test.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/__tests__/claude-test-doubles.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/__tests__/claude-tools.test.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/__tests__/event-normalizer.test.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/__tests__/intervention.test.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/__tests__/lifecycle.test.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/capabilities.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/event-normalizer.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/index.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/intervention.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/lifecycle.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/tools.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/__fixtures__/server-notification-methods.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/__fixtures__/server-request-methods.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/__tests__/capabilities.test.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/__tests__/event-normalizer.test.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/__tests__/intervention.test.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/__tests__/lifecycle.test.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/__tests__/tools.test.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/capabilities.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/event-normalizer.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/index.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/intervention.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/lifecycle.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/tools.ts
+      - packages/runtime-daemon/tsconfig.json
+    verifies_invariant: [I-005-2, I-005-3, I-005-4, I-005-5]
+    spec_coverage:
+      [
+        "Spec-005 §Required Behavior (the normalized driver contract's operation surface implemented on both cores; provider-reported request failures preserved unclassified — numeric code, message, data — at the request-dispatch seam for the T3.14/T3.22 classification leg)",
+        "Spec-005 §Fallback Behavior (the degraded-intervention discipline the T3.2/T3.7 intervention modules implement — T3.7 exercising the degraded steer arm)",
+        "Spec-005 §Tool Metadata (the per-driver tool-identity namespaces T3.4/T3.9 pin, bound into the census methods by compile-checked annotation)",
+      ]
+    notes: |
+      Phase-3 tasks T3.1-T3.10 shipped as one daemon PR — the PR-A slice of the phase's four-PR partition (PR-B: T3.11-T3.15 + T3.23; PR-C: T3.18/T3.19/T3.21; PR-D: T3.20/T3.22/T3.24/T3.25). Ten of the phase's twenty-three declared tasks are merged, so the phase classifies partially_shipped under declared-subset-of-shipped and NO Gate-5 entry re-resolves: the two { plan: 005, phase: 3, status: merged } entries repo-wide — Plan-005 Phase 3B and Plan-005 Phase 5, both local self-gates, established by grep — stay held.
+      verifies_invariant = the T3.1-T3.10 audit-marker union {I-005-2, I-005-3, I-005-4, I-005-5} at the driver-core layer on the established multi-layer convention (this plan's PR #159 / #369 / #372 entries all invoke it): I-005-5 at the T3.1/T3.6 lifecycle state machines, I-005-4 at the T3.2/T3.7 intervention degrade paths, I-005-2 at the T3.3/T3.8 capability surfaces, I-005-3 at the T3.4/T3.9 tool-identity namespaces. T3.5/T3.10 carry no invariant marker; SDK-layer re-verification of I-005-2/I-005-4 stays at T4.6 per the Phase-1/2 entries' projections.
+      Both driver cores model the provider-session slot as an explicit held state machine (Codex establishing|live|closing behind #claimSessionSlot; Claude a single-registry five-state union with EMPTY as absence and quarantined retaining the channel of a rejected disposal). The event normalizers are closed pinned censuses onto Plan-006's 35-kind normalized map that THROW on unmapped kinds — the deliberate interim strictness T3.11 (PR-B) replaces with the EVENT_DISPOSITION_BY_KIND-driven diagnostic — with the corrected turn/diff/updated + turn/plan/updated wire names verified first-party against codex-cli 0.149.1. No dotted driver.* code is minted (the namespace stays seven); no census moves.
+      Review: three Codex rounds folded eighteen findings (seventeen fixed, one refuted) plus same-class residual sweeps (ingest-wide sink-fault containment; DRIVER_FAILURE_DETAIL_MAX_LEN leak-safe failure-detail normalization).
 ```
 
 ### Notes
