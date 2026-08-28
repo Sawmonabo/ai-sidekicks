@@ -27,6 +27,11 @@ import {
   type GetCapabilitiesResult,
 } from "@ai-sidekicks/contracts";
 
+import {
+  DRIVER_CLI_VERSION_FLOORS,
+  DriverCliVersionBelowFloorError,
+  DriverCliVersionUnparseableError,
+} from "../../../capability-refresh.js";
 import type {
   DeclareDriverCapabilitiesInput,
   DeclareDriverCapabilitiesResult,
@@ -288,5 +293,61 @@ describe("refreshDeclaration() — the emission seam (CP-005-5)", () => {
     await expect(
       makeReporter().refreshDeclaration(failing, { sessionId: "s", nodeId: "n" }),
     ).rejects.toThrow("write seam rejected the declaration");
+  });
+});
+
+describe("Claude CLI-version floor (T3.12, P0-2)", () => {
+  it("refuses a below-floor reading fail-closed before any report reaches a caller", async () => {
+    // 2.1.198 is the PRE-amendment floor — exactly the build the 2026-08-26
+    // raise (2.1.198 → 2.1.234) exists to refuse.
+    const reporter = makeReporter(() =>
+      Promise.resolve({ raw: "2.1.198 (Claude Code)", semver: "2.1.198" }),
+    );
+    let thrown: unknown;
+    try {
+      await reporter.getCapabilities();
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toBeInstanceOf(DriverCliVersionBelowFloorError);
+    const error = thrown as DriverCliVersionBelowFloorError;
+    expect(error.code).toBe("driver.cli_version_below_floor");
+    expect(error.fields).toStrictEqual({
+      driverName: "claude",
+      reportedSemver: "2.1.198",
+      floor: DRIVER_CLI_VERSION_FLOORS.claude,
+    });
+  });
+
+  it("admits the ratified floor itself and any newer build (above the pin included)", async () => {
+    const atFloor = makeReporter(() =>
+      Promise.resolve({ raw: "2.1.234 (Claude Code)", semver: "2.1.234" }),
+    );
+    await expect(atFloor.getCapabilities()).resolves.toBeDefined();
+
+    const aboveMeasured = makeReporter(() => Promise.resolve({ raw: "3.0.0", semver: "3.0.0" }));
+    await expect(aboveMeasured.getCapabilities()).resolves.toBeDefined();
+  });
+
+  it("refuses the refresh path through the same gate, and the writer never sees the declaration", async () => {
+    const reporter = makeReporter(() =>
+      Promise.resolve({ raw: "2.1.198 (Claude Code)", semver: "2.1.198" }),
+    );
+    const sink = new RecordingDeclarationSink();
+    await expect(
+      reporter.refreshDeclaration(sink, { sessionId: "s", nodeId: "n" }),
+    ).rejects.toBeInstanceOf(DriverCliVersionBelowFloorError);
+    expect(sink.calls).toHaveLength(0);
+  });
+
+  it("refuses a non-canonical reading fail-closed as unparseable", async () => {
+    // Reachable only through an untyped boundary (the report shape requires a
+    // canonical semver) — the gate still answers typed rather than throwing raw.
+    const reporter = makeReporter(() =>
+      Promise.resolve({ raw: "Claude Code (unknown)", semver: "unknown" }),
+    );
+    await expect(reporter.getCapabilities()).rejects.toBeInstanceOf(
+      DriverCliVersionUnparseableError,
+    );
   });
 });

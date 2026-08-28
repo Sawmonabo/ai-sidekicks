@@ -22,10 +22,16 @@ import type {
 } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
+import {
+  DRIVER_CLI_VERSION_FLOORS,
+  DriverCliVersionBelowFloorError,
+  DriverCliVersionUnparseableError,
+} from "../../../capability-refresh.js";
 import type {
   DeclareDriverCapabilitiesInput,
   DeclareDriverCapabilitiesResult,
 } from "../../../driver-capabilities-writer.js";
+import { DriverCapabilityUnsupportedError, ProviderRegistry } from "../../../provider-registry.js";
 import {
   assertValidCapabilityFlags,
   assertValidCliVersionReport,
@@ -163,8 +169,9 @@ describe("Codex getCapabilities() wrapper (T3.3)", () => {
   });
 
   it("threads cliVersion through VERBATIM without parsing or normalizing it", () => {
-    // The version is never invented here; the floor gate is T3.12/T3.23 (PR-B).
-    // A non-canonical raw string must survive untouched.
+    // The version is never invented here; the T3.12 floor gate below REFUSES
+    // an inadmissible report but never rewrites an admissible one — a
+    // non-canonical raw string must survive untouched.
     const oddReport: DriverCliVersionReport = {
       raw: "codex-cli 0.149.1 (build abc123)",
       semver: "0.149.1",
@@ -259,5 +266,85 @@ describe("Codex capability refresh seam (T3.3, CP-005-5)", () => {
     });
     expect(emission.emitted).toBe("noop");
     expect(sink.calls).toHaveLength(1);
+  });
+});
+
+describe("Codex CLI-version floor (T3.12, P0-2)", () => {
+  it("refuses a below-floor report at composition, so attach and refresh both hit the gate", () => {
+    let thrown: unknown;
+    try {
+      getCodexCapabilities({ raw: "codex-cli 0.140.0", semver: "0.140.0" });
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toBeInstanceOf(DriverCliVersionBelowFloorError);
+    const error = thrown as DriverCliVersionBelowFloorError;
+    expect(error.code).toBe("driver.cli_version_below_floor");
+    expect(error.fields).toStrictEqual({
+      driverName: "codex",
+      reportedSemver: "0.140.0",
+      floor: DRIVER_CLI_VERSION_FLOORS.codex,
+    });
+  });
+
+  it("admits the ratified floor itself and any newer build (above the pin included)", () => {
+    expect(() => {
+      getCodexCapabilities({ raw: "codex-cli 0.141.0", semver: "0.141.0" });
+    }).not.toThrow();
+    expect(() => {
+      getCodexCapabilities({ raw: "codex-cli 0.150.1", semver: "0.150.1" });
+    }).not.toThrow();
+  });
+
+  it("refuses a non-canonical semver member fail-closed as unparseable", () => {
+    expect(() => {
+      getCodexCapabilities({ raw: "codex-cli mystery", semver: "mystery" });
+    }).toThrow(DriverCliVersionUnparseableError);
+  });
+
+  it("refuses the refresh path through the same gate (one comparison, two moments)", async () => {
+    const sink = new RecordingDeclarationSink({ emitted: "noop", cliVersionRefreshed: false });
+    await expect(
+      refreshCodexCapabilities(sink, {
+        sessionId: "session-floor",
+        nodeId: "node-floor",
+        cliVersion: { raw: "codex-cli 0.140.0", semver: "0.140.0" },
+      }),
+    ).rejects.toBeInstanceOf(DriverCliVersionBelowFloorError);
+    // Fail-closed means the writer never saw the below-floor declaration.
+    expect(sink.calls).toHaveLength(0);
+  });
+});
+
+describe("Codex cost_cap static refusal (T3.12)", () => {
+  it("refuses a cost_cap-gated admission against Codex statically at the registry gate", async () => {
+    const registry = new ProviderRegistry();
+    // `register` calls exactly one driver operation (`getCapabilities`), and
+    // this test feeds it the REAL Codex declaration — so the refusal below is
+    // decided by the driver's own declared matrix, statically, with no
+    // provider round trip. The cast narrows a one-method object to the
+    // contract; any other operation the registry hypothetically called would
+    // fail loudly as undefined.
+    const declarationOnlyDriver = {
+      getCapabilities: () => Promise.resolve(getCodexCapabilities(CLI_VERSION_REPORT)),
+    } as unknown as Parameters<ProviderRegistry["register"]>[1];
+    await registry.register(CODEX_DRIVER_NAME, declarationOnlyDriver);
+
+    let thrown: unknown;
+    try {
+      registry.checkCapability(CODEX_DRIVER_NAME, "cost_cap");
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toBeInstanceOf(DriverCapabilityUnsupportedError);
+    const error = thrown as DriverCapabilityUnsupportedError;
+    expect(error.code).toBe("driver.capability_unsupported");
+    expect(error.fields).toStrictEqual({ driverId: "codex", flag: "cost_cap" });
+
+    // Sanity inversion: a flag Codex DOES declare passes the same gate, so the
+    // refusal above is the declaration's doing, not the registry's default.
+    expect(() => {
+      registry.checkCapability(CODEX_DRIVER_NAME, "steer");
+    }).not.toThrow();
   });
 });

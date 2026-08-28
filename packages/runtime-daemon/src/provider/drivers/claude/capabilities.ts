@@ -48,12 +48,18 @@
  *   today, so a probed reading is not yet representable at the contract; the
  *   probe table and that member are Plan-005 T3.24. This module's static
  *   declaration is that sequencing, not a rejection of the rule.
- * * **CLI-version floor and refusals** (`driver.cli_version_unparseable` /
- *   `driver.cli_version_below_floor`) and the **refresh cadence** — Plan-005
- *   T3.12. This module READS a version report through an injected reader and
- *   reports it verbatim; it compares nothing to a floor and schedules
- *   nothing. {@link ClaudeCapabilityReporter.refreshDeclaration} is the
- *   emission seam a scheduler drives, not the scheduler.
+ * * **The refresh cadence** — the 15-minute poll and its pairing with the
+ *   zero-turn auth probe are the `CapabilityRefreshScheduler`'s
+ *   (`../../capability-refresh.ts`, T3.12 P2-9).
+ *   {@link ClaudeCapabilityReporter.refreshDeclaration} is the emission seam
+ *   that scheduler drives, not the scheduler. The CLI-version FLOOR, by
+ *   contrast, is enforced HERE since T3.12: {@link
+ *   ClaudeCapabilityReporter.getCapabilities} refuses a below-floor reading
+ *   fail-closed (`driver.cli_version_below_floor`) through the shared
+ *   `assertCliVersionMeetsFloor` seam, so attach and refresh both hit the
+ *   gate; the unparseable refusal (`driver.cli_version_unparseable`) fires at
+ *   report construction (`parseCliVersionReport`), which T3.23 feeds from the
+ *   in-band reading of the spawned process.
  * * **Validation of the reported wrapper** — the write seam owns it
  *   (`assertValidGetCapabilitiesResultShape`, `assertValidCapabilityFlags`,
  *   `assertValidContractVersion`, `assertValidCliVersionReport` in
@@ -72,6 +78,7 @@ import {
   type GetCapabilitiesResult,
 } from "@ai-sidekicks/contracts";
 
+import { assertCliVersionMeetsFloor } from "../../capability-refresh.js";
 import type {
   DeclareDriverCapabilitiesResult,
   DriverCapabilitiesWriter,
@@ -225,9 +232,16 @@ export class ClaudeCapabilityReporter {
    * mutates a reply (the writer normalizes and sorts `tools` in place-adjacent
    * ways, and callers hold replies across refreshes) must not be able to
    * rewrite the next caller's declaration.
+   *
+   * The T3.12 floor gate sits between the read and the composition: a reading
+   * below the ratified Claude floor refuses fail-closed
+   * (`driver.cli_version_below_floor`) before any report exists for the
+   * registry or the writer to cache — the attach path and the refresh path
+   * both flow through this method, so one gate covers both.
    */
   async getCapabilities(): Promise<GetCapabilitiesResult> {
     const cliVersion = await this.#readCliVersion();
+    assertCliVersionMeetsFloor(CLAUDE_DRIVER_NAME, cliVersion);
     const capabilities: DriverCapabilities = {
       flags: { ...CLAUDE_CAPABILITY_FLAGS },
       contractVersion: CLAUDE_CAPABILITY_CONTRACT_VERSION,
