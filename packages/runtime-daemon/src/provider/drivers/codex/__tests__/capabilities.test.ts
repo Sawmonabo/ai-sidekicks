@@ -1,0 +1,263 @@
+// T3.3 — Codex capability declaration + refresh seam.
+//
+// Coverage targets (audit-derived, not just the plan ACs):
+//   * `Spec-005 §Required Behavior` — the driver DECLARES its capability
+//     flags; the runtime treats an undeclared capability as unsupported.
+//   * `Spec-005 §Per-Driver Capability Matrix` — the Codex column, restated
+//     independently below so a typo in the module is a failing test rather
+//     than a silently wrong matrix.
+//   * I-005-2 — the flags record is TOTAL over the canonical flag set. Proven
+//     three ways: a type-level exactness assertion, a runtime key-set compare,
+//     and the production write-seam guard `assertValidCapabilityFlags`, which
+//     is the code that actually decides whether a declaration is admissible.
+//   * CP-005-5 — the refresh trigger declares through the T2.4 writer and
+//     surfaces its change-detected emission discriminant unchanged. No new
+//     event type, no local change detection.
+
+import { DRIVER_CAPABILITY_FLAGS, ProviderToolMetadataSchema } from "@ai-sidekicks/contracts";
+import type {
+  DriverCapabilityFlag,
+  DriverCliVersionReport,
+  GetCapabilitiesResult,
+} from "@ai-sidekicks/contracts";
+import { describe, expect, it } from "vitest";
+
+import type {
+  DeclareDriverCapabilitiesInput,
+  DeclareDriverCapabilitiesResult,
+} from "../../../driver-capabilities-writer.js";
+import {
+  assertValidCapabilityFlags,
+  assertValidCliVersionReport,
+  assertValidContractVersion,
+  assertValidGetCapabilitiesResultShape,
+} from "../../../provider-output-validation.js";
+import {
+  CODEX_CAPABILITY_CONTRACT_VERSION,
+  CODEX_CAPABILITY_FLAGS,
+  CODEX_DRIVER_NAME,
+  getCodexCapabilities,
+  refreshCodexCapabilities,
+} from "../capabilities.js";
+import type { DriverCapabilityDeclarationSink } from "../capabilities.js";
+import { CODEX_TOOL_METADATA } from "../tools.js";
+
+// `Spec-005 §Per-Driver Capability Matrix`, Codex column — transcribed here
+// from the spec rather than imported from the module under test, so this
+// assertion is an INDEPENDENT restatement and not a tautology.
+const SPEC_CODEX_MATRIX: Record<DriverCapabilityFlag, boolean> = {
+  resume: true,
+  steer: true,
+  interactive_requests: true,
+  mcp: true,
+  tool_calls: true,
+  reasoning_stream: false,
+  model_mutation: true,
+  structured_output: true,
+  rollback: true,
+  session_goals: true,
+  callback_tools: true,
+  subagents: true,
+  cost_cap: false,
+};
+
+const CLI_VERSION_REPORT: DriverCliVersionReport = {
+  raw: "codex-cli 0.149.1",
+  semver: "0.149.1",
+};
+
+// Type-level half of I-005-2: the declared key set is EXACTLY the canonical
+// flag union. A missing flag or a stray one fails to compile — the assignment
+// below is the assertion.
+type MutuallyAssignable<Left, Right> = [Left] extends [Right]
+  ? [Right] extends [Left]
+    ? true
+    : false
+  : false;
+const declaredFlagKeysAreExactlyCanonical: MutuallyAssignable<
+  keyof typeof CODEX_CAPABILITY_FLAGS,
+  DriverCapabilityFlag
+> = true;
+
+/**
+ * A typed fake of the ONE writer method this seam uses. Typing it as
+ * `DriverCapabilityDeclarationSink` (a `Pick` of the real class) means a
+ * signature change on `DriverCapabilitiesWriter.declare` breaks this file at
+ * compile time instead of leaving a stale fake passing.
+ */
+class RecordingDeclarationSink implements DriverCapabilityDeclarationSink {
+  readonly calls: DeclareDriverCapabilitiesInput[] = [];
+  #nextResult: DeclareDriverCapabilitiesResult;
+
+  constructor(nextResult: DeclareDriverCapabilitiesResult) {
+    this.#nextResult = nextResult;
+  }
+
+  declare(input: DeclareDriverCapabilitiesInput): Promise<DeclareDriverCapabilitiesResult> {
+    this.calls.push(input);
+    return Promise.resolve(this.#nextResult);
+  }
+}
+
+describe("Codex capability declaration (T3.3)", () => {
+  it("declares exactly the Spec-005 Codex matrix", () => {
+    expect(declaredFlagKeysAreExactlyCanonical).toBe(true);
+    expect({ ...CODEX_CAPABILITY_FLAGS }).toEqual(SPEC_CODEX_MATRIX);
+  });
+
+  it("answers EVERY canonical capability flag (I-005-2 totality)", () => {
+    const declaredKeys = Object.keys(CODEX_CAPABILITY_FLAGS).sort();
+    expect(declaredKeys).toEqual([...DRIVER_CAPABILITY_FLAGS].sort());
+    for (const flag of DRIVER_CAPABILITY_FLAGS) {
+      expect(typeof CODEX_CAPABILITY_FLAGS[flag]).toBe("boolean");
+    }
+  });
+
+  it("passes the production write-seam flag guard", () => {
+    // `assertValidCapabilityFlags` is what `DriverCapabilitiesWriter.declare`
+    // runs before opening its transaction, and it REJECTS both extras and
+    // omissions. Driving the real guard proves the declaration is admissible,
+    // which a hand-rolled key compare alone does not.
+    expect(() => {
+      assertValidCapabilityFlags(getCodexCapabilities(CLI_VERSION_REPORT).capabilities.flags);
+    }).not.toThrow();
+  });
+
+  it("does not declare a flag outside the current canonical set", () => {
+    // Phase tripwire: `transcript_replay` lands later in this phase with its
+    // own task. When the contract union grows, the module's `Record` totality
+    // forces an answer and this expectation must be revisited deliberately.
+    expect(Object.keys(CODEX_CAPABILITY_FLAGS)).not.toContain("transcript_replay");
+  });
+
+  it("declares reasoning_stream and cost_cap FALSE (the two fail-closed rows)", () => {
+    // Called out separately from the matrix compare because both `false` rows
+    // are load-bearing downstream: the reasoning surface renders unavailable,
+    // and Spec-016's native-cap escape refuses reservation on a capless leg.
+    expect(CODEX_CAPABILITY_FLAGS.reasoning_stream).toBe(false);
+    expect(CODEX_CAPABILITY_FLAGS.cost_cap).toBe(false);
+  });
+});
+
+describe("Codex getCapabilities() wrapper (T3.3)", () => {
+  it("returns the V1 GetCapabilitiesResult wrapper shape", () => {
+    const result: GetCapabilitiesResult = getCodexCapabilities(CLI_VERSION_REPORT);
+    expect(() => {
+      assertValidGetCapabilitiesResultShape(result);
+    }).not.toThrow();
+    expect(() => {
+      assertValidContractVersion(result.capabilities.contractVersion);
+    }).not.toThrow();
+    expect(() => {
+      assertValidCliVersionReport(CODEX_DRIVER_NAME, result.cliVersion);
+    }).not.toThrow();
+    expect(result.capabilities.contractVersion).toBe(CODEX_CAPABILITY_CONTRACT_VERSION);
+  });
+
+  it("carries the T3.4 tool census, and every row passes the write-seam schema", () => {
+    const result = getCodexCapabilities(CLI_VERSION_REPORT);
+    expect(result.tools).toEqual([...CODEX_TOOL_METADATA]);
+    for (const tool of result.tools) {
+      expect(ProviderToolMetadataSchema.safeParse(tool).success).toBe(true);
+    }
+  });
+
+  it("threads cliVersion through VERBATIM without parsing or normalizing it", () => {
+    // The version is never invented here; the floor gate is T3.12/T3.23 (PR-B).
+    // A non-canonical raw string must survive untouched.
+    const oddReport: DriverCliVersionReport = {
+      raw: "codex-cli 0.149.1 (build abc123)",
+      semver: "0.149.1",
+    };
+    const result = getCodexCapabilities(oddReport);
+    expect(result.cliVersion).toEqual(oddReport);
+    // Copied, not aliased — a caller mutating the report must not retroactively
+    // change a declaration already handed to the writer.
+    expect(result.cliVersion).not.toBe(oddReport);
+  });
+
+  it("hands out fresh objects so one caller cannot corrupt a later declaration", () => {
+    const first = getCodexCapabilities(CLI_VERSION_REPORT);
+    const second = getCodexCapabilities(CLI_VERSION_REPORT);
+    expect(first).toEqual(second);
+    expect(first.capabilities.flags).not.toBe(second.capabilities.flags);
+    expect(first.tools).not.toBe(second.tools);
+
+    first.capabilities.flags.cost_cap = true;
+    first.tools.pop();
+    const third = getCodexCapabilities(CLI_VERSION_REPORT);
+    expect(third.capabilities.flags.cost_cap).toBe(false);
+    expect(third.tools).toEqual([...CODEX_TOOL_METADATA]);
+    expect(CODEX_CAPABILITY_FLAGS.cost_cap).toBe(false);
+  });
+});
+
+describe("Codex capability refresh seam (T3.3, CP-005-5)", () => {
+  it("declares through the T2.4 writer with the Codex driver key and composed report", async () => {
+    const sink = new RecordingDeclarationSink({ emitted: "declared", cliVersionRefreshed: true });
+    const emission = await refreshCodexCapabilities(sink, {
+      sessionId: "session-1",
+      nodeId: "node-1",
+      cliVersion: CLI_VERSION_REPORT,
+    });
+
+    expect(sink.calls).toHaveLength(1);
+    const call = sink.calls[0];
+    expect(call).toBeDefined();
+    if (call === undefined) {
+      return;
+    }
+    expect(call.driverName).toBe(CODEX_DRIVER_NAME);
+    expect(call.driverName).toBe("codex");
+    expect(call.sessionId).toBe("session-1");
+    expect(call.nodeId).toBe("node-1");
+    expect(call.result).toEqual(getCodexCapabilities(CLI_VERSION_REPORT));
+    // `actor` absent (not `undefined`) means the writer's system-actor default.
+    expect(Object.prototype.hasOwnProperty.call(call, "actor")).toBe(false);
+    // The writer owns change detection; this seam surfaces its verdict as-is.
+    expect(emission).toEqual({ emitted: "declared", cliVersionRefreshed: true });
+  });
+
+  it("threads an explicit actor when the caller supplies one", async () => {
+    const sink = new RecordingDeclarationSink({ emitted: "updated", cliVersionRefreshed: false });
+    await refreshCodexCapabilities(sink, {
+      sessionId: "session-2",
+      nodeId: "node-2",
+      cliVersion: CLI_VERSION_REPORT,
+      actor: "participant-7",
+    });
+    expect(sink.calls[0]?.actor).toBe("participant-7");
+  });
+
+  it("threads an EXPLICIT null actor through as null, not as an absent key", async () => {
+    // The third arm of the conditional spread. `null` is the writer's system
+    // actor, so explicit-null and absent converge behaviorally — but they are
+    // distinguishable inputs, and only an explicit test pins which one the
+    // caller's `null` becomes.
+    const sink = new RecordingDeclarationSink({ emitted: "declared", cliVersionRefreshed: true });
+    await refreshCodexCapabilities(sink, {
+      sessionId: "session-4",
+      nodeId: "node-4",
+      cliVersion: CLI_VERSION_REPORT,
+      actor: null,
+    });
+    const call = sink.calls[0];
+    expect(call).toBeDefined();
+    expect(Object.prototype.hasOwnProperty.call(call ?? {}, "actor")).toBe(true);
+    expect(call?.actor).toBeNull();
+  });
+
+  it("returns a noop emission unchanged (no local change detection)", async () => {
+    // Re-declaring an unchanged snapshot must append nothing to the timeline.
+    // This seam neither suppresses nor manufactures that verdict — it reports
+    // the writer's, which is what keeps a single answer to "did it change?".
+    const sink = new RecordingDeclarationSink({ emitted: "noop", cliVersionRefreshed: false });
+    const emission = await refreshCodexCapabilities(sink, {
+      sessionId: "session-3",
+      nodeId: "node-3",
+      cliVersion: CLI_VERSION_REPORT,
+    });
+    expect(emission.emitted).toBe("noop");
+    expect(sink.calls).toHaveLength(1);
+  });
+});
