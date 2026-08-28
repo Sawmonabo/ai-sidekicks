@@ -57,7 +57,9 @@ interface LifecycleHarness {
   readonly runDispatchResolver: FakeClaudeRunDispatchResolver;
 }
 
-function buildHarness(): LifecycleHarness {
+function buildHarness(
+  overrides: Partial<ClaudeSessionLifecycleDependencies> = {},
+): LifecycleHarness {
   const transport = new FakeClaudeSessionTransport();
   const runDispatchResolver = new FakeClaudeRunDispatchResolver();
   const dependencies: ClaudeSessionLifecycleDependencies = {
@@ -65,6 +67,7 @@ function buildHarness(): LifecycleHarness {
     runDispatchResolver,
     mintProviderSessionId: () => TEST_PINNED_PROVIDER_SESSION_ID,
     mintBindingId: () => TEST_BINDING_ID,
+    ...overrides,
   };
   return { lifecycle: new ClaudeSessionLifecycle(dependencies), transport, runDispatchResolver };
 }
@@ -1338,6 +1341,194 @@ describe("ClaudeSessionLifecycle run-route retirement on turn terminal", () => {
       { text: "review the diff" },
       { text: "now the next task" },
     ]);
+  });
+});
+
+// The window between "the transport handed us a live channel" and "that channel
+// is registered" contains three things that can throw, none of them the
+// provider's doing: the injected binding minter, the spawn-binding digest of a
+// caller-supplied output schema, and the transport's own `onTurnTerminal`. An
+// escaping throw would skip BOTH the disposal paths and the registration, while
+// the outer slot claim cleared the slot in its settle path — leaving a running
+// process nobody holds a reference to and a free slot for the next create to
+// spawn beside it. Every exit from this window must register or dispose.
+describe("ClaudeSessionLifecycle adoption window", () => {
+  // A schema whose digest cannot be computed: `JSON.stringify` throws on BigInt.
+  const UNSERIALIZABLE_OUTPUT_SCHEMA: Record<string, unknown> = { limit: 10n };
+
+  it("disposes the resumed process when the binding minter throws", async () => {
+    const harness = buildHarness({
+      mintBindingId: () => {
+        throw new Error("the runtime_bindings store is unreachable");
+      },
+    });
+
+    const result = await harness.lifecycle.resumeSession({
+      sessionId: TEST_SESSION_ID,
+      resumeHandle: "provider-session-earlier",
+    });
+
+    // Resume's contractual failure channel is the arm, never a throw.
+    expect(result.status).toBe("failed");
+    if (result.status !== "failed") {
+      throw new Error("unreachable: the resume must fail");
+    }
+    expect(result.recoveryCondition).toBe("recovery-needed");
+    expect(result.providerFailureDetail).toContain("runtime_bindings");
+    expect(DriverResumeResultSchema.safeParse(result).success).toBe(true);
+    // The process the transport handed back was disposed, not orphaned.
+    expect(harness.transport.spawnedChannels[0]?.disposals).toStrictEqual(["establishment_failed"]);
+    // And the slot is free, so recovery is an ordinary create rather than a
+    // session id that can never be used again.
+    await expect(
+      harness.lifecycle.createSession(buildCreateSessionParams()),
+    ).resolves.toBeDefined();
+  });
+
+  it("disposes the resumed process when the transport refuses terminal registration", async () => {
+    const harness = buildHarness();
+    harness.transport.onTurnTerminalFailure = new Error("the stream consumer is already closed");
+
+    const result = await harness.lifecycle.resumeSession({
+      sessionId: TEST_SESSION_ID,
+      resumeHandle: "provider-session-earlier",
+    });
+
+    expect(result.status).toBe("failed");
+    expect(harness.transport.spawnedChannels[0]?.disposals).toStrictEqual(["establishment_failed"]);
+    // The slot is free once the transport is healthy again.
+    harness.transport.onTurnTerminalFailure = undefined;
+    await expect(
+      harness.lifecycle.createSession(buildCreateSessionParams()),
+    ).resolves.toBeDefined();
+  });
+
+  it("disposes the resumed process when the spawn-binding digest cannot be computed", async () => {
+    const harness = buildHarness();
+
+    const result = await harness.lifecycle.resumeSession({
+      sessionId: TEST_SESSION_ID,
+      resumeHandle: "provider-session-earlier",
+      outputSchema: UNSERIALIZABLE_OUTPUT_SCHEMA,
+    });
+
+    expect(result.status).toBe("failed");
+    expect(harness.transport.spawnedChannels[0]?.disposals).toStrictEqual(["establishment_failed"]);
+  });
+
+  it("disposes the spawned process when create cannot adopt it, and re-throws the cause", async () => {
+    const harness = buildHarness();
+    harness.transport.onTurnTerminalFailure = new Error("the stream consumer is already closed");
+
+    // `createSession` has no degraded arm, so throwing IS its failure channel —
+    // but the channel must still be disposed on the way out.
+    await expect(harness.lifecycle.createSession(buildCreateSessionParams())).rejects.toThrow(
+      "the stream consumer is already closed",
+    );
+
+    expect(harness.transport.spawnedChannels[0]?.disposals).toStrictEqual(["establishment_failed"]);
+    // The slot never latched: a retry is admitted rather than refused by a
+    // half-registered session.
+    harness.transport.onTurnTerminalFailure = undefined;
+    await expect(
+      harness.lifecycle.createSession(buildCreateSessionParams()),
+    ).resolves.toBeDefined();
+    expect(harness.transport.spawnRequests).toHaveLength(2);
+  });
+
+  it("disposes the spawned process when create's output schema cannot be digested", async () => {
+    const harness = buildHarness();
+
+    await expect(
+      harness.lifecycle.createSession({
+        ...buildCreateSessionParams(),
+        outputSchema: UNSERIALIZABLE_OUTPUT_SCHEMA,
+      }),
+    ).rejects.toThrow();
+
+    expect(harness.transport.spawnedChannels[0]?.disposals).toStrictEqual(["establishment_failed"]);
+    await expect(
+      harness.lifecycle.createSession(buildCreateSessionParams()),
+    ).resolves.toBeDefined();
+  });
+});
+
+// `providerFailureDetail` is rendered by a module-private helper whose contract
+// is TOTALITY over arbitrary thrown values: every caller is a catch block, and
+// the refused-channel disposal path's whole job is to not throw, so a renderer
+// that could throw would defeat the guard calling it. Exercised through the
+// resume failure path, which is the surface that persists the detail.
+describe("provider failure detail rendering", () => {
+  function buildErrorWithHostileProperties(hostile: {
+    readonly message?: boolean;
+    readonly name?: boolean;
+  }): Error {
+    const error = new Error("this message is never reachable");
+    if (hostile.message === true) {
+      Object.defineProperty(error, "message", {
+        get: () => {
+          throw new Error("the message getter exploded");
+        },
+      });
+    }
+    if (hostile.name === true) {
+      Object.defineProperty(error, "name", {
+        get: () => {
+          throw new Error("the name getter exploded");
+        },
+      });
+    }
+    return error;
+  }
+
+  async function resumeFailureDetail(failure: unknown): Promise<string> {
+    const harness = buildHarness();
+    harness.transport.resumeFailure = failure as Error;
+    const result = await harness.lifecycle.resumeSession({
+      sessionId: TEST_SESSION_ID,
+      resumeHandle: "provider-session-earlier",
+    });
+    if (result.status !== "failed") {
+      throw new Error("unreachable: the resume must fail");
+    }
+    // Whatever the value did, the arm is still contract-valid.
+    expect(DriverResumeResultSchema.safeParse(result).success).toBe(true);
+    return result.providerFailureDetail;
+  }
+
+  it("falls back to the error name when the message getter throws", async () => {
+    const detail = await resumeFailureDetail(buildErrorWithHostileProperties({ message: true }));
+
+    expect(detail).toBe("Error");
+  });
+
+  it("falls back to the constant when both the message and name getters throw", async () => {
+    const detail = await resumeFailureDetail(
+      buildErrorWithHostileProperties({ message: true, name: true }),
+    );
+
+    expect(detail).toContain("no describable detail");
+  });
+
+  it("never renders a non-string message, which would stringify an arbitrary object", async () => {
+    const error = new Error("unused");
+    // The posture this locks: an unreadable value is reported as undescribable,
+    // never rendered best-effort. A `toString` on a config-bearing object is how
+    // credential material would reach a durable row.
+    Object.defineProperty(error, "message", {
+      value: { toString: () => "sk-live-should-never-appear" },
+    });
+
+    const detail = await resumeFailureDetail(error);
+
+    expect(detail).toBe("Error");
+    expect(detail).not.toContain("sk-live");
+  });
+
+  it("still renders an ordinary error unchanged", async () => {
+    const detail = await resumeFailureDetail(new Error("claude exited before init"));
+
+    expect(detail).toBe("Error: claude exited before init");
   });
 });
 

@@ -499,10 +499,64 @@ export type CodexTransportDiagnostic =
   | { kind: "unhandled-server-request"; method: string; censused: boolean }
   | { kind: "notification-write-failed"; method: string }
   | { kind: "unconsumed-server-notification"; method: string }
-  | { kind: "process-exited"; exitCode: number; signalCode: number | null };
+  /**
+   * The notification CONSUMER threw, so this notification was dropped.
+   *
+   * The ruling this arm encodes: a throwing consumer is a dropped-and-reported
+   * notification, never a dead connection. The consumer is the daemon's own
+   * event normalizer, designed pure and total over its census, so a throw from
+   * it is OUR defect — and tearing the provider connection down would punish the
+   * session for a bug on this side of the boundary. The frame is already parsed
+   * and correlated by the time the consumer sees it, so the loss is bounded to
+   * exactly one notification, and this arm is what keeps that loss recorded
+   * rather than silent. Contrast the provider-side ambiguity rulings elsewhere in
+   * this file, which ARE connection-fatal: there the unknown is what the PROVIDER
+   * did, and no amount of local correctness can resolve it.
+   *
+   * `detail` is built through `normalizeProviderFailureDetail`, so a consumer
+   * that throws a hostile value cannot serialize it into a diagnostic sink.
+   */
+  | { kind: "notification-consumer-failed"; method: string; detail: string }
+  | { kind: "process-exited"; exitCode: number; signalCode: number | null }
+  /**
+   * A caller-supplied subscription disposer threw during teardown on a path with
+   * no caller to rethrow to (the PTY exit callback). `detail` is normalized, so
+   * a hostile or malformed thrown value cannot reach a sink through this arm.
+   */
+  | { kind: "subscription-dispose-failed"; detail: string };
 
 /** Required — a no-op default would reintroduce silent drops. */
 export type CodexDiagnosticSink = (diagnostic: CodexTransportDiagnostic) => void;
+
+/**
+ * Reports a diagnostic from a frame that has NO CALLER, containing a sink that
+ * throws.
+ *
+ * The discriminator is the frame, not the method it happens to live in: does
+ * this call stack terminate in caller code that can act on a failure, or does it
+ * terminate in a `PtyHost` event callback (or a detached `.catch`) where an
+ * exception has nowhere to go? Every diagnostic reachable from `onData` or
+ * `onExit` is in the second category, and there the cost of a throwing sink is
+ * not the lost diagnostic — it is that the exception unwinds the READ-CHUNK
+ * DRAIN. Frames already parsed out of that chunk are dropped, every request
+ * whose response was behind the throw hangs to its own deadline, and the fault
+ * escapes into the host's emit loop where no code of ours is running.
+ *
+ * Deliberately NOT used on request/response paths that DO have a caller: there a
+ * sink fault reaches someone who can act on it, and swallowing it would hide a
+ * broken sink behind requests that appear to work.
+ */
+function reportDiagnosticFromDetachedFrame(
+  sink: CodexDiagnosticSink,
+  diagnostic: CodexTransportDiagnostic,
+): void {
+  try {
+    sink(diagnostic);
+  } catch {
+    // Nothing to report it to — the sink IS the reporting channel, and the work
+    // this frame was in the middle of matters more than the record of it.
+  }
+}
 
 /** Server-initiated notification sink (the provider event stream). */
 export type CodexServerNotificationSink = (method: string, params: unknown) => void;
@@ -657,22 +711,79 @@ export function parseCodexRunConfig(agentConfig: unknown): CodexRunConfig {
  * invariant's typed failure back into an exception. Exported for direct test.
  */
 export function normalizeProviderFailureDetail(cause: unknown): string {
-  const raw =
-    cause instanceof Error
-      ? cause.message
-      : typeof cause === "string"
-        ? cause
-        : cause === undefined || cause === null
-          ? ""
-          : String(cause);
-  const withoutNul = raw.replaceAll("\0", "");
-  const trimmed = withoutNul.trim();
-  if (trimmed.length === 0) {
+  try {
+    const trimmed = readFailureText(cause).replaceAll("\0", "").trim();
+    if (trimmed.length === 0) {
+      return UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
+    }
+    return trimmed.length > DRIVER_FAILURE_DETAIL_MAX_LEN
+      ? trimmed.slice(0, DRIVER_FAILURE_DETAIL_MAX_LEN)
+      : trimmed;
+  } catch {
+    // Totality by CONSTRUCTION rather than by enumeration. `readFailureText`
+    // already contains every coercion known to throw, so this outer guard should
+    // be unreachable — but "should be unreachable" is exactly the reasoning that
+    // put a throwing coercion on this path in the first place. The function's
+    // contract is that it is total over arbitrary JS values, and only a structure
+    // makes that true; an argument about which values throw does not.
     return UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
   }
-  return trimmed.length > DRIVER_FAILURE_DETAIL_MAX_LEN
-    ? trimmed.slice(0, DRIVER_FAILURE_DETAIL_MAX_LEN)
-    : trimmed;
+}
+
+/**
+ * Extracts failure TEXT from an arbitrary thrown value, or "" if it cannot.
+ *
+ * Every step here is a coercion an attacker-shaped or merely-sloppy value can
+ * break, and each one was verified against the runtime rather than assumed:
+ *
+ *   * `String(value)` throws `TypeError` for a null-prototype object
+ *     (`Object.create(null)` has no `toString`/`valueOf` to reach), and for any
+ *     object whose `toString` returns a non-primitive;
+ *   * `error.message` is a plain property in the spec but a GETTER in practice on
+ *     anything that wants to be, and a getter can throw or return a non-string;
+ *   * a non-string `message` then breaks `replaceAll`, which is not a method of
+ *     numbers — so reading it is not enough, the type has to be checked.
+ *
+ * Why this matters more here than the code size suggests: this function is what
+ * `resumeSession`'s catch path calls to build the typed `recovery-needed` result.
+ * A throw here converts I-005-5's typed failure back into an exception — the
+ * precise loss that invariant exists to forbid — and it would do so on the path
+ * that is ALREADY handling a failure, where the original cause is least likely to
+ * be well-formed.
+ */
+function readFailureText(cause: unknown): string {
+  try {
+    if (cause instanceof Error) {
+      const message: unknown = cause.message;
+      if (typeof message === "string" && message.trim().length > 0) {
+        return message;
+      }
+      // An Error with no usable message still has a class, and the class is
+      // worth more than nothing: `TypeError` names the failure where "no
+      // diagnostic message" names only our inability to describe it.
+      const name: unknown = cause.name;
+      return typeof name === "string" ? name : "";
+    }
+    if (typeof cause === "string") {
+      return cause;
+    }
+    // Everything else falls through to the unspecified constant, and the
+    // omission is the POINT rather than an accident of the type checks above.
+    // `providerFailureDetail` is persisted and operator-visible, so serializing
+    // an arbitrary rejection value here — via `String()`, which invokes whatever
+    // `toString` the value carries — is how spawn configuration, up to and
+    // including credential material the transport was handed, reaches a durable
+    // row. Reading `message` and `name` off an `Error` is a different act: those
+    // are two named strings on a known shape, not a walk of an unknown object.
+    // The Claude leg refuses the same serialization for the same reason; this is
+    // one posture across both drivers, not two local judgements.
+    return "";
+  } catch {
+    // An unreadable cause is indistinguishable from an absent one for the
+    // operator, and both map to the same unspecified detail. Losing the text is
+    // the point of the trade: the typed result survives.
+    return "";
+  }
 }
 
 // --------------------------------------------------------------------------
@@ -888,7 +999,7 @@ export class CodexAppServerConnection {
       // A notification has no reply to await, so a failed write would otherwise
       // vanish. Reported rather than thrown: the caller is mid-handshake and the
       // next request's own failure is the actionable signal.
-      this.#reportDiagnostic({ kind: "notification-write-failed", method });
+      this.#reportDiagnosticQuietly({ kind: "notification-write-failed", method });
     });
   }
 
@@ -1074,7 +1185,7 @@ export class CodexAppServerConnection {
   #failFraming(retainedLength: number): void {
     const error = new CodexLineTooLongError(retainedLength, CODEX_MAX_LINE_LENGTH);
     this.#readBuffer = "";
-    this.#reportDiagnostic({
+    this.#reportDiagnosticQuietly({
       kind: "line-too-long",
       retainedLength,
       limit: CODEX_MAX_LINE_LENGTH,
@@ -1117,11 +1228,11 @@ export class CodexAppServerConnection {
     } catch {
       // Shell diagnostics, provider stderr, or a truncated frame. Reported, not
       // dropped — this is the channel on which a mis-set tty becomes visible.
-      this.#reportDiagnostic({ kind: "unparsable-line", line });
+      this.#reportDiagnosticQuietly({ kind: "unparsable-line", line });
       return;
     }
     if (!isPlainObject(frame)) {
-      this.#reportDiagnostic({ kind: "unparsable-line", line });
+      this.#reportDiagnosticQuietly({ kind: "unparsable-line", line });
       return;
     }
     const message = frame;
@@ -1140,7 +1251,7 @@ export class CodexAppServerConnection {
       if (this.#isEchoOfOurOwnRequest(id, method)) {
         // Our own frame, echoed back by a tty whose ECHO was still on. Never
         // answered: a response to it would corrupt the server's correlation.
-        this.#reportDiagnostic({ kind: "echoed-client-frame", method });
+        this.#reportDiagnosticQuietly({ kind: "echoed-client-frame", method });
         return;
       }
       // Fail closed, for EVERY other method+id frame — censused or not.
@@ -1150,7 +1261,7 @@ export class CodexAppServerConnection {
       // provider's turn. That hang is the whole reason membership in the pinned
       // census does not gate this arm: a newer admitted build may speak a
       // request method this pin never saw.
-      this.#reportDiagnostic({
+      this.#reportDiagnosticQuietly({
         kind: "unhandled-server-request",
         method,
         censused: CODEX_SERVER_REQUEST_METHODS.has(method),
@@ -1168,10 +1279,25 @@ export class CodexAppServerConnection {
       return;
     }
     if (this.#onServerNotification !== undefined) {
-      this.#onServerNotification(method, message["params"]);
+      // Contained here as well as at the manager's own delegate call, because
+      // this class is exported and driven standalone: a consumer wired directly
+      // to a connection would otherwise unwind `#ingest` from inside the host's
+      // data callback, dropping every frame still queued behind this one in the
+      // same chunk and hanging their callers to their deadlines. Containing at
+      // the OUTERMOST call into consumer code is what makes that true for every
+      // composition rather than for the one this driver happens to build.
+      try {
+        this.#onServerNotification(method, message["params"]);
+      } catch (cause) {
+        this.#reportDiagnosticQuietly({
+          kind: "notification-consumer-failed",
+          method,
+          detail: normalizeProviderFailureDetail(cause),
+        });
+      }
       return;
     }
-    this.#reportDiagnostic({ kind: "unconsumed-server-notification", method });
+    this.#reportDiagnosticQuietly({ kind: "unconsumed-server-notification", method });
   }
 
   /**
@@ -1200,13 +1326,13 @@ export class CodexAppServerConnection {
   #handleInboundResponse(message: Record<string, unknown>, line: string): void {
     const id = message["id"];
     if (typeof id !== "number" && typeof id !== "string") {
-      this.#reportDiagnostic({ kind: "unparsable-line", line });
+      this.#reportDiagnosticQuietly({ kind: "unparsable-line", line });
       return;
     }
     const key = String(id);
     const pending = this.#pending.get(key);
     if (pending === undefined) {
-      this.#reportDiagnostic({ kind: "unknown-response-id", responseId: key });
+      this.#reportDiagnosticQuietly({ kind: "unknown-response-id", responseId: key });
       return;
     }
     this.#pending.delete(key);
@@ -1232,22 +1358,69 @@ export class CodexAppServerConnection {
     pending.resolve(message["result"]);
   }
 
+  /**
+   * The child exited. Runs inside a `PtyHost` event callback, which is what makes
+   * every caller-supplied call in it dangerous in a way `close()` is not.
+   *
+   * `close()` has a caller and an awaited promise, so a fault there has somewhere
+   * to go. This does not: it is invoked from the host's emit loop, so an
+   * exception escapes into the host and — worse than being lost — takes the
+   * cleanup below with it. Every pending request would then sit until its own
+   * deadline, and a connection still waiting on the prelude sentinel would never
+   * fail at all, on the one code path whose whole job is to fail them.
+   *
+   * So both caller-supplied surfaces here (the diagnostic sink and the
+   * subscription disposer) are contained, and the cleanup runs unconditionally.
+   */
   #handleExit(exitCode: number, signalCode: number | null): void {
     this.#exitDescription = `exit ${exitCode}${signalCode === null ? "" : ` signal ${signalCode}`}`;
-    this.#reportDiagnostic({ kind: "process-exited", exitCode, signalCode });
+    this.#reportDiagnosticQuietly({ kind: "process-exited", exitCode, signalCode });
     // Mark closed BEFORE rejecting: a rejection handler that retries must be
     // refused a write rather than hitting the dead fd (a write to an exited pty
     // raises an asynchronous EIO that no caller can catch).
     this.#closed = true;
+    // Boxed and held, exactly as `close()` does it — but REPORTED rather than
+    // rethrown, because there is no caller to rethrow to. Swallowing silently
+    // would be the wrong trade: the disposer failing means a listener may still
+    // be registered against a dead session, which is an operator-visible fact.
+    let disposeFault: { readonly cause: unknown } | null = null;
     if (this.#unsubscribe !== null) {
-      this.#unsubscribe();
+      const dispose = this.#unsubscribe;
       this.#unsubscribe = null;
+      try {
+        dispose();
+      } catch (cause) {
+        disposeFault = { cause };
+      }
     }
     const exitError = new CodexTransportError("The Codex app-server process exited.", {
       reason: this.#exitDescription,
     });
     this.#rejectAllPending(exitError);
     this.#onReadyFailed?.(exitError);
+    if (disposeFault !== null) {
+      // Reported AFTER the cleanup, so a sink that throws in response cannot cost
+      // the callers their rejections.
+      this.#reportDiagnosticQuietly({
+        kind: "subscription-dispose-failed",
+        detail: normalizeProviderFailureDetail(disposeFault.cause),
+      });
+    }
+  }
+
+  /**
+   * Every diagnostic this transport emits, contained.
+   *
+   * All of them qualify under the rule in `reportDiagnosticFromDetachedFrame`,
+   * which is why there is no bare call left in this class rather than a mixture
+   * a later edit would have to re-classify: the framing, correlation, and exit
+   * diagnostics all originate in `onData` / `onExit`, and `notify`'s originates
+   * in a detached `.catch` on a `void`-ed promise — where a throwing sink is
+   * worse than anywhere else, because it becomes an unhandled rejection, which
+   * this file already documents as fatal to the daemon under Node's default.
+   */
+  #reportDiagnosticQuietly(diagnostic: CodexTransportDiagnostic): void {
+    reportDiagnosticFromDetachedFrame(this.#reportDiagnostic, diagnostic);
   }
 
   #clearReadyWait(): void {
@@ -1610,16 +1783,31 @@ export class CodexLifecycleManager {
     // Everything from here is ONE synchronous run, so a single slot check covers
     // both the install and the terminal-memory consume below it.
     if (!this.#stillHoldsSlot(record)) {
-      // The record can stop being the session's settled one while `turn/start` is
-      // in flight: a `closeSession` claims the slot and tears it down, or a
-      // resume supersedes it — and either way the connection this turn was
-      // accepted on has already been released, so the turn died with it.
-      // Installing the route here would point `interruptRun` at a dead process
-      // and strand an entry in `#sessionIdByRunId` that no sweep can reach, since
-      // every sweep keys on a record that is gone. Refused rather than silently
-      // reported as started: whatever the provider answered, this run is not
-      // running. Not disposed either — whoever claimed the slot owns that
-      // connection's teardown and is already performing it.
+      // Reachable only through a transition that began AFTER dispatch, now that
+      // the entrance demands a settled live slot. Three such transitions exist,
+      // and the tempting argument is that each one disposes the connection this
+      // turn was accepted on, so the turn dies with it and nothing more is owed.
+      // That argument has an exception, which is why it is not the one used here:
+      //
+      //   * a close disposes the connection — subsumed;
+      //   * a supersede-resume that SUCCEEDS releases the predecessor — subsumed;
+      //   * a supersede-resume that FAILS releases only its own new connection and
+      //     leaves the predecessor record installed and its process LIVE. The turn
+      //     accepted on it keeps executing tools, with no route to interrupt it
+      //     and a session the daemon will reuse.
+      //
+      // That third case is the same ambiguity the `turn/start` deadline is already
+      // ruled connection-fatal for, so it gets the same answer rather than a
+      // narrower one. Applied unconditionally instead of only to the third case:
+      // the disposal is idempotent against a connection someone else already
+      // released (`killAndClose` no-ops once closed, and the map work is
+      // identity-gated), so the two subsumed cases cost nothing, and a rule with
+      // no exception in it is the one that survives the next edit.
+      //
+      // The run is refused either way. Whatever the provider answered, this run is
+      // not running, and reporting it started would strand a `#sessionIdByRunId`
+      // entry no sweep can reach — every sweep keys on a record that is gone.
+      await this.#disposeAmbiguousSession(record);
       throw new CodexTransportError(
         `Codex session "${record.sessionId}" stopped holding its slot while a turn was starting.`,
         { sessionId: record.sessionId, method: "turn/start" },
@@ -1674,7 +1862,12 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Disposes the session a `turn/start` left ambiguous: kill first, then release.
+   * Disposes a session whose turn state is ambiguous: kill first, then release.
+   *
+   * Two entry points, one condition. Either the `turn/start` itself failed in a
+   * way that leaves acceptance unknown, or it succeeded onto a record that had
+   * stopped holding its slot — in both cases a turn may be live with no route to
+   * it, which is the state this driver refuses to carry.
    *
    * Claimed like any other teardown, so nothing can slip into the window while
    * the child is dying — the dispose is a state transition of the slot, not a
@@ -1910,10 +2103,37 @@ export class CodexLifecycleManager {
       onServerNotification: (method: string, params: unknown): void => {
         this.#observeServerNotification(sessionId, method, params);
         if (delegate === undefined) {
-          reportDiagnostic({ kind: "unconsumed-server-notification", method });
+          // Same containment as the transport's own, and for the same reason:
+          // this callback is invoked from inside `#ingest`, so a throwing sink
+          // here unwinds the caller's read-chunk drain just as surely.
+          reportDiagnosticFromDetachedFrame(reportDiagnostic, {
+            kind: "unconsumed-server-notification",
+            method,
+          });
           return;
         }
-        delegate(method, params);
+        try {
+          delegate(method, params);
+        } catch (cause) {
+          // A MODULE-BOUNDARY guard, kept deliberately even though the transport
+          // contains this same fault one frame further out. The reason is
+          // ownership rather than behaviour: this class should not depend on
+          // another module's error handling to keep its own contract, and that
+          // transport is slated to become swappable (T3.15 leg 6), at which point
+          // the outer catch stops being guaranteed.
+          //
+          // Honest limit, recorded rather than left to be discovered: this guard
+          // is NOT independently observable today. Delete the transport's
+          // containment and a test fails; delete this one and none does, because
+          // the outer catch reports an identical diagnostic (the manager's own
+          // observation has already run by the time the delegate is called, so
+          // nothing is skipped either way).
+          reportDiagnosticFromDetachedFrame(reportDiagnostic, {
+            kind: "notification-consumer-failed",
+            method,
+            detail: normalizeProviderFailureDetail(cause),
+          });
+        }
       },
     };
   }
@@ -2003,15 +2223,32 @@ export class CodexLifecycleManager {
   }
 
   #requireSession(sessionId: SessionId): CodexSessionRecord {
-    // A record now stays installed for the whole of its teardown — that is what
-    // holds the slot — so "installed" no longer implies "usable". Refused here
-    // rather than left to fail on the wire: an unsubscribe is already in flight,
-    // so a turn started now would run unobserved on a process about to die.
-    if (this.#describeSlotHolder(sessionId) === "closing") {
+    // The entrance requires a SETTLED live slot, not merely a non-closing one.
+    // Both transition states have to refuse, and for the same reason: a record
+    // stays installed across its whole transition — that is what holds the slot —
+    // so "installed" has stopped implying "usable" in either direction.
+    //
+    // `closing` is the obvious half. `establishing` is the half that was missed:
+    // a supersede-resume publishes it while the PREDECESSOR record is still in
+    // `#sessions`, so a guard that only rejected `closing` handed that predecessor
+    // out and let a turn be dispatched to a connection the resume was about to
+    // release. If the answer then landed before the resume settled, the run was
+    // refused post-await with the turn already ACCEPTED — and if that resume went
+    // on to FAIL, its catch path left the predecessor live, so the turn kept
+    // executing tools on a session the daemon would happily reuse. Refusing at
+    // the entrance is what keeps that turn from being started at all.
+    const holderState = this.#describeSlotHolder(sessionId);
+    if (holderState === "closing") {
       throw new CodexTransportError(`Codex session "${sessionId}" is being torn down.`, {
         sessionId,
-        holderState: "closing",
+        holderState,
       });
+    }
+    if (holderState === "establishing") {
+      throw new CodexTransportError(
+        `Codex session "${sessionId}" is being re-established; its connection is about to be replaced.`,
+        { sessionId, holderState },
+      );
     }
     const record = this.#sessions.get(sessionId);
     if (record === undefined) {

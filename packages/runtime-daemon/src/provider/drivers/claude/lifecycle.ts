@@ -146,7 +146,13 @@ export type ClaudeChannelDisposalReason =
   | "session_closed"
   | "spawn_identity_diverged"
   | "resume_identity_diverged"
-  | "resume_result_invalid";
+  | "resume_result_invalid"
+  // Anything that failed between the transport handing over a live channel and
+  // that channel being registered — a throwing binding minter, a schema the
+  // spawn-binding digest cannot canonicalize, a transport whose `onTurnTerminal`
+  // rejects registration. Distinct from the identity arms because the provider
+  // did nothing wrong: the driver could not complete adoption.
+  | "establishment_failed";
 
 // One live Claude provider process, already handshaken through `system/init`.
 export interface ClaudeSessionChannel {
@@ -403,13 +409,49 @@ export class ClaudeAuthenticationRequiredError extends Error {
 // Detail sanitation
 // --------------------------------------------------------------------------
 
-// NEVER serializes an arbitrary value. `providerFailureDetail` is persisted and
-// operator-visible, and a blind `JSON.stringify` of an unknown rejection reason
-// is how spawn configuration — up to and including credential material the
-// transport was handed — leaks into a durable row.
+// `name` and `message` are ordinary data properties on a normal `Error`, but
+// nothing stops a value from backing either with an accessor — and a getter that
+// throws would throw INSIDE the catch block that called us. Reads are therefore
+// guarded, and a non-string value falls through rather than being stringified:
+// `${anObject}` is how "[object Object]" — or a credential-bearing `toString` —
+// reaches a durable row.
+function readErrorStringProperty(error: Error, property: "message" | "name"): string | undefined {
+  try {
+    const value: unknown = error[property];
+    return typeof value === "string" ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Renders an arbitrary thrown value as one operator-safe line.
+ *
+ * CONTRACT: TOTAL over arbitrary JavaScript values — it returns a string for
+ * every input and throws for none. That totality is load-bearing rather than
+ * tidy: every caller is a `catch` block, and `#disposeRefusedChannel`'s entire
+ * job is to not throw, so a `describeFailure` that could throw would defeat the
+ * guard calling it and re-open the orphaned-process window one layer up.
+ *
+ * NEVER serializes an arbitrary value. `providerFailureDetail` is persisted and
+ * operator-visible, and a blind `JSON.stringify` of an unknown rejection reason
+ * is how spawn configuration — up to and including credential material the
+ * transport was handed — leaks into a durable row. For the same reason there is
+ * no `String(error)` and no `String(error.cause)` fallback: an unreadable value
+ * is reported as undescribable, never rendered on a best-effort basis.
+ */
 function describeFailure(error: unknown): string {
   if (error instanceof Error) {
-    return error.message.length > 0 ? `${error.name}: ${error.message}` : error.name;
+    const name = readErrorStringProperty(error, "name");
+    const message = readErrorStringProperty(error, "message");
+    if (message !== undefined && message.length > 0) {
+      // An unreadable name costs the prefix, not the whole detail.
+      return name !== undefined && name.length > 0 ? `${name}: ${message}` : message;
+    }
+    if (name !== undefined && name.length > 0) {
+      return name;
+    }
+    return UNDESCRIBED_FAILURE_DETAIL;
   }
   if (typeof error === "string") {
     return error;
@@ -682,12 +724,31 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       });
     }
 
-    this.#registerLiveSession({
-      sessionId: params.sessionId,
-      providerSessionId: attachment.providerSessionId,
-      channel: attachment.channel,
-      spawnBinding: this.#buildSpawnBinding(params),
-    });
+    // ADOPTION INVARIANT — between the transport handing us a live channel and
+    // that channel being registered, EVERY exit (return or throw) either
+    // registers the channel or disposes it. There is no third exit. Without this
+    // guard a throw in the window escapes past both, the outer slot claim clears
+    // the slot in its settle path, and the still-running process is orphaned with
+    // its slot free — so the next create spawns a second process beside it.
+    //
+    // The window is not empty: `#buildSpawnBinding` digests a caller-supplied
+    // output schema (a cyclic or unserializable one throws) and
+    // `#registerLiveSession` calls transport-implemented `onTurnTerminal`.
+    try {
+      this.#registerLiveSession({
+        sessionId: params.sessionId,
+        providerSessionId: attachment.providerSessionId,
+        channel: attachment.channel,
+        spawnBinding: this.#buildSpawnBinding(params),
+      });
+    } catch (error) {
+      // Dispose, then re-throw the ORIGINAL cause. `createSession` has no
+      // degraded arm — throwing is its only failure channel, and it already
+      // propagates raw transport errors — so wrapping would hide the real fault
+      // behind a reason arm no caller could act on differently.
+      await this.#disposeRefusedChannel(attachment.channel, "establishment_failed");
+      throw error;
+    }
 
     // Claude resumes by session id (`--resume <session-id>`), so the resume
     // handle IS the provider session id at this pin. The daemon treats it as
@@ -746,34 +807,61 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       );
     }
 
-    const resumed: DriverResumeResult = {
-      status: "resumed",
-      bindingId: this.#mintBindingId(),
-      sessionPosition: attachment.sessionPosition,
-    };
-    // An out-of-contract `resumed` arm (a non-integer or negative position, an
-    // unusable binding id) is ITSELF a provider failure and must surface
-    // `recovery-needed` rather than parse-rejecting into an exception the resume
-    // caller has no arm for.
-    const validated = DriverResumeResultSchema.safeParse(resumed);
-    if (!validated.success) {
+    // ADOPTION INVARIANT — from here to registration, EVERY exit (return or
+    // throw) either registers the channel or disposes it. There is no third exit.
+    //
+    // The window contains three things that can throw, none of them the
+    // provider's doing: the injected binding minter, `#buildSpawnBinding`'s
+    // digest of a caller-supplied output schema, and the transport's own
+    // `onTurnTerminal`. An escaping throw would be doubly wrong here — the outer
+    // slot claim clears the slot in its settle path, orphaning a process that is
+    // resumed and running while the next create spawns beside it, AND resume's
+    // contractual failure channel is the `failed` ARM, so a raw throw reaches a
+    // caller that has no arm for it.
+    let validatedResumeResult: DriverResumeResult;
+    try {
+      const resumed: DriverResumeResult = {
+        status: "resumed",
+        bindingId: this.#mintBindingId(),
+        sessionPosition: attachment.sessionPosition,
+      };
+      // An out-of-contract `resumed` arm (a non-integer or negative position, an
+      // unusable binding id) is ITSELF a provider failure and must surface
+      // `recovery-needed` rather than parse-rejecting into an exception the
+      // resume caller has no arm for.
+      const validated = DriverResumeResultSchema.safeParse(resumed);
+      if (!validated.success) {
+        const disposalNote = await this.#disposeRefusedChannel(
+          attachment.channel,
+          "resume_result_invalid",
+        );
+        return this.#buildResumeFailure(
+          "recovery-needed",
+          `The Claude transport reported a resume that fails the driver resume contract: ${validated.error.message}${disposalNote}`,
+        );
+      }
+      validatedResumeResult = validated.data;
+
+      this.#registerLiveSession({
+        sessionId: params.sessionId,
+        providerSessionId: attachment.providerSessionId,
+        channel: attachment.channel,
+        spawnBinding: this.#buildSpawnBinding(params),
+      });
+    } catch (error) {
       const disposalNote = await this.#disposeRefusedChannel(
         attachment.channel,
-        "resume_result_invalid",
+        "establishment_failed",
       );
+      // `recovery-needed`, not `reauth-required`: the resume itself SUCCEEDED —
+      // the daemon simply could not adopt what it got back — so re-authenticating
+      // would answer a question nobody asked. Retrying is the recovery.
       return this.#buildResumeFailure(
         "recovery-needed",
-        `The Claude transport reported a resume that fails the driver resume contract: ${validated.error.message}${disposalNote}`,
+        `The Claude session resumed but could not be adopted: ${describeFailure(error)}${disposalNote}`,
       );
     }
-
-    this.#registerLiveSession({
-      sessionId: params.sessionId,
-      providerSessionId: attachment.providerSessionId,
-      channel: attachment.channel,
-      spawnBinding: this.#buildSpawnBinding(params),
-    });
-    return validated.data;
+    return validatedResumeResult;
   }
 
   async startRun(params: StartRunParams): Promise<void> {
@@ -1005,7 +1093,13 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   }
 
   #registerLiveSession(live: LiveClaudeSession): void {
-    this.#sessionSlots.set(live.sessionId, { state: "live", session: live });
+    // Listener FIRST, slot SECOND. `onTurnTerminal` is transport-implemented and
+    // may throw; registering it before the slot is written means such a throw
+    // leaves the slot UNSET, so the caller's adoption guard can dispose the
+    // channel and free the slot. The reverse order would strand a LIVE slot
+    // pointing at a channel its own caller is about to dispose. The listener is
+    // identity-gated, so it is inert in the instant before the slot exists.
+    //
     // Claude serializes turns per session, so "a terminal arrived on this
     // channel" identifies the run without the transport naming it: the route
     // pointing at this session IS the run that just ended. Registered here, the
@@ -1013,7 +1107,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     //
     // Retiring routes only — never the slot. The session stays LIVE and startable
     // after a turn ends; it is the RUN that is over.
-    live.channel.onTurnTerminal(() => {
+    const retireOnTurnTerminal = (): void => {
       // Identity-gated. A channel that has been disposed, quarantined, or
       // replaced can still fire — the driver holds no kill, so an undead process
       // may emit a terminal long after the daemon stopped listening to it — and
@@ -1025,7 +1119,9 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
         return;
       }
       this.#retireRunRoutes(live.sessionId);
-    });
+    };
+    live.channel.onTurnTerminal(retireOnTurnTerminal);
+    this.#sessionSlots.set(live.sessionId, { state: "live", session: live });
   }
 
   // Names the current holder of a session slot for a refusal detail, or

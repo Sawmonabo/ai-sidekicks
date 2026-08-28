@@ -493,6 +493,21 @@ interface ManagerHarnessOptions {
   throwingSubscriptionDisposer?: boolean;
   /** Overrides the binding-id minter, so a hostile mint can be driven. */
   newBindingId?: () => string;
+  /**
+   * Throws from the FIRST diagnostic and records every one after it.
+   *
+   * Throwing from all of them would make "the drain survived" unobservable
+   * through the sink itself; throwing once leaves the next diagnostic as the
+   * evidence.
+   */
+  throwOnFirstDiagnostic?: boolean;
+  /**
+   * Throws from the FIRST notification delivered to the consumer, then behaves.
+   *
+   * Same reason as the sink flag: the next notification is what proves the drain
+   * survived, so throwing from every one would make the property unobservable.
+   */
+  throwOnFirstNotification?: boolean;
 }
 
 /**
@@ -512,6 +527,8 @@ function createManagerHarness(options: ManagerHarnessOptions = {}): ManagerHarne
   const diagnostics: CodexTransportDiagnostic[] = [];
   const notifications: Array<{ method: string; params: unknown }> = [];
   const scheduler = makeManualScheduler();
+  let firstDiagnosticThrown = false;
+  let firstNotificationThrown = false;
   const manager = new CodexLifecycleManager({
     ptyHost: server,
     subscribeToPtySession: (ptySessionId, listeners) => {
@@ -525,6 +542,10 @@ function createManagerHarness(options: ManagerHarnessOptions = {}): ManagerHarne
       };
     },
     reportDiagnostic: (diagnostic) => {
+      if (options.throwOnFirstDiagnostic === true && !firstDiagnosticThrown) {
+        firstDiagnosticThrown = true;
+        throw new Error("diagnostic sink failed");
+      }
       diagnostics.push(diagnostic);
     },
     scheduleTimeout: scheduler.schedule,
@@ -534,6 +555,10 @@ function createManagerHarness(options: ManagerHarnessOptions = {}): ManagerHarne
     ...(options.onServerNotification === true
       ? {
           onServerNotification: (method: string, params: unknown): void => {
+            if (options.throwOnFirstNotification === true && !firstNotificationThrown) {
+              firstNotificationThrown = true;
+              throw new Error("normalizer consumer failed");
+            }
             notifications.push({ method, params });
           },
         }
@@ -1538,6 +1563,230 @@ describe("CodexLifecycleManager establishment slot", () => {
 });
 
 // --------------------------------------------------------------------------
+// Process exit — cleanup runs even when caller-supplied code throws
+// --------------------------------------------------------------------------
+
+describe("CodexAppServerConnection event-callback containment", () => {
+  it("rejects every pending request even when the subscription disposer throws", async () => {
+    const server = new FakeCodexAppServer();
+    server.on("initialize", () => ({ result: {} }));
+    const scheduler = makeManualScheduler();
+    const diagnostics: CodexTransportDiagnostic[] = [];
+    const connection = new CodexAppServerConnection({
+      ptyHost: server,
+      subscribeToPtySession: (ptySessionId, listeners) => {
+        const dispose = server.subscribe(ptySessionId, listeners);
+        return () => {
+          dispose();
+          throw new Error("subscription disposer failed");
+        };
+      },
+      reportDiagnostic: (diagnostic) => {
+        diagnostics.push(diagnostic);
+      },
+      scheduleTimeout: scheduler.schedule,
+      executablePath: EXECUTABLE_PATH,
+    });
+    await connection.open(RESUME_SPAWN_CONFIG);
+
+    // Never answered: only the exit can settle it.
+    const pending = connection.request("thread/start", {});
+    const settled = pending.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+
+    // The exit callback belongs to the HOST, so a fault in it escapes into the
+    // host's emit loop rather than reaching any caller. Captured here so the
+    // assertions describe the damage (callers left hanging) rather than just the
+    // symptom -- and so an implementation that lets it escape fails on the very
+    // next line instead of hanging to the 5000ms timeout.
+    let escaped: unknown;
+    try {
+      server.emitExit(7);
+    } catch (error) {
+      escaped = error;
+    }
+
+    expect(escaped).toBeUndefined();
+    expect(await settled).toBeInstanceOf(CodexTransportError);
+    // Not swallowed: a disposer that failed may have left a listener registered
+    // against a dead session, and the sink is the only surface that can say so.
+    expect(diagnostics).toContainEqual({
+      kind: "subscription-dispose-failed",
+      detail: "subscription disposer failed",
+    });
+    // Ordered after the cleanup, so the exit record still lands first.
+    expect(diagnostics[0]).toMatchObject({ kind: "process-exited", exitCode: 7 });
+  });
+
+  it("keeps draining a read chunk when the diagnostic sink throws", async () => {
+    const server = new FakeCodexAppServer();
+    server.on("initialize", () => ({ result: {} }));
+    const scheduler = makeManualScheduler();
+    let sinkCalls = 0;
+    const connection = new CodexAppServerConnection({
+      ptyHost: server,
+      subscribeToPtySession: (ptySessionId, listeners) => server.subscribe(ptySessionId, listeners),
+      reportDiagnostic: () => {
+        sinkCalls += 1;
+        throw new Error("diagnostic sink failed");
+      },
+      scheduleTimeout: scheduler.schedule,
+      executablePath: EXECUTABLE_PATH,
+    });
+    await connection.open(RESUME_SPAWN_CONFIG);
+
+    // Never auto-answered: no handler is registered for it, so the response
+    // below is the only thing that can settle it.
+    const pending = connection.request("thread/start", {});
+    const settled = pending.then(
+      (result) => result,
+      (error: unknown) => error,
+    );
+    await drainMicrotasks();
+    const requestId = server.framesForMethod("thread/start")[0]?.["id"];
+    expect(requestId).toBeDefined();
+
+    // ONE chunk, and the ORDER is the test: an unparsable line whose diagnostic
+    // throws, then the response the caller is waiting on -- behind the throw, in
+    // the same drain.
+    const responseFrame = JSON.stringify({ jsonrpc: "2.0", id: requestId, result: { ok: true } });
+    let escaped: unknown;
+    try {
+      server.emitRaw(new TextEncoder().encode(`not-json\r\n${responseFrame}\r\n`));
+    } catch (error) {
+      escaped = error;
+    }
+
+    // Asserted FIRST, so an implementation that lets the fault unwind the drain
+    // fails here rather than hanging on the settlement below.
+    expect(escaped).toBeUndefined();
+    expect(sinkCalls).toBe(1);
+    expect(await settled).toEqual({ ok: true });
+  });
+
+  it("keeps draining a chunk when the sink throws on an unconsumed notification", async () => {
+    const harness = createManagerHarness({ throwOnFirstDiagnostic: true });
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    // No delegate is wired, so each notification produces a diagnostic through
+    // the MANAGER's interposition -- which is called from inside the transport's
+    // ingest loop, so a throw there unwinds the same drain.
+    let escaped: unknown;
+    try {
+      harness.server.emitRaw(
+        new TextEncoder().encode(
+          `{"jsonrpc":"2.0","method":"turn/started","params":{}}\r\n` +
+            `{"jsonrpc":"2.0","method":"turn/plan/updated","params":{}}\r\n`,
+        ),
+      );
+    } catch (error) {
+      escaped = error;
+    }
+
+    expect(escaped).toBeUndefined();
+    // The first threw before it could be recorded, so the second IS the evidence
+    // that the drain survived it.
+    expect(harness.diagnostics).toEqual([
+      { kind: "unconsumed-server-notification", method: "turn/plan/updated" },
+    ]);
+  });
+
+  it("settles a response that arrives behind a notification whose consumer threw", async () => {
+    const server = new FakeCodexAppServer();
+    server.on("initialize", () => ({ result: {} }));
+    const scheduler = makeManualScheduler();
+    const diagnostics: CodexTransportDiagnostic[] = [];
+    const connection = new CodexAppServerConnection({
+      ptyHost: server,
+      subscribeToPtySession: (ptySessionId, listeners) => server.subscribe(ptySessionId, listeners),
+      reportDiagnostic: (diagnostic) => {
+        diagnostics.push(diagnostic);
+      },
+      // Wired straight to the connection, with no manager interposed -- this
+      // class is exported and driven standalone, so the containment has to hold
+      // for that composition too.
+      onServerNotification: () => {
+        throw new Error("consumer exploded");
+      },
+      scheduleTimeout: scheduler.schedule,
+      executablePath: EXECUTABLE_PATH,
+    });
+    await connection.open(RESUME_SPAWN_CONFIG);
+
+    const pending = connection.request("thread/start", {});
+    const settled = pending.then(
+      (result) => result,
+      (error: unknown) => error,
+    );
+    await drainMicrotasks();
+    const requestId = server.framesForMethod("thread/start")[0]?.["id"];
+    expect(requestId).toBeDefined();
+
+    // The response sits BEHIND the notification in one chunk, so a consumer that
+    // unwinds the drain takes the caller down with it.
+    const responseFrame = JSON.stringify({ jsonrpc: "2.0", id: requestId, result: { ok: true } });
+    let escaped: unknown;
+    try {
+      server.emitRaw(
+        new TextEncoder().encode(
+          `{"jsonrpc":"2.0","method":"turn/started","params":{}}\r\n${responseFrame}\r\n`,
+        ),
+      );
+    } catch (error) {
+      escaped = error;
+    }
+
+    expect(escaped).toBeUndefined();
+    expect(await settled).toEqual({ ok: true });
+    // Dropped, not fatal -- and recorded, which is the whole difference between
+    // this ruling and silence.
+    expect(diagnostics).toEqual([
+      {
+        kind: "notification-consumer-failed",
+        method: "turn/started",
+        detail: "consumer exploded",
+      },
+    ]);
+  });
+
+  it("drops a notification whose consumer throws and keeps delivering the rest", async () => {
+    const harness = createManagerHarness({
+      onServerNotification: true,
+      throwOnFirstNotification: true,
+    });
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    let escaped: unknown;
+    try {
+      harness.server.emitRaw(
+        new TextEncoder().encode(
+          `{"jsonrpc":"2.0","method":"turn/started","params":{}}\r\n` +
+            `{"jsonrpc":"2.0","method":"turn/plan/updated","params":{}}\r\n`,
+        ),
+      );
+    } catch (error) {
+      escaped = error;
+    }
+
+    expect(escaped).toBeUndefined();
+    // The loss is bounded to the ONE notification whose consumer threw: the next
+    // frame in the same chunk still reaches the consumer.
+    expect(harness.notifications.map((entry) => entry.method)).toEqual(["turn/plan/updated"]);
+    // Attributed at the manager's own delegate call, so the record names the
+    // consumer rather than the interposition that wraps it.
+    expect(harness.diagnostics).toEqual([
+      {
+        kind: "notification-consumer-failed",
+        method: "turn/started",
+        detail: "normalizer consumer failed",
+      },
+    ]);
+  });
+});
+
+// --------------------------------------------------------------------------
 // Session slot state machine — a held slot spans every async step, both ways
 // --------------------------------------------------------------------------
 
@@ -1695,6 +1944,98 @@ describe("CodexLifecycleManager session slot across teardown", () => {
     expect((outcome as Error).message).toContain("stopped holding its slot");
     expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
     expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
+  });
+});
+
+// --------------------------------------------------------------------------
+// Session slot across RE-ESTABLISHMENT — the other half of the entrance guard
+// --------------------------------------------------------------------------
+
+describe("CodexLifecycleManager session slot across re-establishment", () => {
+  it("refuses a startRun while a resume holds the slot", async () => {
+    const harness = createManagerHarness();
+    harness.server.uniqueSpawnSessionIds = true;
+    harness.server.on("thread/resume", () => threadStartResult(1));
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    // A resume publishes its claim SYNCHRONOUSLY while the predecessor record is
+    // still installed, so the two calls in one tick are the whole window. A guard
+    // that rejected only `closing` handed that predecessor straight out.
+    const resuming = harness.manager.resumeSession({
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+    });
+    const starting = harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "go" },
+    });
+    const outcome = await starting.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    await resuming;
+
+    expect(outcome).toBeInstanceOf(CodexTransportError);
+    expect((outcome as Error).message).toContain("being re-established");
+    // Nothing reached the wire. The point is not to refuse a turn after accepting
+    // it, but never to start one on a connection about to be released.
+    expect(harness.server.framesForMethod("turn/start")).toHaveLength(0);
+    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
+  });
+
+  it("kills the connection when a turn is accepted after the session loses its slot", async () => {
+    const harness = createManagerHarness();
+    harness.server.uniqueSpawnSessionIds = true;
+    // The resume FAILS, which is the one displacing transition that does not
+    // dispose the predecessor: its catch path releases only its own new
+    // connection and leaves the old record installed and its process LIVE. That
+    // is why the post-await branch disposes rather than resting on the argument
+    // that whoever took the slot will kill the process anyway.
+    harness.server.on("thread/resume", () => ({
+      error: { code: -32000, message: "no such thread" },
+    }));
+    let resuming: Promise<unknown> | undefined;
+    let releaseSpawns: (() => void) | undefined;
+    harness.server.on("turn/start", () => {
+      // Issued from INSIDE the write, so the slot is lost while `startRun` is
+      // still suspended on this very answer -- after its entrance guard passed,
+      // which is the only way to reach the post-await branch at all.
+      releaseSpawns = harness.server.holdSpawns();
+      resuming = harness.manager.resumeSession({
+        sessionId: SESSION_ID,
+        resumeHandle: THREAD_ID,
+      });
+      return { result: { turn: { id: TURN_ID } } };
+    });
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    const starting = harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "go" },
+    });
+    // Parks the resume inside its spawn so the answer lands while the transition
+    // is still in flight; otherwise the resume could settle first and the slot
+    // would read as live again, hiding the branch under test.
+    await drainMicrotasks();
+    releaseSpawns?.();
+    const outcome = await starting.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    const resumeResult = await resuming;
+
+    expect(resumeResult).toMatchObject({ status: "failed" });
+    expect(outcome).toBeInstanceOf(CodexTransportError);
+    expect((outcome as Error).message).toContain("stopped holding its slot");
+    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
+    // The turn was ACCEPTED and nothing else was going to stop it, so it would
+    // have kept executing tools on a session the daemon would happily reuse.
+    expect(harness.server.killedSessions).toEqual([
+      { sessionId: "pty-session-1", signal: "SIGKILL" },
+    ]);
   });
 });
 
@@ -2294,5 +2635,59 @@ describe("Codex driver config read-shapes", () => {
     expect(
       normalizeProviderFailureDetail("x".repeat(DRIVER_FAILURE_DETAIL_MAX_LEN + 10)),
     ).toHaveLength(DRIVER_FAILURE_DETAIL_MAX_LEN);
+  });
+
+  // Totality, on the values that actually break coercion. Each of these was
+  // confirmed to throw against the runtime before being pinned here -- they are
+  // not hypotheses. The stake is I-005-5: this function is what `resumeSession`'s
+  // catch path calls to BUILD the typed failure, so a throw here converts the
+  // typed `recovery-needed` result back into an exception, on the path that is
+  // already handling a failure and therefore least likely to hold a well-formed
+  // cause.
+  it("stays total for a null-prototype object, which cannot be stringified", () => {
+    // `String(value)` throws TypeError: no `toString` or `valueOf` on the chain.
+    expect(normalizeProviderFailureDetail(Object.create(null) as unknown)).toMatch(
+      /no diagnostic message/,
+    );
+  });
+
+  it("stays total for an Error whose message getter throws", () => {
+    const hostile = new Error("unused");
+    Object.defineProperty(hostile, "message", {
+      get(): string {
+        throw new TypeError("message getter exploded");
+      },
+    });
+
+    expect(normalizeProviderFailureDetail(hostile)).toMatch(/no diagnostic message/);
+  });
+
+  it("falls back to the Error class when its message is not a string", () => {
+    // Reading it succeeds; it is `replaceAll` that does not exist on a number.
+    // So checking the TYPE is load-bearing, not just guarding the read.
+    const numericMessage = Object.assign(new Error("unused"), { message: 42 });
+
+    // `name` rather than the unspecified constant: an Error with no usable
+    // message still has a class, and naming the class beats naming our own
+    // inability to describe it. Reading two known strings off a known shape is
+    // also a different act from serializing an unknown value -- see below.
+    expect(normalizeProviderFailureDetail(numericMessage)).toBe("Error");
+  });
+
+  it("never serializes an arbitrary rejection value into the persisted detail", () => {
+    // `providerFailureDetail` reaches a durable, operator-visible row, and
+    // `String()` runs whatever `toString` the value carries -- which is how
+    // spawn configuration, credential material included, would get there. The
+    // constant is the DESIGNED output here, not merely the safe one.
+    const hostile = {
+      toString(): string {
+        return "ANTHROPIC_API_KEY=sk-secret-value";
+      },
+    };
+
+    const detail = normalizeProviderFailureDetail(hostile);
+
+    expect(detail).not.toContain("sk-secret-value");
+    expect(detail).toMatch(/no diagnostic message/);
   });
 });

@@ -75,7 +75,14 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
   // bare "fire the listener" switch: `emitStreamFrame` owns the terminal-vs-
   // non-terminal discriminant exactly as a real transport does, so a test that
   // drives a `result/*` frame exercises that decision instead of asserting it.
+  // Lets a test model a transport that refuses registration — the last thing
+  // that runs inside the driver's adoption window.
+  onTurnTerminalFailure: Error | undefined = undefined;
+
   onTurnTerminal(listener: () => void): void {
+    if (this.onTurnTerminalFailure !== undefined) {
+      throw this.onTurnTerminalFailure;
+    }
     this.turnTerminalListener = listener;
   }
 
@@ -114,6 +121,9 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
   // fake that merely yields a microtask makes that depend on how many ticks the
   // implementation happens to take, which is not a property worth asserting.
   establishmentGate: Promise<void> | undefined = undefined;
+  // Applied to every channel this transport mints, so a test can arrange the
+  // failure before the channel it will land on exists.
+  onTurnTerminalFailure: Error | undefined = undefined;
   // When set, the spawned/resumed process announces THIS id instead of the one
   // that was pinned or requested — the fresh-session-on-mismatch behaviour the
   // Claude CLI exhibits, and the mechanism I-005-5's identity gate catches.
@@ -129,6 +139,7 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
     await Promise.resolve();
     const announced = this.announcedProviderSessionId ?? request.providerSessionId;
     const channel = new FakeClaudeSessionChannel(announced);
+    channel.onTurnTerminalFailure = this.onTurnTerminalFailure;
     this.spawnedChannels.push(channel);
     return { providerSessionId: announced, channel };
   }
@@ -144,6 +155,7 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
     await Promise.resolve();
     const announced = this.announcedProviderSessionId ?? request.resumeHandle;
     const channel = new FakeClaudeSessionChannel(announced);
+    channel.onTurnTerminalFailure = this.onTurnTerminalFailure;
     this.spawnedChannels.push(channel);
     return {
       providerSessionId: announced,
