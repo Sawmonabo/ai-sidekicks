@@ -40,6 +40,14 @@
 //     pair, carried as the SINGLE optional `cliVersion` member so the DDL's
 //     both-or-neither CHECK is structural at the type level.
 //
+// T3.23 extension — `withSpawnedVersionCarriers`: the version pair and the
+// `spawn_config.resolvedExecutablePath` that names the build which reported it
+// are projected from ONE spawned-build reading, so a row can never record a
+// version taken from an install other than the one it names
+// (`Spec-005 §Required Behavior`, 2026-08-26). The store still validates and
+// persists exactly as before — this is a composition seam over `create`'s input,
+// not a second write path.
+//
 // Deliberate boundary (NOT an oversight — this mirrors the T2.1 CHECK-scope
 // discipline): `runId`, `driverName`, `id`, and the CONTENT of
 // `runtime_metadata` are DAEMON-CONTROLLED. They have no DB CHECK and no
@@ -188,6 +196,67 @@ export interface CreateRuntimeBindingInput {
   readonly resumeHandle?: string | null;
   readonly spawnConfig: RuntimeBindingSpawnConfig;
   readonly runtimeMetadata?: Record<string, unknown>;
+}
+
+/**
+ * The two `create` members ONE spawned-build reading fills (Plan-005 T3.23).
+ *
+ * `Spec-005 §Required Behavior` (2026-08-26) binds them together: the version
+ * the floor compared, the version this row records, and the version of the
+ * process that runs the session are ONE reading, taken in-band from the build at
+ * `resolvedExecutablePath` — never from a launcher symlink or a `--version`
+ * shell-out. They live on different carriers (`cli_version_raw` /
+ * `cli_version_semver` are columns; the path rides the daemon-owned
+ * `spawn_config` record), which is exactly why a caller assembling them by hand
+ * could record a version from one install beside a path to another.
+ *
+ * Produced by `version-gate.ts`'s `toBindingVersionCarriers`. Declared HERE, in
+ * the store, so the projection points at the write seam's own vocabulary and the
+ * Phase-2 store never has to import a Phase-3 module.
+ */
+export interface SpawnedVersionBindingCarriers {
+  readonly cliVersion: DriverCliVersionReport;
+  /** Absolute and symlink-dereferenced — the build that answered the handshake. */
+  readonly resolvedExecutablePath: string;
+}
+
+/**
+ * Compose a `create` input whose version pair and resolved executable path come
+ * from one reading (Plan-005 T3.23 — the write seam persists the same reading).
+ *
+ * The carriers are applied LAST and therefore win, so a caller cannot supply a
+ * competing `cliVersion` — the input type omits it, and the spread makes an
+ * untyped caller's stray member unreachable too. `spawnConfig`'s other members
+ * are preserved untouched: this function decides exactly the two members the
+ * reading owns.
+ *
+ * REFUSES ON DISAGREEMENT ONLY. A `spawnConfig` that already names the SAME
+ * `resolvedExecutablePath` is harmless (the caller and the reading agree), while
+ * one naming a DIFFERENT path is a second source of truth about which binary
+ * ran — the precise condition that would let the stored version describe an
+ * install the row does not name. That is daemon-assembled input, so the refusal
+ * is an internal-invariant `Error` rather than a `ProviderOutputValidationError`
+ * (the distinction `#parseSpawnConfig` states: "the provider misbehaved" versus
+ * "this daemon's own state is not what it wrote").
+ */
+export function withSpawnedVersionCarriers(
+  input: Omit<CreateRuntimeBindingInput, "cliVersion">,
+  carriers: SpawnedVersionBindingCarriers,
+): CreateRuntimeBindingInput {
+  const declaredExecutablePath = input.spawnConfig.resolvedExecutablePath;
+  if (
+    declaredExecutablePath !== undefined &&
+    declaredExecutablePath !== carriers.resolvedExecutablePath
+  ) {
+    throw new Error(
+      `RuntimeBindingStore: spawn_config.resolvedExecutablePath disagrees with the spawned-version reading for run ${input.runId} (driver ${input.driverName}) — the recorded version and the recorded executable must come from one reading`,
+    );
+  }
+  return {
+    ...input,
+    cliVersion: carriers.cliVersion,
+    spawnConfig: { ...input.spawnConfig, resolvedExecutablePath: carriers.resolvedExecutablePath },
+  };
 }
 
 /**

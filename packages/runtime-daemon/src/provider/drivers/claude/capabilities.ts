@@ -58,8 +58,16 @@
  *   fail-closed (`driver.cli_version_below_floor`) through the shared
  *   `assertCliVersionMeetsFloor` seam, so attach and refresh both hit the
  *   gate; the unparseable refusal (`driver.cli_version_unparseable`) fires at
- *   report construction (`parseCliVersionReport`), which T3.23 feeds from the
- *   in-band reading of the spawned process.
+ *   report construction (`parseCliVersionReport`), inside the T3.23 reading of
+ *   the spawned process.
+ * * **Resolution, the spawn, and the in-band read** — `../../version-gate.ts`
+ *   (T3.23) owns them. Since that task the reporter's injected dependency is a
+ *   `SpawnedProviderVersionReading` reader rather than a bare report reader, so
+ *   a declaration composed from a version that did not come from the spawned
+ *   build is unrepresentable rather than merely discouraged
+ *   (`Spec-005 §Required Behavior`: "the version a driver reports is the
+ *   version that spawned"). The reader is called on EVERY declaration, so a
+ *   refresh takes a new reading rather than replaying the attach-time one.
  * * **Validation of the reported wrapper** — the write seam owns it
  *   (`assertValidGetCapabilitiesResultShape`, `assertValidCapabilityFlags`,
  *   `assertValidContractVersion`, `assertValidCliVersionReport` in
@@ -83,6 +91,7 @@ import type {
   DeclareDriverCapabilitiesResult,
   DriverCapabilitiesWriter,
 } from "../../driver-capabilities-writer.js";
+import type { SpawnedProviderVersionReading } from "../../version-gate.js";
 
 import { getClaudeToolMetadata } from "./tools.js";
 
@@ -171,17 +180,24 @@ export const CLAUDE_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, bool
 // --------------------------------------------------------------------------
 
 /**
- * Reads the installed Claude CLI's version. Injected because the SOURCE of
- * the reading moves: T3.23 re-points it at the in-band control request, and
- * T3.12 puts a floor in front of it. `getCapabilities()` takes no arguments
- * on the `ProviderDriver` interface, so the dependency is constructor-bound.
+ * Takes one in-band reading of the Claude build this node spawns — resolve,
+ * spawn, `get_binary_version`, floor-compare — normally
+ * `readSpawnedProviderVersion` bound to this node's configured command
+ * (`../../version-gate.ts`, T3.23). Injected because `getCapabilities()` takes
+ * no arguments on the `ProviderDriver` interface, so the dependency is
+ * constructor-bound.
+ *
+ * It reads a READING and not a bare report deliberately: the reading names the
+ * resolved executable that answered, which is what ties this declaration to the
+ * build the session will actually run and to the version the run's
+ * `runtime_bindings` row records.
  *
  * A malformed report is NOT rejected here — it is rejected at the write seam
  * with the leak-safe typed error (`assertValidCliVersionReport`), which is
  * the one place provider-shaped input is adjudicated.
  */
 export interface ClaudeCapabilityReporterDependencies {
-  readonly readCliVersion: () => Promise<DriverCliVersionReport>;
+  readonly readSpawnedVersion: () => Promise<SpawnedProviderVersionReading>;
 }
 
 /**
@@ -218,10 +234,10 @@ export interface ClaudeCapabilityDeclarationTarget {
  * CLI-version reader.
  */
 export class ClaudeCapabilityReporter {
-  readonly #readCliVersion: () => Promise<DriverCliVersionReport>;
+  readonly #readSpawnedVersion: () => Promise<SpawnedProviderVersionReading>;
 
   constructor(dependencies: ClaudeCapabilityReporterDependencies) {
-    this.#readCliVersion = dependencies.readCliVersion;
+    this.#readSpawnedVersion = dependencies.readSpawnedVersion;
   }
 
   /**
@@ -237,10 +253,21 @@ export class ClaudeCapabilityReporter {
    * below the ratified Claude floor refuses fail-closed
    * (`driver.cli_version_below_floor`) before any report exists for the
    * registry or the writer to cache — the attach path and the refresh path
-   * both flow through this method, so one gate covers both.
+   * both flow through this method, so one gate covers both. The version gate
+   * compares at the READ too; the comparison is pure and idempotent, so the
+   * second one closes the refresh door rather than restating a decision.
    */
   async getCapabilities(): Promise<GetCapabilitiesResult> {
-    const cliVersion = await this.#readCliVersion();
+    const reading = await this.#readSpawnedVersion();
+    // A reading taken from another driver's build would compose Claude's flags
+    // against a foreign version — a daemon wiring fault, not provider
+    // misbehaviour, so it is an internal-invariant `Error`.
+    if (reading.driverName !== CLAUDE_DRIVER_NAME) {
+      throw new Error(
+        `ClaudeCapabilityReporter: refusing a spawned-version reading taken from driver '${reading.driverName}'`,
+      );
+    }
+    const cliVersion: DriverCliVersionReport = reading.report;
     assertCliVersionMeetsFloor(CLAUDE_DRIVER_NAME, cliVersion);
     const capabilities: DriverCapabilities = {
       flags: { ...CLAUDE_CAPABILITY_FLAGS },

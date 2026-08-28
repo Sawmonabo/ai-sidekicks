@@ -41,6 +41,7 @@ import {
   assertValidContractVersion,
   assertValidGetCapabilitiesResultShape,
 } from "../../../provider-output-validation.js";
+import type { SpawnedProviderVersionReading } from "../../../version-gate.js";
 import {
   CLAUDE_CAPABILITY_CONTRACT_VERSION,
   CLAUDE_CAPABILITY_FLAGS,
@@ -52,10 +53,31 @@ import { CLAUDE_TOOL_CATALOG } from "../tools.js";
 
 const CLI_VERSION: DriverCliVersionReport = { raw: "2.1.245 (Claude Code)", semver: "2.1.245" };
 
+// The build a T3.23 reading names — a Cellar path, deliberately NOT the
+// `/opt/homebrew/bin/claude` launcher symlink that points at it, because a
+// launcher is precisely what the reading refuses to describe.
+const RESOLVED_CLAUDE_EXECUTABLE = "/opt/homebrew/Cellar/claude/2.1.245/bin/claude";
+
+function claudeReading(report: DriverCliVersionReport): SpawnedProviderVersionReading {
+  return {
+    driverName: CLAUDE_DRIVER_NAME,
+    resolvedExecutablePath: RESOLVED_CLAUDE_EXECUTABLE,
+    report,
+  };
+}
+
+/**
+ * The reporter takes a `SpawnedProviderVersionReading` reader since T3.23. The
+ * suite keeps expressing cases as REPORTS and wraps each into a reading here, so
+ * every existing assertion still says what it always said about the version,
+ * while the reporter's dependency is exercised in its shipped shape.
+ */
 function makeReporter(
   readCliVersion: () => Promise<DriverCliVersionReport> = () => Promise.resolve({ ...CLI_VERSION }),
 ): ClaudeCapabilityReporter {
-  return new ClaudeCapabilityReporter({ readCliVersion });
+  return new ClaudeCapabilityReporter({
+    readSpawnedVersion: async () => claudeReading(await readCliVersion()),
+  });
 }
 
 /**
@@ -215,9 +237,14 @@ describe("getCapabilities() — the V1 result wrapper", () => {
     }
   });
 
-  it("propagates a CLI-version read failure instead of reporting a partial wrapper", async () => {
-    const reporter = makeReporter(() => Promise.reject(new Error("claude --version failed")));
-    await expect(reporter.getCapabilities()).rejects.toThrow("claude --version failed");
+  it("propagates an in-band version read failure instead of reporting a partial wrapper", async () => {
+    // The read is the spawned process's own `get_binary_version` answer since
+    // T3.23 — never a `--version` shell-out — so a failed read means the daemon
+    // does not know which build is running and must report no wrapper at all.
+    const reporter = makeReporter(() =>
+      Promise.reject(new Error("in-band version handshake failed")),
+    );
+    await expect(reporter.getCapabilities()).rejects.toThrow("in-band version handshake failed");
   });
 });
 
@@ -349,5 +376,41 @@ describe("Claude CLI-version floor (T3.12, P0-2)", () => {
     await expect(reporter.getCapabilities()).rejects.toBeInstanceOf(
       DriverCliVersionUnparseableError,
     );
+  });
+});
+
+describe("Claude composition is bound to the spawned build (T3.23, I-005-10)", () => {
+  it("takes a reading of the spawned build rather than a bare report", async () => {
+    // `Spec-005 §Required Behavior`: the version a driver reports is the version
+    // that spawned. The reader hands back a reading naming the resolved build,
+    // and that reading's report is what the wrapper carries.
+    const readSpawnedVersion = vi.fn(() =>
+      Promise.resolve(claudeReading({ raw: "2.1.246", semver: "2.1.246" })),
+    );
+    const reporter = new ClaudeCapabilityReporter({ readSpawnedVersion });
+    const result = await reporter.getCapabilities();
+
+    expect(readSpawnedVersion).toHaveBeenCalledTimes(1);
+    expect(result.cliVersion).toStrictEqual({ raw: "2.1.246", semver: "2.1.246" });
+  });
+
+  it("refuses a reading taken from ANOTHER driver's build", async () => {
+    // A wiring fault, not provider misbehaviour — an internal-invariant Error
+    // rather than a typed provider refusal, and the sink never sees a call.
+    const foreign: SpawnedProviderVersionReading = {
+      driverName: "codex",
+      resolvedExecutablePath: "/opt/homebrew/Cellar/codex/0.149.1/bin/codex",
+      report: { raw: "0.149.1", semver: "0.149.1" },
+    };
+    const reporter = new ClaudeCapabilityReporter({
+      readSpawnedVersion: () => Promise.resolve(foreign),
+    });
+    await expect(reporter.getCapabilities()).rejects.toThrow(/driver 'codex'/);
+
+    const sink = new RecordingDeclarationSink();
+    await expect(
+      reporter.refreshDeclaration(sink, { sessionId: "s", nodeId: "n" }),
+    ).rejects.toThrow(/driver 'codex'/);
+    expect(sink.calls).toHaveLength(0);
   });
 });
