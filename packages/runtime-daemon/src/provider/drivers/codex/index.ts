@@ -81,6 +81,7 @@ export {
   type CodexScheduleTimeout,
   type CodexServerNotificationSink,
   type CodexSessionConfig,
+  type CodexSessionSlotState,
   type CodexTransportDiagnostic,
 } from "./lifecycle.js";
 

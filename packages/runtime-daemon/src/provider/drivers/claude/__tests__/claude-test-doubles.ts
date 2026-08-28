@@ -32,6 +32,7 @@ import type {
 export const TEST_SESSION_ID: SessionId = "session-1" as SessionId;
 export const TEST_CHANNEL_ID: ChannelId = "channel-1" as ChannelId;
 export const TEST_RUN_ID: RunId = "run-1" as RunId;
+export const TEST_SECOND_RUN_ID: RunId = "run-2" as RunId;
 export const TEST_PINNED_PROVIDER_SESSION_ID: string = "provider-session-pinned";
 export const TEST_BINDING_ID: string = "binding-1";
 
@@ -70,8 +71,31 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
     return this.controlResponse;
   }
 
+  // Implements the `onTurnTerminal` transport obligation rather than exposing a
+  // bare "fire the listener" switch: `emitStreamFrame` owns the terminal-vs-
+  // non-terminal discriminant exactly as a real transport does, so a test that
+  // drives a `result/*` frame exercises that decision instead of asserting it.
+  onTurnTerminal(listener: () => void): void {
+    this.turnTerminalListener = listener;
+  }
+
+  turnTerminalListener: (() => void) | undefined = undefined;
+
+  emitStreamFrame(frameKind: string): void {
+    if (!frameKind.startsWith("result/")) {
+      return;
+    }
+    this.turnTerminalListener?.();
+  }
+
+  // Parks dispose until a test releases it, so the CLOSING window can be held
+  // open and inspected. The reason is recorded BEFORE parking: a test needs to
+  // know the disposal was actually reached, not merely scheduled.
+  disposeGate: Promise<void> | undefined = undefined;
+
   async dispose(reason: ClaudeChannelDisposalReason): Promise<void> {
     this.disposals.push(reason);
+    await this.disposeGate;
     if (this.disposeFailure !== undefined) {
       throw this.disposeFailure;
     }

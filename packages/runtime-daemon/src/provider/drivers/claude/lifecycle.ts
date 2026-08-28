@@ -155,6 +155,31 @@ export interface ClaudeSessionChannel {
   sendControlRequest(request: ClaudeControlRequest): Promise<ClaudeControlResponse>;
 
   /**
+   * Registers the lifecycle's turn-terminal observer. Called EXACTLY ONCE, when
+   * the driver adopts the channel; a later registration replaces the listener.
+   *
+   * TRANSPORT OBLIGATION — the transport MUST invoke `listener` when a terminal
+   * stream frame (`result/success`, `result/error_*`) arrives for this session's
+   * turn, and MUST NOT invoke it for any non-terminal frame. The driver has no
+   * other way to learn that a turn ended: stream frames flow to the transport's
+   * own consumer, not through this interface.
+   *
+   * Why the driver needs it at all: Claude's interrupt is CHANNEL-level, not
+   * run-level. A run route that outlives its turn is therefore not a harmless
+   * stale entry — it is an aimed weapon, and a late interrupt for the finished
+   * run would land on whatever turn the channel is running now. The listener
+   * retires the route so that interrupt refuses instead.
+   *
+   * The hook carries NO payload on purpose. The driver's response to every
+   * terminal is the same (retire the route), so passing the discriminant would
+   * hand this band a frame vocabulary it does not otherwise parse — the
+   * normalizer owns frame content, and it is deliberately unwired here. The
+   * transport already knows which terminal it saw; if a future caller needs the
+   * distinction, widening one hook is a smaller change than unpicking a coupling.
+   */
+  onTurnTerminal(listener: () => void): void;
+
+  /**
    * Tears the provider process down. `dispose` is this band's WHOLE teardown
    * surface: the driver holds no kill, no signal escalation, and no reaper, so
    * process supervision (SIGTERM then SIGKILL, exit confirmation, orphan sweep)
@@ -538,20 +563,39 @@ interface ClaudeSpawnBinding {
   readonly outputSchemaDigest: string | undefined;
 }
 
-// A session whose channel outlived its close. Only the channel is retained: the
-// spawn binding is meaningless now (no run may start) and keeping it would invite
-// a future reader to treat a quarantined slot as startable.
-interface QuarantinedClaudeSession {
-  readonly sessionId: SessionId;
-  readonly channel: ClaudeSessionChannel;
-}
-
 interface LiveClaudeSession {
   readonly sessionId: SessionId;
   readonly providerSessionId: string;
   readonly channel: ClaudeSessionChannel;
   readonly spawnBinding: ClaudeSpawnBinding;
 }
+
+// The state of one canonical session's slot. Absence from `#sessionSlots` is the
+// fifth state, EMPTY — the only one in which a create or resume may proceed.
+//
+// This is ONE registry on purpose. An earlier revision kept three maps (live,
+// establishing, quarantined) and answered "is this slot taken?" by querying all
+// three; the bug that shape produced was structural rather than local — a slot
+// mid-disposal belonged to no map, so it read as EMPTY for the whole `dispose`
+// await and a concurrent create spawned a replacement beside a process that was
+// still dying. A union in a single map makes the states exhaustive: a new state
+// is a new arm the compiler forces every reader to handle, not a fourth map some
+// reader forgets to consult.
+//
+// THE RULE, stated once: a slot is HELD from the moment an operation claims it
+// until that operation's LAST await has settled. No transition is observable
+// mid-flight. Every arm that owns an in-flight transition therefore carries a
+// `settled` promise that resolves — never rejects — when the transition ends.
+type ClaudeSessionSlot =
+  // A create or resume is bringing a process up. Ends LIVE, or EMPTY if it fails.
+  | { readonly state: "establishing"; readonly settled: Promise<void> }
+  // A process is up and may accept runs. The only startable state.
+  | { readonly state: "live"; readonly session: LiveClaudeSession }
+  // `dispose` is in flight. Ends EMPTY on resolve, QUARANTINED on reject.
+  | { readonly state: "closing"; readonly settled: Promise<void> }
+  // `dispose` rejected: the process is still alive and this channel is the only
+  // handle anyone holds on it. Retained until a later close disposes it.
+  | { readonly state: "quarantined"; readonly channel: ClaudeSessionChannel };
 
 export interface ClaudeSessionLifecycleDependencies {
   readonly transport: ClaudeSessionTransport;
@@ -571,27 +615,24 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   readonly #runDispatchResolver: ClaudeRunDispatchResolver;
   readonly #mintProviderSessionId: () => string;
   readonly #mintBindingId: () => string;
-  readonly #liveSessions: Map<SessionId, LiveClaudeSession> = new Map();
-  // The session slots whose provider process is being brought up right now.
-  // `#liveSessions` alone cannot answer "is this session taken?": both entry
-  // points await a transport spawn between their check and their registration,
-  // so two concurrent callers would both pass a `#liveSessions.has()` test, both
-  // spawn, and the second registration would overwrite the first — leaving the
-  // loser's channel unreachable by `closeSession` and its CLI process alive
-  // forever. Claimed SYNCHRONOUSLY before the first await, which is what makes
-  // the check-then-act atomic on a single-threaded runtime. The stored promise
-  // settles when the establishment does and never rejects, so `closeSession` can
-  // await it without risking an unhandled rejection.
-  readonly #sessionsBeingEstablished: Map<SessionId, Promise<void>> = new Map();
-  // Sessions whose provider process REFUSED to exit. A session slot is therefore
-  // one of exactly four states — EMPTY, ESTABLISHING (`#sessionsBeingEstablished`),
-  // LIVE (`#liveSessions`), or QUARANTINED (here) — and no create or resume
-  // proceeds in any of the latter three. Quarantine exists because forgetting a
-  // session whose dispose rejected would drop the only reference to a running
-  // process while freeing its slot: the next create would spawn a SECOND process
-  // under one canonical session, which is the hazard the slot claim was added to
-  // prevent, reached by a different road.
-  readonly #quarantinedSessions: Map<SessionId, QuarantinedClaudeSession> = new Map();
+  // The single source of truth for every canonical session's slot. See
+  // `ClaudeSessionSlot` for the five states and the holding rule.
+  //
+  // ONE coherent contention mechanism, stated here so the two sides cannot drift:
+  //
+  //   * `createSession` / `resumeSession` REFUSE on any non-EMPTY slot. They never
+  //     chain, because the winner's spawn-bound legs (cap, posture, schema) are
+  //     not the loser's — handing back a session realized under someone else's
+  //     posture is the swap `#assertSpawnBoundRealization` exists to prevent.
+  //   * `closeSession` CHAINS: it awaits whatever transition is in flight and
+  //     re-reads, because "make this session not exist" is satisfiable no matter
+  //     which state the slot settles into, and refusing a close would leave the
+  //     caller no way to reach a process it must be able to stop.
+  //
+  // Claims are taken SYNCHRONOUSLY — between reading a slot and writing its next
+  // state there is never an await — which is what makes check-then-act atomic on
+  // a single-threaded runtime.
+  readonly #sessionSlots: Map<SessionId, ClaudeSessionSlot> = new Map();
   readonly #sessionIdByRunId: Map<RunId, SessionId> = new Map();
 
   constructor(dependencies: ClaudeSessionLifecycleDependencies) {
@@ -741,7 +782,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       throw new ClaudeSessionUnavailableError("run_dispatch_unresolved", { runId: params.runId });
     }
 
-    const live = this.#liveSessions.get(dispatch.sessionId);
+    const live = this.#findLiveSession(dispatch.sessionId);
     if (live === undefined) {
       throw new ClaudeSessionUnavailableError("no_live_session", {
         sessionId: dispatch.sessionId,
@@ -783,50 +824,72 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   }
 
   async closeSession(params: CloseSessionParams): Promise<void> {
-    // A close arriving mid-establishment must not read the slot as empty and
-    // no-op: the in-flight create or resume would register its channel a moment
-    // later, and that process would outlive the session the daemon believes it
-    // closed. Waiting is safe — establishment never awaits a close, so no cycle
-    // exists — and the awaited promise never rejects.
-    const establishment = this.#sessionsBeingEstablished.get(params.sessionId);
-    if (establishment !== undefined) {
-      await establishment;
+    // Close CHAINS rather than refusing (the field doc states why): it awaits any
+    // in-flight transition, then re-reads, because the slot may have settled into
+    // a different state than the one it started waiting on — an establishment can
+    // finish LIVE, a concurrent close can finish EMPTY, and a failed close can
+    // finish QUARANTINED.
+    for (;;) {
+      const slot = this.#sessionSlots.get(params.sessionId);
+      // EMPTY. Idempotent: closing an already-closed session is the teardown
+      // path's normal double-call, not a fault.
+      if (slot === undefined) {
+        return;
+      }
+      // Exhaustive over the union: a new slot state cannot be added without
+      // deciding here whether a close chains on it or acts on it.
+      switch (slot.state) {
+        case "establishing":
+        case "closing":
+          // Chain, then re-read — the slot may settle into any other state.
+          await slot.settled;
+          continue;
+        case "live":
+          // The slot is settled and occupied, so this call is the actor.
+          // Everything from here to the CLOSING write inside
+          // `#disposeHeldChannel` is SYNCHRONOUS, so no second closer can
+          // observe this same settled state and act on it too.
+          //
+          // Routes go first and unconditionally: a route pointing into a process
+          // that is being torn down would aim a later interrupt at a dead run.
+          this.#retireRunRoutes(params.sessionId);
+          await this.#disposeHeldChannel(params.sessionId, slot.session.channel);
+          return;
+        case "quarantined":
+          // Retry THIS retained channel. It is the only handle anyone still
+          // holds on a process that would not exit.
+          await this.#disposeHeldChannel(params.sessionId, slot.channel);
+          return;
+      }
     }
+  }
 
-    // A previous close left the process alive. Retry THAT channel rather than
-    // reporting the session closed: the retained reference is the only handle
-    // anyone still has on it.
-    const quarantined = this.#quarantinedSessions.get(params.sessionId);
-    if (quarantined !== undefined) {
-      await quarantined.channel.dispose("session_closed");
-      // Reached only if the retry resolved; a second rejection propagates with
-      // the slot still quarantined, so the caller can retry again.
-      this.#quarantinedSessions.delete(params.sessionId);
-      return;
-    }
-
-    const live = this.#liveSessions.get(params.sessionId);
-    // Idempotent: closing an already-closed session is the teardown path's
-    // normal double-call, not a fault.
-    if (live === undefined) {
-      return;
-    }
-    // Routes go FIRST and unconditionally: a route pointing at a channel the
-    // daemon has been told to close would dispatch a run into a closing process.
-    // `#forgetSession` also drops the live record, which is correct — the session
-    // is no longer live either way. What must NOT be dropped is the channel
-    // itself, so a rejected disposal moves it to quarantine rather than losing
-    // it. The rejection still propagates: a provider process that would not exit
-    // is not something to swallow.
-    this.#forgetSession(params.sessionId);
+  // Disposes a channel with the slot HELD for the whole await. The CLOSING state
+  // is written before `dispose` is even called, so there is no instant at which
+  // the slot reads EMPTY while a process is still dying — the window an earlier
+  // revision left open, through which a concurrent create spawned a replacement
+  // and a later quarantine installed itself beside the new live channel.
+  async #disposeHeldChannel(sessionId: SessionId, channel: ClaudeSessionChannel): Promise<void> {
+    let markSettled = (): void => undefined;
+    const settled = new Promise<void>((resolve) => {
+      markSettled = resolve;
+    });
+    this.#sessionSlots.set(sessionId, { state: "closing", settled });
     try {
-      await live.channel.dispose("session_closed");
+      await channel.dispose("session_closed");
+      // CLOSING -> EMPTY.
+      this.#sessionSlots.delete(sessionId);
     } catch (error) {
-      this.#quarantinedSessions.set(params.sessionId, {
-        sessionId: params.sessionId,
-        channel: live.channel,
-      });
+      // CLOSING -> QUARANTINED. The channel is retained rather than dropped: the
+      // process is still running and nothing else holds a reference to it. The
+      // rejection still propagates — a provider process that would not exit is
+      // not something to swallow.
+      this.#sessionSlots.set(sessionId, { state: "quarantined", channel });
       throw error;
+    } finally {
+      // Runs after the state write on BOTH paths, so a chainer resuming on this
+      // promise always observes the settled state rather than the transition.
+      markSettled();
     }
   }
 
@@ -835,7 +898,15 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     if (sessionId === undefined) {
       return undefined;
     }
-    return this.#liveSessions.get(sessionId)?.channel;
+    return this.#findLiveSession(sessionId)?.channel;
+  }
+
+  // A slot yields a session only in the LIVE state. Establishing, closing, and
+  // quarantined slots deliberately answer `undefined`: no run may start in a
+  // process that is coming up, going down, or refusing to die.
+  #findLiveSession(sessionId: SessionId): LiveClaudeSession | undefined {
+    const slot = this.#sessionSlots.get(sessionId);
+    return slot?.state === "live" ? slot.session : undefined;
   }
 
   // The ONE builder both spawn paths use — see `ClaudeSpawnBoundLegs`.
@@ -934,23 +1005,49 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   }
 
   #registerLiveSession(live: LiveClaudeSession): void {
-    this.#liveSessions.set(live.sessionId, live);
+    this.#sessionSlots.set(live.sessionId, { state: "live", session: live });
+    // Claude serializes turns per session, so "a terminal arrived on this
+    // channel" identifies the run without the transport naming it: the route
+    // pointing at this session IS the run that just ended. Registered here, the
+    // one place both establishment paths converge on.
+    //
+    // Retiring routes only — never the slot. The session stays LIVE and startable
+    // after a turn ends; it is the RUN that is over.
+    live.channel.onTurnTerminal(() => {
+      // Identity-gated. A channel that has been disposed, quarantined, or
+      // replaced can still fire — the driver holds no kill, so an undead process
+      // may emit a terminal long after the daemon stopped listening to it — and
+      // an ungated listener would then retire the routes of whatever session
+      // occupies this slot NOW. Only the channel that is currently live may
+      // retire, which also makes the listener a no-op during CLOSING (routes are
+      // already gone) rather than a second writer racing the close.
+      if (this.#findLiveSession(live.sessionId)?.channel !== live.channel) {
+        return;
+      }
+      this.#retireRunRoutes(live.sessionId);
+    });
   }
 
   // Names the current holder of a session slot for a refusal detail, or
   // `undefined` when the slot is free. One predicate, so the two entry points
   // cannot drift into disagreeing about what "taken" means.
   #describeSlotHolder(sessionId: SessionId): string | undefined {
-    if (this.#liveSessions.has(sessionId)) {
-      return `A live Claude session is already bound to session ${sessionId};`;
+    const slot = this.#sessionSlots.get(sessionId);
+    if (slot === undefined) {
+      return undefined;
     }
-    if (this.#sessionsBeingEstablished.has(sessionId)) {
-      return `A create or resume for session ${sessionId} is already in flight;`;
+    // Exhaustive over the union: adding a state without deciding what a create
+    // racing it should see stops compiling here.
+    switch (slot.state) {
+      case "live":
+        return `A live Claude session is already bound to session ${sessionId};`;
+      case "establishing":
+        return `A create or resume for session ${sessionId} is already in flight;`;
+      case "closing":
+        return `A close for session ${sessionId} is still disposing its Claude process;`;
+      case "quarantined":
+        return `The Claude process for session ${sessionId} refused to exit and is quarantined pending a successful close;`;
     }
-    if (this.#quarantinedSessions.has(sessionId)) {
-      return `The Claude process for session ${sessionId} refused to exit and is quarantined pending a successful close;`;
-    }
-    return undefined;
   }
 
   // Claims the slot synchronously, runs the establishment, and releases the claim
@@ -961,28 +1058,32 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     establish: () => Promise<TEstablished>,
   ): Promise<TEstablished> {
     const establishment = establish();
-    // `#sessionsBeingEstablished` holds a rejection-swallowed view: `closeSession`
-    // awaits it purely to sequence, and a stored promise that could reject would
-    // surface as an unhandled rejection whenever nobody closes the session.
+    // A rejection-swallowed view: chainers await this purely to sequence, and a
+    // stored promise that could reject would surface as an unhandled rejection
+    // whenever nobody closes the session.
     const settled = establishment.then(
       () => undefined,
       () => undefined,
     );
-    this.#sessionsBeingEstablished.set(sessionId, settled);
+    this.#sessionSlots.set(sessionId, { state: "establishing", settled });
     try {
       return await establishment;
     } finally {
-      // Identity-checked: only ever clear OUR claim. A later caller's claim can
-      // not be reached here (it is refused while this one stands), and the check
-      // keeps that true without relying on that argument.
-      if (this.#sessionsBeingEstablished.get(sessionId) === settled) {
-        this.#sessionsBeingEstablished.delete(sessionId);
+      // A SUCCESSFUL establishment has already overwritten this slot with its
+      // LIVE arm, so only a failed one is cleared here. Identity-checked so this
+      // can never clear a claim that is not ours.
+      const slot = this.#sessionSlots.get(sessionId);
+      if (slot?.state === "establishing" && slot.settled === settled) {
+        this.#sessionSlots.delete(sessionId);
       }
     }
   }
 
-  #forgetSession(sessionId: SessionId): void {
-    this.#liveSessions.delete(sessionId);
+  // Drops every run route pointing at this session. Deliberately does NOT touch
+  // the slot: route retirement and slot transition are separate concerns, and
+  // fusing them is what previously let a close free the slot as a side effect of
+  // clearing routes.
+  #retireRunRoutes(sessionId: SessionId): void {
     for (const [runId, boundSessionId] of this.#sessionIdByRunId) {
       if (boundSessionId === sessionId) {
         this.#sessionIdByRunId.delete(runId);

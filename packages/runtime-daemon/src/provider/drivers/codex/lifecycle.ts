@@ -74,6 +74,44 @@
 // into a thrown exception, which is exactly the loss this invariant forbids.
 //
 // ---------------------------------------------------------------------------
+// The session slot — one process per session, held across every transition
+// ---------------------------------------------------------------------------
+//
+// Every operation that can spawn or dispose a provider process runs inside a
+// claimed SLOT for its session id. A slot is EMPTY, or held as `establishing`,
+// `live`, or `closing`, and it is held from the first synchronous instant of a
+// transition until that transition has fully settled — never merely across the
+// step that mutates the record.
+//
+// That last clause is the whole design, and it is stated in the negative because
+// every failure in this class has had the same shape: a guard that was correct
+// about the MAP and silent about the WINDOW. Three of them shipped and were
+// caught in review:
+//
+//   * a create that tested only `#sessions`, so two overlapping creates both
+//     passed the guard, both spawned, and the later install orphaned the earlier
+//     process;
+//   * a claim that waited for the slot to go ABSENT and then took it, so two
+//     waiters released by the same settlement both found it free;
+//   * a close that deleted the record and THEN awaited an unsubscribe and a
+//     process close, so for the length of that teardown the slot read as empty
+//     while the child was still exiting, and a create could spawn beside it.
+//
+// The invariant that rules out the whole class, rather than these three
+// instances: NO PROCESS THIS MANAGER OWNS EXISTS WITHOUT A HELD SLOT. Applied to
+// each site — a create holds `establishing` across spawn, handshake, and install;
+// a resume holds it across those plus the predecessor release; a close holds
+// `closing` across the unsubscribe, the process close, and the record delete; and
+// `startRun` disposing an ambiguous session claims `closing` for the kill. A
+// `startRun` that merely INSTALLS a route holds no slot, so it re-reads the slot
+// after its await and refuses if the record it started under is no longer the
+// settled holder.
+//
+// `#claimSessionSlot` is the only way a slot is ever taken, in either direction.
+// A second mechanism would be a second definition of "taken", and the two would
+// disagree exactly once.
+//
+// ---------------------------------------------------------------------------
 // Error vocabulary
 // ---------------------------------------------------------------------------
 //
@@ -347,6 +385,32 @@ export class CodexProviderRequestError extends Error {
 }
 
 /**
+ * What holds a session slot.
+ *
+ * A slot is EMPTY (absent from every view) or held in exactly one of these
+ * states, and it stays held across every async step of the transition that owns
+ * it — spawn, handshake, supersede, and teardown alike. `establishing` and
+ * `closing` are TRANSITION states, published synchronously by the manager's slot
+ * claim; `live` is the settled state of an installed record.
+ *
+ * The distinction is what a refusal can SAY, not how the slot behaves: a create
+ * is refused identically in all three, because in all three a second spawn would
+ * orphan a process this manager still owns.
+ */
+export type CodexSessionSlotState = "live" | "establishing" | "closing";
+
+function describeSlotRefusal(sessionId: string, holderState: CodexSessionSlotState): string {
+  switch (holderState) {
+    case "live":
+      return `A live Codex session is already bound to "${sessionId}"; create would orphan it.`;
+    case "establishing":
+      return `A create or resume for Codex session "${sessionId}" is already in flight; create would orphan whichever process loses.`;
+    case "closing":
+      return `Codex session "${sessionId}" is still being torn down; create would spawn a replacement beside a process that is still exiting.`;
+  }
+}
+
+/**
  * `createSession` was called for a session that already has a live process.
  *
  * Codeless, like the config error below: this is a caller-sequencing defect, not
@@ -364,17 +428,13 @@ export class CodexSessionAlreadyLiveError extends Error {
   /**
    * Which holder refused the create. Discriminated by CLASS-LOCAL state rather
    * than by a second dotted code: the error-contract registry is closed, and
-   * both arms are the same refusal — a create that would orphan a process —
-   * differing only in whether that process has finished coming up.
+   * all three arms are the same refusal — a create that would orphan a process —
+   * differing only in where that process is in its lifecycle.
    */
-  readonly holderState: "live" | "establishing";
+  readonly holderState: CodexSessionSlotState;
 
-  constructor(sessionId: string, holderState: "live" | "establishing") {
-    super(
-      holderState === "live"
-        ? `A live Codex session is already bound to "${sessionId}"; create would orphan it.`
-        : `A create or resume for Codex session "${sessionId}" is already in flight; create would orphan whichever process loses.`,
-    );
+  constructor(sessionId: string, holderState: CodexSessionSlotState) {
+    super(describeSlotRefusal(sessionId, holderState));
     this.name = "CodexSessionAlreadyLiveError";
     this.sessionId = sessionId;
     this.holderState = holderState;
@@ -850,9 +910,22 @@ export class CodexAppServerConnection {
     });
     this.#rejectAllPending(closedError);
     this.#onReadyFailed?.(closedError);
+    // Exception-ORDERED, and the ordering is the property. The disposer is
+    // caller-supplied code and can throw; when it threw ahead of the release
+    // below, `close()` returned before the process was ever handed back to the
+    // host — so the child kept running while every layer above treated the
+    // session as closed, and a replacement could go live beside it. The fault is
+    // held rather than swallowed: it is rethrown once the teardown that must not
+    // depend on it has run. Boxed because `undefined` is a throwable value.
+    let disposeFault: { readonly cause: unknown } | null = null;
     if (this.#unsubscribe !== null) {
-      this.#unsubscribe();
+      const dispose = this.#unsubscribe;
       this.#unsubscribe = null;
+      try {
+        dispose();
+      } catch (cause) {
+        disposeFault = { cause };
+      }
     }
     const ptySessionId = this.#ptySessionId;
     if (ptySessionId !== null) {
@@ -863,6 +936,38 @@ export class CodexAppServerConnection {
         // know the session. Teardown must not fail on a resource that is gone.
       }
     }
+    if (disposeFault !== null) {
+      // Rethrown rather than reported: `close()` could already fail this way, so
+      // the caller's contract is unchanged — what changed is that the process is
+      // gone by the time it does. The teardown paths that must not be displaced
+      // by a host-level fault swallow it at their own call site, deliberately
+      // and with a reason.
+      throw disposeFault.cause;
+    }
+  }
+
+  /**
+   * Tears the connection down HARD, with no graceful phase.
+   *
+   * For an outcome that leaves provider-side state AMBIGUOUS — a `turn/start`
+   * that may or may not have been accepted — the child cannot be left to wind
+   * down on its own, because it may be executing tools for a turn no route
+   * addresses. `PtyHost` documents no signal for `close(sessionId)` (only
+   * `shutdown()` specifies the SIGTERM-then-SIGKILL drain), so the signal is sent
+   * explicitly here rather than assumed from the interface. `close()` still runs
+   * afterwards: the per-session resource release is owed however the child died.
+   */
+  async killAndClose(): Promise<void> {
+    const ptySessionId = this.#ptySessionId;
+    if (ptySessionId !== null && !this.#ptyClosed) {
+      try {
+        await this.#ptyHost.kill(ptySessionId, "SIGKILL");
+      } catch {
+        // Already reaped, or a host that no longer knows the session. The close
+        // below still owes the resource release either way.
+      }
+    }
+    await this.close();
   }
 
   #assertWritable(method: string): void {
@@ -1199,6 +1304,52 @@ function rememberTerminatedTurn(record: CodexSessionRecord, turnId: string): voi
   }
 }
 
+/** A session slot held for the duration of one in-flight lifecycle transition. */
+interface CodexSessionTransition {
+  readonly kind: CodexSessionTransitionKind;
+  /** Settlement of the transition, rejection-swallowed so a chained waiter cannot inherit its failure. */
+  readonly settled: Promise<void>;
+}
+
+/**
+ * The slot states a TRANSITION can publish.
+ *
+ * Derived from `CodexSessionSlotState` by exclusion rather than restated, so the
+ * two can never drift into disagreeing about what a slot can be: `live` is the
+ * one state no transition holds, because it is what a settled record IS.
+ */
+type CodexSessionTransitionKind = Exclude<CodexSessionSlotState, "live">;
+
+/**
+ * True when a `turn/start` outcome leaves provider-side turn state AMBIGUOUS.
+ *
+ * The asymmetry is the argument, not the enumeration. At this seam the driver
+ * cannot distinguish "the provider never saw it" from "the provider accepted it
+ * and the answer was lost": over-killing costs one re-establish, while
+ * under-killing leaves a turn executing tools with no route to interrupt it, no
+ * id to address it by, and a session the daemon will happily reuse — so a retry
+ * doubles the work against a turn nobody can see. The class is therefore WIDE and
+ * closed from the OTHER end: a clean JSON-RPC error response is the single
+ * exemption, because a provider answering "no" is proof it processed the request
+ * and started nothing. A deadline, a transport death, and a response carrying an
+ * unusable turn id all leave the same question open and are treated the same way.
+ *
+ * `#assertWritable`'s already-closed refusal lands in the ambiguous class too,
+ * deliberately: the teardown it triggers is idempotent, so paying for it twice
+ * costs nothing, and exempting it would key the exemption on a call-site proxy
+ * rather than on the semantic question the classifier asks.
+ *
+ * ADR-029 is what makes the wide class affordable: the daemon's canonical
+ * transcript is authoritative and every provider session is a replay target, so
+ * ambiguity about provider-side turn state is never worth carrying. Teardown and
+ * replay is the designed recovery — deliberately NOT a `turn/started`
+ * reconciliation, which would keep alive a turn the daemon has just reported as
+ * having failed to start, and owe interrupt machinery for it.
+ */
+function isAmbiguousTurnStartOutcome(cause: unknown): boolean {
+  return !(cause instanceof CodexProviderRequestError);
+}
+
 /** Construction inputs for the lifecycle manager. */
 export interface CodexLifecycleOptions extends CodexConnectionOptions {
   /**
@@ -1230,13 +1381,18 @@ export class CodexLifecycleManager {
   readonly #sessions = new Map<SessionId, CodexSessionRecord>();
   readonly #sessionIdByRunId = new Map<RunId, SessionId>();
   /**
-   * Session ids with an establishment in flight, mapped to a rejection-swallowed
-   * view of it. Published SYNCHRONOUSLY, before the establishment's first
-   * suspension, so no concurrent caller can observe a free slot for a session
-   * that is already spawning. Mirrors the Claude leg's
-   * `#sessionsBeingEstablished`.
+   * Session ids with a lifecycle transition in flight, mapped to its kind and a
+   * rejection-swallowed view of its settlement.
+   *
+   * ONE mechanism for both directions, which is the correction. An earlier shape
+   * tracked establishments only, and that left teardown unguarded: `closeSession`
+   * deleted the record and THEN awaited an unsubscribe and a process close, so
+   * for the length of those awaits the slot read as empty while the child was
+   * still exiting — and a create could admit a second process beside it. The rule
+   * is now symmetric and has no direction in it: a slot is held from the first
+   * synchronous instant of a transition until that transition has fully settled.
    */
-  readonly #sessionsBeingEstablished = new Map<SessionId, Promise<void>>();
+  readonly #sessionTransitions = new Map<SessionId, CodexSessionTransition>();
 
   constructor(options: CodexLifecycleOptions) {
     this.#options = options;
@@ -1249,18 +1405,21 @@ export class CodexLifecycleManager {
     // Refused BEFORE anything is spawned, so a mis-sequenced caller costs no
     // process. See `CodexSessionAlreadyLiveError` for why replacing is wrong.
     //
-    // The check reads BOTH the live map and the in-flight map, and there is no
-    // `await` between this read and the claim below. A create that tested only
-    // `#sessions` would be a synchronous guard in front of two suspensions: two
-    // overlapping creates for one session id would both pass it, both spawn, and
-    // the later install would orphan the earlier process with nothing holding a
-    // reference to close it.
+    // The check reads EVERY view of the slot, and there is no `await` between
+    // this read and the claim below. A create that tested only `#sessions` would
+    // be a synchronous guard in front of two suspensions: two overlapping creates
+    // for one session id would both pass it, both spawn, and the later install
+    // would orphan the earlier process with nothing holding a reference to close
+    // it. A `closing` holder refuses for the same reason and not a weaker one —
+    // the child of a session mid-teardown is still alive, and still this
+    // manager's to dispose.
     const holderState = this.#describeSlotHolder(params.sessionId);
     if (holderState !== undefined) {
       throw new CodexSessionAlreadyLiveError(params.sessionId, holderState);
     }
-    return await this.#withSessionSlotClaimed(
+    return await this.#claimSessionSlot(
       params.sessionId,
+      "establishing",
       async () => await this.#establishCreatedSession(params),
     );
   }
@@ -1298,7 +1457,12 @@ export class CodexLifecycleManager {
       // threads share it), so the two are NOT interchangeable.
       return { providerSessionId: thread.sessionId, resumeHandle: thread.id };
     } catch (cause) {
-      await connection.close();
+      // Contained, not bare. `close()` can throw a caller-supplied disposer's
+      // fault, and a bare `await connection.close()` here let that fault escape
+      // BEFORE the rethrow — so a spawn or handshake failure was replaced by a
+      // teardown artifact and the actionable cause was lost. Same reasoning as
+      // the resume path, which has always contained it.
+      await this.#releaseAbandonedConnection(connection);
       throw cause;
     }
   }
@@ -1317,9 +1481,13 @@ export class CodexLifecycleManager {
     // supersedes a live leg on resume and releases it explicitly, so serializing
     // behind the holder is what makes that release reachable. A resume that read
     // the slot as empty mid-establishment would find `existing === undefined`,
-    // install over the winner, and orphan its process.
-    return await this.#withSessionSlotClaimed(
+    // install over the winner, and orphan its process. The same chaining carries
+    // it behind a `closing` holder, where the correct behaviour is likewise to
+    // wait rather than refuse: once that teardown settles there is simply nothing
+    // to supersede, and the resume establishes cleanly.
+    return await this.#claimSessionSlot(
       params.sessionId,
+      "establishing",
       async () => await this.#establishResumedSession(params),
     );
   }
@@ -1368,6 +1536,20 @@ export class CodexLifecycleManager {
           { threadId: thread.id },
         );
       }
+      // Built and VALIDATED before the swap, never after it. `bindingId` is
+      // minted by a caller-supplied function and bounded by the schema's
+      // `wireFreeFormString`, so an empty or overlength mint THROWS — and when
+      // that throw landed after the record was installed and the predecessor
+      // released, the catch below closed the new connection and left the session
+      // mapped to it: create refused the session as live, every request on it hit
+      // a dead transport, and only another resume could clear it. Minting and
+      // parsing first makes the swap all-or-nothing, which is what lets the catch
+      // path keep its promise that a failed resume changes nothing.
+      const resumedResult = DriverResumeResultSchema.parse({
+        status: "resumed",
+        bindingId: this.#newBindingId(),
+        sessionPosition: thread.turns.length,
+      });
       this.#sessions.set(params.sessionId, {
         sessionId: params.sessionId,
         connection,
@@ -1389,19 +1571,15 @@ export class CodexLifecycleManager {
       // non-destructive: on the catch path below, the prior leg is still the
       // live one and is left exactly as it was found.
       if (existing !== undefined) {
-        await this.#releaseSupersededConnection(existing.connection);
+        await this.#releaseAbandonedConnection(existing.connection);
       }
-      return DriverResumeResultSchema.parse({
-        status: "resumed",
-        bindingId: this.#newBindingId(),
-        sessionPosition: thread.turns.length,
-      });
+      return resumedResult;
     } catch (cause) {
       // Quietly: teardown of the leg that just failed must not throw past the
       // typed result. A close that escaped here would turn the `recovery-needed`
       // condition back into an exception, which is exactly the loss I-005-5
       // forbids.
-      await this.#releaseSupersededConnection(connection);
+      await this.#releaseAbandonedConnection(connection);
       return DriverResumeResultSchema.parse({
         status: "failed",
         // Always `recovery-needed` at this task: `reauth-required` is an
@@ -1420,7 +1598,57 @@ export class CodexLifecycleManager {
   async startRun(params: StartRunParams): Promise<void> {
     const runConfig = parseCodexRunConfig(params.agentConfig);
     const record = this.#requireSession(runConfig.sessionId);
-    const response = await record.connection.request(
+    let turnId: string;
+    try {
+      turnId = readTurnId(await this.#requestTurnStart(record, runConfig, params), "turn/start");
+    } catch (cause) {
+      if (isAmbiguousTurnStartOutcome(cause)) {
+        await this.#disposeAmbiguousSession(record);
+      }
+      throw cause;
+    }
+    // Everything from here is ONE synchronous run, so a single slot check covers
+    // both the install and the terminal-memory consume below it.
+    if (!this.#stillHoldsSlot(record)) {
+      // The record can stop being the session's settled one while `turn/start` is
+      // in flight: a `closeSession` claims the slot and tears it down, or a
+      // resume supersedes it — and either way the connection this turn was
+      // accepted on has already been released, so the turn died with it.
+      // Installing the route here would point `interruptRun` at a dead process
+      // and strand an entry in `#sessionIdByRunId` that no sweep can reach, since
+      // every sweep keys on a record that is gone. Refused rather than silently
+      // reported as started: whatever the provider answered, this run is not
+      // running. Not disposed either — whoever claimed the slot owns that
+      // connection's teardown and is already performing it.
+      throw new CodexTransportError(
+        `Codex session "${record.sessionId}" stopped holding its slot while a turn was starting.`,
+        { sessionId: record.sessionId, method: "turn/start" },
+      );
+    }
+    record.activeTurnIdByRunId.set(params.runId, turnId);
+    this.#sessionIdByRunId.set(params.runId, record.sessionId);
+    // The turn can already be OVER by the time this install runs. Resolving the
+    // `turn/start` response schedules this continuation as a microtask, while
+    // `#ingest` keeps draining the rest of the read chunk SYNCHRONOUSLY — so for
+    // a fast turn whose response and `turn/completed` arrive in one chunk, the
+    // sweep runs first, matches nothing, and this install would leave a route
+    // that `hasActiveTurn` reports live for the daemon's lifetime. Consulting the
+    // record's short memory of unmatched terminals closes that window; the
+    // `delete` is the consume, so a later turn reusing the id (it cannot — turn
+    // ids are UUIDv7) could not be retired twice.
+    if (record.terminatedTurnIds.delete(turnId)) {
+      record.activeTurnIdByRunId.delete(params.runId);
+      this.#sessionIdByRunId.delete(params.runId);
+    }
+  }
+
+  /** The `turn/start` request itself, split out so `startRun` reads as its policy. */
+  async #requestTurnStart(
+    record: CodexSessionRecord,
+    runConfig: CodexRunConfig,
+    params: StartRunParams,
+  ): Promise<unknown> {
+    return await record.connection.request(
       "turn/start",
       {
         threadId: record.threadId,
@@ -1443,22 +1671,35 @@ export class CodexLifecycleManager {
       },
       this.#turnStartTimeoutMs,
     );
-    const turnId = readTurnId(response, "turn/start");
-    record.activeTurnIdByRunId.set(params.runId, turnId);
-    this.#sessionIdByRunId.set(params.runId, record.sessionId);
-    // The turn can already be OVER by the time this install runs. Resolving the
-    // `turn/start` response schedules this continuation as a microtask, while
-    // `#ingest` keeps draining the rest of the read chunk SYNCHRONOUSLY — so for
-    // a fast turn whose response and `turn/completed` arrive in one chunk, the
-    // sweep runs first, matches nothing, and this install would leave a route
-    // that `hasActiveTurn` reports live for the daemon's lifetime. Consulting the
-    // record's short memory of unmatched terminals closes that window; the
-    // `delete` is the consume, so a later turn reusing the id (it cannot — turn
-    // ids are UUIDv7) could not be retired twice.
-    if (record.terminatedTurnIds.delete(turnId)) {
-      record.activeTurnIdByRunId.delete(params.runId);
-      this.#sessionIdByRunId.delete(params.runId);
-    }
+  }
+
+  /**
+   * Disposes the session a `turn/start` left ambiguous: kill first, then release.
+   *
+   * Claimed like any other teardown, so nothing can slip into the window while
+   * the child is dying — the dispose is a state transition of the slot, not a
+   * side effect beside it. Scoped to the RECORD rather than to the session id: if
+   * a resume superseded this leg while the turn was starting, that resume already
+   * released this connection and installed its own, and this dispose must not
+   * take the replacement down with it.
+   *
+   * No graceful `thread/unsubscribe` phase. The connection is precisely the thing
+   * whose answers cannot be trusted, so asking it a question would buy a second
+   * deadline and no information.
+   */
+  async #disposeAmbiguousSession(record: CodexSessionRecord): Promise<void> {
+    await this.#claimSessionSlot(record.sessionId, "closing", async () => {
+      if (this.#sessions.get(record.sessionId) === record) {
+        this.#sessions.delete(record.sessionId);
+        this.#forgetRunRoutes(record.sessionId);
+      }
+      try {
+        await record.connection.killAndClose();
+      } catch {
+        // Swallowed: the caller is already throwing the typed cause that says WHY
+        // the session was disposed, and a teardown artifact must not displace it.
+      }
+    });
   }
 
   /** Interrupts the provider turn bound to a run. */
@@ -1477,41 +1718,67 @@ export class CodexLifecycleManager {
    * an unknown or already-closed session resolves without throwing.
    */
   async closeSession(params: CloseSessionParams): Promise<void> {
-    // A close arriving mid-establishment must not read the slot as empty and
-    // no-op: the in-flight create or resume would install its record a moment
-    // later and that process would outlive the session the daemon believes it
-    // closed. One `await` suffices even against a queue of establishments,
-    // because each claim chains behind its predecessor — awaiting the newest
-    // transitively awaits them all. Safe from deadlock: no establishment path
-    // calls `closeSession` (they close their own CONNECTION directly), so the
-    // wait can never be on this call.
-    const establishment = this.#sessionsBeingEstablished.get(params.sessionId);
-    if (establishment !== undefined) {
-      await establishment;
-    }
-
-    const record = this.#sessions.get(params.sessionId);
-    if (record === undefined) {
+    // Read and claim in ONE synchronous run, with no `await` between them. The
+    // early return is not an optimization: claiming for a session this manager
+    // does not hold would refuse a concurrent create for a slot that is genuinely
+    // free, and a close of an unknown session is specified as a no-op.
+    //
+    // A close arriving mid-establishment does NOT take that branch — the slot
+    // reads `establishing` — so it claims and chains, and the in-flight create or
+    // resume can no longer install a record that outlives the session the daemon
+    // believes it closed. Chaining also covers a QUEUE of transitions
+    // transitively, since each claim already waits on its predecessor. Safe from
+    // deadlock: no establishment path calls `closeSession` (each closes its own
+    // CONNECTION directly), so the wait can never be on this call.
+    if (this.#describeSlotHolder(params.sessionId) === undefined) {
       return;
     }
-    this.#sessions.delete(params.sessionId);
-    this.#forgetRunRoutes(params.sessionId);
-    if (!record.connection.isClosed) {
-      try {
-        // Best effort, and bounded: the process is going away regardless, so a
-        // refused OR unanswered unsubscribe must not block teardown or surface
-        // as a close failure. The explicit deadline is what makes "must not
-        // block" true against a wedged provider.
-        await record.connection.request(
-          "thread/unsubscribe",
-          { threadId: record.threadId },
-          UNSUBSCRIBE_TIMEOUT_MS,
-        );
-      } catch {
-        /* teardown proceeds */
-      }
+    await this.#claimSessionSlot(params.sessionId, "closing", async () => {
+      await this.#tearDownSession(params.sessionId);
+    });
+  }
+
+  /**
+   * Graceful teardown of whatever record holds the session, inside a claimed slot.
+   *
+   * The record is deleted in a `finally` at the END rather than up front, and
+   * both halves of that are load-bearing. Deleting first freed the slot for the
+   * length of the unsubscribe and the process close — the window a second create
+   * used to spawn into. Deleting only on success would make a session whose
+   * teardown threw permanently unclosable AND permanently un-creatable, which
+   * trades a leaked process for a wedged slot.
+   */
+  async #tearDownSession(sessionId: SessionId): Promise<void> {
+    const record = this.#sessions.get(sessionId);
+    if (record === undefined) {
+      // The establishment this close chained behind failed, so nothing was ever
+      // installed; that path released its own connection on the way out.
+      return;
     }
-    await record.connection.close();
+    // Routes are dropped up front, apart from the record: they are not the slot,
+    // and `hasActiveTurn` must stop reporting a run live the instant its session
+    // begins tearing down rather than when the process finally goes.
+    this.#forgetRunRoutes(sessionId);
+    try {
+      if (!record.connection.isClosed) {
+        try {
+          // Best effort, and bounded: the process is going away regardless, so a
+          // refused OR unanswered unsubscribe must not block teardown or surface
+          // as a close failure. The explicit deadline is what makes "must not
+          // block" true against a wedged provider.
+          await record.connection.request(
+            "thread/unsubscribe",
+            { threadId: record.threadId },
+            UNSUBSCRIBE_TIMEOUT_MS,
+          );
+        } catch {
+          /* teardown proceeds */
+        }
+      }
+      await record.connection.close();
+    } finally {
+      this.#sessions.delete(sessionId);
+    }
   }
 
   /** Steer is routed here by the intervention dispatcher (T3.2). */
@@ -1542,57 +1809,82 @@ export class CodexLifecycleManager {
    * One predicate, so the live and in-flight views can never drift into
    * disagreeing about what "taken" means.
    */
-  #describeSlotHolder(sessionId: SessionId): "live" | "establishing" | undefined {
-    if (this.#sessions.has(sessionId)) {
-      return "live";
+  #describeSlotHolder(sessionId: SessionId): CodexSessionSlotState | undefined {
+    // Transition FIRST. During a supersede-resume both views are occupied (the
+    // predecessor's record plus the resume's claim), and during a teardown the
+    // record deliberately stays installed until the transition settles — so
+    // reading `#sessions` first would report `live` for a session that is dying.
+    // The in-flight kind is the more specific truth in both cases.
+    const transition = this.#sessionTransitions.get(sessionId);
+    if (transition !== undefined) {
+      return transition.kind;
     }
-    if (this.#sessionsBeingEstablished.has(sessionId)) {
-      return "establishing";
-    }
-    return undefined;
+    return this.#sessions.has(sessionId) ? "live" : undefined;
   }
 
   /**
-   * Claims the session slot and runs the establishment behind any predecessor.
+   * True when `record` is still the session's SETTLED, live holder.
+   *
+   * Stronger than an identity check on `#sessions`, and it has to be: a record
+   * mid-teardown is still installed (that is what holds the slot), so identity
+   * alone would report a dying session as usable.
+   */
+  #stillHoldsSlot(record: CodexSessionRecord): boolean {
+    return (
+      this.#describeSlotHolder(record.sessionId) === "live" &&
+      this.#sessions.get(record.sessionId) === record
+    );
+  }
+
+  /**
+   * Claims the session slot in one state and runs the transition behind any
+   * predecessor. The only way a slot is ever taken, in either direction.
    *
    * The read of the predecessor and the publication of the claim happen in ONE
-   * synchronous run, which is the whole point. An `await` between them — even an
-   * `await` that finds the slot empty — yields a microtask, and two callers
-   * dispatched in the same tick would both observe an empty slot, both resume,
-   * and the second would overwrite the first's claim while both establishments
-   * ran concurrently. Chaining rather than waiting-for-absence is what keeps that
-   * impossible: `establish` is invoked lazily inside the chained body, so a later
-   * caller's establishment begins only once the earlier one has settled and
-   * installed whatever it installs.
+   * synchronous run, which is the whole point. An `await` between them — even one
+   * that finds the slot empty — yields a microtask, and two callers dispatched in
+   * the same tick would both observe an empty slot, both proceed, and the second
+   * would overwrite the first's claim while both transitions ran concurrently.
    *
-   * The stored view is rejection-swallowed: `closeSession` awaits it purely to
-   * sequence, and a stored promise that could reject would surface as an
-   * unhandled rejection whenever nobody closes the session.
+   * `predecessor.then(runTransition)` rather than an inline async body, because
+   * the two are not equivalent: an async IIFE runs synchronously up to its own
+   * first `await`, so the transition would begin BEFORE the claim it depends on
+   * was published — correct today only because nothing can interleave inside a
+   * single synchronous run, which is an argument rather than a structure. `.then`
+   * defers the body to a microtask, making "claimed before it runs" true by
+   * construction. It also unifies the empty-slot case, which has no predecessor
+   * to await and therefore no branch.
+   *
+   * Chaining rather than waiting-for-absence is what serializes a QUEUE: two
+   * callers released by the same settlement would both observe a free slot.
+   *
+   * The stored view is rejection-swallowed: it exists to SEQUENCE, and a stored
+   * promise that could reject would surface as an unhandled rejection whenever
+   * nobody happened to be waiting on that session.
    */
-  async #withSessionSlotClaimed<TEstablished>(
+  async #claimSessionSlot<TSettled>(
     sessionId: SessionId,
-    establish: () => Promise<TEstablished>,
-  ): Promise<TEstablished> {
-    const predecessor = this.#sessionsBeingEstablished.get(sessionId);
-    const establishment = (async (): Promise<TEstablished> => {
-      if (predecessor !== undefined) {
-        await predecessor;
-      }
-      return await establish();
-    })();
-    const settled = establishment.then(
-      () => undefined,
-      () => undefined,
-    );
-    this.#sessionsBeingEstablished.set(sessionId, settled);
+    kind: CodexSessionTransitionKind,
+    runTransition: () => Promise<TSettled>,
+  ): Promise<TSettled> {
+    const predecessor = this.#sessionTransitions.get(sessionId)?.settled ?? Promise.resolve();
+    const transition = predecessor.then(runTransition);
+    const claim: CodexSessionTransition = {
+      kind,
+      settled: transition.then(
+        () => undefined,
+        () => undefined,
+      ),
+    };
+    this.#sessionTransitions.set(sessionId, claim);
     try {
-      return await establishment;
+      return await transition;
     } finally {
-      // Identity-checked: only ever clear OUR claim. A later caller chains onto
-      // this one and publishes its own, so clearing unconditionally here would
-      // free a slot that is still occupied.
-      if (this.#sessionsBeingEstablished.get(sessionId) === settled) {
-        this.#sessionsBeingEstablished.delete(sessionId);
+      // Identity-checked on the CLAIM OBJECT: only ever clear our own. A later
+      // caller chains onto this one and publishes its own claim, so clearing
+      // unconditionally would free a slot that is still occupied.
+      if (this.#sessionTransitions.get(sessionId) === claim) {
+        this.#sessionTransitions.delete(sessionId);
       }
     }
   }
@@ -1674,15 +1966,19 @@ export class CodexLifecycleManager {
 
   /**
    * Tears down a connection whose outcome no longer matters, without letting the
-   * teardown change the outcome of the operation that superseded it.
+   * teardown change the outcome of the operation that abandoned it.
    *
    * `close()` swallows a host that no longer knows the session, but an injected
-   * subscription disposer is caller code and can throw. On the resume path both
-   * call sites need that failure contained: one has already produced a
-   * `resumed` result, and the other is mid-flight to the typed `recovery-needed`
-   * result I-005-5 requires.
+   * subscription disposer is caller code and can throw. All three call sites need
+   * that failure contained, and each already holds the outcome that matters: a
+   * succeeded resume has produced its `resumed` result, a failed resume is
+   * mid-flight to the typed `recovery-needed` result I-005-5 requires, and a
+   * failed create is about to rethrow the spawn or handshake cause that explains
+   * itself. `closeSession` deliberately does NOT route through here — a close has
+   * no other outcome to protect, so its caller is exactly who should hear that
+   * the disposer misbehaved.
    */
-  async #releaseSupersededConnection(connection: CodexAppServerConnection): Promise<void> {
+  async #releaseAbandonedConnection(connection: CodexAppServerConnection): Promise<void> {
     try {
       await connection.close();
     } catch {
@@ -1707,6 +2003,16 @@ export class CodexLifecycleManager {
   }
 
   #requireSession(sessionId: SessionId): CodexSessionRecord {
+    // A record now stays installed for the whole of its teardown — that is what
+    // holds the slot — so "installed" no longer implies "usable". Refused here
+    // rather than left to fail on the wire: an unsubscribe is already in flight,
+    // so a turn started now would run unobserved on a process about to die.
+    if (this.#describeSlotHolder(sessionId) === "closing") {
+      throw new CodexTransportError(`Codex session "${sessionId}" is being torn down.`, {
+        sessionId,
+        holderState: "closing",
+      });
+    }
     const record = this.#sessions.get(sessionId);
     if (record === undefined) {
       throw new CodexTransportError(`No live Codex session for "${sessionId}".`, { sessionId });

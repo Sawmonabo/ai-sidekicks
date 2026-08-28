@@ -40,6 +40,8 @@ import {
 } from "../lifecycle.js";
 import {
   buildCreateSessionParams,
+  FakeClaudeSessionChannel,
+  TEST_SECOND_RUN_ID,
   buildStartRunParams,
   FakeClaudeRunDispatchResolver,
   FakeClaudeSessionTransport,
@@ -1097,6 +1099,245 @@ describe("ClaudeSessionLifecycle establishment races", () => {
     await expect(
       harness.lifecycle.createSession(buildCreateSessionParams()),
     ).resolves.toBeDefined();
+  });
+});
+
+// The slot must be HELD across every async transition, not merely re-taken after
+// one. An earlier revision dropped the session record BEFORE awaiting `dispose`,
+// so for the whole teardown the slot read EMPTY: a concurrent create spawned a
+// replacement, and a dispose that then rejected installed its quarantine beside
+// the NEW live channel — two processes under one canonical session, which is the
+// exact condition the quarantine was added to prevent. These tests hold each
+// transition open and assert the slot refuses throughout.
+describe("ClaudeSessionLifecycle slot is held across every transition", () => {
+  function openGate(): { gate: Promise<void>; release: () => void } {
+    let release = (): void => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    return { gate, release };
+  }
+
+  async function arrangeClosingSession(harness: LifecycleHarness): Promise<{
+    channel: FakeClaudeSessionChannel;
+    closing: Promise<void>;
+    release: () => void;
+  }> {
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    const channel = harness.transport.spawnedChannels[0];
+    if (channel === undefined) {
+      throw new Error("unreachable: the session must have spawned a channel");
+    }
+    const { gate, release } = openGate();
+    channel.disposeGate = gate;
+    const closing = harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID });
+    // The disposal was entered, so the slot is genuinely CLOSING rather than
+    // merely scheduled to be.
+    expect(channel.disposals).toStrictEqual(["session_closed"]);
+    return { channel, closing, release };
+  }
+
+  it("refuses a create that arrives while a close is still disposing", async () => {
+    const harness = buildHarness();
+    const { closing, release } = await arrangeClosingSession(harness);
+
+    const createOutcome = await harness.lifecycle.createSession(buildCreateSessionParams()).then(
+      () => "admitted",
+      (error: unknown) => error,
+    );
+    release();
+    await closing;
+
+    expect(createOutcome).toMatchObject({
+      code: "driver.unavailable",
+      fields: { reason: "session_already_live" },
+    });
+    // The decisive assertion: no replacement process was spawned beneath a
+    // session whose own process was still dying.
+    expect(harness.transport.spawnRequests).toHaveLength(1);
+  });
+
+  it("refuses a resume that arrives while a close is still disposing", async () => {
+    const harness = buildHarness();
+    const { closing, release } = await arrangeClosingSession(harness);
+
+    const resumed = await harness.lifecycle.resumeSession({
+      sessionId: TEST_SESSION_ID,
+      resumeHandle: TEST_PINNED_PROVIDER_SESSION_ID,
+    });
+    release();
+    await closing;
+
+    expect(resumed.status).toBe("failed");
+    expect(harness.transport.resumeRequests).toHaveLength(0);
+  });
+
+  it("frees the slot only after the disposal settles", async () => {
+    const harness = buildHarness();
+    const { closing, release } = await arrangeClosingSession(harness);
+
+    await expect(
+      harness.lifecycle.createSession(buildCreateSessionParams()),
+    ).rejects.toBeInstanceOf(ClaudeSessionUnavailableError);
+    release();
+    await closing;
+
+    // EMPTY at last: the same call that was refused a moment ago now succeeds.
+    await expect(
+      harness.lifecycle.createSession(buildCreateSessionParams()),
+    ).resolves.toBeDefined();
+    expect(harness.transport.spawnRequests).toHaveLength(2);
+  });
+
+  it("chains a concurrent close instead of disposing the same channel twice", async () => {
+    const harness = buildHarness();
+    const { channel, closing, release } = await arrangeClosingSession(harness);
+
+    const secondClose = harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID });
+    release();
+    await closing;
+    await secondClose;
+
+    // The second close chained onto the first, observed EMPTY, and returned —
+    // rather than issuing a second teardown against a process already gone.
+    expect(channel.disposals).toStrictEqual(["session_closed"]);
+  });
+
+  it("holds the slot across the QUARANTINED retry's own disposal", async () => {
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    const channel = harness.transport.spawnedChannels[0];
+    if (channel === undefined) {
+      throw new Error("unreachable: the session must have spawned a channel");
+    }
+    channel.disposeFailure = new Error("the provider process would not exit");
+    await expect(harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID })).rejects.toThrow();
+
+    // The retry is itself an async transition and must hold the slot too, or the
+    // window simply reopens one state later.
+    channel.disposeFailure = undefined;
+    const { gate, release } = openGate();
+    channel.disposeGate = gate;
+    const retry = harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID });
+    const createOutcome = await harness.lifecycle.createSession(buildCreateSessionParams()).then(
+      () => "admitted",
+      (error: unknown) => error,
+    );
+    release();
+    await retry;
+
+    expect(createOutcome).toMatchObject({ fields: { reason: "session_already_live" } });
+    expect(harness.transport.spawnRequests).toHaveLength(1);
+    await expect(
+      harness.lifecycle.createSession(buildCreateSessionParams()),
+    ).resolves.toBeDefined();
+  });
+});
+
+// Claude's interrupt is CHANNEL-level. A run route that outlives its turn is
+// therefore not an inert stale entry: a late interrupt for the finished run would
+// land on whatever turn the channel is running now. Routes are retired when the
+// transport reports a terminal stream frame.
+describe("ClaudeSessionLifecycle run-route retirement on turn terminal", () => {
+  async function arrangeRunningTurn(harness: LifecycleHarness): Promise<FakeClaudeSessionChannel> {
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "review the diff",
+    });
+    await harness.lifecycle.startRun(buildStartRunParams());
+    const channel = harness.transport.spawnedChannels[0];
+    if (channel === undefined) {
+      throw new Error("unreachable: the session must have spawned a channel");
+    }
+    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBe(channel);
+    return channel;
+  }
+
+  it("retires the route when the turn ends in success", async () => {
+    const harness = buildHarness();
+    const channel = await arrangeRunningTurn(harness);
+
+    channel.emitStreamFrame("result/success");
+
+    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
+  });
+
+  it("retires the route when the turn ends in an error terminal", async () => {
+    const harness = buildHarness();
+    const channel = await arrangeRunningTurn(harness);
+
+    // The driver's response is the same for either terminal — the route is over
+    // because the TURN is over, not because it succeeded. The double owns the
+    // terminal-vs-non-terminal discriminant, exactly as a transport does.
+    channel.emitStreamFrame("result/error_max_tokens");
+
+    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
+  });
+
+  it("keeps the route across a non-terminal frame", async () => {
+    const harness = buildHarness();
+    const channel = await arrangeRunningTurn(harness);
+
+    channel.emitStreamFrame("assistant/message_delta");
+
+    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBe(channel);
+  });
+
+  it("refuses a late interrupt for a completed run instead of hitting the live turn", async () => {
+    const harness = buildHarness();
+    const channel = await arrangeRunningTurn(harness);
+    channel.emitStreamFrame("result/success");
+
+    await expect(harness.lifecycle.interruptRun({ runId: TEST_RUN_ID })).rejects.toMatchObject({
+      code: "driver.unavailable",
+      fields: { reason: "no_live_run" },
+    });
+    // Nothing reached the channel: the newer turn was never touched.
+    expect(channel.controlRequests).toStrictEqual([]);
+  });
+
+  it("ignores a terminal from a channel that is no longer the live one", async () => {
+    const harness = buildHarness();
+    const staleChannel = await arrangeRunningTurn(harness);
+    // The first process refuses to exit, so its channel is quarantined; a later
+    // close succeeds and frees the slot, and a new session takes it.
+    staleChannel.disposeFailure = new Error("the provider process would not exit");
+    await expect(harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID })).rejects.toThrow();
+    staleChannel.disposeFailure = undefined;
+    await harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID });
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_SECOND_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "now the next task",
+    });
+    await harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID });
+    const liveChannel = harness.transport.spawnedChannels[1];
+
+    // The driver holds no kill, so the old process can still emit long after the
+    // daemon stopped listening to it. That terminal belongs to nobody.
+    staleChannel.emitStreamFrame("result/success");
+
+    expect(harness.lifecycle.findChannelForRun(TEST_SECOND_RUN_ID)).toBe(liveChannel);
+  });
+
+  it("leaves the session LIVE and startable after a turn terminal", async () => {
+    const harness = buildHarness();
+    const channel = await arrangeRunningTurn(harness);
+    channel.emitStreamFrame("result/success");
+
+    // It is the RUN that ended, not the session: a next run must still start.
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_SECOND_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "now the next task",
+    });
+    await harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID });
+
+    expect(harness.lifecycle.findChannelForRun(TEST_SECOND_RUN_ID)).toBe(channel);
+    expect(channel.sentTextFrames).toStrictEqual([
+      { text: "review the diff" },
+      { text: "now the next task" },
+    ]);
   });
 });
 

@@ -128,6 +128,7 @@ class FakeCodexAppServer implements PtyHost {
   readonly #encoder = new TextEncoder();
   #spawnSequence = 0;
   #spawnGate: Promise<void> | null = null;
+  #closeGate: Promise<void> | null = null;
 
   on(method: string, handler: MethodHandler): this {
     this.#handlers.set(method, handler);
@@ -254,9 +255,34 @@ class FakeCodexAppServer implements PtyHost {
     return Promise.resolve();
   }
 
-  close(sessionId: string): Promise<void> {
+  /**
+   * Suspends every `close` until the returned release is called, AFTER the
+   * session id has been recorded.
+   *
+   * Recording first is what makes the gate usable as a probe rather than just a
+   * delay: a test can see that teardown reached the host and still hold it there,
+   * which is the only window in which a slot freed mid-teardown is observable.
+   * Gating the `thread/unsubscribe` answer instead would prove nothing — the
+   * FIXED code suspends there too, so both arms would look identical and the
+   * control would fail by timeout rather than by assertion.
+   */
+  holdCloses(): () => void {
+    let release = (): void => {};
+    this.#closeGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    return () => {
+      this.#closeGate = null;
+      release();
+    };
+  }
+
+  async close(sessionId: string): Promise<void> {
     this.closedSessions.push(sessionId);
-    return Promise.resolve();
+    const gate = this.#closeGate;
+    if (gate !== null) {
+      await gate;
+    }
   }
 
   shutdown(): Promise<DrainResult> {
@@ -349,6 +375,21 @@ function makeManualScheduler(): {
   };
 }
 
+/**
+ * Drains the microtask queue by yielding to the macrotask queue once.
+ *
+ * A counted `await Promise.resolve()` is not equivalent and is why this exists:
+ * it pins the test to an exact number of microtask hops, so any change to how the
+ * driver sequences its own continuations silently turns a real assertion into a
+ * hang. Yielding to a macrotask lets every pending microtask run, whatever their
+ * number.
+ */
+async function drainMicrotasks(): Promise<void> {
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, 0);
+  });
+}
+
 function makeCapabilities(steer: boolean): DriverCapabilities {
   const flags = Object.fromEntries(DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, true])) as Record<
     DriverCapabilityFlag,
@@ -438,6 +479,20 @@ interface ManagerHarness {
   manager: CodexLifecycleManager;
   diagnostics: CodexTransportDiagnostic[];
   notifications: Array<{ method: string; params: unknown }>;
+  scheduler: ReturnType<typeof makeManualScheduler>;
+}
+
+interface ManagerHarnessOptions {
+  onServerNotification?: boolean;
+  /**
+   * Wraps the real disposer in one that throws AFTER disposing.
+   *
+   * Disposing for real first isolates what is under test: the failure is purely
+   * the caller-supplied code misbehaving, not a listener left registered.
+   */
+  throwingSubscriptionDisposer?: boolean;
+  /** Overrides the binding-id minter, so a hostile mint can be driven. */
+  newBindingId?: () => string;
 }
 
 /**
@@ -447,7 +502,7 @@ interface ManagerHarness {
  * driver's `Pick<ProviderDriver, ...>` deliberately does not surface them, so
  * route-lifetime assertions have to be made here.
  */
-function createManagerHarness(options: { onServerNotification?: boolean } = {}): ManagerHarness {
+function createManagerHarness(options: ManagerHarnessOptions = {}): ManagerHarness {
   const server = new FakeCodexAppServer();
   server.on("initialize", () => ({ result: { userAgent: "codex-driver/0.149.1" } }));
   server.on("thread/start", () => threadStartResult());
@@ -459,14 +514,23 @@ function createManagerHarness(options: { onServerNotification?: boolean } = {}):
   const scheduler = makeManualScheduler();
   const manager = new CodexLifecycleManager({
     ptyHost: server,
-    subscribeToPtySession: (ptySessionId, listeners) => server.subscribe(ptySessionId, listeners),
+    subscribeToPtySession: (ptySessionId, listeners) => {
+      const dispose = server.subscribe(ptySessionId, listeners);
+      if (options.throwingSubscriptionDisposer !== true) {
+        return dispose;
+      }
+      return () => {
+        dispose();
+        throw new Error("subscription disposer failed");
+      };
+    },
     reportDiagnostic: (diagnostic) => {
       diagnostics.push(diagnostic);
     },
     scheduleTimeout: scheduler.schedule,
     executablePath: EXECUTABLE_PATH,
     resumeSpawnConfig: RESUME_SPAWN_CONFIG,
-    newBindingId: () => "binding-abc",
+    newBindingId: options.newBindingId ?? ((): string => "binding-abc"),
     ...(options.onServerNotification === true
       ? {
           onServerNotification: (method: string, params: unknown): void => {
@@ -475,7 +539,7 @@ function createManagerHarness(options: { onServerNotification?: boolean } = {}):
         }
       : {}),
   });
-  return { server, manager, diagnostics, notifications };
+  return { server, manager, diagnostics, notifications, scheduler };
 }
 
 /** A `turn/completed` frame at the pinned shape (`params.turn.{id,status}`). */
@@ -877,7 +941,10 @@ describe("CodexDriver resumeSession (I-005-5, Spec-005 §Fallback Behavior)", ()
       sessionId: SESSION_ID,
       resumeHandle: THREAD_ID,
     });
-    await Promise.resolve();
+    // Drained rather than counted: the slot claim defers the establishment body
+    // by a microtask, so a fixed hop count would leave the connection unsubscribed
+    // and the exit would reach nobody.
+    await drainMicrotasks();
     harness.server.emitExit(126);
 
     await expect(pending).resolves.toMatchObject({
@@ -1467,6 +1534,322 @@ describe("CodexLifecycleManager establishment slot", () => {
     await closing;
 
     expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
+  });
+});
+
+// --------------------------------------------------------------------------
+// Session slot state machine — a held slot spans every async step, both ways
+// --------------------------------------------------------------------------
+
+describe("CodexLifecycleManager session slot across teardown", () => {
+  it("holds the slot for the whole of teardown and releases it once teardown settles", async () => {
+    const harness = createManagerHarness();
+    harness.server.uniqueSpawnSessionIds = true;
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    // Gated on the HOST close, which is the last step of teardown: the record is
+    // already out of the live map under any implementation by the time we get
+    // here, so what this window tests is the CLAIM and nothing else.
+    const releaseCloses = harness.server.holdCloses();
+    const closing = harness.manager.closeSession({ sessionId: SESSION_ID });
+    await drainMicrotasks();
+    expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
+
+    const refusal = await harness.manager
+      .createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+    // Read BEFORE the gate is released, so an implementation that frees the slot
+    // during teardown completes its spawn and fails here as a clean assertion
+    // rather than as a 5000ms timeout.
+    expect(refusal).toBeInstanceOf(CodexSessionAlreadyLiveError);
+    expect((refusal as CodexSessionAlreadyLiveError).holderState).toBe("closing");
+    // The refused create cost no process — which is the point. A second child
+    // admitted here would outlive the one still exiting beside it.
+    expect(harness.server.spawnRequests).toHaveLength(1);
+
+    releaseCloses();
+    await closing;
+
+    // And the slot is genuinely released, not merely held: the same create that
+    // was refused a moment ago is now admitted.
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    expect(harness.server.spawnRequests).toHaveLength(2);
+  });
+
+  it("releases the process even when the subscription disposer throws during teardown", async () => {
+    const harness = createManagerHarness({ throwingSubscriptionDisposer: true });
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    const outcome = await harness.manager.closeSession({ sessionId: SESSION_ID }).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+
+    // The fault still reaches the caller — it is not swallowed — but it no longer
+    // DECIDES whether the child dies. Before the ordering fix it threw ahead of
+    // the host release, so the process outlived a session reported closed.
+    expect(outcome).toBeInstanceOf(Error);
+    expect((outcome as Error).message).toContain("subscription disposer failed");
+    expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
+    // A session whose teardown threw must still be creatable: the record is
+    // dropped in a `finally`, so a misbehaving disposer cannot wedge the slot.
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+  });
+
+  it("reports the establishment failure rather than a teardown fault when both occur", async () => {
+    const harness = createManagerHarness({ throwingSubscriptionDisposer: true });
+    harness.server.on("thread/start", () => ({
+      error: { code: -32001, message: "thread refused" },
+    }));
+
+    const outcome = await harness.manager
+      .createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+    // The provider's refusal is the actionable signal. A disposer that throws on
+    // the way out must not displace it — the failing create is cleaning up AFTER
+    // a failure, and its cleanup does not get to decide what the failure was.
+    expect(outcome).toBeInstanceOf(CodexProviderRequestError);
+    expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
+
+    // And the slot is free: a failed establishment holds nothing.
+    harness.server.on("thread/start", () => threadStartResult());
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+  });
+
+  it("refuses a startRun for a session that is being torn down", async () => {
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    const releaseCloses = harness.server.holdCloses();
+    const closing = harness.manager.closeSession({ sessionId: SESSION_ID });
+    await drainMicrotasks();
+
+    // The record stays installed for the length of teardown — that is what holds
+    // the slot — so "installed" no longer implies "usable" and the guard has to
+    // read the slot rather than the map.
+    const starting = harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "go" },
+    });
+    // Released BEFORE the outcome is read. The refusal under test is synchronous
+    // at the call above, so releasing here cannot mask it — while an
+    // implementation WITHOUT the guard falls through to the transport, triggers
+    // the ambiguity disposal, and chains that disposal behind the very teardown
+    // this gate is holding. Reading first would turn that into a 5000ms timeout,
+    // which proves nothing about the guard.
+    releaseCloses();
+    const outcome = await starting.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    await closing;
+
+    // Pinned to THIS refusal, not merely to a transport error: an implementation
+    // that deleted the record up front also refuses, but with "no live session" —
+    // and only by accident of a slot it had already dropped.
+    expect(outcome).toBeInstanceOf(CodexTransportError);
+    expect((outcome as Error).message).toContain("is being torn down");
+    expect(harness.server.framesForMethod("turn/start")).toHaveLength(0);
+  });
+
+  it("refuses a turn/start whose session stopped holding its slot while it was in flight", async () => {
+    const harness = createManagerHarness();
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    let closing: Promise<void> | undefined;
+    harness.server.on("turn/start", () => {
+      // Issued from INSIDE the write, so the teardown claims the slot and runs
+      // while `startRun` is still suspended waiting for this very answer. The
+      // provider accepts the turn; the session it belongs to is gone by the time
+      // the answer lands.
+      closing = harness.manager.closeSession({ sessionId: SESSION_ID });
+      return { result: { turn: { id: TURN_ID } } };
+    });
+
+    const outcome = await harness.manager
+      .startRun({
+        runId: RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "go" },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    await closing;
+
+    // Reporting success here would be a lie about a run whose process is dead,
+    // and would strand a `#sessionIdByRunId` entry that no sweep can reach: every
+    // sweep keys on a record that no longer exists.
+    expect(outcome).toBeInstanceOf(CodexTransportError);
+    expect((outcome as Error).message).toContain("stopped holding its slot");
+    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
+    expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
+  });
+});
+
+// --------------------------------------------------------------------------
+// Ambiguous turn/start is connection-fatal (ADR-029: replay, never reconcile)
+// --------------------------------------------------------------------------
+
+describe("CodexLifecycleManager turn/start ambiguity", () => {
+  it("kills the child and frees the slot when turn/start misses its deadline", async () => {
+    const harness = createManagerHarness();
+    harness.server.uniqueSpawnSessionIds = true;
+    // No `turn/start` handler is registered, so the request is never answered and
+    // its deadline is the only way it can settle — which is exactly the case the
+    // provider may nonetheless have ACCEPTED.
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    const starting = harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "go" },
+    });
+    const failure = starting.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    harness.scheduler.fireAll();
+
+    expect(await failure).toBeInstanceOf(CodexRequestTimeoutError);
+    // Killed, not merely closed: an accepted turn keeps executing tools, and
+    // `PtyHost` names no signal for `close`.
+    expect(harness.server.killedSessions).toEqual([
+      { sessionId: "pty-session-1", signal: "SIGKILL" },
+    ]);
+    expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
+    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
+    // The retry is a CLEAN establishment. Leaving the session reusable is what
+    // made a retry double the work against a turn nobody could see.
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    expect(harness.server.spawnRequests).toHaveLength(2);
+  });
+
+  it("treats a turn/start response with an unusable turn id as ambiguous", async () => {
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: {} } }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    const outcome = await harness.manager
+      .startRun({
+        runId: RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "go" },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+    // The provider answered, so this is not a deadline — but an answer with no
+    // addressable turn id leaves the same question open, and the class is defined
+    // by the question rather than by the failure mode.
+    expect(outcome).toBeInstanceOf(CodexTransportError);
+    expect(harness.server.killedSessions).toEqual([
+      { sessionId: "pty-session-1", signal: "SIGKILL" },
+    ]);
+  });
+
+  it("leaves the session live when turn/start is cleanly refused", async () => {
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({
+      error: { code: -32602, message: "input rejected" },
+    }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    const outcome = await harness.manager
+      .startRun({
+        runId: RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "go" },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+    // The single exemption, and it is closed from the other end: a provider that
+    // answered "no" is proof it processed the request and started nothing.
+    expect(outcome).toBeInstanceOf(CodexProviderRequestError);
+    expect(harness.server.killedSessions).toEqual([]);
+    expect(harness.server.closedSessions).toEqual([]);
+
+    // Still usable on the same process — a refusal must not cost a re-establish.
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "go" },
+    });
+    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(true);
+    expect(harness.server.spawnRequests).toHaveLength(1);
+  });
+});
+
+// --------------------------------------------------------------------------
+// Resume commits only a VALIDATED result (I-005-5)
+// --------------------------------------------------------------------------
+
+describe("CodexLifecycleManager resume result validation", () => {
+  it("installs nothing when the minted bindingId fails validation on a fresh resume", async () => {
+    // `wireFreeFormString` rejects an empty mint, so the parse throws — the point
+    // is WHERE it throws relative to the swap.
+    const harness = createManagerHarness({ newBindingId: () => "" });
+    harness.server.on("thread/resume", () => threadStartResult(2));
+
+    const result = await harness.manager.resumeSession({
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+    });
+
+    // I-005-5: still the typed condition, never an exception.
+    expect(result).toMatchObject({ status: "failed", recoveryCondition: "recovery-needed" });
+    expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
+    // Nothing was installed against the connection this method then closed, so
+    // the slot is free rather than mapped to a dead transport that only another
+    // resume could clear.
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    expect(harness.server.spawnRequests).toHaveLength(2);
+  });
+
+  it("leaves the superseded leg live when the minted bindingId fails validation", async () => {
+    const harness = createManagerHarness({ newBindingId: () => "" });
+    harness.server.uniqueSpawnSessionIds = true;
+    harness.server.on("thread/resume", () => threadStartResult(2));
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    const result = await harness.manager.resumeSession({
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+    });
+
+    expect(result).toMatchObject({ status: "failed", recoveryCondition: "recovery-needed" });
+    // Only the failed resume's OWN process is released. Releasing the predecessor
+    // before the result was validated made a failed resume destructive, which is
+    // the one thing this path promises never to be.
+    expect(harness.server.closedSessions).toEqual(["pty-session-2"]);
+
+    // And the leg that was live before the resume is still usable, on the same
+    // process — which is what "a failed resume changes nothing" has to mean.
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "go" },
+    });
+    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(true);
+    expect(harness.server.spawnRequests).toHaveLength(2);
   });
 });
 
