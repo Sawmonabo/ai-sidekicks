@@ -3755,7 +3755,9 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // the invariants it exercises are Plan-030's, so the reference resolves
     // nowhere in Plan-016's own declared set and is asserted rather than
     // verified. The legacy compact-inline channel is untouched.
-    bold: { resolved: 980, noneArm: 162, parentResolved: 0 },
+    // Re-pinned 2026-08-28 (NS-91): Plan-005 T3.11's `none` arm became a resolved
+    // marker naming I-005-11 + I-005-12 (-1 noneArm, +2 resolved); legacy unmoved.
+    bold: { resolved: 982, noneArm: 161, parentResolved: 0 },
     legacy: { resolved: 64, noneArm: 3, parentResolved: 1 },
   });
 });
