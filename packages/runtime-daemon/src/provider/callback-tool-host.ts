@@ -307,7 +307,7 @@ export class CallbackToolHost {
       return this.#withholdRegistry(
         request.sessionId,
         "no-approval-seam",
-        "no Plan-012 evaluation seam is registered, so no invocation could be adjudicated",
+        "no approval evaluation seam is registered, so no invocation could be adjudicated",
         requestedTools.length,
       );
     }
@@ -365,7 +365,7 @@ export class CallbackToolHost {
         "denied",
         "denied-no-seam",
         "callback_tool_seam_absent",
-        "no Plan-012 evaluation seam is registered; refusing rather than completing without adjudication",
+        "no approval evaluation seam is registered; refusing rather than completing without adjudication",
       );
     }
 
@@ -394,13 +394,32 @@ export class CallbackToolHost {
       );
     }
 
-    const outcome = await approvalSeam.evaluate({
-      sessionId: invocation.sessionId,
-      runId: invocation.runId,
-      toolName: invocation.toolName,
-      toolCallId: invocation.toolCallId,
-      arguments: invocation.arguments,
-    });
+    // A seam that THREW did not adjudicate, so the outcome is the same as a
+    // seam that was never registered: refused, never completed. Letting the
+    // rejection escape `dispatch` would leave the invocation unanswered and
+    // hang the provider's turn — the one outcome this host exists to make
+    // impossible — and the executor below is already contained on exactly this
+    // reasoning. The refusal reuses the seam-absent disposition rather than
+    // minting a diagnostic kind, because "no adjudication happened" is the
+    // condition both arms report; the reason text carries the distinction.
+    let outcome: CallbackToolApprovalOutcome;
+    try {
+      outcome = await approvalSeam.evaluate({
+        sessionId: invocation.sessionId,
+        runId: invocation.runId,
+        toolName: invocation.toolName,
+        toolCallId: invocation.toolCallId,
+        arguments: invocation.arguments,
+      });
+    } catch (cause) {
+      return this.#refuseInvocation(
+        invocation,
+        "denied",
+        "denied-no-seam",
+        "callback_tool_seam_absent",
+        `the approval evaluation seam threw before adjudicating; refusing rather than completing without adjudication (${describeExecutorFailure(cause)})`,
+      );
+    }
     if (outcome.decision === "deny") {
       this.#recordActivity(invocation, "denied-by-policy", outcome.basis);
       return { status: "denied", error: outcome.reason };

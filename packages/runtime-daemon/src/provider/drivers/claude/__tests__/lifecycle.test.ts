@@ -37,6 +37,10 @@ import {
 import { describe, expect, it, vi } from "vitest";
 
 import type { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
+import type { SessionId } from "@ai-sidekicks/contracts";
+
+import type { SubagentLifecycleEmission, ThreadFrameRoute } from "../../../thread-frame-router.js";
+import type { MeteredUsageDelta } from "../../../usage-delta-accountant.js";
 import {
   ClaudeAuthenticationRequiredError,
   ClaudeControlRequestRefusedError,
@@ -1301,7 +1305,7 @@ describe("ClaudeSessionLifecycle run-route retirement on turn terminal", () => {
     // The driver's response is the same for either terminal — the route is over
     // because the TURN is over, not because it succeeded. The double owns the
     // terminal-vs-non-terminal discriminant, exactly as a transport does.
-    channel.emitStreamFrame("result/error_max_tokens");
+    channel.emitStreamFrame("result/error_max_turns");
 
     expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
   });
@@ -1310,8 +1314,12 @@ describe("ClaudeSessionLifecycle run-route retirement on turn terminal", () => {
     const harness = buildHarness();
     const channel = await arrangeRunningTurn(harness);
 
-    channel.emitStreamFrame("assistant/message_delta");
+    // A censused, thread-scoped, NON-terminal kind: it must route and project,
+    // so what this asserts is the terminal discriminant rather than a frame the
+    // router would have refused anyway.
+    const route = channel.emitStreamFrame("system/task_progress");
 
+    expect(route).toStrictEqual({ decision: "project" });
     expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBe(channel);
   });
 
@@ -2149,5 +2157,299 @@ describe("composeClaudeSandboxSettings (T3.15 leg 5)", () => {
     // The ABSENCE is the statement; an empty list would mean the opposite.
     expect(trusted.sandbox.network).toBeUndefined();
     expect(denied.sandbox.network).toStrictEqual({ allowedDomains: [] });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T3.11 — the routing / metering band, driven through the REAL inbound seam.
+// ---------------------------------------------------------------------------
+//
+// The double honours the whole `onInboundFrame` transport obligation: it
+// observes before projecting and projects only on `project`. So these assert
+// what a real transport would do with the driver's answer, not what a test
+// helper decided to record.
+
+describe("ClaudeSessionLifecycle thread routing and usage metering (T3.11, I-005-11, I-005-12)", () => {
+  const CHILD_SUBAGENT_ID = "subagent-7";
+
+  interface RoutingHarness extends LifecycleHarness {
+    readonly meteredUsage: { sessionId: SessionId; delta: MeteredUsageDelta }[];
+    readonly subagentLifecycle: { sessionId: SessionId; emission: SubagentLifecycleEmission }[];
+    readonly releasedRoutes: ThreadFrameRoute[];
+  }
+
+  function buildRoutingHarness(
+    overrides: Partial<ClaudeSessionLifecycleDependencies> = {},
+  ): RoutingHarness {
+    const meteredUsage: { sessionId: SessionId; delta: MeteredUsageDelta }[] = [];
+    const subagentLifecycle: { sessionId: SessionId; emission: SubagentLifecycleEmission }[] = [];
+    const releasedRoutes: ThreadFrameRoute[] = [];
+    const harness = buildHarness({
+      onMeteredUsage: (sessionId, delta) => meteredUsage.push({ sessionId, delta }),
+      onSubagentLifecycle: (sessionId, emission) => subagentLifecycle.push({ sessionId, emission }),
+      onReleasedFrameRoute: (_sessionId, _observation, route) => releasedRoutes.push(route),
+      ...overrides,
+    });
+    return { ...harness, meteredUsage, subagentLifecycle, releasedRoutes };
+  }
+
+  async function liveChannel(harness: RoutingHarness): Promise<FakeClaudeSessionChannel> {
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    const channel = harness.transport.spawnedChannels[0];
+    if (channel === undefined) {
+      throw new Error("unreachable: the session must have spawned a channel");
+    }
+    return channel;
+  }
+
+  function usageObservation(
+    totalInputTokens: number,
+    subagentId: string | null = null,
+  ): Parameters<FakeClaudeSessionChannel["emitStreamFrame"]>[1] {
+    return {
+      subagentId,
+      cumulativeUsage: {
+        namedTurnId: "turn-A",
+        cumulative: { input: totalInputTokens },
+      },
+    };
+  }
+
+  it("closing a session releases its router and accountant rather than leaking them per session", async () => {
+    const harness = buildRoutingHarness();
+    const channel = await liveChannel(harness);
+    const providerSessionId = channel.providerSessionId;
+    channel.emitStreamFrame("assistant/message", usageObservation(10));
+    expect(harness.lifecycle.usageAccountantFor(TEST_SESSION_ID).hasThread(providerSessionId)).toBe(
+      true,
+    );
+
+    await harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID });
+
+    // Get-or-create, so the accessor answers with a FRESH pair; the assertion
+    // is that the old one did not survive, which the empty thread proves. The
+    // routing and metering band is per-provider-session state, so a router
+    // outliving its session would answer the next one with a thread registry
+    // that session never made.
+    expect(harness.lifecycle.usageAccountantFor(TEST_SESSION_ID).hasThread(providerSessionId)).toBe(
+      false,
+    );
+    expect(harness.lifecycle.frameRouterFor(TEST_SESSION_ID).pendingHeldFrameCount()).toBe(0);
+  });
+
+  it("(a) a frame naming a FOREIGN thread never projects", async () => {
+    const harness = buildRoutingHarness();
+    const channel = await liveChannel(harness);
+
+    const route = channel.emitStreamFrame("system/task_progress", {
+      subagentId: "some-unannounced-subagent",
+    });
+
+    expect(route.decision).toBe("held-pending-registration");
+    expect(channel.projectedFrameKinds).toStrictEqual([]);
+  });
+
+  it("(b) a usage frame meters a per-turn DELTA, never the cumulative counter", async () => {
+    const harness = buildRoutingHarness();
+    const channel = await liveChannel(harness);
+
+    channel.emitStreamFrame("system/task_progress", usageObservation(100));
+    channel.emitStreamFrame("system/task_progress", usageObservation(150));
+
+    // This provider reports a running total that resets at no turn boundary.
+    // 150 is the session's whole spend; 50 is what the second turn cost.
+    expect(harness.meteredUsage.map((entry) => entry.delta.axisDeltas.input)).toEqual([100, 50]);
+  });
+
+  it("(c) an announced child's content is suppressed while its spend carves through", async () => {
+    const harness = buildRoutingHarness();
+    const channel = await liveChannel(harness);
+
+    channel.emitStreamFrame("control_request/hook_callback", {
+      subagentLifecycle: {
+        signal: "SubagentStart",
+        subagentId: CHILD_SUBAGENT_ID,
+        parentToolUseId: "toolu_parent",
+      },
+    });
+    const contentRoute = channel.emitStreamFrame("system/task_progress", {
+      subagentId: CHILD_SUBAGENT_ID,
+    });
+    channel.emitStreamFrame("system/task_progress", usageObservation(40, CHILD_SUBAGENT_ID));
+
+    expect(contentRoute.decision).toBe("suppress-child-transcript");
+    expect(channel.projectedFrameKinds).toStrictEqual([]);
+    expect(harness.meteredUsage).toHaveLength(1);
+    expect(harness.meteredUsage[0]?.delta.threadId).toBe(CHILD_SUBAGENT_ID);
+    expect(harness.meteredUsage[0]?.delta.axisDeltas.input).toBe(40);
+  });
+
+  it("(d) the session's own terminal projects, and reaches the turn-terminal hook", async () => {
+    const harness = buildRoutingHarness();
+    const channel = await liveChannel(harness);
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "review the diff",
+    });
+    await harness.lifecycle.startRun(buildStartRunParams());
+    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBe(channel);
+
+    const route = channel.emitStreamFrame("result/success");
+
+    expect(route).toStrictEqual({ decision: "project" });
+    expect(channel.projectedFrameKinds).toStrictEqual(["result/success"]);
+    // Projected AND consumed: the route retired, which is the terminal's whole
+    // job on this provider (a channel-level interrupt must not outlive its turn).
+    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
+  });
+
+  it("the eleventh I-005-12 case: a fully suppressed child still leaves its started/completed pair", async () => {
+    const harness = buildRoutingHarness();
+    const channel = await liveChannel(harness);
+
+    channel.emitStreamFrame("control_request/hook_callback", {
+      subagentLifecycle: {
+        signal: "SubagentStart",
+        subagentId: CHILD_SUBAGENT_ID,
+        parentToolUseId: "toolu_parent",
+      },
+    });
+    for (const childFrameKind of ["system/task_progress", "system/tool_use_summary"]) {
+      channel.emitStreamFrame(childFrameKind, { subagentId: CHILD_SUBAGENT_ID });
+    }
+    channel.emitStreamFrame("control_request/hook_callback", {
+      subagentId: CHILD_SUBAGENT_ID,
+      subagentLifecycle: {
+        signal: "SubagentStop",
+        subagentId: CHILD_SUBAGENT_ID,
+        parentToolUseId: "toolu_parent",
+      },
+    });
+
+    // No child content on the parent's timeline...
+    expect(channel.projectedFrameKinds).toStrictEqual([]);
+    // ...and yet the child is not invisible: this pair is its whole presence.
+    expect(
+      harness.subagentLifecycle.map((entry) => ({
+        eventType: entry.emission.eventType,
+        subagentId: entry.emission.subagentId,
+        parentReference: entry.emission.parentReference,
+      })),
+    ).toEqual([
+      {
+        eventType: "subagent.started",
+        subagentId: CHILD_SUBAGENT_ID,
+        parentReference: "toolu_parent",
+      },
+      {
+        eventType: "subagent.completed",
+        subagentId: CHILD_SUBAGENT_ID,
+        parentReference: "toolu_parent",
+      },
+    ]);
+  });
+
+  it("a child's frames that RACED its announcement are released, metered, and DELIVERED", async () => {
+    const harness = buildRoutingHarness();
+    const channel = await liveChannel(harness);
+
+    // The child's first usage frame arrives before the `SubagentStart` that
+    // announces it — the exact race the pending hold exists for.
+    const heldRoute = channel.emitStreamFrame(
+      "system/task_progress",
+      usageObservation(40, CHILD_SUBAGENT_ID),
+    );
+    expect(heldRoute.decision).toBe("held-pending-registration");
+    expect(harness.meteredUsage).toStrictEqual([]);
+
+    channel.emitStreamFrame("control_request/hook_callback", {
+      subagentLifecycle: {
+        signal: "SubagentStart",
+        subagentId: CHILD_SUBAGENT_ID,
+        parentToolUseId: "toolu_parent",
+      },
+    });
+
+    // Released, then routed for real: the spend that raced the announcement is
+    // charged rather than shed at the hold timeout.
+    expect(harness.meteredUsage).toHaveLength(1);
+    expect(harness.meteredUsage[0]?.delta.axisDeltas.input).toBe(40);
+    // And the decision reached a consumer. A released frame has no observer
+    // call in flight to answer, so without this seam its route would have been
+    // computed and then dropped.
+    expect(harness.releasedRoutes).toEqual([
+      {
+        decision: "carve-out-usage",
+        childThreadId: CHILD_SUBAGENT_ID,
+        attribution: { kind: "subagent", subagentId: CHILD_SUBAGENT_ID },
+      },
+    ]);
+  });
+
+  it("a child's control-channel ask is connection-scoped on this provider, so it is never suppressed", async () => {
+    const harness = buildRoutingHarness();
+    const channel = await liveChannel(harness);
+    channel.emitStreamFrame("control_request/hook_callback", {
+      subagentLifecycle: {
+        signal: "SubagentStart",
+        subagentId: CHILD_SUBAGENT_ID,
+        parentToolUseId: "toolu_parent",
+      },
+    });
+
+    // This provider carries tool-approval asks on the control channel, which is
+    // a connection-level discipline in both directions and carries no thread
+    // identity. So the ask routes without one and stays answerable — the same
+    // outcome the child carve-out buys on a provider that DOES thread them.
+    const route = channel.emitStreamFrame("control_request/can_use_tool", {
+      subagentId: CHILD_SUBAGENT_ID,
+    });
+    expect(route.decision).toBe("route-connection-scoped");
+  });
+
+  it("a frame arriving on a channel the session no longer holds is quarantined, never metered", async () => {
+    const harness = buildRoutingHarness();
+    const staleChannel = await liveChannel(harness);
+    await harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID });
+
+    // The driver holds no kill, so a disowned process can still emit.
+    const route = staleChannel.emitStreamFrame("system/task_progress", usageObservation(9_999));
+
+    expect(route.decision).toBe("quarantined");
+    expect(harness.meteredUsage).toStrictEqual([]);
+    expect(staleChannel.projectedFrameKinds).toStrictEqual([]);
+  });
+
+  it("a resume with no prior-emitted sum records the overstatement rather than hiding it", async () => {
+    const harness = buildRoutingHarness();
+    await harness.lifecycle.resumeSession({
+      sessionId: TEST_SESSION_ID,
+      resumeHandle: "provider-session-earlier",
+      executionPosture: SANDBOXED_POSTURE,
+    });
+
+    expect(harness.diagnostics.recentRecordsOfKind("usage_resume_base_unavailable")).toHaveLength(
+      1,
+    );
+  });
+
+  it("a resume WITH a prior-emitted sum meters only the excess over it", async () => {
+    const harness = buildRoutingHarness({ readPriorEmittedUsage: () => ({ input: 500 }) });
+    await harness.lifecycle.resumeSession({
+      sessionId: TEST_SESSION_ID,
+      resumeHandle: "provider-session-earlier",
+      executionPosture: SANDBOXED_POSTURE,
+    });
+    const channel = harness.transport.spawnedChannels[0];
+    if (channel === undefined) {
+      throw new Error("unreachable: the resume must have adopted a channel");
+    }
+
+    channel.emitStreamFrame("system/task_progress", usageObservation(520));
+
+    expect(harness.diagnostics.recentRecordsOfKind("usage_resume_base_unavailable")).toHaveLength(
+      0,
+    );
+    expect(harness.meteredUsage[0]?.delta.axisDeltas.input).toBe(20);
   });
 });

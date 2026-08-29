@@ -15,11 +15,13 @@ import type {
 } from "@ai-sidekicks/contracts";
 
 import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
+import type { ThreadFrameRoute } from "../../../thread-frame-router.js";
 import type {
   ClaudeAuthProbeReading,
   ClaudeChannelDisposalReason,
   ClaudeControlRequest,
   ClaudeControlResponse,
+  ClaudeInboundFrameObservation,
   ClaudeResumedSessionAttachment,
   ClaudeRewoundSessionAttachment,
   ClaudeRunDispatch,
@@ -92,11 +94,67 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
 
   turnTerminalListener: (() => void) | undefined = undefined;
 
-  emitStreamFrame(frameKind: string): void {
-    if (!frameKind.startsWith("result/")) {
-      return;
+  // The `onInboundFrame` half of the same discipline. Registration failure is
+  // kept on its own switch because the two hooks register at different points
+  // of the adoption window, and a test that models a transport refusing one
+  // must not be forced to model it refusing both.
+  onInboundFrameFailure: Error | undefined = undefined;
+
+  onInboundFrame(observer: (observation: ClaudeInboundFrameObservation) => ThreadFrameRoute): void {
+    if (this.onInboundFrameFailure !== undefined) {
+      throw this.onInboundFrameFailure;
     }
-    this.turnTerminalListener?.();
+    this.inboundFrameObserver = observer;
+  }
+
+  inboundFrameObserver:
+    | ((observation: ClaudeInboundFrameObservation) => ThreadFrameRoute)
+    | undefined = undefined;
+
+  /** Every observation this double drove, paired with the route it was given. */
+  readonly observedRoutes: {
+    readonly observation: ClaudeInboundFrameObservation;
+    readonly route: ThreadFrameRoute;
+  }[] = [];
+
+  /** The frames this double handed to its own normalize consumer. */
+  readonly projectedFrameKinds: string[] = [];
+
+  /**
+   * Drive one inbound stream frame, HONOURING the transport obligation in full.
+   *
+   * The double observes before projecting and projects only on `project`,
+   * because a double that projected regardless would let a routing regression
+   * pass every test in this file. The terminal-vs-non-terminal discriminant
+   * stays here too: a real transport knows which terminal it saw, and the
+   * driver's `onTurnTerminal` hook deliberately carries no payload.
+   */
+  emitStreamFrame(
+    frameKind: string,
+    observationParts?: {
+      readonly subagentId?: string | null;
+      readonly cumulativeUsage?: ClaudeInboundFrameObservation["cumulativeUsage"];
+      readonly subagentLifecycle?: ClaudeInboundFrameObservation["subagentLifecycle"];
+    },
+  ): ThreadFrameRoute {
+    const observation: ClaudeInboundFrameObservation = {
+      frameKind,
+      subagentId: observationParts?.subagentId ?? null,
+      cumulativeUsage: observationParts?.cumulativeUsage ?? null,
+      subagentLifecycle: observationParts?.subagentLifecycle ?? null,
+    };
+    const route: ThreadFrameRoute = this.inboundFrameObserver?.(observation) ?? {
+      decision: "project",
+    };
+    this.observedRoutes.push({ observation, route });
+    if (route.decision !== "project") {
+      return route;
+    }
+    this.projectedFrameKinds.push(frameKind);
+    if (frameKind.startsWith("result/")) {
+      this.turnTerminalListener?.();
+    }
+    return route;
   }
 
   // Parks dispose until a test releases it, so the CLOSING window can be held

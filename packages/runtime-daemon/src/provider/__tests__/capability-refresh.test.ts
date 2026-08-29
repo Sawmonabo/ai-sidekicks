@@ -22,9 +22,11 @@
 import type { DriverAuthProbeResult } from "@ai-sidekicks/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { DriverDiagnosticsEmitter, type DriverDiagnosticRecord } from "../driver-diagnostics.js";
 import type { DeclareDriverCapabilitiesResult } from "../driver-capabilities-writer.js";
 import {
   CAPABILITY_REFRESH_INTERVAL_MS,
+  CAPABILITY_REFRESH_POLL_LEG_TIMEOUT_MS,
   CapabilityRefreshScheduler,
   DRIVER_CLI_VERSION_FLOORS,
   DriverCliVersionBelowFloorError,
@@ -33,6 +35,7 @@ import {
   parseCliVersionReport,
   type CapabilityRefreshDiagnostic,
   type CapabilityRefreshDriverEntry,
+  type FlooredDriverName,
 } from "../capability-refresh.js";
 import { CLI_VERSION_RAW_MAX_LEN } from "../provider-output-validation.js";
 
@@ -148,7 +151,10 @@ interface FakeDriverEntry {
 // are asserted against an event list, not inferred: the fake appends to
 // `emittedEvents` exactly when the writer would have emitted (declared /
 // updated), and never on noop — which is the writer contract CP-005-5 pins.
-function buildFakeDriverEntry(driverName: string, emittedEvents: string[]): FakeDriverEntry {
+function buildFakeDriverEntry(
+  driverName: FlooredDriverName,
+  emittedEvents: string[],
+): FakeDriverEntry {
   let refreshResult: DeclareDriverCapabilitiesResult | Error = {
     emitted: "noop",
     cliVersionRefreshed: false,
@@ -187,6 +193,31 @@ function buildFakeDriverEntry(driverName: string, emittedEvents: string[]): Fake
   };
 }
 
+/**
+ * One scheduler plus both of its diagnostic surfaces.
+ *
+ * The emitter is REQUIRED by the scheduler, so every construction site goes
+ * through here: a test that reached for the bare constructor would be asserting
+ * against a dependency shape the production code no longer accepts.
+ */
+function buildScheduler(): {
+  readonly scheduler: CapabilityRefreshScheduler;
+  readonly diagnostics: CapabilityRefreshDiagnostic[];
+  readonly emittedDiagnosticRecords: DriverDiagnosticRecord[];
+} {
+  const diagnostics: CapabilityRefreshDiagnostic[] = [];
+  const emittedDiagnosticRecords: DriverDiagnosticRecord[] = [];
+  const emitter = new DriverDiagnosticsEmitter({
+    logSink: { record: (record) => emittedDiagnosticRecords.push(record) },
+    counterSink: { increment: () => undefined },
+  });
+  const scheduler = new CapabilityRefreshScheduler({
+    diagnostics: emitter,
+    onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+  });
+  return { scheduler, diagnostics, emittedDiagnosticRecords };
+}
+
 describe("CapabilityRefreshScheduler", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -198,7 +229,7 @@ describe("CapabilityRefreshScheduler", () => {
   it("fires the poll on the 15-minute cadence with the refresh PAIRED to the auth probe", async () => {
     const emittedEvents: string[] = [];
     const codex = buildFakeDriverEntry("codex", emittedEvents);
-    const scheduler = new CapabilityRefreshScheduler();
+    const { scheduler } = buildScheduler();
     scheduler.startForNode({ nodeId: "node-1", drivers: [codex.entry] });
 
     // One millisecond short of the cadence: nothing fires early.
@@ -219,7 +250,7 @@ describe("CapabilityRefreshScheduler", () => {
   it("surfaces a changed snapshot as capability_updated, while a no-op poll and an auth-only change emit nothing", async () => {
     const emittedEvents: string[] = [];
     const claude = buildFakeDriverEntry("claude", emittedEvents);
-    const scheduler = new CapabilityRefreshScheduler();
+    const { scheduler } = buildScheduler();
     scheduler.startForNode({ nodeId: "node-1", drivers: [claude.entry] });
 
     // Tick 1: a genuinely changed snapshot — the writer emits.
@@ -244,7 +275,7 @@ describe("CapabilityRefreshScheduler", () => {
   it("surfaces a post-attach logout within one cadence period through the auth-state record", async () => {
     const emittedEvents: string[] = [];
     const claude = buildFakeDriverEntry("claude", emittedEvents);
-    const scheduler = new CapabilityRefreshScheduler();
+    const { scheduler } = buildScheduler();
     scheduler.startForNode({ nodeId: "node-1", drivers: [claude.entry] });
 
     await vi.advanceTimersByTimeAsync(CAPABILITY_REFRESH_INTERVAL_MS);
@@ -261,11 +292,8 @@ describe("CapabilityRefreshScheduler", () => {
 
   it("records a THROWN probe as indeterminate (fail closed) and reports the failed leg", async () => {
     const emittedEvents: string[] = [];
-    const diagnostics: CapabilityRefreshDiagnostic[] = [];
     const codex = buildFakeDriverEntry("codex", emittedEvents);
-    const scheduler = new CapabilityRefreshScheduler({
-      onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
-    });
+    const { scheduler, diagnostics } = buildScheduler();
     scheduler.startForNode({ nodeId: "node-1", drivers: [codex.entry] });
 
     codex.setProbeResult(new Error("probe transport died"));
@@ -278,6 +306,9 @@ describe("CapabilityRefreshScheduler", () => {
         leg: "auth-probe",
         code: undefined,
         message: "probe transport died",
+        // A leg that REJECTED settled; only a leg that never settled inside the
+        // backstop is a timeout, and conflating the two would hide a hang.
+        timedOut: false,
       },
     ]);
     scheduler.shutdown();
@@ -285,12 +316,9 @@ describe("CapabilityRefreshScheduler", () => {
 
   it("keeps polling past one driver's refresh refusal, and neither kills the sibling's poll", async () => {
     const emittedEvents: string[] = [];
-    const diagnostics: CapabilityRefreshDiagnostic[] = [];
     const codex = buildFakeDriverEntry("codex", emittedEvents);
     const claude = buildFakeDriverEntry("claude", emittedEvents);
-    const scheduler = new CapabilityRefreshScheduler({
-      onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
-    });
+    const { scheduler, diagnostics } = buildScheduler();
     scheduler.startForNode({ nodeId: "node-1", drivers: [codex.entry, claude.entry] });
 
     // A mid-lifetime downgrade below the floor: the refresh leg refuses, the
@@ -317,7 +345,7 @@ describe("CapabilityRefreshScheduler", () => {
   it("clears the node's timer on detach and drops its auth records", async () => {
     const emittedEvents: string[] = [];
     const codex = buildFakeDriverEntry("codex", emittedEvents);
-    const scheduler = new CapabilityRefreshScheduler();
+    const { scheduler } = buildScheduler();
     scheduler.startForNode({ nodeId: "node-1", drivers: [codex.entry] });
 
     await vi.advanceTimersByTimeAsync(CAPABILITY_REFRESH_INTERVAL_MS);
@@ -334,7 +362,7 @@ describe("CapabilityRefreshScheduler", () => {
     const emittedEvents: string[] = [];
     const first = buildFakeDriverEntry("codex", emittedEvents);
     const second = buildFakeDriverEntry("claude", emittedEvents);
-    const scheduler = new CapabilityRefreshScheduler();
+    const { scheduler } = buildScheduler();
     scheduler.startForNode({ nodeId: "node-1", drivers: [first.entry] });
     scheduler.startForNode({ nodeId: "node-2", drivers: [second.entry] });
 
@@ -348,7 +376,7 @@ describe("CapabilityRefreshScheduler", () => {
   it("re-attaching a node replaces its timer instead of stacking a second one", async () => {
     const emittedEvents: string[] = [];
     const codex = buildFakeDriverEntry("codex", emittedEvents);
-    const scheduler = new CapabilityRefreshScheduler();
+    const { scheduler } = buildScheduler();
     scheduler.startForNode({ nodeId: "node-1", drivers: [codex.entry] });
     scheduler.startForNode({ nodeId: "node-1", drivers: [codex.entry] });
 
@@ -358,38 +386,140 @@ describe("CapabilityRefreshScheduler", () => {
     scheduler.shutdown();
   });
 
-  it("skips a tick while the previous poll of the same node is still in flight", async () => {
+  function buildHangingEntry(codex: FakeDriverEntry): {
+    readonly entry: CapabilityRefreshDriverEntry;
+    releaseHang: () => void;
+  } {
+    let resolveHang: ((result: DeclareDriverCapabilitiesResult) => void) | undefined;
+    return {
+      entry: {
+        driverName: codex.entry.driverName,
+        refreshDeclaration: () =>
+          new Promise<DeclareDriverCapabilitiesResult>((resolve) => {
+            resolveHang = resolve;
+            codex.refreshCalls.push(Date.now());
+          }),
+        probeAuth: codex.entry.probeAuth,
+      },
+      releaseHang: () => resolveHang?.({ emitted: "noop", cliVersionRefreshed: false }),
+    };
+  }
+
+  function buildHangingProbeEntry(codex: FakeDriverEntry): {
+    readonly entry: CapabilityRefreshDriverEntry;
+    releaseProbe: (status: DriverAuthProbeResult["status"]) => void;
+  } {
+    let resolveProbe: ((result: DriverAuthProbeResult) => void) | undefined;
+    return {
+      entry: {
+        driverName: codex.entry.driverName,
+        refreshDeclaration: codex.entry.refreshDeclaration,
+        probeAuth: () =>
+          new Promise<DriverAuthProbeResult>((resolve) => {
+            resolveProbe = resolve;
+            codex.probeCalls.push(Date.now());
+          }),
+      },
+      releaseProbe: (status) => resolveProbe?.({ status }),
+    };
+  }
+
+  it("skips a tick while the previous poll of the same node is still INSIDE its deadline", async () => {
     const emittedEvents: string[] = [];
     const codex = buildFakeDriverEntry("codex", emittedEvents);
-    let releaseHang: (() => void) | undefined;
-    const hangingEntry: CapabilityRefreshDriverEntry = {
-      driverName: codex.entry.driverName,
-      refreshDeclaration: () =>
-        new Promise<DeclareDriverCapabilitiesResult>((resolve) => {
-          releaseHang = () => resolve({ emitted: "noop", cliVersionRefreshed: false });
-          codex.refreshCalls.push(Date.now());
-        }),
-      probeAuth: codex.entry.probeAuth,
-    };
-    const scheduler = new CapabilityRefreshScheduler();
-    scheduler.startForNode({ nodeId: "node-1", drivers: [hangingEntry] });
+    const hanging = buildHangingEntry(codex);
+    const { scheduler } = buildScheduler();
+    scheduler.startForNode({ nodeId: "node-1", drivers: [hanging.entry] });
 
     await vi.advanceTimersByTimeAsync(CAPABILITY_REFRESH_INTERVAL_MS);
     expect(codex.refreshCalls).toHaveLength(1);
-    // The refresh is hung; the next tick must coalesce, not stack.
-    await vi.advanceTimersByTimeAsync(CAPABILITY_REFRESH_INTERVAL_MS);
+
+    // One millisecond short of the leg deadline: the poll is still legitimately
+    // in flight, so a second poll of the SAME node coalesces rather than
+    // stacking. Driven through `refreshNow` because the cadence itself is
+    // longer than the deadline, and this assertion is about the in-flight
+    // guard rather than about the timer.
+    await vi.advanceTimersByTimeAsync(CAPABILITY_REFRESH_POLL_LEG_TIMEOUT_MS - 1);
+    await scheduler.refreshNow("node-1");
     expect(codex.refreshCalls).toHaveLength(1);
 
-    releaseHang?.();
+    hanging.releaseHang();
     await vi.advanceTimersByTimeAsync(CAPABILITY_REFRESH_INTERVAL_MS);
     expect(codex.refreshCalls).toHaveLength(2);
+    scheduler.shutdown();
+  });
+
+  it("abandons a leg that never settles, records it as timed out, and resumes the cadence", async () => {
+    const emittedEvents: string[] = [];
+    const codex = buildFakeDriverEntry("codex", emittedEvents);
+    const hanging = buildHangingEntry(codex);
+    const { scheduler, diagnostics } = buildScheduler();
+    scheduler.startForNode({ nodeId: "node-1", drivers: [hanging.entry] });
+
+    await vi.advanceTimersByTimeAsync(CAPABILITY_REFRESH_INTERVAL_MS);
+    expect(codex.refreshCalls).toHaveLength(1);
+    expect(diagnostics).toHaveLength(0);
+
+    // Past the deadline with the promise STILL unsettled. Without the backstop
+    // the in-flight guard would hold this node's poll off forever, and the
+    // bounded-cadence guarantee would quietly become "until a leg hangs".
+    await vi.advanceTimersByTimeAsync(CAPABILITY_REFRESH_POLL_LEG_TIMEOUT_MS);
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]?.leg).toBe("capability-refresh");
+    expect(diagnostics[0]?.timedOut).toBe(true);
+
+    // The cadence resumed: the next tick polls rather than coalescing. That
+    // poll hangs identically and is abandoned identically — the backstop is
+    // per-poll, not a one-shot latch.
+    await vi.advanceTimersByTimeAsync(CAPABILITY_REFRESH_INTERVAL_MS);
+    expect(codex.refreshCalls).toHaveLength(2);
+    expect(diagnostics).toHaveLength(2);
+
+    // And an abandoned promise settling LATE is inert — no third diagnostic,
+    // and no unhandled rejection, because both settlement handlers are attached
+    // before the race rather than only the winning one.
+    hanging.releaseHang();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(diagnostics).toHaveLength(2);
+    scheduler.shutdown();
+  });
+
+  it("keys an auth-state write to the node LIFETIME the poll started in", async () => {
+    const emittedEvents: string[] = [];
+    const codex = buildFakeDriverEntry("codex", emittedEvents);
+    // The PROBE is the hung leg deliberately: it is the only leg that writes an
+    // auth record, so hanging any other leg would leave this test passing on
+    // detach's record drop alone and asserting nothing about the guard.
+    const hangingProbe = buildHangingProbeEntry(codex);
+    const { scheduler } = buildScheduler();
+    scheduler.startForNode({ nodeId: "node-1", drivers: [hangingProbe.entry] });
+
+    await vi.advanceTimersByTimeAsync(CAPABILITY_REFRESH_INTERVAL_MS);
+    expect(codex.probeCalls).toHaveLength(1);
+    expect(scheduler.getAuthState("node-1", "codex")).toBeUndefined();
+
+    // The node is detached and re-attached WHILE its probe is in flight. That
+    // probe belongs to the previous lifetime: writing its reading into the new
+    // one would report an auth state observed against a node registration that
+    // no longer exists, and a monotonic generation is what tells them apart —
+    // a bare node-id key cannot, because the id is identical across the two.
+    scheduler.stopForNode("node-1");
+    scheduler.startForNode({ nodeId: "node-1", drivers: [hangingProbe.entry] });
+
+    // A FULFILLED `authenticated` reading, released inside its deadline, is the
+    // strongest case: the reading is valid, it is simply the wrong lifetime's,
+    // and the re-attached lifetime has an auth-state map ready to receive it.
+    hangingProbe.releaseProbe("authenticated");
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(scheduler.getAuthState("node-1", "codex")).toBeUndefined();
     scheduler.shutdown();
   });
 
   it("refreshNow runs an immediate poll outside the cadence (the provider-push lever)", async () => {
     const emittedEvents: string[] = [];
     const codex = buildFakeDriverEntry("codex", emittedEvents);
-    const scheduler = new CapabilityRefreshScheduler();
+    const { scheduler } = buildScheduler();
     scheduler.startForNode({ nodeId: "node-1", drivers: [codex.entry] });
 
     await scheduler.refreshNow("node-1");
@@ -404,7 +534,7 @@ describe("CapabilityRefreshScheduler", () => {
   });
 
   it("refreshNow against an unregistered node is a no-op, never a throw", async () => {
-    const scheduler = new CapabilityRefreshScheduler();
+    const { scheduler } = buildScheduler();
     await expect(scheduler.refreshNow("node-unknown")).resolves.toBeUndefined();
   });
 });

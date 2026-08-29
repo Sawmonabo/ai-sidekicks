@@ -90,9 +90,27 @@ import {
 import { createHash, randomUUID } from "node:crypto";
 
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
+import {
+  ThreadFrameRouter,
+  type RoutableProviderFrame,
+  type SubagentLifecycleEmission,
+  type ThreadFrameRoute,
+  type ThreadFrameRouterConfig,
+} from "../../thread-frame-router.js";
+import {
+  UsageDeltaAccountant,
+  type CumulativeAxisReadings,
+  type MeteredUsageDelta,
+} from "../../usage-delta-accountant.js";
 
 import { CLAUDE_DRIVER_NAME } from "./capabilities.js";
-import { ClaudeTerminalEmissionGate } from "./event-normalizer.js";
+import {
+  CLAUDE_SUBAGENT_START_SIGNAL,
+  ClaudeTerminalEmissionGate,
+  classifyClaudeFrameFamilyForRouting,
+  normalizeClaudeSubagentLifecycle,
+  type ClaudeSubagentLifecycleSignal,
+} from "./event-normalizer.js";
 
 // --------------------------------------------------------------------------
 // Canonical driver id + fixed message text
@@ -170,6 +188,45 @@ export type ClaudeChannelDisposalReason =
   // did nothing wrong: the driver could not complete adoption.
   | "establishment_failed";
 
+/**
+ * One inbound Claude stream frame's cumulative token readings, as the transport
+ * read them.
+ *
+ * Cumulative, not per-turn: this provider reports a RUNNING TOTAL for the
+ * session that resets at no turn boundary, at no compaction, and on no resume.
+ * The driver differences it; the transport must not.
+ */
+export interface ClaudeCumulativeUsageObservation {
+  /** The turn the metered frame itself names, or `null` where it names none. */
+  readonly namedTurnId: string | null;
+  readonly cumulative: CumulativeAxisReadings;
+  /** The wire's own per-turn figure where one exists; a cross-check only. */
+  readonly declaredPerTurn?: CumulativeAxisReadings | null;
+}
+
+/**
+ * The routing-relevant facts of one inbound Claude stream frame.
+ *
+ * Deliberately not the frame. See {@link ClaudeSessionChannel.onInboundFrame}
+ * for why this shape, and not a frame body, is what crosses the seam.
+ */
+export interface ClaudeInboundFrameObservation {
+  /** The composed `type/subtype` wire kind, verbatim and untrusted. */
+  readonly frameKind: string;
+  /**
+   * The provider-attributed subagent identity where the frame carries one.
+   *
+   * `null` for a frame on the session's own thread. Claude frames carry NO
+   * thread-id member, so this identity IS the child's identity axis and its
+   * absence is what marks a frame as the session's own.
+   */
+  readonly subagentId: string | null;
+  /** Cumulative token readings where the frame carries a usage block. */
+  readonly cumulativeUsage: ClaudeCumulativeUsageObservation | null;
+  /** The `SubagentStart` / `SubagentStop` signal where the frame is one. */
+  readonly subagentLifecycle: ClaudeSubagentLifecycleSignal | null;
+}
+
 // One live Claude provider process, already handshaken through `system/init`.
 export interface ClaudeSessionChannel {
   readonly providerSessionId: string;
@@ -200,6 +257,32 @@ export interface ClaudeSessionChannel {
    * distinction, widening one hook is a smaller change than unpicking a coupling.
    */
   onTurnTerminal(listener: () => void): void;
+
+  /**
+   * Registers the lifecycle's inbound-frame observer. Called EXACTLY ONCE, when
+   * the driver adopts the channel; a later registration replaces the listener.
+   *
+   * TRANSPORT OBLIGATION — the transport MUST invoke `observer` for EVERY
+   * inbound stream frame, BEFORE handing that frame to its own normalize
+   * consumer, and MUST honour the returned {@link ThreadFrameRoute}: only a
+   * `project` decision may reach the consumer. A transport that observed after
+   * projecting, or that ignored the decision, would put a child thread's output
+   * in the parent's timeline — the fabricated transcript I-005-12 forbids.
+   *
+   * Why the widening. Claude multiplexes subagent threads over the PARENT's own
+   * stream, so "arrived on this channel" no longer identifies whose stream a
+   * frame came from — the assumption `onTurnTerminal` was written under. The
+   * thread-identity registry, the fail-closed routing decision, and the
+   * usage-delta base registers are driver-session state held for the life of
+   * the provider session, so the driver must see every frame to keep them.
+   *
+   * The observation carries NO frame content: a wire kind, an optional
+   * provider-attributed subagent identity, an optional CLOSED numeric usage
+   * reading, and an optional subagent-lifecycle signal. The normalizer still
+   * owns the frame vocabulary and every payload mapping — what crosses here is
+   * only what the routing and metering decisions are made of.
+   */
+  onInboundFrame(observer: (observation: ClaudeInboundFrameObservation) => ThreadFrameRoute): void;
 
   /**
    * Tears the provider process down. `dispose` is this band's WHOLE teardown
@@ -1317,6 +1400,14 @@ interface LiveClaudeSession {
    * A digest can prove two spawns agree; it cannot spawn anything.
    */
   readonly spawnBoundLegs: ClaudeSpawnBoundLegs;
+  /**
+   * Which base-establishment arm this leg takes (T3.11).
+   *
+   * A daemon-created session bases its usage registers at ZERO; a resume — and
+   * a rewind, which is a fresh spawn continuing a session whose spend the
+   * daemon already emitted — bases at the prior-emitted cumulative sum.
+   */
+  readonly establishment: "fresh" | "resume";
 }
 
 // The state of one canonical session's slot. Absence from `#sessionSlots` is the
@@ -1358,6 +1449,57 @@ export interface ClaudeSessionLifecycleDependencies {
    * because a sink was left unbound is fail-closed in name only.
    */
   readonly diagnostics: DriverDiagnosticsEmitter;
+  /**
+   * The daemon's own prior-emitted cumulative token sums for one provider
+   * session, used to base a PROVIDER-NATIVE RESUME (T3.11).
+   *
+   * Optional because the driver cannot rebuild it: the sums live in the
+   * canonical event record, which the daemon owns and this module never reads.
+   * Unbound, a resume bases at zero and the first post-resume reading re-meters
+   * the whole provider-session total — recorded as a diagnostic rather than
+   * left to be discovered on a receipt.
+   */
+  readonly readPriorEmittedUsage?:
+    | ((sessionId: SessionId, threadId: string) => CumulativeAxisReadings | undefined)
+    | undefined;
+  /**
+   * Receives each metered per-turn usage delta (T3.11). PRODUCER-ONLY: the
+   * driver states what was spent and the emission pipeline mints the
+   * `usage_telemetry` envelope, so no driver mints a session event.
+   */
+  readonly onMeteredUsage?: ((sessionId: SessionId, delta: MeteredUsageDelta) => void) | undefined;
+  /**
+   * Receives the `subagent.started` / `subagent.completed` pair for each
+   * provider-attributed child (T3.11). PRODUCER-ONLY, and the child's ONLY
+   * timeline presence: a registered child's content and lifecycle frames are
+   * transcript-suppressed, so this pair survives the suppression rather than
+   * sharing it.
+   */
+  readonly onSubagentLifecycle?:
+    | ((sessionId: SessionId, emission: SubagentLifecycleEmission) => void)
+    | undefined;
+  /**
+   * Receives the routing decision for a frame that was RELEASED from a pending
+   * hold rather than routed inside the observer call (T3.11).
+   *
+   * REQUIRED FOR CORRECTNESS ON THE HELD PATH, optional only because a
+   * deployment binding no consumer for released frames is already choosing not
+   * to project them. A frame routed inside {@link
+   * ClaudeSessionChannel.onInboundFrame} answers the transport by RETURN VALUE;
+   * a held frame is released later, when no observer call is in flight and no
+   * return value exists — so without this seam a released `project` or
+   * `carve-out-interactive-request` decision would have no recipient, and a
+   * child's interactive request that raced its own `SubagentStart` would be
+   * held, released, and dropped. Suppressing that request would not hide the
+   * child but HANG it.
+   */
+  readonly onReleasedFrameRoute?:
+    | ((
+        sessionId: SessionId,
+        observation: ClaudeInboundFrameObservation,
+        route: ThreadFrameRoute,
+      ) => void)
+    | undefined;
   // The provider-side session id pinned at spawn (`--session-id`). Injected so
   // tests and a future deterministic id source can drive it; defaults to a v4
   // UUID, the shape the CLI flag requires.
@@ -1367,6 +1509,40 @@ export interface ClaudeSessionLifecycleDependencies {
   // runnable without a database.
   readonly mintBindingId?: (() => string) | undefined;
 }
+
+/**
+ * One observed Claude frame as the thread-frame router sees it.
+ *
+ * Claude frames carry no thread-id member, so `threadId` DERIVES: the frame's
+ * subagent identity where it has one, and the session's own provider session id
+ * otherwise. It is never `null` for a session frame — passing `null` would
+ * quarantine every ordinary frame as a thread-scoped family with no identity.
+ */
+interface ClaudeRoutableFrame extends RoutableProviderFrame {
+  readonly threadId: string;
+  /**
+   * The observation this frame was built from, carried along because a HELD
+   * frame must still be meterable: the router releases pending holds when the
+   * registration they were waiting for lands, and a release that handed back
+   * only the routing members would have shed the child's usage reading.
+   */
+  readonly observation: ClaudeInboundFrameObservation;
+}
+
+/**
+ * The router's bounds for a Claude session.
+ *
+ * The hold covers one race — a subagent's frames arriving ahead of the
+ * `SubagentStart` signal that announces it — which is short and narrow; the
+ * timeout is the outer bound on that race and is deliberately far below any
+ * human-visible latency, because a frame held longer than this is not racing an
+ * announcement, it names a child that will never be announced.
+ */
+const CLAUDE_THREAD_FRAME_ROUTER_CONFIG: ThreadFrameRouterConfig = Object.freeze({
+  maxQuarantinedFrames: 64,
+  maxPendingHoldFrames: 128,
+  pendingRegistrationTimeoutMs: 5_000,
+});
 
 export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   readonly #transport: ClaudeSessionTransport;
@@ -1403,6 +1579,26 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   // during an establishment is exactly the case where mis-reading a clean
   // shutdown as a crash would be most misleading.
   readonly #terminalEmissionGates: Map<SessionId, ClaudeTerminalEmissionGate> = new Map();
+  // The T3.11 child-routing and usage-delta band, one instance of each per
+  // provider session and held for that session's lifetime — the state
+  // `Spec-005 §Interfaces And Contracts` describes as driver-session state, so
+  // it is constructed here rather than composed from outside.
+  readonly #frameRouters: Map<SessionId, ThreadFrameRouter<ClaudeRoutableFrame>> = new Map();
+  readonly #usageAccountants: Map<SessionId, UsageDeltaAccountant> = new Map();
+  readonly #readPriorEmittedUsage:
+    | ((sessionId: SessionId, threadId: string) => CumulativeAxisReadings | undefined)
+    | undefined;
+  readonly #onMeteredUsage: ((sessionId: SessionId, delta: MeteredUsageDelta) => void) | undefined;
+  readonly #onSubagentLifecycle:
+    | ((sessionId: SessionId, emission: SubagentLifecycleEmission) => void)
+    | undefined;
+  readonly #onReleasedFrameRoute:
+    | ((
+        sessionId: SessionId,
+        observation: ClaudeInboundFrameObservation,
+        route: ThreadFrameRoute,
+      ) => void)
+    | undefined;
   /**
    * The daemon-stored session goals (T3.15 leg 2's emulation, driver half).
    *
@@ -1422,6 +1618,10 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     this.#transport = dependencies.transport;
     this.#runDispatchResolver = dependencies.runDispatchResolver;
     this.#diagnostics = dependencies.diagnostics;
+    this.#readPriorEmittedUsage = dependencies.readPriorEmittedUsage;
+    this.#onMeteredUsage = dependencies.onMeteredUsage;
+    this.#onSubagentLifecycle = dependencies.onSubagentLifecycle;
+    this.#onReleasedFrameRoute = dependencies.onReleasedFrameRoute;
     this.#mintProviderSessionId = dependencies.mintProviderSessionId ?? randomUUID;
     this.#mintBindingId = dependencies.mintBindingId ?? randomUUID;
   }
@@ -1488,6 +1688,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
         channel: attachment.channel,
         spawnBinding: this.#buildSpawnBinding(params),
         spawnBoundLegs: spawnBoundLegs,
+        establishment: "fresh",
       });
     } catch (error) {
       // Dispose, then re-throw the ORIGINAL cause. `createSession` has no
@@ -1597,6 +1798,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
         channel: attachment.channel,
         spawnBinding: this.#buildSpawnBinding(params),
         spawnBoundLegs: spawnBoundLegs,
+        establishment: "resume",
       });
     } catch (error) {
       const disposalNote = await this.#disposeRefusedChannel(
@@ -1840,6 +2042,10 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
         channel: attachment.channel,
         spawnBinding: predecessor.spawnBinding,
         spawnBoundLegs: rewoundSpawnBoundLegs,
+        // A rewind is a fresh spawn continuing a session whose earlier spend
+        // the daemon has already emitted, so it bases like a resume: a zero
+        // base here would re-meter every pre-rewind turn.
+        establishment: "resume",
       });
     } catch (error) {
       const disposalNote = await this.#disposeRefusedChannel(
@@ -1998,6 +2204,11 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       this.#terminalEmissionGates.delete(sessionId);
       // Same scope, same reason: a goal is a property of a session that exists.
       this.#sessionGoals.delete(sessionId);
+      // The routing and metering band is per-provider-session state; a router
+      // surviving its session would answer the next one with a thread registry
+      // that session never made.
+      this.#frameRouters.delete(sessionId);
+      this.#usageAccountants.delete(sessionId);
     } catch (error) {
       // CLOSING -> QUARANTINED. The channel is retained rather than dropped: the
       // process is still running and nothing else holds a reference to it. The
@@ -2031,6 +2242,241 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
    */
   terminalEmissionGateFor(sessionId: SessionId): ClaudeTerminalEmissionGate {
     return this.#intendedCloseGateFor(sessionId);
+  }
+
+  /**
+   * The thread-frame router for one session (T3.11).
+   *
+   * Read LIVE rather than captured, for the same reason the emission gate is:
+   * a router captured before a registration would answer with a thread set the
+   * registration has since widened.
+   */
+  frameRouterFor(sessionId: SessionId): ThreadFrameRouter<ClaudeRoutableFrame> {
+    const existing = this.#frameRouters.get(sessionId);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const router = new ThreadFrameRouter<ClaudeRoutableFrame>({
+      provider: "claude",
+      diagnostics: this.#diagnostics,
+      config: CLAUDE_THREAD_FRAME_ROUTER_CONFIG,
+    });
+    this.#frameRouters.set(sessionId, router);
+    return router;
+  }
+
+  /** The usage-delta accountant for one session (T3.11). */
+  usageAccountantFor(sessionId: SessionId): UsageDeltaAccountant {
+    const existing = this.#usageAccountants.get(sessionId);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const accountant = new UsageDeltaAccountant({
+      provider: "claude",
+      diagnostics: this.#diagnostics,
+    });
+    this.#usageAccountants.set(sessionId, accountant);
+    return accountant;
+  }
+
+  /**
+   * Bind a session's OWN thread identity into the routing and metering band.
+   *
+   * ORDER IS THE CONTRACT: the accountant's base registers are established
+   * BEFORE the router releases anything, because a released usage frame meters
+   * immediately and an unestablished thread would refuse it outright.
+   *
+   * The registration's released frames are RE-ROUTED rather than discarded. On
+   * this provider the identity is known at adoption, so the release is normally
+   * empty — but a caller that discarded it would shed any frame that did race
+   * the binding, and the router's release contract is the same on both legs.
+   */
+  #bindSessionThread(
+    sessionId: SessionId,
+    providerSessionId: string,
+    establishment: "fresh" | "resume",
+  ): void {
+    const accountant = this.usageAccountantFor(sessionId);
+    if (establishment === "fresh") {
+      accountant.establishThread(providerSessionId, { mode: "fresh" });
+    } else {
+      const priorEmittedCumulative = this.#readPriorEmittedUsage?.(sessionId, providerSessionId);
+      if (priorEmittedCumulative === undefined) {
+        // Never silent. With no prior-emitted sum to rebuild from, the base
+        // starts at zero and the first post-resume reading meters the WHOLE
+        // provider-session total — an overstatement of exactly the pre-resume
+        // spend. The resume arm is still taken rather than swapped for `fresh`,
+        // so the record says which arm ran and why it had nothing to work with.
+        this.#diagnostics.emit({
+          provider: "claude",
+          kind: "usage_resume_base_unavailable",
+          rawWireType: null,
+          dispositionReason:
+            "no prior-emitted cumulative sum was available for a provider-native resume; base registers start at zero, so the first post-resume reading meters pre-resume spend again",
+          details: { sessionId, threadId: providerSessionId },
+        });
+      }
+      accountant.establishThread(providerSessionId, {
+        mode: "resume",
+        priorEmittedCumulative: priorEmittedCumulative ?? {},
+      });
+    }
+    this.#releaseHeldFrames(
+      sessionId,
+      this.frameRouterFor(sessionId).registerSessionThread(providerSessionId),
+    );
+  }
+
+  /**
+   * Re-route frames the router just released from its pending-registration
+   * hold, and DELIVER each decision to the released-frame consumer.
+   *
+   * The delivery is the whole point of the separate path. A frame routed inside
+   * the transport's observer call answers by return value; a released frame has
+   * no observer call in flight to answer, so a caller that only applied the
+   * decision would meter the frame and then drop it — silently shedding exactly
+   * the interactive request the carve-out exists to keep reachable.
+   */
+  #releaseHeldFrames(sessionId: SessionId, releasedFrames: readonly ClaudeRoutableFrame[]): void {
+    const router = this.frameRouterFor(sessionId);
+    const nowMs = Date.now();
+    for (const releasedFrame of releasedFrames) {
+      const route = router.routeFrame(releasedFrame, nowMs);
+      this.#applyRouteDecision(sessionId, releasedFrame, route);
+      this.#onReleasedFrameRoute?.(sessionId, releasedFrame.observation, route);
+    }
+  }
+
+  /**
+   * Route one observed inbound frame and answer with the transport's decision.
+   *
+   * THE routing entry point, ahead of every projection decision. A
+   * `SubagentStart` registers its child BEFORE the announcing frame is routed —
+   * otherwise the announcement would be held pending the very registration it
+   * carries — and a `SubagentStop` completes the child AFTER its own frame has
+   * routed, so the stop frame is still suppressed as the child's rather than
+   * projected into the parent.
+   */
+  #observeInboundFrame(
+    sessionId: SessionId,
+    providerSessionId: string,
+    observation: ClaudeInboundFrameObservation,
+  ): ThreadFrameRoute {
+    const router = this.frameRouterFor(sessionId);
+    const lifecycleSignal = observation.subagentLifecycle;
+    if (lifecycleSignal !== null && lifecycleSignal.signal === CLAUDE_SUBAGENT_START_SIGNAL) {
+      const normalized = normalizeClaudeSubagentLifecycle(lifecycleSignal, providerSessionId);
+      if (normalized.announcement !== null) {
+        const registration = router.registerChildThread(normalized.announcement);
+        if (registration.registered) {
+          // A registered child is a BRAND-NEW provider thread, so its base
+          // registers start at zero. Establishing it here rather than lazily is
+          // what makes the usage carve-out reachable at all: the accountant
+          // refuses an unestablished thread outright, so a child whose spend
+          // was never established would carve out of the parent's transcript
+          // and then be dropped on the floor — the child's cost vanishing
+          // rather than being scoped, which is not what I-005-12 asks for.
+          this.usageAccountantFor(sessionId).establishThread(registration.childThreadId, {
+            mode: "fresh",
+          });
+          this.#onSubagentLifecycle?.(sessionId, {
+            eventType: "subagent.started",
+            subagentId: normalized.subagentId,
+            parentReference: normalized.parentToolUseId,
+          });
+          this.#releaseHeldFrames(sessionId, registration.releasedFrames);
+        }
+      }
+    }
+
+    const frame: ClaudeRoutableFrame = {
+      rawWireType: observation.frameKind,
+      familyClass: classifyClaudeFrameFamilyForRouting(observation.frameKind, observation),
+      // The derivation this provider's wire forces: no frame carries a thread
+      // id, so the subagent identity IS the child's identity axis and its
+      // absence marks the session's own thread.
+      threadId: observation.subagentId ?? providerSessionId,
+      observation,
+    };
+    const route = router.routeFrame(frame, Date.now());
+    this.#applyRouteDecision(sessionId, frame, route);
+    return route;
+  }
+
+  #applyRouteDecision(
+    sessionId: SessionId,
+    frame: ClaudeRoutableFrame,
+    route: ThreadFrameRoute,
+  ): void {
+    switch (route.decision) {
+      case "project":
+      case "route-connection-scoped":
+      case "carve-out-usage":
+        // The usage carve-out is applied AHEAD of suppression: a child's spend
+        // is metered even though a child's content is not.
+        this.#meterObservedUsage(sessionId, frame);
+        this.#completeChildOnStopSignal(sessionId, frame);
+        return;
+      case "suppress-child-transcript":
+        this.#completeChildOnStopSignal(sessionId, frame);
+        return;
+      case "carve-out-interactive-request":
+      case "held-pending-registration":
+      case "quarantined":
+        // The interactive-request carve-out needs no driver-side action here:
+        // the ask travels on the DECISION, not on a driver-side side effect,
+        // and every caller of this method delivers that decision — the observer
+        // path by returning it to the transport, the release path through
+        // `#releaseHeldFrames`. A child's ask therefore routes through the same
+        // approval pipeline as the parent's on either path. Held and
+        // quarantined frames are already recorded by the router; neither is a
+        // silent drop.
+        return;
+    }
+  }
+
+  #meterObservedUsage(sessionId: SessionId, frame: ClaudeRoutableFrame): void {
+    const cumulativeUsage = frame.observation.cumulativeUsage;
+    if (cumulativeUsage === null) {
+      return;
+    }
+    const metered = this.usageAccountantFor(sessionId).meterReading({
+      threadId: frame.threadId,
+      namedTurnId: cumulativeUsage.namedTurnId,
+      cumulative: cumulativeUsage.cumulative,
+      declaredPerTurn: cumulativeUsage.declaredPerTurn ?? null,
+    });
+    if (metered !== null) {
+      this.#onMeteredUsage?.(sessionId, metered);
+    }
+  }
+
+  /**
+   * Close a child's `subagent.*` pair on its own `SubagentStop`.
+   *
+   * The stop signal is this provider's child terminal: Claude publishes no
+   * per-child result frame, so the lifecycle signal that opened the pair is
+   * also the only thing that can close it.
+   */
+  #completeChildOnStopSignal(sessionId: SessionId, frame: ClaudeRoutableFrame): void {
+    const lifecycleSignal = frame.observation.subagentLifecycle;
+    if (lifecycleSignal === null || lifecycleSignal.signal === CLAUDE_SUBAGENT_START_SIGNAL) {
+      return;
+    }
+    const router = this.frameRouterFor(sessionId);
+    const attribution = router.childAttributionFor(lifecycleSignal.subagentId);
+    const completion = router.completeChildThread(lifecycleSignal.subagentId);
+    if (!completion.wasRegistered) {
+      return;
+    }
+    this.usageAccountantFor(sessionId).releaseThread(lifecycleSignal.subagentId);
+    if (attribution?.kind === "subagent") {
+      this.#onSubagentLifecycle?.(sessionId, {
+        eventType: "subagent.completed",
+        subagentId: attribution.subagentId,
+        parentReference: lifecycleSignal.parentToolUseId,
+      });
+    }
   }
 
   // Get-or-create, so the intent latch survives whichever of close and
@@ -2263,6 +2709,25 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       this.#retireRunRoutes(live.sessionId);
     };
     live.channel.onTurnTerminal(retireOnTurnTerminal);
+    // Registered beside the terminal hook and for the same reason: this is the
+    // one place both establishment paths converge on. Identity-gated the same
+    // way — an undead channel that keeps emitting must not route frames into
+    // whatever session occupies this slot NOW — and fail-closed on that gate,
+    // because a frame from a channel the daemon no longer owns is precisely a
+    // frame that must not project.
+    live.channel.onInboundFrame((observation): ThreadFrameRoute => {
+      if (this.#findLiveSession(live.sessionId)?.channel !== live.channel) {
+        return {
+          decision: "quarantined",
+          reason:
+            "frame arrived on a channel this session no longer holds; refused rather than projected into whichever session occupies the slot now",
+        };
+      }
+      return this.#observeInboundFrame(live.sessionId, live.providerSessionId, observation);
+    });
+    // Base registers and the session's own thread identity, established before
+    // any frame can be metered against them.
+    this.#bindSessionThread(live.sessionId, live.providerSessionId, live.establishment);
     // Through the same accessor `closeSession` uses, so a close signalled while
     // this establishment was in flight finds its latch still set rather than
     // replaced by a fresh gate.

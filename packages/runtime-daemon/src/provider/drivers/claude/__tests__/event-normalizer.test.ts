@@ -747,7 +747,10 @@ describe("classifyClaudeFrameFamilyForRouting (T3.11, NS-91)", () => {
       CLAUDE_SUBAGENT_STOP_SIGNAL,
     ];
     for (const frameKind of routableKinds) {
-      expect(classifyClaudeFrameFamilyForRouting(frameKind).scope, frameKind).not.toBe("unknown");
+      expect(
+        classifyClaudeFrameFamilyForRouting(frameKind, { cumulativeUsage: undefined }).scope,
+        frameKind,
+      ).not.toBe("unknown");
     }
   });
 
@@ -759,19 +762,27 @@ describe("classifyClaudeFrameFamilyForRouting (T3.11, NS-91)", () => {
       "control_request/can_use_tool",
       "control_response/success",
     ]) {
-      expect(classifyClaudeFrameFamilyForRouting(connectionScopedKind)).toEqual({
+      expect(
+        classifyClaudeFrameFamilyForRouting(connectionScopedKind, { cumulativeUsage: undefined }),
+      ).toEqual({
         scope: "connection",
       });
     }
   });
 
   it("classifies the compaction marker thread-scoped usage and the lifecycle signals thread-scoped lifecycle", () => {
-    expect(classifyClaudeFrameFamilyForRouting("system/compact_boundary")).toEqual({
+    expect(
+      classifyClaudeFrameFamilyForRouting("system/compact_boundary", {
+        cumulativeUsage: undefined,
+      }),
+    ).toEqual({
       scope: "thread",
       capability: "usage",
     });
     for (const lifecycleSignal of [CLAUDE_SUBAGENT_START_SIGNAL, CLAUDE_SUBAGENT_STOP_SIGNAL]) {
-      expect(classifyClaudeFrameFamilyForRouting(lifecycleSignal)).toEqual({
+      expect(
+        classifyClaudeFrameFamilyForRouting(lifecycleSignal, { cumulativeUsage: undefined }),
+      ).toEqual({
         scope: "thread",
         capability: "lifecycle",
       });
@@ -779,7 +790,40 @@ describe("classifyClaudeFrameFamilyForRouting (T3.11, NS-91)", () => {
   });
 
   it("classifies an unlisted shape unknown — never presumed connection-scoped", () => {
-    expect(classifyClaudeFrameFamilyForRouting("novel/unheard_of")).toEqual({ scope: "unknown" });
+    expect(
+      classifyClaudeFrameFamilyForRouting("novel/unheard_of", { cumulativeUsage: undefined }),
+    ).toEqual({ scope: "unknown" });
+  });
+
+  it("re-classifies a thread-scoped frame that CARRIES a usage reading as thread-scoped usage", () => {
+    // This provider reserves no frame kind for usage: the cumulative readings
+    // ride the same frames as assistant content. Classifying by kind alone
+    // would route a registered child's usage-bearing frame to plain transcript
+    // suppression, and the child's spend would be scoped out of existence
+    // instead of metered under its own attribution.
+    expect(
+      classifyClaudeFrameFamilyForRouting("system/task_progress", {
+        cumulativeUsage: { namedTurnId: null, cumulative: { input: 10 } },
+      }),
+    ).toEqual({ scope: "thread", capability: "usage" });
+
+    // Same kind, no reading: unchanged.
+    expect(
+      classifyClaudeFrameFamilyForRouting("system/task_progress", { cumulativeUsage: null }),
+    ).toEqual({ scope: "thread", capability: "content" });
+  });
+
+  it("a usage reading never PROMOTES a connection-scoped or unlisted kind into a thread-scoped one", () => {
+    const carriedReading = { cumulativeUsage: { namedTurnId: null, cumulative: { input: 10 } } };
+    // Connection-scoped frames route and meter without an identity already.
+    expect(classifyClaudeFrameFamilyForRouting("system/init", carriedReading)).toEqual({
+      scope: "connection",
+    });
+    // And an unlisted kind stays fail-closed: a frame does not become routable
+    // because it happened to carry a number.
+    expect(classifyClaudeFrameFamilyForRouting("novel/unheard_of", carriedReading)).toEqual({
+      scope: "unknown",
+    });
   });
 });
 

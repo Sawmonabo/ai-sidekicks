@@ -291,7 +291,7 @@ export async function resolveProviderExecutable(
   requestedCommand: string,
   dependencies: Partial<ProviderExecutableResolverDependencies> = {},
 ): Promise<ResolvedProviderExecutable> {
-  const deps = resolveExecutableResolverDependencies(dependencies);
+  const resolvedDependencies = resolveExecutableResolverDependencies(dependencies);
   if (requestedCommand.trim() === "") {
     throw new ProviderExecutableUnresolvableError(
       driverName,
@@ -300,8 +300,8 @@ export async function resolveProviderExecutable(
     );
   }
 
-  const environment = deps.readEnvironment();
-  const isWindows = deps.platform === "win32";
+  const environment = resolvedDependencies.readEnvironment();
+  const isWindows = resolvedDependencies.platform === "win32";
   const pathExtensions = isWindows
     ? (environment["PATHEXT"] ?? "")
         .split(";")
@@ -316,7 +316,7 @@ export async function resolveProviderExecutable(
     requestedCommand.includes("/") ||
     (isWindows && requestedCommand.includes("\\"));
   const searchRoots: string[] = anchored
-    ? [resolve(deps.workingDirectory, requestedCommand)]
+    ? [resolve(resolvedDependencies.workingDirectory, requestedCommand)]
     : (environment["PATH"] ?? "")
         .split(pathDelimiter)
         .filter((entry) => entry !== "")
@@ -327,12 +327,12 @@ export async function resolveProviderExecutable(
     : searchRoots;
 
   for (const candidate of candidates) {
-    if (!(await deps.isExecutableFile(candidate))) {
+    if (!(await resolvedDependencies.isExecutableFile(candidate))) {
       continue;
     }
     let resolvedExecutablePath: string;
     try {
-      resolvedExecutablePath = await deps.realpath(candidate);
+      resolvedExecutablePath = await resolvedDependencies.realpath(candidate);
     } catch {
       // The candidate vanished (or became unreadable) between the probe and the
       // dereference. Fall through to the next candidate rather than refusing on

@@ -198,11 +198,13 @@ import {
 } from "@ai-sidekicks/contracts";
 
 import type { DriverDiagnosticRecord, DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
-import type {
-  ChildThreadAnnouncement,
-  ThreadFrameFamilyClass,
-  ThreadFrameRoute,
-} from "../../thread-frame-router.js";
+import {
+  TerminalEmissionGate,
+  type TerminalEmissionDecision,
+  type TerminalRunFrame,
+  type TerminalSuppressionReason,
+} from "../../terminal-emission-gate.js";
+import type { ChildThreadAnnouncement, ThreadFrameFamilyClass } from "../../thread-frame-router.js";
 import type { CodexToolName } from "./tools.js";
 
 // --------------------------------------------------------------------------
@@ -610,8 +612,8 @@ export class UnknownCodexInboundFrameError extends Error {
   constructor(nativeMethod: string) {
     super(
       `Unmapped Codex inbound frame method: ${JSON.stringify(nativeMethod)}. ` +
-        "The pinned census in event-normalizer.ts does not cover it; Plan-005 T3.11 " +
-        "replaces this refusal with the daemon diagnostic default branch.",
+        "The pinned census does not cover it; the daemon diagnostic default branch " +
+        "replaces this refusal on the routed normalize path.",
     );
     this.name = "UnknownCodexInboundFrameError";
     this.nativeMethod = nativeMethod;
@@ -1151,7 +1153,7 @@ export function resolveCodexFrameEmissionRoute(
       kind: "unmapped_wire_kind",
       rawWireType: nativeMethod,
       dispositionReason:
-        "wire method outside the pinned Codex inbound census; routed to the daemon diagnostic default branch per Plan-005 T3.11 P0-1, never silently dropped and never forced into an envelope",
+        "wire method outside the pinned Codex inbound census; routed to the daemon diagnostic default branch, never silently dropped and never forced into an envelope",
       details: {},
     };
     diagnostics.emit(record);
@@ -1168,7 +1170,7 @@ export function resolveCodexFrameEmissionRoute(
         kind: "unmapped_wire_kind",
         rawWireType: nativeMethod,
         dispositionReason:
-          "interim typePending kind whose SessionEventType literal has not landed; routed to the diagnostic branch until the census amendment lands its literal (Plan-006 T1.8 interim-disposition seam)",
+          "interim typePending kind whose SessionEventType literal has not landed; routed to the diagnostic branch until the census amendment lands its literal",
         details: { normalizedKind: normalization.normalizedKind },
       };
       diagnostics.emit(record);
@@ -1181,7 +1183,7 @@ export function resolveCodexFrameEmissionRoute(
       kind: "payload_variant_pending",
       rawWireType: nativeMethod,
       dispositionReason:
-        "censused kind whose target SessionEventType has no registered SessionEventSchema payload variant; envelope construction forbidden by Plan-006 T1.10's flip-is-not-emission rule, so the frame routes to the diagnostic branch",
+        "censused kind whose target SessionEventType has no registered SessionEventSchema payload variant; envelope construction is forbidden without one, so the frame routes to the diagnostic branch",
       details: { eventType: normalization.eventType },
     };
     diagnostics.emit(record);
@@ -1207,8 +1209,26 @@ export function resolveCodexFrameEmissionRoute(
  * usage-delta accountant meters, each consumed at its own T3.11 band rather
  * than projected through the mapping table above.
  */
-export const CODEX_THREAD_STARTED_METHOD = "thread/started";
-export const CODEX_THREAD_TOKEN_USAGE_METHOD = "thread/tokenUsage/updated";
+export const CODEX_THREAD_STARTED_METHOD = "thread/started" as const;
+export const CODEX_THREAD_TOKEN_USAGE_METHOD = "thread/tokenUsage/updated" as const;
+
+/**
+ * The `turn/*` lifecycle pair, likewise absent from the census union above and
+ * likewise router-band rather than mapping-table input.
+ *
+ * `turn/completed` is the provider's ONLY terminal-turn notification (the
+ * generated `ServerNotification` union at the pin carries no `turn/failed` and
+ * no `turn/interrupted`; a failed or interrupted turn arrives here and is
+ * discriminated by `turn.status`), and it carries a top-level `threadId`, so it
+ * is routable by thread identity: on the session's own thread it is the frame
+ * the T3.14 emission gate admits, and on a registered child it is that child's
+ * terminal — the completion signal the router releases child state on. There is
+ * no `thread/status/changed` or `thread/ended` anywhere in the pinned generated
+ * root or in `docs/reference/provider-wire/codex.md`, which is why the child
+ * terminal is read off this method rather than off a thread-lifecycle one.
+ */
+export const CODEX_TURN_STARTED_METHOD = "turn/started" as const;
+export const CODEX_TURN_COMPLETED_METHOD = "turn/completed" as const;
 
 /**
  * The `ThreadSourceKind` arms that mark a provider-attributed SUBAGENT child
@@ -1274,8 +1294,13 @@ export function classifyCodexFrameFamilyForRouting(nativeMethod: string): Thread
     case "thread/compacted":
       return { scope: "thread", capability: "usage" };
     // Thread-scoped lifecycle: the thread-start announcement (the router's
-    // registration input).
+    // registration input) and the turn-boundary pair. `turn/completed` MUST be
+    // classified here — it is the session's own terminal, and an unclassified
+    // terminal would quarantine instead of reaching the T3.14 emission gate,
+    // which admits only a `project` route.
     case CODEX_THREAD_STARTED_METHOD:
+    case CODEX_TURN_STARTED_METHOD:
+    case CODEX_TURN_COMPLETED_METHOD:
       return { scope: "thread", capability: "lifecycle" };
     // Thread-scoped interactive requests: the approval / input / tool asks.
     case "item/tool/call":
@@ -1344,134 +1369,26 @@ export function classifyCodexFrameFamilyForRouting(nativeMethod: string): Thread
 // settles the parent's run, and this boundary adds no second source of truth
 // for whose stream a frame came from.
 
-/** One terminal `run_lifecycle` frame as the emission boundary sees it. */
-export interface CodexTerminalRunFrame {
-  readonly runId: string;
-  /**
-   * The run epoch. Supplied by the caller rather than read from the wire: the
-   * provider has no notion of a daemon run version, and `StartRunParams`
-   * deliberately carries none, so the emission pipeline that owns the run
-   * record supplies the second half of the uniqueness key.
-   */
-  readonly runVersion: number;
-  /** The provider method that produced the terminal, carried as data only. */
-  readonly rawWireType: string;
-  /** The T3.11 router's decision for this frame, consumed unchanged. */
-  readonly route: ThreadFrameRoute;
-}
-
-/** Why a terminal frame did not settle its run. */
-export type CodexTerminalSuppressionReason =
-  /** A terminal for this `(runId, runVersion)` epoch already settled it. */
-  | "duplicate-terminal-epoch"
-  /** The router did not route this frame to the session's own thread. */
-  | "not-the-session-thread";
-
-/** The boundary's decision for one terminal frame. */
-export type CodexTerminalEmissionDecision =
-  | {
-      readonly emit: true;
-      readonly runId: string;
-      readonly runVersion: number;
-      /** P1-1: `true` exactly when a daemon-initiated close preceded it. */
-      readonly intendedClose: boolean;
-    }
-  | { readonly emit: false; readonly suppressionReason: CodexTerminalSuppressionReason };
+/**
+ * The Codex leg's bindings for the provider-neutral emission gate.
+ *
+ * The suppression rule itself lives once at `provider/terminal-emission-gate.ts`
+ * — the two driver legs feed ONE shared uniqueness index (the Plan-006 partial
+ * unique index), and two implementations of one invariant is one more than the
+ * invariant can survive. What stays here is the Codex-named binding, so the
+ * driver's own callers and its barrel keep naming a Codex symbol.
+ */
+export type CodexTerminalRunFrame = TerminalRunFrame;
+export type CodexTerminalSuppressionReason = TerminalSuppressionReason;
+export type CodexTerminalEmissionDecision = TerminalEmissionDecision;
 
 /**
  * The Codex terminal-emission gate — one instance per provider session, held
  * by the lifecycle module for that session's lifetime.
  *
- * Session-scoped rather than run-scoped because `closeSession` is a SESSION
- * operation: the intent it signals covers whichever run is still in flight
- * when the session goes down, and a run-scoped latch would need the lifecycle
- * module to already know which run the provider is about to terminate — which
- * at teardown is exactly what it does not know.
+ * An empty extension rather than an alias: the Codex leg carries no
+ * census-specific gate input TODAY, and inventing one to justify a body would
+ * be a parameter minted ahead of its reader. The named subclass is what a
+ * later census-specific input would land on.
  */
-export class CodexTerminalEmissionGate {
-  /**
-   * How many settled epochs one session remembers.
-   *
-   * Bounded because a long session's run count is unbounded while the window a
-   * duplicate arrives in is not: duplicates are same-turn (a `turn/completed`
-   * racing a process exit) or same-teardown (the post-interrupt double), never
-   * hundreds of runs later. Oldest-first eviction keeps the memory proportional
-   * to the hazard rather than to session age.
-   */
-  static readonly DEFAULT_SETTLED_EPOCH_MEMORY = 256;
-
-  readonly #settledEpochMemory: number;
-  readonly #settledEpochKeysInOrder: string[] = [];
-  readonly #settledEpochKeys = new Set<string>();
-  #intendedCloseSignalled = false;
-
-  constructor(options?: { readonly settledEpochMemory?: number }) {
-    this.#settledEpochMemory =
-      options?.settledEpochMemory ?? CodexTerminalEmissionGate.DEFAULT_SETTLED_EPOCH_MEMORY;
-  }
-
-  /**
-   * Signal a daemon-initiated close (P1-1). Called by the lifecycle module at
-   * the top of `closeSession`, BEFORE teardown asks the provider to stop, so
-   * the terminal the teardown provokes is already inside the intent.
-   */
-  signalIntendedClose(): void {
-    this.#intendedCloseSignalled = true;
-  }
-
-  /** Whether a daemon-initiated close has been signalled for this session. */
-  intendedCloseSignalled(): boolean {
-    return this.#intendedCloseSignalled;
-  }
-
-  /**
-   * Admit one terminal frame, returning whether it may be emitted and — when
-   * it may — the `intendedClose` flag to stamp on its payload.
-   *
-   * Suppression is recorded in the return value rather than thrown: a
-   * duplicate terminal is an ordinary provider behaviour this boundary exists
-   * to absorb, not an error condition, and throwing here would surface it to a
-   * caller whose only correct response is the suppression this method already
-   * performed.
-   */
-  admitTerminalFrame(frame: CodexTerminalRunFrame): CodexTerminalEmissionDecision {
-    if (frame.route.decision !== "project") {
-      return { emit: false, suppressionReason: "not-the-session-thread" };
-    }
-    const epochKey = composeTerminalEpochKey(frame.runId, frame.runVersion);
-    if (this.#settledEpochKeys.has(epochKey)) {
-      return { emit: false, suppressionReason: "duplicate-terminal-epoch" };
-    }
-    this.#settledEpochKeys.add(epochKey);
-    this.#settledEpochKeysInOrder.push(epochKey);
-    if (this.#settledEpochKeysInOrder.length > this.#settledEpochMemory) {
-      const evicted = this.#settledEpochKeysInOrder.shift();
-      if (evicted !== undefined) {
-        this.#settledEpochKeys.delete(evicted);
-      }
-    }
-    return {
-      emit: true,
-      runId: frame.runId,
-      runVersion: frame.runVersion,
-      intendedClose: this.#intendedCloseSignalled,
-    };
-  }
-
-  /** Whether this epoch has already been settled by an emitted terminal. */
-  hasSettledEpoch(runId: string, runVersion: number): boolean {
-    return this.#settledEpochKeys.has(composeTerminalEpochKey(runId, runVersion));
-  }
-}
-
-/**
- * The `(runId, runVersion)` uniqueness key.
- *
- * NUL is the separator because the daemon's provider-output validation seam
- * rejects it in every identity it admits, so no run id can carry one and
- * collide with a different id-plus-version pair by absorbing the separator;
- * `runVersion` is a number and contributes none either.
- */
-function composeTerminalEpochKey(runId: string, runVersion: number): string {
-  return `${runId}\u0000${String(runVersion)}`;
-}
+export class CodexTerminalEmissionGate extends TerminalEmissionGate {}

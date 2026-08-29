@@ -259,6 +259,58 @@ describe("UsageDeltaAccountant (T3.11, I-005-11)", () => {
     ).toBeNull();
   });
 
+  it("refuses a non-finite axis reading instead of writing it into a base register", () => {
+    const { accountant, diagnostics } = makeAccountant();
+    accountant.establishThread("thread-1", { mode: "fresh" });
+    accountant.meterReading({
+      threadId: "thread-1",
+      namedTurnId: "turn-A",
+      cumulative: { input: 100 },
+    });
+
+    // `NaN < 0` is false, so the floor arm cannot catch this: an unfiltered
+    // NaN would be written to the register and every later reading on that
+    // axis would difference against it and produce NaN forever.
+    const metered = accountant.meterReading({
+      threadId: "thread-1",
+      namedTurnId: "turn-A",
+      cumulative: { input: Number.NaN, output: Number.POSITIVE_INFINITY, cachedInput: 7 },
+    });
+
+    // The clean axis still meters; only the rejected ones are dropped, and
+    // EACH rejected figure is recorded on its own — one aggregate record would
+    // not say which axis the provider is publishing garbage on.
+    expect(metered?.axisDeltas).toEqual({ cachedInput: 7 });
+    expect(
+      diagnostics
+        .recentRecordsOfKind("usage_axis_reading_rejected")
+        .map((record) => record.details["axisKey"]),
+    ).toEqual(["input", "output"]);
+
+    // The register is intact: a later good reading differences from 100, not NaN.
+    const recovered = accountant.meterReading({
+      threadId: "thread-1",
+      namedTurnId: "turn-A",
+      cumulative: { input: 160 },
+    });
+    expect(recovered?.axisDeltas.input).toBe(60);
+  });
+
+  it("refuses an axis the token vocabulary does not name rather than minting a register for it", () => {
+    const { accountant, diagnostics } = makeAccountant();
+    accountant.establishThread("thread-1", { mode: "fresh" });
+    const metered = accountant.meterReading({
+      threadId: "thread-1",
+      namedTurnId: "turn-A",
+      // A vendor adding a counter the corpus has no axis for. Metering it
+      // would put an unnamed figure on a receipt; dropping it silently would
+      // hide that the vendor's surface grew.
+      cumulative: { input: 10, reasoningTokens: 5 } as Record<string, number>,
+    });
+    expect(metered?.axisDeltas).toEqual({ input: 10 });
+    expect(diagnostics.recentRecordsOfKind("usage_axis_reading_rejected")).toHaveLength(1);
+  });
+
   it("releases a thread's registers when its provider session ends", () => {
     const { accountant } = makeAccountant();
     accountant.establishThread("thread-1", { mode: "fresh" });
@@ -352,6 +404,34 @@ describe("resolveCostUpdateProvenance (T3.11 P1-6-producer)", () => {
     }
   });
 
+  it("records the discarded reported cost rather than falling through silently", () => {
+    const diagnostics = makeDiagnostics();
+    resolveCostUpdateProvenance({
+      ...ladderDefaults,
+      providerReportedCostCents: Number.NaN,
+      derivedQuote: { costCents: 40, familyMatch: "exact" },
+      nativeCapAdmitted: false,
+      diagnostics,
+    });
+
+    // The provider SENT a cost and the daemon billed a different number. A
+    // silent fall-through would make a provider emitting garbage on every turn
+    // indistinguishable from one emitting no cost at all.
+    expect(diagnostics.recentRecordsOfKind("usage_cross_check_mismatch")).toHaveLength(1);
+  });
+
+  it("an ABSENT reported cost is not a mismatch — nothing was discarded", () => {
+    const diagnostics = makeDiagnostics();
+    resolveCostUpdateProvenance({
+      ...ladderDefaults,
+      providerReportedCostCents: null,
+      derivedQuote: { costCents: 40, familyMatch: "exact" },
+      nativeCapAdmitted: false,
+      diagnostics,
+    });
+    expect(diagnostics.recentRecordsOfKind("usage_cross_check_mismatch")).toHaveLength(0);
+  });
+
   it("family-prefix fallback resolves derived_family_prefix", () => {
     const resolved = resolveCostUpdateProvenance({
       ...ladderDefaults,
@@ -387,6 +467,7 @@ describe("deriveWindowTelemetry (T3.11 P2-6-producer)", () => {
       rawUsedTokens: 50_000,
       windowMaxTokens: 200_000,
       sessionBaselineTokens: 0,
+      exceededWhenCountsAbsent: false,
     });
     expect(telemetry).toEqual({
       windowSource: "provider_reported",
@@ -404,6 +485,7 @@ describe("deriveWindowTelemetry (T3.11 P2-6-producer)", () => {
       const telemetry = deriveWindowTelemetry({
         windowSource: "model_default",
         sessionBaselineTokens: 0,
+        exceededWhenCountsAbsent: false,
         ...halfPair,
       });
       expect(telemetry).toEqual({ windowSource: "model_default", exceeded: false });
@@ -418,6 +500,7 @@ describe("deriveWindowTelemetry (T3.11 P2-6-producer)", () => {
       rawUsedTokens: 62_000,
       windowMaxTokens: 200_000,
       sessionBaselineTokens: 12_000,
+      exceededWhenCountsAbsent: false,
     });
     expect(telemetry.windowUsedTokens).toBe(50_000);
   });
@@ -428,8 +511,44 @@ describe("deriveWindowTelemetry (T3.11 P2-6-producer)", () => {
       rawUsedTokens: 8_000,
       windowMaxTokens: 200_000,
       sessionBaselineTokens: 12_000,
+      exceededWhenCountsAbsent: false,
     });
     expect(telemetry.windowUsedTokens).toBe(0);
+  });
+
+  it("the counts-absent arm carries the wire's own limit signal instead of asserting false", () => {
+    // The half-pair arm cannot derive `exceeded` — that is the whole reason the
+    // counts do not travel. Hardcoding `false` there would have reported a
+    // provider that HAD signalled its limit as comfortably under it, which is
+    // the one reading this telemetry exists to prevent.
+    const signalled = deriveWindowTelemetry({
+      windowSource: "provider_reported",
+      rawUsedTokens: null,
+      windowMaxTokens: null,
+      sessionBaselineTokens: 0,
+      exceededWhenCountsAbsent: true,
+    });
+    expect(signalled).toEqual({ windowSource: "provider_reported", exceeded: true });
+
+    const unsignalled = deriveWindowTelemetry({
+      windowSource: "provider_reported",
+      rawUsedTokens: null,
+      windowMaxTokens: null,
+      sessionBaselineTokens: 0,
+      exceededWhenCountsAbsent: false,
+    });
+    expect(unsignalled).toEqual({ windowSource: "provider_reported", exceeded: false });
+  });
+
+  it("the counts-PRESENT arm ignores the wire signal and derives from the counts", () => {
+    const telemetry = deriveWindowTelemetry({
+      windowSource: "provider_reported",
+      rawUsedTokens: 10,
+      windowMaxTokens: 200_000,
+      sessionBaselineTokens: 0,
+      exceededWhenCountsAbsent: true,
+    });
+    expect(telemetry.exceeded).toBe(false);
   });
 
   it("exceeded flips at the ceiling", () => {
@@ -438,6 +557,7 @@ describe("deriveWindowTelemetry (T3.11 P2-6-producer)", () => {
       rawUsedTokens: 200_000,
       windowMaxTokens: 200_000,
       sessionBaselineTokens: 0,
+      exceededWhenCountsAbsent: false,
     });
     expect(telemetry.exceeded).toBe(true);
   });

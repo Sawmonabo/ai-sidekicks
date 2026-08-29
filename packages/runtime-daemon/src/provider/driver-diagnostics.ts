@@ -66,9 +66,22 @@ export type DriverProviderName = "codex" | "claude";
  *     flip-is-not-emission rule).
  *   - `reorder_buffer_overflow` / `tool_pairing_timeout` — P2-1: the bounded
  *     reorder buffer's two never-silent conditions.
+ *   - `reorder_initiation_ledger_evicted` — P2-1's third bound: the seen-
+ *     initiation ledger is per-provider-session state with no completion
+ *     guarantee, so it is capped and evicted oldest-first. An eviction changes
+ *     how a later completion for that call routes, so it is never silent.
  *   - `usage_delta_floor_hit` — the usage-delta rule: an observed decrease on
  *     a declared-cumulative axis is a falsified declaration, floored at zero
  *     and reported, never emitted as negative spend.
+ *   - `usage_axis_reading_rejected` — a cumulative reading carrying a key
+ *     outside the closed axis list or a non-finite value. Rejected BEFORE it
+ *     reaches a base register: a NaN admitted into a register poisons every
+ *     later delta on that axis (`NaN < 0` is false, so the floor arm never
+ *     fires) and the poison is unrecoverable without a re-establishment.
+ *   - `usage_resume_base_unavailable` — a provider-native resume with no
+ *     prior-emitted cumulative sum to base on. The base starts at zero and the
+ *     first post-resume reading re-meters the pre-resume total, so the
+ *     overstatement is recorded rather than left to surface on a receipt.
  *   - `usage_cross_check_mismatch` — a wire-declared per-turn figure
  *     disagreeing with the derived interval; recorded, never substituted.
  *   - `usage_containment_identity_unconfirmed` — a token breakdown satisfying
@@ -85,6 +98,17 @@ export type DriverProviderName = "codex" | "claude";
  *   - `thread_child_transcript_suppressed` — first suppression of a registered
  *     child thread's transcript projection (deduplicated per thread so child
  *     content deltas do not flood the channel).
+ *
+ * Two are owned by the T3.12 capability-refresh cadence. They live here for the
+ * same reason as everything else on this union: a scheduler-local callback
+ * would be a second diagnostic surface, and a failure reported there is
+ * unmetered.
+ *
+ *   - `capability_refresh_failed` — a driver's capability re-declaration threw
+ *     or exceeded its liveness deadline during a scheduled refresh.
+ *   - `auth_probe_failed` — a driver's auth probe threw or exceeded its
+ *     liveness deadline, so the node's auth state for that driver is unchanged
+ *     rather than presumed authenticated.
  *
  * The remaining five are owned by named Plan-005 T3.15 legs (callback-tool
  * hosting, leg 3; `subagentPolicy` pass-through, leg 4). They live here rather
@@ -114,7 +138,10 @@ export type DriverDiagnosticKind =
   | "payload_variant_pending"
   | "reorder_buffer_overflow"
   | "tool_pairing_timeout"
+  | "reorder_initiation_ledger_evicted"
   | "usage_delta_floor_hit"
+  | "usage_axis_reading_rejected"
+  | "usage_resume_base_unavailable"
   | "usage_cross_check_mismatch"
   | "usage_containment_identity_unconfirmed"
   | "thread_frame_quarantined"
@@ -122,6 +149,8 @@ export type DriverDiagnosticKind =
   | "thread_pending_hold_shed"
   | "thread_registration_refused"
   | "thread_child_transcript_suppressed"
+  | "capability_refresh_failed"
+  | "auth_probe_failed"
   | "callback_tool_seam_absent"
   | "callback_tool_registry_withheld"
   | "callback_tool_invocation_refused"
@@ -163,7 +192,10 @@ export const DRIVER_DIAGNOSTIC_COUNTER_NAMES: Readonly<Record<DriverDiagnosticKi
     payload_variant_pending: "driver.normalize.payload_variant_pending",
     reorder_buffer_overflow: "driver.reorder_buffer.overflow",
     tool_pairing_timeout: "driver.reorder_buffer.pairing_timeout",
+    reorder_initiation_ledger_evicted: "driver.reorder_buffer.initiation_ledger_evicted",
     usage_delta_floor_hit: "driver.usage_delta.floor_hit",
+    usage_axis_reading_rejected: "driver.usage_delta.axis_reading_rejected",
+    usage_resume_base_unavailable: "driver.usage_delta.resume_base_unavailable",
     usage_cross_check_mismatch: "driver.usage_delta.cross_check_mismatch",
     usage_containment_identity_unconfirmed: "driver.usage_delta.containment_unconfirmed",
     thread_frame_quarantined: "driver.thread_router.quarantined",
@@ -171,6 +203,8 @@ export const DRIVER_DIAGNOSTIC_COUNTER_NAMES: Readonly<Record<DriverDiagnosticKi
     thread_pending_hold_shed: "driver.thread_router.pending_hold_shed",
     thread_registration_refused: "driver.thread_router.registration_refused",
     thread_child_transcript_suppressed: "driver.thread_router.child_transcript_suppressed",
+    capability_refresh_failed: "driver.capability_refresh.declaration_failed",
+    auth_probe_failed: "driver.capability_refresh.auth_probe_failed",
     callback_tool_seam_absent: "driver.callback_tool.seam_absent",
     callback_tool_registry_withheld: "driver.callback_tool.registry_withheld",
     callback_tool_invocation_refused: "driver.callback_tool.invocation_refused",
@@ -341,8 +375,15 @@ export interface ReorderBufferedEvent<TEvent> {
 }
 
 /**
- * The bounded reorder buffer the normalize boundary carries (Plan-005 T3.11
- * P2-1). Per-run arrival order is preserved; the single reordering it performs
+ * The bounded reorder buffer for a normalize boundary that pairs tool events
+ * (Plan-005 T3.11 P2-1).
+ *
+ * Constructed by the EMISSION PIPELINE, not by a driver lifecycle band: pairing
+ * operates on normalized events, and the lifecycle bands hand raw frames to
+ * that pipeline rather than producing events of their own. Stated so the class
+ * is not read as already carried by a driver.
+ *
+ * Per-run arrival order is preserved; the single reordering it performs
  * is holding a tool COMPLETION that arrived before its INITIATION until the
  * initiation lands, so tool events pair by `toolCallId` for downstream
  * consumers. No global causal-order guarantee across aggregates is attempted.
@@ -357,18 +398,32 @@ export interface ReorderBufferedEvent<TEvent> {
  *     the expired event flushes in arrival order and
  *     `driver.reorder_buffer.pairing_timeout` increments.
  *
+ * A third bound covers the SEEN-INITIATION LEDGER, which is not a buffer of
+ * events but of identities. It grows once per tool call for the life of a
+ * provider session, and no wire guarantees a completion ever arrives, so an
+ * unbounded ledger is a leak on the longest-lived object in the driver. It is
+ * capped at `maxSeenInitiationIds`, drained on pairing (a paired call needs no
+ * further ledger entry), and evicted oldest-first with the never-silent
+ * `driver.reorder_buffer.initiation_ledger_evicted` diagnostic — eviction
+ * changes how a later completion for that call routes, so it is reported.
+ *
  * The clock is caller-supplied (`nowMs` on every admitting call) so the buffer
  * is deterministic under test and owns no timer.
  */
 export class NormalizedEventReorderBuffer<TEvent> {
+  /** Ledger cap when the caller declares none. */
+  static readonly DEFAULT_MAX_SEEN_INITIATION_IDS = 1024;
+
   readonly #provider: DriverProviderName;
   readonly #diagnostics: DriverDiagnosticsEmitter;
   readonly #maxBufferedEvents: number;
   readonly #pairingTimeoutMs: number;
+  readonly #maxSeenInitiationIds: number;
   readonly #heldCompletions: {
     readonly buffered: ReorderBufferedEvent<TEvent>;
     readonly heldAtMs: number;
   }[] = [];
+  /** Insertion-ordered, so the eviction sweep takes the oldest entry first. */
   readonly #seenInitiationToolCallIds = new Set<string>();
 
   constructor(options: {
@@ -376,11 +431,14 @@ export class NormalizedEventReorderBuffer<TEvent> {
     readonly diagnostics: DriverDiagnosticsEmitter;
     readonly maxBufferedEvents: number;
     readonly pairingTimeoutMs: number;
+    readonly maxSeenInitiationIds?: number;
   }) {
     this.#provider = options.provider;
     this.#diagnostics = options.diagnostics;
     this.#maxBufferedEvents = options.maxBufferedEvents;
     this.#pairingTimeoutMs = options.pairingTimeoutMs;
+    this.#maxSeenInitiationIds =
+      options.maxSeenInitiationIds ?? NormalizedEventReorderBuffer.DEFAULT_MAX_SEEN_INITIATION_IDS;
   }
 
   /**
@@ -402,14 +460,21 @@ export class NormalizedEventReorderBuffer<TEvent> {
         }
         return released;
       }
+      // The pair is closed: the ledger entry has no further reader, so drop it
+      // rather than retaining one identity per tool call for the session.
+      this.#seenInitiationToolCallIds.delete(buffered.toolCallId);
       released.push(buffered.event);
       return released;
     }
 
     if (buffered.pairingRole === "initiation" && buffered.toolCallId !== null) {
-      this.#seenInitiationToolCallIds.add(buffered.toolCallId);
+      this.#admitSeenInitiation(buffered.toolCallId);
       released.push(buffered.event);
-      released.push(...this.#releaseHeldCompletionsFor(buffered.toolCallId));
+      const pairedCompletions = this.#releaseHeldCompletionsFor(buffered.toolCallId);
+      if (pairedCompletions.length > 0) {
+        this.#seenInitiationToolCallIds.delete(buffered.toolCallId);
+      }
+      released.push(...pairedCompletions);
       return released;
     }
 
@@ -425,6 +490,33 @@ export class NormalizedEventReorderBuffer<TEvent> {
   /** The number of events currently held awaiting a pair. */
   heldEventCount(): number {
     return this.#heldCompletions.length;
+  }
+
+  /** Identities currently retained in the seen-initiation ledger. */
+  seenInitiationCount(): number {
+    return this.#seenInitiationToolCallIds.size;
+  }
+
+  #admitSeenInitiation(toolCallId: string): void {
+    this.#seenInitiationToolCallIds.add(toolCallId);
+    while (this.#seenInitiationToolCallIds.size > this.#maxSeenInitiationIds) {
+      const oldestEntry = this.#seenInitiationToolCallIds.values().next();
+      if (oldestEntry.done === true) {
+        return;
+      }
+      this.#seenInitiationToolCallIds.delete(oldestEntry.value);
+      this.#diagnostics.emit({
+        provider: this.#provider,
+        kind: "reorder_initiation_ledger_evicted",
+        rawWireType: null,
+        dispositionReason:
+          "seen-initiation ledger exceeded its declared cap; oldest identity evicted, so a later completion for it holds instead of pairing",
+        details: {
+          toolCallId: oldestEntry.value,
+          maxSeenInitiationIds: this.#maxSeenInitiationIds,
+        },
+      });
+    }
   }
 
   #releaseHeldCompletionsFor(toolCallId: string): TEvent[] {
@@ -451,7 +543,7 @@ export class NormalizedEventReorderBuffer<TEvent> {
           kind: "tool_pairing_timeout",
           rawWireType: null,
           dispositionReason:
-            "unpaired toolCallId held past pairingTimeoutMs; flushed in arrival order per Plan-005 T3.11 P2-1",
+            "unpaired toolCallId held past the reorder buffer's pairing timeout; flushed in arrival order",
           details: {
             toolCallId: held.buffered.toolCallId,
             heldForMs: nowMs - held.heldAtMs,
@@ -474,7 +566,7 @@ export class NormalizedEventReorderBuffer<TEvent> {
       kind: "reorder_buffer_overflow",
       rawWireType: null,
       dispositionReason:
-        "reorder buffer exceeded maxBufferedEvents; flushed in arrival order per Spec-006 §Required Behavior overflow rule",
+        "reorder buffer exceeded its maximum buffered-event cap; flushed in arrival order",
       details: { flushedEventCount: flushedCount, maxBufferedEvents: this.#maxBufferedEvents },
     });
     return flushed;

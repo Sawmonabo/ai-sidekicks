@@ -192,4 +192,70 @@ describe("NormalizedEventReorderBuffer (T3.11 P2-1)", () => {
     );
     expect(released).toEqual(["done-1", "later-delta"]);
   });
+
+  it("drops a tool call from the seen-initiation ledger once its pair closes", () => {
+    const { buffer } = makeBuffer();
+    buffer.admit({ toolCallId: "tool-1", pairingRole: "initiation", event: "start-1" }, 0);
+    expect(buffer.seenInitiationCount()).toBe(1);
+
+    // A closed pair can never need its ledger entry again. Retaining it would
+    // make the ledger grow with every tool call for the life of the session,
+    // which on a long-running provider session is unbounded in practice even
+    // though nothing is "leaked" in the buffer itself.
+    buffer.admit({ toolCallId: "tool-1", pairingRole: "completion", event: "done-1" }, 1);
+    expect(buffer.seenInitiationCount()).toBe(0);
+  });
+
+  it("drops the ledger entry on the other closing path too — an initiation releasing held completions", () => {
+    const { buffer } = makeBuffer();
+    buffer.admit({ toolCallId: "tool-1", pairingRole: "completion", event: "done-1" }, 0);
+    buffer.admit({ toolCallId: "tool-1", pairingRole: "initiation", event: "start-1" }, 1);
+    expect(buffer.seenInitiationCount()).toBe(0);
+  });
+
+  it("bounds the seen-initiation ledger: oldest evicted first, each eviction a diagnostic", () => {
+    const counterSink = new InMemoryDriverDiagnosticCounterSink();
+    const emitter = new DriverDiagnosticsEmitter({
+      logSink: { record: () => undefined },
+      counterSink,
+    });
+    const buffer = new NormalizedEventReorderBuffer<string>({
+      provider: "codex",
+      diagnostics: emitter,
+      maxBufferedEvents: 4,
+      pairingTimeoutMs: 60_000,
+      maxSeenInitiationIds: 2,
+    });
+
+    // Three initiations that never complete — the shape a provider produces
+    // when a turn is interrupted mid-tool. Without the cap the ledger keeps
+    // every one of them forever.
+    for (const ordinal of [1, 2, 3]) {
+      buffer.admit(
+        {
+          toolCallId: `tool-${String(ordinal)}`,
+          pairingRole: "initiation",
+          event: `start-${String(ordinal)}`,
+        },
+        ordinal,
+      );
+    }
+    expect(buffer.seenInitiationCount()).toBe(2);
+
+    const evictions = emitter.recentRecordsOfKind("reorder_initiation_ledger_evicted");
+    expect(evictions).toHaveLength(1);
+    // Oldest first, so the surviving entries are the ones a late completion is
+    // most likely to still be racing.
+    expect(evictions[0]?.details["toolCallId"]).toBe("tool-1");
+    expect(counterSink.totalFor("driver.reorder_buffer.initiation_ledger_evicted")).toBe(1);
+
+    // The consequence the eviction buys, made explicit: an evicted call's late
+    // completion is held rather than released, and sheds at the pairing
+    // timeout with its own diagnostic — bounded memory, never a silent drop.
+    expect(
+      buffer.admit({ toolCallId: "tool-1", pairingRole: "completion", event: "done-1" }, 4),
+    ).toEqual([]);
+    expect(buffer.flushExpired(60_004)).toEqual(["done-1"]);
+    expect(emitter.recentRecordsOfKind("tool_pairing_timeout")).toHaveLength(1);
+  });
 });

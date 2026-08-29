@@ -7,7 +7,9 @@
 // earlier turn on every later one — measured 22× overstatement of session
 // spend on a long thread, landing on the `Spec-016 §Session Cost Receipt`
 // committed-spend fold rather than on a display. This module is the single
-// metering path both normalizers emit usage through, and it enforces
+// metering path both driver legs emit usage through — each session's lifecycle
+// band constructs one and meters every routed usage frame through it — and it
+// enforces
 // I-005-11: a driver never emits a provider's cumulative counter as a per-turn
 // figure, and no normalized token axis counts a token twice.
 //
@@ -83,6 +85,63 @@ export type UsageTokenAxis =
 
 /** Cumulative counter values by axis, as read off one wire frame. */
 export type CumulativeAxisReadings = Readonly<Partial<Record<UsageTokenAxis, number>>>;
+
+/**
+ * The closed axis list, frozen. Readings arrive from untrusted provider output,
+ * so every entry is filtered against this list rather than trusted to carry
+ * only declared keys.
+ */
+const USAGE_TOKEN_AXES: readonly UsageTokenAxis[] = Object.freeze([
+  "input",
+  "cachedInput",
+  "cacheWriteInput",
+  "output",
+  "reasoningOutput",
+  "total",
+] as const);
+
+const USAGE_TOKEN_AXIS_SET: ReadonlySet<string> = new Set<string>(USAGE_TOKEN_AXES);
+
+/** Why one entry of a cumulative reading may not reach a base register. */
+type RejectedAxisEntryReason = "unknown-axis" | "non-finite-value";
+
+/**
+ * A cumulative reading split into the entries a register may accept and the
+ * entries it must not.
+ */
+interface PartitionedAxisEntries {
+  readonly accepted: readonly (readonly [UsageTokenAxis, number])[];
+  readonly rejected: readonly {
+    readonly key: string;
+    readonly reason: RejectedAxisEntryReason;
+  }[];
+}
+
+/**
+ * Split one cumulative reading's own entries against the closed axis list.
+ *
+ * The single filter every register write and every cross-check passes through.
+ * A non-finite value is rejected here rather than floored downstream because
+ * the floor arm cannot catch it — `NaN < 0` is false, so a NaN would be written
+ * straight into the base register and every later delta on that axis would be
+ * NaN with no diagnostic and no path back short of re-establishing the thread.
+ */
+function partitionCumulativeAxisEntries(readings: CumulativeAxisReadings): PartitionedAxisEntries {
+  const accepted: (readonly [UsageTokenAxis, number])[] = [];
+  const rejected: { readonly key: string; readonly reason: RejectedAxisEntryReason }[] = [];
+  for (const [key, value] of Object.entries(readings)) {
+    if (!USAGE_TOKEN_AXIS_SET.has(key)) {
+      rejected.push({ key, reason: "unknown-axis" });
+      continue;
+    }
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      rejected.push({ key, reason: "non-finite-value" });
+      continue;
+    }
+    accepted.push([key as UsageTokenAxis, value]);
+  }
+  return { accepted, rejected };
+}
 
 /**
  * One cumulative usage reading, as consumed at the normalize boundary.
@@ -173,11 +232,15 @@ export class UsageDeltaAccountant {
   establishThread(threadId: string, establishment: ThreadBaseEstablishment): void {
     const baseRegisters = new Map<UsageTokenAxis, number>();
     if (establishment.mode === "resume") {
-      for (const [axis, priorEmittedSum] of Object.entries(
-        establishment.priorEmittedCumulative,
-      ) as [UsageTokenAxis, number][]) {
+      // The resume arm writes DIRECTLY into the registers, so it is filtered on
+      // exactly the same terms as a metered reading: a non-finite prior-emitted
+      // sum would poison the base before any reading is taken, and an unpriced
+      // NaN base is not recoverable by the floor arm downstream.
+      const partitioned = partitionCumulativeAxisEntries(establishment.priorEmittedCumulative);
+      for (const [axis, priorEmittedSum] of partitioned.accepted) {
         baseRegisters.set(axis, priorEmittedSum);
       }
+      this.#reportRejectedAxisEntries(threadId, partitioned.rejected, "resume-establishment");
     }
     this.#baseRegistersByThreadId.set(threadId, baseRegisters);
   }
@@ -206,11 +269,11 @@ export class UsageDeltaAccountant {
       return null;
     }
 
+    const partitioned = partitionCumulativeAxisEntries(reading.cumulative);
+    this.#reportRejectedAxisEntries(reading.threadId, partitioned.rejected, "metered-reading");
+
     const axisDeltas: Partial<Record<UsageTokenAxis, number>> = {};
-    for (const [axis, cumulativeValue] of Object.entries(reading.cumulative) as [
-      UsageTokenAxis,
-      number,
-    ][]) {
+    for (const [axis, cumulativeValue] of partitioned.accepted) {
       const baseValue = baseRegisters.get(axis) ?? 0;
       let axisDelta = cumulativeValue - baseValue;
       if (axisDelta < 0) {
@@ -223,7 +286,7 @@ export class UsageDeltaAccountant {
           kind: "usage_delta_floor_hit",
           rawWireType: null,
           dispositionReason:
-            "declared-cumulative axis decreased; emission floored at zero and base re-set to the observed reading per Spec-005 §Required Behavior",
+            "declared-cumulative token axis decreased; emission floored at zero and the base register re-set to the observed reading",
           details: {
             threadId: reading.threadId,
             axis,
@@ -258,6 +321,31 @@ export class UsageDeltaAccountant {
   }
 
   /**
+   * Record every entry the axis filter refused. Never silent: a reading whose
+   * axis vanished from the emission is a measurement the daemon did not take,
+   * and an operator reconciling a receipt against a provider invoice needs the
+   * refusal in the channel rather than an unexplained gap.
+   */
+  #reportRejectedAxisEntries(
+    threadId: string,
+    rejectedEntries: readonly { readonly key: string; readonly reason: RejectedAxisEntryReason }[],
+    stage: "resume-establishment" | "metered-reading" | "declared-per-turn",
+  ): void {
+    for (const rejectedEntry of rejectedEntries) {
+      this.#diagnostics.emit({
+        provider: this.#provider,
+        kind: "usage_axis_reading_rejected",
+        rawWireType: null,
+        dispositionReason:
+          rejectedEntry.reason === "unknown-axis"
+            ? "cumulative reading carried a key outside the closed axis list; refused before it reached a base register"
+            : "cumulative reading carried a non-finite value; refused before it reached a base register, which the zero-floor arm cannot undo",
+        details: { threadId, axisKey: rejectedEntry.key, reason: rejectedEntry.reason, stage },
+      });
+    }
+  }
+
+  /**
    * The wire-declared per-turn figure corroborates the derived interval —
    * asserted equal for the naming turn, mismatch recorded, NEVER substituted.
    */
@@ -269,10 +357,9 @@ export class UsageDeltaAccountant {
     if (declaredPerTurn === undefined || declaredPerTurn === null) {
       return;
     }
-    for (const [axis, declaredValue] of Object.entries(declaredPerTurn) as [
-      UsageTokenAxis,
-      number,
-    ][]) {
+    const partitioned = partitionCumulativeAxisEntries(declaredPerTurn);
+    this.#reportRejectedAxisEntries(reading.threadId, partitioned.rejected, "declared-per-turn");
+    for (const [axis, declaredValue] of partitioned.accepted) {
       const derivedInterval = axisDeltas[axis];
       if (derivedInterval !== undefined && derivedInterval !== declaredValue) {
         this.#diagnostics.emit({
@@ -280,7 +367,7 @@ export class UsageDeltaAccountant {
           kind: "usage_cross_check_mismatch",
           rawWireType: null,
           dispositionReason:
-            "wire-declared per-turn figure disagrees with the derived interval; recorded and not substituted per Spec-005 §Required Behavior",
+            "wire-declared per-turn figure disagrees with the derived interval; recorded as a cross-check and never substituted for it",
           details: {
             threadId: reading.threadId,
             namedTurnId: reading.namedTurnId,
@@ -340,7 +427,7 @@ export class UsageDeltaAccountant {
         kind: "usage_containment_identity_unconfirmed",
         rawWireType: null,
         dispositionReason:
-          "token breakdown satisfies no containment identity; input emitted unsubtracted per Spec-005 §Required Behavior (conservative overstatement surfaced for repair)",
+          "token breakdown satisfies no containment identity; input emitted unsubtracted (a conservative overstatement surfaced for repair, never a silent understatement)",
         details: {
           threadId: reading.threadId,
           namedTurnId: reading.namedTurnId,
@@ -361,8 +448,10 @@ export class UsageDeltaAccountant {
 // T3.11 P1-6-producer — 3-tier cost resolution + native-cap provenance.
 // --------------------------------------------------------------------------
 
-/** The full four-value `Spec-006 §Usage Telemetry (usage_telemetry)` cost-provenance enum. */
+/** The `Spec-006 §Usage Telemetry (usage_telemetry)` cost-status enum. */
 export type UsageCostStatus = "priced" | "unpriced";
+
+/** The full four-value `Spec-006 §Usage Telemetry (usage_telemetry)` cost-provenance enum. */
 export type UsageCostSource =
   | "provider_reported"
   | "derived_exact"
@@ -386,18 +475,22 @@ export interface DerivedCostQuote {
  * structurally absent on the unpriced arm: no per-update value is derivable
  * there, and the USD bound lives on the `run.queued`
  * `admittedUnpricedCapCents`, never on per-update rows.
+ *
+ * Both arms are stated as partitions of the Spec-006 enums above rather than as
+ * re-spelled literals, so widening either enum without placing the new value on
+ * an arm is a compile error here rather than a silently unreachable provenance.
  */
 export type CostUpdateResolution =
   | {
       readonly resolution: "cost-update";
-      readonly costStatus: "priced";
-      readonly costSource: "provider_reported" | "derived_exact" | "derived_family_prefix";
+      readonly costStatus: Extract<UsageCostStatus, "priced">;
+      readonly costSource: Exclude<UsageCostSource, "unpriced_native_cap">;
       readonly costCents: number;
     }
   | {
       readonly resolution: "cost-update";
-      readonly costStatus: "unpriced";
-      readonly costSource: "unpriced_native_cap";
+      readonly costStatus: Extract<UsageCostStatus, "unpriced">;
+      readonly costSource: Extract<UsageCostSource, "unpriced_native_cap">;
       readonly costCents?: never;
     }
   | { readonly resolution: "budget-warning"; readonly reason: "unpriced-model" };
@@ -432,38 +525,55 @@ export function resolveCostUpdateProvenance(options: {
   readonly diagnostics: DriverDiagnosticsEmitter;
 }): CostUpdateResolution {
   const reportedCents = options.providerReportedCostCents;
-  if (
-    reportedCents !== null &&
-    Number.isFinite(reportedCents) &&
-    reportedCents >= 0 &&
-    reportedCents < options.absurdityCeilingCents
-  ) {
-    const derivedCents = options.derivedQuote?.costCents ?? null;
+  if (reportedCents !== null) {
     if (
-      derivedCents !== null &&
-      derivedCents > 0 &&
-      (reportedCents > derivedCents * options.grossDivergenceFactor ||
-        reportedCents * options.grossDivergenceFactor < derivedCents)
+      Number.isFinite(reportedCents) &&
+      reportedCents >= 0 &&
+      reportedCents < options.absurdityCeilingCents
     ) {
-      options.diagnostics.emit({
-        provider: options.provider,
-        kind: "usage_cross_check_mismatch",
-        rawWireType: null,
-        dispositionReason:
-          "provider-reported cost grossly diverges from the derivable estimate; reported provenance kept, divergence surfaced (Plan-005 T3.11 P1-6-producer)",
-        details: {
-          providerReportedCostCents: reportedCents,
-          derivedEstimateCents: derivedCents,
-          grossDivergenceFactor: options.grossDivergenceFactor,
-        },
-      });
+      const derivedCents = options.derivedQuote?.costCents ?? null;
+      if (
+        derivedCents !== null &&
+        derivedCents > 0 &&
+        (reportedCents > derivedCents * options.grossDivergenceFactor ||
+          reportedCents * options.grossDivergenceFactor < derivedCents)
+      ) {
+        options.diagnostics.emit({
+          provider: options.provider,
+          kind: "usage_cross_check_mismatch",
+          rawWireType: null,
+          dispositionReason:
+            "provider-reported cost grossly diverges from the derivable estimate; the reported provenance is kept and the divergence surfaced",
+          details: {
+            providerReportedCostCents: reportedCents,
+            derivedEstimateCents: derivedCents,
+            grossDivergenceFactor: options.grossDivergenceFactor,
+          },
+        });
+      }
+      return {
+        resolution: "cost-update",
+        costStatus: "priced",
+        costSource: "provider_reported",
+        costCents: reportedCents,
+      };
     }
-    return {
-      resolution: "cost-update",
-      costStatus: "priced",
-      costSource: "provider_reported",
-      costCents: reportedCents,
-    };
+    // The wire declared a cost and the sanity bound refused it. Falling through
+    // to the derived arm silently would substitute a daemon estimate for a
+    // provider figure with no record that the two ever disagreed — the same
+    // never-substitute-in-silence rule the per-turn cross-check enforces.
+    options.diagnostics.emit({
+      provider: options.provider,
+      kind: "usage_cross_check_mismatch",
+      rawWireType: null,
+      dispositionReason:
+        "provider-reported cost failed the sanity bound (non-finite, negative, or at/above the absurdity ceiling); discarded in favour of the derivation ladder and surfaced rather than dropped",
+      details: {
+        providerReportedCostCents: Number.isFinite(reportedCents) ? reportedCents : null,
+        reportedCostIsFinite: Number.isFinite(reportedCents),
+        absurdityCeilingCents: options.absurdityCeilingCents,
+      },
+    });
   }
   if (options.derivedQuote !== null) {
     return {
@@ -515,6 +625,13 @@ export type WindowTelemetry =
  * Claude leg supplies zero). A frame carrying only half the pair emits the
  * counts-absent arm — provenance and `exceeded` still travel, but no
  * denominator is fabricated and no numerator ships alone.
+ *
+ * On the counts-absent arm `exceeded` is the CALLER'S, because nothing here can
+ * derive it: with no numerator or no denominator there is no comparison to
+ * make, and a hard-coded `false` would assert "not exceeded" about a window
+ * this function never measured. That arm exists precisely because the Spec-006
+ * counts-absent update is a provenance-and-`exceeded` signal, so its caller
+ * holds the wire's own limit signal and states it here.
  */
 export function deriveWindowTelemetry(options: {
   readonly windowSource: WindowSource;
@@ -524,6 +641,11 @@ export function deriveWindowTelemetry(options: {
   readonly windowMaxTokens: number | null;
   /** Session-constant overhead subtracted before use (Codex ~12k; Claude 0). */
   readonly sessionBaselineTokens: number;
+  /**
+   * The wire's own limit signal, consumed ONLY on the counts-absent arm. The
+   * counts-present arm derives `exceeded` from the counts and ignores this.
+   */
+  readonly exceededWhenCountsAbsent: boolean;
 }): WindowTelemetry {
   if (options.rawUsedTokens !== null && options.windowMaxTokens !== null) {
     const windowUsedTokens = Math.max(0, options.rawUsedTokens - options.sessionBaselineTokens);
@@ -534,5 +656,5 @@ export function deriveWindowTelemetry(options: {
       windowMaxTokens: options.windowMaxTokens,
     };
   }
-  return { windowSource: options.windowSource, exceeded: false };
+  return { windowSource: options.windowSource, exceeded: options.exceededWhenCountsAbsent };
 }

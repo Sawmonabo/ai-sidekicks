@@ -291,4 +291,100 @@ describe("ThreadFrameRouter (T3.11, I-005-12)", () => {
     expect(grandchildRegistration.registered).toBe(true);
     expect(router.routeFrame(usageFrame("grandchild-thread"), 0).decision).toBe("carve-out-usage");
   });
+
+  it("registering the SESSION's own thread releases the holds that were waiting on it", () => {
+    const { router } = makeRouter();
+    // No session thread yet: the driver has spawned the process but the
+    // provider has not yet answered with the thread identity. A frame that
+    // arrives in that window names an identity the router cannot yet match.
+    const earlyFrame = usageFrame("session-thread", "early-session-usage");
+    expect(router.routeFrame(earlyFrame, 0)).toEqual({ decision: "held-pending-registration" });
+    expect(router.pendingHeldFrameCount()).toBe(1);
+
+    // Releasing on CHILD registration only would have left this frame to be
+    // shed at its timeout — the session's own usage, silently lost, which is
+    // exactly the metering gap the hold exists to prevent.
+    const releasedFrames = router.registerSessionThread("session-thread");
+    expect(releasedFrames.map((frame) => frame.rawWireType)).toEqual(["early-session-usage"]);
+    expect(router.pendingHeldFrameCount()).toBe(0);
+    expect(router.routeFrame(earlyFrame, 1)).toEqual({ decision: "project" });
+  });
+
+  it("session-thread registration releases only the frames that named THAT thread", () => {
+    const { router } = makeRouter();
+    router.routeFrame(usageFrame("session-thread", "mine"), 0);
+    router.routeFrame(usageFrame("some-other-thread", "not-mine"), 0);
+
+    const releasedFrames = router.registerSessionThread("session-thread");
+    expect(releasedFrames.map((frame) => frame.rawWireType)).toEqual(["mine"]);
+    // The foreign identity stays held: it is still unregistered, and releasing
+    // it here would have projected a thread nobody announced.
+    expect(router.pendingHeldFrameCount()).toBe(1);
+  });
+
+  it("completing a child drops its attribution so a later frame no longer carves out", () => {
+    const { router } = makeRouter();
+    router.registerSessionThread("session-thread");
+    router.registerChildThread({
+      childThreadId: "child-thread",
+      declaredParentThreadId: "session-thread",
+      subagentId: "child-thread",
+    });
+    expect(router.childAttributionFor("child-thread")).toEqual({
+      kind: "subagent",
+      subagentId: "child-thread",
+    });
+
+    const completion = router.completeChildThread("child-thread");
+    expect(completion.wasRegistered).toBe(true);
+    expect(completion.abandonedPendingFrames).toEqual([]);
+    expect(router.childAttributionFor("child-thread")).toBeUndefined();
+    // A frame arriving after the child's terminal is no longer a registered
+    // child's frame — it holds pending a registration that will never come,
+    // and is shed at the timeout rather than metered onto a closed child.
+    expect(router.routeFrame(usageFrame("child-thread"), 0)).toEqual({
+      decision: "held-pending-registration",
+    });
+  });
+
+  it("completing a child sheds the frames still held for it, each as a diagnostic", () => {
+    const { router, diagnostics } = makeRouter();
+    router.registerSessionThread("session-thread");
+    router.routeFrame(usageFrame("child-thread", "orphaned-hold"), 0);
+    expect(router.pendingHeldFrameCount()).toBe(1);
+
+    // The child terminated without ever having been announced. Its held frames
+    // can never be released, so they are shed HERE rather than left to occupy
+    // the bounded buffer until their timeout — a shed that is recorded, never
+    // a silent drop.
+    const completion = router.completeChildThread("child-thread");
+    expect(completion.wasRegistered).toBe(false);
+    expect(completion.abandonedPendingFrames.map((frame) => frame.rawWireType)).toEqual([
+      "orphaned-hold",
+    ]);
+    expect(router.pendingHeldFrameCount()).toBe(0);
+    expect(diagnostics.recentRecordsOfKind("thread_pending_hold_shed")).toHaveLength(1);
+  });
+
+  it("completing a child re-arms the once-per-child suppression diagnostic for a NEW child of the same id", () => {
+    const { router, diagnostics } = makeRouter();
+    router.registerSessionThread("session-thread");
+    const contentFrame: RoutableProviderFrame = {
+      rawWireType: "child-content",
+      familyClass: { scope: "thread", capability: "content" },
+      threadId: "child-thread",
+    };
+    for (const cycle of [0, 1]) {
+      router.registerChildThread({
+        childThreadId: "child-thread",
+        declaredParentThreadId: "session-thread",
+        subagentId: `child-thread-${String(cycle)}`,
+      });
+      expect(router.routeFrame(contentFrame, cycle).decision).toBe("suppress-child-transcript");
+      router.completeChildThread("child-thread");
+    }
+    // Two children, two records: the ledger is per-child-lifetime, so a reused
+    // identity is diagnosed again rather than inheriting the first one's entry.
+    expect(diagnostics.recentRecordsOfKind("thread_child_transcript_suppressed")).toHaveLength(2);
+  });
 });

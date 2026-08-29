@@ -43,6 +43,8 @@ import {
 } from "@ai-sidekicks/contracts";
 
 import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
+import type { SubagentLifecycleEmission } from "../../../thread-frame-router.js";
+import type { CumulativeAxisReadings, MeteredUsageDelta } from "../../../usage-delta-accountant.js";
 import {
   CodexAppServerConnection,
   CodexDriver,
@@ -514,7 +516,10 @@ interface ManagerHarness {
   server: FakeCodexAppServer;
   manager: CodexLifecycleManager;
   diagnostics: CodexTransportDiagnostic[];
+  driverDiagnostics: DriverDiagnosticsEmitter;
   notifications: Array<{ method: string; params: unknown }>;
+  meteredUsage: Array<{ sessionId: SessionId; delta: MeteredUsageDelta }>;
+  subagentLifecycle: Array<{ sessionId: SessionId; emission: SubagentLifecycleEmission }>;
   scheduler: ReturnType<typeof makeManualScheduler>;
 }
 
@@ -544,6 +549,11 @@ interface ManagerHarnessOptions {
    * survived, so throwing from every one would make the property unobservable.
    */
   throwOnFirstNotification?: boolean;
+  /** Supplies the daemon's prior-emitted cumulative sums for a resume base. */
+  readPriorEmittedUsage?: (
+    sessionId: SessionId,
+    threadId: string,
+  ) => CumulativeAxisReadings | undefined;
 }
 
 /**
@@ -568,6 +578,9 @@ function createManagerHarness(options: ManagerHarnessOptions = {}): ManagerHarne
   const diagnostics: CodexTransportDiagnostic[] = [];
   const driverDiagnostics = makeSilentDriverDiagnostics();
   const notifications: Array<{ method: string; params: unknown }> = [];
+  const meteredUsage: Array<{ sessionId: SessionId; delta: MeteredUsageDelta }> = [];
+  const subagentLifecycle: Array<{ sessionId: SessionId; emission: SubagentLifecycleEmission }> =
+    [];
   const scheduler = makeManualScheduler();
   let firstDiagnosticThrown = false;
   let firstNotificationThrown = false;
@@ -595,6 +608,11 @@ function createManagerHarness(options: ManagerHarnessOptions = {}): ManagerHarne
     executablePath: EXECUTABLE_PATH,
     resumeSpawnConfig: RESUME_SPAWN_CONFIG,
     newBindingId: options.newBindingId ?? ((): string => "binding-abc"),
+    onMeteredUsage: (sessionId, delta) => meteredUsage.push({ sessionId, delta }),
+    onSubagentLifecycle: (sessionId, emission) => subagentLifecycle.push({ sessionId, emission }),
+    ...(options.readPriorEmittedUsage === undefined
+      ? {}
+      : { readPriorEmittedUsage: options.readPriorEmittedUsage }),
     ...(options.onServerNotification === true
       ? {
           onServerNotification: (method: string, params: unknown): void => {
@@ -607,7 +625,16 @@ function createManagerHarness(options: ManagerHarnessOptions = {}): ManagerHarne
         }
       : {}),
   });
-  return { server, manager, diagnostics, notifications, scheduler };
+  return {
+    server,
+    manager,
+    diagnostics,
+    driverDiagnostics,
+    notifications,
+    meteredUsage,
+    subagentLifecycle,
+    scheduler,
+  };
 }
 
 /** A `turn/completed` frame at the pinned shape (`params.turn.{id,status}`). */
@@ -1315,13 +1342,50 @@ describe("CodexAppServerConnection transport", () => {
     const harness = createHarness();
     await createdSession(harness);
 
-    harness.server.emitFrame({ jsonrpc: "2.0", method: "thread/itemAdded", params: {} });
+    // A CENSUSED, thread-scoped method carrying the session's own thread id, so
+    // it routes to `project` and reaches the hand-off — the seam this asserts.
+    // A frame the router refused would never get there, and would be recorded
+    // as a quarantine instead (asserted separately below).
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      method: "thread/queue/changed",
+      params: { threadId: THREAD_ID },
+    });
     await Promise.resolve();
 
     expect(harness.diagnostics).toContainEqual({
       kind: "unconsumed-server-notification",
+      method: "thread/queue/changed",
+    });
+  });
+
+  it("quarantines a method the routing census does not classify instead of projecting it", async () => {
+    const harness = createHarness();
+    await createdSession(harness);
+
+    // The census fixture states its own completeness limit: 35 named methods
+    // out of a wider generated union. An unlisted method therefore reaches the
+    // classifier's `unknown` arm, and the fail-closed rule refuses it rather
+    // than presuming it belongs to the session's own thread.
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      method: "thread/itemAdded",
+      params: { threadId: THREAD_ID },
+    });
+    await Promise.resolve();
+
+    // Refused, not delivered: no hand-off happened, so no unconsumed record.
+    expect(harness.diagnostics).not.toContainEqual({
+      kind: "unconsumed-server-notification",
       method: "thread/itemAdded",
     });
+    // And never a silent drop — the refusal is on the driver diagnostic band.
+    expect(
+      harness.driverDiagnostics.recentRecordsOfKind("thread_frame_quarantined").map((record) => ({
+        kind: record.kind,
+        rawWireType: record.rawWireType,
+      })),
+    ).toContainEqual({ kind: "thread_frame_quarantined", rawWireType: "thread/itemAdded" });
   });
 
   it("reports unparsable output instead of dropping it", async () => {
@@ -2173,8 +2237,8 @@ describe("CodexAppServerConnection event-callback containment", () => {
     try {
       harness.server.emitRaw(
         new TextEncoder().encode(
-          `{"jsonrpc":"2.0","method":"turn/started","params":{}}\r\n` +
-            `{"jsonrpc":"2.0","method":"turn/plan/updated","params":{}}\r\n`,
+          `{"jsonrpc":"2.0","method":"turn/started","params":{"threadId":"${THREAD_ID}"}}\r\n` +
+            `{"jsonrpc":"2.0","method":"turn/plan/updated","params":{"threadId":"${THREAD_ID}"}}\r\n`,
         ),
       );
     } catch (error) {
@@ -2258,8 +2322,8 @@ describe("CodexAppServerConnection event-callback containment", () => {
     try {
       harness.server.emitRaw(
         new TextEncoder().encode(
-          `{"jsonrpc":"2.0","method":"turn/started","params":{}}\r\n` +
-            `{"jsonrpc":"2.0","method":"turn/plan/updated","params":{}}\r\n`,
+          `{"jsonrpc":"2.0","method":"turn/started","params":{"threadId":"${THREAD_ID}"}}\r\n` +
+            `{"jsonrpc":"2.0","method":"turn/plan/updated","params":{"threadId":"${THREAD_ID}"}}\r\n`,
         ),
       );
     } catch (error) {
@@ -3993,5 +4057,327 @@ describe("resolveCodexTransportSelection (T3.15 leg 6)", () => {
 
   it("defaults an absent config to stdio", () => {
     expect(resolveCodexTransportSelection(undefined)).toStrictEqual({ transport: "stdio" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T3.11 — the routing / metering band, driven through the REAL ingest path.
+// ---------------------------------------------------------------------------
+//
+// These drive raw JSON-RPC notifications into the fake provider's byte channel
+// and assert on what came out the other end of the manager. Nothing here calls
+// the router or the accountant directly: their unit suites already do that, and
+// what is unproven without this file is that the driver actually CONSULTS them.
+
+describe("CodexLifecycleManager thread routing and usage metering (T3.11, I-005-11, I-005-12)", () => {
+  const CHILD_THREAD_ID = "01a04202-0148-7ae2-8560-child0000001";
+
+  async function managerWithSession(
+    options: ManagerHarnessOptions = { onServerNotification: true },
+  ): Promise<ManagerHarness> {
+    const harness = createManagerHarness(options);
+    // A fresh harness carries a fresh accountant whose base registers start at
+    // zero, so the fixture's own running totals must restart with it — a ledger
+    // carried across tests would derive a `last` from the PREVIOUS test's
+    // cumulative and make this fixture order-dependent.
+    emittedCumulativeByThreadId.clear();
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    return harness;
+  }
+
+  // Per-thread running totals, so the fixture's `last` is the arithmetic
+  // per-turn figure a real provider would send rather than an invented one that
+  // would trip the accountant's cross-check on every frame.
+  const emittedCumulativeByThreadId = new Map<string, number>();
+
+  /**
+   * Emit one token-usage notification at the FULL pinned payload shape.
+   *
+   * Every member of the generated `TokenUsageBreakdown` is populated, on both
+   * the required `total` and the required `last`. A fixture that populates only
+   * the one axis the reader happens to spell correctly cannot distinguish a
+   * correct axis map from a broken one — which is exactly how an invented
+   * container member survived four green metering tests.
+   */
+  function emitUsage(
+    harness: ManagerHarness,
+    threadId: string,
+    totalInputTokens: number,
+    turnId = TURN_ID,
+  ): void {
+    const priorCumulative = emittedCumulativeByThreadId.get(threadId) ?? 0;
+    emittedCumulativeByThreadId.set(threadId, totalInputTokens);
+    const perTurn = totalInputTokens - priorCumulative;
+    const breakdown = (value: number): Record<string, number> => ({
+      totalTokens: value,
+      inputTokens: value,
+      cachedInputTokens: value,
+      cacheWriteInputTokens: value,
+      outputTokens: value,
+      reasoningOutputTokens: value,
+    });
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      method: "thread/tokenUsage/updated",
+      params: {
+        threadId,
+        turnId,
+        // The container member is `tokenUsage`, per the generated
+        // `ThreadTokenUsageUpdatedNotification` the spec's References entry
+        // records. Spelled the pinned way on purpose: a fixture that invents a
+        // member name tests the reader against a wire that does not exist.
+        tokenUsage: { total: breakdown(totalInputTokens), last: breakdown(perTurn) },
+      },
+    });
+  }
+
+  function announceChild(harness: ManagerHarness, threadSourceKind: string): void {
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      method: "thread/started",
+      params: {
+        thread: {
+          id: CHILD_THREAD_ID,
+          parentThreadId: THREAD_ID,
+          threadSourceKind,
+        },
+      },
+    });
+  }
+
+  it("(a) a frame naming a FOREIGN thread never reaches the normalize band", async () => {
+    const harness = await managerWithSession();
+
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      method: "thread/queue/changed",
+      params: { threadId: "some-other-session-thread" },
+    });
+    await Promise.resolve();
+
+    // Held, not projected: an unannounced identity could still be a child
+    // racing its announcement, so it waits rather than being guessed into the
+    // parent's timeline — but either way it does NOT project.
+    expect(harness.notifications).toStrictEqual([]);
+    expect(harness.manager.frameRouterFor(SESSION_ID).pendingHeldFrameCount()).toBe(1);
+  });
+
+  it("(b) a usage frame meters a per-turn DELTA, and the cumulative counter never reaches the band as one", async () => {
+    const harness = await managerWithSession();
+
+    emitUsage(harness, THREAD_ID, 100);
+    emitUsage(harness, THREAD_ID, 150);
+    await Promise.resolve();
+
+    // The wire reported 100 then 150 — a running total. What the daemon must
+    // meter is 100 then 50; forwarding 150 as a turn figure is exactly the
+    // double-charge I-005-11 exists to forbid.
+    expect(harness.meteredUsage.map((entry) => entry.delta.axisDeltas.input)).toEqual([100, 50]);
+    expect(harness.meteredUsage.map((entry) => entry.sessionId)).toEqual([SESSION_ID, SESSION_ID]);
+    expect(harness.meteredUsage[0]?.delta.attributedTurnId).toBe(TURN_ID);
+
+    // EVERY axis of the pinned breakdown meters, not just the one an earlier
+    // fixture happened to populate. Asserted by name: the accountant filters
+    // readings against a closed axis union before any register write, so an
+    // axis the reader spells differently from that union is silently scoped out
+    // of the delta rather than rejected loudly at the wire.
+    expect(Object.keys(harness.meteredUsage[1]?.delta.axisDeltas ?? {}).sort()).toEqual([
+      "cacheWriteInput",
+      "cachedInput",
+      "input",
+      "output",
+      "reasoningOutput",
+      "total",
+    ]);
+    // And the wire's own declared per-turn figure agrees with the derived
+    // interval on every one of them, so the cross-check stays silent.
+    expect(harness.driverDiagnostics.recentRecordsOfKind("usage_cross_check_mismatch")).toEqual([]);
+    expect(harness.driverDiagnostics.recentRecordsOfKind("usage_axis_reading_rejected")).toEqual(
+      [],
+    );
+  });
+
+  it("records a usage frame it cannot read rather than dropping the spend silently", async () => {
+    const harness = await managerWithSession();
+
+    // The reserved usage method, arriving with a breakdown the pinned container
+    // member does not hold. Unmetered spend that says nothing is
+    // indistinguishable from a session that cost nothing, so the ONLY
+    // acceptable outcome is a recorded rejection.
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      method: "thread/tokenUsage/updated",
+      params: {
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        usage: { total: { inputTokens: 100 } },
+      },
+    });
+    await Promise.resolve();
+
+    expect(harness.meteredUsage).toHaveLength(0);
+    const rejections = harness.driverDiagnostics.recentRecordsOfKind("usage_axis_reading_rejected");
+    expect(rejections).toHaveLength(1);
+    expect(rejections[0]?.rawWireType).toBe("thread/tokenUsage/updated");
+  });
+
+  it("(c) a child announcement then a child frame routes to the carve-outs, never to the parent's transcript", async () => {
+    const harness = await managerWithSession();
+
+    announceChild(harness, "subAgent");
+    await Promise.resolve();
+    // The announcement itself is the session's own `thread/started`? No — it
+    // names the CHILD's identity, so it routes as the child's first frame and
+    // is suppressed. What survives is the lifecycle pair.
+    expect(harness.subagentLifecycle.map((entry) => entry.emission.eventType)).toEqual([
+      "subagent.started",
+    ]);
+
+    // The child's CONTENT is suppressed...
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      method: "thread/queue/changed",
+      params: { threadId: CHILD_THREAD_ID },
+    });
+    // ...while the child's SPEND still carves through, under the child's own
+    // attribution rather than the parent's.
+    emitUsage(harness, CHILD_THREAD_ID, 40);
+    await Promise.resolve();
+
+    expect(harness.notifications).toStrictEqual([]);
+    expect(harness.meteredUsage).toHaveLength(1);
+    expect(harness.meteredUsage[0]?.delta.threadId).toBe(CHILD_THREAD_ID);
+    expect(harness.meteredUsage[0]?.delta.axisDeltas.input).toBe(40);
+  });
+
+  it("a provider-INTERNAL child (compaction) carves its spend to the parent run rather than to a subagent", async () => {
+    const harness = await managerWithSession();
+
+    announceChild(harness, "compaction");
+    emitUsage(harness, CHILD_THREAD_ID, 25);
+    await Promise.resolve();
+
+    // No subagent pair: nothing user-facing spawned, so nothing user-facing
+    // should appear on the timeline. The spend is still charged.
+    expect(harness.subagentLifecycle).toStrictEqual([]);
+    expect(harness.meteredUsage).toHaveLength(1);
+    expect(harness.meteredUsage[0]?.delta.axisDeltas.input).toBe(25);
+  });
+
+  it("(d) the session's OWN terminal projects through to the normalize band", async () => {
+    const harness = await managerWithSession();
+
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      method: "turn/completed",
+      params: { threadId: THREAD_ID, turn: { id: TURN_ID, status: "completed", items: [] } },
+    });
+    await Promise.resolve();
+
+    expect(harness.notifications.map((entry) => entry.method)).toEqual(["turn/completed"]);
+  });
+
+  it("the eleventh I-005-12 case: a fully suppressed child still leaves its started/completed pair", async () => {
+    const harness = await managerWithSession();
+
+    announceChild(harness, "subAgentReview");
+    // Every content frame the child produces is suppressed...
+    for (const childFrameMethod of ["thread/queue/changed", "thread/goal/updated"]) {
+      harness.server.emitFrame({
+        jsonrpc: "2.0",
+        method: childFrameMethod,
+        params: { threadId: CHILD_THREAD_ID },
+      });
+    }
+    // ...including its own terminal.
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      method: "turn/completed",
+      params: { threadId: CHILD_THREAD_ID, turn: { id: "child-turn", status: "completed" } },
+    });
+    await Promise.resolve();
+
+    // Nothing of the child's content reached the parent's timeline...
+    expect(harness.notifications).toStrictEqual([]);
+    // ...and yet the child is not invisible: the pair is its whole presence,
+    // which is what makes the suppression a scoping rule rather than a loss.
+    expect(
+      harness.subagentLifecycle.map((entry) => ({
+        eventType: entry.emission.eventType,
+        subagentId: entry.emission.subagentId,
+      })),
+    ).toEqual([
+      { eventType: "subagent.started", subagentId: CHILD_THREAD_ID },
+      { eventType: "subagent.completed", subagentId: CHILD_THREAD_ID },
+    ]);
+    // The child's registers are released with it: a post-terminal frame is no
+    // longer a registered child's frame.
+    expect(harness.manager.usageAccountantFor(SESSION_ID).hasThread(CHILD_THREAD_ID)).toBe(false);
+  });
+
+  it("an IN-PROGRESS turn for a child is not its terminal — the pair stays open", async () => {
+    const harness = await managerWithSession();
+
+    announceChild(harness, "subAgent");
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      method: "turn/completed",
+      params: { threadId: CHILD_THREAD_ID, turn: { id: "child-turn", status: "inProgress" } },
+    });
+    await Promise.resolve();
+
+    expect(harness.subagentLifecycle.map((entry) => entry.emission.eventType)).toEqual([
+      "subagent.started",
+    ]);
+  });
+
+  it("a resume with no prior-emitted sum records the overstatement rather than hiding it", async () => {
+    const harness = createManagerHarness({ onServerNotification: true });
+    harness.server.on("thread/resume", () => threadStartResult(1));
+    await harness.manager.resumeSession({
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+    });
+
+    // The driver cannot rebuild the sum — it lives in the canonical event
+    // record. Silently basing at zero would re-meter the whole pre-resume
+    // total onto the first post-resume turn with nothing to say it happened.
+    expect(
+      harness.driverDiagnostics.recentRecordsOfKind("usage_resume_base_unavailable"),
+    ).toHaveLength(1);
+  });
+
+  it("a resume WITH a prior-emitted sum meters only the excess over it", async () => {
+    const harness = createManagerHarness({
+      onServerNotification: true,
+      readPriorEmittedUsage: () => ({ input: 500 }),
+    });
+    harness.server.on("thread/resume", () => threadStartResult(1));
+    await harness.manager.resumeSession({
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+    });
+
+    emitUsage(harness, THREAD_ID, 520);
+    await Promise.resolve();
+
+    expect(
+      harness.driverDiagnostics.recentRecordsOfKind("usage_resume_base_unavailable"),
+    ).toHaveLength(0);
+    expect(harness.meteredUsage[0]?.delta.axisDeltas.input).toBe(20);
+  });
+
+  it("closing a session releases its router and accountant rather than leaking them per session", async () => {
+    const harness = await managerWithSession();
+    emitUsage(harness, THREAD_ID, 10);
+    await Promise.resolve();
+    expect(harness.manager.usageAccountantFor(SESSION_ID).hasThread(THREAD_ID)).toBe(true);
+
+    await harness.manager.closeSession({ sessionId: SESSION_ID });
+
+    // Get-or-create, so the accessor answers with a FRESH pair; the assertion
+    // is that the old one did not survive, which the empty thread proves.
+    expect(harness.manager.usageAccountantFor(SESSION_ID).hasThread(THREAD_ID)).toBe(false);
+    expect(harness.manager.frameRouterFor(SESSION_ID).pendingHeldFrameCount()).toBe(0);
   });
 });

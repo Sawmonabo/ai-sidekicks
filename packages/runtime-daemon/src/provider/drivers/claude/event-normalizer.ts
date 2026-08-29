@@ -139,11 +139,13 @@ import {
 } from "@ai-sidekicks/contracts";
 
 import type { DriverDiagnosticRecord, DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
-import type {
-  ChildThreadAnnouncement,
-  ThreadFrameFamilyClass,
-  ThreadFrameRoute,
-} from "../../thread-frame-router.js";
+import {
+  TerminalEmissionGate,
+  type TerminalEmissionDecision,
+  type TerminalRunFrame,
+  type TerminalSuppressionReason,
+} from "../../terminal-emission-gate.js";
+import type { ChildThreadAnnouncement, ThreadFrameFamilyClass } from "../../thread-frame-router.js";
 
 // --------------------------------------------------------------------------
 // The wire channel a frame arrives on.
@@ -404,8 +406,8 @@ export class UnknownClaudeWireFrameError extends Error {
   constructor(frameKind: string) {
     super(
       `Unmapped Claude inbound frame kind: ${JSON.stringify(frameKind)}. ` +
-        "The pinned census in event-normalizer.ts does not cover it; Plan-005 T3.11 " +
-        "replaces this refusal with the daemon diagnostic default branch.",
+        "The pinned census does not cover it; the daemon diagnostic default branch " +
+        "replaces this refusal on the routed normalize path.",
     );
     this.name = "UnknownClaudeWireFrameError";
     this.frameKind = frameKind;
@@ -1086,7 +1088,7 @@ export function resolveClaudeFrameEmissionRoute(
       kind: "unmapped_wire_kind",
       rawWireType: frameKind,
       dispositionReason:
-        "wire kind outside the pinned Claude inbound census; routed to the daemon diagnostic default branch per Plan-005 T3.11 P0-1, never silently dropped and never forced into an envelope",
+        "wire kind outside the pinned Claude inbound census; routed to the daemon diagnostic default branch, never silently dropped and never forced into an envelope",
       details: {},
     };
     diagnostics.emit(record);
@@ -1103,7 +1105,7 @@ export function resolveClaudeFrameEmissionRoute(
         kind: "unmapped_wire_kind",
         rawWireType: frameKind,
         dispositionReason:
-          "interim typePending kind whose SessionEventType literal has not landed; routed to the diagnostic branch until the census amendment lands its literal (Plan-006 T1.8 interim-disposition seam)",
+          "interim typePending kind whose SessionEventType literal has not landed; routed to the diagnostic branch until the census amendment lands its literal",
         details: { normalizedKind: normalization.normalizedKind },
       };
       diagnostics.emit(record);
@@ -1116,7 +1118,7 @@ export function resolveClaudeFrameEmissionRoute(
       kind: "payload_variant_pending",
       rawWireType: frameKind,
       dispositionReason:
-        "censused kind whose target SessionEventType has no registered SessionEventSchema payload variant; envelope construction forbidden by Plan-006 T1.10's flip-is-not-emission rule, so the frame routes to the diagnostic branch",
+        "censused kind whose target SessionEventType has no registered SessionEventSchema payload variant; envelope construction is forbidden without one, so the frame routes to the diagnostic branch",
       details: { eventType: normalization.eventType },
     };
     diagnostics.emit(record);
@@ -1139,12 +1141,17 @@ export function resolveClaudeFrameEmissionRoute(
  * `subagent.started` / `subagent.completed` ... carrying `parent_tool_use_id`
  * copied verbatim"), which is their corpus record.
  */
-export const CLAUDE_SUBAGENT_START_SIGNAL = "SubagentStart";
-export const CLAUDE_SUBAGENT_STOP_SIGNAL = "SubagentStop";
+export const CLAUDE_SUBAGENT_START_SIGNAL = "SubagentStart" as const;
+export const CLAUDE_SUBAGENT_STOP_SIGNAL = "SubagentStop" as const;
 
 /** One Claude subagent-lifecycle signal, as the driver core read it. */
 export interface ClaudeSubagentLifecycleSignal {
-  readonly signal: "SubagentStart" | "SubagentStop";
+  /**
+   * Derived from the two wire-name constants rather than re-spelled, so a wire
+   * rename is a compile error at every reader instead of a silently
+   * never-matching comparison.
+   */
+  readonly signal: typeof CLAUDE_SUBAGENT_START_SIGNAL | typeof CLAUDE_SUBAGENT_STOP_SIGNAL;
   /** The provider-attributed subagent identity, verbatim off the wire. */
   readonly subagentId: string;
   /** `parent_tool_use_id`, copied verbatim so the subagent tree pairs. */
@@ -1180,7 +1187,7 @@ export function normalizeClaudeSubagentLifecycle(
   lifecycleSignal: ClaudeSubagentLifecycleSignal,
   sessionThreadId: string,
 ): ClaudeSubagentLifecycleNormalization {
-  if (lifecycleSignal.signal === "SubagentStart") {
+  if (lifecycleSignal.signal === CLAUDE_SUBAGENT_START_SIGNAL) {
     return Object.freeze({
       family: "tool_activity",
       eventType: "subagent.started",
@@ -1215,8 +1222,35 @@ export function normalizeClaudeSubagentLifecycle(
  * thread identity, because their own shapes carry none; thread-scoped
  * families demand one; an unlisted shape is `unknown`, never presumed
  * connection-scoped.
+ *
+ * `observation` is REQUIRED rather than optional. Omitting it silently reverts
+ * to kind-only classification, which drops a registered child's spend on this
+ * provider (see the carve-out note below) — a defect the type system can only
+ * catch if every call site is forced to state what the frame carries. A caller
+ * with nothing to declare passes `{ cumulativeUsage: undefined }` explicitly.
  */
-export function classifyClaudeFrameFamilyForRouting(frameKind: string): ThreadFrameFamilyClass {
+export function classifyClaudeFrameFamilyForRouting(
+  frameKind: string,
+  observation: { readonly cumulativeUsage: unknown },
+): ThreadFrameFamilyClass {
+  const kindClass = classifyClaudeFrameKindForRouting(frameKind);
+  // The usage carve-out is decided by what the frame CARRIES, not only by what
+  // it is called. This provider publishes its cumulative token readings on the
+  // same frames that carry assistant content, and no frame kind is reserved for
+  // usage — so a kind-only classification would route a registered child's
+  // usage-bearing frame to plain transcript suppression, and the child's spend
+  // would be scoped out of existence rather than metered under its own
+  // attribution. Narrowed to already-thread-scoped kinds on purpose: a
+  // connection-scoped frame routes and meters without an identity anyway, and
+  // an unclassified kind must stay fail-closed rather than become routable
+  // because it happened to carry a number.
+  if (observation.cumulativeUsage != null && kindClass.scope === "thread") {
+    return { scope: "thread", capability: "usage" };
+  }
+  return kindClass;
+}
+
+function classifyClaudeFrameKindForRouting(frameKind: string): ThreadFrameFamilyClass {
   switch (frameKind) {
     // Connection- and account-scoped: retry / rate-limit / initialization
     // frames (the pinned stream-surface census's connection-scoped class) and
@@ -1300,113 +1334,24 @@ export function classifyClaudeFrameFamilyForRouting(frameKind: string): ThreadFr
 // to the session's own thread settles a run, so a subagent's `result/*` never
 // settles the parent's.
 
-/** One terminal `run_lifecycle` frame as the emission boundary sees it. */
-export interface ClaudeTerminalRunFrame {
-  readonly runId: string;
-  /**
-   * The run epoch, supplied by the caller: the provider has no notion of a
-   * daemon run version and `StartRunParams` carries none, so the emission
-   * pipeline that owns the run record supplies the second half of the key.
-   */
-  readonly runVersion: number;
-  /** The frame kind that produced the terminal, carried as data only. */
-  readonly rawWireType: string;
-  /** The T3.11 router's decision for this frame, consumed unchanged. */
-  readonly route: ThreadFrameRoute;
-}
-
-/** Why a terminal frame did not settle its run. */
-export type ClaudeTerminalSuppressionReason = "duplicate-terminal-epoch" | "not-the-session-thread";
-
-/** The boundary's decision for one terminal frame. */
-export type ClaudeTerminalEmissionDecision =
-  | {
-      readonly emit: true;
-      readonly runId: string;
-      readonly runVersion: number;
-      /** P1-1: `true` exactly when a daemon-initiated close preceded it. */
-      readonly intendedClose: boolean;
-    }
-  | { readonly emit: false; readonly suppressionReason: ClaudeTerminalSuppressionReason };
+/**
+ * The Claude leg's bindings for the provider-neutral emission gate.
+ *
+ * The suppression rule itself lives once at `provider/terminal-emission-gate.ts`
+ * — both driver legs feed ONE shared uniqueness index (the Plan-006 partial
+ * unique index), and two implementations of one invariant is one more than the
+ * invariant can survive. What stays here is the Claude-named binding.
+ */
+export type ClaudeTerminalRunFrame = TerminalRunFrame;
+export type ClaudeTerminalSuppressionReason = TerminalSuppressionReason;
+export type ClaudeTerminalEmissionDecision = TerminalEmissionDecision;
 
 /**
  * The Claude terminal-emission gate — one instance per provider session, held
  * by the lifecycle module for that session's lifetime.
  *
- * Session-scoped for the same reason its Codex sibling is: `closeSession` is a
- * session operation, and at teardown the lifecycle module does not yet know
- * which run the provider is about to terminate.
+ * An empty extension rather than an alias, for the same reason as its Codex
+ * sibling: no census-specific gate input exists today, and the named subclass
+ * is what a later one would land on.
  */
-export class ClaudeTerminalEmissionGate {
-  /** See the Codex sibling: bounded to the duplicate window, not to session age. */
-  static readonly DEFAULT_SETTLED_EPOCH_MEMORY = 256;
-
-  readonly #settledEpochMemory: number;
-  readonly #settledEpochKeysInOrder: string[] = [];
-  readonly #settledEpochKeys = new Set<string>();
-  #intendedCloseSignalled = false;
-
-  constructor(options?: { readonly settledEpochMemory?: number }) {
-    this.#settledEpochMemory =
-      options?.settledEpochMemory ?? ClaudeTerminalEmissionGate.DEFAULT_SETTLED_EPOCH_MEMORY;
-  }
-
-  /**
-   * Signal a daemon-initiated close (P1-1). Called at the top of
-   * `closeSession`, before the channel is disposed with
-   * `ClaudeChannelDisposalReason.session_closed`, so the terminal the
-   * disposal provokes is already inside the intent.
-   */
-  signalIntendedClose(): void {
-    this.#intendedCloseSignalled = true;
-  }
-
-  /** Whether a daemon-initiated close has been signalled for this session. */
-  intendedCloseSignalled(): boolean {
-    return this.#intendedCloseSignalled;
-  }
-
-  /**
-   * Admit one terminal frame, returning whether it may be emitted and — when
-   * it may — the `intendedClose` flag to stamp on its payload. Suppression is
-   * a return value, not a throw: a duplicate terminal is ordinary provider
-   * behaviour this boundary exists to absorb.
-   */
-  admitTerminalFrame(frame: ClaudeTerminalRunFrame): ClaudeTerminalEmissionDecision {
-    if (frame.route.decision !== "project") {
-      return { emit: false, suppressionReason: "not-the-session-thread" };
-    }
-    const epochKey = composeClaudeTerminalEpochKey(frame.runId, frame.runVersion);
-    if (this.#settledEpochKeys.has(epochKey)) {
-      return { emit: false, suppressionReason: "duplicate-terminal-epoch" };
-    }
-    this.#settledEpochKeys.add(epochKey);
-    this.#settledEpochKeysInOrder.push(epochKey);
-    if (this.#settledEpochKeysInOrder.length > this.#settledEpochMemory) {
-      const evicted = this.#settledEpochKeysInOrder.shift();
-      if (evicted !== undefined) {
-        this.#settledEpochKeys.delete(evicted);
-      }
-    }
-    return {
-      emit: true,
-      runId: frame.runId,
-      runVersion: frame.runVersion,
-      intendedClose: this.#intendedCloseSignalled,
-    };
-  }
-
-  /** Whether this epoch has already been settled by an emitted terminal. */
-  hasSettledEpoch(runId: string, runVersion: number): boolean {
-    return this.#settledEpochKeys.has(composeClaudeTerminalEpochKey(runId, runVersion));
-  }
-}
-
-/**
- * The `(runId, runVersion)` uniqueness key. NUL is the separator because the
- * daemon's provider-output validation seam rejects it in every identity it
- * admits, and `runVersion` is a number and contributes none either.
- */
-function composeClaudeTerminalEpochKey(runId: string, runVersion: number): string {
-  return `${runId}\u0000${String(runVersion)}`;
-}
+export class ClaudeTerminalEmissionGate extends TerminalEmissionGate {}

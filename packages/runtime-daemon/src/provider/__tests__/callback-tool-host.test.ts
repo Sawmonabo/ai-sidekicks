@@ -58,6 +58,7 @@ function buildHarness(options?: {
   readonly withSeam?: boolean;
   readonly executeResult?: CallbackToolResult;
   readonly executeThrows?: Error;
+  readonly evaluateThrows?: unknown;
 }): HostHarness {
   const emittedDiagnostics: DriverDiagnosticRecord[] = [];
   const activityRecords: CallbackToolActivityRecord[] = [];
@@ -92,6 +93,9 @@ function buildHarness(options?: {
           approvalSeam: {
             evaluate: async (request) => {
               evaluatedRequests.push(request);
+              if (options?.evaluateThrows !== undefined) {
+                throw options.evaluateThrows;
+              }
               return await Promise.resolve(outcome);
             },
           },
@@ -364,6 +368,45 @@ describe("CallbackToolHost — execution outcomes are the tool's, not the pipeli
     // The basis survives: the invocation WAS adjudicated, and the row must not
     // read as though it had been refused before the pipeline.
     expect(harness.activityRecords[0]?.approvalBasis).toBe("policy");
+  });
+
+  it("refuses when the approval seam THROWS, rather than completing unadjudicated", async () => {
+    const harness = buildHarness({ evaluateThrows: new Error("the policy store is unreachable") });
+    harness.host.resolveSpawnRegistry({
+      sessionId: TEST_SESSION_ID,
+      requestedTools: [SEARCH_TOOL],
+      providerRegistrationAvailable: true,
+      providerRegistrationUnavailableDetail: "unused",
+    });
+
+    const result = await harness.host.dispatch(makeInvocation());
+
+    // A rejected evaluation is an UNANSWERED one. Letting the rejection escape
+    // would surface as a driver fault the provider retries; catching it and
+    // proceeding would run the tool with no adjudication at all. Both are worse
+    // than refusing, which is the same answer a missing seam already produces.
+    expect(result.status).toBe("denied");
+    expect(harness.executedInvocations).toStrictEqual([]);
+    expect(harness.activityRecords[0]?.disposition).toBe("denied-no-seam");
+    expect(harness.diagnostics.recentRecordsOfKind("callback_tool_seam_absent")).toHaveLength(1);
+    // The cause travels: an operator must be able to tell a seam that is absent
+    // from one that is present and failing.
+    expect(result.error).toContain("the policy store is unreachable");
+  });
+
+  it("refuses on a seam REJECTION that carries no Error instance", async () => {
+    const harness = buildHarness({ evaluateThrows: "policy store said no" });
+    harness.host.resolveSpawnRegistry({
+      sessionId: TEST_SESSION_ID,
+      requestedTools: [SEARCH_TOOL],
+      providerRegistrationAvailable: true,
+      providerRegistrationUnavailableDetail: "unused",
+    });
+
+    const result = await harness.host.dispatch(makeInvocation());
+
+    expect(result.status).toBe("denied");
+    expect(harness.executedInvocations).toStrictEqual([]);
   });
 
   it("normalizes a detail-free throw rather than answering with an empty error", async () => {

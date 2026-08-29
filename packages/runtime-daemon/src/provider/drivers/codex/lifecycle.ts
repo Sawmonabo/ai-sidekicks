@@ -171,8 +171,29 @@ import {
 // makes a drift between the port and its implementation a compile error instead
 // of a silently-unsatisfied `runtime:` binding at the `index.ts` composition.
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
+import {
+  ThreadFrameRouter,
+  type ChildThreadAnnouncement,
+  type RoutableProviderFrame,
+  type SubagentLifecycleEmission,
+  type ThreadFrameRoute,
+  type ThreadFrameRouterConfig,
+} from "../../thread-frame-router.js";
+import {
+  UsageDeltaAccountant,
+  type CumulativeAxisReadings,
+  type CumulativeUsageReading,
+  type MeteredUsageDelta,
+} from "../../usage-delta-accountant.js";
 
-import { CodexTerminalEmissionGate } from "./event-normalizer.js";
+import {
+  CODEX_THREAD_STARTED_METHOD,
+  CODEX_THREAD_TOKEN_USAGE_METHOD,
+  CODEX_TURN_COMPLETED_METHOD,
+  CodexTerminalEmissionGate,
+  classifyCodexFrameFamilyForRouting,
+  deriveCodexChildThreadAnnouncement,
+} from "./event-normalizer.js";
 import type { CodexSteerAcknowledgement, CodexSteerRunRequest } from "./intervention.js";
 
 // --------------------------------------------------------------------------
@@ -798,14 +819,20 @@ export const CODEX_SUPPRESSED_REALTIME_NOTIFICATION_METHODS: readonly string[] =
 /**
  * The provider's ONLY terminal-turn notification.
  *
- * Read from the generated `ServerNotification` union at `codex-cli 0.149.1`
- * (regenerated 2026-08-27): the `turn/*` family is exactly `turn/started`,
+ * Read from the generated `ServerNotification` union — the vendor regeneration
+ * `Spec-005 §References` records at codex-cli `0.150.1` (2026-08-28), adjacent
+ * to the `0.149.1` pin: the `turn/*` family is exactly `turn/started`,
  * `turn/completed`, `turn/diff/updated`, `turn/plan/updated`, and
  * `turn/moderationMetadata`. There is no `turn/failed` and no `turn/interrupted`
  * — a failed or interrupted turn arrives on THIS method and is discriminated by
  * `turn.status`, so a terminal set keyed on method strings would be wrong.
+ *
+ * Aliased to the normalizer's constant rather than re-spelled: this method is
+ * also the router's classified `turn/*` lifecycle member and the CHILD-THREAD
+ * TERMINAL, so two spellings would let the route retirement and the child
+ * completion drift apart.
  */
-const CODEX_TURN_COMPLETED_NOTIFICATION = "turn/completed";
+const CODEX_TURN_COMPLETED_NOTIFICATION = CODEX_TURN_COMPLETED_METHOD;
 
 /**
  * The `TurnStatus` values that end a turn.
@@ -2837,6 +2864,201 @@ export interface CodexLifecycleOptions extends CodexConnectionOptions {
    * in name only, so there is no optional arm here.
    */
   readonly diagnostics: DriverDiagnosticsEmitter;
+  /**
+   * The daemon's own prior-emitted cumulative token sums for one thread, used
+   * to base a PROVIDER-NATIVE RESUME (T3.11).
+   *
+   * Optional because the driver cannot rebuild it: the sums live in the
+   * canonical event record, which the daemon owns and this module never reads.
+   * Unbound, a resume bases at zero and the first post-resume reading re-meters
+   * the whole provider-session total — recorded as a diagnostic rather than
+   * left to be discovered on a receipt.
+   */
+  readonly readPriorEmittedUsage?:
+    | ((sessionId: SessionId, threadId: string) => CumulativeAxisReadings | undefined)
+    | undefined;
+  /**
+   * Receives each metered per-turn usage delta (T3.11). PRODUCER-ONLY here: the
+   * driver states what was spent and the emission pipeline mints the
+   * `usage_telemetry` envelope, so no driver mints a session event.
+   */
+  readonly onMeteredUsage?: ((sessionId: SessionId, delta: MeteredUsageDelta) => void) | undefined;
+  /**
+   * Receives the `subagent.started` / `subagent.completed` pair for each
+   * provider-attributed child thread (T3.11). PRODUCER-ONLY, and the child's
+   * ONLY timeline presence: a registered child's content and lifecycle frames
+   * are transcript-suppressed, so this pair survives the suppression rather
+   * than sharing it.
+   */
+  readonly onSubagentLifecycle?:
+    | ((sessionId: SessionId, emission: SubagentLifecycleEmission) => void)
+    | undefined;
+}
+
+/**
+ * One inbound Codex notification as the thread-frame router sees it, with its
+ * payload carried along.
+ *
+ * The payload rides the frame because a HELD frame must still be deliverable:
+ * the router releases pending holds when the registration they were waiting for
+ * lands, and a release that handed back only the routing members would have
+ * shed the frame's content — which is the loss the pending hold exists to
+ * prevent.
+ */
+interface CodexRoutableFrame extends RoutableProviderFrame {
+  readonly params: unknown;
+}
+
+/**
+ * The router's bounds for a Codex session.
+ *
+ * The quarantine is a DIAGNOSTIC buffer and the hold is a delivery buffer, so
+ * they are sized differently on purpose. The hold covers one race — child
+ * traffic arriving ahead of its own `thread/started` — which is short and
+ * narrow; the timeout is the outer bound on that race and is deliberately far
+ * below any human-visible latency, because a frame held longer than this is not
+ * racing a registration, it is naming a thread that will never be announced.
+ */
+const CODEX_THREAD_FRAME_ROUTER_CONFIG: ThreadFrameRouterConfig = Object.freeze({
+  maxQuarantinedFrames: 64,
+  maxPendingHoldFrames: 128,
+  pendingRegistrationTimeoutMs: 5_000,
+});
+
+/**
+ * Read the thread identity a Codex frame carries.
+ *
+ * TOTAL and NON-THROWING: this runs inside the transport's `#ingest` drain, so
+ * a throw here would unwind the read-chunk loop and take unrelated frames down
+ * with it. An unreadable identity is `null`, which the router refuses
+ * fail-closed on a thread-scoped family — the correct disposition for a frame
+ * whose own shape did not say whose stream it came from.
+ *
+ * `thread/started` is read from its `Thread` body; every other thread-scoped
+ * family carries the identity at the top level of `params`.
+ */
+function readCodexFrameThreadId(method: string, params: unknown): string | null {
+  const payload = isPlainObject(params) ? params : {};
+  if (method === CODEX_THREAD_STARTED_METHOD) {
+    const thread = isPlainObject(payload["thread"]) ? payload["thread"] : {};
+    const threadId = thread["id"];
+    return typeof threadId === "string" && threadId.length > 0 ? threadId : null;
+  }
+  const threadId = payload["threadId"];
+  return typeof threadId === "string" && threadId.length > 0 ? threadId : null;
+}
+
+/**
+ * Read a `thread/started` notification's child announcement, or `null` when the
+ * frame does not describe a child.
+ *
+ * Non-throwing for the same reason as {@link readCodexFrameThreadId}. A frame
+ * naming no parent is not a child announcement at all — the router would refuse
+ * the registration anyway, and dispatching one would spend a diagnostic on a
+ * frame that is simply the session's own thread starting.
+ */
+function readCodexChildThreadAnnouncement(params: unknown): ChildThreadAnnouncement | null {
+  const payload = isPlainObject(params) ? params : {};
+  const thread = isPlainObject(payload["thread"]) ? payload["thread"] : {};
+  const threadId = thread["id"];
+  const parentThreadId = thread["parentThreadId"];
+  const threadSourceKind = thread["threadSourceKind"];
+  if (typeof threadId !== "string" || threadId.length === 0) {
+    return null;
+  }
+  if (typeof parentThreadId !== "string" || parentThreadId.length === 0) {
+    return null;
+  }
+  return deriveCodexChildThreadAnnouncement({
+    threadId,
+    parentThreadId,
+    threadSourceKind: typeof threadSourceKind === "string" ? threadSourceKind : "",
+  });
+}
+
+/**
+ * Read one `thread/tokenUsage/updated` frame into a cumulative usage reading.
+ *
+ * Returns `null` where the frame carries no usable thread identity or no
+ * breakdown at all; a reading with SOME axes present is admitted, because the
+ * accountant meters per axis and refusing the whole frame for one missing
+ * member would drop spend the provider did report. Non-finite and unknown
+ * members are the accountant's to refuse, not this reader's — one filter, in
+ * one place.
+ */
+function readCodexCumulativeUsageReading(params: unknown): CumulativeUsageReading | null {
+  const payload = isPlainObject(params) ? params : {};
+  const threadId = payload["threadId"];
+  if (typeof threadId !== "string" || threadId.length === 0) {
+    return null;
+  }
+  const turnId = payload["turnId"];
+  // `tokenUsage` is the container's PINNED member name, not a guess and not an
+  // alias set: the generated `ThreadTokenUsageUpdatedNotification` is
+  // `{ threadId, turnId, tokenUsage: ThreadTokenUsage }`, and `ThreadTokenUsage`
+  // carries the required `total` (cumulative) beside the required `last`
+  // (declared per-turn). No second spelling is accepted — a tolerated alias
+  // that no source attests would turn a future wire rename from a recorded
+  // rejection into a silent metering stop, which is the failure this whole
+  // band exists to prevent.
+  const tokenUsage = payload["tokenUsage"];
+  if (!isPlainObject(tokenUsage)) {
+    return null;
+  }
+  const cumulative = readCodexTokenBreakdown(tokenUsage["total"]);
+  if (cumulative === null) {
+    return null;
+  }
+  const declaredPerTurn = readCodexTokenBreakdown(tokenUsage["last"]);
+  return {
+    threadId,
+    namedTurnId: typeof turnId === "string" && turnId.length > 0 ? turnId : null,
+    cumulative,
+    declaredPerTurn,
+  };
+}
+
+/**
+ * Map one Codex `TokenUsageBreakdown` onto the accountant's axis vocabulary.
+ *
+ * `null` for a value that is not an object at all. Members are copied only when
+ * the wire carries a number, so an absent axis stays absent rather than
+ * becoming a zero — a fabricated zero would meter a negative delta on the next
+ * reading and trip the floor arm for a member the provider never reported.
+ */
+function readCodexTokenBreakdown(value: unknown): CumulativeAxisReadings | null {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+  const readings: Record<string, number> = {};
+  const wireNamesByAxis: Readonly<Record<string, string>> = {
+    input: "inputTokens",
+    cachedInput: "cachedInputTokens",
+    cacheWriteInput: "cacheWriteInputTokens",
+    output: "outputTokens",
+    reasoningOutput: "reasoningOutputTokens",
+    total: "totalTokens",
+  };
+  for (const [axis, wireName] of Object.entries(wireNamesByAxis)) {
+    const reading = value[wireName];
+    if (typeof reading === "number") {
+      readings[axis] = reading;
+    }
+  }
+  return Object.keys(readings).length === 0 ? null : (readings as CumulativeAxisReadings);
+}
+
+/**
+ * Whether a `turn/completed` frame's `turn.status` ends the turn.
+ *
+ * Shared by the route-retirement path and the child-completion path so the two
+ * cannot disagree about what a finished turn is.
+ */
+function readCodexTerminalTurnStatus(params: unknown): boolean {
+  const payload = isPlainObject(params) ? params : {};
+  const turn = isPlainObject(payload["turn"]) ? payload["turn"] : {};
+  const status = turn["status"];
+  return typeof status === "string" && CODEX_TERMINAL_TURN_STATUSES.has(status);
 }
 
 /**
@@ -2859,6 +3081,15 @@ export class CodexLifecycleManager {
   // establishment is exactly the case where mis-reading a clean shutdown as a
   // crash would be most misleading.
   readonly #terminalEmissionGates = new Map<SessionId, CodexTerminalEmissionGate>();
+  // The T3.11 child-routing and usage-delta band, one instance of each per
+  // provider session and held for that session's lifetime — the state
+  // `Spec-005 §Interfaces And Contracts` describes as driver-session state, so
+  // it is constructed here rather than composed from outside. Keyed beside the
+  // record map for the same reason the gate is: a frame can arrive while the
+  // slot is still ESTABLISHING, and a router that did not exist yet would shed
+  // it.
+  readonly #frameRouters = new Map<SessionId, ThreadFrameRouter<CodexRoutableFrame>>();
+  readonly #usageAccountants = new Map<SessionId, UsageDeltaAccountant>();
   readonly #sessionIdByRunId = new Map<RunId, SessionId>();
   /**
    * Session ids with a lifecycle transition in flight, mapped to its kind and a
@@ -2943,6 +3174,10 @@ export class CodexLifecycleManager {
         activeTurnIdByRunId: new Map(),
         terminatedTurnIds: new Set(),
       });
+      // A daemon-created thread bases at ZERO and meters its first reading in
+      // full: the provider's counter starts at zero, replay seeding spends
+      // nothing, and the first turn's large input is real billed spend.
+      this.#bindSessionThread(params.sessionId, thread.id, "fresh");
       // `id` is the resume key; `sessionId` groups a thread tree (fork/subagent
       // threads share it), so the two are NOT interchangeable.
       return { providerSessionId: thread.sessionId, resumeHandle: thread.id };
@@ -3067,6 +3302,11 @@ export class CodexLifecycleManager {
         activeTurnIdByRunId: new Map(),
         terminatedTurnIds: new Set(),
       });
+      // A provider-native resume bases at the daemon's OWN prior-emitted
+      // cumulative sum, never at the first post-resume reading: the provider's
+      // counter is unaffected by the resume, so a zero base would re-meter the
+      // whole pre-resume history onto the first post-resume turn.
+      this.#bindSessionThread(params.sessionId, thread.id, "resume");
       // The replacement record starts with an empty turn map, so every route
       // that pointed at the superseded leg is now dead. Swept here rather than
       // at teardown: `closeSession` reads the LIVE record, which no longer knows
@@ -3485,6 +3725,8 @@ export class CodexLifecycleManager {
       // describe; the latch this call just set goes with it rather than
       // accumulating one entry per redundant close.
       this.#terminalEmissionGates.delete(params.sessionId);
+      this.#frameRouters.delete(params.sessionId);
+      this.#usageAccountants.delete(params.sessionId);
       return;
     }
     await this.#claimSessionSlot(params.sessionId, "closing", async () => {
@@ -3492,8 +3734,12 @@ export class CodexLifecycleManager {
     });
     // The gate dies with the session it scoped, after teardown rather than
     // before it: a terminal provoked by the teardown itself must still find the
-    // latch set.
+    // latch set. The routing and metering band goes with it — both are
+    // per-provider-session state, and a router surviving its session would
+    // answer the next one with a thread registry that session never made.
     this.#terminalEmissionGates.delete(params.sessionId);
+    this.#frameRouters.delete(params.sessionId);
+    this.#usageAccountants.delete(params.sessionId);
   }
 
   /**
@@ -3507,6 +3753,291 @@ export class CodexLifecycleManager {
    */
   terminalEmissionGateFor(sessionId: SessionId): CodexTerminalEmissionGate {
     return this.#intendedCloseGateFor(sessionId);
+  }
+
+  /**
+   * The thread-frame router for one session (T3.11).
+   *
+   * Read LIVE rather than captured, for the same reason the emission gate is:
+   * a router captured before a registration would answer with a thread set the
+   * registration has since widened.
+   */
+  frameRouterFor(sessionId: SessionId): ThreadFrameRouter<CodexRoutableFrame> {
+    const existing = this.#frameRouters.get(sessionId);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const router = new ThreadFrameRouter<CodexRoutableFrame>({
+      provider: "codex",
+      diagnostics: this.#options.diagnostics,
+      config: CODEX_THREAD_FRAME_ROUTER_CONFIG,
+    });
+    this.#frameRouters.set(sessionId, router);
+    return router;
+  }
+
+  /** The usage-delta accountant for one session (T3.11). */
+  usageAccountantFor(sessionId: SessionId): UsageDeltaAccountant {
+    const existing = this.#usageAccountants.get(sessionId);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const accountant = new UsageDeltaAccountant({
+      provider: "codex",
+      diagnostics: this.#options.diagnostics,
+    });
+    this.#usageAccountants.set(sessionId, accountant);
+    return accountant;
+  }
+
+  /**
+   * Bind a session's OWN thread identity into the routing and metering band.
+   *
+   * Called at each establishment, with the arm the establishment actually took.
+   * ORDER IS THE CONTRACT: the accountant's base registers are established
+   * BEFORE the router releases anything, because a released usage frame meters
+   * immediately and an unestablished thread would refuse it outright.
+   *
+   * The registration's released frames are RE-ROUTED rather than discarded: a
+   * Codex session can receive traffic on its own thread before the establishing
+   * response names that thread, and a discarding caller would shed it.
+   */
+  #bindSessionThread(
+    sessionId: SessionId,
+    threadId: string,
+    establishment: "fresh" | "resume",
+  ): void {
+    const accountant = this.usageAccountantFor(sessionId);
+    if (establishment === "fresh") {
+      accountant.establishThread(threadId, { mode: "fresh" });
+    } else {
+      const priorEmittedCumulative = this.#options.readPriorEmittedUsage?.(sessionId, threadId);
+      if (priorEmittedCumulative === undefined) {
+        // Never silent. With no prior-emitted sum to rebuild from, the base
+        // starts at zero and the first post-resume reading meters the WHOLE
+        // provider-session total — an overstatement of exactly the pre-resume
+        // spend. The resume arm is still taken rather than swapped for `fresh`,
+        // so the record says which arm ran and why it had nothing to work with.
+        this.#options.diagnostics.emit({
+          provider: "codex",
+          kind: "usage_resume_base_unavailable",
+          rawWireType: null,
+          dispositionReason:
+            "no prior-emitted cumulative sum was available for a provider-native resume; base registers start at zero, so the first post-resume reading meters pre-resume spend again",
+          details: { sessionId, threadId },
+        });
+      }
+      accountant.establishThread(threadId, {
+        mode: "resume",
+        priorEmittedCumulative: priorEmittedCumulative ?? {},
+      });
+    }
+    const releasedFrames = this.frameRouterFor(sessionId).registerSessionThread(threadId);
+    this.#deliverRoutedFrames(sessionId, releasedFrames);
+  }
+
+  /**
+   * Route one inbound notification and deliver whatever it releases.
+   *
+   * THE routing entry point, ahead of every projection decision. Non-throwing
+   * by construction: it runs inside the transport's `#ingest` drain, where a
+   * throw would unwind the read-chunk loop, so every reader it calls is total
+   * and the delegate hand-off below is individually contained.
+   *
+   * Registration is dispatched from a `thread/started` announcement BEFORE the
+   * announcement frame itself is routed — otherwise the announcement would be
+   * held pending the very registration it carries.
+   */
+  #routeInboundNotification(sessionId: SessionId, method: string, params: unknown): void {
+    const router = this.frameRouterFor(sessionId);
+    if (method === CODEX_THREAD_STARTED_METHOD) {
+      const announcement = readCodexChildThreadAnnouncement(params);
+      if (announcement !== null) {
+        const registration = router.registerChildThread(announcement);
+        if (registration.registered) {
+          // A registered child is a BRAND-NEW provider thread, so its base
+          // registers start at zero. Establishing it here rather than lazily is
+          // what makes the usage carve-out reachable at all: the accountant
+          // refuses an unestablished thread outright, so a child whose spend
+          // was never established would carve out of the parent's transcript
+          // and then be dropped on the floor — the child's cost vanishing
+          // rather than being scoped, which is not what I-005-12 asks for.
+          this.usageAccountantFor(sessionId).establishThread(registration.childThreadId, {
+            mode: "fresh",
+          });
+          // A provider-attributed child opens its `subagent.*` pair here, at
+          // the registration that admitted it. A provider-INTERNAL child (a
+          // compaction thread) carries no subagent identity, so it opens no
+          // pair — inventing one would put a subagent on the timeline that the
+          // provider never attributed to anything.
+          if (registration.attribution.kind === "subagent") {
+            this.#options.onSubagentLifecycle?.(sessionId, {
+              eventType: "subagent.started",
+              subagentId: registration.attribution.subagentId,
+              parentReference: announcement.declaredParentThreadId,
+            });
+          }
+          this.#deliverRoutedFrames(sessionId, registration.releasedFrames);
+        }
+      }
+    }
+
+    const frame: CodexRoutableFrame = {
+      rawWireType: method,
+      familyClass: classifyCodexFrameFamilyForRouting(method),
+      threadId: readCodexFrameThreadId(method, params),
+      params,
+    };
+    this.#deliverRoutedFrames(sessionId, [frame]);
+  }
+
+  /**
+   * Apply the router's decision to each frame and hand only the projecting ones
+   * to the normalize band.
+   *
+   * The carve-outs run AHEAD of suppression, which is the whole point of them:
+   * a child's usage still meters and a child's interactive request still routes,
+   * even though the child's transcript never projects.
+   */
+  #deliverRoutedFrames(sessionId: SessionId, frames: readonly CodexRoutableFrame[]): void {
+    const router = this.frameRouterFor(sessionId);
+    const nowMs = Date.now();
+    for (const frame of frames) {
+      const route = router.routeFrame(frame, nowMs);
+      this.#applyRouteDecision(sessionId, frame, route);
+    }
+  }
+
+  #applyRouteDecision(
+    sessionId: SessionId,
+    frame: CodexRoutableFrame,
+    route: ThreadFrameRoute,
+  ): void {
+    switch (route.decision) {
+      case "project":
+      case "route-connection-scoped":
+        // A projecting usage frame meters against the session's own thread
+        // before it reaches the normalize band, so the band never sees a
+        // cumulative counter it might forward as a per-turn figure.
+        this.#meterUsageFrame(sessionId, frame);
+        this.#completeChildOnTerminal(sessionId, frame);
+        this.#handOffToNormalizeBand(frame);
+        return;
+      case "carve-out-usage":
+        this.#meterUsageFrame(sessionId, frame);
+        return;
+      case "carve-out-interactive-request":
+        // A child's ask routes through the SAME dispatch and approval pipeline
+        // as the parent's, answered on the child's own correlation identity —
+        // suppressing it would not hide the child but hang it.
+        this.#handOffToNormalizeBand(frame);
+        return;
+      case "suppress-child-transcript":
+        // The child's own terminal releases the child's router state; its
+        // content never reaches the parent's timeline.
+        this.#completeChildOnTerminal(sessionId, frame);
+        return;
+      case "held-pending-registration":
+      case "quarantined":
+        // Both are already recorded by the router as diagnostics; neither is a
+        // delivery, and neither is a silent drop.
+        return;
+    }
+  }
+
+  /** Meter one usage frame, if this frame is one. */
+  #meterUsageFrame(sessionId: SessionId, frame: CodexRoutableFrame): void {
+    if (frame.rawWireType !== CODEX_THREAD_TOKEN_USAGE_METHOD) {
+      return;
+    }
+    const reading = readCodexCumulativeUsageReading(frame.params);
+    if (reading === null) {
+      // The one frame kind this provider reserves for token readings arrived
+      // and could not be read. Recorded rather than returned on: a silent drop
+      // here is spend that never reaches a receipt, and it is indistinguishable
+      // from a session that simply cost nothing.
+      this.#options.diagnostics.emit({
+        provider: "codex",
+        kind: "usage_axis_reading_rejected",
+        rawWireType: frame.rawWireType,
+        dispositionReason:
+          "the provider's token-usage notification carried no readable cumulative breakdown at the pinned payload shape; nothing was metered for this reading",
+        details: { sessionId, threadId: frame.threadId },
+      });
+      return;
+    }
+    const metered = this.usageAccountantFor(sessionId).meterReading(reading);
+    if (metered !== null) {
+      this.#options.onMeteredUsage?.(sessionId, metered);
+    }
+  }
+
+  /**
+   * Release a child thread's router state on that child's own terminal.
+   *
+   * The child terminal is a CHILD THREAD'S `turn/completed` carrying a terminal
+   * `turn.status`, and it is routable because the frame carries a top-level
+   * `threadId`.
+   *
+   * The pinned union's two neighbouring candidates were both examined and
+   * neither can serve. `thread/status/changed` DOES exist, but its `ThreadStatus`
+   * has no terminal arm — `notLoaded | idle | systemError | active` — and `idle`
+   * is the BETWEEN-TURNS state, so a completion keyed on it would end a child
+   * that is merely waiting. `thread/closed` is a genuine thread-lifetime
+   * terminal, but nothing at the pin establishes that the app-server emits it
+   * for subagent threads, so binding release to it would risk never releasing;
+   * it is deliberately left unclassified, which routes it to the router's
+   * fail-closed quarantine WITH a diagnostic rather than to a silent drop — the
+   * recorded signal that would justify adopting it.
+   */
+  #completeChildOnTerminal(sessionId: SessionId, frame: CodexRoutableFrame): void {
+    if (frame.rawWireType !== CODEX_TURN_COMPLETED_METHOD || frame.threadId === null) {
+      return;
+    }
+    if (!readCodexTerminalTurnStatus(frame.params)) {
+      return;
+    }
+    const attribution = this.frameRouterFor(sessionId).childAttributionFor(frame.threadId);
+    const completion = this.frameRouterFor(sessionId).completeChildThread(frame.threadId);
+    if (!completion.wasRegistered) {
+      return;
+    }
+    this.usageAccountantFor(sessionId).releaseThread(frame.threadId);
+    if (attribution?.kind === "subagent") {
+      this.#options.onSubagentLifecycle?.(sessionId, {
+        eventType: "subagent.completed",
+        subagentId: attribution.subagentId,
+        parentReference: null,
+      });
+    }
+  }
+
+  /** Hand one routed frame to the normalize / emission band. */
+  #handOffToNormalizeBand(frame: CodexRoutableFrame): void {
+    const delegate = this.#options.onServerNotification;
+    if (delegate === undefined) {
+      // Same containment as the transport's own: this runs inside `#ingest`.
+      reportDiagnosticFromDetachedFrame(this.#options.reportDiagnostic, {
+        kind: "unconsumed-server-notification",
+        method: frame.rawWireType,
+      });
+      return;
+    }
+    try {
+      delegate(frame.rawWireType, frame.params);
+    } catch (cause) {
+      // A MODULE-BOUNDARY guard, kept deliberately even though the transport
+      // contains this same fault one frame further out. The reason is ownership
+      // rather than behaviour: this class should not depend on another module's
+      // error handling to keep its own contract, and that transport is slated to
+      // become swappable (T3.15 leg 6), at which point the outer catch stops
+      // being guaranteed.
+      reportDiagnosticFromDetachedFrame(this.#options.reportDiagnostic, {
+        kind: "notification-consumer-failed",
+        method: frame.rawWireType,
+        detail: normalizeProviderFailureDetail(cause),
+      });
+    }
   }
 
   // Get-or-create, so the intent latch survives whichever of close and
@@ -3715,7 +4246,6 @@ export class CodexLifecycleManager {
    * settle the parent's run.
    */
   #connectionOptionsFor(sessionId: SessionId): CodexConnectionOptions {
-    const delegate = this.#options.onServerNotification;
     const reportDiagnostic = this.#options.reportDiagnostic;
     const answerServerRequest = this.#options.answerServerRequest;
     return {
@@ -3741,32 +4271,24 @@ export class CodexLifecycleManager {
             },
       onServerNotification: (method: string, params: unknown): void => {
         this.#observeServerNotification(sessionId, method, params);
-        if (delegate === undefined) {
-          // Same containment as the transport's own, and for the same reason:
-          // this callback is invoked from inside `#ingest`, so a throwing sink
-          // here unwinds the caller's read-chunk drain just as surely.
-          reportDiagnosticFromDetachedFrame(reportDiagnostic, {
-            kind: "unconsumed-server-notification",
-            method,
-          });
-          return;
-        }
+        // EVERY inbound frame goes through the router before any projection
+        // decision, and the delegate is reached only from inside that path
+        // (`#handOffToNormalizeBand`), which carries the same module-boundary
+        // containment this seam used to hold directly.
+        //
+        // Honest limit, recorded rather than left to be discovered: that guard
+        // is NOT independently observable today. Delete the transport's
+        // containment and a test fails; delete the inner one and none does,
+        // because the outer catch reports an identical diagnostic (the
+        // manager's own observation has already run by the time the delegate is
+        // called, so nothing is skipped either way).
         try {
-          delegate(method, params);
+          this.#routeInboundNotification(sessionId, method, params);
         } catch (cause) {
-          // A MODULE-BOUNDARY guard, kept deliberately even though the transport
-          // contains this same fault one frame further out. The reason is
-          // ownership rather than behaviour: this class should not depend on
-          // another module's error handling to keep its own contract, and that
-          // transport is slated to become swappable (T3.15 leg 6), at which point
-          // the outer catch stops being guaranteed.
-          //
-          // Honest limit, recorded rather than left to be discovered: this guard
-          // is NOT independently observable today. Delete the transport's
-          // containment and a test fails; delete this one and none does, because
-          // the outer catch reports an identical diagnostic (the manager's own
-          // observation has already run by the time the delegate is called, so
-          // nothing is skipped either way).
+          // The routing band is written to be total, so this is a backstop
+          // rather than a path: it runs inside `#ingest`, and an escaping throw
+          // would unwind the caller's read-chunk drain and take unrelated
+          // frames down with it.
           reportDiagnosticFromDetachedFrame(reportDiagnostic, {
             kind: "notification-consumer-failed",
             method,
