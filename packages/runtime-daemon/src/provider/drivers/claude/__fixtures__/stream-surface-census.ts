@@ -3,11 +3,20 @@
 //   Source doc      : docs/reference/provider-wire/claude.md
 //   Section         : §Result and stream surface; §`system/init` `capabilities`
 //                     - an open set, per-token
-//   Pin             : Claude Code 2.1.245 (the native single-file build named
+//   Pin             : Claude Code 2.1.251 (the native single-file build named
 //                     in that doc's §Version pin)
-//   Provenance      : Binary probe, censused 2026-08-25
-//   Trust           : Verified at 2.1.245 for every string below; the result
-//                     -subtype set and the init capability tokens are
+//   Provenance      : Binary probe. The schema-constructor census these strings
+//                     were read from was taken at 2.1.245 on 2026-08-25 and is
+//                     CARRIED to the pin, per claude.md §Version pin "Carried
+//                     census". On 2026-08-28 every string below was re-verified
+//                     PRESENT as a literal token in the 2.1.251 build (quoted
+//                     or bare - four of them are emitted unquoted as object
+//                     keys in both builds, so a quoted-only check would report
+//                     a deletion that did not happen). Nothing was restamped
+//                     that the 2026-08-28 pass did not re-measure: presence is
+//                     what it establishes, and set closure is not.
+//   Trust           : Verified present at 2.1.251 for every string below;
+//                     the result-subtype set and the init capability tokens are
 //                     additionally recorded unchanged at 2.1.246. Set-CLOSURE
 //                     is marked Derived by the reference itself, "since a
 //                     string census cannot prove a set is closed" - which is
@@ -178,5 +187,14 @@ export const CLAUDE_GET_BINARY_VERSION_RESPONSE_MEMBERS: readonly [string, strin
   "buildTime",
 ] as const);
 
-/** The pinned CLI version every vector in this directory was censused from. */
-export const CLAUDE_WIRE_PIN_VERSION = "2.1.245";
+/**
+ * The CLI version claude.md pins, which every vector in this directory is
+ * recorded against.
+ *
+ * NOT the build the schema-constructor census was extracted from - that was
+ * `2.1.245`, and the header above says so. The distinction is deliberate: this
+ * constant is what a consumer compares a running build against, so it has to
+ * name the pin; the census provenance lives in prose where it cannot be
+ * mistaken for a version to compare with.
+ */
+export const CLAUDE_WIRE_PIN_VERSION = "2.1.251";

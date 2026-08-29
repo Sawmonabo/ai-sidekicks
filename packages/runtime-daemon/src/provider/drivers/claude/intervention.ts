@@ -18,8 +18,9 @@
 // double-apply the intervention the daemon is about to queue.
 //
 // WHY CLAUDE STEERS DEGRADED. The V1 capability matrix declares `steer: false`
-// for Claude, and the pinned wire surface agrees: the control-request registry at
-// `2.1.245` carries no steer subtype
+// for Claude, and the pinned wire surface agrees: the control-request registry
+// censused at `2.1.245` carries no steer subtype, and no such subtype string
+// appears in the `2.1.251` pin's binary either
 // (`docs/reference/provider-wire/claude.md` §Control-request registry). The only
 // other route would be writing the steer text as an ordinary user frame, which is
 // not a steer at all — it is an out-of-band turn the daemon never admitted. So

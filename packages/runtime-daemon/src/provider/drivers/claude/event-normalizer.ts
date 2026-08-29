@@ -32,8 +32,12 @@
 // Two corpus sources, and no third:
 //
 //   (1) `docs/reference/provider-wire/claude.md` — the version-pinned Claude
-//       wire reference (pin `2.1.245`, censused 2026-08-25 from the native
-//       single-file build). It records the fifteen control-request subtypes in
+//       wire reference (pin `2.1.251`; the schema-constructor census these
+//       subtype and stream-surface names come from was read at `2.1.245` on
+//       2026-08-25 from the native single-file build and is CARRIED to the pin,
+//       with every name below re-verified present in the `2.1.251` binary on
+//       2026-08-28 — see that file's §Version pin "Carried census" row). It
+//       records the fifteen control-request subtypes in
 //       full (§Control-request registry), the censused-absent-but-answering
 //       `mcp_set_servers` and the `control_response` envelope shape (same
 //       section), and the result subtypes, the `system/api_retry` shape with

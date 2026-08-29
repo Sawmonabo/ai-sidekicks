@@ -4,23 +4,23 @@
 //   Source doc      : docs/reference/provider-wire/codex.md
 //   Sections        : §Method namespace (the legacy bare-camelCase residual),
 //                     §The experimental gate — a runtime filter, not a schema
-//                     filter (the nineteen gated notifications),
+//                     filter (the twenty-three gated notifications),
 //                     §Capability shapes (`thread/goal/*`,
 //                     `thread/realtime/*`), §Adjacent currency facts
-//   Pin             : codex-cli 0.149.1
+//   Pin             : codex-cli 0.150.1
 //   Provenance      : Generated schema (`codex app-server
 //                     generate-json-schema` / `generate-ts`), regenerated
-//                     2026-08-25; the experimental-marker sets additionally
-//                     Upstream source at `openai/codex` `rust-v0.149.1`
-//   Trust           : Verified at 0.149.1
+//                     2026-08-28; the experimental-marker sets additionally
+//                     Upstream source at `openai/codex` `rust-v0.150.1`
+//   Trust           : Verified at 0.150.1
 //   Derived by      : Plan-005 T3.5
 //
 // COMPLETENESS — READ THIS BEFORE ASSERTING OVER THIS FILE.
 //
 // This is NOT the full `ServerNotification` union. codex.md records that root
-// as carrying 75 arms at the pin but enumerates only a subset by name. This
+// as carrying 79 arms at the pin but enumerates only a subset by name. This
 // fixture carries exactly the named subset and nothing else — inventing the
-// remaining arms to reach 75 is precisely the hand-transcription the family
+// remaining arms to reach 79 is precisely the hand-transcription the family
 // README forbids. So a test may assert "every row here resolves as expected"
 // and "no row here is missing from the normalizer census", and may NOT assert
 // "the normalizer census covers the Codex notification surface".
@@ -37,7 +37,7 @@ export interface CodexServerNotificationMethodVector {
   /** The JSON-RPC `method` string, verbatim from the reference. */
   readonly method: string;
   /**
-   * `true` for the nineteen notifications codex.md §The experimental gate
+   * `true` for the twenty-three notifications codex.md §The experimental gate
    * enumerates as carrying an `#[experimental(...)]` marker: they are present
    * in the DEFAULT-generated schema (the generator has no notification-side
    * exclusion) but the transport's `should_skip_notification_for_connection`
@@ -46,8 +46,8 @@ export interface CodexServerNotificationMethodVector {
   readonly experimentalGatedAtPin: boolean;
   /**
    * `false` for the two variants the reference records as declared in the
-   * upstream `server_notification_definitions!` block (77) yet ABSENT from the
-   * binary's own default generation (75): `rawResponse/completed` and
+   * upstream `server_notification_definitions!` block (81) yet ABSENT from the
+   * binary's own default generation (79): `rawResponse/completed` and
    * `rawResponseItem/completed`. The generated schema is the pin, so these are
    * not members of the pinned native set — the normalizer deliberately does
    * not map them, and the test pins that as a negative control.
@@ -59,7 +59,7 @@ export interface CodexServerNotificationMethodVector {
 
 /**
  * Every Codex server notification codex.md records by exact method name at
- * `codex-cli 0.149.1`.
+ * `codex-cli 0.150.1`.
  *
  * Blocks below mirror the reference's own sections; within a block, rows keep
  * the reference's order so a reviewer can reconcile line by line.
@@ -100,19 +100,25 @@ export const CODEX_SERVER_NOTIFICATION_METHOD_VECTORS: readonly CodexServerNotif
       referenceSection: "Method namespace",
     },
 
-    // §The experimental gate — "At `0.149.1`, 19 of the 75 default-generated
-    // server notifications are gated: all eight `thread/realtime/*` (see
-    // below), plus `thread/reverted`, `thread/queue/changed`,
-    // `project/changed`, `thread/project/updated`,
+    // §The experimental gate — "At `0.150.1`, 23 of the 79 default-generated
+    // server notifications are gated: all eleven `thread/realtime/*` (see
+    // below), plus `mcpServer/event/stream/notification`, `thread/reverted`,
+    // `thread/queue/changed`, `project/changed`, `thread/project/updated`,
     // `thread/environment/connected`, `thread/environment/disconnected`,
     // `thread/settings/updated`, `autoApprovalReview/strictReviewRequired`,
     // `process/outputDelta`, `process/exited`, and `turn/moderationMetadata`."
     //
-    // The eight realtime names are spelled in full in codex.md
+    // The eleven realtime names are spelled in full in codex.md
     // §`thread/realtime/*` ("`thread/realtime/started`, `.../closed`,
     // `.../error`, `.../itemAdded`, `.../sdp`, `.../outputAudio/delta`,
-    // `.../transcript/delta`, `.../transcript/done`") and again, unelided, in
-    // Plan-005 T3.11.
+    // `.../transcript/delta`, `.../transcript/done`, and, new at `0.150.1`,
+    // `.../item/started`, `.../item/transcript/delta`, `.../item/completed`")
+    // and again, unelided, in Plan-005 T3.11.
+    //
+    // THE THREE ITEM-SCOPED NAMES ARE ADDITIONS, NOT RENAMES. codex.md records
+    // the 0.149.1 -> 0.150.1 set difference as four arms added and zero
+    // removed, so `.../itemAdded`, `.../transcript/delta` and
+    // `.../transcript/done` keep their rows below rather than being replaced.
     {
       method: "thread/realtime/started",
       experimentalGatedAtPin: true,
@@ -157,6 +163,24 @@ export const CODEX_SERVER_NOTIFICATION_METHOD_VECTORS: readonly CodexServerNotif
     },
     {
       method: "thread/realtime/transcript/done",
+      experimentalGatedAtPin: true,
+      presentInPinnedGeneratedSchema: true,
+      referenceSection: "thread/realtime/*",
+    },
+    {
+      method: "thread/realtime/item/started",
+      experimentalGatedAtPin: true,
+      presentInPinnedGeneratedSchema: true,
+      referenceSection: "thread/realtime/*",
+    },
+    {
+      method: "thread/realtime/item/transcript/delta",
+      experimentalGatedAtPin: true,
+      presentInPinnedGeneratedSchema: true,
+      referenceSection: "thread/realtime/*",
+    },
+    {
+      method: "thread/realtime/item/completed",
       experimentalGatedAtPin: true,
       presentInPinnedGeneratedSchema: true,
       referenceSection: "thread/realtime/*",
@@ -246,7 +270,7 @@ export const CODEX_SERVER_NOTIFICATION_METHOD_VECTORS: readonly CodexServerNotif
     },
 
     // §`thread/goal/*` — "the wire also emits `thread/goal/updated` and
-    // `thread/goal/cleared` server notifications. All present at `0.149.1`."
+    // `thread/goal/cleared` server notifications. All present at `0.150.1`."
     {
       method: "thread/goal/updated",
       experimentalGatedAtPin: false,
@@ -321,24 +345,39 @@ export const CODEX_SERVER_NOTIFICATION_METHOD_VECTORS: readonly CodexServerNotif
       presentInPinnedGeneratedSchema: true,
       referenceSection: "Adjacent currency facts",
     },
+
+    // §Adjacent currency facts — "New at this pin, and the only non-realtime
+    // arm the hop added: `mcpServer/event/stream/notification`. It joins
+    // `mcpServer/oauthLogin/completed` and `mcpServer/startupStatus/updated`,
+    // taking the `mcpServer*` notification family from two arms to three ...
+    // It is gated — one of the four markers this hop added — so a default
+    // connection does not receive it, and it is counted in the 23 above."
+    {
+      method: "mcpServer/event/stream/notification",
+      experimentalGatedAtPin: true,
+      presentInPinnedGeneratedSchema: true,
+      referenceSection: "Adjacent currency facts",
+    },
   ] as const satisfies readonly CodexServerNotificationMethodVector[]);
 
 /**
  * The gated-notification count at the pin, quoted from codex.md §The
- * experimental gate: "At `0.149.1`, 19 of the 75 default-generated server
- * notifications are gated". The reference additionally argues why 19 is a
- * TOTAL and not a floor (both `experimental_reason()` sources were checked),
- * which is what makes this safe to pin as an equality rather than a minimum.
+ * experimental gate: "At `0.150.1`, 23 of the 79 default-generated server
+ * notifications are gated". The reference additionally argues why 23 is a
+ * TOTAL and not a floor (both `experimental_reason()` sources were re-checked
+ * at the tag), which is what makes this safe to pin as an equality rather than
+ * a minimum. It was 19 of 75 at `0.149.1`; all four notifications the pin hop
+ * added carry markers, so the whole delta landed on the gated side.
  */
-export const CODEX_GATED_SERVER_NOTIFICATION_COUNT_AT_PIN = 19;
+export const CODEX_GATED_SERVER_NOTIFICATION_COUNT_AT_PIN = 23;
 
 /**
  * The full `ServerNotification` arity at the pin, quoted from codex.md
- * §Additive-only across the floor: "`ServerNotification` 66 -> 75".
+ * §Additive-only across the floor: "`ServerNotification` 66 -> 79".
  *
  * Recorded so the completeness caveat at the top of this file is a VALUE a
  * test can assert against rather than only prose: the vector list above is a
  * strict subset of this, and any test that treats it as the whole surface is
  * wrong by construction.
  */
-export const CODEX_SERVER_NOTIFICATION_COUNT_AT_PIN = 75;
+export const CODEX_SERVER_NOTIFICATION_COUNT_AT_PIN = 79;

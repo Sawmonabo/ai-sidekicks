@@ -30,7 +30,7 @@
 // Two corpus sources, and no third:
 //
 //   (1) `docs/reference/provider-wire/codex.md` — the version-pinned Codex
-//       wire reference (pin `codex-cli 0.149.1`, regenerated 2026-08-25 from
+//       wire reference (pin `codex-cli 0.150.1`, regenerated 2026-08-28 from
 //       the binary's own generated schema). It records the ten `ServerRequest`
 //       methods in full (§Server-requests), the legacy bare-camelCase
 //       notifications (§Method namespace), the nineteen experimental-gated
@@ -58,28 +58,41 @@
 // What is deliberately NOT in the closed union (and why)
 // ---------------------------------------------------------------------------
 //
-//   • The eight `thread/realtime/*` server notifications
+//   • The eleven `thread/realtime/*` server notifications
 //     (`thread/realtime/started`, `.../closed`, `.../error`, `.../itemAdded`,
 //     `.../sdp`, `.../outputAudio/delta`, `.../transcript/delta`,
-//     `.../transcript/done`). Three independent corpus statements put them
-//     outside this table: the Spec-006 `realtime_*` family is RESERVED with no
-//     V1 emitter, so there is no family emission to make; the driver suppresses
-//     them at the source via Codex `initialize.capabilities.optOutNotificationMethods`
+//     `.../transcript/done`, `.../item/started`, `.../item/transcript/delta`,
+//     `.../item/completed` — the last three added by the `0.150.1` pin BESIDE
+//     the older spellings, not in place of them). Three independent corpus
+//     statements put them outside this table: the Spec-006 `realtime_*` family
+//     is RESERVED with no V1 emitter, so there is no family emission to make;
+//     the driver suppresses them at the source via Codex
+//     `initialize.capabilities.optOutNotificationMethods`
 //     (Plan-005 T3.12 C-16 / T3.15 leg 7), so they do not arrive on this
 //     connection; and Plan-005 T3.11 states verbatim that the normalizer
-//     "routes each of the eight Codex realtime wire kinds ... to the
-//     default-branch diagnostic", and that a ninth upstream-added
+//     "routes each of the eleven Codex realtime wire kinds ... to the
+//     default-branch diagnostic", and that a twelfth upstream-added
 //     `thread/realtime/*` name "still falls through to the same P0-1
-//     default-branch diagnostic — never silently dropped". Leaving all eight
+//     default-branch diagnostic — never silently dropped". Leaving all eleven
 //     out of the union is what makes that sentence true: they reach the
 //     unknown seam below, which T3.11 re-points at its diagnostic surface.
 //     Listing them here as a suppression constant would duplicate the
 //     `optOutNotificationMethods` list T3.12/T3.15 owns, so they are named in
 //     this comment and nowhere in the code.
 //
+//   • `mcpServer/event/stream/notification`, the fourth arm the `0.150.1` pin
+//     added and the only non-realtime one. It is experimental-gated like the
+//     other three, so a connection negotiating `experimentalApi: false` never
+//     receives it, and no corpus row assigns it a normalized family. It is
+//     therefore left OUT of the union deliberately rather than mapped on a
+//     guess: should a later posture or pin make it deliverable, it reaches the
+//     unknown seam below and surfaces as an operator-visible T3.11 diagnostic,
+//     which is the discovery path this module wants for growth it has not
+//     been given a disposition for.
+//
 //   • `rawResponse/completed` and `rawResponseItem/completed`. codex.md records
 //     both by name and records that neither reaches the pinned binary's
-//     generated schema ("Source declares 77; the binary generates 75"). The
+//     generated schema ("Source declares 81; the binary generates 79"). The
 //     generated schema is the pin, so they are not members of the pinned native
 //     set. Should a later build start emitting one, the unknown seam surfaces
 //     it as an operator-visible T3.11 diagnostic — which is the correct
@@ -104,7 +117,7 @@
 // full reasoning. The short version: their dispositions are already settled by
 // the corpus, so keeping the rows makes a posture flip or a pin bump free,
 // whereas deleting them would route twelve settled frames into the T3.11
-// diagnostic at once. The realtime eight above are the opposite case — opted
+// diagnostic at once. The realtime eleven above are the opposite case — opted
 // out by name at the source AND targeting a family with no V1 emitter, so no
 // corpus row supplies a disposition to keep.
 //
@@ -185,7 +198,7 @@
 //     literals, and nothing composes a method string at runtime.
 //
 // Refs: Plan-005 §Phase 3 / T3.5, `Spec-005 §Required Behavior`,
-// `docs/reference/provider-wire/codex.md` (pin `codex-cli 0.149.1`),
+// `docs/reference/provider-wire/codex.md` (pin `codex-cli 0.150.1`),
 // `docs/plans/006-session-event-taxonomy-and-audit-log.md`
 // §Event-Kind Disposition Table.
 
@@ -290,7 +303,7 @@ export type CodexInboundFrameMethod =
   // `turn/moderationMetadata`", and two of those three names do not exist on
   // the wire: regenerating the protocol schema from the pinned binary itself
   // (`codex app-server generate-json-schema --out <dir>` at codex-cli
-  // 0.149.1) emits `turn/diff/updated` and `turn/plan/updated`. Only
+  // 0.150.1) emits `turn/diff/updated` and `turn/plan/updated`. Only
   // `turn/moderationMetadata` is genuinely bare, and it is mapped above with
   // the other gated notifications. The generator output is canonical over
   // prose under the regenerate-don't-transcribe rule, so the generated names
@@ -333,7 +346,7 @@ export type CodexInboundFrameMethod =
  * non-experimental), every one of these frames would reach the T3.11
  * default-branch diagnostic at once — a diagnostic flood standing in for
  * twelve dispositions the corpus has already settled. Keeping the mapping
- * makes that change free. This is the same reasoning that keeps the eight
+ * makes that change free. This is the same reasoning that keeps the eleven
  * `thread/realtime/*` methods OUT: those are suppressed by name at the source
  * and route to a family with no V1 emitter, so mapping them would assert a
  * disposition no corpus row supplies. Dormant-but-settled is mapped;
@@ -342,7 +355,7 @@ export type CodexInboundFrameMethod =
  * This set is DECLARED rather than derived because the gate state lives in
  * neither of this module's inputs: the generated schema does not encode it
  * for notifications (the generator has no notification-side experimental
- * exclusion — regenerating at codex-cli 0.149.1 leaves 74 of 75
+ * exclusion — regenerating at codex-cli 0.150.1 leaves 78 of 79
  * `ServerNotification` arms unmarked), and `tools.ts` knows nothing about
  * negotiation. The corpus source is codex.md §The experimental gate, which the
  * `__fixtures__/` gate tags transcribe; the test suite asserts this set equals
@@ -990,7 +1003,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
   // ------------------------------------------------------------------
 
   // Wire name from the binary's own `codex app-server generate-json-schema`
-  // output at codex-cli 0.149.1; the Plan-006 delta-table row carried the
+  // output at codex-cli 0.150.1; the Plan-006 delta-table row carried the
   // truncated `turn/diff` until its 2026-08-28 correction.
   //
   // Disposition from that same delta row: "`diff` -> persisted (32)".
@@ -1007,7 +1020,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     normalizedKind: "diff",
   },
   // Wire name from the binary's own `codex app-server generate-json-schema`
-  // output at codex-cli 0.149.1; the Plan-006 delta-table row carried the
+  // output at codex-cli 0.150.1; the Plan-006 delta-table row carried the
   // truncated `turn/plan` until its 2026-08-28 correction.
   //
   // Disposition from that same delta row: "`plan` -> `proposed_plan` (35)";

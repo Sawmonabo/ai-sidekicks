@@ -13,7 +13,7 @@
 //
 // Fixture discipline: the two `__fixtures__/` modules are METHOD census
 // vectors derived from `docs/reference/provider-wire/codex.md` at pin
-// `codex-cli 0.149.1`. The reference reproduces no inbound PAYLOAD body
+// `codex-cli 0.150.1`. The reference reproduces no inbound PAYLOAD body
 // verbatim, so these are method vectors and never payload golden files. The
 // delta-family members `turn/diff/updated` and `turn/plan/updated` — whose
 // wire names come from the pinned binary's own `codex app-server
@@ -312,7 +312,7 @@ const EXPECTED_NORMALIZED_ROWS: ReadonlyMap<CodexInboundFrameMethod, ExpectedNor
       },
     ],
     // `turn/diff/updated` | `turn/plan/updated` — disposition from the Plan-006
-    // delta row, wire names from the binary's generator at codex-cli 0.149.1
+    // delta row, wire names from the binary's generator at codex-cli 0.150.1
     // (the delta row carried truncated forms until its 2026-08-28 correction).
     [
       "turn/diff/updated",
@@ -363,13 +363,17 @@ const REQUIRED_NORMALIZED_FAMILIES: readonly EventCategory[] = [
 ];
 
 /**
- * The eight realtime notifications deliberately EXCLUDED from the census.
+ * The eleven realtime notifications deliberately EXCLUDED from the census.
  *
  * Spelled in full in Plan-005 T3.11, which states the normalizer "routes each
- * of the eight Codex realtime wire kinds ... to the default-branch
+ * of the eleven Codex realtime wire kinds ... to the default-branch
  * diagnostic". Pinned here so a future edit that quietly maps one of them into
  * a family fails: the `realtime_*` Spec-006 family is reserved with no V1
  * emitter, so any family it were mapped to would be fabricated.
+ *
+ * The last three arrived with the `0.150.1` pin BESIDE the older spellings, not
+ * in place of them — the pin hop's set difference added four arms and removed
+ * none — so all eleven are listed rather than eight being swapped for three.
  */
 const EXCLUDED_REALTIME_METHODS: readonly string[] = [
   "thread/realtime/started",
@@ -380,7 +384,21 @@ const EXCLUDED_REALTIME_METHODS: readonly string[] = [
   "thread/realtime/outputAudio/delta",
   "thread/realtime/transcript/delta",
   "thread/realtime/transcript/done",
+  "thread/realtime/item/started",
+  "thread/realtime/item/transcript/delta",
+  "thread/realtime/item/completed",
 ];
+
+/**
+ * The one non-realtime notification the `0.150.1` pin added.
+ *
+ * Gated like the other three additions and given no normalized family by any
+ * corpus row, so it is deliberately absent from the closed union and reaches
+ * the T3.11 default-branch diagnostic. Asserted rather than assumed because the
+ * fixture-gated cross-check below filters to census members, which would let a
+ * newly-tagged non-census method pass through unexamined.
+ */
+const EXCLUDED_NON_REALTIME_GATED_METHOD_AT_PIN = "mcpServer/event/stream/notification";
 
 function normalizedRowsOfCensus(): readonly CodexNormalizedFamilyEmission[] {
   return CODEX_INBOUND_FRAME_METHODS.map((method) => normalizeCodexInboundFrame(method)).filter(
@@ -400,18 +418,22 @@ describe("Codex event normalizer — fixture census integrity", () => {
     expect(new Set(methods).size).toBe(CODEX_SERVER_REQUEST_METHOD_COUNT_AT_PIN);
   });
 
-  it("carries exactly the nineteen experimental-gated notifications the pin enumerates", () => {
+  it("carries exactly the twenty-three experimental-gated notifications the pin enumerates", () => {
     const gated = CODEX_SERVER_NOTIFICATION_METHOD_VECTORS.filter(
       (vector) => vector.experimentalGatedAtPin,
     );
     expect(gated).toHaveLength(CODEX_GATED_SERVER_NOTIFICATION_COUNT_AT_PIN);
-    // All eight realtime names are inside that nineteen.
+    // All eleven realtime names are inside that twenty-three, as is the one
+    // non-realtime arm the pin hop added.
     for (const realtimeMethod of EXCLUDED_REALTIME_METHODS) {
       expect(gated.map((vector) => vector.method)).toContain(realtimeMethod);
     }
+    expect(gated.map((vector) => vector.method)).toContain(
+      EXCLUDED_NON_REALTIME_GATED_METHOD_AT_PIN,
+    );
   });
 
-  it("is honest about being a strict subset of the 75-arm notification root", () => {
+  it("is honest about being a strict subset of the 79-arm notification root", () => {
     // The reference enumerates only part of the union by name; asserting the
     // subset relation keeps a future reader from mistaking this fixture for a
     // completeness claim about the Codex notification surface.
@@ -455,9 +477,16 @@ describe("Codex event normalizer — every fixture frame normalizes as expected"
   );
 
   it.each(
+    // Both exclusions are NAMED rather than derived from union membership: a
+    // method absent from the closed union for any reason other than these two
+    // still reaches `normalizeCodexInboundFrame` here and throws, which is the
+    // drift signal this cross-check exists to raise. Filtering by union
+    // membership instead would make the check vacuous.
     CODEX_SERVER_NOTIFICATION_METHOD_VECTORS.filter(
       (vector) =>
-        vector.presentInPinnedGeneratedSchema && !EXCLUDED_REALTIME_METHODS.includes(vector.method),
+        vector.presentInPinnedGeneratedSchema &&
+        !EXCLUDED_REALTIME_METHODS.includes(vector.method) &&
+        vector.method !== EXCLUDED_NON_REALTIME_GATED_METHOD_AT_PIN,
     ).map((vector) => vector.method),
   )("resolves ServerNotification %s", (method) => {
     const normalization = normalizeCodexInboundFrame(method);
@@ -483,7 +512,7 @@ describe("Codex event normalizer — every fixture frame normalizes as expected"
     // Their DISPOSITION comes from
     // `Plan-006 §Event-Kind Disposition Table (surveyed-runtime normalized census)`'s Codex delta row and their WIRE
     // NAMES from the pinned binary's own generator output at codex-cli
-    // 0.149.1 (the delta row carried both truncated until 2026-08-28).
+    // 0.150.1 (the delta row carried both truncated until 2026-08-28).
     // Exercised as typed values here on top of the census coverage above: the
     // annotation binds each literal to `CodexInboundFrameMethod` at compile
     // time, so dropping a member from the union fails to BUILD rather than
@@ -963,6 +992,23 @@ describe("Codex event normalizer — negotiation-gated methods are declared, not
     }
   });
 
+  it("excludes the pin's non-realtime gated addition, which is unmapped rather than dormant", () => {
+    // The `0.150.1` hop added `mcpServer/event/stream/notification` as a gated
+    // arm. It is neither suppressed by name (it is not realtime) nor given a
+    // family by any corpus row, so it belongs in NEITHER the closed union nor
+    // the dormant-but-settled declaration: it must reach the unknown seam and
+    // surface as a T3.11 diagnostic. Without this assertion the fixture's gate
+    // tag for it is checked by nothing, because the cross-check above filters
+    // to census members and this method is deliberately not one.
+    expect(CODEX_INBOUND_FRAME_METHODS).not.toContain(EXCLUDED_NON_REALTIME_GATED_METHOD_AT_PIN);
+    expect(CODEX_NEGOTIATION_GATED_METHODS).not.toContain(
+      EXCLUDED_NON_REALTIME_GATED_METHOD_AT_PIN,
+    );
+    expect(() => normalizeCodexInboundFrame(EXCLUDED_NON_REALTIME_GATED_METHOD_AT_PIN)).toThrow(
+      UnknownCodexInboundFrameError,
+    );
+  });
+
   it("leaves the ungated remainder of the census reachable at the shipped posture", () => {
     // Non-vacuity: if this ever hit zero, the suite above would be asserting a
     // property of an empty set while the driver received nothing at all.
@@ -1008,8 +1054,8 @@ describe("Codex event normalizer — the truncated delta names stay off the cens
     // spelled this family "`turn/diff` | `turn/plan` | `turn/moderationMetadata`"
     // until its 2026-08-28 correction. Regenerating the protocol schema from the
     // pinned binary (`codex app-server generate-json-schema` at codex-cli
-    // 0.149.1) emits `turn/diff/updated` and `turn/plan/updated`; the bare
-    // forms appear nowhere in its 75-arm `ServerNotification` root.
+    // 0.150.1) emits `turn/diff/updated` and `turn/plan/updated`; the bare
+    // forms appear nowhere in its 79-arm `ServerNotification` root.
     //
     // The guard OUTLIVES the correction it was written against. The truncated
     // spellings are the intuitive ones, they survive in older revisions of this

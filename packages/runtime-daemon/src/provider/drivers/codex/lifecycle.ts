@@ -128,7 +128,7 @@
 //
 // Refs: Plan-005 §Phase 3 / T3.1, `Spec-005 §Required Behavior`,
 // `Spec-005 §Fallback Behavior`, invariant I-005-5, ADR-011, ADR-019,
-// `docs/reference/provider-wire/codex.md` (pinned `codex-cli 0.149.1`),
+// `docs/reference/provider-wire/codex.md` (pinned `codex-cli 0.150.1`),
 // `docs/architecture/contracts/error-contracts.md §Driver`.
 
 import { randomUUID } from "node:crypto";
@@ -478,9 +478,10 @@ export const CODEX_MAX_LINE_LENGTH: number = 32 * 1024 * 1024;
 
 /**
  * The ten server-initiated REQUEST methods of the pinned protocol, read from the
- * generated `ServerRequest` union at `codex-cli 0.149.1` (regenerate, never
+ * generated `ServerRequest` union at `codex-cli 0.150.1` (regenerate, never
  * transcribe — `docs/reference/provider-wire/codex.md`; re-verified against the
- * installed binary's own generation on 2026-08-27).
+ * pinned binary's own generation on 2026-08-28, where `ServerRequest.json` came
+ * back byte-identical to the `0.149.1` generation — this root did not move).
  *
  * An OBSERVABILITY ANNOTATION, deliberately NOT a routing filter — and that is
  * still true now that {@link CODEX_ROUTED_SERVER_REQUEST_DESCRIPTORS} routes a
@@ -681,11 +682,12 @@ export const CODEX_ROUTED_SERVER_REQUEST_METHODS: readonly string[] = Object.fre
  * (T3.15 leg 3, the Codex half).
  *
  * `dynamicTools` is a property of `ThreadStartParams` in the EXPERIMENTAL
- * generation ONLY. Direct comparison of three default generations
- * (`codex-cli 0.149.1` and the installed `0.150.1`) against the experimental
- * one: `ThreadStartParams` carries 15 properties by default and 26 under
+ * generation ONLY. Direct comparison of the default generations at `codex-cli
+ * 0.149.1` and the pinned `0.150.1` against the experimental one:
+ * `ThreadStartParams` carries 15 properties by default and 26 under
  * `--experimental`, and `dynamicTools` is one of the eleven that appear only
- * there. This driver negotiates `experimentalApi: false` — the posture T3.23
+ * there. Both generated files are byte-identical across the pin hop, so the
+ * counts are re-verified at `0.150.1` rather than carried. This driver negotiates `experimentalApi: false` — the posture T3.23
  * ratified, and the posture that keeps the twelve
  * `CODEX_NEGOTIATION_GATED_METHODS` dormant — so the registration surface is
  * unreachable.
@@ -787,7 +789,7 @@ const JSON_RPC_METHOD_NOT_FOUND = -32601;
  * (Plan-005 T3.15 leg 7, `docs/reference/provider-wire/codex.md` C-16).
  *
  * Read from the generated `ServerNotification` union at the pin: `codex-cli
- * 0.149.1` publishes exactly these eight `thread/realtime/*` names. V1 ships no
+ * 0.150.1` publishes exactly these eleven `thread/realtime/*` names. V1 ships no
  * realtime voice surface, so every one of them would reach the normalizer's
  * default branch and land on the diagnostic channel as an unmapped wire kind —
  * a per-audio-delta record on a stream that emits deltas continuously. Opting
@@ -796,14 +798,26 @@ const JSON_RPC_METHOD_NOT_FOUND = -32601;
  * .optOutNotificationMethods`: "Exact notification method names that should be
  * suppressed for this connection").
  *
+ * RE-DERIVED AT THE `0.150.1` PIN, AND THE THREE NEW NAMES ARE ADDITIONS, NOT
+ * RENAMES. The `0.149.1` list carried eight; `thread/realtime/item/started`,
+ * `thread/realtime/item/transcript/delta` and `thread/realtime/item/completed`
+ * join them because a full-list-vs-full-list set difference between the two
+ * default generations shows four arms ADDED and zero removed — the older
+ * `itemAdded` / `transcript/delta` / `transcript/done` spellings are still
+ * published at this pin and keep their entries. Dropping them as though they had
+ * been renamed would un-suppress three names the provider still emits.
+ *
  * SUPPRESSION IS NOT A CENSUS EXEMPTION. The list is exact-match by design and
- * this census is one release's snapshot: the installed `0.150.1` generation
- * already publishes three further names (`thread/realtime/item/started`,
- * `thread/realtime/item/completed`, `thread/realtime/item/transcript/delta`)
- * that this pin does not. Those are deliberately NOT suppressed here — a name
- * beyond the pin backstops through the normalizer's default branch and becomes
- * a diagnostic, which is how the growth is discovered rather than absorbed.
- * Re-derive this list when the pin moves; never widen it to quiet a diagnostic.
+ * this census is one release's snapshot: a `thread/realtime/*` name a later
+ * build adds is deliberately NOT pre-listed here — a name beyond the pin
+ * backstops through the normalizer's default branch and becomes a diagnostic,
+ * which is how the growth is discovered rather than absorbed. Re-derive this
+ * list when the pin moves; never widen it to quiet a diagnostic.
+ *
+ * The pin hop's fourth added notification, `mcpServer/event/stream/notification`,
+ * is deliberately absent: it is not a realtime name, this list is the realtime
+ * opt-out, and it takes the default-branch diagnostic path exactly as the
+ * paragraph above describes.
  */
 export const CODEX_SUPPRESSED_REALTIME_NOTIFICATION_METHODS: readonly string[] = Object.freeze([
   "thread/realtime/started",
@@ -814,14 +828,17 @@ export const CODEX_SUPPRESSED_REALTIME_NOTIFICATION_METHODS: readonly string[] =
   "thread/realtime/outputAudio/delta",
   "thread/realtime/transcript/delta",
   "thread/realtime/transcript/done",
+  "thread/realtime/item/started",
+  "thread/realtime/item/transcript/delta",
+  "thread/realtime/item/completed",
 ]);
 
 /**
  * The provider's ONLY terminal-turn notification.
  *
  * Read from the generated `ServerNotification` union — the vendor regeneration
- * `Spec-005 §References` records at codex-cli `0.150.1` (2026-08-28), adjacent
- * to the `0.149.1` pin: the `turn/*` family is exactly `turn/started`,
+ * `Spec-005 §References` records at codex-cli `0.150.1` (2026-08-28), which is
+ * now the pin itself: the `turn/*` family is exactly `turn/started`,
  * `turn/completed`, `turn/diff/updated`, `turn/plan/updated`, and
  * `turn/moderationMetadata`. There is no `turn/failed` and no `turn/interrupted`
  * — a failed or interrupted turn arrives on THIS method and is discriminated by
@@ -2089,8 +2106,8 @@ export class CodexAppServerConnection {
           // Defense in depth, mirroring the wire reference: experimental surfaces
           // are opt-in and attestation requests are declined outright. The
           // realtime opt-out is the T3.15 leg-7 suppression — see the constant
-          // for why the list is the pin's eight names and not the installed
-          // build's eleven.
+          // for why the list is the pin's eleven names, and why the three
+          // item-scoped ones were ADDED to it rather than swapped in.
           capabilities: {
             experimentalApi: false,
             requestAttestation: false,
@@ -3154,8 +3171,8 @@ export class CodexLifecycleManager {
         // Pinned as defense in depth so no config or profile override can select
         // an auto-review path that bypasses the daemon's approval pipeline.
         // `ThreadStartParams` carries this field (verified against the pinned
-        // binary's own generated schema at `codex-cli 0.149.1`, regenerated
-        // 2026-08-27 — `docs/reference/provider-wire/codex.md`), so the pin is
+        // binary's own generated schema at `codex-cli 0.150.1`, regenerated
+        // 2026-08-28 — `docs/reference/provider-wire/codex.md`), so the pin is
         // accepted rather than an unknown-field risk. It is NOT sufficient on its
         // own: see the per-turn pin in `startRun`.
         approvalsReviewer: "user",
@@ -3430,8 +3447,9 @@ export class CodexLifecycleManager {
         // every turn if only the thread-level pin were sent. Pinning it here is
         // idempotent rather than redundant, and `turn/steer` needs no pin because
         // it requires an already-active turn and creates none. Field verified
-        // present on `TurnStartParams` at `codex-cli 0.149.1` (regenerated
-        // 2026-08-27 — `docs/reference/provider-wire/codex.md`).
+        // present on `TurnStartParams` at `codex-cli 0.150.1` (regenerated
+        // 2026-08-28 — `docs/reference/provider-wire/codex.md`), on a params
+        // type byte-identical back to the `0.141.0` floor.
         approvalsReviewer: "user",
         // Leg 5's per-turn half. The RUN's posture wins where it declares one,
         // and the session's spawn posture is the floor otherwise, so a turn is
@@ -4114,11 +4132,11 @@ export class CodexLifecycleManager {
       // exists to prevent. `clientUserMessageId` is the pinned home for a
       // caller-supplied message id, the same member `turn/start` above already
       // carries. Field verified present on `TurnSteerParams` in the default
-      // generation of the installed `codex-cli 0.150.1` (regenerated 2026-08-28);
-      // `docs/reference/provider-wire/codex.md` pins `0.149.1` and does not print
-      // that params type, but records the member on the sibling `TurnStartParams`
-      // as byte-identical back to the `0.141.0` floor, and directs consumers to
-      // re-verify load-bearing shapes against the then-installed binary.
+      // generation of the pinned `codex-cli 0.150.1` (regenerated 2026-08-28);
+      // `docs/reference/provider-wire/codex.md` does not print that params type,
+      // but records the member on the sibling `TurnStartParams` as byte-identical
+      // back to the `0.141.0` floor, and directs consumers to re-verify
+      // load-bearing shapes against the then-installed binary.
       clientUserMessageId: request.clientIdempotencyKey,
     });
     return { targetedTurnId, acknowledgedTurnId: readSteeredTurnId(response) };

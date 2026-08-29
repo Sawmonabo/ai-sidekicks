@@ -260,8 +260,8 @@ export function getCodexToolMetadata(): NormalizedProviderToolMetadata[] {
 //      assumption (support is not visibility). Producer-only: the consumer
 //      is Plan-028's `McpStatusNormalizer` (CP-028-2).
 //
-// Wire grounding (first-party, generated JSON Schema at codex-cli `0.150.1`,
-// adjacent to the `0.149.1` pin — regenerate per
+// Wire grounding (first-party, generated JSON Schema at the pinned codex-cli
+// `0.150.1` — regenerate per
 // `docs/reference/provider-wire/codex.md §Regeneration`):
 //   * `McpServerStatus` list row: required `name` + `authStatus`
 //     (`unknown | unsupported | notLoggedIn | bearerToken | oAuth`), optional

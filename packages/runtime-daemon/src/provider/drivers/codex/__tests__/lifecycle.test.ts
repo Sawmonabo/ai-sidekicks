@@ -1575,8 +1575,9 @@ describe("CodexDriver approval reviewer pinning", () => {
   // The security property: every approval request the provider raises must reach
   // the daemon's own approval pipeline, so no config or profile override may
   // select `auto_review`. `approvalsReviewer` is present on ThreadStartParams,
-  // ThreadResumeParams AND TurnStartParams at `codex-cli 0.149.1` (verified
-  // 2026-08-27 against the binary's own generated schema), and the per-turn field
+  // ThreadResumeParams AND TurnStartParams at `codex-cli 0.150.1` (verified
+  // 2026-08-28 against the binary's own generated schema, all three params types
+  // byte-identical to the `0.149.1` generation), and the per-turn field
   // is documented as overriding routing for "this turn and subsequent turns" --
   // so a thread-level pin alone is defeated by any per-turn override.
   it("pins the reviewer on the thread AND on every turn, not just at thread start", async () => {
@@ -3661,6 +3662,13 @@ describe("CodexDriver realtime suppression (T3.15 leg 7)", () => {
       "thread/realtime/outputAudio/delta",
       "thread/realtime/transcript/delta",
       "thread/realtime/transcript/done",
+      // Added by the `0.150.1` pin BESIDE the three older spellings above, not
+      // in place of them: the pin hop's set difference added four notification
+      // arms and removed none, so dropping `itemAdded` / `transcript/delta` /
+      // `transcript/done` here would un-suppress names still on the wire.
+      "thread/realtime/item/started",
+      "thread/realtime/item/transcript/delta",
+      "thread/realtime/item/completed",
     ]);
   });
 });

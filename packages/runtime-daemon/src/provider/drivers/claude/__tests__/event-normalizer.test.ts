@@ -453,7 +453,11 @@ describe("pinned stream surface", () => {
   });
 
   it("stamps the fixtures with the pin the reference names", () => {
-    expect(CLAUDE_WIRE_PIN_VERSION).toBe("2.1.245");
+    // The PIN, not the build the schema-constructor census was extracted from.
+    // Those came apart at the 2.1.251 re-pin: the census is carried at 2.1.245
+    // (claude.md §Version pin, "Carried census") while the pin itself moved, so
+    // this constant must track the pin a running build is compared against.
+    expect(CLAUDE_WIRE_PIN_VERSION).toBe("2.1.251");
   });
 });
 
