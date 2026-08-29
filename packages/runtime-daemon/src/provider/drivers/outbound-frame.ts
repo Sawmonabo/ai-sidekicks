@@ -479,42 +479,73 @@ export function composeTextNeutralizationRunFailure(
 }
 
 /**
- * How many keys the tripwire and the quarantine each retain.
+ * How many SETTLED keys the retained-decision map and the quarantine each hold.
  *
- * Both maps below are keyed by a value the daemon mints per run or per turn,
- * and neither has a completion guarantee: a session that dies without a
- * terminal leaves its registration pending forever, and a disposed binding is
- * never un-disposed. Unbounded, that is a leak for the lifetime of the daemon
- * process, so both are capped and evicted oldest-first — the same bound and the
- * same end as the Codex terminated-turn memory, for the same reason: the window
- * in which an entry is still claimed is short, so the oldest entry is always
- * the least likely to still matter.
+ * These three collections share ONE bound because they share one property:
+ * every entry in them describes something that has already been ruled, so an
+ * entry that ages out costs a best-effort answer and never a ruling. The
+ * retained decision is the read the intervention path makes when it happens to
+ * ask before the answer expires; the quarantine holds one entry per tripped run
+ * and one per tripped session, and a tripped run is already terminal while a
+ * tripped session is released the moment a fresh process takes its id — so an
+ * aged-out entry cannot revive either. What expires is only the fail-fast
+ * refusal an immediate re-attach would have hit.
  *
- * The cap is generous against its real load. The tripwire holds one pending
- * entry per UNSETTLED FRAME, and a turn carries at most a run-opening frame
- * plus however many steer directives a participant issues before it settles —
- * both providers settle a turn before the next one starts on the same session,
- * so the live set is a handful of frames on one turn rather than one per turn.
- * The quarantine holds one entry per tripped run and one per tripped session; a
- * tripped run is already terminal and a tripped session is released the moment
- * a fresh process takes its id, so an aged-out entry cannot revive either —
- * what ages out is only the fail-fast refusal an immediate re-attach would
- * have hit.
+ * The UNSETTLED store deliberately does NOT share this bound, and does not
+ * evict at all. See {@link OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY}.
  */
-const OUTBOUND_FRAME_KEY_MEMORY = 64;
+const OUTBOUND_FRAME_SETTLED_KEY_MEMORY = 64;
 
 /**
- * Caps an insertion-ordered keyed collection, evicting oldest-first.
+ * How many UNSETTLED frames ONE registration scope may hold at once.
+ *
+ * SCOPED PER PROVIDER SESSION, not per manager, and that is the correction this
+ * bound exists to make. The pending store is keyed by a correlation value the
+ * daemon mints per frame, and one tripwire serves every session on its driver —
+ * so a single manager-wide bound let one runaway session consume the whole
+ * budget and answer for the frames of every other session on the node. A
+ * per-scope ceiling makes the blast radius of a session that never settles a
+ * turn exactly that session.
+ *
+ * Sixteen is generous against the real load and pathological beyond it. A turn
+ * is opened by ONE frame and then takes however many steer directives a
+ * participant issues before it settles; both providers serialize turns on a
+ * session, so the live set is a handful of frames on one turn rather than one
+ * per turn. A scope holding sixteen frames that no turn has accounted for is
+ * not a busy session, it is a session whose turns are not settling.
+ */
+export const OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY: number = 16;
+
+/**
+ * The global backstop across every scope one tripwire serves.
+ *
+ * The per-scope ceiling alone bounds nothing at the manager level: a driver
+ * with a thousand sessions could hold sixteen thousand pending frames while
+ * every scope stayed individually within its cap. This is the second bound, and
+ * it is deliberately far above any healthy state — a node running more than a
+ * handful of concurrent provider sessions per driver is already past what V1
+ * ships for, so reaching this figure means frames are not settling anywhere,
+ * not that the node is busy.
+ */
+export const OUTBOUND_FRAME_PENDING_TOTAL_CAPACITY: number = 256;
+
+/**
+ * Caps an insertion-ordered SETTLED-key collection, evicting oldest-first.
  *
  * Callers `delete` before `set` / `add` so a re-used key moves to the newest
  * position rather than ageing out while still live.
+ *
+ * Deliberately NOT used on the unsettled store. Evicting there discards a
+ * ruling that is still owed, and a turn that later settles against the evicted
+ * frame finds no correlation and PASSES — the swallowed turn reported as a
+ * completed one, which is the whole outcome this module exists to catch.
  */
 function evictOldestBeyondCapacity(keyed: {
   readonly size: number;
   keys(): IterableIterator<string>;
   delete(key: string): boolean;
 }): void {
-  while (keyed.size > OUTBOUND_FRAME_KEY_MEMORY) {
+  while (keyed.size > OUTBOUND_FRAME_SETTLED_KEY_MEMORY) {
     const oldest = keyed.keys().next();
     if (oldest.done === true) {
       return;
@@ -525,6 +556,16 @@ function evictOldestBeyondCapacity(keyed: {
 
 interface PendingCorrelatedFrame {
   readonly frame: OutboundTextFrame;
+  /**
+   * The provider binding this frame was written on — a session id on both legs.
+   *
+   * Carried per frame rather than derived, because the join key is not it: a
+   * frame is registered under a run id and re-keyed onto a turn id, and neither
+   * names the binding whose disposal makes the frame unrulable. It is what the
+   * per-scope bound counts and what {@link OutboundFrameTripwire.forgetScope}
+   * and the reclamation pass both select on.
+   */
+  readonly scopeKey: string;
   /**
    * The key the settling turn will carry.
    *
@@ -554,6 +595,36 @@ function foldTripwireDecision(carried: TripwireDecision, next: TripwireDecision)
     return next;
   }
   return next.reason === "turn-evidence-observed" ? next : carried;
+}
+
+/** One frame's registration with the tripwire that will rule on it. */
+export interface OutboundFrameRegistration {
+  /**
+   * The provider binding this frame is written on — a session id on both legs.
+   *
+   * NOT the join key and not derivable from it: the join key is a run id that
+   * later becomes a turn id, and neither names the binding whose disposal makes
+   * the frame unrulable. It is what the per-binding capacity counts, so a
+   * session whose turns stop settling exhausts its own budget and no other's.
+   */
+  readonly scopeKey: string;
+  /** The key the settling turn will carry — a run id or a provider turn id. */
+  readonly joinKey: string;
+  readonly frame: OutboundTextFrame;
+}
+
+export interface OutboundFrameTripwireOptions {
+  /**
+   * Whether a binding is retired — disposed, quarantined, or torn down.
+   *
+   * Consulted ONLY on the capacity path, to reclaim registrations that can no
+   * longer be settled by anything. Supplying it is what lets a driver whose
+   * session died mid-turn recover the budget those frames hold instead of
+   * refusing the next write; omitting it costs only that reclamation, never a
+   * ruling. It MUST be a pure read of driver-local state: it is called inside
+   * a write path, and it is called at most once per distinct binding per pass.
+   */
+  readonly isScopeRetired?: (scopeKey: string) => boolean;
 }
 
 /**
@@ -608,9 +679,20 @@ export class OutboundFrameTripwire {
    */
   readonly #pendingByCorrelationId = new Map<string, PendingCorrelatedFrame>();
   readonly #decisionByJoinKey = new Map<string, TripwireDecision>();
+  readonly #isScopeRetired: ((scopeKey: string) => boolean) | undefined;
+
+  constructor(options: OutboundFrameTripwireOptions = {}) {
+    this.#isScopeRetired = options.isScopeRetired;
+  }
 
   /**
    * Registers a written frame against the key its settling turn will carry.
+   *
+   * MUST be called BEFORE the bytes go out, and its refusal MUST abort the
+   * write. A frame this store did not accept is a frame no turn can be ruled
+   * against, and a turn that settles with no correlated frame PASSES — so a
+   * write that outran its registration is exactly the swallowed turn reported
+   * as a completed one that the tripwire exists to catch.
    *
    * An exempt frame is registered too, rather than dropped: a later `settle`
    * must be able to say WHY it passed, and a dropped registration would be
@@ -618,16 +700,24 @@ export class OutboundFrameTripwire {
    *
    * APPENDS rather than replaces. Any frame already pending under this key is
    * left exactly as it is, observations included.
+   *
+   * @throws {OutboundFrameCapacityRefusedError} when the scope or the tripwire
+   *   is at capacity and no registration could be reclaimed. Nothing already
+   *   pending is discarded to make room — see the module bounds.
    */
-  register(joinKey: string, frame: OutboundTextFrame): void {
+  register(registration: OutboundFrameRegistration): void {
+    const { scopeKey, joinKey, frame } = registration;
+    if (!this.#pendingByCorrelationId.has(frame.correlationId)) {
+      this.#admit(scopeKey);
+    }
     this.#pendingByCorrelationId.delete(frame.correlationId);
     this.#pendingByCorrelationId.set(frame.correlationId, {
       frame,
+      scopeKey,
       joinKey,
       observations: new Set(),
     });
     this.#decisionByJoinKey.delete(joinKey);
-    evictOldestBeyondCapacity(this.#pendingByCorrelationId);
   }
 
   /**
@@ -740,6 +830,113 @@ export class OutboundFrameTripwire {
     this.#pendingByCorrelationId.delete(frame.correlationId);
   }
 
+  /**
+   * Drops every pending registration written on one provider binding.
+   *
+   * Called where a binding is torn down or superseded — the point past which
+   * no turn on it can ever settle, so the frames it left behind are owed no
+   * ruling and are pure occupancy. Reclaiming them here is what keeps a
+   * session that died mid-turn from spending its scope's budget forever.
+   *
+   * Retained DECISIONS are deliberately untouched: they are keyed by turn and
+   * read back by the intervention path after the binding is gone, which is the
+   * one moment a caller most needs to know the turn it steered had tripped.
+   */
+  forgetScope(scopeKey: string): void {
+    for (const [correlationId, pending] of this.#pendingByCorrelationId) {
+      if (pending.scopeKey === scopeKey) {
+        this.#pendingByCorrelationId.delete(correlationId);
+      }
+    }
+  }
+
+  /**
+   * How many unsettled frames one binding is holding.
+   *
+   * A scan rather than a maintained counter, deliberately: the store is capped
+   * at a few hundred entries and this runs once per frame written — beside a
+   * subprocess round trip — while a counter would have to be kept exact across
+   * `settle`, `forget`, `forgetFrame`, and `forgetScope`, and a drifted counter
+   * refuses writes that should have been admitted.
+   */
+  pendingFrameCountForScope(scopeKey: string): number {
+    let count = 0;
+    for (const pending of this.#pendingByCorrelationId.values()) {
+      if (pending.scopeKey === scopeKey) {
+        count += 1;
+      }
+    }
+    return count;
+  }
+
+  /** How many unsettled frames this tripwire is holding across every binding. */
+  get pendingFrameCount(): number {
+    return this.#pendingByCorrelationId.size;
+  }
+
+  /**
+   * Admits one new registration, or refuses.
+   *
+   * Prune-then-refuse, in that order and never evict: the only registrations
+   * this reclaims are ones whose provider binding is gone, which is the one
+   * class of entry that is provably owed no ruling. Everything else is a frame
+   * whose turn may still settle, and discarding one to make room converts a
+   * future trip into a silent pass.
+   */
+  #admit(scopeKey: string): void {
+    if (this.#hasRoomForScope(scopeKey)) {
+      return;
+    }
+    this.#reclaimRetiredScopes();
+    if (this.#hasRoomForScope(scopeKey)) {
+      return;
+    }
+    throw new OutboundFrameCapacityRefusedError(
+      scopeKey,
+      this.pendingFrameCountForScope(scopeKey),
+      this.#pendingByCorrelationId.size,
+    );
+  }
+
+  #hasRoomForScope(scopeKey: string): boolean {
+    return (
+      this.#pendingByCorrelationId.size < OUTBOUND_FRAME_PENDING_TOTAL_CAPACITY &&
+      this.pendingFrameCountForScope(scopeKey) < OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY
+    );
+  }
+
+  /**
+   * Reclaims the registrations of bindings the driver reports retired.
+   *
+   * The verdict is memoized for the pass so a store full of frames from a
+   * handful of sessions asks the driver once per session rather than once per
+   * frame, and a predicate that THROWS is contained as "not retired" — a
+   * question that could not be answered has not proven a binding dead, and
+   * reclaiming on an unproven answer is the eviction this method exists to
+   * avoid.
+   */
+  #reclaimRetiredScopes(): void {
+    const isScopeRetired = this.#isScopeRetired;
+    if (isScopeRetired === undefined) {
+      return;
+    }
+    const retiredByScopeKey = new Map<string, boolean>();
+    for (const [correlationId, pending] of this.#pendingByCorrelationId) {
+      let retired = retiredByScopeKey.get(pending.scopeKey);
+      if (retired === undefined) {
+        try {
+          retired = isScopeRetired(pending.scopeKey);
+        } catch {
+          retired = false;
+        }
+        retiredByScopeKey.set(pending.scopeKey, retired);
+      }
+      if (retired) {
+        this.#pendingByCorrelationId.delete(correlationId);
+      }
+    }
+  }
+
   /** Every frame correlated to a key, oldest registration first. */
   #pendingFramesFor(joinKey: string): PendingCorrelatedFrame[] {
     const correlated: PendingCorrelatedFrame[] = [];
@@ -782,6 +979,52 @@ export class OutboundFrameTripwire {
       failureDetail: composeTextNeutralizationFailureDetail(frame.detailOrigin),
       refusalCode: TEXT_NEUTRALIZATION_REFUSAL_CODE,
     };
+  }
+}
+
+/**
+ * The refusal a caller gets when the tripwire cannot watch another frame.
+ *
+ * The alternative this replaces was to evict the oldest unsettled registration
+ * and take the write anyway. That is worse than a refused send in the exact
+ * case the tripwire exists for: the evicted turn later settles, finds no
+ * correlated frame, and PASSES — so a swallowed turn is reported as a completed
+ * one, silently, and the participant's words are lost behind a green result. A
+ * refused write is loud, is attributable to one binding, and loses nothing.
+ *
+ * Carries NO dotted code, deliberately, and that is the established shape for a
+ * driver-local refusal the error registry has no row for — the neighbours are
+ * the Codex session-already-live and driver-config errors. Callers discriminate
+ * on the class. Reusing the neutralization code would be worse than adding
+ * none: that code's detail string has a fixed parseable form two producers emit
+ * and a consumer reads, and it means "the provider swallowed a turn" — which is
+ * precisely what has NOT happened here.
+ *
+ * Extends `Error` and not `DaemonDomainError` for the same wire reason as its
+ * neighbour: the JSON-RPC mapper discriminates by `instanceof` and projects a
+ * `DaemonDomainError` subclass's `code` into `data.type`, so extending that base
+ * publishes a refusal shape no contract registers. Falling through to the
+ * catch-all keeps this a `-32603` with no `data`.
+ */
+export class OutboundFrameCapacityRefusedError extends Error {
+  /** The provider binding whose budget was exhausted. */
+  readonly scopeKey: string;
+  /** Unsettled frames that binding was holding when the write was refused. */
+  readonly scopePendingFrameCount: number;
+  /** Unsettled frames the tripwire was holding across every binding. */
+  readonly totalPendingFrameCount: number;
+
+  constructor(scopeKey: string, scopePendingFrameCount: number, totalPendingFrameCount: number) {
+    super(
+      `Refusing to send provider-bound text on session ${scopeKey}: the text-neutralization tripwire cannot watch another frame. ` +
+        `That session holds ${String(scopePendingFrameCount)} unsettled frames (limit ${String(OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY)}) ` +
+        `and ${String(totalPendingFrameCount)} are unsettled across all sessions (limit ${String(OUTBOUND_FRAME_PENDING_TOTAL_CAPACITY)}). ` +
+        `Turns on this session are not settling.`,
+    );
+    this.name = "OutboundFrameCapacityRefusedError";
+    this.scopeKey = scopeKey;
+    this.scopePendingFrameCount = scopePendingFrameCount;
+    this.totalPendingFrameCount = totalPendingFrameCount;
   }
 }
 

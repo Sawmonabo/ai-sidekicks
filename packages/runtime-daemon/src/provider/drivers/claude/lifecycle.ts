@@ -1766,7 +1766,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   // than injected as a unit because all three are driver-session state whose
   // lifetime is this object's.
   readonly #outboundTextFrameWriter: OutboundTextFrameWriter;
-  readonly #outboundFrameTripwire: OutboundFrameTripwire = new OutboundFrameTripwire();
+  readonly #outboundFrameTripwire: OutboundFrameTripwire;
   readonly #providerBindingQuarantine: ProviderBindingQuarantine = new ProviderBindingQuarantine();
   readonly #onTextNeutralizationFailure: (
     sessionId: SessionId,
@@ -1816,6 +1816,22 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       // `docs/reference/provider-wire/claude.md`.
       mechanismGrade: dependencies.textNeutralityMechanismGrade ?? "emulated",
       mintCorrelationId: dependencies.mintOutboundFrameCorrelationId,
+    });
+    // Constructed here rather than as a field initializer because the predicate
+    // reads a field declared after it, and a field initializer that captured
+    // that field would depend on declaration order to be correct.
+    //
+    // A session is retired once it holds no slot at all — every disposal path
+    // ends by deleting it — or once a trip has quarantined the binding. Either
+    // way no turn on it can ever settle, so the frames it left pending are owed
+    // no ruling. The SLOT map rather than `#findLiveSession`, deliberately: a
+    // session mid-establishment or mid-close still holds its slot and its
+    // frames may still be ruled, and reclaiming those would be the eviction the
+    // capacity refusal exists to replace.
+    this.#outboundFrameTripwire = new OutboundFrameTripwire({
+      isScopeRetired: (scopeKey: string): boolean =>
+        !this.#sessionSlots.has(scopeKey as SessionId) ||
+        this.#providerBindingQuarantine.isSessionDisposed(scopeKey),
     });
   }
 
@@ -2052,7 +2068,17 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       text: dispatch.openingText,
       origin: dispatch.frameOrigin,
     });
-    this.#outboundFrameTripwire.register(params.runId, frame);
+    // A REFUSED registration aborts before the write, and that is the same
+    // policy the write-failure path below runs: no bytes reach the provider, so
+    // no turn exists, and the run's route is left exactly as a failed write
+    // leaves it. Taking the write anyway would be the one genuinely unsafe
+    // option — a turn that settles against no correlated frame PASSES, so an
+    // unwatched frame turns this session's backlog into a silent swallow.
+    this.#outboundFrameTripwire.register({
+      scopeKey: dispatch.sessionId,
+      joinKey: params.runId,
+      frame,
+    });
     try {
       await live.channel.sendUserText(frame);
     } catch (error) {
@@ -2262,6 +2288,10 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       // on the PREDECESSOR's turn, and a route surviving into the forked session
       // would aim a later interrupt at a turn that never started.
       this.#retireRunRoutes(params.sessionId);
+      // Same argument for the frames: the predecessor's turns can no longer
+      // settle, so their registrations are owed no ruling and would otherwise
+      // hold this session's watch budget for the fork's whole lifetime.
+      this.#outboundFrameTripwire.forgetScope(params.sessionId);
       this.#registerLiveSession({
         sessionId: params.sessionId,
         providerSessionId: attachment.providerSessionId,
@@ -2406,6 +2436,13 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
           // Routes go first and unconditionally: a route pointing into a process
           // that is being torn down would aim a later interrupt at a dead run.
           this.#retireRunRoutes(params.sessionId);
+          // And with them the frames no turn on this channel can ever settle.
+          // Called HERE and at the rewind above rather than folded into
+          // `#retireRunRoutes`, because that helper's third caller is the
+          // terminal path — where the tripwire has just been ruled and dropping
+          // whatever it left behind would rest on "provably already empty"
+          // rather than on the binding being gone.
+          this.#outboundFrameTripwire.forgetScope(params.sessionId);
           // Before the await, for the same reason the routes go first: a
           // subagent waiting on a slot in a process being torn down would wait
           // for the session's whole remaining lifetime and answer its provider

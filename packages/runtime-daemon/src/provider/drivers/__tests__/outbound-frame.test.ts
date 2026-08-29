@@ -64,9 +64,12 @@ import {
   composeTextNeutralizationRunFailure,
   isCommandShapedText,
   observedTurnEvidence,
+  OutboundFrameCapacityRefusedError,
   OutboundFrameTripwire,
   OutboundTextFrameWriter,
   OUTBOUND_FRAME_ORIGINS,
+  OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY,
+  OUTBOUND_FRAME_PENDING_TOTAL_CAPACITY,
   OUTBOUND_TEXT_NEUTRALIZATION_SENTINEL,
   ProviderBindingQuarantine,
   TextNeutralizationRefusedError,
@@ -448,9 +451,21 @@ describe("outbound frame tripwire", () => {
     }).compose({ text, origin });
   }
 
+  // The scope key is the provider binding the frame is written on. These cases
+  // are about correlation rather than about capacity, so they all share one
+  // binding and the capacity cases below name their own.
+  function registerFrame(
+    tripwire: OutboundFrameTripwire,
+    joinKey: string,
+    frame: OutboundTextFrame,
+    scopeKey = "session-1",
+  ): void {
+    tripwire.register({ scopeKey, joinKey, frame });
+  }
+
   it("trips when a correlated turn settles with no evidence", () => {
     const tripwire = new OutboundFrameTripwire();
-    tripwire.register("join-1", frameFor("participant_text"));
+    registerFrame(tripwire, "join-1", frameFor("participant_text"));
 
     const decision = tripwire.settle(
       "join-1",
@@ -471,7 +486,7 @@ describe("outbound frame tripwire", () => {
     // Fail-closed polarity control: an envelope the driver cannot parse is, from
     // here, indistinguishable from a locally-composed reply.
     const tripwire = new OutboundFrameTripwire();
-    tripwire.register("join-1", frameFor("participant_text"));
+    registerFrame(tripwire, "join-1", frameFor("participant_text"));
 
     const decision = tripwire.settle("join-1", UNRECOGNIZED_TURN_EVIDENCE);
 
@@ -483,7 +498,7 @@ describe("outbound frame tripwire", () => {
 
   it("composes exactly `origin=unknown` for an off-union origin", () => {
     const tripwire = new OutboundFrameTripwire();
-    tripwire.register("join-1", frameFor("some-other-origin"));
+    registerFrame(tripwire, "join-1", frameFor("some-other-origin"));
 
     const decision = tripwire.settle("join-1", UNRECOGNIZED_TURN_EVIDENCE);
 
@@ -498,7 +513,7 @@ describe("outbound frame tripwire", () => {
 
   it("composes exactly `origin=system_narration` for a narration frame", () => {
     const tripwire = new OutboundFrameTripwire();
-    tripwire.register("join-1", frameFor("system_narration"));
+    registerFrame(tripwire, "join-1", frameFor("system_narration"));
 
     const decision = tripwire.settle("join-1", UNRECOGNIZED_TURN_EVIDENCE);
 
@@ -512,7 +527,7 @@ describe("outbound frame tripwire", () => {
 
   it("never trips on a driver_command frame, whatever the turn does", () => {
     const tripwire = new OutboundFrameTripwire();
-    tripwire.register("join-1", frameFor("driver_command", "/compact"));
+    registerFrame(tripwire, "join-1", frameFor("driver_command", "/compact"));
 
     expect(tripwire.settle("join-1", UNRECOGNIZED_TURN_EVIDENCE)).toStrictEqual({
       tripped: false,
@@ -522,7 +537,7 @@ describe("outbound frame tripwire", () => {
 
   it("passes when evidence accrued in flight even if the terminal carries none", () => {
     const tripwire = new OutboundFrameTripwire();
-    tripwire.register("join-1", frameFor("participant_text"));
+    registerFrame(tripwire, "join-1", frameFor("participant_text"));
     tripwire.observe("join-1", "model_output");
 
     expect(tripwire.settle("join-1", observedTurnEvidence())).toStrictEqual({
@@ -539,7 +554,7 @@ describe("outbound frame tripwire", () => {
 
   it("consumes the registration so one frame cannot trip twice", () => {
     const tripwire = new OutboundFrameTripwire();
-    tripwire.register("join-1", frameFor("participant_text"));
+    registerFrame(tripwire, "join-1", frameFor("participant_text"));
 
     expect(tripwire.settle("join-1", UNRECOGNIZED_TURN_EVIDENCE).tripped).toBe(true);
     expect(tripwire.settle("join-1", UNRECOGNIZED_TURN_EVIDENCE)).toStrictEqual({
@@ -550,7 +565,7 @@ describe("outbound frame tripwire", () => {
 
   it("re-keys a registration onto the turn id the provider names", () => {
     const tripwire = new OutboundFrameTripwire();
-    tripwire.register("run-1", frameFor("participant_text"));
+    registerFrame(tripwire, "run-1", frameFor("participant_text"));
     tripwire.recorrelate("run-1", "turn-1");
 
     expect(tripwire.settle("run-1", UNRECOGNIZED_TURN_EVIDENCE).tripped).toBe(false);
@@ -559,7 +574,7 @@ describe("outbound frame tripwire", () => {
 
   it("drops a registration no turn will ever settle", () => {
     const tripwire = new OutboundFrameTripwire();
-    tripwire.register("run-1", frameFor("participant_text"));
+    registerFrame(tripwire, "run-1", frameFor("participant_text"));
     tripwire.forget("run-1");
 
     expect(tripwire.settle("run-1", UNRECOGNIZED_TURN_EVIDENCE).tripped).toBe(false);
@@ -567,7 +582,7 @@ describe("outbound frame tripwire", () => {
 
   it("retains a settled decision so a caller can ask after the fact", () => {
     const tripwire = new OutboundFrameTripwire();
-    tripwire.register("turn-1", frameFor("participant_text"));
+    registerFrame(tripwire, "turn-1", frameFor("participant_text"));
     tripwire.settle("turn-1", UNRECOGNIZED_TURN_EVIDENCE);
 
     expect(tripwire.decisionFor("turn-1")?.tripped).toBe(true);
@@ -576,7 +591,7 @@ describe("outbound frame tripwire", () => {
 
   it("composes the run terminal a trip lands on", () => {
     const tripwire = new OutboundFrameTripwire();
-    tripwire.register("turn-1", frameFor("participant_text"));
+    registerFrame(tripwire, "turn-1", frameFor("participant_text"));
     const decision = tripwire.settle("turn-1", UNRECOGNIZED_TURN_EVIDENCE);
     if (!decision.tripped) {
       throw new Error("expected a trip");
@@ -609,9 +624,9 @@ describe("outbound frame tripwire", () => {
     // origins so the composed detail names WHICH frame the turn failed to
     // account for.
     const tripwire = new OutboundFrameTripwire();
-    tripwire.register("turn-1", frameFor("participant_text"));
+    registerFrame(tripwire, "turn-1", frameFor("participant_text"));
     tripwire.observe("turn-1", "model_output");
-    tripwire.register("turn-1", frameFor("system_narration", "/clear"));
+    registerFrame(tripwire, "turn-1", frameFor("system_narration", "/clear"));
 
     const decision = tripwire.settle("turn-1", observedTurnEvidence("model_output"));
 
@@ -630,9 +645,9 @@ describe("outbound frame tripwire", () => {
     // was answered stays answered when a steer joins its turn, and a terminal
     // with an UNLOADED item list must not then fail it.
     const tripwire = new OutboundFrameTripwire();
-    tripwire.register("turn-1", frameFor("participant_text"));
+    registerFrame(tripwire, "turn-1", frameFor("participant_text"));
     tripwire.observe("turn-1", "model_output");
-    tripwire.register("turn-1", frameFor("participant_text", "also check the tests"));
+    registerFrame(tripwire, "turn-1", frameFor("participant_text", "also check the tests"));
     tripwire.observe("turn-1", "model_output");
 
     expect(tripwire.settle("turn-1", observedTurnEvidence())).toStrictEqual({
@@ -643,8 +658,8 @@ describe("outbound frame tripwire", () => {
 
   it("consumes every frame on a turn, so a second terminal rules on none", () => {
     const tripwire = new OutboundFrameTripwire();
-    tripwire.register("turn-1", frameFor("participant_text"));
-    tripwire.register("turn-1", frameFor("participant_text", "/clear"));
+    registerFrame(tripwire, "turn-1", frameFor("participant_text"));
+    registerFrame(tripwire, "turn-1", frameFor("participant_text", "/clear"));
 
     expect(tripwire.settle("turn-1", UNRECOGNIZED_TURN_EVIDENCE).tripped).toBe(true);
     expect(tripwire.hasPendingFrame("turn-1")).toBe(false);
@@ -660,7 +675,7 @@ describe("outbound frame tripwire", () => {
     // correlated, and a stored pass there would overwrite the trip the re-keyed
     // frame produces a microtask later.
     const tripwire = new OutboundFrameTripwire();
-    tripwire.register("turn-1", frameFor("participant_text"));
+    registerFrame(tripwire, "turn-1", frameFor("participant_text"));
     tripwire.settle("turn-1", UNRECOGNIZED_TURN_EVIDENCE);
 
     tripwire.settle("turn-1", observedTurnEvidence("model_output"));
@@ -670,8 +685,8 @@ describe("outbound frame tripwire", () => {
 
   it("re-keys every frame on a run, not merely the first", () => {
     const tripwire = new OutboundFrameTripwire();
-    tripwire.register("run-1", frameFor("participant_text"));
-    tripwire.register("run-1", frameFor("participant_text", "/clear"));
+    registerFrame(tripwire, "run-1", frameFor("participant_text"));
+    registerFrame(tripwire, "run-1", frameFor("participant_text", "/clear"));
     tripwire.recorrelate("run-1", "turn-1");
 
     expect(tripwire.hasPendingFrame("run-1")).toBe(false);
@@ -688,8 +703,8 @@ describe("outbound frame tripwire", () => {
     const tripwire = new OutboundFrameTripwire();
     const openingFrame = frameFor("participant_text");
     const failedSteerFrame = frameFor("participant_text", "/clear");
-    tripwire.register("turn-1", openingFrame);
-    tripwire.register("turn-1", failedSteerFrame);
+    registerFrame(tripwire, "turn-1", openingFrame);
+    registerFrame(tripwire, "turn-1", failedSteerFrame);
 
     tripwire.forgetFrame(failedSteerFrame);
 
@@ -700,22 +715,162 @@ describe("outbound frame tripwire", () => {
     });
   });
 
-  it("holds a bounded number of unsettled frames, ageing out the oldest", () => {
-    // A session that dies without a terminal leaves its registration pending
-    // forever. The cap is generous against the real load — both providers settle
-    // a turn before the next one starts on the same session — but it is a cap.
+  it("refuses a registration at capacity rather than discarding an unsettled frame", () => {
+    // The alternative — evict the oldest and take the write — is the silent
+    // swallow this whole module exists to catch: the evicted turn settles
+    // against nothing and PASSES. So the store fills, the next write is refused,
+    // and every frame already in it is still ruled correctly afterwards.
     const tripwire = new OutboundFrameTripwire();
-    const writer = new OutboundTextFrameWriter({ mechanismGrade: "emulated" });
-    const unsettledFrameCount = 200;
-    for (let index = 0; index < unsettledFrameCount; index += 1) {
-      tripwire.register(
-        `turn-${String(index)}`,
-        writer.compose({ text: "/status", origin: "participant_text" }),
-      );
+    for (let index = 0; index < OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY; index += 1) {
+      registerFrame(tripwire, `turn-${String(index)}`, frameFor("participant_text"));
     }
 
-    expect(tripwire.hasPendingFrame("turn-0")).toBe(false);
-    expect(tripwire.hasPendingFrame(`turn-${String(unsettledFrameCount - 1)}`)).toBe(true);
+    expect(() => {
+      registerFrame(tripwire, "turn-overflow", frameFor("participant_text"));
+    }).toThrow(OutboundFrameCapacityRefusedError);
+
+    // Nothing was evicted to make room, and the refusal did not register either.
+    expect(tripwire.pendingFrameCountForScope("session-1")).toBe(
+      OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY,
+    );
+    expect(tripwire.hasPendingFrame("turn-overflow")).toBe(false);
+    for (let index = 0; index < OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY; index += 1) {
+      expect(tripwire.hasPendingFrame(`turn-${String(index)}`)).toBe(true);
+    }
+
+    // And every one of them still settles on its own evidence — a prune that
+    // reclaimed too much would show up here as a `no-correlated-frame` pass.
+    for (let index = 0; index < OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY; index += 1) {
+      expect(
+        tripwire.settle(`turn-${String(index)}`, observedTurnEvidence("model_output")),
+      ).toStrictEqual({ tripped: false, reason: "turn-evidence-observed" });
+    }
+    expect(tripwire.pendingFrameCount).toBe(0);
+  });
+
+  it("caps each provider binding separately, so one stalled session starves none", () => {
+    // The bound is per binding rather than per manager: a manager-wide budget
+    // let one session that never settles a turn answer for the frames of every
+    // other session on the node.
+    const tripwire = new OutboundFrameTripwire();
+    for (let index = 0; index < OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY; index += 1) {
+      registerFrame(tripwire, `stalled-${String(index)}`, frameFor("participant_text"), "stalled");
+    }
+
+    expect(() => {
+      registerFrame(tripwire, "stalled-overflow", frameFor("participant_text"), "stalled");
+    }).toThrow(OutboundFrameCapacityRefusedError);
+    expect(() => {
+      registerFrame(tripwire, "healthy-1", frameFor("participant_text"), "healthy");
+    }).not.toThrow();
+    expect(tripwire.hasPendingFrame("healthy-1")).toBe(true);
+  });
+
+  it("reclaims the frames of retired bindings before refusing", () => {
+    // A session that died mid-turn can never settle the frames it left behind,
+    // so they are owed no ruling and are pure occupancy. That is the ONLY class
+    // of registration reclamation touches.
+    const retiredScopeKeys = new Set<string>();
+    const tripwire = new OutboundFrameTripwire({
+      isScopeRetired: (scopeKey) => retiredScopeKeys.has(scopeKey),
+    });
+    for (let index = 0; index < OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY; index += 1) {
+      registerFrame(tripwire, `turn-${String(index)}`, frameFor("participant_text"));
+    }
+
+    expect(() => {
+      registerFrame(tripwire, "turn-overflow", frameFor("participant_text"));
+    }).toThrow(OutboundFrameCapacityRefusedError);
+
+    retiredScopeKeys.add("session-1");
+    registerFrame(tripwire, "turn-overflow", frameFor("participant_text"));
+
+    expect(tripwire.hasPendingFrame("turn-overflow")).toBe(true);
+    expect(tripwire.pendingFrameCountForScope("session-1")).toBe(1);
+  });
+
+  it("keeps a frame whose binding cannot be proven retired", () => {
+    // A predicate that throws has not answered the question, and reclaiming on
+    // an unanswered question is the eviction the refusal replaces.
+    const tripwire = new OutboundFrameTripwire({
+      isScopeRetired: () => {
+        throw new Error("the driver could not answer");
+      },
+    });
+    for (let index = 0; index < OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY; index += 1) {
+      registerFrame(tripwire, `turn-${String(index)}`, frameFor("participant_text"));
+    }
+
+    expect(() => {
+      registerFrame(tripwire, "turn-overflow", frameFor("participant_text"));
+    }).toThrow(OutboundFrameCapacityRefusedError);
+    expect(tripwire.pendingFrameCountForScope("session-1")).toBe(
+      OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY,
+    );
+  });
+
+  it("backstops the total across every binding", () => {
+    const tripwire = new OutboundFrameTripwire();
+    const scopeCount =
+      OUTBOUND_FRAME_PENDING_TOTAL_CAPACITY / OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY;
+    for (let scopeIndex = 0; scopeIndex < scopeCount; scopeIndex += 1) {
+      for (
+        let frameIndex = 0;
+        frameIndex < OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY;
+        frameIndex += 1
+      ) {
+        registerFrame(
+          tripwire,
+          `turn-${String(scopeIndex)}-${String(frameIndex)}`,
+          frameFor("participant_text"),
+          `session-${String(scopeIndex)}`,
+        );
+      }
+    }
+
+    expect(tripwire.pendingFrameCount).toBe(OUTBOUND_FRAME_PENDING_TOTAL_CAPACITY);
+    expect(() => {
+      registerFrame(tripwire, "turn-overflow", frameFor("participant_text"), "session-fresh");
+    }).toThrow(OutboundFrameCapacityRefusedError);
+  });
+
+  it("releases a binding's frames without touching the decisions read back by turn", () => {
+    const tripwire = new OutboundFrameTripwire();
+    registerFrame(tripwire, "turn-1", frameFor("participant_text"), "session-1");
+    registerFrame(tripwire, "turn-2", frameFor("participant_text"), "session-2");
+    const decision = tripwire.settle(
+      "turn-1",
+      classifyClaudeTurnEvidence(CLAUDE_ZERO_TURN_RESULT_FRAME),
+    );
+
+    tripwire.forgetScope("session-1");
+
+    expect(tripwire.pendingFrameCountForScope("session-1")).toBe(0);
+    expect(tripwire.hasPendingFrame("turn-2")).toBe(true);
+    // The intervention path reads a retained decision by turn id AFTER the
+    // binding is gone, which is the one moment it most needs the answer.
+    expect(tripwire.decisionFor("turn-1")).toStrictEqual(decision);
+  });
+
+  it("still trips a turn that settles long after the store filled behind it", () => {
+    // The regression this replaces: the oldest unsettled frame was evicted to
+    // admit a newer one, so when its turn finally settled as a zero-turn
+    // interception the tripwire found no correlation and passed it.
+    const tripwire = new OutboundFrameTripwire();
+    registerFrame(tripwire, "turn-oldest", frameFor("participant_text"));
+    for (let index = 1; index < OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY; index += 1) {
+      registerFrame(tripwire, `turn-${String(index)}`, frameFor("participant_text"));
+    }
+    expect(() => {
+      registerFrame(tripwire, "turn-overflow", frameFor("participant_text"));
+    }).toThrow(OutboundFrameCapacityRefusedError);
+
+    const decision = tripwire.settle(
+      "turn-oldest",
+      classifyClaudeTurnEvidence(CLAUDE_ZERO_TURN_RESULT_FRAME),
+    );
+
+    expect(decision.tripped).toBe(true);
   });
 });
 
@@ -1016,6 +1171,77 @@ describe("Claude driver provider-bound text path", () => {
     // Nothing reached the provider: a refusal that still wrote would have
     // dispatched into the condemned process.
     expect(channel.sentWireTexts).toStrictEqual(["\n/status please"]);
+  });
+
+  it("still reports a trip on a run that was interrupted before its terminal arrived", async () => {
+    // The Codex leg had a real gap here: its interrupt retires the run route,
+    // and the terminal that follows was then ruled with no run to report
+    // against. This leg is asserted rather than asserted-about — the claim that
+    // it interrupts through the channel alone, touching neither the route map
+    // nor the slot, is only worth as much as a case that would fail if it
+    // stopped being true.
+    const harness = buildHarness();
+    const channel = await startRunWith(harness, "/status please", "participant_text");
+
+    await harness.lifecycle.interruptRun({ runId: TEST_RUN_ID, reason: "participant_stop" });
+    channel.terminalFrameBody = CLAUDE_ZERO_TURN_RESULT_FRAME;
+    channel.emitStreamFrame("result/success");
+    await drainMicrotasks();
+
+    expect(harness.failures).toStrictEqual([
+      {
+        sessionId: TEST_SESSION_ID,
+        runId: TEST_RUN_ID,
+        providerFailureDetail: "driver.text_neutralization_failed origin=participant_text",
+      },
+    ]);
+    // And the session arm, so the next run cannot resolve the same slot and
+    // dispatch into the process that swallowed the text.
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_SECOND_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "carry on",
+      frameOrigin: "participant_text",
+    });
+    await expect(
+      harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID }),
+    ).rejects.toThrow(TextNeutralizationRefusedError);
+  });
+
+  it("refuses to write a frame this session's watch budget cannot cover", async () => {
+    // The capacity refusal on the real driver path. Every run here leaves an
+    // unsettled frame — no terminal ever arrives — so the budget fills, and the
+    // next write is refused rather than admitted by discarding somebody's
+    // pending registration.
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    const admittedRunIds: RunId[] = [];
+    for (let index = 0; index < OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY; index += 1) {
+      const runId = `55555555-5555-4555-8555-${String(index).padStart(12, "0")}` as RunId;
+      admittedRunIds.push(runId);
+      harness.runDispatchResolver.dispatchByRunId.set(runId, {
+        sessionId: TEST_SESSION_ID,
+        openingText: "/status please",
+        frameOrigin: "participant_text",
+      });
+      await harness.lifecycle.startRun({ ...buildStartRunParams(), runId });
+    }
+    const channel = harness.transport.spawnedChannels[0];
+    if (channel === undefined) {
+      throw new Error("expected the harness to have spawned a channel");
+    }
+
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_SECOND_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "one more",
+      frameOrigin: "participant_text",
+    });
+    await expect(
+      harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID }),
+    ).rejects.toThrow(OutboundFrameCapacityRefusedError);
+
+    // Nothing reached the provider on the refused path, and nothing already
+    // written was forgotten to make room for it.
+    expect(channel.sentWireTexts).toHaveLength(OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY);
   });
 
   it("tears the condemned channel down, so the promised recovery is a fresh spawn", async () => {

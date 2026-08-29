@@ -204,6 +204,7 @@ import {
   type OutboundTextFrame,
   type TextNeutralityMechanismGrade,
   type TextNeutralizationRunFailure,
+  type TripwireDecision,
   type TurnEvidenceClass,
   type TurnEvidenceClassification,
 } from "../outbound-frame.js";
@@ -891,6 +892,17 @@ const CODEX_TERMINAL_TURN_STATUSES: ReadonlySet<string> = new Set([
  * unbounded map must not turn into a leak.
  */
 const CODEX_UNMATCHED_TURN_MEMORY = 64;
+
+/**
+ * How many interrupted runs one session holds turn correlations for while their
+ * terminals are still owed (see `CodexSessionRecord.interruptedRunIdByTurnId`).
+ *
+ * Same figure and same reasoning as the evidence memory above: the window is one
+ * provider round trip, Codex serializes turns per thread so the live set is
+ * ~one, and a session that accumulates beyond a handful is one whose interrupted
+ * turns are not terminating at all.
+ */
+const CODEX_INTERRUPTED_ROUTE_MEMORY = 64;
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 30_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
@@ -2824,6 +2836,28 @@ interface CodexSessionRecord {
    * reported as a completed turn.
    */
   readonly unmatchedTurnEvidence: Map<string, UnmatchedTurnEvidence>;
+  /**
+   * Runs whose route an INTERRUPT retired while their turn's terminal was still
+   * owed, keyed by the turn id that terminal will carry.
+   *
+   * `turn/interrupt` resolves when the provider accepts the interrupt, not when
+   * the turn ends: the `turn/completed` notification follows, and it is the
+   * frame the tripwire is ruled on. Retiring the route at interrupt — which is
+   * correct, because the run must stop reporting an active turn immediately —
+   * therefore leaves the later ruling with no run to report against, and a trip
+   * would quarantine the session while the run's own subscribers heard nothing.
+   * This map is the correlation that survives that gap, and it holds ONLY what
+   * the reporting needs: a route here is not a live route, so `hasActiveTurn`
+   * and the intervention paths still read the run as having no turn.
+   *
+   * Insertion-ordered and capped (`CODEX_INTERRUPTED_ROUTE_MEMORY`), on the same
+   * reasoning as `unmatchedTurnEvidence` above: an entry lives from an interrupt
+   * to the terminal that immediately follows it, so anything that accumulates
+   * past a handful is a provider not terminating the turns it accepted
+   * interrupts for. Released when the terminal is ruled, and collected with the
+   * record on teardown or supersede.
+   */
+  readonly interruptedRunIdByTurnId: Map<string, RunId>;
 }
 
 /**
@@ -2883,6 +2917,28 @@ function rememberUnmatchedTurn(record: CodexSessionRecord, turnId: string): Unma
     memory.delete(oldest.value);
   }
   return remembered;
+}
+
+/**
+ * Retains an interrupted run's turn correlation so the terminal that follows can
+ * still be reported against it.
+ *
+ * Bounded exactly like `rememberUnmatchedTurn` above, oldest-first and
+ * re-inserting on a repeat, and for the same reason: the entry is claimed within
+ * one provider round trip of being written, so the oldest is always the least
+ * likely to still matter.
+ */
+function rememberInterruptedRun(record: CodexSessionRecord, turnId: string, runId: RunId): void {
+  const memory = record.interruptedRunIdByTurnId;
+  memory.delete(turnId);
+  memory.set(turnId, runId);
+  while (memory.size > CODEX_INTERRUPTED_ROUTE_MEMORY) {
+    const oldest = memory.keys().next();
+    if (oldest.done === true) {
+      break;
+    }
+    memory.delete(oldest.value);
+  }
 }
 
 /** A session slot held for the duration of one in-flight lifecycle transition. */
@@ -3213,7 +3269,7 @@ export class CodexLifecycleManager {
   // each written frame with the turn that settles it; the quarantine holds
   // bindings a trip disposed.
   readonly #outboundTextFrameWriter: OutboundTextFrameWriter;
-  readonly #outboundFrameTripwire = new OutboundFrameTripwire();
+  readonly #outboundFrameTripwire: OutboundFrameTripwire;
   readonly #providerBindingQuarantine = new ProviderBindingQuarantine();
   readonly #sessions = new Map<SessionId, CodexSessionRecord>();
   // The P1-1 producer half. One gate per session, latched at the top of
@@ -3259,6 +3315,21 @@ export class CodexLifecycleManager {
       mechanismGrade: options.textNeutralityMechanismGrade ?? "emulated",
       mintCorrelationId: options.mintOutboundFrameCorrelationId,
     });
+    // Constructed here rather than as a field initializer because the predicate
+    // reads two fields declared after it, and a field initializer that captured
+    // them would depend on declaration order to be correct.
+    //
+    // A session is retired once this manager no longer holds its record — the
+    // teardown and supersede paths delete it — or once a trip has quarantined
+    // the binding. Either way no turn on it can ever settle, so the frames it
+    // left pending are owed no ruling and are pure occupancy. This is the only
+    // reclamation the tripwire performs, and it is consulted only when a write
+    // would otherwise be refused.
+    this.#outboundFrameTripwire = new OutboundFrameTripwire({
+      isScopeRetired: (scopeKey: string): boolean =>
+        !this.#sessions.has(scopeKey as SessionId) ||
+        this.#providerBindingQuarantine.isSessionDisposed(scopeKey),
+    });
   }
 
   /**
@@ -3270,13 +3341,27 @@ export class CodexLifecycleManager {
    * a turn that settles the instant the text lands would otherwise settle
    * against nothing and let a swallow through. `#forgetOutboundFrame` clears
    * the registration on every path where no turn will ever settle it.
+   *
+   * A REFUSED registration aborts the run before any byte is written, and that
+   * ordering is the point: the frame is composed, offered to the tripwire, and
+   * only then handed to `turn/start`. A caller must not send provider-bound
+   * text the tripwire cannot watch, because a turn that settles against no
+   * correlated frame passes — so taking the write anyway would convert this
+   * session's backlog into a silent swallow on the very next turn.
+   *
+   * @throws {OutboundFrameCapacityRefusedError} when this session is holding
+   *   more unsettled frames than the tripwire will watch.
    */
   #composeRunOpeningFrame(params: StartRunParams, runConfig: CodexRunConfig): OutboundTextFrame {
     const frame = this.#outboundTextFrameWriter.compose({
       text: runConfig.input,
       origin: runConfig.frameOrigin,
     });
-    this.#outboundFrameTripwire.register(params.runId, frame);
+    this.#outboundFrameTripwire.register({
+      scopeKey: runConfig.sessionId,
+      joinKey: params.runId,
+      frame,
+    });
     return frame;
   }
 
@@ -3342,6 +3427,7 @@ export class CodexLifecycleManager {
         spawnConfig: config,
         activeTurnIdByRunId: new Map(),
         unmatchedTurnEvidence: new Map(),
+        interruptedRunIdByTurnId: new Map(),
       });
       // The quarantine names a BINDING, not an identifier: a fresh process now
       // answers for this session id, so the refusal a prior trip installed is
@@ -3474,6 +3560,7 @@ export class CodexLifecycleManager {
         spawnConfig,
         activeTurnIdByRunId: new Map(),
         unmatchedTurnEvidence: new Map(),
+        interruptedRunIdByTurnId: new Map(),
       });
       // Released for the same reason the create path releases it: a resume is a
       // fresh spawn, so the condemned binding is gone.
@@ -3498,6 +3585,11 @@ export class CodexLifecycleManager {
       // would grow by one entry per in-flight run per resume, for the daemon's
       // whole lifetime.
       this.#forgetRunRoutes(params.sessionId);
+      // Same argument for the frames the predecessor left unsettled: the
+      // replacement record holds no route for them, so nothing will ever rule
+      // them, and they would otherwise hold this session's watch budget for the
+      // resumed leg's whole lifetime.
+      this.#releaseOutboundFrameBudget(params.sessionId);
       // A resume is a fresh spawn, so any prior leg for this session is now
       // superseded and its process would otherwise be orphaned. Released AFTER
       // the new record is installed, which is what keeps a FAILED resume
@@ -3706,6 +3798,11 @@ export class CodexLifecycleManager {
       if (this.#sessions.get(record.sessionId) === record) {
         this.#sessions.delete(record.sessionId);
         this.#forgetRunRoutes(record.sessionId);
+        // With the record gone no terminal on this binding is ingested any more,
+        // so its unsettled frames are owed no ruling and are pure occupancy.
+        // Reclaimed at the moment that becomes provably true, rather than left
+        // for the tripwire's own pass when some later write would be refused.
+        this.#releaseOutboundFrameBudget(record.sessionId);
       }
       try {
         await record.connection.killAndClose();
@@ -3786,13 +3883,31 @@ export class CodexLifecycleManager {
     };
   }
 
-  /** Interrupts the provider turn bound to a run. */
+  /**
+   * Interrupts the provider turn bound to a run.
+   *
+   * The route is retired here because the run must stop reporting an active
+   * turn the moment the provider accepts the interrupt — a steer or a second
+   * interrupt aimed at it afterwards has to be refused. But `turn/interrupt`
+   * resolving is not the turn ENDING: `turn/completed` still follows, and that
+   * is the frame the tripwire is ruled on. So the turn correlation is retained
+   * before the route goes, and the terminal path releases it once the ruling is
+   * made. Without it a trip on an interrupted turn quarantines the session and
+   * the process while the run's own subscribers are told nothing, which is the
+   * one outcome the run-failure report exists to prevent.
+   */
   async interruptRun(params: InterruptRunParams): Promise<void> {
     const { record, turnId } = this.#requireActiveTurn(params.runId);
     await record.connection.request("turn/interrupt", {
       threadId: record.threadId,
       turnId,
     });
+    // Retained UNCONDITIONALLY rather than only when a frame is pending. Whether
+    // one is pending is a point-in-time read, and this state is consulted at a
+    // later point in time; gating on it would make the correlation correct by
+    // argument about what can interleave rather than by construction, and the
+    // argument is what this file's own header warns against relying on.
+    rememberInterruptedRun(record, turnId, params.runId);
     record.activeTurnIdByRunId.delete(params.runId);
     this.#sessionIdByRunId.delete(params.runId);
   }
@@ -4564,6 +4679,11 @@ export class CodexLifecycleManager {
       await record.connection.close();
     } finally {
       this.#sessions.delete(sessionId);
+      // AFTER the record delete, not beside the route sweep at the top. The
+      // record survives every await above, so a turn terminating mid-teardown is
+      // still ingested and still ruled — and dropping its frame early would turn
+      // that last ruling into a silent pass on the way out.
+      this.#releaseOutboundFrameBudget(sessionId);
     }
   }
 
@@ -4586,7 +4706,15 @@ export class CodexLifecycleManager {
       text: request.content,
       origin: request.frameOrigin,
     });
-    this.#outboundFrameTripwire.register(targetedTurnId, steerFrame);
+    // Refuses BEFORE the write, exactly as the opening frame does: a steer this
+    // tripwire cannot watch is a steer whose swallow would be invisible, and the
+    // honest answer to a session whose turns are not settling is to refuse the
+    // directive rather than to send it unwatched.
+    this.#outboundFrameTripwire.register({
+      scopeKey: record.sessionId,
+      joinKey: targetedTurnId,
+      frame: steerFrame,
+    });
     let response: unknown;
     try {
       response = await this.#requestTurnSteer(record, request, steerFrame, targetedTurnId);
@@ -5072,18 +5200,25 @@ export class CodexLifecycleManager {
     let matchedRoute = false;
     for (const [runId, activeTurnId] of record.activeTurnIdByRunId) {
       if (activeTurnId === turnId) {
-        if (decision.tripped) {
-          this.#providerBindingQuarantine.disposeRun(runId);
-          this.#reportTextNeutralizationFailure(
-            sessionId,
-            runId,
-            composeTextNeutralizationRunFailure(decision),
-          );
-        }
+        this.#ruleTurnTerminalAgainstRun(sessionId, runId, decision);
         record.activeTurnIdByRunId.delete(runId);
         this.#sessionIdByRunId.delete(runId);
         matchedRoute = true;
       }
+    }
+    // The interrupted half. A run whose route an interrupt retired is not in the
+    // live map above and never will be again, so without this the ruling for its
+    // turn would reach the session and not the run. Disjoint from the loop by
+    // construction rather than by luck: `interruptRun` deletes the live route in
+    // the same synchronous step that records this correlation, and a turn id is
+    // never reused, so no run can be in both sets for one turn.
+    const interruptedRunId = record.interruptedRunIdByTurnId.get(turnId);
+    if (interruptedRunId !== undefined) {
+      // Released whatever the ruling was — the terminal this entry was waiting
+      // for has arrived, so a benign one frees it exactly as a trip does.
+      record.interruptedRunIdByTurnId.delete(turnId);
+      this.#ruleTurnTerminalAgainstRun(sessionId, interruptedRunId, decision);
+      matchedRoute = true;
     }
     if (decision.tripped) {
       // The promised recovery is a FRESH SPAWN, so the condemned process is torn
@@ -5095,6 +5230,30 @@ export class CodexLifecycleManager {
     if (!matchedRoute) {
       rememberUnmatchedTurn(record, turnId).terminal = classification;
     }
+  }
+
+  /**
+   * Applies a settled turn's tripwire ruling to one run (T3.18).
+   *
+   * Quarantines the run's binding and reports the failure on the run itself. The
+   * SESSION arm is not here: it is applied once per terminal by the caller,
+   * before any run is touched, so a consumer reacting synchronously to the first
+   * run's failure cannot attach to the process in between.
+   */
+  #ruleTurnTerminalAgainstRun(
+    sessionId: SessionId,
+    runId: RunId,
+    decision: TripwireDecision,
+  ): void {
+    if (!decision.tripped) {
+      return;
+    }
+    this.#providerBindingQuarantine.disposeRun(runId);
+    this.#reportTextNeutralizationFailure(
+      sessionId,
+      runId,
+      composeTextNeutralizationRunFailure(decision),
+    );
   }
 
   /**
@@ -5192,6 +5351,19 @@ export class CodexLifecycleManager {
         this.#sessionIdByRunId.delete(runId);
       }
     }
+  }
+
+  /**
+   * Drops the unsettled frames of a binding this manager no longer holds.
+   *
+   * Called only where the record is already gone or replaced — the point past
+   * which `#observeServerNotification` ingests nothing for this session, so no
+   * ruling can be owed. Retained DECISIONS deliberately survive: they are keyed
+   * by turn and the intervention dispatcher reads them back after the binding
+   * has been torn down, which is exactly when it most needs the answer.
+   */
+  #releaseOutboundFrameBudget(sessionId: SessionId): void {
+    this.#outboundFrameTripwire.forgetScope(sessionId);
   }
 
   #requireSession(sessionId: SessionId): CodexSessionRecord {

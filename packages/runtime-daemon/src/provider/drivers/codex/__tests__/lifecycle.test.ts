@@ -43,7 +43,11 @@ import {
 } from "@ai-sidekicks/contracts";
 
 import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
-import { TextNeutralizationRefusedError } from "../../outbound-frame.js";
+import {
+  OutboundFrameCapacityRefusedError,
+  OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY,
+  TextNeutralizationRefusedError,
+} from "../../outbound-frame.js";
 import type { SubagentLifecycleEmission } from "../../../thread-frame-router.js";
 import type { CumulativeAxisReadings, MeteredUsageDelta } from "../../../usage-delta-accountant.js";
 import {
@@ -3139,6 +3143,208 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await drainMicrotasks();
 
     expect(harness.textNeutralizationFailures).toStrictEqual([]);
+  });
+
+  it("reports a trip on the run whose route an interrupt had already retired", async () => {
+    // `turn/interrupt` resolves when the provider ACCEPTS the interrupt, not
+    // when the turn ends — `turn/completed` still follows. The route is retired
+    // at acceptance, correctly, so that the run stops reporting an active turn;
+    // but the tripwire is ruled on the terminal. Without a correlation that
+    // survives that gap the trip quarantines the session and the process while
+    // the run's own subscribers hear nothing at all.
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    harness.server.on("turn/interrupt", () => ({ result: {} }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: {
+        sessionId: SESSION_ID,
+        input: "/status please",
+        frameOrigin: "participant_text",
+      },
+    });
+    await harness.manager.interruptRun({ runId: RUN_ID });
+    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
+
+    harness.server.emitFrame(zeroTurnCompletedFrame(TURN_ID));
+    await drainMicrotasks();
+
+    expect(harness.textNeutralizationFailures).toStrictEqual([
+      {
+        sessionId: SESSION_ID,
+        runId: RUN_ID,
+        providerFailureDetail: "driver.text_neutralization_failed origin=participant_text",
+      },
+    ]);
+    // And the session arm too: the run failure alone would leave the next run
+    // free to resolve this record by session id and dispatch into the process
+    // that swallowed the participant's words.
+    await expect(
+      harness.manager.startRun({
+        runId: SECOND_RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
+      }),
+    ).rejects.toThrow(TextNeutralizationRefusedError);
+  });
+
+  it("releases the retained interrupt correlation once its terminal has been ruled", async () => {
+    // The correlation is retained only until the ruling it is owed. A duplicate
+    // terminal for the same turn — which this provider can send after an
+    // interrupt — must not be reported a second time, and a benign one must
+    // release the entry exactly as a trip does.
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    harness.server.on("turn/interrupt", () => ({ result: {} }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: {
+        sessionId: SESSION_ID,
+        input: "/status please",
+        frameOrigin: "participant_text",
+      },
+    });
+    await harness.manager.interruptRun({ runId: RUN_ID });
+
+    harness.server.emitFrame(zeroTurnCompletedFrame(TURN_ID));
+    await drainMicrotasks();
+    harness.server.emitFrame(zeroTurnCompletedFrame(TURN_ID));
+    await drainMicrotasks();
+
+    expect(harness.textNeutralizationFailures).toHaveLength(1);
+  });
+
+  it("does not trip an interrupted turn whose terminal carries model output", async () => {
+    // The negative control. A retained correlation must not become a second
+    // route that fails an ordinary interrupted turn — the overwhelmingly common
+    // case, where a participant simply stopped a run that was working.
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    harness.server.on("turn/interrupt", () => ({ result: {} }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: {
+        sessionId: SESSION_ID,
+        input: "review the diff",
+        frameOrigin: "participant_text",
+      },
+    });
+    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
+    await Promise.resolve();
+    await harness.manager.interruptRun({ runId: RUN_ID });
+
+    harness.server.emitFrame(turnCompletedFrame(TURN_ID, "interrupted"));
+    await drainMicrotasks();
+
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+    // The binding is untouched, so the session takes the next run.
+    await expect(
+      harness.manager.startRun({
+        runId: SECOND_RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("refuses a run this session is already holding too many unwatched frames for", async () => {
+    // The capacity refusal, end to end on this leg, and the bound the retained
+    // interrupt correlations inherit: every retained correlation is backed by a
+    // frame the tripwire is still holding, so the outstanding-interrupt set can
+    // never outgrow this session's watch budget.
+    //
+    // Refusing is the honest answer. Admitting the write and evicting the oldest
+    // registration to make room means that turn later settles against nothing
+    // and PASSES, which is the swallowed turn reported as a completed one.
+    const harness = createManagerHarness();
+    let nextTurnOrdinal = 0;
+    harness.server.on("turn/start", () => {
+      nextTurnOrdinal += 1;
+      return { result: { turn: { id: `turn-${String(nextTurnOrdinal)}` } } };
+    });
+    harness.server.on("turn/interrupt", () => ({ result: {} }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    const interruptedRunIds: RunId[] = [];
+    for (let index = 0; index < OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY; index += 1) {
+      const runId = `44444444-4444-4444-8444-${String(index).padStart(12, "0")}` as RunId;
+      interruptedRunIds.push(runId);
+      await harness.manager.startRun({
+        runId,
+        channelId: CHANNEL_ID,
+        agentConfig: {
+          sessionId: SESSION_ID,
+          input: "/status please",
+          frameOrigin: "participant_text",
+        },
+      });
+      // Interrupted and never terminated, so every frame stays unsettled and
+      // every correlation stays retained.
+      await harness.manager.interruptRun({ runId });
+    }
+
+    const writtenLinesBeforeRefusal = harness.server.writtenLines.length;
+    await expect(
+      harness.manager.startRun({
+        runId: RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "one more" },
+      }),
+    ).rejects.toThrow(OutboundFrameCapacityRefusedError);
+    // Refused BEFORE any byte reached the provider: a frame written past the
+    // tripwire's reach is precisely the frame no turn can be ruled against.
+    expect(harness.server.writtenLines).toHaveLength(writtenLinesBeforeRefusal);
+
+    // Nothing was discarded to make room — every one of the interrupted turns is
+    // still watched, and each still reports on its own run when it settles.
+    for (let index = 0; index < interruptedRunIds.length; index += 1) {
+      harness.server.emitFrame(zeroTurnCompletedFrame(`turn-${String(index + 1)}`));
+    }
+    await drainMicrotasks();
+    expect(harness.textNeutralizationFailures.map((failure) => failure.runId)).toStrictEqual(
+      interruptedRunIds,
+    );
+  });
+
+  it("returns a closed session's watch budget, so a fresh spawn under the id runs", async () => {
+    // The scope's budget is reclaimed where the record is provably gone. Without
+    // it, a session whose turns never settled would hold its own budget for the
+    // daemon's lifetime and refuse every later run on that id — a leak that
+    // presents as a permanently unusable session rather than as memory.
+    const harness = createManagerHarness();
+    let nextTurnOrdinal = 0;
+    harness.server.on("turn/start", () => {
+      nextTurnOrdinal += 1;
+      return { result: { turn: { id: `turn-${String(nextTurnOrdinal)}` } } };
+    });
+    harness.server.on("turn/interrupt", () => ({ result: {} }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    for (let index = 0; index < OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY; index += 1) {
+      const runId = `66666666-6666-4666-8666-${String(index).padStart(12, "0")}` as RunId;
+      await harness.manager.startRun({
+        runId,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "go" },
+      });
+      await harness.manager.interruptRun({ runId });
+    }
+
+    await harness.manager.closeSession({ sessionId: SESSION_ID });
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    await expect(
+      harness.manager.startRun({
+        runId: RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
+      }),
+    ).resolves.toBeUndefined();
   });
 
   it("keeps the route while the turn is still inProgress", async () => {
