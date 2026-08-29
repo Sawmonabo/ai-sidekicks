@@ -4301,7 +4301,8 @@ type DeclaredLossKind =
   | "provider_private_reasoning" // non-portable by both vendors' stated rules; never translated
   | "context_truncated" // the memo budget evicted older exchanges (whole exchanges only, never halves)
   | "tool_call_history_repaired" // an unpaired call took a synthetic error result rather than being dropped
-  | "conversation_history_summarized"; // the memo floor: verbatim exchanges replaced by a bounded prose rendering
+  | "conversation_history_summarized" // the memo floor: verbatim exchanges replaced by a bounded prose rendering
+  | "turn_content_unavailable"; // a logged turn's body could not be read when the fold ran; the turn is carried with its structural position and an empty body rather than being dropped, because an empty body alone reads as "the author said nothing" and a dropped turn reads as "the turn never happened" and both are false. The only member produced at pipeline step 1 (Fold), which is daemon-side and upstream of the driver: it reaches AgentProviderSwitchOutcome.declaredLosses through the canonical projection, never through DriverTranscriptExportResult, whose own comment scopes that member to steps 3 and 4
 interface AgentListRequest {
   sessionId: SessionId;
 }
