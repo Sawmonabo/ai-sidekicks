@@ -572,24 +572,74 @@ const FIXTURE_GIT_TIMEOUT_MS = 30_000;
 const FIXTURE_IGNORE_RULES = "ignored-dir/\nignored-file.txt\ntracked-but-ignored.txt\n";
 
 /**
- * The per-case budget for the two MULTI-SEQUENCE cases in this file.
+ * The per-case budget this file installs for every case, and the floor the five
+ * multi-sequence cases below raise for themselves.
+ *
+ * Sized to the MACHINE rather than to the work, which is the whole difference
+ * between it and {@link MULTI_SEQUENCE_CASE_TIMEOUT_MS}. No case in this file is
+ * free of git: the top-level `beforeEach` spawns four subprocesses to build the
+ * fixture repository before every one of them, which is the floor the fastest
+ * case here sits on at 145ms. The identical-state OID case spawns 27 — that
+ * `beforeEach` repository, two embedded repositories, two ten-spawn capture
+ * pipelines and one assertion read — so its wall-clock cost is set by how
+ * contended the host is, not by anything the case counts.
+ *
+ * Measured on this file, one case at a time: 536ms alone, 984ms under this
+ * package's own 79-file parallel run (1.8x), and 1830ms under ordinary CPU
+ * contention (3.4x). Those multipliers COMPOSE, and a full-workspace `pnpm test`
+ * adds six more packages and the build graph on top of both — which is how a
+ * 536ms case reaches Vitest's 5s default. It did, exactly once, while passing
+ * 195/195 in isolation. Nothing about that case made it the one: it ranked 72nd
+ * of 195 by duration, and 104 of its siblings sit in the same 400-700ms band. At
+ * the 5s default the whole file is inside the window, so the case that fails is
+ * a lottery ticket rather than a signal, and a budget on the ticket that lost
+ * would leave 194 in the drum.
+ *
+ * Deliberately LARGER than {@link FIXTURE_GIT_TIMEOUT_MS}, for the reason the
+ * multi-sequence budget below states in full: a hung FIXTURE spawn hits its own
+ * 30s limit first, so the case fails naming the leg rather than reporting a bare
+ * "Test timed out".
+ *
+ * Installed file-scoped rather than in `vitest.config.ts`, and that boundary is
+ * the point: the package's other 78 test files are not measured here, and
+ * re-budgeting them on this file's evidence would buy silence rather than
+ * confidence. A `describe` option reads more naturally and was measured instead:
+ * it pushes the longest of the six `describe` headers past the 100-column print
+ * width, and Prettier then splits the call and re-indents that block's whole
+ * 2860-line body — churn that buries the change and takes `git blame` with it.
+ * Vitest resolves the narrower declaration first under either spelling, so a case
+ * carrying its own `timeout` still gets it — verified against both forms this
+ * file uses, the options object and the positional third argument.
+ */
+const ORDINARY_CASE_TIMEOUT_MS = 45_000;
+
+vi.setConfig({ testTimeout: ORDINARY_CASE_TIMEOUT_MS });
+
+/**
+ * The per-case budget the five MULTI-SEQUENCE cases in this file raise for
+ * themselves, above the {@link ORDINARY_CASE_TIMEOUT_MS} floor.
  *
  * Every other case here spawns one capture and/or one restore and lands around a
- * second; two do not, and their cost is set by a count rather than by a fixed
- * handful of spawns — the delete-pass ceiling drives 64 sequential passes, and
- * the host-independence case runs four whole capture pipelines plus a porcelain
- * negative control per pin. Measured across four full runs of this file they
- * peaked at over five seconds and at 3.2s respectively, against Vitest's 5s
- * default (this package sets no `testTimeout`), and the first of them really did
- * time out once on a loaded machine. That is a machine-speed flake, not a
- * regression, and the honest fix is a budget sized to the work rather than a
- * suite that fails when something else is compiling.
+ * second; five do not, and their cost is set by a COUNT rather than by a fixed
+ * handful of spawns — the delete-pass ceiling drives 64 sequential passes, the
+ * host-independence case runs four whole capture pipelines plus a porcelain
+ * negative control per pin, the cone/non-cone/negation case drives a capture and
+ * a porcelain comparison for every sparse definition it walks, the 32-KiB
+ * boundary-stream case carries 220 out-of-cone paths end to end, and the
+ * linked-worktree lock case builds a second checkout with `worktree add` on top
+ * of a sparse fixture before it begins. Measured across four full runs of this
+ * file the first two peaked at over five seconds and at 3.2s, against Vitest's
+ * 5s default (the package config sets none, and the floor above did not yet
+ * exist), and the first of them really did time out once on a loaded machine.
+ * That is a machine-speed flake, not a regression, and the honest fix is a budget
+ * sized to the work rather than a suite that fails when something else is
+ * compiling.
  *
  * Deliberately LARGER than {@link FIXTURE_GIT_TIMEOUT_MS}, not equal to it, and
  * that buys exactly one thing: a hung FIXTURE spawn — `spawnFixtureGit`, and the
  * `waitUntilSettled` deadline — hits its own 30s limit first, so the case fails
  * naming the leg rather than reporting a bare "Test timed out". It does NOT
- * cover the SERVICE's spawns, which are most of the work in both governed cases:
+ * cover the SERVICE's spawns, which are most of the work in every governed case:
  * {@link buildService} sets no `gitCommandTimeoutMs`, so the service under test
  * runs at its 120s production default, double this budget. A hang inside the
  * service therefore surfaces as a case timeout, by design — threading the
