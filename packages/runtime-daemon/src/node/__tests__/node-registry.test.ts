@@ -39,6 +39,12 @@
 //     `register` (least privilege; the wire capabilities are replay-only).
 //   * Re-register: a second register preserves `established_at` + `trust_level`
 //     and refreshes only `updated_at` (registration never elevates trust).
+//   * The lifecycle observer seam (the wiring point Plan-005 T3.12 / P2-9 names
+//     for starting and stopping a node's capability/auth refresh cadence):
+//     fires with the node AND session context after a SETTLED register and on
+//     detach; does NOT fire when the registration rolled back inside its
+//     transaction; and a THROWING observer neither fails a register/detach nor
+//     goes unreported.
 //   * T2.5 / D4 (detach + reconnect under stable node identity, I-003-3): detach
 //     emits exactly one `runtime_node.offline` (reason `explicit_shutdown`,
 //     newState `offline`, previousState `online`, non-empty ISO `lastHeartbeatAt`)
@@ -69,7 +75,12 @@ import type { Ed25519PrivateKey, Ed25519PublicKey } from "../../events/signer.js
 import type { DaemonSigningKeySource } from "../../events/signing-key-source.js";
 import { openDatabase } from "../../session/migration-runner.js";
 import { SessionService, UnsignedPlaceholderAppendToken } from "../../session/session-service.js";
-import type { NodeTrustStateRow } from "../node-registry.js";
+import type {
+  NodeRegistryOptions,
+  NodeTrustStateRow,
+  RuntimeNodeLifecycleContext,
+  RuntimeNodeLifecycleObserver,
+} from "../node-registry.js";
 import { NodeRegistry } from "../node-registry.js";
 import { RuntimeNodeEventEmitter } from "../node-event-emitter.js";
 
@@ -593,5 +604,178 @@ describe("NodeRegistry — T2.5/D4 (detach + reconnect under stable node identit
     // updated_at refreshed by the reconnect register (proves it is the same durable
     // row being re-registered, not a new identity).
     expect(afterReconnect?.updated_at).toBe("2026-06-02T12:10:00.000Z");
+  });
+});
+
+// ----------------------------------------------------------------------------
+// The runtime-node lifecycle observer seam — the sanctioned wiring point the
+// provider subsystem's per-node refresh cadence attaches to (Plan-005 T3.12 /
+// P2-9). Three properties, each with a distinct failure it forecloses.
+// ----------------------------------------------------------------------------
+
+/** A recording observer plus the failures its throwing variant reports. */
+interface RecordedLifecycle {
+  readonly observer: RuntimeNodeLifecycleObserver;
+  readonly registered: RuntimeNodeLifecycleContext[];
+  readonly detached: RuntimeNodeLifecycleContext[];
+}
+
+function makeRecordingObserver(throwOnEveryCall: boolean = false): RecordedLifecycle {
+  const registered: RuntimeNodeLifecycleContext[] = [];
+  const detached: RuntimeNodeLifecycleContext[] = [];
+  return {
+    observer: {
+      onNodeRegistered(context: RuntimeNodeLifecycleContext): void {
+        registered.push(context);
+        if (throwOnEveryCall) {
+          throw new Error("observer refused the registration notification");
+        }
+      },
+      onNodeDetached(context: RuntimeNodeLifecycleContext): void {
+        detached.push(context);
+        if (throwOnEveryCall) {
+          throw new Error("observer refused the detach notification");
+        }
+      },
+    },
+    registered,
+    detached,
+  };
+}
+
+// Same object graph as `makeRegistry`, with the additive-optional options bag
+// supplied. A distinct event-id prefix keeps the counter independent of the
+// shared helper's.
+function makeObservedRegistry(options: NodeRegistryOptions): NodeRegistry {
+  let idCounter: number = 0;
+  const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
+    sessionEvents: makeEventLog(),
+    newEventId: () => `evt-observed-${(idCounter++).toString()}`,
+  });
+  return new NodeRegistry(ctx.db, emitter, () => "2026-06-02T12:00:00.000Z", options);
+}
+
+describe("NodeRegistry — lifecycle observer seam (the provider-plane wiring point)", () => {
+  it("notifies with the node AND session context after a settled register, and again on detach", async () => {
+    const lifecycle: RecordedLifecycle = makeRecordingObserver();
+    const registry: NodeRegistry = makeObservedRegistry({ lifecycleObserver: lifecycle.observer });
+
+    await registry.register({
+      nodeId: NODE_ID,
+      sessionId: SESSION_ID,
+      capabilities: {},
+      nodeVersion: "1.0.0",
+      platform: "linux-x64",
+    });
+
+    // Both members matter to the subscriber: the node id keys its per-node
+    // state, and the session id is the timeline a capability re-declaration is
+    // appended to — without it a subscriber would need its own node→session map.
+    expect(lifecycle.registered).toStrictEqual([{ nodeId: NODE_ID, sessionId: SESSION_ID }]);
+    expect(lifecycle.detached).toHaveLength(0);
+    // The registration itself is unchanged by the presence of a subscriber.
+    expect(registry.lookup(NODE_ID)).toBeDefined();
+
+    await registry.detach({ nodeId: NODE_ID, sessionId: SESSION_ID, previousState: "online" });
+    expect(lifecycle.detached).toStrictEqual([{ nodeId: NODE_ID, sessionId: SESSION_ID }]);
+    // Detach notifies once; it does not re-announce the registration.
+    expect(lifecycle.registered).toHaveLength(1);
+  });
+
+  it("does NOT notify when the registration rolls back inside its transaction", async () => {
+    // The DISCRIMINATING negative control for fire-after-settle. The failure
+    // must land AFTER the transactional prelude applied — a duplicate event id
+    // violating `session_events`' PRIMARY KEY — because a notification fired
+    // from inside the prelude, or anywhere before the emit resolves, would
+    // still pass a pre-transaction refusal case while announcing a
+    // registration the rollback erased.
+    const seedingService: SessionService = new SessionService(ctx.db, {
+      allowUnsignedPlaceholderAppend: UnsignedPlaceholderAppendToken.forTestsOnly(),
+    });
+    seedingService.append({
+      id: "evt-observer-collide",
+      sessionId: SESSION_ID,
+      sequence: 0,
+      occurredAt: "2026-06-02T12:00:00.000Z",
+      monotonicNs: 1_000_000_000n,
+      category: "session_lifecycle",
+      type: "session.created",
+      actor: null,
+      payload: { sessionId: SESSION_ID },
+      correlationId: null,
+      causationId: null,
+      version: "1.0",
+    });
+
+    const lifecycle: RecordedLifecycle = makeRecordingObserver();
+    const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
+      sessionEvents: makeEventLog(),
+      newEventId: () => "evt-observer-collide",
+    });
+    const registry: NodeRegistry = new NodeRegistry(
+      ctx.db,
+      emitter,
+      () => "2026-06-02T12:00:00.000Z",
+      { lifecycleObserver: lifecycle.observer },
+    );
+
+    await expect(
+      registry.register({
+        nodeId: NODE_ID,
+        sessionId: SESSION_ID,
+        capabilities: {},
+        nodeVersion: "1.0.0",
+        platform: "linux-x64",
+      }),
+    ).rejects.toThrow(/UNIQUE|PRIMARY KEY|constraint/i);
+
+    expect(lifecycle.registered).toHaveLength(0);
+    // And the rollback held: no trust row for a node nobody was told about.
+    expect(readTrustRows(ctx.db, NODE_ID)).toHaveLength(0);
+  });
+
+  it("contains a THROWING observer — register and detach still settle, and the failure is reported", async () => {
+    const lifecycle: RecordedLifecycle = makeRecordingObserver(true);
+    const reports: Array<{ message: string; cause: unknown }> = [];
+    const registry: NodeRegistry = makeObservedRegistry({
+      lifecycleObserver: lifecycle.observer,
+      onObserverError: (message: string, cause: unknown) => {
+        reports.push({ message, cause });
+      },
+    });
+
+    // Neither call rejects: the durable row and its timeline event are the
+    // registry's contract, and a subscriber's fault is not a reason to refuse
+    // them.
+    await expect(
+      registry.register({
+        nodeId: NODE_ID,
+        sessionId: SESSION_ID,
+        capabilities: {},
+        nodeVersion: "1.0.0",
+        platform: "linux-x64",
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      registry.detach({ nodeId: NODE_ID, sessionId: SESSION_ID, previousState: "online" }),
+    ).resolves.toBeUndefined();
+
+    // The registration and the detach both completed for real.
+    expect(registry.lookup(NODE_ID)).toBeDefined();
+    expect(readEventRows(ctx.db, SESSION_ID).map((row) => row.type)).toEqual([
+      "runtime_node.registered",
+      "runtime_node.offline",
+    ]);
+
+    // Contained is not swallowed: BOTH throws were reported, carrying the
+    // thrown cause rather than a flattened message.
+    expect(reports).toHaveLength(2);
+    expect(reports[0]?.message).toContain("registered");
+    expect(reports[0]?.message).toContain(NODE_ID);
+    expect((reports[0]?.cause as Error).message).toBe(
+      "observer refused the registration notification",
+    );
+    expect(reports[1]?.message).toContain("detached");
+    expect((reports[1]?.cause as Error).message).toBe("observer refused the detach notification");
   });
 });
