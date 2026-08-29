@@ -275,16 +275,26 @@ class MockProviderDriver implements ProviderDriver {
 
   public exportTranscript(params: ExportTranscriptParams): Promise<DriverTranscriptExportResult> {
     return Promise.resolve({
-      frames: params.transcript.turns.map((turn) => ({ position: turn.position })),
+      // The reconciliation rule a conformant driver applies, in the one place a
+      // reader looks to learn what one does: the bound is inclusive, and the
+      // turns already in hand are the only thing it is applied to.
+      frames: params.transcript.turns
+        .filter((turn) => turn.position <= params.boundary)
+        .map((turn) => ({ position: turn.position })),
       declaredLosses: ["provider_private_reasoning"],
     });
   }
 
   public replayTranscript(params: ReplayTranscriptParams): Promise<DriverTranscriptReplayResult> {
-    return Promise.resolve({
-      status: params.frames.length === 0 ? "degraded" : "applied",
-      declaredLosses: [],
-    });
+    // The degraded arm is the memo floor standing in, and a memo settlement that
+    // named no loss would be rejected by the envelope's own schema — so the mock
+    // declares it rather than modelling a driver the contract refuses.
+    return params.frames.length === 0
+      ? Promise.resolve({
+          status: "degraded",
+          declaredLosses: ["conversation_history_summarized"],
+        })
+      : Promise.resolve({ status: "applied", declaredLosses: [] });
   }
 }
 
@@ -2302,24 +2312,76 @@ describe("DriverTranscriptReplayResultSchema — the canonical transcript replay
     const result = DriverTranscriptReplayResultSchema.safeParse({ status: "applied" });
     expect(result.success).toBe(false);
   });
+
+  it("rejects a degraded settlement whose declared-loss list is empty", () => {
+    // An empty list is the positive claim that nothing was dropped, so this
+    // value would tell a caller the memo summary IS the verbatim conversation.
+    const result = DriverTranscriptReplayResultSchema.safeParse({
+      status: "degraded",
+      declaredLosses: [],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a degraded settlement that declares other losses but not the summarization", () => {
+    // The case a mere non-empty rule would let through: losses are named, the
+    // one that says the conversation was summarized is not.
+    const result = DriverTranscriptReplayResultSchema.safeParse({
+      status: "degraded",
+      declaredLosses: ["provider_private_reasoning", "tool_call_history_repaired"],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts an applied replay with an empty declared-loss list", () => {
+    // The negative control for the rule above: requiredness is scoped to the
+    // degraded arm, so a replay that carried everything across still gets to say
+    // so with an empty list.
+    const parsed: DriverTranscriptReplayResult = DriverTranscriptReplayResultSchema.parse({
+      status: "applied",
+      declaredLosses: [],
+    });
+    expect(parsed.declaredLosses).toEqual([]);
+  });
 });
 
 describe("transcript operation params — nominal shapes", () => {
-  it("carries an already-bounded projection on an export request, and no second bound", () => {
+  it("states the inclusive bound beside the projection, in the turns' own position vocabulary", () => {
     const params: ExportTranscriptParams = {
       sessionId: "session-transcript-1" as SessionId,
       transcript: {
         sessionId: "session-transcript-1" as SessionId,
         runId: "run-transcript-1" as RunId,
         builtAtPosition: 41,
-        turns: [{ position: 7, role: "participant", segments: [{ kind: "text", text: "go" }] }],
+        turns: [
+          { position: 7, role: "participant", segments: [{ kind: "text", text: "go" }] },
+          { position: 12, role: "assistant", segments: [{ kind: "text", text: "going" }] },
+          { position: 30, role: "participant", segments: [{ kind: "text", text: "and past" }] },
+        ],
+      },
+      boundary: 12,
+    };
+    expect([...Object.keys(params)].sort()).toStrictEqual(["boundary", "sessionId", "transcript"]);
+    // `boundary` and `CanonicalTranscriptTurn.position` speak one vocabulary, so
+    // "export up to and including the bound" is a filter over the turns already
+    // in hand — the driver needs no access to anything else to apply it, and the
+    // bound is inclusive, so the turn AT it comes along.
+    const exported = params.transcript.turns.filter((turn) => turn.position <= params.boundary);
+    expect(exported.map((turn) => turn.position)).toStrictEqual([7, 12]);
+  });
+
+  it("requires the bound on an export request rather than leaving it to be inferred", () => {
+    // @ts-expect-error `boundary` is REQUIRED — an export with no stated bound would leave a driver to decide for itself where the transcript ends
+    const unbounded: ExportTranscriptParams = {
+      sessionId: "session-transcript-2" as SessionId,
+      transcript: {
+        sessionId: "session-transcript-2" as SessionId,
+        runId: "run-transcript-2" as RunId,
+        builtAtPosition: 9,
+        turns: [{ position: 9, role: "participant", segments: [{ kind: "text", text: "go" }] }],
       },
     };
-    expect(params.transcript.turns).toHaveLength(1);
-    // The bound lives in the turns the fold produced, not beside them: the
-    // request carries no member a driver could read as a second answer to
-    // "where does this transcript end?".
-    expect([...Object.keys(params)].sort()).toStrictEqual(["sessionId", "transcript"]);
+    void unbounded;
   });
 
   it("targets a session handle a replay writes into, never the source session", () => {

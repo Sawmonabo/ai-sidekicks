@@ -1216,16 +1216,27 @@ export interface CanonicalTranscriptProjection {
   turns: readonly CanonicalTranscriptTurn[];
 }
 
-// The export input is an ALREADY-BOUNDED projection, and carries no boundary of
-// its own. Where a caller exports only part of a run, the bound is applied once,
-// at the fold that built this projection — the turns themselves are the record of
-// where the transcript ends. A second boundary member here would be a second
-// record of that, which the driver has no way to reconcile against the turns it
-// was handed: it holds no access to the log, so it could only trust one of the
-// two. That is the divergence ADR-029 eliminates, in miniature.
+// The export input pairs the folded projection with the boundary it is exported
+// against (`Spec-005 §Canonical Transcript Export And Replay` — the operation's
+// input is the daemon-supplied canonical projection AND a target boundary).
+//
+// The projection also arrives already folded, so the two members could be read as
+// two answers to "where does this transcript end?". They are not, because the
+// driver is given the reconciliation rule rather than a choice: it exports
+// exactly the turns whose `position` is at or below `boundary`. That is a
+// deterministic filter over data it already holds — it opens no log, consults
+// nothing the daemon did not hand it, and mints no second record of the session's
+// order, which is what ADR-029 requires of a driver. A projection the fold
+// already bounded to the same position filters to itself, so the rule is a no-op
+// on the common path and a stated bound on every path.
 export interface ExportTranscriptParams {
   sessionId: SessionId;
   transcript: CanonicalTranscriptProjection;
+  // Export up to and INCLUDING this normalized session position — the same
+  // position vocabulary `RollbackToParams.position` uses, and the same one
+  // `CanonicalTranscriptTurn.position` carries, which is what makes the filter
+  // above expressible against the turns in hand rather than needing a lookup.
+  boundary: number;
 }
 
 // Return shape of `ProviderDriver.exportTranscript()`. Zod-validated.
@@ -1261,7 +1272,10 @@ export interface ReplayTranscriptParams {
 // Flat rather than discriminated, unlike its `DriverGoalResult` neighbour,
 // because `declaredLosses` is REQUIRED on BOTH arms: an `applied` replay that
 // stripped provider-private reasoning still lost something, and a union that
-// made the member arm-scoped would have let that loss go unnamed.
+// made the member arm-scoped would have let that loss go unnamed. What IS
+// arm-scoped is the list's required CONTENT on the degraded arm, and it rides the
+// schema below rather than this shape: expressing it in the type would take the
+// discriminated union this member set exists to avoid.
 export interface DriverTranscriptReplayResult {
   // `degraded` is the memo floor having stood in: the conversation moved and the
   // losses say what came along. It is NOT a failure result — a target that
@@ -1278,7 +1292,39 @@ export const DriverTranscriptReplayResultSchema: z.ZodType<
     status: z.enum(["applied", "degraded"]),
     declaredLosses: z.array(DeclaredLossKindSchema),
   })
-  .strict();
+  .strict()
+  // `degraded` on THIS operation has exactly one cause — the memo floor stood in
+  // — so `Spec-005 §Canonical Transcript Export And Replay` requires every such
+  // settlement to carry a NON-EMPTY list naming `conversation_history_summarized`.
+  // Enforced rather than narrated: the flat shape alone admits
+  // `{status: 'degraded', declaredLosses: []}`, and an empty array is the
+  // POSITIVE claim that nothing was dropped, so that value tells the caller a
+  // bounded prose summary is the verbatim conversation.
+  //
+  // Naming the kind subsumes non-emptiness, which is why there is no separate
+  // length rule and none is added: a `.min(1)` would admit a degraded result
+  // declaring some OTHER loss while still hiding the summarization — the exact
+  // reading this rule exists to forbid.
+  //
+  // Arm-SCOPED on purpose. `applied` keeps the full latitude, empty list
+  // included: an applied replay that dropped nothing is the case the empty array
+  // exists to state, and a universal non-emptiness rule would delete it.
+  // `.superRefine()` returns `this`, so the envelope stays a `ZodObject` and the
+  // Output/Input annotation above still holds — the same Zod-4 property the
+  // `audit_integrity_failed` arm in event.ts records.
+  .superRefine((result, ctx) => {
+    if (
+      result.status === "degraded" &&
+      !result.declaredLosses.includes("conversation_history_summarized")
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["declaredLosses"],
+        message:
+          "a replay reported 'degraded' settled on the memo projection, so its declared-loss list must include 'conversation_history_summarized'; this result reports 'degraded' without it.",
+      });
+    }
+  });
 
 // --------------------------------------------------------------------------
 // Execution posture — the spawn/turn sandbox + permission surface
