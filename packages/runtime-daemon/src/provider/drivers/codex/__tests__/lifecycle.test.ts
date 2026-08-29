@@ -4461,6 +4461,22 @@ describe("CodexLifecycleManager thread routing and usage metering (T3.11, I-005-
       readonly meterBeforeFork?: boolean;
       /** The thread id the provider's `thread/fork` answers with. */
       readonly forkAnswersThreadId?: string;
+      /**
+       * The turn ledger the provider's `thread/fork` answers with.
+       *
+       * Defaults to the one turn the fixture actually ran, which AGREES with the
+       * position the rewind asks for — so a test that wants the disagreement has
+       * to ask for it rather than inherit it from the fixture.
+       */
+      readonly forkAnswersTurnIds?: readonly string[];
+      /**
+       * Announces a live child thread before the rewind is issued.
+       *
+       * The only way to hold an id that is registered with the accountant and is
+       * NOT the pre-fork thread, which is the case the fork-identity check
+       * cannot see.
+       */
+      readonly announceChildBeforeFork?: boolean;
     } = {},
   ): Promise<{
     harness: ManagerHarness;
@@ -4499,12 +4515,17 @@ describe("CodexLifecycleManager thread routing and usage metering (T3.11, I-005-
     harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
     await Promise.resolve();
 
+    if (options.announceChildBeforeFork === true) {
+      announceChild(harness, "subAgent");
+      await drainMicrotasks();
+    }
+
     harness.server.on("thread/fork", () => ({
       result: {
         thread: {
           id: options.forkAnswersThreadId ?? FORKED_THREAD_ID,
           sessionId: "session-tree-1",
-          turns: [{ id: TURN_ID }],
+          turns: (options.forkAnswersTurnIds ?? [TURN_ID]).map((turnId) => ({ id: turnId })),
         },
       },
     }));
@@ -4519,7 +4540,15 @@ describe("CodexLifecycleManager thread routing and usage metering (T3.11, I-005-
     // Seeded with what the daemon already emitted, so `last` is the arithmetic
     // per-turn figure a continuing provider counter would report and the
     // accountant's corroboration cross-check stays a real signal here.
-    emittedCumulativeByThreadId.set(FORKED_THREAD_ID, 100);
+    //
+    // Seeded ONLY on the arm that emitted it. Unconditionally, the no-spend arm
+    // derived its next `last` from a cumulative it never sent and shipped a
+    // NEGATIVE per-turn figure on every axis — a shape no provider produces —
+    // so that arm ran against an impossible wire and buried six unasserted
+    // cross-check mismatches while doing it.
+    if (options.meterBeforeFork !== false) {
+      emittedCumulativeByThreadId.set(FORKED_THREAD_ID, 100);
+    }
     return { harness, readerCalls, rollbackResult };
   }
 
@@ -4559,6 +4588,12 @@ describe("CodexLifecycleManager thread routing and usage metering (T3.11, I-005-
     );
     expect(harness.driverDiagnostics.recentRecordsOfKind("usage_delta_floor_hit")).toEqual([]);
     expect(harness.driverDiagnostics.recentRecordsOfKind("usage_cross_check_mismatch")).toEqual([]);
+    // The provider's forked history AGREES with the position asked for, so the
+    // corroboration record stays silent — a record that fired on every rewind
+    // would say nothing about the ones that actually disagree.
+    expect(
+      harness.diagnostics.filter((entry) => entry.kind === "fork-turn-ledger-unconfirmed"),
+    ).toStrictEqual([]);
   });
 
   it("a rewind retires the pre-fork thread as the session's own rather than leaving two", async () => {
@@ -4637,6 +4672,11 @@ describe("CodexLifecycleManager thread routing and usage metering (T3.11, I-005-
         input: entry.delta.axisDeltas.input,
       })),
     ).toStrictEqual([{ threadId: FORKED_THREAD_ID, input: 60 }]);
+    // The wire's own per-turn figure agrees with the derived interval, which is
+    // only true because this arm's fixture no longer seeds a cumulative the
+    // session never emitted: seeded, `last` arrives negative on every axis and
+    // the cross-check that is supposed to corroborate this arm fires six times.
+    expect(harness.driverDiagnostics.recentRecordsOfKind("usage_cross_check_mismatch")).toEqual([]);
   });
 
   it("refuses a rewind the provider did not FORK, leaving the session on its original thread", async () => {
@@ -4670,6 +4710,247 @@ describe("CodexLifecycleManager thread routing and usage metering (T3.11, I-005-
     ).toStrictEqual([
       { threadId: THREAD_ID, input: 100 },
       { threadId: THREAD_ID, input: 50 },
+    ]);
+  });
+
+  it("a rewind retires the pre-fork thread's usage registers rather than leaking a set per rewind", async () => {
+    const { harness } = await rewoundSession();
+
+    // The router's retirement is FUSED into the re-registration — it holds one
+    // session identity, so registering the forked one replaces it — but the
+    // accountant holds a register set per thread and has no such fusion. Left
+    // unreleased, every rewind leaks one for the session's whole life and
+    // `hasThread` keeps answering true for a thread the caller has rewound away
+    // from, so the refusal beside it can no longer tell a thread the session is
+    // still metering from one it has retired.
+    expect(harness.manager.usageAccountantFor(SESSION_ID).hasThread(THREAD_ID)).toBe(false);
+    // And the retirement did not take the session's own metering with it: the
+    // successor is established, which is what the rewind exists to do.
+    expect(harness.manager.usageAccountantFor(SESSION_ID).hasThread(FORKED_THREAD_ID)).toBe(true);
+  });
+
+  it("refuses a fork answered with a thread the session ALREADY meters, leaving both sets of registers intact", async () => {
+    // A live child thread: registered with the accountant, and NOT the pre-fork
+    // thread, so the fork-identity check cannot see it. Adopting it would
+    // re-establish registers that are carrying a child's real spend and hand the
+    // router a session identity whose frames are already attributed elsewhere.
+    const { harness, readerCalls, rollbackResult } = await rewoundSession({
+      announceChildBeforeFork: true,
+      forkAnswersThreadId: CHILD_THREAD_ID,
+    });
+
+    expect(rollbackResult).toStrictEqual({
+      status: "degraded",
+      fallbackAction: "rewind-target-thread-already-registered",
+    });
+    // Refused BEFORE the re-point, so no base was rebuilt for anything.
+    expect(readerCalls).toStrictEqual([]);
+    expect(harness.manager.usageAccountantFor(SESSION_ID).hasThread(CHILD_THREAD_ID)).toBe(true);
+    expect(harness.manager.usageAccountantFor(SESSION_ID).hasThread(THREAD_ID)).toBe(true);
+
+    // Both are still metering on their own bases: the child under its own
+    // attribution, the session on the thread it never left.
+    emitUsage(harness, CHILD_THREAD_ID, 40);
+    emitUsage(harness, THREAD_ID, 150);
+    await drainMicrotasks();
+    expect(
+      harness.meteredUsage.map((entry) => ({
+        threadId: entry.delta.threadId,
+        input: entry.delta.axisDeltas.input,
+      })),
+    ).toStrictEqual([
+      { threadId: THREAD_ID, input: 100 },
+      { threadId: CHILD_THREAD_ID, input: 40 },
+      { threadId: THREAD_ID, input: 50 },
+    ]);
+  });
+
+  it("records the ledger disagreement when the provider's forked history is a different LENGTH than the position asked for", async () => {
+    const { harness, rollbackResult } = await rewoundSession({
+      forkAnswersTurnIds: [TURN_ID, "turn-02"],
+    });
+
+    // The fork itself succeeded, so the rewind is real and applies — and the
+    // applied result reports the CALLER's position whatever the provider's
+    // history says. Unrecorded, a provider that forked to a different depth than
+    // the one asked for would be visible nowhere at all.
+    expect(rollbackResult).toStrictEqual({
+      status: "applied",
+      sessionPosition: 1,
+      bindingId: "binding-abc",
+    });
+    expect(
+      harness.diagnostics.filter((entry) => entry.kind === "fork-turn-ledger-unconfirmed"),
+    ).toStrictEqual([
+      { kind: "fork-turn-ledger-unconfirmed", expectedTurnCount: 1, confirmedTurnCount: 2 },
+    ]);
+  });
+
+  it("records the same disagreement, once, when the fork answers with no readable turn history", async () => {
+    const { harness, rollbackResult } = await rewoundSession({ forkAnswersTurnIds: [] });
+
+    // The absent-history arm is not a second kind of disagreement: an unreadable
+    // list reads as zero turns, which disagrees with the position like any other
+    // count. One report covers both, so neither arm can double-report.
+    expect(rollbackResult.status).toBe("applied");
+    expect(
+      harness.diagnostics.filter((entry) => entry.kind === "fork-turn-ledger-unconfirmed"),
+    ).toStrictEqual([
+      { kind: "fork-turn-ledger-unconfirmed", expectedTurnCount: 1, confirmedTurnCount: 0 },
+    ]);
+  });
+
+  /**
+   * A rewind SUSPENDED at its `thread/fork` request, with the answer left in the
+   * test's hands.
+   *
+   * No `thread/fork` handler is registered, so the fake answers nothing and the
+   * request stays in flight. That suspension is the whole point: every hazard in
+   * the rebind lives between the request and its answer, and a fixture that
+   * answered from a handler would close the window before a concurrent caller
+   * could be dispatched into it.
+   */
+  async function rewindSuspendedAtFork(): Promise<{
+    harness: ManagerHarness;
+    rewind: ReturnType<CodexLifecycleManager["rollbackTo"]>;
+    answerFork: () => Promise<void>;
+  }> {
+    const harness = await managerWithSession({
+      onServerNotification: true,
+      readPriorEmittedUsage: (_sessionId, threadId) =>
+        threadId === THREAD_ID ? priorEmittedBreakdown(100) : undefined,
+    });
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "go" },
+    });
+    emitUsage(harness, THREAD_ID, 100);
+    harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
+    await drainMicrotasks();
+
+    const rewind = harness.manager.rollbackTo({
+      sessionId: SESSION_ID,
+      bindingId: "binding-predecessor",
+      position: 1,
+    });
+    // Drained so the request has actually reached the wire: a test that raced
+    // the write would be asserting against a rewind that had not begun.
+    await drainMicrotasks();
+    expect(harness.server.framesForMethod("thread/fork")).toHaveLength(1);
+
+    return {
+      harness,
+      rewind,
+      answerFork: async (): Promise<void> => {
+        harness.server.emitFrame({
+          jsonrpc: "2.0",
+          id: harness.server.framesForMethod("thread/fork")[0]?.["id"],
+          result: {
+            thread: {
+              id: FORKED_THREAD_ID,
+              sessionId: "session-tree-1",
+              turns: [{ id: TURN_ID }],
+            },
+          },
+        });
+        await drainMicrotasks();
+      },
+    };
+  }
+
+  it("refuses a turn dispatched while a rewind's fork is IN FLIGHT, and the rewound session still projects and meters", async () => {
+    const { harness, rewind, answerFork } = await rewindSuspendedAtFork();
+    const turnStartFramesBeforeRewind = harness.server.framesForMethod("turn/start").length;
+
+    // Dispatched inside the fork's suspension. Unclaimed, this turn is accepted
+    // on the PRE-FORK thread; the fork then moves the routing and metering band
+    // off it, and every frame the turn produces is held-then-shed — the run
+    // never projects, never meters, and its id is discarded by the ledger
+    // splice, all while the caller was told the turn started.
+    const refusal = await harness.manager
+      .startRun({
+        runId: SECOND_RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "second" },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+    expect(refusal).toBeInstanceOf(CodexTransportError);
+    expect((refusal as Error).message).toContain("being re-established");
+    // Refused at the ENTRANCE: nothing reached the wire, so there is no accepted
+    // turn to strand on a thread the rewind is about to leave.
+    expect(harness.server.framesForMethod("turn/start")).toHaveLength(turnStartFramesBeforeRewind);
+    expect(harness.manager.hasActiveTurn(SECOND_RUN_ID)).toBe(false);
+
+    await answerFork();
+    await expect(rewind).resolves.toStrictEqual({
+      status: "applied",
+      sessionPosition: 1,
+      bindingId: "binding-abc",
+    });
+
+    // The surviving path is WHOLE, which is the half a refusal alone does not
+    // prove: the forked thread is the session's own, it projects, and it meters
+    // against the pre-fork thread's emitted sum rather than being held and shed.
+    emittedCumulativeByThreadId.set(FORKED_THREAD_ID, 100);
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      method: "thread/queue/changed",
+      params: { threadId: FORKED_THREAD_ID },
+    });
+    emitUsage(harness, FORKED_THREAD_ID, 150);
+    await drainMicrotasks();
+
+    expect(harness.notifications.map((entry) => entry.method)).toContain("thread/queue/changed");
+    expect(harness.manager.frameRouterFor(SESSION_ID).pendingHeldFrameCount()).toBe(0);
+    expect(
+      harness.meteredUsage.map((entry) => ({
+        threadId: entry.delta.threadId,
+        input: entry.delta.axisDeltas.input,
+      })),
+    ).toStrictEqual([
+      { threadId: THREAD_ID, input: 100 },
+      { threadId: FORKED_THREAD_ID, input: 50 },
+    ]);
+  });
+
+  it("meters a forked-thread frame held across the fork against the base the rebind establishes", async () => {
+    const { harness, rewind, answerFork } = await rewindSuspendedAtFork();
+
+    // The provider has forked on ITS side and the new thread is already
+    // emitting, but the daemon's continuation has not run yet — so the frame
+    // names a thread the router does not know, and it is HELD rather than shed.
+    // Seeded first because the fixture's `last` is derived per thread: without
+    // it the wire would carry the whole cumulative as a turn figure.
+    emittedCumulativeByThreadId.set(FORKED_THREAD_ID, 100);
+    emitUsage(harness, FORKED_THREAD_ID, 150);
+    await drainMicrotasks();
+    expect(harness.manager.frameRouterFor(SESSION_ID).pendingHeldFrameCount()).toBe(1);
+    expect(harness.meteredUsage).toHaveLength(1);
+
+    await answerFork();
+    await expect(rewind).resolves.toMatchObject({ status: "applied" });
+
+    // Released by the registration inside the rebind and metered at 50 — the
+    // pre-fork spend is not charged twice, and the frame is not lost. This is
+    // also the only assertion covering the rebind's ORDER contract: delivered
+    // ahead of the base establishment, the accountant refuses a thread it has no
+    // registers for, `meterReading` answers null, and the released reading is
+    // dropped without so much as a record — spend that reaches no receipt.
+    expect(harness.manager.frameRouterFor(SESSION_ID).pendingHeldFrameCount()).toBe(0);
+    expect(
+      harness.meteredUsage.map((entry) => ({
+        threadId: entry.delta.threadId,
+        input: entry.delta.axisDeltas.input,
+      })),
+    ).toStrictEqual([
+      { threadId: THREAD_ID, input: 100 },
+      { threadId: FORKED_THREAD_ID, input: 50 },
     ]);
   });
 

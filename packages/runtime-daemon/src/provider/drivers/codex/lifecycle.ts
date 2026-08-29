@@ -1182,17 +1182,27 @@ export type CodexTransportDiagnostic =
    */
   | { kind: "subscription-dispose-failed"; detail: string }
   /**
-   * A `thread/fork` response carried no readable turn list, so the forked
-   * thread's boundary ledger was rebuilt from the local ordinal rather than from
-   * the provider's own answer (T3.15 leg 1).
+   * A `thread/fork` response's turn list did not corroborate the rewind: it
+   * carried no readable turns at all, or a count that disagrees with the
+   * position the caller asked for (T3.15 leg 1).
    *
    * Reported rather than fatal: the fork ITSELF succeeded and the rewind is
    * real, so failing the operation would discard a completed rewind over a
    * bookkeeping disagreement. What is lost is only the corroboration that the
    * daemon's ordinal and the provider's history agree — which is exactly the
    * kind of divergence an operator needs told about and a caller cannot act on.
+   *
+   * `confirmedTurnCount` carries the provider's own count beside the expected
+   * one, so the disagreement is legible from the record rather than only from
+   * the fact that a record exists. A response with no readable list reads as
+   * zero — the reader cannot tell an absent list from an empty one, and the
+   * ledger rebuild below cannot either.
    */
-  | { kind: "fork-turn-ledger-unconfirmed"; expectedTurnCount: number }
+  | {
+      kind: "fork-turn-ledger-unconfirmed";
+      expectedTurnCount: number;
+      confirmedTurnCount: number;
+    }
   /**
    * A posture asked for a domain ALLOW-LIST and the provider's network axis is a
    * boolean, so the session was spawned with network DENIED (T3.15 leg 5).
@@ -3630,6 +3640,11 @@ export class CodexLifecycleManager {
    *     it would leave the run bound to a thread the store never recorded, and
    *     therefore un-resumable across a restart.
    *
+   * SERIALIZED ON THE SESSION SLOT across the fork, so none of that re-pointing
+   * is a read-decide-mutate over state a concurrent caller can move underneath
+   * it. The claim is taken below rather than here, and what an unclaimed rewind
+   * loses is recorded there.
+   *
    * `params.bindingId` names the leg the DAEMON resolved and is not re-derived
    * here: this manager holds one live leg per session id, so the session id is
    * the key it can actually honour, and re-keying on a surrogate this class does
@@ -3642,6 +3657,11 @@ export class CodexLifecycleManager {
    * for a driver that was invoked and could not apply.
    */
   async rollbackTo(params: RollbackToParams): Promise<DriverRollbackResult> {
+    // HOISTED OUT OF THE CLAIM below, and it has to be: that claim is taken in
+    // `establishing`, which is a state `#requireSession` REFUSES — read from
+    // inside the claimed body, this operation would refuse its own claim. Every
+    // claimed body in this class reads `#sessions` directly for that reason, and
+    // this one reads it here, once, before the claim exists.
     const record = this.#requireSession(params.sessionId);
     if (record.activeTurnIdByRunId.size > 0) {
       // "The referenced turn cannot be in progress" is the provider's rule, and
@@ -3667,6 +3687,40 @@ export class CodexLifecycleManager {
         fallbackAction: "rewind-target-not-a-recorded-boundary",
       });
     }
+    // THE SLOT IS HELD ACROSS THE FORK, which is what makes the rebind below
+    // safe to perform at all. Every mutation past the `thread/fork` await — the
+    // record's thread id, the routing and metering band, the boundary ledger —
+    // is decided on state read BEFORE that suspension. Unclaimed, a `startRun`
+    // dispatched while the fork is in flight registers its turn on the PRE-FORK
+    // thread; the fork then moves the band, and every frame of that live turn is
+    // held-then-shed, so the run neither projects nor meters, the ledger splice
+    // discards its id, and an interrupt for it would carry the forked thread's.
+    // Two concurrent rewinds would both report `applied` for the same reason.
+    //
+    // Claimed in `establishing` rather than in a kind of its own: a fork IS an
+    // establishment — it mints the thread the session continues on, and
+    // `#bindSessionThread` treats it as one — and `establishing` is the state
+    // the entrance already refuses, so a concurrent turn is refused BEFORE it is
+    // dispatched rather than unwound after one was accepted. A concurrent close
+    // or resume chains behind this operation instead of racing it.
+    //
+    // Mirrors the Claude leg's `#withRewindSlotClaimed`, minus its
+    // predecessor-restoring shape: that leg spawns a SUCCESSOR process and must
+    // put the predecessor back when it does not install one, while this fork
+    // runs on the session's own connection and installs no successor at all, so
+    // a refused fork leaves the slot's own holder exactly as it was found.
+    return await this.#claimSessionSlot(
+      params.sessionId,
+      "establishing",
+      async () => await this.#establishRewoundSession(params, record, boundaryTurnId),
+    );
+  }
+
+  async #establishRewoundSession(
+    params: RollbackToParams,
+    record: CodexSessionRecord,
+    boundaryTurnId: string,
+  ): Promise<DriverRollbackResult> {
     // Captured BEFORE the request, and used as the request's own `threadId`, so
     // the thread this fork descends from and the thread its usage base is keyed
     // to are provably the same value rather than two reads of a mutable field.
@@ -3698,6 +3752,36 @@ export class CodexLifecycleManager {
         fallbackAction: "rewind-not-forked",
       });
     }
+    // THE SECOND IDENTITY REFUSAL, and a different question from the first: the
+    // provider answered with a thread this session ALREADY METERS. A thread left
+    // behind by an earlier rewind, or a live child thread, both pass the check
+    // above and would then be RE-ESTABLISHED here — resetting register sets that
+    // are carrying real spend, and handing the router a session identity whose
+    // frames are already attributed elsewhere. Ordered after the fork check on
+    // purpose: the pre-fork thread is itself registered, so this test alone would
+    // answer the unforked case with the wrong token.
+    if (this.usageAccountantFor(params.sessionId).hasThread(forkedThread.id)) {
+      return DriverRollbackResultSchema.parse({
+        status: "degraded",
+        fallbackAction: "rewind-target-thread-already-registered",
+      });
+    }
+    // RE-READ ACROSS THE SUSPENSION, immediately before the first mutation. The
+    // claim is what makes this unreachable today — a turn dispatched while it is
+    // held is refused at the entrance, and one already in flight is refused
+    // post-await by `startRun`'s own slot check rather than registered — but the
+    // guard at the top of `rollbackTo` read a MUTABLE map before the await, and
+    // its stability is a property of those other call sites rather than of this
+    // one. Answered with the pre-await guard's exact shape, so a caller cannot
+    // tell which of the two refused. The cost of refusing here is a forked thread
+    // the daemon never adopts; rebinding under a live turn would strand the turn
+    // itself, which is the worse of the two.
+    if (record.activeTurnIdByRunId.size > 0) {
+      return DriverRollbackResultSchema.parse({
+        status: "degraded",
+        fallbackAction: "rewind-deferred-turn-in-progress",
+      });
+    }
     // Re-pointed only AFTER the fork is parsed. A failed or unreadable fork
     // leaves the session exactly where it was, which is what makes a retry safe.
     record.threadId = forkedThread.id;
@@ -3725,20 +3809,47 @@ export class CodexLifecycleManager {
       mode: "resume",
       priorEmittedThreadId: preForkThreadId,
     });
+    // The predecessor's registers are RETIRED, not merely superseded. The
+    // router's retirement is fused into the registration above — it holds one
+    // session identity, so re-registering replaces it — but the accountant holds
+    // a register set PER THREAD and has no such fusion. A rewind that skipped
+    // this leaked one set per rewind for the session's whole life and left
+    // `hasThread(preForkThreadId)` answering true for a thread the caller has
+    // rewound away from — which is also what makes the refusal above answerable
+    // at all: that check asks whether the session is STILL metering the answered
+    // id, and an accountant that never forgets cannot tell a live thread from a
+    // retired one.
+    //
+    // Released only HERE, after the successor is established: released before
+    // the fork, a refused fork would leave the session running on a thread it
+    // can no longer meter. Late frames naming the retired thread are
+    // present-but-unregistered at the router after that same registration, so
+    // none of them reach the accountant to find its registers gone.
+    this.usageAccountantFor(params.sessionId).releaseThread(preForkThreadId);
     const forkedTurnIds = readThreadTurnIds(forkedThread.turns);
+    // ONE report for BOTH disagreements, reported before either arm adopts,
+    // because they are the same disagreement: an absent or unreadable turn list
+    // reads as zero turns, which is itself a count that disagrees with the
+    // position asked for (the entrance refuses position 0, so agreement at zero
+    // is unreachable). The non-empty arm previously adopted the provider's ledger
+    // verbatim while still reporting `sessionPosition: params.position`, so a
+    // length the provider disagreed on was recorded nowhere at all — the silent
+    // half of the corroboration the empty arm has always reported.
+    if (forkedTurnIds.length !== params.position) {
+      reportDiagnosticFromDetachedFrame(this.#options.reportDiagnostic, {
+        kind: "fork-turn-ledger-unconfirmed",
+        expectedTurnCount: params.position,
+        confirmedTurnCount: forkedTurnIds.length,
+      });
+    }
     if (forkedTurnIds.length > 0) {
       // The provider's own account of the forked history wins over the local
       // ordinal — it is the thread the session now runs on.
       record.turnBoundaries.splice(0, record.turnBoundaries.length, ...forkedTurnIds);
     } else {
       // Truncating to the requested position is what the INCLUSIVE boundary
-      // means, so the ledger stays usable for the next rewind; the diagnostic is
-      // what keeps the missing corroboration from passing as agreement.
+      // means, so the ledger stays usable for the next rewind.
       record.turnBoundaries.length = params.position;
-      reportDiagnosticFromDetachedFrame(this.#options.reportDiagnostic, {
-        kind: "fork-turn-ledger-unconfirmed",
-        expectedTurnCount: params.position,
-      });
     }
     return DriverRollbackResultSchema.parse({
       status: "applied",
@@ -4783,7 +4894,7 @@ export class CodexLifecycleManager {
     }
     if (holderState === "establishing") {
       throw new CodexTransportError(
-        `Codex session "${sessionId}" is being re-established; its connection is about to be replaced.`,
+        `Codex session "${sessionId}" is being re-established; the leg it runs on is about to change.`,
         { sessionId, holderState },
       );
     }
