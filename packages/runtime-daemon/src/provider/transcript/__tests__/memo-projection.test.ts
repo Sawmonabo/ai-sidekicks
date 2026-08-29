@@ -134,14 +134,16 @@ class FakeTargetSession {
 
   async sendMemoTurn(frame: MemoOutboundFrame): Promise<void> {
     this.sendAttempts += 1;
+    // `wireText` rather than the authored prose: the readback must reconcile
+    // against what the provider was actually handed.
     if (this.sendBehavior === "apply-then-fail") {
-      this.turns.push(frame.text);
+      this.turns.push(frame.frame.wireText);
       throw new Error("acknowledgment lost after the frame was applied");
     }
     if (this.sendBehavior === "refuse") {
       throw new Error("target session refused the frame");
     }
-    this.turns.push(frame.text);
+    this.turns.push(frame.frame.wireText);
   }
 }
 
@@ -183,6 +185,53 @@ function toolResultIdsIn(turns: readonly CanonicalTranscriptTurn[]): string[] {
     .filter((segment) => segment.kind === "tool_result")
     .map((segment) => (segment.kind === "tool_result" ? segment.toolCallId : ""))
     .sort();
+}
+
+/**
+ * Whether every turn of `candidate` appears in `whole` in the same relative
+ * order. Positions are unique and ascending, so identity is by position.
+ */
+function isOrderPreservingSubsequence(
+  candidate: readonly CanonicalTranscriptTurn[],
+  whole: readonly CanonicalTranscriptTurn[],
+): boolean {
+  let wholeIndex = 0;
+  for (const candidateTurn of candidate) {
+    while (wholeIndex < whole.length && whole[wholeIndex]?.position !== candidateTurn.position) {
+      wholeIndex += 1;
+    }
+    if (wholeIndex >= whole.length) {
+      return false;
+    }
+    wholeIndex += 1;
+  }
+  return true;
+}
+
+/**
+ * The turns no budget may evict, derived HERE from the exchange partition rather
+ * than read off the module under test: the newest exchange, plus the newest
+ * `toolExchangeCount` tool-bearing exchanges wherever they sit.
+ */
+function protectedTurnsOf(
+  turns: readonly CanonicalTranscriptTurn[],
+  toolExchangeCount: number,
+): readonly CanonicalTranscriptTurn[] {
+  const exchanges: readonly TranscriptExchange[] = partitionIntoExchanges(turns);
+  if (exchanges.length === 0) {
+    return [];
+  }
+  const protectedIndices: Set<number> = new Set<number>([exchanges.length - 1]);
+  let claimed = 0;
+  for (let index = exchanges.length - 1; index >= 0 && claimed < toolExchangeCount; index -= 1) {
+    if (exchanges[index]?.carriesToolActivity === true) {
+      protectedIndices.add(index);
+      claimed += 1;
+    }
+  }
+  return exchanges
+    .filter((_exchange, index) => protectedIndices.has(index))
+    .flatMap((exchange) => [...exchange.turns]);
 }
 
 // --------------------------------------------------------------------------
@@ -332,7 +381,7 @@ describe("memo budget — whole-exchange eviction with a protected tail", () => 
     let totalCrossTurnPairs = 0;
     let rendersThatEvicted = 0;
     let renderCount = 0;
-    let transcriptsWithNoToolInTheTailWindow = 0;
+    let transcriptsWithFewerToolExchangesThanProtected = 0;
 
     for (let seed = 1; seed <= 60; seed += 1) {
       const generated: GeneratedTranscript = generateTranscript(seed);
@@ -340,11 +389,11 @@ describe("memo budget — whole-exchange eviction with a protected tail", () => 
       const generatedExchanges: readonly TranscriptExchange[] = partitionIntoExchanges(
         generated.projection.turns,
       );
-      const tailWindow: readonly TranscriptExchange[] = generatedExchanges.slice(
-        -2 * DEFAULT_PROTECTED_TAIL_TOOL_EXCHANGE_COUNT,
-      );
-      if (!tailWindow.some((exchange) => exchange.carriesToolActivity)) {
-        transcriptsWithNoToolInTheTailWindow += 1;
+      const generatedToolExchangeCount: number = generatedExchanges.filter(
+        (exchange) => exchange.carriesToolActivity,
+      ).length;
+      if (generatedToolExchangeCount < DEFAULT_PROTECTED_TAIL_TOOL_EXCHANGE_COUNT) {
+        transcriptsWithFewerToolExchangesThanProtected += 1;
       }
 
       const unbounded: MemoRendering = memoProjection.render(
@@ -369,15 +418,27 @@ describe("memo budget — whole-exchange eviction with a protected tail", () => 
           toolResultIdsIn(rendering.includedTurns),
         );
 
-        // A contiguous SUFFIX — never a hole in the middle of the conversation.
-        const includedFromEnd: readonly CanonicalTranscriptTurn[] = unbounded.includedTurns.slice(
-          unbounded.includedTurns.length - rendering.includedTurns.length,
+        // An order-preserving SUBSEQUENCE of the unbounded render — never a
+        // reordering, and never a turn the transforms did not produce. It is
+        // deliberately not a contiguous suffix: protection is per-exchange, so an
+        // older tool exchange may be retained past an evicted newer one.
+        expect(isOrderPreservingSubsequence(rendering.includedTurns, unbounded.includedTurns)).toBe(
+          true,
         );
-        expect(rendering.includedTurns).toEqual(includedFromEnd);
 
-        // The protected tail is never evicted, whatever the budget.
+        // Every protected exchange survives, whatever the budget: the newest
+        // exchange, and the newest tool-bearing ones WHEREVER they sit.
         expect(rendering.includedTurns.length).toBeGreaterThan(0);
         expect(rendering.includedTurns.at(-1)).toEqual(unbounded.includedTurns.at(-1));
+        const includedPositions: ReadonlySet<number> = new Set<number>(
+          rendering.includedTurns.map((includedTurn) => includedTurn.position),
+        );
+        for (const protectedTurn of protectedTurnsOf(
+          unbounded.includedTurns,
+          DEFAULT_PROTECTED_TAIL_TOOL_EXCHANGE_COUNT,
+        )) {
+          expect(includedPositions.has(protectedTurn.position)).toBe(true);
+        }
       }
     }
 
@@ -386,11 +447,11 @@ describe("memo budget — whole-exchange eviction with a protected tail", () => 
     // Vacuity guard (b): eviction really did fire.
     expect(rendersThatEvicted).toBeGreaterThan(0);
     expect(rendersThatEvicted).toBeLessThan(renderCount);
-    // Vacuity guard (c): the corpus contains transcripts whose tail window holds
-    // NO tool exchange — the input class on which the protected tail's anchor is
-    // unsatisfiable, and which a corpus where every exchange used a tool silently
-    // never reaches.
-    expect(transcriptsWithNoToolInTheTailWindow).toBeGreaterThan(0);
+    // Vacuity guard (c): the corpus contains transcripts carrying FEWER
+    // tool-bearing exchanges than the protected tail wants — the input class on
+    // which the tail is only partly satisfiable, and which a corpus where every
+    // exchange used a tool silently never reaches.
+    expect(transcriptsWithFewerToolExchangesThanProtected).toBeGreaterThan(0);
   });
 
   it("retains the protected tail whole under an unreachable budget, splitting no exchange", () => {
@@ -472,11 +533,12 @@ describe("memo budget — whole-exchange eviction with a protected tail", () => 
     expect(starved.includedTurns.at(-1)).toEqual(unbounded.includedTurns.at(-1));
   });
 
-  it("still evicts when the only tool exchange is far from the newest turn", () => {
-    // "Most recent" has to be bounded, or a single tool exchange near the FRONT
-    // of a long conversation drags the whole protected region forward with it and
-    // the budget stops binding — the same unenforceable-budget defect as the
-    // tool-free case, reached through a different input.
+  it("protects the newest tool exchange far from the end, and still evicts around it", () => {
+    // The exchange below is the conversation's ONLY tool exchange, so it is also
+    // its newest one and qualifies for the protected tail on the plain reading of
+    // the rule. Protecting it must not drag everything after it in with it: it is
+    // protected as ONE whole exchange, eviction steps over it, and the budget goes
+    // on binding on the long plain run that follows.
     const memoProjection = new MemoProjection();
     const turns: CanonicalTranscriptTurn[] = [
       turn(1, "participant", [{ kind: "text", text: `opening ${PADDING}` }]),
@@ -512,13 +574,29 @@ describe("memo budget — whole-exchange eviction with a protected tail", () => 
     const bounded: MemoRendering = memoProjection.render(
       requestFor(projection, defaultMemoBudgetPolicy(600)),
     );
-    // The budget binds: the protected region alone fits inside it.
-    expect(bounded.exceedsBudget).toBe(false);
-    // And the ancient exchange is evictable like any other whole exchange.
-    expect(toolCallIdsIn(bounded.includedTurns)).toEqual([]);
-    expect(toolResultIdsIn(bounded.includedTurns)).toEqual([]);
-    expect(bounded.includedTurns.at(-1)).toEqual(unbounded.includedTurns.at(-1));
+    // The budget still binds — eviction fired around the protected exchange.
+    expect(bounded.evictedExchangeCount).toBeGreaterThan(0);
     expect(bounded.declaredLosses).toContain("context_truncated");
+    // The ancient exchange is protected WHERE IT SITS, both halves together.
+    expect(toolCallIdsIn(bounded.includedTurns)).toEqual(["call-ancient"]);
+    expect(toolResultIdsIn(bounded.includedTurns)).toEqual(["call-ancient"]);
+    expect(bounded.includedTurns.at(-1)).toEqual(unbounded.includedTurns.at(-1));
+
+    // The included set is therefore NOT a contiguous suffix: it holds a gap
+    // between the protected exchange and the retained tail. That gap is the
+    // point — an anchored protected region could not produce it without also
+    // protecting everything the gap contains.
+    const includedPositions: readonly number[] = bounded.includedTurns.map(
+      (includedTurn) => includedTurn.position,
+    );
+    expect(includedPositions).toContain(2);
+    expect(includedPositions.at(-1)).toBe(12);
+    const contiguous: boolean = includedPositions.every(
+      (position, index) => index === 0 || position === (includedPositions[index - 1] ?? 0) + 1,
+    );
+    expect(contiguous).toBe(false);
+    // And the notice does not claim the retained exchanges are the most recent.
+    expect(bounded.text).toContain("may not be consecutive");
   });
 
   it("keeps a participant turn that sits between a call and its result inside the exchange", () => {
@@ -598,6 +676,58 @@ describe("memo body — portability transforms", () => {
       requestFor(projectionOf([turn(1, "participant", [{ kind: "text", text: "hello" }])])),
     );
     expect(rendering.declaredLosses).toContain("conversation_history_summarized");
+  });
+
+  it("declares an unreadable body and names it in the prose the model reads", () => {
+    const memoProjection = new MemoProjection();
+    const rendering: MemoRendering = memoProjection.render(
+      requestFor(
+        projectionOf([
+          turn(1, "participant", [{ kind: "text", text: "what did that return?" }]),
+          turn(2, "assistant", [{ kind: "text", text: "", contentUnavailable: true }]),
+          turn(3, "assistant", [
+            {
+              kind: "tool_call",
+              toolCallId: "call-1",
+              toolName: "inspect",
+              argumentsJson: "",
+              contentUnavailable: true,
+            },
+            {
+              kind: "tool_result",
+              toolCallId: "call-1",
+              outcome: "succeeded",
+              provenance: "provider",
+              text: "",
+              contentUnavailable: true,
+            },
+          ]),
+        ]),
+      ),
+    );
+
+    expect(rendering.declaredLosses).toContain("turn_content_unavailable");
+    // The settlement's declaration does not reach the memo's own text, so the
+    // gap is named there too: an empty body renders to nothing, and a turn of
+    // nothing reads to the model as a turn that never happened.
+    expect(rendering.text).toContain("could not be recovered");
+    // The turn is still present, with its speaker.
+    expect(rendering.includedTurns).toHaveLength(3);
+    expect(rendering.text).toContain("[tool call inspect (call-1)]");
+  });
+
+  it("declares nothing of the kind when every body resolved", () => {
+    const memoProjection = new MemoProjection();
+    const rendering: MemoRendering = memoProjection.render(
+      requestFor(
+        projectionOf([
+          turn(1, "participant", [{ kind: "text", text: "what did that return?" }]),
+          turn(2, "assistant", [{ kind: "text", text: "an empty list" }]),
+        ]),
+      ),
+    );
+    expect(rendering.declaredLosses).not.toContain("turn_content_unavailable");
+    expect(rendering.text).not.toContain("could not be recovered");
   });
 });
 
@@ -912,6 +1042,7 @@ describe("memo delivery — nothing durable is written", () => {
     }
 
     expect([...importSpecifiers].sort()).toEqual([
+      "../drivers/outbound-frame.js",
       "./transform-pipeline.js",
       "@ai-sidekicks/contracts",
       "@noble/hashes/blake3.js",
@@ -997,13 +1128,42 @@ describe("memo frame — the key is carried as visible characters", () => {
     const frame: MemoOutboundFrame | undefined = sentFrames[0];
     expect(frame).toBeDefined();
     // Asserted on the FRAME, not on the projection or the settlement.
-    expect(frame?.text).toContain(renderMemoContinuityMarker(settlement.memoIdentityKey));
+    expect(frame?.frame.wireText).toContain(renderMemoContinuityMarker(settlement.memoIdentityKey));
     expect(frame?.memoIdentityKey).toBe(settlement.memoIdentityKey);
 
-    const markerIndex: number = (frame?.text ?? "").indexOf(
+    const markerIndex: number = (frame?.frame.wireText ?? "").indexOf(
       renderMemoContinuityMarker(settlement.memoIdentityKey),
     );
     expect(markerIndex).toBeGreaterThanOrEqual(0);
+  });
+
+  it("reaches the gateway only through a composed frame, minted as system narration", async () => {
+    const sentFrames: MemoOutboundFrame[] = [];
+    const gateway: MemoTargetGateway = {
+      readRecentTurns: async (): Promise<readonly string[]> => [],
+      sendMemoTurn: async (frame: MemoOutboundFrame): Promise<void> => {
+        sentFrames.push(frame);
+      },
+    };
+    const projection: CanonicalTranscriptProjection = generateTranscript(13).projection;
+
+    const settlement: MemoDeliverySettlement = await new MemoDeliveryCoordinator(gateway).deliver(
+      requestFor(projection),
+    );
+
+    const frame: MemoOutboundFrame | undefined = sentFrames[0];
+    // A memo is the daemon narrating a prior conversation — neither the
+    // participant's own text nor a driver command.
+    expect(frame?.frame.origin).toBe("system_narration");
+    expect(frame?.frame.tripwireExempt).toBe(false);
+    // Only the writer mints one, so the memo cannot reach the provider around
+    // the neutralization boundary.
+    expect(frame?.frame.mintedByWriter).toBe(true);
+    // The boundary is TRANSPORT-only: the authored prose is the rendering,
+    // byte for byte, whatever the wire bytes turn out to be.
+    expect(frame?.frame.authoredText).toBe(settlement.rendering.text);
+    // And the correlation value the tripwire joins a turn back on is present.
+    expect((frame?.frame.correlationId ?? "").length).toBeGreaterThan(0);
   });
 
   it("uses no invisible or zero-width character anywhere in the frame", async () => {
@@ -1019,7 +1179,7 @@ describe("memo frame — the key is carried as visible characters", () => {
       requestFor(generateTranscript(12).projection),
     );
 
-    const frameText: string = sentFrames[0]?.text ?? "";
+    const frameText: string = sentFrames[0]?.frame.wireText ?? "";
     expect(frameText.length).toBeGreaterThan(0);
     // Zero-width, word-joiner, BOM, variation selectors, and Unicode tag
     // characters — the sentinel classes the spec prohibits outright. Scanned by

@@ -104,8 +104,17 @@ export interface TranscriptToolResultBody {
 /**
  * Supplies the content the durable payloads deliberately do not carry — see the
  * header. Every method may answer "nothing": an absent body is a row whose
- * content is unavailable, which the fold renders as an empty segment set rather
- * than by inventing text.
+ * content is unavailable, which the fold renders as an EMPTY body marked
+ * `contentUnavailable` rather than by inventing text or by dropping the row.
+ * Dropping it would erase a turn that happened, and the pipeline would then
+ * declare no loss over it — the one reading the declared-loss rule forbids.
+ *
+ * `readReasoningBlocks` is the exception and returns no unavailability signal,
+ * because its return type has no absent arm to answer with: a block list is
+ * total and every block's body is required, so there is nothing here to mark.
+ * Should a block body ever become expressibly absent, this arm owes the same
+ * treatment as the others — a non-private block is FLATTENED and kept by step 3
+ * under no declared loss, so an unreadable one would go out silently.
  */
 export interface TranscriptContentSource {
   readAssistantText(reference: TranscriptContentReference): string | undefined;
@@ -292,7 +301,13 @@ export class CanonicalTranscriptFold {
     switch (event.type) {
       case "assistant.message": {
         const text: string | undefined = this.#contentSource.readAssistantText(reference);
-        return text === undefined || text.length === 0 ? [] : [{ kind: "text", text }];
+        // An UNAVAILABLE body and an EMPTY one are different facts and are kept
+        // apart here: the first is a turn whose words this fold could not read,
+        // the second a row that carried none.
+        if (text === undefined) {
+          return [{ kind: "text", text: "", contentUnavailable: true }];
+        }
+        return text.length === 0 ? [] : [{ kind: "text", text }];
       }
       case "assistant.thinking_update": {
         return this.#contentSource.readReasoningBlocks(reference).map(
@@ -315,12 +330,15 @@ export class CanonicalTranscriptFold {
         if (toolCallId === undefined || toolName === undefined) {
           return [];
         }
+        const argumentsJson: string | undefined =
+          this.#contentSource.readToolCallArguments(reference);
         return [
           {
             kind: "tool_call",
             toolCallId,
             toolName,
-            argumentsJson: this.#contentSource.readToolCallArguments(reference) ?? "",
+            argumentsJson: argumentsJson ?? "",
+            ...(argumentsJson === undefined ? { contentUnavailable: true } : {}),
           },
         ];
       }
@@ -340,6 +358,7 @@ export class CanonicalTranscriptFold {
             provenance: "provider",
             text: body?.text ?? "",
             enclosingReasoningBlockId: body?.enclosingReasoningBlockId,
+            ...(body === undefined ? { contentUnavailable: true } : {}),
           },
         ];
       }

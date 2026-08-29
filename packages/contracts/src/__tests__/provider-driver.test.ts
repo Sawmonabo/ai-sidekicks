@@ -2245,6 +2245,14 @@ describe("DriverTranscriptExportResultSchema — the canonical transcript export
     expect(parsed.declaredLosses).toEqual([]);
   });
 
+  it("admits the unreadable-body loss, so a fold that could not read one may say so", () => {
+    const parsed = DriverTranscriptExportResultSchema.parse({
+      frames: [],
+      declaredLosses: ["turn_content_unavailable"],
+    });
+    expect(parsed.declaredLosses).toEqual(["turn_content_unavailable"]);
+  });
+
   it("rejects a declared loss outside the closed set", () => {
     const result = DriverTranscriptExportResultSchema.safeParse({
       frames: [],

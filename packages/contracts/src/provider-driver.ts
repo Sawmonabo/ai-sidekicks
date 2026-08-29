@@ -1111,6 +1111,11 @@ export const DECLARED_LOSS_KINDS = [
   "tool_call_history_repaired",
   // The memo floor: verbatim exchanges replaced by a bounded prose rendering.
   "conversation_history_summarized",
+  // A logged turn's body could not be read when the fold ran, so the turn is
+  // carried with its structural position and an EMPTY body rather than being
+  // dropped. Named because the alternative readings — a turn that never
+  // happened, or one whose author said nothing — are both false.
+  "turn_content_unavailable",
 ] as const;
 
 export type DeclaredLossKind = (typeof DECLARED_LOSS_KINDS)[number];
@@ -1142,7 +1147,16 @@ export type CanonicalToolResultProvenance = "provider" | "repaired";
 // which is precisely the condition the pairing repair exists to answer, and
 // precisely why the repair must run after the strip and not before.
 export type CanonicalTranscriptSegment =
-  | { kind: "text"; text: string }
+  | {
+      kind: "text";
+      text: string;
+      // Set when the row's body was unavailable at fold time. `text` is then
+      // empty because inventing content is the one thing the fold may not do,
+      // and the segment is kept so the turn survives with its position — a
+      // dropped turn is indistinguishable from one that never happened. Every
+      // projection carrying one owes the matching declared loss.
+      contentUnavailable?: boolean | undefined;
+    }
   | {
       kind: "reasoning";
       blockId: string;
@@ -1162,6 +1176,9 @@ export type CanonicalTranscriptSegment =
       // serialized form because re-encoding a parsed object would change bytes
       // the target may hash or echo.
       argumentsJson: string;
+      // As on the `text` arm. An unreadable body leaves `argumentsJson` empty
+      // rather than dropping the call, whose id the pairing repair needs.
+      contentUnavailable?: boolean | undefined;
     }
   | {
       kind: "tool_result";
@@ -1173,6 +1190,8 @@ export type CanonicalTranscriptSegment =
       // Stripping that block removes the result and orphans its call, which is
       // the only way an orphan arises from a well-formed transcript.
       enclosingReasoningBlockId?: string | undefined;
+      // As on the `text` arm.
+      contentUnavailable?: boolean | undefined;
     };
 
 /** One ordered turn of the canonical transcript. */

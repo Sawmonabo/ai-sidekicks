@@ -48,8 +48,9 @@
 // but unrepresentable, there being no claim to roll back.
 //
 // This module mints no table, no column, and no migration, and writes nothing
-// durable on any path. It holds no persistence collaborator at all — the only
-// injected surface is the target gateway below.
+// durable on any path. It holds no persistence collaborator at all: its two
+// injected surfaces are the target gateway below and the outbound-frame writer
+// that composes what the gateway is handed, neither of which retains anything.
 //
 // ---------------------------------------------------------------------------
 // Why the key is derived over the RAW projection
@@ -99,10 +100,14 @@ import type {
 
 import { DECLARED_LOSS_KINDS } from "@ai-sidekicks/contracts";
 
+import type { OutboundTextFrame } from "../drivers/outbound-frame.js";
+import { OutboundTextFrameWriter } from "../drivers/outbound-frame.js";
+
 import {
   createTranscriptPipelineState,
   foldTurns,
   repairPairingIntegrity,
+  segmentContentIsUnavailable,
   stripNonPortableContent,
   type TranscriptPipelineState,
 } from "./transform-pipeline.js";
@@ -169,6 +174,10 @@ function appendKeyField(parts: string[], value: string | number): void {
 
 function appendSegmentToKeyPreimage(parts: string[], segment: CanonicalTranscriptSegment): void {
   appendKeyField(parts, segment.kind);
+  // A body the fold could not read renders as an empty one, so without this the
+  // pre-image would be identical for two transcripts that differ in exactly the
+  // fact the declared loss exists to report.
+  appendKeyField(parts, segmentContentIsUnavailable(segment) ? "unavailable" : "available");
   switch (segment.kind) {
     case "text":
       appendKeyField(parts, segment.text);
@@ -256,9 +265,9 @@ export interface MemoBudgetPolicy {
   readonly budgetFraction: number;
   /**
    * How many of the most recent TOOL-bearing exchanges eviction may never
-   * remove. Everything from the oldest of those to the end of the conversation is
-   * protected, so the protected region is always contiguous and always a whole
-   * number of exchanges.
+   * remove. They are protected INDIVIDUALLY, wherever they sit — protection is a
+   * set of whole exchanges, not a contiguous region, so an exchange between two
+   * protected ones is evictable like any other.
    */
   readonly protectedTailToolExchangeCount: number;
 }
@@ -361,54 +370,47 @@ export function partitionIntoExchanges(
 }
 
 /**
- * The index of the first exchange the budget may not evict.
+ * The exchanges the budget may never evict, as a SET of indices.
  *
- * Anchored on the OLDEST of the most recent tool-bearing exchanges, so the
- * protected region is contiguous, is a whole number of exchanges, and always
- * includes the most recent exchange whether or not it used a tool (a memo whose
- * newest exchange was evicted describes a conversation that did not happen).
+ * Exactly two things are protected: the newest exchange, whether or not it used a
+ * tool (a memo whose newest exchange was evicted describes a conversation that
+ * did not happen), and the newest `count` TOOL-bearing exchanges, each as an
+ * individual whole exchange wherever it sits in the conversation.
  *
- * "Most recent" is bounded, and the bound is what keeps the budget binding.
- * Tool-bearing exchanges are searched only inside a window of the newest
- * `2 * count` exchanges; a tool exchange older than that is no longer recent and
- * is evictable as a whole exchange like any other. Without the window a
- * transcript that carries FEWER tool exchanges than the tail wants — one near
- * the front of a long conversation, or none at all — would anchor the protected
- * region at that exchange, or at the transcript's own start, and protect
- * everything after it: the budget would stop binding on exactly the long, plain,
- * back-and-forth conversations where it matters most. Where the window holds no
- * tool exchange the newest exchange alone is protected.
+ * A set rather than a start index, because the two are not the same rule. An
+ * anchored region protects everything from the oldest protected exchange onward,
+ * which means a genuinely newest tool exchange separated from the end by enough
+ * plain exchanges either drags the whole span in with it — and the budget stops
+ * binding on exactly the long back-and-forth conversations where it matters most
+ * — or has to be excluded by a recency bound, which is how it loses protection
+ * it qualifies for. Protecting each one individually needs neither trade: at most
+ * `count + 1` exchanges are ever protected, no matter how long the conversation
+ * or where its tool use sits, so the ceiling is tighter than any anchored region
+ * can offer and the rule reads as what the spec states.
  */
-function computeProtectedTailStartIndex(
+function computeProtectedExchangeIndices(
   exchanges: readonly TranscriptExchange[],
   protectedTailToolExchangeCount: number,
-): number {
+): ReadonlySet<number> {
+  const protectedIndices: Set<number> = new Set<number>();
   if (exchanges.length === 0) {
-    return 0;
+    return protectedIndices;
   }
-  const newestExchangeIndex: number = exchanges.length - 1;
+  protectedIndices.add(exchanges.length - 1);
+
   const wantedToolExchanges: number = Math.max(0, protectedTailToolExchangeCount);
-  if (wantedToolExchanges === 0) {
-    return newestExchangeIndex;
-  }
-
-  const recencyWindowStartIndex: number = Math.max(
-    0,
-    newestExchangeIndex - (2 * wantedToolExchanges - 1),
-  );
-  const recentToolExchangeIndices: number[] = [];
-  exchanges.forEach((exchange, index) => {
-    if (exchange.carriesToolActivity && index >= recencyWindowStartIndex) {
-      recentToolExchangeIndices.push(index);
+  let claimedToolExchanges = 0;
+  for (
+    let index = exchanges.length - 1;
+    index >= 0 && claimedToolExchanges < wantedToolExchanges;
+    index -= 1
+  ) {
+    if (exchanges[index]?.carriesToolActivity === true) {
+      protectedIndices.add(index);
+      claimedToolExchanges += 1;
     }
-  });
-  if (recentToolExchangeIndices.length === 0) {
-    return newestExchangeIndex;
   }
-
-  const oldestProtectedToolIndex: number | undefined =
-    recentToolExchangeIndices[Math.max(0, recentToolExchangeIndices.length - wantedToolExchanges)];
-  return Math.min(newestExchangeIndex, oldestProtectedToolIndex ?? newestExchangeIndex);
+  return protectedIndices;
 }
 
 // --------------------------------------------------------------------------
@@ -422,19 +424,37 @@ const MEMO_OPENING_LINES: readonly string[] = [
 
 const MEMO_TRANSCRIPT_SEPARATOR = "---";
 
+/**
+ * What a body the fold could not read renders as.
+ *
+ * Visible prose rather than the empty string it literally holds: an empty body
+ * renders to nothing, a turn of nothing renders as no turn at all, and the model
+ * reading the memo then sees a conversation that did not happen. Declaring the
+ * loss on the settlement does not reach this text, so the gap is named here too.
+ */
+const MEMO_UNAVAILABLE_BODY_TEXT: string = "(this content could not be recovered)";
+
 function renderSegment(segment: CanonicalTranscriptSegment): string | undefined {
+  const contentUnavailable: boolean = segmentContentIsUnavailable(segment);
   switch (segment.kind) {
     case "text":
+      if (contentUnavailable) {
+        return MEMO_UNAVAILABLE_BODY_TEXT;
+      }
       return segment.text.length === 0 ? undefined : segment.text;
     case "reasoning":
       // Unreachable after the strip, which either drops a block or flattens it to
       // text. Rendered defensively rather than dropped silently, so a caller that
       // hands this renderer untransformed turns still sees the content.
       return segment.text.length === 0 ? undefined : segment.text;
-    case "tool_call":
-      return `[tool call ${segment.toolName} (${segment.toolCallId})] ${segment.argumentsJson}`;
-    case "tool_result":
-      return `[tool result ${segment.outcome} (${segment.toolCallId})] ${segment.text}`;
+    case "tool_call": {
+      const body: string = contentUnavailable ? MEMO_UNAVAILABLE_BODY_TEXT : segment.argumentsJson;
+      return `[tool call ${segment.toolName} (${segment.toolCallId})] ${body}`;
+    }
+    case "tool_result": {
+      const body: string = contentUnavailable ? MEMO_UNAVAILABLE_BODY_TEXT : segment.text;
+      return `[tool result ${segment.outcome} (${segment.toolCallId})] ${body}`;
+    }
     default:
       return undefined;
   }
@@ -456,9 +476,15 @@ function renderExchange(exchange: TranscriptExchange): string {
   return exchange.turns.map(renderTurn).join("\n");
 }
 
+/**
+ * Never claims the included exchanges are the most recent ones. Protection is
+ * per-exchange, so an older tool exchange can be retained past an evicted newer
+ * one, and a notice asserting a contiguous tail would be a false positive claim
+ * about the very gaps it is there to disclose.
+ */
 function renderEvictionNotice(evictedExchangeCount: number, totalExchangeCount: number): string {
   const shown: number = totalExchangeCount - evictedExchangeCount;
-  return `Earlier parts of this conversation are omitted from the summary: ${shown.toString()} of ${totalExchangeCount.toString()} exchanges appear below, the most recent ones.`;
+  return `Earlier parts of this conversation are omitted from the summary: ${shown.toString()} of ${totalExchangeCount.toString()} exchanges appear below in log order, and may not be consecutive.`;
 }
 
 // --------------------------------------------------------------------------
@@ -482,7 +508,7 @@ export interface MemoRendering {
   readonly estimatedTokens: number;
   readonly budgetTokens: number;
   /**
-   * The protected tail alone did not fit. Reported rather than resolved: the one
+   * The protected exchanges alone did not fit. Reported rather than resolved: the one
    * remedy would be splitting an exchange, which the whole-exchange rule forbids
    * outright.
    */
@@ -527,7 +553,7 @@ export class MemoProjection {
       Math.floor(request.budget.targetContextWindowTokens * request.budget.budgetFraction),
     );
 
-    const protectedStartIndex: number = computeProtectedTailStartIndex(
+    const protectedIndices: ReadonlySet<number> = computeProtectedExchangeIndices(
       exchanges,
       request.budget.protectedTailToolExchangeCount,
     );
@@ -551,27 +577,33 @@ export class MemoProjection {
     );
 
     let consumedTokens: number = worstCasePreambleTokens;
-    for (let index = protectedStartIndex; index < exchanges.length; index += 1) {
+    for (const index of protectedIndices) {
       consumedTokens += exchangeCosts[index] ?? 0;
     }
     const exceedsBudget: boolean = consumedTokens > budgetTokens;
 
-    // Admit older exchanges newest-first, stopping at the FIRST that does not
-    // fit: keeping an older exchange after skipping a newer one would present the
-    // participant with a summary that has a hole in the middle and no way to see
-    // it.
-    let firstIncludedIndex: number = protectedStartIndex;
-    for (let index = protectedStartIndex - 1; index >= 0; index -= 1) {
+    // Admit the REMAINING exchanges newest-first, stopping at the first that does
+    // not fit. Protected exchanges are already in and are skipped rather than
+    // ending the walk, which is what lets eviction step over one instead of
+    // protecting everything behind it. The gaps that leaves are disclosed by the
+    // notice, which never claims the included exchanges are consecutive.
+    const includedIndices: Set<number> = new Set<number>(protectedIndices);
+    for (let index = exchanges.length - 1; index >= 0; index -= 1) {
+      if (protectedIndices.has(index)) {
+        continue;
+      }
       const cost: number = exchangeCosts[index] ?? 0;
       if (consumedTokens + cost > budgetTokens) {
         break;
       }
       consumedTokens += cost;
-      firstIncludedIndex = index;
+      includedIndices.add(index);
     }
 
-    const includedExchanges: readonly TranscriptExchange[] = exchanges.slice(firstIncludedIndex);
-    const evictedExchangeCount: number = firstIncludedIndex;
+    const includedExchanges: readonly TranscriptExchange[] = exchanges.filter((_exchange, index) =>
+      includedIndices.has(index),
+    );
+    const evictedExchangeCount: number = exchanges.length - includedExchanges.length;
     const includedTurns: readonly CanonicalTranscriptTurn[] = includedExchanges.flatMap(
       (exchange) => [...exchange.turns],
     );
@@ -632,11 +664,24 @@ function orderDeclaredLosses(losses: readonly DeclaredLossKind[]): readonly Decl
 // Delivery
 // --------------------------------------------------------------------------
 
-/** The frame handed to the gateway. Provider-neutral: the driver owns encoding. */
+/**
+ * The frame handed to the gateway. Provider-neutral: the driver owns encoding.
+ *
+ * The memo's prose rides the NOMINAL outbound text frame rather than a raw
+ * string. A memo opens with prose the participant never typed, and the same
+ * boundary that decides whether provider-bound bytes are command-shaped also
+ * mints the correlation value the tripwire joins a turn back to; a gateway taking
+ * a bare string lets an implementation write bytes that passed through neither,
+ * and a swallowed memo would then settle as a delivered one. Passing the frame
+ * makes composing it the only way to reach the gateway at all.
+ *
+ * Minted `system_narration`: the memo is the daemon's own narration of a prior
+ * conversation, which is neither the participant's text nor a driver command.
+ */
 export interface MemoOutboundFrame {
   readonly targetProviderSessionId: string;
   readonly memoIdentityKey: string;
-  readonly text: string;
+  readonly frame: OutboundTextFrame;
 }
 
 /**
@@ -712,10 +757,24 @@ export interface MemoDeliverySettlement {
 export class MemoDeliveryCoordinator {
   readonly #gateway: MemoTargetGateway;
   readonly #projection: MemoProjection;
+  readonly #frameWriter: OutboundTextFrameWriter;
 
-  constructor(gateway: MemoTargetGateway, projection: MemoProjection = new MemoProjection()) {
+  /**
+   * The frame writer defaults to the `emulated` grade, which is the arm that
+   * neutralizes. A leg whose provider verbatim-delivers declares `native` and
+   * supplies its own writer; defaulting the other way would let an undeclared leg
+   * silently opt out of the boundary this seam exists to route through.
+   */
+  constructor(
+    gateway: MemoTargetGateway,
+    projection: MemoProjection = new MemoProjection(),
+    frameWriter: OutboundTextFrameWriter = new OutboundTextFrameWriter({
+      mechanismGrade: "emulated",
+    }),
+  ) {
     this.#gateway = gateway;
     this.#projection = projection;
+    this.#frameWriter = frameWriter;
   }
 
   async deliver(request: MemoDeliveryRequest): Promise<MemoDeliverySettlement> {
@@ -743,7 +802,10 @@ export class MemoDeliveryCoordinator {
       await this.#gateway.sendMemoTurn({
         targetProviderSessionId: request.target.providerSessionId,
         memoIdentityKey: rendering.memoIdentityKey,
-        text: rendering.text,
+        frame: this.#frameWriter.compose({
+          text: rendering.text,
+          origin: "system_narration",
+        }),
       });
       return settle(rendering, "delivered", undefined);
     } catch {

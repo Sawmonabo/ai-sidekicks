@@ -488,6 +488,63 @@ describe("transform pipeline — the ordered contract", () => {
     );
   });
 
+  it("keeps a turn whose body was unreadable and declares the loss over it", () => {
+    const fixture = makeFixture();
+    fixture.log.append(
+      storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant", message: "hello" }),
+    );
+    // Deliberately NOT seeded: the content source answers "unavailable".
+    fixture.log.append(storedEvent(2, "assistant.message", { runId: RUN_ID }));
+    const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
+
+    // The turn is still there — a dropped one is indistinguishable from a turn
+    // that never happened, and the export would then declare nothing at all.
+    expect(projection.turns).toHaveLength(2);
+    expect(projection.turns[1]?.role).toBe("assistant");
+    expect(projection.turns[1]?.segments).toEqual([
+      { kind: "text", text: "", contentUnavailable: true },
+    ]);
+
+    const exported = new TranscriptTransformPipeline().exportTranscript(projection);
+    expect(exported.declaredLosses).toEqual(["turn_content_unavailable"]);
+    expect(exported.frames).toHaveLength(2);
+  });
+
+  it("declares the loss over an unreadable TOOL body, call and result alike", () => {
+    const fixture = makeFixture();
+    fixture.log.append(
+      storedEvent(1, "tool.invoked", { runId: RUN_ID, toolCallId: "call-1", toolName: "inspect" }),
+    );
+    fixture.log.append(storedEvent(2, "tool.result", { runId: RUN_ID, toolCallId: "call-1" }));
+    const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
+
+    const segments = projection.turns.flatMap((turn) => [...turn.segments]);
+    // The pairing keys survive: replacing an unreadable call with a marker
+    // segment would destroy the id the repair and the identity map run on.
+    expect(segments).toEqual([
+      {
+        kind: "tool_call",
+        toolCallId: "call-1",
+        toolName: "inspect",
+        argumentsJson: "",
+        contentUnavailable: true,
+      },
+      {
+        kind: "tool_result",
+        toolCallId: "call-1",
+        outcome: "succeeded",
+        provenance: "provider",
+        text: "",
+        enclosingReasoningBlockId: undefined,
+        contentUnavailable: true,
+      },
+    ]);
+
+    expect(new TranscriptTransformPipeline().exportTranscript(projection).declaredLosses).toContain(
+      "turn_content_unavailable",
+    );
+  });
+
   it("is idempotent on ids across two exports of the same transcript", () => {
     const fixture = makeFixture();
     seedInterruptedToolFixture(fixture);
@@ -594,6 +651,62 @@ describe("transform pipeline — the order is falsifiable", () => {
     }
 
     expect(state.frames).toEqual([]);
+  });
+
+  it("re-homes a result that stands BEFORE the call it answers, and declares the repair", () => {
+    // Both ids are present, so a membership check pairs them and reports no loss
+    // — while the target is handed a result for a call it has not yet seen.
+    const projection: CanonicalTranscriptProjection = {
+      sessionId: SESSION_ID,
+      runId: RUN_ID,
+      builtAtPosition: 3,
+      turns: [
+        {
+          position: 1,
+          role: "assistant",
+          segments: [
+            {
+              kind: "tool_result",
+              toolCallId: "call-inverted",
+              outcome: "succeeded",
+              provenance: "provider",
+              text: "answered early",
+            },
+          ],
+        },
+        {
+          position: 2,
+          role: "assistant",
+          segments: [
+            {
+              kind: "tool_call",
+              toolCallId: "call-inverted",
+              toolName: "inspect",
+              argumentsJson: "{}",
+            },
+          ],
+        },
+      ],
+    };
+
+    const exported = new TranscriptTransformPipeline().exportTranscript(projection);
+
+    // The turn the result vacated is gone; the call's turn carries both, in
+    // order, and the provider's own outcome is preserved rather than replaced
+    // by a synthetic failure that did not happen.
+    expect(exported.frames).toHaveLength(1);
+    expect(exported.frames[0]?.position).toBe(2);
+    expect(exported.frames[0]?.segments).toEqual([
+      { kind: "tool_call", toolCallId: "call-inverted", toolName: "inspect", argumentsJson: "{}" },
+      {
+        kind: "tool_result",
+        toolCallId: "call-inverted",
+        outcome: "succeeded",
+        provenance: "provider",
+        text: "answered early",
+      },
+    ]);
+    expect(exported.declaredLosses).toEqual(["tool_call_history_repaired"]);
   });
 
   it("removes a result whose call is absent rather than asserting a call that never happened", () => {

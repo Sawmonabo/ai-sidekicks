@@ -28,6 +28,8 @@ import type {
 
 import { DECLARED_LOSS_KINDS } from "@ai-sidekicks/contracts";
 
+import type { OutboundFrameOrigin } from "../drivers/outbound-frame.js";
+
 // --------------------------------------------------------------------------
 // Tool-call identity
 // --------------------------------------------------------------------------
@@ -141,15 +143,17 @@ export class ToolCallIdentityMap {
 // --------------------------------------------------------------------------
 
 /**
- * The frame-origin discriminator, declared LOCALLY here and deliberately narrow.
+ * The frame-origin discriminator, which is the provider-bound text-neutrality
+ * seam's own closed set rather than a second copy of it.
  *
- * The canonical declaration belongs to the provider-bound text-neutrality seam
- * (Plan-005 T3.18), which is not in this tree yet; when it lands this alias
- * collapses onto it rather than staying a second copy. The three members are the
- * closed set `Spec-005 §Required Behavior` names, reproduced here so this
- * module's render can satisfy step 5 without waiting on that seam.
+ * Kept as a named alias because this module's render reads in its own vocabulary
+ * — a rendered frame's origin — while the values must stay the ONE set the
+ * neutralization boundary keys on. Two independent spellings of a fail-closed
+ * discriminator would drift into an arm that neutralizes on one side and does
+ * not on the other, which is exactly the failure the closed set exists to
+ * prevent.
  */
-export type RenderedFrameOrigin = "participant_text" | "driver_command" | "system_narration";
+export type RenderedFrameOrigin = OutboundFrameOrigin;
 
 /**
  * One provider-neutral outbound frame. Drivers map these into their own target
@@ -218,11 +222,39 @@ export function createTranscriptPipelineState(
   };
 }
 
-/** Step 1 — seat the folded turns the projection carries. */
-export const foldTurns: TranscriptPipelineStep = (state) => ({
-  ...state,
-  turns: state.projection.turns,
-});
+/**
+ * True when a segment stands in for a body the fold could not read. Exported
+ * because three surfaces must agree on the predicate: the loss declaration
+ * below, the memo's prose rendering, and the memo's identity key — a surface
+ * that disagreed would either hide the gap or key two different transcripts the
+ * same way.
+ */
+export function segmentContentIsUnavailable(segment: CanonicalTranscriptSegment): boolean {
+  return segment.kind !== "reasoning" && segment.contentUnavailable === true;
+}
+
+/**
+ * Step 1 — seat the folded turns the projection carries, declaring the loss for
+ * any body the fold could not read.
+ *
+ * Declared HERE rather than in either caller because this is the only step both
+ * the export pipeline and the memo floor run, so a projection built over an
+ * unavailable body cannot reach a consumer that reads the empty list as the
+ * positive claim that nothing was dropped.
+ */
+export const foldTurns: TranscriptPipelineStep = (state) => {
+  const carriesUnavailableContent: boolean = state.projection.turns.some((turn) =>
+    turn.segments.some(segmentContentIsUnavailable),
+  );
+
+  return {
+    ...state,
+    turns: state.projection.turns,
+    declaredLosses: carriesUnavailableContent
+      ? orderDeclaredLosses([...state.declaredLosses, "turn_content_unavailable"])
+      : state.declaredLosses,
+  };
+};
 
 /**
  * Step 2 — bind every tool call's identity, in log order.
@@ -306,21 +338,47 @@ export const stripNonPortableContent: TranscriptPipelineStep = (state) => {
 /**
  * Step 4 — repair pairing integrity, strictly after the strip.
  *
- * An unpaired call takes a synthetic error result and is NEVER dropped: the
- * target's injection surface performs no pairing validation, so an unpaired call
- * is accepted silently and every later request against that session is then
- * rejected. A result whose call is absent is removed instead — there is nothing
- * to pair it to, and injecting it would assert a call that never happened.
+ * Pairing is POSITIONAL, not set membership. A result that precedes its own call
+ * is as structurally invalid to the target as an unpaired one, and a
+ * presence-only check reports it as no loss at all: both ids are present, so the
+ * two global sets agree and the step declares nothing. The scan below walks the
+ * turns in order and asks where each id was called, so "paired" can only mean
+ * "resolved after it was called".
+ *
+ * Three repairs, all declared:
+ *
+ *   - An unpaired call takes a synthetic error result immediately after itself
+ *     and is NEVER dropped: the target's injection surface performs no pairing
+ *     validation, so an unpaired call is accepted silently and every later
+ *     request against that session is then rejected.
+ *   - A result that precedes its call is RE-HOMED to sit directly after it,
+ *     which preserves the provider's own outcome rather than discarding it for a
+ *     synthetic that asserts a failure that did not happen.
+ *   - A result whose call is absent entirely is removed — there is nothing to
+ *     pair it to, and injecting it would assert a call that never happened.
  */
 export const repairPairingIntegrity: TranscriptPipelineStep = (state) => {
-  const calledToolCallIds: Set<string> = new Set<string>();
+  // Flat segment ordinals across the whole transcript, so "before" and "after"
+  // are answerable across a turn boundary — which is where a provider's own
+  // out-of-order emission lands them.
+  const firstCallOrdinalByToolCallId: Map<string, number> = new Map<string, number>();
   const resolvedToolCallIds: Set<string> = new Set<string>();
+  let scanOrdinal = 0;
 
   for (const turn of state.turns) {
     for (const segment of turn.segments) {
-      if (segment.kind === "tool_call") {
-        calledToolCallIds.add(segment.toolCallId);
-      } else if (segment.kind === "tool_result") {
+      if (segment.kind === "tool_call" && !firstCallOrdinalByToolCallId.has(segment.toolCallId)) {
+        firstCallOrdinalByToolCallId.set(segment.toolCallId, scanOrdinal);
+      }
+      scanOrdinal += 1;
+    }
+  }
+
+  for (const turn of state.turns) {
+    for (const segment of turn.segments) {
+      // A result whose call is absent resolves nothing: it is dropped below, so
+      // counting it here would suppress the synthetic its call never gets.
+      if (segment.kind === "tool_result" && firstCallOrdinalByToolCallId.has(segment.toolCallId)) {
         resolvedToolCallIds.add(segment.toolCallId);
       }
     }
@@ -328,16 +386,54 @@ export const repairPairingIntegrity: TranscriptPipelineStep = (state) => {
 
   let repaired = false;
   const repairedTurns: CanonicalTranscriptTurn[] = [];
+  // Results lifted out of a position before their call, keyed by that call.
+  const resultsAwaitingTheirCall: Map<string, CanonicalTranscriptSegment[]> = new Map<
+    string,
+    CanonicalTranscriptSegment[]
+  >();
+  let emitOrdinal = 0;
 
   for (const turn of state.turns) {
     const segments: CanonicalTranscriptSegment[] = [];
     for (const segment of turn.segments) {
-      if (segment.kind === "tool_result" && !calledToolCallIds.has(segment.toolCallId)) {
-        repaired = true;
+      const currentOrdinal: number = emitOrdinal;
+      emitOrdinal += 1;
+
+      if (segment.kind === "tool_result") {
+        const callOrdinal: number | undefined = firstCallOrdinalByToolCallId.get(
+          segment.toolCallId,
+        );
+        if (callOrdinal === undefined) {
+          repaired = true;
+          continue;
+        }
+        if (currentOrdinal < callOrdinal) {
+          repaired = true;
+          const stashed: CanonicalTranscriptSegment[] =
+            resultsAwaitingTheirCall.get(segment.toolCallId) ?? [];
+          stashed.push(segment);
+          resultsAwaitingTheirCall.set(segment.toolCallId, stashed);
+          continue;
+        }
+        segments.push(segment);
         continue;
       }
+
       segments.push(segment);
-      if (segment.kind === "tool_call" && !resolvedToolCallIds.has(segment.toolCallId)) {
+
+      if (segment.kind !== "tool_call") {
+        continue;
+      }
+      // Every result that preceded this call was stashed on the way here, so
+      // re-homing them now lands each one directly after the call it answers.
+      const rehomed: CanonicalTranscriptSegment[] | undefined = resultsAwaitingTheirCall.get(
+        segment.toolCallId,
+      );
+      if (rehomed !== undefined) {
+        segments.push(...rehomed);
+        resultsAwaitingTheirCall.delete(segment.toolCallId);
+      }
+      if (!resolvedToolCallIds.has(segment.toolCallId)) {
         repaired = true;
         segments.push({
           kind: "tool_result",
