@@ -4258,6 +4258,28 @@ describe("CodexLifecycleManager thread routing and usage metering (T3.11, I-005-
     expect(harness.meteredUsage[0]?.delta.axisDeltas.input).toBe(40);
   });
 
+  it("a DUPLICATE thread/started retains the child's usage base rather than re-basing it", async () => {
+    const harness = await managerWithSession();
+
+    announceChild(harness, "subAgent");
+    emitUsage(harness, CHILD_THREAD_ID, 100);
+    await Promise.resolve();
+    // The provider re-announces a child it already announced. Re-establishing
+    // here would zero the base mid-stream, so the 150 reading below would meter
+    // 150 rather than the 50 the child actually spent since.
+    announceChild(harness, "subAgent");
+    emitUsage(harness, CHILD_THREAD_ID, 150);
+    await Promise.resolve();
+
+    expect(harness.meteredUsage.map((entry) => entry.delta.axisDeltas.input)).toEqual([100, 50]);
+    expect(harness.subagentLifecycle.map((entry) => entry.emission.eventType)).toEqual([
+      "subagent.started",
+    ]);
+    expect(
+      harness.driverDiagnostics.recentRecordsOfKind("thread_duplicate_child_announcement"),
+    ).toHaveLength(1);
+  });
+
   it("a provider-INTERNAL child (compaction) carves its spend to the parent run rather than to a subagent", async () => {
     const harness = await managerWithSession();
 
@@ -4387,5 +4409,293 @@ describe("CodexLifecycleManager thread routing and usage metering (T3.11, I-005-
     // is that the old one did not survive, which the empty thread proves.
     expect(harness.manager.usageAccountantFor(SESSION_ID).hasThread(THREAD_ID)).toBe(false);
     expect(harness.manager.frameRouterFor(SESSION_ID).pendingHeldFrameCount()).toBe(0);
+  });
+
+  // ------------------------------------------------------------------------
+  // The rewind rebind. `thread/fork` mints a NEW thread and the session
+  // continues on it, so the band has to move with the record: a router still
+  // registered on the pre-fork identity holds every post-rewind frame pending a
+  // registration that never lands, then sheds it, and the session both stops
+  // projecting and stops metering for the rest of its life.
+  // ------------------------------------------------------------------------
+
+  const FORKED_THREAD_ID = "01a04202-0148-7ae2-8560-f04bed000001";
+
+  /**
+   * A full-axis prior-emitted sum.
+   *
+   * Every axis the fixture reports has to be based, not just `input`: an axis
+   * left at zero would meter the forked thread's whole cumulative on that axis
+   * AND disagree with the wire's own `last`, so a partial fixture would report
+   * a cross-check mismatch that the code under test did not cause.
+   */
+  function priorEmittedBreakdown(value: number): CumulativeAxisReadings {
+    return {
+      total: value,
+      input: value,
+      cachedInput: value,
+      cacheWriteInput: value,
+      output: value,
+      reasoningOutput: value,
+    };
+  }
+
+  /**
+   * A session created, metered, and rewound onto {@link FORKED_THREAD_ID}.
+   *
+   * The prior-emitted reader answers ONLY for the pre-fork thread and records
+   * every key it is asked for. That asymmetry is the point: the forked id
+   * resolves to nothing by construction, so a lookup keyed on it is observable
+   * as a missing base rather than merely being wrong about which thread it
+   * asked after.
+   */
+  async function rewoundSession(
+    options: {
+      /**
+       * What the daemon's prior-emitted reader does. `prior-sum` answers for
+       * the pre-fork thread only; `nothing` is a BOUND reader with no emitted
+       * sum to report, which is a correct answer rather than a fault.
+       */
+      readonly readerAnswer?: "prior-sum" | "nothing" | "throws";
+      /** Whether the session meters anything before it is rewound. */
+      readonly meterBeforeFork?: boolean;
+      /** The thread id the provider's `thread/fork` answers with. */
+      readonly forkAnswersThreadId?: string;
+    } = {},
+  ): Promise<{
+    harness: ManagerHarness;
+    readerCalls: { sessionId: SessionId; threadId: string }[];
+    rollbackResult: Awaited<ReturnType<CodexLifecycleManager["rollbackTo"]>>;
+  }> {
+    const readerAnswer = options.readerAnswer ?? "prior-sum";
+    const readerCalls: { sessionId: SessionId; threadId: string }[] = [];
+    const harness = await managerWithSession({
+      onServerNotification: true,
+      readPriorEmittedUsage: (sessionId, threadId) => {
+        readerCalls.push({ sessionId, threadId });
+        if (readerAnswer === "throws") {
+          throw new Error("prior-emitted usage reader failed");
+        }
+        if (readerAnswer === "nothing") {
+          return undefined;
+        }
+        return threadId === THREAD_ID ? priorEmittedBreakdown(100) : undefined;
+      },
+    });
+
+    // A turn, so the rewind has a recorded boundary to fork through, and a
+    // metered reading on the PRE-FORK thread, so there is real emitted spend
+    // for the successor to base on rather than a zero either arm would produce.
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "go" },
+    });
+    if (options.meterBeforeFork !== false) {
+      emitUsage(harness, THREAD_ID, 100);
+    }
+    // The boundary turn has to be OVER: a fork through a live turn is refused.
+    harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
+    await Promise.resolve();
+
+    harness.server.on("thread/fork", () => ({
+      result: {
+        thread: {
+          id: options.forkAnswersThreadId ?? FORKED_THREAD_ID,
+          sessionId: "session-tree-1",
+          turns: [{ id: TURN_ID }],
+        },
+      },
+    }));
+    const rollbackResult = await harness.manager.rollbackTo({
+      sessionId: SESSION_ID,
+      bindingId: "binding-predecessor",
+      position: 1,
+    });
+
+    // The fixture's per-thread ledger holds nothing for the forked id, so its
+    // `last` would be the whole cumulative rather than the turn's own figure.
+    // Seeded with what the daemon already emitted, so `last` is the arithmetic
+    // per-turn figure a continuing provider counter would report and the
+    // accountant's corroboration cross-check stays a real signal here.
+    emittedCumulativeByThreadId.set(FORKED_THREAD_ID, 100);
+    return { harness, readerCalls, rollbackResult };
+  }
+
+  it("a rewind rebinds the band onto the forked thread and bases it on the PRE-FORK thread's emitted sum", async () => {
+    const { harness, readerCalls, rollbackResult } = await rewoundSession();
+
+    expect(rollbackResult.status).toBe("applied");
+    // THE load-bearing assertion. The sum is looked up under the thread the
+    // daemon actually emitted spend against; the forked thread is one it has
+    // never emitted a token for, so a lookup keyed on it resolves to nothing
+    // and bases the whole rewound session at zero. An unrebound band asks
+    // nothing at all, so both wrong states are distinguishable from this one.
+    expect(readerCalls).toStrictEqual([{ sessionId: SESSION_ID, threadId: THREAD_ID }]);
+
+    emitUsage(harness, FORKED_THREAD_ID, 150);
+    await Promise.resolve();
+
+    // ROUTED, not held: the forked thread is the session's own thread now.
+    expect(harness.manager.frameRouterFor(SESSION_ID).pendingHeldFrameCount()).toBe(0);
+    // And metered at 50 rather than 150 — the 100 the daemon emitted before the
+    // fork is not charged to the session a second time.
+    expect(
+      harness.meteredUsage.map((entry) => ({
+        threadId: entry.delta.threadId,
+        input: entry.delta.axisDeltas.input,
+      })),
+    ).toStrictEqual([
+      { threadId: THREAD_ID, input: 100 },
+      { threadId: FORKED_THREAD_ID, input: 50 },
+    ]);
+    // Neither direction of a mis-based register fired. `usage_resume_base_unavailable`
+    // is what a lookup keyed on the forked id leaves behind; `usage_delta_floor_hit`
+    // is what a base ABOVE the successor's readings leaves behind; the cross-check
+    // is the wire's own per-turn figure agreeing with the derived interval.
+    expect(harness.driverDiagnostics.recentRecordsOfKind("usage_resume_base_unavailable")).toEqual(
+      [],
+    );
+    expect(harness.driverDiagnostics.recentRecordsOfKind("usage_delta_floor_hit")).toEqual([]);
+    expect(harness.driverDiagnostics.recentRecordsOfKind("usage_cross_check_mismatch")).toEqual([]);
+  });
+
+  it("a rewind retires the pre-fork thread as the session's own rather than leaving two", async () => {
+    const { harness } = await rewoundSession();
+
+    // The forked thread projects: it IS the session now.
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      method: "thread/queue/changed",
+      params: { threadId: FORKED_THREAD_ID },
+    });
+    await Promise.resolve();
+    expect(harness.notifications.map((entry) => entry.method)).toContain("thread/queue/changed");
+
+    // The PRE-FORK thread does not. Re-registering the session's own identity is
+    // the whole retirement — the router holds exactly one — so a late frame from
+    // the thread the caller rewound away from is present-but-unregistered and
+    // waits rather than projecting into the rewound timeline.
+    const projectedBeforeStaleFrame = harness.notifications.length;
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      method: "thread/queue/changed",
+      params: { threadId: THREAD_ID },
+    });
+    await Promise.resolve();
+
+    expect(harness.notifications).toHaveLength(projectedBeforeStaleFrame);
+    expect(harness.manager.frameRouterFor(SESSION_ID).pendingHeldFrameCount()).toBe(1);
+  });
+
+  it("a prior-emitted reader that THROWS leaves the rewind applied and records the overstatement", async () => {
+    const { harness, rollbackResult } = await rewoundSession({ readerAnswer: "throws" });
+
+    // The reader is caller-supplied and runs after the record has already been
+    // re-pointed at the forked thread. A throw escaping there would report a
+    // rewind that did happen as one that did not, and leave the caller retrying
+    // a fork it has already taken.
+    expect(rollbackResult.status).toBe("applied");
+    const baseUnavailable = harness.driverDiagnostics.recentRecordsOfKind(
+      "usage_resume_base_unavailable",
+    );
+    expect(baseUnavailable).toHaveLength(1);
+    // Both ids travel, and on a rewind they DIFFER: the sum was looked up under
+    // the pre-fork thread while the registers being based belong to the forked
+    // one, and an operator reconciling a receipt needs the pair to see which
+    // key came up empty.
+    expect(baseUnavailable[0]?.details).toMatchObject({
+      threadId: FORKED_THREAD_ID,
+      priorEmittedThreadId: THREAD_ID,
+    });
+  });
+
+  it("a rewind of a session that emitted NOTHING bases at zero silently", async () => {
+    const { harness, rollbackResult } = await rewoundSession({
+      readerAnswer: "nothing",
+      meterBeforeFork: false,
+    });
+
+    expect(rollbackResult.status).toBe("applied");
+    // A BOUND reader answering with nothing is a correct answer to a correct
+    // question, not a fault: a session that legitimately emitted no spend has a
+    // prior-emitted sum of zero and bases at zero exactly right. Recording it
+    // would fire on every zero-spend rewind and say nothing about any of them,
+    // while claiming spend was re-metered where none exists.
+    expect(harness.driverDiagnostics.recentRecordsOfKind("usage_resume_base_unavailable")).toEqual(
+      [],
+    );
+
+    // And the zero base is the RIGHT base: the forked thread's first reading is
+    // all new spend, so it meters in full.
+    emitUsage(harness, FORKED_THREAD_ID, 60);
+    await Promise.resolve();
+    expect(
+      harness.meteredUsage.map((entry) => ({
+        threadId: entry.delta.threadId,
+        input: entry.delta.axisDeltas.input,
+      })),
+    ).toStrictEqual([{ threadId: FORKED_THREAD_ID, input: 60 }]);
+  });
+
+  it("refuses a rewind the provider did not FORK, leaving the session on its original thread", async () => {
+    // The provider answers with the thread it was handed. That is not a fork:
+    // either it rewound the thread in place or handed the same one back, and
+    // the pre-rewind conversation a fork exists to preserve is gone either way.
+    const { harness, readerCalls, rollbackResult } = await rewoundSession({
+      forkAnswersThreadId: THREAD_ID,
+    });
+
+    expect(rollbackResult).toStrictEqual({
+      status: "degraded",
+      fallbackAction: "rewind-not-forked",
+    });
+    // Refused BEFORE the re-point, so nothing was rebound: an unforked answer
+    // must not re-base this session's registers against its own emitted sum for
+    // a thread that never changed.
+    expect(readerCalls).toStrictEqual([]);
+
+    // The session is exactly as it was found — still routing and still metering
+    // on its original thread, which is what makes the refusal retry-safe rather
+    // than merely honest.
+    emitUsage(harness, THREAD_ID, 150);
+    await Promise.resolve();
+    expect(harness.manager.frameRouterFor(SESSION_ID).pendingHeldFrameCount()).toBe(0);
+    expect(
+      harness.meteredUsage.map((entry) => ({
+        threadId: entry.delta.threadId,
+        input: entry.delta.axisDeltas.input,
+      })),
+    ).toStrictEqual([
+      { threadId: THREAD_ID, input: 100 },
+      { threadId: THREAD_ID, input: 50 },
+    ]);
+  });
+
+  it("a resume whose prior-emitted reader THROWS still resumes, and records the base it could not rebuild", async () => {
+    const harness = createManagerHarness({
+      onServerNotification: true,
+      readPriorEmittedUsage: () => {
+        throw new Error("prior-emitted usage reader failed");
+      },
+    });
+    harness.server.on("thread/resume", () => threadStartResult(1));
+
+    const result = await harness.manager.resumeSession({
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+    });
+
+    // The base is a TELEMETRY input, not a gate on the resume. A caller-supplied
+    // reader that throws must not convert a live provider session into a typed
+    // failure the daemon then tries to recover from — the process is up and the
+    // thread is resumed whatever the reader did.
+    expect(result.status).toBe("resumed");
+    // Contained, never silent: this is the faulty arm, so the overstatement it
+    // causes is recorded rather than left to surface on a receipt.
+    expect(
+      harness.driverDiagnostics.recentRecordsOfKind("usage_resume_base_unavailable"),
+    ).toHaveLength(1);
   });
 });

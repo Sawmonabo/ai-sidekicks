@@ -264,10 +264,42 @@ export interface ClaudeSessionChannel {
    *
    * TRANSPORT OBLIGATION — the transport MUST invoke `observer` for EVERY
    * inbound stream frame, BEFORE handing that frame to its own normalize
-   * consumer, and MUST honour the returned {@link ThreadFrameRoute}: only a
-   * `project` decision may reach the consumer. A transport that observed after
-   * projecting, or that ignored the decision, would put a child thread's output
-   * in the parent's timeline — the fabricated transcript I-005-12 forbids.
+   * consumer, and MUST deliver that frame to the consumer if and ONLY if the
+   * returned {@link ThreadFrameRoute}'s decision appears in the DELIVER column
+   * below. A transport that observed after projecting, or that ignored the
+   * decision, would put a child thread's output in the parent's timeline — the
+   * fabricated transcript I-005-12 forbids.
+   *
+   * DELIVER — the frame reaches the normalize consumer:
+   *
+   *   * `project` — a frame on the session's own thread.
+   *   * `route-connection-scoped` — a frame from a censused connection- or
+   *     account-scoped family, which carries no thread identity by design:
+   *     `system/init`, `system/rate_limit_event`, `system/api_retry`, and the
+   *     whole `control_request/*` / `control_response/*` family. Withholding
+   *     these would silence rate-limit telemetry and HANG every inbound
+   *     permission prompt, whose answer the provider is blocking on.
+   *   * `carve-out-interactive-request` — a child's ask travels on the DECISION
+   *     itself and routes through the same approval pipeline as the parent's.
+   *     Suppressing it would not hide the child but hang it.
+   *
+   * WITHHOLD — the frame does not reach the consumer:
+   *
+   *   * `carve-out-usage` — a child's spend is metered driver-side, ahead of
+   *     suppression; the child's content still never enters the parent's
+   *     timeline.
+   *   * `suppress-child-transcript` — the child's content, whose only timeline
+   *     presence is the `subagent.*` pair.
+   *   * `held-pending-registration` — buffered against a not-yet-registered
+   *     child; re-routed on registration and answered through
+   *     {@link ClaudeSessionLifecycleOptions.onReleasedFrameRoute}.
+   *   * `quarantined` — an absent or unrecognized identity, recorded as a
+   *     diagnostic rather than guessed into the parent.
+   *
+   * Held and quarantined frames are recorded by the router; neither is a silent
+   * drop. This table is the same one the sibling driver applies driver-side in
+   * its own route-decision switch — the difference is only WHO delivers, since
+   * this band answers by return value and never touches frame content.
    *
    * Why the widening. Claude multiplexes subagent threads over the PARENT's own
    * stream, so "arrived on this channel" no longer identifies whose stream a
@@ -1374,6 +1406,19 @@ export function composeClaudeSandboxSettings(posture: ExecutionPosture): ClaudeS
   };
 }
 
+/**
+ * One session's routing and metering band (T3.11).
+ *
+ * The two halves are one record because they are one lifetime: the router's
+ * thread registry and the accountant's base registers answer the same question
+ * from two sides, and a band holding one without the other routes a frame
+ * against a thread it can meter nothing for.
+ */
+interface ClaudeSessionRoutingBand {
+  readonly router: ThreadFrameRouter<ClaudeRoutableFrame>;
+  readonly accountant: UsageDeltaAccountant;
+}
+
 interface ClaudeSpawnBinding {
   readonly admittedCostCapCents: number | undefined;
   // The COMPLETE posture the process was spawned under, retained so every axis
@@ -1401,14 +1446,35 @@ interface LiveClaudeSession {
    */
   readonly spawnBoundLegs: ClaudeSpawnBoundLegs;
   /**
-   * Which base-establishment arm this leg takes (T3.11).
+   * Which base-establishment arm this leg takes, and whose sum it bases on
+   * (T3.11).
    *
-   * A daemon-created session bases its usage registers at ZERO; a resume — and
+   * A daemon-created session bases its usage registers at ZERO. A resume — and
    * a rewind, which is a fresh spawn continuing a session whose spend the
    * daemon already emitted — bases at the prior-emitted cumulative sum.
+   *
+   * The resume arm carries `priorEmittedThreadId` because the thread to base
+   * FROM is not always the thread being established. A provider-native resume
+   * answers with the id it was handed (I-005-5's identity gate refuses anything
+   * else), so the two coincide there. A REWIND forks: the successor announces a
+   * brand-new provider session id that the daemon has never emitted a single
+   * token against, so keying the lookup on it would resolve to nothing on every
+   * rewind. The predecessor's id is the only key under which the daemon's own
+   * emitted sum exists.
    */
-  readonly establishment: "fresh" | "resume";
+  readonly establishment: ClaudeUsageEstablishment;
 }
+
+/**
+ * Which usage base-establishment arm a live session's binding takes.
+ *
+ * A union rather than a string discriminant so the resume arm cannot be
+ * constructed without naming the thread whose prior-emitted sum it bases on —
+ * the omission that made every rewind base at zero.
+ */
+type ClaudeUsageEstablishment =
+  | { readonly mode: "fresh" }
+  | { readonly mode: "resume"; readonly priorEmittedThreadId: string };
 
 // The state of one canonical session's slot. Absence from `#sessionSlots` is the
 // fifth state, EMPTY — the only one in which a create or resume may proceed.
@@ -1428,7 +1494,21 @@ interface LiveClaudeSession {
 // `settled` promise that resolves — never rejects — when the transition ends.
 type ClaudeSessionSlot =
   // A create or resume is bringing a process up. Ends LIVE, or EMPTY if it fails.
-  | { readonly state: "establishing"; readonly settled: Promise<void> }
+  //
+  // `channel` is the channel BOUND to this session for the duration of the
+  // claim, which is `undefined` for a create or resume (nothing is bound yet —
+  // both start from EMPTY) and the PREDECESSOR's channel for a rewind, which
+  // starts from LIVE and keeps its process running for the whole multi-second
+  // fork. Carried for the same reason the `quarantined` arm carries one: an
+  // establishing slot that named no channel made every predecessor frame
+  // unattributable for the length of the window, so a rewind that then FAILED
+  // resumed a session with a diagnosed hole in its transcript — the opposite of
+  // the non-destructive-on-failure property the rewind claim exists to give.
+  | {
+      readonly state: "establishing";
+      readonly settled: Promise<void>;
+      readonly channel: ClaudeSessionChannel | undefined;
+    }
   // A process is up and may accept runs. The only startable state.
   | { readonly state: "live"; readonly session: LiveClaudeSession }
   // `dispose` is in flight. Ends EMPTY on resolve, QUARANTINED on reject.
@@ -1451,13 +1531,16 @@ export interface ClaudeSessionLifecycleDependencies {
   readonly diagnostics: DriverDiagnosticsEmitter;
   /**
    * The daemon's own prior-emitted cumulative token sums for one provider
-   * session, used to base a PROVIDER-NATIVE RESUME (T3.11).
+   * session, used to base a PROVIDER-NATIVE RESUME or a REWIND (T3.11).
+   *
+   * `threadId` is the thread the sums were emitted UNDER, which on a rewind is
+   * the predecessor rather than the successor being established. Answering
+   * `undefined` is a legitimate answer meaning "nothing was emitted under this
+   * id"; it bases at zero and records nothing. A reader left unbound, or one
+   * that throws, is the faulty case and IS recorded.
    *
    * Optional because the driver cannot rebuild it: the sums live in the
    * canonical event record, which the daemon owns and this module never reads.
-   * Unbound, a resume bases at zero and the first post-resume reading re-meters
-   * the whole provider-session total — recorded as a diagnostic rather than
-   * left to be discovered on a receipt.
    */
   readonly readPriorEmittedUsage?:
     | ((sessionId: SessionId, threadId: string) => CumulativeAxisReadings | undefined)
@@ -1487,11 +1570,28 @@ export interface ClaudeSessionLifecycleDependencies {
    * to project them. A frame routed inside {@link
    * ClaudeSessionChannel.onInboundFrame} answers the transport by RETURN VALUE;
    * a held frame is released later, when no observer call is in flight and no
-   * return value exists — so without this seam a released `project` or
-   * `carve-out-interactive-request` decision would have no recipient, and a
-   * child's interactive request that raced its own `SubagentStart` would be
-   * held, released, and dropped. Suppressing that request would not hide the
-   * child but HANG it.
+   * return value exists — so without this seam every deliverable decision a
+   * release can carry would have no recipient.
+   *
+   * What a release can actually carry on THIS provider. A hold is only ever
+   * taken for a frame naming a thread identity the router has not yet seen, so
+   * a release re-routes that frame against the now-registered child. The
+   * reachable outcomes are `carve-out-usage` — the child's spend, metered
+   * driver-side and deliberately NOT delivered — and `suppress-child-transcript`
+   * for the child's content. Both are terminal here; the seam exists so the
+   * release path is a routed decision with a recorded recipient rather than a
+   * drop, and so a future family whose released decision IS deliverable has a
+   * seam to arrive on.
+   *
+   * `carve-out-interactive-request` is structurally unreachable on this leg.
+   * The frame kinds that raise an interactive request on this provider are the
+   * `control_request/*` family, which
+   * {@link classifyClaudeFrameFamilyForRouting} censuses CONNECTION-scoped:
+   * they carry no thread identity, so they are
+   * never held, never released, and never routed against a child. Contrast the
+   * sibling driver, whose routable frame carries params and a per-frame thread
+   * identity: there the same carve-out is reachable, and its release is a
+   * body-complete delivery to the normalize band.
    */
   readonly onReleasedFrameRoute?:
     | ((
@@ -1583,8 +1683,11 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   // provider session and held for that session's lifetime — the state
   // `Spec-005 §Interfaces And Contracts` describes as driver-session state, so
   // it is constructed here rather than composed from outside.
-  readonly #frameRouters: Map<SessionId, ThreadFrameRouter<ClaudeRoutableFrame>> = new Map();
-  readonly #usageAccountants: Map<SessionId, UsageDeltaAccountant> = new Map();
+  // ONE map, so the router and the accountant are created and released
+  // together. Two maps let a caller resurrect one half of a band the other half
+  // had already been released from, which is a routing decision made against a
+  // thread registry no accountant holds registers for.
+  readonly #routingBands: Map<SessionId, ClaudeSessionRoutingBand> = new Map();
   readonly #readPriorEmittedUsage:
     | ((sessionId: SessionId, threadId: string) => CumulativeAxisReadings | undefined)
     | undefined;
@@ -1688,7 +1791,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
         channel: attachment.channel,
         spawnBinding: this.#buildSpawnBinding(params),
         spawnBoundLegs: spawnBoundLegs,
-        establishment: "fresh",
+        establishment: { mode: "fresh" },
       });
     } catch (error) {
       // Dispose, then re-throw the ORIGINAL cause. `createSession` has no
@@ -1798,7 +1901,10 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
         channel: attachment.channel,
         spawnBinding: this.#buildSpawnBinding(params),
         spawnBoundLegs: spawnBoundLegs,
-        establishment: "resume",
+        // The resume identity gate above already refused any id but the handle
+        // the caller supplied, so the session being established IS the thread
+        // the daemon has been emitting against.
+        establishment: { mode: "resume", priorEmittedThreadId: attachment.providerSessionId },
       });
     } catch (error) {
       const disposalNote = await this.#disposeRefusedChannel(
@@ -2044,8 +2150,21 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
         spawnBoundLegs: rewoundSpawnBoundLegs,
         // A rewind is a fresh spawn continuing a session whose earlier spend
         // the daemon has already emitted, so it bases like a resume: a zero
-        // base here would re-meter every pre-rewind turn.
-        establishment: "resume",
+        // base here would re-meter every pre-rewind turn. Keyed on the
+        // PREDECESSOR's id, which is the only id the daemon has emitted spend
+        // under — the fork's brand-new id resolves to nothing by construction.
+        //
+        // Whether the provider's counter CONTINUES across `--fork-session` is
+        // deliberately unrecorded in the pinned wire reference, which states
+        // only that the flag mints a new session id on resume. Both readings
+        // are handled and they are not symmetric. If the counter continues,
+        // this base is exact. If it restarts, the successor's readings fall
+        // BELOW this base and the accountant's decrease-floor rule floors the
+        // deltas at zero and records a diagnostic — loud under-metering that
+        // repairs itself once the counter passes the base. Zero-basing has the
+        // inverse failure: silent double-counting of every pre-rewind turn,
+        // which reaches a receipt as real money and says nothing.
+        establishment: { mode: "resume", priorEmittedThreadId: predecessor.providerSessionId },
       });
     } catch (error) {
       const disposalNote = await this.#disposeRefusedChannel(
@@ -2207,8 +2326,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       // The routing and metering band is per-provider-session state; a router
       // surviving its session would answer the next one with a thread registry
       // that session never made.
-      this.#frameRouters.delete(sessionId);
-      this.#usageAccountants.delete(sessionId);
+      this.#routingBands.delete(sessionId);
     } catch (error) {
       // CLOSING -> QUARANTINED. The channel is retained rather than dropped: the
       // process is still running and nothing else holds a reference to it. The
@@ -2245,38 +2363,56 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   }
 
   /**
-   * The thread-frame router for one session (T3.11).
+   * The thread-frame router for one session, or `undefined` when this session
+   * holds no routing band (T3.11).
    *
-   * Read LIVE rather than captured, for the same reason the emission gate is:
-   * a router captured before a registration would answer with a thread set the
-   * registration has since widened.
+   * NON-CREATING, unlike the emission gate beside it. The band is per-provider-
+   * session state built at registration and released with the session, so a
+   * get-or-create accessor would let a call arriving AFTER the close silently
+   * resurrect a band nothing will ever delete — state accumulating for a
+   * session that no longer exists, and a router answering routing questions
+   * with a thread registry no session ever made. The emission gate is
+   * deliberately the other way round because its whole job is to survive
+   * whichever of close and establishment arrives first; a router has no such
+   * latch to keep.
+   *
+   * Read LIVE rather than captured: a router captured before a registration
+   * would answer with a thread set the registration has since widened.
    */
-  frameRouterFor(sessionId: SessionId): ThreadFrameRouter<ClaudeRoutableFrame> {
-    const existing = this.#frameRouters.get(sessionId);
-    if (existing !== undefined) {
-      return existing;
-    }
-    const router = new ThreadFrameRouter<ClaudeRoutableFrame>({
-      provider: "claude",
-      diagnostics: this.#diagnostics,
-      config: CLAUDE_THREAD_FRAME_ROUTER_CONFIG,
-    });
-    this.#frameRouters.set(sessionId, router);
-    return router;
+  frameRouterFor(sessionId: SessionId): ThreadFrameRouter<ClaudeRoutableFrame> | undefined {
+    return this.#routingBands.get(sessionId)?.router;
   }
 
-  /** The usage-delta accountant for one session (T3.11). */
-  usageAccountantFor(sessionId: SessionId): UsageDeltaAccountant {
-    const existing = this.#usageAccountants.get(sessionId);
+  /**
+   * The usage-delta accountant for one session, or `undefined` when this
+   * session holds no routing band (T3.11). Non-creating for the same reason
+   * {@link ClaudeSessionLifecycle.frameRouterFor} is.
+   */
+  usageAccountantFor(sessionId: SessionId): UsageDeltaAccountant | undefined {
+    return this.#routingBands.get(sessionId)?.accountant;
+  }
+
+  // Builds this session's routing band if it holds none. THE only creator, and
+  // it is reached from exactly one place: `#registerLiveSession`, where a
+  // session that can emit frames first exists.
+  #ensureRoutingBand(sessionId: SessionId): ClaudeSessionRoutingBand {
+    const existing = this.#routingBands.get(sessionId);
     if (existing !== undefined) {
       return existing;
     }
-    const accountant = new UsageDeltaAccountant({
-      provider: "claude",
-      diagnostics: this.#diagnostics,
-    });
-    this.#usageAccountants.set(sessionId, accountant);
-    return accountant;
+    const band: ClaudeSessionRoutingBand = {
+      router: new ThreadFrameRouter<ClaudeRoutableFrame>({
+        provider: "claude",
+        diagnostics: this.#diagnostics,
+        config: CLAUDE_THREAD_FRAME_ROUTER_CONFIG,
+      }),
+      accountant: new UsageDeltaAccountant({
+        provider: "claude",
+        diagnostics: this.#diagnostics,
+      }),
+    };
+    this.#routingBands.set(sessionId, band);
+    return band;
   }
 
   /**
@@ -2292,39 +2428,74 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
    * the binding, and the router's release contract is the same on both legs.
    */
   #bindSessionThread(
+    band: ClaudeSessionRoutingBand,
     sessionId: SessionId,
     providerSessionId: string,
-    establishment: "fresh" | "resume",
+    establishment: ClaudeUsageEstablishment,
   ): void {
-    const accountant = this.usageAccountantFor(sessionId);
-    if (establishment === "fresh") {
-      accountant.establishThread(providerSessionId, { mode: "fresh" });
+    if (establishment.mode === "fresh") {
+      band.accountant.establishThread(providerSessionId, { mode: "fresh" });
     } else {
-      const priorEmittedCumulative = this.#readPriorEmittedUsage?.(sessionId, providerSessionId);
-      if (priorEmittedCumulative === undefined) {
-        // Never silent. With no prior-emitted sum to rebuild from, the base
-        // starts at zero and the first post-resume reading meters the WHOLE
-        // provider-session total — an overstatement of exactly the pre-resume
-        // spend. The resume arm is still taken rather than swapped for `fresh`,
-        // so the record says which arm ran and why it had nothing to work with.
-        this.#diagnostics.emit({
-          provider: "claude",
-          kind: "usage_resume_base_unavailable",
-          rawWireType: null,
-          dispositionReason:
-            "no prior-emitted cumulative sum was available for a provider-native resume; base registers start at zero, so the first post-resume reading meters pre-resume spend again",
-          details: { sessionId, threadId: providerSessionId },
-        });
-      }
-      accountant.establishThread(providerSessionId, {
+      band.accountant.establishThread(providerSessionId, {
         mode: "resume",
-        priorEmittedCumulative: priorEmittedCumulative ?? {},
+        priorEmittedCumulative:
+          this.#readPriorEmittedSum(sessionId, establishment.priorEmittedThreadId) ?? {},
       });
     }
-    this.#releaseHeldFrames(
-      sessionId,
-      this.frameRouterFor(sessionId).registerSessionThread(providerSessionId),
-    );
+    this.#releaseHeldFrames(band, sessionId, band.router.registerSessionThread(providerSessionId));
+  }
+
+  /**
+   * Read the daemon's own prior-emitted cumulative sum for one thread.
+   *
+   * The diagnostic is reserved for the genuinely FAULTY arm — no reader bound,
+   * or a reader that threw. A bound reader answering `undefined` is a correct
+   * answer to a correct question: a session that legitimately emitted nothing
+   * has a prior-emitted sum of zero, and basing at zero is exactly right. An
+   * earlier revision recorded that case too, which made the record fire on
+   * every rewind and say nothing about any of them.
+   */
+  #readPriorEmittedSum(
+    sessionId: SessionId,
+    priorEmittedThreadId: string,
+  ): CumulativeAxisReadings | undefined {
+    const reader = this.#readPriorEmittedUsage;
+    if (reader === undefined) {
+      this.#emitResumeBaseUnavailable(
+        sessionId,
+        priorEmittedThreadId,
+        "no prior-emitted usage reader is bound, so the daemon's own emitted sum could not be rebuilt; base registers start at zero, so the first post-resume reading meters pre-resume spend again",
+      );
+      return undefined;
+    }
+    try {
+      return reader(sessionId, priorEmittedThreadId);
+    } catch (error) {
+      // Swallowed on purpose, and recorded rather than rethrown: this runs
+      // inside the adoption invariant's window, where an escaping throw
+      // orphans a live provider process. Over-metering is recoverable from the
+      // record; an orphaned process is not.
+      this.#emitResumeBaseUnavailable(
+        sessionId,
+        priorEmittedThreadId,
+        `the prior-emitted usage reader failed, so the daemon's own emitted sum could not be rebuilt (${sanitizeFailureDetail(describeFailure(error))}); base registers start at zero, so the first post-resume reading meters pre-resume spend again`,
+      );
+      return undefined;
+    }
+  }
+
+  #emitResumeBaseUnavailable(
+    sessionId: SessionId,
+    priorEmittedThreadId: string,
+    dispositionReason: string,
+  ): void {
+    this.#diagnostics.emit({
+      provider: "claude",
+      kind: "usage_resume_base_unavailable",
+      rawWireType: null,
+      dispositionReason,
+      details: { sessionId, threadId: priorEmittedThreadId },
+    });
   }
 
   /**
@@ -2337,12 +2508,15 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
    * decision would meter the frame and then drop it — silently shedding exactly
    * the interactive request the carve-out exists to keep reachable.
    */
-  #releaseHeldFrames(sessionId: SessionId, releasedFrames: readonly ClaudeRoutableFrame[]): void {
-    const router = this.frameRouterFor(sessionId);
+  #releaseHeldFrames(
+    band: ClaudeSessionRoutingBand,
+    sessionId: SessionId,
+    releasedFrames: readonly ClaudeRoutableFrame[],
+  ): void {
     const nowMs = Date.now();
     for (const releasedFrame of releasedFrames) {
-      const route = router.routeFrame(releasedFrame, nowMs);
-      this.#applyRouteDecision(sessionId, releasedFrame, route);
+      const route = band.router.routeFrame(releasedFrame, nowMs);
+      this.#applyRouteDecision(band, sessionId, releasedFrame, route);
       this.#onReleasedFrameRoute?.(sessionId, releasedFrame.observation, route);
     }
   }
@@ -2358,33 +2532,56 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
    * projected into the parent.
    */
   #observeInboundFrame(
+    band: ClaudeSessionRoutingBand,
     sessionId: SessionId,
     providerSessionId: string,
     observation: ClaudeInboundFrameObservation,
   ): ThreadFrameRoute {
-    const router = this.frameRouterFor(sessionId);
+    const router = band.router;
     const lifecycleSignal = observation.subagentLifecycle;
     if (lifecycleSignal !== null && lifecycleSignal.signal === CLAUDE_SUBAGENT_START_SIGNAL) {
       const normalized = normalizeClaudeSubagentLifecycle(lifecycleSignal, providerSessionId);
       if (normalized.announcement !== null) {
         const registration = router.registerChildThread(normalized.announcement);
         if (registration.registered) {
-          // A registered child is a BRAND-NEW provider thread, so its base
-          // registers start at zero. Establishing it here rather than lazily is
-          // what makes the usage carve-out reachable at all: the accountant
-          // refuses an unestablished thread outright, so a child whose spend
-          // was never established would carve out of the parent's transcript
-          // and then be dropped on the floor — the child's cost vanishing
-          // rather than being scoped, which is not what I-005-12 asks for.
-          this.usageAccountantFor(sessionId).establishThread(registration.childThreadId, {
-            mode: "fresh",
-          });
-          this.#onSubagentLifecycle?.(sessionId, {
-            eventType: "subagent.started",
-            subagentId: normalized.subagentId,
-            parentReference: normalized.parentToolUseId,
-          });
-          this.#releaseHeldFrames(sessionId, registration.releasedFrames);
+          if (band.accountant.hasThread(registration.childThreadId)) {
+            // A SECOND announcement for a child already carrying a base. The
+            // router accepted it (re-registering a held identity is a no-op),
+            // but re-establishing would reset this child's register to zero
+            // mid-stream, so its next cumulative reading would re-meter every
+            // token it has already spent — double-counted spend on the receipt
+            // — and a second `subagent.started` would duplicate the child's
+            // only timeline presence. Recorded rather than returned on: the
+            // duplicate is a provider-side observation worth surfacing.
+            this.#diagnostics.emit({
+              provider: "claude",
+              kind: "thread_duplicate_child_announcement",
+              rawWireType: observation.frameKind,
+              dispositionReason:
+                "duplicate subagent announcement for an already-registered child; usage base retained and no second started emission",
+              details: { sessionId, childThreadId: registration.childThreadId },
+            });
+          } else {
+            // A registered child is a BRAND-NEW provider thread, so its base
+            // registers start at zero. Establishing it here rather than lazily
+            // is what makes the usage carve-out reachable at all: the
+            // accountant refuses an unestablished thread outright, so a child
+            // whose spend was never established would carve out of the parent's
+            // transcript and then be dropped on the floor — the child's cost
+            // vanishing rather than being scoped, which is not what I-005-12
+            // asks for.
+            band.accountant.establishThread(registration.childThreadId, { mode: "fresh" });
+            this.#onSubagentLifecycle?.(sessionId, {
+              eventType: "subagent.started",
+              subagentId: normalized.subagentId,
+              parentReference: normalized.parentToolUseId,
+            });
+          }
+          // Released unconditionally on BOTH arms. A hold can only exist for an
+          // identity the router had not yet seen, so the duplicate arm releases
+          // an empty list — but making the release conditional would couple the
+          // hold's fate to a metering decision it has nothing to do with.
+          this.#releaseHeldFrames(band, sessionId, registration.releasedFrames);
         }
       }
     }
@@ -2399,11 +2596,12 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       observation,
     };
     const route = router.routeFrame(frame, Date.now());
-    this.#applyRouteDecision(sessionId, frame, route);
+    this.#applyRouteDecision(band, sessionId, frame, route);
     return route;
   }
 
   #applyRouteDecision(
+    band: ClaudeSessionRoutingBand,
     sessionId: SessionId,
     frame: ClaudeRoutableFrame,
     route: ThreadFrameRoute,
@@ -2414,11 +2612,11 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       case "carve-out-usage":
         // The usage carve-out is applied AHEAD of suppression: a child's spend
         // is metered even though a child's content is not.
-        this.#meterObservedUsage(sessionId, frame);
-        this.#completeChildOnStopSignal(sessionId, frame);
+        this.#meterObservedUsage(band, sessionId, frame);
+        this.#completeChildOnStopSignal(band, sessionId, frame);
         return;
       case "suppress-child-transcript":
-        this.#completeChildOnStopSignal(sessionId, frame);
+        this.#completeChildOnStopSignal(band, sessionId, frame);
         return;
       case "carve-out-interactive-request":
       case "held-pending-registration":
@@ -2435,12 +2633,16 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     }
   }
 
-  #meterObservedUsage(sessionId: SessionId, frame: ClaudeRoutableFrame): void {
+  #meterObservedUsage(
+    band: ClaudeSessionRoutingBand,
+    sessionId: SessionId,
+    frame: ClaudeRoutableFrame,
+  ): void {
     const cumulativeUsage = frame.observation.cumulativeUsage;
     if (cumulativeUsage === null) {
       return;
     }
-    const metered = this.usageAccountantFor(sessionId).meterReading({
+    const metered = band.accountant.meterReading({
       threadId: frame.threadId,
       namedTurnId: cumulativeUsage.namedTurnId,
       cumulative: cumulativeUsage.cumulative,
@@ -2458,18 +2660,21 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
    * per-child result frame, so the lifecycle signal that opened the pair is
    * also the only thing that can close it.
    */
-  #completeChildOnStopSignal(sessionId: SessionId, frame: ClaudeRoutableFrame): void {
+  #completeChildOnStopSignal(
+    band: ClaudeSessionRoutingBand,
+    sessionId: SessionId,
+    frame: ClaudeRoutableFrame,
+  ): void {
     const lifecycleSignal = frame.observation.subagentLifecycle;
     if (lifecycleSignal === null || lifecycleSignal.signal === CLAUDE_SUBAGENT_START_SIGNAL) {
       return;
     }
-    const router = this.frameRouterFor(sessionId);
-    const attribution = router.childAttributionFor(lifecycleSignal.subagentId);
-    const completion = router.completeChildThread(lifecycleSignal.subagentId);
+    const attribution = band.router.childAttributionFor(lifecycleSignal.subagentId);
+    const completion = band.router.completeChildThread(lifecycleSignal.subagentId);
     if (!completion.wasRegistered) {
       return;
     }
-    this.usageAccountantFor(sessionId).releaseThread(lifecycleSignal.subagentId);
+    band.accountant.releaseThread(lifecycleSignal.subagentId);
     if (attribution?.kind === "subagent") {
       this.#onSubagentLifecycle?.(sessionId, {
         eventType: "subagent.completed",
@@ -2681,13 +2886,55 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   }
 
   #registerLiveSession(live: LiveClaudeSession): void {
-    // Listener FIRST, slot SECOND. `onTurnTerminal` is transport-implemented and
-    // may throw; registering it before the slot is written means such a throw
-    // leaves the slot UNSET, so the caller's adoption guard can dispose the
-    // channel and free the slot. The reverse order would strand a LIVE slot
-    // pointing at a channel its own caller is about to dispose. The listener is
-    // identity-gated, so it is inert in the instant before the slot exists.
+    // BAND, then SLOT, then listeners. The order is three separate claims.
     //
+    // The band goes first because a listener registration can deliver a frame
+    // re-entrantly, and a frame reaching the observer with no band would have to
+    // be quarantined — refusing a frame from the very channel this method is in
+    // the middle of adopting. Built before the slot for the same reason it is
+    // built before `#bindSessionThread`: a frame arriving in that window names
+    // an unregistered thread, so the router HOLDS it, and the binding below
+    // releases it. Held-then-released is a delivery; quarantined is not.
+    //
+    // The slot goes before the listeners, reversing an earlier ordering. That
+    // ordering existed so a throwing `onTurnTerminal` would leave the slot unset
+    // for the caller's adoption guard to clean up — but it also left a window in
+    // which the channel was registered and the slot was not yet live, so the
+    // identity gate below refused frames from the channel it had just adopted.
+    // The window is closed by writing the slot first and RESTORING the previous
+    // slot value if a listener registration throws, which reaches the same
+    // end-state by an explicit rollback rather than by an ordering that has to
+    // be re-derived to be understood.
+    const previousSlot = this.#sessionSlots.get(live.sessionId);
+    const bandExistedBefore = this.#routingBands.has(live.sessionId);
+    const band = this.#ensureRoutingBand(live.sessionId);
+    this.#sessionSlots.set(live.sessionId, { state: "live", session: live });
+    try {
+      this.#registerLiveSessionHooks(band, live);
+    } catch (error) {
+      // Restores rather than deletes. The previous value is the CALLER's claim
+      // — an `establishing` arm whose own settle path decides what EMPTY or
+      // LIVE means for this leg — and deleting it would publish an EMPTY slot
+      // that a rewind's predecessor-restore could no longer identify as its own.
+      if (previousSlot === undefined) {
+        this.#sessionSlots.delete(live.sessionId);
+      } else {
+        this.#sessionSlots.set(live.sessionId, previousSlot);
+      }
+      // Only a band THIS call created is released. A rewind adopts a successor
+      // into a session whose band is already carrying the predecessor's
+      // registers, and dropping those on a failed adoption would zero a session
+      // that is about to be restored and keep running.
+      if (!bandExistedBefore) {
+        this.#routingBands.delete(live.sessionId);
+      }
+      throw error;
+    }
+  }
+
+  // The listener half of registration, separated so the slot rollback above has
+  // exactly one thing to guard.
+  #registerLiveSessionHooks(band: ClaudeSessionRoutingBand, live: LiveClaudeSession): void {
     // Claude serializes turns per session, so "a terminal arrived on this
     // channel" identifies the run without the transport naming it: the route
     // pointing at this session IS the run that just ended. Registered here, the
@@ -2716,23 +2963,75 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     // because a frame from a channel the daemon no longer owns is precisely a
     // frame that must not project.
     live.channel.onInboundFrame((observation): ThreadFrameRoute => {
-      if (this.#findLiveSession(live.sessionId)?.channel !== live.channel) {
+      if (!this.#isChannelCurrentlyBound(live.sessionId, live.channel)) {
         return {
           decision: "quarantined",
           reason:
             "frame arrived on a channel this session no longer holds; refused rather than projected into whichever session occupies the slot now",
         };
       }
-      return this.#observeInboundFrame(live.sessionId, live.providerSessionId, observation);
+      const boundBand = this.#routingBands.get(live.sessionId);
+      if (boundBand === undefined) {
+        // Fail-closed and unreachable by construction: registration builds the
+        // band before this listener exists, and only a close releases it. Held
+        // as a guard rather than an assertion because the alternative to an
+        // answer here is projecting a frame no router ever classified.
+        return {
+          decision: "quarantined",
+          reason:
+            "frame arrived while this session held no routing band; refused rather than classified against a registry that does not exist",
+        };
+      }
+      return this.#observeInboundFrame(
+        boundBand,
+        live.sessionId,
+        live.providerSessionId,
+        observation,
+      );
     });
     // Base registers and the session's own thread identity, established before
     // any frame can be metered against them.
-    this.#bindSessionThread(live.sessionId, live.providerSessionId, live.establishment);
+    this.#bindSessionThread(band, live.sessionId, live.providerSessionId, live.establishment);
     // Through the same accessor `closeSession` uses, so a close signalled while
     // this establishment was in flight finds its latch still set rather than
     // replaced by a fresh gate.
     this.#intendedCloseGateFor(live.sessionId);
-    this.#sessionSlots.set(live.sessionId, { state: "live", session: live });
+  }
+
+  /**
+   * Is this channel the one currently BOUND to this session, in any state from
+   * which the session can still continue?
+   *
+   * Wider than {@link ClaudeSessionLifecycle.#findLiveSession} on purpose, and
+   * only for frame routing. A rewind holds an `establishing` slot for the whole
+   * multi-second fork while the PREDECESSOR's process stays up and emitting; a
+   * live-only gate quarantined every one of those frames, and a rewind that then
+   * failed restored a session whose transcript had a hole in it for the length
+   * of the attempt — which contradicts the non-destructive-on-failure property
+   * the rewind path's own claim rests on.
+   *
+   * `closing` and `quarantined` deliberately stay refused. Those are the states
+   * a channel is in when the daemon has decided to stop owning it, and a frame
+   * from a process the daemon disowned is exactly the frame that must not
+   * project. Run STARTING keeps the narrower live-only gate: a run may not begin
+   * in a process that is coming up.
+   */
+  #isChannelCurrentlyBound(sessionId: SessionId, channel: ClaudeSessionChannel): boolean {
+    const slot = this.#sessionSlots.get(sessionId);
+    if (slot === undefined) {
+      return false;
+    }
+    // Exhaustive over the union: a new state is a new arm the compiler forces a
+    // routing decision for, rather than one silently defaulting to refused.
+    switch (slot.state) {
+      case "live":
+        return slot.session.channel === channel;
+      case "establishing":
+        return slot.channel === channel;
+      case "closing":
+      case "quarantined":
+        return false;
+    }
   }
 
   // Names the current holder of a session slot for a refusal detail, or
@@ -2772,7 +3071,9 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       () => undefined,
       () => undefined,
     );
-    this.#sessionSlots.set(sessionId, { state: "establishing", settled });
+    // No channel: a create or resume starts from EMPTY, so nothing is bound to
+    // this session for the duration of the claim.
+    this.#sessionSlots.set(sessionId, { state: "establishing", settled, channel: undefined });
     try {
       return await establishment;
     } finally {
@@ -2811,7 +3112,14 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       () => undefined,
       () => undefined,
     );
-    this.#sessionSlots.set(sessionId, { state: "establishing", settled });
+    // The PREDECESSOR's channel stays bound for the whole claim. Its process is
+    // still up and still emitting, and the frames it emits belong to this
+    // session's transcript whether or not the fork beside it succeeds.
+    this.#sessionSlots.set(sessionId, {
+      state: "establishing",
+      settled,
+      channel: predecessor.channel,
+    });
     try {
       return await rewinding;
     } finally {

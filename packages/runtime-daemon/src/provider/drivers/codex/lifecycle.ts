@@ -2777,6 +2777,24 @@ interface CodexSessionRecord {
 }
 
 /**
+ * How a session's own thread bases its usage registers at one establishment.
+ *
+ * A union rather than a bare string discriminant, so the resume arm cannot be
+ * constructed without naming the thread whose prior-emitted sum it bases on.
+ * The thread to base FROM is not always the thread being established: a
+ * provider-native resume answers with the id it was handed, so the two
+ * coincide there, but a REWIND forks — `thread/fork` mints a brand-new thread
+ * the daemon has never emitted a single token against, so keying the lookup on
+ * it would resolve to nothing on every rewind and silently base the successor
+ * at zero. The predecessor's id is the only key the daemon's own emitted sum
+ * exists under. Stated in the type so that omission is a compile error rather
+ * than a re-meter nobody sees until a receipt.
+ */
+type CodexUsageEstablishment =
+  | { readonly mode: "fresh" }
+  | { readonly mode: "resume"; readonly priorEmittedThreadId: string };
+
+/**
  * Records a terminal turn id in a session's bounded FIFO memory.
  *
  * Re-inserted rather than skipped on a repeat so a duplicate terminal refreshes
@@ -3194,7 +3212,7 @@ export class CodexLifecycleManager {
       // A daemon-created thread bases at ZERO and meters its first reading in
       // full: the provider's counter starts at zero, replay seeding spends
       // nothing, and the first turn's large input is real billed spend.
-      this.#bindSessionThread(params.sessionId, thread.id, "fresh");
+      this.#bindSessionThread(params.sessionId, thread.id, { mode: "fresh" });
       // `id` is the resume key; `sessionId` groups a thread tree (fork/subagent
       // threads share it), so the two are NOT interchangeable.
       return { providerSessionId: thread.sessionId, resumeHandle: thread.id };
@@ -3323,7 +3341,15 @@ export class CodexLifecycleManager {
       // cumulative sum, never at the first post-resume reading: the provider's
       // counter is unaffected by the resume, so a zero base would re-meter the
       // whole pre-resume history onto the first post-resume turn.
-      this.#bindSessionThread(params.sessionId, thread.id, "resume");
+      //
+      // Keyed on the SAME id it establishes, and that is the resume case rather
+      // than an assumption: a resume answers with the thread it was handed, so
+      // the id the daemon emitted spend under and the id being based are one.
+      // The rewind path is where the two come apart.
+      this.#bindSessionThread(params.sessionId, thread.id, {
+        mode: "resume",
+        priorEmittedThreadId: thread.id,
+      });
       // The replacement record starts with an empty turn map, so every route
       // that pointed at the superseded leg is now dead. Swept here rather than
       // at teardown: `closeSession` reads the LIVE record, which no longer knows
@@ -3641,8 +3667,12 @@ export class CodexLifecycleManager {
         fallbackAction: "rewind-target-not-a-recorded-boundary",
       });
     }
+    // Captured BEFORE the request, and used as the request's own `threadId`, so
+    // the thread this fork descends from and the thread its usage base is keyed
+    // to are provably the same value rather than two reads of a mutable field.
+    const preForkThreadId = record.threadId;
     const response = await record.connection.request("thread/fork", {
-      threadId: record.threadId,
+      threadId: preForkThreadId,
       lastTurnId: boundaryTurnId,
       // A fork mints a NEW thread, so it is a thread establishment and takes the
       // same re-realization rule a resume does: `ThreadForkParams` carries the
@@ -3654,9 +3684,47 @@ export class CodexLifecycleManager {
     });
     const forkedThread = readThread(response, "thread/fork");
     this.#assertPostureRealized(record.executionPosture, response);
+    // THE FORK CHECK. A fork that answers with the thread it was HANDED did not
+    // fork: it either rewound that thread in place or handed the same one back.
+    // Adopting it would report `applied` for a rewind whose whole point — the
+    // pre-rewind conversation surviving on a thread of its own — did not happen,
+    // and would re-base this session's usage registers against its own emitted
+    // sum for a thread that never changed. Refused rather than adopted, and
+    // refused BEFORE the re-point below, so the record, the router, and the
+    // accountant are all exactly as they were and a retry is safe.
+    if (forkedThread.id === preForkThreadId) {
+      return DriverRollbackResultSchema.parse({
+        status: "degraded",
+        fallbackAction: "rewind-not-forked",
+      });
+    }
     // Re-pointed only AFTER the fork is parsed. A failed or unreadable fork
     // leaves the session exactly where it was, which is what makes a retry safe.
     record.threadId = forkedThread.id;
+    // The ROUTING AND METERING BAND moves with the record, in the same
+    // synchronous act. Re-pointing the record alone would leave the router's
+    // registered session thread naming the pre-fork id and the accountant
+    // holding no registers for the forked one — so every post-rewind frame is
+    // held pending a registration that never lands, shed on the hold timeout,
+    // and the session meters nothing at all for the rest of its life.
+    //
+    // Based like a RESUME and keyed on the PRE-FORK thread: a fork continues a
+    // session whose earlier spend the daemon has already emitted, and the
+    // forked id is one it has never emitted a token against, so the
+    // predecessor's id is the only key that sum exists under.
+    //
+    // Whether the provider's counter CONTINUES across a fork is not stated by
+    // the pinned wire reference, and the two readings are not symmetric. If it
+    // continues, this base is exact. If it restarts, the successor's readings
+    // fall BELOW the base and the accountant's decrease-floor rule floors the
+    // deltas at zero and records a diagnostic — loud under-metering that
+    // repairs itself once the counter passes the base. Basing `fresh` has the
+    // inverse failure: silent double-counting of every pre-rewind turn, which
+    // reaches a receipt as real money and says nothing.
+    this.#bindSessionThread(params.sessionId, forkedThread.id, {
+      mode: "resume",
+      priorEmittedThreadId: preForkThreadId,
+    });
     const forkedTurnIds = readThreadTurnIds(forkedThread.turns);
     if (forkedTurnIds.length > 0) {
       // The provider's own account of the forked history wins over the local
@@ -3811,40 +3879,37 @@ export class CodexLifecycleManager {
   /**
    * Bind a session's OWN thread identity into the routing and metering band.
    *
-   * Called at each establishment, with the arm the establishment actually took.
-   * ORDER IS THE CONTRACT: the accountant's base registers are established
-   * BEFORE the router releases anything, because a released usage frame meters
-   * immediately and an unestablished thread would refuse it outright.
+   * Called at EVERY establishment — create, resume, and the rewind's fork —
+   * with the arm the establishment actually took. ORDER IS THE CONTRACT: the
+   * accountant's base registers are established BEFORE the router releases
+   * anything, because a released usage frame meters immediately and an
+   * unestablished thread would refuse it outright.
    *
    * The registration's released frames are RE-ROUTED rather than discarded: a
    * Codex session can receive traffic on its own thread before the establishing
    * response names that thread, and a discarding caller would shed it.
+   *
+   * Re-registering the session's own thread is also how the PREVIOUS one is
+   * retired. The router holds a single session-thread identity and this
+   * overwrites it, so after a rewind a frame naming the pre-fork thread is
+   * present-but-unregistered rather than the session's own. That is the whole
+   * retirement: the router exposes no separate retire entry point, and reaching
+   * around it here would make this a second writer of a value it owns.
    */
   #bindSessionThread(
     sessionId: SessionId,
     threadId: string,
-    establishment: "fresh" | "resume",
+    establishment: CodexUsageEstablishment,
   ): void {
     const accountant = this.usageAccountantFor(sessionId);
-    if (establishment === "fresh") {
+    if (establishment.mode === "fresh") {
       accountant.establishThread(threadId, { mode: "fresh" });
     } else {
-      const priorEmittedCumulative = this.#options.readPriorEmittedUsage?.(sessionId, threadId);
-      if (priorEmittedCumulative === undefined) {
-        // Never silent. With no prior-emitted sum to rebuild from, the base
-        // starts at zero and the first post-resume reading meters the WHOLE
-        // provider-session total — an overstatement of exactly the pre-resume
-        // spend. The resume arm is still taken rather than swapped for `fresh`,
-        // so the record says which arm ran and why it had nothing to work with.
-        this.#options.diagnostics.emit({
-          provider: "codex",
-          kind: "usage_resume_base_unavailable",
-          rawWireType: null,
-          dispositionReason:
-            "no prior-emitted cumulative sum was available for a provider-native resume; base registers start at zero, so the first post-resume reading meters pre-resume spend again",
-          details: { sessionId, threadId },
-        });
-      }
+      const priorEmittedCumulative = this.#readPriorEmittedSum(
+        sessionId,
+        threadId,
+        establishment.priorEmittedThreadId,
+      );
       accountant.establishThread(threadId, {
         mode: "resume",
         priorEmittedCumulative: priorEmittedCumulative ?? {},
@@ -3852,6 +3917,81 @@ export class CodexLifecycleManager {
     }
     const releasedFrames = this.frameRouterFor(sessionId).registerSessionThread(threadId);
     this.#deliverRoutedFrames(sessionId, releasedFrames);
+  }
+
+  /**
+   * Read the daemon's own prior-emitted cumulative sum for one thread.
+   *
+   * The diagnostic is reserved for the genuinely FAULTY arm — no reader bound,
+   * or a reader that threw. A bound reader answering `undefined` is a CORRECT
+   * answer to a correct question: a session that legitimately emitted nothing
+   * has a prior-emitted sum of zero, and basing at zero is exactly right for
+   * it. Recording that case too would fire the record on every zero-spend
+   * rewind and say nothing about any of them, and would claim spend was
+   * re-metered where none exists.
+   *
+   * The reader is CALLER-SUPPLIED, so its throw is contained here rather than
+   * allowed to escape. Two paths make that load-bearing: `rollbackTo` calls
+   * this AFTER the record has been re-pointed at the forked thread, where a
+   * throw would break that method's own promise that a failed rewind leaves the
+   * session exactly as it was and would report a fork that DID happen as one
+   * that did not; and `resumeSession` calls it against a live provider process,
+   * where a throw would convert a resumed session into a typed failure the
+   * daemon then tries to recover from. The base this returns is a telemetry
+   * input, and an over-metered turn is recoverable from the record below —
+   * neither of those two outcomes is.
+   */
+  #readPriorEmittedSum(
+    sessionId: SessionId,
+    threadId: string,
+    priorEmittedThreadId: string,
+  ): CumulativeAxisReadings | undefined {
+    const reader = this.#options.readPriorEmittedUsage;
+    if (reader === undefined) {
+      this.#emitResumeBaseUnavailable(
+        sessionId,
+        threadId,
+        priorEmittedThreadId,
+        "no prior-emitted usage reader is bound, so the daemon's own emitted sum could not be rebuilt; base registers start at zero, so the first reading meters already-emitted spend again",
+      );
+      return undefined;
+    }
+    try {
+      return reader(sessionId, priorEmittedThreadId);
+    } catch (cause) {
+      this.#emitResumeBaseUnavailable(
+        sessionId,
+        threadId,
+        priorEmittedThreadId,
+        `the prior-emitted usage reader failed, so the daemon's own emitted sum could not be rebuilt (${normalizeProviderFailureDetail(cause)}); base registers start at zero, so the first reading meters already-emitted spend again`,
+      );
+      return undefined;
+    }
+  }
+
+  /**
+   * Record a base the resume arm was taken with but could not obtain.
+   *
+   * Both thread ids travel because on a REWIND they differ: the sum was looked
+   * up under the pre-fork thread while the registers being based belong to the
+   * forked one, and an operator reconciling a receipt needs the pair to see
+   * which key came up empty. The resume arm is still taken rather than swapped
+   * for `fresh`, so the record says which arm ran and why it had nothing to
+   * work with.
+   */
+  #emitResumeBaseUnavailable(
+    sessionId: SessionId,
+    threadId: string,
+    priorEmittedThreadId: string,
+    dispositionReason: string,
+  ): void {
+    this.#options.diagnostics.emit({
+      provider: "codex",
+      kind: "usage_resume_base_unavailable",
+      rawWireType: null,
+      dispositionReason,
+      details: { sessionId, threadId, priorEmittedThreadId },
+    });
   }
 
   /**
@@ -3873,28 +4013,51 @@ export class CodexLifecycleManager {
       if (announcement !== null) {
         const registration = router.registerChildThread(announcement);
         if (registration.registered) {
-          // A registered child is a BRAND-NEW provider thread, so its base
-          // registers start at zero. Establishing it here rather than lazily is
-          // what makes the usage carve-out reachable at all: the accountant
-          // refuses an unestablished thread outright, so a child whose spend
-          // was never established would carve out of the parent's transcript
-          // and then be dropped on the floor — the child's cost vanishing
-          // rather than being scoped, which is not what I-005-12 asks for.
-          this.usageAccountantFor(sessionId).establishThread(registration.childThreadId, {
-            mode: "fresh",
-          });
-          // A provider-attributed child opens its `subagent.*` pair here, at
-          // the registration that admitted it. A provider-INTERNAL child (a
-          // compaction thread) carries no subagent identity, so it opens no
-          // pair — inventing one would put a subagent on the timeline that the
-          // provider never attributed to anything.
-          if (registration.attribution.kind === "subagent") {
-            this.#options.onSubagentLifecycle?.(sessionId, {
-              eventType: "subagent.started",
-              subagentId: registration.attribution.subagentId,
-              parentReference: announcement.declaredParentThreadId,
+          const accountant = this.usageAccountantFor(sessionId);
+          if (accountant.hasThread(registration.childThreadId)) {
+            // A SECOND announcement for a child already carrying a base. The
+            // router accepted it (re-registering a held identity is a no-op),
+            // but re-establishing would reset this child's register to zero
+            // mid-stream, so its next cumulative reading would re-meter every
+            // token it has already spent — double-counted spend on the receipt
+            // — and a second `subagent.started` would duplicate the child's
+            // only timeline presence. Recorded rather than returned on: the
+            // duplicate is a provider-side observation worth surfacing.
+            this.#options.diagnostics.emit({
+              provider: "codex",
+              kind: "thread_duplicate_child_announcement",
+              rawWireType: method,
+              dispositionReason:
+                "duplicate child-thread announcement for an already-registered child; usage base retained and no second started emission",
+              details: { sessionId, childThreadId: registration.childThreadId },
             });
+          } else {
+            // A registered child is a BRAND-NEW provider thread, so its base
+            // registers start at zero. Establishing it here rather than lazily
+            // is what makes the usage carve-out reachable at all: the
+            // accountant refuses an unestablished thread outright, so a child
+            // whose spend was never established would carve out of the parent's
+            // transcript and then be dropped on the floor — the child's cost
+            // vanishing rather than being scoped, which is not what I-005-12
+            // asks for.
+            accountant.establishThread(registration.childThreadId, { mode: "fresh" });
+            // A provider-attributed child opens its `subagent.*` pair here, at
+            // the registration that admitted it. A provider-INTERNAL child (a
+            // compaction thread) carries no subagent identity, so it opens no
+            // pair — inventing one would put a subagent on the timeline that
+            // the provider never attributed to anything.
+            if (registration.attribution.kind === "subagent") {
+              this.#options.onSubagentLifecycle?.(sessionId, {
+                eventType: "subagent.started",
+                subagentId: registration.attribution.subagentId,
+                parentReference: announcement.declaredParentThreadId,
+              });
+            }
           }
+          // Released unconditionally on BOTH arms. A hold can only exist for an
+          // identity the router had not yet seen, so the duplicate arm releases
+          // an empty list — but making the release conditional would couple the
+          // hold's fate to a metering decision it has nothing to do with.
           this.#deliverRoutedFrames(sessionId, registration.releasedFrames);
         }
       }

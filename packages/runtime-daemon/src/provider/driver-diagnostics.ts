@@ -78,10 +78,13 @@ export type DriverProviderName = "codex" | "claude";
  *     reaches a base register: a NaN admitted into a register poisons every
  *     later delta on that axis (`NaN < 0` is false, so the floor arm never
  *     fires) and the poison is unrecoverable without a re-establishment.
- *   - `usage_resume_base_unavailable` — a provider-native resume with no
- *     prior-emitted cumulative sum to base on. The base starts at zero and the
- *     first post-resume reading re-meters the pre-resume total, so the
- *     overstatement is recorded rather than left to surface on a receipt.
+ *   - `usage_resume_base_unavailable` — a resume or rewind whose prior-emitted
+ *     cumulative sum could not be OBTAINED: no reader is bound, or the reader
+ *     threw. Distinct from a reader that answers with nothing — a session that
+ *     legitimately emitted no spend bases at zero correctly and records
+ *     nothing. On the faulty arm the base starts at zero and the first reading
+ *     re-meters the whole pre-resume total, so the overstatement is recorded
+ *     rather than left to surface on a receipt.
  *   - `usage_cross_check_mismatch` — a wire-declared per-turn figure
  *     disagreeing with the derived interval; recorded, never substituted.
  *   - `usage_containment_identity_unconfirmed` — a token breakdown satisfying
@@ -95,6 +98,13 @@ export type DriverProviderName = "codex" | "claude";
  *   - `thread_registration_refused` — a child announcement carrying no
  *     recognized parent linkage; recognition derives from declared lineage,
  *     never from arrival order.
+ *   - `thread_duplicate_child_announcement` — a second announcement for a child
+ *     whose usage base is already established. Distinct from a refusal: the
+ *     router accepted the registration (re-registering an identity it already
+ *     holds is a no-op), and what the driver declined is the RE-BASING and the
+ *     duplicate `subagent.started`. Re-basing mid-stream would reset the
+ *     child's register to zero and re-meter its whole spend on the next
+ *     reading, so the announcement is recorded and the base retained.
  *   - `thread_child_transcript_suppressed` — first suppression of a registered
  *     child thread's transcript projection (deduplicated per thread so child
  *     content deltas do not flood the channel).
@@ -148,6 +158,7 @@ export type DriverDiagnosticKind =
   | "thread_quarantine_shed"
   | "thread_pending_hold_shed"
   | "thread_registration_refused"
+  | "thread_duplicate_child_announcement"
   | "thread_child_transcript_suppressed"
   | "capability_refresh_failed"
   | "auth_probe_failed"
@@ -202,6 +213,7 @@ export const DRIVER_DIAGNOSTIC_COUNTER_NAMES: Readonly<Record<DriverDiagnosticKi
     thread_quarantine_shed: "driver.thread_router.quarantine_shed",
     thread_pending_hold_shed: "driver.thread_router.pending_hold_shed",
     thread_registration_refused: "driver.thread_router.registration_refused",
+    thread_duplicate_child_announcement: "driver.thread_router.duplicate_child_announcement",
     thread_child_transcript_suppressed: "driver.thread_router.child_transcript_suppressed",
     capability_refresh_failed: "driver.capability_refresh.declaration_failed",
     auth_probe_failed: "driver.capability_refresh.auth_probe_failed",

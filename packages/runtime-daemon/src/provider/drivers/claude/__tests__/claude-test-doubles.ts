@@ -42,6 +42,19 @@ export const TEST_SECOND_RUN_ID: RunId = "run-2" as RunId;
 export const TEST_PINNED_PROVIDER_SESSION_ID: string = "provider-session-pinned";
 export const TEST_BINDING_ID: string = "binding-1";
 
+/**
+ * The route decisions the transport obligation says reach the normalize
+ * consumer, mirrored from {@link ClaudeSessionChannel.onInboundFrame}'s DELIVER
+ * column. Held here as data so the double cannot drift into "only `project`",
+ * which is the exact reading that once made this double enforce a rule the band
+ * does not have.
+ */
+const DELIVERED_ROUTE_DECISIONS: ReadonlySet<ThreadFrameRoute["decision"]> = new Set([
+  "project",
+  "route-connection-scoped",
+  "carve-out-interactive-request",
+]);
+
 export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
   readonly providerSessionId: string;
   readonly sentTextFrames: ClaudeUserTextFrame[] = [];
@@ -118,16 +131,18 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
   }[] = [];
 
   /** The frames this double handed to its own normalize consumer. */
-  readonly projectedFrameKinds: string[] = [];
+  readonly deliveredFrameKinds: string[] = [];
 
   /**
    * Drive one inbound stream frame, HONOURING the transport obligation in full.
    *
-   * The double observes before projecting and projects only on `project`,
-   * because a double that projected regardless would let a routing regression
-   * pass every test in this file. The terminal-vs-non-terminal discriminant
-   * stays here too: a real transport knows which terminal it saw, and the
-   * driver's `onTurnTerminal` hook deliberately carries no payload.
+   * The double observes before delivering and delivers exactly the decisions
+   * {@link ClaudeSessionChannel.onInboundFrame}'s DELIVER column names, because
+   * a double that delivered regardless — or that delivered only `project` —
+   * would let a routing regression pass every test in this file. The
+   * terminal-vs-non-terminal discriminant stays here too: a real transport
+   * knows which terminal it saw, and the driver's `onTurnTerminal` hook
+   * deliberately carries no payload.
    */
   emitStreamFrame(
     frameKind: string,
@@ -147,10 +162,10 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
       decision: "project",
     };
     this.observedRoutes.push({ observation, route });
-    if (route.decision !== "project") {
+    if (!DELIVERED_ROUTE_DECISIONS.has(route.decision)) {
       return route;
     }
-    this.projectedFrameKinds.push(frameKind);
+    this.deliveredFrameKinds.push(frameKind);
     if (frameKind.startsWith("result/")) {
       this.turnTerminalListener?.();
     }
