@@ -10,7 +10,7 @@
 // WHY `Pick<ProviderDriver, ...>` AND NOT `implements ProviderDriver`. This class
 // implements the six operations PR-A owns. The other eight — `rollbackTo`,
 // `respondToRequest`, `setSessionGoal`, `clearSessionGoal`, `listModels`,
-// `listModes`, `getCapabilities`, `probeAuth` — are authored by sibling Phase-3
+// `listModes`, `getCapabilities` — are authored by sibling Phase-3
 // tasks (T3.8 capabilities/models/modes, T3.14 interactive requests + auth probe,
 // T3.15 the R8 parity operations). Declaring the full interface today would force
 // throwing stubs into the driver, and a driver that answers a contract operation
@@ -23,14 +23,20 @@
 
 import type {
   ApplyInterventionParams,
+  ClearSessionGoalParams,
   CloseSessionParams,
   CreateSessionParams,
+  DriverAuthProbeResult,
+  DriverGoalResult,
   DriverInterventionResult,
   DriverResumeResult,
+  DriverRollbackResult,
   InterruptRunParams,
   ProviderDriver,
   ProviderSessionHandle,
   ResumeSessionParams,
+  RollbackToParams,
+  SetSessionGoalParams,
   StartRunParams,
 } from "@ai-sidekicks/contracts";
 
@@ -55,12 +61,22 @@ export {
   ClaudeControlRequestRefusedError,
   ClaudeSessionLifecycle,
   ClaudeSessionUnavailableError,
+  ClaudeSubagentConcurrencyGate,
+  CLAUDE_CALLBACK_MCP_SERVER_NAME,
+  CLAUDE_SUBAGENT_MAX_DEPTH_CEILING,
+  composeClaudeCallbackMcpServer,
+  composeClaudeProviderToolName,
+  composeClaudeSandboxSettings,
+  realizeClaudeSubagentPolicy,
+  type ClaudeCallbackMcpServerDescriptor,
   type ClaudeChannelDisposalReason,
   type ClaudeControlRequest,
   type ClaudeControlRequestRefusedFields,
   type ClaudeControlResponse,
   type ClaudeInterruptControlRequest,
   type ClaudeResumedSessionAttachment,
+  type ClaudeRewoundSessionAttachment,
+  type ClaudeSandboxSettings,
   type ClaudeRunChannelLookup,
   type ClaudeRunDispatch,
   type ClaudeRunDispatchResolver,
@@ -68,13 +84,18 @@ export {
   type ClaudeSessionChannel,
   type ClaudeSessionLifecycleDependencies,
   type ClaudeSessionResumeRequest,
+  type ClaudeSessionRewindRequest,
   type ClaudeSessionSpawnRequest,
   type ClaudeSessionTransport,
   type ClaudeSessionUnavailableContext,
   type ClaudeSessionUnavailableFields,
   type ClaudeSessionUnavailableReason,
   type ClaudeSpawnBoundLegs,
+  type ClaudeSubagentAdmissionPort,
+  type ClaudeSubagentPolicyRealization,
+  type ClaudeSubagentSlotRelease,
   type ClaudeUserTextFrame,
+  type ClaudeWithheldSubagentDefinition,
 } from "./lifecycle.js";
 
 // The operations PR-A owns, named once so the class declaration and any consumer
@@ -87,6 +108,10 @@ export type ClaudeDriverOperations = Pick<
   | "interruptRun"
   | "applyIntervention"
   | "closeSession"
+  | "rollbackTo"
+  | "setSessionGoal"
+  | "clearSessionGoal"
+  | "probeAuth"
 >;
 
 export type ClaudeDriverDependencies = ClaudeSessionLifecycleDependencies;
@@ -124,5 +149,21 @@ export class ClaudeDriver implements ClaudeDriverOperations {
 
   async closeSession(params: CloseSessionParams): Promise<void> {
     await this.#lifecycle.closeSession(params);
+  }
+
+  async rollbackTo(params: RollbackToParams): Promise<DriverRollbackResult> {
+    return await this.#lifecycle.rollbackTo(params);
+  }
+
+  async setSessionGoal(params: SetSessionGoalParams): Promise<DriverGoalResult> {
+    return await this.#lifecycle.setSessionGoal(params);
+  }
+
+  async clearSessionGoal(params: ClearSessionGoalParams): Promise<DriverGoalResult> {
+    return await this.#lifecycle.clearSessionGoal(params);
+  }
+
+  async probeAuth(): Promise<DriverAuthProbeResult> {
+    return await this.#lifecycle.probeAuth();
   }
 }

@@ -17,16 +17,28 @@
 // `ProviderRegistry.checkCapability` fail-closes on `!== true`, and
 // `assertValidCapabilityFlags` proves exact cardinality at the write seam.
 //
-// -- `cliVersion` is threaded, never fabricated --
+// -- `cliVersion` is threaded, never fabricated — floored, and READ FROM THE
+//    SPAWNED BUILD (T3.12 + T3.23) --
 //
 // `GetCapabilitiesResult.cliVersion` is REQUIRED and must describe the
-// provider binary this daemon actually spawns. Reading it in-band, and the
-// mechanical minimum-version floor that refuses a below-floor build, are
-// Plan-005 T3.12 / T3.23 (PR-B). This module therefore takes the report as a
-// REQUIRED input and passes it through VERBATIM — no parsing, no
-// normalization, no comparison. PR-B re-points the source without changing
-// this module's shape, and there is no code path here that can invent a
-// version for the fail-closed floor gate to accept.
+// provider binary this daemon actually spawns. Since T3.23 that is structural
+// rather than a convention: this module takes a `SpawnedProviderVersionReading`
+// — the in-band reading of the process started at a resolved executable path
+// (`../../version-gate.js`) — and threads its report through verbatim. A
+// declaration composed from a version that did NOT come from the spawned build
+// is therefore unrepresentable, which is the half of I-005-10 a bare report
+// argument left to caller discipline.
+//
+// The report is still passed through with no parsing, no normalization, and no
+// invented version, and the T3.12 floor is still enforced HERE before
+// composing: `getCodexCapabilities` refuses a below-floor reading fail-closed
+// (`driver.cli_version_below_floor`), so both attach (the registry's
+// registration read) and refresh (the scheduler-driven re-read) hit the gate
+// through the one composition path. The read path gates too; the compare is
+// pure and idempotent, so gating at both moments closes both doors rather than
+// duplicating a decision. The compare and the ratified floor value live in
+// `../../capability-refresh.js` — the single source of truth T3.23 re-points at
+// the in-band reading without moving the comparison.
 //
 // -- The refresh seam is an emission seam, not a scheduler --
 //
@@ -40,7 +52,8 @@
 //
 // What this function deliberately does NOT own: the poll timer, the 15-minute
 // cadence, the paired `probeAuth()`, and node attach/detach lifecycle. Those
-// belong to the `CapabilityRefreshScheduler` (Plan-005 T3.12, P2-9, PR-B).
+// belong to the `CapabilityRefreshScheduler` (`../../capability-refresh.js`,
+// T3.12 P2-9), which drives THIS seam on the bounded cadence.
 // Change detection is likewise NOT re-implemented here: duplicating the
 // writer's snapshot compare would create a second, divergable answer to
 // "did the capabilities change?".
@@ -51,9 +64,10 @@
 // hand-written mirror interface would silently keep compiling against a stale
 // shape. It also keeps a test's typed fake honest without a new abstraction.
 //
-// SCOPE BOUNDARY: the CLI-version floor and the refresh cadence (T3.12) and
-// the MCP idempotency floor + server-status census (T3.13) EXTEND this driver
-// in PR-B and are NOT implemented here. `transcript_replay` is not declared
+// SCOPE BOUNDARY: the MCP idempotency floor + server-status census (T3.13)
+// EXTEND this driver in a sibling PR-B task and are NOT implemented here; the
+// CLI-version floor and the refresh cadence landed with T3.12 (the floor
+// enforced below, the cadence in `../../capability-refresh.js`). `transcript_replay` is not declared
 // because it is not a member of the current canonical flag set; it lands with
 // its own task later in this phase, and the `Record` totality above makes
 // adding it a compile error until it is answered.
@@ -73,11 +87,13 @@ import type {
   GetCapabilitiesResult,
 } from "@ai-sidekicks/contracts";
 
+import { assertCliVersionMeetsFloor } from "../../capability-refresh.js";
 import type {
   DeclareDriverCapabilitiesInput,
   DeclareDriverCapabilitiesResult,
   DriverCapabilitiesWriter,
 } from "../../driver-capabilities-writer.js";
+import type { SpawnedProviderVersionReading } from "../../version-gate.js";
 
 import { getCodexToolMetadata } from "./tools.js";
 
@@ -148,20 +164,41 @@ export const CODEX_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boole
  * Compose the Codex `getCapabilities()` report.
  *
  * Synchronous and side-effect-free: every input is either a module constant or
- * the caller-supplied `cliVersion`, so there is nothing to await and nothing to
- * fail. `ProviderDriver.getCapabilities()` returns a Promise; T3.1's Codex
- * driver wraps this call, keeping the async boundary where the interface puts
- * it instead of manufacturing one here.
+ * the caller-supplied `cliVersion`, so there is nothing to await.
+ * `ProviderDriver.getCapabilities()` returns a Promise; T3.1's Codex driver
+ * wraps this call, keeping the async boundary where the interface puts it
+ * instead of manufacturing one here.
  *
  * Every returned object is FRESH. Handing back the module constants by
  * reference would let one caller's mutation corrupt every later declaration —
  * the same defensive-clone doctrine `ProviderRegistry` applies when it caches
  * a capability snapshot.
  *
- * @param cliVersion The report for the provider binary this node will spawn.
- *   Passed through verbatim; see the file header on why it is never invented.
+ * The one thing that CAN fail is the T3.12 floor gate: a below-floor (or
+ * non-canonical) reading REFUSES here — throwing
+ * `DriverCliVersionBelowFloorError` / `DriverCliVersionUnparseableError` —
+ * before any report is composed, so neither attach nor refresh can cache a
+ * declaration for a build the daemon does not support.
+ *
+ * @param reading The in-band reading of the build this node spawned
+ *   (`readSpawnedProviderVersion`). Its report is threaded verbatim; see the
+ *   file header on why it is never invented and why a bare report is not
+ *   accepted here.
  */
-export function getCodexCapabilities(cliVersion: DriverCliVersionReport): GetCapabilitiesResult {
+export function getCodexCapabilities(
+  reading: SpawnedProviderVersionReading,
+): GetCapabilitiesResult {
+  // A reading taken from ANOTHER driver's build would compose this driver's
+  // flags against a foreign version — a daemon wiring fault, not provider
+  // misbehaviour, so it is an internal-invariant `Error` rather than a typed
+  // provider refusal.
+  if (reading.driverName !== CODEX_DRIVER_NAME) {
+    throw new Error(
+      `getCodexCapabilities: refusing a spawned-version reading taken from driver '${reading.driverName}'`,
+    );
+  }
+  const cliVersion: DriverCliVersionReport = reading.report;
+  assertCliVersionMeetsFloor(CODEX_DRIVER_NAME, cliVersion);
   return {
     capabilities: {
       flags: { ...CODEX_CAPABILITY_FLAGS },
@@ -184,8 +221,13 @@ export interface CodexCapabilityRefreshInput {
   readonly sessionId: string;
   /** Runtime node the declared capabilities describe. */
   readonly nodeId: string;
-  /** Version report for the spawned provider binary; threaded through verbatim. */
-  readonly cliVersion: DriverCliVersionReport;
+  /**
+   * The in-band reading of the spawned provider build (T3.23). A REFRESH takes
+   * a NEW reading rather than replaying the attach-time one — that is what
+   * makes a mid-lifetime replacement detectable, and it is why the scheduler's
+   * entry closes over a reader rather than over a value.
+   */
+  readonly reading: SpawnedProviderVersionReading;
   /** EventEnvelope actor; omitted means the system actor. */
   readonly actor?: string | null;
 }
@@ -207,7 +249,7 @@ export async function refreshCodexCapabilities(
     sessionId: input.sessionId,
     nodeId: input.nodeId,
     driverName: CODEX_DRIVER_NAME,
-    result: getCodexCapabilities(input.cliVersion),
+    result: getCodexCapabilities(input.reading),
     // Spread conditionally: under `exactOptionalPropertyTypes` an explicit
     // `actor: undefined` is NOT the same as an absent `actor`, and the writer
     // defaults an ABSENT actor to the system actor.

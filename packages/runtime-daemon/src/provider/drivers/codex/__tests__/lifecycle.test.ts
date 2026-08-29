@@ -22,7 +22,7 @@
 // framing, correlation, deadline, and teardown code. Nothing in the module under
 // test is stubbed.
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   deriveMainChannelId,
@@ -30,15 +30,21 @@ import {
   DRIVER_FAILURE_DETAIL_MAX_LEN,
   type DriverCapabilities,
   type DriverCapabilityFlag,
+  type DriverResumeResult,
   type PtyHost,
   type PtySignal,
   type RunId,
   type SessionId,
   type SpawnRequest,
   type SpawnResponse,
+  type ApplyInterventionParams,
   type DrainResult,
+  type ExecutionPosture,
 } from "@ai-sidekicks/contracts";
 
+import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
+import type { SubagentLifecycleEmission } from "../../../thread-frame-router.js";
+import type { CumulativeAxisReadings, MeteredUsageDelta } from "../../../usage-delta-accountant.js";
 import {
   CodexAppServerConnection,
   CodexDriver,
@@ -50,17 +56,29 @@ import {
   CodexTransportError,
   CODEX_APP_SERVER_BIN_ENV_VAR,
   CODEX_APP_SERVER_READY_SENTINEL,
+  CODEX_APP_SERVER_SHELL_ARGV0,
   CODEX_APP_SERVER_SHELL_PRELUDE,
   CODEX_MAX_LINE_LENGTH,
+  CODEX_ROUTED_SERVER_REQUEST_METHODS,
+  CodexDriverConfigError,
+  composeCodexTransportArgv,
+  type CodexServerRequestDecision,
+  type CodexWebsocketBearerCredential,
+  type CodexSessionServerRequestResponder,
+  describeCodexPostureDivergence,
   normalizeProviderFailureDetail,
   parseCodexRunConfig,
   parseCodexSessionConfig,
+  resolveCodexTransportSelection,
   type CodexPtySessionListeners,
   type CodexPtySessionSubscriber,
   type CodexScheduleTimeout,
   type CodexSessionConfig,
   type CodexTransportDiagnostic,
+  type CodexTransportSelection,
+  CODEX_INTERVENTION_FALLBACK_ACTION,
 } from "../index.js";
+import { CODEX_NEGOTIATION_GATED_METHODS } from "../event-normalizer.js";
 
 // --------------------------------------------------------------------------
 // Fakes
@@ -430,7 +448,20 @@ interface Harness {
   server: FakeCodexAppServer;
   driver: CodexDriver;
   diagnostics: CodexTransportDiagnostic[];
+  driverDiagnostics: DriverDiagnosticsEmitter;
   scheduler: ReturnType<typeof makeManualScheduler>;
+}
+
+/**
+ * The T3.11 diagnostic band, silenced. The default log sink writes to the
+ * console, which would make every policy diagnostic a line of test output; the
+ * emitter still retains the records, which is what the assertions read.
+ */
+function makeSilentDriverDiagnostics(): DriverDiagnosticsEmitter {
+  return new DriverDiagnosticsEmitter({
+    logSink: { record: () => undefined },
+    counterSink: { increment: () => undefined },
+  });
 }
 
 function createHarness(
@@ -438,10 +469,17 @@ function createHarness(
 ): Harness {
   const server = new FakeCodexAppServer();
   server.on("initialize", () => ({ result: { userAgent: "codex-driver/0.149.1" } }));
+  // Answered by default so the P3-3 resume-failure auth classification resolves:
+  // these tests run on a manual scheduler where its deadline would never fire,
+  // and a logged-in provider is the realistic baseline. Cases that care about
+  // the logged-out reading re-register this method.
+  server.on("getAuthStatus", () => ({ result: { authMethod: "chatgpt", authToken: null } }));
   const diagnostics: CodexTransportDiagnostic[] = [];
+  const driverDiagnostics = makeSilentDriverDiagnostics();
   const scheduler = makeManualScheduler();
   const driver = new CodexDriver({
     ptyHost: server,
+    diagnostics: driverDiagnostics,
     subscribeToPtySession:
       options.subscribeToPtySession ??
       ((ptySessionId, listeners) => server.subscribe(ptySessionId, listeners)),
@@ -454,7 +492,7 @@ function createHarness(
     newBindingId: () => "binding-abc",
     readCapabilities: () => makeCapabilities(options.steer ?? true),
   });
-  return { server, driver, diagnostics, scheduler };
+  return { server, driver, diagnostics, driverDiagnostics, scheduler };
 }
 
 function threadStartResult(turnCount = 0): JsonRpcAnswer {
@@ -478,7 +516,10 @@ interface ManagerHarness {
   server: FakeCodexAppServer;
   manager: CodexLifecycleManager;
   diagnostics: CodexTransportDiagnostic[];
+  driverDiagnostics: DriverDiagnosticsEmitter;
   notifications: Array<{ method: string; params: unknown }>;
+  meteredUsage: Array<{ sessionId: SessionId; delta: MeteredUsageDelta }>;
+  subagentLifecycle: Array<{ sessionId: SessionId; emission: SubagentLifecycleEmission }>;
   scheduler: ReturnType<typeof makeManualScheduler>;
 }
 
@@ -508,6 +549,11 @@ interface ManagerHarnessOptions {
    * survived, so throwing from every one would make the property unobservable.
    */
   throwOnFirstNotification?: boolean;
+  /** Supplies the daemon's prior-emitted cumulative sums for a resume base. */
+  readPriorEmittedUsage?: (
+    sessionId: SessionId,
+    threadId: string,
+  ) => CumulativeAxisReadings | undefined;
 }
 
 /**
@@ -524,13 +570,23 @@ function createManagerHarness(options: ManagerHarnessOptions = {}): ManagerHarne
   // Answered, because the manager's teardown awaits it and these tests run on a
   // manual scheduler where the courtesy deadline would never fire.
   server.on("thread/unsubscribe", () => ({ result: {} }));
+  // Answered by default so the P3-3 resume-failure auth classification resolves:
+  // these tests run on a manual scheduler where its deadline would never fire,
+  // and a logged-in provider is the realistic baseline. Cases that care about
+  // the logged-out reading re-register this method.
+  server.on("getAuthStatus", () => ({ result: { authMethod: "chatgpt", authToken: null } }));
   const diagnostics: CodexTransportDiagnostic[] = [];
+  const driverDiagnostics = makeSilentDriverDiagnostics();
   const notifications: Array<{ method: string; params: unknown }> = [];
+  const meteredUsage: Array<{ sessionId: SessionId; delta: MeteredUsageDelta }> = [];
+  const subagentLifecycle: Array<{ sessionId: SessionId; emission: SubagentLifecycleEmission }> =
+    [];
   const scheduler = makeManualScheduler();
   let firstDiagnosticThrown = false;
   let firstNotificationThrown = false;
   const manager = new CodexLifecycleManager({
     ptyHost: server,
+    diagnostics: driverDiagnostics,
     subscribeToPtySession: (ptySessionId, listeners) => {
       const dispose = server.subscribe(ptySessionId, listeners);
       if (options.throwingSubscriptionDisposer !== true) {
@@ -552,6 +608,11 @@ function createManagerHarness(options: ManagerHarnessOptions = {}): ManagerHarne
     executablePath: EXECUTABLE_PATH,
     resumeSpawnConfig: RESUME_SPAWN_CONFIG,
     newBindingId: options.newBindingId ?? ((): string => "binding-abc"),
+    onMeteredUsage: (sessionId, delta) => meteredUsage.push({ sessionId, delta }),
+    onSubagentLifecycle: (sessionId, emission) => subagentLifecycle.push({ sessionId, emission }),
+    ...(options.readPriorEmittedUsage === undefined
+      ? {}
+      : { readPriorEmittedUsage: options.readPriorEmittedUsage }),
     ...(options.onServerNotification === true
       ? {
           onServerNotification: (method: string, params: unknown): void => {
@@ -564,7 +625,16 @@ function createManagerHarness(options: ManagerHarnessOptions = {}): ManagerHarne
         }
       : {}),
   });
-  return { server, manager, diagnostics, notifications, scheduler };
+  return {
+    server,
+    manager,
+    diagnostics,
+    driverDiagnostics,
+    notifications,
+    meteredUsage,
+    subagentLifecycle,
+    scheduler,
+  };
 }
 
 /** A `turn/completed` frame at the pinned shape (`params.turn.{id,status}`). */
@@ -588,7 +658,15 @@ describe("CodexDriver spawn and handshake", () => {
     const spawnRequest = harness.server.spawnRequests[0];
     expect(spawnRequest).toBeDefined();
     expect(spawnRequest?.command).toBe("/bin/sh");
-    expect(spawnRequest?.args).toEqual(["-c", CODEX_APP_SERVER_SHELL_PRELUDE]);
+    // The stdio default: the prelude script, its `$0` label, and the single
+    // positional word naming the subcommand. `"$@"` carries the transport argv
+    // (T3.15 leg 6) as positional parameters the shell never re-parses.
+    expect(spawnRequest?.args).toEqual([
+      "-c",
+      CODEX_APP_SERVER_SHELL_PRELUDE,
+      CODEX_APP_SERVER_SHELL_ARGV0,
+      "app-server",
+    ]);
     expect(spawnRequest?.cwd).toBe(SESSION_CWD);
   });
 
@@ -598,8 +676,12 @@ describe("CodexDriver spawn and handshake", () => {
     // deliverable at all; `-echo` stops the reader seeing its own frames; `&&`
     // makes a failed `stty` abort the launch instead of degrading into silent
     // truncation; `exec` leaves no shell between PtyHost and the provider.
+    // `"$@"` rather than a literal `app-server`: the subcommand and every
+    // transport flag reach the provider as POSITIONAL parameters, so a
+    // daemon-configured socket path or credential-file path cannot be
+    // re-parsed by the shell (T3.15 leg 6).
     expect(CODEX_APP_SERVER_SHELL_PRELUDE).toBe(
-      `stty -icanon -echo && printf '%s\\n' ${CODEX_APP_SERVER_READY_SENTINEL} && exec "$${CODEX_APP_SERVER_BIN_ENV_VAR}" app-server`,
+      `stty -icanon -echo && printf '%s\\n' ${CODEX_APP_SERVER_READY_SENTINEL} && exec "$${CODEX_APP_SERVER_BIN_ENV_VAR}" "$@"`,
     );
   });
 
@@ -1042,9 +1124,13 @@ describe("CodexDriver resumeSession (I-005-5, Spec-005 §Fallback Behavior)", ()
     server.on("thread/resume", () => ({
       error: { code: -32600, message: "thread not found" },
     }));
+    // The typed refusal above admits the P3-3 classification, which asks this
+    // connection one question before the release under test happens.
+    server.on("getAuthStatus", () => ({ result: { authMethod: "chatgpt", authToken: null } }));
     const scheduler = makeManualScheduler();
     const driver = new CodexDriver({
       ptyHost: server,
+      diagnostics: makeSilentDriverDiagnostics(),
       // The disposer is caller-supplied code, so it is a real throw source on a
       // path whose whole obligation is to RETURN rather than throw.
       subscribeToPtySession: (ptySessionId, listeners) => {
@@ -1123,11 +1209,16 @@ describe("CodexAppServerConnection transport", () => {
     const harness = createHarness();
     await createdSession(harness);
 
+    // `attestation/generate` rather than an approval method: the approval and
+    // callback-tool asks are ROUTED since T3.15 leg 3 and answer with their own
+    // refusal shapes. This one is censused and deliberately unrouted — the
+    // driver declines attestation at negotiation — so it still witnesses the
+    // fail-closed default arm on a method the pinned census knows.
     harness.server.emitFrame({
       jsonrpc: "2.0",
       id: 77,
-      method: "execCommandApproval",
-      params: { command: "rm -rf /" },
+      method: "attestation/generate",
+      params: {},
     });
     await Promise.resolve();
 
@@ -1138,7 +1229,7 @@ describe("CodexAppServerConnection transport", () => {
     expect(replies[0]?.["error"]).toMatchObject({ code: -32601 });
     expect(harness.diagnostics).toContainEqual({
       kind: "unhandled-server-request",
-      method: "execCommandApproval",
+      method: "attestation/generate",
       // A method the pin's `ServerRequest` census knows. Recorded on the
       // diagnostic rather than gating the answer -- see the uncensused case.
       censused: true,
@@ -1232,8 +1323,8 @@ describe("CodexAppServerConnection transport", () => {
     harness.server.emitFrame({
       jsonrpc: "2.0",
       id: sentId,
-      method: "execCommandApproval",
-      params: { command: "rm -rf /" },
+      method: "attestation/generate",
+      params: {},
     });
     await Promise.resolve();
 
@@ -1251,13 +1342,50 @@ describe("CodexAppServerConnection transport", () => {
     const harness = createHarness();
     await createdSession(harness);
 
-    harness.server.emitFrame({ jsonrpc: "2.0", method: "thread/itemAdded", params: {} });
+    // A CENSUSED, thread-scoped method carrying the session's own thread id, so
+    // it routes to `project` and reaches the hand-off — the seam this asserts.
+    // A frame the router refused would never get there, and would be recorded
+    // as a quarantine instead (asserted separately below).
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      method: "thread/queue/changed",
+      params: { threadId: THREAD_ID },
+    });
     await Promise.resolve();
 
     expect(harness.diagnostics).toContainEqual({
       kind: "unconsumed-server-notification",
+      method: "thread/queue/changed",
+    });
+  });
+
+  it("quarantines a method the routing census does not classify instead of projecting it", async () => {
+    const harness = createHarness();
+    await createdSession(harness);
+
+    // The census fixture states its own completeness limit: 35 named methods
+    // out of a wider generated union. An unlisted method therefore reaches the
+    // classifier's `unknown` arm, and the fail-closed rule refuses it rather
+    // than presuming it belongs to the session's own thread.
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      method: "thread/itemAdded",
+      params: { threadId: THREAD_ID },
+    });
+    await Promise.resolve();
+
+    // Refused, not delivered: no hand-off happened, so no unconsumed record.
+    expect(harness.diagnostics).not.toContainEqual({
+      kind: "unconsumed-server-notification",
       method: "thread/itemAdded",
     });
+    // And never a silent drop — the refusal is on the driver diagnostic band.
+    expect(
+      harness.driverDiagnostics.recentRecordsOfKind("thread_frame_quarantined").map((record) => ({
+        kind: record.kind,
+        rawWireType: record.rawWireType,
+      })),
+    ).toContainEqual({ kind: "thread_frame_quarantined", rawWireType: "thread/itemAdded" });
   });
 
   it("reports unparsable output instead of dropping it", async () => {
@@ -1412,6 +1540,7 @@ describe("CodexDriver session ownership (Spec-005 §Required Behavior)", () => {
     const scheduler = makeManualScheduler();
     const manager = new CodexLifecycleManager({
       ptyHost: server,
+      diagnostics: makeSilentDriverDiagnostics(),
       subscribeToPtySession: (ptySessionId, listeners) => server.subscribe(ptySessionId, listeners),
       reportDiagnostic: () => {},
       scheduleTimeout: scheduler.schedule,
@@ -1446,8 +1575,9 @@ describe("CodexDriver approval reviewer pinning", () => {
   // The security property: every approval request the provider raises must reach
   // the daemon's own approval pipeline, so no config or profile override may
   // select `auto_review`. `approvalsReviewer` is present on ThreadStartParams,
-  // ThreadResumeParams AND TurnStartParams at `codex-cli 0.149.1` (verified
-  // 2026-08-27 against the binary's own generated schema), and the per-turn field
+  // ThreadResumeParams AND TurnStartParams at `codex-cli 0.150.1` (verified
+  // 2026-08-28 against the binary's own generated schema, all three params types
+  // byte-identical to the `0.149.1` generation), and the per-turn field
   // is documented as overriding routing for "this turn and subsequent turns" --
   // so a thread-level pin alone is defeated by any per-turn override.
   it("pins the reviewer on the thread AND on every turn, not just at thread start", async () => {
@@ -1476,6 +1606,437 @@ describe("CodexDriver approval reviewer pinning", () => {
     for (const frame of turnFrames) {
       expect(frame["params"]).toMatchObject({ approvalsReviewer: "user" });
     }
+  });
+});
+
+// --------------------------------------------------------------------------
+// Zero-turn auth probe (P0-5) — `getAuthStatus` over a dedicated connection
+// --------------------------------------------------------------------------
+
+describe("CodexLifecycleManager probeAuth (T3.14 P0-5)", () => {
+  function probingHarness(answer: JsonRpcAnswer | undefined): ManagerHarness {
+    const harness = createManagerHarness();
+    if (answer !== undefined) {
+      harness.server.on("getAuthStatus", () => answer);
+    }
+    return harness;
+  }
+
+  it("never asks the provider to refresh, and never asks for the token", async () => {
+    const harness = probingHarness({ result: { authMethod: "chatgpt", authToken: null } });
+
+    await harness.manager.probeAuth();
+
+    // `refreshToken: false` is the load-bearing half: the pinned providers rotate
+    // refresh tokens single-use with no grace window, so a probe that refreshed
+    // would END the login it was checking rather than observe it. Both members
+    // are asserted PRESENT, not merely falsy — `GetAuthStatusParams` types them
+    // required-but-nullable, so omitting either leaves the behaviour to the
+    // provider's default.
+    expect(harness.server.framesForMethod("getAuthStatus")[0]?.["params"]).toEqual({
+      includeToken: false,
+      refreshToken: false,
+    });
+  });
+
+  it("reports authenticated and names the auth method, never the token", async () => {
+    const harness = probingHarness({
+      result: {
+        authMethod: "chatgpt",
+        authToken: "sk-should-never-be-read",
+        requiresOpenaiAuth: true,
+      },
+    });
+
+    const result = await harness.manager.probeAuth();
+
+    expect(result.status).toBe("authenticated");
+    expect(result.detail).toContain("chatgpt");
+    // `authMethod` is a closed mechanism enum and safe as diagnostics; the token
+    // is credential material this driver must never echo, anywhere.
+    expect(JSON.stringify(result)).not.toContain("sk-should-never-be-read");
+  });
+
+  it("reports unauthenticated when no auth method is resolved", async () => {
+    const harness = probingHarness({
+      result: { authMethod: null, authToken: null, requiresOpenaiAuth: true },
+    });
+
+    await expect(harness.manager.probeAuth()).resolves.toMatchObject({
+      status: "unauthenticated",
+    });
+  });
+
+  it("still refuses, but says so differently, when the provider needs no OpenAI sign-in", async () => {
+    const harness = probingHarness({
+      result: { authMethod: null, authToken: null, requiresOpenaiAuth: false },
+    });
+
+    const result = await harness.manager.probeAuth();
+
+    // Conservative on the admission axis, precise on the diagnostic one: "no
+    // OpenAI credential is needed" is not evidence the credential this
+    // configuration DOES need is present.
+    expect(result.status).toBe("unauthenticated");
+    expect(result.detail).toContain("requires no OpenAI sign-in");
+  });
+
+  it("reports indeterminate — not unauthenticated — when the probe surface refuses", async () => {
+    const harness = probingHarness({
+      error: { code: -32601, message: "Method not found" },
+    });
+
+    const result = await harness.manager.probeAuth();
+
+    // Probe health and credential state are different facts with different
+    // operator actions. Claiming `unauthenticated` here would send an operator to
+    // re-authenticate a credential that was never in question.
+    expect(result.status).toBe("indeterminate");
+  });
+
+  it("reports indeterminate when the answer is unreadable", async () => {
+    const harness = probingHarness({ result: { authMethod: 17 } });
+
+    await expect(harness.manager.probeAuth()).resolves.toMatchObject({
+      status: "indeterminate",
+    });
+  });
+
+  it("returns indeterminate rather than throwing when the spawn itself fails", async () => {
+    const harness = probingHarness(undefined);
+    harness.server.spawnResponse = {
+      kind: "spawn_response",
+      session_id: "",
+      error: "no such file",
+    };
+
+    // Total by contract: a throw would hand the admission leg a third channel it
+    // has no rule for, and would collapse "the probe is unhealthy" into "the
+    // transport is down".
+    await expect(harness.manager.probeAuth()).resolves.toMatchObject({
+      status: "indeterminate",
+    });
+  });
+
+  it("spawns from the constructed resume environment and tears the child down", async () => {
+    const harness = probingHarness({ result: { authMethod: "apikey" } });
+
+    await harness.manager.probeAuth();
+
+    // The probe is a spawn like any other on this manager: its environment is
+    // CONSTRUCTED from `resumeSpawnConfig`, never inherited from the daemon.
+    const spawn = harness.server.spawnRequests[0];
+    expect(spawn?.cwd).toBe(RESUME_SPAWN_CONFIG.cwd);
+    expect(spawn?.env).toEqual([
+      ["HOME", "/home/agent"],
+      [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
+    ]);
+    expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
+  });
+
+  it("claims no session slot, so a create for any session still succeeds after it", async () => {
+    const harness = probingHarness({ result: { authMethod: "chatgpt" } });
+    harness.server.uniqueSpawnSessionIds = true;
+
+    await harness.manager.probeAuth();
+
+    // A probe that installed a record or held a transition would have made the
+    // cheap admission check the most expensive thing in the lifecycle.
+    await expect(
+      harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG }),
+    ).resolves.toMatchObject({ resumeHandle: THREAD_ID });
+  });
+
+  it("starts no thread — the probe is zero-turn, not a discardable session", async () => {
+    const harness = probingHarness({ result: { authMethod: "chatgpt" } });
+
+    await harness.manager.probeAuth();
+
+    expect(harness.server.framesForMethod("thread/start")).toEqual([]);
+    expect(harness.server.framesForMethod("turn/start")).toEqual([]);
+  });
+});
+
+// --------------------------------------------------------------------------
+// Steer on the wire — P0-3's key ride-through and P3-1's acknowledgement grade
+// --------------------------------------------------------------------------
+
+describe("CodexDriver spawn-environment hygiene (T3.14 P0-4)", () => {
+  // A variable that exists in the DAEMON's environment and in no supplied
+  // config. Any appearance of it in a child environment means some path spread
+  // `process.env`, which is the whole failure P0-4 forbids: the child
+  // environment is CONSTRUCTED, never inherited. It is also the shape a deny
+  // list depends on — a policy can only strip what the constructor put there, so
+  // a driver that adds entries of its own would defeat the strip no matter how
+  // the list is resolved.
+  const DAEMON_CANARY_ENV_VAR = "AI_SIDEKICKS_T314_ENV_CANARY";
+
+  beforeEach(() => {
+    process.env[DAEMON_CANARY_ENV_VAR] = "must-not-reach-a-provider-child";
+  });
+
+  afterEach(() => {
+    delete process.env[DAEMON_CANARY_ENV_VAR];
+  });
+
+  function spawnedEnvNames(request: SpawnRequest | undefined): string[] {
+    return (request?.env ?? []).map(([name]) => name);
+  }
+
+  it("keeps the daemon's own environment out of a created session's child", async () => {
+    const harness = createHarness();
+    await createdSession(harness);
+
+    expect(spawnedEnvNames(harness.server.spawnRequests[0])).not.toContain(DAEMON_CANARY_ENV_VAR);
+  });
+
+  it("keeps it out of a resume relaunch, which is a fresh spawn like any other", async () => {
+    const harness = createHarness();
+    harness.server.on("thread/resume", () => threadStartResult(1));
+
+    await harness.driver.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
+
+    // Called out separately because a resume takes a DIFFERENT config object
+    // (`resumeSpawnConfig`) down a different code path, so the create-path
+    // assertion above does not cover it.
+    expect(harness.server.spawnRequests[0]?.env).toEqual([
+      ["HOME", "/home/agent"],
+      [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
+    ]);
+  });
+
+  it("keeps it out of the auth probe's child, which is the third spawn path", async () => {
+    const harness = createManagerHarness();
+
+    await harness.manager.probeAuth();
+
+    expect(harness.server.spawnRequests[0]?.env).toEqual([
+      ["HOME", "/home/agent"],
+      [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
+    ]);
+  });
+});
+
+describe("CodexDriver resume-failure taxonomy (T3.14 P3-3)", () => {
+  const REFUSED_RESUME: JsonRpcAnswer = {
+    error: { code: -32600, message: "thread not found" },
+  };
+
+  function refusingHarness(authAnswer: JsonRpcAnswer): Harness {
+    const harness = createHarness();
+    harness.server.on("thread/resume", () => REFUSED_RESUME);
+    harness.server.on("getAuthStatus", () => authAnswer);
+    return harness;
+  }
+
+  async function resume(harness: Harness): Promise<DriverResumeResult> {
+    return await harness.driver.resumeSession({
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+    });
+  }
+
+  it("reports reauth-required when the refusing provider resolves no auth method", async () => {
+    const harness = refusingHarness({ result: { authMethod: null, requiresOpenaiAuth: true } });
+
+    // The two conditions name two DIFFERENT operator actions, so this is the
+    // whole point of the leg: an expired credential must not be reported as
+    // "reconcile this by hand".
+    await expect(resume(harness)).resolves.toMatchObject({
+      status: "failed",
+      recoveryCondition: "reauth-required",
+    });
+  });
+
+  it("reports recovery-needed when the refusing provider is still authenticated", async () => {
+    const harness = refusingHarness({ result: { authMethod: "chatgpt", authToken: null } });
+
+    await expect(resume(harness)).resolves.toMatchObject({
+      status: "failed",
+      recoveryCondition: "recovery-needed",
+    });
+  });
+
+  it("never spends a credential rotation to classify a failure", async () => {
+    const harness = refusingHarness({ result: { authMethod: null } });
+
+    await resume(harness);
+
+    // Same pin as the admission probe, and load-bearing for the same reason:
+    // the pinned providers rotate refresh tokens single-use with no grace
+    // window, so classifying a failure by refreshing would END the login it was
+    // asking about.
+    expect(harness.server.framesForMethod("getAuthStatus")[0]?.["params"]).toEqual({
+      includeToken: false,
+      refreshToken: false,
+    });
+  });
+
+  it("asks nothing when the failure was not a typed provider refusal", async () => {
+    const harness = createHarness();
+    // A well-formed reply carrying no turn history: the connection is alive and
+    // WOULD answer, but the cause is a transport-level defect rather than a
+    // refusal the provider issued, so it carries no proof the child is healthy.
+    harness.server.on("thread/resume", () => ({
+      result: { thread: { id: THREAD_ID, sessionId: "session-tree-1" } },
+    }));
+    harness.server.on("getAuthStatus", () => ({ result: { authMethod: null } }));
+
+    const result = await resume(harness);
+
+    // The negative control that makes the gate real: this auth answer would
+    // classify `reauth-required` if it were consulted at all.
+    expect(harness.server.framesForMethod("getAuthStatus")).toHaveLength(0);
+    expect(result).toMatchObject({ status: "failed", recoveryCondition: "recovery-needed" });
+  });
+
+  it("does not upgrade an unreadable auth answer into reauth-required", async () => {
+    const harness = refusingHarness({ result: { authMethod: 17 } });
+
+    // An unhealthy probe is evidence about the PROBE, never about the
+    // credential, so `indeterminate` takes the conservative arm.
+    await expect(resume(harness)).resolves.toMatchObject({
+      recoveryCondition: "recovery-needed",
+    });
+  });
+
+  it("keeps the classification from displacing the typed failure it rides on", async () => {
+    const harness = createHarness();
+    harness.server.on("thread/resume", () => REFUSED_RESUME);
+    harness.server.on("getAuthStatus", () => ({
+      error: { code: -32601, message: "no such method" },
+    }));
+
+    const result = await resume(harness);
+
+    // A build that does not answer the question must still produce I-005-5's
+    // typed result — with the resume's OWN cause on the detail, not the probe's.
+    expect(result).toMatchObject({ status: "failed", recoveryCondition: "recovery-needed" });
+    expect(result).not.toHaveProperty("bindingId");
+    expect((result as { providerFailureDetail: string }).providerFailureDetail).toContain(
+      "thread not found",
+    );
+  });
+
+  it("classifies before releasing the connection, and still releases it", async () => {
+    const harness = refusingHarness({ result: { authMethod: null } });
+
+    await resume(harness);
+
+    // Ordering, asserted by consequence: the question reached a live child, and
+    // that child is not left running afterwards.
+    expect(harness.server.framesForMethod("getAuthStatus")).toHaveLength(1);
+    expect(harness.server.closedSessions).toEqual(["pty-session-1"]);
+  });
+});
+
+describe("CodexLifecycleManager steer wire shape (T3.14 P0-3, P3-1)", () => {
+  const STEER_KEY = "9a1d8f30-0000-4000-8000-0000000000aa";
+
+  /** A harness with one live session and one live turn, ready to be steered. */
+  async function steerableHarness(steerAnswer: JsonRpcAnswer): Promise<Harness> {
+    const harness = createHarness();
+    await createdSession(harness);
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    harness.server.on("turn/steer", () => steerAnswer);
+    await harness.driver.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "one" },
+    });
+    return harness;
+  }
+
+  function steerIntervention(expectedTurnId?: string): ApplyInterventionParams {
+    return {
+      type: "steer",
+      targetRunId: RUN_ID,
+      expectedRunVersion: 1,
+      clientIdempotencyKey: STEER_KEY,
+      payload: {
+        content: "focus on the failing test",
+        ...(expectedTurnId === undefined ? {} : { expectedTurnId }),
+      },
+    };
+  }
+
+  it("carries the requester's idempotency key on the wire as clientUserMessageId", async () => {
+    const harness = await steerableHarness({ result: { turnId: TURN_ID } });
+
+    await harness.driver.applyIntervention(steerIntervention(TURN_ID));
+
+    // Verbatim, on the pinned `TurnSteerParams` member — the same carrier
+    // `turn/start` uses. A key re-minted at the driver boundary would hand the
+    // provider a fresh value on every retry and defeat the dedupe it exists for.
+    expect(harness.server.framesForMethod("turn/steer")[0]?.["params"]).toMatchObject({
+      threadId: THREAD_ID,
+      expectedTurnId: TURN_ID,
+      clientUserMessageId: STEER_KEY,
+    });
+  });
+
+  it("pins the steer to the live turn when the caller named none", async () => {
+    const harness = await steerableHarness({ result: { turnId: TURN_ID } });
+
+    const result = await harness.driver.applyIntervention(steerIntervention());
+
+    // The provider REQUIRES the precondition, so an absent caller expectation
+    // becomes the live turn on the wire — and the acknowledgement is graded
+    // against THAT, not against the caller's absent hint.
+    expect(harness.server.framesForMethod("turn/steer")[0]?.["params"]).toMatchObject({
+      expectedTurnId: TURN_ID,
+    });
+    expect(result).toEqual({ status: "applied" });
+  });
+
+  it("reads the flat turnId acknowledgement, not turn/start's nested turn object", async () => {
+    // `TurnSteerResponse` is `{ turnId }`; `TurnStartResponse` is `{ turn: { id } }`.
+    // Reading the wrong one would return null for every successful steer and
+    // degrade the entire happy path.
+    const harness = await steerableHarness({ result: { turnId: TURN_ID } });
+
+    await expect(harness.driver.applyIntervention(steerIntervention(TURN_ID))).resolves.toEqual({
+      status: "applied",
+    });
+  });
+
+  it("degrades when the provider acknowledges a different turn", async () => {
+    const harness = await steerableHarness({ result: { turnId: "turn-99" } });
+
+    await expect(harness.driver.applyIntervention(steerIntervention(TURN_ID))).resolves.toEqual({
+      status: "degraded",
+      fallbackAction: CODEX_INTERVENTION_FALLBACK_ACTION,
+    });
+  });
+
+  it("degrades rather than throwing when the acknowledgement names no turn", async () => {
+    const harness = await steerableHarness({ result: {} });
+
+    // The request WAS answered, so this is an acknowledgement carrying no
+    // evidence — not an outage. Throwing would tell the orchestration layer a
+    // live provider is unreachable.
+    await expect(harness.driver.applyIntervention(steerIntervention(TURN_ID))).resolves.toEqual({
+      status: "degraded",
+      fallbackAction: CODEX_INTERVENTION_FALLBACK_ACTION,
+    });
+  });
+
+  it("sends no client-supplied identifier on the interrupt path", async () => {
+    const harness = await steerableHarness({ result: { turnId: TURN_ID } });
+    harness.server.on("turn/interrupt", () => ({ result: {} }));
+
+    await harness.driver.applyIntervention({
+      type: "interrupt",
+      targetRunId: RUN_ID,
+      expectedRunVersion: 1,
+      clientIdempotencyKey: STEER_KEY,
+      payload: {},
+    });
+
+    // `TurnInterruptParams` is `{ threadId, turnId }` at the pin. An invented
+    // carrier here would be an unregistered wire field.
+    const params = harness.server.framesForMethod("turn/interrupt")[0]?.["params"];
+    expect(Object.keys(params as Record<string, unknown>).sort()).toEqual(["threadId", "turnId"]);
   });
 });
 
@@ -1677,8 +2238,8 @@ describe("CodexAppServerConnection event-callback containment", () => {
     try {
       harness.server.emitRaw(
         new TextEncoder().encode(
-          `{"jsonrpc":"2.0","method":"turn/started","params":{}}\r\n` +
-            `{"jsonrpc":"2.0","method":"turn/plan/updated","params":{}}\r\n`,
+          `{"jsonrpc":"2.0","method":"turn/started","params":{"threadId":"${THREAD_ID}"}}\r\n` +
+            `{"jsonrpc":"2.0","method":"turn/plan/updated","params":{"threadId":"${THREAD_ID}"}}\r\n`,
         ),
       );
     } catch (error) {
@@ -1762,8 +2323,8 @@ describe("CodexAppServerConnection event-callback containment", () => {
     try {
       harness.server.emitRaw(
         new TextEncoder().encode(
-          `{"jsonrpc":"2.0","method":"turn/started","params":{}}\r\n` +
-            `{"jsonrpc":"2.0","method":"turn/plan/updated","params":{}}\r\n`,
+          `{"jsonrpc":"2.0","method":"turn/started","params":{"threadId":"${THREAD_ID}"}}\r\n` +
+            `{"jsonrpc":"2.0","method":"turn/plan/updated","params":{"threadId":"${THREAD_ID}"}}\r\n`,
         ),
       );
     } catch (error) {
@@ -2689,5 +3250,1733 @@ describe("Codex driver config read-shapes", () => {
 
     expect(detail).not.toContain("sk-secret-value");
     expect(detail).toMatch(/no diagnostic message/);
+  });
+});
+
+// --------------------------------------------------------------------------
+// T3.15 — the R8 parity driver legs, Codex arm.
+// --------------------------------------------------------------------------
+//
+// Spec coverage under test:
+//   `Spec-005 §Interfaces And Contracts` — `rollbackTo` / `setSessionGoal` /
+//     `clearSessionGoal` reach the pinned methods and answer the typed results;
+//     a `rollbackTo` that applies reports the `bindingId` the daemon rebinds on.
+//   `Spec-005 §Parity Capability Mechanism Grades` — the Codex cells this leg
+//     realizes NATIVELY (`thread/fork`, `thread/goal/*`) versus the ones it
+//     withholds (the callback-tool registry, subagent definitions).
+//   `Spec-016 §Provider-Native Subagents` — the two caps the provider enforces
+//     are supplied at every thread establishment; the definitions are withheld
+//     and recorded rather than silently dropped.
+//   CP-005-1 — a resumed or forked thread re-realizes every spawn-bound leg.
+
+/** The params of the first frame the provider received for a method. */
+function firstParamsFor(harness: Harness, method: string): Record<string, unknown> {
+  return (harness.server.framesForMethod(method)[0]?.["params"] ?? {}) as Record<string, unknown>;
+}
+
+function readConfigOverrides(params: unknown): Record<string, unknown> {
+  const config = (params as Record<string, unknown>)["config"];
+  return (config ?? {}) as Record<string, unknown>;
+}
+
+const WORKSPACE_POSTURE_WITH_NETWORK: ExecutionPosture = {
+  mode: "workspace-sandboxed",
+  credentialPolicyRef: "policy://default",
+  networkAccess: "full",
+  writableRoots: ["/work/session"],
+};
+
+/**
+ * A live session whose turn ledger is already populated.
+ *
+ * Seeded through `resumeSession` rather than by running turns: a resumed thread
+ * carries its own history, which is the same axis a rewind indexes, and it gets
+ * there without making these rollback assertions depend on the turn-dispatch
+ * band.
+ */
+async function resumedSessionWithTurns(
+  harness: Harness,
+  turnCount: number,
+  params: Partial<Parameters<CodexDriver["resumeSession"]>[0]> = {},
+): Promise<void> {
+  harness.server.on("thread/resume", () => threadStartResult(turnCount));
+  await harness.driver.resumeSession({
+    sessionId: SESSION_ID,
+    resumeHandle: THREAD_ID,
+    ...params,
+  });
+}
+
+describe("CodexDriver rollbackTo (T3.15 leg 1, native `thread/fork`)", () => {
+  it("reports the rebinding `bindingId` on the applied arm", async () => {
+    const harness = createHarness();
+    await resumedSessionWithTurns(harness, 2);
+    harness.server.on("thread/fork", () => ({
+      result: {
+        thread: { id: "thread-forked", sessionId: "session-tree-1", turns: [{ id: "turn-0" }] },
+      },
+    }));
+
+    // The INPUT binding is deliberately NOT the minted one. Passing the same
+    // string for both would let a driver that echoed the caller's `bindingId`
+    // straight back — reporting the OLD binding for a rollback that just
+    // repointed onto a new thread — pass this assertion.
+    const result = await harness.driver.rollbackTo({
+      sessionId: SESSION_ID,
+      bindingId: "binding-predecessor",
+      position: 1,
+    });
+
+    // The daemon rebinds the run onto a NEW provider thread, so an applied
+    // rollback reporting the predecessor's binding would leave the caller
+    // pointing at a thread the fork replaced.
+    expect(result).toStrictEqual({
+      status: "applied",
+      sessionPosition: 1,
+      bindingId: "binding-abc",
+    });
+  });
+
+  it("re-realizes posture and subagent caps on the fork (CP-005-1)", async () => {
+    const harness = createHarness();
+    await resumedSessionWithTurns(harness, 2, {
+      executionPosture: WORKSPACE_POSTURE_WITH_NETWORK,
+      subagentPolicy: { enabled: true, maxConcurrent: 3, maxDepth: 1, definitions: [] },
+    });
+    harness.server.on("thread/fork", () => ({
+      result: {
+        thread: { id: "thread-forked", sessionId: "session-tree-1", turns: [{ id: "turn-0" }] },
+        sandbox: { networkAccess: true },
+      },
+    }));
+
+    await harness.driver.rollbackTo({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+      position: 1,
+    });
+
+    const forkParams = firstParamsFor(harness, "thread/fork");
+    expect(forkParams["sandbox"]).toBe("workspace-write");
+    // A fork mints a NEW thread; omitting the overrides would leave the rewound
+    // session governed by whatever that thread inherited.
+    expect(readConfigOverrides(forkParams)).toStrictEqual({
+      "sandbox_workspace_write.network_access": true,
+      "agents.max_concurrent_threads_per_session": 3,
+      "agents.max_depth": 1,
+    });
+  });
+
+  it("refuses a position that names no recorded boundary rather than forking the whole thread", async () => {
+    const harness = createHarness();
+    await createdSession(harness);
+
+    const result = await harness.driver.rollbackTo({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+      position: 0,
+    });
+
+    expect(result).toStrictEqual({
+      status: "degraded",
+      fallbackAction: "rewind-target-not-a-recorded-boundary",
+    });
+    // The refusal is LOCAL: a fork that omitted the boundary would rewind the
+    // whole thread, which is the one outcome a rollback must never report.
+    expect(harness.server.framesForMethod("thread/fork")).toHaveLength(0);
+  });
+});
+
+describe("CodexDriver resumeSession re-realization (T3.15 legs 4-5, CP-005-1)", () => {
+  it("re-sends posture and subagent caps on `thread/resume`", async () => {
+    // A resume is a FRESH SPAWN. Omitting the overrides would leave the resumed
+    // thread running under the provider's persisted config rather than the one
+    // its caller declared.
+    const harness = createHarness();
+    await resumedSessionWithTurns(harness, 1, {
+      executionPosture: WORKSPACE_POSTURE_WITH_NETWORK,
+      subagentPolicy: { enabled: true, maxConcurrent: 2, maxDepth: 1, definitions: [] },
+    });
+
+    const resumeParams = firstParamsFor(harness, "thread/resume");
+    expect(resumeParams["sandbox"]).toBe("workspace-write");
+    expect(readConfigOverrides(resumeParams)).toStrictEqual({
+      "sandbox_workspace_write.network_access": true,
+      "agents.max_concurrent_threads_per_session": 2,
+      "agents.max_depth": 1,
+    });
+  });
+});
+
+describe("CodexDriver session goals (T3.15 leg 2, native)", () => {
+  it("sends only the daemon-owned objective on `thread/goal/set`", async () => {
+    const harness = createHarness();
+    await createdSession(harness);
+    harness.server.on("thread/goal/set", () => ({ result: {} }));
+
+    const result = await harness.driver.setSessionGoal({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+      runId: RUN_ID,
+      goalText: "land the parity legs",
+    });
+
+    expect(result).toStrictEqual({ status: "applied" });
+    // `status` and `tokenBudget` are provider-side goal state this daemon does
+    // not own; sending either would make the driver a second author of them.
+    expect(firstParamsFor(harness, "thread/goal/set")).toStrictEqual({
+      threadId: THREAD_ID,
+      objective: "land the parity legs",
+    });
+  });
+
+  it("answers `applied` for a clear on a thread that carried no goal", async () => {
+    const harness = createHarness();
+    await createdSession(harness);
+    harness.server.on("thread/goal/clear", () => ({ result: { cleared: false } }));
+
+    expect(
+      await harness.driver.clearSessionGoal({
+        sessionId: SESSION_ID,
+        bindingId: "binding-abc",
+        runId: RUN_ID,
+      }),
+    ).toStrictEqual({
+      status: "applied",
+    });
+  });
+});
+
+describe("CodexDriver subagent caps (T3.15 leg 4)", () => {
+  it("disables subagents on the DEPTH axis, never with a zero concurrency cap", async () => {
+    // Verified against the pinned build: `agents.max_concurrent_threads_per_session: 0`
+    // is refused `-32600`, so a zero cap would fail every session that tried to
+    // disable subagents rather than disabling them.
+    const harness = createHarness();
+    harness.server.on("thread/start", () => threadStartResult());
+
+    await harness.driver.createSession({
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+      subagentPolicy: { enabled: false },
+    });
+
+    expect(readConfigOverrides(firstParamsFor(harness, "thread/start"))).toStrictEqual({
+      "agents.max_concurrent_threads_per_session": 1,
+      "agents.max_depth": 0,
+    });
+  });
+
+  it("routes an enabled policy below the provider floor to the same disabled encoding", async () => {
+    // Fail-closed rather than clamped UP: clamping would grant a subagent slot
+    // to a caller who asked for none.
+    const harness = createHarness();
+    harness.server.on("thread/start", () => threadStartResult());
+
+    await harness.driver.createSession({
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+      subagentPolicy: { enabled: true, maxConcurrent: 0, maxDepth: 3, definitions: [] },
+    });
+
+    expect(readConfigOverrides(firstParamsFor(harness, "thread/start"))).toStrictEqual({
+      "agents.max_concurrent_threads_per_session": 1,
+      "agents.max_depth": 0,
+    });
+  });
+
+  it("records every withheld subagent definition rather than dropping it", async () => {
+    const harness = createHarness();
+    harness.server.on("thread/start", () => threadStartResult());
+
+    await harness.driver.createSession({
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+      subagentPolicy: {
+        enabled: true,
+        maxConcurrent: 2,
+        maxDepth: 1,
+        definitions: [
+          { name: "reviewer", description: "reviews the diff" },
+          { name: "researcher", description: "researches the API" },
+        ],
+      },
+    });
+
+    const withheld = harness.driverDiagnostics.recentRecordsOfKind("subagent_definition_disabled");
+    expect(withheld).toHaveLength(2);
+    expect(withheld.map((record) => record.details["definitionName"])).toStrictEqual([
+      "reviewer",
+      "researcher",
+    ]);
+  });
+});
+
+describe("CodexDriver posture realization (T3.15 leg 5)", () => {
+  it("records a divergence when the provider's readback narrows the requested axis", async () => {
+    // The config table FAILS OPEN — an unrecognized key is accepted and ignored
+    // — so a leg that silently stopped applying looks exactly like one that
+    // applied a denial. The readback is the only place that is checkable.
+    const harness = createHarness();
+    harness.server.on("thread/start", () => ({
+      result: {
+        thread: { id: THREAD_ID, sessionId: "session-tree-1", turns: [] },
+        sandbox: { networkAccess: false },
+      },
+    }));
+
+    await harness.driver.createSession({
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+      executionPosture: WORKSPACE_POSTURE_WITH_NETWORK,
+    });
+
+    const diverged = harness.diagnostics.filter(
+      (diagnostic) => diagnostic.kind === "posture-realization-diverged",
+    );
+    expect(diverged).toHaveLength(1);
+    expect(diverged[0]).toMatchObject({
+      requestedNetworkAccess: true,
+      realizedNetworkAccess: false,
+    });
+  });
+
+  it("stays silent when the readback matches the request", async () => {
+    const harness = createHarness();
+    harness.server.on("thread/start", () => ({
+      result: {
+        thread: { id: THREAD_ID, sessionId: "session-tree-1", turns: [] },
+        sandbox: { networkAccess: true },
+      },
+    }));
+
+    await harness.driver.createSession({
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+      executionPosture: WORKSPACE_POSTURE_WITH_NETWORK,
+    });
+
+    expect(
+      harness.diagnostics.filter(
+        (diagnostic) => diagnostic.kind === "posture-realization-diverged",
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("reports no divergence on the arm that cannot express the axis at thread scope", () => {
+    // `read-only` realizes network-denied whatever the request, so reporting it
+    // would be reporting the design. The turn-level `sandboxPolicy` is that
+    // arm's expression of the axis, and every run supplies it.
+    expect(
+      describeCodexPostureDivergence(
+        {
+          mode: "readonly-sandboxed",
+          credentialPolicyRef: "policy://default",
+          networkAccess: "full",
+          writableRoots: [],
+        },
+        { networkAccess: false },
+      ),
+    ).toBeNull();
+  });
+
+  it("reports a realization WIDER than the request as well as a narrower one", () => {
+    expect(
+      describeCodexPostureDivergence(
+        {
+          mode: "workspace-sandboxed",
+          credentialPolicyRef: "policy://default",
+          networkAccess: "none",
+          writableRoots: [],
+        },
+        { networkAccess: true },
+      ),
+    ).toStrictEqual({ requestedNetworkAccess: false, realizedNetworkAccess: true });
+  });
+});
+
+describe("CodexDriver callback-tool withholding (T3.15 leg 3, Codex arm)", () => {
+  it("withholds the registry and records it on BOTH diagnostic sinks", async () => {
+    const harness = createHarness();
+    harness.server.on("thread/start", () => threadStartResult());
+
+    await harness.driver.createSession({
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+      callbackTools: [{ name: "search", description: "search", inputSchema: { type: "object" } }],
+    });
+
+    // `dynamicTools` is experimental-generation-only at the pin and this driver
+    // negotiates `experimentalApi: false`, so the registration is unreachable.
+    expect(
+      harness.diagnostics.filter((diagnostic) => diagnostic.kind === "callback-tools-withheld"),
+    ).toHaveLength(1);
+    const censused = harness.driverDiagnostics.recentRecordsOfKind(
+      "callback_tool_registry_withheld",
+    );
+    expect(censused).toHaveLength(1);
+    expect(censused[0]?.details["reason"]).toBe("provider-registration-unavailable");
+    // A counter row naming no session cannot answer "why did MY tools stop
+    // appearing" on a daemon running more than one.
+    expect(censused[0]?.details["sessionId"]).toBe(SESSION_ID);
+  });
+});
+
+describe("Codex server-request routing census (T3.15 `driver_ask` reachability)", () => {
+  it("routes the seven reachable ask methods and no others", () => {
+    expect([...CODEX_ROUTED_SERVER_REQUEST_METHODS].sort()).toStrictEqual([
+      "applyPatchApproval",
+      "execCommandApproval",
+      "item/commandExecution/requestApproval",
+      "item/fileChange/requestApproval",
+      "item/permissions/requestApproval",
+      "item/tool/call",
+      "mcpServer/elicitation/request",
+    ]);
+  });
+
+  it("leaves `item/tool/requestUserInput` unrouted and asserted gated instead", () => {
+    // Asserted unreachable off the normalizer's own negotiation census rather
+    // than given a handler that could never run at `experimentalApi: false`.
+    expect(CODEX_ROUTED_SERVER_REQUEST_METHODS).not.toContain("item/tool/requestUserInput");
+    expect(CODEX_NEGOTIATION_GATED_METHODS).toContain("item/tool/requestUserInput");
+  });
+});
+
+describe("CodexDriver realtime suppression (T3.15 leg 7)", () => {
+  it("opts out of every censused realtime method in the `initialize` frame it actually sends", async () => {
+    // Read off the frame the provider RECEIVED, not off the exported constant:
+    // asserting the constant against itself would pass with the negotiation leg
+    // deleted.
+    const harness = createHarness();
+    await createdSession(harness);
+
+    const capabilities = firstParamsFor(harness, "initialize")["capabilities"];
+    const optOut = (capabilities as Record<string, unknown>)["optOutNotificationMethods"];
+    expect(optOut).toStrictEqual([
+      "thread/realtime/started",
+      "thread/realtime/closed",
+      "thread/realtime/error",
+      "thread/realtime/itemAdded",
+      "thread/realtime/sdp",
+      "thread/realtime/outputAudio/delta",
+      "thread/realtime/transcript/delta",
+      "thread/realtime/transcript/done",
+      // Added by the `0.150.1` pin BESIDE the three older spellings above, not
+      // in place of them: the pin hop's set difference added four notification
+      // arms and removed none, so dropping `itemAdded` / `transcript/delta` /
+      // `transcript/done` here would un-suppress names still on the wire.
+      "thread/realtime/item/started",
+      "thread/realtime/item/transcript/delta",
+      "thread/realtime/item/completed",
+    ]);
+  });
+});
+
+describe("CodexDriver transport construction (T3.15 leg 6)", () => {
+  const websocketTransportConfig = {
+    transport: "websocket" as const,
+    endpoint: "wss://codex.internal/app-server",
+    bearerTokenRef: "keyring://codex/app-server",
+  };
+
+  function buildDriverOptions(): ConstructorParameters<typeof CodexDriver>[0] {
+    return {
+      ptyHost: new FakeCodexAppServer(),
+      diagnostics: makeSilentDriverDiagnostics(),
+      subscribeToPtySession: () => () => undefined,
+      reportDiagnostic: () => undefined,
+      scheduleTimeout: makeManualScheduler().schedule,
+      executablePath: EXECUTABLE_PATH,
+      resumeSpawnConfig: RESUME_SPAWN_CONFIG,
+      newBindingId: () => "binding-abc",
+      readCapabilities: () => makeCapabilities(true),
+    };
+  }
+
+  it("refuses construction when a websocket transport has no bearer resolver", () => {
+    // The refusal is at CONSTRUCTION, not at the first session: a registry that
+    // accepted this would report a healthy driver for the whole interval before
+    // a participant started a run.
+    expect(
+      () => new CodexDriver({ ...buildDriverOptions(), transportConfig: websocketTransportConfig }),
+    ).toThrow(CodexDriverConfigError);
+  });
+
+  it("refuses construction when a websocket transport has no connector", () => {
+    expect(
+      () =>
+        new CodexDriver({
+          ...buildDriverOptions(),
+          transportConfig: websocketTransportConfig,
+          resolveBearerCredential: async (): Promise<CodexWebsocketBearerCredential> =>
+            await Promise.resolve({
+              mode: "capability-token",
+              tokenFilePath: "/run/codex/ws.token",
+            }),
+        }),
+    ).toThrow(CodexDriverConfigError);
+  });
+
+  it("defaults to stdio when no transport is configured", () => {
+    const driver = new CodexDriver(buildDriverOptions());
+    expect(driver.transportSelection.transport).toBe("stdio");
+  });
+
+  it("resolves the bearer ref at connection time, once per connection, never at construction", async () => {
+    // REF-NOT-VALUE, and the half of it construction-refusal tests cannot
+    // reach: the ref is carried as a locator and exchanged for a credential
+    // when a connection is actually opened. A resolver called at construction
+    // — or called once and cached — would pin one credential for the driver's
+    // whole lifetime, so a rotation would be picked up by nothing and every
+    // later connection would present a secret the issuer has already retired.
+    const resolvedRefs: string[] = [];
+    const server = new FakeCodexAppServer();
+    server.on("initialize", () => ({ result: { userAgent: "codex-driver/0.149.1" } }));
+    server.on("getAuthStatus", () => ({ result: { authMethod: "chatgpt", authToken: null } }));
+    server.on("thread/start", () => threadStartResult());
+    const connectedEndpoints: string[] = [];
+    const driver = new CodexDriver({
+      ...buildDriverOptions(),
+      ptyHost: server,
+      subscribeToPtySession: (ptySessionId, listeners) => server.subscribe(ptySessionId, listeners),
+      transportConfig: websocketTransportConfig,
+      resolveBearerCredential: async (bearerTokenRef): Promise<CodexWebsocketBearerCredential> => {
+        resolvedRefs.push(bearerTokenRef);
+        return await Promise.resolve({
+          mode: "capability-token",
+          tokenFilePath: "/run/codex/ws.token",
+        });
+      },
+      websocketConnector: {
+        connect: async (request): Promise<void> => {
+          connectedEndpoints.push(request.endpoint);
+          await Promise.resolve();
+        },
+      },
+    });
+
+    // Constructed, not yet connected: nothing has asked the keyring anything.
+    expect(resolvedRefs).toStrictEqual([]);
+
+    await driver.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    expect(resolvedRefs).toStrictEqual([websocketTransportConfig.bearerTokenRef]);
+
+    // A SECOND connection re-resolves rather than reusing the first answer.
+    await driver.createSession({
+      sessionId: "22222222-2222-4222-8222-222222222222" as SessionId,
+      config: SESSION_CONFIG,
+    });
+    expect(resolvedRefs).toStrictEqual([
+      websocketTransportConfig.bearerTokenRef,
+      websocketTransportConfig.bearerTokenRef,
+    ]);
+    expect(connectedEndpoints).toStrictEqual([
+      websocketTransportConfig.endpoint,
+      websocketTransportConfig.endpoint,
+    ]);
+  });
+});
+
+// --------------------------------------------------------------------------
+// T3.15 R3 — routed server requests reach the daemon, and every path answers.
+// --------------------------------------------------------------------------
+//
+// Spec coverage under test:
+//   `Spec-012 §Required Behavior` — every tool invocation and approval ask is
+//     adjudicated. A responder that is absent, refuses, or throws all answer
+//     the method's own REFUSAL shape: never `-32601` (a protocol error where a
+//     decision was asked for), never an allow, and never silence.
+//   `Spec-005 §Required Behavior` — an unrouted method+id frame still answers,
+//     so no provider turn hangs on a method this pin never saw.
+
+interface RoutedAskHarness {
+  readonly harness: Harness;
+  readonly askProvider: (method: string, params?: unknown) => Promise<Record<string, unknown>>;
+}
+
+async function routedAskHarness(
+  responder: CodexSessionServerRequestResponder | undefined,
+): Promise<RoutedAskHarness> {
+  const server = new FakeCodexAppServer();
+  server.on("initialize", () => ({ result: { userAgent: "codex-driver/0.149.1" } }));
+  server.on("getAuthStatus", () => ({ result: { authMethod: "chatgpt", authToken: null } }));
+  server.on("thread/start", () => threadStartResult());
+  const scheduler = makeManualScheduler();
+  const driverDiagnostics = makeSilentDriverDiagnostics();
+  const diagnostics: CodexTransportDiagnostic[] = [];
+  const driver = new CodexDriver({
+    ptyHost: server,
+    diagnostics: driverDiagnostics,
+    subscribeToPtySession: (ptySessionId, listeners) => server.subscribe(ptySessionId, listeners),
+    reportDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+    scheduleTimeout: scheduler.schedule,
+    executablePath: EXECUTABLE_PATH,
+    resumeSpawnConfig: RESUME_SPAWN_CONFIG,
+    newBindingId: () => "binding-abc",
+    readCapabilities: () => makeCapabilities(true),
+    ...(responder === undefined ? {} : { answerServerRequest: responder }),
+  });
+  await driver.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+  const harness: Harness = { server, driver, diagnostics, driverDiagnostics, scheduler };
+
+  let nextAskId = 9000;
+  const askProvider = async (
+    method: string,
+    params: unknown = {},
+  ): Promise<Record<string, unknown>> => {
+    const askId = (nextAskId += 1);
+    const before = server.writtenLines.length;
+    server.onData(
+      "pty-session-1",
+      new TextEncoder().encode(
+        `${JSON.stringify({ jsonrpc: "2.0", id: askId, method, params })}\r\n`,
+      ),
+    );
+    await drainMicrotasks();
+    for (const line of server.writtenLines.slice(before)) {
+      const frame = JSON.parse(line) as Record<string, unknown>;
+      if (frame["id"] === askId) {
+        return frame;
+      }
+    }
+    throw new Error(`the driver never answered the ${method} ask`);
+  };
+  return { harness, askProvider };
+}
+
+describe("CodexAppServerConnection routed server requests (T3.15 R3)", () => {
+  it("answers an allowed `item/tool/call` with the provider's own success shape", async () => {
+    const { askProvider } = await routedAskHarness({
+      answer: async (): Promise<CodexServerRequestDecision> =>
+        await Promise.resolve({
+          decision: "allow",
+          payload: { contentItems: [{ type: "inputText", text: "ok" }] },
+        }),
+    });
+
+    const answer = await askProvider("item/tool/call", { toolName: "search", arguments: {} });
+
+    expect(answer["error"]).toBeUndefined();
+    expect(answer["result"]).toStrictEqual({
+      success: true,
+      contentItems: [{ type: "inputText", text: "ok" }],
+    });
+  });
+
+  it("answers a refused ask with the method's REFUSAL shape, never `-32601`", async () => {
+    const { askProvider } = await routedAskHarness({
+      answer: async (): Promise<CodexServerRequestDecision> =>
+        await Promise.resolve({ decision: "refuse", reason: "policy denied" }),
+    });
+
+    const answer = await askProvider("item/commandExecution/requestApproval");
+
+    // A `-32601` for an approval would be a protocol error where a DECISION was
+    // asked for; the provider must read a refusal it understands, in that
+    // method's OWN vocabulary.
+    expect(answer["error"]).toBeUndefined();
+    expect(answer["result"]).toStrictEqual({ decision: "decline" });
+  });
+
+  it("refuses each approval spelling in that method's own vocabulary", async () => {
+    // The refusal shapes are read from the pinned generation's response types,
+    // and they genuinely differ: a single shape reused across methods would be
+    // a protocol violation on whichever ones it did not fit.
+    const { askProvider } = await routedAskHarness({
+      answer: async (): Promise<CodexServerRequestDecision> =>
+        await Promise.resolve({ decision: "refuse", reason: "policy denied" }),
+    });
+
+    expect((await askProvider("execCommandApproval"))["result"]).toStrictEqual({
+      decision: { denied: { rejection: "policy denied" } },
+    });
+    expect((await askProvider("item/permissions/requestApproval"))["result"]).toStrictEqual({
+      permissions: {},
+      scope: "turn",
+    });
+    expect((await askProvider("mcpServer/elicitation/request"))["result"]).toStrictEqual({
+      action: "decline",
+    });
+  });
+
+  it("refuses when NO responder is registered rather than leaving the ask unanswered", async () => {
+    const { harness, askProvider } = await routedAskHarness(undefined);
+
+    const answer = await askProvider("item/tool/call");
+
+    expect((answer["result"] as Record<string, unknown>)["success"]).toBe(false);
+    expect(
+      harness.diagnostics.filter(
+        (diagnostic) => diagnostic.kind === "unrouted-server-request-refused",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("treats a THROWING responder as undecided, which is a refusal", async () => {
+    const { harness, askProvider } = await routedAskHarness({
+      answer: async (): Promise<CodexServerRequestDecision> => {
+        await Promise.resolve();
+        throw new Error("the approval pipeline is down");
+      },
+    });
+
+    const answer = await askProvider("item/fileChange/requestApproval");
+
+    // Never an allow, and never an unanswered frame.
+    expect(answer["result"]).toStrictEqual({ decision: "decline" });
+    expect(
+      harness.diagnostics.filter(
+        (diagnostic) => diagnostic.kind === "server-request-responder-failed",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("answers the legacy approval spelling the same way as the modern one", async () => {
+    // Routing the modern trio while leaving the legacy pair on `-32601` would
+    // make the daemon's answer depend on which spelling the provider chose for
+    // the same question.
+    const { askProvider } = await routedAskHarness({
+      answer: async (): Promise<CodexServerRequestDecision> =>
+        await Promise.resolve({ decision: "allow" }),
+    });
+
+    const legacy = await askProvider("execCommandApproval");
+    const modern = await askProvider("item/commandExecution/requestApproval");
+
+    expect(legacy["error"]).toBeUndefined();
+    expect(modern["error"]).toBeUndefined();
+  });
+
+  it("still answers `-32601` for a method the routing table does not name", async () => {
+    const { harness, askProvider } = await routedAskHarness({
+      answer: async (): Promise<CodexServerRequestDecision> =>
+        await Promise.resolve({ decision: "allow" }),
+    });
+
+    const answer = await askProvider("attestation/generate");
+
+    // Declined at negotiation, so `-32601` is the honest answer rather than a
+    // gap — and it is still an ANSWER, so the turn does not hang.
+    expect((answer["error"] as Record<string, unknown>)["code"]).toBe(-32601);
+    expect(
+      harness.diagnostics.filter((diagnostic) => diagnostic.kind === "unhandled-server-request"),
+    ).toHaveLength(1);
+  });
+});
+
+describe("composeCodexTransportArgv (T3.15 leg 6, the authenticated listener)", () => {
+  it("starts a websocket listener WITH bearer auth on every credential mode", () => {
+    const selection: CodexTransportSelection = {
+      transport: "websocket",
+      endpoint: "ws://127.0.0.1:8451",
+      // A REF to the credential, never the credential. It is resolved at
+      // connection time, so nothing here holds a secret value.
+      bearerTokenRef: "keyring://codex/ws",
+    };
+
+    expect(
+      composeCodexTransportArgv(selection, {
+        mode: "capability-token",
+        tokenFilePath: "/run/codex/ws.token",
+      }),
+    ).toStrictEqual([
+      "app-server",
+      "--listen",
+      "ws://127.0.0.1:8451",
+      "--ws-auth",
+      "capability-token",
+      "--ws-token-file",
+      "/run/codex/ws.token",
+    ]);
+    expect(
+      composeCodexTransportArgv(selection, {
+        mode: "capability-token-digest",
+        tokenSha256: "a".repeat(64),
+      }),
+    ).toStrictEqual([
+      "app-server",
+      "--listen",
+      "ws://127.0.0.1:8451",
+      "--ws-auth",
+      "capability-token",
+      "--ws-token-sha256",
+      "a".repeat(64),
+    ]);
+  });
+
+  it("refuses to compose an UNAUTHENTICATED websocket listener", () => {
+    // The whole point of the leg: a listener started without auth is reachable
+    // by anything that can open a socket to it.
+    expect(() =>
+      composeCodexTransportArgv(
+        {
+          transport: "websocket",
+          endpoint: "ws://127.0.0.1:8451",
+          bearerTokenRef: "keyring://codex/ws",
+        },
+        null,
+      ),
+    ).toThrow(CodexDriverConfigError);
+  });
+
+  it("bridges the unix arm through the provider's own proxy, needing no credential", () => {
+    expect(
+      composeCodexTransportArgv(
+        { transport: "unix-socket", socketPath: "/run/codex/app-server.sock" },
+        null,
+      ),
+    ).toStrictEqual(["app-server", "proxy", "--sock", "/run/codex/app-server.sock"]);
+  });
+
+  it("leaves the stdio default implicit rather than naming a flag spelling", () => {
+    expect(composeCodexTransportArgv({ transport: "stdio" }, null)).toStrictEqual(["app-server"]);
+  });
+});
+
+describe("resolveCodexTransportSelection (T3.15 leg 6)", () => {
+  it("normalizes a `unix://` endpoint off the scheme the provider prints", () => {
+    expect(
+      resolveCodexTransportSelection({
+        transport: "unix-socket",
+        endpoint: "unix:///run/codex/app-server.sock",
+      }),
+    ).toStrictEqual({ transport: "unix-socket", socketPath: "/run/codex/app-server.sock" });
+  });
+
+  it("carries a websocket endpoint VERBATIM rather than rewriting it", () => {
+    // Its host and port are the provider's to parse; a driver that rewrote them
+    // could reach an address the operator did not name.
+    expect(
+      resolveCodexTransportSelection({
+        transport: "websocket",
+        endpoint: "ws://127.0.0.1:8451/app",
+        bearerTokenRef: "keyring://codex/ws",
+      }),
+    ).toStrictEqual({
+      transport: "websocket",
+      endpoint: "ws://127.0.0.1:8451/app",
+      // Carried as a REF, never resolved here: the credential is read at
+      // connection time so a rotated one is picked up by the next connection
+      // rather than pinned for the driver's lifetime.
+      bearerTokenRef: "keyring://codex/ws",
+    });
+  });
+
+  it("defaults an absent config to stdio", () => {
+    expect(resolveCodexTransportSelection(undefined)).toStrictEqual({ transport: "stdio" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T3.11 — the routing / metering band, driven through the REAL ingest path.
+// ---------------------------------------------------------------------------
+//
+// These drive raw JSON-RPC notifications into the fake provider's byte channel
+// and assert on what came out the other end of the manager. Nothing here calls
+// the router or the accountant directly: their unit suites already do that, and
+// what is unproven without this file is that the driver actually CONSULTS them.
+
+describe("CodexLifecycleManager thread routing and usage metering (T3.11, I-005-11, I-005-12)", () => {
+  const CHILD_THREAD_ID = "01a04202-0148-7ae2-8560-child0000001";
+
+  async function managerWithSession(
+    options: ManagerHarnessOptions = { onServerNotification: true },
+  ): Promise<ManagerHarness> {
+    const harness = createManagerHarness(options);
+    // A fresh harness carries a fresh accountant whose base registers start at
+    // zero, so the fixture's own running totals must restart with it — a ledger
+    // carried across tests would derive a `last` from the PREVIOUS test's
+    // cumulative and make this fixture order-dependent.
+    emittedCumulativeByThreadId.clear();
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    return harness;
+  }
+
+  // Per-thread running totals, so the fixture's `last` is the arithmetic
+  // per-turn figure a real provider would send rather than an invented one that
+  // would trip the accountant's cross-check on every frame.
+  const emittedCumulativeByThreadId = new Map<string, number>();
+
+  /**
+   * Emit one token-usage notification at the FULL pinned payload shape.
+   *
+   * Every member of the generated `TokenUsageBreakdown` is populated, on both
+   * the required `total` and the required `last`. A fixture that populates only
+   * the one axis the reader happens to spell correctly cannot distinguish a
+   * correct axis map from a broken one — which is exactly how an invented
+   * container member survived four green metering tests.
+   */
+  function emitUsage(
+    harness: ManagerHarness,
+    threadId: string,
+    totalInputTokens: number,
+    turnId = TURN_ID,
+  ): void {
+    const priorCumulative = emittedCumulativeByThreadId.get(threadId) ?? 0;
+    emittedCumulativeByThreadId.set(threadId, totalInputTokens);
+    const perTurn = totalInputTokens - priorCumulative;
+    const breakdown = (value: number): Record<string, number> => ({
+      totalTokens: value,
+      inputTokens: value,
+      cachedInputTokens: value,
+      cacheWriteInputTokens: value,
+      outputTokens: value,
+      reasoningOutputTokens: value,
+    });
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      method: "thread/tokenUsage/updated",
+      params: {
+        threadId,
+        turnId,
+        // The container member is `tokenUsage`, per the generated
+        // `ThreadTokenUsageUpdatedNotification` the spec's References entry
+        // records. Spelled the pinned way on purpose: a fixture that invents a
+        // member name tests the reader against a wire that does not exist.
+        tokenUsage: { total: breakdown(totalInputTokens), last: breakdown(perTurn) },
+      },
+    });
+  }
+
+  function announceChild(harness: ManagerHarness, threadSourceKind: string): void {
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      method: "thread/started",
+      params: {
+        thread: {
+          id: CHILD_THREAD_ID,
+          parentThreadId: THREAD_ID,
+          threadSourceKind,
+        },
+      },
+    });
+  }
+
+  it("(a) a frame naming a FOREIGN thread never reaches the normalize band", async () => {
+    const harness = await managerWithSession();
+
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      method: "thread/queue/changed",
+      params: { threadId: "some-other-session-thread" },
+    });
+    await Promise.resolve();
+
+    // Held, not projected: an unannounced identity could still be a child
+    // racing its announcement, so it waits rather than being guessed into the
+    // parent's timeline — but either way it does NOT project.
+    expect(harness.notifications).toStrictEqual([]);
+    expect(harness.manager.frameRouterFor(SESSION_ID).pendingHeldFrameCount()).toBe(1);
+  });
+
+  it("(b) a usage frame meters a per-turn DELTA, and the cumulative counter never reaches the band as one", async () => {
+    const harness = await managerWithSession();
+
+    emitUsage(harness, THREAD_ID, 100);
+    emitUsage(harness, THREAD_ID, 150);
+    await Promise.resolve();
+
+    // The wire reported 100 then 150 — a running total. What the daemon must
+    // meter is 100 then 50; forwarding 150 as a turn figure is exactly the
+    // double-charge I-005-11 exists to forbid.
+    expect(harness.meteredUsage.map((entry) => entry.delta.axisDeltas.input)).toEqual([100, 50]);
+    expect(harness.meteredUsage.map((entry) => entry.sessionId)).toEqual([SESSION_ID, SESSION_ID]);
+    expect(harness.meteredUsage[0]?.delta.attributedTurnId).toBe(TURN_ID);
+
+    // EVERY axis of the pinned breakdown meters, not just the one an earlier
+    // fixture happened to populate. Asserted by name: the accountant filters
+    // readings against a closed axis union before any register write, so an
+    // axis the reader spells differently from that union is silently scoped out
+    // of the delta rather than rejected loudly at the wire.
+    expect(Object.keys(harness.meteredUsage[1]?.delta.axisDeltas ?? {}).sort()).toEqual([
+      "cacheWriteInput",
+      "cachedInput",
+      "input",
+      "output",
+      "reasoningOutput",
+      "total",
+    ]);
+    // And the wire's own declared per-turn figure agrees with the derived
+    // interval on every one of them, so the cross-check stays silent.
+    expect(harness.driverDiagnostics.recentRecordsOfKind("usage_cross_check_mismatch")).toEqual([]);
+    expect(harness.driverDiagnostics.recentRecordsOfKind("usage_axis_reading_rejected")).toEqual(
+      [],
+    );
+  });
+
+  it("records a usage frame it cannot read rather than dropping the spend silently", async () => {
+    const harness = await managerWithSession();
+
+    // The reserved usage method, arriving with a breakdown the pinned container
+    // member does not hold. Unmetered spend that says nothing is
+    // indistinguishable from a session that cost nothing, so the ONLY
+    // acceptable outcome is a recorded rejection.
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      method: "thread/tokenUsage/updated",
+      params: {
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        usage: { total: { inputTokens: 100 } },
+      },
+    });
+    await Promise.resolve();
+
+    expect(harness.meteredUsage).toHaveLength(0);
+    const rejections = harness.driverDiagnostics.recentRecordsOfKind("usage_axis_reading_rejected");
+    expect(rejections).toHaveLength(1);
+    expect(rejections[0]?.rawWireType).toBe("thread/tokenUsage/updated");
+  });
+
+  it("(c) a child announcement then a child frame routes to the carve-outs, never to the parent's transcript", async () => {
+    const harness = await managerWithSession();
+
+    announceChild(harness, "subAgent");
+    await Promise.resolve();
+    // The announcement itself is the session's own `thread/started`? No — it
+    // names the CHILD's identity, so it routes as the child's first frame and
+    // is suppressed. What survives is the lifecycle pair.
+    expect(harness.subagentLifecycle.map((entry) => entry.emission.eventType)).toEqual([
+      "subagent.started",
+    ]);
+
+    // The child's CONTENT is suppressed...
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      method: "thread/queue/changed",
+      params: { threadId: CHILD_THREAD_ID },
+    });
+    // ...while the child's SPEND still carves through, under the child's own
+    // attribution rather than the parent's.
+    emitUsage(harness, CHILD_THREAD_ID, 40);
+    await Promise.resolve();
+
+    expect(harness.notifications).toStrictEqual([]);
+    expect(harness.meteredUsage).toHaveLength(1);
+    expect(harness.meteredUsage[0]?.delta.threadId).toBe(CHILD_THREAD_ID);
+    expect(harness.meteredUsage[0]?.delta.axisDeltas.input).toBe(40);
+  });
+
+  it("a DUPLICATE thread/started retains the child's usage base rather than re-basing it", async () => {
+    const harness = await managerWithSession();
+
+    announceChild(harness, "subAgent");
+    emitUsage(harness, CHILD_THREAD_ID, 100);
+    await Promise.resolve();
+    // The provider re-announces a child it already announced. Re-establishing
+    // here would zero the base mid-stream, so the 150 reading below would meter
+    // 150 rather than the 50 the child actually spent since.
+    announceChild(harness, "subAgent");
+    emitUsage(harness, CHILD_THREAD_ID, 150);
+    await Promise.resolve();
+
+    expect(harness.meteredUsage.map((entry) => entry.delta.axisDeltas.input)).toEqual([100, 50]);
+    expect(harness.subagentLifecycle.map((entry) => entry.emission.eventType)).toEqual([
+      "subagent.started",
+    ]);
+    expect(
+      harness.driverDiagnostics.recentRecordsOfKind("thread_duplicate_child_announcement"),
+    ).toHaveLength(1);
+  });
+
+  it("a provider-INTERNAL child (compaction) carves its spend to the parent run rather than to a subagent", async () => {
+    const harness = await managerWithSession();
+
+    announceChild(harness, "compaction");
+    emitUsage(harness, CHILD_THREAD_ID, 25);
+    await Promise.resolve();
+
+    // No subagent pair: nothing user-facing spawned, so nothing user-facing
+    // should appear on the timeline. The spend is still charged.
+    expect(harness.subagentLifecycle).toStrictEqual([]);
+    expect(harness.meteredUsage).toHaveLength(1);
+    expect(harness.meteredUsage[0]?.delta.axisDeltas.input).toBe(25);
+  });
+
+  it("(d) the session's OWN terminal projects through to the normalize band", async () => {
+    const harness = await managerWithSession();
+
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      method: "turn/completed",
+      params: { threadId: THREAD_ID, turn: { id: TURN_ID, status: "completed", items: [] } },
+    });
+    await Promise.resolve();
+
+    expect(harness.notifications.map((entry) => entry.method)).toEqual(["turn/completed"]);
+  });
+
+  it("the eleventh I-005-12 case: a fully suppressed child still leaves its started/completed pair", async () => {
+    const harness = await managerWithSession();
+
+    announceChild(harness, "subAgentReview");
+    // Every content frame the child produces is suppressed...
+    for (const childFrameMethod of ["thread/queue/changed", "thread/goal/updated"]) {
+      harness.server.emitFrame({
+        jsonrpc: "2.0",
+        method: childFrameMethod,
+        params: { threadId: CHILD_THREAD_ID },
+      });
+    }
+    // ...including its own terminal.
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      method: "turn/completed",
+      params: { threadId: CHILD_THREAD_ID, turn: { id: "child-turn", status: "completed" } },
+    });
+    await Promise.resolve();
+
+    // Nothing of the child's content reached the parent's timeline...
+    expect(harness.notifications).toStrictEqual([]);
+    // ...and yet the child is not invisible: the pair is its whole presence,
+    // which is what makes the suppression a scoping rule rather than a loss.
+    expect(
+      harness.subagentLifecycle.map((entry) => ({
+        eventType: entry.emission.eventType,
+        subagentId: entry.emission.subagentId,
+      })),
+    ).toEqual([
+      { eventType: "subagent.started", subagentId: CHILD_THREAD_ID },
+      { eventType: "subagent.completed", subagentId: CHILD_THREAD_ID },
+    ]);
+    // The child's registers are released with it: a post-terminal frame is no
+    // longer a registered child's frame.
+    expect(harness.manager.usageAccountantFor(SESSION_ID).hasThread(CHILD_THREAD_ID)).toBe(false);
+  });
+
+  it("an IN-PROGRESS turn for a child is not its terminal — the pair stays open", async () => {
+    const harness = await managerWithSession();
+
+    announceChild(harness, "subAgent");
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      method: "turn/completed",
+      params: { threadId: CHILD_THREAD_ID, turn: { id: "child-turn", status: "inProgress" } },
+    });
+    await Promise.resolve();
+
+    expect(harness.subagentLifecycle.map((entry) => entry.emission.eventType)).toEqual([
+      "subagent.started",
+    ]);
+  });
+
+  it("a resume with no prior-emitted sum records the overstatement rather than hiding it", async () => {
+    const harness = createManagerHarness({ onServerNotification: true });
+    harness.server.on("thread/resume", () => threadStartResult(1));
+    await harness.manager.resumeSession({
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+    });
+
+    // The driver cannot rebuild the sum — it lives in the canonical event
+    // record. Silently basing at zero would re-meter the whole pre-resume
+    // total onto the first post-resume turn with nothing to say it happened.
+    expect(
+      harness.driverDiagnostics.recentRecordsOfKind("usage_resume_base_unavailable"),
+    ).toHaveLength(1);
+  });
+
+  it("a resume WITH a prior-emitted sum meters only the excess over it", async () => {
+    const harness = createManagerHarness({
+      onServerNotification: true,
+      readPriorEmittedUsage: () => ({ input: 500 }),
+    });
+    harness.server.on("thread/resume", () => threadStartResult(1));
+    await harness.manager.resumeSession({
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+    });
+
+    emitUsage(harness, THREAD_ID, 520);
+    await Promise.resolve();
+
+    expect(
+      harness.driverDiagnostics.recentRecordsOfKind("usage_resume_base_unavailable"),
+    ).toHaveLength(0);
+    expect(harness.meteredUsage[0]?.delta.axisDeltas.input).toBe(20);
+  });
+
+  it("closing a session releases its router and accountant rather than leaking them per session", async () => {
+    const harness = await managerWithSession();
+    emitUsage(harness, THREAD_ID, 10);
+    await Promise.resolve();
+    expect(harness.manager.usageAccountantFor(SESSION_ID).hasThread(THREAD_ID)).toBe(true);
+
+    await harness.manager.closeSession({ sessionId: SESSION_ID });
+
+    // Get-or-create, so the accessor answers with a FRESH pair; the assertion
+    // is that the old one did not survive, which the empty thread proves.
+    expect(harness.manager.usageAccountantFor(SESSION_ID).hasThread(THREAD_ID)).toBe(false);
+    expect(harness.manager.frameRouterFor(SESSION_ID).pendingHeldFrameCount()).toBe(0);
+  });
+
+  // ------------------------------------------------------------------------
+  // The rewind rebind. `thread/fork` mints a NEW thread and the session
+  // continues on it, so the band has to move with the record: a router still
+  // registered on the pre-fork identity holds every post-rewind frame pending a
+  // registration that never lands, then sheds it, and the session both stops
+  // projecting and stops metering for the rest of its life.
+  // ------------------------------------------------------------------------
+
+  const FORKED_THREAD_ID = "01a04202-0148-7ae2-8560-f04bed000001";
+
+  /**
+   * A full-axis prior-emitted sum.
+   *
+   * Every axis the fixture reports has to be based, not just `input`: an axis
+   * left at zero would meter the forked thread's whole cumulative on that axis
+   * AND disagree with the wire's own `last`, so a partial fixture would report
+   * a cross-check mismatch that the code under test did not cause.
+   */
+  function priorEmittedBreakdown(value: number): CumulativeAxisReadings {
+    return {
+      total: value,
+      input: value,
+      cachedInput: value,
+      cacheWriteInput: value,
+      output: value,
+      reasoningOutput: value,
+    };
+  }
+
+  /**
+   * A session created, metered, and rewound onto {@link FORKED_THREAD_ID}.
+   *
+   * The prior-emitted reader answers ONLY for the pre-fork thread and records
+   * every key it is asked for. That asymmetry is the point: the forked id
+   * resolves to nothing by construction, so a lookup keyed on it is observable
+   * as a missing base rather than merely being wrong about which thread it
+   * asked after.
+   */
+  async function rewoundSession(
+    options: {
+      /**
+       * What the daemon's prior-emitted reader does. `prior-sum` answers for
+       * the pre-fork thread only; `nothing` is a BOUND reader with no emitted
+       * sum to report, which is a correct answer rather than a fault.
+       */
+      readonly readerAnswer?: "prior-sum" | "nothing" | "throws";
+      /** Whether the session meters anything before it is rewound. */
+      readonly meterBeforeFork?: boolean;
+      /** The thread id the provider's `thread/fork` answers with. */
+      readonly forkAnswersThreadId?: string;
+      /**
+       * The turn ledger the provider's `thread/fork` answers with.
+       *
+       * Defaults to the one turn the fixture actually ran, which AGREES with the
+       * position the rewind asks for — so a test that wants the disagreement has
+       * to ask for it rather than inherit it from the fixture.
+       */
+      readonly forkAnswersTurnIds?: readonly string[];
+      /**
+       * Announces a live child thread before the rewind is issued.
+       *
+       * The only way to hold an id that is registered with the accountant and is
+       * NOT the pre-fork thread, which is the case the fork-identity check
+       * cannot see.
+       */
+      readonly announceChildBeforeFork?: boolean;
+    } = {},
+  ): Promise<{
+    harness: ManagerHarness;
+    readerCalls: { sessionId: SessionId; threadId: string }[];
+    rollbackResult: Awaited<ReturnType<CodexLifecycleManager["rollbackTo"]>>;
+  }> {
+    const readerAnswer = options.readerAnswer ?? "prior-sum";
+    const readerCalls: { sessionId: SessionId; threadId: string }[] = [];
+    const harness = await managerWithSession({
+      onServerNotification: true,
+      readPriorEmittedUsage: (sessionId, threadId) => {
+        readerCalls.push({ sessionId, threadId });
+        if (readerAnswer === "throws") {
+          throw new Error("prior-emitted usage reader failed");
+        }
+        if (readerAnswer === "nothing") {
+          return undefined;
+        }
+        return threadId === THREAD_ID ? priorEmittedBreakdown(100) : undefined;
+      },
+    });
+
+    // A turn, so the rewind has a recorded boundary to fork through, and a
+    // metered reading on the PRE-FORK thread, so there is real emitted spend
+    // for the successor to base on rather than a zero either arm would produce.
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "go" },
+    });
+    if (options.meterBeforeFork !== false) {
+      emitUsage(harness, THREAD_ID, 100);
+    }
+    // The boundary turn has to be OVER: a fork through a live turn is refused.
+    harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
+    await Promise.resolve();
+
+    if (options.announceChildBeforeFork === true) {
+      announceChild(harness, "subAgent");
+      await drainMicrotasks();
+    }
+
+    harness.server.on("thread/fork", () => ({
+      result: {
+        thread: {
+          id: options.forkAnswersThreadId ?? FORKED_THREAD_ID,
+          sessionId: "session-tree-1",
+          turns: (options.forkAnswersTurnIds ?? [TURN_ID]).map((turnId) => ({ id: turnId })),
+        },
+      },
+    }));
+    const rollbackResult = await harness.manager.rollbackTo({
+      sessionId: SESSION_ID,
+      bindingId: "binding-predecessor",
+      position: 1,
+    });
+
+    // The fixture's per-thread ledger holds nothing for the forked id, so its
+    // `last` would be the whole cumulative rather than the turn's own figure.
+    // Seeded with what the daemon already emitted, so `last` is the arithmetic
+    // per-turn figure a continuing provider counter would report and the
+    // accountant's corroboration cross-check stays a real signal here.
+    //
+    // Seeded ONLY on the arm that emitted it. Unconditionally, the no-spend arm
+    // derived its next `last` from a cumulative it never sent and shipped a
+    // NEGATIVE per-turn figure on every axis — a shape no provider produces —
+    // so that arm ran against an impossible wire and buried six unasserted
+    // cross-check mismatches while doing it.
+    if (options.meterBeforeFork !== false) {
+      emittedCumulativeByThreadId.set(FORKED_THREAD_ID, 100);
+    }
+    return { harness, readerCalls, rollbackResult };
+  }
+
+  it("a rewind rebinds the band onto the forked thread and bases it on the PRE-FORK thread's emitted sum", async () => {
+    const { harness, readerCalls, rollbackResult } = await rewoundSession();
+
+    expect(rollbackResult.status).toBe("applied");
+    // THE load-bearing assertion. The sum is looked up under the thread the
+    // daemon actually emitted spend against; the forked thread is one it has
+    // never emitted a token for, so a lookup keyed on it resolves to nothing
+    // and bases the whole rewound session at zero. An unrebound band asks
+    // nothing at all, so both wrong states are distinguishable from this one.
+    expect(readerCalls).toStrictEqual([{ sessionId: SESSION_ID, threadId: THREAD_ID }]);
+
+    emitUsage(harness, FORKED_THREAD_ID, 150);
+    await Promise.resolve();
+
+    // ROUTED, not held: the forked thread is the session's own thread now.
+    expect(harness.manager.frameRouterFor(SESSION_ID).pendingHeldFrameCount()).toBe(0);
+    // And metered at 50 rather than 150 — the 100 the daemon emitted before the
+    // fork is not charged to the session a second time.
+    expect(
+      harness.meteredUsage.map((entry) => ({
+        threadId: entry.delta.threadId,
+        input: entry.delta.axisDeltas.input,
+      })),
+    ).toStrictEqual([
+      { threadId: THREAD_ID, input: 100 },
+      { threadId: FORKED_THREAD_ID, input: 50 },
+    ]);
+    // Neither direction of a mis-based register fired. `usage_resume_base_unavailable`
+    // is what a lookup keyed on the forked id leaves behind; `usage_delta_floor_hit`
+    // is what a base ABOVE the successor's readings leaves behind; the cross-check
+    // is the wire's own per-turn figure agreeing with the derived interval.
+    expect(harness.driverDiagnostics.recentRecordsOfKind("usage_resume_base_unavailable")).toEqual(
+      [],
+    );
+    expect(harness.driverDiagnostics.recentRecordsOfKind("usage_delta_floor_hit")).toEqual([]);
+    expect(harness.driverDiagnostics.recentRecordsOfKind("usage_cross_check_mismatch")).toEqual([]);
+    // The provider's forked history AGREES with the position asked for, so the
+    // corroboration record stays silent — a record that fired on every rewind
+    // would say nothing about the ones that actually disagree.
+    expect(
+      harness.diagnostics.filter((entry) => entry.kind === "fork-turn-ledger-unconfirmed"),
+    ).toStrictEqual([]);
+  });
+
+  it("a rewind retires the pre-fork thread as the session's own rather than leaving two", async () => {
+    const { harness } = await rewoundSession();
+
+    // The forked thread projects: it IS the session now.
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      method: "thread/queue/changed",
+      params: { threadId: FORKED_THREAD_ID },
+    });
+    await Promise.resolve();
+    expect(harness.notifications.map((entry) => entry.method)).toContain("thread/queue/changed");
+
+    // The PRE-FORK thread does not. Re-registering the session's own identity is
+    // the whole retirement — the router holds exactly one — so a late frame from
+    // the thread the caller rewound away from is present-but-unregistered and
+    // waits rather than projecting into the rewound timeline.
+    const projectedBeforeStaleFrame = harness.notifications.length;
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      method: "thread/queue/changed",
+      params: { threadId: THREAD_ID },
+    });
+    await Promise.resolve();
+
+    expect(harness.notifications).toHaveLength(projectedBeforeStaleFrame);
+    expect(harness.manager.frameRouterFor(SESSION_ID).pendingHeldFrameCount()).toBe(1);
+  });
+
+  it("a prior-emitted reader that THROWS leaves the rewind applied and records the overstatement", async () => {
+    const { harness, rollbackResult } = await rewoundSession({ readerAnswer: "throws" });
+
+    // The reader is caller-supplied and runs after the record has already been
+    // re-pointed at the forked thread. A throw escaping there would report a
+    // rewind that did happen as one that did not, and leave the caller retrying
+    // a fork it has already taken.
+    expect(rollbackResult.status).toBe("applied");
+    const baseUnavailable = harness.driverDiagnostics.recentRecordsOfKind(
+      "usage_resume_base_unavailable",
+    );
+    expect(baseUnavailable).toHaveLength(1);
+    // Both ids travel, and on a rewind they DIFFER: the sum was looked up under
+    // the pre-fork thread while the registers being based belong to the forked
+    // one, and an operator reconciling a receipt needs the pair to see which
+    // key came up empty.
+    expect(baseUnavailable[0]?.details).toMatchObject({
+      threadId: FORKED_THREAD_ID,
+      priorEmittedThreadId: THREAD_ID,
+    });
+  });
+
+  it("a rewind of a session that emitted NOTHING bases at zero silently", async () => {
+    const { harness, rollbackResult } = await rewoundSession({
+      readerAnswer: "nothing",
+      meterBeforeFork: false,
+    });
+
+    expect(rollbackResult.status).toBe("applied");
+    // A BOUND reader answering with nothing is a correct answer to a correct
+    // question, not a fault: a session that legitimately emitted no spend has a
+    // prior-emitted sum of zero and bases at zero exactly right. Recording it
+    // would fire on every zero-spend rewind and say nothing about any of them,
+    // while claiming spend was re-metered where none exists.
+    expect(harness.driverDiagnostics.recentRecordsOfKind("usage_resume_base_unavailable")).toEqual(
+      [],
+    );
+
+    // And the zero base is the RIGHT base: the forked thread's first reading is
+    // all new spend, so it meters in full.
+    emitUsage(harness, FORKED_THREAD_ID, 60);
+    await Promise.resolve();
+    expect(
+      harness.meteredUsage.map((entry) => ({
+        threadId: entry.delta.threadId,
+        input: entry.delta.axisDeltas.input,
+      })),
+    ).toStrictEqual([{ threadId: FORKED_THREAD_ID, input: 60 }]);
+    // The wire's own per-turn figure agrees with the derived interval, which is
+    // only true because this arm's fixture no longer seeds a cumulative the
+    // session never emitted: seeded, `last` arrives negative on every axis and
+    // the cross-check that is supposed to corroborate this arm fires six times.
+    expect(harness.driverDiagnostics.recentRecordsOfKind("usage_cross_check_mismatch")).toEqual([]);
+  });
+
+  it("refuses a rewind the provider did not FORK, leaving the session on its original thread", async () => {
+    // The provider answers with the thread it was handed. That is not a fork:
+    // either it rewound the thread in place or handed the same one back, and
+    // the pre-rewind conversation a fork exists to preserve is gone either way.
+    const { harness, readerCalls, rollbackResult } = await rewoundSession({
+      forkAnswersThreadId: THREAD_ID,
+    });
+
+    expect(rollbackResult).toStrictEqual({
+      status: "degraded",
+      fallbackAction: "rewind-not-forked",
+    });
+    // Refused BEFORE the re-point, so nothing was rebound: an unforked answer
+    // must not re-base this session's registers against its own emitted sum for
+    // a thread that never changed.
+    expect(readerCalls).toStrictEqual([]);
+
+    // The session is exactly as it was found — still routing and still metering
+    // on its original thread, which is what makes the refusal retry-safe rather
+    // than merely honest.
+    emitUsage(harness, THREAD_ID, 150);
+    await Promise.resolve();
+    expect(harness.manager.frameRouterFor(SESSION_ID).pendingHeldFrameCount()).toBe(0);
+    expect(
+      harness.meteredUsage.map((entry) => ({
+        threadId: entry.delta.threadId,
+        input: entry.delta.axisDeltas.input,
+      })),
+    ).toStrictEqual([
+      { threadId: THREAD_ID, input: 100 },
+      { threadId: THREAD_ID, input: 50 },
+    ]);
+  });
+
+  it("a rewind retires the pre-fork thread's usage registers rather than leaking a set per rewind", async () => {
+    const { harness } = await rewoundSession();
+
+    // The router's retirement is FUSED into the re-registration — it holds one
+    // session identity, so registering the forked one replaces it — but the
+    // accountant holds a register set per thread and has no such fusion. Left
+    // unreleased, every rewind leaks one for the session's whole life and
+    // `hasThread` keeps answering true for a thread the caller has rewound away
+    // from, so the refusal beside it can no longer tell a thread the session is
+    // still metering from one it has retired.
+    expect(harness.manager.usageAccountantFor(SESSION_ID).hasThread(THREAD_ID)).toBe(false);
+    // And the retirement did not take the session's own metering with it: the
+    // successor is established, which is what the rewind exists to do.
+    expect(harness.manager.usageAccountantFor(SESSION_ID).hasThread(FORKED_THREAD_ID)).toBe(true);
+  });
+
+  it("refuses a fork answered with a thread the session ALREADY meters, leaving both sets of registers intact", async () => {
+    // A live child thread: registered with the accountant, and NOT the pre-fork
+    // thread, so the fork-identity check cannot see it. Adopting it would
+    // re-establish registers that are carrying a child's real spend and hand the
+    // router a session identity whose frames are already attributed elsewhere.
+    const { harness, readerCalls, rollbackResult } = await rewoundSession({
+      announceChildBeforeFork: true,
+      forkAnswersThreadId: CHILD_THREAD_ID,
+    });
+
+    expect(rollbackResult).toStrictEqual({
+      status: "degraded",
+      fallbackAction: "rewind-target-thread-already-registered",
+    });
+    // Refused BEFORE the re-point, so no base was rebuilt for anything.
+    expect(readerCalls).toStrictEqual([]);
+    expect(harness.manager.usageAccountantFor(SESSION_ID).hasThread(CHILD_THREAD_ID)).toBe(true);
+    expect(harness.manager.usageAccountantFor(SESSION_ID).hasThread(THREAD_ID)).toBe(true);
+
+    // Both are still metering on their own bases: the child under its own
+    // attribution, the session on the thread it never left.
+    emitUsage(harness, CHILD_THREAD_ID, 40);
+    emitUsage(harness, THREAD_ID, 150);
+    await drainMicrotasks();
+    expect(
+      harness.meteredUsage.map((entry) => ({
+        threadId: entry.delta.threadId,
+        input: entry.delta.axisDeltas.input,
+      })),
+    ).toStrictEqual([
+      { threadId: THREAD_ID, input: 100 },
+      { threadId: CHILD_THREAD_ID, input: 40 },
+      { threadId: THREAD_ID, input: 50 },
+    ]);
+  });
+
+  it("records the ledger disagreement when the provider's forked history is a different LENGTH than the position asked for", async () => {
+    const { harness, rollbackResult } = await rewoundSession({
+      forkAnswersTurnIds: [TURN_ID, "turn-02"],
+    });
+
+    // The fork itself succeeded, so the rewind is real and applies — and the
+    // applied result reports the CALLER's position whatever the provider's
+    // history says. Unrecorded, a provider that forked to a different depth than
+    // the one asked for would be visible nowhere at all.
+    expect(rollbackResult).toStrictEqual({
+      status: "applied",
+      sessionPosition: 1,
+      bindingId: "binding-abc",
+    });
+    expect(
+      harness.diagnostics.filter((entry) => entry.kind === "fork-turn-ledger-unconfirmed"),
+    ).toStrictEqual([
+      { kind: "fork-turn-ledger-unconfirmed", expectedTurnCount: 1, confirmedTurnCount: 2 },
+    ]);
+  });
+
+  it("records the same disagreement, once, when the fork answers with no readable turn history", async () => {
+    const { harness, rollbackResult } = await rewoundSession({ forkAnswersTurnIds: [] });
+
+    // The absent-history arm is not a second kind of disagreement: an unreadable
+    // list reads as zero turns, which disagrees with the position like any other
+    // count. One report covers both, so neither arm can double-report.
+    expect(rollbackResult.status).toBe("applied");
+    expect(
+      harness.diagnostics.filter((entry) => entry.kind === "fork-turn-ledger-unconfirmed"),
+    ).toStrictEqual([
+      { kind: "fork-turn-ledger-unconfirmed", expectedTurnCount: 1, confirmedTurnCount: 0 },
+    ]);
+  });
+
+  /**
+   * A rewind SUSPENDED at its `thread/fork` request, with the answer left in the
+   * test's hands.
+   *
+   * No `thread/fork` handler is registered, so the fake answers nothing and the
+   * request stays in flight. That suspension is the whole point: every hazard in
+   * the rebind lives between the request and its answer, and a fixture that
+   * answered from a handler would close the window before a concurrent caller
+   * could be dispatched into it.
+   */
+  async function rewindSuspendedAtFork(): Promise<{
+    harness: ManagerHarness;
+    rewind: ReturnType<CodexLifecycleManager["rollbackTo"]>;
+    answerFork: () => Promise<void>;
+  }> {
+    const harness = await managerWithSession({
+      onServerNotification: true,
+      readPriorEmittedUsage: (_sessionId, threadId) =>
+        threadId === THREAD_ID ? priorEmittedBreakdown(100) : undefined,
+    });
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "go" },
+    });
+    emitUsage(harness, THREAD_ID, 100);
+    harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
+    await drainMicrotasks();
+
+    const rewind = harness.manager.rollbackTo({
+      sessionId: SESSION_ID,
+      bindingId: "binding-predecessor",
+      position: 1,
+    });
+    // Drained so the request has actually reached the wire: a test that raced
+    // the write would be asserting against a rewind that had not begun.
+    await drainMicrotasks();
+    expect(harness.server.framesForMethod("thread/fork")).toHaveLength(1);
+
+    return {
+      harness,
+      rewind,
+      answerFork: async (): Promise<void> => {
+        harness.server.emitFrame({
+          jsonrpc: "2.0",
+          id: harness.server.framesForMethod("thread/fork")[0]?.["id"],
+          result: {
+            thread: {
+              id: FORKED_THREAD_ID,
+              sessionId: "session-tree-1",
+              turns: [{ id: TURN_ID }],
+            },
+          },
+        });
+        await drainMicrotasks();
+      },
+    };
+  }
+
+  it("refuses a turn dispatched while a rewind's fork is IN FLIGHT, and the rewound session still projects and meters", async () => {
+    const { harness, rewind, answerFork } = await rewindSuspendedAtFork();
+    const turnStartFramesBeforeRewind = harness.server.framesForMethod("turn/start").length;
+
+    // Dispatched inside the fork's suspension. Unclaimed, this turn is accepted
+    // on the PRE-FORK thread; the fork then moves the routing and metering band
+    // off it, and every frame the turn produces is held-then-shed — the run
+    // never projects, never meters, and its id is discarded by the ledger
+    // splice, all while the caller was told the turn started.
+    const refusal = await harness.manager
+      .startRun({
+        runId: SECOND_RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "second" },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+    expect(refusal).toBeInstanceOf(CodexTransportError);
+    expect((refusal as Error).message).toContain("being re-established");
+    // Refused at the ENTRANCE: nothing reached the wire, so there is no accepted
+    // turn to strand on a thread the rewind is about to leave.
+    expect(harness.server.framesForMethod("turn/start")).toHaveLength(turnStartFramesBeforeRewind);
+    expect(harness.manager.hasActiveTurn(SECOND_RUN_ID)).toBe(false);
+
+    await answerFork();
+    await expect(rewind).resolves.toStrictEqual({
+      status: "applied",
+      sessionPosition: 1,
+      bindingId: "binding-abc",
+    });
+
+    // The surviving path is WHOLE, which is the half a refusal alone does not
+    // prove: the forked thread is the session's own, it projects, and it meters
+    // against the pre-fork thread's emitted sum rather than being held and shed.
+    emittedCumulativeByThreadId.set(FORKED_THREAD_ID, 100);
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      method: "thread/queue/changed",
+      params: { threadId: FORKED_THREAD_ID },
+    });
+    emitUsage(harness, FORKED_THREAD_ID, 150);
+    await drainMicrotasks();
+
+    expect(harness.notifications.map((entry) => entry.method)).toContain("thread/queue/changed");
+    expect(harness.manager.frameRouterFor(SESSION_ID).pendingHeldFrameCount()).toBe(0);
+    expect(
+      harness.meteredUsage.map((entry) => ({
+        threadId: entry.delta.threadId,
+        input: entry.delta.axisDeltas.input,
+      })),
+    ).toStrictEqual([
+      { threadId: THREAD_ID, input: 100 },
+      { threadId: FORKED_THREAD_ID, input: 50 },
+    ]);
+  });
+
+  it("meters a forked-thread frame held across the fork against the base the rebind establishes", async () => {
+    const { harness, rewind, answerFork } = await rewindSuspendedAtFork();
+
+    // The provider has forked on ITS side and the new thread is already
+    // emitting, but the daemon's continuation has not run yet — so the frame
+    // names a thread the router does not know, and it is HELD rather than shed.
+    // Seeded first because the fixture's `last` is derived per thread: without
+    // it the wire would carry the whole cumulative as a turn figure.
+    emittedCumulativeByThreadId.set(FORKED_THREAD_ID, 100);
+    emitUsage(harness, FORKED_THREAD_ID, 150);
+    await drainMicrotasks();
+    expect(harness.manager.frameRouterFor(SESSION_ID).pendingHeldFrameCount()).toBe(1);
+    expect(harness.meteredUsage).toHaveLength(1);
+
+    await answerFork();
+    await expect(rewind).resolves.toMatchObject({ status: "applied" });
+
+    // Released by the registration inside the rebind and metered at 50 — the
+    // pre-fork spend is not charged twice, and the frame is not lost. This is
+    // also the only assertion covering the rebind's ORDER contract: delivered
+    // ahead of the base establishment, the accountant refuses a thread it has no
+    // registers for, `meterReading` answers null, and the released reading is
+    // dropped without so much as a record — spend that reaches no receipt.
+    expect(harness.manager.frameRouterFor(SESSION_ID).pendingHeldFrameCount()).toBe(0);
+    expect(
+      harness.meteredUsage.map((entry) => ({
+        threadId: entry.delta.threadId,
+        input: entry.delta.axisDeltas.input,
+      })),
+    ).toStrictEqual([
+      { threadId: THREAD_ID, input: 100 },
+      { threadId: FORKED_THREAD_ID, input: 50 },
+    ]);
+  });
+
+  it("a resume whose prior-emitted reader THROWS still resumes, and records the base it could not rebuild", async () => {
+    const harness = createManagerHarness({
+      onServerNotification: true,
+      readPriorEmittedUsage: () => {
+        throw new Error("prior-emitted usage reader failed");
+      },
+    });
+    harness.server.on("thread/resume", () => threadStartResult(1));
+
+    const result = await harness.manager.resumeSession({
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+    });
+
+    // The base is a TELEMETRY input, not a gate on the resume. A caller-supplied
+    // reader that throws must not convert a live provider session into a typed
+    // failure the daemon then tries to recover from — the process is up and the
+    // thread is resumed whatever the reader did.
+    expect(result.status).toBe("resumed");
+    // Contained, never silent: this is the faulty arm, so the overstatement it
+    // causes is recorded rather than left to surface on a receipt.
+    expect(
+      harness.driverDiagnostics.recentRecordsOfKind("usage_resume_base_unavailable"),
+    ).toHaveLength(1);
   });
 });

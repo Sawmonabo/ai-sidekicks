@@ -23,19 +23,35 @@
 //     and a differently-capped process; a run declaring no cap is admitted into a
 //     capped session, because the native cap sits beneath the daemon accountant
 //     rather than being it.
+//   * P0-5 (T3.14) — the zero-turn auth probe classifies the transport's reading
+//     onto the contract's three values, is TOTAL over every throw, and keeps
+//     `unauthenticated` distinguishable from `indeterminate` through a typed
+//     error rather than a message-substring test.
 
 import {
   DriverResumeResultSchema,
   type CallbackToolResult,
   type ExecutionPosture,
+  type SubagentPolicy,
 } from "@ai-sidekicks/contracts";
 import { describe, expect, it, vi } from "vitest";
 
+import type { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
+import type { SessionId } from "@ai-sidekicks/contracts";
+
+import type { SubagentLifecycleEmission, ThreadFrameRoute } from "../../../thread-frame-router.js";
+import type { MeteredUsageDelta } from "../../../usage-delta-accountant.js";
 import {
   ClaudeAuthenticationRequiredError,
   ClaudeControlRequestRefusedError,
   ClaudeSessionLifecycle,
   ClaudeSessionUnavailableError,
+  ClaudeSubagentConcurrencyGate,
+  CLAUDE_CALLBACK_MCP_SERVER_NAME,
+  CLAUDE_SUBAGENT_MAX_DEPTH_CEILING,
+  composeClaudeCallbackMcpServer,
+  composeClaudeProviderToolName,
+  composeClaudeSandboxSettings,
   type ClaudeSessionLifecycleDependencies,
 } from "../lifecycle.js";
 import {
@@ -45,6 +61,7 @@ import {
   buildStartRunParams,
   FakeClaudeRunDispatchResolver,
   FakeClaudeSessionTransport,
+  makeSilentDriverDiagnostics,
   TEST_BINDING_ID,
   TEST_PINNED_PROVIDER_SESSION_ID,
   TEST_RUN_ID,
@@ -55,6 +72,7 @@ interface LifecycleHarness {
   readonly lifecycle: ClaudeSessionLifecycle;
   readonly transport: FakeClaudeSessionTransport;
   readonly runDispatchResolver: FakeClaudeRunDispatchResolver;
+  readonly diagnostics: DriverDiagnosticsEmitter;
 }
 
 function buildHarness(
@@ -62,18 +80,32 @@ function buildHarness(
 ): LifecycleHarness {
   const transport = new FakeClaudeSessionTransport();
   const runDispatchResolver = new FakeClaudeRunDispatchResolver();
+  const diagnostics = makeSilentDriverDiagnostics();
   const dependencies: ClaudeSessionLifecycleDependencies = {
     transport,
     runDispatchResolver,
+    diagnostics,
     mintProviderSessionId: () => TEST_PINNED_PROVIDER_SESSION_ID,
     mintBindingId: () => TEST_BINDING_ID,
     ...overrides,
   };
-  return { lifecycle: new ClaudeSessionLifecycle(dependencies), transport, runDispatchResolver };
+  return {
+    lifecycle: new ClaudeSessionLifecycle(dependencies),
+    transport,
+    runDispatchResolver,
+    diagnostics: dependencies.diagnostics,
+  };
 }
 
 const SANDBOXED_POSTURE: ExecutionPosture = {
   mode: "workspace-sandboxed",
+  credentialPolicyRef: "policy://default",
+  networkAccess: "none",
+  writableRoots: ["/workspace"],
+};
+
+const READONLY_POSTURE: ExecutionPosture = {
+  mode: "readonly-sandboxed",
   credentialPolicyRef: "policy://default",
   networkAccess: "none",
   writableRoots: ["/workspace"],
@@ -1273,7 +1305,7 @@ describe("ClaudeSessionLifecycle run-route retirement on turn terminal", () => {
     // The driver's response is the same for either terminal — the route is over
     // because the TURN is over, not because it succeeded. The double owns the
     // terminal-vs-non-terminal discriminant, exactly as a transport does.
-    channel.emitStreamFrame("result/error_max_tokens");
+    channel.emitStreamFrame("result/error_max_turns");
 
     expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
   });
@@ -1282,8 +1314,12 @@ describe("ClaudeSessionLifecycle run-route retirement on turn terminal", () => {
     const harness = buildHarness();
     const channel = await arrangeRunningTurn(harness);
 
-    channel.emitStreamFrame("assistant/message_delta");
+    // A censused, thread-scoped, NON-terminal kind: it must route and project,
+    // so what this asserts is the terminal discriminant rather than a frame the
+    // router would have refused anyway.
+    const route = channel.emitStreamFrame("system/task_progress");
 
+    expect(route).toStrictEqual({ decision: "project" });
     expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBe(channel);
   });
 
@@ -1458,6 +1494,95 @@ describe("ClaudeSessionLifecycle adoption window", () => {
 // the refused-channel disposal path's whole job is to not throw, so a renderer
 // that could throw would defeat the guard calling it. Exercised through the
 // resume failure path, which is the surface that persists the detail.
+describe("ClaudeSessionLifecycle.probeAuth (T3.14 P0-5)", () => {
+  it("reports authenticated when the transport takes the reading", async () => {
+    const harness = buildHarness();
+
+    const result = await harness.lifecycle.probeAuth();
+
+    expect(result.status).toBe("authenticated");
+    expect(harness.transport.probeAuthCallCount).toBe(1);
+  });
+
+  it("carries the transport's own detail when it supplied one", async () => {
+    const harness = buildHarness();
+    harness.transport.probeAuthDetail = "credential home: default";
+
+    await expect(harness.lifecycle.probeAuth()).resolves.toMatchObject({
+      status: "authenticated",
+      detail: "credential home: default",
+    });
+  });
+
+  it("names the evidence rather than a credential source when the transport gave no detail", async () => {
+    const harness = buildHarness();
+
+    const result = await harness.lifecycle.probeAuth();
+
+    // The pinned CLI publishes no authless protocol probe, so reaching the
+    // provider IS the whole of the evidence — the default detail must not imply
+    // a credential source the probe never observed.
+    expect(result.detail).toBe("the provider answered the zero-turn auth probe");
+  });
+
+  it("reports unauthenticated only for the TYPED logged-out signal", async () => {
+    const harness = buildHarness();
+    harness.transport.probeAuthFailure = new ClaudeAuthenticationRequiredError(
+      "no credentials on this node",
+    );
+
+    await expect(harness.lifecycle.probeAuth()).resolves.toMatchObject({
+      status: "unauthenticated",
+    });
+  });
+
+  it("reports indeterminate for a probe it could not take", async () => {
+    const harness = buildHarness();
+    harness.transport.probeAuthFailure = new Error("claude binary not found");
+
+    // Fail-closed for admission, and still distinguishable: an operator sent to
+    // re-authenticate a credential that was never in question has been told the
+    // wrong thing.
+    const result = await harness.lifecycle.probeAuth();
+
+    expect(result.status).toBe("indeterminate");
+    expect(result.detail).toContain("claude binary not found");
+  });
+
+  it("classifies by type, not by message text", async () => {
+    const harness = buildHarness();
+    // A generic failure whose WORDS look like a credential problem. A
+    // substring test would misclassify it as a determinate logout.
+    harness.transport.probeAuthFailure = new Error("not authenticated: upstream 401");
+
+    await expect(harness.lifecycle.probeAuth()).resolves.toMatchObject({
+      status: "indeterminate",
+    });
+  });
+
+  it("never throws, even when the transport throws a non-Error", async () => {
+    const harness = buildHarness();
+    harness.transport.probeAuthFailure = "just a string" as unknown as Error;
+
+    await expect(harness.lifecycle.probeAuth()).resolves.toMatchObject({
+      status: "indeterminate",
+    });
+  });
+
+  it("establishes nothing, so a create still succeeds after it", async () => {
+    const harness = buildHarness();
+
+    await harness.lifecycle.probeAuth();
+
+    // A probe that spawned a session would not be zero-turn, and one that held
+    // the session slot would stall the admission check it exists to make cheap.
+    expect(harness.transport.spawnRequests).toStrictEqual([]);
+    await expect(
+      harness.lifecycle.createSession(buildCreateSessionParams()),
+    ).resolves.toMatchObject({ providerSessionId: TEST_PINNED_PROVIDER_SESSION_ID });
+  });
+});
+
 describe("provider failure detail rendering", () => {
   function buildErrorWithHostileProperties(hostile: {
     readonly message?: boolean;
@@ -1539,5 +1664,1012 @@ describe("ClaudeSessionUnavailableError", () => {
     expect(error.code).toBe("driver.unavailable");
     expect(error.fields.driverId).toBe("claude");
     expect(error).toBeInstanceOf(Error);
+  });
+});
+
+// --------------------------------------------------------------------------
+// T3.15 — the R8 parity driver legs, Claude arm.
+// --------------------------------------------------------------------------
+//
+// Spec coverage under test:
+//   `Spec-005 §Interfaces And Contracts` — `rollbackTo` reports the `bindingId`
+//     the daemon rebinds on; the goal operations answer the typed results.
+//   `Spec-005 §Parity Capability Mechanism Grades` — this provider's EMULATED
+//     cells: the goal as a spawn-bound system-prompt append, the concurrency cap
+//     as a daemon-side boundary serialization, and the callback-tool registry as
+//     a daemon-hosted ephemeral MCP server.
+//   `Spec-012 §Required Behavior` — a registry with no dispatcher to adjudicate
+//     through is withheld rather than offered.
+//   `Spec-016 §Provider-Native Subagents` — a definition that cannot be held at
+//     the daemon boundary is withheld and recorded, never silently admitted.
+//   CP-005-1 — a rewind is a spawn, so it re-realizes every spawn-bound leg.
+
+describe("ClaudeSessionLifecycle.rollbackTo (T3.15 leg 1, EMULATED as a fork)", () => {
+  it("reports the rebinding `bindingId` on the applied arm", async () => {
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+
+    // The INPUT binding is deliberately NOT the minted one, so a driver that
+    // echoed the caller's `bindingId` back — reporting the binding of the
+    // process the rewind just replaced — fails here.
+    const result = await harness.lifecycle.rollbackTo({
+      sessionId: TEST_SESSION_ID,
+      bindingId: "binding-predecessor",
+      position: 4,
+    });
+
+    // The rewind relaunches the process, so the daemon rebinds onto a new one;
+    // an applied rollback reporting the predecessor's binding would leave the
+    // caller pointing at a process that is gone.
+    expect(result).toStrictEqual({
+      status: "applied",
+      sessionPosition: 4,
+      bindingId: TEST_BINDING_ID,
+    });
+  });
+
+  it("refuses a rewind the provider answered with the SAME session id", async () => {
+    // A rewind that answers with the id it was given did not fork: the
+    // pre-rewind conversation the fork was supposed to preserve is gone.
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.transport.announcedForkedProviderSessionId = TEST_PINNED_PROVIDER_SESSION_ID;
+
+    const result = await harness.lifecycle.rollbackTo({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+      position: 4,
+    });
+
+    expect(result.status).toBe("degraded");
+    expect((result as { fallbackAction: string }).fallbackAction).toContain("rewind-not-forked");
+  });
+});
+
+describe("ClaudeSessionLifecycle session goals (T3.15 leg 2, EMULATED)", () => {
+  it("answers `degraded` and names the boundary the goal binds at", async () => {
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+
+    const result = await harness.lifecycle.setSessionGoal({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+      runId: TEST_RUN_ID,
+      goalText: "land the parity legs",
+    });
+
+    // The goal is realized as a system-prompt append, which is bound at process
+    // start; answering `applied` would tell the daemon the session is governed
+    // by an instruction its model has never seen.
+    expect(result).toStrictEqual({
+      status: "degraded",
+      fallbackAction: "goal-appended-at-next-session-spawn",
+    });
+  });
+
+  it("answers `applied` for a clear on a session that carried no goal", async () => {
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+
+    expect(
+      await harness.lifecycle.clearSessionGoal({
+        sessionId: TEST_SESSION_ID,
+        bindingId: TEST_BINDING_ID,
+        runId: TEST_RUN_ID,
+      }),
+    ).toStrictEqual({
+      status: "applied",
+    });
+  });
+
+  it("carries a goal recorded AFTER the spawn into the rewind's relaunch", async () => {
+    // The rewind IS the "next session spawn" the set answer named. Reusing the
+    // predecessor's legs verbatim would skip the very next spawn.
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    await harness.lifecycle.setSessionGoal({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+      runId: TEST_RUN_ID,
+      goalText: "land the parity legs",
+    });
+
+    await harness.lifecycle.rollbackTo({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+      position: 4,
+    });
+
+    expect(harness.transport.rewindRequests[0]?.goalText).toBe("land the parity legs");
+  });
+
+  it("does not RE-drop the goal on a second rewind", async () => {
+    // The regression a verbatim leg reuse would leave: the first rewind picks
+    // the goal up, and the second reads legs that must already carry it.
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    await harness.lifecycle.setSessionGoal({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+      runId: TEST_RUN_ID,
+      goalText: "land the parity legs",
+    });
+
+    await harness.lifecycle.rollbackTo({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+      position: 4,
+    });
+    await harness.lifecycle.rollbackTo({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+      position: 3,
+    });
+
+    expect(harness.transport.rewindRequests[1]?.goalText).toBe("land the parity legs");
+  });
+});
+
+describe("ClaudeSessionLifecycle callback-tool registry (T3.15 leg 3, Claude arm)", () => {
+  const SEARCH_TOOL = {
+    name: "search_workspace",
+    description: "Searches the workspace.",
+    inputSchema: { type: "object" },
+  };
+
+  it("serves the registry as an ephemeral MCP server when a dispatcher is bound", async () => {
+    const harness = buildHarness();
+
+    await harness.lifecycle.createSession({
+      ...buildCreateSessionParams(),
+      callbackTools: [SEARCH_TOOL],
+      onCallbackToolCall: async (): Promise<CallbackToolResult> =>
+        await Promise.resolve({ status: "completed" }),
+    });
+
+    const spawnRequest = harness.transport.spawnRequests[0];
+    expect(spawnRequest?.callbackToolServer?.serverName).toBe(CLAUDE_CALLBACK_MCP_SERVER_NAME);
+    expect(spawnRequest?.callbackTools).toStrictEqual([SEARCH_TOOL]);
+  });
+
+  it("injects NO registry and records the withholding when no dispatcher is bound", async () => {
+    const harness = buildHarness();
+
+    await harness.lifecycle.createSession({
+      ...buildCreateSessionParams(),
+      callbackTools: [SEARCH_TOOL],
+    });
+
+    // Withheld rather than served-and-refused: a tool the model never learns
+    // exists costs it no turns.
+    const spawnRequest = harness.transport.spawnRequests[0];
+    expect(spawnRequest?.callbackTools).toBeUndefined();
+    expect(spawnRequest?.callbackToolServer).toBeUndefined();
+    const withholdings = harness.diagnostics.recentRecordsOfKind("callback_tool_registry_withheld");
+    expect(withholdings).toHaveLength(1);
+    expect(withholdings[0]?.details["reason"]).toBe("no-dispatcher-bound");
+  });
+
+  it("serves no registry and records nothing when no tools were offered", async () => {
+    const harness = buildHarness();
+
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+
+    expect(harness.transport.spawnRequests[0]?.callbackToolServer).toBeUndefined();
+    expect(harness.diagnostics.recentRecordsOfKind("callback_tool_registry_withheld")).toHaveLength(
+      0,
+    );
+  });
+});
+
+describe("composeClaudeCallbackMcpServer (T3.15 leg 3)", () => {
+  it("mangles each tool into the provider-facing MCP name", () => {
+    const descriptor = composeClaudeCallbackMcpServer([
+      { name: "search_workspace", description: "d", inputSchema: {} },
+    ]);
+
+    expect(composeClaudeProviderToolName(descriptor.serverName, "search_workspace")).toBe(
+      "mcp__sidekicks__search_workspace",
+    );
+    expect(descriptor.registryNamesByProviderName.get("mcp__sidekicks__search_workspace")).toBe(
+      "search_workspace",
+    );
+  });
+
+  it("maps EVERY served tool back, so no invocation can arrive unmappable", () => {
+    const tools = ["alpha", "beta", "gamma"].map((name) => ({
+      name,
+      description: name,
+      inputSchema: {},
+    }));
+
+    const descriptor = composeClaudeCallbackMcpServer(tools);
+
+    expect(descriptor.registryNamesByProviderName.size).toBe(descriptor.tools.length);
+    for (const tool of descriptor.tools) {
+      const providerName = composeClaudeProviderToolName(descriptor.serverName, tool.name);
+      expect(descriptor.registryNamesByProviderName.get(providerName)).toBe(tool.name);
+    }
+  });
+
+  it("de-duplicates a repeated name last-wins rather than serving it twice", () => {
+    // Serving one provider-facing name twice would make the reverse map's answer
+    // depend on iteration order.
+    const descriptor = composeClaudeCallbackMcpServer([
+      { name: "search", description: "first", inputSchema: {} },
+      { name: "search", description: "second", inputSchema: {} },
+    ]);
+
+    expect(descriptor.tools).toHaveLength(1);
+    expect(descriptor.tools[0]?.description).toBe("second");
+  });
+});
+
+describe("ClaudeSubagentConcurrencyGate (T3.15 leg 4)", () => {
+  function buildGate(maxConcurrent: number): {
+    readonly gate: ClaudeSubagentConcurrencyGate;
+    readonly diagnostics: DriverDiagnosticsEmitter;
+  } {
+    const diagnostics = makeSilentDriverDiagnostics();
+    return {
+      gate: new ClaudeSubagentConcurrencyGate({
+        sessionId: TEST_SESSION_ID,
+        diagnostics,
+        maxConcurrent,
+      }),
+      diagnostics,
+    };
+  }
+
+  it("never admits beyond the cap, even when a release and an arrival interleave", async () => {
+    // The hand-over race: a release that decremented and then woke a waiter in a
+    // microtask leaves a window in which a THIRD caller reads a free slot the
+    // waiter has already been promised.
+    const { gate } = buildGate(1);
+    const releaseFirst = await gate.admit("subagent-a");
+    const secondAdmission = gate.admit("subagent-b");
+    expect(gate.heldSlotCount).toBe(1);
+
+    releaseFirst();
+    const thirdAdmission = gate.admit("subagent-c");
+
+    expect(gate.heldSlotCount).toBe(1);
+    const releaseSecond = await secondAdmission;
+    expect(gate.heldSlotCount).toBe(1);
+    releaseSecond();
+    await thirdAdmission;
+    expect(gate.heldSlotCount).toBe(1);
+  });
+
+  it("admits waiters in arrival order", async () => {
+    const { gate } = buildGate(1);
+    const release = await gate.admit("holder");
+    const admitted: string[] = [];
+    const waiters = ["first", "second", "third"].map(async (name) => {
+      const releaseWaiter = await gate.admit(name);
+      admitted.push(name);
+      releaseWaiter();
+    });
+
+    release();
+    await Promise.all(waiters);
+
+    // A waiter set resolved in arbitrary order starves whichever subagent is
+    // unlucky, inside a run that has a wall-clock budget.
+    expect(admitted).toStrictEqual(["first", "second", "third"]);
+  });
+
+  it("frees exactly one slot for a doubly-released admission", async () => {
+    const { gate } = buildGate(2);
+    const release = await gate.admit("subagent-a");
+    await gate.admit("subagent-b");
+
+    release();
+    release();
+
+    expect(gate.heldSlotCount).toBe(1);
+  });
+
+  it("floors a sub-one cap at one rather than deadlocking every call", async () => {
+    const { gate } = buildGate(0);
+
+    const release = await gate.admit("subagent-a");
+
+    expect(gate.heldSlotCount).toBe(1);
+    release();
+  });
+
+  it("fails every waiter on disposal rather than hanging the provider turn", async () => {
+    const { gate } = buildGate(1);
+    await gate.admit("holder");
+    const waiting = gate.admit("waiter");
+
+    gate.dispose();
+
+    await expect(waiting).rejects.toBeInstanceOf(ClaudeSessionUnavailableError);
+    await expect(gate.admit("later")).rejects.toBeInstanceOf(ClaudeSessionUnavailableError);
+  });
+
+  it("records a breach at most once per new ceiling", () => {
+    const { gate, diagnostics } = buildGate(2);
+
+    gate.observeLiveSubagentCount(3);
+    gate.observeLiveSubagentCount(3);
+    gate.observeLiveSubagentCount(4);
+    gate.observeLiveSubagentCount(2);
+
+    // The provider can create subagents without any of them calling a tool, so
+    // the daemon can see more live subagents than the gate ever admitted. That
+    // is a breach, it is recorded, and it never fails a run.
+    const breaches = diagnostics.recentRecordsOfKind("subagent_concurrency_breach");
+    expect(breaches).toHaveLength(2);
+    expect(breaches.map((record) => record.details["liveSubagentCount"])).toStrictEqual([3, 4]);
+  });
+});
+
+/** The realized depth ceiling on a spawn's enabled policy, or `undefined`. */
+function readRealizedMaxDepth(harness: LifecycleHarness): number | undefined {
+  const policy = harness.transport.spawnRequests[0]?.subagentPolicy;
+  return policy?.enabled === true ? policy.maxDepth : undefined;
+}
+
+describe("ClaudeSessionLifecycle subagent admission wiring (T3.15 leg 4)", () => {
+  const ENABLED_POLICY: SubagentPolicy = {
+    enabled: true,
+    maxConcurrent: 2,
+    maxDepth: 1,
+    definitions: [],
+  };
+
+  it("installs a gate for an enabled policy and none for a disabled one", async () => {
+    const enabledHarness = buildHarness();
+    await enabledHarness.lifecycle.createSession({
+      ...buildCreateSessionParams(),
+      subagentPolicy: ENABLED_POLICY,
+    });
+    const disabledHarness = buildHarness();
+    await disabledHarness.lifecycle.createSession({
+      ...buildCreateSessionParams(),
+      subagentPolicy: { enabled: false },
+    });
+
+    expect(enabledHarness.transport.spawnRequests[0]?.subagentAdmission).toBeDefined();
+    expect(disabledHarness.transport.spawnRequests[0]?.subagentAdmission).toBeUndefined();
+  });
+
+  it("installs a FRESH gate on a rewind rather than carrying the predecessor's", async () => {
+    // A rewind relaunches the process, so every subagent the old gate held slots
+    // for died with it; carrying it forward would hold a permanently reduced cap
+    // against calls that no longer exist.
+    const harness = buildHarness();
+    await harness.lifecycle.createSession({
+      ...buildCreateSessionParams(),
+      subagentPolicy: ENABLED_POLICY,
+    });
+    const predecessorGate = harness.transport.spawnRequests[0]?.subagentAdmission;
+    await predecessorGate?.admit("held-across-the-rewind");
+
+    await harness.lifecycle.rollbackTo({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+      position: 4,
+    });
+
+    const rewoundGate = harness.transport.rewindRequests[0]?.subagentAdmission;
+    expect(rewoundGate).toBeDefined();
+    expect(rewoundGate).not.toBe(predecessorGate);
+    // And the predecessor's own waiters are failed rather than left hanging on a
+    // process that is gone.
+    await expect(predecessorGate?.admit("orphan")).rejects.toBeInstanceOf(
+      ClaudeSessionUnavailableError,
+    );
+  });
+
+  it("fails the gate's waiters when the session is closed", async () => {
+    const harness = buildHarness();
+    await harness.lifecycle.createSession({
+      ...buildCreateSessionParams(),
+      subagentPolicy: ENABLED_POLICY,
+    });
+    const gate = harness.transport.spawnRequests[0]?.subagentAdmission;
+
+    await harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID });
+
+    await expect(gate?.admit("after-close")).rejects.toBeInstanceOf(ClaudeSessionUnavailableError);
+  });
+
+  it("records every definition it could not hold at the daemon boundary", async () => {
+    const harness = buildHarness();
+
+    await harness.lifecycle.createSession({
+      ...buildCreateSessionParams(),
+      subagentPolicy: {
+        enabled: true,
+        maxConcurrent: 2,
+        maxDepth: 1,
+        definitions: [
+          // `bypassPermissions` skips the daemon's interception point, so this
+          // definition's beyond-cap calls could not be held at a boundary that
+          // is not there.
+          { name: "unmediated", permissionMode: "bypassPermissions" },
+          { name: "mediated", permissionMode: "default" },
+        ],
+      },
+    });
+
+    const withheld = harness.diagnostics.recentRecordsOfKind("subagent_definition_disabled");
+    expect(withheld).toHaveLength(1);
+    expect(withheld[0]?.details["definitionName"]).toBe("unmediated");
+    // The admitted one still ships: withholding is per-definition, not per-spawn.
+    const realizedPolicy = harness.transport.spawnRequests[0]?.subagentPolicy;
+    expect(
+      realizedPolicy?.enabled === true
+        ? realizedPolicy.definitions.map((definition) => definition.name)
+        : undefined,
+    ).toStrictEqual(["mediated"]);
+  });
+
+  it("clamps the depth ceiling while honouring a policy that asked for less", async () => {
+    const clampedHarness = buildHarness();
+    await clampedHarness.lifecycle.createSession({
+      ...buildCreateSessionParams(),
+      subagentPolicy: { enabled: true, maxConcurrent: 1, maxDepth: 99, definitions: [] },
+    });
+    const modestHarness = buildHarness();
+    await modestHarness.lifecycle.createSession({
+      ...buildCreateSessionParams(),
+      subagentPolicy: { enabled: true, maxConcurrent: 1, maxDepth: 2, definitions: [] },
+    });
+
+    expect(readRealizedMaxDepth(clampedHarness)).toBe(CLAUDE_SUBAGENT_MAX_DEPTH_CEILING);
+    expect(readRealizedMaxDepth(modestHarness)).toBe(2);
+  });
+});
+
+describe("composeClaudeSandboxSettings (T3.15 leg 5)", () => {
+  it("pins the always-armed permission prompt on every sandboxed arm", () => {
+    // RATIFIED MAPPING (user decision, 2026-08-25): `supervised` maps to
+    // `on-request` UNCONDITIONALLY. On this provider that is realized as
+    // `allowUnsandboxedCommands: false`, so no tool call reaches the model's
+    // hands without passing the daemon.
+    for (const posture of [SANDBOXED_POSTURE, READONLY_POSTURE]) {
+      const settings = composeClaudeSandboxSettings(posture);
+      expect(settings.sandbox.allowUnsandboxedCommands).toBe(false);
+      expect(settings.sandbox.enabled).toBe(true);
+      // A host whose sandbox cannot be brought up must REFUSE to start rather
+      // than start unsandboxed under a recorded sandboxed posture.
+      expect(settings.sandbox.failIfUnavailable).toBe(true);
+    }
+  });
+
+  it("writes nowhere on the read-only arm, with an EMPTY list rather than an omitted one", () => {
+    // An omitted list requests the provider's default, which is a different
+    // statement from "writes nowhere".
+    expect(
+      composeClaudeSandboxSettings(READONLY_POSTURE).sandbox.filesystem.allowWrite,
+    ).toStrictEqual([]);
+  });
+
+  it("omits the network restriction entirely for `full`, and empties it for `none`", () => {
+    const trusted = composeClaudeSandboxSettings(TRUSTED_POSTURE);
+    const denied = composeClaudeSandboxSettings(SANDBOXED_POSTURE);
+
+    // The ABSENCE is the statement; an empty list would mean the opposite.
+    expect(trusted.sandbox.network).toBeUndefined();
+    expect(denied.sandbox.network).toStrictEqual({ allowedDomains: [] });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T3.11 — the routing / metering band, driven through the REAL inbound seam.
+// ---------------------------------------------------------------------------
+//
+// The double honours the whole `onInboundFrame` transport obligation: it
+// observes before projecting and projects only on `project`. So these assert
+// what a real transport would do with the driver's answer, not what a test
+// helper decided to record.
+
+describe("ClaudeSessionLifecycle thread routing and usage metering (T3.11, I-005-11, I-005-12)", () => {
+  const CHILD_SUBAGENT_ID = "subagent-7";
+
+  interface RoutingHarness extends LifecycleHarness {
+    readonly meteredUsage: { sessionId: SessionId; delta: MeteredUsageDelta }[];
+    readonly subagentLifecycle: { sessionId: SessionId; emission: SubagentLifecycleEmission }[];
+    readonly releasedRoutes: ThreadFrameRoute[];
+  }
+
+  function buildRoutingHarness(
+    overrides: Partial<ClaudeSessionLifecycleDependencies> = {},
+  ): RoutingHarness {
+    const meteredUsage: { sessionId: SessionId; delta: MeteredUsageDelta }[] = [];
+    const subagentLifecycle: { sessionId: SessionId; emission: SubagentLifecycleEmission }[] = [];
+    const releasedRoutes: ThreadFrameRoute[] = [];
+    const harness = buildHarness({
+      onMeteredUsage: (sessionId, delta) => meteredUsage.push({ sessionId, delta }),
+      onSubagentLifecycle: (sessionId, emission) => subagentLifecycle.push({ sessionId, emission }),
+      onReleasedFrameRoute: (_sessionId, _observation, route) => releasedRoutes.push(route),
+      ...overrides,
+    });
+    return { ...harness, meteredUsage, subagentLifecycle, releasedRoutes };
+  }
+
+  async function liveChannel(harness: RoutingHarness): Promise<FakeClaudeSessionChannel> {
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    const channel = harness.transport.spawnedChannels[0];
+    if (channel === undefined) {
+      throw new Error("unreachable: the session must have spawned a channel");
+    }
+    return channel;
+  }
+
+  function usageObservation(
+    totalInputTokens: number,
+    subagentId: string | null = null,
+  ): Parameters<FakeClaudeSessionChannel["emitStreamFrame"]>[1] {
+    return {
+      subagentId,
+      cumulativeUsage: {
+        namedTurnId: "turn-A",
+        cumulative: { input: totalInputTokens },
+      },
+    };
+  }
+
+  it("closing a session releases its routing band rather than leaking or resurrecting it", async () => {
+    const harness = buildRoutingHarness();
+    const channel = await liveChannel(harness);
+    const providerSessionId = channel.providerSessionId;
+    channel.emitStreamFrame("assistant/message", usageObservation(10));
+    expect(
+      harness.lifecycle.usageAccountantFor(TEST_SESSION_ID)?.hasThread(providerSessionId),
+    ).toBe(true);
+
+    await harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID });
+
+    // GONE, not replaced. The accessors are non-creating, so a read after the
+    // close answers `undefined` rather than minting a fresh band nothing will
+    // ever delete — per-provider-session state accumulating for a session that
+    // no longer exists, and a router that would answer the next session with a
+    // thread registry that session never made.
+    expect(harness.lifecycle.usageAccountantFor(TEST_SESSION_ID)).toBeUndefined();
+    expect(harness.lifecycle.frameRouterFor(TEST_SESSION_ID)).toBeUndefined();
+  });
+
+  it("the band is built at registration, so it exists for a live session and not before one", async () => {
+    const harness = buildRoutingHarness();
+
+    // Nothing has been established, so nothing holds a band. A get-or-create
+    // accessor would answer here and leave a band behind for a session that was
+    // never created.
+    expect(harness.lifecycle.frameRouterFor(TEST_SESSION_ID)).toBeUndefined();
+
+    await liveChannel(harness);
+
+    expect(harness.lifecycle.frameRouterFor(TEST_SESSION_ID)?.pendingHeldFrameCount()).toBe(0);
+    expect(harness.lifecycle.usageAccountantFor(TEST_SESSION_ID)).toBeDefined();
+  });
+
+  it("(a) a frame naming a FOREIGN thread never projects", async () => {
+    const harness = buildRoutingHarness();
+    const channel = await liveChannel(harness);
+
+    const route = channel.emitStreamFrame("system/task_progress", {
+      subagentId: "some-unannounced-subagent",
+    });
+
+    expect(route.decision).toBe("held-pending-registration");
+    expect(channel.deliveredFrameKinds).toStrictEqual([]);
+  });
+
+  it("(b) a usage frame meters a per-turn DELTA, never the cumulative counter", async () => {
+    const harness = buildRoutingHarness();
+    const channel = await liveChannel(harness);
+
+    channel.emitStreamFrame("system/task_progress", usageObservation(100));
+    channel.emitStreamFrame("system/task_progress", usageObservation(150));
+
+    // This provider reports a running total that resets at no turn boundary.
+    // 150 is the session's whole spend; 50 is what the second turn cost.
+    expect(harness.meteredUsage.map((entry) => entry.delta.axisDeltas.input)).toEqual([100, 50]);
+  });
+
+  it("(c) an announced child's content is suppressed while its spend carves through", async () => {
+    const harness = buildRoutingHarness();
+    const channel = await liveChannel(harness);
+
+    channel.emitStreamFrame("control_request/hook_callback", {
+      subagentLifecycle: {
+        signal: "SubagentStart",
+        subagentId: CHILD_SUBAGENT_ID,
+        parentToolUseId: "toolu_parent",
+      },
+    });
+    const contentRoute = channel.emitStreamFrame("system/task_progress", {
+      subagentId: CHILD_SUBAGENT_ID,
+    });
+    channel.emitStreamFrame("system/task_progress", usageObservation(40, CHILD_SUBAGENT_ID));
+
+    expect(contentRoute.decision).toBe("suppress-child-transcript");
+    // The announcement rides the control channel, which is connection-scoped
+    // and therefore delivered; what never reaches the consumer is the child's
+    // own CONTENT frame, and neither `system/task_progress` is here.
+    expect(channel.deliveredFrameKinds).toStrictEqual(["control_request/hook_callback"]);
+    expect(harness.meteredUsage).toHaveLength(1);
+    expect(harness.meteredUsage[0]?.delta.threadId).toBe(CHILD_SUBAGENT_ID);
+    expect(harness.meteredUsage[0]?.delta.axisDeltas.input).toBe(40);
+  });
+
+  it("(d) the session's own terminal projects, and reaches the turn-terminal hook", async () => {
+    const harness = buildRoutingHarness();
+    const channel = await liveChannel(harness);
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "review the diff",
+    });
+    await harness.lifecycle.startRun(buildStartRunParams());
+    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBe(channel);
+
+    const route = channel.emitStreamFrame("result/success");
+
+    expect(route).toStrictEqual({ decision: "project" });
+    expect(channel.deliveredFrameKinds).toStrictEqual(["result/success"]);
+    // Projected AND consumed: the route retired, which is the terminal's whole
+    // job on this provider (a channel-level interrupt must not outlive its turn).
+    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
+  });
+
+  it("the eleventh I-005-12 case: a fully suppressed child still leaves its started/completed pair", async () => {
+    const harness = buildRoutingHarness();
+    const channel = await liveChannel(harness);
+
+    channel.emitStreamFrame("control_request/hook_callback", {
+      subagentLifecycle: {
+        signal: "SubagentStart",
+        subagentId: CHILD_SUBAGENT_ID,
+        parentToolUseId: "toolu_parent",
+      },
+    });
+    for (const childFrameKind of ["system/task_progress", "system/tool_use_summary"]) {
+      channel.emitStreamFrame(childFrameKind, { subagentId: CHILD_SUBAGENT_ID });
+    }
+    channel.emitStreamFrame("control_request/hook_callback", {
+      subagentId: CHILD_SUBAGENT_ID,
+      subagentLifecycle: {
+        signal: "SubagentStop",
+        subagentId: CHILD_SUBAGENT_ID,
+        parentToolUseId: "toolu_parent",
+      },
+    });
+
+    // No child content on the parent's timeline — the two delivered frames are
+    // the child's own start/stop announcements, which ride the connection-scoped
+    // control channel; both `system/*` child frames were suppressed.
+    expect(channel.deliveredFrameKinds).toStrictEqual([
+      "control_request/hook_callback",
+      "control_request/hook_callback",
+    ]);
+    // ...and yet the child is not invisible: this pair is its whole presence.
+    expect(
+      harness.subagentLifecycle.map((entry) => ({
+        eventType: entry.emission.eventType,
+        subagentId: entry.emission.subagentId,
+        parentReference: entry.emission.parentReference,
+      })),
+    ).toEqual([
+      {
+        eventType: "subagent.started",
+        subagentId: CHILD_SUBAGENT_ID,
+        parentReference: "toolu_parent",
+      },
+      {
+        eventType: "subagent.completed",
+        subagentId: CHILD_SUBAGENT_ID,
+        parentReference: "toolu_parent",
+      },
+    ]);
+  });
+
+  it("a DUPLICATE SubagentStart retains the child's usage base rather than re-basing it", async () => {
+    const harness = buildRoutingHarness();
+    const channel = await liveChannel(harness);
+    const announceChild = (): void => {
+      channel.emitStreamFrame("control_request/hook_callback", {
+        subagentLifecycle: {
+          signal: "SubagentStart",
+          subagentId: CHILD_SUBAGENT_ID,
+          parentToolUseId: "toolu_parent",
+        },
+      });
+    };
+
+    announceChild();
+    channel.emitStreamFrame("system/task_progress", usageObservation(100, CHILD_SUBAGENT_ID));
+    // The provider re-announces a child it already announced. Re-establishing
+    // here would zero the base mid-stream, so the 150 reading below would meter
+    // 150 rather than the 50 the child actually spent since.
+    announceChild();
+    channel.emitStreamFrame("system/task_progress", usageObservation(150, CHILD_SUBAGENT_ID));
+
+    expect(harness.meteredUsage.map((entry) => entry.delta.axisDeltas.input)).toEqual([100, 50]);
+    expect(harness.subagentLifecycle).toHaveLength(1);
+    expect(harness.subagentLifecycle[0]?.emission.eventType).toBe("subagent.started");
+    expect(
+      harness.diagnostics.recentRecordsOfKind("thread_duplicate_child_announcement"),
+    ).toHaveLength(1);
+  });
+
+  it("a child's frames that RACED its announcement are released, metered, and DELIVERED", async () => {
+    const harness = buildRoutingHarness();
+    const channel = await liveChannel(harness);
+
+    // The child's first usage frame arrives before the `SubagentStart` that
+    // announces it — the exact race the pending hold exists for.
+    const heldRoute = channel.emitStreamFrame(
+      "system/task_progress",
+      usageObservation(40, CHILD_SUBAGENT_ID),
+    );
+    expect(heldRoute.decision).toBe("held-pending-registration");
+    expect(harness.meteredUsage).toStrictEqual([]);
+
+    channel.emitStreamFrame("control_request/hook_callback", {
+      subagentLifecycle: {
+        signal: "SubagentStart",
+        subagentId: CHILD_SUBAGENT_ID,
+        parentToolUseId: "toolu_parent",
+      },
+    });
+
+    // Released, then routed for real: the spend that raced the announcement is
+    // charged rather than shed at the hold timeout.
+    expect(harness.meteredUsage).toHaveLength(1);
+    expect(harness.meteredUsage[0]?.delta.axisDeltas.input).toBe(40);
+    // And the decision reached a consumer. A released frame has no observer
+    // call in flight to answer, so without this seam its route would have been
+    // computed and then dropped.
+    expect(harness.releasedRoutes).toEqual([
+      {
+        decision: "carve-out-usage",
+        childThreadId: CHILD_SUBAGENT_ID,
+        attribution: { kind: "subagent", subagentId: CHILD_SUBAGENT_ID },
+      },
+    ]);
+  });
+
+  it("a child's control-channel ask is connection-scoped on this provider, so it is never suppressed", async () => {
+    const harness = buildRoutingHarness();
+    const channel = await liveChannel(harness);
+    channel.emitStreamFrame("control_request/hook_callback", {
+      subagentLifecycle: {
+        signal: "SubagentStart",
+        subagentId: CHILD_SUBAGENT_ID,
+        parentToolUseId: "toolu_parent",
+      },
+    });
+
+    // This provider carries tool-approval asks on the control channel, which is
+    // a connection-level discipline in both directions and carries no thread
+    // identity. So the ask routes without one and stays answerable — the same
+    // outcome the child carve-out buys on a provider that DOES thread them.
+    const route = channel.emitStreamFrame("control_request/can_use_tool", {
+      subagentId: CHILD_SUBAGENT_ID,
+    });
+    expect(route.decision).toBe("route-connection-scoped");
+    // Answerable means DELIVERED. The provider is blocking on the answer to
+    // this ask, so a transport that withheld it on anything but `project` would
+    // hang the child's tool call rather than hide it.
+    expect(channel.deliveredFrameKinds).toContain("control_request/can_use_tool");
+  });
+
+  it("connection-scoped telemetry reaches the normalize consumer rather than being withheld", async () => {
+    const harness = buildRoutingHarness();
+    const channel = await liveChannel(harness);
+
+    // Neither frame names a thread and neither is `project`. They are the
+    // session's rate-limit and retry telemetry: withholding them would leave
+    // the read model unable to say the provider is throttling at all.
+    const rateLimitRoute = channel.emitStreamFrame("system/rate_limit_event");
+    const retryRoute = channel.emitStreamFrame("system/api_retry");
+
+    expect(rateLimitRoute.decision).toBe("route-connection-scoped");
+    expect(retryRoute.decision).toBe("route-connection-scoped");
+    expect(channel.deliveredFrameKinds).toStrictEqual([
+      "system/rate_limit_event",
+      "system/api_retry",
+    ]);
+  });
+
+  it("PREDECESSOR frames route for the whole in-flight rewind, and quarantine once the fork lands", async () => {
+    const harness = buildRoutingHarness();
+    const predecessorChannel = await liveChannel(harness);
+    let releaseRewind = (): void => undefined;
+    harness.transport.establishmentGate = new Promise<void>((resolve) => {
+      releaseRewind = resolve;
+    });
+    harness.transport.announcedForkedProviderSessionId = "forked-provider-session";
+
+    const rollback = harness.lifecycle.rollbackTo({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+      position: 4,
+    });
+    // The claim is written synchronously, but the tick makes the ordering an
+    // assertion of the test rather than of the implementation's call shape.
+    await Promise.resolve();
+
+    // The predecessor's process is still up and still emitting for the whole
+    // multi-second fork. Quarantining these would put a hole in the transcript
+    // of a session that — if the fork below failed — simply continues.
+    const duringRewind = predecessorChannel.emitStreamFrame(
+      "system/task_progress",
+      usageObservation(30),
+    );
+    expect(duringRewind.decision).toBe("project");
+    expect(harness.meteredUsage[0]?.delta.axisDeltas.input).toBe(30);
+
+    releaseRewind();
+    expect((await rollback).status).toBe("applied");
+
+    // Once the successor is installed the predecessor is no longer the bound
+    // channel, so the narrower rule takes over again: an undead process emitting
+    // into a slot it no longer holds is refused rather than projected.
+    const afterRewind = predecessorChannel.emitStreamFrame(
+      "system/task_progress",
+      usageObservation(60),
+    );
+    expect(afterRewind.decision).toBe("quarantined");
+    expect(harness.meteredUsage).toHaveLength(1);
+  });
+
+  it("a rewind that FAILS leaves the predecessor routing, with no hole for the attempt", async () => {
+    const harness = buildRoutingHarness();
+    const predecessorChannel = await liveChannel(harness);
+    let releaseRewind = (): void => undefined;
+    harness.transport.establishmentGate = new Promise<void>((resolve) => {
+      releaseRewind = resolve;
+    });
+    harness.transport.rewindFailure = new Error("the provider refused the rewind");
+
+    const rollback = harness.lifecycle.rollbackTo({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+      position: 4,
+    });
+    await Promise.resolve();
+    predecessorChannel.emitStreamFrame("system/task_progress", usageObservation(30));
+
+    releaseRewind();
+    expect((await rollback).status).toBe("degraded");
+    predecessorChannel.emitStreamFrame("system/task_progress", usageObservation(75));
+
+    // Non-destructive on failure has to mean the TRANSCRIPT too: the session is
+    // running, startable, un-rewound — and every frame it emitted across the
+    // failed attempt was routed and metered rather than diagnosed away.
+    expect(harness.meteredUsage.map((entry) => entry.delta.axisDeltas.input)).toEqual([30, 45]);
+  });
+
+  it("a frame arriving on a channel the session no longer holds is quarantined, never metered", async () => {
+    const harness = buildRoutingHarness();
+    const staleChannel = await liveChannel(harness);
+    await harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID });
+
+    // The driver holds no kill, so a disowned process can still emit.
+    const route = staleChannel.emitStreamFrame("system/task_progress", usageObservation(9_999));
+
+    expect(route.decision).toBe("quarantined");
+    expect(harness.meteredUsage).toStrictEqual([]);
+    expect(staleChannel.deliveredFrameKinds).toStrictEqual([]);
+  });
+
+  it("a resume with NO prior-emitted reader bound records the overstatement rather than hiding it", async () => {
+    const harness = buildRoutingHarness();
+    await harness.lifecycle.resumeSession({
+      sessionId: TEST_SESSION_ID,
+      resumeHandle: "provider-session-earlier",
+      executionPosture: SANDBOXED_POSTURE,
+    });
+
+    // Unbound reader: the daemon's own emitted sum could not be rebuilt at all,
+    // so the base is zero and the first reading re-meters the pre-resume total.
+    expect(harness.diagnostics.recentRecordsOfKind("usage_resume_base_unavailable")).toHaveLength(
+      1,
+    );
+  });
+
+  it("a bound reader answering NOTHING bases at zero silently — that is a correct answer", async () => {
+    const harness = buildRoutingHarness({ readPriorEmittedUsage: () => undefined });
+    await harness.lifecycle.resumeSession({
+      sessionId: TEST_SESSION_ID,
+      resumeHandle: "provider-session-earlier",
+      executionPosture: SANDBOXED_POSTURE,
+    });
+    const channel = harness.transport.spawnedChannels[0];
+    if (channel === undefined) {
+      throw new Error("unreachable: the resume must have adopted a channel");
+    }
+
+    channel.emitStreamFrame("system/task_progress", usageObservation(20));
+
+    // A session that legitimately emitted no spend HAS a prior-emitted sum, and
+    // it is zero. Recording that as unavailable would fire the diagnostic on
+    // every ordinary rewind and tell an operator nothing about any of them.
+    expect(harness.diagnostics.recentRecordsOfKind("usage_resume_base_unavailable")).toStrictEqual(
+      [],
+    );
+    expect(harness.meteredUsage[0]?.delta.axisDeltas.input).toBe(20);
+  });
+
+  it("a reader that THROWS is recorded rather than escaping the adoption window", async () => {
+    const harness = buildRoutingHarness({
+      readPriorEmittedUsage: () => {
+        throw new Error("the event store was unreachable");
+      },
+    });
+
+    const result = await harness.lifecycle.resumeSession({
+      sessionId: TEST_SESSION_ID,
+      resumeHandle: "provider-session-earlier",
+      executionPosture: SANDBOXED_POSTURE,
+    });
+
+    // The throw happens inside the adoption invariant's window, where escaping
+    // would orphan a resumed, running provider process. Over-metering is
+    // recoverable from the record; an orphaned process is not.
+    expect(result.status).toBe("resumed");
+    expect(harness.diagnostics.recentRecordsOfKind("usage_resume_base_unavailable")).toHaveLength(
+      1,
+    );
+  });
+
+  it("a REWIND bases on the PREDECESSOR's prior-emitted sum, not the fork's brand-new id", async () => {
+    // Keyed by thread id on purpose: a reader answering the same sum for every
+    // id would pass with the successor's own id keying the lookup, which is the
+    // exact defect this asserts against. Only the predecessor has a sum.
+    const harness = buildRoutingHarness({
+      readPriorEmittedUsage: (_sessionId, threadId) =>
+        threadId === TEST_PINNED_PROVIDER_SESSION_ID ? { input: 500 } : undefined,
+    });
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.transport.announcedForkedProviderSessionId = "forked-provider-session";
+
+    const rollback = await harness.lifecycle.rollbackTo({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+      position: 4,
+    });
+    expect(rollback.status).toBe("applied");
+
+    const forkedChannel = harness.transport.spawnedChannels[1];
+    if (forkedChannel === undefined) {
+      throw new Error("unreachable: the rewind must have adopted a forked channel");
+    }
+    forkedChannel.emitStreamFrame("system/task_progress", usageObservation(520));
+
+    // 20, not 520: the pre-rewind spend the daemon already emitted is not
+    // charged a second time. And the routine rewind path records nothing — the
+    // resume-base diagnostic is reserved for a reader that could not answer.
+    expect(harness.meteredUsage[0]?.delta.axisDeltas.input).toBe(20);
+    expect(harness.diagnostics.recentRecordsOfKind("usage_resume_base_unavailable")).toStrictEqual(
+      [],
+    );
+  });
+
+  it("a resume WITH a prior-emitted sum meters only the excess over it", async () => {
+    const harness = buildRoutingHarness({ readPriorEmittedUsage: () => ({ input: 500 }) });
+    await harness.lifecycle.resumeSession({
+      sessionId: TEST_SESSION_ID,
+      resumeHandle: "provider-session-earlier",
+      executionPosture: SANDBOXED_POSTURE,
+    });
+    const channel = harness.transport.spawnedChannels[0];
+    if (channel === undefined) {
+      throw new Error("unreachable: the resume must have adopted a channel");
+    }
+
+    channel.emitStreamFrame("system/task_progress", usageObservation(520));
+
+    expect(harness.diagnostics.recentRecordsOfKind("usage_resume_base_unavailable")).toHaveLength(
+      0,
+    );
+    expect(harness.meteredUsage[0]?.delta.axisDeltas.input).toBe(20);
   });
 });

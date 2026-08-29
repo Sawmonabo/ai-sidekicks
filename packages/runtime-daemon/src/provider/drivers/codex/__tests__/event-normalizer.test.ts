@@ -13,7 +13,7 @@
 //
 // Fixture discipline: the two `__fixtures__/` modules are METHOD census
 // vectors derived from `docs/reference/provider-wire/codex.md` at pin
-// `codex-cli 0.149.1`. The reference reproduces no inbound PAYLOAD body
+// `codex-cli 0.150.1`. The reference reproduces no inbound PAYLOAD body
 // verbatim, so these are method vectors and never payload golden files. The
 // delta-family members `turn/diff/updated` and `turn/plan/updated` — whose
 // wire names come from the pinned binary's own `codex app-server
@@ -54,6 +54,17 @@ import {
   type CodexInboundFrameMethod,
   type CodexInboundFrameTransport,
   type CodexNormalizedFamilyEmission,
+  CodexTerminalEmissionGate,
+  type CodexTerminalRunFrame,
+} from "../event-normalizer.js";
+import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
+import {
+  classifyCodexFrameFamilyForRouting,
+  CODEX_SUBAGENT_ATTRIBUTED_THREAD_SOURCE_KINDS,
+  CODEX_THREAD_STARTED_METHOD,
+  CODEX_THREAD_TOKEN_USAGE_METHOD,
+  deriveCodexChildThreadAnnouncement,
+  resolveCodexFrameEmissionRoute,
 } from "../event-normalizer.js";
 import { CODEX_TOOL_NAMES } from "../tools.js";
 
@@ -301,7 +312,7 @@ const EXPECTED_NORMALIZED_ROWS: ReadonlyMap<CodexInboundFrameMethod, ExpectedNor
       },
     ],
     // `turn/diff/updated` | `turn/plan/updated` — disposition from the Plan-006
-    // delta row, wire names from the binary's generator at codex-cli 0.149.1
+    // delta row, wire names from the binary's generator at codex-cli 0.150.1
     // (the delta row carried truncated forms until its 2026-08-28 correction).
     [
       "turn/diff/updated",
@@ -352,13 +363,17 @@ const REQUIRED_NORMALIZED_FAMILIES: readonly EventCategory[] = [
 ];
 
 /**
- * The eight realtime notifications deliberately EXCLUDED from the census.
+ * The eleven realtime notifications deliberately EXCLUDED from the census.
  *
  * Spelled in full in Plan-005 T3.11, which states the normalizer "routes each
- * of the eight Codex realtime wire kinds ... to the default-branch
+ * of the eleven Codex realtime wire kinds ... to the default-branch
  * diagnostic". Pinned here so a future edit that quietly maps one of them into
  * a family fails: the `realtime_*` Spec-006 family is reserved with no V1
  * emitter, so any family it were mapped to would be fabricated.
+ *
+ * The last three arrived with the `0.150.1` pin BESIDE the older spellings, not
+ * in place of them — the pin hop's set difference added four arms and removed
+ * none — so all eleven are listed rather than eight being swapped for three.
  */
 const EXCLUDED_REALTIME_METHODS: readonly string[] = [
   "thread/realtime/started",
@@ -369,7 +384,21 @@ const EXCLUDED_REALTIME_METHODS: readonly string[] = [
   "thread/realtime/outputAudio/delta",
   "thread/realtime/transcript/delta",
   "thread/realtime/transcript/done",
+  "thread/realtime/item/started",
+  "thread/realtime/item/transcript/delta",
+  "thread/realtime/item/completed",
 ];
+
+/**
+ * The one non-realtime notification the `0.150.1` pin added.
+ *
+ * Gated like the other three additions and given no normalized family by any
+ * corpus row, so it is deliberately absent from the closed union and reaches
+ * the T3.11 default-branch diagnostic. Asserted rather than assumed because the
+ * fixture-gated cross-check below filters to census members, which would let a
+ * newly-tagged non-census method pass through unexamined.
+ */
+const EXCLUDED_NON_REALTIME_GATED_METHOD_AT_PIN = "mcpServer/event/stream/notification";
 
 function normalizedRowsOfCensus(): readonly CodexNormalizedFamilyEmission[] {
   return CODEX_INBOUND_FRAME_METHODS.map((method) => normalizeCodexInboundFrame(method)).filter(
@@ -389,18 +418,22 @@ describe("Codex event normalizer — fixture census integrity", () => {
     expect(new Set(methods).size).toBe(CODEX_SERVER_REQUEST_METHOD_COUNT_AT_PIN);
   });
 
-  it("carries exactly the nineteen experimental-gated notifications the pin enumerates", () => {
+  it("carries exactly the twenty-three experimental-gated notifications the pin enumerates", () => {
     const gated = CODEX_SERVER_NOTIFICATION_METHOD_VECTORS.filter(
       (vector) => vector.experimentalGatedAtPin,
     );
     expect(gated).toHaveLength(CODEX_GATED_SERVER_NOTIFICATION_COUNT_AT_PIN);
-    // All eight realtime names are inside that nineteen.
+    // All eleven realtime names are inside that twenty-three, as is the one
+    // non-realtime arm the pin hop added.
     for (const realtimeMethod of EXCLUDED_REALTIME_METHODS) {
       expect(gated.map((vector) => vector.method)).toContain(realtimeMethod);
     }
+    expect(gated.map((vector) => vector.method)).toContain(
+      EXCLUDED_NON_REALTIME_GATED_METHOD_AT_PIN,
+    );
   });
 
-  it("is honest about being a strict subset of the 75-arm notification root", () => {
+  it("is honest about being a strict subset of the 79-arm notification root", () => {
     // The reference enumerates only part of the union by name; asserting the
     // subset relation keeps a future reader from mistaking this fixture for a
     // completeness claim about the Codex notification surface.
@@ -444,9 +477,16 @@ describe("Codex event normalizer — every fixture frame normalizes as expected"
   );
 
   it.each(
+    // Both exclusions are NAMED rather than derived from union membership: a
+    // method absent from the closed union for any reason other than these two
+    // still reaches `normalizeCodexInboundFrame` here and throws, which is the
+    // drift signal this cross-check exists to raise. Filtering by union
+    // membership instead would make the check vacuous.
     CODEX_SERVER_NOTIFICATION_METHOD_VECTORS.filter(
       (vector) =>
-        vector.presentInPinnedGeneratedSchema && !EXCLUDED_REALTIME_METHODS.includes(vector.method),
+        vector.presentInPinnedGeneratedSchema &&
+        !EXCLUDED_REALTIME_METHODS.includes(vector.method) &&
+        vector.method !== EXCLUDED_NON_REALTIME_GATED_METHOD_AT_PIN,
     ).map((vector) => vector.method),
   )("resolves ServerNotification %s", (method) => {
     const normalization = normalizeCodexInboundFrame(method);
@@ -472,7 +512,7 @@ describe("Codex event normalizer — every fixture frame normalizes as expected"
     // Their DISPOSITION comes from
     // `Plan-006 §Event-Kind Disposition Table (surveyed-runtime normalized census)`'s Codex delta row and their WIRE
     // NAMES from the pinned binary's own generator output at codex-cli
-    // 0.149.1 (the delta row carried both truncated until 2026-08-28).
+    // 0.150.1 (the delta row carried both truncated until 2026-08-28).
     // Exercised as typed values here on top of the census coverage above: the
     // annotation binds each literal to `CodexInboundFrameMethod` at compile
     // time, so dropping a member from the union fails to BUILD rather than
@@ -952,6 +992,23 @@ describe("Codex event normalizer — negotiation-gated methods are declared, not
     }
   });
 
+  it("excludes the pin's non-realtime gated addition, which is unmapped rather than dormant", () => {
+    // The `0.150.1` hop added `mcpServer/event/stream/notification` as a gated
+    // arm. It is neither suppressed by name (it is not realtime) nor given a
+    // family by any corpus row, so it belongs in NEITHER the closed union nor
+    // the dormant-but-settled declaration: it must reach the unknown seam and
+    // surface as a T3.11 diagnostic. Without this assertion the fixture's gate
+    // tag for it is checked by nothing, because the cross-check above filters
+    // to census members and this method is deliberately not one.
+    expect(CODEX_INBOUND_FRAME_METHODS).not.toContain(EXCLUDED_NON_REALTIME_GATED_METHOD_AT_PIN);
+    expect(CODEX_NEGOTIATION_GATED_METHODS).not.toContain(
+      EXCLUDED_NON_REALTIME_GATED_METHOD_AT_PIN,
+    );
+    expect(() => normalizeCodexInboundFrame(EXCLUDED_NON_REALTIME_GATED_METHOD_AT_PIN)).toThrow(
+      UnknownCodexInboundFrameError,
+    );
+  });
+
   it("leaves the ungated remainder of the census reachable at the shipped posture", () => {
     // Non-vacuity: if this ever hit zero, the suite above would be asserting a
     // property of an empty set while the driver received nothing at all.
@@ -997,8 +1054,8 @@ describe("Codex event normalizer — the truncated delta names stay off the cens
     // spelled this family "`turn/diff` | `turn/plan` | `turn/moderationMetadata`"
     // until its 2026-08-28 correction. Regenerating the protocol schema from the
     // pinned binary (`codex app-server generate-json-schema` at codex-cli
-    // 0.149.1) emits `turn/diff/updated` and `turn/plan/updated`; the bare
-    // forms appear nowhere in its 75-arm `ServerNotification` root.
+    // 0.150.1) emits `turn/diff/updated` and `turn/plan/updated`; the bare
+    // forms appear nowhere in its 79-arm `ServerNotification` root.
     //
     // The guard OUTLIVES the correction it was written against. The truncated
     // spellings are the intuitive ones, they survive in older revisions of this
@@ -1028,5 +1085,257 @@ describe("Codex event normalizer — the truncated delta names stay off the cens
     // consistency" with its two siblings would break a name that is correct.
     expect(CODEX_INBOUND_FRAME_METHODS).toContain("turn/moderationMetadata");
     expect(CODEX_INBOUND_FRAME_METHODS).not.toContain("turn/moderationMetadata/updated");
+  });
+});
+
+// --------------------------------------------------------------------------
+// T3.11 — emission routing, family classification, child announcements.
+// --------------------------------------------------------------------------
+
+describe("resolveCodexFrameEmissionRoute (T3.11 P0-1)", () => {
+  function makeDiagnostics() {
+    return new DriverDiagnosticsEmitter({ logSink: { record: () => undefined } });
+  }
+
+  it("mirrors the mapping table's verdict for every censused method — the route arm IS the row's disposition", () => {
+    const diagnostics = makeDiagnostics();
+    for (const method of CODEX_INBOUND_FRAME_METHODS) {
+      const row = CODEX_FRAME_NORMALIZATION_BY_METHOD.get(method);
+      const route = resolveCodexFrameEmissionRoute(method, diagnostics);
+      if (row?.disposition === "not-evented") {
+        expect(route.route, method).toBe("not-evented");
+      } else if (row?.emissionReadiness === "payload-variant-pending") {
+        expect(route.route, method).toBe("diagnostic");
+        if (route.route === "diagnostic") {
+          expect(route.record.kind, method).toBe("payload_variant_pending");
+        }
+      } else {
+        expect(route.route, method).toBe("emit");
+      }
+    }
+    // A censused method never lands on the unmapped arm.
+    expect(diagnostics.recentRecordsOfKind("unmapped_wire_kind")).toHaveLength(0);
+  });
+
+  it("routes an unmapped method to the diagnostic default branch — emitted, never thrown, never enveloped", () => {
+    const diagnostics = makeDiagnostics();
+    const route = resolveCodexFrameEmissionRoute("thread/unheard-of", diagnostics);
+    expect(route.route).toBe("diagnostic");
+    if (route.route === "diagnostic") {
+      expect(route.record.kind).toBe("unmapped_wire_kind");
+      expect(route.record.rawWireType).toBe("thread/unheard-of");
+      expect(route.record.provider).toBe("codex");
+    }
+    expect(diagnostics.emittedRecordCount()).toBe(1);
+    // The bare resolver keeps its throwing contract for direct misuse; the
+    // diagnostic route is the driver-core entry point.
+    expect(() => normalizeCodexInboundFrame("thread/unheard-of")).toThrow(
+      UnknownCodexInboundFrameError,
+    );
+  });
+});
+
+describe("classifyCodexFrameFamilyForRouting (T3.11, NS-91)", () => {
+  it("classifies every censused method plus the two router-band methods — none falls to unknown", () => {
+    const routableMethods = [
+      ...CODEX_INBOUND_FRAME_METHODS,
+      CODEX_THREAD_STARTED_METHOD,
+      CODEX_THREAD_TOKEN_USAGE_METHOD,
+    ];
+    for (const method of routableMethods) {
+      expect(classifyCodexFrameFamilyForRouting(method).scope, method).not.toBe("unknown");
+    }
+  });
+
+  it("classifies the account-plane and notice families connection-scoped", () => {
+    for (const connectionScopedMethod of [
+      "error",
+      "account/rateLimits/updated",
+      "account/chatgptAuthTokens/refresh",
+      "model/safetyBuffering/updated",
+      "project/changed",
+    ]) {
+      expect(classifyCodexFrameFamilyForRouting(connectionScopedMethod)).toEqual({
+        scope: "connection",
+      });
+    }
+  });
+
+  it("classifies the usage reading and the compaction marker thread-scoped usage", () => {
+    expect(classifyCodexFrameFamilyForRouting(CODEX_THREAD_TOKEN_USAGE_METHOD)).toEqual({
+      scope: "thread",
+      capability: "usage",
+    });
+    expect(classifyCodexFrameFamilyForRouting("thread/compacted")).toEqual({
+      scope: "thread",
+      capability: "usage",
+    });
+  });
+
+  it("classifies thread/started lifecycle and the approval asks interactive-request", () => {
+    expect(classifyCodexFrameFamilyForRouting(CODEX_THREAD_STARTED_METHOD)).toEqual({
+      scope: "thread",
+      capability: "lifecycle",
+    });
+    for (const interactiveMethod of [
+      "item/commandExecution/requestApproval",
+      "item/tool/requestUserInput",
+      "execCommandApproval",
+    ]) {
+      expect(classifyCodexFrameFamilyForRouting(interactiveMethod)).toEqual({
+        scope: "thread",
+        capability: "interactive-request",
+      });
+    }
+  });
+
+  it("classifies an unlisted shape unknown — the realtime family and novel methods are never presumed connection-scoped", () => {
+    for (const unlistedMethod of ["realtime/audioDelta", "novel/unheard-of"]) {
+      expect(classifyCodexFrameFamilyForRouting(unlistedMethod)).toEqual({ scope: "unknown" });
+    }
+  });
+});
+
+describe("deriveCodexChildThreadAnnouncement (T3.11, NS-91)", () => {
+  it("marks the subagent-attributed ThreadSourceKind arms with the child thread id as subagent identity", () => {
+    for (const threadSourceKind of CODEX_SUBAGENT_ATTRIBUTED_THREAD_SOURCE_KINDS) {
+      expect(
+        deriveCodexChildThreadAnnouncement({
+          threadId: "child-thread",
+          parentThreadId: "parent-thread",
+          threadSourceKind,
+        }),
+      ).toEqual({
+        childThreadId: "child-thread",
+        declaredParentThreadId: "parent-thread",
+        subagentId: "child-thread",
+      });
+    }
+  });
+
+  it("marks a compaction child provider-internal — spend attributes to the parent run", () => {
+    expect(
+      deriveCodexChildThreadAnnouncement({
+        threadId: "compaction-thread",
+        parentThreadId: "parent-thread",
+        threadSourceKind: "subAgentCompact",
+      }),
+    ).toEqual({
+      childThreadId: "compaction-thread",
+      declaredParentThreadId: "parent-thread",
+      subagentId: null,
+    });
+  });
+
+  it("carries an absent parent linkage verbatim — the router, not this helper, refuses it", () => {
+    expect(
+      deriveCodexChildThreadAnnouncement({
+        threadId: "child-thread",
+        parentThreadId: null,
+        threadSourceKind: "subAgent",
+      }).declaredParentThreadId,
+    ).toBeNull();
+  });
+});
+
+// --------------------------------------------------------------------------
+// T3.14 P1-1 / P1-2-driver — the terminal-emission boundary.
+// --------------------------------------------------------------------------
+//
+// Spec coverage under test:
+//   `Spec-006 §Run Lifecycle (run_lifecycle)` — a daemon-initiated close is
+//     stamped `intendedClose` so the recovery classifier reads a clean shutdown
+//     as a clean shutdown rather than as a crash.
+//   `Spec-005 §Required Behavior` — at most one terminal per
+//     `(runId, runVersion)` epoch reaches the emission pipeline, so the ordinary
+//     post-interrupt double is absorbed at the driver rather than failing loud
+//     against Plan-006's partial unique index.
+
+describe("CodexTerminalEmissionGate (T3.14 P1-1, P1-2-driver)", () => {
+  const PROJECTED_ROUTE = { decision: "project" } as const;
+
+  function terminalFrame(overrides: Partial<CodexTerminalRunFrame> = {}): CodexTerminalRunFrame {
+    return {
+      runId: "run-1",
+      runVersion: 1,
+      rawWireType: "turn/completed",
+      route: PROJECTED_ROUTE,
+      ...overrides,
+    };
+  }
+
+  it("stamps `intendedClose: false` for a terminal no close preceded", () => {
+    const gate = new CodexTerminalEmissionGate();
+
+    expect(gate.admitTerminalFrame(terminalFrame())).toStrictEqual({
+      emit: true,
+      runId: "run-1",
+      runVersion: 1,
+      intendedClose: false,
+    });
+  });
+
+  it("stamps `intendedClose: true` once a daemon-initiated close is signalled", () => {
+    const gate = new CodexTerminalEmissionGate();
+
+    gate.signalIntendedClose();
+
+    expect(gate.intendedCloseSignalled()).toBe(true);
+    expect(gate.admitTerminalFrame(terminalFrame())).toMatchObject({
+      emit: true,
+      intendedClose: true,
+    });
+  });
+
+  it("suppresses a second terminal for the SAME epoch", () => {
+    // The ordinary post-interrupt double. Absorbed here rather than left to
+    // fail loud against the schema backstop on a condition the driver could
+    // have handled.
+    const gate = new CodexTerminalEmissionGate();
+    gate.admitTerminalFrame(terminalFrame());
+
+    expect(gate.admitTerminalFrame(terminalFrame({ rawWireType: "turn/failed" }))).toStrictEqual({
+      emit: false,
+      suppressionReason: "duplicate-terminal-epoch",
+    });
+    expect(gate.hasSettledEpoch("run-1", 1)).toBe(true);
+  });
+
+  it("admits a NEW epoch for the same run", () => {
+    // The key is the epoch, not the run: a re-dispatched run version is a
+    // different settlement and must not be swallowed by its predecessor's.
+    const gate = new CodexTerminalEmissionGate();
+    gate.admitTerminalFrame(terminalFrame());
+
+    expect(gate.admitTerminalFrame(terminalFrame({ runVersion: 2 }))).toMatchObject({ emit: true });
+    expect(gate.hasSettledEpoch("run-1", 2)).toBe(true);
+  });
+
+  it("settles no run for a frame the router did not route to the session's thread", () => {
+    // Routing is CONSUMED, never re-decided: a child thread's terminal must not
+    // settle the parent's run, and this boundary adds no second source of truth
+    // for whose stream a frame came from.
+    const gate = new CodexTerminalEmissionGate();
+
+    const decision = gate.admitTerminalFrame(
+      terminalFrame({ route: { decision: "suppress-child-transcript", childThreadId: "child-1" } }),
+    );
+
+    expect(decision).toStrictEqual({ emit: false, suppressionReason: "not-the-session-thread" });
+    // And it consumed no epoch, so the parent's own terminal still settles.
+    expect(gate.hasSettledEpoch("run-1", 1)).toBe(false);
+  });
+
+  it("evicts oldest-first so the memory stays proportional to the hazard", () => {
+    // A long session's run count is unbounded while the window a duplicate
+    // arrives in is not.
+    const gate = new CodexTerminalEmissionGate({ settledEpochMemory: 2 });
+    gate.admitTerminalFrame(terminalFrame({ runId: "run-a" }));
+    gate.admitTerminalFrame(terminalFrame({ runId: "run-b" }));
+    gate.admitTerminalFrame(terminalFrame({ runId: "run-c" }));
+
+    expect(gate.hasSettledEpoch("run-a", 1)).toBe(false);
+    expect(gate.hasSettledEpoch("run-b", 1)).toBe(true);
+    expect(gate.hasSettledEpoch("run-c", 1)).toBe(true);
   });
 });

@@ -2,12 +2,22 @@
 //
 //   Source doc      : docs/reference/provider-wire/claude.md
 //   Section         : §Control-request registry (binary census)
-//   Pin             : Claude Code 2.1.245 (the native single-file build named
+//   Pin             : Claude Code 2.1.251 (the native single-file build named
 //                     in that doc's §Version pin)
 //   Provenance      : Binary probe (schema constructors observed directly in
-//                     the binary), censused 2026-08-25
-//   Trust           : Verified at 2.1.245; the registry set is additionally
-//                     recorded unchanged at the verified-equivalent 2.1.246
+//                     the binary), censused 2026-08-25 at 2.1.245 and CARRIED
+//                     to the pin per claude.md §Version pin "Carried census".
+//                     The schema-constructor extraction was NOT re-run on
+//                     2026-08-28, so BOTH the exactly-once arity and the
+//                     counterexample zero-counts below remain 2.1.245
+//                     measurements. The 2026-08-28 pass ran the strictly weaker
+//                     check its evidence supports - that all sixteen subtype
+//                     strings below still occur as quoted literals in the
+//                     2.1.251 build - which shows no recorded member vanished
+//                     and CANNOT re-derive registry membership either way.
+//   Trust           : Verified at 2.1.245, members re-verified present at
+//                     2.1.251; the registry set is additionally recorded
+//                     unchanged at 2.1.246
 //   Derived by      : Plan-005 T3.10, transcribed from the reference's
 //                     verbatim enumeration. NOTHING here is invented: the
 //                     reference lists all fifteen subtypes on one line, states
@@ -50,8 +60,8 @@ export interface ClaudeControlRequestSubtypeVector {
 }
 
 /**
- * The fifteen censused control-request subtypes at `2.1.245`, plus
- * `mcp_set_servers`.
+ * The fifteen censused control-request subtypes at `2.1.245`, all still
+ * present at the `2.1.251` pin, plus `mcp_set_servers`.
  *
  * Order is the reference's own, left to right on its enumeration line, with
  * the censused-absent-but-answering subtype appended last so the first fifteen
@@ -155,8 +165,11 @@ export const CLAUDE_CENSUSED_CONTROL_REQUEST_SUBTYPE_COUNT_AT_PIN = 15;
  * The three subtypes claude.md's counterexample hunt found at count 0.
  *
  * Carried so the normalizer's exclusion of them is checkable rather than
- * implicit. Absence is NOT read as proof of non-existence anywhere in this
- * package - the same reference section states that "neither presence nor
+ * implicit. These are `2.1.245` counts, carried to the `2.1.251` pin unre-run:
+ * a raw string count is not the census that produced them (`rewind` and
+ * `compact` occur as quoted literals in BOTH builds, so the naive check would
+ * contradict a census reading it cannot reproduce). Absence is NOT read as proof of non-existence
+ * anywhere in this package - the same reference section states that "neither presence nor
  * absence in it may decide a capability" - it is read only as "no probe answer
  * is recorded for these, so no census row can be written for them".
  */

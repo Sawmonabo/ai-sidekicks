@@ -33,6 +33,10 @@
 //     refused at the write seam as a TYPED error before any row lands, and a
 //     half-present row staged out-of-band reads back as `null` rather than as a
 //     fabricated member.
+//   * T3.23 spawned-version carriers (`Spec-005 §Required Behavior`,
+//     invariant I-005-10): the reading taken from the dereferenced build
+//     reaches the ROW — asserted by reading back out of the database under
+//     launcher drift, which the projection helpers alone cannot show.
 //   * T2.6 `findByRuns` (the Plan-016 T2.10 ack-barrier input): batch lookup is
 //     synchronous, order-deterministic, duplicate-tolerant, and returns
 //     superseded history unfiltered — the caller owns the liveness intersection.
@@ -40,7 +44,12 @@
 // Refs: Plan-005 §Phase 2 / T2.2 + T2.6, `Spec-005 §Required Behavior`,
 // `Spec-005 §State And Data Implications`, invariant I-005-1.
 
-import type { DriverCliVersionReport, ExecutionPosture } from "@ai-sidekicks/contracts";
+import type {
+  CallbackToolResult,
+  DriverCliVersionReport,
+  ExecutionPosture,
+  SessionId,
+} from "@ai-sidekicks/contracts";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -53,7 +62,18 @@ import {
   ProviderOutputValidationError,
   RESUME_HANDLE_MAX_LEN,
 } from "../provider-output-validation.js";
-import { RuntimeBindingStore, type RuntimeBindingSpawnConfig } from "../runtime-binding-store.js";
+import {
+  composeResumeSessionParams,
+  RuntimeBindingNotResumableError,
+  RuntimeBindingStore,
+  type RuntimeBindingSpawnConfig,
+  withSpawnedVersionCarriers,
+} from "../runtime-binding-store.js";
+import {
+  type ProviderVersionHandshakeRequest,
+  readSpawnedProviderVersion,
+  toBindingVersionCarriers,
+} from "../version-gate.js";
 
 // ----------------------------------------------------------------------------
 // Fixtures + per-test lifecycle
@@ -1455,5 +1475,256 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
 
     expect(thrown).toBeInstanceOf(ProviderOutputValidationError);
     expect((thrown as ProviderOutputValidationError).fields?.["field"]).toBe("cliVersion");
+  });
+});
+
+// ----------------------------------------------------------------------------
+// T3.23 — the spawned-build reading reaches the ROW
+// ----------------------------------------------------------------------------
+
+describe("RuntimeBindingStore — spawned-version carriers (T3.23)", () => {
+  // `version-gate.test.ts` proves the READING is taken from the dereferenced
+  // build. This proves the value that reading produced is what a later reader
+  // gets back OUT OF THE DATABASE — through `create()`'s report validation, the
+  // both-or-neither DDL CHECK, and the closed-key-set `spawn_config` parser,
+  // none of which the in-memory projection helpers exercise. That end-to-end
+  // claim is what `Spec-005 §Required Behavior` and invariant I-005-10 state:
+  // the version compared, the version recorded on the binding, and the version
+  // of the process that runs the session are ONE reading.
+  const LAUNCHER_PATH: string = "/opt/homebrew/bin/claude";
+  const DEREFERENCED_BUILD_PATH: string = "/opt/homebrew/Cellar/claude/2.1.245/bin/claude";
+
+  // Keyed BY RESOLVED PATH — the launcher answers a build BELOW the ratified
+  // floor, so a resolver that failed to dereference would not merely record the
+  // wrong version: the read would REFUSE. Every assertion below therefore also
+  // witnesses which process was asked.
+  const REPORTED_VERSION_BY_PATH: ReadonlyMap<string, string> = new Map([
+    [LAUNCHER_PATH, "2.1.198"],
+    [DEREFERENCED_BUILD_PATH, "2.1.245"],
+  ]);
+
+  async function claudeHandshake(request: ProviderVersionHandshakeRequest): Promise<unknown> {
+    const reportedVersion: string | undefined = REPORTED_VERSION_BY_PATH.get(
+      request.resolvedExecutablePath,
+    );
+    if (reportedVersion === undefined) {
+      throw new Error(`no fixture build installed at ${request.resolvedExecutablePath}`);
+    }
+    return { version: reportedVersion, buildTime: "2026-08-20T00:00:00Z" };
+  }
+
+  // Injected rather than filesystem-backed: the drift is expressed as "realpath
+  // answers a different path than the candidate", which is the whole semantic
+  // content of a launcher symlink and runs on every platform (the real-symlink
+  // fixture in `version-gate.test.ts` is posix-gated).
+  const DRIFTING_RESOLVER = {
+    isExecutableFile: async (): Promise<boolean> => true,
+    realpath: async (candidate: string): Promise<string> =>
+      candidate === LAUNCHER_PATH ? DEREFERENCED_BUILD_PATH : candidate,
+  };
+
+  it("records the BUILD's version and path under launcher drift", async () => {
+    const reading = await readSpawnedProviderVersion({
+      driverName: "claude",
+      requestedCommand: LAUNCHER_PATH,
+      handshake: claudeHandshake,
+      baseEnvironment: {},
+      resolver: DRIFTING_RESOLVER,
+    });
+
+    const store = makeStore();
+    const created = store.create(
+      withSpawnedVersionCarriers(
+        {
+          runId: RUN_ID,
+          driverName: DRIVER_NAME,
+          contractVersion: CONTRACT_VERSION,
+          spawnConfig: {},
+        },
+        toBindingVersionCarriers(reading),
+      ),
+    );
+
+    // Read back out of the DATABASE — `create()`'s return value is not the
+    // claim; the persisted row is.
+    const found = store.findById(created.id);
+    expect(found?.cliVersion).toStrictEqual({ raw: "2.1.245", semver: "2.1.245" });
+    expect(found?.spawnConfig.resolvedExecutablePath).toBe(DEREFERENCED_BUILD_PATH);
+    // The launcher's own build appears NOWHERE in the row — not in the version
+    // pair, and not in the spawn-bound record the resume assembly rebuilds from.
+    expect(JSON.stringify(found)).not.toContain("2.1.198");
+  });
+
+  it("persists a Codex reading whose raw IS its semver (the extracted-token shape)", async () => {
+    // A Codex version is EXTRACTED from the composite `userAgent`, so its `raw`
+    // and `semver` are the same string — a combination the write seam's report
+    // validation and the both-or-neither DDL CHECK have no other test for.
+    const codexBuildPath: string = "/opt/homebrew/Cellar/codex/0.149.1/bin/codex";
+    const reading = await readSpawnedProviderVersion({
+      driverName: "codex",
+      requestedCommand: codexBuildPath,
+      handshake: async () => ({
+        userAgent:
+          "ai-sidekicks-daemon/0.149.1 (macos 26.0.0; arm64) tmux (ai-sidekicks-daemon; 0.1.0)",
+      }),
+      baseEnvironment: {},
+      resolver: {
+        isExecutableFile: async (): Promise<boolean> => true,
+        realpath: async (candidate: string): Promise<string> => candidate,
+      },
+    });
+
+    const store = makeStore();
+    const created = store.create(
+      withSpawnedVersionCarriers(
+        {
+          runId: RUN_ID,
+          driverName: "codex",
+          contractVersion: CONTRACT_VERSION,
+          // Declares the SAME executable the reading resolved — the agreement
+          // arm of the carrier merge, exercised here against a real INSERT.
+          spawnConfig: { ...FULL_SPAWN_CONFIG, resolvedExecutablePath: codexBuildPath },
+          resumeHandle: "thread-abc",
+        },
+        toBindingVersionCarriers(reading),
+      ),
+    );
+
+    const found = store.findById(created.id);
+    expect(found?.cliVersion).toStrictEqual({ raw: "0.149.1", semver: "0.149.1" });
+    // The rest of the spawn-bound record survives the carrier merge unchanged —
+    // the merge REPLACES `resolvedExecutablePath` and touches nothing else.
+    expect(found?.spawnConfig).toStrictEqual({
+      ...FULL_SPAWN_CONFIG,
+      resolvedExecutablePath: codexBuildPath,
+    });
+    expect(found?.resumeHandle).toBe("thread-abc");
+  });
+});
+
+// ----------------------------------------------------------------------------
+// T3.15 R4 — the resumed leg's spawn-bound surface, re-realized from the row.
+// ----------------------------------------------------------------------------
+//
+// Spec coverage under test:
+//   `Spec-005 §Required Behavior` — a resumed leg runs under the same
+//     spawn-bound surface the original spawn declared. CP-005-1: resume is a
+//     FRESH process spawn, so every leg is re-supplied or the relaunch sheds it
+//     — a posture-less resume relaunches UNSANDBOXED.
+//   I-005-5 — a binding that names no resumable provider session refuses
+//     locally and classifiably rather than pushing an empty handle at the
+//     provider.
+
+describe("composeResumeSessionParams (T3.15 R4, CP-005-1)", () => {
+  const SESSION_ID = "11111111-1111-4111-8111-111111111111" as SessionId;
+  const NO_FUNCTION_LEGS = {
+    onCallbackToolCall: undefined,
+    onMcpServerStatus: undefined,
+  };
+
+  it("re-realizes every spawn-bound leg from the durable row", () => {
+    const store = makeStore();
+    const binding = store.create({
+      runId: RUN_ID,
+      driverName: DRIVER_NAME,
+      contractVersion: CONTRACT_VERSION,
+      spawnConfig: FULL_SPAWN_CONFIG,
+      resumeHandle: "opaque-handle-abc",
+    });
+
+    const params = composeResumeSessionParams(SESSION_ID, binding, NO_FUNCTION_LEGS);
+
+    expect(params).toStrictEqual({
+      sessionId: SESSION_ID,
+      resumeHandle: "opaque-handle-abc",
+      executionPosture: EXECUTION_POSTURE,
+      callbackTools: FULL_SPAWN_CONFIG.callbackTools,
+      subagentPolicy: FULL_SPAWN_CONFIG.subagentPolicy,
+      outputSchema: FULL_SPAWN_CONFIG.outputSchema,
+      admittedCostCapCents: 2500,
+      onCallbackToolCall: undefined,
+      onMcpServerStatus: undefined,
+    });
+  });
+
+  it("carries no `relaunch-input` member onto the resume params", () => {
+    // A spread from `spawnConfig` would carry members the params shape does not
+    // declare — the resolved executable path and the paying account among them,
+    // which the relaunch path owns rather than the resume path.
+    const store = makeStore();
+    const binding = store.create({
+      runId: RUN_ID,
+      driverName: DRIVER_NAME,
+      contractVersion: CONTRACT_VERSION,
+      spawnConfig: FULL_SPAWN_CONFIG,
+      resumeHandle: "opaque-handle-abc",
+    });
+
+    const params = composeResumeSessionParams(SESSION_ID, binding, NO_FUNCTION_LEGS);
+
+    expect(Object.keys(params)).not.toContain("resolvedExecutablePath");
+    expect(Object.keys(params)).not.toContain("providerAccountId");
+  });
+
+  it("binds the injected function legs, which no row can carry", () => {
+    const store = makeStore();
+    const binding = store.create({
+      runId: RUN_ID,
+      driverName: DRIVER_NAME,
+      contractVersion: CONTRACT_VERSION,
+      spawnConfig: FULL_SPAWN_CONFIG,
+      resumeHandle: "opaque-handle-abc",
+    });
+    const onCallbackToolCall = async (): Promise<CallbackToolResult> =>
+      await Promise.resolve({ status: "completed" });
+
+    const params = composeResumeSessionParams(SESSION_ID, binding, {
+      onCallbackToolCall,
+      onMcpServerStatus: undefined,
+    });
+
+    expect(params.onCallbackToolCall).toBe(onCallbackToolCall);
+  });
+
+  it("refuses a binding with no resume handle, typed for the recovery dispatcher", () => {
+    // The dispatcher's only correct response is to relaunch fresh rather than
+    // retry, and it cannot make that choice off a message string.
+    const store = makeStore();
+    const binding = store.create({
+      runId: RUN_ID,
+      driverName: DRIVER_NAME,
+      contractVersion: CONTRACT_VERSION,
+      spawnConfig: FULL_SPAWN_CONFIG,
+    });
+
+    let thrown: unknown;
+    try {
+      composeResumeSessionParams(SESSION_ID, binding, NO_FUNCTION_LEGS);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(RuntimeBindingNotResumableError);
+    expect((thrown as RuntimeBindingNotResumableError).runId).toBe(RUN_ID);
+    expect((thrown as RuntimeBindingNotResumableError).bindingId).toBe(binding.id);
+  });
+
+  it("re-realizes a leg a row that stored NOTHING leaves absent, rather than inventing one", () => {
+    // The honest absent case: an empty `spawn_config` yields absent legs, which
+    // the driver then treats as "not declared" — never as a default posture.
+    const store = makeStore();
+    const binding = store.create({
+      runId: RUN_ID,
+      driverName: DRIVER_NAME,
+      contractVersion: CONTRACT_VERSION,
+      spawnConfig: {},
+      resumeHandle: "opaque-handle-abc",
+    });
+
+    const params = composeResumeSessionParams(SESSION_ID, binding, NO_FUNCTION_LEGS);
+
+    expect(params.executionPosture).toBeUndefined();
+    expect(params.outputSchema).toBeUndefined();
+    expect(params.admittedCostCapCents).toBeUndefined();
   });
 });

@@ -20,10 +20,18 @@ import {
   CLAUDE_TOOL_CATALOG,
   CLAUDE_TOOL_DECLARATIONS,
   DEFAULT_CLAUDE_TOOL_IDEMPOTENCY_CLASS,
+  DORMANT_MCP_TASK_HANDLE_SINK,
+  MCP_DISCOVERED_TOOL_IDEMPOTENCY_CLASS,
+  classifyMcpDiscoveredTool,
   closeToolIdempotencyClass,
   closeToolIdempotencyClasses,
+  extractMcpTaskId,
   getClaudeToolMetadata,
+  normalizeClaudeMcpListProbeOutput,
+  normalizeClaudeMcpServerInitCensus,
+  observeMcpTaskAcceptance,
 } from "../tools.js";
+import type { McpTaskHandleObservation } from "../tools.js";
 
 const RECOGNIZED_CLASSES: readonly IdempotencyClass[] = [
   "idempotent",
@@ -201,5 +209,158 @@ describe("Claude tool catalog", () => {
     for (const tool of CLAUDE_TOOL_CATALOG) {
       expect(Object.hasOwn(tool, "description")).toBe(false);
     }
+  });
+});
+
+// ==========================================================================
+// T3.13 — MCP idempotency floor + dormant task-handle seam + status census
+// ==========================================================================
+
+describe("Claude MCP idempotency floor (T3.13 P2-7)", () => {
+  it("classifies an MCP-discovered tool manual_reconcile_only with no annotations", () => {
+    expect(classifyMcpDiscoveredTool()).toBe("manual_reconcile_only");
+  });
+
+  it("LOAD-BEARING NEGATIVE: readOnlyHint/idempotentHint self-claims never upgrade the class", () => {
+    expect(
+      classifyMcpDiscoveredTool({
+        readOnlyHint: true,
+        idempotentHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      }),
+    ).toBe("manual_reconcile_only");
+  });
+
+  it("pins the MCP floor constant to the spec value and the driver default", () => {
+    expect(MCP_DISCOVERED_TOOL_IDEMPOTENCY_CLASS).toBe("manual_reconcile_only");
+    expect(MCP_DISCOVERED_TOOL_IDEMPOTENCY_CLASS).toBe(DEFAULT_CLAUDE_TOOL_IDEMPOTENCY_CLASS);
+  });
+
+  it("composes with the closing helper: an MCP row carrying a floor class stays floored", () => {
+    // The classifier is the ONLY source of MCP classes, and the closing
+    // helper it composes with never widens — belt and braces at two seams.
+    const closed = closeToolIdempotencyClass({
+      name: "mcp_probe_tool",
+      idempotency_class: classifyMcpDiscoveredTool({ readOnlyHint: true }),
+    });
+    expect(closed.idempotency_class).toBe("manual_reconcile_only");
+  });
+});
+
+describe("Claude dormant MCP task-handle seam (T3.13, T5.1 activates)", () => {
+  it("extracts the receiver-generated taskId from a CreateTaskResult acceptance", () => {
+    expect(extractMcpTaskId({ task: { taskId: "task-123" } })).toBe("task-123");
+  });
+
+  it("yields undefined for every non-acceptance shape (the halt default)", () => {
+    expect(extractMcpTaskId(undefined)).toBeUndefined();
+    expect(extractMcpTaskId(null)).toBeUndefined();
+    expect(extractMcpTaskId({})).toBeUndefined();
+    expect(extractMcpTaskId({ task: {} })).toBeUndefined();
+    expect(extractMcpTaskId({ task: { taskId: "" } })).toBeUndefined();
+    expect(extractMcpTaskId({ task: { taskId: 7 } })).toBeUndefined();
+  });
+
+  it("calls the sink exactly once when a handle exists, never otherwise", () => {
+    const observations: McpTaskHandleObservation[] = [];
+    const collectingSink = (observation: McpTaskHandleObservation): void => {
+      observations.push(observation);
+    };
+    observeMcpTaskAcceptance(collectingSink, "filesystem", "read_file", {
+      task: { taskId: "task-9" },
+    });
+    observeMcpTaskAcceptance(collectingSink, "filesystem", "read_file", { task: {} });
+    expect(observations).toEqual([
+      { serverName: "filesystem", toolName: "read_file", mcpTaskId: "task-9" },
+    ]);
+  });
+
+  it("ships a dormant sink that observes and discards", () => {
+    expect(
+      DORMANT_MCP_TASK_HANDLE_SINK({ serverName: "s", toolName: "t", mcpTaskId: "task-1" }),
+    ).toBeUndefined();
+  });
+});
+
+describe("Claude MCP server-status census normalization (T3.13 P2-10-L1)", () => {
+  it("maps every recognized init-census status token into the unified enum", () => {
+    const expectations: readonly (readonly [string, string])[] = [
+      ["connected", "connected"],
+      ["failed", "failed"],
+      ["needs_auth", "needs-auth"],
+      ["pending", "starting"],
+      ["disabled", "unknown"],
+    ];
+    for (const [wireToken, unified] of expectations) {
+      const result = normalizeClaudeMcpServerInitCensus([
+        { name: "filesystem", status: wireToken },
+      ]);
+      expect(result.rejections).toEqual([]);
+      expect(result.emissions).toEqual([{ serverName: "filesystem", status: unified }]);
+    }
+  });
+
+  it("floors unrecognized or absent status tokens at unknown, never a healthy state", () => {
+    expect(
+      normalizeClaudeMcpServerInitCensus([{ name: "filesystem", status: "hibernating" }]).emissions,
+    ).toEqual([{ serverName: "filesystem", status: "unknown" }]);
+    expect(normalizeClaudeMcpServerInitCensus([{ name: "filesystem" }]).emissions).toEqual([
+      { serverName: "filesystem", status: "unknown" },
+    ]);
+  });
+
+  it("rejects rows failing the wire bound and keeps the rest", () => {
+    const result = normalizeClaudeMcpServerInitCensus([
+      { name: "a".repeat(129), status: "connected" },
+      { name: "   ", status: "connected" },
+      "not-an-object",
+      { name: "healthy", status: "connected" },
+    ]);
+    expect(result.rejections).toHaveLength(3);
+    expect(result.emissions).toEqual([{ serverName: "healthy", status: "connected" }]);
+  });
+
+  it("rejects a non-array census payload", () => {
+    const result = normalizeClaudeMcpServerInitCensus({ filesystem: "connected" });
+    expect(result.emissions).toEqual([]);
+    expect(result.rejections).toHaveLength(1);
+  });
+
+  it("parses claude mcp list glyph lines into bounded emissions", () => {
+    const probeOutput = [
+      "Checking MCP server health...",
+      "",
+      "filesystem: npx -y @modelcontextprotocol/server-filesystem - ✓ Connected",
+      "broken: some-command --flag - ✗ Failed to connect",
+      "authy: another-command - ⚠ Needs authentication",
+    ].join("\n");
+    const result = normalizeClaudeMcpListProbeOutput(probeOutput);
+    expect(result.rejections).toEqual([]);
+    expect(result.emissions).toEqual([
+      { serverName: "filesystem", status: "connected" },
+      { serverName: "broken", status: "failed" },
+      { serverName: "authy", status: "needs-auth" },
+    ]);
+  });
+
+  it("reads the LAST separator, so a command containing ' - ' still parses", () => {
+    const result = normalizeClaudeMcpListProbeOutput("srv: run --mode a - b - ✓ Connected");
+    expect(result.emissions).toEqual([{ serverName: "srv", status: "connected" }]);
+  });
+
+  it("skips headers, prose, and blank lines without minting rejections", () => {
+    const result = normalizeClaudeMcpListProbeOutput(
+      ["MCP servers", "no separators here", "trailing - dash: but colon after separator"].join(
+        "\n",
+      ),
+    );
+    expect(result.emissions).toEqual([]);
+    expect(result.rejections).toEqual([]);
+  });
+
+  it("emits unknown for a recognized line whose status text is unrecognized", () => {
+    const result = normalizeClaudeMcpListProbeOutput("weird: cmd - ✦ Sparkling");
+    expect(result.emissions).toEqual([{ serverName: "weird", status: "unknown" }]);
   });
 });

@@ -30,7 +30,7 @@
 // Two corpus sources, and no third:
 //
 //   (1) `docs/reference/provider-wire/codex.md` — the version-pinned Codex
-//       wire reference (pin `codex-cli 0.149.1`, regenerated 2026-08-25 from
+//       wire reference (pin `codex-cli 0.150.1`, regenerated 2026-08-28 from
 //       the binary's own generated schema). It records the ten `ServerRequest`
 //       methods in full (§Server-requests), the legacy bare-camelCase
 //       notifications (§Method namespace), the nineteen experimental-gated
@@ -58,28 +58,41 @@
 // What is deliberately NOT in the closed union (and why)
 // ---------------------------------------------------------------------------
 //
-//   • The eight `thread/realtime/*` server notifications
+//   • The eleven `thread/realtime/*` server notifications
 //     (`thread/realtime/started`, `.../closed`, `.../error`, `.../itemAdded`,
 //     `.../sdp`, `.../outputAudio/delta`, `.../transcript/delta`,
-//     `.../transcript/done`). Three independent corpus statements put them
-//     outside this table: the Spec-006 `realtime_*` family is RESERVED with no
-//     V1 emitter, so there is no family emission to make; the driver suppresses
-//     them at the source via Codex `initialize.capabilities.optOutNotificationMethods`
+//     `.../transcript/done`, `.../item/started`, `.../item/transcript/delta`,
+//     `.../item/completed` — the last three added by the `0.150.1` pin BESIDE
+//     the older spellings, not in place of them). Three independent corpus
+//     statements put them outside this table: the Spec-006 `realtime_*` family
+//     is RESERVED with no V1 emitter, so there is no family emission to make;
+//     the driver suppresses them at the source via Codex
+//     `initialize.capabilities.optOutNotificationMethods`
 //     (Plan-005 T3.12 C-16 / T3.15 leg 7), so they do not arrive on this
 //     connection; and Plan-005 T3.11 states verbatim that the normalizer
-//     "routes each of the eight Codex realtime wire kinds ... to the
-//     default-branch diagnostic", and that a ninth upstream-added
+//     "routes each of the eleven Codex realtime wire kinds ... to the
+//     default-branch diagnostic", and that a twelfth upstream-added
 //     `thread/realtime/*` name "still falls through to the same P0-1
-//     default-branch diagnostic — never silently dropped". Leaving all eight
+//     default-branch diagnostic — never silently dropped". Leaving all eleven
 //     out of the union is what makes that sentence true: they reach the
 //     unknown seam below, which T3.11 re-points at its diagnostic surface.
 //     Listing them here as a suppression constant would duplicate the
 //     `optOutNotificationMethods` list T3.12/T3.15 owns, so they are named in
 //     this comment and nowhere in the code.
 //
+//   • `mcpServer/event/stream/notification`, the fourth arm the `0.150.1` pin
+//     added and the only non-realtime one. It is experimental-gated like the
+//     other three, so a connection negotiating `experimentalApi: false` never
+//     receives it, and no corpus row assigns it a normalized family. It is
+//     therefore left OUT of the union deliberately rather than mapped on a
+//     guess: should a later posture or pin make it deliverable, it reaches the
+//     unknown seam below and surfaces as an operator-visible T3.11 diagnostic,
+//     which is the discovery path this module wants for growth it has not
+//     been given a disposition for.
+//
 //   • `rawResponse/completed` and `rawResponseItem/completed`. codex.md records
 //     both by name and records that neither reaches the pinned binary's
-//     generated schema ("Source declares 77; the binary generates 75"). The
+//     generated schema ("Source declares 81; the binary generates 79"). The
 //     generated schema is the pin, so they are not members of the pinned native
 //     set. Should a later build start emitting one, the unknown seam surfaces
 //     it as an operator-visible T3.11 diagnostic — which is the correct
@@ -104,7 +117,7 @@
 // full reasoning. The short version: their dispositions are already settled by
 // the corpus, so keeping the rows makes a posture flip or a pin bump free,
 // whereas deleting them would route twelve settled frames into the T3.11
-// diagnostic at once. The realtime eight above are the opposite case — opted
+// diagnostic at once. The realtime eleven above are the opposite case — opted
 // out by name at the source AND targeting a family with no V1 emitter, so no
 // corpus row supplies a disposition to keep.
 //
@@ -185,17 +198,26 @@
 //     literals, and nothing composes a method string at runtime.
 //
 // Refs: Plan-005 §Phase 3 / T3.5, `Spec-005 §Required Behavior`,
-// `docs/reference/provider-wire/codex.md` (pin `codex-cli 0.149.1`),
+// `docs/reference/provider-wire/codex.md` (pin `codex-cli 0.150.1`),
 // `docs/plans/006-session-event-taxonomy-and-audit-log.md`
 // §Event-Kind Disposition Table.
 
 import {
+  EVENT_DISPOSITION_BY_KIND,
   SESSION_EVENT_TYPES,
   type EventCategory,
   type NormalizedEventKind,
   type SessionEventType,
 } from "@ai-sidekicks/contracts";
 
+import type { DriverDiagnosticRecord, DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
+import {
+  TerminalEmissionGate,
+  type TerminalEmissionDecision,
+  type TerminalRunFrame,
+  type TerminalSuppressionReason,
+} from "../../terminal-emission-gate.js";
+import type { ChildThreadAnnouncement, ThreadFrameFamilyClass } from "../../thread-frame-router.js";
 import type { CodexToolName } from "./tools.js";
 
 // --------------------------------------------------------------------------
@@ -281,7 +303,7 @@ export type CodexInboundFrameMethod =
   // `turn/moderationMetadata`", and two of those three names do not exist on
   // the wire: regenerating the protocol schema from the pinned binary itself
   // (`codex app-server generate-json-schema --out <dir>` at codex-cli
-  // 0.149.1) emits `turn/diff/updated` and `turn/plan/updated`. Only
+  // 0.150.1) emits `turn/diff/updated` and `turn/plan/updated`. Only
   // `turn/moderationMetadata` is genuinely bare, and it is mapped above with
   // the other gated notifications. The generator output is canonical over
   // prose under the regenerate-don't-transcribe rule, so the generated names
@@ -324,7 +346,7 @@ export type CodexInboundFrameMethod =
  * non-experimental), every one of these frames would reach the T3.11
  * default-branch diagnostic at once — a diagnostic flood standing in for
  * twelve dispositions the corpus has already settled. Keeping the mapping
- * makes that change free. This is the same reasoning that keeps the eight
+ * makes that change free. This is the same reasoning that keeps the eleven
  * `thread/realtime/*` methods OUT: those are suppressed by name at the source
  * and route to a family with no V1 emitter, so mapping them would assert a
  * disposition no corpus row supplies. Dormant-but-settled is mapped;
@@ -333,7 +355,7 @@ export type CodexInboundFrameMethod =
  * This set is DECLARED rather than derived because the gate state lives in
  * neither of this module's inputs: the generated schema does not encode it
  * for notifications (the generator has no notification-side experimental
- * exclusion — regenerating at codex-cli 0.149.1 leaves 74 of 75
+ * exclusion — regenerating at codex-cli 0.150.1 leaves 78 of 79
  * `ServerNotification` arms unmarked), and `tools.ts` knows nothing about
  * negotiation. The corpus source is codex.md §The experimental gate, which the
  * `__fixtures__/` gate tags transcribe; the test suite asserts this set equals
@@ -603,8 +625,8 @@ export class UnknownCodexInboundFrameError extends Error {
   constructor(nativeMethod: string) {
     super(
       `Unmapped Codex inbound frame method: ${JSON.stringify(nativeMethod)}. ` +
-        "The pinned census in event-normalizer.ts does not cover it; Plan-005 T3.11 " +
-        "replaces this refusal with the daemon diagnostic default branch.",
+        "The pinned census does not cover it; the daemon diagnostic default branch " +
+        "replaces this refusal on the routed normalize path.",
     );
     this.name = "UnknownCodexInboundFrameError";
     this.nativeMethod = nativeMethod;
@@ -981,7 +1003,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
   // ------------------------------------------------------------------
 
   // Wire name from the binary's own `codex app-server generate-json-schema`
-  // output at codex-cli 0.149.1; the Plan-006 delta-table row carried the
+  // output at codex-cli 0.150.1; the Plan-006 delta-table row carried the
   // truncated `turn/diff` until its 2026-08-28 correction.
   //
   // Disposition from that same delta row: "`diff` -> persisted (32)".
@@ -998,7 +1020,7 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     normalizedKind: "diff",
   },
   // Wire name from the binary's own `codex app-server generate-json-schema`
-  // output at codex-cli 0.149.1; the Plan-006 delta-table row carried the
+  // output at codex-cli 0.150.1; the Plan-006 delta-table row carried the
   // truncated `turn/plan` until its 2026-08-28 correction.
   //
   // Disposition from that same delta row: "`plan` -> `proposed_plan` (35)";
@@ -1074,13 +1096,14 @@ export const CODEX_FRAME_NORMALIZATION_BY_METHOD: ReadonlyMap<
 );
 
 /**
- * The single seam Plan-005 T3.11 (PR-B) replaces.
+ * The bare resolver's refusal for a method outside the census.
  *
- * Today it refuses loudly. T3.11 re-points this one function at the typed
- * daemon-diagnostic default branch (`DriverDiagnosticRecord`
- * `{ provider, rawWireType, dispositionReason }` onto `driver-diagnostics.ts`)
- * without touching the resolver above it. Kept as a named function precisely
- * so that swap is an edit to one body rather than a restructure of a dispatch.
+ * T3.11 landed the daemon-diagnostic default branch as
+ * {@link resolveCodexFrameEmissionRoute} below — the driver core's entry
+ * point, which converts this refusal into a typed `DriverDiagnosticRecord`
+ * onto `driver-diagnostics.ts` and never throws. THIS function remains the
+ * bare resolver's contract for direct misuse: a caller that bypasses the
+ * diagnostic-aware route must still fail loudly rather than silently.
  */
 function refuseUnmappedCodexInboundFrame(nativeMethod: string): never {
   throw new UnknownCodexInboundFrameError(nativeMethod);
@@ -1108,3 +1131,277 @@ export function normalizeCodexInboundFrame(nativeMethod: string): CodexFrameNorm
   }
   return normalization;
 }
+
+// --------------------------------------------------------------------------
+// T3.11 — the daemon-diagnostic default branch (P0-1).
+// --------------------------------------------------------------------------
+
+/** The census-mapped emission answer, or the frame's routed diagnostic. */
+export type CodexFrameEmissionRoute =
+  | { readonly route: "emit"; readonly normalization: CodexNormalizedFamilyEmission }
+  | { readonly route: "not-evented"; readonly normalization: CodexNotEventedFrameDisposition }
+  | { readonly route: "diagnostic"; readonly record: DriverDiagnosticRecord };
+
+/**
+ * The T3.11 P0-1 default branch — the driver core's entry point onto this
+ * table. Total over EVERY method string and never throws: a method outside
+ * the pinned census, an interim `typePending` kind whose literal has not
+ * landed, and a censused kind whose target has no registered payload variant
+ * all route to a typed `DriverDiagnosticRecord` emitted through the injected
+ * `driver-diagnostics.ts` surface — never a `session_events` envelope and
+ * never a silent drop. `EVENT_DISPOSITION_BY_KIND` is the single disposition
+ * source consulted for the interim-`typePending` verdict (the Plan-006 T1.8
+ * interim-disposition seam).
+ */
+export function resolveCodexFrameEmissionRoute(
+  nativeMethod: string,
+  diagnostics: DriverDiagnosticsEmitter,
+): CodexFrameEmissionRoute {
+  const normalization = CODEX_FRAME_NORMALIZATION_BY_METHOD.get(
+    nativeMethod as CodexInboundFrameMethod,
+  );
+  if (normalization === undefined) {
+    const record: DriverDiagnosticRecord = {
+      provider: "codex",
+      kind: "unmapped_wire_kind",
+      rawWireType: nativeMethod,
+      dispositionReason:
+        "wire method outside the pinned Codex inbound census; routed to the daemon diagnostic default branch, never silently dropped and never forced into an envelope",
+      details: {},
+    };
+    diagnostics.emit(record);
+    return { route: "diagnostic", record };
+  }
+  if (normalization.disposition === "not-evented") {
+    return { route: "not-evented", normalization };
+  }
+  if (normalization.normalizedKind !== null) {
+    const registryDisposition = EVENT_DISPOSITION_BY_KIND.get(normalization.normalizedKind);
+    if (registryDisposition !== undefined && registryDisposition.typePending !== undefined) {
+      const record: DriverDiagnosticRecord = {
+        provider: "codex",
+        kind: "unmapped_wire_kind",
+        rawWireType: nativeMethod,
+        dispositionReason:
+          "interim typePending kind whose SessionEventType literal has not landed; routed to the diagnostic branch until the census amendment lands its literal",
+        details: { normalizedKind: normalization.normalizedKind },
+      };
+      diagnostics.emit(record);
+      return { route: "diagnostic", record };
+    }
+  }
+  if (normalization.emissionReadiness === "payload-variant-pending") {
+    const record: DriverDiagnosticRecord = {
+      provider: "codex",
+      kind: "payload_variant_pending",
+      rawWireType: nativeMethod,
+      dispositionReason:
+        "censused kind whose target SessionEventType has no registered SessionEventSchema payload variant; envelope construction is forbidden without one, so the frame routes to the diagnostic branch",
+      details: { eventType: normalization.eventType },
+    };
+    diagnostics.emit(record);
+    return { route: "diagnostic", record };
+  }
+  return { route: "emit", normalization };
+}
+
+// --------------------------------------------------------------------------
+// T3.11 — family classification for the thread-frame router (NS-91).
+// --------------------------------------------------------------------------
+
+/**
+ * The two router-band wire names the census union deliberately does not
+ * carry. Both are recorded by the corpus — Plan-005 T3.11's routing and
+ * usage-delta legs name them verbatim, and `Spec-005 §References`' vendor
+ * -schema entry (codex-cli `0.150.1`, regenerated 2026-08-28) records their
+ * generated shapes (`ThreadStartedNotification` with `Thread.parentThreadId`;
+ * `ThreadTokenUsageUpdatedNotification` with required `threadId` / `turnId`)
+ * — but neither is dispositioned by the Plan-006 table into a family
+ * emission of its own: `thread/started` is the REGISTRATION INPUT to the
+ * thread-frame router, and `thread/tokenUsage/updated` is the READING the
+ * usage-delta accountant meters, each consumed at its own T3.11 band rather
+ * than projected through the mapping table above.
+ */
+export const CODEX_THREAD_STARTED_METHOD = "thread/started" as const;
+export const CODEX_THREAD_TOKEN_USAGE_METHOD = "thread/tokenUsage/updated" as const;
+
+/**
+ * The `turn/*` lifecycle pair, likewise absent from the census union above and
+ * likewise router-band rather than mapping-table input.
+ *
+ * `turn/completed` is the provider's ONLY terminal-turn notification (the
+ * generated `ServerNotification` union at the pin carries no `turn/failed` and
+ * no `turn/interrupted`; a failed or interrupted turn arrives here and is
+ * discriminated by `turn.status`), and it carries a top-level `threadId`, so it
+ * is routable by thread identity: on the session's own thread it is the frame
+ * the T3.14 emission gate admits, and on a registered child it is that child's
+ * terminal — the completion signal the router releases child state on. There is
+ * no `thread/status/changed` or `thread/ended` anywhere in the pinned generated
+ * root or in `docs/reference/provider-wire/codex.md`, which is why the child
+ * terminal is read off this method rather than off a thread-lifecycle one.
+ */
+export const CODEX_TURN_STARTED_METHOD = "turn/started" as const;
+export const CODEX_TURN_COMPLETED_METHOD = "turn/completed" as const;
+
+/**
+ * The `ThreadSourceKind` arms that mark a provider-attributed SUBAGENT child
+ * (spend rides the (`runId`, `provider`, `subagentId`) triple), versus the
+ * provider-internal arm (`subAgentCompact` — a compaction thread) whose spend
+ * attributes to the parent run at run scope. Per the generated schema at
+ * codex-cli `0.150.1` (`Spec-005 §References`).
+ */
+export const CODEX_SUBAGENT_ATTRIBUTED_THREAD_SOURCE_KINDS: readonly string[] = Object.freeze([
+  "subAgent",
+  "subAgentReview",
+  "subAgentThreadSpawn",
+  "subAgentOther",
+]);
+
+/**
+ * Derive the router's `ChildThreadAnnouncement` from a Codex `thread/started`
+ * notification's identity members, verbatim off the wire. The child thread id
+ * doubles as the provider-attributed subagent identity on the subagent-
+ * attributed source kinds; a compaction child carries none, so its spend
+ * attributes to the parent run.
+ */
+export function deriveCodexChildThreadAnnouncement(threadStarted: {
+  readonly threadId: string;
+  readonly parentThreadId: string | null;
+  readonly threadSourceKind: string;
+}): ChildThreadAnnouncement {
+  const subagentAttributed = CODEX_SUBAGENT_ATTRIBUTED_THREAD_SOURCE_KINDS.includes(
+    threadStarted.threadSourceKind,
+  );
+  return {
+    childThreadId: threadStarted.threadId,
+    declaredParentThreadId: threadStarted.parentThreadId,
+    subagentId: subagentAttributed ? threadStarted.threadId : null,
+  };
+}
+
+/**
+ * Classify one Codex inbound method's FAMILY for the thread-frame router
+ * (`Spec-005 §Required Behavior`'s family-scoped routing rule). The census is
+ * the discriminator: connection- and account-scoped families route without a
+ * thread identity, thread-scoped families demand one, and an unlisted shape
+ * is `unknown` — never presumed connection-scoped.
+ */
+export function classifyCodexFrameFamilyForRouting(nativeMethod: string): ThreadFrameFamilyClass {
+  switch (nativeMethod) {
+    // Connection- and account-scoped: notices, account-plane quota, auth
+    // brokering, attestation, model-level capability signals — frames whose
+    // own shape carries no thread identity.
+    case "error":
+    case "warning":
+    case "configWarning":
+    case "deprecationNotice":
+    case "guardianWarning":
+    case "account/rateLimits/updated":
+    case "account/chatgptAuthTokens/refresh":
+    case "attestation/generate":
+    case "model/safetyBuffering/updated":
+      return { scope: "connection" };
+    // Thread-scoped usage: the cumulative token reading the accountant
+    // meters, and the thread-level compaction marker.
+    case CODEX_THREAD_TOKEN_USAGE_METHOD:
+    case "thread/compacted":
+      return { scope: "thread", capability: "usage" };
+    // Thread-scoped lifecycle: the thread-start announcement (the router's
+    // registration input) and the turn-boundary pair. `turn/completed` MUST be
+    // classified here — it is the session's own terminal, and an unclassified
+    // terminal would quarantine instead of reaching the T3.14 emission gate,
+    // which admits only a `project` route.
+    case CODEX_THREAD_STARTED_METHOD:
+    case CODEX_TURN_STARTED_METHOD:
+    case CODEX_TURN_COMPLETED_METHOD:
+      return { scope: "thread", capability: "lifecycle" };
+    // Thread-scoped interactive requests: the approval / input / tool asks.
+    case "item/tool/call":
+    case "item/tool/requestUserInput":
+    case "mcpServer/elicitation/request":
+    case "item/commandExecution/requestApproval":
+    case "item/fileChange/requestApproval":
+    case "item/permissions/requestApproval":
+    case "execCommandApproval":
+    case "applyPatchApproval":
+      return { scope: "thread", capability: "interactive-request" };
+    // Thread-scoped content and thread-level bookkeeping.
+    case "thread/goal/updated":
+    case "thread/goal/cleared":
+    case "item/autoApprovalReview/started":
+    case "item/autoApprovalReview/completed":
+    case "process/outputDelta":
+    case "process/exited":
+    case "turn/moderationMetadata":
+    case "autoApprovalReview/strictReviewRequired":
+    case "thread/reverted":
+    case "thread/queue/changed":
+    case "thread/project/updated":
+    case "thread/environment/connected":
+    case "thread/environment/disconnected":
+    case "thread/settings/updated":
+    case "turn/diff/updated":
+    case "turn/plan/updated":
+      return { scope: "thread", capability: "content" };
+    // Project-level bookkeeping rides the connection, not a thread.
+    case "project/changed":
+      return { scope: "connection" };
+    default:
+      // The realtime family and anything the census does not list: unknown.
+      // Never presumed connection-scoped.
+      return { scope: "unknown" };
+  }
+}
+
+// --------------------------------------------------------------------------
+// The terminal-emission boundary (Plan-005 T3.14 P1-1 + P1-2-driver).
+// --------------------------------------------------------------------------
+//
+// This module is the SOLE terminal-emission boundary for the Codex leg: the
+// provider-native → `run_lifecycle` mapping above lives here, so the two
+// properties that attach to a terminal frame attach here too.
+//
+//   P1-1 — INTENDED CLOSE. A daemon-initiated `closeSession` signals its
+//   intent into this boundary through the lifecycle module; the boundary
+//   stamps `intendedClose` on the terminal payload so the recovery classifier
+//   reads a clean shutdown as a clean shutdown rather than as a crash
+//   (`Spec-006 §Run Lifecycle (run_lifecycle)`). The lifecycle module cannot
+//   stamp it — it does not own the terminal frame.
+//
+//   P1-2-driver — DUPLICATE SUPPRESSION. At most one terminal per
+//   `(runId, runVersion)` epoch. The primary guard is Plan-004's dispatcher
+//   and the schema backstop is Plan-006's partial unique index; without THIS
+//   boundary-level suppression a duplicate provider terminal — the ordinary
+//   post-interrupt double, or a `turn/completed` racing a process exit —
+//   reaches that index and fails loud on a condition the driver could have
+//   absorbed.
+//
+// Routing is CONSUMED here, never re-decided (T3.14's own routing clause): the
+// gate takes the `ThreadFrameRoute` the T3.11 router already produced and
+// settles a run only on `project`. A child thread's terminal therefore never
+// settles the parent's run, and this boundary adds no second source of truth
+// for whose stream a frame came from.
+
+/**
+ * The Codex leg's bindings for the provider-neutral emission gate.
+ *
+ * The suppression rule itself lives once at `provider/terminal-emission-gate.ts`
+ * — the two driver legs feed ONE shared uniqueness index (the Plan-006 partial
+ * unique index), and two implementations of one invariant is one more than the
+ * invariant can survive. What stays here is the Codex-named binding, so the
+ * driver's own callers and its barrel keep naming a Codex symbol.
+ */
+export type CodexTerminalRunFrame = TerminalRunFrame;
+export type CodexTerminalSuppressionReason = TerminalSuppressionReason;
+export type CodexTerminalEmissionDecision = TerminalEmissionDecision;
+
+/**
+ * The Codex terminal-emission gate — one instance per provider session, held
+ * by the lifecycle module for that session's lifetime.
+ *
+ * An empty extension rather than an alias: the Codex leg carries no
+ * census-specific gate input TODAY, and inventing one to justify a body would
+ * be a parameter minted ahead of its reader. The named subclass is what a
+ * later census-specific input would land on.
+ */
+export class CodexTerminalEmissionGate extends TerminalEmissionGate {}

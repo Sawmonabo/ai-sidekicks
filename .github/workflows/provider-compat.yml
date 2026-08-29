@@ -119,7 +119,7 @@ jobs:
           - channel: floor
             version: "0.141.0"
           - channel: pin
-            version: "0.149.1"
+            version: "0.150.1"
           - channel: latest
             version: "latest"
     steps:
@@ -334,7 +334,7 @@ jobs:
           # `--help` text is not a drift detector — it is stable across releases
           # that moved real behavior. Argument ACCEPTANCE is: `codex exec
           # --full-auto` exits 0 at 0.141.0 and exits 2 with "unexpected
-          # argument" at 0.149.1. That is compared per channel below; the leg
+          # argument" at 0.150.1. That is compared per channel below; the leg
           # still never FAILS on it, because a mismatch is recorded as drift
           # and the report decides what drift on this channel means.
           set +e
@@ -343,7 +343,7 @@ jobs:
           set -e
           # docs/reference/provider-wire/codex.md records this as a Verified
           # binary probe with an exact per-channel expectation: the flag is
-          # ACCEPTED at the 0.141.0 floor and REJECTED at the 0.149.1 pin. So
+          # ACCEPTED at the 0.141.0 floor and REJECTED at the 0.150.1 pin. So
           # the observation is only meaningful against the channel's expected
           # value -- recording it without comparing made a floor that stopped
           # accepting `--full-auto` (a real break in the oldest SUPPORTED CLI)
@@ -471,7 +471,7 @@ jobs:
           - channel: floor
             version: "2.1.234"
           - channel: pin
-            version: "2.1.245"
+            version: "2.1.251"
           - channel: latest
             version: "latest"
     steps:
@@ -718,7 +718,7 @@ jobs:
           }
           PKG
           cd "$install_dir"
-          pnpm add --ignore-workspace "@anthropic-ai/claude-code@2.1.245"
+          pnpm add --ignore-workspace "@anthropic-ai/claude-code@2.1.251"
           echo "CLAUDE_BIN=$install_dir/node_modules/.bin/claude" >> "$GITHUB_ENV"
 
       - name: One-turn print-mode probe
@@ -770,7 +770,7 @@ jobs:
             exit 1
           fi
           echo "smoke_outcome=success" >> "$GITHUB_OUTPUT"
-          echo "- Claude authenticated smoke (pin \`2.1.245\`): **PASS** — one turn completed" \
+          echo "- Claude authenticated smoke (pin \`2.1.251\`): **PASS** — one turn completed" \
             >> "$GITHUB_STEP_SUMMARY"
 
   # ---------------------------------------------------------------------------

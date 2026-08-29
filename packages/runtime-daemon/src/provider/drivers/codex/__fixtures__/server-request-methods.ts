@@ -3,16 +3,19 @@
 //   Source doc      : docs/reference/provider-wire/codex.md
 //   Section         : §Server-requests — the callback / interactive / approval
 //                     surface (Codex -> daemon)
-//   Pin             : codex-cli 0.149.1 (the `latest` dist-tag of
+//   Pin             : codex-cli 0.150.1 (the `latest` dist-tag of
 //                     `@openai/codex` at that doc's authoring)
 //   Provenance      : Generated schema (`codex app-server generate-json-schema`
-//                     / `generate-ts`), regenerated 2026-08-25
-//   Trust           : Verified at 0.149.1
+//                     / `generate-ts`), regenerated 2026-08-28
+//   Trust           : Verified at 0.150.1
 //   Derived by      : Plan-005 T3.5, transcribed from the reference's verbatim
 //                     enumeration. NOTHING here is invented: codex.md records
 //                     `ServerRequest` as carrying exactly ten methods at the
-//                     pin ("the same 10 as at 0.141.0 — the one root that did
-//                     not move across the floor") and names all ten.
+//                     pin ("the same 10 as at 0.141.0 — the one root that has
+//                     not moved anywhere across the floor") and names all ten.
+//                     The 0.149.1 -> 0.150.1 pin hop left this root untouched:
+//                     zero added, zero removed, and `ServerRequest.json` itself
+//                     byte-identical across the two generations.
 //
 // WHAT THIS FIXTURE IS, AND WHAT IT IS NOT.
 //
@@ -48,7 +51,7 @@ export interface CodexServerRequestMethodVector {
 }
 
 /**
- * All ten `ServerRequest` methods at `codex-cli 0.149.1`.
+ * All ten `ServerRequest` methods at `codex-cli 0.150.1`.
  *
  * codex.md §Server-requests, verbatim structure: callback tools
  * (`item/tool/call`); interactive input (`item/tool/requestUserInput`
@@ -116,7 +119,7 @@ export const CODEX_SERVER_REQUEST_METHOD_VECTORS: readonly CodexServerRequestMet
 
 /**
  * The `ServerRequest` root's arity at the pin, quoted from codex.md
- * §Server-requests: "`ServerRequest` carries 10 methods at `0.149.1` — the
+ * §Server-requests: "`ServerRequest` carries 10 methods at `0.150.1` — the
  * same 10 as at `0.141.0`".
  *
  * Pinned as a value so the vector list above cannot silently lose or gain a

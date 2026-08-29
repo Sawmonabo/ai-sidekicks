@@ -14,16 +14,22 @@ import type {
   StartRunParams,
 } from "@ai-sidekicks/contracts";
 
+import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
+import type { ThreadFrameRoute } from "../../../thread-frame-router.js";
 import type {
+  ClaudeAuthProbeReading,
   ClaudeChannelDisposalReason,
   ClaudeControlRequest,
   ClaudeControlResponse,
+  ClaudeInboundFrameObservation,
   ClaudeResumedSessionAttachment,
+  ClaudeRewoundSessionAttachment,
   ClaudeRunDispatch,
   ClaudeRunDispatchResolver,
   ClaudeSessionAttachment,
   ClaudeSessionChannel,
   ClaudeSessionResumeRequest,
+  ClaudeSessionRewindRequest,
   ClaudeSessionSpawnRequest,
   ClaudeSessionTransport,
   ClaudeUserTextFrame,
@@ -35,6 +41,19 @@ export const TEST_RUN_ID: RunId = "run-1" as RunId;
 export const TEST_SECOND_RUN_ID: RunId = "run-2" as RunId;
 export const TEST_PINNED_PROVIDER_SESSION_ID: string = "provider-session-pinned";
 export const TEST_BINDING_ID: string = "binding-1";
+
+/**
+ * The route decisions the transport obligation says reach the normalize
+ * consumer, mirrored from {@link ClaudeSessionChannel.onInboundFrame}'s DELIVER
+ * column. Held here as data so the double cannot drift into "only `project`",
+ * which is the exact reading that once made this double enforce a rule the band
+ * does not have.
+ */
+const DELIVERED_ROUTE_DECISIONS: ReadonlySet<ThreadFrameRoute["decision"]> = new Set([
+  "project",
+  "route-connection-scoped",
+  "carve-out-interactive-request",
+]);
 
 export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
   readonly providerSessionId: string;
@@ -88,11 +107,69 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
 
   turnTerminalListener: (() => void) | undefined = undefined;
 
-  emitStreamFrame(frameKind: string): void {
-    if (!frameKind.startsWith("result/")) {
-      return;
+  // The `onInboundFrame` half of the same discipline. Registration failure is
+  // kept on its own switch because the two hooks register at different points
+  // of the adoption window, and a test that models a transport refusing one
+  // must not be forced to model it refusing both.
+  onInboundFrameFailure: Error | undefined = undefined;
+
+  onInboundFrame(observer: (observation: ClaudeInboundFrameObservation) => ThreadFrameRoute): void {
+    if (this.onInboundFrameFailure !== undefined) {
+      throw this.onInboundFrameFailure;
     }
-    this.turnTerminalListener?.();
+    this.inboundFrameObserver = observer;
+  }
+
+  inboundFrameObserver:
+    | ((observation: ClaudeInboundFrameObservation) => ThreadFrameRoute)
+    | undefined = undefined;
+
+  /** Every observation this double drove, paired with the route it was given. */
+  readonly observedRoutes: {
+    readonly observation: ClaudeInboundFrameObservation;
+    readonly route: ThreadFrameRoute;
+  }[] = [];
+
+  /** The frames this double handed to its own normalize consumer. */
+  readonly deliveredFrameKinds: string[] = [];
+
+  /**
+   * Drive one inbound stream frame, HONOURING the transport obligation in full.
+   *
+   * The double observes before delivering and delivers exactly the decisions
+   * {@link ClaudeSessionChannel.onInboundFrame}'s DELIVER column names, because
+   * a double that delivered regardless — or that delivered only `project` —
+   * would let a routing regression pass every test in this file. The
+   * terminal-vs-non-terminal discriminant stays here too: a real transport
+   * knows which terminal it saw, and the driver's `onTurnTerminal` hook
+   * deliberately carries no payload.
+   */
+  emitStreamFrame(
+    frameKind: string,
+    observationParts?: {
+      readonly subagentId?: string | null;
+      readonly cumulativeUsage?: ClaudeInboundFrameObservation["cumulativeUsage"];
+      readonly subagentLifecycle?: ClaudeInboundFrameObservation["subagentLifecycle"];
+    },
+  ): ThreadFrameRoute {
+    const observation: ClaudeInboundFrameObservation = {
+      frameKind,
+      subagentId: observationParts?.subagentId ?? null,
+      cumulativeUsage: observationParts?.cumulativeUsage ?? null,
+      subagentLifecycle: observationParts?.subagentLifecycle ?? null,
+    };
+    const route: ThreadFrameRoute = this.inboundFrameObserver?.(observation) ?? {
+      decision: "project",
+    };
+    this.observedRoutes.push({ observation, route });
+    if (!DELIVERED_ROUTE_DECISIONS.has(route.decision)) {
+      return route;
+    }
+    this.deliveredFrameKinds.push(frameKind);
+    if (frameKind.startsWith("result/")) {
+      this.turnTerminalListener?.();
+    }
+    return route;
   }
 
   // Parks dispose until a test releases it, so the CLOSING window can be held
@@ -129,6 +206,26 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
   // Claude CLI exhibits, and the mechanism I-005-5's identity gate catches.
   announcedProviderSessionId: string | undefined = undefined;
   resumedSessionPosition: number = 12;
+  // The rewind (T3.15 leg 1) leg. Defaults model the honest happy path: a fork
+  // announces a NEW provider session id, which is exactly what the driver's
+  // fork check requires — a fake that echoed the handle back would make every
+  // rewind test exercise the refusal arm instead.
+  readonly rewindRequests: ClaudeSessionRewindRequest[] = [];
+  rewindFailure: Error | undefined = undefined;
+  rewoundSessionPosition: number | undefined = undefined;
+  mintForkedProviderSessionId: () => string = (): string =>
+    `forked-${String(this.rewindRequests.length)}`;
+  // When set, the fork announces THIS id — the "provider did not fork" arm.
+  announcedForkedProviderSessionId: string | undefined = undefined;
+  // When true, the fork hands back the SAME channel object it was rewinding, so
+  // the disposal carve-out in the not-forked arm is reachable.
+  rewindReturnsPredecessorChannel: boolean = false;
+  // The zero-turn auth probe's outcome. Set the failure to drive the two
+  // negative arms: a `ClaudeAuthenticationRequiredError` for a determinate
+  // logged-out reading, anything else for a probe that could not be taken.
+  probeAuthFailure: Error | undefined = undefined;
+  probeAuthDetail: string | undefined = undefined;
+  probeAuthCallCount: number = 0;
 
   async spawnSession(request: ClaudeSessionSpawnRequest): Promise<ClaudeSessionAttachment> {
     this.spawnRequests.push(request);
@@ -162,6 +259,47 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
       channel,
       sessionPosition: this.resumedSessionPosition,
     };
+  }
+
+  async rewindSession(
+    request: ClaudeSessionRewindRequest,
+  ): Promise<ClaudeRewoundSessionAttachment> {
+    this.rewindRequests.push(request);
+    await this.establishmentGate;
+    if (this.rewindFailure !== undefined) {
+      throw this.rewindFailure;
+    }
+    await Promise.resolve();
+    const announced = this.announcedForkedProviderSessionId ?? this.mintForkedProviderSessionId();
+    if (this.rewindReturnsPredecessorChannel) {
+      const predecessor = this.spawnedChannels[this.spawnedChannels.length - 1];
+      if (predecessor !== undefined) {
+        return {
+          providerSessionId: announced,
+          channel: predecessor,
+          sessionPosition: this.rewoundSessionPosition ?? request.targetPosition,
+        };
+      }
+    }
+    const channel = new FakeClaudeSessionChannel(announced);
+    channel.onTurnTerminalFailure = this.onTurnTerminalFailure;
+    this.spawnedChannels.push(channel);
+    return {
+      providerSessionId: announced,
+      channel,
+      sessionPosition: this.rewoundSessionPosition ?? request.targetPosition,
+    };
+  }
+
+  async probeAuth(): Promise<ClaudeAuthProbeReading> {
+    this.probeAuthCallCount += 1;
+    await Promise.resolve();
+    if (this.probeAuthFailure !== undefined) {
+      throw this.probeAuthFailure;
+    }
+    // Spawns nothing and mints no channel, which is the point being modelled:
+    // a probe that established a session would not be a zero-turn probe.
+    return this.probeAuthDetail === undefined ? {} : { detail: this.probeAuthDetail };
   }
 }
 
@@ -212,4 +350,16 @@ export function buildCancelParams(): ApplyInterventionParams {
     clientIdempotencyKey: "3f1d2b4c-0000-4000-8000-000000000003",
     payload: { reason: "participant cancelled the run" },
   };
+}
+
+/**
+ * The T3.11 diagnostic band, silenced. The default log sink writes to the
+ * console, which would make every policy diagnostic a line of test output; the
+ * emitter still retains its records, which is what the assertions read.
+ */
+export function makeSilentDriverDiagnostics(): DriverDiagnosticsEmitter {
+  return new DriverDiagnosticsEmitter({
+    logSink: { record: () => undefined },
+    counterSink: { increment: () => undefined },
+  });
 }

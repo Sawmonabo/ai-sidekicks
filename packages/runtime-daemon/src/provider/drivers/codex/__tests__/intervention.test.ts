@@ -14,6 +14,10 @@
 //     intervention the layer above is about to compensate for.
 //   I-005-2 — the gate is `!== true`, so a missing flag is as unsupported as a
 //     false one.
+//   P0-3 (T3.14) — the REQUESTER's `clientIdempotencyKey` reaches the runtime
+//     verbatim on the steer path, and is never re-minted per dispatch.
+//   P3-1 (T3.14) — a steer acknowledgement that names a different turn, or names
+//     none at all, degrades instead of reading as success.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -32,9 +36,16 @@ import {
   CODEX_INTERVENTION_CAPABILITY_FLAGS,
   CODEX_INTERVENTION_FALLBACK_ACTION,
   type CodexInterventionRuntime,
+  type CodexSteerAcknowledgement,
+  type CodexSteerRunRequest,
 } from "../intervention.js";
 
 const RUN_ID = "22222222-2222-4222-8222-222222222222" as RunId;
+
+// What the fake runtime reports as the live turn when the caller pinned none —
+// standing in for the manager's `#requireActiveTurn` resolution, so the ack it
+// echoes is against the turn that would really have gone on the wire.
+const LIVE_TURN_ID = "turn-live";
 
 function makeCapabilities(overrides: Partial<Record<DriverCapabilityFlag, boolean>>): {
   snapshot: DriverCapabilities;
@@ -69,7 +80,13 @@ function createHarness(
   // against the contract it stands in for. A cast here would have let the port
   // change shape without a single test noticing.
   const steerRun = vi.fn(
-    async (_runId: RunId, _content: string, _expectedTurnId?: string): Promise<void> => {},
+    async (request: CodexSteerRunRequest): Promise<CodexSteerAcknowledgement> => {
+      // The confirming default: the provider acknowledges the very turn the
+      // driver targeted. Every degraded-ack case overrides it explicitly, so the
+      // grading under test is always stated by the test that depends on it.
+      const targetedTurnId = request.expectedTurnId ?? LIVE_TURN_ID;
+      return { targetedTurnId, acknowledgedTurnId: targetedTurnId };
+    },
   );
   const interruptRun = vi.fn(async (_params: InterruptRunParams): Promise<void> => {});
   const capabilities = makeCapabilities(overrides);
@@ -125,7 +142,12 @@ describe("CodexInterventionDispatcher native routing (Spec-005 §Required Behavi
 
     const result = await harness.dispatcher.applyIntervention(steerParams());
 
-    expect(harness.steerRun).toHaveBeenCalledWith(RUN_ID, "focus on the failing test", "turn-01");
+    expect(harness.steerRun).toHaveBeenCalledWith({
+      runId: RUN_ID,
+      content: "focus on the failing test",
+      expectedTurnId: "turn-01",
+      clientIdempotencyKey: "idem-1",
+    });
     expect(result).toEqual({ status: "applied" });
   });
 
@@ -150,7 +172,12 @@ describe("CodexInterventionDispatcher native routing (Spec-005 §Required Behavi
     } as ApplyInterventionParams);
 
     // Absent means "the driver picks the live turn"; it must not be invented.
-    expect(harness.steerRun).toHaveBeenCalledWith(RUN_ID, "stop guessing", undefined);
+    expect(harness.steerRun).toHaveBeenCalledWith({
+      runId: RUN_ID,
+      content: "stop guessing",
+      expectedTurnId: undefined,
+      clientIdempotencyKey: "idem-1",
+    });
   });
 
   it("routes interrupt onto the provider's turn interrupt", async () => {
@@ -266,7 +293,7 @@ describe("CodexInterventionDispatcher degraded fallback (I-005-4, ADR-011)", () 
       {},
       {
         steerRun: vi.fn(
-          async (_runId: RunId, _content: string, _expectedTurnId?: string): Promise<void> => {
+          async (_request: CodexSteerRunRequest): Promise<CodexSteerAcknowledgement> => {
             throw new Error("no active Codex turn");
           },
         ),
@@ -279,6 +306,127 @@ describe("CodexInterventionDispatcher degraded fallback (I-005-4, ADR-011)", () 
     await expect(harness.dispatcher.applyIntervention(steerParams())).rejects.toThrow(
       /no active Codex turn/,
     );
+  });
+});
+
+describe("CodexInterventionDispatcher idempotency-key ride-through (P0-3)", () => {
+  it("hands the requester's key to the runtime verbatim", async () => {
+    const harness = createHarness();
+
+    await harness.dispatcher.applyIntervention(steerParams());
+
+    // Verbatim is the whole property: a key re-minted at this boundary would give
+    // the provider a fresh value on every retry and defeat the `interventions`
+    // UNIQUE guard that turns at-least-once delivery into exactly-once
+    // application.
+    const [request] = harness.steerRun.mock.calls[0] as [CodexSteerRunRequest];
+    expect(request.clientIdempotencyKey).toBe("idem-1");
+  });
+
+  it("sends the same key on a retry of the same intervention", async () => {
+    const harness = createHarness();
+
+    await harness.dispatcher.applyIntervention(steerParams());
+    await harness.dispatcher.applyIntervention(steerParams());
+
+    const keys = (harness.steerRun.mock.calls as Array<[CodexSteerRunRequest]>).map(
+      ([request]) => request.clientIdempotencyKey,
+    );
+    expect(keys).toEqual(["idem-1", "idem-1"]);
+  });
+
+  it("sends no client key on the interrupt path, rather than inventing one", async () => {
+    const harness = createHarness();
+
+    await harness.dispatcher.applyIntervention(interruptParams());
+
+    // `turn/interrupt` is `{ threadId, turnId }` at the pin and accepts no
+    // client-supplied identifier, so the params carry the run and the reason and
+    // nothing else. An invented substitute would be an unregistered wire field.
+    const [params] = harness.interruptRun.mock.calls[0] as [InterruptRunParams];
+    expect(Object.keys(params).sort()).toEqual(["reason", "runId"]);
+  });
+});
+
+describe("CodexInterventionDispatcher ambiguous steer acknowledgement (P3-1)", () => {
+  function harnessAcknowledging(acknowledgedTurnId: string | null): Harness {
+    return createHarness(
+      {},
+      {
+        steerRun: vi.fn(
+          async (request: CodexSteerRunRequest): Promise<CodexSteerAcknowledgement> => {
+            return {
+              targetedTurnId: request.expectedTurnId ?? LIVE_TURN_ID,
+              acknowledgedTurnId,
+            };
+          },
+        ),
+      },
+    );
+  }
+
+  it("degrades when the provider acknowledges a different turn", async () => {
+    const harness = harnessAcknowledging("turn-99");
+
+    const result = await harness.dispatcher.applyIntervention(steerParams());
+
+    // The provider accepted SOMETHING; that is not evidence it accepted this. A
+    // silent `applied` here would report a participant's directive as delivered
+    // to a turn that never saw it.
+    expect(result).toEqual({
+      status: "degraded",
+      fallbackAction: CODEX_INTERVENTION_FALLBACK_ACTION,
+    });
+  });
+
+  it("degrades when the acknowledgement names no turn at all", async () => {
+    const harness = harnessAcknowledging(null);
+
+    const result = await harness.dispatcher.applyIntervention(steerParams());
+
+    expect(result).toEqual({
+      status: "degraded",
+      fallbackAction: CODEX_INTERVENTION_FALLBACK_ACTION,
+    });
+  });
+
+  it("applies when the acknowledgement names the targeted turn", async () => {
+    const harness = harnessAcknowledging("turn-01");
+
+    const result = await harness.dispatcher.applyIntervention(steerParams());
+
+    expect(result).toEqual({ status: "applied" });
+  });
+
+  it("grades an unpinned steer against the turn the runtime actually targeted", async () => {
+    const harness = harnessAcknowledging(LIVE_TURN_ID);
+
+    const result = await harness.dispatcher.applyIntervention({
+      ...steerParams(),
+      payload: { content: "stop guessing" },
+    } as ApplyInterventionParams);
+
+    // The comparand is what went on the wire, not the caller's absent hint —
+    // otherwise every unpinned steer would grade against `undefined` and degrade.
+    expect(result).toEqual({ status: "applied" });
+  });
+
+  it("does not grade the interrupt acknowledgement on its shape", async () => {
+    const harness = createHarness(
+      {},
+      { interruptRun: vi.fn(async (_params: InterruptRunParams): Promise<void> => {}) },
+    );
+
+    // `turn/interrupt` answers an empty object at the pin, so resolving without a
+    // JSON-RPC error is the whole of the evidence. Checking that emptiness would
+    // degrade every interrupt the day the provider adds a member to a response
+    // that took nothing away.
+    await expect(harness.dispatcher.applyIntervention(interruptParams())).resolves.toEqual({
+      status: "applied",
+    });
+    await expect(harness.dispatcher.applyIntervention(cancelParams())).resolves.toEqual({
+      status: "applied",
+    });
   });
 });
 
