@@ -621,6 +621,69 @@ describe("memo budget — whole-exchange eviction with a protected tail", () => 
     expect(exchanges[0]?.carriesToolActivity).toBe(true);
     expect(exchanges[1]?.carriesToolActivity).toBe(false);
   });
+
+  it("never emits a memo larger than the ceiling it reports fitting under", () => {
+    // Assembly joins the preamble and every admitted exchange with a newline, so
+    // pricing each exchange ALONE and summing under-counts by one separator per
+    // admission — and the estimator is injected, so nothing entitles the caller
+    // to assume the parts sum to the whole in the first place. Near the ceiling
+    // that gap admits a set which assembles to more than the budget while the
+    // render still reports itself as fitting. Sweeping every integer ceiling
+    // across the transcript's range is what lands on it; one fixed budget would
+    // miss it by construction.
+    const memoProjection = new MemoProjection();
+    const turns: CanonicalTranscriptTurn[] = [];
+    for (let index = 0; index < 12; index += 1) {
+      // Each rendered turn is exactly 72 characters — a whole multiple of the
+      // default estimator's character rate, so per-exchange rounding contributes
+      // no slack of its own and the separators are what the sweep measures.
+      turns.push(
+        turn(index + 1, "assistant", [
+          { kind: "text", text: `exchange ${index.toString().padStart(2, "0")} `.padEnd(61, "-") },
+        ]),
+      );
+    }
+    const projection: CanonicalTranscriptProjection = projectionOf(turns);
+
+    const unbounded: MemoRendering = memoProjection.render(requestFor(projection, ROOMY_BUDGET));
+    expect(unbounded.evictedExchangeCount).toBe(0);
+    expect(unbounded.includedExchangeCount).toBe(12);
+
+    let ceilingsTheProtectedFloorOverran = 0;
+    let ceilingsThatFitAfterEviction = 0;
+
+    for (
+      let ceilingTokens = 1;
+      ceilingTokens <= unbounded.estimatedTokens + 4;
+      ceilingTokens += 1
+    ) {
+      const rendering: MemoRendering = memoProjection.render(
+        requestFor(projection, {
+          targetContextWindowTokens: ceilingTokens,
+          budgetFraction: 1,
+          protectedTailToolExchangeCount: DEFAULT_PROTECTED_TAIL_TOOL_EXCHANGE_COUNT,
+        }),
+      );
+
+      expect(rendering.budgetTokens).toBe(ceilingTokens);
+      if (rendering.exceedsBudget) {
+        ceilingsTheProtectedFloorOverran += 1;
+        continue;
+      }
+      // The property: a render that reports itself within its ceiling IS within
+      // it, measured over the prose the settlement actually carries.
+      expect(rendering.estimatedTokens).toBeLessThanOrEqual(ceilingTokens);
+      if (rendering.evictedExchangeCount > 0) {
+        ceilingsThatFitAfterEviction += 1;
+      }
+    }
+
+    // Vacuity guards: the sweep spans both regimes — ceilings the protected
+    // floor alone overruns, and ceilings where eviction brought the memo back
+    // under one, which is the regime the separators are paid in.
+    expect(ceilingsTheProtectedFloorOverran).toBeGreaterThan(0);
+    expect(ceilingsThatFitAfterEviction).toBeGreaterThan(0);
+  });
 });
 
 // --------------------------------------------------------------------------
@@ -772,6 +835,86 @@ describe("memo delivery — once-only under a lost acknowledgment", () => {
 
     expect(target.turns).toHaveLength(2);
     expect(target.sendAttempts).toBe(2);
+  });
+});
+
+describe("memo delivery — overlapping calls for one memo", () => {
+  const OVERLAPPING_REQUEST: MemoDeliveryRequest = requestFor(
+    projectionOf([turn(1, "participant", [{ kind: "text", text: "hello" }])]),
+  );
+
+  it("sends once when two calls for one memo overlap", async () => {
+    // Both calls read the target before either send lands, so both legitimately
+    // find no marker: reconciliation cannot separate them, and the send is the
+    // one act here that cannot be taken back.
+    const target = new FakeTargetSession();
+    const coordinator = new MemoDeliveryCoordinator(target);
+
+    const [first, second]: readonly MemoDeliverySettlement[] = await Promise.all([
+      coordinator.deliver(OVERLAPPING_REQUEST),
+      coordinator.deliver(OVERLAPPING_REQUEST),
+    ]);
+
+    // The load-bearing assertion is what the TARGET holds.
+    expect(target.turns).toHaveLength(1);
+    expect(target.sendAttempts).toBe(1);
+    expect(first?.disposition).toBe("delivered");
+    expect(second).toBe(first);
+  });
+
+  it("negative control — two coordinators over one target do not share a delivery", async () => {
+    // The exclusion is scoped to one coordinator and claims nothing wider. Two
+    // of them, two processes, or a restart mid-flight all fall back to the
+    // pre-send reconcile, whose window this is.
+    const target = new FakeTargetSession();
+
+    await Promise.all([
+      new MemoDeliveryCoordinator(target).deliver(OVERLAPPING_REQUEST),
+      new MemoDeliveryCoordinator(target).deliver(OVERLAPPING_REQUEST),
+    ]);
+
+    expect(target.sendAttempts).toBe(2);
+    expect(target.turns).toHaveLength(2);
+  });
+
+  it("reconciles afresh once the delivery it shared has settled", async () => {
+    const target = new FakeTargetSession();
+    const coordinator = new MemoDeliveryCoordinator(target);
+
+    await Promise.all([
+      coordinator.deliver(OVERLAPPING_REQUEST),
+      coordinator.deliver(OVERLAPPING_REQUEST),
+    ]);
+    const readsBeforeRetry: number = target.readAttempts;
+
+    const retry: MemoDeliverySettlement = await coordinator.deliver(OVERLAPPING_REQUEST);
+
+    // A settled delivery is not a standing answer: the retry reads the target
+    // again and finds the marker there, rather than being handed the settlement
+    // the earlier pair produced.
+    expect(target.readAttempts).toBeGreaterThan(readsBeforeRetry);
+    expect(retry.disposition).toBe("already-delivered");
+    expect(target.sendAttempts).toBe(1);
+  });
+
+  it("does not let a withheld delivery stand in for the next one", async () => {
+    // The first settles WITHHELD on an unreadable target. If the flight it
+    // occupied outlived it, the second caller would inherit that refusal and the
+    // memo would never be sent at all.
+    const target = new FakeTargetSession();
+    target.readOutcomes.push("fail");
+    const coordinator = new MemoDeliveryCoordinator(target);
+
+    const withheld: MemoDeliverySettlement = await coordinator.deliver(OVERLAPPING_REQUEST);
+    expect(withheld.disposition).toBe("withheld");
+    expect(withheld.withheldReason).toBe("target-unreadable");
+    expect(target.sendAttempts).toBe(0);
+
+    const retry: MemoDeliverySettlement = await coordinator.deliver(OVERLAPPING_REQUEST);
+
+    expect(retry.disposition).toBe("delivered");
+    expect(target.sendAttempts).toBe(1);
+    expect(target.turns).toHaveLength(1);
   });
 });
 

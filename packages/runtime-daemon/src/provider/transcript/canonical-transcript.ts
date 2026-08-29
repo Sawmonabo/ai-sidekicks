@@ -185,10 +185,15 @@ export interface CanonicalTranscriptFoldRequest {
    * export that reconstitutes the session past it name boundaries the same way.
    * ABSENT means the whole run.
    *
-   * This is the ONE place a bound is applied. `ExportTranscriptParams` carries
-   * no boundary member: it takes the projection this call produced, so the turns
-   * are the record of where the transcript ends and a driver cannot be handed
-   * two answers to disagree about.
+   * The same value `ExportTranscriptParams.boundary` carries, in the same
+   * vocabulary: an export of this projection is bounded by the position the fold
+   * that built it was bounded to, and where this fold ran unbounded, by the
+   * projection's newest turn position. The two are not answers that can
+   * disagree, because the driver is handed the reconciliation rule rather than a
+   * choice — it exports exactly the turns whose `position` is at or below the
+   * bound. That is a deterministic filter over turns it already holds: it opens
+   * no log, and mints no second record of the session's order. A projection this
+   * fold already bounded filters to itself.
    */
   readonly boundary?: number | undefined;
 }

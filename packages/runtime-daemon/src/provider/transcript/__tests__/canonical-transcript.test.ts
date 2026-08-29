@@ -38,6 +38,7 @@ import {
   CANONICAL_TRANSCRIPT_PIPELINE,
   CANONICAL_TRANSCRIPT_PIPELINE_STEP_NAMES,
   SYNTHETIC_INTERRUPTED_TOOL_RESULT_TEXT,
+  SYNTHETIC_REUSED_IDENTIFIER_TOOL_RESULT_TEXT,
   ToolCallIdentityCollisionError,
   ToolCallIdentityMap,
   TranscriptTransformPipeline,
@@ -736,5 +737,269 @@ describe("transform pipeline — the order is falsifiable", () => {
 
     expect(exported.frames).toEqual([]);
     expect(exported.declaredLosses).toEqual(["tool_call_history_repaired"]);
+  });
+});
+
+// --------------------------------------------------------------------------
+// One call, one result, one identifier
+// --------------------------------------------------------------------------
+
+describe("transform pipeline — pairing is one-to-one, on identifiers that are unique", () => {
+  const OWNER_ARGUMENTS = '{"target":"one"}';
+  const DUPLICATE_ARGUMENTS = '{"target":"two"}';
+
+  function callSegment(argumentsJson: string): CanonicalTranscriptSegment {
+    return { kind: "tool_call", toolCallId: "call-shared", toolName: "inspect", argumentsJson };
+  }
+
+  const OWNER_RESULT: CanonicalTranscriptSegment = {
+    kind: "tool_result",
+    toolCallId: "call-shared",
+    outcome: "succeeded",
+    provenance: "provider",
+    text: "the answer to the first call",
+  };
+
+  function projectionOfTurns(
+    turnSegments: readonly (readonly CanonicalTranscriptSegment[])[],
+  ): CanonicalTranscriptProjection {
+    return {
+      sessionId: SESSION_ID,
+      runId: RUN_ID,
+      builtAtPosition: turnSegments.length,
+      turns: turnSegments.map((segments, index) => ({
+        position: index + 1,
+        role: "assistant",
+        segments,
+      })),
+    };
+  }
+
+  /**
+   * The property the repair owes, asserted over the exported frames rather than
+   * over one arrangement of them: every exported call carries a DISTINCT
+   * identifier, every call is answered exactly once, every answer follows its own
+   * call, and no answer names a call that is not there.
+   */
+  function expectOneAnswerPerDistinctCall(exported: DriverTranscriptExportResult): void {
+    const segments = segmentsOf(exported.frames as readonly RenderedTranscriptFrame[]);
+    const callIds = segments
+      .filter((segment) => segment.kind === "tool_call")
+      .map((segment) => (segment.kind === "tool_call" ? segment.toolCallId : ""));
+    expect(new Set(callIds).size).toBe(callIds.length);
+
+    for (const callId of callIds) {
+      const callIndex = segments.findIndex(
+        (segment) => segment.kind === "tool_call" && segment.toolCallId === callId,
+      );
+      const answerIndices = segments.flatMap((segment, index) =>
+        segment.kind === "tool_result" && segment.toolCallId === callId ? [index] : [],
+      );
+      expect(answerIndices).toHaveLength(1);
+      expect(answerIndices[0]).toBeGreaterThan(callIndex);
+    }
+
+    const resultIds = segments
+      .filter((segment) => segment.kind === "tool_result")
+      .map((segment) => (segment.kind === "tool_result" ? segment.toolCallId : ""));
+    expect([...resultIds].sort()).toEqual([...callIds].sort());
+  }
+
+  function repairedDuplicateSegments(
+    duplicateToolCallId: string,
+  ): readonly CanonicalTranscriptSegment[] {
+    return [
+      callSegment(OWNER_ARGUMENTS),
+      OWNER_RESULT,
+      {
+        kind: "tool_call",
+        toolCallId: duplicateToolCallId,
+        toolName: "inspect",
+        argumentsJson: DUPLICATE_ARGUMENTS,
+      },
+      {
+        kind: "tool_result",
+        toolCallId: duplicateToolCallId,
+        outcome: "failed",
+        provenance: "repaired",
+        text: SYNTHETIC_REUSED_IDENTIFIER_TOOL_RESULT_TEXT,
+      },
+    ];
+  }
+
+  it("retains the first answer to a call and drops a second one under its identifier", () => {
+    // A provider answers a call once. Marking the call resolved and keeping both
+    // answers exports a one-to-many pairing under no declared repair at all.
+    const projection = projectionOfTurns([
+      [
+        callSegment(OWNER_ARGUMENTS),
+        OWNER_RESULT,
+        {
+          kind: "tool_result",
+          toolCallId: "call-shared",
+          outcome: "failed",
+          provenance: "provider",
+          text: "a second answer to a call already answered",
+        },
+      ],
+    ]);
+
+    const exported = new TranscriptTransformPipeline().exportTranscript(projection);
+
+    expect(segmentsOf(exported.frames as readonly RenderedTranscriptFrame[])).toEqual([
+      callSegment(OWNER_ARGUMENTS),
+      OWNER_RESULT,
+    ]);
+    expectOneAnswerPerDistinctCall(exported);
+    expect(exported.declaredLosses).toEqual(["tool_call_history_repaired"]);
+  });
+
+  it("disambiguates a later call reusing an identifier, when the answer sits between them", () => {
+    const projection = projectionOfTurns([
+      [callSegment(OWNER_ARGUMENTS), OWNER_RESULT, callSegment(DUPLICATE_ARGUMENTS)],
+    ]);
+
+    const exported = new TranscriptTransformPipeline().exportTranscript(projection);
+
+    // The identifier is derived from the duplicate's own position in the
+    // transcript, and its arguments cross unchanged.
+    expect(segmentsOf(exported.frames as readonly RenderedTranscriptFrame[])).toEqual(
+      repairedDuplicateSegments("call-shared-repaired-2"),
+    );
+    expectOneAnswerPerDistinctCall(exported);
+    expect(exported.declaredLosses).toEqual(["tool_call_history_repaired"]);
+  });
+
+  it("disambiguates a later call reusing an identifier, when the answer follows both", () => {
+    // The owner's own answer is pulled up beside it, so a target pairing a call
+    // with the result that follows cannot read the duplicate's synthetic failure
+    // as the first call's outcome.
+    const projection = projectionOfTurns([
+      [callSegment(OWNER_ARGUMENTS)],
+      [callSegment(DUPLICATE_ARGUMENTS)],
+      [OWNER_RESULT],
+    ]);
+
+    const exported = new TranscriptTransformPipeline().exportTranscript(projection);
+    const frames = exported.frames as readonly RenderedTranscriptFrame[];
+
+    expect(segmentsOf(frames)).toEqual(repairedDuplicateSegments("call-shared-repaired-1"));
+    // The turn the answer vacated carries nothing and is gone.
+    expect(frames.map((frame) => frame.position)).toEqual([1, 2]);
+    expectOneAnswerPerDistinctCall(exported);
+    expect(exported.declaredLosses).toEqual(["tool_call_history_repaired"]);
+  });
+
+  it("disambiguates a later call reusing an identifier, when the answer precedes both", () => {
+    // The re-home lands the answer on the call that OWNS the identifier, never on
+    // the duplicate that came after it.
+    const projection = projectionOfTurns([
+      [OWNER_RESULT],
+      [callSegment(OWNER_ARGUMENTS)],
+      [callSegment(DUPLICATE_ARGUMENTS)],
+    ]);
+
+    const exported = new TranscriptTransformPipeline().exportTranscript(projection);
+    const frames = exported.frames as readonly RenderedTranscriptFrame[];
+
+    expect(segmentsOf(frames)).toEqual(repairedDuplicateSegments("call-shared-repaired-2"));
+    expect(frames.map((frame) => frame.position)).toEqual([2, 3]);
+    expectOneAnswerPerDistinctCall(exported);
+    expect(exported.declaredLosses).toEqual(["tool_call_history_repaired"]);
+  });
+
+  it("answers an unpaired owner and a reused identifier in one transcript, distinctly", () => {
+    // The shape a provider re-emitting a call after an interruption produces:
+    // neither call was ever answered, so the owner takes the unpaired repair and
+    // the duplicate takes the reused-identifier one.
+    const projection = projectionOfTurns([
+      [callSegment(OWNER_ARGUMENTS), callSegment(DUPLICATE_ARGUMENTS)],
+    ]);
+
+    const exported = new TranscriptTransformPipeline().exportTranscript(projection);
+
+    expect(segmentsOf(exported.frames as readonly RenderedTranscriptFrame[])).toEqual([
+      callSegment(OWNER_ARGUMENTS),
+      {
+        kind: "tool_result",
+        toolCallId: "call-shared",
+        outcome: "failed",
+        provenance: "repaired",
+        text: SYNTHETIC_INTERRUPTED_TOOL_RESULT_TEXT,
+      },
+      {
+        kind: "tool_call",
+        toolCallId: "call-shared-repaired-1",
+        toolName: "inspect",
+        argumentsJson: DUPLICATE_ARGUMENTS,
+      },
+      {
+        kind: "tool_result",
+        toolCallId: "call-shared-repaired-1",
+        outcome: "failed",
+        provenance: "repaired",
+        text: SYNTHETIC_REUSED_IDENTIFIER_TOOL_RESULT_TEXT,
+      },
+    ]);
+    expectOneAnswerPerDistinctCall(exported);
+    expect(exported.declaredLosses).toEqual(["tool_call_history_repaired"]);
+  });
+
+  it("derives the same disambiguated identifier on every export of one transcript", () => {
+    const projection = projectionOfTurns([
+      [callSegment(OWNER_ARGUMENTS)],
+      [callSegment(DUPLICATE_ARGUMENTS)],
+      [OWNER_RESULT],
+    ]);
+    const pipeline = new TranscriptTransformPipeline();
+
+    // A counter or a random value would make the second export unrecognizable to
+    // a target that already saw the first.
+    expect(pipeline.exportTranscript(projection)).toEqual(pipeline.exportTranscript(projection));
+  });
+
+  it("routes a disambiguated identifier through the identity map like any other", () => {
+    // The render's rewrite is a LOOKUP, so an identifier minted after the mapping
+    // step reaches it bound or the export throws.
+    const projection = projectionOfTurns([
+      [callSegment(OWNER_ARGUMENTS)],
+      [callSegment(DUPLICATE_ARGUMENTS)],
+      [OWNER_RESULT],
+    ]);
+
+    const exported = new TranscriptTransformPipeline(
+      (canonicalId) => `target-${canonicalId}`,
+    ).exportTranscript(projection);
+
+    const renderedIds = segmentsOf(exported.frames as readonly RenderedTranscriptFrame[])
+      .filter((segment) => segment.kind === "tool_call")
+      .map((segment) => (segment.kind === "tool_call" ? segment.toolCallId : ""));
+    expect(renderedIds).toEqual(["target-call-shared", "target-call-shared-repaired-1"]);
+  });
+
+  it("mints an identifier the transcript does not already spend", () => {
+    // The composed name is not reserved, so a provider is free to have used it.
+    // A repair that collided with a real call would recreate the defect.
+    const projection = projectionOfTurns([
+      [
+        callSegment(OWNER_ARGUMENTS),
+        callSegment(DUPLICATE_ARGUMENTS),
+        {
+          kind: "tool_call",
+          toolCallId: "call-shared-repaired-1",
+          toolName: "inspect",
+          argumentsJson: '{"target":"three"}',
+        },
+        OWNER_RESULT,
+      ],
+    ]);
+
+    const exported = new TranscriptTransformPipeline().exportTranscript(projection);
+    const callIds = segmentsOf(exported.frames as readonly RenderedTranscriptFrame[])
+      .filter((segment) => segment.kind === "tool_call")
+      .map((segment) => (segment.kind === "tool_call" ? segment.toolCallId : ""));
+
+    expect(callIds).toEqual(["call-shared", "call-shared-repaired-1-1", "call-shared-repaired-1"]);
+    expectOneAnswerPerDistinctCall(exported);
   });
 });

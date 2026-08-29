@@ -487,6 +487,39 @@ function renderEvictionNotice(evictedExchangeCount: number, totalExchangeCount: 
   return `Earlier parts of this conversation are omitted from the summary: ${shown.toString()} of ${totalExchangeCount.toString()} exchanges appear below in log order, and may not be consecutive.`;
 }
 
+/** The pieces one assembled memo body is composed from, in emission order. */
+interface MemoBodyAssembly {
+  readonly openingText: string;
+  readonly markerText: string;
+  /** The admitted exchanges, already rendered, in LOG order. */
+  readonly exchangeRenderings: readonly string[];
+  readonly evictedExchangeCount: number;
+  readonly totalExchangeCount: number;
+}
+
+/**
+ * Composes the memo's prose from the preamble and the admitted exchanges.
+ *
+ * The ONE place a body is assembled, called by the budget's admission pricing and
+ * by the emission alike, so a candidate is priced as the exact text it would be
+ * sent as — newline separators and eviction notice included. Pricing each
+ * exchange in isolation and summing is the under-count this exists to make
+ * unrepresentable: the assembled text is longer than its parts by one separator
+ * per exchange, and `MemoTokenEstimator` is injected, so a real tokenizer need
+ * not be additive at all and the sum of the parts bounds nothing.
+ */
+function assembleMemoBody(assembly: MemoBodyAssembly): string {
+  const bodyLines: string[] = [assembly.openingText, assembly.markerText];
+  if (assembly.evictedExchangeCount > 0) {
+    bodyLines.push(
+      renderEvictionNotice(assembly.evictedExchangeCount, assembly.totalExchangeCount),
+    );
+  }
+  bodyLines.push(MEMO_TRANSCRIPT_SEPARATOR);
+  bodyLines.push(...assembly.exchangeRenderings);
+  return bodyLines.join("\n");
+}
+
 // --------------------------------------------------------------------------
 // The rendering
 // --------------------------------------------------------------------------
@@ -508,9 +541,13 @@ export interface MemoRendering {
   readonly estimatedTokens: number;
   readonly budgetTokens: number;
   /**
-   * The protected exchanges alone did not fit. Reported rather than resolved: the one
-   * remedy would be splitting an exchange, which the whole-exchange rule forbids
-   * outright.
+   * The prose in `text` does not fit `budgetTokens`. Measured over what is
+   * emitted rather than over an estimate of it, so the two cannot disagree.
+   *
+   * Every admission is priced the same way, so the only set that reaches here
+   * over the ceiling is the protected floor itself. Reported rather than
+   * resolved: the one remedy would be splitting an exchange, which the
+   * whole-exchange rule forbids outright.
    */
   readonly exceedsBudget: boolean;
   readonly declaredLosses: readonly DeclaredLossKind[];
@@ -560,45 +597,56 @@ export class MemoProjection {
 
     const openingText: string = MEMO_OPENING_LINES.join("\n");
     const markerText: string = renderMemoContinuityMarker(memoIdentityKey);
-    // Priced against the WORST-CASE preamble, which is the one carrying the
-    // eviction notice: pricing against the shorter preamble and then adding the
-    // notice would push a memo over the ceiling exactly when it is tightest.
-    const worstCasePreambleTokens: number = this.#estimateTokens(
-      [
+    // Rendered once per exchange and re-joined per candidate, so the admission
+    // walk below prices assemblies rather than re-rendering prose it already has.
+    const exchangeRenderings: readonly string[] = exchanges.map(renderExchange);
+
+    // Every price is taken over the ASSEMBLED candidate — the exact prose that
+    // set of exchanges would be sent as, eviction notice and joining separators
+    // included. Pricing each exchange alone and summing under-counts by one
+    // separator per admission, and rests besides on an additivity the injected
+    // estimator does not owe: near the ceiling that gap admits a set which
+    // assembles to more than the budget while the render reports itself as
+    // fitting.
+    const assembleFor = (admittedIndices: ReadonlySet<number>): string =>
+      assembleMemoBody({
         openingText,
         markerText,
-        renderEvictionNotice(1, Math.max(1, exchanges.length)),
-        MEMO_TRANSCRIPT_SEPARATOR,
-      ].join("\n"),
-    );
+        exchangeRenderings: exchangeRenderings.filter((_rendering, index) =>
+          admittedIndices.has(index),
+        ),
+        evictedExchangeCount: exchanges.length - admittedIndices.size,
+        totalExchangeCount: exchanges.length,
+      });
 
-    const exchangeCosts: number[] = exchanges.map((exchange) =>
-      this.#estimateTokens(renderExchange(exchange)),
-    );
-
-    let consumedTokens: number = worstCasePreambleTokens;
-    for (const index of protectedIndices) {
-      consumedTokens += exchangeCosts[index] ?? 0;
-    }
-    const exceedsBudget: boolean = consumedTokens > budgetTokens;
+    // The protected exchanges are admitted unconditionally — that is what
+    // protection means — so the floor is priced but never refused.
+    const includedIndices: Set<number> = new Set<number>(protectedIndices);
+    let text: string = assembleFor(includedIndices);
+    let estimatedTokens: number = this.#estimateTokens(text);
 
     // Admit the REMAINING exchanges newest-first, stopping at the first that does
     // not fit. Protected exchanges are already in and are skipped rather than
     // ending the walk, which is what lets eviction step over one instead of
     // protecting everything behind it. The gaps that leaves are disclosed by the
     // notice, which never claims the included exchanges are consecutive.
-    const includedIndices: Set<number> = new Set<number>(protectedIndices);
     for (let index = exchanges.length - 1; index >= 0; index -= 1) {
       if (protectedIndices.has(index)) {
         continue;
       }
-      const cost: number = exchangeCosts[index] ?? 0;
-      if (consumedTokens + cost > budgetTokens) {
+      includedIndices.add(index);
+      const candidateText: string = assembleFor(includedIndices);
+      const candidateTokens: number = this.#estimateTokens(candidateText);
+      if (candidateTokens > budgetTokens) {
+        includedIndices.delete(index);
         break;
       }
-      consumedTokens += cost;
-      includedIndices.add(index);
+      text = candidateText;
+      estimatedTokens = candidateTokens;
     }
+
+    // Measured over the prose the settlement carries, so the two cannot disagree.
+    const exceedsBudget: boolean = estimatedTokens > budgetTokens;
 
     const includedExchanges: readonly TranscriptExchange[] = exchanges.filter((_exchange, index) =>
       includedIndices.has(index),
@@ -607,16 +655,6 @@ export class MemoProjection {
     const includedTurns: readonly CanonicalTranscriptTurn[] = includedExchanges.flatMap(
       (exchange) => [...exchange.turns],
     );
-
-    const bodyLines: string[] = [openingText, markerText];
-    if (evictedExchangeCount > 0) {
-      bodyLines.push(renderEvictionNotice(evictedExchangeCount, exchanges.length));
-    }
-    bodyLines.push(MEMO_TRANSCRIPT_SEPARATOR);
-    for (const exchange of includedExchanges) {
-      bodyLines.push(renderExchange(exchange));
-    }
-    const text: string = bodyLines.join("\n");
 
     const declaredLosses: DeclaredLossKind[] = [...transformed.losses];
     // The floor's OWN loss, on every path. Without it a memo settlement could
@@ -636,7 +674,7 @@ export class MemoProjection {
       includedTurns,
       includedExchangeCount: includedExchanges.length,
       evictedExchangeCount,
-      estimatedTokens: this.#estimateTokens(text),
+      estimatedTokens,
       budgetTokens,
       exceedsBudget,
       declaredLosses: orderDeclaredLosses(declaredLosses),
@@ -753,11 +791,30 @@ export interface MemoDeliverySettlement {
  * a successful read that did not find the marker. A caller that retries calls
  * `deliver` again, which reconciles again; a target that already holds the memo
  * is never sent a second one.
+ *
+ * OVERLAPPING calls for one memo into one target are one delivery: the second
+ * awaits the first's settlement rather than starting a delivery of its own.
+ * Reconciliation cannot close that window on its own, because both reads
+ * legitimately find no marker — the first send has not landed when the second
+ * read is taken — and the send is the one act here that cannot be taken back.
+ *
+ * The exclusion is scoped to THIS coordinator and claims nothing wider. Two
+ * coordinators over one target, two processes, or a restart mid-flight all fall
+ * back to the pre-send reconcile, which is the mechanism the header describes and
+ * the only one that survives a restart at all: the key is derived rather than
+ * stored precisely so any daemon can recompute it and read the target for it.
+ * Nothing here is a lease, nothing here is durable, and no lock leaves this
+ * object.
  */
 export class MemoDeliveryCoordinator {
   readonly #gateway: MemoTargetGateway;
   readonly #projection: MemoProjection;
   readonly #frameWriter: OutboundTextFrameWriter;
+  /** Deliveries this coordinator has started and not yet settled. */
+  readonly #deliveriesInFlight: Map<string, Promise<MemoDeliverySettlement>> = new Map<
+    string,
+    Promise<MemoDeliverySettlement>
+  >();
 
   /**
    * The frame writer defaults to the `emulated` grade, which is the arm that
@@ -778,12 +835,42 @@ export class MemoDeliveryCoordinator {
   }
 
   async deliver(request: MemoDeliveryRequest): Promise<MemoDeliverySettlement> {
+    // Rendering reads only its argument and writes nothing, so two overlapping
+    // callers may both perform it; what may not happen twice is what follows.
     const rendering: MemoRendering = this.#projection.render({
       projection: request.projection,
       target: request.target,
       budget: request.budget,
     });
 
+    const flightKey: string = renderDeliveryFlightKey(
+      request.target.providerSessionId,
+      rendering.memoIdentityKey,
+    );
+    const alreadyInFlight: Promise<MemoDeliverySettlement> | undefined =
+      this.#deliveriesInFlight.get(flightKey);
+    if (alreadyInFlight !== undefined) {
+      // One memo into one target is one delivery, so both callers settle on what
+      // that delivery did — including the caller whose own rendering carried a
+      // different budget, whose memo is exactly the one that must not also land.
+      return await alreadyInFlight;
+    }
+
+    const flight: Promise<MemoDeliverySettlement> = this.#reconcileThenSend(request, rendering);
+    this.#deliveriesInFlight.set(flightKey, flight);
+    try {
+      return await flight;
+    } finally {
+      // Cleared however the flight ended, refusal included: a settled delivery
+      // must never keep the next call from reconciling against the target afresh.
+      this.#deliveriesInFlight.delete(flightKey);
+    }
+  }
+
+  async #reconcileThenSend(
+    request: MemoDeliveryRequest,
+    rendering: MemoRendering,
+  ): Promise<MemoDeliverySettlement> {
     let priorTurns: readonly string[];
     try {
       priorTurns = await this.#gateway.readRecentTurns();
@@ -822,6 +909,19 @@ export class MemoDeliveryCoordinator {
         : settle(rendering, "withheld", "send-refused");
     }
   }
+}
+
+/**
+ * The key one in-flight delivery is tracked under.
+ *
+ * The memo-identity key is derived over the target's own session identifier, so
+ * it already separates two targets; naming the target here as well keeps the
+ * flight's scope legible where it is read and true independently of what the
+ * derivation happens to cover. The identity key is fixed-length hex, so the pair
+ * admits one reading.
+ */
+function renderDeliveryFlightKey(providerSessionId: string, memoIdentityKey: string): string {
+  return `${memoIdentityKey}:${providerSessionId}`;
 }
 
 function settle(

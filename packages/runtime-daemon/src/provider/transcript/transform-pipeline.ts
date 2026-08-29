@@ -17,6 +17,16 @@
 // Spec coverage: `Spec-005 §Canonical Transcript Export And Replay` (steps 2-5);
 // `Spec-005 §Pitfalls To Avoid` (no re-minted tool-call ids; no strip-after-repair;
 // no cached render). Verifies invariant I-005-8.
+//
+// The never-re-mint rule binds the IDENTITY MAP absolutely: no call whose
+// identifier is intact is ever given a different one, which is what makes an
+// export-and-back round trip the identity function on ids. The pairing repair
+// carries the single exception the rule cannot cover, because the rule's other
+// half — that an identifier is never reused across two distinct calls — is
+// already broken by the time the repair sees it: a transcript carrying two calls
+// under one id cannot be exported as-is, and the repair disambiguates the later
+// call rather than dropping it or shipping a pairing the target mis-attributes.
+// It is declared as a repair, and it is the ONLY id this module mints.
 
 import type {
   CanonicalTranscriptProjection,
@@ -199,12 +209,32 @@ export const CANONICAL_TRANSCRIPT_PIPELINE_STEP_NAMES: readonly string[] = [
 ];
 
 /**
- * The text a repaired tool result carries. Fixed rather than composed per call so
- * a target reading two repaired results cannot infer a difference that is not
- * there, and so a test can assert the repair by value.
+ * The text a repaired tool result carries where the call was simply never
+ * answered. Fixed rather than composed per call so a target reading two such
+ * results cannot infer a difference that is not there, and so a test can assert
+ * the repair by value.
  */
 export const SYNTHETIC_INTERRUPTED_TOOL_RESULT_TEXT: string =
   "This tool call produced no result: the turn ended before one was recorded.";
+
+/**
+ * The text a repaired tool result carries where the call reused an identifier an
+ * earlier call already owns.
+ *
+ * A SECOND fixed text rather than a reuse of the one above, for the reason that
+ * one argues for a fixed text at all: the two repairs have genuinely different
+ * causes, and saying the turn ended would be a fabricated one. Both are fixed, so
+ * neither invents a per-call distinction.
+ */
+export const SYNTHETIC_REUSED_IDENTIFIER_TOOL_RESULT_TEXT: string =
+  "This tool call produced no result: it reused an identifier an earlier call already holds.";
+
+/**
+ * What a disambiguated identifier is built from. Deliberately readable rather
+ * than opaque: a person reading the target conversation should be able to see
+ * that the id was repaired and which id it was repaired away from.
+ */
+const REPAIRED_TOOL_CALL_ID_INFIX = "-repaired-";
 
 /** Build the state a pipeline run starts from. */
 export function createTranscriptPipelineState(
@@ -345,7 +375,13 @@ export const stripNonPortableContent: TranscriptPipelineStep = (state) => {
  * turns in order and asks where each id was called, so "paired" can only mean
  * "resolved after it was called".
  *
- * Three repairs, all declared:
+ * The property this step delivers is stronger than "every call is answered": the
+ * exported calls carry DISTINCT identifiers and each is answered exactly once.
+ * A one-to-many or many-to-one pairing is not something a target reconciles, it
+ * is something a target mis-attributes or rejects, so neither shape may leave
+ * here.
+ *
+ * Five repairs, all declared:
  *
  *   - An unpaired call takes a synthetic error result immediately after itself
  *     and is NEVER dropped: the target's injection surface performs no pairing
@@ -356,41 +392,67 @@ export const stripNonPortableContent: TranscriptPipelineStep = (state) => {
  *     synthetic that asserts a failure that did not happen.
  *   - A result whose call is absent entirely is removed — there is nothing to
  *     pair it to, and injecting it would assert a call that never happened.
+ *   - Of two or more results under ONE identifier, the first-positioned one is
+ *     retained and the rest are removed. A provider answers a call once; a later
+ *     result under the same id is malformation, and keeping both would export
+ *     the one-to-many pairing this step exists to prevent.
+ *   - A call reusing an identifier an EARLIER call already owns is given a
+ *     disambiguated identifier of its own, derived from its position, and a
+ *     synthetic error result under that new identifier. It never shares the
+ *     owner's result. This is the one place the pipeline mints an identifier at
+ *     all — the never-re-mint rule governs calls whose identity is intact, and
+ *     an identifier already carried by two distinct calls is not intact: the
+ *     alternatives are dropping a call the provider made, or exporting two calls
+ *     the target cannot tell apart. Its arguments are carried through unchanged,
+ *     so the content is preserved and only the identifier moves.
  */
 export const repairPairingIntegrity: TranscriptPipelineStep = (state) => {
   // Flat segment ordinals across the whole transcript, so "before" and "after"
   // are answerable across a turn boundary — which is where a provider's own
   // out-of-order emission lands them.
-  const firstCallOrdinalByToolCallId: Map<string, number> = new Map<string, number>();
-  const resolvedToolCallIds: Set<string> = new Set<string>();
+  const ownerCallOrdinalByToolCallId: Map<string, number> = new Map<string, number>();
+  const reusedToolCallIds: Set<string> = new Set<string>();
+  const retainedResultOrdinalByToolCallId: Map<string, number> = new Map<string, number>();
+  const retainedResultByToolCallId: Map<string, CanonicalTranscriptSegment> = new Map<
+    string,
+    CanonicalTranscriptSegment
+  >();
+  // Every identifier the transcript already spends, so a disambiguated one
+  // cannot land on top of a call the provider itself made.
+  const identifiersInUse: Set<string> = new Set<string>();
   let scanOrdinal = 0;
 
   for (const turn of state.turns) {
     for (const segment of turn.segments) {
-      if (segment.kind === "tool_call" && !firstCallOrdinalByToolCallId.has(segment.toolCallId)) {
-        firstCallOrdinalByToolCallId.set(segment.toolCallId, scanOrdinal);
+      if (segment.kind === "tool_call") {
+        identifiersInUse.add(segment.toolCallId);
+        if (ownerCallOrdinalByToolCallId.has(segment.toolCallId)) {
+          reusedToolCallIds.add(segment.toolCallId);
+        } else {
+          ownerCallOrdinalByToolCallId.set(segment.toolCallId, scanOrdinal);
+        }
+      } else if (segment.kind === "tool_result") {
+        identifiersInUse.add(segment.toolCallId);
+        if (!retainedResultOrdinalByToolCallId.has(segment.toolCallId)) {
+          retainedResultOrdinalByToolCallId.set(segment.toolCallId, scanOrdinal);
+          retainedResultByToolCallId.set(segment.toolCallId, segment);
+        }
       }
       scanOrdinal += 1;
     }
   }
 
-  for (const turn of state.turns) {
-    for (const segment of turn.segments) {
-      // A result whose call is absent resolves nothing: it is dropped below, so
-      // counting it here would suppress the synthetic its call never gets.
-      if (segment.kind === "tool_result" && firstCallOrdinalByToolCallId.has(segment.toolCallId)) {
-        resolvedToolCallIds.add(segment.toolCallId);
-      }
-    }
-  }
-
   let repaired = false;
   const repairedTurns: CanonicalTranscriptTurn[] = [];
-  // Results lifted out of a position before their call, keyed by that call.
-  const resultsAwaitingTheirCall: Map<string, CanonicalTranscriptSegment[]> = new Map<
+  // The retained result of a call that stands before it, keyed by that call. At
+  // most one per identifier, because only one result per identifier survives.
+  const resultAwaitingItsCall: Map<string, CanonicalTranscriptSegment> = new Map<
     string,
-    CanonicalTranscriptSegment[]
+    CanonicalTranscriptSegment
   >();
+  // Results already emitted beside their owner call, by their own ordinal, so the
+  // walk skips them when it reaches where they used to sit.
+  const alreadyEmittedResultOrdinals: Set<number> = new Set<number>();
   let emitOrdinal = 0;
 
   for (const turn of state.turns) {
@@ -400,40 +462,79 @@ export const repairPairingIntegrity: TranscriptPipelineStep = (state) => {
       emitOrdinal += 1;
 
       if (segment.kind === "tool_result") {
-        const callOrdinal: number | undefined = firstCallOrdinalByToolCallId.get(
+        const callOrdinal: number | undefined = ownerCallOrdinalByToolCallId.get(
           segment.toolCallId,
         );
         if (callOrdinal === undefined) {
           repaired = true;
           continue;
         }
+        if (retainedResultOrdinalByToolCallId.get(segment.toolCallId) !== currentOrdinal) {
+          // A second answer to a call already answered.
+          repaired = true;
+          continue;
+        }
+        if (alreadyEmittedResultOrdinals.has(currentOrdinal)) {
+          continue;
+        }
         if (currentOrdinal < callOrdinal) {
           repaired = true;
-          const stashed: CanonicalTranscriptSegment[] =
-            resultsAwaitingTheirCall.get(segment.toolCallId) ?? [];
-          stashed.push(segment);
-          resultsAwaitingTheirCall.set(segment.toolCallId, stashed);
+          resultAwaitingItsCall.set(segment.toolCallId, segment);
           continue;
         }
         segments.push(segment);
         continue;
       }
 
-      segments.push(segment);
-
       if (segment.kind !== "tool_call") {
+        segments.push(segment);
         continue;
       }
-      // Every result that preceded this call was stashed on the way here, so
-      // re-homing them now lands each one directly after the call it answers.
-      const rehomed: CanonicalTranscriptSegment[] | undefined = resultsAwaitingTheirCall.get(
+
+      if (ownerCallOrdinalByToolCallId.get(segment.toolCallId) !== currentOrdinal) {
+        // A distinct call reusing an identifier the owner above already holds.
+        // It takes an identifier of its own and its own synthetic result, so no
+        // two exported calls answer to one id and no call shares another's
+        // outcome.
+        repaired = true;
+        const disambiguatedToolCallId: string = mintDisambiguatedToolCallId(
+          segment.toolCallId,
+          currentOrdinal,
+          identifiersInUse,
+        );
+        identifiersInUse.add(disambiguatedToolCallId);
+        // The render rewrites every id through the map, so an identifier minted
+        // after step 2 has to be bound here or the render would throw on a call
+        // this step itself created.
+        state.identityMap.bind(disambiguatedToolCallId);
+        segments.push({ ...segment, toolCallId: disambiguatedToolCallId });
+        segments.push({
+          kind: "tool_result",
+          toolCallId: disambiguatedToolCallId,
+          outcome: "failed",
+          provenance: "repaired",
+          text: SYNTHETIC_REUSED_IDENTIFIER_TOOL_RESULT_TEXT,
+        });
+        continue;
+      }
+
+      segments.push(segment);
+
+      const stashed: CanonicalTranscriptSegment | undefined = resultAwaitingItsCall.get(
         segment.toolCallId,
       );
-      if (rehomed !== undefined) {
-        segments.push(...rehomed);
-        resultsAwaitingTheirCall.delete(segment.toolCallId);
+      if (stashed !== undefined) {
+        // Stashed on the way here, so re-homing it now lands it directly after
+        // the call it answers.
+        segments.push(stashed);
+        resultAwaitingItsCall.delete(segment.toolCallId);
+        continue;
       }
-      if (!resolvedToolCallIds.has(segment.toolCallId)) {
+
+      const retainedResultOrdinal: number | undefined = retainedResultOrdinalByToolCallId.get(
+        segment.toolCallId,
+      );
+      if (retainedResultOrdinal === undefined) {
         repaired = true;
         segments.push({
           kind: "tool_result",
@@ -442,6 +543,20 @@ export const repairPairingIntegrity: TranscriptPipelineStep = (state) => {
           provenance: "repaired",
           text: SYNTHETIC_INTERRUPTED_TOOL_RESULT_TEXT,
         });
+        continue;
+      }
+
+      const retainedResult: CanonicalTranscriptSegment | undefined = retainedResultByToolCallId.get(
+        segment.toolCallId,
+      );
+      if (reusedToolCallIds.has(segment.toolCallId) && retainedResult !== undefined) {
+        // A reused identifier puts a SECOND call between this one and its answer,
+        // so the answer is pulled up to sit directly after the call it belongs
+        // to. Without it a target that pairs a call with the result following it
+        // would read the duplicate's synthetic failure as this call's outcome.
+        repaired = true;
+        segments.push(retainedResult);
+        alreadyEmittedResultOrdinals.add(retainedResultOrdinal);
       }
     }
     if (segments.length > 0) {
@@ -456,6 +571,31 @@ export const repairPairingIntegrity: TranscriptPipelineStep = (state) => {
 
   return { ...state, turns: repairedTurns, declaredLosses: orderDeclaredLosses(declaredLosses) };
 };
+
+/**
+ * A distinct identifier for a call whose own was already taken, derived from the
+ * call's POSITION in the transcript rather than from a counter or a random value:
+ * two exports of one transcript must produce the same identifier, or a target
+ * that saw the first export cannot recognize the second.
+ *
+ * The suffix loop is not decoration — a provider is free to have already used the
+ * composed name, and a "repair" that collided with a real call would recreate the
+ * defect it exists to remove.
+ */
+function mintDisambiguatedToolCallId(
+  reusedToolCallId: string,
+  segmentOrdinal: number,
+  identifiersInUse: ReadonlySet<string>,
+): string {
+  const stem = `${reusedToolCallId}${REPAIRED_TOOL_CALL_ID_INFIX}${segmentOrdinal.toString()}`;
+  let candidate: string = stem;
+  let attempt = 0;
+  while (identifiersInUse.has(candidate)) {
+    attempt += 1;
+    candidate = `${stem}-${attempt.toString()}`;
+  }
+  return candidate;
+}
 
 /**
  * Step 5 — render the turns into provider-neutral outbound frames, rewriting
