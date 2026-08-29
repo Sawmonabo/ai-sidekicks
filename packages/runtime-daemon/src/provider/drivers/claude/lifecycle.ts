@@ -1608,14 +1608,17 @@ export interface ClaudeSessionLifecycleDependencies {
    * driver states that the run failed and why, and the emission pipeline mints
    * the envelope.
    *
-   * The trip NEVER raises a JSON-RPC error, so this callback is how the failure
-   * becomes visible at all. Absent wiring is a real state — the driver still
-   * disposes the binding — but it is a wiring defect, because a swallowed turn
-   * would then end with no terminal an operator can read.
+   * REQUIRED, like `diagnostics` and unlike the optional sibling callbacks: the
+   * trip NEVER raises a JSON-RPC error, so this callback is the ONLY surface a
+   * swallowed turn has. An optional arm would let a construction site that
+   * simply never bound it end a neutralized turn with no terminal an operator
+   * can read.
    */
-  readonly onTextNeutralizationFailure?:
-    | ((sessionId: SessionId, runId: RunId, failure: TextNeutralizationRunFailure) => void)
-    | undefined;
+  readonly onTextNeutralizationFailure: (
+    sessionId: SessionId,
+    runId: RunId,
+    failure: TextNeutralizationRunFailure,
+  ) => void;
   /**
    * Receives the `subagent.started` / `subagent.completed` pair for each
    * provider-attributed child (T3.11). PRODUCER-ONLY, and the child's ONLY
@@ -1765,9 +1768,11 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   readonly #outboundTextFrameWriter: OutboundTextFrameWriter;
   readonly #outboundFrameTripwire: OutboundFrameTripwire = new OutboundFrameTripwire();
   readonly #providerBindingQuarantine: ProviderBindingQuarantine = new ProviderBindingQuarantine();
-  readonly #onTextNeutralizationFailure:
-    | ((sessionId: SessionId, runId: RunId, failure: TextNeutralizationRunFailure) => void)
-    | undefined;
+  readonly #onTextNeutralizationFailure: (
+    sessionId: SessionId,
+    runId: RunId,
+    failure: TextNeutralizationRunFailure,
+  ) => void;
   readonly #onSubagentLifecycle:
     | ((sessionId: SessionId, emission: SubagentLifecycleEmission) => void)
     | undefined;
@@ -2012,6 +2017,15 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     if (dispatch === undefined) {
       throw new ClaudeSessionUnavailableError("run_dispatch_unresolved", { runId: params.runId });
     }
+
+    // T3.18, and BEFORE the live-session lookup so the cause survives. A trip
+    // disposes the session's channel, so a quarantined session fails that lookup
+    // too — with `no_live_session`, a plausible wrong cause that reads as a race
+    // and invites a retry into the process that swallowed the participant's
+    // words. Asked here, the refusal names the neutralization instead. Released
+    // at establishment, so the promised recovery — a fresh spawn under this id —
+    // is the thing that lifts it.
+    this.#providerBindingQuarantine.assertSessionAttachable(dispatch.sessionId);
 
     const live = this.#findLiveSession(dispatch.sessionId);
     if (live === undefined) {
@@ -2453,7 +2467,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     // a quiet `undefined` would read as "this run has no channel yet" — the one
     // reading that invites a retry into the same swallow. The refusal carries
     // the SAME code the run terminal did, so one cause reads as one cause.
-    this.#providerBindingQuarantine.assertAttachable(runId);
+    this.#providerBindingQuarantine.assertRunAttachable(runId);
     const sessionId = this.#sessionIdByRunId.get(runId);
     if (sessionId === undefined) {
       return undefined;
@@ -3042,6 +3056,12 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       }
       throw error;
     }
+    // T3.18. Released only on a registration that SUCCEEDED, so a failed
+    // adoption cannot lift a refusal the failed leg never replaced. The
+    // quarantine names a BINDING, not an identifier: a fresh channel now answers
+    // for this session id, so the refusal a prior trip installed has outlived
+    // the process it condemned.
+    this.#providerBindingQuarantine.releaseSession(live.sessionId);
   }
 
   // The listener half of registration, separated so the slot rollback above has
@@ -3288,6 +3308,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       return;
     }
     const settlingClassification = classifyClaudeTurnEvidence(terminalFrame);
+    let tripped = false;
     for (const [framePosition, runId] of correlatedRunIds.entries()) {
       const classification =
         framePosition === 0 ? settlingClassification : UNRECOGNIZED_TURN_EVIDENCE;
@@ -3295,18 +3316,55 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       if (!decision.tripped) {
         continue;
       }
-      // Two acts, in this order. The binding is quarantined FIRST so that a
-      // caller reacting synchronously to the failure cannot attach to the
-      // process that just swallowed the text; the terminal is then reported.
-      // The provider process is not killed here — disposal is a process fact
-      // the supervisor owns, and this driver holds no kill.
-      this.#providerBindingQuarantine.dispose(runId);
+      if (!tripped) {
+        tripped = true;
+        // Quarantined FIRST, and on BOTH axes, so that a caller reacting
+        // synchronously to the failure cannot reach the process that just
+        // swallowed the text by either door. The run key alone is not enough:
+        // `startRun` resolves a SESSION, so a run-keyed refusal would leave the
+        // next run free to dispatch onto the same channel.
+        this.#providerBindingQuarantine.disposeSession(sessionId);
+      }
+      this.#providerBindingQuarantine.disposeRun(runId);
       this.#reportTextNeutralizationFailure(
         sessionId,
         runId,
         composeTextNeutralizationRunFailure(decision),
       );
     }
+    if (tripped) {
+      this.#disposeQuarantinedSession(sessionId);
+    }
+  }
+
+  /**
+   * Tears down the channel a tripwire trip condemned (T3.18).
+   *
+   * Reuses `#disposeHeldChannel` rather than inventing a second teardown: this
+   * is the same close every other disposal performs, so the slot transitions,
+   * the retained-channel quarantine on a process that will not exit, and the
+   * per-session band cleanup are the ones the rest of the driver already relies
+   * on. The promised recovery is a fresh spawn, which is what a close makes
+   * possible.
+   *
+   * Detached on purpose: the only caller runs inside a channel's synchronous
+   * terminal listener, which must neither wait on a child's death nor be
+   * unwound by one. The teardown is BEST-EFFORT and the refusal is not — the
+   * quarantine entry is installed before this runs, so every later resolution
+   * refuses whether or not the process actually exits.
+   */
+  #disposeQuarantinedSession(sessionId: SessionId): void {
+    const live = this.#findLiveSession(sessionId);
+    if (live === undefined) {
+      return;
+    }
+    void this.#disposeHeldChannel(sessionId, live.channel).catch(() => {
+      // Swallowed HERE and recorded THERE: a rejected dispose has already moved
+      // the slot to `quarantined` with the channel retained, which is this
+      // driver's own record of a process that would not exit and the handle a
+      // later close retries through. Rethrowing would only surface as an
+      // unhandled rejection out of a channel's terminal listener.
+    });
   }
 
   // A throwing consumer must not become a second failure on top of the one being
@@ -3318,7 +3376,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     failure: TextNeutralizationRunFailure,
   ): void {
     try {
-      this.#onTextNeutralizationFailure?.(sessionId, runId, failure);
+      this.#onTextNeutralizationFailure(sessionId, runId, failure);
     } catch (error) {
       this.#diagnostics.emit({
         provider: "claude",

@@ -450,7 +450,21 @@ interface Harness {
   driver: CodexDriver;
   diagnostics: CodexTransportDiagnostic[];
   driverDiagnostics: DriverDiagnosticsEmitter;
+  textNeutralizationFailures: RecordedTextNeutralizationFailure[];
   scheduler: ReturnType<typeof makeManualScheduler>;
+}
+
+/**
+ * One run terminal a text-neutralization trip produced (T3.18).
+ *
+ * The callback is a REQUIRED dependency, so every harness binds it — the trip
+ * raises no JSON-RPC error, and an unbound sink would let a swallowed turn end
+ * with no record an operator can read.
+ */
+interface RecordedTextNeutralizationFailure {
+  readonly sessionId: SessionId;
+  readonly runId: RunId;
+  readonly providerFailureDetail: string;
 }
 
 /**
@@ -477,9 +491,17 @@ function createHarness(
   server.on("getAuthStatus", () => ({ result: { authMethod: "chatgpt", authToken: null } }));
   const diagnostics: CodexTransportDiagnostic[] = [];
   const driverDiagnostics = makeSilentDriverDiagnostics();
+  const textNeutralizationFailures: RecordedTextNeutralizationFailure[] = [];
   const scheduler = makeManualScheduler();
   const driver = new CodexDriver({
     ptyHost: server,
+    onTextNeutralizationFailure: (sessionId, runId, failure) => {
+      textNeutralizationFailures.push({
+        sessionId,
+        runId,
+        providerFailureDetail: failure.providerFailureDetail,
+      });
+    },
     diagnostics: driverDiagnostics,
     subscribeToPtySession:
       options.subscribeToPtySession ??
@@ -493,7 +515,7 @@ function createHarness(
     newBindingId: () => "binding-abc",
     readCapabilities: () => makeCapabilities(options.steer ?? true),
   });
-  return { server, driver, diagnostics, driverDiagnostics, scheduler };
+  return { server, driver, diagnostics, driverDiagnostics, textNeutralizationFailures, scheduler };
 }
 
 function threadStartResult(turnCount = 0): JsonRpcAnswer {
@@ -518,6 +540,7 @@ interface ManagerHarness {
   manager: CodexLifecycleManager;
   diagnostics: CodexTransportDiagnostic[];
   driverDiagnostics: DriverDiagnosticsEmitter;
+  textNeutralizationFailures: RecordedTextNeutralizationFailure[];
   notifications: Array<{ method: string; params: unknown }>;
   meteredUsage: Array<{ sessionId: SessionId; delta: MeteredUsageDelta }>;
   subagentLifecycle: Array<{ sessionId: SessionId; emission: SubagentLifecycleEmission }>;
@@ -582,6 +605,7 @@ function createManagerHarness(options: ManagerHarnessOptions = {}): ManagerHarne
   const meteredUsage: Array<{ sessionId: SessionId; delta: MeteredUsageDelta }> = [];
   const subagentLifecycle: Array<{ sessionId: SessionId; emission: SubagentLifecycleEmission }> =
     [];
+  const textNeutralizationFailures: RecordedTextNeutralizationFailure[] = [];
   const scheduler = makeManualScheduler();
   let firstDiagnosticThrown = false;
   let firstNotificationThrown = false;
@@ -611,6 +635,13 @@ function createManagerHarness(options: ManagerHarnessOptions = {}): ManagerHarne
     newBindingId: options.newBindingId ?? ((): string => "binding-abc"),
     onMeteredUsage: (sessionId, delta) => meteredUsage.push({ sessionId, delta }),
     onSubagentLifecycle: (sessionId, emission) => subagentLifecycle.push({ sessionId, emission }),
+    onTextNeutralizationFailure: (sessionId, runId, failure) => {
+      textNeutralizationFailures.push({
+        sessionId,
+        runId,
+        providerFailureDetail: failure.providerFailureDetail,
+      });
+    },
     ...(options.readPriorEmittedUsage === undefined
       ? {}
       : { readPriorEmittedUsage: options.readPriorEmittedUsage }),
@@ -634,16 +665,50 @@ function createManagerHarness(options: ManagerHarnessOptions = {}): ManagerHarne
     notifications,
     meteredUsage,
     subagentLifecycle,
+    textNeutralizationFailures,
     scheduler,
   };
 }
 
-/** A `turn/completed` frame at the pinned shape (`params.turn.{id,status}`). */
+/**
+ * A `turn/completed` frame at the pinned shape (`params.turn.{id,status}`),
+ * carrying one model-output item.
+ *
+ * The item is not decoration. A `completed` turn with an EMPTY item list is
+ * exactly the zero-turn reply the T3.18 tripwire exists to catch, so a fixture
+ * without one would trip every test that merely needs a turn to end — and would
+ * then dispose the session those tests go on to use.
+ */
 function turnCompletedFrame(turnId: string, status: string): Record<string, unknown> {
   return {
     jsonrpc: "2.0",
     method: "turn/completed",
-    params: { threadId: THREAD_ID, turn: { id: turnId, status, items: [] } },
+    params: {
+      threadId: THREAD_ID,
+      turn: { id: turnId, status, items: [{ type: "agentMessage", id: "item-1" }] },
+    },
+  };
+}
+
+/**
+ * A `completed` turn that produced NOTHING — the shape a provider answers with
+ * when its input surface consumed the participant's words as a client-side
+ * command (T3.18).
+ */
+function zeroTurnCompletedFrame(turnId: string): Record<string, unknown> {
+  return {
+    jsonrpc: "2.0",
+    method: "turn/completed",
+    params: { threadId: THREAD_ID, turn: { id: turnId, status: "completed", items: [] } },
+  };
+}
+
+/** An in-flight `item/completed` naming one model message on a turn (T3.18). */
+function modelOutputItemFrame(turnId: string): Record<string, unknown> {
+  return {
+    jsonrpc: "2.0",
+    method: "item/completed",
+    params: { threadId: THREAD_ID, turnId, item: { type: "agentMessage", id: "item-1" } },
   };
 }
 
@@ -1142,6 +1207,7 @@ describe("CodexDriver resumeSession (I-005-5, Spec-005 §Fallback Behavior)", ()
         };
       },
       reportDiagnostic: () => {},
+      onTextNeutralizationFailure: () => undefined,
       scheduleTimeout: scheduler.schedule,
       executablePath: EXECUTABLE_PATH,
       resumeSpawnConfig: RESUME_SPAWN_CONFIG,
@@ -1544,6 +1610,7 @@ describe("CodexDriver session ownership (Spec-005 §Required Behavior)", () => {
       diagnostics: makeSilentDriverDiagnostics(),
       subscribeToPtySession: (ptySessionId, listeners) => server.subscribe(ptySessionId, listeners),
       reportDiagnostic: () => {},
+      onTextNeutralizationFailure: () => undefined,
       scheduleTimeout: scheduler.schedule,
       executablePath: EXECUTABLE_PATH,
       resumeSpawnConfig: RESUME_SPAWN_CONFIG,
@@ -2808,7 +2875,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
 
     // A settled turn carrying no model output and no declared failure: the
     // provider reported success for a turn that never reached a model.
-    harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
+    harness.server.emitFrame(zeroTurnCompletedFrame(TURN_ID));
     await Promise.resolve();
 
     await expect(
@@ -2822,6 +2889,256 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await expect(harness.manager.interruptRun({ runId: RUN_ID })).rejects.toThrow(
       TextNeutralizationRefusedError,
     );
+  });
+
+  it("trips when the swallowed turn terminates in the SAME read chunk as its start response", async () => {
+    // The interleave that beat the tripwire before the unmatched-turn memory
+    // carried evidence. The `turn/start` response resolves `startRun` as a
+    // MICROTASK, but `#ingest` drains the rest of the chunk SYNCHRONOUSLY — so
+    // the terminal settles a turn no frame is correlated with yet, and the
+    // re-key that moves the opening frame onto the turn id runs afterwards,
+    // against a settlement that has already gone by. A memory holding only turn
+    // ids retires the route and reports the swallowed turn as a completed one.
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({
+      result: { turn: { id: TURN_ID } },
+      trailingFrames: [zeroTurnCompletedFrame(TURN_ID)],
+    }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: {
+        sessionId: SESSION_ID,
+        input: "/status please",
+        frameOrigin: "participant_text",
+      },
+    });
+
+    expect(harness.textNeutralizationFailures).toStrictEqual([
+      {
+        sessionId: SESSION_ID,
+        runId: RUN_ID,
+        providerFailureDetail: "driver.text_neutralization_failed origin=participant_text",
+      },
+    ]);
+    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
+    expect(harness.manager.textNeutralizationDecisionForTurn(TURN_ID).refused).toBe(true);
+  });
+
+  it("does not trip a REAL turn that terminates in the same read chunk with an unloaded item list", async () => {
+    // The negative control for the test above, and the only one that proves the
+    // remembered evidence is load-bearing rather than decoration. This provider
+    // can settle a turn with an EMPTY item list — `itemsView: "notLoaded"` — so a
+    // memory that kept only the terminal would rule this real turn evidence-free
+    // and fail it. The in-flight `item/completed` is the evidence, and it arrives
+    // in the same chunk, before any frame is correlated with the turn.
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({
+      result: { turn: { id: TURN_ID } },
+      trailingFrames: [modelOutputItemFrame(TURN_ID), zeroTurnCompletedFrame(TURN_ID)],
+    }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: {
+        sessionId: SESSION_ID,
+        input: "review the diff",
+        frameOrigin: "participant_text",
+      },
+    });
+
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+    expect(harness.manager.textNeutralizationDecisionForTurn(TURN_ID).refused).toBe(false);
+    // Still retired: the turn ended, whatever it produced.
+    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
+  });
+
+  it("refuses a later run on the SESSION a trip disposed, not only the run that was on it", async () => {
+    // A run-keyed quarantine cannot reach this: `startRun` resolves a SESSION,
+    // so the surviving record would hand the next run straight back to the
+    // process that swallowed the participant's words. The refusal names the
+    // neutralization rather than a transport fault, so one cause reads as one
+    // cause.
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: {
+        sessionId: SESSION_ID,
+        input: "/status please",
+        frameOrigin: "participant_text",
+      },
+    });
+    harness.server.emitFrame(zeroTurnCompletedFrame(TURN_ID));
+    await Promise.resolve();
+
+    const writtenLinesAfterTrip = harness.server.writtenLines.length;
+    await expect(
+      harness.manager.startRun({
+        runId: SECOND_RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
+      }),
+    ).rejects.toThrow(TextNeutralizationRefusedError);
+    // Refused BEFORE the provider was asked anything: a refusal that still sent
+    // a `turn/start` would have reached the condemned process.
+    expect(harness.server.writtenLines).toHaveLength(writtenLinesAfterTrip);
+  });
+
+  it("lets a fresh spawn under the same session id run again after a trip", async () => {
+    // The quarantine names a BINDING, not an identifier. The promised recovery
+    // is a fresh process, so a refusal that outlived the process it condemned
+    // would refuse the recovery itself.
+    const harness = createManagerHarness();
+    harness.server.uniqueSpawnSessionIds = true;
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: {
+        sessionId: SESSION_ID,
+        input: "/status please",
+        frameOrigin: "participant_text",
+      },
+    });
+    harness.server.emitFrame(zeroTurnCompletedFrame(TURN_ID));
+    // The trip's teardown is DETACHED — it runs inside the read-chunk drain and
+    // must not be awaited there — so the slot reads `closing` until it settles.
+    // A create in that window is refused as it is for every other disposal, so
+    // the recovery this test is about begins once the condemned child is gone.
+    await drainMicrotasks();
+
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    await expect(
+      harness.manager.startRun({
+        runId: SECOND_RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("trips on a swallowed STEER even though the opening frame was answered", async () => {
+    // A turn carries many frames, and each keeps its own correlation state. With
+    // one registration per key the steer REPLACED the opening frame, so the
+    // model output that answered the opening text became the evidence that
+    // vouched for the steer — the swallowed directive passed on words it never
+    // produced.
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    harness.server.on("turn/steer", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: {
+        sessionId: SESSION_ID,
+        input: "review the diff",
+        frameOrigin: "participant_text",
+      },
+    });
+    // The opening frame's own evidence, observed BEFORE the steer is written.
+    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
+    await Promise.resolve();
+
+    // A DIFFERENT origin from the opening frame's, so the recorded detail names
+    // which frame the turn failed to account for rather than merely that one did.
+    await harness.manager.steerRun({
+      runId: RUN_ID,
+      content: "/clear and start over",
+      clientIdempotencyKey: "steer-1",
+      frameOrigin: "system_narration",
+    });
+    // The terminal carries the item list, and every item in it PRECEDES the
+    // steer. Attributing those items to the steer is exactly the false pass.
+    harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
+    await drainMicrotasks();
+
+    expect(harness.textNeutralizationFailures).toHaveLength(1);
+    expect(harness.textNeutralizationFailures[0]?.providerFailureDetail).toBe(
+      "driver.text_neutralization_failed origin=system_narration",
+    );
+  });
+
+  it("does not trip the opening frame when a legitimate steer settles with an unloaded item list", async () => {
+    // The other polarity, and the one a per-frame store must not lose: every
+    // frame on the turn produced output, and the terminal simply did not carry
+    // the item list. Nothing here may fail.
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    harness.server.on("turn/steer", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: {
+        sessionId: SESSION_ID,
+        input: "review the diff",
+        frameOrigin: "participant_text",
+      },
+    });
+    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
+    await Promise.resolve();
+    await harness.manager.steerRun({
+      runId: RUN_ID,
+      content: "also check the tests",
+      clientIdempotencyKey: "steer-1",
+      frameOrigin: "participant_text",
+    });
+    // Answered after the steer, so it is attributable to the steer.
+    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
+    await Promise.resolve();
+
+    harness.server.emitFrame(zeroTurnCompletedFrame(TURN_ID));
+    await drainMicrotasks();
+
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+    expect(harness.manager.textNeutralizationDecisionForTurn(TURN_ID).refused).toBe(false);
+  });
+
+  it("drops the frame of a steer whose request failed, leaving the turn's other frames ruled", async () => {
+    // A steer that threw put no bytes on the wire. Left registered, its frame
+    // would be ruled evidence-free by the turn's own terminal and trip — failing
+    // a run and disposing a provider session over text the provider never saw.
+    // Frame-scoped, so the opening frame stays correlated and still gets ruled.
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    harness.server.on("turn/steer", () => ({
+      error: { code: -32600, message: "no active turn" },
+    }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: {
+        sessionId: SESSION_ID,
+        input: "review the diff",
+        frameOrigin: "participant_text",
+      },
+    });
+    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
+    await Promise.resolve();
+
+    await expect(
+      harness.manager.steerRun({
+        runId: RUN_ID,
+        content: "also check the tests",
+        clientIdempotencyKey: "steer-1",
+        frameOrigin: "participant_text",
+      }),
+    ).rejects.toThrow();
+    harness.server.emitFrame(zeroTurnCompletedFrame(TURN_ID));
+    await drainMicrotasks();
+
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
   });
 
   it("keeps the route while the turn is still inProgress", async () => {
@@ -2907,7 +3224,14 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
     expect(harness.notifications).toContainEqual({
       method: "turn/completed",
-      params: { threadId: THREAD_ID, turn: { id: TURN_ID, status: "completed", items: [] } },
+      params: {
+        threadId: THREAD_ID,
+        turn: {
+          id: TURN_ID,
+          status: "completed",
+          items: [{ type: "agentMessage", id: "item-1" }],
+        },
+      },
     });
   });
 });
@@ -3724,6 +4048,7 @@ describe("CodexDriver transport construction (T3.15 leg 6)", () => {
       diagnostics: makeSilentDriverDiagnostics(),
       subscribeToPtySession: () => () => undefined,
       reportDiagnostic: () => undefined,
+      onTextNeutralizationFailure: () => undefined,
       scheduleTimeout: makeManualScheduler().schedule,
       executablePath: EXECUTABLE_PATH,
       resumeSpawnConfig: RESUME_SPAWN_CONFIG,
@@ -3848,6 +4173,7 @@ async function routedAskHarness(
     diagnostics: driverDiagnostics,
     subscribeToPtySession: (ptySessionId, listeners) => server.subscribe(ptySessionId, listeners),
     reportDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+    onTextNeutralizationFailure: () => undefined,
     scheduleTimeout: scheduler.schedule,
     executablePath: EXECUTABLE_PATH,
     resumeSpawnConfig: RESUME_SPAWN_CONFIG,
@@ -3856,7 +4182,14 @@ async function routedAskHarness(
     ...(responder === undefined ? {} : { answerServerRequest: responder }),
   });
   await driver.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-  const harness: Harness = { server, driver, diagnostics, driverDiagnostics, scheduler };
+  const harness: Harness = {
+    server,
+    driver,
+    diagnostics,
+    driverDiagnostics,
+    textNeutralizationFailures: [],
+    scheduler,
+  };
 
   let nextAskId = 9000;
   const askProvider = async (

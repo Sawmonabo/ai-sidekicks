@@ -695,8 +695,9 @@ describe("transform pipeline — the order is falsifiable", () => {
     // order, and the provider's own outcome is preserved rather than replaced
     // by a synthetic failure that did not happen.
     expect(exported.frames).toHaveLength(1);
-    expect(exported.frames[0]?.position).toBe(2);
-    expect(exported.frames[0]?.segments).toEqual([
+    const invertedPairFrames = exported.frames as readonly RenderedTranscriptFrame[];
+    expect(invertedPairFrames[0]?.position).toBe(2);
+    expect(invertedPairFrames[0]?.segments).toEqual([
       { kind: "tool_call", toolCallId: "call-inverted", toolName: "inspect", argumentsJson: "{}" },
       {
         kind: "tool_result",

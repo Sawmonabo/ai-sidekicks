@@ -33,11 +33,13 @@ interface DriverHarness {
   readonly driver: ClaudeDriver;
   readonly transport: FakeClaudeSessionTransport;
   readonly runDispatchResolver: FakeClaudeRunDispatchResolver;
+  readonly textNeutralizationFailureDetails: string[];
 }
 
 function buildHarness(): DriverHarness {
   const transport = new FakeClaudeSessionTransport();
   const runDispatchResolver = new FakeClaudeRunDispatchResolver();
+  const textNeutralizationFailureDetails: string[] = [];
   runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
     sessionId: TEST_SESSION_ID,
     openingText: "review the diff",
@@ -48,8 +50,15 @@ function buildHarness(): DriverHarness {
     diagnostics: makeSilentDriverDiagnostics(),
     mintProviderSessionId: () => TEST_PINNED_PROVIDER_SESSION_ID,
     mintBindingId: () => TEST_BINDING_ID,
+    // Required rather than optional: the tripwire's run terminal is the only
+    // user-visible surface a swallowed turn has, so a construction site cannot
+    // leave it unbound. Recorded rather than ignored here so a trip inside a
+    // composition test would surface instead of vanishing.
+    onTextNeutralizationFailure: (_sessionId, _runId, failure) => {
+      textNeutralizationFailureDetails.push(failure.providerFailureDetail);
+    },
   });
-  return { driver, transport, runDispatchResolver };
+  return { driver, transport, runDispatchResolver, textNeutralizationFailureDetails };
 }
 
 describe("ClaudeDriver", () => {

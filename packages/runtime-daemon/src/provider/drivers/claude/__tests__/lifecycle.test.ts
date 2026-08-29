@@ -37,7 +37,7 @@ import {
 import { describe, expect, it, vi } from "vitest";
 
 import type { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
-import type { SessionId } from "@ai-sidekicks/contracts";
+import type { RunId, SessionId } from "@ai-sidekicks/contracts";
 
 import type { SubagentLifecycleEmission, ThreadFrameRoute } from "../../../thread-frame-router.js";
 import type { MeteredUsageDelta } from "../../../usage-delta-accountant.js";
@@ -68,11 +68,18 @@ import {
   TEST_SESSION_ID,
 } from "./claude-test-doubles.js";
 
+interface RecordedTextNeutralizationFailure {
+  readonly sessionId: SessionId;
+  readonly runId: RunId;
+  readonly providerFailureDetail: string;
+}
+
 interface LifecycleHarness {
   readonly lifecycle: ClaudeSessionLifecycle;
   readonly transport: FakeClaudeSessionTransport;
   readonly runDispatchResolver: FakeClaudeRunDispatchResolver;
   readonly diagnostics: DriverDiagnosticsEmitter;
+  readonly textNeutralizationFailures: RecordedTextNeutralizationFailure[];
 }
 
 function buildHarness(
@@ -81,12 +88,23 @@ function buildHarness(
   const transport = new FakeClaudeSessionTransport();
   const runDispatchResolver = new FakeClaudeRunDispatchResolver();
   const diagnostics = makeSilentDriverDiagnostics();
+  const textNeutralizationFailures: RecordedTextNeutralizationFailure[] = [];
   const dependencies: ClaudeSessionLifecycleDependencies = {
     transport,
     runDispatchResolver,
     diagnostics,
     mintProviderSessionId: () => TEST_PINNED_PROVIDER_SESSION_ID,
     mintBindingId: () => TEST_BINDING_ID,
+    // Required rather than optional (T3.18): a trip's run terminal is the only
+    // user-visible surface a swallowed turn has, so no construction site may
+    // leave it unbound.
+    onTextNeutralizationFailure: (sessionId, runId, failure) => {
+      textNeutralizationFailures.push({
+        sessionId,
+        runId,
+        providerFailureDetail: failure.providerFailureDetail,
+      });
+    },
     ...overrides,
   };
   return {
@@ -94,6 +112,7 @@ function buildHarness(
     transport,
     runDispatchResolver,
     diagnostics: dependencies.diagnostics,
+    textNeutralizationFailures,
   };
 }
 

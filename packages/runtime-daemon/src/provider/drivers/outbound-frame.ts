@@ -72,9 +72,8 @@ import { randomUUID } from "node:crypto";
  * layer to consume — a leading `/` there is the payload, not a hazard — so it
  * is delivered verbatim on every grade and is exempt from the tripwire.
  *
- * The union is byte-identical to the transcript pipeline's local
- * `RenderedFrameOrigin`, which that module documents as collapsing onto this
- * declaration.
+ * The transcript pipeline's `RenderedFrameOrigin` is a type alias onto this
+ * declaration, so one fail-closed discriminator has one spelling.
  */
 export type OutboundFrameOrigin = "participant_text" | "driver_command" | "system_narration";
 
@@ -492,11 +491,15 @@ export function composeTextNeutralizationRunFailure(
  * the least likely to still matter.
  *
  * The cap is generous against its real load. The tripwire holds one pending
- * entry per UNSETTLED frame, and both providers settle a turn before the next
- * one starts on the same session; the quarantine holds one entry per tripped
- * run, and a tripped run is already terminal, so an aged-out entry cannot
- * revive it — what ages out is only the fail-fast refusal an immediate re-
- * attach would have hit.
+ * entry per UNSETTLED FRAME, and a turn carries at most a run-opening frame
+ * plus however many steer directives a participant issues before it settles —
+ * both providers settle a turn before the next one starts on the same session,
+ * so the live set is a handful of frames on one turn rather than one per turn.
+ * The quarantine holds one entry per tripped run and one per tripped session; a
+ * tripped run is already terminal and a tripped session is released the moment
+ * a fresh process takes its id, so an aged-out entry cannot revive either —
+ * what ages out is only the fail-fast refusal an immediate re-attach would
+ * have hit.
  */
 const OUTBOUND_FRAME_KEY_MEMORY = 64;
 
@@ -522,7 +525,35 @@ function evictOldestBeyondCapacity(keyed: {
 
 interface PendingCorrelatedFrame {
   readonly frame: OutboundTextFrame;
+  /**
+   * The key the settling turn will carry.
+   *
+   * MUTABLE, and the only mutable field here: `recorrelate` re-keys a frame
+   * registered under a run id onto the turn id the provider names, and the
+   * frame's own correlation value — which is what the store is keyed by — does
+   * not move with it.
+   */
+  joinKey: string;
   readonly observations: Set<TurnEvidenceClass>;
+}
+
+/**
+ * Folds one frame's decision into the aggregate a settling turn answers with.
+ *
+ * A trip WINS and the FIRST trip is kept, so the aggregate names the oldest
+ * frame the turn failed to account for rather than the newest. Between two
+ * passes, observed evidence beats exemption: both are passes, and the reason a
+ * caller reads should describe the turn rather than whichever frame happened to
+ * be enumerated last.
+ */
+function foldTripwireDecision(carried: TripwireDecision, next: TripwireDecision): TripwireDecision {
+  if (carried.tripped) {
+    return carried;
+  }
+  if (next.tripped) {
+    return next;
+  }
+  return next.reason === "turn-evidence-observed" ? next : carried;
 }
 
 /**
@@ -540,9 +571,42 @@ interface PendingCorrelatedFrame {
  * call open waiting for a turn to settle, so it reports the refusal on the
  * result only when the answer is already known, and the run terminal carries
  * the guarantee in every other case.
+ *
+ * ---------------------------------------------------------------------------
+ * One turn carries MANY frames, and each keeps its own correlation state
+ * ---------------------------------------------------------------------------
+ *
+ * A turn is opened by one frame and can then take any number of steer
+ * directives, all correlated to the same turn. The store is therefore keyed by
+ * the frame's own daemon-minted correlation value and NOT by the join key: a
+ * one-frame-per-key store made a steer REPLACE the opening frame and its
+ * accumulated observations, so evidence produced before the steer could vouch
+ * for the steer, and the steer's own registration could trip the turn the
+ * opening frame had already been confirmed on. Both failures are silent.
+ *
+ * THE ATTRIBUTION RULE, stated once because both halves are load-bearing:
+ *
+ *   * In-flight evidence — `observe` — counts for every frame registered AT
+ *     THAT MOMENT and for no frame registered later. Evidence observed before a
+ *     frame was written cannot be evidence that THAT frame reached a model.
+ *   * The settling envelope's own observations carry no position within the
+ *     turn, so they are attributed to the OLDEST unsettled frame alone — the
+ *     one frame every item in that list provably follows. Its `recognized` flag
+ *     is a property of the envelope rather than of any item in it, so that half
+ *     applies to every frame: an unparsable terminal trips them all.
+ *
+ * The Claude leg additionally spreads one terminal across several correlated
+ * RUNS, positionally and for the same reason. That rule composes above this one
+ * rather than duplicating it: on that leg each run key holds exactly one frame,
+ * so the two never overlap.
  */
 export class OutboundFrameTripwire {
-  readonly #pendingByJoinKey = new Map<string, PendingCorrelatedFrame>();
+  /**
+   * Keyed by the frame's correlation value, insertion-ordered — so iteration
+   * yields frames oldest-registered first, which is the order the attribution
+   * rule and the trip fold both read.
+   */
+  readonly #pendingByCorrelationId = new Map<string, PendingCorrelatedFrame>();
   readonly #decisionByJoinKey = new Map<string, TripwireDecision>();
 
   /**
@@ -551,12 +615,19 @@ export class OutboundFrameTripwire {
    * An exempt frame is registered too, rather than dropped: a later `settle`
    * must be able to say WHY it passed, and a dropped registration would be
    * indistinguishable from a frame that was never written.
+   *
+   * APPENDS rather than replaces. Any frame already pending under this key is
+   * left exactly as it is, observations included.
    */
   register(joinKey: string, frame: OutboundTextFrame): void {
-    this.#pendingByJoinKey.delete(joinKey);
-    this.#pendingByJoinKey.set(joinKey, { frame, observations: new Set() });
+    this.#pendingByCorrelationId.delete(frame.correlationId);
+    this.#pendingByCorrelationId.set(frame.correlationId, {
+      frame,
+      joinKey,
+      observations: new Set(),
+    });
     this.#decisionByJoinKey.delete(joinKey);
-    evictOldestBeyondCapacity(this.#pendingByJoinKey);
+    evictOldestBeyondCapacity(this.#pendingByCorrelationId);
   }
 
   /**
@@ -566,45 +637,62 @@ export class OutboundFrameTripwire {
    * frame: one leg's terminal notification carries the whole item list and the
    * other's does not, so an accumulating tripwire works on both without either
    * classifier having to reconstruct what it did not see.
+   *
+   * Applied to every frame currently pending under the key, which is how the
+   * attribution rule is ENCODED rather than merely described: a frame
+   * registered after this call is not in the set and does not receive it.
    */
   observe(joinKey: string, observation: TurnEvidenceClass): void {
-    this.#pendingByJoinKey.get(joinKey)?.observations.add(observation);
+    for (const pending of this.#pendingByCorrelationId.values()) {
+      if (pending.joinKey === joinKey) {
+        pending.observations.add(observation);
+      }
+    }
   }
 
-  /** Re-keys a pending registration once the provider names the turn it started. */
+  /**
+   * Re-keys every pending registration once the provider names the turn it
+   * started.
+   *
+   * Each frame keeps its position in the store, so registration order — and
+   * with it the oldest-frame attribution — survives the move.
+   */
   recorrelate(fromJoinKey: string, toJoinKey: string): void {
     if (fromJoinKey === toJoinKey) {
       return;
     }
-    const pending = this.#pendingByJoinKey.get(fromJoinKey);
-    if (pending === undefined) {
-      return;
+    for (const pending of this.#pendingByCorrelationId.values()) {
+      if (pending.joinKey === fromJoinKey) {
+        pending.joinKey = toJoinKey;
+      }
     }
-    this.#pendingByJoinKey.delete(fromJoinKey);
-    this.#pendingByJoinKey.delete(toJoinKey);
-    this.#pendingByJoinKey.set(toJoinKey, pending);
   }
 
   /**
-   * Rules on the correlated frame as its turn settles, and consumes the
-   * registration so a second terminal for the same turn cannot trip twice.
+   * Rules on every frame correlated to a settling turn and consumes their
+   * registrations, so a second terminal for the same turn cannot trip twice.
    */
   settle(joinKey: string, classification: TurnEvidenceClassification): TripwireDecision {
-    const pending = this.#pendingByJoinKey.get(joinKey);
-    if (pending === undefined) {
+    const pendingFrames = this.#pendingFramesFor(joinKey);
+    if (pendingFrames.length === 0) {
       return { tripped: false, reason: "no-correlated-frame" };
     }
-    this.#pendingByJoinKey.delete(joinKey);
-
-    const decision = this.#rule(pending, classification);
+    let aggregate: TripwireDecision = { tripped: false, reason: "frame-exempt" };
+    for (const [framePosition, pending] of pendingFrames.entries()) {
+      this.#pendingByCorrelationId.delete(pending.frame.correlationId);
+      aggregate = foldTripwireDecision(
+        aggregate,
+        this.#rule(pending, classification, framePosition === 0),
+      );
+    }
     this.#decisionByJoinKey.delete(joinKey);
-    this.#decisionByJoinKey.set(joinKey, decision);
+    this.#decisionByJoinKey.set(joinKey, aggregate);
     evictOldestBeyondCapacity(this.#decisionByJoinKey);
-    return decision;
+    return aggregate;
   }
 
   /**
-   * Whether a written frame is still awaiting its settling turn.
+   * Whether any written frame is still awaiting its settling turn.
    *
    * Read by a driver that must decide WHICH of several correlated keys a single
    * terminal accounts for: routes and registrations are different sets — a run
@@ -613,7 +701,12 @@ export class OutboundFrameTripwire {
    * evidence a live one needed.
    */
   hasPendingFrame(joinKey: string): boolean {
-    return this.#pendingByJoinKey.has(joinKey);
+    for (const pending of this.#pendingByCorrelationId.values()) {
+      if (pending.joinKey === joinKey) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /** The retained decision for a settled turn, or `undefined` while it is still open. */
@@ -623,13 +716,45 @@ export class OutboundFrameTripwire {
 
   /** Drops all state for a key — used when a run's binding is torn down. */
   forget(joinKey: string): void {
-    this.#pendingByJoinKey.delete(joinKey);
+    for (const pending of this.#pendingFramesFor(joinKey)) {
+      this.#pendingByCorrelationId.delete(pending.frame.correlationId);
+    }
     this.#decisionByJoinKey.delete(joinKey);
+  }
+
+  /**
+   * Drops ONE frame's registration, leaving every other frame on its turn
+   * correlated.
+   *
+   * The write-failure counterpart of `register`, and it has to be frame-scoped:
+   * a steer whose send threw put no bytes on the wire, so no turn will ever
+   * account for it — but the frame that OPENED the turn is still live and still
+   * owed a ruling, and dropping the whole key would silence it. Leaving the
+   * failed frame instead would trip the turn and dispose a binding that
+   * swallowed nothing.
+   *
+   * The retained decision is deliberately untouched: a settled turn's ruling is
+   * a property of the turn, not of any one frame withdrawn from it.
+   */
+  forgetFrame(frame: OutboundTextFrame): void {
+    this.#pendingByCorrelationId.delete(frame.correlationId);
+  }
+
+  /** Every frame correlated to a key, oldest registration first. */
+  #pendingFramesFor(joinKey: string): PendingCorrelatedFrame[] {
+    const correlated: PendingCorrelatedFrame[] = [];
+    for (const pending of this.#pendingByCorrelationId.values()) {
+      if (pending.joinKey === joinKey) {
+        correlated.push(pending);
+      }
+    }
+    return correlated;
   }
 
   #rule(
     pending: PendingCorrelatedFrame,
     classification: TurnEvidenceClassification,
+    isOldestUnsettledFrame: boolean,
   ): TripwireDecision {
     if (pending.frame.tripwireExempt) {
       return { tripped: false, reason: "frame-exempt" };
@@ -637,7 +762,11 @@ export class OutboundFrameTripwire {
     if (!classification.recognized) {
       return this.#trip(pending.frame, "unrecognized-settling-envelope");
     }
-    const hasEvidence = pending.observations.size > 0 || classification.observations.length > 0;
+    // The settling envelope's observations are attributable only to the oldest
+    // unsettled frame — see the attribution rule on the class.
+    const hasEvidence =
+      pending.observations.size > 0 ||
+      (isOldestUnsettledFrame && classification.observations.length > 0);
     if (hasEvidence) {
       return { tripped: false, reason: "turn-evidence-observed" };
     }
@@ -679,9 +808,9 @@ export class OutboundFrameTripwire {
 export class TextNeutralizationRefusedError extends Error {
   readonly code: TextNeutralizationRefusalCode = TEXT_NEUTRALIZATION_REFUSAL_CODE;
 
-  constructor(runId: string) {
+  constructor(subject: "run" | "session", subjectId: string) {
     super(
-      `The provider binding for run ${runId} was disposed after a provider-bound text neutralization failure and cannot be attached to.`,
+      `The provider binding for ${subject} ${subjectId} was disposed after a provider-bound text neutralization failure and cannot be attached to.`,
     );
     this.name = "TextNeutralizationRefusedError";
   }
@@ -695,25 +824,73 @@ export class TextNeutralizationRefusedError extends Error {
  * marker being refused. The caller owns the liveness intersection against the
  * process supervisor's registry; this class is the driver-local half of it, and
  * it deliberately holds no attach-time arm of its own beyond refusing.
+ *
+ * ---------------------------------------------------------------------------
+ * Two axes, because a run-keyed quarantine cannot reach the session
+ * ---------------------------------------------------------------------------
+ *
+ * A trip means the PROVIDER PROCESS consumed a participant's words and reported
+ * a completed turn. Quarantining only the run leaves the session record live,
+ * and a later `startRun` resolves that same record by session id and dispatches
+ * fresh work into the process the driver just declared unsafe. So a trip
+ * quarantines both: the run, whose later attach must refuse rather than answer
+ * a stale channel, and the SESSION, whose later resolution must refuse rather
+ * than reach the process at all.
+ *
+ * The session arm is RELEASED at establishment rather than held forever: the
+ * promised recovery is a fresh spawn, and a session id whose new process is
+ * already running is not the binding that was quarantined. This class means
+ * "this binding", not "this identifier, permanently".
  */
 export class ProviderBindingQuarantine {
   readonly #disposedRunIds = new Set<string>();
+  readonly #disposedSessionIds = new Set<string>();
 
   /** Quarantines a run's provider binding. Idempotent. */
-  dispose(runId: string): void {
+  disposeRun(runId: string): void {
     this.#disposedRunIds.delete(runId);
     this.#disposedRunIds.add(runId);
     evictOldestBeyondCapacity(this.#disposedRunIds);
   }
 
-  isDisposed(runId: string): boolean {
+  /** Quarantines the provider session the tripped run was running on. Idempotent. */
+  disposeSession(sessionId: string): void {
+    this.#disposedSessionIds.delete(sessionId);
+    this.#disposedSessionIds.add(sessionId);
+    evictOldestBeyondCapacity(this.#disposedSessionIds);
+  }
+
+  /**
+   * Releases a session id whose binding has been replaced by a fresh spawn.
+   *
+   * Called from the establishment paths, where a new provider process has just
+   * been adopted under this id. Deliberately NOT called anywhere a record is
+   * merely re-read: what is released is the quarantine on a binding that no
+   * longer exists, not the quarantine on the identifier.
+   */
+  releaseSession(sessionId: string): void {
+    this.#disposedSessionIds.delete(sessionId);
+  }
+
+  isRunDisposed(runId: string): boolean {
     return this.#disposedRunIds.has(runId);
   }
 
-  /** Refuses an attach to a quarantined binding. */
-  assertAttachable(runId: string): void {
+  isSessionDisposed(sessionId: string): boolean {
+    return this.#disposedSessionIds.has(sessionId);
+  }
+
+  /** Refuses an attach to a quarantined run binding. */
+  assertRunAttachable(runId: string): void {
     if (this.#disposedRunIds.has(runId)) {
-      throw new TextNeutralizationRefusedError(runId);
+      throw new TextNeutralizationRefusedError("run", runId);
+    }
+  }
+
+  /** Refuses any resolution of a quarantined provider session. */
+  assertSessionAttachable(sessionId: string): void {
+    if (this.#disposedSessionIds.has(sessionId)) {
+      throw new TextNeutralizationRefusedError("session", sessionId);
     }
   }
 }

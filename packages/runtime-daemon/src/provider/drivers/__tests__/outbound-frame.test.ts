@@ -433,10 +433,18 @@ describe("Codex turn-evidence classifier", () => {
 // --------------------------------------------------------------------------
 
 describe("outbound frame tripwire", () => {
+  // A fresh correlation per frame, because that value is what the store is keyed
+  // by: a shared minter would make two frames on one turn indistinguishable and
+  // quietly restore the single-frame-per-key behavior these tests exist to rule
+  // out.
+  let composedFrameCount = 0;
   function frameFor(origin: string | undefined, text = "/status"): OutboundTextFrame {
     return new OutboundTextFrameWriter({
       mechanismGrade: "emulated",
-      mintCorrelationId: () => "correlation-1",
+      mintCorrelationId: () => {
+        composedFrameCount += 1;
+        return `correlation-${String(composedFrameCount)}`;
+      },
     }).compose({ text, origin });
   }
 
@@ -593,6 +601,105 @@ describe("outbound frame tripwire", () => {
       "driver.text_neutralization_failed origin=unknown",
     );
   });
+  it("does not let evidence produced BEFORE a steer vouch for the steer", () => {
+    // The false-pass half of the multi-frame defect. The settling envelope's
+    // item list is the whole turn's, so every item in it precedes a steer
+    // written later — attributing that list to the steer lets a swallowed
+    // directive pass on words it never produced. The two frames carry different
+    // origins so the composed detail names WHICH frame the turn failed to
+    // account for.
+    const tripwire = new OutboundFrameTripwire();
+    tripwire.register("turn-1", frameFor("participant_text"));
+    tripwire.observe("turn-1", "model_output");
+    tripwire.register("turn-1", frameFor("system_narration", "/clear"));
+
+    const decision = tripwire.settle("turn-1", observedTurnEvidence("model_output"));
+
+    if (!decision.tripped) {
+      throw new Error("expected the steer no evidence is attributable to to trip");
+    }
+    expect(decision.cause).toBe("no-turn-evidence");
+    expect(decision.failureDetail).toBe(
+      "driver.text_neutralization_failed origin=system_narration",
+    );
+  });
+
+  it("keeps each frame's own in-flight evidence when a later frame joins the turn", () => {
+    // The false-trip half, and the reason `observe` applies to every frame
+    // pending under the key rather than to the newest one: an opening frame that
+    // was answered stays answered when a steer joins its turn, and a terminal
+    // with an UNLOADED item list must not then fail it.
+    const tripwire = new OutboundFrameTripwire();
+    tripwire.register("turn-1", frameFor("participant_text"));
+    tripwire.observe("turn-1", "model_output");
+    tripwire.register("turn-1", frameFor("participant_text", "also check the tests"));
+    tripwire.observe("turn-1", "model_output");
+
+    expect(tripwire.settle("turn-1", observedTurnEvidence())).toStrictEqual({
+      tripped: false,
+      reason: "turn-evidence-observed",
+    });
+  });
+
+  it("consumes every frame on a turn, so a second terminal rules on none", () => {
+    const tripwire = new OutboundFrameTripwire();
+    tripwire.register("turn-1", frameFor("participant_text"));
+    tripwire.register("turn-1", frameFor("participant_text", "/clear"));
+
+    expect(tripwire.settle("turn-1", UNRECOGNIZED_TURN_EVIDENCE).tripped).toBe(true);
+    expect(tripwire.hasPendingFrame("turn-1")).toBe(false);
+    expect(tripwire.settle("turn-1", observedTurnEvidence("model_output"))).toStrictEqual({
+      tripped: false,
+      reason: "no-correlated-frame",
+    });
+  });
+
+  it("leaves a retained decision alone when a turn it holds no frame for settles", () => {
+    // The `no-correlated-frame` arm stores nothing, and that is load-bearing: on
+    // the same-read-chunk interleave the terminal settles before any frame is
+    // correlated, and a stored pass there would overwrite the trip the re-keyed
+    // frame produces a microtask later.
+    const tripwire = new OutboundFrameTripwire();
+    tripwire.register("turn-1", frameFor("participant_text"));
+    tripwire.settle("turn-1", UNRECOGNIZED_TURN_EVIDENCE);
+
+    tripwire.settle("turn-1", observedTurnEvidence("model_output"));
+
+    expect(tripwire.decisionFor("turn-1")?.tripped).toBe(true);
+  });
+
+  it("re-keys every frame on a run, not merely the first", () => {
+    const tripwire = new OutboundFrameTripwire();
+    tripwire.register("run-1", frameFor("participant_text"));
+    tripwire.register("run-1", frameFor("participant_text", "/clear"));
+    tripwire.recorrelate("run-1", "turn-1");
+
+    expect(tripwire.hasPendingFrame("run-1")).toBe(false);
+    expect(tripwire.hasPendingFrame("turn-1")).toBe(true);
+    expect(tripwire.settle("turn-1", UNRECOGNIZED_TURN_EVIDENCE).tripped).toBe(true);
+    expect(tripwire.hasPendingFrame("turn-1")).toBe(false);
+  });
+
+  it("drops one frame without disturbing the others on its turn", () => {
+    // The write-failure counterpart of `register`. A steer whose send threw put
+    // no bytes on the wire, so leaving it registered would trip the turn its
+    // text never reached — while dropping the whole key would silence the frame
+    // that opened the turn and is still owed a ruling.
+    const tripwire = new OutboundFrameTripwire();
+    const openingFrame = frameFor("participant_text");
+    const failedSteerFrame = frameFor("participant_text", "/clear");
+    tripwire.register("turn-1", openingFrame);
+    tripwire.register("turn-1", failedSteerFrame);
+
+    tripwire.forgetFrame(failedSteerFrame);
+
+    expect(tripwire.hasPendingFrame("turn-1")).toBe(true);
+    expect(tripwire.settle("turn-1", observedTurnEvidence("model_output"))).toStrictEqual({
+      tripped: false,
+      reason: "turn-evidence-observed",
+    });
+  });
+
   it("holds a bounded number of unsettled frames, ageing out the oldest", () => {
     // A session that dies without a terminal leaves its registration pending
     // forever. The cap is generous against the real load — both providers settle
@@ -619,12 +726,12 @@ describe("outbound frame tripwire", () => {
 describe("provider binding quarantine", () => {
   it("refuses an attach to a disposed binding with the code the trip carried", () => {
     const quarantine = new ProviderBindingQuarantine();
-    quarantine.dispose("run-1");
+    quarantine.disposeRun("run-1");
 
-    expect(quarantine.isDisposed("run-1")).toBe(true);
-    expect(() => quarantine.assertAttachable("run-1")).toThrow(TextNeutralizationRefusedError);
+    expect(quarantine.isRunDisposed("run-1")).toBe(true);
+    expect(() => quarantine.assertRunAttachable("run-1")).toThrow(TextNeutralizationRefusedError);
     try {
-      quarantine.assertAttachable("run-1");
+      quarantine.assertRunAttachable("run-1");
       throw new Error("expected a refusal");
     } catch (error) {
       expect((error as TextNeutralizationRefusedError).code).toBe(TEXT_NEUTRALIZATION_REFUSAL_CODE);
@@ -633,9 +740,46 @@ describe("provider binding quarantine", () => {
 
   it("leaves an unaffected binding attachable", () => {
     const quarantine = new ProviderBindingQuarantine();
-    quarantine.dispose("run-1");
+    quarantine.disposeRun("run-1");
 
-    expect(() => quarantine.assertAttachable("run-2")).not.toThrow();
+    expect(() => quarantine.assertRunAttachable("run-2")).not.toThrow();
+  });
+
+  it("refuses the session a trip condemned, not only the run that was on it", () => {
+    // The axis a run-keyed quarantine cannot reach: a later run resolves a
+    // SESSION, so a refusal keyed only by run id would let it dispatch into the
+    // process that swallowed the text.
+    const quarantine = new ProviderBindingQuarantine();
+    quarantine.disposeSession("session-1");
+
+    expect(quarantine.isSessionDisposed("session-1")).toBe(true);
+    expect(() => quarantine.assertSessionAttachable("session-1")).toThrow(
+      TextNeutralizationRefusedError,
+    );
+    expect(() => quarantine.assertRunAttachable("session-1")).not.toThrow();
+    expect(() => quarantine.assertSessionAttachable("session-2")).not.toThrow();
+  });
+
+  it("releases a session id whose binding a fresh spawn replaced", () => {
+    // The quarantine names a binding, not an identifier: the promised recovery
+    // is a fresh process, and refusing the id forever would refuse the recovery.
+    const quarantine = new ProviderBindingQuarantine();
+    quarantine.disposeSession("session-1");
+    quarantine.disposeRun("run-1");
+    quarantine.releaseSession("session-1");
+
+    expect(() => quarantine.assertSessionAttachable("session-1")).not.toThrow();
+    // The tripped run stays refused: it is terminal, and no spawn revives it.
+    expect(() => quarantine.assertRunAttachable("run-1")).toThrow(TextNeutralizationRefusedError);
+  });
+
+  it("names its subject in the refusal so one cause reads as one cause", () => {
+    const quarantine = new ProviderBindingQuarantine();
+    quarantine.disposeRun("run-1");
+    quarantine.disposeSession("session-1");
+
+    expect(() => quarantine.assertRunAttachable("run-1")).toThrow(/run run-1/);
+    expect(() => quarantine.assertSessionAttachable("session-1")).toThrow(/session session-1/);
   });
 
   it("holds a bounded number of disposals, ageing out the oldest", () => {
@@ -647,28 +791,53 @@ describe("provider binding quarantine", () => {
     const quarantine = new ProviderBindingQuarantine();
     const disposedRunCount = 200;
     for (let index = 0; index < disposedRunCount; index += 1) {
-      quarantine.dispose(`run-${String(index)}`);
+      quarantine.disposeRun(`run-${String(index)}`);
     }
 
-    expect(quarantine.isDisposed("run-0")).toBe(false);
-    expect(quarantine.isDisposed(`run-${String(disposedRunCount - 1)}`)).toBe(true);
+    expect(quarantine.isRunDisposed("run-0")).toBe(false);
+    expect(quarantine.isRunDisposed(`run-${String(disposedRunCount - 1)}`)).toBe(true);
+  });
+
+  it("caps the session axis independently of the run axis", () => {
+    // Separate sets, so a busy run axis cannot age a session refusal out from
+    // under the session it condemned.
+    const quarantine = new ProviderBindingQuarantine();
+    quarantine.disposeSession("session-1");
+    for (let index = 0; index < 200; index += 1) {
+      quarantine.disposeRun(`run-${String(index)}`);
+    }
+
+    expect(quarantine.isSessionDisposed("session-1")).toBe(true);
   });
 
   it("keeps a re-disposed binding at the newest position", () => {
     const quarantine = new ProviderBindingQuarantine();
-    quarantine.dispose("run-old");
+    quarantine.disposeRun("run-old");
     for (let index = 0; index < 100; index += 1) {
-      quarantine.dispose(`run-${String(index)}`);
-      quarantine.dispose("run-old");
+      quarantine.disposeRun(`run-${String(index)}`);
+      quarantine.disposeRun("run-old");
     }
 
-    expect(quarantine.isDisposed("run-old")).toBe(true);
+    expect(quarantine.isRunDisposed("run-old")).toBe(true);
   });
 });
 
 // --------------------------------------------------------------------------
 // The Claude driver, end to end
 // --------------------------------------------------------------------------
+
+/**
+ * Drains the microtask queue by yielding to the macrotask queue once.
+ *
+ * A counted `await Promise.resolve()` would pin these tests to an exact number
+ * of microtask hops, so any change to how the driver sequences its detached
+ * teardown would silently turn a real assertion into a hang.
+ */
+async function drainMicrotasks(): Promise<void> {
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, 0);
+  });
+}
 
 describe("Claude driver provider-bound text path", () => {
   interface Harness {
@@ -819,6 +988,73 @@ describe("Claude driver provider-bound text path", () => {
     expect(() => harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toThrow(
       TextNeutralizationRefusedError,
     );
+  });
+
+  it("refuses a later run on the SESSION a trip disposed, not only the run that was on it", async () => {
+    // The axis a run-keyed quarantine cannot reach. `startRun` resolves a
+    // SESSION, so the surviving slot would hand the next run straight back to
+    // the process that swallowed the participant's words — and the refusal has
+    // to be asked for BEFORE the live-session lookup, because the trip also
+    // disposes the channel and that lookup would otherwise answer
+    // `no_live_session`: a plausible wrong cause that reads as a race and
+    // invites a retry into the same swallow.
+    const harness = buildHarness();
+    const channel = await startRunWith(harness, "/status please", "participant_text");
+
+    channel.terminalFrameBody = CLAUDE_ZERO_TURN_RESULT_FRAME;
+    channel.emitStreamFrame("result/success");
+    await drainMicrotasks();
+
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_SECOND_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "carry on",
+      frameOrigin: "participant_text",
+    });
+    await expect(
+      harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID }),
+    ).rejects.toThrow(TextNeutralizationRefusedError);
+    // Nothing reached the provider: a refusal that still wrote would have
+    // dispatched into the condemned process.
+    expect(channel.sentWireTexts).toStrictEqual(["\n/status please"]);
+  });
+
+  it("tears the condemned channel down, so the promised recovery is a fresh spawn", async () => {
+    // The refusal alone leaves the process running with nothing holding it. The
+    // teardown is detached — it runs inside the channel's own terminal listener,
+    // which may neither wait on a child's death nor be unwound by one — so it is
+    // observed after a drain rather than synchronously.
+    const harness = buildHarness();
+    const channel = await startRunWith(harness, "/status please", "participant_text");
+
+    channel.terminalFrameBody = CLAUDE_ZERO_TURN_RESULT_FRAME;
+    channel.emitStreamFrame("result/success");
+    await drainMicrotasks();
+
+    expect(channel.disposals).toStrictEqual(["session_closed"]);
+    // The run terminal still landed: the teardown is a second act, never a
+    // replacement for the only user-visible surface a swallowed turn has.
+    expect(harness.failures).toHaveLength(1);
+  });
+
+  it("lets a fresh session under the same id run again after a trip", async () => {
+    // The quarantine names a BINDING, not an identifier. Refusing the id forever
+    // would refuse the very recovery the trip promises.
+    const harness = buildHarness();
+    const channel = await startRunWith(harness, "/status please", "participant_text");
+    channel.terminalFrameBody = CLAUDE_ZERO_TURN_RESULT_FRAME;
+    channel.emitStreamFrame("result/success");
+    await drainMicrotasks();
+
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_SECOND_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "carry on",
+      frameOrigin: "participant_text",
+    });
+
+    await expect(
+      harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID }),
+    ).resolves.toBeUndefined();
   });
 
   it("does not fail an ordinary turn", async () => {
