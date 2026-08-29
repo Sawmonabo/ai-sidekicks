@@ -69,6 +69,7 @@ interface Harness {
   dispatcher: CodexInterventionDispatcher;
   steerRun: ReturnType<typeof vi.fn>;
   interruptRun: ReturnType<typeof vi.fn>;
+  textNeutralizationDecisionForTurn: ReturnType<typeof vi.fn>;
   capabilities: ReturnType<typeof makeCapabilities>;
 }
 
@@ -89,10 +90,17 @@ function createHarness(
     },
   );
   const interruptRun = vi.fn(async (_params: InterruptRunParams): Promise<void> => {});
+  // The default answer is "no refusal known", which is the ordinary state: the
+  // provider turn a steer joins is still running when the steer resolves, so
+  // the driver has nothing to report yet. Every refusing case overrides it.
+  const textNeutralizationDecisionForTurn = vi.fn(
+    (_turnId: string): { readonly refused: boolean } => ({ refused: false }),
+  );
   const capabilities = makeCapabilities(overrides);
   const runtime: CodexInterventionRuntime = {
     steerRun,
     interruptRun,
+    textNeutralizationDecisionForTurn,
     ...runtimeOverrides,
   };
   return {
@@ -102,6 +110,7 @@ function createHarness(
     }),
     steerRun,
     interruptRun,
+    textNeutralizationDecisionForTurn,
     capabilities,
   };
 }
@@ -147,6 +156,10 @@ describe("CodexInterventionDispatcher native routing (Spec-005 §Required Behavi
       content: "focus on the failing test",
       expectedTurnId: "turn-01",
       clientIdempotencyKey: "idem-1",
+      // A steer directive is participant text, declared rather than defaulted:
+      // the absent-origin default neutralizes identically but would report
+      // `origin=unknown` on a trip, which is a worse answer than the true one.
+      frameOrigin: "participant_text",
     });
     expect(result).toEqual({ status: "applied" });
   });
@@ -177,6 +190,7 @@ describe("CodexInterventionDispatcher native routing (Spec-005 §Required Behavi
       content: "stop guessing",
       expectedTurnId: undefined,
       clientIdempotencyKey: "idem-1",
+      frameOrigin: "participant_text",
     });
   });
 

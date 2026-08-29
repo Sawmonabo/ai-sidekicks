@@ -420,7 +420,7 @@ describe("ClaudeSessionLifecycle.startRun", () => {
     await harness.lifecycle.startRun(buildStartRunParams());
 
     const channel = harness.transport.spawnedChannels[0];
-    expect(channel?.sentTextFrames).toStrictEqual([{ text: "review the diff" }]);
+    expect(channel?.sentWireTexts).toStrictEqual(["review the diff"]);
     expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBe(channel);
   });
 
@@ -461,7 +461,7 @@ describe("ClaudeSessionLifecycle.startRun", () => {
     await expect(
       harness.lifecycle.startRun({ ...buildStartRunParams(), admittedCostCapCents: 500 }),
     ).rejects.toMatchObject({ fields: { reason: "cost_cap_mismatch" } });
-    expect(harness.transport.spawnedChannels[0]?.sentTextFrames).toStrictEqual([]);
+    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual([]);
     expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
   });
 
@@ -479,7 +479,7 @@ describe("ClaudeSessionLifecycle.startRun", () => {
     await expect(
       harness.lifecycle.startRun({ ...buildStartRunParams(), admittedCostCapCents: 500 }),
     ).rejects.toMatchObject({ fields: { reason: "cost_cap_mismatch" } });
-    expect(harness.transport.spawnedChannels[0]?.sentTextFrames).toStrictEqual([]);
+    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual([]);
     expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
   });
 
@@ -502,9 +502,7 @@ describe("ClaudeSessionLifecycle.startRun", () => {
     // relaunch no spec sentence orders.
     await harness.lifecycle.startRun(buildStartRunParams());
 
-    expect(harness.transport.spawnedChannels[0]?.sentTextFrames).toStrictEqual([
-      { text: "review the diff" },
-    ]);
+    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual(["review the diff"]);
   });
 
   it("never starts a run whose posture disagrees with the spawned sandbox", async () => {
@@ -522,7 +520,7 @@ describe("ClaudeSessionLifecycle.startRun", () => {
     await expect(
       harness.lifecycle.startRun({ ...buildStartRunParams(), executionPosture: TRUSTED_POSTURE }),
     ).rejects.toMatchObject({ fields: { reason: "execution_posture_mismatch" } });
-    expect(harness.transport.spawnedChannels[0]?.sentTextFrames).toStrictEqual([]);
+    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual([]);
   });
 
   it("never starts a schema-constrained run inside a session spawned without a schema", async () => {
@@ -561,9 +559,7 @@ describe("ClaudeSessionLifecycle.startRun spawn-bound realization (agreeing runs
 
     await harness.lifecycle.startRun({ ...buildStartRunParams(), admittedCostCapCents: 500 });
 
-    expect(harness.transport.spawnedChannels[0]?.sentTextFrames).toStrictEqual([
-      { text: "review the diff" },
-    ]);
+    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual(["review the diff"]);
   });
 
   it("starts a run whose posture agrees with the spawned sandbox by value, not by reference", async () => {
@@ -582,9 +578,7 @@ describe("ClaudeSessionLifecycle.startRun spawn-bound realization (agreeing runs
       executionPosture: { ...SANDBOXED_POSTURE },
     });
 
-    expect(harness.transport.spawnedChannels[0]?.sentTextFrames).toStrictEqual([
-      { text: "review the diff" },
-    ]);
+    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual(["review the diff"]);
   });
 
   it("starts a schema-constrained run inside a session that was spawned schema-bound", async () => {
@@ -600,9 +594,7 @@ describe("ClaudeSessionLifecycle.startRun spawn-bound realization (agreeing runs
       outputSchema: { type: "object" },
     });
 
-    expect(harness.transport.spawnedChannels[0]?.sentTextFrames).toStrictEqual([
-      { text: "review the diff" },
-    ]);
+    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual(["review the diff"]);
   });
 });
 
@@ -683,7 +675,7 @@ describe("ClaudeSessionLifecycle.startRun execution-posture axes", () => {
       code: "driver.unavailable",
       fields: { reason: "execution_posture_mismatch" },
     });
-    expect(harness.transport.spawnedChannels[0]?.sentTextFrames).toStrictEqual([]);
+    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual([]);
   });
 
   it("names the first divergent axis in the refusal detail", async () => {
@@ -717,9 +709,7 @@ describe("ClaudeSessionLifecycle.startRun execution-posture axes", () => {
       },
     });
 
-    expect(harness.transport.spawnedChannels[0]?.sentTextFrames).toStrictEqual([
-      { text: "review the diff" },
-    ]);
+    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual(["review the diff"]);
   });
 
   it("never starts a posture-declaring run in a session spawned with no posture", async () => {
@@ -745,9 +735,7 @@ describe("ClaudeSessionLifecycle.startRun execution-posture axes", () => {
     // The one-directional rule is unchanged by the axis widening.
     await harness.lifecycle.startRun(buildStartRunParams());
 
-    expect(harness.transport.spawnedChannels[0]?.sentTextFrames).toStrictEqual([
-      { text: "review the diff" },
-    ]);
+    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual(["review the diff"]);
   });
 });
 
@@ -790,7 +778,7 @@ describe("ClaudeSessionLifecycle.startRun output-schema identity", () => {
       code: "driver.unavailable",
       fields: { reason: "output_schema_mismatch" },
     });
-    expect(harness.transport.spawnedChannels[0]?.sentTextFrames).toStrictEqual([]);
+    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual([]);
   });
 
   it("admits the same schema written with its keys in a different order", async () => {
@@ -806,9 +794,7 @@ describe("ClaudeSessionLifecycle.startRun output-schema identity", () => {
       },
     });
 
-    expect(harness.transport.spawnedChannels[0]?.sentTextFrames).toStrictEqual([
-      { text: "review the diff" },
-    ]);
+    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual(["review the diff"]);
   });
 
   it("refuses a schema differing only in ARRAY order, which is semantic", async () => {
@@ -842,9 +828,7 @@ describe("ClaudeSessionLifecycle.startRun output-schema identity", () => {
 
     await harness.lifecycle.startRun(buildStartRunParams());
 
-    expect(harness.transport.spawnedChannels[0]?.sentTextFrames).toStrictEqual([
-      { text: "review the diff" },
-    ]);
+    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual(["review the diff"]);
   });
 });
 
@@ -1373,10 +1357,7 @@ describe("ClaudeSessionLifecycle run-route retirement on turn terminal", () => {
     await harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID });
 
     expect(harness.lifecycle.findChannelForRun(TEST_SECOND_RUN_ID)).toBe(channel);
-    expect(channel.sentTextFrames).toStrictEqual([
-      { text: "review the diff" },
-      { text: "now the next task" },
-    ]);
+    expect(channel.sentWireTexts).toStrictEqual(["review the diff", "now the next task"]);
   });
 });
 

@@ -73,6 +73,26 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
     return this.sentTextFrames.length + this.controlRequests.length;
   }
 
+  /**
+   * The bytes each frame actually put on the wire, in order.
+   *
+   * Read from `wireText` rather than from the frame object, which is what makes
+   * an assertion on it a BYTE-level assertion: a neutralized frame and its
+   * author's text are different strings, and a test comparing whole frame
+   * objects would pass while reading neither.
+   */
+  get sentWireTexts(): string[] {
+    return this.sentTextFrames.map((frame) => frame.wireText);
+  }
+
+  /**
+   * The author's bytes behind each frame, in order — what the daemon persists,
+   * events, replays, and rewinds to. Neutralization must never touch these.
+   */
+  get sentAuthoredTexts(): string[] {
+    return this.sentTextFrames.map((frame) => frame.authoredText);
+  }
+
   async sendUserText(frame: ClaudeUserTextFrame): Promise<void> {
     if (this.sendUserTextFailure !== undefined) {
       throw this.sendUserTextFailure;
@@ -98,14 +118,30 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
   // that runs inside the driver's adoption window.
   onTurnTerminalFailure: Error | undefined = undefined;
 
-  onTurnTerminal(listener: () => void): void {
+  onTurnTerminal(listener: (terminalFrame: unknown) => void): void {
     if (this.onTurnTerminalFailure !== undefined) {
       throw this.onTurnTerminalFailure;
     }
     this.turnTerminalListener = listener;
   }
 
-  turnTerminalListener: (() => void) | undefined = undefined;
+  turnTerminalListener: ((terminalFrame: unknown) => void) | undefined = undefined;
+
+  /**
+   * The terminal `result` body this double hands the driver's turn-terminal
+   * hook, overridable per test.
+   *
+   * The default carries POSITIVE turn evidence, so an ordinary terminal does
+   * not trip the T3.18 tripwire and every test in this file that merely needs a
+   * turn to end keeps meaning what it meant. A test exercising the tripwire
+   * overrides it — with a zero-turn body, or with a shape the classifier does
+   * not recognize.
+   *
+   * The double supplies a body at all because the transport obligation says it
+   * must: the hook carries the frame, and a transport that passed nothing would
+   * be handing the driver an unrecognized envelope on every turn.
+   */
+  terminalFrameBody: unknown = undefined;
 
   // The `onInboundFrame` half of the same discipline. Registration failure is
   // kept on its own switch because the two hooks register at different points
@@ -141,8 +177,8 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
    * a double that delivered regardless — or that delivered only `project` —
    * would let a routing regression pass every test in this file. The
    * terminal-vs-non-terminal discriminant stays here too: a real transport
-   * knows which terminal it saw, and the driver's `onTurnTerminal` hook
-   * deliberately carries no payload.
+   * knows which terminal it saw, and it is the transport that hands the hook
+   * the terminal frame body.
    */
   emitStreamFrame(
     frameKind: string,
@@ -167,7 +203,9 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
     }
     this.deliveredFrameKinds.push(frameKind);
     if (frameKind.startsWith("result/")) {
-      this.turnTerminalListener?.();
+      this.turnTerminalListener?.(
+        this.terminalFrameBody ?? synthesizeTurnEvidenceResult(frameKind),
+      );
     }
     return route;
   }
@@ -362,4 +400,25 @@ export function makeSilentDriverDiagnostics(): DriverDiagnosticsEmitter {
     logSink: { record: () => undefined },
     counterSink: { increment: () => undefined },
   });
+}
+
+/**
+ * A `result` frame body carrying positive turn evidence, for the default
+ * terminal a test drives when the tripwire is not what it is testing.
+ *
+ * The numbers are shaped after the measured ordinary-turn reading recorded in
+ * `docs/reference/provider-wire/claude.md` rather than invented: a real turn
+ * reports a non-zero turn count, a non-zero API duration, a non-zero cost, and
+ * a populated per-model usage map, and all four move together.
+ */
+export function synthesizeTurnEvidenceResult(frameKind: string): Record<string, unknown> {
+  return {
+    type: "result",
+    subtype: frameKind.slice("result/".length),
+    is_error: frameKind !== "result/success",
+    num_turns: 1,
+    duration_api_ms: 2972,
+    total_cost_usd: 0.67144,
+    modelUsage: { "claude-fable-5": { inputTokens: 2, outputTokens: 98 } },
+  };
 }

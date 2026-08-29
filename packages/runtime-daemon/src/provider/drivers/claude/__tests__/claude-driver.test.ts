@@ -83,7 +83,7 @@ describe("ClaudeDriver", () => {
 
     expect(handle.resumeHandle).toBe(TEST_PINNED_PROVIDER_SESSION_ID);
     const channel = harness.transport.spawnedChannels[0];
-    expect(channel?.sentTextFrames).toStrictEqual([{ text: "review the diff" }]);
+    expect(channel?.sentWireTexts).toStrictEqual(["review the diff"]);
     expect(channel?.controlRequests).toStrictEqual([{ subtype: "interrupt", cancelQueued: false }]);
     expect(channel?.disposals).toStrictEqual(["session_closed"]);
   });

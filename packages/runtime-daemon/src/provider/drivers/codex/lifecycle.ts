@@ -190,10 +190,21 @@ import {
   CODEX_THREAD_STARTED_METHOD,
   CODEX_THREAD_TOKEN_USAGE_METHOD,
   CODEX_TURN_COMPLETED_METHOD,
+  classifyCodexTurnEvidence,
+  classifyCodexTurnEvidenceObservation,
   CodexTerminalEmissionGate,
   classifyCodexFrameFamilyForRouting,
   deriveCodexChildThreadAnnouncement,
 } from "./event-normalizer.js";
+import {
+  OutboundFrameTripwire,
+  OutboundTextFrameWriter,
+  ProviderBindingQuarantine,
+  composeTextNeutralizationRunFailure,
+  type OutboundTextFrame,
+  type TextNeutralityMechanismGrade,
+  type TextNeutralizationRunFailure,
+} from "../outbound-frame.js";
 import type { CodexSteerAcknowledgement, CodexSteerRunRequest } from "./intervention.js";
 
 // --------------------------------------------------------------------------
@@ -1298,6 +1309,18 @@ export interface CodexRunConfig {
   input: string;
   model?: string | undefined;
   clientUserMessageId?: string | undefined;
+  /**
+   * Why this run's opening text is being written (T3.18). Read off the untyped
+   * `agentConfig` as a plain string, so an off-union value is classified
+   * fail-closed by the frame writer rather than refused here — the daemon's run
+   * pipeline composes this text, and a parse refusal would fail a run for
+   * declaring its origin badly when neutralizing it is both safe and correct.
+   *
+   * ABSENT ALSO NEUTRALIZES, which is why this is a frame-origin discriminator
+   * and not a capability flag: an undeclared capability resolves fail-OPEN
+   * under I-005-2, and fail-open is the wrong default for this hazard.
+   */
+  frameOrigin?: string | undefined;
 }
 
 // --------------------------------------------------------------------------
@@ -1667,11 +1690,17 @@ export function parseCodexRunConfig(agentConfig: unknown): CodexRunConfig {
     "clientUserMessageId",
     "StartRunParams.agentConfig.clientUserMessageId",
   );
+  const frameOrigin = readOptionalString(
+    source,
+    "frameOrigin",
+    "StartRunParams.agentConfig.frameOrigin",
+  );
   return {
     sessionId,
     input,
     ...(model === undefined ? {} : { model }),
     ...(clientUserMessageId === undefined ? {} : { clientUserMessageId }),
+    ...(frameOrigin === undefined ? {} : { frameOrigin }),
   };
 }
 
@@ -2899,6 +2928,33 @@ export interface CodexLifecycleOptions extends CodexConnectionOptions {
    */
   readonly answerServerRequest?: CodexSessionServerRequestResponder | undefined;
   /**
+   * This leg's declared text-neutrality parity grade (T3.18).
+   *
+   * Defaults to `emulated`, the grade `Spec-005 §Parity Capability Mechanism
+   * Grades` records. The grade is a behavioral INPUT rather than a label, and
+   * it is injected rather than derived from the driver's name so that a
+   * re-grade is a one-value change with no code path behind it.
+   *
+   * Worth stating plainly, because the measurement invites the opposite
+   * conclusion: this transport was probed at the pin and performs NO
+   * client-side command parsing (`docs/reference/provider-wire/codex.md`). The
+   * default is still `emulated`, because the spec's cell governs the code and
+   * an amendment governs the cell — not a driver that re-grades itself against
+   * a probe.
+   */
+  readonly textNeutralityMechanismGrade?: TextNeutralityMechanismGrade | undefined;
+  /** Correlation minting for outbound text frames (T3.18). Injectable for tests. */
+  readonly mintOutboundFrameCorrelationId?: (() => string) | undefined;
+  /**
+   * Receives the run terminal a text-neutralization tripwire trip produces
+   * (T3.18). PRODUCER-ONLY: the driver states that the run failed and why, and
+   * the emission pipeline mints the envelope. The trip never raises a JSON-RPC
+   * error, so this is how the failure becomes visible.
+   */
+  readonly onTextNeutralizationFailure?:
+    | ((sessionId: SessionId, runId: RunId, failure: TextNeutralizationRunFailure) => void)
+    | undefined;
+  /**
    * The daemon-wide diagnostic band (T3.11).
    *
    * REQUIRED, and separate from `reportDiagnostic` on purpose: that sink is the
@@ -3114,6 +3170,14 @@ export class CodexLifecycleManager {
   readonly #options: CodexLifecycleOptions;
   readonly #newBindingId: () => string;
   readonly #turnStartTimeoutMs: number;
+  // T3.18. The writer is the ONLY composer of provider-bound text bytes on this
+  // leg — both `turn/start` and `turn/steer` take their input element from a
+  // frame it minted, and neither can build one itself. The tripwire correlates
+  // each written frame with the turn that settles it; the quarantine holds
+  // bindings a trip disposed.
+  readonly #outboundTextFrameWriter: OutboundTextFrameWriter;
+  readonly #outboundFrameTripwire = new OutboundFrameTripwire();
+  readonly #providerBindingQuarantine = new ProviderBindingQuarantine();
   readonly #sessions = new Map<SessionId, CodexSessionRecord>();
   // The P1-1 producer half. One gate per session, latched at the top of
   // `closeSession`; the terminal-emission boundary in `event-normalizer.ts` is
@@ -3154,6 +3218,29 @@ export class CodexLifecycleManager {
     this.#options = options;
     this.#newBindingId = options.newBindingId ?? ((): string => randomUUID());
     this.#turnStartTimeoutMs = options.turnStartTimeoutMs ?? DEFAULT_TURN_START_TIMEOUT_MS;
+    this.#outboundTextFrameWriter = new OutboundTextFrameWriter({
+      mechanismGrade: options.textNeutralityMechanismGrade ?? "emulated",
+      mintCorrelationId: options.mintOutboundFrameCorrelationId,
+    });
+  }
+
+  /**
+   * Composes the one provider-bound text frame for a run's opening turn
+   * (T3.18), and registers it with the tripwire under the run id.
+   *
+   * Registered under the RUN id and re-keyed to the turn id the moment the
+   * provider names one, because the correlation has to exist before the write:
+   * a turn that settles the instant the text lands would otherwise settle
+   * against nothing and let a swallow through. `#forgetOutboundFrame` clears
+   * the registration on every path where no turn will ever settle it.
+   */
+  #composeRunOpeningFrame(params: StartRunParams, runConfig: CodexRunConfig): OutboundTextFrame {
+    const frame = this.#outboundTextFrameWriter.compose({
+      text: runConfig.input,
+      origin: runConfig.frameOrigin,
+    });
+    this.#outboundFrameTripwire.register(params.runId, frame);
+    return frame;
   }
 
   /** Spawns a process and starts a fresh Codex thread. */
@@ -3401,15 +3488,26 @@ export class CodexLifecycleManager {
   async startRun(params: StartRunParams): Promise<void> {
     const runConfig = parseCodexRunConfig(params.agentConfig);
     const record = this.#requireSession(runConfig.sessionId);
+    const openingFrame = this.#composeRunOpeningFrame(params, runConfig);
     let turnId: string;
     try {
-      turnId = readTurnId(await this.#requestTurnStart(record, runConfig, params), "turn/start");
+      turnId = readTurnId(
+        await this.#requestTurnStart(record, runConfig, params, openingFrame),
+        "turn/start",
+      );
     } catch (cause) {
+      // No turn will ever settle this frame, so its registration is dropped
+      // rather than left to be settled by an unrelated later turn that happens
+      // to reuse the key.
+      this.#outboundFrameTripwire.forget(params.runId);
       if (isAmbiguousTurnStartOutcome(cause)) {
         await this.#disposeAmbiguousSession(record);
       }
       throw cause;
     }
+    // The provider has named the turn, so the correlation moves onto the key the
+    // terminal notification will actually carry.
+    this.#outboundFrameTripwire.recorrelate(params.runId, turnId);
     // Everything from here is ONE synchronous run, so a single slot check covers
     // both the install and the terminal-memory consume below it.
     if (!this.#stillHoldsSlot(record)) {
@@ -3470,12 +3568,18 @@ export class CodexLifecycleManager {
     record: CodexSessionRecord,
     runConfig: CodexRunConfig,
     params: StartRunParams,
+    openingFrame: OutboundTextFrame,
   ): Promise<unknown> {
     return await record.connection.request(
       "turn/start",
       {
         threadId: record.threadId,
-        input: [{ type: "text", text: runConfig.input, text_elements: [] }],
+        // T3.18. The bytes come off a frame this method cannot construct, so
+        // the neutralization is structurally on the path rather than a call-site
+        // convention. `runConfig.input` is deliberately NOT read here — the
+        // author's text stays on the frame as `authoredText`, which is what the
+        // daemon persists, events, and replays.
+        input: [{ type: "text", text: openingFrame.wireText, text_elements: [] }],
         // The pin that actually carries the security property. A TURN is what
         // generates approval requests, and `TurnStartParams.approvalsReviewer` is
         // documented as overriding routing for "this turn and subsequent turns"
@@ -4397,9 +4501,19 @@ export class CodexLifecycleManager {
     // grades the ack against what actually went on the wire, not against the
     // caller's optional hint (P3-1).
     const targetedTurnId = request.expectedTurnId ?? turnId;
+    // T3.18. The steer directive is the SECOND provider-bound text path on this
+    // leg and takes the identical treatment: composed by the writer, correlated
+    // against the turn it is steering, and written as `wireText`. Registered
+    // against `targetedTurnId` rather than the run id because a steer joins a
+    // turn that already exists — there is no later re-keying moment.
+    const steerFrame = this.#outboundTextFrameWriter.compose({
+      text: request.content,
+      origin: request.frameOrigin,
+    });
+    this.#outboundFrameTripwire.register(targetedTurnId, steerFrame);
     const response = await record.connection.request("turn/steer", {
       threadId: record.threadId,
-      input: [{ type: "text", text: request.content, text_elements: [] }],
+      input: [{ type: "text", text: steerFrame.wireText, text_elements: [] }],
       expectedTurnId: targetedTurnId,
       // P0-3: the REQUESTER's key, verbatim and never re-minted here — a fresh
       // value per retry is exactly what the daemon's `interventions` dedupe guard
@@ -4795,6 +4909,15 @@ export class CodexLifecycleManager {
    * intervention target a turn id the provider retired long ago.
    */
   #observeServerNotification(sessionId: SessionId, method: string, params: unknown): void {
+    // T3.18, in-flight half. Evidence accrues across the turn because this
+    // provider's terminal notification does not always carry the item list —
+    // `itemsView` can read `notLoaded` — so a classifier that only ever read
+    // the settling frame would call a real turn evidence-free. The observation
+    // is keyed by turn id, which is what the item notifications carry.
+    const inFlightEvidence = classifyCodexTurnEvidenceObservation(method, params);
+    if (inFlightEvidence !== null) {
+      this.#outboundFrameTripwire.observe(inFlightEvidence.turnId, inFlightEvidence.observation);
+    }
     if (method !== CODEX_TURN_COMPLETED_NOTIFICATION) {
       return;
     }
@@ -4819,9 +4942,27 @@ export class CodexLifecycleManager {
     // Keyed by TURN id, not by run id. A run whose route was superseded (by a
     // resume) or already retired (by an interrupt) must not have a NEWER turn
     // cleared out from under it by a late terminal for the old one.
+    // T3.18. Ruled BEFORE the routes are retired, because the run ids the
+    // failure is reported against are read from the very map the retirement
+    // empties. The decision is retained by the tripwire, which is what lets the
+    // intervention dispatcher answer a steer that has already been ruled on.
+    const decision = this.#outboundFrameTripwire.settle(turnId, classifyCodexTurnEvidence(params));
+
     let matchedRoute = false;
     for (const [runId, activeTurnId] of record.activeTurnIdByRunId) {
       if (activeTurnId === turnId) {
+        if (decision.tripped) {
+          // Quarantine first, then report: a consumer reacting synchronously to
+          // the terminal must not be able to attach to the process that just
+          // swallowed the text. The process itself is not killed here —
+          // disposal is a process fact the supervisor owns.
+          this.#providerBindingQuarantine.dispose(runId);
+          this.#reportTextNeutralizationFailure(
+            sessionId,
+            runId,
+            composeTextNeutralizationRunFailure(decision),
+          );
+        }
         record.activeTurnIdByRunId.delete(runId);
         this.#sessionIdByRunId.delete(runId);
         matchedRoute = true;
@@ -4829,6 +4970,40 @@ export class CodexLifecycleManager {
     }
     if (!matchedRoute) {
       rememberTerminatedTurn(record, turnId);
+    }
+  }
+
+  /**
+   * The retained tripwire decision for a turn (T3.18).
+   *
+   * Read by the intervention dispatcher so a steer whose turn has ALREADY been
+   * ruled swallowed can settle `degraded` carrying the refusal code. That is
+   * the whole of the member's best-effort character: the dispatcher asks once,
+   * at the moment its own result resolves, and never holds the call open
+   * waiting for a settlement that may be arbitrarily far away.
+   */
+  textNeutralizationDecisionForTurn(turnId: string): { readonly refused: boolean } {
+    return { refused: this.#outboundFrameTripwire.decisionFor(turnId)?.tripped === true };
+  }
+
+  // A throwing consumer must not become a second failure on top of the one being
+  // reported: the run terminal is the guarantee, and losing it because a
+  // listener threw would leave the swallowed turn with no record at all.
+  #reportTextNeutralizationFailure(
+    sessionId: SessionId,
+    runId: RunId,
+    failure: TextNeutralizationRunFailure,
+  ): void {
+    try {
+      this.#options.onTextNeutralizationFailure?.(sessionId, runId, failure);
+    } catch (cause) {
+      this.#options.diagnostics.emit({
+        provider: "codex",
+        kind: "text_neutralization_trip_report_failed",
+        rawWireType: null,
+        dispositionReason: normalizeProviderFailureDetail(cause),
+        details: { sessionId, runId, providerFailureDetail: failure.providerFailureDetail },
+      });
     }
   }
 
@@ -4905,7 +5080,23 @@ export class CodexLifecycleManager {
     return record;
   }
 
+  /**
+   * Resolves the live turn a steer or an interrupt acts on.
+   *
+   * The quarantine is consulted FIRST, and the ordering is the point (T3.18).
+   * A trip disposes the run's binding and retires its route, so without this
+   * check the very next steer would fail with "no active turn" — a plausible
+   * wrong cause that reads as a race and invites a retry into the process that
+   * already swallowed the participant's words. This is the Codex half of the
+   * assertion that separates FAILED THE RUN from QUARANTINED THE PROCESS; the
+   * Claude half sits on `findChannelForRun`, which its interrupt and cancel
+   * paths both pass through. The coverage is symmetric even though the call
+   * sites are not: Claude has no native steer, and its dispatcher degrades that
+   * arm without resolving the run at all, so there is no Claude steer path for
+   * a quarantine to guard.
+   */
   #requireActiveTurn(runId: RunId): { record: CodexSessionRecord; turnId: string } {
+    this.#providerBindingQuarantine.assertAttachable(runId);
     const sessionId = this.#sessionIdByRunId.get(runId);
     const record = sessionId === undefined ? undefined : this.#sessions.get(sessionId);
     const turnId = record?.activeTurnIdByRunId.get(runId);

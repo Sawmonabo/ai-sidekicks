@@ -142,6 +142,12 @@ export type DriverProviderName = "codex" | "claude";
  *   - `subagent_concurrency_breach` — leg 4's observability-only enforcement:
  *     concurrent subagents observed above the declared cap. A breach surfaces
  *     here and never fails the run.
+ *   - `text_neutralization_trip_report_failed` — T3.18: the tripwire ruled a
+ *     provider-bound text frame swallowed, and the consumer the run terminal is
+ *     reported to threw. The trip itself still stands and the binding is still
+ *     disposed; what this records is that the operator-visible terminal may not
+ *     have landed, which is the one part of a trip that a swallowed exception
+ *     could make invisible.
  */
 export type DriverDiagnosticKind =
   | "unmapped_wire_kind"
@@ -166,7 +172,8 @@ export type DriverDiagnosticKind =
   | "callback_tool_registry_withheld"
   | "callback_tool_invocation_refused"
   | "subagent_definition_disabled"
-  | "subagent_concurrency_breach";
+  | "subagent_concurrency_breach"
+  | "text_neutralization_trip_report_failed";
 
 /**
  * One operator-visible daemon diagnostic.
@@ -222,6 +229,7 @@ export const DRIVER_DIAGNOSTIC_COUNTER_NAMES: Readonly<Record<DriverDiagnosticKi
     callback_tool_invocation_refused: "driver.callback_tool.invocation_refused",
     subagent_definition_disabled: "driver.subagent.definition_disabled",
     subagent_concurrency_breach: "driver.subagent.concurrency_breach",
+    text_neutralization_trip_report_failed: "driver.text_neutralization.trip_report_failed",
   });
 
 // --------------------------------------------------------------------------

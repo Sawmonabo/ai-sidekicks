@@ -43,6 +43,7 @@ import {
 } from "@ai-sidekicks/contracts";
 
 import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
+import { TextNeutralizationRefusedError } from "../../outbound-frame.js";
 import type { SubagentLifecycleEmission } from "../../../thread-frame-router.js";
 import type { CumulativeAxisReadings, MeteredUsageDelta } from "../../../usage-delta-accountant.js";
 import {
@@ -2785,6 +2786,43 @@ describe("CodexLifecycleManager turn route lifetime", () => {
       expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
     },
   );
+
+  it("refuses a later steer against a binding a text-neutralization trip disposed", async () => {
+    // The assertion that separates FAILED THE RUN from QUARANTINED THE PROCESS.
+    // A trip retires the route as well as disposing the binding, so without the
+    // quarantine check this steer would fail with "no active turn" — a
+    // plausible wrong cause that reads as a race and invites a retry into the
+    // process that already swallowed the participant's words.
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: {
+        sessionId: SESSION_ID,
+        input: "/status please",
+        frameOrigin: "participant_text",
+      },
+    });
+
+    // A settled turn carrying no model output and no declared failure: the
+    // provider reported success for a turn that never reached a model.
+    harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
+    await Promise.resolve();
+
+    await expect(
+      harness.manager.steerRun({
+        runId: RUN_ID,
+        content: "actually, stop",
+        clientIdempotencyKey: "steer-after-trip",
+        frameOrigin: "participant_text",
+      }),
+    ).rejects.toThrow(TextNeutralizationRefusedError);
+    await expect(harness.manager.interruptRun({ runId: RUN_ID })).rejects.toThrow(
+      TextNeutralizationRefusedError,
+    );
+  });
 
   it("keeps the route while the turn is still inProgress", async () => {
     const harness = createManagerHarness();

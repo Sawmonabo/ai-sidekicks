@@ -711,9 +711,24 @@ export interface CancelPayload {
 // shape mirrors the ratified `docs/architecture/contracts/api-payload-contracts.md §Plan-005 — Provider Driver Contract (Internal Interface)` envelope (Phase-4
 // decision #3). Non-transforming object → double-`T` annotation per
 // session.ts:289-294.
+//
+// `refusalCode` is additive-optional and closed to ONE literal, registered in
+// `docs/architecture/contracts/error-contracts.md` §Driver. It is set when a
+// driver-boundary text neutralization failure is already classified at the
+// moment this result resolves, and it rides the result rather than a JSON-RPC
+// error because an unsupported-or-refused intervention is DATA under ADR-011,
+// not an exception. It is BEST-EFFORT BY CONSTRUCTION: the driver does not hold
+// the intervention call open waiting for the provider turn to settle, so the
+// member is absent whenever settlement lands after this result does. The run's
+// own `run.failed` terminal is the guarantee on every path; this member is the
+// second surface, never the only one. Deliberately NOT `.strict()`-exempt and
+// NOT widened to a general refusal channel — a second code would need its own
+// registration, and a union minted ahead of a second producer is a gate with no
+// reader.
 export interface DriverInterventionResult {
   status: "applied" | "degraded";
   fallbackAction?: string | undefined;
+  refusalCode?: "driver.text_neutralization_failed" | undefined;
 }
 export const DriverInterventionResultSchema: z.ZodType<
   DriverInterventionResult,
@@ -725,6 +740,13 @@ export const DriverInterventionResultSchema: z.ZodType<
       DRIVER_FALLBACK_ACTION_MAX_LEN,
       "DriverInterventionResult.fallbackAction",
     ).optional(),
+    // A CLOSED LITERAL, not `wireFreeFormString`. Every other free-form member
+    // of this envelope carries provider-authored prose and is length-bounded
+    // and sanitized on that basis; this one carries a code the daemon itself
+    // minted, so the schema that admits it should admit exactly that code and
+    // nothing else. A `z.string()` here would let a driver report an arbitrary
+    // refusal on a field whose consumers key on identity.
+    refusalCode: z.literal("driver.text_neutralization_failed").optional(),
   })
   .strict();
 

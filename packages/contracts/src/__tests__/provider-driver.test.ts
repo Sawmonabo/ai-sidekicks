@@ -795,8 +795,8 @@ describe("IdempotencyClassSchema — the idempotency-class enum", () => {
 //
 // Zod-validated because it parses UNTRUSTED provider output (the provider→daemon
 // trust boundary). Flat object (not discriminated): `applied` and `degraded`
-// differ only by the optional `fallbackAction` hint. `.strict()` rejects any
-// unknown key.
+// differ only by the optional `fallbackAction` hint and the optional
+// `refusalCode`. `.strict()` rejects any unknown key.
 
 describe("DriverInterventionResultSchema — intervention result envelope (trust boundary)", () => {
   it("parses an `applied` result with no fallbackAction", () => {
@@ -861,6 +861,40 @@ describe("DriverInterventionResultSchema — intervention result envelope (trust
     expect(
       DriverInterventionResultSchema.safeParse({ status: "degraded", fallbackAction: invalidValue })
         .success,
+    ).toBe(false);
+  });
+
+  // `refusalCode` is a CLOSED LITERAL, not a free-form string, and these two
+  // cases are what that choice buys. Its consumers key on identity — a client
+  // render and a driver-side settlement both branch on the one value — so a
+  // string-typed member would let a provider-facing surface report an arbitrary
+  // refusal that every reader would have to treat as unrecognized.
+  it("parses a `degraded` result carrying the text-neutralization refusal code", () => {
+    const parsed: DriverInterventionResult = DriverInterventionResultSchema.parse({
+      status: "degraded",
+      refusalCode: "driver.text_neutralization_failed",
+    });
+    expect(parsed.refusalCode).toBe("driver.text_neutralization_failed");
+    // No fallbackAction: a refusal names no alternative the caller could take.
+    expect(parsed.fallbackAction).toBeUndefined();
+  });
+
+  it("rejects a refusalCode outside the closed literal", () => {
+    expect(
+      DriverInterventionResultSchema.safeParse({
+        status: "degraded",
+        refusalCode: "some.other.code",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("still rejects an unknown key sitting beside a valid refusalCode (.strict() holds)", () => {
+    expect(
+      DriverInterventionResultSchema.safeParse({
+        status: "degraded",
+        refusalCode: "driver.text_neutralization_failed",
+        extra: "leak",
+      }).success,
     ).toBe(false);
   });
 

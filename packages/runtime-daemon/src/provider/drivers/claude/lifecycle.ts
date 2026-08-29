@@ -103,11 +103,22 @@ import {
   type MeteredUsageDelta,
 } from "../../usage-delta-accountant.js";
 
+import {
+  OutboundFrameTripwire,
+  OutboundTextFrameWriter,
+  ProviderBindingQuarantine,
+  UNRECOGNIZED_TURN_EVIDENCE,
+  composeTextNeutralizationRunFailure,
+  type OutboundTextFrame,
+  type TextNeutralityMechanismGrade,
+  type TextNeutralizationRunFailure,
+} from "../outbound-frame.js";
 import { CLAUDE_DRIVER_NAME } from "./capabilities.js";
 import {
   CLAUDE_SUBAGENT_START_SIGNAL,
   ClaudeTerminalEmissionGate,
   classifyClaudeFrameFamilyForRouting,
+  classifyClaudeTurnEvidence,
   normalizeClaudeSubagentLifecycle,
   type ClaudeSubagentLifecycleSignal,
 } from "./event-normalizer.js";
@@ -135,15 +146,17 @@ const UNDESCRIBED_FAILURE_DETAIL =
 // Transport ports — the seam between this driver band and the provider process
 // --------------------------------------------------------------------------
 
-// A single outbound participant-authored text frame. Deliberately a NARROW named
-// shape rather than a writable stream handle: T3.18's driver-boundary text
-// neutralization (I-005-7) adds its frame-origin discriminator here as an
-// additive member and neutralizes inside the shared frame writer, which is
-// impossible if callers hold a raw stream. This module therefore never composes
-// a wire frame and never mutates participant text.
-export interface ClaudeUserTextFrame {
-  readonly text: string;
-}
+// A single outbound participant-authored text frame.
+//
+// Now the SHARED branded frame rather than a local shape, which is what makes
+// the neutralization structural instead of conventional: `OutboundTextFrame`
+// carries a `#private` field, so it is nominal and no object literal satisfies
+// it. This module therefore CANNOT compose a wire frame — it can only obtain
+// one from the frame writer, which is the single place the sentinel is applied
+// and the correlation value is minted. The transport reads `wireText`; the
+// author's bytes travel beside it as `authoredText` and are never what this
+// band persists, events, or replays.
+export type ClaudeUserTextFrame = OutboundTextFrame;
 
 // The one control-request subtype this band drives. `interrupt` is censused at
 // the pin; `cancel` is NOT a control-request subtype at all
@@ -249,14 +262,20 @@ export interface ClaudeSessionChannel {
    * run would land on whatever turn the channel is running now. The listener
    * retires the route so that interrupt refuses instead.
    *
-   * The hook carries NO payload on purpose. The driver's response to every
-   * terminal is the same (retire the route), so passing the discriminant would
-   * hand this band a frame vocabulary it does not otherwise parse — the
-   * normalizer owns frame content, and it is deliberately unwired here. The
-   * transport already knows which terminal it saw; if a future caller needs the
-   * distinction, widening one hook is a smaller change than unpicking a coupling.
+   * The hook carries the terminal frame BODY, untyped and untrusted — the
+   * "future caller" its previous no-payload form named, arrived. T3.18's
+   * runtime tripwire has to ask whether a model turn demonstrably happened, and
+   * that answer lives in typed members of this exact frame (`num_turns`,
+   * `modelUsage`, `duration_api_ms`, `total_cost_usd`; see
+   * `docs/reference/provider-wire/claude.md`).
+   *
+   * The band's no-frame-vocabulary discipline is PRESERVED rather than
+   * abandoned: this module does not read a single member of the value. It
+   * forwards it to the normalizer's classifier, which is the module that owns
+   * frame content, and acts only on the classification that comes back. Typed
+   * `unknown` so that stays enforced rather than merely intended.
    */
-  onTurnTerminal(listener: () => void): void;
+  onTurnTerminal(listener: (terminalFrame: unknown) => void): void;
 
   /**
    * Registers the lifecycle's inbound-frame observer. Called EXACTLY ONCE, when
@@ -613,6 +632,18 @@ export interface ClaudeSessionTransport {
 export interface ClaudeRunDispatch {
   readonly sessionId: SessionId;
   readonly openingText: string;
+  /**
+   * Why this text is being written (T3.18). Typed as `string` rather than as
+   * the origin union because the resolver reads it out of daemon-side run
+   * state, so an off-union value is a runtime state the frame writer classifies
+   * fail-closed — it neutralizes and reports `origin=unknown` — rather than a
+   * compile error pushed onto a caller that cannot fix it.
+   *
+   * ABSENT ALSO NEUTRALIZES. That is the whole reason this is a frame-origin
+   * discriminator instead of a capability flag: an undeclared capability
+   * resolves fail-OPEN under I-005-2, which is exactly backwards here.
+   */
+  readonly frameOrigin?: string | undefined;
 }
 
 export interface ClaudeRunDispatchResolver {
@@ -622,6 +653,15 @@ export interface ClaudeRunDispatchResolver {
 // The read the intervention dispatcher (T3.7) needs, and the only coupling
 // between the two bands — narrowed to one method so `intervention.ts` cannot
 // reach session state it has no business mutating.
+//
+// THREE outcomes, not two, since T3.18: a live channel, `undefined` for a run
+// with no route, and a THROWN refusal for a run whose provider binding a
+// text-neutralization trip disposed. The third is deliberately not folded into
+// the second — "this run has no channel yet" invites a retry, and a retry into
+// a process that has already swallowed a participant's words is the one
+// response that must not happen. A caller that treats every non-channel answer
+// as absence will now see the refusal escape instead, which is the intended
+// direction: it names the real cause rather than a plausible wrong one.
 export interface ClaudeRunChannelLookup {
   findChannelForRun(runId: RunId): ClaudeSessionChannel | undefined;
 }
@@ -1552,6 +1592,31 @@ export interface ClaudeSessionLifecycleDependencies {
    */
   readonly onMeteredUsage?: ((sessionId: SessionId, delta: MeteredUsageDelta) => void) | undefined;
   /**
+   * This leg's declared text-neutrality parity grade (T3.18), defaulting to the
+   * grade `Spec-005 §Parity Capability Mechanism Grades` records for it.
+   *
+   * Injectable because the grade is a behavioral INPUT: a leg re-graded
+   * `native` by amendment flips this value, and no code path branches on the
+   * provider's name to decide it.
+   */
+  readonly textNeutralityMechanismGrade?: TextNeutralityMechanismGrade | undefined;
+  /** Correlation minting for outbound text frames (T3.18). Injectable for tests. */
+  readonly mintOutboundFrameCorrelationId?: (() => string) | undefined;
+  /**
+   * Receives the run terminal a text-neutralization tripwire trip produces
+   * (T3.18). PRODUCER-ONLY, exactly like the sibling callbacks above: the
+   * driver states that the run failed and why, and the emission pipeline mints
+   * the envelope.
+   *
+   * The trip NEVER raises a JSON-RPC error, so this callback is how the failure
+   * becomes visible at all. Absent wiring is a real state — the driver still
+   * disposes the binding — but it is a wiring defect, because a swallowed turn
+   * would then end with no terminal an operator can read.
+   */
+  readonly onTextNeutralizationFailure?:
+    | ((sessionId: SessionId, runId: RunId, failure: TextNeutralizationRunFailure) => void)
+    | undefined;
+  /**
    * Receives the `subagent.started` / `subagent.completed` pair for each
    * provider-attributed child (T3.11). PRODUCER-ONLY, and the child's ONLY
    * timeline presence: a registered child's content and lifecycle frames are
@@ -1692,6 +1757,17 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     | ((sessionId: SessionId, threadId: string) => CumulativeAxisReadings | undefined)
     | undefined;
   readonly #onMeteredUsage: ((sessionId: SessionId, delta: MeteredUsageDelta) => void) | undefined;
+  // T3.18. The writer is the ONLY composer of provider-bound text bytes on this
+  // leg; the tripwire correlates each written frame with the turn that settles
+  // it; the quarantine holds bindings a trip disposed. Constructed here rather
+  // than injected as a unit because all three are driver-session state whose
+  // lifetime is this object's.
+  readonly #outboundTextFrameWriter: OutboundTextFrameWriter;
+  readonly #outboundFrameTripwire: OutboundFrameTripwire = new OutboundFrameTripwire();
+  readonly #providerBindingQuarantine: ProviderBindingQuarantine = new ProviderBindingQuarantine();
+  readonly #onTextNeutralizationFailure:
+    | ((sessionId: SessionId, runId: RunId, failure: TextNeutralizationRunFailure) => void)
+    | undefined;
   readonly #onSubagentLifecycle:
     | ((sessionId: SessionId, emission: SubagentLifecycleEmission) => void)
     | undefined;
@@ -1727,6 +1803,15 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     this.#onReleasedFrameRoute = dependencies.onReleasedFrameRoute;
     this.#mintProviderSessionId = dependencies.mintProviderSessionId ?? randomUUID;
     this.#mintBindingId = dependencies.mintBindingId ?? randomUUID;
+    this.#onTextNeutralizationFailure = dependencies.onTextNeutralizationFailure;
+    this.#outboundTextFrameWriter = new OutboundTextFrameWriter({
+      // `emulated` is this leg's grade at the pin: the provider's own
+      // programmatic input surface intercepts command-shaped text client-side,
+      // measured first-party and recorded in
+      // `docs/reference/provider-wire/claude.md`.
+      mechanismGrade: dependencies.textNeutralityMechanismGrade ?? "emulated",
+      mintCorrelationId: dependencies.mintOutboundFrameCorrelationId,
+    });
   }
 
   async createSession(params: CreateSessionParams): Promise<ProviderSessionHandle> {
@@ -1944,7 +2029,28 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     // daemon can stop is strictly safer than a turn that may exist with no route
     // to it.
     this.#sessionIdByRunId.set(params.runId, dispatch.sessionId);
-    await live.channel.sendUserText({ text: dispatch.openingText });
+    // T3.18. The bytes are composed HERE and nowhere else: this band cannot
+    // build a `ClaudeUserTextFrame` itself, so the neutralization is on the only
+    // path to the wire rather than on a path a reviewer has to remember to
+    // check. Registered before the write for the same reason the binding is —
+    // a turn that settles the instant the text lands must find its correlation.
+    const frame = this.#outboundTextFrameWriter.compose({
+      text: dispatch.openingText,
+      origin: dispatch.frameOrigin,
+    });
+    this.#outboundFrameTripwire.register(params.runId, frame);
+    try {
+      await live.channel.sendUserText(frame);
+    } catch (error) {
+      // A write that threw put no bytes on the wire, so no turn will ever settle
+      // this registration. Dropping it is not tidiness: the route is deliberately
+      // LEFT in place above, so the next run on this session would be ruled
+      // alongside a stale registration, and that stale frame would trip on the
+      // next terminal — failing a run whose text never reached the provider and
+      // disposing a binding that swallowed nothing.
+      this.#outboundFrameTripwire.forget(params.runId);
+      throw error;
+    }
   }
 
   /**
@@ -2342,6 +2448,12 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   }
 
   findChannelForRun(runId: RunId): ClaudeSessionChannel | undefined {
+    // T3.18. A binding a tripwire trip disposed is refused rather than answered
+    // with `undefined`: the two states mean different things to the caller, and
+    // a quiet `undefined` would read as "this run has no channel yet" — the one
+    // reading that invites a retry into the same swallow. The refusal carries
+    // the SAME code the run terminal did, so one cause reads as one cause.
+    this.#providerBindingQuarantine.assertAttachable(runId);
     const sessionId = this.#sessionIdByRunId.get(runId);
     if (sessionId === undefined) {
       return undefined;
@@ -2942,7 +3054,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     //
     // Retiring routes only — never the slot. The session stays LIVE and startable
     // after a turn ends; it is the RUN that is over.
-    const retireOnTurnTerminal = (): void => {
+    const retireOnTurnTerminal = (terminalFrame: unknown): void => {
       // Identity-gated. A channel that has been disposed, quarantined, or
       // replaced can still fire — the driver holds no kill, so an undead process
       // may emit a terminal long after the daemon stopped listening to it — and
@@ -2953,6 +3065,11 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       if (this.#findLiveSession(live.sessionId)?.channel !== live.channel) {
         return;
       }
+      // T3.18, BEFORE the retirement. The tripwire is keyed by run id, and
+      // `#retireRunRoutes` is what empties the map those ids are read from — so
+      // ruling after retiring would rule on nothing and let every swallowed turn
+      // through.
+      this.#ruleTextNeutralizationTripwire(live.sessionId, terminalFrame);
       this.#retireRunRoutes(live.sessionId);
     };
     live.channel.onTurnTerminal(retireOnTurnTerminal);
@@ -3134,6 +3251,85 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   // the slot: route retirement and slot transition are separate concerns, and
   // fusing them is what previously let a close free the slot as a side effect of
   // clearing routes.
+  /**
+   * Rules the text-neutralization tripwire on a settling turn (T3.18).
+   *
+   * Claude serializes turns per session and its terminal frame names no run, so
+   * the run that just ended is the one routed to this session — the same
+   * identity argument `#retireRunRoutes` already runs on.
+   *
+   * ONE terminal settles ONE turn, so exactly one run may consume this
+   * terminal's evidence: the oldest with a frame still awaiting settlement.
+   * Ordering is taken over PENDING FRAMES, not over routes — a run whose write
+   * threw keeps its route and drops its registration, so ordering by route
+   * would let a run with nothing on the wire consume the evidence a live run
+   * needed. Spreading one turn's evidence across every correlated run is the
+   * masking this tripwire exists to prevent: a good turn would vouch for text
+   * that never ran.
+   *
+   * Any FURTHER correlated run is ruled against no evidence at all, which trips
+   * it. That is not a guess: `#retireRunRoutes` destroys every route for this
+   * session on this same terminal, so a second correlated run's frame is, at
+   * this moment, provably never going to be confirmed — text written to the
+   * provider with no model turn attributable to it, which is exactly what the
+   * refusal says. The driver does not create that state; this is what it does
+   * if the state ever appears.
+   *
+   * This band reads NO member of `terminalFrame`. It hands the value to the
+   * normalizer's classifier — the module that owns frame content — and acts on
+   * the classification alone.
+   */
+  #ruleTextNeutralizationTripwire(sessionId: SessionId, terminalFrame: unknown): void {
+    const correlatedRunIds = [...this.#sessionIdByRunId]
+      .filter(([, boundSessionId]) => boundSessionId === sessionId)
+      .map(([runId]) => runId)
+      .filter((runId) => this.#outboundFrameTripwire.hasPendingFrame(runId));
+    if (correlatedRunIds.length === 0) {
+      return;
+    }
+    const settlingClassification = classifyClaudeTurnEvidence(terminalFrame);
+    for (const [framePosition, runId] of correlatedRunIds.entries()) {
+      const classification =
+        framePosition === 0 ? settlingClassification : UNRECOGNIZED_TURN_EVIDENCE;
+      const decision = this.#outboundFrameTripwire.settle(runId, classification);
+      if (!decision.tripped) {
+        continue;
+      }
+      // Two acts, in this order. The binding is quarantined FIRST so that a
+      // caller reacting synchronously to the failure cannot attach to the
+      // process that just swallowed the text; the terminal is then reported.
+      // The provider process is not killed here — disposal is a process fact
+      // the supervisor owns, and this driver holds no kill.
+      this.#providerBindingQuarantine.dispose(runId);
+      this.#reportTextNeutralizationFailure(
+        sessionId,
+        runId,
+        composeTextNeutralizationRunFailure(decision),
+      );
+    }
+  }
+
+  // A throwing consumer must not become a second failure on top of the one being
+  // reported: the run terminal is the guarantee, and losing it because a listener
+  // threw would leave the swallowed turn with no record at all.
+  #reportTextNeutralizationFailure(
+    sessionId: SessionId,
+    runId: RunId,
+    failure: TextNeutralizationRunFailure,
+  ): void {
+    try {
+      this.#onTextNeutralizationFailure?.(sessionId, runId, failure);
+    } catch (error) {
+      this.#diagnostics.emit({
+        provider: "claude",
+        kind: "text_neutralization_trip_report_failed",
+        rawWireType: null,
+        dispositionReason: describeFailure(error),
+        details: { sessionId, runId, providerFailureDetail: failure.providerFailureDetail },
+      });
+    }
+  }
+
   #retireRunRoutes(sessionId: SessionId): void {
     for (const [runId, boundSessionId] of this.#sessionIdByRunId) {
       if (boundSessionId === sessionId) {

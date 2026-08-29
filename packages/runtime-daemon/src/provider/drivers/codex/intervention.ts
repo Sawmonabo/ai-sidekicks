@@ -104,6 +104,7 @@ import {
   type InterventionType,
   type RunId,
 } from "@ai-sidekicks/contracts";
+import { TEXT_NEUTRALIZATION_REFUSAL_CODE } from "../outbound-frame.js";
 
 /**
  * The fallback the orchestration layer performs when a native intervention is
@@ -150,6 +151,14 @@ export interface CodexSteerRunRequest {
    * at this boundary. See the header.
    */
   readonly clientIdempotencyKey: string;
+  /**
+   * Why this text is being written (T3.18). A steer directive is participant
+   * text, and this dispatcher says so explicitly rather than relying on the
+   * absent-origin default — the default is fail-closed and would neutralize
+   * identically, but it would report `origin=unknown` on a trip, which is a
+   * worse answer than the true one when the true one is known.
+   */
+  readonly frameOrigin?: string | undefined;
 }
 
 /**
@@ -182,6 +191,19 @@ export interface CodexSteerAcknowledgement {
 export interface CodexInterventionRuntime {
   steerRun(request: CodexSteerRunRequest): Promise<CodexSteerAcknowledgement>;
   interruptRun(params: InterruptRunParams): Promise<void>;
+  /**
+   * Whether the runtime has ALREADY ruled the given turn's provider-bound text
+   * swallowed (T3.18).
+   *
+   * A read, never a wait. The dispatcher asks once, at the moment its own
+   * result resolves, which is precisely what makes `refusalCode` best-effort BY
+   * CONSTRUCTION rather than by tolerance: holding an intervention call open
+   * until a provider turn settles would be an unbounded wait on a surface whose
+   * caller is synchronous. Where the answer is not yet known the member is
+   * simply absent, and the run's own `run.failed` terminal — which the runtime
+   * reports independently — remains the guarantee on every path.
+   */
+  textNeutralizationDecisionForTurn(turnId: string): { readonly refused: boolean };
 }
 
 /** Reads the live capability snapshot. Injected — `capabilities.ts` is T3.3's file. */
@@ -223,7 +245,25 @@ function degradeUnroutedInterventionType(params: never): DriverInterventionResul
  */
 function normalizeSteerAcknowledgement(
   acknowledgement: CodexSteerAcknowledgement,
+  textNeutralizationRefused: boolean,
 ): DriverInterventionResult {
+  // T3.18 takes precedence over the acknowledgement grade, and the ordering is
+  // the claim. A steer whose text the provider swallowed may well come back
+  // with a perfectly matching ack — the provider genuinely accepted a turn, it
+  // simply never showed the words to a model — so grading the ack first would
+  // report `applied` for a directive that was never delivered.
+  //
+  // The refusal arm carries NO `fallbackAction`, unlike every other degraded
+  // arm in this module. `queue_and_interrupt` is the remedy for "this provider
+  // cannot steer", and re-queueing the same text into the same swallow is not a
+  // remedy at all — it is the failure again. Withholding the hint is how the
+  // orchestration layer is told there is no local fallback for this one.
+  if (textNeutralizationRefused) {
+    return DriverInterventionResultSchema.parse({
+      status: "degraded",
+      refusalCode: TEXT_NEUTRALIZATION_REFUSAL_CODE,
+    });
+  }
   if (acknowledgement.acknowledgedTurnId === acknowledgement.targetedTurnId) {
     return DriverInterventionResultSchema.parse({ status: "applied" });
   }
@@ -264,13 +304,20 @@ export class CodexInterventionDispatcher {
 
     switch (params.type) {
       case "steer": {
+        const acknowledgement = await this.#runtime.steerRun({
+          runId: params.targetRunId,
+          content: params.payload.content,
+          expectedTurnId: params.payload.expectedTurnId,
+          clientIdempotencyKey: params.clientIdempotencyKey,
+          frameOrigin: "participant_text",
+        });
+        // Asked against the turn that actually went on the wire, not against the
+        // caller's optional hint — the same value P3-1 grades the ack on, for
+        // the same reason: a stale hint would ask about a turn this steer never
+        // touched.
         return normalizeSteerAcknowledgement(
-          await this.#runtime.steerRun({
-            runId: params.targetRunId,
-            content: params.payload.content,
-            expectedTurnId: params.payload.expectedTurnId,
-            clientIdempotencyKey: params.clientIdempotencyKey,
-          }),
+          acknowledgement,
+          this.#runtime.textNeutralizationDecisionForTurn(acknowledgement.targetedTurnId).refused,
         );
       }
       case "interrupt": {

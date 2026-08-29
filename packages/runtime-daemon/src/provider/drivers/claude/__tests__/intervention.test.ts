@@ -99,7 +99,7 @@ describe("ClaudeInterventionDispatcher steer (I-005-4)", () => {
 
     await harness.dispatcher.applyIntervention(buildSteerParams("try the other fix"));
 
-    expect(harness.channel.sentTextFrames).toStrictEqual([]);
+    expect(harness.channel.sentWireTexts).toStrictEqual([]);
     expect(harness.channel.controlRequests).toStrictEqual([]);
     expect(harness.channel.outboundCallCount).toBe(0);
   });
@@ -135,7 +135,7 @@ describe("ClaudeInterventionDispatcher native interrupt and cancel", () => {
     expect(harness.channel.controlRequests).toStrictEqual([
       { subtype: "interrupt", cancelQueued: false },
     ]);
-    expect(harness.channel.sentTextFrames).toStrictEqual([]);
+    expect(harness.channel.sentWireTexts).toStrictEqual([]);
     expect(DriverInterventionResultSchema.safeParse(result).success).toBe(true);
   });
 

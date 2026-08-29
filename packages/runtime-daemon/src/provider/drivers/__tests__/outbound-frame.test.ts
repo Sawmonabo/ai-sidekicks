@@ -1,0 +1,1044 @@
+// Driver-boundary provider-bound text neutralization and the runtime tripwire
+// (Plan-005 Phase 3, T3.18 / I-005-7).
+//
+// The hazard under test, stated once: a provider CLI whose programmatic input
+// surface also parses client-side commands consumes a message whose first word
+// is command-shaped and answers with a ZERO-TURN SUCCESS — a well-formed
+// terminal frame with no error, no model attribution, and no token accounting.
+// The participant's words never reach the model while every layer above reads a
+// completed turn.
+//
+// Two properties therefore have to hold together, and each is worthless alone:
+// the bytes on the wire are neutralized, AND a turn that settles with no
+// evidence of a model having run fails loudly instead of succeeding quietly.
+//
+// The conformance vectors here are RECORDED, not invented. The zero-turn
+// `result` body is the reading taken first-party against the pinned Claude
+// build; its ordinary-turn twin was captured in the same pass with the same
+// model and session shape. Both are pinned in
+// `docs/reference/provider-wire/claude.md`. The Codex bodies are shaped after
+// the app-server frames recorded in that family's sibling reference.
+
+import { describe, expect, it, vi } from "vitest";
+
+import type { DriverCapabilities, RunId, SessionId } from "@ai-sidekicks/contracts";
+import { DriverInterventionResultSchema } from "@ai-sidekicks/contracts";
+
+import { classifyClaudeTurnEvidence } from "../claude/event-normalizer.js";
+import {
+  CLAUDE_API_ERRORED_TURN_RESULT_FRAME,
+  CLAUDE_ORDINARY_TURN_RESULT_FRAME,
+  CLAUDE_ZERO_TURN_RESULT_FRAME,
+} from "../claude/__fixtures__/turn-evidence-transcripts.js";
+import {
+  ClaudeSessionLifecycle,
+  type ClaudeSessionLifecycleDependencies,
+} from "../claude/lifecycle.js";
+import {
+  buildCreateSessionParams,
+  buildStartRunParams,
+  FakeClaudeRunDispatchResolver,
+  FakeClaudeSessionTransport,
+  makeSilentDriverDiagnostics,
+  TEST_BINDING_ID,
+  TEST_PINNED_PROVIDER_SESSION_ID,
+  TEST_RUN_ID,
+  TEST_SECOND_RUN_ID,
+  TEST_SESSION_ID,
+} from "../claude/__tests__/claude-test-doubles.js";
+import {
+  codexCommandDispatchResponse,
+  codexQuotaExhaustedTurn,
+  codexTurnWithModelOutput,
+} from "../codex/__fixtures__/turn-evidence-transcripts.js";
+import {
+  classifyCodexTurnEvidence,
+  classifyCodexTurnEvidenceObservation,
+} from "../codex/event-normalizer.js";
+import {
+  CodexInterventionDispatcher,
+  type CodexInterventionRuntime,
+} from "../codex/intervention.js";
+import {
+  composeTextNeutralizationFailureDetail,
+  composeTextNeutralizationRunFailure,
+  isCommandShapedText,
+  observedTurnEvidence,
+  OutboundFrameTripwire,
+  OutboundTextFrameWriter,
+  OUTBOUND_FRAME_ORIGINS,
+  OUTBOUND_TEXT_NEUTRALIZATION_SENTINEL,
+  ProviderBindingQuarantine,
+  TextNeutralizationRefusedError,
+  TEXT_NEUTRALIZATION_REFUSAL_CODE,
+  UNRECOGNIZED_TURN_EVIDENCE,
+  type OutboundTextFrame,
+} from "../outbound-frame.js";
+
+// --------------------------------------------------------------------------
+// Byte vocabulary, named by code point
+// --------------------------------------------------------------------------
+//
+// Written as code points rather than as literal characters on purpose. Half of
+// these are invisible in an editor, and a test whose meaning depends on which
+// invisible byte a file happens to contain is a test nobody can review.
+
+/** The six ASCII whitespace bytes the predicate skips, and nothing else. */
+const ASCII_WHITESPACE_LEADS: readonly string[] = [0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x20].map(
+  (codePoint) => String.fromCodePoint(codePoint),
+);
+
+/** Two Unicode spaces that are NOT in that set. */
+const NO_BREAK_SPACE = String.fromCodePoint(0x00a0);
+const IDEOGRAPHIC_SPACE = String.fromCodePoint(0x3000);
+
+/**
+ * Sentinels the escalation ladder forbids at every rung: zero-width space,
+ * word joiner, byte-order mark, zero-width joiner, variation selector 16, and a
+ * Unicode tag character.
+ */
+const FORBIDDEN_INVISIBLE_SENTINELS: readonly string[] = [
+  0x200b, 0x2060, 0xfeff, 0x200d, 0xfe0f, 0xe0001,
+].map((codePoint) => String.fromCodePoint(codePoint));
+
+// --------------------------------------------------------------------------
+// The command-shaped predicate
+// --------------------------------------------------------------------------
+
+describe("command-shaped text predicate", () => {
+  it("treats a leading slash as command-shaped regardless of what follows it", () => {
+    // No command-name list is consulted, which is what makes these one case: the
+    // measured interception happens on the leading byte, upstream of any name
+    // lookup, so a consumer cannot dodge it by avoiding real command names.
+    expect(isCommandShapedText("/status")).toBe(true);
+    expect(isCommandShapedText("/zzqnotarealcommand and some prose")).toBe(true);
+    expect(isCommandShapedText("/foo:bar")).toBe(true);
+    expect(isCommandShapedText("/etc/hosts is the file I mean")).toBe(true);
+  });
+
+  it("skips exactly the six ASCII whitespace bytes before deciding", () => {
+    for (const lead of ASCII_WHITESPACE_LEADS) {
+      expect(isCommandShapedText(lead + "/status")).toBe(true);
+    }
+    expect(isCommandShapedText("  \t\r\n/status")).toBe(true);
+  });
+
+  it("does not treat a mid-text slash as command-shaped", () => {
+    // The discriminating control. A predicate that matched anywhere would
+    // neutralize ordinary prose — a silent corruption of every message that
+    // happens to mention a path.
+    expect(isCommandShapedText("please read /etc/hosts")).toBe(false);
+    expect(isCommandShapedText("use the a/b test")).toBe(false);
+    expect(isCommandShapedText("")).toBe(false);
+    expect(isCommandShapedText("   ")).toBe(false);
+  });
+
+  it("does not treat a non-ASCII whitespace lead as command-shaped", () => {
+    // A considered narrowing rather than an oversight: the predicate mirrors
+    // what a provider's own ASCII parser does, and over-matching would
+    // neutralize text no provider would have intercepted. The residual — a
+    // parser that DOES skip exotic whitespace — belongs to the tripwire, which
+    // is the fail-closed backstop for exactly that class.
+    expect(isCommandShapedText(NO_BREAK_SPACE + "/status")).toBe(false);
+    expect(isCommandShapedText(IDEOGRAPHIC_SPACE + "/status")).toBe(false);
+  });
+});
+
+// --------------------------------------------------------------------------
+// The writer — byte-level, with the grade as an input
+// --------------------------------------------------------------------------
+
+describe("outbound text frame writer", () => {
+  function writer(mechanismGrade: "native" | "emulated"): OutboundTextFrameWriter {
+    return new OutboundTextFrameWriter({
+      mechanismGrade,
+      mintCorrelationId: () => "correlation-1",
+    });
+  }
+
+  it("prepends exactly one newline on an emulated leg, and nothing else", () => {
+    const frame = writer("emulated").compose({
+      text: "/status please",
+      origin: "participant_text",
+    });
+
+    // Asserted as BYTES, not as "it was neutralized". The transform's whole
+    // claim is that it is the least visible one that works, and a boolean
+    // assertion would not notice a second newline, an added space, a zero-width
+    // character, or a reordering.
+    expect([...frame.wireText]).toStrictEqual(["\n", ...[..."/status please"]]);
+    expect(frame.wireText).toBe(OUTBOUND_TEXT_NEUTRALIZATION_SENTINEL + "/status please");
+    expect(frame.wireText.length).toBe("/status please".length + 1);
+    expect(frame.neutralized).toBe(true);
+  });
+
+  it("emits the author's bytes unchanged on a leg declared native", () => {
+    // The grade is a behavioral INPUT. Both legs are `emulated` today; this arm
+    // is driven from the test's own declaration, so a re-grade by amendment is a
+    // one-value change with no code path behind it.
+    const frame = writer("native").compose({ text: "/status please", origin: "participant_text" });
+
+    expect(frame.wireText).toBe("/status please");
+    expect(frame.neutralized).toBe(false);
+    expect([...frame.wireText][0]).toBe("/");
+  });
+
+  it("leaves non-command-shaped text byte-identical on both grades", () => {
+    for (const grade of ["emulated", "native"] as const) {
+      const frame = writer(grade).compose({
+        text: "please read /etc/hosts",
+        origin: "participant_text",
+      });
+      expect(frame.wireText).toBe("please read /etc/hosts");
+      expect(frame.neutralized).toBe(false);
+    }
+  });
+
+  it("delivers a driver_command frame verbatim and exempts it from the tripwire", () => {
+    // The one origin whose leading slash IS the payload. Neutralizing it would
+    // break the very dispatch it is asking for.
+    const frame = writer("emulated").compose({ text: "/compact", origin: "driver_command" });
+
+    expect(frame.wireText).toBe("/compact");
+    expect(frame.neutralized).toBe(false);
+    expect(frame.tripwireExempt).toBe(true);
+  });
+
+  it("neutralizes system_narration, which is not exempt", () => {
+    const frame = writer("emulated").compose({
+      text: "/system notice",
+      origin: "system_narration",
+    });
+
+    expect(frame.wireText).toBe("\n/system notice");
+    expect(frame.tripwireExempt).toBe(false);
+    expect(frame.detailOrigin).toBe("system_narration");
+  });
+
+  it("neutralizes an absent origin and an off-union origin alike, echoing neither", () => {
+    // Fail-closed, and the reason this is a frame-origin discriminator rather
+    // than a capability flag: an undeclared capability resolves fail-OPEN under
+    // I-005-2, which is exactly backwards for this hazard.
+    for (const origin of [undefined, "participant-text", "PARTICIPANT_TEXT", "arbitrary"]) {
+      const frame = writer("emulated").compose({ text: "/status", origin });
+      expect(frame.wireText).toBe("\n/status");
+      expect(frame.tripwireExempt).toBe(false);
+      expect(frame.origin).toBeNull();
+      // The writer never echoes a rejected value into a persisted,
+      // operator-visible string.
+      expect(frame.detailOrigin).toBe("unknown");
+    }
+  });
+
+  it("never mutates the author's bytes, whatever it puts on the wire", () => {
+    const authored = "/status please";
+    const frame = writer("emulated").compose({ text: authored, origin: "participant_text" });
+
+    // TRANSPORT-ONLY. `authoredText` is what the daemon persists, events,
+    // replays, and rewinds to, and it must carry no sentinel.
+    expect(frame.authoredText).toBe(authored);
+    expect(frame.authoredText.startsWith("\n")).toBe(false);
+    expect(frame.authoredText).not.toBe(frame.wireText);
+  });
+
+  it("mints a correlation value per frame", () => {
+    let counter = 0;
+    const perFrameWriter = new OutboundTextFrameWriter({
+      mechanismGrade: "emulated",
+      mintCorrelationId: () => "correlation-" + (counter += 1),
+    });
+
+    expect(perFrameWriter.compose({ text: "one", origin: "participant_text" }).correlationId).toBe(
+      "correlation-1",
+    );
+    expect(perFrameWriter.compose({ text: "two", origin: "participant_text" }).correlationId).toBe(
+      "correlation-2",
+    );
+  });
+
+  it("uses no invisible or zero-width character as its sentinel", () => {
+    // Prohibited at every rung of the escalation ladder: an invisible sentinel
+    // is indistinguishable from an attack to a reader diffing the bytes, and it
+    // survives copy-paste into places nobody can see it.
+    const frame = writer("emulated").compose({ text: "/status", origin: "participant_text" });
+    for (const forbidden of FORBIDDEN_INVISIBLE_SENTINELS) {
+      expect(frame.wireText).not.toContain(forbidden);
+    }
+  });
+
+  it("freezes the frame it mints", () => {
+    expect(
+      Object.isFrozen(writer("emulated").compose({ text: "/status", origin: "participant_text" })),
+    ).toBe(true);
+  });
+
+  it("keeps the origin union closed at three members", () => {
+    // A set-membership assertion rather than a spelling one: the union is
+    // daemon-local, never crosses the wire, and a fourth arm would need its own
+    // neutralization and exemption decisions.
+    expect([...OUTBOUND_FRAME_ORIGINS]).toStrictEqual([
+      "participant_text",
+      "driver_command",
+      "system_narration",
+    ]);
+  });
+});
+
+// --------------------------------------------------------------------------
+// The Claude classifier
+// --------------------------------------------------------------------------
+
+describe("Claude turn-evidence classifier", () => {
+  it("finds no evidence in the recorded zero-turn synthetic reply", () => {
+    const classification = classifyClaudeTurnEvidence(CLAUDE_ZERO_TURN_RESULT_FRAME);
+
+    expect(classification.recognized).toBe(true);
+    expect(classification.observations).toStrictEqual([]);
+  });
+
+  it("finds evidence in the recorded ordinary turn", () => {
+    const classification = classifyClaudeTurnEvidence(CLAUDE_ORDINARY_TURN_RESULT_FRAME);
+
+    expect(classification.recognized).toBe(true);
+    expect(classification.observations).toContain("turn_accounting");
+    expect(classification.observations).toContain("model_output");
+  });
+
+  it("finds evidence in a genuine turn that ended in a provider-side refusal", () => {
+    // The negative control that matters most. This frame renders synthetic and
+    // reports `is_error: true`, and it is still a real, billed turn — so a
+    // classifier keyed on either field would fail it.
+    expect(classifyClaudeTurnEvidence(CLAUDE_API_ERRORED_TURN_RESULT_FRAME).observations).toContain(
+      "turn_accounting",
+    );
+  });
+
+  it("reads a declared failure subtype as a loud, non-silent outcome", () => {
+    const classification = classifyClaudeTurnEvidence({
+      type: "result",
+      subtype: "error_during_execution",
+      num_turns: 0,
+      duration_api_ms: 0,
+      total_cost_usd: 0,
+      modelUsage: {},
+    });
+
+    expect(classification.observations).toStrictEqual(["declared_turn_failure"]);
+  });
+
+  it("refuses to recognize a shape it was not given", () => {
+    for (const envelope of [
+      undefined,
+      null,
+      "result",
+      42,
+      [],
+      {},
+      { type: "assistant" },
+      { type: "result" },
+      { type: "result", subtype: "not_a_censused_subtype" },
+    ]) {
+      expect(classifyClaudeTurnEvidence(envelope)).toStrictEqual(UNRECOGNIZED_TURN_EVIDENCE);
+    }
+  });
+});
+
+// --------------------------------------------------------------------------
+// The Codex classifier
+// --------------------------------------------------------------------------
+
+describe("Codex turn-evidence classifier", () => {
+  it("finds model output in a turn that produced an agent message", () => {
+    const classification = classifyCodexTurnEvidence(codexTurnWithModelOutput("turn-1"));
+
+    expect(classification.recognized).toBe(true);
+    expect(classification.observations).toStrictEqual(["model_output"]);
+  });
+
+  it("finds no evidence in a synthesized command-dispatch response", () => {
+    const classification = classifyCodexTurnEvidence(codexCommandDispatchResponse("turn-1"));
+
+    expect(classification.recognized).toBe(true);
+    expect(classification.observations).toStrictEqual([]);
+  });
+
+  it("does not read a participant echo as evidence that a model saw it", () => {
+    // The echo is what the provider sends BACK, verbatim. Reading it as evidence
+    // would make the tripwire assert the very thing in doubt.
+    const dispatch = codexCommandDispatchResponse("turn-1");
+    const turn = dispatch["turn"] as Record<string, unknown>;
+    expect((turn["items"] as unknown[]).length).toBe(1);
+    expect(classifyCodexTurnEvidence(dispatch).observations).not.toContain("model_output");
+  });
+
+  it("passes a typed declared failure so an unrelated outage is not misreported", () => {
+    // The measured quota-exhausted turn: no model output at all, and still not a
+    // neutralization failure. Reporting it as one would poison a shared
+    // operator-visible field for a completely different cause.
+    expect(classifyCodexTurnEvidence(codexQuotaExhaustedTurn("turn-1")).observations).toStrictEqual(
+      ["declared_turn_failure"],
+    );
+  });
+
+  it("reads an interrupted turn as a declared non-completion", () => {
+    expect(
+      classifyCodexTurnEvidence({
+        turn: { id: "turn-1", items: [], itemsView: "loaded", status: "interrupted", error: null },
+      }).observations,
+    ).toStrictEqual(["declared_turn_failure"]);
+  });
+
+  it("refuses to recognize a shape it was not given", () => {
+    for (const envelope of [
+      undefined,
+      null,
+      [],
+      {},
+      { turn: null },
+      { turn: {} },
+      { turn: { status: "notAStatus" } },
+    ]) {
+      expect(classifyCodexTurnEvidence(envelope)).toStrictEqual(UNRECOGNIZED_TURN_EVIDENCE);
+    }
+  });
+
+  it("accrues in-flight model output from item notifications", () => {
+    // Necessary because `turn/completed` can carry `itemsView: "notLoaded"`
+    // beside an EMPTY item list, measured at the pin — an absence of loading,
+    // not an absence of output.
+    expect(
+      classifyCodexTurnEvidenceObservation("item/completed", {
+        turnId: "turn-1",
+        item: { type: "agentMessage", id: "item-2" },
+      }),
+    ).toStrictEqual({ turnId: "turn-1", observation: "model_output" });
+  });
+
+  it("reads no in-flight evidence off a participant echo or an unrelated method", () => {
+    expect(
+      classifyCodexTurnEvidenceObservation("item/completed", {
+        turnId: "turn-1",
+        item: { type: "userMessage", id: "item-1" },
+      }),
+    ).toBeNull();
+    expect(classifyCodexTurnEvidenceObservation("turn/started", { turnId: "turn-1" })).toBeNull();
+    expect(
+      classifyCodexTurnEvidenceObservation("item/completed", { item: { type: "agentMessage" } }),
+    ).toBeNull();
+  });
+});
+
+// --------------------------------------------------------------------------
+// The tripwire
+// --------------------------------------------------------------------------
+
+describe("outbound frame tripwire", () => {
+  function frameFor(origin: string | undefined, text = "/status"): OutboundTextFrame {
+    return new OutboundTextFrameWriter({
+      mechanismGrade: "emulated",
+      mintCorrelationId: () => "correlation-1",
+    }).compose({ text, origin });
+  }
+
+  it("trips when a correlated turn settles with no evidence", () => {
+    const tripwire = new OutboundFrameTripwire();
+    tripwire.register("join-1", frameFor("participant_text"));
+
+    const decision = tripwire.settle(
+      "join-1",
+      classifyClaudeTurnEvidence(CLAUDE_ZERO_TURN_RESULT_FRAME),
+    );
+
+    if (!decision.tripped) {
+      throw new Error("expected the recorded zero-turn reply to trip");
+    }
+    expect(decision.cause).toBe("no-turn-evidence");
+    expect(decision.refusalCode).toBe(TEXT_NEUTRALIZATION_REFUSAL_CODE);
+    expect(decision.failureDetail).toBe(
+      "driver.text_neutralization_failed origin=participant_text",
+    );
+  });
+
+  it("trips on an unrecognized settling envelope", () => {
+    // Fail-closed polarity control: an envelope the driver cannot parse is, from
+    // here, indistinguishable from a locally-composed reply.
+    const tripwire = new OutboundFrameTripwire();
+    tripwire.register("join-1", frameFor("participant_text"));
+
+    const decision = tripwire.settle("join-1", UNRECOGNIZED_TURN_EVIDENCE);
+
+    if (!decision.tripped) {
+      throw new Error("expected an unrecognized envelope to trip");
+    }
+    expect(decision.cause).toBe("unrecognized-settling-envelope");
+  });
+
+  it("composes exactly `origin=unknown` for an off-union origin", () => {
+    const tripwire = new OutboundFrameTripwire();
+    tripwire.register("join-1", frameFor("some-other-origin"));
+
+    const decision = tripwire.settle("join-1", UNRECOGNIZED_TURN_EVIDENCE);
+
+    if (!decision.tripped) {
+      throw new Error("expected a trip");
+    }
+    // The exact string, not a match: two producers share this one field and a
+    // consumer parses it.
+    expect(decision.failureDetail).toBe("driver.text_neutralization_failed origin=unknown");
+    expect(decision.failureDetail).not.toContain("some-other-origin");
+  });
+
+  it("composes exactly `origin=system_narration` for a narration frame", () => {
+    const tripwire = new OutboundFrameTripwire();
+    tripwire.register("join-1", frameFor("system_narration"));
+
+    const decision = tripwire.settle("join-1", UNRECOGNIZED_TURN_EVIDENCE);
+
+    if (!decision.tripped) {
+      throw new Error("expected a trip");
+    }
+    expect(decision.failureDetail).toBe(
+      "driver.text_neutralization_failed origin=system_narration",
+    );
+  });
+
+  it("never trips on a driver_command frame, whatever the turn does", () => {
+    const tripwire = new OutboundFrameTripwire();
+    tripwire.register("join-1", frameFor("driver_command", "/compact"));
+
+    expect(tripwire.settle("join-1", UNRECOGNIZED_TURN_EVIDENCE)).toStrictEqual({
+      tripped: false,
+      reason: "frame-exempt",
+    });
+  });
+
+  it("passes when evidence accrued in flight even if the terminal carries none", () => {
+    const tripwire = new OutboundFrameTripwire();
+    tripwire.register("join-1", frameFor("participant_text"));
+    tripwire.observe("join-1", "model_output");
+
+    expect(tripwire.settle("join-1", observedTurnEvidence())).toStrictEqual({
+      tripped: false,
+      reason: "turn-evidence-observed",
+    });
+  });
+
+  it("passes a turn no frame was correlated with", () => {
+    expect(
+      new OutboundFrameTripwire().settle("join-unknown", UNRECOGNIZED_TURN_EVIDENCE),
+    ).toStrictEqual({ tripped: false, reason: "no-correlated-frame" });
+  });
+
+  it("consumes the registration so one frame cannot trip twice", () => {
+    const tripwire = new OutboundFrameTripwire();
+    tripwire.register("join-1", frameFor("participant_text"));
+
+    expect(tripwire.settle("join-1", UNRECOGNIZED_TURN_EVIDENCE).tripped).toBe(true);
+    expect(tripwire.settle("join-1", UNRECOGNIZED_TURN_EVIDENCE)).toStrictEqual({
+      tripped: false,
+      reason: "no-correlated-frame",
+    });
+  });
+
+  it("re-keys a registration onto the turn id the provider names", () => {
+    const tripwire = new OutboundFrameTripwire();
+    tripwire.register("run-1", frameFor("participant_text"));
+    tripwire.recorrelate("run-1", "turn-1");
+
+    expect(tripwire.settle("run-1", UNRECOGNIZED_TURN_EVIDENCE).tripped).toBe(false);
+    expect(tripwire.settle("turn-1", UNRECOGNIZED_TURN_EVIDENCE).tripped).toBe(true);
+  });
+
+  it("drops a registration no turn will ever settle", () => {
+    const tripwire = new OutboundFrameTripwire();
+    tripwire.register("run-1", frameFor("participant_text"));
+    tripwire.forget("run-1");
+
+    expect(tripwire.settle("run-1", UNRECOGNIZED_TURN_EVIDENCE).tripped).toBe(false);
+  });
+
+  it("retains a settled decision so a caller can ask after the fact", () => {
+    const tripwire = new OutboundFrameTripwire();
+    tripwire.register("turn-1", frameFor("participant_text"));
+    tripwire.settle("turn-1", UNRECOGNIZED_TURN_EVIDENCE);
+
+    expect(tripwire.decisionFor("turn-1")?.tripped).toBe(true);
+    expect(tripwire.decisionFor("turn-unasked")).toBeUndefined();
+  });
+
+  it("composes the run terminal a trip lands on", () => {
+    const tripwire = new OutboundFrameTripwire();
+    tripwire.register("turn-1", frameFor("participant_text"));
+    const decision = tripwire.settle("turn-1", UNRECOGNIZED_TURN_EVIDENCE);
+    if (!decision.tripped) {
+      throw new Error("expected a trip");
+    }
+
+    expect(composeTextNeutralizationRunFailure(decision)).toStrictEqual({
+      eventType: "run.failed",
+      failureCategory: "provider failure",
+      recoveryCondition: "recovery-needed",
+      providerFailureDetail: "driver.text_neutralization_failed origin=participant_text",
+    });
+  });
+
+  it("composes the detail in the fixed three-value form", () => {
+    expect(composeTextNeutralizationFailureDetail("participant_text")).toBe(
+      "driver.text_neutralization_failed origin=participant_text",
+    );
+    expect(composeTextNeutralizationFailureDetail("system_narration")).toBe(
+      "driver.text_neutralization_failed origin=system_narration",
+    );
+    expect(composeTextNeutralizationFailureDetail("unknown")).toBe(
+      "driver.text_neutralization_failed origin=unknown",
+    );
+  });
+  it("holds a bounded number of unsettled frames, ageing out the oldest", () => {
+    // A session that dies without a terminal leaves its registration pending
+    // forever. The cap is generous against the real load — both providers settle
+    // a turn before the next one starts on the same session — but it is a cap.
+    const tripwire = new OutboundFrameTripwire();
+    const writer = new OutboundTextFrameWriter({ mechanismGrade: "emulated" });
+    const unsettledFrameCount = 200;
+    for (let index = 0; index < unsettledFrameCount; index += 1) {
+      tripwire.register(
+        `turn-${String(index)}`,
+        writer.compose({ text: "/status", origin: "participant_text" }),
+      );
+    }
+
+    expect(tripwire.hasPendingFrame("turn-0")).toBe(false);
+    expect(tripwire.hasPendingFrame(`turn-${String(unsettledFrameCount - 1)}`)).toBe(true);
+  });
+});
+
+// --------------------------------------------------------------------------
+// Provider-binding disposal
+// --------------------------------------------------------------------------
+
+describe("provider binding quarantine", () => {
+  it("refuses an attach to a disposed binding with the code the trip carried", () => {
+    const quarantine = new ProviderBindingQuarantine();
+    quarantine.dispose("run-1");
+
+    expect(quarantine.isDisposed("run-1")).toBe(true);
+    expect(() => quarantine.assertAttachable("run-1")).toThrow(TextNeutralizationRefusedError);
+    try {
+      quarantine.assertAttachable("run-1");
+      throw new Error("expected a refusal");
+    } catch (error) {
+      expect((error as TextNeutralizationRefusedError).code).toBe(TEXT_NEUTRALIZATION_REFUSAL_CODE);
+    }
+  });
+
+  it("leaves an unaffected binding attachable", () => {
+    const quarantine = new ProviderBindingQuarantine();
+    quarantine.dispose("run-1");
+
+    expect(() => quarantine.assertAttachable("run-2")).not.toThrow();
+  });
+
+  it("holds a bounded number of disposals, ageing out the oldest", () => {
+    // Neither collection in this module has a completion guarantee, so both are
+    // capped rather than grown for the daemon process's lifetime. Ageing out a
+    // disposal cannot revive the run it belonged to — that run is already
+    // terminal — so what expires is only the fail-fast refusal an immediate
+    // re-attach would have hit.
+    const quarantine = new ProviderBindingQuarantine();
+    const disposedRunCount = 200;
+    for (let index = 0; index < disposedRunCount; index += 1) {
+      quarantine.dispose(`run-${String(index)}`);
+    }
+
+    expect(quarantine.isDisposed("run-0")).toBe(false);
+    expect(quarantine.isDisposed(`run-${String(disposedRunCount - 1)}`)).toBe(true);
+  });
+
+  it("keeps a re-disposed binding at the newest position", () => {
+    const quarantine = new ProviderBindingQuarantine();
+    quarantine.dispose("run-old");
+    for (let index = 0; index < 100; index += 1) {
+      quarantine.dispose(`run-${String(index)}`);
+      quarantine.dispose("run-old");
+    }
+
+    expect(quarantine.isDisposed("run-old")).toBe(true);
+  });
+});
+
+// --------------------------------------------------------------------------
+// The Claude driver, end to end
+// --------------------------------------------------------------------------
+
+describe("Claude driver provider-bound text path", () => {
+  interface Harness {
+    readonly lifecycle: ClaudeSessionLifecycle;
+    readonly transport: FakeClaudeSessionTransport;
+    readonly runDispatchResolver: FakeClaudeRunDispatchResolver;
+    readonly failures: {
+      sessionId: SessionId;
+      runId: RunId;
+      providerFailureDetail: string;
+    }[];
+  }
+
+  function buildHarness(overrides: Partial<ClaudeSessionLifecycleDependencies> = {}): Harness {
+    const transport = new FakeClaudeSessionTransport();
+    const runDispatchResolver = new FakeClaudeRunDispatchResolver();
+    const failures: Harness["failures"] = [];
+    const lifecycle = new ClaudeSessionLifecycle({
+      transport,
+      runDispatchResolver,
+      diagnostics: makeSilentDriverDiagnostics(),
+      mintProviderSessionId: () => TEST_PINNED_PROVIDER_SESSION_ID,
+      mintBindingId: () => TEST_BINDING_ID,
+      onTextNeutralizationFailure: (sessionId, runId, failure) => {
+        failures.push({ sessionId, runId, providerFailureDetail: failure.providerFailureDetail });
+      },
+      ...overrides,
+    });
+    return { lifecycle, transport, runDispatchResolver, failures };
+  }
+
+  async function startRunWith(
+    harness: Harness,
+    openingText: string,
+    frameOrigin?: string,
+  ): Promise<FakeClaudeSessionTransport["spawnedChannels"][number]> {
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText,
+      ...(frameOrigin === undefined ? {} : { frameOrigin }),
+    });
+    await harness.lifecycle.startRun(buildStartRunParams());
+    const channel = harness.transport.spawnedChannels[0];
+    if (channel === undefined) {
+      throw new Error("expected the harness to have spawned a channel");
+    }
+    return channel;
+  }
+
+  it("neutralizes command-shaped run-opening text on the wire only", async () => {
+    const harness = buildHarness();
+    const channel = await startRunWith(harness, "/status please", "participant_text");
+
+    // The wire bytes carry the sentinel; the author's bytes do not. The
+    // transport-only property, asserted at the byte level on a real driver path.
+    expect(channel.sentWireTexts).toStrictEqual(["\n/status please"]);
+    expect(channel.sentAuthoredTexts).toStrictEqual(["/status please"]);
+  });
+
+  it("neutralizes queue-admitted content too, which re-enters through the same path", async () => {
+    // Run-opening content and admitted queue content are two ADMISSIONS, not two
+    // code paths: both reach the provider through `startRun`. Asserted with a
+    // second run on the same live session, which is the shape a queue admission
+    // takes, so a reader does not have to take the single-path claim on trust.
+    const harness = buildHarness();
+    const channel = await startRunWith(harness, "first turn", "participant_text");
+    channel.terminalFrameBody = CLAUDE_ORDINARY_TURN_RESULT_FRAME;
+    channel.emitStreamFrame("result/success");
+
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_SECOND_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "/status please",
+      frameOrigin: "participant_text",
+    });
+    await harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID });
+
+    expect(channel.sentWireTexts).toStrictEqual(["first turn", "\n/status please"]);
+    expect(channel.sentAuthoredTexts).toStrictEqual(["first turn", "/status please"]);
+  });
+
+  it("leaves the daemon's own record of the text untouched", async () => {
+    // The history non-mutation property, asserted where this layer can honestly
+    // reach it. The dispatch record is the daemon-owned value the run's
+    // persisted event row, its replayed timeline, and any rollback target are
+    // all built from — the driver receives it and never writes back — so a
+    // sentinel reaching any of those three surfaces would have to pass through
+    // here first. What is asserted is therefore the whole of the driver's
+    // obligation: it mutates neither the record nor the author's bytes, and the
+    // one string that differs is the one that never leaves the wire.
+    const harness = buildHarness();
+    const channel = await startRunWith(harness, "/status please", "participant_text");
+
+    const dispatch = harness.runDispatchResolver.dispatchByRunId.get(TEST_RUN_ID);
+    expect(dispatch?.openingText).toBe("/status please");
+    expect(dispatch?.openingText).toBe(channel.sentAuthoredTexts[0]);
+    expect(dispatch?.openingText?.startsWith("\n")).toBe(false);
+    expect(channel.sentWireTexts[0]).not.toBe(dispatch?.openingText);
+  });
+
+  it("leaves ordinary run-opening text byte-identical", async () => {
+    const harness = buildHarness();
+    const channel = await startRunWith(harness, "please read /etc/hosts", "participant_text");
+
+    expect(channel.sentWireTexts).toStrictEqual(["please read /etc/hosts"]);
+  });
+
+  it("neutralizes when the dispatch declares no origin at all", async () => {
+    const harness = buildHarness();
+    const channel = await startRunWith(harness, "/status please");
+
+    expect(channel.sentWireTexts).toStrictEqual(["\n/status please"]);
+  });
+
+  it("emits the author's bytes when the leg is declared native", async () => {
+    const harness = buildHarness({ textNeutralityMechanismGrade: "native" });
+    const channel = await startRunWith(harness, "/status please", "participant_text");
+
+    expect(channel.sentWireTexts).toStrictEqual(["/status please"]);
+  });
+
+  it("fails the run with the exact composed detail when the turn is swallowed", async () => {
+    const harness = buildHarness();
+    const channel = await startRunWith(harness, "/status please", "participant_text");
+
+    channel.terminalFrameBody = CLAUDE_ZERO_TURN_RESULT_FRAME;
+    channel.emitStreamFrame("result/success");
+
+    expect(harness.failures).toStrictEqual([
+      {
+        sessionId: TEST_SESSION_ID,
+        runId: TEST_RUN_ID,
+        providerFailureDetail: "driver.text_neutralization_failed origin=participant_text",
+      },
+    ]);
+  });
+
+  it("disposes the run's provider binding, so a later attach is refused", async () => {
+    const harness = buildHarness();
+    const channel = await startRunWith(harness, "/status please", "participant_text");
+
+    channel.terminalFrameBody = CLAUDE_ZERO_TURN_RESULT_FRAME;
+    channel.emitStreamFrame("result/success");
+
+    // Refused, not answered `undefined`: the two states mean different things,
+    // and a quiet `undefined` reads as "no channel yet" — the one reading that
+    // invites a retry straight back into the same swallow.
+    expect(() => harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toThrow(
+      TextNeutralizationRefusedError,
+    );
+  });
+
+  it("does not fail an ordinary turn", async () => {
+    // The negative control on the real driver path.
+    const harness = buildHarness();
+    const channel = await startRunWith(harness, "/status please", "participant_text");
+
+    channel.terminalFrameBody = CLAUDE_ORDINARY_TURN_RESULT_FRAME;
+    channel.emitStreamFrame("result/success");
+
+    expect(harness.failures).toStrictEqual([]);
+    expect(() => harness.lifecycle.findChannelForRun(TEST_RUN_ID)).not.toThrow();
+  });
+
+  it("does not fail a genuine turn that ended in a provider-side refusal", async () => {
+    const harness = buildHarness();
+    const channel = await startRunWith(harness, "/status please", "participant_text");
+
+    channel.terminalFrameBody = CLAUDE_API_ERRORED_TURN_RESULT_FRAME;
+    channel.emitStreamFrame("result/success");
+
+    expect(harness.failures).toStrictEqual([]);
+  });
+
+  it("does not fail a run whose text was delivered verbatim as a driver command", async () => {
+    const harness = buildHarness();
+    const channel = await startRunWith(harness, "/compact", "driver_command");
+    expect(channel.sentWireTexts).toStrictEqual(["/compact"]);
+
+    channel.terminalFrameBody = CLAUDE_ZERO_TURN_RESULT_FRAME;
+    channel.emitStreamFrame("result/success");
+
+    // A command dispatch legitimately produces no model turn. Failing it would
+    // make every driver-issued command an outage.
+    expect(harness.failures).toStrictEqual([]);
+  });
+
+  it("drops the correlation when the write itself failed, so it cannot consume a later run's turn", async () => {
+    // A write that threw put no bytes on the wire, and the route is deliberately
+    // LEFT bound (an interruptible run beats a turn with no route). A stale
+    // registration would therefore still be correlated when the NEXT run on this
+    // session settles — and, being the older one, it would consume that turn's
+    // evidence and leave the live run ruled against none, failing the run whose
+    // text actually reached the provider.
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    const channel = harness.transport.spawnedChannels[0];
+    if (channel === undefined) {
+      throw new Error("expected the harness to have spawned a channel");
+    }
+    channel.sendUserTextFailure = new Error("the provider stream is closed");
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "/status please",
+      frameOrigin: "participant_text",
+    });
+    await expect(harness.lifecycle.startRun(buildStartRunParams())).rejects.toThrow(
+      "the provider stream is closed",
+    );
+
+    channel.sendUserTextFailure = undefined;
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_SECOND_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "second turn",
+      frameOrigin: "participant_text",
+    });
+    await harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID });
+
+    channel.terminalFrameBody = CLAUDE_ORDINARY_TURN_RESULT_FRAME;
+    channel.emitStreamFrame("result/success");
+
+    expect(harness.failures).toStrictEqual([]);
+    expect(() => harness.lifecycle.findChannelForRun(TEST_SECOND_RUN_ID)).not.toThrow();
+  });
+
+  it("lets one terminal vouch for one run only, and fails the run it cannot account for", async () => {
+    // One terminal ends one turn. Spreading its evidence across every routed run
+    // is the masking this tripwire exists to prevent: the good turn would vouch
+    // for text that never ran. The second run's route is destroyed by this same
+    // terminal, so its frame is provably never going to be confirmed.
+    const harness = buildHarness();
+    const channel = await startRunWith(harness, "first turn", "participant_text");
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_SECOND_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "second turn",
+      frameOrigin: "participant_text",
+    });
+    await harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID });
+
+    channel.terminalFrameBody = CLAUDE_ORDINARY_TURN_RESULT_FRAME;
+    channel.emitStreamFrame("result/success");
+
+    expect(harness.failures.map((failure) => failure.runId)).toStrictEqual([TEST_SECOND_RUN_ID]);
+    expect(harness.failures[0]?.providerFailureDetail).toBe(
+      "driver.text_neutralization_failed origin=participant_text",
+    );
+    expect(() => harness.lifecycle.findChannelForRun(TEST_RUN_ID)).not.toThrow();
+    expect(() => harness.lifecycle.findChannelForRun(TEST_SECOND_RUN_ID)).toThrow(
+      TextNeutralizationRefusedError,
+    );
+  });
+
+  it("still disposes the binding when the failure consumer throws", async () => {
+    // The run terminal is the guarantee; losing the disposal because a listener
+    // threw would leave the swallowed turn reachable as well as unrecorded.
+    const harness = buildHarness({
+      onTextNeutralizationFailure: () => {
+        throw new Error("the emission pipeline is unavailable");
+      },
+    });
+    const channel = await startRunWith(harness, "/status please", "participant_text");
+
+    channel.terminalFrameBody = CLAUDE_ZERO_TURN_RESULT_FRAME;
+    expect(() => channel.emitStreamFrame("result/success")).not.toThrow();
+    expect(() => harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toThrow(
+      TextNeutralizationRefusedError,
+    );
+  });
+});
+
+// --------------------------------------------------------------------------
+// The Codex intervention path
+// --------------------------------------------------------------------------
+
+describe("Codex steer intervention under a text-neutralization refusal", () => {
+  const CODEX_RUN_ID = "run-1" as RunId;
+
+  function buildDispatcher(refused: boolean): {
+    readonly dispatcher: CodexInterventionDispatcher;
+    readonly steerRun: ReturnType<typeof vi.fn>;
+    readonly decisionReads: string[];
+  } {
+    const decisionReads: string[] = [];
+    const steerRun = vi.fn(async (request: { expectedTurnId?: string | undefined }) => {
+      const targetedTurnId = request.expectedTurnId ?? "turn-live";
+      return { targetedTurnId, acknowledgedTurnId: targetedTurnId };
+    });
+    const runtime = {
+      steerRun,
+      interruptRun: vi.fn(async () => {}),
+      textNeutralizationDecisionForTurn: (turnId: string): { readonly refused: boolean } => {
+        decisionReads.push(turnId);
+        return { refused };
+      },
+    } as unknown as CodexInterventionRuntime;
+    const capabilities = {
+      driverName: "codex",
+      driverVersion: "0.150.1",
+      flags: { steer: true },
+    } as unknown as DriverCapabilities;
+    return {
+      dispatcher: new CodexInterventionDispatcher({
+        runtime,
+        readCapabilities: () => capabilities,
+      }),
+      steerRun,
+      decisionReads,
+    };
+  }
+
+  const steerParams = {
+    type: "steer" as const,
+    targetRunId: CODEX_RUN_ID,
+    expectedRunVersion: 3,
+    clientIdempotencyKey: "3f1d2b4c-0000-4000-8000-000000000001",
+    payload: { content: "/status please", expectedTurnId: "turn-01" },
+  };
+
+  it("settles degraded with the refusal code and no fallbackAction", async () => {
+    const { dispatcher } = buildDispatcher(true);
+
+    const result = await dispatcher.applyIntervention(steerParams);
+
+    // Parsed through the real envelope schema rather than shape-asserted, so the
+    // `.strict()` guarantee is exercised rather than described.
+    const parsed = DriverInterventionResultSchema.parse(result);
+    expect(parsed.status).toBe("degraded");
+    expect(parsed.refusalCode).toBe(TEXT_NEUTRALIZATION_REFUSAL_CODE);
+    // No `fallbackAction`: `queue_and_interrupt` would re-queue the same text
+    // into the same swallow, which is the failure again rather than a remedy.
+    expect("fallbackAction" in parsed).toBe(false);
+    expect(Object.keys(parsed).sort()).toStrictEqual(["refusalCode", "status"]);
+  });
+
+  it("raises no error on the refusal path", async () => {
+    const { dispatcher } = buildDispatcher(true);
+
+    // The refusal is DATA, never an exception: an unsupported-or-refused
+    // intervention is something the orchestration layer has to choose against.
+    await expect(dispatcher.applyIntervention(steerParams)).resolves.toBeDefined();
+  });
+
+  it("takes precedence over a matching acknowledgement", async () => {
+    // A swallowed steer can still come back with a perfectly matching ack — the
+    // provider accepted a turn, it simply never showed the words to a model — so
+    // grading the ack first would report `applied` for an undelivered directive.
+    const { dispatcher } = buildDispatcher(true);
+
+    expect((await dispatcher.applyIntervention(steerParams)).status).toBe("degraded");
+  });
+
+  it("asks about the turn that actually went on the wire", async () => {
+    const { dispatcher, decisionReads } = buildDispatcher(false);
+
+    await dispatcher.applyIntervention({ ...steerParams, payload: { content: "keep going" } });
+
+    expect(decisionReads).toStrictEqual(["turn-live"]);
+  });
+
+  it("declares the steer directive as participant text", async () => {
+    const { dispatcher, steerRun } = buildDispatcher(false);
+
+    await dispatcher.applyIntervention(steerParams);
+
+    expect(steerRun.mock.calls[0]?.[0]).toMatchObject({ frameOrigin: "participant_text" });
+  });
+
+  it("applies normally when no refusal is known", async () => {
+    const { dispatcher } = buildDispatcher(false);
+
+    expect(await dispatcher.applyIntervention(steerParams)).toStrictEqual({ status: "applied" });
+  });
+});
