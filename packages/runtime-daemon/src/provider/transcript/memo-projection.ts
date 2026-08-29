@@ -37,8 +37,8 @@
 //   the memo turn's own prose as visible ASCII — never an invisible or
 //   zero-width sentinel, which `Spec-005 §Pitfalls To Avoid` prohibits outright.
 //
-// So EVERY send reconciles first: recompute the key, read the target's recent
-// turns for it, treat a match as already delivered.
+// So EVERY send reconciles first: recompute the key, read the target's turns
+// for it, treat a match as already delivered.
 //
 // Reading the target answers the ambiguous send — a timeout, a dropped
 // connection, a restart between send and acknowledgment — only where the read is
@@ -161,13 +161,13 @@ export function renderMemoContinuityMarker(memoIdentityKey: string): string {
   return `${MEMO_CONTINUITY_MARKER_PREFIX}${memoIdentityKey}`;
 }
 
-/** Whether any of the target's recent turns already carries this memo's marker. */
+/** Whether any of the target's turns already carries this memo's marker. */
 export function targetTurnsCarryMemoMarker(
-  recentTargetTurns: readonly string[],
+  targetTurns: readonly string[],
   memoIdentityKey: string,
 ): boolean {
   const marker: string = renderMemoContinuityMarker(memoIdentityKey);
-  return recentTargetTurns.some((turnText) => turnText.includes(marker));
+  return targetTurns.some((turnText) => turnText.includes(marker));
 }
 
 /**
@@ -744,10 +744,27 @@ export interface MemoOutboundFrame {
  */
 export interface MemoTargetGateway {
   /**
-   * The target session's own recent turns, as text. Rejecting means the target
-   * could not be read — which is a settlement, never a reason to send anyway.
+   * The target session's turns, as text, for deciding whether this memo's
+   * marker is already there.
+   *
+   * The returned set MUST be sufficient to decide marker presence for the
+   * ENTIRE provider session — not a recent tail. An implementor may answer with
+   * the whole transcript, or with any subset it can prove marker-complete; a
+   * bounded window of the newest N turns satisfies neither and violates this
+   * port.
+   *
+   * The obligation is stated here rather than left to each implementor because
+   * of what a false negative costs. Once-only rests entirely on this read: a
+   * marker that has scrolled out of the answered window reads exactly like a
+   * memo that was never delivered, so a retry — or the first call after a
+   * restart, which has no register to consult — sends a second memo into a
+   * conversation the participant is watching. The guarantee would then hold for
+   * as long as the window, and silently expire with it.
+   *
+   * Rejecting means the target could not be read — which is a settlement, never
+   * a reason to send anyway.
    */
-  readRecentTurns(): Promise<readonly string[]>;
+  readTurnsForMarkerReconciliation(): Promise<readonly string[]>;
   /**
    * Deliver the memo turn. A rejection is AMBIGUOUS by construction: the frame
    * may have been applied before the acknowledgment was lost.
@@ -992,7 +1009,7 @@ export class MemoDeliveryCoordinator {
 
     let priorTurns: readonly string[];
     try {
-      priorTurns = await this.#gateway.readRecentTurns();
+      priorTurns = await this.#gateway.readTurnsForMarkerReconciliation();
     } catch {
       // The target cannot be read, so whether it already holds this memo is
       // unknowable. Nothing is sent: a duplicate corrupts the conversation the
@@ -1055,7 +1072,7 @@ export class MemoDeliveryCoordinator {
       this.#unconfirmedDeliveries.add(deliveryPairKey);
       let turnsAfterSend: readonly string[];
       try {
-        turnsAfterSend = await this.#gateway.readRecentTurns();
+        turnsAfterSend = await this.#gateway.readTurnsForMarkerReconciliation();
       } catch {
         return settle(rendering, "unconfirmed", undefined);
       }

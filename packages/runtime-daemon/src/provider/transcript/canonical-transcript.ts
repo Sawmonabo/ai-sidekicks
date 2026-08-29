@@ -182,6 +182,67 @@ export function isEventInRunScope(event: StoredEvent, runId: RunId): boolean {
 }
 
 // --------------------------------------------------------------------------
+// Unkeyed tool rows
+// --------------------------------------------------------------------------
+
+/** The two outcomes a tool row can report, in the segment union's spelling. */
+type CanonicalToolResultOutcome = "succeeded" | "failed";
+
+/**
+ * How a tool row with NO pairing key is rendered into the one segment kind that
+ * needs no key: text.
+ *
+ * The vocabulary is the memo renderer's, minus the identifier — a reader of an
+ * exported transcript sees the same shape of line for an unkeyed row as for a
+ * keyed one, so nothing about the row LOOKS like prose the assistant wrote.
+ * They are deliberately visible ASCII: an invisible marker would be a second,
+ * unreadable channel inside a record whose whole point is that a person can
+ * read it.
+ *
+ * Module-private: the exported transcript is the contract, so a test that
+ * imported this to compare against would assert nothing about the text a
+ * target actually receives.
+ */
+function renderUnkeyedToolCallText(toolName: string | undefined, argumentsJson: string): string {
+  const heading: string = toolName === undefined ? "[tool call]" : `[tool call ${toolName}]`;
+  return argumentsJson.length === 0 ? heading : `${heading} ${argumentsJson}`;
+}
+
+/** The answer half of {@link renderUnkeyedToolCallText}. */
+function renderUnkeyedToolResultText(outcome: CanonicalToolResultOutcome, body: string): string {
+  const heading: string = `[tool result ${outcome}]`;
+  return body.length === 0 ? heading : `${heading} ${body}`;
+}
+
+/**
+ * The segment an unkeyed tool RESULT contributes.
+ *
+ * Two rows land on the empty-body-marked disposition rather than on rendered
+ * text, and the second is the load-bearing one:
+ *
+ *   * An unreadable body has no content to carry, exactly as everywhere else in
+ *     this fold.
+ *
+ *   * A body the provider emitted INSIDE a reasoning block cannot ride a text
+ *     segment at all. Step 3 of the pipeline decides a tool result's
+ *     portability from `enclosingReasoningBlockId`, and a `text` segment has no
+ *     such member to carry — so rendering the body as text would walk private
+ *     provider reasoning straight past the strip that exists to remove it. The
+ *     content is therefore withheld and MARKED, never silently dropped: the
+ *     reader learns a body was here and is not in this transcript, which is the
+ *     honest reading, and the pipeline declares the loss over the turn.
+ */
+function unkeyedToolResultSegment(
+  outcome: CanonicalToolResultOutcome,
+  body: TranscriptToolResultBody | undefined,
+): CanonicalTranscriptSegment {
+  if (body === undefined || body.enclosingReasoningBlockId !== undefined) {
+    return { kind: "text", text: "", contentUnavailable: true };
+  }
+  return { kind: "text", text: renderUnkeyedToolResultText(outcome, body.text) };
+}
+
+// --------------------------------------------------------------------------
 // The fold
 // --------------------------------------------------------------------------
 
@@ -316,6 +377,27 @@ export class CanonicalTranscriptFold {
   }
 
   /**
+   * The segment an unkeyed tool INVOCATION contributes.
+   *
+   * A call carries no enclosure member in the segment union at all — step 3
+   * never drops a call — so the text arm here has no portability hazard to
+   * dodge, unlike its result sibling. Unreadable arguments still take the
+   * empty-body-marked disposition, because `contentUnavailable` requires an
+   * empty body: inventing text is the one thing this fold may not do, and that
+   * costs the tool NAME on that path in exchange for a declared loss.
+   */
+  #unkeyedToolCallSegment(
+    reference: TranscriptContentReference,
+    toolName: string | undefined,
+  ): CanonicalTranscriptSegment {
+    const argumentsJson: string | undefined = this.#contentSource.readToolCallArguments(reference);
+    if (argumentsJson === undefined) {
+      return { kind: "text", text: "", contentUnavailable: true };
+    }
+    return { kind: "text", text: renderUnkeyedToolCallText(toolName, argumentsJson) };
+  }
+
+  /**
    * The participant's own words, read through the content port for the reason
    * the header gives: the clear `user.message` payload does not carry them.
    *
@@ -364,11 +446,26 @@ export class CanonicalTranscriptFold {
       case "tool.invoked": {
         const toolCallId: string | undefined = reference.toolCallId;
         const toolName: string | undefined = readStringMember(event.payload, "toolName");
-        // A call row missing either durable key is not a call the transcript can
-        // pair or replay; it is dropped rather than rendered with a minted id,
-        // because a minted id would violate the never-re-mint rule at the one
-        // moment nobody could tell.
-        if (toolCallId === undefined || toolName === undefined) {
+        // A row carrying NO pairing key is legacy history rather than
+        // malformation — the taxonomy made that key mandatory only for live
+        // emitters, and older tool rows legally omit it — so it is a tool
+        // invocation the participant actually watched happen. It cannot be
+        // carried as a structured call, because the transcript would have to
+        // mint the missing id and the never-re-mint rule forbids exactly that at
+        // the one moment nobody could tell. Its content rides a TEXT segment
+        // instead. Dropping it would erase participant-visible activity and
+        // declare nothing over it, which is the reading the declared-loss rule
+        // forbids of this module everywhere else.
+        if (toolCallId === undefined) {
+          return [this.#unkeyedToolCallSegment(reference, toolName)];
+        }
+        // A call whose NAME is missing keeps the drop. That row is not legal
+        // history in either direction — the tool shape names `toolName`
+        // unconditionally and makes only `toolCallId` optional — and carrying it
+        // as text would throw away a pairing key that IS present, orphaning the
+        // sibling result under that id and costing a repair loss the current
+        // code does not produce.
+        if (toolName === undefined) {
           return [];
         }
         const argumentsJson: string | undefined =
@@ -386,16 +483,20 @@ export class CanonicalTranscriptFold {
       case "tool.result":
       case "tool.error": {
         const toolCallId: string | undefined = reference.toolCallId;
-        if (toolCallId === undefined) {
-          return [];
-        }
+        const outcome: CanonicalToolResultOutcome =
+          event.type === "tool.error" ? "failed" : "succeeded";
         const body: TranscriptToolResultBody | undefined =
           this.#contentSource.readToolResultBody(reference);
+        // The invocation arm's rule, applied to the answer half: a legacy row
+        // with no pairing key is carried as content rather than dropped.
+        if (toolCallId === undefined) {
+          return [unkeyedToolResultSegment(outcome, body)];
+        }
         return [
           {
             kind: "tool_result",
             toolCallId,
-            outcome: event.type === "tool.error" ? "failed" : "succeeded",
+            outcome,
             provenance: "provider",
             text: body?.text ?? "",
             enclosingReasoningBlockId: body?.enclosingReasoningBlockId,

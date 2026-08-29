@@ -660,6 +660,58 @@ export const CANONICAL_TRANSCRIPT_PIPELINE: readonly TranscriptPipelineStep[] = 
 ];
 
 // --------------------------------------------------------------------------
+// The export boundary
+// --------------------------------------------------------------------------
+
+/**
+ * The bound one export is taken under: an inclusive position ceiling, or the
+ * EXPLICIT statement that the caller wants the whole projection.
+ *
+ * Deliberately not an optional number. The export contract's `boundary` member
+ * is required, so every production caller holds a value and only has to forward
+ * it — and an optional parameter is precisely the seam where forwarding is
+ * forgettable: a caller that omits it would silently export the entire
+ * conversation, which is the leak this bound exists to prevent. Requiring
+ * `"unbounded"` turns that omission into a type error and makes the whole-
+ * projection arm a decision a reader can see at the call site.
+ */
+export type TranscriptExportBound = number | "unbounded";
+
+/**
+ * The projection an export bounded at `bound` is entitled to see.
+ *
+ * INCLUSIVE, matching the export contract: an export carries exactly the turns
+ * whose `position` is at or below the bound. `"unbounded"` means the whole
+ * projection — stated, never defaulted; see {@link TranscriptExportBound}.
+ *
+ * `builtAtPosition` is deliberately left where the fold put it. It records the
+ * position the projection was TAKEN at — evidence of the fold's liveness — and a
+ * bound is a question about what this one export may carry, not a claim that the
+ * conversation stopped there. Moving it would make a bounded export
+ * indistinguishable from a stale one.
+ *
+ * Applied BEFORE the first pipeline step, never after. Every later step reads
+ * the turn list: the fold declares `turn_content_unavailable` over it, the strip
+ * removes non-portable content from it, and pairing repair reasons about which
+ * calls have answers within it. Filtering afterwards would let content the
+ * export may not carry decide the declared losses — and would pair a call inside
+ * the bound with a result outside it, so the bound would silently repair itself
+ * away.
+ */
+export function boundProjectionToPosition(
+  projection: CanonicalTranscriptProjection,
+  bound: TranscriptExportBound,
+): CanonicalTranscriptProjection {
+  if (bound === "unbounded") {
+    return projection;
+  }
+  return {
+    ...projection,
+    turns: projection.turns.filter((turn) => turn.position <= bound),
+  };
+}
+
+// --------------------------------------------------------------------------
 // The runner
 // --------------------------------------------------------------------------
 
@@ -677,17 +729,31 @@ export class TranscriptTransformPipeline {
   }
 
   /**
-   * Export one canonical transcript. Called twice on the same projection this
-   * returns equal frames and equal ids — the derivation is deterministic and
-   * nothing is carried between calls.
+   * Export one canonical transcript, optionally bounded.
+   *
+   * Called twice on the same projection and the same bound this returns equal
+   * frames and equal ids — the derivation is deterministic and nothing is
+   * carried between calls.
+   *
+   * `bound` is the inclusive position the export may carry up to, in the
+   * projection's own position vocabulary, or the explicit `"unbounded"` arm —
+   * required, so no caller can export the whole conversation by forgetting to
+   * forward the bound it holds. See {@link boundProjectionToPosition} for why
+   * it is applied ahead of the first step rather than to the rendered frames.
    */
-  exportTranscript(projection: CanonicalTranscriptProjection): DriverTranscriptExportResult {
+  exportTranscript(
+    projection: CanonicalTranscriptProjection,
+    bound: TranscriptExportBound,
+  ): DriverTranscriptExportResult {
     const identityMap: ToolCallIdentityMap =
       this.#deriveTargetToolCallId === undefined
         ? new ToolCallIdentityMap()
         : new ToolCallIdentityMap(this.#deriveTargetToolCallId);
 
-    let state: TranscriptPipelineState = createTranscriptPipelineState(projection, identityMap);
+    let state: TranscriptPipelineState = createTranscriptPipelineState(
+      boundProjectionToPosition(projection, bound),
+      identityMap,
+    );
     for (const step of CANONICAL_TRANSCRIPT_PIPELINE) {
       state = step(state);
     }

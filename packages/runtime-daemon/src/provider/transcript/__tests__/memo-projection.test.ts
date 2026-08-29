@@ -143,7 +143,13 @@ class FakeTargetSession {
     this.#framesStillApplying.length = 0;
   }
 
-  async readRecentTurns(): Promise<readonly string[]> {
+  /**
+   * Answers the target's WHOLE turn history, never a tail — the port requires
+   * a set sufficient to decide marker presence for the entire session, and a
+   * fake that answered a window would make once-only look like it holds while
+   * the contract it rests on went untested.
+   */
+  async readTurnsForMarkerReconciliation(): Promise<readonly string[]> {
     this.readAttempts += 1;
     if (this.readOutcomes.shift() === "fail") {
       throw new Error("target session could not be read");
@@ -888,6 +894,69 @@ describe("memo delivery — once-only under a lost acknowledgment", () => {
     expect(target.turns).toHaveLength(2);
     expect(target.sendAttempts).toBe(2);
   });
+
+  it("finds a memo delivered far back in the conversation and sends no second one", async () => {
+    // The delivered memo, then a long conversation on top of it. Once-only has
+    // to survive this: the participant kept talking, the memo scrolled away, and
+    // the caller retries after a restart with no register to consult.
+    const target = new FakeTargetSession();
+    const request: MemoDeliveryRequest = requestFor(
+      projectionOf([turn(1, "participant", [{ kind: "text", text: "hello" }])]),
+    );
+
+    const first: MemoDeliverySettlement = await new MemoDeliveryCoordinator(target).deliver(
+      request,
+    );
+    expect(first.disposition).toBe("delivered");
+    for (let turnIndex = 0; turnIndex < 200; turnIndex += 1) {
+      target.turns.push(`ordinary turn ${turnIndex.toString()}`);
+    }
+
+    // A fresh coordinator, so nothing but the read decides this.
+    const retry: MemoDeliverySettlement = await new MemoDeliveryCoordinator(target).deliver(
+      request,
+    );
+
+    expect(retry.disposition).toBe("already-delivered");
+    expect(retry.memoIdentityKey).toBe(first.memoIdentityKey);
+    expect(target.sendAttempts).toBe(1);
+    expect(target.turns.filter((turnText) => turnText.includes("continuity-ref:"))).toHaveLength(1);
+  });
+
+  it("documents the cost of a windowed read — a marker-incomplete answer duplicates", async () => {
+    // NOT a control for the read's naming; it duplicates whatever that operation
+    // is called. It is here because the port's obligation — an answer sufficient
+    // to decide marker presence for the WHOLE session — is the only thing
+    // standing between the case above and this one, and an obligation with no
+    // demonstrated cost reads as a preference.
+    class WindowedTargetSession extends FakeTargetSession {
+      static readonly WINDOW_TURN_COUNT: number = 20;
+
+      override async readTurnsForMarkerReconciliation(): Promise<readonly string[]> {
+        const wholeHistory: readonly string[] = await super.readTurnsForMarkerReconciliation();
+        return wholeHistory.slice(-WindowedTargetSession.WINDOW_TURN_COUNT);
+      }
+    }
+
+    const target = new WindowedTargetSession();
+    const request: MemoDeliveryRequest = requestFor(
+      projectionOf([turn(1, "participant", [{ kind: "text", text: "hello" }])]),
+    );
+
+    await new MemoDeliveryCoordinator(target).deliver(request);
+    for (let turnIndex = 0; turnIndex < 200; turnIndex += 1) {
+      target.turns.push(`ordinary turn ${turnIndex.toString()}`);
+    }
+    const retry: MemoDeliverySettlement = await new MemoDeliveryCoordinator(target).deliver(
+      request,
+    );
+
+    // The marker is still in the conversation. The window simply cannot see it,
+    // and the participant reads the same summary twice.
+    expect(retry.disposition).toBe("delivered");
+    expect(target.sendAttempts).toBe(2);
+    expect(target.turns.filter((turnText) => turnText.includes("continuity-ref:"))).toHaveLength(2);
+  });
 });
 
 // --------------------------------------------------------------------------
@@ -1521,7 +1590,10 @@ describe("memo delivery — nothing durable is written", () => {
       recordingGateway(unconfirmedTarget, observedMemberNames),
     ).deliver(request);
 
-    expect([...new Set(observedMemberNames)].sort()).toEqual(["readRecentTurns", "sendMemoTurn"]);
+    expect([...new Set(observedMemberNames)].sort()).toEqual([
+      "readTurnsForMarkerReconciliation",
+      "sendMemoTurn",
+    ]);
   });
 });
 
@@ -1533,7 +1605,7 @@ describe("memo frame — the key is carried as visible characters", () => {
   it("renders the derived key into the frame the target receives", async () => {
     const sentFrames: MemoOutboundFrame[] = [];
     const gateway: MemoTargetGateway = {
-      readRecentTurns: async (): Promise<readonly string[]> => [],
+      readTurnsForMarkerReconciliation: async (): Promise<readonly string[]> => [],
       sendMemoTurn: async (frame: MemoOutboundFrame): Promise<void> => {
         sentFrames.push(frame);
       },
@@ -1559,7 +1631,7 @@ describe("memo frame — the key is carried as visible characters", () => {
   it("reaches the gateway only through a composed frame, minted as system narration", async () => {
     const sentFrames: MemoOutboundFrame[] = [];
     const gateway: MemoTargetGateway = {
-      readRecentTurns: async (): Promise<readonly string[]> => [],
+      readTurnsForMarkerReconciliation: async (): Promise<readonly string[]> => [],
       sendMemoTurn: async (frame: MemoOutboundFrame): Promise<void> => {
         sentFrames.push(frame);
       },
@@ -1588,7 +1660,7 @@ describe("memo frame — the key is carried as visible characters", () => {
   it("uses no invisible or zero-width character anywhere in the frame", async () => {
     const sentFrames: MemoOutboundFrame[] = [];
     const gateway: MemoTargetGateway = {
-      readRecentTurns: async (): Promise<readonly string[]> => [],
+      readTurnsForMarkerReconciliation: async (): Promise<readonly string[]> => [],
       sendMemoTurn: async (frame: MemoOutboundFrame): Promise<void> => {
         sentFrames.push(frame);
       },
