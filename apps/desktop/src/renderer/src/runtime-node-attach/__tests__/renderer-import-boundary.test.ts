@@ -85,6 +85,66 @@ function restrictedImportMessages(results: readonly ESLint.LintResult[]): string
     .map((message) => message.message);
 }
 
+/**
+ * The per-case budget this file installs for all eleven of its cases.
+ *
+ * Sized to the MACHINE, not to the work. Every case here drives the REAL ESLint
+ * engine over the REAL flat config, and whichever case runs FIRST additionally
+ * pays that config's entire module graph: `apps/desktop/eslint.config.mjs`
+ * spreads the repo-root config, which imports `typescript-eslint`, which pulls
+ * in `typescript`. Node caches ESM by URL, so exactly one case pays it and every
+ * sibling then lints in single-digit milliseconds. Measured directly, outside
+ * vitest: importing that config graph costs 385ms; a fresh `ESLint` instance's
+ * first `lintText` costs 376ms and its second costs 9ms.
+ *
+ * That lopsided first case is what actually flaked — under a full-workspace
+ * `pnpm test` this file took 9771ms against 939ms alone, and its first case died
+ * with a bare "Test timed out in 5000ms" while the other ten passed. But that is
+ * NOT why the budget is file-scoped instead of aimed at the one case that fell
+ * over. `the live renderer tree is clean` lints the entire renderer sub-tree —
+ * genuine per-case work that grows with every renderer file added — and measured
+ * 4068ms under the same contention that timed the first case out. At the 5s
+ * default it is ALREADY inside the window, so hoisting the warm-up into a shared
+ * hook would have fixed the case that failed and left the case that fails next.
+ * A hoist also moves the exposure onto `hookTimeout`, whose default is 10s — a
+ * TIGHTER budget than this one — in exchange for no pass/fail difference at all.
+ *
+ * Reproduced deliberately with CPU burners on an 8-core host: the first case ran
+ * 414ms alone and 7304ms at 2x oversubscription over a cold module graph
+ * (17.6x), which is the run that timed out. Notably it ran only 2.3s at 4x
+ * oversubscription once that graph was warm in the page cache — so the worst
+ * case is COLD-PLUS-CONTENDED rather than merely contended, which is exactly the
+ * shape of a full `pnpm test`: every package's vitest pool forking at once, over
+ * a module graph nothing has read yet.
+ *
+ * 30s is therefore ~4x the worst per-case figure measured (7304ms) and ~3x the
+ * worst whole-FILE wall time observed (9771ms), so the budget holds even if this
+ * file's entire real-world cost landed inside a single case. Deliberately not
+ * the 15000ms that `packages/control-plane` and `packages/client-sdk` set
+ * package-wide: that is barely 2x the worst figure measured here, and those two
+ * are buying a floor for every suite they own rather than a ceiling for one.
+ * The headroom above it costs nothing. Unlike
+ * `packages/runtime-daemon/src/git/__tests__/turn-snapshot-service.test.ts`,
+ * whose budget is sized above a 30s INNER subprocess deadline so a hung spawn
+ * fails naming its own leg, nothing inside `lintText` has a deadline for this
+ * one to sit above — and no failure this suite exists to catch is a hang.
+ * Delete or weaken the rule under test and these cases ASSERT: instantly, and
+ * just as loudly at 30s as at 5s. The only thing the timeout itself catches is
+ * a genuinely wedged lint, which a CI job timeout catches as well.
+ *
+ * Installed file-scoped rather than in `vitest.config.ts`, and that boundary is
+ * the point: the renderer project's other seven suites render React components
+ * and pay none of this, so re-budgeting them on this file's evidence would buy
+ * silence rather than confidence. Exactly two suites in the workspace drive
+ * ESLint programmatically — this one and the `router-no-sql.test.ts` precedent
+ * named in the header, which pays the same warm-up but sits under its own
+ * package's 15000ms budget and so never surfaced it. `apps/desktop` declares no
+ * `testTimeout` at all, which is why the exposure landed here first.
+ */
+const ESLINT_CASE_TIMEOUT_MS = 30_000;
+
+vi.setConfig({ testTimeout: ESLINT_CASE_TIMEOUT_MS });
+
 // Enforces the Plan-003 CP-003-3 renderer import boundary.
 describe("renderer import boundary", () => {
   describe("the rule has teeth (positive controls)", () => {
