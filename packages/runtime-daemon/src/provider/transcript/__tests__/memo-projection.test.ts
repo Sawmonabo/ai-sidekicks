@@ -983,9 +983,14 @@ class RecordedEventLog implements TranscriptEventReader {
 
 class RecordedContentSource implements TranscriptContentSource {
   readonly assistantTextBySequence: Map<number, string> = new Map<number, string>();
+  readonly participantTextBySequence: Map<number, string> = new Map<number, string>();
 
   readAssistantText(reference: TranscriptContentReference): string | undefined {
     return this.assistantTextBySequence.get(reference.sequence);
+  }
+
+  readParticipantText(reference: TranscriptContentReference): string | undefined {
+    return this.participantTextBySequence.get(reference.sequence);
   }
 
   readReasoningBlocks(): readonly TranscriptReasoningBlock[] {
@@ -1024,23 +1029,26 @@ function storedEvent(
 
 interface FoldFixture {
   readonly log: RecordedEventLog;
+  readonly contentSource: RecordedContentSource;
   readonly fold: CanonicalTranscriptFold;
 }
 
 function makeFoldFixture(): FoldFixture {
   const log = new RecordedEventLog();
   const contentSource = new RecordedContentSource();
-  return { log, fold: new CanonicalTranscriptFold({ eventReader: log, contentSource }) };
+  return {
+    log,
+    contentSource,
+    fold: new CanonicalTranscriptFold({ eventReader: log, contentSource }),
+  };
 }
 
 function seedConversation(fixture: FoldFixture): void {
-  fixture.log.append(
-    storedEvent(1, "user.message", {
-      runId: RUN_ID,
-      actor: "participant",
-      message: "run the tests",
-    }),
-  );
+  // No message member on the row: the participant's words reach the fold through
+  // the content port, because the emitter routes them through the encrypted
+  // envelope and the read path returns only the clear half.
+  fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
+  fixture.contentSource.participantTextBySequence.set(1, "run the tests");
   fixture.log.append(storedEvent(2, "assistant.message", { runId: RUN_ID }));
 }
 
@@ -1072,10 +1080,19 @@ describe("memo identity key — derived, never stored", () => {
       TARGET,
     );
 
-    // A restart: nothing in memory survives, the durable rows do.
+    // A restart: nothing in memory survives, the durable rows do — and so does
+    // the content the port reads, which is durable for the same reason the rows
+    // are. Carrying the log across without the content would model a restart
+    // that lost half the conversation, not a restart.
     const after = makeFoldFixture();
     for (const event of before.log.readEvents()) {
       after.log.append(event);
+    }
+    for (const [sequence, text] of before.contentSource.participantTextBySequence) {
+      after.contentSource.participantTextBySequence.set(sequence, text);
+    }
+    for (const [sequence, text] of before.contentSource.assistantTextBySequence) {
+      after.contentSource.assistantTextBySequence.set(sequence, text);
     }
     const keyAfterRestart: string = deriveMemoIdentityKey(
       after.fold.build({ sessionId: SESSION_ID, runId: RUN_ID }),
@@ -1094,12 +1111,9 @@ describe("memo identity key — derived, never stored", () => {
       runId: RUN_ID,
     });
     fixture.log.append(
-      storedEvent(3, "user.message", {
-        runId: OTHER_RUN_ID,
-        actor: "participant",
-        message: "unrelated",
-      }),
+      storedEvent(3, "user.message", { runId: OTHER_RUN_ID, actor: "participant" }),
     );
+    fixture.contentSource.participantTextBySequence.set(3, "unrelated");
     const after: CanonicalTranscriptProjection = fixture.fold.build({
       sessionId: SESSION_ID,
       runId: RUN_ID,
@@ -1118,13 +1132,10 @@ describe("memo identity key — derived, never stored", () => {
       TARGET,
     );
 
-    fixture.log.append(
-      storedEvent(3, "user.message", {
-        runId: RUN_ID,
-        actor: "participant",
-        message: "and now deploy",
-      }),
-    );
+    fixture.log.append(storedEvent(3, "user.message", { runId: RUN_ID, actor: "participant" }));
+    // Seeded, so the key moves because the CONTENT changed — an unseeded row
+    // would move it too, on an unavailability marker rather than on new words.
+    fixture.contentSource.participantTextBySequence.set(3, "and now deploy");
     const after: string = deriveMemoIdentityKey(
       fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID }),
       TARGET,
@@ -1430,7 +1441,10 @@ describe("settlement disclosure — a degraded settlement never reads like an ap
     ]);
 
     // The hard case: an APPLIED replay that itself declared a loss. An
-    // implementation discriminating on "the loss list is non-empty" dies here.
+    // implementation that inferred DEGRADED from a non-empty loss list dies
+    // here. (The applied arm does read that list — to choose between claiming
+    // the replay was in full and naming what it omitted — but the route it
+    // reports never comes from it.)
     const appliedWithLoss: ReconstitutionSettlement = {
       route: "native-replay",
       result: { status: "applied", declaredLosses: ["provider_private_reasoning"] },
@@ -1460,6 +1474,37 @@ describe("settlement disclosure — a degraded settlement never reads like an ap
     for (const memoRendering of renderings.slice(2)) {
       expect(appliedRenderings).not.toContain(memoRendering);
     }
+  });
+
+  it("claims a replay was in full only when the declared-loss list is empty", () => {
+    const disclosure: string = renderReconstitutionDisclosure({
+      route: "native-replay",
+      result: { status: "applied", declaredLosses: [] },
+    });
+
+    expect(disclosure).toContain("in full");
+    expect(disclosure).toContain("nothing was dropped");
+  });
+
+  it("names what an applied replay omitted, and does not call that replay in full", () => {
+    const disclosure: string = renderReconstitutionDisclosure({
+      route: "native-replay",
+      result: {
+        status: "applied",
+        declaredLosses: ["provider_private_reasoning", "turn_content_unavailable"],
+      },
+    });
+
+    // "In full" beside a list of what was dropped tells the participant two
+    // contradictory things in one sentence. The claim is reserved for the case
+    // that earns it, and the omissions are named on the case that does not.
+    expect(disclosure).not.toContain("in full");
+    expect(disclosure).toContain("provider_private_reasoning");
+    expect(disclosure).toContain("turn_content_unavailable");
+    expect(disclosure).not.toContain("nothing was dropped");
+    // Still an applied replay, never reworded into a summary.
+    expect(disclosure).toContain("replayed into the new session");
+    expect(disclosure).not.toContain("summarized");
   });
 
   it("says plainly, on every memo path, that the conversation was summarized", async () => {

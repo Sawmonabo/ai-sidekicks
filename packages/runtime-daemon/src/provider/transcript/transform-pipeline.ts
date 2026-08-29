@@ -305,6 +305,9 @@ export const mapToolCallIdentity: TranscriptPipelineStep = (state) => {
   return state;
 };
 
+/** Shared empty lookup for a turn that stripped no private block. */
+const EMPTY_BLOCK_ID_SET: ReadonlySet<string> = new Set<string>();
+
 /**
  * Step 3 — strip what is not portable, recording each stripped class.
  *
@@ -315,22 +318,45 @@ export const mapToolCallIdentity: TranscriptPipelineStep = (state) => {
  */
 export const stripNonPortableContent: TranscriptPipelineStep = (state) => {
   const declaredLosses: DeclaredLossKind[] = [...state.declaredLosses];
-  const strippedBlockIds: Set<string> = new Set<string>();
 
   // Two passes, because a result carried INSIDE a private block may be rendered
   // before that block in segment order and must still go with it.
-  for (const turn of state.turns) {
+  //
+  // Scoped PER TURN, and that scope is the whole point of the map. A block id is
+  // unique only within the exchange that minted it — providers restart their
+  // block numbering freely — so a flat set makes one turn's private id censor an
+  // unrelated visible turn's real tool result, which step 4 then repairs into a
+  // synthetic failure the provider never produced. Keyed by the turn's ARRAY
+  // INDEX rather than by `turn.position`, which is a data value a malformed
+  // projection can repeat; the index is structural and both passes walk the same
+  // array in the same order, so both compute it identically.
+  //
+  // The turn is the right occurrence boundary because it is where enclosure is
+  // real: the fold coalesces consecutive assistant rows into one turn and closes
+  // that turn at a turn marker or a participant message, either of which means
+  // the provider exchange ended. A block cited across that boundary was not
+  // carrying the result. Such a result therefore survives as provider output,
+  // while the private block itself is stripped regardless of turn — reasoning
+  // never leaks, only tool output outlives a cross-turn citation.
+  const strippedBlockIdsByTurnIndex: Map<number, Set<string>> = new Map<number, Set<string>>();
+
+  state.turns.forEach((turn, turnIndex) => {
     for (const segment of turn.segments) {
       if (segment.kind === "reasoning" && segment.disclosure === "private") {
-        strippedBlockIds.add(segment.blockId);
+        const idsForTurn: Set<string> =
+          strippedBlockIdsByTurnIndex.get(turnIndex) ?? new Set<string>();
+        idsForTurn.add(segment.blockId);
+        strippedBlockIdsByTurnIndex.set(turnIndex, idsForTurn);
       }
     }
-  }
+  });
 
   const strippedTurns: CanonicalTranscriptTurn[] = [];
   let recordedPrivateReasoningLoss = false;
 
-  for (const turn of state.turns) {
+  state.turns.forEach((turn, turnIndex) => {
+    const strippedBlockIdsInTurn: ReadonlySet<string> =
+      strippedBlockIdsByTurnIndex.get(turnIndex) ?? EMPTY_BLOCK_ID_SET;
     const keptSegments: CanonicalTranscriptSegment[] = [];
     for (const segment of turn.segments) {
       if (segment.kind === "reasoning") {
@@ -344,7 +370,7 @@ export const stripNonPortableContent: TranscriptPipelineStep = (state) => {
       if (
         segment.kind === "tool_result" &&
         segment.enclosingReasoningBlockId !== undefined &&
-        strippedBlockIds.has(segment.enclosingReasoningBlockId)
+        strippedBlockIdsInTurn.has(segment.enclosingReasoningBlockId)
       ) {
         // The result goes with the block that carried it. Its CALL survives —
         // that asymmetry is what step 4 exists to answer.
@@ -356,7 +382,7 @@ export const stripNonPortableContent: TranscriptPipelineStep = (state) => {
     if (keptSegments.length > 0) {
       strippedTurns.push({ position: turn.position, role: turn.role, segments: keptSegments });
     }
-  }
+  });
 
   if (recordedPrivateReasoningLoss) {
     declaredLosses.push("provider_private_reasoning");

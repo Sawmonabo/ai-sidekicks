@@ -16,17 +16,29 @@
 // to avoid.
 //
 //   * The session log supplies ORDER, IDENTITY, and PAIRING: `sequence`, event
-//     type, the run a row belongs to, tool names, tool-call ids, and the
-//     participant's own message text — which IS a durable payload member.
+//     type, the run a row belongs to, tool names, and tool-call ids. Every one
+//     of those is a member of the CLEAR payload the event read path hands back.
 //
-//   * Everything else the transcript renders — assistant prose, reasoning block
-//     bodies, serialized tool arguments, tool result bodies — is NOT in a
-//     durable payload. Deliberate, per `Spec-006 §Assistant Output (assistant_output)`
-//     and `Spec-006 §Tool Activity (tool_activity)`:
-//     the payload shapes are metadata-shaped by construction, assistant output
-//     carrying `contentType` / `contentLength` and never message text, tool
-//     activity carrying no tool output, so unbounded content always rides
-//     behind a reference.
+//   * Every BODY the transcript renders — the participant's own words, assistant
+//     prose, reasoning block bodies, serialized tool arguments, tool result
+//     bodies — reaches the fold through the content port instead. Two different
+//     reasons land in the same place, and both are deliberate:
+//
+//       - Assistant and tool payloads are metadata-shaped by construction, per
+//         `Spec-006 §Assistant Output (assistant_output)` and
+//         `Spec-006 §Tool Activity (tool_activity)` — assistant output carries
+//         `contentType` / `contentLength` and never message text, tool activity
+//         carries no tool output — so unbounded content always rides behind a
+//         reference.
+//
+//       - The participant's message text IS named in the `user.message` payload
+//         shape, but it is PII-bearing at that call site and the emitter routes
+//         it through the encrypted `pii_payload` envelope, per
+//         `Spec-006 §User Message Events`. The read path this fold walks exposes
+//         only the clear half, so reading `payload.message` here would answer
+//         `undefined` for every real participant row and silently erase every
+//         participant turn from export and replay under no declared loss. The
+//         port is the seam that keeps that decryption decision out of the fold.
 //
 // So the content arrives through `TranscriptContentSource`, a port this module
 // declares and does not implement. Declaring it is not a stub standing in for
@@ -41,7 +53,8 @@
 //
 // Refs: Plan-005 §Phase 3 / T3.19, ADR-029,
 // `Spec-006 §Assistant Output (assistant_output)`,
-// `Spec-006 §Tool Activity (tool_activity)`.
+// `Spec-006 §Tool Activity (tool_activity)`,
+// `Spec-006 §User Message Events`.
 
 import type {
   CanonicalReasoningDisclosure,
@@ -102,8 +115,10 @@ export interface TranscriptToolResultBody {
 }
 
 /**
- * Supplies the content the durable payloads deliberately do not carry — see the
- * header. Every method may answer "nothing": an absent body is a row whose
+ * Supplies every body the clear durable payloads do not carry — see the header
+ * for the two distinct reasons they do not, one per method group.
+ *
+ * Every method may answer "nothing": an absent body is a row whose
  * content is unavailable, which the fold renders as an EMPTY body marked
  * `contentUnavailable` rather than by inventing text or by dropping the row.
  * Dropping it would erase a turn that happened, and the pipeline would then
@@ -118,6 +133,7 @@ export interface TranscriptToolResultBody {
  */
 export interface TranscriptContentSource {
   readAssistantText(reference: TranscriptContentReference): string | undefined;
+  readParticipantText(reference: TranscriptContentReference): string | undefined;
   readReasoningBlocks(reference: TranscriptContentReference): readonly TranscriptReasoningBlock[];
   readToolCallArguments(reference: TranscriptContentReference): string | undefined;
   readToolResultBody(reference: TranscriptContentReference): TranscriptToolResultBody | undefined;
@@ -282,7 +298,7 @@ export class CanonicalTranscriptFold {
       };
 
       if (event.type === "user.message") {
-        appendSegments("participant", event.sequence, participantSegmentsFor(event));
+        appendSegments("participant", event.sequence, this.#participantSegmentsFor(reference));
         continue;
       }
 
@@ -297,6 +313,26 @@ export class CanonicalTranscriptFold {
       builtAtPosition: newestLoggedPosition,
       turns,
     };
+  }
+
+  /**
+   * The participant's own words, read through the content port for the reason
+   * the header gives: the clear `user.message` payload does not carry them.
+   *
+   * The unavailable disposition is `assistant.message`'s, deliberately: an
+   * unreadable body is carried as an EMPTY body marked `contentUnavailable`, so
+   * the turn keeps its structural position and the fold declares the loss over
+   * it. Dropping it instead would erase words a person actually typed and
+   * declare nothing — the one reading the declared-loss rule forbids.
+   */
+  #participantSegmentsFor(
+    reference: TranscriptContentReference,
+  ): readonly CanonicalTranscriptSegment[] {
+    const text: string | undefined = this.#contentSource.readParticipantText(reference);
+    if (text === undefined) {
+      return [{ kind: "text", text: "", contentUnavailable: true }];
+    }
+    return text.length === 0 ? [] : [{ kind: "text", text }];
   }
 
   #assistantSegmentsFor(
@@ -380,14 +416,4 @@ export class CanonicalTranscriptFold {
 function readStringMember(payload: Record<string, unknown>, member: string): string | undefined {
   const value: unknown = payload[member];
   return typeof value === "string" ? value : undefined;
-}
-
-/**
- * The participant's own words, read straight from the durable payload — the one
- * transcript content the log does carry, because a participant message is
- * bounded by what a person typed.
- */
-function participantSegmentsFor(event: StoredEvent): readonly CanonicalTranscriptSegment[] {
-  const message: string | undefined = readStringMember(event.payload, "message");
-  return message === undefined || message.length === 0 ? [] : [{ kind: "text", text: message }];
 }

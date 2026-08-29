@@ -106,6 +106,7 @@ class RecordedEventLog implements TranscriptEventReader {
  */
 class RecordedContentSource implements TranscriptContentSource {
   readonly assistantTextBySequence: Map<number, string> = new Map<number, string>();
+  readonly participantTextBySequence: Map<number, string> = new Map<number, string>();
   readonly reasoningBlocksBySequence: Map<number, readonly TranscriptReasoningBlock[]> = new Map<
     number,
     readonly TranscriptReasoningBlock[]
@@ -118,6 +119,10 @@ class RecordedContentSource implements TranscriptContentSource {
 
   readAssistantText(reference: TranscriptContentReference): string | undefined {
     return this.assistantTextBySequence.get(reference.sequence);
+  }
+
+  readParticipantText(reference: TranscriptContentReference): string | undefined {
+    return this.participantTextBySequence.get(reference.sequence);
   }
 
   readReasoningBlocks(reference: TranscriptContentReference): readonly TranscriptReasoningBlock[] {
@@ -152,13 +157,11 @@ function makeFixture(): TranscriptFixture {
  * This is the shape both the strip and the pairing repair are specified against.
  */
 function seedInterruptedToolFixture(fixture: TranscriptFixture): void {
-  fixture.log.append(
-    storedEvent(1, "user.message", {
-      runId: RUN_ID,
-      actor: "participant",
-      message: "run the tests",
-    }),
-  );
+  // The participant row carries NO message member, matching the shape the read
+  // path actually hands back: the emitter routes that text through the encrypted
+  // envelope, so the words arrive through the content port like every other body.
+  fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
+  fixture.contentSource.participantTextBySequence.set(1, "run the tests");
   fixture.log.append(storedEvent(2, "assistant.thinking_update", { runId: RUN_ID }));
   fixture.contentSource.reasoningBlocksBySequence.set(2, [
     {
@@ -207,22 +210,60 @@ describe("canonical transcript fold — scope and ordering", () => {
     ]);
   });
 
+  it("reads a participant turn through the content port, not off the row's clear payload", () => {
+    const fixture = makeFixture();
+    // The shape the read path actually returns: no message member anywhere on
+    // the clear payload, because the emitter routed those words through the
+    // encrypted envelope. A fold that read `payload.message` would render an
+    // unavailable turn here and every real participant turn would vanish.
+    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
+    fixture.contentSource.participantTextBySequence.set(1, "ship it");
+
+    const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
+
+    expect(projection.turns).toHaveLength(1);
+    expect(projection.turns[0]?.role).toBe("participant");
+    expect(projection.turns[0]?.segments).toEqual([{ kind: "text", text: "ship it" }]);
+    expect(new TranscriptTransformPipeline().exportTranscript(projection).declaredLosses).toEqual(
+      [],
+    );
+  });
+
+  it("carries an unreadable participant turn with an empty body and declares the loss", () => {
+    const fixture = makeFixture();
+    // Deliberately NOT seeded: the port answers "unavailable" for the person's
+    // own words. They are not dropped — a dropped turn is indistinguishable from
+    // a turn that never happened, and nothing would then be declared over it.
+    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
+    fixture.log.append(storedEvent(2, "assistant.message", { runId: RUN_ID }));
+    fixture.contentSource.assistantTextBySequence.set(2, "on it");
+
+    const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
+
+    expect(projection.turns.map((turn) => turn.role)).toEqual(["participant", "assistant"]);
+    expect(projection.turns[0]?.position).toBe(1);
+    expect(projection.turns[0]?.segments).toEqual([
+      { kind: "text", text: "", contentUnavailable: true },
+    ]);
+    // The assistant half is intact, so the loss below is the participant's alone.
+    expect(projection.turns[1]?.segments).toEqual([{ kind: "text", text: "on it" }]);
+
+    const exported = new TranscriptTransformPipeline().exportTranscript(projection);
+    expect(exported.declaredLosses).toEqual(["turn_content_unavailable"]);
+    expect(exported.frames).toHaveLength(2);
+  });
+
   it("keeps another run's rows out of this run's transcript", () => {
     const fixture = makeFixture();
+    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
+    fixture.contentSource.participantTextBySequence.set(1, "mine");
     fixture.log.append(
-      storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant", message: "mine" }),
+      storedEvent(2, "user.message", { runId: OTHER_RUN_ID, actor: "participant" }),
     );
-    fixture.log.append(
-      storedEvent(2, "user.message", {
-        runId: OTHER_RUN_ID,
-        actor: "participant",
-        message: "someone else's",
-      }),
-    );
+    fixture.contentSource.participantTextBySequence.set(2, "someone else's");
     // A row naming NO run cannot be proven to belong to this one, so it is out.
-    fixture.log.append(
-      storedEvent(3, "user.message", { actor: "participant", message: "unscoped" }),
-    );
+    fixture.log.append(storedEvent(3, "user.message", { actor: "participant" }));
+    fixture.contentSource.participantTextBySequence.set(3, "unscoped");
 
     const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
 
@@ -323,14 +364,12 @@ describe("canonical transcript fold — a projection, never a store", () => {
     // rows, so a cached projection cannot look current merely because this run
     // was quiet.
     const fixture = makeFixture();
-    fixture.log.append(
-      storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant", message: "hello" }),
-    );
+    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
+    fixture.contentSource.participantTextBySequence.set(1, "hello");
 
     const before = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
-    fixture.log.append(
-      storedEvent(2, "user.message", { runId: OTHER_RUN_ID, message: "elsewhere" }),
-    );
+    fixture.log.append(storedEvent(2, "user.message", { runId: OTHER_RUN_ID }));
+    fixture.contentSource.participantTextBySequence.set(2, "elsewhere");
     const after = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
 
     expect(after.turns).toEqual(before.turns);
@@ -447,6 +486,94 @@ describe("transform pipeline — the ordered contract", () => {
     ]);
   });
 
+  it("strips only the result the private block actually enclosed, not an id-alike in another turn", () => {
+    const fixture = makeFixture();
+    // Both turns cite the SAME block id. Providers restart block numbering per
+    // exchange, so an id is unique only within the turn that minted it — and the
+    // second turn's block is a visible summary, not the private one.
+    fixture.log.append(storedEvent(1, "assistant.thinking_update", { runId: RUN_ID }));
+    fixture.contentSource.reasoningBlocksBySequence.set(1, [
+      {
+        blockId: "block-1",
+        reasoningKind: "thinking",
+        disclosure: "private",
+        text: "internal deliberation",
+      },
+    ]);
+    fixture.log.append(
+      storedEvent(2, "tool.invoked", {
+        runId: RUN_ID,
+        toolCallId: "call-private",
+        toolName: "read_file",
+      }),
+    );
+    fixture.contentSource.toolArgumentsBySequence.set(2, '{"path":"notes.md"}');
+    fixture.log.append(
+      storedEvent(3, "tool.result", { runId: RUN_ID, toolCallId: "call-private" }),
+    );
+    fixture.contentSource.toolResultBodyBySequence.set(3, {
+      text: "private notes",
+      enclosingReasoningBlockId: "block-1",
+    });
+
+    fixture.log.append(storedEvent(4, "run.turn_started", { runId: RUN_ID }));
+
+    fixture.log.append(storedEvent(5, "assistant.thinking_update", { runId: RUN_ID }));
+    fixture.contentSource.reasoningBlocksBySequence.set(5, [
+      {
+        blockId: "block-1",
+        reasoningKind: "thinking_summary",
+        disclosure: "summary",
+        text: "listing the directory",
+      },
+    ]);
+    fixture.log.append(
+      storedEvent(6, "tool.invoked", {
+        runId: RUN_ID,
+        toolCallId: "call-visible",
+        toolName: "list_dir",
+      }),
+    );
+    fixture.contentSource.toolArgumentsBySequence.set(6, '{"path":"."}');
+    fixture.log.append(
+      storedEvent(7, "tool.result", { runId: RUN_ID, toolCallId: "call-visible" }),
+    );
+    fixture.contentSource.toolResultBodyBySequence.set(7, {
+      text: "three entries",
+      enclosingReasoningBlockId: "block-1",
+    });
+
+    const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
+    expect(projection.turns).toHaveLength(2);
+
+    const exported = new TranscriptTransformPipeline().exportTranscript(projection);
+    const results = segmentsOf(exported.frames as readonly RenderedTranscriptFrame[]).filter(
+      (segment) => segment.kind === "tool_result",
+    );
+    expect(results).toHaveLength(2);
+
+    // The genuinely enclosed result is still dropped and its call repaired.
+    expect(results[0]).toEqual({
+      kind: "tool_result",
+      toolCallId: "call-private",
+      outcome: "failed",
+      provenance: "repaired",
+      text: SYNTHETIC_INTERRUPTED_TOOL_RESULT_TEXT,
+    });
+
+    // The visible turn's result is the provider's own, verbatim. A strip scoped
+    // across the whole transcript destroys this one on the id alone and step 4
+    // then reports a failure the provider never produced.
+    expect(results[1]).toEqual({
+      kind: "tool_result",
+      toolCallId: "call-visible",
+      outcome: "succeeded",
+      provenance: "provider",
+      text: "three entries",
+      enclosingReasoningBlockId: "block-1",
+    });
+  });
+
   it("carries a visible reasoning summary forward as plain text, at no declared cost", () => {
     const fixture = makeFixture();
     fixture.log.append(storedEvent(1, "assistant.thinking_update", { runId: RUN_ID }));
@@ -477,9 +604,8 @@ describe("transform pipeline — the ordered contract", () => {
 
   it("declares no loss for a transcript that lost nothing", () => {
     const fixture = makeFixture();
-    fixture.log.append(
-      storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant", message: "hello" }),
-    );
+    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
+    fixture.contentSource.participantTextBySequence.set(1, "hello");
     fixture.log.append(storedEvent(2, "assistant.message", { runId: RUN_ID }));
     fixture.contentSource.assistantTextBySequence.set(2, "hi");
     const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
@@ -491,9 +617,11 @@ describe("transform pipeline — the ordered contract", () => {
 
   it("keeps a turn whose body was unreadable and declares the loss over it", () => {
     const fixture = makeFixture();
-    fixture.log.append(
-      storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant", message: "hello" }),
-    );
+    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
+    // Seeded, so exactly ONE turn in this projection is unreadable. Leaving the
+    // participant row unseeded too would let this test pass while proving
+    // something other than what its name claims.
+    fixture.contentSource.participantTextBySequence.set(1, "hello");
     // Deliberately NOT seeded: the content source answers "unavailable".
     fixture.log.append(storedEvent(2, "assistant.message", { runId: RUN_ID }));
     const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });

@@ -1023,7 +1023,14 @@ export function renderReconstitutionDisclosure(settlement: ReconstitutionSettlem
       : settlement.result.declaredLosses.join(", ");
 
   if (settlement.route === "native-replay") {
-    return `The prior conversation was replayed into the new session in full (${losses}).`;
+    // "In full" is a CLAIM, and an applied replay is entitled to make it only
+    // when the declared-loss list is empty. An applied replay may legitimately
+    // carry losses — private reasoning stripped, a body this fold could not
+    // read — and saying "in full" beside a parenthesized list of what was
+    // dropped tells the participant two contradictory things in one sentence.
+    return settlement.result.declaredLosses.length === 0
+      ? `The prior conversation was replayed into the new session in full (${losses}).`
+      : `The prior conversation was replayed into the new session, apart from what could not be carried across (${losses}).`;
   }
 
   switch (settlement.memo.disposition) {
