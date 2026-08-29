@@ -1159,11 +1159,10 @@ export class DriverCapabilitiesWriter {
   ): CapabilityDetails {
     // Reconstruct the flag matrix. `supported === 1` → `true`. The Record is
     // keyed by `capability_flag`, but the column's CHECK is a SUPERSET
-    // whitelist, not an exact guarantee: version 11 widened it to all FOURTEEN
-    // canonical values while this contract version's union declares THIRTEEN
-    // (`transcript_replay` is admitted by the CHECK and given no row until
-    // Plan-005 T3.19), so a stored value passing the CHECK is NOT by itself a
-    // `DriverCapabilityFlag`. The key-set assertion below is what makes the
+    // whitelist, not an exact guarantee: a CHECK admits a value forever once
+    // written, so it cannot narrow when a union does, and a stored value passing
+    // it is NOT by itself a `DriverCapabilityFlag`. The key-set assertion below
+    // is what makes the
     // `Record<DriverCapabilityFlag, boolean>` typing sound — only canonical
     // keys are ever assigned, and every canonical key is proven present before
     // the record is handed out.
@@ -1172,12 +1171,12 @@ export class DriverCapabilitiesWriter {
     ) as DriverCapabilityRow[];
     // Belt-and-suspenders corrupt-cache guard: a written driver (parent row
     // present) MUST carry EXACTLY the canonical flag key set — no more, no
-    // fewer. This is a KEY-SET proof rather than a row COUNT, and the
-    // difference is load-bearing now that the CHECK admits a fourteenth value
-    // the union does not declare: an out-of-band row that swapped `mcp` for
-    // `transcript_replay` keeps the count at thirteen while silently dropping a
-    // real flag key, and a count-only guard would hand that cache out as a
-    // complete flag matrix. It is the read-side twin of the write-seam
+    // fewer. This is a KEY-SET proof rather than a row COUNT, and the difference
+    // is load-bearing for as long as the CHECK stays a superset of the union: an
+    // out-of-band row carrying a CHECK-admitted value the union does not name,
+    // written in place of a real flag's row, holds the count steady while
+    // silently dropping a flag key, and a count-only guard would hand that cache
+    // out as a complete flag matrix. It is the read-side twin of the write-seam
     // `assertValidCapabilityFlags` (own-key count + own-key presence ⇒
     // pigeonhole), reaching the same exactness by naming both directions
     // outright. That write-seam guard + the atomic dual-write make a wrong key

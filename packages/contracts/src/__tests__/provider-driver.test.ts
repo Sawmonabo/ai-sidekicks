@@ -11,17 +11,17 @@
 // consumers.
 //
 // Coverage map (cite → block):
-//   • AC1 (`Spec-005 §Acceptance Criteria`) — a mock fully implementing `ProviderDriver` (all 14
+//   • AC1 (`Spec-005 §Acceptance Criteria`) — a mock fully implementing `ProviderDriver` (all 16
 //     ops, correctly-typed params + returns) compiles with no session-domain
 //     change. The compile is the assertion; a runtime smoke confirms the mock
 //     is constructable and a method returns the expected shape.
-//   • AC2 (`Spec-005 §Acceptance Criteria`) — a capability flag outside the 13-flag
+//   • AC2 (`Spec-005 §Acceptance Criteria`) — a capability flag outside the 14-flag
 //     `DriverCapabilityFlag` union is a TS error (`@ts-expect-error`, self-
 //     verifying via TS2578 if the invalid flag ever became valid).
-//   • T1.7 flag currency — `DRIVER_CAPABILITY_FLAGS` carries exactly the thirteen
-//     campaign flags in canonical §Shared Enums order, and DELIBERATELY excludes
-//     the fourteenth canonical value `transcript_replay` (Plan-005 T3.19's). The
-//     exclusion is pinned BY NAME so T3.19 must flip it consciously.
+//   • T1.7 flag currency — `DRIVER_CAPABILITY_FLAGS` carries exactly the fourteen
+//     campaign flags in canonical §Shared Enums order, `transcript_replay`
+//     INSERTED at its canonical position rather than appended, and DELIBERATELY
+//     excludes `pause`, whose exclusion is permanent (ADR-011).
 //   • T1.8 parity ops — the four added operations (`rollbackTo`,
 //     `setSessionGoal`, `clearSessionGoal`, `probeAuth`) and the three result
 //     envelopes they answer (`DriverRollbackResultSchema`,
@@ -93,6 +93,8 @@ import {
   DriverInterventionResultSchema,
   DriverResumeResultSchema,
   DriverRollbackResultSchema,
+  DriverTranscriptExportResultSchema,
+  DriverTranscriptReplayResultSchema,
   IdempotencyClassSchema,
   McpServerStatusEmissionSchema,
   ProviderToolMetadataSchema,
@@ -108,8 +110,11 @@ import {
   type DriverInterventionResult,
   type DriverResumeResult,
   type DriverRollbackResult,
+  type DriverTranscriptExportResult,
+  type DriverTranscriptReplayResult,
   type DriverTransportConfig,
   type ExecutionPosture,
+  type ExportTranscriptParams,
   type GetCapabilitiesResult,
   type InterruptRunParams,
   type InterventionType,
@@ -120,6 +125,7 @@ import {
   type ProviderMode,
   type ProviderSessionHandle,
   type RecoverySpanClassification,
+  type ReplayTranscriptParams,
   type RespondToRequestParams,
   type ResumeSessionParams,
   type RollbackToParams,
@@ -152,7 +158,7 @@ const CLIENT_IDEMPOTENCY_KEY = "6f9619ff-8b86-4011-b42d-00cf4fc964ff";
 // AC1 (`Spec-005 §Acceptance Criteria`) — a mock fully implementing `ProviderDriver` compiles.
 // ===========================================================================
 //
-// The class below implements ALL 14 operations with correctly-typed params and
+// The class below implements ALL 16 operations with correctly-typed params and
 // return shapes. The fact that it typechecks under `implements ProviderDriver`
 // (with `exactOptionalPropertyTypes` + `isolatedDeclarations` on) IS the
 // acceptance assertion: a provider integration can satisfy this contract with
@@ -246,6 +252,7 @@ class MockProviderDriver implements ProviderDriver {
         session_goals: true,
         callback_tools: false,
         subagents: false,
+        transcript_replay: false,
         cost_cap: false,
       },
       contractVersion: "1.0",
@@ -265,19 +272,32 @@ class MockProviderDriver implements ProviderDriver {
   public probeAuth(): Promise<DriverAuthProbeResult> {
     return Promise.resolve({ status: "authenticated" });
   }
+
+  public exportTranscript(params: ExportTranscriptParams): Promise<DriverTranscriptExportResult> {
+    return Promise.resolve({
+      frames: params.transcript.turns.map((turn) => ({ position: turn.position })),
+      declaredLosses: ["provider_private_reasoning"],
+    });
+  }
+
+  public replayTranscript(params: ReplayTranscriptParams): Promise<DriverTranscriptReplayResult> {
+    return Promise.resolve({
+      status: params.frames.length === 0 ? "degraded" : "applied",
+      declaredLosses: [],
+    });
+  }
 }
 
-describe("ProviderDriver contract — AC1 (`Spec-005 §Acceptance Criteria`): a mock implements all 14 ops", () => {
+describe("ProviderDriver contract: a mock implements all 16 operations", () => {
   // Type-level proof that the mock satisfies the contract interface: assigning
   // it to a `ProviderDriver`-typed binding will fail to compile if any of the
-  // 14 method signatures drifts from the contract. This is the AC1 assertion;
+  // 16 method signatures drifts from the contract. This is the AC1 assertion;
   // the runtime checks below merely anchor it to an executing test.
   const driver: ProviderDriver = new MockProviderDriver();
 
-  it("is constructable and surfaces all 14 contract operations as callable methods", () => {
+  it("is constructable and surfaces all 16 contract operations as callable methods", () => {
     // Interface order, so a drift in the declaration order shows up as a diff
-    // here rather than silently reordering. The doc's `exportTranscript` /
-    // `replayTranscript` are absent by design — T3.19 owns them.
+    // here rather than silently reordering.
     const operationNames = [
       "createSession",
       "resumeSession",
@@ -293,8 +313,10 @@ describe("ProviderDriver contract — AC1 (`Spec-005 §Acceptance Criteria`): a 
       "listModes",
       "getCapabilities",
       "probeAuth",
+      "exportTranscript",
+      "replayTranscript",
     ] as const;
-    expect(operationNames).toHaveLength(14);
+    expect(operationNames).toHaveLength(16);
     expect(driver).toBeInstanceOf(MockProviderDriver);
     for (const operationName of operationNames) {
       expect(typeof (driver as unknown as Record<string, unknown>)[operationName]).toBe("function");
@@ -328,9 +350,9 @@ describe("ProviderDriver contract — AC1 (`Spec-005 §Acceptance Criteria`): a 
     });
   });
 
-  it("getCapabilities answers every one of the 13 flags and returns ingress tools", async () => {
+  it("getCapabilities answers every one of the 14 flags and returns ingress tools", async () => {
     const result = await driver.getCapabilities();
-    // The canonical 13-flag `DriverCapabilityFlag` set, written alphabetically
+    // The canonical 14-flag `DriverCapabilityFlag` set, written alphabetically
     // and SPELLED OUT rather than derived from `DRIVER_CAPABILITY_FLAGS`: a
     // derived literal would agree with the const by construction and could never
     // catch a flag silently added or removed there. Keeping it hand-written is
@@ -349,8 +371,9 @@ describe("ProviderDriver contract — AC1 (`Spec-005 §Acceptance Criteria`): a 
       "structured_output",
       "subagents",
       "tool_calls",
+      "transcript_replay",
     ];
-    // I-005-2 structural check: the flag record is total — exactly the 13
+    // I-005-2 structural check: the flag record is total — exactly the 14
     // canonical flags, every one answered with a boolean.
     expect(Object.keys(result.capabilities.flags).sort()).toEqual(canonicalCapabilityFlags);
     expect(result.tools).toHaveLength(2);
@@ -407,7 +430,7 @@ describe("ProviderDriver contract — AC1 (`Spec-005 §Acceptance Criteria`): a 
     expect(result.status).toBe("applied");
   });
 
-  it("rejects a steer intervention with an empty payload (compile-time, `Spec-005 §Required Behavior`)", () => {
+  it("rejects a steer intervention with an empty payload at compile time", () => {
     // @ts-expect-error — `steer` is coupled to SteerPayload; `content` is
     // mandatory, so the empty `payload: {}` below makes this assignment a type
     // error (an empty payload is structurally unrepresentable for `steer`).
@@ -461,12 +484,12 @@ describe("ProviderDriver contract — AC1 (`Spec-005 §Acceptance Criteria`): a 
 });
 
 // ===========================================================================
-// AC2 (`Spec-005 §Acceptance Criteria`) — a capability flag outside the 13-flag union is a TS error.
+// AC2 (`Spec-005 §Acceptance Criteria`) — a capability flag outside the 14-flag union is a TS error.
 // ===========================================================================
 //
 // `DriverCapabilities.flags` is `Record<DriverCapabilityFlag, boolean>`. The
 // `@ts-expect-error` directives below assert the type system REJECTS:
-//   (a) an extra flag key not in the 13-member union, and
+//   (a) an extra flag key not in the 14-member union, and
 //   (b) an incomplete record that omits a required flag.
 // Self-verifying: an UNUSED `@ts-expect-error` is itself a TS2578 error, so if
 // the off-union flag ever became valid (e.g. the union gained `pause`,
@@ -474,8 +497,8 @@ describe("ProviderDriver contract — AC1 (`Spec-005 §Acceptance Criteria`): a 
 // No `as any` / `as never` escape hatch is used — that would silence the very
 // error this case exists to surface.
 
-describe("ProviderDriver contract — AC2 (`Spec-005 §Acceptance Criteria`): off-union capability flag is a type error", () => {
-  it("rejects a capability flag outside the 13-flag DriverCapabilityFlag union at compile time", () => {
+describe("ProviderDriver contract: off-union capability flag is a type error", () => {
+  it("rejects a capability flag outside the 14-flag DriverCapabilityFlag union at compile time", () => {
     const flagsWithExtra: DriverCapabilities["flags"] = {
       resume: true,
       steer: true,
@@ -489,6 +512,7 @@ describe("ProviderDriver contract — AC2 (`Spec-005 §Acceptance Criteria`): of
       session_goals: false,
       callback_tools: false,
       subagents: false,
+      transcript_replay: false,
       cost_cap: false,
       // `pause` is intentionally NOT in the union (ADR-011 models pause as an
       // orchestration-layer construct — interrupt run, persist state, queue
@@ -504,7 +528,7 @@ describe("ProviderDriver contract — AC2 (`Spec-005 §Acceptance Criteria`): of
     expect(flagsWithExtra.resume).toBe(true);
   });
 
-  it("rejects an incomplete flag record that omits a required capability (I-005-2: totality)", () => {
+  it("rejects an incomplete flag record that omits a required capability (totality)", () => {
     // `Record<DriverCapabilityFlag, boolean>` is total: omitting `cost_cap`
     // is a type error, so a driver cannot silently leave a capability
     // unanswered (capabilities are explicit, never inferred from absence).
@@ -525,6 +549,7 @@ describe("ProviderDriver contract — AC2 (`Spec-005 §Acceptance Criteria`): of
       session_goals: false,
       callback_tools: false,
       subagents: false,
+      transcript_replay: false,
     };
     expect(incompleteFlags.resume).toBe(true);
   });
@@ -544,7 +569,7 @@ describe("ProviderDriver contract — AC2 (`Spec-005 §Acceptance Criteria`): of
 // recovery-needed condition, and must NOT silently create a replacement
 // session under the same canonical run).
 
-describe("ProviderDriver contract — I-005-5: failed resume cannot carry a binding", () => {
+describe("ProviderDriver contract: failed resume cannot carry a binding", () => {
   it("forbids accessing `.bindingId` after narrowing to status:'failed' (compile-time)", () => {
     // Parse through the schema so the static type is the genuine
     // `DriverResumeResult` UNION (not a narrow object literal) — this is the
@@ -618,7 +643,7 @@ describe("ProviderDriver contract — I-005-5: failed resume cannot carry a bind
 // `Spec-005 §idempotency_class` — an undeclared class is NOT a contract violation; the safe
 // default applies at the normalization seam.
 
-describe("ProviderToolMetadataSchema — I-005-3: ingress→normalized idempotency default", () => {
+describe("ProviderToolMetadataSchema: ingress→normalized idempotency default", () => {
   it("defaults an omitted idempotency_class to 'manual_reconcile_only' at parse time", () => {
     const normalized: NormalizedProviderToolMetadata = ProviderToolMetadataSchema.parse({
       name: "delete_branch",
@@ -663,7 +688,7 @@ describe("ProviderToolMetadataSchema — I-005-3: ingress→normalized idempoten
     ).toBe(false);
   });
 
-  it("strips an unknown extra key (`Spec-005 §Default Behavior` forward-compat — unknown fields ignored)", () => {
+  it("strips an unknown extra key (forward-compat — unknown fields ignored)", () => {
     // The extensible tool-metadata DECLARATION surface must IGNORE unknown keys
     // (`Spec-005 §Default Behavior`), in deliberate contrast to the `.strict()` result envelopes.
     // The load-bearing assertion is ABSENCE of the unknown key from the
@@ -870,7 +895,7 @@ describe("DriverInterventionResultSchema — intervention result envelope (trust
 // sibling and quietly stops exercising the bound it claims to guard — an
 // off-by-one regression in `wireFreeFormString` would sail through a red test.
 
-describe("DriverResumeResultSchema — resume result envelope (trust boundary; I-005-5)", () => {
+describe("DriverResumeResultSchema — resume result envelope (trust boundary)", () => {
   it("parses the `resumed` arm with a bindingId and a confirmed sessionPosition", () => {
     const parsed: DriverResumeResult = DriverResumeResultSchema.parse({
       status: "resumed",
@@ -1217,8 +1242,8 @@ describe("DriverResumeResultSchema — resume result envelope (trust boundary; I
 });
 
 // ===========================================================================
-// T1.7 — capability-flag currency: thirteen flags, canonical order, one
-//        deliberate exclusion.
+// T1.7 — capability-flag currency: fourteen flags, canonical order, one
+//        permanent exclusion.
 // ===========================================================================
 //
 // `DRIVER_CAPABILITY_FLAGS` is the single source the union, the migration CHECK
@@ -1227,8 +1252,8 @@ describe("DriverResumeResultSchema — resume result envelope (trust boundary; I
 // HAND-SPELLED expectations rather than against the const itself: a check
 // derived from the thing it checks is vacuous.
 
-describe("DRIVER_CAPABILITY_FLAGS — T1.7 thirteen-flag currency", () => {
-  it("carries exactly thirteen flags, in canonical §Shared Enums order", () => {
+describe("DRIVER_CAPABILITY_FLAGS — T1.7 fourteen-flag currency", () => {
+  it("carries exactly fourteen flags, in canonical §Shared Enums order", () => {
     expect([...DRIVER_CAPABILITY_FLAGS]).toEqual([
       "resume",
       "steer",
@@ -1242,22 +1267,29 @@ describe("DRIVER_CAPABILITY_FLAGS — T1.7 thirteen-flag currency", () => {
       "session_goals",
       "callback_tools",
       "subagents",
+      "transcript_replay",
       "cost_cap",
     ]);
-    expect(DRIVER_CAPABILITY_FLAGS).toHaveLength(13);
+    expect(DRIVER_CAPABILITY_FLAGS).toHaveLength(14);
   });
 
   it("declares no duplicate flag (the cardinality guard compares key COUNT, so a duplicate would mask an omission)", () => {
     expect(new Set(DRIVER_CAPABILITY_FLAGS).size).toBe(DRIVER_CAPABILITY_FLAGS.length);
   });
 
-  it("EXCLUDES `transcript_replay` — the fourteenth canonical value, owned by Plan-005 T3.19", () => {
-    // Pinned by name, not merely implied by the length check above: this is the
-    // assertion T3.19 has to delete deliberately when it widens the union, and it
-    // is what stops the exclusion from being mistaken for an oversight in the
-    // meantime. `pause` is a different kind of exclusion — ADR-011 makes it
-    // permanent — so it is asserted here too, alongside the temporary one.
-    expect(DRIVER_CAPABILITY_FLAGS as readonly string[]).not.toContain("transcript_replay");
+  it("places `transcript_replay` at its canonical position rather than at the end", () => {
+    // The array order IS the canonical enum order, and the migration that
+    // backfills a capability cache reads position, not membership — so a flag
+    // appended for convenience would disagree with the enumeration every other
+    // surface derives from. Asserted by INDEX so an append cannot pass.
+    expect(DRIVER_CAPABILITY_FLAGS.indexOf("transcript_replay")).toBe(12);
+    expect(DRIVER_CAPABILITY_FLAGS.at(-1)).toBe("cost_cap");
+  });
+
+  it("EXCLUDES `pause` — a permanent exclusion, not a pending one", () => {
+    // ADR-011 models pause as an orchestration-layer construct (interrupt run,
+    // persist state, queue resume), never a driver capability. Pinned by name so
+    // the exclusion cannot be mistaken for an oversight.
     expect(DRIVER_CAPABILITY_FLAGS as readonly string[]).not.toContain("pause");
   });
 
@@ -1267,7 +1299,7 @@ describe("DRIVER_CAPABILITY_FLAGS — T1.7 thirteen-flag currency", () => {
     // accept the const, because the const's element type would then carry a
     // literal the union lacks. The OPPOSITE direction — a union carrying a
     // member the const does not — still compiles here, and is caught instead by
-    // the AC2 totality literals ABOVE, whose hand-written thirteen-key
+    // the AC2 totality literals ABOVE, whose hand-written fourteen-key
     // `Record<DriverCapabilityFlag, boolean>` fails as INCOMPLETE the moment the
     // union outgrows the const. It compiles today BECAUSE the union is
     // `(typeof DRIVER_CAPABILITY_FLAGS)[number]` rather than a second listing.
@@ -1276,7 +1308,7 @@ describe("DRIVER_CAPABILITY_FLAGS — T1.7 thirteen-flag currency", () => {
     // assertion this test makes is the compile above, so the executing
     // expectation restates the cardinality the union is derived from rather
     // than `toBe`-ing the const against itself, which would hold for any value.
-    expect(flags).toHaveLength(13);
+    expect(flags).toHaveLength(14);
   });
 });
 
@@ -1982,6 +2014,7 @@ describe("T1.8 spawn/turn parity surfaces — structural invariants", () => {
     session_goals: false,
     callback_tools: false,
     subagents: false,
+    transcript_replay: false,
     cost_cap: false,
   };
 
@@ -2139,5 +2172,120 @@ describe("T1.8 spawn/turn parity surfaces — structural invariants", () => {
       endpoint: "ws://127.0.0.1:7000",
     };
     void unauthenticated;
+  });
+});
+
+// ===========================================================================
+// T3.19 — the canonical transcript export/replay envelopes.
+// ===========================================================================
+//
+// Both envelopes parse UNTRUSTED driver output, so the units below assert what
+// `.strict()` rejects as well as what the schemas accept. The frame array gets a
+// dedicated round-trip case: `frames` is typed `z.array(z.unknown())`, and an
+// `unknown` element inside a Zod object has surprising optionality semantics —
+// so "the frames come back byte-for-byte" is asserted rather than assumed.
+
+describe("DriverTranscriptExportResultSchema — the canonical transcript export envelope", () => {
+  it("round-trips provider-shaped frames without stripping or reshaping them", () => {
+    const frames: unknown[] = [
+      { role: "participant", origin: "participant_text", segments: [{ kind: "text", text: "hi" }] },
+      { role: "assistant", segments: [{ kind: "tool_call", toolCallId: "call-1" }] },
+      "an opaque string frame",
+      42,
+      null,
+    ];
+    const parsed: DriverTranscriptExportResult = DriverTranscriptExportResultSchema.parse({
+      frames,
+      declaredLosses: ["provider_private_reasoning", "tool_call_history_repaired"],
+    });
+    expect(parsed.frames).toEqual(frames);
+    expect(parsed.frames).toHaveLength(5);
+    expect(parsed.declaredLosses).toEqual([
+      "provider_private_reasoning",
+      "tool_call_history_repaired",
+    ]);
+  });
+
+  it("accepts an EMPTY declared-loss list as the positive claim that nothing was dropped", () => {
+    const parsed = DriverTranscriptExportResultSchema.parse({ frames: [], declaredLosses: [] });
+    expect(parsed.declaredLosses).toEqual([]);
+  });
+
+  it("rejects a declared loss outside the closed set", () => {
+    const result = DriverTranscriptExportResultSchema.safeParse({
+      frames: [],
+      declaredLosses: ["context_window_exceeded"],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects an unknown key — the envelope is strict", () => {
+    const result = DriverTranscriptExportResultSchema.safeParse({
+      frames: [],
+      declaredLosses: [],
+      truncated: true,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a missing frames array rather than defaulting it to empty", () => {
+    const result = DriverTranscriptExportResultSchema.safeParse({ declaredLosses: [] });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("DriverTranscriptReplayResultSchema — the canonical transcript replay envelope", () => {
+  it("carries the declared-loss list on BOTH status arms", () => {
+    const applied: DriverTranscriptReplayResult = DriverTranscriptReplayResultSchema.parse({
+      status: "applied",
+      declaredLosses: ["provider_private_reasoning"],
+    });
+    const degraded: DriverTranscriptReplayResult = DriverTranscriptReplayResultSchema.parse({
+      status: "degraded",
+      declaredLosses: ["conversation_history_summarized"],
+    });
+    expect(applied.declaredLosses).toEqual(["provider_private_reasoning"]);
+    expect(degraded.declaredLosses).toEqual(["conversation_history_summarized"]);
+  });
+
+  it("rejects a third status — the driver result vocabulary stays two-valued", () => {
+    const result = DriverTranscriptReplayResultSchema.safeParse({
+      status: "failed",
+      declaredLosses: [],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a status carrying no declared-loss list", () => {
+    const result = DriverTranscriptReplayResultSchema.safeParse({ status: "applied" });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("transcript operation params — nominal shapes", () => {
+  it("carries an already-bounded projection on an export request, and no second bound", () => {
+    const params: ExportTranscriptParams = {
+      sessionId: "session-transcript-1" as SessionId,
+      transcript: {
+        sessionId: "session-transcript-1" as SessionId,
+        runId: "run-transcript-1" as RunId,
+        builtAtPosition: 41,
+        turns: [{ position: 7, role: "participant", segments: [{ kind: "text", text: "go" }] }],
+      },
+    };
+    expect(params.transcript.turns).toHaveLength(1);
+    // The bound lives in the turns the fold produced, not beside them: the
+    // request carries no member a driver could read as a second answer to
+    // "where does this transcript end?".
+    expect([...Object.keys(params)].sort()).toStrictEqual(["sessionId", "transcript"]);
+  });
+
+  it("targets a session handle a replay writes into, never the source session", () => {
+    const params: ReplayTranscriptParams = {
+      target: { providerSessionId: "provider-fresh-1", resumeHandle: "resume-fresh-1" },
+      frames: [{ role: "assistant", segments: [] }],
+    };
+    expect(params.target.providerSessionId).toBe("provider-fresh-1");
+    expect(params.frames).toHaveLength(1);
   });
 });

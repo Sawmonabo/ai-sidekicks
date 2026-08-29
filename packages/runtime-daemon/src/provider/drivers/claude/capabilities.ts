@@ -36,11 +36,14 @@
  *
  * ## Deliberately NOT here (scope boundaries, not omissions)
  *
- * * **`transcript_replay`** — named in the spec matrix (Claude cell: `probe`)
- *   but NOT yet a member of the `DRIVER_CAPABILITY_FLAGS` union in
- *   `@ai-sidekicks/contracts`. It is declared when the union carries it
- *   (Plan-005 T3.19 / T3.20), and the compile-time totality above is what
- *   forces that decision to be made rather than defaulted.
+ * * **`transcript_replay`'s PROBED value** — the spec matrix records this cell
+ *   as `probe`, not as a constant, because no stable seeding contract is
+ *   published for this provider. The flag is answered `false` below, which is
+ *   the honest reading of a probe that has not run: an undeclared capability is
+ *   unsupported, and a `false` here routes a switch to the memo floor, which is
+ *   a supported outcome rather than a failure. Replacing the constant with the
+ *   probe's own reading is Plan-005 T3.20's, and the row backfilled at
+ *   migration 0012 matches this declaration until it lands.
  * * **Probe-based declaration + `detectionSource`** — `Spec-005 §Capability
  *   discovery` (2026-08-26) binds every flag carrying an *admissible* probe
  *   to be read from the installed build and to carry its detection source on
@@ -168,6 +171,11 @@ export const CLAUDE_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, bool
     callback_tools: true,
     // `--agents` AgentDefinitions (provider-native in-session subagents).
     subagents: true,
+    // FALSE pending the probe (Claude cell: `probe` — see the header note): no
+    // stable prior-turn seeding contract is published for this provider, so the
+    // declaration cannot be a constant `true` and an unprobed `true` would route
+    // a switch into a replay the target may silently discard.
+    transcript_replay: false,
     // TRUE for Claude (and false for Codex): `--max-budget-usd` realizes a hard
     // cost cap at spawn. Spec-016's native-cap unpriced-family escape reserves
     // only against legs whose driver declares this flag, so a wrong `true` here

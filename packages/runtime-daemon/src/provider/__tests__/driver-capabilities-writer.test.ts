@@ -1680,16 +1680,22 @@ describe("DriverCapabilitiesWriter — #snapshot row-set invariant", () => {
     expect(() => writer.hydrate(DRIVER_NAME)).toThrow(/missing \[mcp\]/);
   });
 
-  it("throws on a SAME-COUNT corrupt cache (`transcript_replay` swapped in for `mcp`)", async () => {
-    // THE NEGATIVE CONTROL FOR THE COUNT-ONLY GUARD. The version-11 CHECK is a
-    // superset whitelist — it admits all FOURTEEN canonical values while the
-    // union declares THIRTEEN — so an out-of-band UPDATE can rename a canonical
-    // row to `transcript_replay` and still satisfy both the CHECK and the row
-    // COUNT. A guard comparing `flagRows.length` to
-    // `DRIVER_CAPABILITY_FLAGS.length` passes this cache and hands back a flag
-    // matrix with `mcp` silently absent; only the key-set proof catches it, and
-    // it names BOTH directions so the operator sees which key vanished and which
-    // one displaced it.
+  it("closes the same-count blind spot at the database: the flag CHECK now admits exactly the canonical set", async () => {
+    // THE NEGATIVE CONTROL FOR THE COUNT-ONLY GUARD, restated for the state the
+    // cache is actually in. This case used to rename a canonical row to
+    // `transcript_replay` — a value the flag CHECK admitted while the union did
+    // not declare it — producing a cache with the right ROW COUNT and the wrong
+    // KEY SET, which a `flagRows.length` comparison would wave through.
+    //
+    // That gap is closed: the flag is canonical now and every driver carries a
+    // row for it, so the same rename collides on the composite primary key
+    // instead. What remains reachable is asserted here, in both directions: the
+    // CHECK rejects a value the union does not declare, and the key uniqueness
+    // rejects a rename onto a value it does. Together those make a same-count
+    // key-set corruption unreachable through an admitted value — the key-set
+    // proof stays as defense in depth against a future CHECK that widens ahead
+    // of the union again, and the missing-key direction is proven by the case
+    // above.
     const { writer } = makeWriter();
     await writer.declare({
       sessionId: SESSION_ID,
@@ -1698,23 +1704,77 @@ describe("DriverCapabilitiesWriter — #snapshot row-set invariant", () => {
       result: makeResult(),
     });
 
-    // The out-of-band corruption a count-only guard cannot see: rename one
-    // canonical row rather than deleting it. `transcript_replay` is admitted by
-    // the version-11 CHECK (it is the fourteenth canonical value), so the UPDATE
-    // commits.
-    db.prepare(
-      `UPDATE driver_capabilities
-          SET capability_flag = 'transcript_replay'
-        WHERE driver_name = ? AND capability_flag = 'mcp'`,
-    ).run(DRIVER_NAME);
-
-    // The count is UNMOVED — asserted, so this test cannot pass for the wrong
-    // reason (an UPDATE that silently no-op'd, or one that left a short row set).
     expect(countCapabilityRows(DRIVER_NAME)).toBe(DRIVER_CAPABILITY_FLAGS.length);
 
+    // (a) A rename onto a canonical value the driver already holds collides.
+    expect(() => {
+      db.prepare(
+        `UPDATE driver_capabilities
+            SET capability_flag = 'transcript_replay'
+          WHERE driver_name = ? AND capability_flag = 'mcp'`,
+      ).run(DRIVER_NAME);
+    }).toThrow(/UNIQUE constraint failed|PRIMARY KEY/i);
+
+    // (b) A rename onto a value outside the canonical set is refused by the CHECK.
+    expect(() => {
+      db.prepare(
+        `UPDATE driver_capabilities
+            SET capability_flag = 'transcript_replays'
+          WHERE driver_name = ? AND capability_flag = 'mcp'`,
+      ).run(DRIVER_NAME);
+    }).toThrow(/CHECK constraint failed/i);
+
+    // Neither attempt moved the cache, so a hydrate still succeeds — the proof
+    // that this case failed for the reasons asserted and not by corrupting the
+    // row set some third way.
+    expect(countCapabilityRows(DRIVER_NAME)).toBe(DRIVER_CAPABILITY_FLAGS.length);
+    expect(() => writer.hydrate(DRIVER_NAME)).not.toThrow();
+  });
+
+  it("answers `transcript_replay` after a cold-start hydrate, at full cardinality", async () => {
+    // The capability-backfill migration's consumer-side proof: a cache written
+    // through the writer answers all fourteen canonical flags, the newest one
+    // included, so the hydrator's exact-cardinality guard passes rather than
+    // throwing before any refresh could heal it.
+    const { writer } = makeWriter();
+    await writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult(),
+    });
+
+    const hydrated: DriverCapabilityHydrationResult = writer.hydrate(DRIVER_NAME);
+    expect(hydrated.hit).toBe(true);
+    if (!hydrated.hit) {
+      return;
+    }
+    expect(Object.keys(hydrated.result.capabilities.flags).sort()).toEqual(
+      [...DRIVER_CAPABILITY_FLAGS].sort(),
+    );
+    expect(hydrated.result.capabilities.flags.transcript_replay).toBe(false);
+  });
+
+  it("throws when a cache is left one flag short of the canonical set", async () => {
+    // The failure mode the backfill exists to prevent, driven through the real
+    // guard: a cache carrying every flag but the newest one is exactly what a
+    // node upgraded without the backfill would hold, and it must fail loudly at
+    // the first cold-start read rather than hand back a matrix missing a key.
+    const { writer } = makeWriter();
+    await writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult(),
+    });
+
+    db.prepare(
+      `DELETE FROM driver_capabilities WHERE driver_name = ? AND capability_flag = 'transcript_replay'`,
+    ).run(DRIVER_NAME);
+    expect(countCapabilityRows(DRIVER_NAME)).toBe(DRIVER_CAPABILITY_FLAGS.length - 1);
+
     expect(() => writer.hydrate(DRIVER_NAME)).toThrow(/row-set invariant/);
-    expect(() => writer.hydrate(DRIVER_NAME)).toThrow(/missing \[mcp\]/);
-    expect(() => writer.hydrate(DRIVER_NAME)).toThrow(/unexpected \[transcript_replay\]/);
+    expect(() => writer.hydrate(DRIVER_NAME)).toThrow(/missing \[transcript_replay\]/);
   });
 });
 
