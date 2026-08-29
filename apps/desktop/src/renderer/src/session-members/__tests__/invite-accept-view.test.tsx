@@ -117,7 +117,8 @@ function installMockBridge(call: ReturnType<typeof vi.fn>): void {
     bridge as unknown as SidekicksBridge;
 }
 
-describe("InviteAcceptView (Plan-002 Phase 6 T6.3)", () => {
+// Component under test: `InviteAcceptView` (Plan-002 Phase 6 T6.3).
+describe("InviteAcceptView", () => {
   afterEach(() => {
     // RTL auto-cleanup runs (vitest globals lets @testing-library/react@^16
     // register its `afterEach`). We still reset `window.sidekicks` manually so
@@ -290,7 +291,7 @@ describe("InviteAcceptView (Plan-002 Phase 6 T6.3)", () => {
     expect(daemonCall).toHaveBeenNthCalledWith(2, "invite.accept", { token: SECOND_INVITE_TOKEN });
   });
 
-  describe("bridge-projection (CP-002-5)", () => {
+  describe("bridge-projection", () => {
     // Spec-023 §Trust Stance + Plan-002 CP-002-5 operational enforcement. The
     // renderer is the UNTRUSTED surface: it must reach the daemon / control-plane
     // ONLY through the `window.sidekicks` preload bridge, NEVER by importing the

@@ -135,7 +135,8 @@ function clickAttach(): void {
   fireEvent.click(screen.getByRole("button", { name: "Attach runtime node" }));
 }
 
-describe("AttachFlow (Plan-003 Phase 5 T5.1)", () => {
+// Component under test: `AttachFlow` (Plan-003 Phase 5 T5.1).
+describe("AttachFlow", () => {
   afterEach(() => {
     delete (window as unknown as { sidekicks?: SidekicksBridge }).sidekicks;
     vi.clearAllMocks();
@@ -237,7 +238,8 @@ describe("AttachFlow (Plan-003 Phase 5 T5.1)", () => {
       await screen.findByLabelText("runtime-node-attach-resolved");
     });
 
-    it("issues the attach call ALONE, coupling no membership mutation to it (I-003-3)", async () => {
+    // Plan-003 I-003-3: attach couples no membership mutation to itself.
+    it("issues the attach call ALONE, coupling no membership mutation to it", async () => {
       // Attach and membership acceptance are distinct actions. The renderer
       // leg of that invariant is that attaching reaches the control plane
       // EXACTLY once, on the attach procedure — a surface that also mutated
@@ -297,7 +299,8 @@ describe("AttachFlow (Plan-003 Phase 5 T5.1)", () => {
       expect(screen.getByText("access: read-write")).toBeDefined();
     });
 
-    it("treats a below-floor read-only reply as an ADMISSION, not a refusal (AC4)", async () => {
+    // `Spec-003 §Acceptance Criteria` AC4.
+    it("treats a below-floor read-only reply as an ADMISSION, not a refusal", async () => {
       // I-003-1 admit-not-eject at the attach seam: the below-floor node lands
       // in `resolved` with a read-only access label — there is no error arm for
       // it, because it was not refused.
@@ -435,7 +438,7 @@ describe("AttachFlow (Plan-003 Phase 5 T5.1)", () => {
     });
   });
 
-  describe("bridge-projection (CP-003-3)", () => {
+  describe("bridge-projection", () => {
     // Spec-023 §Trust Stance + Plan-003 CP-003-3, and BL-131 exit criterion (b)
     // ("assert bridge-only data access (no `node:*`/`electron` imports)"). The
     // `@ai-sidekicks/runtime-daemon` / `@ai-sidekicks/control-plane` arm has no

@@ -114,7 +114,8 @@ const FLOOR_REFUSAL_ENVELOPE: VersionFloorExceededError = {
   },
 };
 
-describe("MixedVersionStatus (Plan-003 Phase 5 T5.3)", () => {
+// Component under test: `MixedVersionStatus` (Plan-003 Phase 5 T5.3).
+describe("MixedVersionStatus", () => {
   describe("access verdict (server-resolved, never re-derived)", () => {
     it("renders the below-floor read-only verdict off the wire `readOnly` axis", () => {
       render(
@@ -271,7 +272,8 @@ describe("MixedVersionStatus (Plan-003 Phase 5 T5.3)", () => {
       expect(screen.getByText(`node id: ${ATTACHED_NODE_ID}`)).toBeDefined();
     });
 
-    it("does NOT let a floor refusal re-derive the access verdict (I-003-1 tripwire)", () => {
+    // Plan-003 I-003-1 tripwire.
+    it("does NOT let a floor refusal re-derive the access verdict", () => {
       // The verdict comes from the server-resolved `readOnly` axis ALONE. This
       // deliberately inconsistent pairing — a read-write entry plus a floor
       // refusal — must still render `read-write`. A view that inferred the
@@ -360,7 +362,7 @@ describe("MixedVersionStatus (Plan-003 Phase 5 T5.3)", () => {
     });
   });
 
-  describe("bridge-projection (CP-003-3)", () => {
+  describe("bridge-projection", () => {
     // Spec-023 §Trust Stance + Plan-003 CP-003-3, and BL-131 exit criterion (b)
     // ("assert bridge-only data access (no `node:*`/`electron` imports)"). The
     // renderer is the UNTRUSTED surface: it reaches the daemon / control plane

@@ -85,7 +85,8 @@ function restrictedImportMessages(results: readonly ESLint.LintResult[]): string
     .map((message) => message.message);
 }
 
-describe("renderer import boundary (Plan-003 CP-003-3)", () => {
+// Enforces the Plan-003 CP-003-3 renderer import boundary.
+describe("renderer import boundary", () => {
   describe("the rule has teeth (positive controls)", () => {
     // Each case is a shape the per-component source scan would MISS or that a
     // partial ban would let through: bare package, subpath, type-only import,
@@ -151,7 +152,8 @@ describe("renderer import boundary (Plan-003 CP-003-3)", () => {
     });
   });
 
-  it("keeps the CP-003-3 package ban on renderer TEST files too", async () => {
+  // Plan-003 CP-003-3 package ban.
+  it("keeps the package ban on renderer TEST files too", async () => {
     // The builtin ban is lifted for `__tests__/**` (tests are not bundled), but
     // the cross-plan package boundary is not — otherwise the exclusion would
     // hand test files a hole in the boundary this very suite enforces.

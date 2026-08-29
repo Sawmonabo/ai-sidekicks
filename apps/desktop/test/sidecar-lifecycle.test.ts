@@ -186,7 +186,10 @@ async function flushAsyncQuitChain(): Promise<void> {
 // Tests
 // ----------------------------------------------------------------------------
 
-describe("registerSidecarLifecycle — Plan-001 CP-001-1 / Plan-024 I-024-4", () => {
+// Governing obligations for this suite (Plan-001 CP-001-1, Plan-024 I-024-4)
+// are named in the file header and the per-assertion comments — never in
+// test titles.
+describe("registerSidecarLifecycle", () => {
   // -- I5 anchor assertion: FIFO registration-ordering invariant ----------
 
   it("registers exactly one will-quit listener at index 0 (FIFO position assertion)", () => {

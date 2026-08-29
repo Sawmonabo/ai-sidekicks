@@ -142,14 +142,18 @@ function needsXvfb(): boolean {
 function spawnElectronGcProbe(): Promise<SpawnResult> {
   const startedAt = Date.now();
 
-  // Per-spawn userData dir isolates this test's Electron instance from
-  // the smoke test running in a parallel vitest worker. Both tests would
+  // Per-spawn userData dir isolates this test's Electron instance from every
+  // other Electron running on the default profile — a sibling suite in a
+  // parallel vitest worker, a second checkout, a developer's unrelated
+  // Electron app, an orphan from an earlier terminated run. They would
   // otherwise race on `~/Library/Application Support/Electron/SingletonLock`
-  // (or its $XDG_CONFIG_HOME equivalent on Linux): whichever spawns
+  // (or its $XDG_CONFIG_HOME equivalent on Linux): whichever starts
   // second sees `gotTheLock === false`, calls `app.quit()`, and exits
-  // with code 0 before the probe runs — producing a Shape-B-shaped
-  // failure that has nothing to do with BrowserWindow GC reachability.
+  // with code 0 before the probe runs — a Shape-C failure that has nothing
+  // to do with BrowserWindow GC reachability.
   // `mkdtempSync` returns a unique path; the close handler removes it.
+  // `launch.smoke.test.ts` isolates its own profile the same way, for the
+  // same reason.
   const userDataDir = mkdtempSync(path.join(tmpdir(), "sidekicks-gc-test-"));
 
   // `--js-flags=--expose-gc` MUST precede the entry script so Electron
@@ -246,7 +250,9 @@ function spawnElectronGcProbe(): Promise<SpawnResult> {
   });
 }
 
-describe("Plan-023 — BrowserWindow lifecycle reachability regression", () => {
+// Governing docs for this suite (Plan-023, ADR-024 §Antithesis) are named in
+// the file header and the per-assertion comments — never in test titles.
+describe("BrowserWindow lifecycle reachability", () => {
   it("verifies smoke bundle exists before spawning Electron", () => {
     expect(
       existsSync(MAIN_ENTRY),

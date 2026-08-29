@@ -54,7 +54,8 @@ const runtimeNodeViewSources = import.meta.glob("../*.tsx", {
 
 type DeclaredCapabilityMap = RuntimeNodeAttachRequest["capabilities"];
 
-describe("CapabilityDeclaration (Plan-003 Phase 5 T5.2)", () => {
+// Component under test: `CapabilityDeclaration` (Plan-003 Phase 5 T5.2).
+describe("CapabilityDeclaration", () => {
   describe("declared-set projection", () => {
     it("renders the explicit least-privilege state for an empty declaration", () => {
       render(<CapabilityDeclaration capabilities={{}} />);
@@ -187,7 +188,7 @@ describe("CapabilityDeclaration (Plan-003 Phase 5 T5.2)", () => {
     });
   });
 
-  describe("bridge-projection (CP-003-3)", () => {
+  describe("bridge-projection", () => {
     // Spec-023 §Trust Stance + Plan-003 CP-003-3, and BL-131 exit criterion (b)
     // ("assert bridge-only data access (no `node:*`/`electron` imports)"). The
     // `@ai-sidekicks/runtime-daemon` / `@ai-sidekicks/control-plane` arm has no

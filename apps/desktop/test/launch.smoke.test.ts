@@ -43,6 +43,16 @@
 //   spawn `electron` directly. This keeps Linux as active CI coverage
 //   (the DAG-preferred posture).
 //
+// Profile isolation:
+//   Every spawn gets a private Chromium profile via `--user-data-dir`.
+//   Electron's DEFAULT profile carries a machine-wide `SingletonLock`, so any
+//   concurrent default-profile Electron — a second checkout running this same
+//   suite, a developer's unrelated Electron app, an orphan from an earlier
+//   terminated run — would make this spawn lose
+//   `app.requestSingleInstanceLock()` and quit before booting a window,
+//   emitting no probe line and exiting 0. That was this test's historical
+//   flake; see `spawnElectron()` for the mechanism and its reproduction.
+//
 // Build precondition:
 //   This test runs against the SMOKE bundle (`electron-vite build
 //   --mode=smoke`), NOT the release bundle (`electron-vite build`). The
@@ -90,7 +100,8 @@
 //   See `apps/desktop/electron.vite.config.ts` header for the decision log.
 
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -139,6 +150,15 @@ const SMOKE_PROBE_TAG = "[SIDEKICKS_SMOKE_PROBE]";
 const WINDOW_BUDGET_MS = 5_000;
 const SPAWN_TIMEOUT_MS = 15_000;
 
+// Grace period between the SIGTERM issued at the spawn deadline and the
+// SIGKILL backstop. `node_modules/.bin/electron` is a Node shim that spawns
+// the real binary with `stdio: "inherit"` and forwards only the catchable
+// signals; SIGKILLing the shim outright orphans an Electron process that
+// still holds the inherited stdout write end, which delays this test's
+// `close` event past the vitest deadline. SIGTERM lets the shim forward and
+// the browser process exit; SIGKILL only if it does not.
+const TERMINATION_GRACE_MS = 2_000;
+
 interface SmokeProbe {
   readonly ok: boolean;
   readonly windowMs: number;
@@ -172,12 +192,42 @@ function needsXvfb(): boolean {
 
 function spawnElectron(): Promise<SpawnResult> {
   const startedAt = Date.now();
+
+  // Per-spawn Chromium profile — the deterministic fix for this test's
+  // historical flake, and the reason it needs no retry wrapper.
+  //
+  // Without `--user-data-dir` the spawn inherits Electron's DEFAULT profile
+  // (`~/Library/Application Support/Electron` on macOS,
+  // `$XDG_CONFIG_HOME/Electron` on Linux). That directory's `SingletonLock`
+  // is shared with every other default-profile Electron on the machine: a
+  // second checkout running this same suite, an unrelated Electron app a
+  // developer has open, or an Electron orphaned by an earlier terminated
+  // run. Whichever process loses the lock takes the
+  // `app.requestSingleInstanceLock()` false branch in
+  // `apps/desktop/src/main/index.ts`, calls `app.quit()` before a window is
+  // ever created, and exits 0 having printed nothing — from this end
+  // indistinguishable from a substrate that failed to boot.
+  //
+  // Reproduced by spawning two default-profile probes concurrently: the
+  // loser logs `process_singleton_posix.cc: Failed to create
+  // .../SingletonLock: File exists (17)` on stderr, and sometimes prints
+  // nothing at all (the lock owner is notified over the singleton socket
+  // and the loser exits silently). A private profile makes the lock
+  // per-spawn, so the collision is unreachable rather than merely unlikely.
+  // The sibling `lifecycle.gc.test.ts` isolates its profile for exactly
+  // this reason.
+  const userDataDir = mkdtempSync(path.join(tmpdir(), "sidekicks-smoke-test-"));
+
   // `xvfb-run -a` auto-picks an unused display number; without `-a` it
   // defaults to `:99` and fails if another xvfb-run instance has claimed
   // it (a real concern on CI runners that may run multiple jobs in
   // parallel against the same image cache).
+  //
+  // Chromium switches MUST precede the entry-script path so Electron routes
+  // them to the browser process rather than passing them through to the app.
+  const electronArgs = [`--user-data-dir=${userDataDir}`, MAIN_ENTRY];
   const cmd = needsXvfb() ? "xvfb-run" : ELECTRON_BIN;
-  const args = needsXvfb() ? ["-a", ELECTRON_BIN, MAIN_ENTRY] : [MAIN_ENTRY];
+  const args = needsXvfb() ? ["-a", ELECTRON_BIN, ...electronArgs] : electronArgs;
 
   return new Promise<SpawnResult>((resolve) => {
     const child = spawn(cmd, args, {
@@ -215,13 +265,44 @@ function spawnElectron(): Promise<SpawnResult> {
     // (probe present in output, fragmented across chunks, never matched)
     // is a debugging nightmare we cheaply avoid by buffering.
     let pending = "";
+    let escalationTimer: NodeJS.Timeout | null = null;
 
-    const timeout = setTimeout(() => {
+    const spawnDeadline = setTimeout(() => {
       // The spawn timeout (15 s) is a backstop — the in-app window
       // budget (5 s) is the load-bearing assertion. If we hit this,
       // Electron is stuck and we want a non-hanging test failure.
-      child.kill("SIGKILL");
+      //
+      // SIGTERM before SIGKILL: `node_modules/.bin/electron` is a Node
+      // shim that spawns the real binary with `stdio: "inherit"` and
+      // forwards only the catchable signals. SIGKILLing the shim leaves
+      // the browser process orphaned holding the inherited stdout write
+      // end, so `close` here would not fire until that orphan exits — and
+      // the orphan would go on holding a profile lock. SIGTERM lets the
+      // shim forward and the browser process shut down; the escalation
+      // below is the backstop for a process that ignores it.
+      child.kill("SIGTERM");
+      escalationTimer = setTimeout(() => {
+        child.kill("SIGKILL");
+      }, TERMINATION_GRACE_MS);
     }, SPAWN_TIMEOUT_MS);
+
+    // Single settle path so both timers and the temporary profile are
+    // disposed exactly once whichever terminal event fires first.
+    // `rmSync` with `force: true` is idempotent, so a `close` arriving
+    // after a spawn `error` cannot fail here.
+    const settle = (result: SpawnResult): void => {
+      clearTimeout(spawnDeadline);
+      if (escalationTimer !== null) {
+        clearTimeout(escalationTimer);
+      }
+      try {
+        rmSync(userDataDir, { recursive: true, force: true });
+      } catch {
+        // Best-effort cleanup. A leftover temp profile is harmless;
+        // surfacing the cleanup error would mask the actual test result.
+      }
+      resolve(result);
+    };
 
     child.stdout.on("data", (chunk: Buffer) => {
       const text = chunk.toString("utf8");
@@ -266,11 +347,10 @@ function spawnElectron(): Promise<SpawnResult> {
     // machine without a display server AND without `xvfb-run` installed
     // would hit an unhandled `error` event → vitest would crash with a bare
     // stack trace, bypassing the diagnostic-rich failure path below. Route
-    // the error through the same `resolve()` so the "probe is null" branch
+    // the error through the same `settle()` so the "probe is null" branch
     // in the test produces a useful diagnostic (binary name + reason).
     child.on("error", (err: Error) => {
-      clearTimeout(timeout);
-      resolve({
+      settle({
         probe: null,
         stdout,
         stderr: stderr + `\n[spawn error] ${err.message}`,
@@ -281,8 +361,7 @@ function spawnElectron(): Promise<SpawnResult> {
     });
 
     child.on("close", (exitCode, signal) => {
-      clearTimeout(timeout);
-      resolve({
+      settle({
         probe,
         stdout,
         stderr,
@@ -294,7 +373,57 @@ function spawnElectron(): Promise<SpawnResult> {
   });
 }
 
-describe("Plan-023 Phase 1 — substrate-boots smoke", () => {
+// Names the readiness signal that never arrived when no probe line was
+// parsed. Every one of these outcomes reaches the test as the same
+// "probe is null" shape, so without this classification the reader has to
+// re-derive the cause from raw child output on every failure.
+function diagnoseMissingProbe(result: SpawnResult): string {
+  if (/SingletonLock|SingletonCookie|process_singleton/i.test(result.stderr)) {
+    return (
+      "Electron never took its single-instance lock, so the main process quit " +
+      "before creating a window. The per-spawn `--user-data-dir` above is " +
+      "supposed to make that unreachable — a hit here means the profile is " +
+      "being shared again."
+    );
+  }
+  if (result.stderr.includes(`${SMOKE_PROBE_TAG} loadURL failed`)) {
+    return (
+      "the window was created but `about:blank` never loaded, so the preload " +
+      "never executed and `did-finish-load` never fired."
+    );
+  }
+  if (result.stderr.includes(`${SMOKE_PROBE_TAG} executeJavaScript failed`)) {
+    return "the renderer document loaded but the probe expression never evaluated in it.";
+  }
+  if (result.signal !== null) {
+    return (
+      `the process was still running at the ${String(SPAWN_TIMEOUT_MS)}ms deadline and was ` +
+      `terminated (${result.signal}) — \`did-finish-load\` never fired.`
+    );
+  }
+  if (result.exitCode === 1) {
+    return "`app.whenReady()` rejected — the main process failed during startup.";
+  }
+  if (result.exitCode === 0 && result.stdout.trim() === "") {
+    // The silent arm of a lost single-instance lock: Chromium's process
+    // singleton notifies the existing owner over its socket and exits 0
+    // without logging anything, so the stderr match above cannot see it.
+    return (
+      "the main process exited 0 having printed nothing at all — it never " +
+      "reached the probe branch. This is the silent arm of the same lock loss " +
+      "the branch above names: the process singleton notifies the existing " +
+      "owner over its socket and exits without logging, so the profile is " +
+      "being shared with another Electron."
+    );
+  }
+  return "the process exited without emitting the probe line and without a recognised failure marker.";
+}
+
+// Doc references for this suite (Plan-023 Phase 1 T-023p-1-7,
+// Spec-023 §Security Hardening Baseline / §Acceptance Criteria) are in the
+// file header and the per-assertion comments below — never in the emitted
+// test titles.
+describe("desktop shell substrate boot", () => {
   it("verifies built bundle exists before spawning Electron", () => {
     // Fail-fast diagnostic. If the test runs without the smoke bundle
     // present, the Electron spawn would fail with a cryptic "cannot
@@ -317,8 +446,11 @@ describe("Plan-023 Phase 1 — substrate-boots smoke", () => {
     ).toBe(true);
   });
 
+  // Asserts the Spec-023 §Security Hardening Baseline runtime invariants:
+  // the preload bridge registered, and none of the three Node-API-leak
+  // globals named by `Spec-023 §Acceptance Criteria` reached the renderer.
   it(
-    "Electron renderer satisfies Spec-023 §Security Hardening Baseline runtime invariants",
+    "renderer exposes the preload bridge and leaks no Node globals",
     async () => {
       const result = await spawnElectron();
 
@@ -326,7 +458,8 @@ describe("Plan-023 Phase 1 — substrate-boots smoke", () => {
       // failure here is debuggable from CI logs without re-running.
       if (!result.probe) {
         throw new Error(
-          `Smoke probe did not emit \`${SMOKE_PROBE_TAG}\` line within ${String(SPAWN_TIMEOUT_MS)}ms.\n` +
+          `Desktop shell never became ready: ${diagnoseMissingProbe(result)}\n` +
+            `No \`${SMOKE_PROBE_TAG}\` line arrived within ${String(SPAWN_TIMEOUT_MS)}ms.\n` +
             `Exit code: ${String(result.exitCode)}, signal: ${String(result.signal)}, elapsed: ${String(result.elapsedMs)}ms.\n` +
             `--- stdout ---\n${result.stdout}\n` +
             `--- stderr ---\n${result.stderr}\n`,
