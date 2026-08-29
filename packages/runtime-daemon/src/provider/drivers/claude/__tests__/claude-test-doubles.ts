@@ -32,7 +32,9 @@ import type {
   ClaudeSessionRewindRequest,
   ClaudeSessionSpawnRequest,
   ClaudeSessionTransport,
+  ClaudeUserTextDelivery,
   ClaudeUserTextFrame,
+  ClaudeUserTextWriteAttempt,
 } from "../lifecycle.js";
 
 export const TEST_SESSION_ID: SessionId = "session-1" as SessionId;
@@ -62,7 +64,33 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
   readonly disposals: ClaudeChannelDisposalReason[] = [];
   controlResponse: ClaudeControlResponse = { subtype: "success" };
   controlRequestFailure: Error | undefined = undefined;
+  /**
+   * A write failure the double REPORTS, the way the port obliges a transport to.
+   *
+   * Paired with `sendUserTextDelivery` rather than carrying its own
+   * classification, so a test that sets a failure and forgets the delivery gets
+   * the port's own fail-closed default instead of the convenient arm.
+   */
   sendUserTextFailure: Error | undefined = undefined;
+  /**
+   * How `sendUserTextFailure` is classified. Defaults to the fail-closed arm for
+   * the same reason the real transport's default is: `unsent` is a positive
+   * claim about bytes, and a double that volunteered it would let a test assert
+   * the forgiving path without anyone having claimed the bytes never left.
+   */
+  sendUserTextDelivery: ClaudeUserTextDelivery = "indeterminate";
+  /**
+   * A write failure the double RAISES instead of reporting — a transport in
+   * breach of the port's obligation. Distinct from `sendUserTextFailure`
+   * precisely so the driver's containment of a broken contract is reachable
+   * from a test rather than taken on trust.
+   */
+  sendUserTextRejection: Error | undefined = undefined;
+  /**
+   * Whether a turn terminal can still arrive, as the port defines it. `false`
+   * while the channel is serviceable, which is the state a live double is in.
+   */
+  isClosed = false;
   disposeFailure: Error | undefined = undefined;
 
   constructor(providerSessionId: string) {
@@ -93,12 +121,25 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
     return this.sentTextFrames.map((frame) => frame.authoredText);
   }
 
-  async sendUserText(frame: ClaudeUserTextFrame): Promise<void> {
+  async sendUserText(frame: ClaudeUserTextFrame): Promise<ClaudeUserTextWriteAttempt> {
+    if (this.sendUserTextRejection !== undefined) {
+      throw this.sendUserTextRejection;
+    }
     if (this.sendUserTextFailure !== undefined) {
-      throw this.sendUserTextFailure;
+      // The frame is deliberately NOT recorded on either failure arm. A double
+      // that recorded it would make `sentWireTexts` mean "offered" rather than
+      // "written", and every assertion that nothing reached the provider would
+      // pass for the wrong reason.
+      await Promise.resolve();
+      return {
+        settled: "failed",
+        delivery: this.sendUserTextDelivery,
+        cause: this.sendUserTextFailure,
+      };
     }
     this.sentTextFrames.push(frame);
     await Promise.resolve();
+    return { settled: "written" };
   }
 
   async sendControlRequest(request: ClaudeControlRequest): Promise<ClaudeControlResponse> {

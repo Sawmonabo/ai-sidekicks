@@ -818,10 +818,10 @@ export class OutboundFrameTripwire {
    *
    * Read by a driver that must decide WHICH of several correlated keys a single
    * terminal accounts for: routes and registrations are different sets — a run
-   * whose write provably never left keeps its route and drops its registration
-   * — so ordering
-   * the decision by route would let a run with nothing pending consume the
-   * evidence a live one needed.
+   * whose failed write was already ruled here keeps its route so that a later
+   * attach is REFUSED rather than answered `undefined`, while its registration
+   * is gone — so ordering the decision by route would let a run with nothing
+   * pending consume the evidence a live one needed.
    */
   hasPendingFrame(joinKey: string): boolean {
     for (const pending of this.#pendingByCorrelationId.values()) {

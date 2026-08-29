@@ -158,6 +158,42 @@ const UNDESCRIBED_FAILURE_DETAIL =
 // band persists, events, or replays.
 export type ClaudeUserTextFrame = OutboundTextFrame;
 
+// How far a FAILED `sendUserText` got — the discriminator this band cannot
+// derive and the transport cannot avoid knowing.
+//
+//   * `unsent` — the write was refused BEFORE any byte was handed over: the
+//     channel was already closed, the stream was not writable, or the frame
+//     could not be encoded. A POSITIVE claim about bytes, reserved for failures
+//     wholly ahead of the first one. The provider saw nothing, so no turn
+//     exists on account of this frame and none ever will.
+//   * `indeterminate` — anything at or after the hand-off, and anything the
+//     transport cannot place ahead of it. The host took the bytes and its write
+//     rejected, the process died mid-write, or the failure is simply not one of
+//     the two the transport can classify. How much of the line the child read
+//     is not knowable from here, and a partially written line is exactly the
+//     shape a child reads as a whole message once it sees the newline.
+//
+// There is deliberately NO `refused` arm. A user-text write on this leg is
+// one-way stdin: the provider answers a TURN, never the write, so no failure on
+// this path can carry the proof of receipt a control response can. Inventing
+// one would be inventing evidence.
+export type ClaudeUserTextDelivery = "unsent" | "indeterminate";
+
+// The settled outcome of one `sendUserText`, reported rather than thrown.
+//
+// A rejection cannot carry this: it collapses "nothing left" and "the bytes are
+// gone and the turn may be running" into one value, and the caller cannot
+// recover the difference afterwards without reading an error message, which is
+// a guess. The two cases are owed OPPOSITE treatment by the tripwire, so the
+// difference has to cross the seam as data.
+export type ClaudeUserTextWriteAttempt =
+  | { readonly settled: "written" }
+  | {
+      readonly settled: "failed";
+      readonly delivery: ClaudeUserTextDelivery;
+      readonly cause: unknown;
+    };
+
 // The one control-request subtype this band drives. `interrupt` is censused at
 // the pin; `cancel` is NOT a control-request subtype at all
 // (`docs/reference/provider-wire/claude.md` §Control-request registry), which is
@@ -243,7 +279,51 @@ export interface ClaudeInboundFrameObservation {
 // One live Claude provider process, already handshaken through `system/init`.
 export interface ClaudeSessionChannel {
   readonly providerSessionId: string;
-  sendUserText(frame: ClaudeUserTextFrame): Promise<void>;
+
+  /**
+   * Whether this channel can still deliver a turn terminal.
+   *
+   * TRANSPORT OBLIGATION — `isClosed` MUST read `true` once no further
+   * {@link ClaudeSessionChannel.onTurnTerminal} invocation can arrive for this
+   * channel, and MUST read `false` while one still can. That is the WHOLE of
+   * the property, and it is narrower than it looks: not "the process exited",
+   * not "the pipe broke", not "the last write failed" — only whether a terminal
+   * is still reachable. A transport that wired this to some other notion of
+   * liveness would be answering a question this band never asked.
+   *
+   * The one caller is the failed-write ruling below, whose entire argument for
+   * RETAINING an ambiguous frame is that the turn's own terminal will arrive
+   * and rule it. A channel that can deliver no terminal cannot make that
+   * argument, so this is the fact the fail-closed arm turns on.
+   *
+   * Reading `false` is the SAFE default, which is why the flag is asked in this
+   * direction. A transport that has not implemented it honestly yet leaves the
+   * frame retained: that costs one pending slot on a scope that already
+   * admitted it, and scope release reclaims it. The opposite default would trip
+   * a healthy binding on every recoverable write failure — a run failed and a
+   * provider session disposed over text the provider is still perfectly able to
+   * answer for.
+   */
+  readonly isClosed: boolean;
+
+  /**
+   * Writes one participant-authored text frame and REPORTS the outcome.
+   *
+   * TRANSPORT OBLIGATION — a failure MUST be reported as a `failed` attempt
+   * carrying the delivery classification, NOT raised as a rejection. The
+   * classification is not recoverable above this seam: only the transport
+   * observes whether the refusal happened ahead of the first byte or after the
+   * host took the line, and that difference decides whether the frame is
+   * forgotten or ruled fail-closed. See {@link ClaudeUserTextDelivery} for what
+   * each arm claims — `unsent` is a positive claim and every failure the
+   * transport cannot place ahead of the first byte is `indeterminate`.
+   *
+   * The driver still contains a rejection (as `indeterminate`, the fail-closed
+   * arm) rather than trusting this obligation to hold, because a contract
+   * violation must not be read as good news about bytes.
+   */
+  sendUserText(frame: ClaudeUserTextFrame): Promise<ClaudeUserTextWriteAttempt>;
+
   sendControlRequest(request: ClaudeControlRequest): Promise<ClaudeControlResponse>;
 
   /**
@@ -2053,54 +2133,171 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
 
     this.#assertSpawnBoundRealization(params, live);
 
-    // Bind BEFORE the frame is written: once the text is on the wire the turn may
-    // already be running, and an interrupt racing the write must find a route.
-    // A failed write deliberately LEAVES the binding — an interruptible run the
-    // daemon can stop is strictly safer than a turn that may exist with no route
-    // to it.
-    this.#sessionIdByRunId.set(params.runId, dispatch.sessionId);
     // T3.18. The bytes are composed HERE and nowhere else: this band cannot
     // build a `ClaudeUserTextFrame` itself, so the neutralization is on the only
     // path to the wire rather than on a path a reviewer has to remember to
-    // check. Registered before the write for the same reason the binding is —
-    // a turn that settles the instant the text lands must find its correlation.
+    // check. Composed before the registration because the registration is keyed
+    // by the frame it admits.
     const frame = this.#outboundTextFrameWriter.compose({
       text: dispatch.openingText,
       origin: dispatch.frameOrigin,
     });
-    // A REFUSED registration aborts before the write, and that is the same
-    // policy the write-failure path below runs: no bytes reach the provider, so
-    // no turn exists, and the run's route is left exactly as a failed write
-    // leaves it. Taking the write anyway would be the one genuinely unsafe
-    // option — a turn that settles against no correlated frame PASSES, so an
-    // unwatched frame turns this session's backlog into a silent swallow.
+    // A REFUSED registration aborts before the write. Taking the write anyway
+    // would be the one genuinely unsafe option — a turn that settles against no
+    // correlated frame PASSES, so an unwatched frame turns this session's
+    // backlog into a silent swallow.
+    //
+    // Admitted BEFORE the run route is bound, so a refusal here leaves this
+    // method having mutated nothing at all. The order is not cosmetic: a route
+    // bound ahead of a throwing admission would survive it, `findChannelForRun`
+    // would answer for a run that never dispatched, and a later interrupt or
+    // cancel for that run would send a SESSION-scoped control request that
+    // stops whatever older turn is genuinely running on the channel. Both steps
+    // are synchronous and both precede the write, so nothing is given up by
+    // asking for the budget first.
     this.#outboundFrameTripwire.register({
       scopeKey: dispatch.sessionId,
       joinKey: params.runId,
       frame,
     });
-    try {
-      await live.channel.sendUserText(frame);
-    } catch (error) {
-      // Dropping the registration is not tidiness: the route is deliberately
-      // LEFT in place above, so the next run on this session would be ruled
-      // alongside a stale registration, and that older frame would consume the
-      // live run's evidence — failing a run whose text did reach the provider.
-      //
-      // UNCLASSIFIED, and knowingly so. `ClaudeSessionChannel.sendUserText`
-      // carries no delivery discriminator, so this band cannot tell a channel
-      // that refused ahead of its write from one that handed the bytes over and
-      // then died. The second case is real and is not covered here: the turn may
-      // have started, the provider may have intercepted the command-shaped text
-      // and answered a zero-turn success, and the terminal would then settle
-      // against no correlated frame and PASS — on a binding this path
-      // deliberately leaves live. The Codex steer path shows the classified
-      // shape (`CodexAppServerConnection.attemptRequest`), and closing this one
-      // means giving the port the same discriminator its transport owns, which
-      // is a change to a contract this band does not author.
-      this.#outboundFrameTripwire.forget(params.runId);
-      throw error;
+    // Bound BEFORE the frame is written: once the text is on the wire the turn
+    // may already be running, and an interrupt racing the write must find a
+    // route. What a FAILED write leaves behind is now decided by how far its
+    // bytes got — see `#ruleFailedOpeningFrame`.
+    this.#sessionIdByRunId.set(params.runId, dispatch.sessionId);
+    const attempt = await this.#attemptOpeningWrite(live.channel, frame);
+    if (attempt.settled === "failed") {
+      this.#ruleFailedOpeningFrame({
+        sessionId: dispatch.sessionId,
+        runId: params.runId,
+        channel: live.channel,
+        frame,
+        delivery: attempt.delivery,
+      });
+      throw attempt.cause;
     }
+  }
+
+  /**
+   * Writes the opening frame, containing a transport that rejects instead of
+   * reporting.
+   *
+   * `sendUserText` is obliged to REPORT its failures so the delivery
+   * classification crosses the seam as data. A transport that rejected has
+   * broken that obligation, and the one thing this band must not do with a
+   * broken contract is read it as good news: a rejection carries no claim about
+   * bytes, and `unsent` is precisely a claim about bytes. So it lands on the
+   * fail-closed arm — the same rule the classification itself runs under, where
+   * anything that cannot be placed ahead of the first byte is `indeterminate`.
+   */
+  async #attemptOpeningWrite(
+    channel: ClaudeSessionChannel,
+    frame: ClaudeUserTextFrame,
+  ): Promise<ClaudeUserTextWriteAttempt> {
+    try {
+      return await channel.sendUserText(frame);
+    } catch (cause) {
+      return { settled: "failed", delivery: "indeterminate", cause };
+    }
+  }
+
+  /**
+   * Decides what a failed opening frame is owed, by how far its bytes got
+   * (T3.18).
+   *
+   * UNSENT — owed nothing. No turn will ever account for the frame, and leaving
+   * it registered would let it consume the evidence of the NEXT run on this
+   * session: the older frame rules first, the live run is ruled against none,
+   * and a run whose text did reach the provider is failed for it. The drop is
+   * frame-scoped for the shape this leg does not yet have but the sibling does
+   * — a second frame on the same key, still live and still owed its own ruling.
+   *
+   * The route goes with it, and that is a DEPARTURE from what a failed write
+   * used to leave behind. A route is not inert bookkeeping on this leg: Claude's
+   * interrupt is CHANNEL-scoped, so a route pointing at a run that provably
+   * never dispatched is an aimed weapon with nothing to aim at, and the
+   * interrupt it answers would stop whatever older turn the channel is actually
+   * running. The old blanket "an interruptible run beats a turn with no route to
+   * it" is the right trade only where a turn MIGHT exist; here, provably, none
+   * does.
+   *
+   * INDETERMINATE on a serviceable channel — owed the opposite. The provider may
+   * have received the text, intercepted it as a client-side command, and
+   * answered with the zero-turn success this tripwire exists to catch; the
+   * rejection the caller saw says nothing either way. Withdrawing the frame
+   * there is exactly how a swallowed directive escapes detection while the
+   * unsafe binding stays reusable. So the registration is RETAINED, the route is
+   * retained with it, and the turn's own terminal rules it — the argument the
+   * sibling driver's steer path could not make and this one can, because this
+   * path deliberately keeps both the route and the binding live.
+   *
+   * Retention has a cost, and it is worth naming rather than discovering: the
+   * retained frame becomes the FIRST claimant on this session's next terminal.
+   * If a later run then writes successfully and that run's turn settles, the
+   * ambiguous frame consumes the settling evidence and the later run is ruled
+   * against none — so the trip is reported against the wrong run. That is the
+   * fail-closed direction: the session is quarantined and disposed either way,
+   * and the participant is protected. The alternative — dropping the ambiguous
+   * frame so the attribution reads cleanly — is a SILENT PASS on the exact case
+   * this tripwire exists for.
+   *
+   * INDETERMINATE on a dead channel — the one case retention cannot cover. No
+   * terminal will ever arrive, so the frame would sit until the scope's budget
+   * is released and be dropped as mere occupancy: silence in the case that
+   * warrants the loudest answer. Ruled here instead, fail-closed, and ruled
+   * FRAME-scoped so a sibling frame on the same key whose delivery was never in
+   * doubt is not tripped alongside it.
+   *
+   * The route is deliberately LEFT on that last arm. `disposeRun` is what makes
+   * `findChannelForRun` refuse rather than answer `undefined`, and the two mean
+   * different things to a caller — a quiet `undefined` reads as "no channel
+   * yet", the one reading that invites a retry straight back into the swallow.
+   * Deleting the route would trade the loud refusal for exactly that silence.
+   *
+   * Residual, deliberately not closed here: a channel still serviceable at this
+   * moment that dies later without ever settling the turn leaves the retained
+   * frame to scope release. Closing it would mean carrying "delivery
+   * indeterminate" as tripwire state and ruling it at scope release, which
+   * fires neutralization failures on ordinary session closes that happen to
+   * have a turn in flight — a false trip on every clean shutdown, to cover a
+   * window this path already narrows to one that opens after the
+   * classification.
+   */
+  #ruleFailedOpeningFrame(ruling: {
+    readonly sessionId: SessionId;
+    readonly runId: RunId;
+    readonly channel: ClaudeSessionChannel;
+    readonly frame: ClaudeUserTextFrame;
+    readonly delivery: ClaudeUserTextDelivery;
+  }): void {
+    if (ruling.delivery === "unsent") {
+      this.#outboundFrameTripwire.forgetFrame(ruling.frame);
+      this.#sessionIdByRunId.delete(ruling.runId);
+      return;
+    }
+    if (!ruling.channel.isClosed) {
+      return;
+    }
+    const decision = this.#outboundFrameTripwire.settleFrame(
+      ruling.frame,
+      UNRECOGNIZED_TURN_EVIDENCE,
+    );
+    if (!decision.tripped) {
+      return;
+    }
+    // The same disposal the settlement path performs, in the same order: the
+    // SESSION arm first, so a caller reacting synchronously to the run failure
+    // cannot reach the condemned process by the other door. `startRun` resolves
+    // a session, so a run-keyed refusal alone would leave the next run free to
+    // dispatch onto the same channel.
+    this.#providerBindingQuarantine.disposeSession(ruling.sessionId);
+    this.#providerBindingQuarantine.disposeRun(ruling.runId);
+    this.#reportTextNeutralizationFailure(
+      ruling.sessionId,
+      ruling.runId,
+      composeTextNeutralizationRunFailure(decision),
+    );
+    this.#disposeQuarantinedSession(ruling.sessionId);
   }
 
   /**
@@ -3327,12 +3524,14 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
    *
    * ONE terminal settles ONE turn, so exactly one run may consume this
    * terminal's evidence: the oldest with a frame still awaiting settlement.
-   * Ordering is taken over PENDING FRAMES, not over routes — a run whose write
-   * threw keeps its route and drops its registration, so ordering by route
-   * would let a run with nothing on the wire consume the evidence a live run
-   * needed. Spreading one turn's evidence across every correlated run is the
-   * masking this tripwire exists to prevent: a good turn would vouch for text
-   * that never ran.
+   * Ordering is taken over PENDING FRAMES, not over routes, because the two
+   * sets genuinely differ — a run whose failed write was already ruled by
+   * `#ruleFailedOpeningFrame` on the dead-channel arm keeps its route, so that
+   * `findChannelForRun` refuses it loudly rather than answering `undefined`,
+   * while its registration is long consumed. Ordering by route would let that
+   * run consume the evidence a live one needed. Spreading one turn's evidence
+   * across every correlated run is the masking this tripwire exists to prevent:
+   * a good turn would vouch for text that never ran.
    *
    * Any FURTHER correlated run is ruled against no evidence at all, which trips
    * it. That is not a guess: `#retireRunRoutes` destroys every route for this
@@ -3341,6 +3540,14 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
    * provider with no model turn attributable to it, which is exactly what the
    * refusal says. The driver does not create that state; this is what it does
    * if the state ever appears.
+   *
+   * One way that state now arises is worth naming: a frame RETAINED by
+   * `#ruleFailedOpeningFrame` on the serviceable-channel arm stays pending, so
+   * it holds position 0 here and a later run that wrote cleanly is ruled
+   * against no evidence. The trip is then attributed to the wrong run. That is
+   * the fail-closed direction and the deliberate price of retention — the
+   * alternative is a silent pass on a frame whose delivery is in doubt — and
+   * the session is quarantined and disposed either way.
    *
    * This band reads NO member of `terminalFrame`. It hands the value to the
    * normalizer's classifier — the module that owns frame content — and acts on
