@@ -10,9 +10,12 @@
 //     have fired. A pairing invariant checked over a corpus that never evicted
 //     is a tautology.
 //   * ONCE-ONLY DELIVERY RESTS ON RECONCILIATION, NOT ON A CLEAN RETRY. The
-//     lost-acknowledgment case is asserted against the DUPLICATE-PRODUCING
-//     failure — the fake target applies the frame and THEN rejects — and its
-//     negative control blinds the readback and observes the duplicate appear.
+//     lost-acknowledgment case is asserted against BOTH duplicate-producing
+//     failures — the fake target that applies the frame and then rejects, and
+//     the one that rejects while the frame is STILL BEING APPLIED, which is the
+//     case a sequential retry raced into a second memo. Its negative control
+//     blinds the readback across two coordinators, because that is the only
+//     scope where reconciliation stands alone.
 //   * THE KEY IS DERIVED, NOT STORED. Recomputation across a simulated restart
 //     and across two independently constructed folds is the assertion, and the
 //     discriminating case is an append belonging to ANOTHER run: it moves the
@@ -63,6 +66,7 @@ import {
   type MemoDeliverySettlement,
   type MemoOutboundFrame,
   type MemoRendering,
+  type MemoSendSettlementBarrier,
   type MemoTargetGateway,
   type MemoTargetIdentity,
   type ReconstitutionSettlement,
@@ -107,22 +111,37 @@ function requestFor(
 }
 
 /**
- * The target session, faked with the two failure modes that matter.
+ * The target session, faked with the failure modes that matter.
  *
  * `readOutcomes` is consumed in order so a case can make the PRE-send read
  * succeed and the post-send readback fail — the ambiguity the floor is specified
- * against. `apply-then-fail` is the duplicate-producing send: the frame lands and
- * the acknowledgment is lost, which is the only failure a clean-retry test would
- * not catch.
+ * against.
+ *
+ * Two duplicate-producing sends, not one, because they fail at different
+ * moments. `apply-then-fail` lands the frame and loses the acknowledgment, which
+ * a clean-retry test would not catch. `apply-late-then-fail` is the harder case
+ * and the reason the register exists: the acknowledgment times out while the
+ * provider is STILL APPLYING the frame, so every readback taken before
+ * `applyPendingSends` legitimately finds no marker for a memo that is about to
+ * land. A retry that reads one of those snapshots as a refusal sends a second
+ * memo into the same conversation.
  */
 class FakeTargetSession {
   readonly turns: string[] = [];
   readonly readOutcomes: Array<"ok" | "fail"> = [];
-  sendBehavior: "accept" | "apply-then-fail" | "refuse" = "accept";
+  sendBehavior: "accept" | "apply-then-fail" | "apply-late-then-fail" | "refuse" = "accept";
   sendAttempts = 0;
   readAttempts = 0;
   /** Blinds reconciliation, so the negative control can observe the duplicate. */
   reportNoTurns = false;
+  /** Frames the provider accepted and has not finished applying. */
+  readonly #framesStillApplying: string[] = [];
+
+  /** The provider finishes applying whatever it was still working on. */
+  applyPendingSends(): void {
+    this.turns.push(...this.#framesStillApplying);
+    this.#framesStillApplying.length = 0;
+  }
 
   async readRecentTurns(): Promise<readonly string[]> {
     this.readAttempts += 1;
@@ -140,12 +159,41 @@ class FakeTargetSession {
       this.turns.push(frame.frame.wireText);
       throw new Error("acknowledgment lost after the frame was applied");
     }
+    if (this.sendBehavior === "apply-late-then-fail") {
+      this.#framesStillApplying.push(frame.frame.wireText);
+      throw new Error("acknowledgment timed out while the frame was still being applied");
+    }
     if (this.sendBehavior === "refuse") {
       throw new Error("target session refused the frame");
     }
     this.turns.push(frame.frame.wireText);
   }
 }
+
+/**
+ * An HONEST barrier: it waits for the provider session to go quiet, which means
+ * anything still being applied finishes first. A readback taken after it is
+ * therefore ordered behind the earlier send rather than racing it — which is the
+ * whole of what a caller promises when it supplies one.
+ */
+function settlementBarrierFor(target: FakeTargetSession): MemoSendSettlementBarrier {
+  return () => {
+    target.applyPendingSends();
+    return Promise.resolve();
+  };
+}
+
+/**
+ * A barrier that resolves without observing the provider at all — the shape a
+ * caller reaches for first, and one no check inside the delivery could tell from
+ * an honest wait. Present so the tests can show that the call which made a send
+ * never trusts it, rather than hoping no caller ever writes it.
+ */
+const IMMEDIATE_BARRIER: MemoSendSettlementBarrier = () => Promise.resolve();
+
+/** The caller's bounded wait ran out without the session going quiet. */
+const EXPIRED_BARRIER: MemoSendSettlementBarrier = () =>
+  Promise.reject(new Error("the bounded wait for the provider session expired"));
 
 /**
  * Records every member name read off the gateway. The proxy is the stronger of
@@ -821,19 +869,212 @@ describe("memo delivery — once-only under a lost acknowledgment", () => {
     expect(target.sendAttempts).toBe(1);
   });
 
-  it("negative control — blinding the readback produces the duplicate this reconciles away", async () => {
+  it("negative control — blinding the readback across two coordinators produces the duplicate", async () => {
+    // Blinded and split across two coordinators, because reconciliation only
+    // stands alone there. One coordinator would not duplicate even blinded: it
+    // remembers that its own send went unacknowledged and will not send again on
+    // an absence it cannot trust. Two of them, two processes, or a restart
+    // mid-flight have nothing but the readback, which is what this blinds.
     const target = new FakeTargetSession();
     target.sendBehavior = "apply-then-fail";
     target.reportNoTurns = true;
-    const coordinator = new MemoDeliveryCoordinator(target);
     const request: MemoDeliveryRequest = requestFor(
       projectionOf([turn(1, "participant", [{ kind: "text", text: "hello" }])]),
     );
 
-    await coordinator.deliver(request);
-    await coordinator.deliver(request);
+    await new MemoDeliveryCoordinator(target).deliver(request);
+    await new MemoDeliveryCoordinator(target).deliver(request);
 
     expect(target.turns).toHaveLength(2);
+    expect(target.sendAttempts).toBe(2);
+  });
+});
+
+// --------------------------------------------------------------------------
+// 2b — an ambiguous send is held unconfirmed, never settled off one snapshot
+// --------------------------------------------------------------------------
+
+/**
+ * The hazard these pin, in product terms: a send whose acknowledgment is lost may
+ * still be landing at the provider. A readback taken the same instant finds no
+ * marker — not because the memo will not arrive, but because it has not arrived
+ * yet. Treating that one snapshot as proof of refusal is what let a retry send a
+ * second memo into a conversation that was already receiving the first, leaving
+ * the participant reading the same summary twice.
+ */
+describe("memo delivery — an ambiguous send is held unconfirmed", () => {
+  const AMBIGUOUS_REQUEST: MemoDeliveryRequest = requestFor(
+    projectionOf([turn(1, "participant", [{ kind: "text", text: "hello" }])]),
+  );
+
+  it("does not let a retry race a slow-applying send into a second memo", async () => {
+    const target = new FakeTargetSession();
+    target.sendBehavior = "apply-late-then-fail";
+    const coordinator = new MemoDeliveryCoordinator(target);
+
+    const first: MemoDeliverySettlement = await coordinator.deliver(AMBIGUOUS_REQUEST);
+
+    // The acknowledgment timed out and the provider has not finished applying,
+    // so the readback that followed it found nothing. That is not a refusal.
+    expect(first.disposition).toBe("unconfirmed");
+    expect(first.withheldReason).toBeUndefined();
+    expect(target.sendAttempts).toBe(1);
+    expect(target.turns).toHaveLength(0);
+
+    // The caller retries, as a caller with no acknowledgment must. Its own read
+    // still finds nothing, for exactly the same reason.
+    const retry: MemoDeliverySettlement = await coordinator.deliver(AMBIGUOUS_REQUEST);
+
+    expect(retry.disposition).toBe("unconfirmed");
+    expect(target.sendAttempts).toBe(1);
+
+    // The provider finishes applying the FIRST send.
+    target.applyPendingSends();
+    expect(target.turns).toHaveLength(1);
+
+    const afterLanding: MemoDeliverySettlement = await coordinator.deliver(AMBIGUOUS_REQUEST);
+
+    // The load-bearing assertion is what the TARGET holds: exactly one memo,
+    // from exactly one send, across three delivery calls.
+    expect(afterLanding.disposition).toBe("already-delivered");
+    expect(target.sendAttempts).toBe(1);
+    expect(target.turns).toHaveLength(1);
+  });
+
+  it("does not double-send when a barrier is supplied and the first send lands late", async () => {
+    // A barrier cannot answer for the send its own call just made — nothing has
+    // happened yet that it could have waited for. The call that made the
+    // ambiguous send therefore never consults it, so a caller supplying the most
+    // obvious barrier there is cannot talk that call into a refusal.
+    const target = new FakeTargetSession();
+    target.sendBehavior = "apply-late-then-fail";
+    const coordinator = new MemoDeliveryCoordinator(target);
+    const requestWithBarrier: MemoDeliveryRequest = {
+      ...AMBIGUOUS_REQUEST,
+      sendSettlementBarrier: IMMEDIATE_BARRIER,
+    };
+
+    const first: MemoDeliverySettlement = await coordinator.deliver(requestWithBarrier);
+    expect(first.disposition).toBe("unconfirmed");
+    expect(target.sendAttempts).toBe(1);
+
+    await coordinator.deliver(requestWithBarrier);
+    target.applyPendingSends();
+
+    expect(target.sendAttempts).toBe(1);
+    expect(target.turns).toHaveLength(1);
+  });
+
+  it("converges on the late-landing memo when the barrier really waits for it", async () => {
+    // The honest barrier's whole job: waiting for the session to go quiet lets
+    // the first send finish, so the retry's read finds the memo and settles as
+    // the delivery it already is.
+    const target = new FakeTargetSession();
+    target.sendBehavior = "apply-late-then-fail";
+    const coordinator = new MemoDeliveryCoordinator(target);
+    const requestWithBarrier: MemoDeliveryRequest = {
+      ...AMBIGUOUS_REQUEST,
+      sendSettlementBarrier: settlementBarrierFor(target),
+    };
+
+    const first: MemoDeliverySettlement = await coordinator.deliver(requestWithBarrier);
+    const retry: MemoDeliverySettlement = await coordinator.deliver(requestWithBarrier);
+    const third: MemoDeliverySettlement = await coordinator.deliver(requestWithBarrier);
+
+    expect(first.disposition).toBe("unconfirmed");
+    expect(retry.disposition).toBe("already-delivered");
+    expect(third.disposition).toBe("already-delivered");
+    expect(target.sendAttempts).toBe(1);
+    expect(target.turns).toHaveLength(1);
+  });
+
+  it("sends again once the caller's barrier establishes the earlier send never landed", async () => {
+    // Holding the memo back forever would be its own failure — the participant
+    // would silently get no summary. Resolving the old ambiguity and attempting
+    // a new send are two calls, not one: the barrier's word closes the first
+    // send, and the ordinary reconcile that follows opens the second.
+    const target = new FakeTargetSession();
+    target.sendBehavior = "refuse";
+    const coordinator = new MemoDeliveryCoordinator(target);
+    const requestWithBarrier: MemoDeliveryRequest = {
+      ...AMBIGUOUS_REQUEST,
+      sendSettlementBarrier: settlementBarrierFor(target),
+    };
+
+    const first: MemoDeliverySettlement = await coordinator.deliver(requestWithBarrier);
+    expect(first.disposition).toBe("unconfirmed");
+    expect(target.sendAttempts).toBe(1);
+
+    const resolved: MemoDeliverySettlement = await coordinator.deliver(requestWithBarrier);
+    expect(resolved.disposition).toBe("withheld");
+    expect(resolved.withheldReason).toBe("send-refused");
+    expect(target.sendAttempts).toBe(1);
+
+    target.sendBehavior = "accept";
+    const resent: MemoDeliverySettlement = await coordinator.deliver(requestWithBarrier);
+
+    expect(resent.disposition).toBe("delivered");
+    expect(target.sendAttempts).toBe(2);
+    expect(target.turns).toHaveLength(1);
+  });
+
+  it("sends nothing when the caller's barrier expires instead of settling", async () => {
+    const target = new FakeTargetSession();
+    target.sendBehavior = "apply-late-then-fail";
+    const coordinator = new MemoDeliveryCoordinator(target);
+
+    await coordinator.deliver(AMBIGUOUS_REQUEST);
+    const retry: MemoDeliverySettlement = await coordinator.deliver({
+      ...AMBIGUOUS_REQUEST,
+      sendSettlementBarrier: EXPIRED_BARRIER,
+    });
+
+    // A bounded wait running out answers nothing, so it authorizes nothing.
+    expect(retry.disposition).toBe("unconfirmed");
+    expect(target.sendAttempts).toBe(1);
+  });
+
+  it("does not downgrade an outstanding send to a refusal when the target goes unreadable", async () => {
+    const target = new FakeTargetSession();
+    target.sendBehavior = "apply-late-then-fail";
+    const coordinator = new MemoDeliveryCoordinator(target);
+
+    await coordinator.deliver(AMBIGUOUS_REQUEST);
+    target.readOutcomes.push("fail");
+    const retry: MemoDeliverySettlement = await coordinator.deliver(AMBIGUOUS_REQUEST);
+
+    // Withheld asserts that nothing landed. Nobody established that here.
+    expect(retry.disposition).toBe("unconfirmed");
+    expect(retry.withheldReason).toBeUndefined();
+    expect(target.sendAttempts).toBe(1);
+  });
+
+  it("does not duplicate even when the readback is blind, within one coordinator", async () => {
+    const target = new FakeTargetSession();
+    target.sendBehavior = "apply-then-fail";
+    target.reportNoTurns = true;
+    const coordinator = new MemoDeliveryCoordinator(target);
+
+    await coordinator.deliver(AMBIGUOUS_REQUEST);
+    await coordinator.deliver(AMBIGUOUS_REQUEST);
+
+    // The memo landed and the blinded read cannot see it, yet no second send is
+    // attempted: an unacknowledged send is remembered, not re-derived from a
+    // reading that may be wrong.
+    expect(target.sendAttempts).toBe(1);
+    expect(target.turns).toHaveLength(1);
+  });
+
+  it("negative control — the unconfirmed pair is scoped to one coordinator, like the flight", async () => {
+    // The register claims nothing wider than the object holding it, and is not
+    // durable. A second coordinator falls back to the pre-send reconcile, which
+    // is the mechanism that survives a restart and the only one that ever did.
+    const target = new FakeTargetSession();
+    target.sendBehavior = "apply-late-then-fail";
+
+    await new MemoDeliveryCoordinator(target).deliver(AMBIGUOUS_REQUEST);
+    await new MemoDeliveryCoordinator(target).deliver(AMBIGUOUS_REQUEST);
+
     expect(target.sendAttempts).toBe(2);
   });
 });
@@ -950,7 +1191,31 @@ describe("memo delivery — an unreadable target", () => {
     expect(target.sendAttempts).toBe(1);
   });
 
-  it("settles withheld when the send is refused and the readback confirms nothing landed", async () => {
+  it("settles withheld only on a later call, once the barrier orders the read behind the send", async () => {
+    // Rewritten for the round-4 finding: a rejected send may still be applying,
+    // so a readback that finds nothing is not proof the memo was refused. The
+    // refusal arm now takes a SECOND delivery — one whose barrier is ordered
+    // behind a send that completed before that call began. The call that made
+    // the send cannot reach it at all, whatever the caller passes.
+    const target = new FakeTargetSession();
+    target.sendBehavior = "refuse";
+    const coordinator = new MemoDeliveryCoordinator(target);
+    const request: MemoDeliveryRequest = {
+      ...requestFor(projectionOf([turn(1, "participant", [{ kind: "text", text: "hello" }])])),
+      sendSettlementBarrier: settlementBarrierFor(target),
+    };
+
+    const attempted: MemoDeliverySettlement = await coordinator.deliver(request);
+    expect(attempted.disposition).toBe("unconfirmed");
+
+    const settlement: MemoDeliverySettlement = await coordinator.deliver(request);
+
+    expect(settlement.disposition).toBe("withheld");
+    expect(settlement.withheldReason).toBe("send-refused");
+    expect(target.turns).toHaveLength(0);
+  });
+
+  it("reports the ambiguity, not a refusal, when no barrier orders the readback", async () => {
     const target = new FakeTargetSession();
     target.sendBehavior = "refuse";
     const coordinator = new MemoDeliveryCoordinator(target);
@@ -959,8 +1224,8 @@ describe("memo delivery — an unreadable target", () => {
       requestFor(projectionOf([turn(1, "participant", [{ kind: "text", text: "hello" }])])),
     );
 
-    expect(settlement.disposition).toBe("withheld");
-    expect(settlement.withheldReason).toBe("send-refused");
+    expect(settlement.disposition).toBe("unconfirmed");
+    expect(settlement.withheldReason).toBeUndefined();
     expect(target.turns).toHaveLength(0);
   });
 });

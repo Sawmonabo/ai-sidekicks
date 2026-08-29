@@ -38,14 +38,26 @@
 //   zero-width sentinel, which `Spec-005 §Pitfalls To Avoid` prohibits outright.
 //
 // So EVERY send reconciles first: recompute the key, read the target's recent
-// turns for it, treat a match as already delivered. The ambiguous send — a
-// timeout, a dropped connection, a restart between send and acknowledgment —
-// needs no special path, because the unknown resolves the way every other
-// pre-send question does, by reading the target. Where the target cannot be read
-// back, NOTHING is sent and the operation settles on what did land: a duplicated
-// memo corrupts the conversation the participant is watching, while a missing one
-// only degrades it, visibly. Rollback-then-retry is not merely discouraged here
-// but unrepresentable, there being no claim to roll back.
+// turns for it, treat a match as already delivered.
+//
+// Reading the target answers the ambiguous send — a timeout, a dropped
+// connection, a restart between send and acknowledgment — only where the read is
+// causally ordered AFTER the provider settled that send. A readback taken the
+// instant an acknowledgment is lost is not: the provider may still be applying
+// the frame, so the marker's absence there is a snapshot of a race rather than
+// evidence of non-delivery. Settling that snapshot as a refusal is exactly what
+// would license a sequential retry to send a second memo into a conversation
+// that was about to receive the first.
+//
+// An ambiguous send is therefore held UNCONFIRMED rather than settled. The pair
+// is remembered, every later delivery for it reconciles against the target as
+// usual, and only DEFINITIVE evidence moves it: the marker appearing, or an
+// absence read after the caller's own bounded settlement barrier resolved.
+// Absent both, the ambiguity is reported and NOTHING further is sent — as when
+// the target cannot be read at all. The operation settles on what did land: a
+// duplicated memo corrupts the conversation the participant is watching, while a
+// missing one only degrades it, visibly. Rollback-then-retry is not merely
+// discouraged here but unrepresentable, there being no claim to roll back.
 //
 // This module mints no table, no column, and no migration, and writes nothing
 // durable on any path. It holds no persistence collaborator at all: its two
@@ -743,10 +755,54 @@ export interface MemoTargetGateway {
   sendMemoTurn(frame: MemoOutboundFrame): Promise<void>;
 }
 
+/**
+ * A bounded wait the CALLER supplies that resolves once the target provider
+ * session has settled whatever an earlier ambiguous send may still have been
+ * applying — the session reaching a quiescent or terminal state, a turn the
+ * caller drove to completion, or any other ordering the caller can actually
+ * establish.
+ *
+ * It exists to make one question answerable: is a readback that finds no marker
+ * looking at a delivery that did not happen, or at one that has not happened
+ * YET? Resolving means the first — an absence read afterwards is definitive, and
+ * a send is authorized. Rejecting, or not being supplied at all, means the
+ * question is still open, and the delivery stays unconfirmed rather than being
+ * settled as refused.
+ *
+ * Consulted ONLY on a delivery that follows an ambiguous one, before that call's
+ * read, and never inside the call whose own send just failed. Nothing can
+ * establish that a send made moments ago has settled, so a barrier asked there
+ * would be trusted on a claim it cannot hold: one that resolves without
+ * observing the provider is indistinguishable from one that waited, and the
+ * refusal it licensed would clear the way for the very duplicate this exists to
+ * prevent. Ordered behind a send that COMPLETED IN AN EARLIER CALL, the same
+ * barrier is answering a question that has an answer.
+ *
+ * Deliberately a caller-supplied value on the request rather than a third
+ * operation on `MemoTargetGateway`: the gateway's two operations are the read
+ * this floor reconciles with and the send it performs, and the knowledge of when
+ * a provider session has gone quiet belongs to the caller driving it, not to the
+ * narrow surface this module holds. It never participates in the memo-identity
+ * key, so supplying one cannot move which memo is being delivered.
+ *
+ * The residual this leaves is named rather than hidden: a barrier that resolves
+ * while an earlier send is still applying is a caller lying about its own
+ * provider, and no check inside this module can catch it.
+ */
+export type MemoSendSettlementBarrier = () => Promise<void>;
+
 export interface MemoDeliveryRequest {
   readonly projection: CanonicalTranscriptProjection;
   readonly target: MemoTargetIdentity;
   readonly budget: MemoBudgetPolicy;
+  /**
+   * Optional. Without it an ambiguous send is never resolvable to a refusal, so
+   * the delivery reports itself unconfirmed and no later call may send again —
+   * the fail-closed arm. Every later call still reads the target, so a memo that
+   * lands late is found and settles `already-delivered` with or without a
+   * barrier; only a memo that never landed at all needs one.
+   */
+  readonly sendSettlementBarrier?: MemoSendSettlementBarrier | undefined;
 }
 
 /**
@@ -754,11 +810,19 @@ export interface MemoDeliveryRequest {
  *
  *   `delivered`         the target holds it, confirmed by the send resolving or
  *                       by a readback finding the marker after an ambiguous send;
- *   `already-delivered` the pre-send reconcile found the marker already there;
- *   `withheld`          nothing reached the target and that is known;
- *   `unconfirmed`       a send was attempted, its outcome is unknown, and NOTHING
- *                       further was sent — the ambiguity is reported rather than
- *                       resolved by a duplicate.
+ *   `already-delivered` a reconcile found the marker already there — including
+ *                       the retry that finds an earlier ambiguous send's own memo
+ *                       arriving late;
+ *   `withheld`          nothing reached the target and that is KNOWN: the target
+ *                       was never sent to, or an absence was read after the
+ *                       caller's settlement barrier made it definitive;
+ *   `unconfirmed`       a send is outstanding, whether it applied is unknown, and
+ *                       NOTHING further was sent — the ambiguity is reported
+ *                       rather than resolved by a duplicate.
+ *
+ * `unconfirmed` is a standing state, not a one-call verdict: it persists across
+ * `deliver` calls for the pair until evidence moves it, which is what keeps a
+ * retry from sending into a provider still applying the first send.
  */
 export type MemoDeliveryDisposition =
   | "delivered"
@@ -766,6 +830,15 @@ export type MemoDeliveryDisposition =
   | "withheld"
   | "unconfirmed";
 
+/**
+ * Why nothing reached the target, on the arm where that is known.
+ *
+ * `send-refused` is deliberately hard to reach: a gateway rejection alone never
+ * earns it, because a rejection is ambiguous by construction. It takes a LATER
+ * delivery whose settlement barrier ordered its read behind the earlier send —
+ * the one reading that can distinguish a refused send from a slow one — and so
+ * it is never the settlement of the call that attempted the send.
+ */
 export type MemoWithheldReason = "target-unreadable" | "send-refused";
 
 export interface MemoDeliverySettlement {
@@ -787,10 +860,10 @@ export interface MemoDeliverySettlement {
 /**
  * Reconciles, then sends, then settles — in that order, on every path.
  *
- * Exactly ONE `sendMemoTurn` call is attempted per `deliver` call, and only after
- * a successful read that did not find the marker. A caller that retries calls
- * `deliver` again, which reconciles again; a target that already holds the memo
- * is never sent a second one.
+ * At most ONE `sendMemoTurn` call is attempted per `deliver` call, and only after
+ * a successful read that did not find the marker and left no earlier send
+ * unresolved. A caller that retries calls `deliver` again, which reconciles
+ * again; a target that already holds the memo is never sent a second one.
  *
  * OVERLAPPING calls for one memo into one target are one delivery: the second
  * awaits the first's settlement rather than starting a delivery of its own.
@@ -798,7 +871,23 @@ export interface MemoDeliverySettlement {
  * legitimately find no marker — the first send has not landed when the second
  * read is taken — and the send is the one act here that cannot be taken back.
  *
- * The exclusion is scoped to THIS coordinator and claims nothing wider. Two
+ * SEQUENTIAL calls after an ambiguous send are that same hazard displaced in
+ * time, and the flight map cannot close it: the flight in question has already
+ * settled. The pair is carried in an unconfirmed register instead, and while it
+ * sits there no `deliver` call may send. An ambiguous send enters that register
+ * UNCONDITIONALLY — nothing a caller can pass makes its own call able to clear
+ * it — so the protection does not rest on anything being answered correctly in
+ * the moment the answer is unavailable.
+ *
+ * It leaves the register only on evidence a LATER call can hold: the marker read
+ * off the target, or an absence read behind that call's settlement barrier. The
+ * second reports `withheld` and sends nothing, so resolving an old ambiguity and
+ * attempting a new send are never the same act; the call after it sends as an
+ * ordinary first attempt. A retry racing a slow-applying send therefore reports
+ * the ambiguity rather than doubling the memo, and a memo that genuinely never
+ * landed is still eventually sent.
+ *
+ * Both exclusions are scoped to THIS coordinator and claim nothing wider. Two
  * coordinators over one target, two processes, or a restart mid-flight all fall
  * back to the pre-send reconcile, which is the mechanism the header describes and
  * the only one that survives a restart at all: the key is derived rather than
@@ -815,6 +904,19 @@ export class MemoDeliveryCoordinator {
     string,
     Promise<MemoDeliverySettlement>
   >();
+  /**
+   * Pairs whose last send was AMBIGUOUS, and whose delivery is therefore not
+   * known either way. Held in memory and scoped to this coordinator exactly as
+   * the flight map above is: it is a refusal to send twice, never a claim, and
+   * nothing about it outlives the process.
+   *
+   * Deliberately UNBOUNDED and never swept on age or size. An entry is one
+   * fixed-length key, at most one per memo this coordinator ever attempted, and
+   * evicting one would hand back precisely the guarantee it holds — the next
+   * call would read the target, find nothing, and send. Entries leave on
+   * evidence or not at all.
+   */
+  readonly #unconfirmedDeliveries: Set<string> = new Set<string>();
 
   /**
    * The frame writer defaults to the `emulated` grade, which is the arm that
@@ -843,12 +945,12 @@ export class MemoDeliveryCoordinator {
       budget: request.budget,
     });
 
-    const flightKey: string = renderDeliveryFlightKey(
+    const deliveryPairKey: string = renderDeliveryPairKey(
       request.target.providerSessionId,
       rendering.memoIdentityKey,
     );
     const alreadyInFlight: Promise<MemoDeliverySettlement> | undefined =
-      this.#deliveriesInFlight.get(flightKey);
+      this.#deliveriesInFlight.get(deliveryPairKey);
     if (alreadyInFlight !== undefined) {
       // One memo into one target is one delivery, so both callers settle on what
       // that delivery did — including the caller whose own rendering carried a
@@ -856,33 +958,76 @@ export class MemoDeliveryCoordinator {
       return await alreadyInFlight;
     }
 
-    const flight: Promise<MemoDeliverySettlement> = this.#reconcileThenSend(request, rendering);
-    this.#deliveriesInFlight.set(flightKey, flight);
+    const flight: Promise<MemoDeliverySettlement> = this.#reconcileThenSend(
+      request,
+      rendering,
+      deliveryPairKey,
+    );
+    this.#deliveriesInFlight.set(deliveryPairKey, flight);
     try {
       return await flight;
     } finally {
       // Cleared however the flight ended, refusal included: a settled delivery
       // must never keep the next call from reconciling against the target afresh.
-      this.#deliveriesInFlight.delete(flightKey);
+      // The unconfirmed register is deliberately NOT cleared here — an ambiguous
+      // send outlives the call that made it, and that is the whole point of it.
+      this.#deliveriesInFlight.delete(deliveryPairKey);
     }
   }
 
   async #reconcileThenSend(
     request: MemoDeliveryRequest,
     rendering: MemoRendering,
+    deliveryPairKey: string,
   ): Promise<MemoDeliverySettlement> {
+    // A pair an earlier call left ambiguous is treated as POSSIBLY-APPLIED until
+    // something definitive says otherwise. The barrier is awaited before the read
+    // rather than after it, because what makes the read definitive is its
+    // position after the provider settled that send — a barrier consulted
+    // afterwards would order nothing.
+    const priorSendUnconfirmed: boolean = this.#unconfirmedDeliveries.has(deliveryPairKey);
+    const priorSendSettled: boolean = priorSendUnconfirmed
+      ? await awaitSendSettlement(request)
+      : false;
+
     let priorTurns: readonly string[];
     try {
       priorTurns = await this.#gateway.readRecentTurns();
     } catch {
       // The target cannot be read, so whether it already holds this memo is
       // unknowable. Nothing is sent: a duplicate corrupts the conversation the
-      // participant is watching, a missing memo only degrades it, visibly.
-      return settle(rendering, "withheld", "target-unreadable");
+      // participant is watching, a missing memo only degrades it, visibly. Where
+      // a send is already outstanding the honest arm is the ambiguous one —
+      // calling that withheld would assert non-delivery nobody established.
+      return priorSendUnconfirmed
+        ? settle(rendering, "unconfirmed", undefined)
+        : settle(rendering, "withheld", "target-unreadable");
     }
 
     if (targetTurnsCarryMemoMarker(priorTurns, rendering.memoIdentityKey)) {
+      // Definitive, and the one evidence that needs no barrier: an outstanding
+      // send is now known to have applied, so the pair leaves the register.
+      this.#unconfirmedDeliveries.delete(deliveryPairKey);
       return settle(rendering, "already-delivered", undefined);
+    }
+
+    if (priorSendUnconfirmed) {
+      if (!priorSendSettled) {
+        // The marker is absent and the earlier send may still be applying. This
+        // is the sequential retry the whole register exists for: it reports the
+        // ambiguity again and sends nothing, rather than racing a memo that is
+        // already on its way in.
+        return settle(rendering, "unconfirmed", undefined);
+      }
+      // The barrier ordered this read behind a send that completed in an earlier
+      // call, and the marker is not there: that send did not land. The ambiguity
+      // is resolved and REPORTED, and nothing is sent here — evidence about the
+      // old send is not evidence about a new one, and folding the two into one
+      // act is what would let a barrier's single word both close a delivery and
+      // open another. The pair leaves the register, so the caller's next
+      // delivery reconciles and sends as an ordinary first attempt.
+      this.#unconfirmedDeliveries.delete(deliveryPairKey);
+      return settle(rendering, "withheld", "send-refused");
     }
 
     try {
@@ -896,31 +1041,72 @@ export class MemoDeliveryCoordinator {
       });
       return settle(rendering, "delivered", undefined);
     } catch {
-      // Ambiguous. The unknown resolves the way every other pre-send question
-      // does — by reading the target — and never by sending again.
+      // Ambiguous, and NOT resolvable inside this call. The pair is registered
+      // FIRST, before anything that can throw or return, so no path out of here
+      // leaves an outstanding send unrecorded.
+      //
+      // The settlement barrier is deliberately not consulted on this path. It is
+      // asked to order a read behind a send that has settled, and nothing can
+      // establish that of a send this very call just made: a barrier that
+      // resolves without observing the provider reads identically to one that
+      // waited, and the refusal it licensed would clear the register and let the
+      // next call send the duplicate. Only a later call, whose barrier is
+      // ordered behind a send that completed before it began, may resolve this.
+      this.#unconfirmedDeliveries.add(deliveryPairKey);
       let turnsAfterSend: readonly string[];
       try {
         turnsAfterSend = await this.#gateway.readRecentTurns();
       } catch {
         return settle(rendering, "unconfirmed", undefined);
       }
-      return targetTurnsCarryMemoMarker(turnsAfterSend, rendering.memoIdentityKey)
-        ? settle(rendering, "delivered", undefined)
-        : settle(rendering, "withheld", "send-refused");
+      if (targetTurnsCarryMemoMarker(turnsAfterSend, rendering.memoIdentityKey)) {
+        // The one evidence that needs no ordering at all: the memo is visibly
+        // there, so the send that just failed to acknowledge in fact applied.
+        this.#unconfirmedDeliveries.delete(deliveryPairKey);
+        return settle(rendering, "delivered", undefined);
+      }
+      // One absent snapshot, read while the provider may still be applying the
+      // frame. It is not evidence of non-delivery, so it settles nothing.
+      return settle(rendering, "unconfirmed", undefined);
     }
   }
 }
 
 /**
- * The key one in-flight delivery is tracked under.
+ * Awaits the caller's settlement barrier, reporting whether a readback taken
+ * NEXT is definitive.
+ *
+ * A barrier that was not supplied and a barrier that rejected are one answer —
+ * the caller could not establish the ordering — and both leave the delivery
+ * unconfirmed rather than refused. The rejection is deliberately swallowed into
+ * that answer rather than propagated: a bounded wait expiring is the ordinary
+ * way this question goes unanswered, not a failure of the delivery.
+ */
+async function awaitSendSettlement(request: MemoDeliveryRequest): Promise<boolean> {
+  const barrier: MemoSendSettlementBarrier | undefined = request.sendSettlementBarrier;
+  if (barrier === undefined) {
+    return false;
+  }
+  try {
+    await barrier();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The key one delivery — one memo into one target — is tracked under, by both
+ * the in-flight map and the unconfirmed register.
  *
  * The memo-identity key is derived over the target's own session identifier, so
  * it already separates two targets; naming the target here as well keeps the
- * flight's scope legible where it is read and true independently of what the
+ * pair's scope legible where it is read and true independently of what the
  * derivation happens to cover. The identity key is fixed-length hex, so the pair
- * admits one reading.
+ * admits one reading. One spelling for both structures, so a pair held
+ * unconfirmed cannot be missed by a later call that looked it up differently.
  */
-function renderDeliveryFlightKey(providerSessionId: string, memoIdentityKey: string): string {
+function renderDeliveryPairKey(providerSessionId: string, memoIdentityKey: string): string {
   return `${memoIdentityKey}:${providerSessionId}`;
 }
 
