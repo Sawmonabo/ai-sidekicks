@@ -696,23 +696,102 @@ describe("outbound frame tripwire", () => {
   });
 
   it("drops one frame without disturbing the others on its turn", () => {
-    // The write-failure counterpart of `register`. A steer whose send threw put
-    // no bytes on the wire, so leaving it registered would trip the turn its
-    // text never reached — while dropping the whole key would silence the frame
-    // that opened the turn and is still owed a ruling.
+    // The counterpart of `register` for a send that PROVABLY never reached the
+    // wire, so leaving it registered would trip the turn its text never entered
+    // — while dropping the whole key would silence the frame that opened the
+    // turn and is still owed a ruling. Reserved for that class: a send whose
+    // delivery is merely unknown is ruled by `settleFrame` instead.
     const tripwire = new OutboundFrameTripwire();
     const openingFrame = frameFor("participant_text");
-    const failedSteerFrame = frameFor("participant_text", "/clear");
+    const unsentSteerFrame = frameFor("participant_text", "/clear");
     registerFrame(tripwire, "turn-1", openingFrame);
-    registerFrame(tripwire, "turn-1", failedSteerFrame);
+    registerFrame(tripwire, "turn-1", unsentSteerFrame);
 
-    tripwire.forgetFrame(failedSteerFrame);
+    tripwire.forgetFrame(unsentSteerFrame);
 
     expect(tripwire.hasPendingFrame("turn-1")).toBe(true);
     expect(tripwire.settle("turn-1", observedTurnEvidence("model_output"))).toStrictEqual({
       tripped: false,
       reason: "turn-evidence-observed",
     });
+  });
+
+  it("rules ONE frame of an open turn without ruling the frames beside it", () => {
+    // For the frame whose delivery became unknowable while its turn stayed open.
+    // Settling the whole key cannot serve: an unrecognized classification trips
+    // every correlated frame, so the opening frame — answered, and observed
+    // producing output — would be reported swallowed too, and the operator-facing
+    // detail would name a frame there is positive evidence FOR.
+    const tripwire = new OutboundFrameTripwire();
+    const openingFrame = frameFor("participant_text");
+    const uncertainSteerFrame = frameFor("system_narration", "/clear");
+    registerFrame(tripwire, "turn-1", openingFrame);
+    tripwire.observe("turn-1", "model_output");
+    registerFrame(tripwire, "turn-1", uncertainSteerFrame);
+
+    const decision = tripwire.settleFrame(uncertainSteerFrame, UNRECOGNIZED_TURN_EVIDENCE);
+
+    expect(decision).toStrictEqual({
+      tripped: true,
+      cause: "unrecognized-settling-envelope",
+      correlationId: uncertainSteerFrame.correlationId,
+      detailOrigin: "system_narration",
+      failureDetail: "driver.text_neutralization_failed origin=system_narration",
+      refusalCode: "driver.text_neutralization_failed",
+    });
+    // Only that frame was consumed; the opening frame is still owed its ruling.
+    expect(tripwire.hasPendingFrame("turn-1")).toBe(true);
+    expect(tripwire.settle("turn-1", observedTurnEvidence("model_output"))).toStrictEqual({
+      tripped: false,
+      reason: "turn-evidence-observed",
+    });
+  });
+
+  it("does not record a turn decision when only one of its frames is ruled", () => {
+    // The turn has NOT settled, so a stored trip would make the retained
+    // decision answer "swallowed" for a turn whose other frames are still live
+    // and may yet pass — and that decision is what the intervention path reads
+    // back after the binding is gone.
+    const tripwire = new OutboundFrameTripwire();
+    const openingFrame = frameFor("participant_text");
+    const uncertainSteerFrame = frameFor("participant_text", "/clear");
+    registerFrame(tripwire, "turn-1", openingFrame);
+    registerFrame(tripwire, "turn-1", uncertainSteerFrame);
+
+    expect(tripwire.settleFrame(uncertainSteerFrame, UNRECOGNIZED_TURN_EVIDENCE).tripped).toBe(
+      true,
+    );
+
+    expect(tripwire.decisionFor("turn-1")).toBeUndefined();
+  });
+
+  it("rules a frame already withdrawn from its turn as uncorrelated", () => {
+    // Idempotent against a double ruling: a frame consumed by its turn's own
+    // terminal has been ruled once already, and ruling it a second time would
+    // report one swallow twice.
+    const tripwire = new OutboundFrameTripwire();
+    const frame = frameFor("participant_text");
+    registerFrame(tripwire, "turn-1", frame);
+    expect(tripwire.settle("turn-1", observedTurnEvidence("model_output")).tripped).toBe(false);
+
+    expect(tripwire.settleFrame(frame, UNRECOGNIZED_TURN_EVIDENCE)).toStrictEqual({
+      tripped: false,
+      reason: "no-correlated-frame",
+    });
+  });
+
+  it("releases the scope budget a frame ruled outside its turn was holding", () => {
+    // A ruled frame is a settled frame: it must not keep spending the per-binding
+    // pending budget, or a session that lost one steer would refuse writes it
+    // should still admit.
+    const tripwire = new OutboundFrameTripwire();
+    const frame = frameFor("participant_text");
+    registerFrame(tripwire, "turn-1", frame);
+    expect(tripwire.pendingFrameCountForScope("session-1")).toBe(1);
+
+    tripwire.settleFrame(frame, UNRECOGNIZED_TURN_EVIDENCE);
+
+    expect(tripwire.pendingFrameCountForScope("session-1")).toBe(0);
   });
 
   it("refuses a registration at capacity rather than discarding an unsettled frame", () => {
@@ -1319,12 +1398,15 @@ describe("Claude driver provider-bound text path", () => {
   });
 
   it("drops the correlation when the write itself failed, so it cannot consume a later run's turn", async () => {
-    // A write that threw put no bytes on the wire, and the route is deliberately
-    // LEFT bound (an interruptible run beats a turn with no route). A stale
-    // registration would therefore still be correlated when the NEXT run on this
-    // session settles — and, being the older one, it would consume that turn's
-    // evidence and leave the live run ruled against none, failing the run whose
-    // text actually reached the provider.
+    // The channel double refuses ahead of its write, so nothing reached the
+    // provider — and the route is deliberately LEFT bound (an interruptible run
+    // beats a turn with no route). A stale registration would therefore still be
+    // correlated when the NEXT run on this session settles — and, being the
+    // older one, it would consume that turn's evidence and leave the live run
+    // ruled against none, failing the run whose text actually reached the
+    // provider. What this does NOT cover is a channel that took the bytes and
+    // then failed: that port carries no delivery discriminator, so the band
+    // cannot distinguish the two — see the note at the drop site.
     const harness = buildHarness();
     await harness.lifecycle.createSession(buildCreateSessionParams());
     const channel = harness.transport.spawnedChannels[0];

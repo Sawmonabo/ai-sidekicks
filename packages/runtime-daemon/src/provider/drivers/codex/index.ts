@@ -114,6 +114,8 @@ export {
   type CodexLifecycleOptions,
   type CodexPtySessionListeners,
   type CodexPtySessionSubscriber,
+  type CodexRequestAttempt,
+  type CodexRequestDelivery,
   type CodexRunConfig,
   type CodexScheduleTimeout,
   type CodexServerNotificationSink,

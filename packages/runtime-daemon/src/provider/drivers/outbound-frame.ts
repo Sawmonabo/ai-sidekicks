@@ -782,11 +782,44 @@ export class OutboundFrameTripwire {
   }
 
   /**
+   * Rules on ONE frame and consumes only that registration, leaving every other
+   * frame on its turn correlated and still owed its own ruling.
+   *
+   * The counterpart of `settle` for the case where a SINGLE frame's delivery
+   * became unknowable while its turn stayed open — a write the host rejected
+   * mid-flight, or a response phase that died with the connection. `settle`
+   * cannot serve that case: an unrecognized classification trips EVERY frame on
+   * the key, so a turn whose opening frame was answered and observed would be
+   * reported swallowed, naming a correlation id there is positive evidence for.
+   * Ruling the uncertain frame alone keeps the report attributable to the frame
+   * whose delivery is actually in doubt.
+   *
+   * Deliberately does NOT write the retained decision: the turn has not
+   * settled, and storing a trip under its key would make `decisionFor` answer
+   * "swallowed" for a turn whose other frames are still live and may yet pass.
+   */
+  settleFrame(
+    frame: OutboundTextFrame,
+    classification: TurnEvidenceClassification,
+  ): TripwireDecision {
+    const pending = this.#pendingByCorrelationId.get(frame.correlationId);
+    if (pending === undefined) {
+      return { tripped: false, reason: "no-correlated-frame" };
+    }
+    this.#pendingByCorrelationId.delete(frame.correlationId);
+    // Never given the oldest-unsettled position: the settling envelope's own
+    // observations are attributable to the frame the TURN settles, and this
+    // frame is being ruled outside any such envelope.
+    return this.#rule(pending, classification, false);
+  }
+
+  /**
    * Whether any written frame is still awaiting its settling turn.
    *
    * Read by a driver that must decide WHICH of several correlated keys a single
    * terminal accounts for: routes and registrations are different sets — a run
-   * whose write threw keeps its route and drops its registration — so ordering
+   * whose write provably never left keeps its route and drops its registration
+   * — so ordering
    * the decision by route would let a run with nothing pending consume the
    * evidence a live one needed.
    */
@@ -816,12 +849,17 @@ export class OutboundFrameTripwire {
    * Drops ONE frame's registration, leaving every other frame on its turn
    * correlated.
    *
-   * The write-failure counterpart of `register`, and it has to be frame-scoped:
-   * a steer whose send threw put no bytes on the wire, so no turn will ever
-   * account for it — but the frame that OPENED the turn is still live and still
-   * owed a ruling, and dropping the whole key would silence it. Leaving the
-   * failed frame instead would trip the turn and dispose a binding that
-   * swallowed nothing.
+   * The counterpart of `register` for a send that PROVABLY never reached the
+   * wire — refused ahead of the write, or unencodable — and it has to be
+   * frame-scoped: no turn will ever account for that frame, but the frame that
+   * OPENED the turn is still live and still owed a ruling, and dropping the
+   * whole key would silence it. Leaving the unsent frame registered instead
+   * would trip the turn and dispose a binding that swallowed nothing.
+   *
+   * Reserved for that provably-unsent class, and callers must classify before
+   * reaching for it: a send whose bytes may have been taken and whose failure
+   * therefore says nothing about delivery has to be RETAINED and ruled instead
+   * — see `settleFrame`. Forgetting there is how a swallowed directive escapes.
    *
    * The retained decision is deliberately untouched: a settled turn's ruling is
    * a property of the turn, not of any one frame withdrawn from it.

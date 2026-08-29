@@ -3108,11 +3108,13 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     expect(harness.manager.textNeutralizationDecisionForTurn(TURN_ID).refused).toBe(false);
   });
 
-  it("drops the frame of a steer whose request failed, leaving the turn's other frames ruled", async () => {
-    // A steer that threw put no bytes on the wire. Left registered, its frame
-    // would be ruled evidence-free by the turn's own terminal and trip — failing
-    // a run and disposing a provider session over text the provider never saw.
-    // Frame-scoped, so the opening frame stays correlated and still gets ruled.
+  it("drops the frame of a steer the provider ANSWERED with an error", async () => {
+    // A provider error is an answer, and an answer is proof the provider read
+    // the directive and declined it — so it started no turn and swallowed
+    // nothing. Left registered, the frame would be ruled evidence-free by the
+    // turn's own terminal and trip: a run failed and a provider session disposed
+    // over text the provider demonstrably did not act on. Frame-scoped, so the
+    // opening frame stays correlated and still gets ruled.
     const harness = createManagerHarness();
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
     harness.server.on("turn/steer", () => ({
@@ -3143,6 +3145,167 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     await drainMicrotasks();
 
     expect(harness.textNeutralizationFailures).toStrictEqual([]);
+  });
+
+  it("drops the frame of a steer refused before its write ever reached the host", async () => {
+    // The other provably-unsent arm, and the one whose failure looks IDENTICAL
+    // to a mid-flight death from the caller's side: the connection refuses ahead
+    // of the write and raises the same transport error class, with near-identical
+    // text, that an exit raises for a request already on the wire. Classified at
+    // the transport, this one is known to have put no byte anywhere, so the
+    // frame is dropped and nothing trips. Misread as merely-unknown delivery, it
+    // would trip here — the connection is closed — and fail a run over a
+    // directive the provider was never sent.
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: {
+        sessionId: SESSION_ID,
+        input: "review the diff",
+        frameOrigin: "participant_text",
+      },
+    });
+    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
+    await Promise.resolve();
+    // Kills the transport without touching the manager's record, so the steer
+    // still reaches the write path and is refused there rather than upstream.
+    harness.server.emitExit(1);
+    await drainMicrotasks();
+
+    await expect(
+      harness.manager.steerRun({
+        runId: RUN_ID,
+        content: "also check the tests",
+        clientIdempotencyKey: "steer-1",
+        frameOrigin: "system_narration",
+      }),
+    ).rejects.toThrow();
+    await drainMicrotasks();
+
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+    expect(harness.manager.textNeutralizationDecisionForTurn(TURN_ID).refused).toBe(false);
+  });
+
+  it("keeps the frame of a steer that timed out after its bytes were written", async () => {
+    // The unsafe case. The write SUCCEEDED and the provider simply never
+    // answered: it may have taken the command-shaped directive, intercepted it
+    // client-side, and be on its way to a zero-turn success — the rejection the
+    // caller sees carries no information either way. Withdrawing the frame here
+    // is exactly how a swallowed directive escapes, because the turn's terminal
+    // would then rule only the opening frame, which was answered and observed.
+    // Retained instead, the terminal rules the steer on its own merits.
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    // `turn/steer` is deliberately NOT registered: the fake writes the line and
+    // answers nothing, which is the shape of an intercepted directive.
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: {
+        sessionId: SESSION_ID,
+        input: "review the diff",
+        frameOrigin: "participant_text",
+      },
+    });
+    // The opening frame's own evidence, observed BEFORE the steer is written, so
+    // the opening frame passes on its own account and only the steer is at issue.
+    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
+    await Promise.resolve();
+
+    const steer = harness.manager.steerRun({
+      runId: RUN_ID,
+      content: "/clear and start over",
+      clientIdempotencyKey: "steer-1",
+      // A different origin from the opening frame's, so the recorded detail
+      // names WHICH frame the turn failed to account for.
+      frameOrigin: "system_narration",
+    });
+    await drainMicrotasks();
+    // The line is on the wire before the deadline fires: this is a post-write
+    // failure, not a refusal.
+    expect(harness.server.framesForMethod("turn/steer")).toHaveLength(1);
+    harness.scheduler.fireAll();
+    await expect(steer).rejects.toBeInstanceOf(CodexRequestTimeoutError);
+
+    // Every item this terminal carries PRECEDES the steer, so none of them is
+    // evidence for it.
+    harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
+    await drainMicrotasks();
+
+    expect(harness.textNeutralizationFailures).toHaveLength(1);
+    expect(harness.textNeutralizationFailures[0]?.providerFailureDetail).toBe(
+      "driver.text_neutralization_failed origin=system_narration",
+    );
+    // And the binding the swallow was observed on is condemned, not reused.
+    await expect(
+      harness.manager.startRun({
+        runId: SECOND_RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
+      }),
+    ).rejects.toThrow(TextNeutralizationRefusedError);
+  });
+
+  it("rules a steer whose write died with the connection instead of releasing it", async () => {
+    // Retention alone cannot cover this one: the connection is gone, so the turn
+    // the frame joined will never settle and no terminal will ever rule it. Left
+    // pending, it would sit until the scope's budget was reclaimed and then be
+    // dropped as pure occupancy — silence in the case that most warrants an
+    // answer, since the provider may already have swallowed the directive.
+    // Ruled fail-closed here, and ruled FRAME-scoped: settling the whole turn
+    // would also trip the opening frame, whose request was answered and whose
+    // delivery was therefore never in doubt.
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: {
+        sessionId: SESSION_ID,
+        input: "review the diff",
+        frameOrigin: "participant_text",
+      },
+    });
+    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
+    await Promise.resolve();
+    // Kills the child mid-write and then fails that write: the bytes were handed
+    // to the host, and how many of them reached the child is unknowable.
+    harness.server.failWriteAfterChildExit = true;
+    // Baseline, so the kill asserted below is attributable to THIS teardown.
+    expect(harness.server.killedSessions).toStrictEqual([]);
+
+    await expect(
+      harness.manager.steerRun({
+        runId: RUN_ID,
+        content: "/clear and start over",
+        clientIdempotencyKey: "steer-1",
+        frameOrigin: "system_narration",
+      }),
+    ).rejects.toThrow(/broken pipe/);
+    await drainMicrotasks();
+
+    // The steer's own origin, so the report names the frame whose delivery was
+    // in doubt rather than the opening frame that was answered.
+    expect(harness.textNeutralizationFailures).toHaveLength(1);
+    expect(harness.textNeutralizationFailures[0]?.providerFailureDetail).toBe(
+      "driver.text_neutralization_failed origin=system_narration",
+    );
+    expect(harness.textNeutralizationFailures[0]?.runId).toBe(RUN_ID);
+    // Disposed, not merely refused: the promised recovery is a fresh spawn. The
+    // follow-up call below spawns again, so this is asserted first.
+    expect(harness.server.killedSessions).toHaveLength(1);
+    await expect(
+      harness.manager.startRun({
+        runId: SECOND_RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
+      }),
+    ).rejects.toThrow(TextNeutralizationRefusedError);
   });
 
   it("reports a trip on the run whose route an interrupt had already retired", async () => {

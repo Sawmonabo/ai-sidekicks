@@ -200,6 +200,7 @@ import {
   OutboundFrameTripwire,
   OutboundTextFrameWriter,
   ProviderBindingQuarantine,
+  UNRECOGNIZED_TURN_EVIDENCE,
   composeTextNeutralizationRunFailure,
   type OutboundTextFrame,
   type TextNeutralityMechanismGrade,
@@ -2002,6 +2003,49 @@ export interface CodexConnectionOptions {
 }
 
 /**
+ * How far a failed request's bytes provably got.
+ *
+ * The transport is the only layer that can answer this, and the answer is not
+ * recoverable downstream: by the time a rejection reaches a caller the
+ * connection may already be marked closed by an exit that arrived AFTER the
+ * write, so the error carries no trace of which side of the write it came from.
+ * The pre-write refusal and the rejection that kills an in-flight response are
+ * the same error class with near-identical text, which is why this is carried
+ * as a field the transport sets rather than inferred by a caller.
+ *
+ * - `unsent` — provably no byte of this request was handed to the host. The
+ *   connection refused ahead of the write, or the frame would not encode.
+ * - `refused` — the provider answered with a JSON-RPC error. An answer is proof
+ *   it received the request, processed it, and declined: the same reading the
+ *   ambiguous-turn-start rule already takes of a clean provider error.
+ * - `indeterminate` — the host took the bytes. Whether the provider received,
+ *   parsed, or acted on them is unknown, and unknowable from here.
+ */
+export type CodexRequestDelivery = "unsent" | "refused" | "indeterminate";
+
+/**
+ * The outcome of one request, with a failure's delivery classified.
+ *
+ * Returned instead of thrown so classification is structural: a caller that
+ * must act differently on "never sent" than on "may already have been acted on"
+ * reads a field, and has no path back to sniffing an error message. `request`
+ * stays for the callers that only ever need the answer.
+ */
+export type CodexRequestAttempt =
+  | { readonly settled: "answered"; readonly result: unknown }
+  | {
+      readonly settled: "failed";
+      readonly delivery: CodexRequestDelivery;
+      readonly cause: unknown;
+    };
+
+/** A frame resolved to its destination and its bytes, one step short of the wire. */
+interface CodexEncodedFrame {
+  readonly ptySessionId: string;
+  readonly bytes: Uint8Array;
+}
+
+/**
  * One `codex app-server` process reached over one `PtyHost` session.
  *
  * Owns framing (newline-delimited JSON, CR-tolerant), request correlation with
@@ -2210,6 +2254,84 @@ export class CodexAppServerConnection {
   /** Sends a request and resolves with its `result`, or rejects with a typed error. */
   async request(method: string, params: unknown, timeoutMs?: number): Promise<unknown> {
     this.#assertWritable(method);
+    const armed = this.#armPendingResponse(method, timeoutMs);
+    try {
+      await this.#writeFrame({ jsonrpc: "2.0", id: armed.requestId, method, params });
+    } catch (cause) {
+      this.#cancelPendingResponse(armed.key);
+      throw cause;
+    }
+    return armed.settled;
+  }
+
+  /**
+   * Sends a request and REPORTS the outcome, classifying a failure by delivery.
+   *
+   * The classifying counterpart of `request`, for the callers whose correctness
+   * turns on whether the provider may have acted: `request` collapses every
+   * failure into one rejection, and a caller cannot reconstruct the difference
+   * afterwards without reading an error message, which is a guess. Here the
+   * phases are separated in the only place that observes them — encode, write,
+   * await — so each failure is labelled where it actually happens.
+   *
+   * `indeterminate` is the default for everything past the write, including a
+   * transport error the connection raised on its own exit: the exit may have
+   * arrived after the provider read and acted on the request, and nothing
+   * reachable from here distinguishes the two. Fail-closed by construction —
+   * a new failure mode lands in `indeterminate` unless it is proven unsent.
+   */
+  async attemptRequest(
+    method: string,
+    params: unknown,
+    timeoutMs?: number,
+  ): Promise<CodexRequestAttempt> {
+    try {
+      this.#assertWritable(method);
+    } catch (cause) {
+      return { settled: "failed", delivery: "unsent", cause };
+    }
+    const armed = this.#armPendingResponse(method, timeoutMs);
+    let encodedFrame: CodexEncodedFrame;
+    try {
+      // Encoding resolves the destination and serializes; both wholly precede
+      // the first byte, so a failure here provably put nothing on the wire.
+      encodedFrame = this.#encodeFrame({ jsonrpc: "2.0", id: armed.requestId, method, params });
+    } catch (cause) {
+      this.#cancelPendingResponse(armed.key);
+      return { settled: "failed", delivery: "unsent", cause };
+    }
+    try {
+      await this.#writeEncodedFrame(encodedFrame.ptySessionId, encodedFrame.bytes);
+    } catch (cause) {
+      this.#cancelPendingResponse(armed.key);
+      // The host was handed the bytes and its write rejected. The host contract
+      // promises no delivery either way, so how many of them reached the child
+      // is not knowable here — and a partially written line is exactly the shape
+      // that gets read as a whole request by a child that saw the newline.
+      return { settled: "failed", delivery: "indeterminate", cause };
+    }
+    try {
+      return { settled: "answered", result: await armed.settled };
+    } catch (cause) {
+      return {
+        settled: "failed",
+        delivery: cause instanceof CodexProviderRequestError ? "refused" : "indeterminate",
+        cause,
+      };
+    }
+  }
+
+  /**
+   * Reserves the response slot and its deadline for one request id.
+   *
+   * Synchronous on purpose: it is called from the same tick as the write it
+   * belongs to, and inserting an await here would widen the window in which a
+   * child exit finds a pending rejector with no handler attached.
+   */
+  #armPendingResponse(
+    method: string,
+    timeoutMs: number | undefined,
+  ): { readonly requestId: number; readonly key: string; readonly settled: Promise<unknown> } {
     const requestId = this.#nextRequestId;
     this.#nextRequestId += 1;
     const key = String(requestId);
@@ -2228,13 +2350,12 @@ export class CodexAppServerConnection {
       this.#pending.set(key, { method, resolve, reject, cancelDeadline });
     });
     // `reject` is reachable from `#pending` the moment the executor returns, but
-    // this function then SUSPENDS on the write below before `return settled`
-    // gives the caller a handler. A child exit during that window rejects a
+    // the caller then SUSPENDS on its write before the returned promise reaches
+    // anyone who could handle it. A child exit during that window rejects a
     // promise nobody is attached to, and Node's default
     // `--unhandled-rejections=throw` turns that into a dead daemon. Worse, if
-    // the write then rejects too, the catch finds `#pending` already emptied and
-    // rethrows, so `return settled` never runs and the rejection is permanently
-    // unhandled.
+    // the write then rejects too, the caller rethrows and never returns this
+    // promise, so no handler can arrive later either.
     //
     // Attaching a no-op handler marks `settled` handled without consuming it:
     // the caller still receives the rejection through the returned promise,
@@ -2242,18 +2363,17 @@ export class CodexAppServerConnection {
     settled.catch(() => {
       /* the returned promise is the caller's channel; this only marks it handled */
     });
+    return { requestId, key, settled };
+  }
 
-    try {
-      await this.#writeFrame({ jsonrpc: "2.0", id: requestId, method, params });
-    } catch (cause) {
-      const pending = this.#pending.get(key);
-      if (pending !== undefined) {
-        this.#pending.delete(key);
-        pending.cancelDeadline();
-      }
-      throw cause;
+  /** Withdraws a reserved response slot whose request never got to be answered. */
+  #cancelPendingResponse(key: string): void {
+    const pending = this.#pending.get(key);
+    if (pending === undefined) {
+      return;
     }
-    return settled;
+    this.#pending.delete(key);
+    pending.cancelDeadline();
   }
 
   /** Fire-and-forget notification. Failures surface through the diagnostic sink. */
@@ -2354,14 +2474,41 @@ export class CodexAppServerConnection {
     }
   }
 
+  // Kept `async` so a resolution failure surfaces as a REJECTION rather than a
+  // synchronous throw: `notify` sends fire-and-forget through `.catch()`, and a
+  // synchronous throw here would escape it into the handshake caller.
   async #writeFrame(frame: Record<string, unknown>): Promise<void> {
+    const encodedFrame = this.#encodeFrame(frame);
+    await this.#writeEncodedFrame(encodedFrame.ptySessionId, encodedFrame.bytes);
+  }
+
+  /**
+   * Everything that precedes the first byte: destination resolution and
+   * serialization.
+   *
+   * Split from the write so a failure on this side is provably unsent. Nothing
+   * here touches the host, so a caller that must know whether the provider may
+   * have acted can read the split rather than guess from an error class.
+   */
+  #encodeFrame(frame: Record<string, unknown>): CodexEncodedFrame {
     const ptySessionId = this.#ptySessionId;
     if (ptySessionId === null) {
       throw new CodexTransportError("The Codex app-server connection is not open.");
     }
-    // Single write site: every outbound byte of this protocol passes here, so a
-    // transport-level change (framing, neutralization at T3.18) lands once.
-    await this.#ptyHost.write(ptySessionId, this.#encoder.encode(`${JSON.stringify(frame)}\n`));
+    return { ptySessionId, bytes: this.#encoder.encode(`${JSON.stringify(frame)}\n`) };
+  }
+
+  /**
+   * Single write site: every outbound byte of this protocol passes here, so a
+   * transport-level change (framing, neutralization) lands once — and so the
+   * boundary past which delivery is no longer knowable has exactly one address.
+   *
+   * Deliberately NOT `async`: it returns the host's own promise, so awaiting it
+   * costs the same microtask hops as awaiting `PtyHost.write` directly and the
+   * frame interleavings this transport's tests pin do not move.
+   */
+  #writeEncodedFrame(ptySessionId: string, bytes: Uint8Array): Promise<void> {
+    return this.#ptyHost.write(ptySessionId, bytes);
   }
 
   #awaitReadySentinel(): Promise<void> {
@@ -3632,9 +3779,28 @@ export class CodexLifecycleManager {
         "turn/start",
       );
     } catch (cause) {
-      // No turn will ever settle this frame, so its registration is dropped
-      // rather than left to be settled by an unrelated later turn that happens
-      // to reuse the key.
+      // The OPENING frame's counterpart of the steer classification below, and
+      // deliberately not the same shape. The ambiguous class exists here too: a
+      // `turn/start` can time out or lose its connection after the bytes were
+      // written, and the provider may have intercepted the text and answered a
+      // zero-turn success exactly as a steer's can be intercepted.
+      //
+      // What differs is what happens to the binding. The unconditional forget is
+      // safe only because it is paired with the disposal directly below: on
+      // every ambiguous outcome the session is torn down in the same act — the
+      // slot claimed, the record dropped, the routes swept, and the child
+      // KILLED — so no terminal can ever arrive to rule this frame and no
+      // binding survives for a swallowed turn to poison. A retained
+      // registration would have no reader and no reclaimer.
+      //
+      // The steer path cannot borrow that argument: its turn is still RUNNING
+      // and its binding still serving, so the frame has both a reader and a
+      // reason to live. It borrows the fail-closed ruling instead, for the one
+      // case where the connection is already gone.
+      //
+      // No quarantine entry is installed here, and none is owed: disposal drops
+      // the record, so session resolution refuses this binding by ABSENCE and
+      // the only route back is a fresh spawn.
       this.#outboundFrameTripwire.forget(params.runId);
       if (isAmbiguousTurnStartOutcome(cause)) {
         await this.#disposeAmbiguousSession(record);
@@ -4715,20 +4881,78 @@ export class CodexLifecycleManager {
       joinKey: targetedTurnId,
       frame: steerFrame,
     });
-    let response: unknown;
-    try {
-      response = await this.#requestTurnSteer(record, request, steerFrame, targetedTurnId);
-    } catch (cause) {
-      // A steer whose request threw put no bytes on the wire, so no turn will
-      // ever account for this frame — and the turn it joined is still running.
-      // Left registered, it would be ruled evidence-free by that turn's terminal
-      // and trip: a run failed and a provider session disposed over text the
-      // provider never saw. Frame-scoped, because the frame that OPENED the turn
-      // is still correlated and still owed its ruling.
-      this.#outboundFrameTripwire.forgetFrame(steerFrame);
-      throw cause;
+    const attempt = await this.#requestTurnSteer(record, request, steerFrame, targetedTurnId);
+    if (attempt.settled === "answered") {
+      return { targetedTurnId, acknowledgedTurnId: readSteeredTurnId(attempt.result) };
     }
-    return { targetedTurnId, acknowledgedTurnId: readSteeredTurnId(response) };
+    this.#ruleFailedSteerFrame(record, request.runId, steerFrame, attempt.delivery);
+    throw attempt.cause;
+  }
+
+  /**
+   * Decides what a failed steer's frame is owed, by how far its bytes got.
+   *
+   * The classification is the whole point. A steer that provably never reached
+   * the wire is owed nothing: no turn will ever account for it, and leaving it
+   * registered would trip the live turn it joined — a run failed and a provider
+   * session disposed over text the provider never saw. Forgetting it is
+   * frame-scoped, because the frame that OPENED the turn is still correlated and
+   * still owed its own ruling.
+   *
+   * A steer whose bytes were handed to the host is owed the opposite. The
+   * provider may have received the directive, intercepted it as a client-side
+   * command, and answered with the zero-turn success this tripwire exists to
+   * catch — the rejection the caller sees says nothing either way. Withdrawing
+   * the frame there is precisely how a swallowed directive escapes detection
+   * while the unsafe binding stays reusable, so the registration is RETAINED and
+   * the turn's own terminal rules it. That costs one pending slot on a scope
+   * that already admitted it, and session disposal still reclaims it.
+   *
+   * The connection's death is the one case retention cannot cover: no terminal
+   * will ever arrive, so the frame would sit until the scope's budget is
+   * released and be dropped as mere occupancy — silence in the exact case that
+   * warrants the loudest answer. So it is ruled here, fail-closed, and ruled
+   * FRAME-scoped: settling the whole turn would trip the opening frame too, and
+   * that frame's request was answered, so its delivery was never in doubt.
+   *
+   * Residual, deliberately not closed here: a connection still live at this
+   * moment that dies later without ever settling the turn leaves the retained
+   * frame to scope release. Closing it would mean carrying "delivery
+   * indeterminate" as tripwire state and ruling it at scope release, which fires
+   * neutralization failures on ordinary session closes that happen to have a
+   * turn in flight — a false trip on every clean shutdown, to cover a window
+   * this path already narrows to one that opens after the classification.
+   */
+  #ruleFailedSteerFrame(
+    record: CodexSessionRecord,
+    runId: RunId,
+    steerFrame: OutboundTextFrame,
+    delivery: CodexRequestDelivery,
+  ): void {
+    if (delivery !== "indeterminate") {
+      // `unsent` never left, and `refused` is a provider ANSWER — proof it
+      // received the directive and declined it, so it started no turn and
+      // swallowed nothing. Every other failure is indeterminate by default,
+      // which is what makes the unclassifiable case retain rather than forget.
+      this.#outboundFrameTripwire.forgetFrame(steerFrame);
+      return;
+    }
+    if (!record.connection.isClosed) {
+      return;
+    }
+    const decision = this.#outboundFrameTripwire.settleFrame(
+      steerFrame,
+      UNRECOGNIZED_TURN_EVIDENCE,
+    );
+    if (!decision.tripped) {
+      return;
+    }
+    // The same disposal the settlement path performs, in the same order: the
+    // session arm first, so a consumer reacting synchronously to the run failure
+    // cannot attach to the condemned process in between.
+    this.#providerBindingQuarantine.disposeSession(record.sessionId);
+    this.#ruleTurnTerminalAgainstRun(record.sessionId, runId, decision);
+    this.#disposeQuarantinedSession(record);
   }
 
   /** The `turn/steer` request itself, split out so `steerRun` reads as its policy. */
@@ -4737,8 +4961,11 @@ export class CodexLifecycleManager {
     request: CodexSteerRunRequest,
     steerFrame: OutboundTextFrame,
     targetedTurnId: string,
-  ): Promise<unknown> {
-    return await record.connection.request("turn/steer", {
+  ): Promise<CodexRequestAttempt> {
+    // Sent through the CLASSIFYING entry point: this caller's correctness turns
+    // on whether the provider may have acted on the directive, and that is not
+    // recoverable from the rejection `request` would raise.
+    return await record.connection.attemptRequest("turn/steer", {
       threadId: record.threadId,
       input: [{ type: "text", text: steerFrame.wireText, text_elements: [] }],
       expectedTurnId: targetedTurnId,

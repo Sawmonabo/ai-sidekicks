@@ -2082,12 +2082,22 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     try {
       await live.channel.sendUserText(frame);
     } catch (error) {
-      // A write that threw put no bytes on the wire, so no turn will ever settle
-      // this registration. Dropping it is not tidiness: the route is deliberately
+      // Dropping the registration is not tidiness: the route is deliberately
       // LEFT in place above, so the next run on this session would be ruled
-      // alongside a stale registration, and that stale frame would trip on the
-      // next terminal — failing a run whose text never reached the provider and
-      // disposing a binding that swallowed nothing.
+      // alongside a stale registration, and that older frame would consume the
+      // live run's evidence — failing a run whose text did reach the provider.
+      //
+      // UNCLASSIFIED, and knowingly so. `ClaudeSessionChannel.sendUserText`
+      // carries no delivery discriminator, so this band cannot tell a channel
+      // that refused ahead of its write from one that handed the bytes over and
+      // then died. The second case is real and is not covered here: the turn may
+      // have started, the provider may have intercepted the command-shaped text
+      // and answered a zero-turn success, and the terminal would then settle
+      // against no correlated frame and PASS — on a binding this path
+      // deliberately leaves live. The Codex steer path shows the classified
+      // shape (`CodexAppServerConnection.attemptRequest`), and closing this one
+      // means giving the port the same discriminator its transport owns, which
+      // is a change to a contract this band does not author.
       this.#outboundFrameTripwire.forget(params.runId);
       throw error;
     }
