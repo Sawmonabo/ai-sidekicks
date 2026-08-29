@@ -303,14 +303,18 @@ CREATE TABLE driver_capabilities (
                       'tool_calls', 'reasoning_stream', 'model_mutation',
                       'structured_output', 'rollback', 'session_goals',
                       'callback_tools', 'subagents', 'cost_cap',
-                      'transcript_replay'
+                      'transcript_replay', 'context_compaction',
+                      'provider_commands', 'output_speed'
                     )),
   supported         INTEGER NOT NULL DEFAULT 0, -- boolean: 0 or 1
                     -- Campaign-B3/B6 widening note: the catch-up migration that widens the CHECK above MUST
                     -- widen the CHECK to all fourteen values at once — a CHECK is a whitelist, so admitting a value before any
                     -- row uses it costs nothing and spares a second migration — and MUST backfill supported=0 rows for every existing driver_name (undeclared =
-                    -- unsupported, I-005-2), since a cache whose row count differs from the union's breaks the hydrator's exact-cardinality guard before any refresh could heal it. The rows land in two waves
-                    -- matching the two union widenings: the thirteen campaign flags at Plan-005 T1.7, and transcript_replay when T3.19 widens the union (2026-08-26).
+                    -- unsupported, I-005-2), since a cache whose row count differs from the union's breaks the hydrator's exact-cardinality guard before any refresh could heal it. The rows land in three waves
+                    -- matching the three union widenings: the thirteen campaign flags at Plan-005 T1.7, transcript_replay when T3.19 widens the union (2026-08-26), and
+                    -- context_compaction / provider_commands / output_speed when T3.26 widens it to seventeen (2026-08-29, the desktop-console parity amendment). That last
+                    -- widening rebuilds an ALREADY-SHIPPED CHECK (migration 0011 froze it at fourteen), so it consumes a next-ordinal table-rebuild migration in the documented
+                    -- lang_altertable shape rather than amending a CREATE — it adds no table and no column, and the local-SQLite table census does not move.
   refreshed_at      TEXT NOT NULL,
   PRIMARY KEY (driver_name, capability_flag)
 );

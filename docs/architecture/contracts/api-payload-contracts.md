@@ -190,14 +190,20 @@ type DriverCapabilityFlag =
   | "callback_tools" // daemon-curated callback-tool registry (campaign B3)
   | "subagents" // provider-native in-session subagents under subagentPolicy (campaign B3)
   | "transcript_replay" // accepts a canonical transcript replayed into a fresh session via replayTranscript (2026-08-26, ADR-029; the Claude cell is probe-declared, not statically true — Spec-005 §Per-Driver Capability Matrix)
-  | "cost_cap"; // realizes a daemon-supplied hard cost cap natively at spawn — Claude --max-budget-usd; gates the Spec-016 native-cap unpriced admission (campaign B6)
+  | "cost_cap" // realizes a daemon-supplied hard cost cap natively at spawn — Claude --max-budget-usd; gates the Spec-016 native-cap unpriced admission (campaign B6)
+  | "context_compaction" // compacts the bound session's own provider-side context on participant request via compactContext (2026-08-29, Spec-005 §Participant-triggered context compaction)
+  | "provider_commands" // enumerates the provider's native slash-commands and skills via listProviderCommands — a LIVE read, never a stored registry (2026-08-29, Spec-005 §The provider command and skill surface)
+  | "output_speed"; // declares a participant-settable provider-side output-speed mode; Claude only, detectionSource STATIC because reading the declared state is not zero-turn (2026-08-29, Spec-005 §The output-speed axis)
 // Code-mirror gate (campaign B3/B6): the shipped executable union
 // (packages/contracts/src/provider-driver.ts) now exports THIRTEEN of these — every member above
 // except transcript_replay — and the shipped assertValidCapabilityFlags rejects any snapshot whose key
 // count differs, so a driver MUST NOT declare transcript_replay against the shipped validator. Union +
 // validator + driver_capabilities migration backfill + conformance tests widened together as ONE change
 // via the campaign's Plan-005 bundle for the first six; Plan-005 T3.19 (2026-08-26) lands the fourteenth
-// by extending that same union rather than opening a second seam; cost_cap-gated admission code
+// by extending that same union rather than opening a second seam, and Plan-005 T3.26 (2026-08-29) lands
+// the fifteenth through seventeenth the same way. That last widening rebuilds an ALREADY-SHIPPED CHECK —
+// migration 0011 froze driver_capabilities.capability_flag at fourteen values — so it consumes a
+// next-ordinal table-rebuild migration rather than amending a CREATE, and adds no table and no column; cost_cap-gated admission code
 // (Plan-016 T2.3) dispatch-gates on that bundle (same named-bundle gate as the goal driver mirror).
 ```
 
@@ -802,6 +808,66 @@ interface ProviderDriver {
   // post-replay assertion passes. A driver whose provider refuses prior-turn content declares the
   // flag `false`, and the daemon falls back to the memo projection instead of calling this.
   replayTranscript(params: ReplayTranscriptParams): Promise<DriverTranscriptReplayResult>;
+  // Ask the provider to compact the bound session's OWN context, on a participant's explicit
+  // request and never on a threshold, timer, or heuristic (2026-08-29, Spec-005 §Participant-
+  // triggered context compaction). Gated on `context_compaction`. It SETTLES on the provider's
+  // typed compaction evidence — the frame that already produces usage.context_compacted — and
+  // NEVER on the request being accepted: the Codex method answers an empty ack and the Claude leg
+  // is a driver_command frame that only settles, so acceptance is evidence of delivery and of
+  // nothing else. There is deliberately NO prompt-injected emulation arm; a driver that cannot
+  // compact declares the flag false and the call refuses as driver.capability_unsupported.
+  compactContext(params: CompactContextParams): Promise<DriverCompactionResult>;
+  // Read the provider's own enumeration of native slash-commands and skills for the bound
+  // session (2026-08-29, Spec-005 §The provider command and skill surface). Gated on
+  // `provider_commands`. A LIVE read held as driver-session state and discarded with it: not
+  // persisted, not cached across sessions, and folded into no projection — which is why this
+  // capability adds no table and no column. Every entry carries the (driverName,
+  // providerAccountId) it was read under, and that binding is a ROUTING INVARIANT: an entry is
+  // offerable and dispatchable only through agents of that same binding.
+  listProviderCommands(params: ListProviderCommandsParams): Promise<ProviderCommandEntry[]>;
+}
+
+// Console-parity shapes (2026-08-29, Spec-005 §Desktop Console Parity Surfaces).
+interface CompactContextParams {
+  sessionId: SessionId;
+  // Daemon-resolved at dispatch, the same per-binding addressing rollbackTo and goal delivery
+  // use: run -> bindings is 1:many, so the operation names the leg it acts on.
+  bindingId: string;
+}
+
+// The result of a compaction ATTEMPT, not of the request. `status: 'applied'` is reachable only
+// after the provider's typed compaction frame is observed; a mechanism that acknowledged and
+// produced no frame settles 'failed'. `refused` is the capability arm — the driver declared the
+// flag false, or the pre-dispatch command-presence check on the emulated leg did not find the
+// command in the provider's own enumeration, so nothing was sent.
+interface DriverCompactionResult {
+  status: "applied" | "failed" | "refused";
+  // Present exactly on 'applied': the normalized position of the compaction boundary the
+  // provider produced, which is the same boundary Spec-004's compaction-aware rewind targeting
+  // classifies against. Never synthesized when the frame carries no position.
+  boundaryPosition?: number | null;
+  // Present on 'failed' and 'refused': the daemon-facing reason, closed at the four states the
+  // operation can reach. 'capability_undeclared' and 'command_absent' are the refused arms.
+  reason?: "capability_undeclared" | "command_absent" | "no_compaction_evidence" | "provider_error";
+}
+
+interface ListProviderCommandsParams {
+  sessionId: SessionId;
+  bindingId: string;
+}
+
+// One enumerated provider command or skill. `binding` is not decoration: it is the routing key
+// the invariant is enforced on, carried WITH the data so a consumer cannot lose it by filtering
+// a held list instead of re-reading. `kind` distinguishes the two things providers publish
+// under one syntax; `scope` is present only where the provider declares one (the Codex skills
+// surface does, the Claude handshake enumeration does not), so its absence means the provider
+// stated no scope rather than that the scope is unknown to the driver.
+interface ProviderCommandEntry {
+  name: string;
+  kind: "command" | "skill";
+  description?: string;
+  scope?: string;
+  binding: { driverName: string; providerAccountId: string };
 }
 
 // Transcript export/replay shapes (2026-08-26, ADR-029). The canonical transcript is a PROJECTION
@@ -1336,7 +1402,13 @@ interface GetCapabilitiesResult {
   // reads as "cache reconstruction", never as "unknown provenance" — a consumer that needs
   // provenance re-reads the driver. Driver-side only: deliberately NOT mirrored into
   // `CapabilityDetails` (same carve-out as `cliVersion`) and NOT carried on the client-facing
-  // `driver.listCapabilities` payload, which is unwidened.
+  // `driver.listCapabilities` payload, which is unwidened. That client-facing `driver.*` set
+  // stood at SEVEN names from its 2026-05-27 ratification until 2026-08-29, when
+  // `driver.compactContext` and `driver.listProviderCommands` took it to NINE (Plan-005 §Phase 4
+  // decision #2; registered against the Plan-007 namespace registry under CP-007-6). Both were
+  // admitted by that decision's own governing principle rather than as exceptions to it: each
+  // operates on an already-existing session and neither establishes, restores, starts, nor tears
+  // one down. The other four lifecycle operations above remain daemon-internal.
   detectionSource?: Record<DriverCapabilityFlag, CapabilityDetectionSource>;
 }
 
@@ -2209,6 +2281,15 @@ interface RunRolledBackEvent {
 // every state; responded ⇒ `response` — refused on the other three; later states echo the requested
 // row's `expiresAt` when it carries one (pre-amendment rows have none) — a malformed event fails at the
 // emission parse, never at peer/restart projection; base-type optionality admits pre-amendment rows at replay only.
+// `options` (2026-08-29) is ADDITIVE-OPTIONAL and carries the closed choice set an input-kind ask
+// offers, where the provider's own ask declares one — the Codex item/tool/requestUserInput and MCP
+// elicitation surfaces can, the Claude control round-trip does not. Produced at the DRIVER's
+// normalize boundary (Plan-005 T3.26) and never synthesized by a consumer, so its absence means the
+// provider offered no choice set rather than that one was lost. It carries NO refinement on either
+// kind or any state, deliberately: requiring it anywhere would refuse a legitimate ask from the one
+// mechanism that cannot supply it. Its reader is the Spec-013 input-ask card, whose free-text answer
+// arm is unconditional for exactly that reason. Answers travel on the already-registered
+// `driver.respondToRequest`, whose `response` is unknown-typed — no wire member is minted for them.
 interface DriverAskEvent {
   sessionId: SessionId;
   runId: RunId;
@@ -2216,6 +2297,7 @@ interface DriverAskEvent {
   kind: "permission" | "input";
   toolName?: string;
   prompt?: string;
+  options?: ReadonlyArray<{ value: string; label?: string }>;
   input?: unknown;
   expiresAt?: string;
   state: "requested" | "responded" | "expired" | "canceled";
@@ -4132,6 +4214,16 @@ interface AgentConfigUpdateRequest {
   driverName?: string; // moving this is the provider switch; continuity is canonical-transcript replay
   providerAccountId?: ProviderAccountId;
   effort?: string;
+  // 2026-08-29 — the FIFTH provider axis (`Spec-016 §The mutation surface`). Gated on the
+  // target driver's `output_speed` capability flag, which exactly one pinned provider declares;
+  // a dispatch against a driver declaring it false refuses as driver.capability_unsupported and
+  // is NEVER satisfied by moving `effort` instead, which is a different claim. SPAWN-BOUND, so
+  // it resolves to a RUN boundary — read from the declared vocabulary like every other axis, not
+  // special-cased: Spec-005 binds this axis to the provider's spawn-time settings mechanism, the
+  // only one whose effect was measured. Stated explicitly because it is the minority case here.
+  // Deliberately absent from AgentAttach: an agent is not born with a speed mode, so no
+  // attach-time snapshot column joins the `agents` row.
+  outputSpeed?: string;
   // Applies at the next boundary the TARGET AXIS permits, never at a fixed one: a turn boundary
   // for an axis the target driver takes as a per-turn override, a run boundary for a spawn-bound
   // one (`driverName` and `providerAccountId` always, since Spec-029 binds a run's account for
