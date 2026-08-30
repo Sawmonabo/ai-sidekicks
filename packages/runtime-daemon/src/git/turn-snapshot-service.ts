@@ -5058,14 +5058,15 @@ export class TurnSnapshotService {
    * `Spec-010 §Turn-Boundary Snapshots` names, and `update-index --add` has
    * already silently dropped each of them.
    *
-   * The classification is FAIL-SAFE rather than unborn-specific: any such entry
-   * whose `rev-parse HEAD` does not yield an object id INSERTABLE IN THE
-   * SUPERPROJECT'S OBJECT FORMAT is skipped and enumerated. That covers the
+   * The classification is FAIL-SAFE rather than unborn-specific, and BOUNDED
+   * rather than total: an entry is skipped and enumerated when GIT ITSELF
+   * refused to resolve its `HEAD`, or when the object id git reported is not
+   * INSERTABLE IN THE SUPERPROJECT'S OBJECT FORMAT. The first covers the
    * commitless embedded repository the spec calls out — porcelain `git add -A`
-   * hard-fails on it, so capture skipping honours capture-never-blocks — any
-   * other trailing-slash entry that is not a repository at all, and the MIXED
-   * FORMAT case, where both repositories are healthy and their object formats
-   * simply differ.
+   * hard-fails on it, so capture skipping honours capture-never-blocks — and any
+   * other trailing-slash entry that is not a repository at all. The second is the
+   * MIXED FORMAT case, where both repositories are healthy and their object
+   * formats simply differ.
    *
    * That last one is why the skip test is a predicate and not a `try` around the
    * insert. Measured on git 2.50.1: a SHA-1 embedded `HEAD` offered to a
@@ -5077,6 +5078,25 @@ export class TurnSnapshotService {
    * an infrastructure fault into a silent one-path skip; comparing formats up
    * front skips exactly the case that is genuinely un-insertable and leaves the
    * insert free to fail loudly for every other reason.
+   *
+   * WHAT IS DELIBERATELY NOT A CLASSIFICATION: a `rev-parse` that EXITED ZERO
+   * and printed something that is not an object id. git answered the question
+   * there, so an unintelligible answer is a FAULT, and it refuses through the
+   * capture funnel as a `normalize-embedded-repositories` failure — the same
+   * disposition {@link requireObjectIdHexLength} already records one branch below
+   * for a git whose object-format name this module has never been measured
+   * against. Swallowed, it was the one silence in this pass with no downstream
+   * detector: every later leg re-enters the same seam and fails loudly on its
+   * own, but nothing re-checks a classification, so a RECORDABLE repository was
+   * enumerated as unrecordable and the capture still reported success — a
+   * snapshot narrowed with no signal that it had been.
+   *
+   * The remaining residual is stated rather than closed. A git INVOCATION that
+   * REJECTS stays a classification, a transient rejection included, because
+   * {@link TurnSnapshotGitRunner} makes rejections opaque to this module —
+   * failure detection is by exit status alone — and reading a field off the
+   * thrown value to tell an EAGAIN from an unborn `HEAD` is the one thing that
+   * seam contract forbids.
    *
    * `GIT_INDEX_FILE` is deliberately absent from both `rev-parse` overlays, for
    * two different reasons. The `HEAD` one runs INSIDE the embedded repository,
@@ -5097,20 +5117,22 @@ export class TurnSnapshotService {
         continue;
       }
       const embeddedPath: string = entry.slice(0, -1);
-      let embeddedHead: string;
+      const embeddedRoot: string = join(executionRoot, embeddedPath);
+      let headStdout: Buffer;
       try {
-        embeddedHead = this.#requireObjectId(
-          (
-            await this.#runGit(
-              ["-C", join(executionRoot, embeddedPath), "rev-parse", "--verify", "HEAD"],
-              {},
-            )
-          ).stdout,
-        );
+        headStdout = (await this.#runGit(["-C", embeddedRoot, "rev-parse", "--verify", "HEAD"], {}))
+          .stdout;
       } catch {
+        // The `try` now holds the INVOCATION and nothing else, so this arm is
+        // reached only where git itself refused — see the docblock's bounded
+        // classification and the residual it states.
         skipped.push(embeddedPath);
         continue;
       }
+      // OUTSIDE the classification arm on purpose: git exited zero, so it
+      // answered, and an answer that is not an object id throws into the capture
+      // funnel instead of enumerating a recordable repository as unrecordable.
+      const embeddedHead: string = this.#requireObjectId(headStdout);
       // Resolved LAZILY and once: a listing with no trailing-slash entry is the
       // overwhelmingly common case and must not pay for a git invocation, and a
       // repository's object format cannot change under a single capture. This
