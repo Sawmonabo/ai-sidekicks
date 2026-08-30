@@ -2343,6 +2343,49 @@ describe("DriverTranscriptReplayResultSchema — the canonical transcript replay
     });
     expect(parsed.declaredLosses).toEqual([]);
   });
+
+  it("rejects an applied replay that declares the summarization", () => {
+    // The inverse of the degraded rule, and the reason the pair exists. The
+    // summarization kind names the memo floor standing in for the conversation,
+    // which IS the degraded settlement — so a result claiming both that native
+    // replay landed the conversation and that a summary replaced it states no
+    // reachable outcome. A one-way rule leaves it parseable, and a consumer
+    // reading `status` then publishes native-replay continuity for a session
+    // holding only a bounded summary.
+    const result = DriverTranscriptReplayResultSchema.safeParse({
+      status: "applied",
+      declaredLosses: ["conversation_history_summarized"],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects it even beside losses an applied replay may legitimately declare", () => {
+    // The kind is refused on its own terms rather than as a proxy for "the list
+    // is suspicious": stripping private reasoning is an ordinary applied-arm
+    // loss, and carrying it alongside does not launder the contradiction.
+    const result = DriverTranscriptReplayResultSchema.safeParse({
+      status: "applied",
+      declaredLosses: ["provider_private_reasoning", "conversation_history_summarized"],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("keeps every OTHER kind admissible on the applied arm", () => {
+    // The negative control for the inverse rule: it is scoped to exactly one
+    // kind, so the applied arm keeps its full latitude over the rest. A rule
+    // that had over-reached to "applied declares nothing structural" would fail
+    // here.
+    const parsed: DriverTranscriptReplayResult = DriverTranscriptReplayResultSchema.parse({
+      status: "applied",
+      declaredLosses: [
+        "provider_private_reasoning",
+        "context_truncated",
+        "tool_call_history_repaired",
+        "turn_content_unavailable",
+      ],
+    });
+    expect(parsed.declaredLosses).toHaveLength(4);
+  });
 });
 
 describe("transcript operation params — nominal shapes", () => {

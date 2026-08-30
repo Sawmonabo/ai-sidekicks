@@ -1345,12 +1345,24 @@ export const DriverTranscriptReplayResultSchema: z.ZodType<
   // declaring some OTHER loss while still hiding the summarization — the exact
   // reading this rule exists to forbid.
   //
-  // Arm-SCOPED on purpose. `applied` keeps the full latitude, empty list
-  // included: an applied replay that dropped nothing is the case the empty array
-  // exists to state, and a universal non-emptiness rule would delete it.
+  // Arm-SCOPED on purpose, and scoped in BOTH directions. `applied` keeps the
+  // full latitude over every OTHER kind, empty list included: an applied replay
+  // that dropped nothing is the case the empty array exists to state, and a
+  // universal non-emptiness rule would delete it. What `applied` does NOT keep is
+  // `conversation_history_summarized` — see the inverse rule below.
   // `.superRefine()` returns `this`, so the envelope stays a `ZodObject` and the
   // Output/Input annotation above still holds — the same Zod-4 property the
   // `audit_integrity_failed` arm in event.ts records.
+  //
+  // The two rules together make the kind an EXACT witness of the arm rather than
+  // a one-way requirement. A one-way rule leaves `{status: 'applied',
+  // declaredLosses: ['conversation_history_summarized']}` parseable, and that
+  // value is self-contradictory: it claims the native replay landed the
+  // conversation AND that a bounded prose summary stood in for it. A consumer
+  // reading `status` publishes native-replay continuity for what is really a
+  // memo-floor session; a consumer reading the kind publishes a summarized
+  // session for what really replayed. Both readings are defensible against the
+  // shape, which is precisely why neither is safe — so the value is refused.
   .superRefine((result, ctx) => {
     if (
       result.status === "degraded" &&
@@ -1361,6 +1373,17 @@ export const DriverTranscriptReplayResultSchema: z.ZodType<
         path: ["declaredLosses"],
         message:
           "a replay reported 'degraded' settled on the memo projection, so its declared-loss list must include 'conversation_history_summarized'; this result reports 'degraded' without it.",
+      });
+    }
+    if (
+      result.status === "applied" &&
+      result.declaredLosses.includes("conversation_history_summarized")
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["declaredLosses"],
+        message:
+          "'conversation_history_summarized' names the memo projection standing in for the conversation, which is the 'degraded' settlement; an 'applied' replay cannot declare it, and this result reports 'applied' with it.",
       });
     }
   });
