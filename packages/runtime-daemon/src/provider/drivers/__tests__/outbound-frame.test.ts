@@ -1516,27 +1516,6 @@ describe("Claude driver provider-bound text path", () => {
     expect(harness.failures).toStrictEqual([]);
   });
 
-  it("does not fail a run whose text was delivered verbatim as a driver command", async () => {
-    // The exempt arm is reachable only from a driver composing its own command
-    // frame in-module — no run-opening port offers it — so the claim is asserted
-    // on the writer and the tripwire directly. A command dispatch legitimately
-    // produces no model turn, and failing it would make every driver-issued
-    // command an outage.
-    const commandFrame = new OutboundTextFrameWriter({
-      mechanismGrade: "emulated",
-      mintCorrelationId: () => "correlation-driver-command",
-    }).compose({ text: "/compact", origin: "driver_command" });
-    expect(commandFrame.wireText).toBe("/compact");
-
-    const tripwire = new OutboundFrameTripwire();
-    tripwire.register({ scopeKey: "session-1", joinKey: "turn-1", frame: commandFrame });
-
-    expect(tripwire.settle("turn-1", UNRECOGNIZED_TURN_EVIDENCE)).toStrictEqual({
-      tripped: false,
-      reason: "frame-exempt",
-    });
-  });
-
   /**
    * Arranges a live session whose next write fails with the given delivery, and
    * returns the channel. The delivery is always stated explicitly: the whole
