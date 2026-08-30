@@ -5585,6 +5585,49 @@ describe("CodexAppServerConnection routed server requests (T3.15 R3)", () => {
     });
   });
 
+  it("attributes the ask to the run when overlapping turns ALL belong to it", async () => {
+    // Two overlapping accepted starts on ONE run put two live turns on the
+    // session — the very shape the turn-keyed routes retain. Every value in the
+    // turn-to-run map names the same run, so the attribution is unambiguous at
+    // any turn count; a turn-count gate here dropped the run association, and
+    // its `driver_ask.requested` projection, in exactly the state the routing
+    // supports.
+    const attributedRunIds: Array<RunId | null> = [];
+    const { harness, askProvider } = await routedAskHarness({
+      answer: async (request): Promise<CodexServerRequestDecision> => {
+        attributedRunIds.push(request.runId);
+        return await Promise.resolve({ decision: "refuse", reason: "policy denied" });
+      },
+    });
+    const firstOpeningText = "the attempt answered first";
+    harness.server.on("turn/start", (params) => ({
+      result: {
+        turn: {
+          id:
+            readTurnStartInputText(params) === firstOpeningText
+              ? "turn-overlap-a"
+              : "turn-overlap-b",
+        },
+      },
+    }));
+    const first = harness.driver.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: firstOpeningText },
+    });
+    const second = harness.driver.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
+    });
+    await first;
+    await second;
+
+    await askProvider("item/commandExecution/requestApproval");
+
+    expect(attributedRunIds).toStrictEqual([RUN_ID]);
+  });
+
   it("refuses when NO responder is registered rather than leaving the ask unanswered", async () => {
     const { harness, askProvider } = await routedAskHarness(undefined);
 

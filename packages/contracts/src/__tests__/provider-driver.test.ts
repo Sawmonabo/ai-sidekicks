@@ -899,6 +899,27 @@ describe("DriverInterventionResultSchema — intervention result envelope (trust
     ).toBe(false);
   });
 
+  it("rejects the refusal code beside status 'applied' (cross-field contradiction)", () => {
+    // The code IS the classification that the participant's text was swallowed,
+    // and a swallowed text is precisely what `applied` denies — accepted, the
+    // pair hands callers a result whose two readers disagree (success by
+    // `status`, failure by `refusalCode`).
+    const result = DriverInterventionResultSchema.safeParse({
+      status: "applied",
+      refusalCode: "driver.text_neutralization_failed",
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const paths = result.error.issues.map((issue) => issue.path.join("."));
+      expect(paths).toContain("refusalCode");
+    }
+  });
+
+  it("still parses a bare `applied` and a bare `degraded` (the refinement narrows only the pair)", () => {
+    expect(DriverInterventionResultSchema.safeParse({ status: "applied" }).success).toBe(true);
+    expect(DriverInterventionResultSchema.safeParse({ status: "degraded" }).success).toBe(true);
+  });
+
   it("still rejects an unknown key sitting beside a valid refusalCode (.strict() holds)", () => {
     expect(
       DriverInterventionResultSchema.safeParse({

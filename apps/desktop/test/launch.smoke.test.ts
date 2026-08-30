@@ -99,7 +99,7 @@
 //                              on Electron 41.6.1.
 //   See `apps/desktop/electron.vite.config.ts` header for the decision log.
 
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -190,6 +190,31 @@ function needsXvfb(): boolean {
   return process.platform === "linux" && !process.env["DISPLAY"];
 }
 
+// Signals the ENTIRE spawned tree, not just the wrapper. The direct child is a
+// shim on both spawn paths — the `node_modules/.bin/electron` Node launcher, or
+// `xvfb-run` on headless Linux — and a signal delivered to the shim alone
+// reaches the real browser process only if the shim survives to forward it.
+// SIGKILL cannot be forwarded by definition, so killing the shim outright
+// orphans the browser holding the inherited stdout write end: `close` never
+// fires, the "bounded" spawn promise never settles, and the orphan keeps its
+// profile lock. The spawn below is `detached` on POSIX, so the child leads its
+// own process group and a negative-pid signal reaches every process in the
+// tree at once. The direct-child fallback covers the group already being
+// reaped (ESRCH) and platforms without POSIX process groups.
+function terminateElectronTree(child: ChildProcess, signal: NodeJS.Signals): void {
+  const groupLeaderPid = process.platform === "win32" ? undefined : child.pid;
+  if (groupLeaderPid !== undefined) {
+    try {
+      process.kill(-groupLeaderPid, signal);
+      return;
+    } catch {
+      // Group gone or unsupported — fall through so escalation still lands on
+      // whatever the direct child handle can reach.
+    }
+  }
+  child.kill(signal);
+}
+
 function spawnElectron(): Promise<SpawnResult> {
   const startedAt = Date.now();
 
@@ -250,6 +275,11 @@ function spawnElectron(): Promise<SpawnResult> {
         SIDEKICKS_SMOKE_PROBE: "1",
       },
       stdio: ["ignore", "pipe", "pipe"],
+      // POSIX: lead a NEW process group so the timeout escalation can signal
+      // the whole tree (shim + browser + renderer/GPU children) at once — see
+      // `terminateElectronTree`. Never detached on Windows, where the flag
+      // means a detached console rather than a process group.
+      detached: process.platform !== "win32",
     });
 
     let stdout = "";
@@ -272,17 +302,16 @@ function spawnElectron(): Promise<SpawnResult> {
       // budget (5 s) is the load-bearing assertion. If we hit this,
       // Electron is stuck and we want a non-hanging test failure.
       //
-      // SIGTERM before SIGKILL: `node_modules/.bin/electron` is a Node
-      // shim that spawns the real binary with `stdio: "inherit"` and
-      // forwards only the catchable signals. SIGKILLing the shim leaves
-      // the browser process orphaned holding the inherited stdout write
-      // end, so `close` here would not fire until that orphan exits — and
-      // the orphan would go on holding a profile lock. SIGTERM lets the
-      // shim forward and the browser process shut down; the escalation
-      // below is the backstop for a process that ignores it.
-      child.kill("SIGTERM");
+      // SIGTERM before SIGKILL, both delivered to the process GROUP: the
+      // graceful pass lets Electron shut its children down in order, and the
+      // escalation is the backstop for a tree that ignores it. Group delivery
+      // is what makes the backstop sound — SIGKILL is unforwardable, so a
+      // shim-only kill would orphan the browser process with the inherited
+      // stdout write end open and `close` would never fire (the unbounded
+      // hang this timer exists to prevent).
+      terminateElectronTree(child, "SIGTERM");
       escalationTimer = setTimeout(() => {
-        child.kill("SIGKILL");
+        terminateElectronTree(child, "SIGKILL");
       }, TERMINATION_GRACE_MS);
     }, SPAWN_TIMEOUT_MS);
 

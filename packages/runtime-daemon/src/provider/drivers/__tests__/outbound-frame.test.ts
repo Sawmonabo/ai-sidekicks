@@ -1523,70 +1523,34 @@ describe("Claude driver provider-bound text path", () => {
     ).rejects.toThrow(TextNeutralizationRefusedError);
   });
 
-  it("refuses to write a frame this session's watch budget cannot cover", async () => {
-    // The capacity refusal on the real driver path. Every run here leaves an
-    // unsettled frame — no terminal ever arrives — so the budget fills, and the
-    // next write is refused rather than admitted by discarding somebody's
-    // pending registration.
+  it("refuses a second session-bound start pre-write, leaving no route its interrupt could aim", async () => {
+    // The serialization guard fires at ONE pending frame, so this session's
+    // watch budget can never fill through `startRun` — the capacity refusal
+    // behind it is tripwire-level defense-in-depth (unit-covered above) — and
+    // the properties the budget refusal used to prove on this path now belong
+    // to the guard: the refusal is definitively pre-write, nothing already
+    // written is forgotten to make room, and no run route survives it. The
+    // route half is not inert bookkeeping: this provider's interrupt is
+    // CHANNEL-scoped and carries no run identity, so a surviving route would
+    // aim the refused run's interrupt at whichever OLDER turn is genuinely
+    // running on the session.
     const harness = buildHarness();
-    await harness.lifecycle.createSession(buildCreateSessionParams());
-    const admittedRunIds: RunId[] = [];
-    for (let index = 0; index < OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY; index += 1) {
-      const runId = `55555555-5555-4555-8555-${String(index).padStart(12, "0")}` as RunId;
-      admittedRunIds.push(runId);
-      harness.runDispatchResolver.dispatchByRunId.set(runId, {
-        sessionId: TEST_SESSION_ID,
-        openingText: "/status please",
-      });
-      await harness.lifecycle.startRun({ ...buildStartRunParams(), runId });
-    }
-    const channel = harness.transport.spawnedChannels[0];
-    if (channel === undefined) {
-      throw new Error("expected the harness to have spawned a channel");
-    }
-
+    const channel = await startRunWith(harness, "first turn");
     harness.runDispatchResolver.dispatchByRunId.set(TEST_SECOND_RUN_ID, {
       sessionId: TEST_SESSION_ID,
       openingText: "one more",
     });
+
     await expect(
       harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID }),
-    ).rejects.toThrow(OutboundFrameCapacityRefusedError);
+    ).rejects.toMatchObject({
+      code: "driver.unavailable",
+      fields: { reason: "session_turn_in_flight" },
+    });
 
     // Nothing reached the provider on the refused path, and nothing already
     // written was forgotten to make room for it.
-    expect(channel.sentWireTexts).toHaveLength(OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY);
-  });
-
-  it("leaves a capacity-refused run bound to no channel, so its interrupt cannot stop another turn", async () => {
-    // The admission refusal is definitively pre-write — nothing was sent — so a
-    // run route surviving it would name a run that never dispatched. That route
-    // is not inert: this provider's interrupt is CHANNEL-scoped and carries no
-    // run identity, so the interrupt for the refused run would reach the live
-    // session and stop whichever OLDER turn is genuinely running on it.
-    const harness = buildHarness();
-    await harness.lifecycle.createSession(buildCreateSessionParams());
-    for (let index = 0; index < OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY; index += 1) {
-      const runId = `55555555-5555-4555-8555-${String(index).padStart(12, "0")}` as RunId;
-      harness.runDispatchResolver.dispatchByRunId.set(runId, {
-        sessionId: TEST_SESSION_ID,
-        openingText: "keep the turn open",
-      });
-      await harness.lifecycle.startRun({ ...buildStartRunParams(), runId });
-    }
-    const channel = harness.transport.spawnedChannels[0];
-    if (channel === undefined) {
-      throw new Error("expected the harness to have spawned a channel");
-    }
-
-    harness.runDispatchResolver.dispatchByRunId.set(TEST_SECOND_RUN_ID, {
-      sessionId: TEST_SESSION_ID,
-      openingText: "one more",
-    });
-    await expect(
-      harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID }),
-    ).rejects.toThrow(OutboundFrameCapacityRefusedError);
-
+    expect(channel.sentWireTexts).toHaveLength(1);
     expect(harness.lifecycle.findChannelForRun(TEST_SECOND_RUN_ID)).toBeUndefined();
     await expect(
       harness.lifecycle.interruptRun({ runId: TEST_SECOND_RUN_ID, reason: "participant_stop" }),
@@ -1842,30 +1806,31 @@ describe("Claude driver provider-bound text path", () => {
     expect(harness.failures.map((failure) => failure.runId)).toStrictEqual([TEST_RUN_ID]);
   });
 
-  it("lets one terminal vouch for one run only, and fails the run it cannot account for", async () => {
-    // One terminal ends one turn. Spreading its evidence across every routed run
+  it("never lets a second run's frame contend for a terminal that can vouch for one turn only", async () => {
+    // One terminal ends one turn, and spreading its evidence across routed runs
     // is the masking this tripwire exists to prevent: the good turn would vouch
-    // for text that never ran. The second run's route is destroyed by this same
-    // terminal, so its frame is provably never going to be confirmed.
+    // for text that never ran. The serialization guard now refuses the
+    // contending start outright, so the terminal's evidence has exactly one
+    // claimant — the run whose text actually ran — and no healthy run is ruled
+    // against a terminal that was never its own.
     const harness = buildHarness();
     const channel = await startRunWith(harness, "first turn");
     harness.runDispatchResolver.dispatchByRunId.set(TEST_SECOND_RUN_ID, {
       sessionId: TEST_SESSION_ID,
       openingText: "second turn",
     });
-    await harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID });
+    await expect(
+      harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID }),
+    ).rejects.toMatchObject({ fields: { reason: "session_turn_in_flight" } });
 
     channel.terminalFrameBody = CLAUDE_ORDINARY_TURN_RESULT_FRAME;
     channel.emitStreamFrame("result/success");
 
-    expect(harness.failures.map((failure) => failure.runId)).toStrictEqual([TEST_SECOND_RUN_ID]);
-    expect(harness.failures[0]?.providerFailureDetail).toBe(
-      "driver.text_neutralization_failed origin=participant_text",
-    );
+    // The refused run was never dispatched, so nothing fails: the evidence
+    // lands on its one real claimant and the session stays healthy.
+    expect(harness.failures).toStrictEqual([]);
     expect(() => harness.lifecycle.findChannelForRun(TEST_RUN_ID)).not.toThrow();
-    expect(() => harness.lifecycle.findChannelForRun(TEST_SECOND_RUN_ID)).toThrow(
-      TextNeutralizationRefusedError,
-    );
+    expect(harness.lifecycle.findChannelForRun(TEST_SECOND_RUN_ID)).toBeUndefined();
   });
 
   it("keeps the predecessor's frames correlated when a rewind's adoption fails", async () => {

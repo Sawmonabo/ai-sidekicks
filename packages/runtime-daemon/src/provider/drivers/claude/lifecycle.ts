@@ -755,6 +755,7 @@ export type ClaudeSessionUnavailableReason =
   | "no_live_session"
   | "no_live_run"
   | "run_already_dispatched"
+  | "session_turn_in_flight"
   | "run_dispatch_unresolved"
   | "cost_cap_mismatch"
   | "execution_posture_mismatch"
@@ -770,6 +771,8 @@ const SESSION_UNAVAILABLE_MESSAGES: Readonly<Record<ClaudeSessionUnavailableReas
   no_live_run: "No live Claude session is bound to this run.",
   run_already_dispatched:
     "This run's opening frame is already on the wire and its turn has not settled.",
+  session_turn_in_flight:
+    "Another run's frame is still pending on this Claude session; its turn has not settled.",
   run_dispatch_unresolved: "The daemon resolved no Claude dispatch for this run.",
   cost_cap_mismatch:
     "The run's admitted cost cap does not match the cap the Claude session was spawned with.",
@@ -2150,6 +2153,24 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     // must not close.
     if (this.#outboundFrameTripwire.hasPendingFrame(params.runId)) {
       throw new ClaudeSessionUnavailableError("run_already_dispatched", {
+        sessionId: dispatch.sessionId,
+        runId: params.runId,
+      });
+    }
+
+    // The SESSION-scoped completion of the guard above — the run-keyed check
+    // stays first so a duplicate keeps its precise cause. Claude's settling
+    // envelope carries no run id, so `#ruleTextNeutralizationTripwire` can
+    // credit the terminal's real classification within only one run at a time:
+    // with two runs' frames pending on one session, the oldest-bound run takes
+    // the real verdict and every other is ruled unrecognized — quarantining a
+    // healthy session over a perfectly valid queued start. The transport
+    // serializes turns anyway, so a start admitted here could never run ahead
+    // of the pending one; refused before compose and register, it mutates
+    // nothing, and the caller is free to re-dispatch once the pending turn
+    // settles — the same recovery the duplicate guard promises.
+    if (this.#outboundFrameTripwire.hasPendingFrameInScope(dispatch.sessionId)) {
+      throw new ClaudeSessionUnavailableError("session_turn_in_flight", {
         sessionId: dispatch.sessionId,
         runId: params.runId,
       });

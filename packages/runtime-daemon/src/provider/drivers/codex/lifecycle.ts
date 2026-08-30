@@ -5943,29 +5943,41 @@ export class CodexLifecycleManager {
   /**
    * The run whose turn is currently active on a session, or `null`.
    *
-   * Answered only when the session holds EXACTLY ONE live turn. The routed ask
-   * this attributes carries no turn id — `CodexInboundServerRequest` holds a
-   * method, a kind, and raw params — so with two live turns there is nothing to
-   * disambiguate them with, and picking either would attribute the ask, and its
-   * `driver_ask.requested` projection, to a run that may not have raised it.
+   * Answered only when every live turn on the session belongs to ONE run. The
+   * routed ask this attributes carries no turn id — `CodexInboundServerRequest`
+   * holds a method, a kind, and raw params — so with turns from TWO runs live
+   * there is nothing to disambiguate them with, and picking either would
+   * attribute the ask, and its `driver_ask.requested` projection, to a run that
+   * may not have raised it. But the count that decides is of RUNS, not turns:
+   * two overlapping accepted starts on one run — the very shape the turn-keyed
+   * routes retain — put two turns on the session whose values all name the same
+   * run, and that attribution is unambiguous at any turn count, so a turn-count
+   * gate here would drop the association in exactly the state the routing
+   * supports.
    *
    * This deliberately replaces a "first entry wins" pick justified by Codex
    * serializing turns per thread. That serialization is a claim about the
-   * PROVIDER; it says nothing about the daemon, where two overlapping accepted
-   * starts on one run put two turns on one session — which is the very shape
-   * the turn-keyed routes now retain. A `null` here is the same real answer the
-   * establishment and post-retirement windows already produce, and it is what
-   * {@link CodexSessionServerRequest} documents as the un-attributed case.
+   * PROVIDER; it says nothing about the daemon. A `null` here is the same real
+   * answer the establishment and post-retirement windows already produce, and
+   * it is what {@link CodexSessionServerRequest} documents as the un-attributed
+   * case.
    */
   #activeRunIdFor(sessionId: SessionId): RunId | null {
     const record = this.#sessions.get(sessionId);
-    if (record === undefined || record.runIdByActiveTurnId.size !== 1) {
+    if (record === undefined) {
       return null;
     }
+    let soleActiveRunId: RunId | null = null;
     for (const runId of record.runIdByActiveTurnId.values()) {
-      return runId;
+      if (soleActiveRunId === null) {
+        soleActiveRunId = runId;
+        continue;
+      }
+      if (soleActiveRunId !== runId) {
+        return null;
+      }
     }
-    return null;
+    return soleActiveRunId;
   }
 
   /**

@@ -976,6 +976,26 @@ export class OutboundFrameTripwire {
     return false;
   }
 
+  /**
+   * Whether ANY frame is still pending under a scope, whatever its key.
+   *
+   * Deliberately not the same question as {@link hasPendingFrame}: on a leg
+   * whose settling envelope carries no join identity (Claude), the terminal's
+   * real classification can only ever be credited within one key at a time, so
+   * admitting a second key's frame into a scope that still holds one would
+   * manufacture exactly the cross-key ambiguity the settle path then rules
+   * fail-closed. The session-serialization guard asks this question before the
+   * frame exists.
+   */
+  hasPendingFrameInScope(scopeKey: string): boolean {
+    for (const pending of this.#pendingByCorrelationId.values()) {
+      if (pending.scopeKey === scopeKey) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /** The retained decision for a settled turn, or `undefined` while it is still open. */
   decisionFor(joinKey: string): TripwireDecision | undefined {
     return this.#decisionByJoinKey.get(joinKey);

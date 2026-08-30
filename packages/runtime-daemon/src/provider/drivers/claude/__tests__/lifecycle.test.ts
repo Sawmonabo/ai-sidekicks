@@ -511,6 +511,39 @@ describe("ClaudeSessionLifecycle.startRun", () => {
     ]);
   });
 
+  it("refuses a DIFFERENT run's start while another run's opening frame is pending", async () => {
+    // The session-scoped completion of the duplicate guard: Claude's settling
+    // envelope carries no run id, so with two runs' frames pending on one
+    // session the tripwire could rule only the oldest-bound run on the real
+    // verdict and every other unrecognized — quarantining a healthy session
+    // over a perfectly valid queued start.
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "review the diff",
+    });
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_SECOND_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "and now the second directive",
+    });
+    await harness.lifecycle.startRun(buildStartRunParams());
+
+    await expect(
+      harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID }),
+    ).rejects.toMatchObject({
+      code: "driver.unavailable",
+      fields: { reason: "session_turn_in_flight" },
+    });
+
+    // Refused before compose and register: nothing reached the wire, no route
+    // was bound, and the pending run's turn still settles benignly.
+    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual(["review the diff"]);
+    expect(harness.lifecycle.findChannelForRun(TEST_SECOND_RUN_ID)).toBeUndefined();
+    harness.transport.spawnedChannels[0]?.emitStreamFrame("result/success");
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+  });
+
   // `Spec-016 §Cost Derivation And Absent-Cost Semantics` names both refusal
   // shapes for a cap-declaring run: "an existing uncapped (or differently-capped)
   // process forces a capped relaunch ... never a start inside an uncapped
@@ -2816,15 +2849,15 @@ const PENDING_FRAME_TRANSITIONS: readonly PendingFrameTransitionCase[] = [
     expected: { kind: "provider-evidence" },
   },
   {
-    label: "a SECOND run whose write dies on a closed channel while the first is still pending",
-    drive: async (harness, channel) =>
+    label: "a SECOND run's start while the first frame is still pending",
+    drive: async (harness) =>
       await captureTransition(async () => {
-        // The trip belongs to the second run: its own write is the one whose
-        // delivery is in doubt. The first run's frame is the sibling this cell
-        // exists for — frame-scoped ruling is right at the moment it acts, and
-        // stops being right one line later when the binding is condemned.
-        channel.isClosed = true;
-        channel.sendUserTextFailure = new Error("the channel died mid-write");
+        // Refused by the session-serialization guard before a byte is
+        // composed: with no run id on the settling envelope, a second run's
+        // frame in this scope could only ever be ruled unrecognized — the
+        // false trip the guard exists to prevent. The first run's frame stays
+        // watched, still owed its own ruling, and this cell's refusal
+        // expectation is what proves the guard fired instead of the write.
         harness.runDispatchResolver.dispatchByRunId.set(TEST_SECOND_RUN_ID, {
           sessionId: TEST_SESSION_ID,
           openingText: "and now the second directive",
@@ -2834,11 +2867,7 @@ const PENDING_FRAME_TRANSITIONS: readonly PendingFrameTransitionCase[] = [
           runId: TEST_SECOND_RUN_ID,
         });
       }),
-    expected: {
-      kind: "run-failure",
-      runIds: [TEST_SECOND_RUN_ID, TEST_RUN_ID],
-      detailContains: "driver.text_neutralization_failed",
-    },
+    expected: { kind: "refusal" },
   },
   {
     label: "an overlapping start on the SAME run whose write is refused before a byte leaves",
@@ -3057,6 +3086,50 @@ describe("ClaudeSessionLifecycle unsent opening frame — route retirement (T3.1
     // will be found.
     expect(channel.sentWireTexts).toHaveLength(1);
     expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeDefined();
+  });
+});
+
+// The condemnation arm of the failed opening write, driven from the only place
+// it can still be reached now that starts are session-serialized: the FIRST
+// write on a session dying with indeterminate delivery on a channel that is
+// already closed. The bytes may have left and no terminal will ever arrive, so
+// retention cannot cover it — the frame is ruled fail-closed and the binding is
+// condemned, because silence here is exactly a swallowed directive escaping
+// detection.
+describe("ClaudeSessionLifecycle indeterminate opening-write death (T3.18)", () => {
+  it("rules the frame fail-closed and condemns the binding on both axes", async () => {
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "/compact the thread please",
+    });
+    const channel = harness.transport.spawnedChannels[0];
+    if (channel === undefined) {
+      throw new Error("unreachable: the session must have spawned a channel");
+    }
+    channel.isClosed = true;
+    channel.sendUserTextFailure = new Error("the channel died mid-write");
+
+    await expect(harness.lifecycle.startRun(buildStartRunParams())).rejects.toThrow(
+      "the channel died mid-write",
+    );
+
+    expect(harness.textNeutralizationFailures.map((failure) => failure.runId)).toStrictEqual([
+      TEST_RUN_ID,
+    ]);
+    expect(harness.textNeutralizationFailures[0]?.providerFailureDetail).toContain(
+      "driver.text_neutralization_failed",
+    );
+    // Condemned on the SESSION axis too: the next run cannot dispatch into the
+    // process whose delivery is in doubt.
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_SECOND_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "carry on",
+    });
+    await expect(
+      harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID }),
+    ).rejects.toThrow();
   });
 });
 

@@ -748,7 +748,26 @@ export const DriverInterventionResultSchema: z.ZodType<
     // refusal on a field whose consumers key on identity.
     refusalCode: z.literal("driver.text_neutralization_failed").optional(),
   })
-  .strict();
+  .strict()
+  // Cross-field, because the two members contradict each other on one arm: the
+  // refusal code IS the classification that the participant's text was
+  // swallowed, and a swallowed text is precisely what `applied` denies. A
+  // version-skewed driver reporting the pair must fail parse at this trust
+  // boundary rather than hand out a result whose two readers disagree — a
+  // caller keying on `status` reporting success while one keying on
+  // `refusalCode` reports failure. (`.superRefine()` returns `this` — the
+  // Zod-4 property event.ts's audit-integrity pairing rule records — so the
+  // flat-envelope annotation above still holds.)
+  .superRefine((result, ctx) => {
+    if (result.status === "applied" && result.refusalCode !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["refusalCode"],
+        message:
+          "refusalCode classifies the participant text as swallowed, which status 'applied' denies; the code is expressible only on a degraded result.",
+      });
+    }
+  });
 
 // --------------------------------------------------------------------------
 // T1.6 — Resume result (`Spec-005 §Fallback Behavior` + `Spec-005 §Acceptance Criteria`; verifies I-005-5)
