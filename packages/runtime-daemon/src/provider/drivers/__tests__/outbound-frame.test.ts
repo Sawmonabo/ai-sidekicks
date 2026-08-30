@@ -610,6 +610,26 @@ describe("outbound frame tripwire", () => {
     });
   });
 
+  it("still answers pending for a join key a forgotten frame shares with a sibling", () => {
+    // The unsent arm of the drivers' failed-opening-frame ruling withdraws only
+    // the refused frame and keeps the run's route for as long as this predicate
+    // answers true. The Claude startRun path that once drove that arm is now
+    // refused pre-write by the duplicate-dispatch guard, so the predicate is
+    // pinned here, at the store that owns it: forgetting one of two frames on a
+    // key must not answer for the sibling still owed a ruling.
+    const tripwire = new OutboundFrameTripwire();
+    const acceptedFrame = frameFor("participant_text");
+    const refusedFrame = frameFor("participant_text", "/clear");
+    registerFrame(tripwire, "run-1", acceptedFrame);
+    registerFrame(tripwire, "run-1", refusedFrame);
+
+    tripwire.forgetFrame(refusedFrame);
+    expect(tripwire.hasPendingFrame("run-1")).toBe(true);
+
+    tripwire.forgetFrame(acceptedFrame);
+    expect(tripwire.hasPendingFrame("run-1")).toBe(false);
+  });
+
   it("leaves the destination turn's retained decision standing", () => {
     // A move is not a fresh attempt: `register` clears the key it writes to
     // because a new write is starting there, while a settled turn's ruling is a

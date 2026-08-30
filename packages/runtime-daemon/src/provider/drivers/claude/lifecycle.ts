@@ -2205,7 +2205,10 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     // cancel for that run would send a SESSION-scoped control request that
     // stops whatever older turn is genuinely running on the channel. Both steps
     // are synchronous and both precede the write, so nothing is given up by
-    // asking for the budget first.
+    // asking for the budget first. (With the session-serialization guard above,
+    // this scope holds at most the one frame that guard admitted, so a capacity
+    // refusal here is unreachable via startRun — retained fail-closed against
+    // state drift, not as a live branch.)
     this.#outboundFrameTripwire.register({
       scopeKey: dispatch.sessionId,
       joinKey: params.runId,
@@ -3668,6 +3671,12 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     const settlingClassification = classifyClaudeTurnEvidence(terminalFrame);
     let tripped = false;
     for (const [framePosition, runId] of correlatedRunIds.entries()) {
+      // With the session-serialization guard in startRun, at most one run can
+      // hold a pending frame per session, so every position past 0 is
+      // unreachable via startRun. The else-arm is retained fail-closed: if
+      // state ever drifts to two pending runs, crediting the terminal's real
+      // classification to both would let a swallowed frame ride a sibling's
+      // evidence.
       const classification =
         framePosition === 0 ? settlingClassification : UNRECOGNIZED_TURN_EVIDENCE;
       const decision = this.#outboundFrameTripwire.settle(runId, classification);

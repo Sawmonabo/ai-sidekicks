@@ -3070,20 +3070,26 @@ describe("ClaudeSessionLifecycle unsent opening frame — route retirement (T3.1
     expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
   });
 
-  it("keeps the route while a sibling frame on the same run is still owed a ruling", async () => {
+  it("keeps the accepted frame's route when a duplicate dispatch is refused", async () => {
+    // This test once drove the unsent arm of the failed-opening-frame ruling —
+    // a second same-run frame whose write dies before a byte leaves, withdrawn
+    // while its sibling's route survives. The duplicate-dispatch guard now
+    // refuses that second start BEFORE compose and register, so the arm is
+    // unreachable through startRun and the sibling-aware predicate it consults
+    // is pinned at the tripwire unit level instead (outbound-frame.test.ts).
+    // What this test still owns: the refusal names the run-keyed cause and
+    // leaves the accepted frame's write and route untouched — that route is
+    // the only way its terminal will be found.
     const harness = buildHarness();
     const channel = await arrangeSession(harness);
     await harness.lifecycle.startRun(buildStartRunParams());
     expect(channel.sentWireTexts).toHaveLength(1);
 
-    channel.sendUserTextFailure = new Error("refused before a byte left");
-    channel.sendUserTextDelivery = "unsent";
-    await expect(harness.lifecycle.startRun(buildStartRunParams())).rejects.toThrow();
+    await expect(harness.lifecycle.startRun(buildStartRunParams())).rejects.toMatchObject({
+      code: "driver.unavailable",
+      fields: { reason: "run_already_dispatched" },
+    });
 
-    // Only the refused frame was withdrawn — the fake records a write it never
-    // took, so the count standing still is the proof. The accepted frame is on
-    // the wire and unaccounted for, and this route is the only way its terminal
-    // will be found.
     expect(channel.sentWireTexts).toHaveLength(1);
     expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeDefined();
   });
