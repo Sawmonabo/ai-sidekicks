@@ -1542,7 +1542,7 @@ describe("canonical transcript fold — a tool row naming no call identifier", (
     expect(exported.declaredLosses).toEqual([]);
   });
 
-  it("withholds and marks an unkeyed answer the provider emitted inside a private block", () => {
+  it("removes an unkeyed answer withheld inside a private block instead of calling it unavailable", () => {
     const fixture = makeFixture();
     fixture.log.append(storedEvent(1, "assistant.thinking_update", { runId: RUN_ID }));
     fixture.contentSource.reasoningBlocksBySequence.set(1, [
@@ -1559,21 +1559,69 @@ describe("canonical transcript fold — a tool row naming no call identifier", (
       enclosingReasoningBlockId: "block-1",
     });
 
+    const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
     const exported: DriverTranscriptExportResult =
-      new TranscriptTransformPipeline().exportTranscript(
-        fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID }),
-        "unbounded",
-      );
+      new TranscriptTransformPipeline().exportTranscript(projection, "unbounded");
 
     // A text segment carries no enclosure, so the strip cannot see one — which
     // makes rendering this body as text a way around the very step that exists
-    // to remove it. It is withheld, and the withholding is DECLARED.
+    // to remove it. It rides the enclosing block's fate instead, exactly as a
+    // KEYED enclosed answer is removed along with the block that carried it.
     expect(exportedText(exported)).not.toContain("private notes");
     expect(exportedText(exported)).not.toContain("internal deliberation");
-    expect(exported.declaredLosses).toEqual([
-      "provider_private_reasoning",
-      "turn_content_unavailable",
+    // Asserted on the FOLD, because that one segment is the single input both
+    // consumers read: the export folds it into `turn_content_unavailable` and
+    // the memo renders it as content that could not be recovered. The body was
+    // read successfully and then deliberately withheld, so either statement
+    // would be a false unavailability in a record whose whole point is that a
+    // person can trust it.
+    expect(
+      projection.turns.flatMap((turn) => turn.segments).map((segment) => segment.kind),
+    ).toEqual(["reasoning"]);
+    // Exactly one loss, and it is the enclosing block's own — the loss that
+    // genuinely happened and already covers everything the block enclosed.
+    expect(exported.declaredLosses).toEqual(["provider_private_reasoning"]);
+  });
+
+  it("keeps the rest of an assistant turn in order around a removed private-enclosed answer", () => {
+    const fixture = makeFixture();
+    // The turn close rebuilds the segment array to drop the withheld answer, so
+    // the neighbours it does NOT drop have to come back untouched and in the
+    // order the log gave them.
+    fixture.log.append(storedEvent(1, "assistant.thinking_update", { runId: RUN_ID }));
+    fixture.contentSource.reasoningBlocksBySequence.set(1, [
+      {
+        blockId: "block-1",
+        reasoningKind: "thinking",
+        disclosure: "private",
+        text: "internal deliberation",
+      },
     ]);
+    fixture.log.append(storedEvent(2, "tool.result", { runId: RUN_ID }));
+    fixture.contentSource.toolResultBodyBySequence.set(2, {
+      text: "private notes",
+      enclosingReasoningBlockId: "block-1",
+    });
+    fixture.log.append(storedEvent(3, "assistant.message", { runId: RUN_ID }));
+    fixture.contentSource.assistantTextBySequence.set(3, "all green");
+
+    const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
+    const exported: DriverTranscriptExportResult =
+      new TranscriptTransformPipeline().exportTranscript(projection, "unbounded");
+
+    expect(projection.turns.flatMap((turn) => turn.segments)).toEqual([
+      {
+        kind: "reasoning",
+        position: 1,
+        blockId: "block-1",
+        reasoningKind: "thinking",
+        disclosure: "private",
+        text: "internal deliberation",
+      },
+      { kind: "text", position: 3, text: "all green" },
+    ]);
+    expect(exportedText(exported)).toContain("all green");
+    expect(exported.declaredLosses).toEqual(["provider_private_reasoning"]);
   });
 
   it("carries an unkeyed answer the provider emitted inside a summary block", () => {

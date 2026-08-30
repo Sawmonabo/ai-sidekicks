@@ -3486,8 +3486,9 @@ export class CodexLifecycleManager {
    * Registered under the RUN id and re-keyed to the turn id the moment the
    * provider names one, because the correlation has to exist before the write:
    * a turn that settles the instant the text lands would otherwise settle
-   * against nothing and let a swallow through. `#forgetOutboundFrame` clears
-   * the registration on every path where no turn will ever settle it.
+   * against nothing and let a swallow through. `startRun`'s own failure path
+   * drops THIS frame's registration — and only this frame's — on every path
+   * where no turn will ever settle it.
    *
    * A REFUSED registration aborts the run before any byte is written, and that
    * ordering is the point: the frame is composed, offered to the tripwire, and
@@ -3785,23 +3786,37 @@ export class CodexLifecycleManager {
       // written, and the provider may have intercepted the text and answered a
       // zero-turn success exactly as a steer's can be intercepted.
       //
-      // What differs is what happens to the binding. The unconditional forget is
-      // safe only because it is paired with the disposal directly below: on
-      // every ambiguous outcome the session is torn down in the same act — the
-      // slot claimed, the record dropped, the routes swept, and the child
-      // KILLED — so no terminal can ever arrive to rule this frame and no
-      // binding survives for a swallowed turn to poison. A retained
-      // registration would have no reader and no reclaimer.
+      // FRAME-SCOPED, and the scope is the whole point. The join key is the RUN
+      // id until the provider names a turn, and nothing serializes two starts
+      // for one run — so a second attempt that registered while this one was in
+      // flight is correlated under the very same key. A key-wide drop here would
+      // take that live frame with it, its turn would then settle against no
+      // correlated frame, and a settle with nothing correlated PASSES: the
+      // swallowed turn reported as a completed one, which is the outcome the
+      // tripwire exists to catch. The Claude leg reaches the same scoping from
+      // the other side: `#ruleFailedOpeningFrame` there acts FRAME-scoped on
+      // both arms where it acts at all — dropping the provably-unsent frame,
+      // ruling the dead-channel one — for the stated reason that a sibling
+      // frame on the same key whose delivery was never in doubt must not be
+      // tripped alongside it.
       //
-      // The steer path cannot borrow that argument: its turn is still RUNNING
-      // and its binding still serving, so the frame has both a reader and a
-      // reason to live. It borrows the fail-closed ruling instead, for the one
-      // case where the connection is already gone.
+      // Dropping rather than ruling is still right for THIS frame: on the
+      // ambiguous arm the session is torn down in the same act below — the slot
+      // claimed, the record dropped, the routes swept, and the child KILLED — so
+      // no terminal can ever arrive to rule it, and on the refusal arm the
+      // provider answered "no", which is proof it started nothing. The steer
+      // path cannot borrow either argument: its turn is still RUNNING and its
+      // binding still serving, so it borrows the fail-closed ruling instead.
+      //
+      // The retained decision is deliberately left alone, unlike the key-wide
+      // drop this replaced. It is keyed by RUN id only until `recorrelate` runs,
+      // `decisionFor` is read by turn id, and `register` clears the key's
+      // decision on every retry — so no stale answer is reachable through it.
       //
       // No quarantine entry is installed here, and none is owed: disposal drops
       // the record, so session resolution refuses this binding by ABSENCE and
       // the only route back is a fresh spawn.
-      this.#outboundFrameTripwire.forget(params.runId);
+      this.#outboundFrameTripwire.forgetFrame(openingFrame);
       if (isAmbiguousTurnStartOutcome(cause)) {
         await this.#disposeAmbiguousSession(record);
       }

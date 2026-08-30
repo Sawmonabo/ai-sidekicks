@@ -716,6 +716,18 @@ function modelOutputItemFrame(turnId: string): Record<string, unknown> {
   };
 }
 
+/**
+ * The opening text one `turn/start` request carries.
+ *
+ * Lets a handler answer two OVERLAPPING attempts differently by reading the
+ * request itself rather than counting calls — which attempt reaches the server
+ * first is exactly what an overlap test must not assume.
+ */
+function readTurnStartInputText(params: unknown): string | undefined {
+  const input = (params as { input?: ReadonlyArray<{ text?: string }> }).input;
+  return input?.[0]?.text;
+}
+
 // --------------------------------------------------------------------------
 // Spawn + handshake (`Spec-005 §Required Behavior`)
 // --------------------------------------------------------------------------
@@ -3602,6 +3614,71 @@ describe("CodexLifecycleManager turn route lifetime", () => {
         },
       },
     });
+  });
+
+  it("keeps watching a concurrent attempt's frame when an overlapping start is refused", async () => {
+    // Nothing serializes two starts for one run, and a frame is registered under
+    // the RUN id until the provider names a turn — so both attempts are
+    // correlated to the SAME key while either is in flight. A failure that drops
+    // the whole key takes the live attempt's frame with it, and a turn that
+    // settles against no correlated frame PASSES: the swallowed turn reported as
+    // a completed one, which is the outcome the tripwire exists to catch.
+    const refusedOpeningText = "the attempt the provider rejects";
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", (params) =>
+      readTurnStartInputText(params) === refusedOpeningText
+        ? { error: { code: -32602, message: "input rejected" } }
+        : { result: { turn: { id: TURN_ID } } },
+    );
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    // A DIFFERENT origin per attempt, so the recorded detail names WHICH frame
+    // the turn failed to account for rather than merely that one did.
+    // The handler is attached synchronously, before anything is awaited: an
+    // unattached rejection is decided unhandled on the next full microtask drain.
+    const refused = harness.manager
+      .startRun({
+        runId: RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: {
+          sessionId: SESSION_ID,
+          input: refusedOpeningText,
+          frameOrigin: "system_narration",
+        },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    // Registered while the first attempt is still suspended on its own request,
+    // which is the only window in which the overlap exists at all.
+    const accepted = harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: {
+        sessionId: SESSION_ID,
+        input: "review the diff",
+        frameOrigin: "participant_text",
+      },
+    });
+
+    // A CLEAN refusal: the provider answered "no", so nothing is disposed and
+    // the session the second attempt is running on stays live.
+    expect(await refused).toBeInstanceOf(CodexProviderRequestError);
+    expect(harness.server.killedSessions).toEqual([]);
+    await accepted;
+
+    harness.server.emitFrame(zeroTurnCompletedFrame(TURN_ID));
+    await drainMicrotasks();
+
+    // One trip, naming the SURVIVING attempt. The count alone would not separate
+    // the two failures this pins: zero trips is the key-wide drop that silenced a
+    // live frame, and a trip naming `system_narration` would be the refused
+    // frame retained and ruled on a turn it never opened.
+    expect(harness.textNeutralizationFailures).toHaveLength(1);
+    expect(harness.textNeutralizationFailures[0]?.providerFailureDetail).toBe(
+      "driver.text_neutralization_failed origin=participant_text",
+    );
   });
 });
 

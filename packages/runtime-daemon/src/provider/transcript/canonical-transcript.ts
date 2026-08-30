@@ -243,12 +243,17 @@ interface DeferredEnclosedToolResult {
  *     deferral.
  *
  *   * A body the provider emitted inside a named reasoning block is withheld
- *     PROVISIONALLY, and the withholding is what the turn close then keeps or
- *     replaces. It may not ride text before the disclosure is known: step 3
- *     decides a tool result's portability from `enclosingReasoningBlockId`, a
- *     `text` segment has no such member to carry, and rendering the body early
- *     would walk private provider reasoning straight past the strip that exists
- *     to remove it.
+ *     PROVISIONALLY, and the withholding is what the turn close then replaces,
+ *     removes, or keeps. It may not ride text before the disclosure is known:
+ *     step 3 decides a tool result's portability from
+ *     `enclosingReasoningBlockId`, a `text` segment has no such member to carry,
+ *     and rendering the body early would walk private provider reasoning
+ *     straight past the strip that exists to remove it.
+ *
+ *     The marker on this provisional segment is NOT a claim that the body was
+ *     unreadable — it was read. It survives into the export only on the
+ *     unknown-block arm, where nothing else would record a loss; see the turn
+ *     close for why the `private` arm drops the segment instead.
  *
  *   * Everything else is ordinary legacy history and rides text directly.
  *
@@ -359,20 +364,47 @@ export class CanonicalTranscriptFold {
      * minted it. Taken at turn close because the row carrying the enclosing
      * block may be logged AFTER the answer it enclosed.
      *
-     * A `summary` block is participant-visible history: its answer is portable
-     * content and rides ordinary legacy text, with nothing lost and nothing
-     * declared. Anything else stays withheld and marked.
+     * Returns the settled segments rather than patching them in place: one of
+     * the three arms REMOVES a segment, which an index-keyed patch cannot do.
      *
-     * FAIL-CLOSED on a block this turn does not carry, which is stricter than
-     * the strip's rule for a KEYED result — that one survives citing a block
-     * from another turn. The asymmetry is erasure: a keyed result carries its
-     * enclosure member forward, so a later reader can still act on it, while
-     * rendering a legacy answer to text drops the member for good. An unknown
-     * disclosure is therefore never treated as a visible one.
+     *   * `summary` — participant-visible history. The answer is portable
+     *     content, rides ordinary legacy text, and loses nothing.
+     *
+     *   * `private` — the answer is REMOVED, exactly as the strip removes a
+     *     KEYED enclosed result along with the block that carried it. Keeping
+     *     the provisional placeholder here would put a false statement in the
+     *     record: the body was read successfully and then deliberately withheld,
+     *     so a retained `contentUnavailable` marker declares an unavailability
+     *     that never happened, and both consumers repeat it — the export adds
+     *     `turn_content_unavailable` beside a loss it already declared, and the
+     *     memo renders the body as content that could not be recovered. The real
+     *     loss belongs to the enclosing block, and both consumers already
+     *     declare THAT one: the strip drops the private block and declares
+     *     `provider_private_reasoning`, and the memo floor runs that same strip.
+     *     A turn cannot go empty on this arm — the disclosure was read off a
+     *     reasoning segment in THIS array and reasoning segments are never
+     *     deferred, so the enclosing segment always survives the settle.
+     *
+     *   * anything else — FAIL-CLOSED: the placeholder stays, because this is
+     *     the block the turn does not carry and there is no enclosing segment
+     *     for a loss to ride. Stricter than the strip's rule for a keyed result,
+     *     which survives citing a block from another turn, and the asymmetry is
+     *     erasure: a keyed result carries its enclosure member forward so a
+     *     later reader can still act on it, while rendering a legacy answer to
+     *     text drops the member for good.
+     *
+     * The `private` arm is an explicit test rather than the `else` of the
+     * `summary` one. `CanonicalReasoningDisclosure` is closed at two members, so
+     * the two forms agree today — but the strip removes reasoning at `private`
+     * ALONE, so a third member would flatten to text under no declared loss, and
+     * an `else`-shaped removal arm would then erase an enclosed body in silence.
+     * A new member belongs on the fail-closed arm until the strip claims it.
      */
-    const settleDeferredEnclosedResults = (segments: CanonicalTranscriptSegment[]): void => {
+    const settleDeferredEnclosedResults = (
+      segments: CanonicalTranscriptSegment[],
+    ): CanonicalTranscriptSegment[] => {
       if (deferredEnclosedResults.size === 0) {
-        return;
+        return segments;
       }
       const disclosureByBlockId: Map<string, CanonicalReasoningDisclosure> = new Map();
       for (const segment of segments) {
@@ -380,23 +412,33 @@ export class CanonicalTranscriptFold {
           disclosureByBlockId.set(segment.blockId, segment.disclosure);
         }
       }
-      segments.forEach((segment, segmentIndex) => {
+      const settledSegments: CanonicalTranscriptSegment[] = [];
+      for (const segment of segments) {
         const deferred: DeferredEnclosedToolResult | undefined = deferredEnclosedResults.get(
           segment.position,
         );
         if (deferred === undefined) {
-          return;
+          settledSegments.push(segment);
+          continue;
         }
         deferredEnclosedResults.delete(segment.position);
-        if (disclosureByBlockId.get(deferred.enclosingReasoningBlockId) !== "summary") {
-          return;
+        const disclosure: CanonicalReasoningDisclosure | undefined = disclosureByBlockId.get(
+          deferred.enclosingReasoningBlockId,
+        );
+        if (disclosure === "summary") {
+          settledSegments.push({
+            kind: "text",
+            position: segment.position,
+            text: renderUnkeyedToolResultText(deferred.outcome, deferred.bodyText),
+          });
+          continue;
         }
-        segments[segmentIndex] = {
-          kind: "text",
-          position: segment.position,
-          text: renderUnkeyedToolResultText(deferred.outcome, deferred.bodyText),
-        };
-      });
+        if (disclosure === "private") {
+          continue;
+        }
+        settledSegments.push(segment);
+      }
+      return settledSegments;
     };
 
     const closeOpenTurn = (): void => {
@@ -405,12 +447,17 @@ export class CanonicalTranscriptFold {
       if (closingTurn === undefined) {
         return;
       }
-      settleDeferredEnclosedResults(closingTurn.segments);
-      if (closingTurn.segments.length > 0) {
+      const settledSegments: CanonicalTranscriptSegment[] = settleDeferredEnclosedResults(
+        closingTurn.segments,
+      );
+      // Belt-and-braces rather than the thing carrying the `private` arm: that
+      // arm always leaves its enclosing reasoning segment behind. What this
+      // guards is every other way a turn can reach here with nothing in it.
+      if (settledSegments.length > 0) {
         turns.push({
           position: closingTurn.position,
           role: closingTurn.role,
-          segments: closingTurn.segments,
+          segments: settledSegments,
         });
       }
     };
