@@ -55,10 +55,12 @@ import {
   DEFAULT_PROTECTED_TAIL_TOOL_EXCHANGE_COUNT,
   MEMO_CONTINUITY_MARKER_PREFIX,
   MemoDeliveryCoordinator,
+  MemoDeliveryNotEstablishedError,
   MemoProjection,
   TranscriptReconstitutionRouter,
   defaultMemoBudgetPolicy,
   deriveMemoIdentityKey,
+  memoSettlementAsReplayResult,
   partitionIntoExchanges,
   readDeliveredMemoDeclaredLosses,
   renderMemoContinuityMarker,
@@ -1050,7 +1052,6 @@ describe("memo reconciliation — the losses reported are the DELIVERED summary'
     const disclosure: string = renderReconstitutionDisclosure({
       route: "memo",
       memo: settlement,
-      result: { status: "degraded", declaredLosses: [...settlement.declaredLosses] },
     });
     expect(disclosure).toContain("not recorded");
     expect(disclosure).toContain("at most");
@@ -1974,6 +1975,9 @@ describe("reconstitution routing — the memo is the caller's fallback", () => {
     );
 
     expect(settlement.route).toBe("native-replay");
+    if (settlement.route !== "native-replay") {
+      throw new Error("an applied replay is the native-replay route");
+    }
     expect(settlement.result.status).toBe("applied");
     expect(observedMemberNames).toEqual([]);
     expect(target.sendAttempts).toBe(0);
@@ -1991,8 +1995,16 @@ describe("reconstitution routing — the memo is the caller's fallback", () => {
       );
 
       expect(settlement.route).toBe("memo");
-      expect(settlement.result.status).toBe("degraded");
-      expect(settlement.result.declaredLosses).toContain("conversation_history_summarized");
+      if (settlement.route !== "memo") {
+        throw new Error("the non-applied outcomes route to the memo floor");
+      }
+      // The boundary result is asked for rather than read off the settlement:
+      // there is no result member on this arm to read, which is what keeps a
+      // memo that never landed from carrying one. This delivery DID land, so
+      // the producer answers instead of throwing.
+      const result = memoSettlementAsReplayResult(settlement.memo);
+      expect(result.status).toBe("degraded");
+      expect(result.declaredLosses).toContain("conversation_history_summarized");
       expect(target.sendAttempts).toBe(1);
     }
   });
@@ -2059,11 +2071,7 @@ describe("settlement disclosure — a degraded settlement never reads like an ap
       renderReconstitutionDisclosure(appliedWithLoss),
       renderReconstitutionDisclosure(appliedWithoutLoss),
       ...memoSettlements.map((settlement) =>
-        renderReconstitutionDisclosure({
-          route: "memo",
-          memo: settlement,
-          result: { status: "degraded", declaredLosses: [...settlement.declaredLosses] },
-        }),
+        renderReconstitutionDisclosure({ route: "memo", memo: settlement }),
       ),
     ];
 
@@ -2108,12 +2116,77 @@ describe("settlement disclosure — a degraded settlement never reads like an ap
     expect(disclosure).not.toContain("summarized");
   });
 
+  it("produces no replay result for a settlement that established no delivery", async () => {
+    // The disposition IS the split. `degraded` at the driver boundary means the
+    // memo floor stood in and the conversation can continue on a summary the
+    // target holds — so stamping it for a settlement that established nothing
+    // reports a successful degraded switch into a session that may hold no prior
+    // context at all. The result type has no arm for that, by its own contract:
+    // a target that cannot be reached throws.
+    const [delivered, alreadyDelivered, withheld, unconfirmed] = await collectMemoSettlements();
+    if (
+      delivered === undefined ||
+      alreadyDelivered === undefined ||
+      withheld === undefined ||
+      unconfirmed === undefined
+    ) {
+      throw new Error("every disposition is needed to state the split");
+    }
+
+    expect(memoSettlementAsReplayResult(delivered).status).toBe("degraded");
+    expect(memoSettlementAsReplayResult(alreadyDelivered).status).toBe("degraded");
+
+    for (const unestablished of [withheld, unconfirmed]) {
+      expect(() => memoSettlementAsReplayResult(unestablished)).toThrow(
+        MemoDeliveryNotEstablishedError,
+      );
+      // The disposition rides out on the failure rather than being discarded
+      // with it: a caller that must tell the participant what happened has the
+      // settlement, and the reason, in hand.
+      try {
+        memoSettlementAsReplayResult(unestablished);
+        throw new Error("the unestablished arms must not produce a result");
+      } catch (cause) {
+        expect(cause).toBeInstanceOf(MemoDeliveryNotEstablishedError);
+        if (!(cause instanceof MemoDeliveryNotEstablishedError)) {
+          throw cause;
+        }
+        expect(cause.settlement).toBe(unestablished);
+        expect(cause.message).toContain(unestablished.disposition);
+      }
+    }
+    expect(withheld.withheldReason).toBe("target-unreadable");
+  });
+
+  it("still reports an unlanded memo to the participant rather than erasing it", async () => {
+    // The refusal above is a boundary-result refusal, not a silence. Routing
+    // still SETTLES: a summary that did not reach the new session is exactly
+    // what the participant needs told, and an exception thrown out of the
+    // routing seam would take the disclosure with it.
+    const target = new FakeTargetSession();
+    target.readOutcomes.push("fail");
+    const router = new TranscriptReconstitutionRouter(new MemoDeliveryCoordinator(target));
+
+    const settlement: ReconstitutionSettlement = await router.route(
+      { outcome: "unavailable" },
+      requestFor(projectionOf([turn(1, "participant", [{ kind: "text", text: "hello" }])])),
+    );
+
+    expect(settlement.route).toBe("memo");
+    if (settlement.route !== "memo") {
+      throw new Error("an unreadable target still routes to the memo floor");
+    }
+    expect(settlement.memo.disposition).toBe("withheld");
+    expect(renderReconstitutionDisclosure(settlement)).toContain("did not reach the new session");
+    // And the settlement carries no boundary result to be mistaken for one.
+    expect(Object.hasOwn(settlement, "result")).toBe(false);
+  });
+
   it("says plainly, on every memo path, that the conversation was summarized", async () => {
     for (const settlement of await collectMemoSettlements()) {
       const disclosure: string = renderReconstitutionDisclosure({
         route: "memo",
         memo: settlement,
-        result: { status: "degraded", declaredLosses: [...settlement.declaredLosses] },
       });
       expect(disclosure).toContain("summarized");
       expect(settlement.status).toBe("degraded");

@@ -1375,7 +1375,46 @@ function deliveredMemoLosses(
 }
 
 /**
- * The driver-boundary result a memo settlement reports. Never `applied`.
+ * Thrown when a settlement that established no delivery is asked for a
+ * driver-boundary result.
+ *
+ * Carries the settlement so the caller can still disclose what happened — a
+ * failure to reconstitute is exactly the moment the participant most needs to
+ * be told which summary did not land, and why.
+ */
+export class MemoDeliveryNotEstablishedError extends Error {
+  readonly settlement: MemoDeliverySettlement;
+
+  constructor(settlement: MemoDeliverySettlement) {
+    super(
+      `The memo floor established no delivery (${settlement.disposition}${
+        settlement.withheldReason === undefined ? "" : `: ${settlement.withheldReason}`
+      }); there is no replay result to report.`,
+    );
+    this.name = "MemoDeliveryNotEstablishedError";
+    this.settlement = settlement;
+  }
+}
+
+/**
+ * The driver-boundary result a memo settlement reports. Never `applied`, and
+ * never produced at all for a settlement that established no delivery.
+ *
+ * TWO of the four dispositions are results and two are failures, and the split
+ * is the whole contract here. `degraded` at the driver boundary means the memo
+ * floor STOOD IN — the new session holds a summary and the conversation can
+ * continue on it. `withheld` means nothing reached the target (a read that
+ * failed before any send, or a barrier that proved the send refused) and
+ * `unconfirmed` means the daemon does not know whether anything did. Stamping
+ * `degraded` for those, as this function once did for every disposition, tells
+ * the caller a provider switch succeeded on a summary while the new session may
+ * hold no prior context at all — and `DriverTranscriptReplayResult` has no arm
+ * to walk that back, because its own contract reserves the failure case for a
+ * THROW: "a target that cannot be reached at all throws".
+ *
+ * So the failure is thrown, with the settlement on it. The disposition is
+ * preserved rather than discarded, and a caller cannot reach a result without
+ * passing the split — there is no nullable to coalesce past.
  *
  * The list travels unqualified because the driver result declares no subject for
  * it — deliberately, since widening that contract to carry one would make every
@@ -1386,7 +1425,24 @@ function deliveredMemoLosses(
 export function memoSettlementAsReplayResult(
   settlement: MemoDeliverySettlement,
 ): DriverTranscriptReplayResult {
-  return { status: "degraded", declaredLosses: [...settlement.declaredLosses] };
+  switch (settlement.disposition) {
+    case "delivered":
+    case "already-delivered":
+      return { status: "degraded", declaredLosses: [...settlement.declaredLosses] };
+    case "withheld":
+    case "unconfirmed":
+      throw new MemoDeliveryNotEstablishedError(settlement);
+    default: {
+      // Exhaustive by construction: a disposition added to the union lands here
+      // as a type error rather than defaulting into the established arm, which
+      // is the direction a new arm must never silently take.
+      const unhandled: never = settlement.disposition;
+      throw new MemoDeliveryNotEstablishedError({
+        ...settlement,
+        disposition: unhandled,
+      });
+    }
+  }
 }
 
 // --------------------------------------------------------------------------
@@ -1407,13 +1463,24 @@ export type NativeReplayDisposition =
   | { readonly outcome: "refused" }
   | { readonly outcome: "context-window-exceeded" };
 
+/**
+ * What one reconstitution came to, on whichever route carried it.
+ *
+ * The memo arm deliberately carries NO `DriverTranscriptReplayResult`. It once
+ * did, mirroring the settlement's own loss list, and that mirror was how a
+ * `withheld` settlement came to hold a `degraded` result: the value existed, so
+ * it had to be filled in on every arm, including the arms where there is no
+ * result to state. The settlement is the record, `memoSettlementAsReplayResult`
+ * is the one producer of a boundary result from it, and it refuses the arms that
+ * have none — so this type can no longer carry a result for a memo that never
+ * landed, whatever a caller does.
+ *
+ * The disclosure loses nothing by the removal: it reads the loss list off the
+ * settlement, which is where the list and its subject both live.
+ */
 export type ReconstitutionSettlement =
   | { readonly route: "native-replay"; readonly result: DriverTranscriptReplayResult }
-  | {
-      readonly route: "memo";
-      readonly memo: MemoDeliverySettlement;
-      readonly result: DriverTranscriptReplayResult;
-    };
+  | { readonly route: "memo"; readonly memo: MemoDeliverySettlement };
 
 /**
  * Routes a reconstitution to native replay's own settlement or to the memo floor.
@@ -1439,8 +1506,14 @@ export class TranscriptReconstitutionRouter {
         result: { status: "applied", declaredLosses: [...disposition.declaredLosses] },
       };
     }
+    // Returned for EVERY disposition, the unlanded ones included. This method is
+    // the reporting seam, and a withheld or unconfirmed delivery is a report the
+    // participant is owed rather than an exception that erases it. The caller
+    // that owes its own boundary a `DriverTranscriptReplayResult` asks
+    // `memoSettlementAsReplayResult` for one and takes the throw when the memo
+    // established nothing; the caller that owes a disclosure renders this value.
     const memo: MemoDeliverySettlement = await this.#coordinator.deliver(request);
-    return { route: "memo", memo, result: memoSettlementAsReplayResult(memo) };
+    return { route: "memo", memo };
   }
 }
 
@@ -1460,10 +1533,16 @@ export class TranscriptReconstitutionRouter {
  * the model can see is a summary.
  */
 export function renderReconstitutionDisclosure(settlement: ReconstitutionSettlement): string {
+  // Read off whichever record the route actually kept. On the memo arm that is
+  // the settlement, which is also what carries the list's SUBJECT — the two
+  // belong together, and reading the list from a mirrored boundary result was
+  // what let the two drift apart in the first place.
+  const declaredLosses: readonly DeclaredLossKind[] =
+    settlement.route === "native-replay"
+      ? settlement.result.declaredLosses
+      : settlement.memo.declaredLosses;
   const losses: string =
-    settlement.result.declaredLosses.length === 0
-      ? "nothing was dropped"
-      : settlement.result.declaredLosses.join(", ");
+    declaredLosses.length === 0 ? "nothing was dropped" : declaredLosses.join(", ");
 
   if (settlement.route === "native-replay") {
     // "In full" is a CLAIM, and an applied replay is entitled to make it only
