@@ -376,6 +376,7 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
       { version: 9 },
       { version: 10 },
       { version: 11 },
+      { version: 12 },
     ]);
   });
 
@@ -399,6 +400,7 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
       { version: 9 },
       { version: 10 },
       { version: 11 },
+      { version: 12 },
     ]);
   });
 
@@ -437,6 +439,7 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
         { version: 9 },
         { version: 10 },
         { version: 11 },
+        { version: 12 },
       ]);
     } finally {
       secondHandle.close();
@@ -844,7 +847,7 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
           .all() as ReadonlyArray<{ version: number }>;
         expect(
           rows,
-          `trial ${trial.toString()} expected exactly the eleven migration anchor rows [1..11] (a broken/missing v11 INSERT — the newest migration — or a duplicated anchor row would fail here); got ${JSON.stringify(rows)}`,
+          `trial ${trial.toString()} expected exactly the twelve migration anchor rows [1..12] (a broken/missing v12 INSERT — the newest migration — or a duplicated anchor row would fail here); got ${JSON.stringify(rows)}`,
         ).toEqual([
           { version: 1 },
           { version: 2 },
@@ -857,6 +860,7 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
           { version: 9 },
           { version: 10 },
           { version: 11 },
+          { version: 12 },
         ]);
       } finally {
         verifier.close();

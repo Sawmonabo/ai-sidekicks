@@ -218,6 +218,12 @@ import {
   type TerminalSuppressionReason,
 } from "../../terminal-emission-gate.js";
 import type { ChildThreadAnnouncement, ThreadFrameFamilyClass } from "../../thread-frame-router.js";
+import {
+  UNRECOGNIZED_TURN_EVIDENCE,
+  observedTurnEvidence,
+  type TurnEvidenceClass,
+  type TurnEvidenceClassification,
+} from "../outbound-frame.js";
 import type { CodexToolName } from "./tools.js";
 
 // --------------------------------------------------------------------------
@@ -1405,3 +1411,137 @@ export type CodexTerminalEmissionDecision = TerminalEmissionDecision;
  * later census-specific input would land on.
  */
 export class CodexTerminalEmissionGate extends TerminalEmissionGate {}
+
+// --------------------------------------------------------------------------
+// T3.18 — turn evidence on the Codex wire
+// --------------------------------------------------------------------------
+
+/** The `ThreadItem` variant that IS model output at the pin. */
+const CODEX_MODEL_OUTPUT_ITEM_TYPE = "agentMessage";
+
+/**
+ * `TurnStatus` members that are a DECLARED non-completion.
+ *
+ * `failed` is the ordinary typed failure (`TurnError.codexErrorInfo` names the
+ * cause). `interrupted` joins it because an interrupt is a deliberate daemon
+ * act with its own record — loud by construction, never a silent swallow — and
+ * a turn stopped on purpose must not be reported as a neutralization failure.
+ *
+ * `completed` is excluded, and that exclusion is the whole tripwire: a
+ * client-side command dispatch reports SUCCESS, so treating `completed` as
+ * evidence would make the check unreachable.
+ */
+const CODEX_DECLARED_NON_COMPLETION_STATUSES: ReadonlySet<string> = new Set([
+  "failed",
+  "interrupted",
+]);
+
+/** Every `TurnStatus` member the pin's generated schema carries. */
+const CODEX_TURN_STATUSES: ReadonlySet<string> = new Set([
+  "completed",
+  "interrupted",
+  "failed",
+  "inProgress",
+]);
+
+/** One in-flight turn-evidence reading, keyed by the turn it belongs to. */
+export interface CodexTurnEvidenceObservation {
+  readonly turnId: string;
+  readonly observation: TurnEvidenceClass;
+}
+
+function readCodexRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+/**
+ * Reads one in-flight notification for evidence that a model turn is producing
+ * output (T3.18), or `null` when the frame carries none.
+ *
+ * WHY THIS EXISTS AT ALL, rather than reading the terminal frame alone: at the
+ * pin `turn/completed` can carry `itemsView: "notLoaded"` beside an EMPTY
+ * `items` array — measured, not supposed (`docs/reference/provider-wire/codex.md`).
+ * An empty list under that view is an absence of loading, not an absence of
+ * output, so a classifier that read only the terminal would call a real turn
+ * evidence-free and trip on it. Evidence therefore accrues as the turn runs.
+ *
+ * Keyed on the item's TYPE tag rather than on any text: `agentMessage` is model
+ * output and `userMessage` is the provider's verbatim echo of what was sent —
+ * the echo is emphatically NOT evidence that a model saw it, which is exactly
+ * the confusion this hazard lives in.
+ */
+export function classifyCodexTurnEvidenceObservation(
+  method: string,
+  params: unknown,
+): CodexTurnEvidenceObservation | null {
+  if (!method.startsWith("item/")) {
+    return null;
+  }
+  const payload = readCodexRecord(params);
+  if (payload === null) {
+    return null;
+  }
+  const turnId = payload["turnId"];
+  if (typeof turnId !== "string" || turnId.length === 0) {
+    return null;
+  }
+  const item = readCodexRecord(payload["item"]);
+  if (item === null || item["type"] !== CODEX_MODEL_OUTPUT_ITEM_TYPE) {
+    return null;
+  }
+  return { turnId, observation: "model_output" };
+}
+
+/**
+ * Reads a settling `turn/completed` payload for positive, typed evidence that a
+ * model turn happened (T3.18, I-005-7).
+ *
+ * Every field consulted is a typed member of the pinned generated protocol —
+ * `TurnStatus`, `TurnError`, and the `ThreadItem` type tag. No message prose is
+ * parsed, and in particular `TurnError.message` is never inspected: its text is
+ * vendor prose that changes without notice, while `codexErrorInfo` beside it is
+ * a typed enum. What the classifier needs from an error is only that one is
+ * DECLARED, so it does not read either.
+ *
+ * `turn.durationMs` is deliberately NOT read as accounting evidence. The
+ * measured quota-exhausted turn carried `durationMs: 2838` having reached no
+ * model at all, so a duration says the provider spent wall-clock time, not that
+ * it spent a turn — and a discriminant that fires on a turn which reached
+ * nothing is a discriminant that fails open.
+ */
+export function classifyCodexTurnEvidence(params: unknown): TurnEvidenceClassification {
+  const payload = readCodexRecord(params);
+  if (payload === null) {
+    return UNRECOGNIZED_TURN_EVIDENCE;
+  }
+  const turn = readCodexRecord(payload["turn"]);
+  if (turn === null) {
+    return UNRECOGNIZED_TURN_EVIDENCE;
+  }
+  const status = turn["status"];
+  if (typeof status !== "string" || !CODEX_TURN_STATUSES.has(status)) {
+    return UNRECOGNIZED_TURN_EVIDENCE;
+  }
+
+  const observations: TurnEvidenceClass[] = [];
+  const items = turn["items"];
+  if (
+    Array.isArray(items) &&
+    items.some((entry) => readCodexRecord(entry)?.["type"] === CODEX_MODEL_OUTPUT_ITEM_TYPE)
+  ) {
+    observations.push("model_output");
+  }
+  if (
+    CODEX_DECLARED_NON_COMPLETION_STATUSES.has(status) &&
+    typeof readCodexRecord(turn["error"])?.["message"] === "string"
+  ) {
+    observations.push("declared_turn_failure");
+  } else if (status === "interrupted") {
+    // An interrupt need not carry an error payload — the daemon knows it asked
+    // for one — so the status alone is the declaration here.
+    observations.push("declared_turn_failure");
+  }
+  return observedTurnEvidence(...observations);
+}

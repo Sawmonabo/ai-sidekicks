@@ -105,7 +105,7 @@
 //
 // The CHECK admits all FOURTEEN canonical values at once — the thirteen this
 // task declares plus `transcript_replay`, whose first row lands at Plan-005 T3.19
-// (`migrations/000N-transcript-capability-backfill.ts`, allocated by this same
+// (`migrations/0012-transcript-capability-backfill.ts`, allocated by this same
 // `max(existing) + 1` rule) — for the reason Plan-005 T1.7 gives: a CHECK is a
 // whitelist,
 // admitting a value ahead of its first row costs nothing, and a second

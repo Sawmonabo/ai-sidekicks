@@ -32,6 +32,7 @@ import { PII_PARTICIPANT_ID_MIGRATION_SQL } from "../../migrations/0007-pii-part
 import { PENDING_ANCHOR_UPLOADS_MIGRATION_SQL } from "../../migrations/0008-pending-anchor-uploads.js";
 import { RETENTION_CLASS_AND_STUB_SIGNATURE_MIGRATION_SQL } from "../../migrations/0009-retention-class-and-stub-signature.js";
 import { REPO_WORKSPACES_MIGRATION_SQL } from "../../migrations/0010-repo-workspaces.js";
+import { DRIVER_CAPABILITY_CURRENCY_MIGRATION_SQL } from "../../migrations/0011-driver-capability-currency.js";
 import { applyMigrations, applyPragmas, openDatabase } from "../migration-runner.js";
 
 // Bound to exported identifiers so `Plan-010 §References` can anchor at the
@@ -192,21 +193,21 @@ describe("0001-initial migration shape", () => {
     expect(byName.get("monotonic_ns")?.notnull).toBe(1);
   });
 
-  it("anchors schema_version rows at versions [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]", () => {
+  it("anchors schema_version rows at versions [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]", () => {
     // The `ORDER BY version` is load-bearing: without it the row order is
     // insertion-order luck and the assertion would silently stop pinning
     // which versions landed.
     const versionRows = db
       .prepare("SELECT version FROM schema_version ORDER BY version")
       .all() as ReadonlyArray<{ version: number }>;
-    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
   });
 
   it("is idempotent when applyMigrations runs twice", () => {
     // Second invocation must be a no-op (the migration runner short-
     // circuits via hasMigrationApplied per version). Re-running must not
     // throw, must not double-insert any schema_version anchor row, must
-    // not duplicate tables. Eleven DISTINCT versions [1..11] is not
+    // not duplicate tables. Twelve DISTINCT versions [1..12] is not
     // duplication.
     //
     // Version 7 makes this arm strictly load-bearing rather than a
@@ -221,12 +222,16 @@ describe("0001-initial migration shape", () => {
     // driver_capabilities_new`) throws "table already exists" only because the
     // rename that consumed it happened inside the SAME script — and whose
     // ALTERs would otherwise throw "duplicate column name" like version 7's.
+    // Version 12 is the mildest of the set — its one INSERT carries
+    // `ON CONFLICT ... DO NOTHING`, so it is idempotent even without the guard
+    // — which is exactly why it is included here rather than trusted: the
+    // schema_version anchor row it appends is NOT idempotent on its own.
     applyMigrations(db);
     const versionRows = db
       .prepare("SELECT version FROM schema_version ORDER BY version")
       .all() as ReadonlyArray<{ version: number }>;
-    expect(versionRows).toHaveLength(11);
-    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(versionRows).toHaveLength(12);
+    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
   });
 });
 
@@ -2577,7 +2582,7 @@ describe("0009-retention-class-and-stub-signature migration shape", () => {
 // Pins the four legs of `migrations/0011-driver-capability-currency.ts`: the
 // fourteen-value `driver_capabilities.capability_flag` CHECK (reached by a
 // twelve-step table rebuild, since SQLite cannot alter a column CHECK in
-// place), the thirteen-flag `supported = 0` backfill, the
+// place), the thirteen-flag `supported = 0` backfill this ordinal writes, the
 // `cli_version_raw` / `cli_version_semver` pair on `runtime_bindings` +
 // `driver_contract_meta`, and `runtime_bindings.spawn_config`. Schema
 // source-of-truth is `docs/architecture/schemas/local-sqlite-schema.md`
@@ -2609,13 +2614,13 @@ describe("0011-driver-capability-currency migration shape", () => {
 
   const FIXTURE_TIMESTAMP: string = "2026-08-20T00:00:00.000Z";
 
-  // The fourteen values the widened CHECK ADMITS. Hardcoded here rather than
-  // derived from `DRIVER_CAPABILITY_FLAGS`, because the CHECK is deliberately
-  // one value WIDER than the union this tree declares: it admits
-  // `transcript_replay` ahead of that flag's own union widening at T3.19, so a
-  // const-derived list could never express the gap. The const-versus-rows
-  // lockstep is asserted separately, on the BACKFILLED ROW SET, by the final
-  // test in this block.
+  // The fourteen values the widened CHECK ADMITS. Hardcoded rather than derived
+  // from `DRIVER_CAPABILITY_FLAGS` for the ordinary anti-tautology reason: a
+  // list derived from the const would agree with it by construction and could
+  // never catch a value silently added or removed. The CHECK admitted
+  // `transcript_replay` one ordinal AHEAD of the union declaring it — a CHECK is
+  // a whitelist, so admitting a value before any row uses it costs nothing —
+  // which is why THIS ordinal's backfill covers only thirteen of them.
   const FOURTEEN_ADMITTED_CAPABILITY_FLAGS: ReadonlyArray<string> = [
     "resume",
     "steer",
@@ -2633,7 +2638,8 @@ describe("0011-driver-capability-currency migration shape", () => {
     "transcript_replay",
   ];
 
-  // The thirteen the BACKFILL covers — the fourteen minus `transcript_replay`.
+  // The thirteen THIS ORDINAL's backfill covers — the fourteen minus
+  // `transcript_replay`, whose row set is written by the next ordinal.
   const THIRTEEN_BACKFILLED_CAPABILITY_FLAGS: ReadonlyArray<string> =
     FOURTEEN_ADMITTED_CAPABILITY_FLAGS.filter((flag) => flag !== "transcript_replay");
 
@@ -2947,7 +2953,11 @@ describe("0011-driver-capability-currency migration shape", () => {
       insertCapabilityRow(isolatedDb, "claude", "steer", 1, "2026-08-02T00:00:00.000Z");
       insertCapabilityRow(isolatedDb, "codex", "mcp", 1, "2026-07-01T00:00:00.000Z");
 
-      applyMigrations(isolatedDb);
+      // Version 11's SQL DIRECTLY, not `applyMigrations`: this arm's claim is
+      // about what THIS ordinal writes, and running the chain would fold the
+      // next ordinal's `transcript_replay` backfill into the same row set and
+      // make the thirteen-flag assertion a claim about neither migration.
+      isolatedDb.exec(DRIVER_CAPABILITY_CURRENCY_MIGRATION_SQL);
 
       // CARDINALITY. Thirteen per driver, no more and no fewer — this is the
       // number `provider/driver-capabilities-writer.ts` compares against
@@ -2964,9 +2974,9 @@ describe("0011-driver-capability-currency migration shape", () => {
       expect(flagsFor("claude")).toEqual([...THIRTEEN_BACKFILLED_CAPABILITY_FLAGS].sort());
       expect(flagsFor("codex")).toEqual([...THIRTEEN_BACKFILLED_CAPABILITY_FLAGS].sort());
 
-      // `transcript_replay` is ADMITTED by the CHECK but gets NO row here: the
-      // row set tracks the declared union, and T3.19 lands the fourteenth row in
-      // the same ordinal that widens it.
+      // `transcript_replay` is ADMITTED by the CHECK but gets NO row from THIS
+      // ordinal: the CHECK ran one migration ahead of the union, so the row set
+      // catches up in the next one.
       expect(
         isolatedDb
           .prepare(
@@ -3124,12 +3134,236 @@ describe("0011-driver-capability-currency migration shape", () => {
           "`provider/driver-capabilities-writer.ts` proves exactly this key set on every " +
           "cold-start hydration (naming both the missing and the unexpected keys), and a " +
           "mismatch throws before any refresh can heal it. The const and the backfilled row " +
-          "set move in LOCKSTEP: Plan-005 T3.19 lands the fourteenth `transcript_replay` row " +
-          "and the fourteenth union member in the SAME migration ordinal. A red arm here " +
-          "means the two diverged — widen whichever half lags, never this assertion.",
+          "set move in LOCKSTEP: Plan-005 T3.19 lands the fourteenth union member and the " +
+          "fourteenth `transcript_replay` row in the SAME migration ordinal (the CHECK having " +
+          "widened one ordinal earlier, which costs nothing). A red arm here means the two " +
+          "diverged — widen whichever half lags, never this assertion.",
       ).toEqual([...DRIVER_CAPABILITY_FLAGS].sort());
     } finally {
       isolatedDb.close();
     }
+  });
+});
+
+// Plan-005 T3.19 — version-12 migration-shape coverage.
+//
+// Version 12 is a PURE ROW BACKFILL. Its two legs settle in different ordinals
+// and conflating them is the trap: the `capability_flag` CHECK was already
+// widened to fourteen values by version 11 (a CHECK is a whitelist, so admitting
+// a value before any row uses it costs nothing), so nothing here rebuilds a
+// table. What DOES have to land in the same ordinal as the union's fourteenth
+// member is the ROW — `provider/driver-capabilities-writer.ts` proves an exact
+// key set on every cold-start hydration and throws on a mismatch, so a cache
+// left at thirteen rows fails the next hydrate BEFORE any refresh could heal it.
+//
+// Shape-checkable spec/invariant cites:
+//   * I-005-2 — an undeclared capability is UNSUPPORTED: the backfill writes
+//     `supported = 0`, never 1, and never overwrites a declared row.
+//   * `Spec-005 §Recovery Consequences` — the cache is the cold-start source of
+//     truth, so its currency stamp must describe the driver's own last answer
+//     rather than the migration's wall clock.
+describe("0012-transcript-capability-backfill migration shape", () => {
+  let db: DatabaseType;
+
+  beforeEach(() => {
+    db = new Database(":memory:");
+    applyPragmas(db);
+    applyMigrations(db);
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  /**
+   * A handle carrying versions 1 through 10 and nothing later. Seeding a cache
+   * HERE and then running the chain is the real upgrade path: version 11 fans
+   * the seed out to thirteen flags and version 12 adds the fourteenth, which is
+   * the only construction in which "the row set caught up" is observable.
+   */
+  function openDatabaseMigratedThroughVersionTen(): DatabaseType {
+    const isolatedDb: DatabaseType = new Database(":memory:");
+    applyPragmas(isolatedDb);
+    isolatedDb.exec(INITIAL_MIGRATION_SQL);
+    isolatedDb.exec(RUNTIME_NODE_MIGRATION_SQL);
+    isolatedDb.exec(RUNTIME_BINDINGS_MIGRATION_SQL);
+    isolatedDb.exec(WORKTREE_LIFECYCLE_MIGRATION_SQL);
+    isolatedDb.exec(DAEMON_SIGNING_KEYS_MIGRATION_SQL);
+    isolatedDb.exec(RUN_LIFECYCLE_TERMINAL_BACKSTOP_MIGRATION_SQL);
+    isolatedDb.exec(PII_PARTICIPANT_ID_MIGRATION_SQL);
+    isolatedDb.exec(PENDING_ANCHOR_UPLOADS_MIGRATION_SQL);
+    isolatedDb.exec(RETENTION_CLASS_AND_STUB_SIGNATURE_MIGRATION_SQL);
+    isolatedDb.exec(REPO_WORKSPACES_MIGRATION_SQL);
+    return isolatedDb;
+  }
+
+  /**
+   * The same handle carried one ordinal further, to the state in which
+   * `transcript_replay` is already ADMISSIBLE. The version-10 CHECK still
+   * enforces the frozen seven-value list, so a case that needs to seed the
+   * fourteenth flag itself has to start from here.
+   */
+  function openDatabaseMigratedThroughVersionEleven(): DatabaseType {
+    const isolatedDb: DatabaseType = openDatabaseMigratedThroughVersionTen();
+    isolatedDb.exec(DRIVER_CAPABILITY_CURRENCY_MIGRATION_SQL);
+    return isolatedDb;
+  }
+
+  function seedCapabilityRow(
+    target: DatabaseType,
+    driverName: string,
+    capabilityFlag: string,
+    supported: 0 | 1,
+    refreshedAt: string,
+  ): void {
+    target
+      .prepare(
+        `INSERT INTO driver_capabilities (driver_name, capability_flag, supported, refreshed_at)
+         VALUES (?, ?, ?, ?)`,
+      )
+      .run(driverName, capabilityFlag, supported, refreshedAt);
+  }
+
+  function capabilityFlagsFor(target: DatabaseType, driverName: string): ReadonlyArray<string> {
+    return (
+      target
+        .prepare(
+          "SELECT capability_flag FROM driver_capabilities WHERE driver_name = ? ORDER BY capability_flag",
+        )
+        .all(driverName) as ReadonlyArray<{ capability_flag: string }>
+    ).map((row) => row.capability_flag);
+  }
+
+  it("brings every cached driver up to the full canonical flag set, the new row unsupported", () => {
+    const isolatedDb = openDatabaseMigratedThroughVersionTen();
+    try {
+      // `supported = 1` on the seeded row so a backfill that blanket-wrote zeros
+      // would be visible rather than indistinguishable.
+      seedCapabilityRow(isolatedDb, "claude", "resume", 1, "2026-08-01T00:00:00.000Z");
+      seedCapabilityRow(isolatedDb, "codex", "mcp", 1, "2026-07-01T00:00:00.000Z");
+
+      applyMigrations(isolatedDb);
+
+      expect(capabilityFlagsFor(isolatedDb, "claude")).toEqual([...DRIVER_CAPABILITY_FLAGS].sort());
+      expect(capabilityFlagsFor(isolatedDb, "codex")).toEqual([...DRIVER_CAPABILITY_FLAGS].sort());
+
+      // I-005-2 — undeclared is unsupported, so the migration writes 0 and never 1.
+      expect(
+        isolatedDb
+          .prepare(
+            "SELECT DISTINCT supported FROM driver_capabilities WHERE capability_flag = 'transcript_replay'",
+          )
+          .all(),
+      ).toEqual([{ supported: 0 }]);
+
+      // The seeded rows survive with their own values — the backfill adds, never
+      // overwrites.
+      expect(
+        isolatedDb
+          .prepare(
+            "SELECT supported, refreshed_at FROM driver_capabilities WHERE driver_name = ? AND capability_flag = ?",
+          )
+          .get("claude", "resume"),
+      ).toEqual({ supported: 1, refreshed_at: "2026-08-01T00:00:00.000Z" });
+    } finally {
+      isolatedDb.close();
+    }
+  });
+
+  it("stamps the new row with the DRIVER's own newest currency instant, never a global one", () => {
+    const isolatedDb = openDatabaseMigratedThroughVersionTen();
+    try {
+      // Two drivers, five weeks apart. A global MAX would stamp both with the
+      // newer instant and make the older driver's cache read as fresher than the
+      // last answer it ever gave.
+      seedCapabilityRow(isolatedDb, "claude", "resume", 1, "2026-08-02T00:00:00.000Z");
+      seedCapabilityRow(isolatedDb, "codex", "mcp", 1, "2026-07-01T00:00:00.000Z");
+
+      applyMigrations(isolatedDb);
+
+      expect(
+        isolatedDb
+          .prepare(
+            "SELECT refreshed_at FROM driver_capabilities WHERE driver_name = ? AND capability_flag = 'transcript_replay'",
+          )
+          .get("claude"),
+      ).toEqual({ refreshed_at: "2026-08-02T00:00:00.000Z" });
+      expect(
+        isolatedDb
+          .prepare(
+            "SELECT refreshed_at FROM driver_capabilities WHERE driver_name = ? AND capability_flag = 'transcript_replay'",
+          )
+          .get("codex"),
+      ).toEqual({ refreshed_at: "2026-07-01T00:00:00.000Z" });
+    } finally {
+      isolatedDb.close();
+    }
+  });
+
+  it("invents no row for a driver that has no cache at all", () => {
+    // The asymmetry is deliberate: a driver with NO cached rows must stay
+    // uncached, because a lone `transcript_replay` row would be a partial cache
+    // that fails the hydrator's key-set proof instead of reporting a clean MISS
+    // and forcing a refresh.
+    const isolatedDb = openDatabaseMigratedThroughVersionTen();
+    try {
+      applyMigrations(isolatedDb);
+      expect(isolatedDb.prepare("SELECT COUNT(*) AS total FROM driver_capabilities").get()).toEqual(
+        {
+          total: 0,
+        },
+      );
+    } finally {
+      isolatedDb.close();
+    }
+  });
+
+  it("leaves an already-declared transcript_replay row untouched", () => {
+    // `ON CONFLICT ... DO NOTHING`, driven rather than restated: a node that
+    // refreshed its cache after the CHECK widened already holds the row, and a
+    // migration may never overwrite a driver's own answer with a fail-closed one.
+    const isolatedDb = openDatabaseMigratedThroughVersionEleven();
+    try {
+      seedCapabilityRow(isolatedDb, "claude", "transcript_replay", 1, "2026-08-20T00:00:00.000Z");
+
+      applyMigrations(isolatedDb);
+
+      expect(
+        isolatedDb
+          .prepare(
+            "SELECT supported, refreshed_at FROM driver_capabilities WHERE driver_name = ? AND capability_flag = 'transcript_replay'",
+          )
+          .get("claude"),
+      ).toEqual({ supported: 1, refreshed_at: "2026-08-20T00:00:00.000Z" });
+    } finally {
+      isolatedDb.close();
+    }
+  });
+
+  it("is idempotent across a second migration pass", () => {
+    const isolatedDb = openDatabaseMigratedThroughVersionTen();
+    try {
+      seedCapabilityRow(isolatedDb, "claude", "resume", 1, "2026-08-01T00:00:00.000Z");
+
+      applyMigrations(isolatedDb);
+      applyMigrations(isolatedDb);
+
+      expect(capabilityFlagsFor(isolatedDb, "claude")).toEqual([...DRIVER_CAPABILITY_FLAGS].sort());
+      expect(
+        isolatedDb.prepare("SELECT COUNT(*) AS total FROM schema_version WHERE version = 12").get(),
+      ).toEqual({ total: 1 });
+    } finally {
+      isolatedDb.close();
+    }
+  });
+
+  it("anchors the version-12 schema_version row with its transcript-backfill description", () => {
+    const versionRows = db
+      .prepare("SELECT description FROM schema_version WHERE version = 12")
+      .all() as ReadonlyArray<{ description: string }>;
+    expect(versionRows).toHaveLength(1);
+    expect(versionRows[0]?.description).toBe(
+      "Transcript capability backfill (transcript_replay supported = 0 row per cached driver_name)",
+    );
   });
 });

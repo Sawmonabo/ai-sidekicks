@@ -121,6 +121,7 @@ describe("Claude capability declaration — explicit and total (I-005-2)", () =>
       session_goals: true,
       callback_tools: true,
       subagents: true,
+      transcript_replay: false,
       cost_cap: true,
     };
     expect(CLAUDE_CAPABILITY_FLAGS).toStrictEqual(matrix);
@@ -150,10 +151,11 @@ describe("Claude capability declaration — explicit and total (I-005-2)", () =>
   });
 
   it("declares no flag the contract does not carry", () => {
-    // `transcript_replay` is in the Spec-005 matrix (Claude cell: `probe`) but
-    // not in the union. Declaring it early would ship a key the writer rejects;
-    // T3.19/T3.20 mints it in the contract and decides the value there.
-    expect(Object.hasOwn(CLAUDE_CAPABILITY_FLAGS, "transcript_replay")).toBe(false);
+    // `transcript_replay` is now in the union, and its Spec-005 Claude cell is
+    // `probe` rather than a value — so the declaration is `false` until the
+    // driver-side replay leg probes the installed build. Undeclared and
+    // declared-unsupported must be indistinguishable to a caller.
+    expect(CLAUDE_CAPABILITY_FLAGS.transcript_replay).toBe(false);
     const canonical = new Set<string>(DRIVER_CAPABILITY_FLAGS);
     for (const flag of Object.keys(CLAUDE_CAPABILITY_FLAGS)) {
       expect(canonical.has(flag)).toBe(true);

@@ -103,11 +103,24 @@ import {
   type MeteredUsageDelta,
 } from "../../usage-delta-accountant.js";
 
+import {
+  OutboundFrameTripwire,
+  OutboundTextFrameWriter,
+  ProviderBindingQuarantine,
+  UNRECOGNIZED_TURN_EVIDENCE,
+  composeSupersededDeliveryRunFailure,
+  composeTextNeutralizationRunFailure,
+  type CallerDeclaredFrameOrigin,
+  type OutboundTextFrame,
+  type TextNeutralityMechanismGrade,
+  type TextNeutralizationRunFailure,
+} from "../outbound-frame.js";
 import { CLAUDE_DRIVER_NAME } from "./capabilities.js";
 import {
   CLAUDE_SUBAGENT_START_SIGNAL,
   ClaudeTerminalEmissionGate,
   classifyClaudeFrameFamilyForRouting,
+  classifyClaudeTurnEvidence,
   normalizeClaudeSubagentLifecycle,
   type ClaudeSubagentLifecycleSignal,
 } from "./event-normalizer.js";
@@ -135,15 +148,53 @@ const UNDESCRIBED_FAILURE_DETAIL =
 // Transport ports — the seam between this driver band and the provider process
 // --------------------------------------------------------------------------
 
-// A single outbound participant-authored text frame. Deliberately a NARROW named
-// shape rather than a writable stream handle: T3.18's driver-boundary text
-// neutralization (I-005-7) adds its frame-origin discriminator here as an
-// additive member and neutralizes inside the shared frame writer, which is
-// impossible if callers hold a raw stream. This module therefore never composes
-// a wire frame and never mutates participant text.
-export interface ClaudeUserTextFrame {
-  readonly text: string;
-}
+// A single outbound participant-authored text frame.
+//
+// Now the SHARED branded frame rather than a local shape, which is what makes
+// the neutralization structural instead of conventional: `OutboundTextFrame`
+// carries a `#private` field, so it is nominal and no object literal satisfies
+// it. This module therefore CANNOT compose a wire frame — it can only obtain
+// one from the frame writer, which is the single place the sentinel is applied
+// and the correlation value is minted. The transport reads `wireText`; the
+// author's bytes travel beside it as `authoredText` and are never what this
+// band persists, events, or replays.
+export type ClaudeUserTextFrame = OutboundTextFrame;
+
+// How far a FAILED `sendUserText` got — the discriminator this band cannot
+// derive and the transport cannot avoid knowing.
+//
+//   * `unsent` — the write was refused BEFORE any byte was handed over: the
+//     channel was already closed, the stream was not writable, or the frame
+//     could not be encoded. A POSITIVE claim about bytes, reserved for failures
+//     wholly ahead of the first one. The provider saw nothing, so no turn
+//     exists on account of this frame and none ever will.
+//   * `indeterminate` — anything at or after the hand-off, and anything the
+//     transport cannot place ahead of it. The host took the bytes and its write
+//     rejected, the process died mid-write, or the failure is simply not one of
+//     the two the transport can classify. How much of the line the child read
+//     is not knowable from here, and a partially written line is exactly the
+//     shape a child reads as a whole message once it sees the newline.
+//
+// There is deliberately NO `refused` arm. A user-text write on this leg is
+// one-way stdin: the provider answers a TURN, never the write, so no failure on
+// this path can carry the proof of receipt a control response can. Inventing
+// one would be inventing evidence.
+export type ClaudeUserTextDelivery = "unsent" | "indeterminate";
+
+// The settled outcome of one `sendUserText`, reported rather than thrown.
+//
+// A rejection cannot carry this: it collapses "nothing left" and "the bytes are
+// gone and the turn may be running" into one value, and the caller cannot
+// recover the difference afterwards without reading an error message, which is
+// a guess. The two cases are owed OPPOSITE treatment by the tripwire, so the
+// difference has to cross the seam as data.
+export type ClaudeUserTextWriteAttempt =
+  | { readonly settled: "written" }
+  | {
+      readonly settled: "failed";
+      readonly delivery: ClaudeUserTextDelivery;
+      readonly cause: unknown;
+    };
 
 // The one control-request subtype this band drives. `interrupt` is censused at
 // the pin; `cancel` is NOT a control-request subtype at all
@@ -230,7 +281,51 @@ export interface ClaudeInboundFrameObservation {
 // One live Claude provider process, already handshaken through `system/init`.
 export interface ClaudeSessionChannel {
   readonly providerSessionId: string;
-  sendUserText(frame: ClaudeUserTextFrame): Promise<void>;
+
+  /**
+   * Whether this channel can still deliver a turn terminal.
+   *
+   * TRANSPORT OBLIGATION — `isClosed` MUST read `true` once no further
+   * {@link ClaudeSessionChannel.onTurnTerminal} invocation can arrive for this
+   * channel, and MUST read `false` while one still can. That is the WHOLE of
+   * the property, and it is narrower than it looks: not "the process exited",
+   * not "the pipe broke", not "the last write failed" — only whether a terminal
+   * is still reachable. A transport that wired this to some other notion of
+   * liveness would be answering a question this band never asked.
+   *
+   * The one caller is the failed-write ruling below, whose entire argument for
+   * RETAINING an ambiguous frame is that the turn's own terminal will arrive
+   * and rule it. A channel that can deliver no terminal cannot make that
+   * argument, so this is the fact the fail-closed arm turns on.
+   *
+   * Reading `false` is the SAFE default, which is why the flag is asked in this
+   * direction. A transport that has not implemented it honestly yet leaves the
+   * frame retained: that costs one pending slot on a scope that already
+   * admitted it, and scope release reclaims it. The opposite default would trip
+   * a healthy binding on every recoverable write failure — a run failed and a
+   * provider session disposed over text the provider is still perfectly able to
+   * answer for.
+   */
+  readonly isClosed: boolean;
+
+  /**
+   * Writes one participant-authored text frame and REPORTS the outcome.
+   *
+   * TRANSPORT OBLIGATION — a failure MUST be reported as a `failed` attempt
+   * carrying the delivery classification, NOT raised as a rejection. The
+   * classification is not recoverable above this seam: only the transport
+   * observes whether the refusal happened ahead of the first byte or after the
+   * host took the line, and that difference decides whether the frame is
+   * forgotten or ruled fail-closed. See {@link ClaudeUserTextDelivery} for what
+   * each arm claims — `unsent` is a positive claim and every failure the
+   * transport cannot place ahead of the first byte is `indeterminate`.
+   *
+   * The driver still contains a rejection (as `indeterminate`, the fail-closed
+   * arm) rather than trusting this obligation to hold, because a contract
+   * violation must not be read as good news about bytes.
+   */
+  sendUserText(frame: ClaudeUserTextFrame): Promise<ClaudeUserTextWriteAttempt>;
+
   sendControlRequest(request: ClaudeControlRequest): Promise<ClaudeControlResponse>;
 
   /**
@@ -249,14 +344,20 @@ export interface ClaudeSessionChannel {
    * run would land on whatever turn the channel is running now. The listener
    * retires the route so that interrupt refuses instead.
    *
-   * The hook carries NO payload on purpose. The driver's response to every
-   * terminal is the same (retire the route), so passing the discriminant would
-   * hand this band a frame vocabulary it does not otherwise parse — the
-   * normalizer owns frame content, and it is deliberately unwired here. The
-   * transport already knows which terminal it saw; if a future caller needs the
-   * distinction, widening one hook is a smaller change than unpicking a coupling.
+   * The hook carries the terminal frame BODY, untyped and untrusted — the
+   * "future caller" its previous no-payload form named, arrived. T3.18's
+   * runtime tripwire has to ask whether a model turn demonstrably happened, and
+   * that answer lives in typed members of this exact frame (`num_turns`,
+   * `modelUsage`, `duration_api_ms`, `total_cost_usd`; see
+   * `docs/reference/provider-wire/claude.md`).
+   *
+   * The band's no-frame-vocabulary discipline is PRESERVED rather than
+   * abandoned: this module does not read a single member of the value. It
+   * forwards it to the normalizer's classifier, which is the module that owns
+   * frame content, and acts only on the classification that comes back. Typed
+   * `unknown` so that stays enforced rather than merely intended.
    */
-  onTurnTerminal(listener: () => void): void;
+  onTurnTerminal(listener: (terminalFrame: unknown) => void): void;
 
   /**
    * Registers the lifecycle's inbound-frame observer. Called EXACTLY ONCE, when
@@ -603,6 +704,15 @@ export interface ClaudeSessionTransport {
 // Run dispatch resolution — the daemon-owned half of `startRun`
 // --------------------------------------------------------------------------
 
+/**
+ * The origin a run's opening frame is written under (T3.18).
+ *
+ * A CONSTANT rather than a port member. The text this driver opens a run with
+ * is the participant's own message, composed by the daemon's run pipeline, so
+ * the origin is a fact of the code path and not a claim a resolver gets to make.
+ */
+const RUN_OPENING_FRAME_ORIGIN: CallerDeclaredFrameOrigin = "participant_text";
+
 // `StartRunParams` carries `runId` / `channelId` / `agentConfig` and NEITHER the
 // owning `sessionId` NOR the run's opening text. Both are daemon-owned facts:
 // the run-to-binding mapping lives in `runtime_bindings` (T2.2) and the opening
@@ -622,6 +732,15 @@ export interface ClaudeRunDispatchResolver {
 // The read the intervention dispatcher (T3.7) needs, and the only coupling
 // between the two bands — narrowed to one method so `intervention.ts` cannot
 // reach session state it has no business mutating.
+//
+// THREE outcomes, not two, since T3.18: a live channel, `undefined` for a run
+// with no route, and a THROWN refusal for a run whose provider binding a
+// text-neutralization trip disposed. The third is deliberately not folded into
+// the second — "this run has no channel yet" invites a retry, and a retry into
+// a process that has already swallowed a participant's words is the one
+// response that must not happen. A caller that treats every non-channel answer
+// as absence will now see the refusal escape instead, which is the intended
+// direction: it names the real cause rather than a plausible wrong one.
 export interface ClaudeRunChannelLookup {
   findChannelForRun(runId: RunId): ClaudeSessionChannel | undefined;
 }
@@ -635,6 +754,8 @@ export type ClaudeSessionUnavailableReason =
   | "session_id_pin_diverged"
   | "no_live_session"
   | "no_live_run"
+  | "run_already_dispatched"
+  | "session_turn_in_flight"
   | "run_dispatch_unresolved"
   | "cost_cap_mismatch"
   | "execution_posture_mismatch"
@@ -648,6 +769,10 @@ const SESSION_UNAVAILABLE_MESSAGES: Readonly<Record<ClaudeSessionUnavailableReas
     "The spawned Claude process announced a session id other than the pinned one.",
   no_live_session: "No live Claude session is bound to this session.",
   no_live_run: "No live Claude session is bound to this run.",
+  run_already_dispatched:
+    "This run's opening frame is already on the wire and its turn has not settled.",
+  session_turn_in_flight:
+    "Another run's frame is still pending on this Claude session; its turn has not settled.",
   run_dispatch_unresolved: "The daemon resolved no Claude dispatch for this run.",
   cost_cap_mismatch:
     "The run's admitted cost cap does not match the cap the Claude session was spawned with.",
@@ -1552,6 +1677,34 @@ export interface ClaudeSessionLifecycleDependencies {
    */
   readonly onMeteredUsage?: ((sessionId: SessionId, delta: MeteredUsageDelta) => void) | undefined;
   /**
+   * This leg's declared text-neutrality parity grade (T3.18), defaulting to the
+   * grade `Spec-005 §Parity Capability Mechanism Grades` records for it.
+   *
+   * Injectable because the grade is a behavioral INPUT: a leg re-graded
+   * `native` by amendment flips this value, and no code path branches on the
+   * provider's name to decide it.
+   */
+  readonly textNeutralityMechanismGrade?: TextNeutralityMechanismGrade | undefined;
+  /** Correlation minting for outbound text frames (T3.18). Injectable for tests. */
+  readonly mintOutboundFrameCorrelationId?: (() => string) | undefined;
+  /**
+   * Receives the run terminal a text-neutralization tripwire trip produces
+   * (T3.18). PRODUCER-ONLY, exactly like the sibling callbacks above: the
+   * driver states that the run failed and why, and the emission pipeline mints
+   * the envelope.
+   *
+   * REQUIRED, like `diagnostics` and unlike the optional sibling callbacks: the
+   * trip NEVER raises a JSON-RPC error, so this callback is the ONLY surface a
+   * swallowed turn has. An optional arm would let a construction site that
+   * simply never bound it end a neutralized turn with no terminal an operator
+   * can read.
+   */
+  readonly onTextNeutralizationFailure: (
+    sessionId: SessionId,
+    runId: RunId,
+    failure: TextNeutralizationRunFailure,
+  ) => void;
+  /**
    * Receives the `subagent.started` / `subagent.completed` pair for each
    * provider-attributed child (T3.11). PRODUCER-ONLY, and the child's ONLY
    * timeline presence: a registered child's content and lifecycle frames are
@@ -1692,6 +1845,19 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     | ((sessionId: SessionId, threadId: string) => CumulativeAxisReadings | undefined)
     | undefined;
   readonly #onMeteredUsage: ((sessionId: SessionId, delta: MeteredUsageDelta) => void) | undefined;
+  // T3.18. The writer is the ONLY composer of provider-bound text bytes on this
+  // leg; the tripwire correlates each written frame with the turn that settles
+  // it; the quarantine holds bindings a trip disposed. Constructed here rather
+  // than injected as a unit because all three are driver-session state whose
+  // lifetime is this object's.
+  readonly #outboundTextFrameWriter: OutboundTextFrameWriter;
+  readonly #outboundFrameTripwire: OutboundFrameTripwire;
+  readonly #providerBindingQuarantine: ProviderBindingQuarantine = new ProviderBindingQuarantine();
+  readonly #onTextNeutralizationFailure: (
+    sessionId: SessionId,
+    runId: RunId,
+    failure: TextNeutralizationRunFailure,
+  ) => void;
   readonly #onSubagentLifecycle:
     | ((sessionId: SessionId, emission: SubagentLifecycleEmission) => void)
     | undefined;
@@ -1727,6 +1893,31 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     this.#onReleasedFrameRoute = dependencies.onReleasedFrameRoute;
     this.#mintProviderSessionId = dependencies.mintProviderSessionId ?? randomUUID;
     this.#mintBindingId = dependencies.mintBindingId ?? randomUUID;
+    this.#onTextNeutralizationFailure = dependencies.onTextNeutralizationFailure;
+    this.#outboundTextFrameWriter = new OutboundTextFrameWriter({
+      // `emulated` is this leg's grade at the pin: the provider's own
+      // programmatic input surface intercepts command-shaped text client-side,
+      // measured first-party and recorded in
+      // `docs/reference/provider-wire/claude.md`.
+      mechanismGrade: dependencies.textNeutralityMechanismGrade ?? "emulated",
+      mintCorrelationId: dependencies.mintOutboundFrameCorrelationId,
+    });
+    // Constructed here rather than as a field initializer because the predicate
+    // reads a field declared after it, and a field initializer that captured
+    // that field would depend on declaration order to be correct.
+    //
+    // A session is retired once it holds no slot at all — every disposal path
+    // ends by deleting it — or once a trip has quarantined the binding. Either
+    // way no turn on it can ever settle, so the frames it left pending are owed
+    // no ruling. The SLOT map rather than `#findLiveSession`, deliberately: a
+    // session mid-establishment or mid-close still holds its slot and its
+    // frames may still be ruled, and reclaiming those would be the eviction the
+    // capacity refusal exists to replace.
+    this.#outboundFrameTripwire = new OutboundFrameTripwire({
+      isScopeRetired: (scopeKey: string): boolean =>
+        !this.#sessionSlots.has(scopeKey as SessionId) ||
+        this.#providerBindingQuarantine.isSessionDisposed(scopeKey),
+    });
   }
 
   async createSession(params: CreateSessionParams): Promise<ProviderSessionHandle> {
@@ -1928,6 +2119,15 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       throw new ClaudeSessionUnavailableError("run_dispatch_unresolved", { runId: params.runId });
     }
 
+    // T3.18, and BEFORE the live-session lookup so the cause survives. A trip
+    // disposes the session's channel, so a quarantined session fails that lookup
+    // too — with `no_live_session`, a plausible wrong cause that reads as a race
+    // and invites a retry into the process that swallowed the participant's
+    // words. Asked here, the refusal names the neutralization instead. Released
+    // at establishment, so the promised recovery — a fresh spawn under this id —
+    // is the thing that lifts it.
+    this.#providerBindingQuarantine.assertSessionAttachable(dispatch.sessionId);
+
     const live = this.#findLiveSession(dispatch.sessionId);
     if (live === undefined) {
       throw new ClaudeSessionUnavailableError("no_live_session", {
@@ -1938,13 +2138,250 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
 
     this.#assertSpawnBoundRealization(params, live);
 
-    // Bind BEFORE the frame is written: once the text is on the wire the turn may
-    // already be running, and an interrupt racing the write must find a route.
-    // A failed write deliberately LEAVES the binding — an interruptible run the
-    // daemon can stop is strictly safer than a turn that may exist with no route
-    // to it.
+    // One run key holds at most ONE pending frame on this leg — the invariant
+    // the tripwire's settle already attributes by: it classifies the frame at
+    // position 0 with the terminal's real verdict and rules every later frame
+    // under the same key `UNRECOGNIZED_TURN_EVIDENCE`, which trips. Registering
+    // a second opening frame for a run whose first has not settled would
+    // therefore quarantine this session over a duplicate dispatch, not over a
+    // swallowed participant. Refused HERE, before compose and register, so the
+    // duplicate mutates nothing; the first dispatch's frame, route, and pending
+    // turn all stand exactly as they were. Deliberately NOT keyed on the run
+    // route (`#sessionIdByRunId`): `#ruleFailedOpeningFrame`'s dead-channel arm
+    // retains the route precisely so `findChannelForRun` refuses loudly, and a
+    // ruled run re-dispatching after that failure is a real path this guard
+    // must not close.
+    if (this.#outboundFrameTripwire.hasPendingFrame(params.runId)) {
+      throw new ClaudeSessionUnavailableError("run_already_dispatched", {
+        sessionId: dispatch.sessionId,
+        runId: params.runId,
+      });
+    }
+
+    // The SESSION-scoped completion of the guard above — the run-keyed check
+    // stays first so a duplicate keeps its precise cause. Claude's settling
+    // envelope carries no run id, so `#ruleTextNeutralizationTripwire` can
+    // credit the terminal's real classification within only one run at a time:
+    // with two runs' frames pending on one session, the oldest-bound run takes
+    // the real verdict and every other is ruled unrecognized — quarantining a
+    // healthy session over a perfectly valid queued start. The transport
+    // serializes turns anyway, so a start admitted here could never run ahead
+    // of the pending one; refused before compose and register, it mutates
+    // nothing, and the caller is free to re-dispatch once the pending turn
+    // settles — the same recovery the duplicate guard promises.
+    if (this.#outboundFrameTripwire.hasPendingFrameInScope(dispatch.sessionId)) {
+      throw new ClaudeSessionUnavailableError("session_turn_in_flight", {
+        sessionId: dispatch.sessionId,
+        runId: params.runId,
+      });
+    }
+
+    // T3.18. The bytes are composed HERE and nowhere else: this band cannot
+    // build a `ClaudeUserTextFrame` itself, so the neutralization is on the only
+    // path to the wire rather than on a path a reviewer has to remember to
+    // check. Composed before the registration because the registration is keyed
+    // by the frame it admits.
+    // The origin is MINTED from a literal and is deliberately not a member of
+    // `ClaudeRunDispatch`. A run's opening text is the participant's own
+    // message, composed by the daemon's run pipeline, so the origin is a fact of
+    // this code path rather than a claim the resolver gets to make — and the arm
+    // a resolver could otherwise have named, `driver_command`, is the one that
+    // delivers command-shaped bytes verbatim AND exempts the turn from the
+    // tripwire, so a wrong value there would swallow the participant's words and
+    // report the turn completed. A port that cannot state it cannot get it wrong.
+    const frame = this.#outboundTextFrameWriter.compose({
+      text: dispatch.openingText,
+      origin: RUN_OPENING_FRAME_ORIGIN,
+    });
+    // A REFUSED registration aborts before the write. Taking the write anyway
+    // would be the one genuinely unsafe option — a turn that settles against no
+    // correlated frame PASSES, so an unwatched frame turns this session's
+    // backlog into a silent swallow.
+    //
+    // Admitted BEFORE the run route is bound, so a refusal here leaves this
+    // method having mutated nothing at all. The order is not cosmetic: a route
+    // bound ahead of a throwing admission would survive it, `findChannelForRun`
+    // would answer for a run that never dispatched, and a later interrupt or
+    // cancel for that run would send a SESSION-scoped control request that
+    // stops whatever older turn is genuinely running on the channel. Both steps
+    // are synchronous and both precede the write, so nothing is given up by
+    // asking for the budget first. (With the session-serialization guard above,
+    // this scope holds at most the one frame that guard admitted, so a capacity
+    // refusal here is unreachable via startRun — retained fail-closed against
+    // state drift, not as a live branch.)
+    this.#outboundFrameTripwire.register({
+      scopeKey: dispatch.sessionId,
+      joinKey: params.runId,
+      frameRole: "turn-opening",
+      frame,
+    });
+    // Bound BEFORE the frame is written: once the text is on the wire the turn
+    // may already be running, and an interrupt racing the write must find a
+    // route. What a FAILED write leaves behind is now decided by how far its
+    // bytes got — see `#ruleFailedOpeningFrame`.
     this.#sessionIdByRunId.set(params.runId, dispatch.sessionId);
-    await live.channel.sendUserText({ text: dispatch.openingText });
+    const attempt = await this.#attemptOpeningWrite(live.channel, frame);
+    if (attempt.settled === "failed") {
+      this.#ruleFailedOpeningFrame({
+        sessionId: dispatch.sessionId,
+        runId: params.runId,
+        channel: live.channel,
+        frame,
+        delivery: attempt.delivery,
+      });
+      throw attempt.cause;
+    }
+  }
+
+  /**
+   * Writes the opening frame, containing a transport that rejects instead of
+   * reporting.
+   *
+   * `sendUserText` is obliged to REPORT its failures so the delivery
+   * classification crosses the seam as data. A transport that rejected has
+   * broken that obligation, and the one thing this band must not do with a
+   * broken contract is read it as good news: a rejection carries no claim about
+   * bytes, and `unsent` is precisely a claim about bytes. So it lands on the
+   * fail-closed arm — the same rule the classification itself runs under, where
+   * anything that cannot be placed ahead of the first byte is `indeterminate`.
+   */
+  async #attemptOpeningWrite(
+    channel: ClaudeSessionChannel,
+    frame: ClaudeUserTextFrame,
+  ): Promise<ClaudeUserTextWriteAttempt> {
+    try {
+      return await channel.sendUserText(frame);
+    } catch (cause) {
+      return { settled: "failed", delivery: "indeterminate", cause };
+    }
+  }
+
+  /**
+   * Decides what a failed opening frame is owed, by how far its bytes got
+   * (T3.18).
+   *
+   * UNSENT — owed nothing. No turn will ever account for the frame, and leaving
+   * it registered would let it consume the evidence of the NEXT run on this
+   * session: the older frame rules first, the live run is ruled against none,
+   * and a run whose text did reach the provider is failed for it. The drop is
+   * frame-scoped for the shape this leg does not yet have but the sibling does
+   * — a second frame on the same key, still live and still owed its own ruling.
+   *
+   * The route goes with it once nothing else on that run is still owed a
+   * ruling, and that is a DEPARTURE from what a failed write used to leave
+   * behind. A route is not inert bookkeeping on this leg: Claude's interrupt is
+   * CHANNEL-scoped, so a route pointing at a run that provably never dispatched
+   * is an aimed weapon with nothing to aim at, and the interrupt it answers
+   * would stop whatever older turn the channel is actually running. The old
+   * blanket "an interruptible run beats a turn with no route to it" is the right
+   * trade only where a turn MIGHT exist; here, provably, none does.
+   *
+   * The condition on that deletion is what stops the trade from paying for
+   * itself with a sibling's silence. The registration this arm drops is
+   * FRAME-scoped and the route is RUN-scoped, so where two writes overlapped on
+   * one run — a retry beside the attempt it was retrying — deleting the route
+   * unconditionally would retire the ACCEPTED frame's only correlation along
+   * with the unsent one's. The terminal path reaches its runs through this map:
+   * `#ruleTextNeutralizationTripwire` intersects the routes with the keys still
+   * holding a pending frame, so that run would not appear among the correlated
+   * ids at all, its live frame would never be ruled, and command-intercepted
+   * text would vanish with no failure reported — the silent pass this whole leg
+   * exists to close, reached by way of the cleanup rather than by the swallow.
+   *
+   * The predicate is asked AFTER the forget, and about the RUN rather than about
+   * the frame. Both halves are load-bearing and both fail in a different
+   * direction: asking first would see this frame pending on every call and
+   * delete no route ever, restoring the aimed-weapon case above, while asking
+   * about the frame would answer a question the route is not keyed by. What the
+   * route still owes is exactly whether any OTHER frame on that key is still
+   * awaiting a turn.
+   *
+   * This leg cannot key its routes by turn the way the sibling driver does, and
+   * the reason is the transport's: Claude serializes turns per session and names
+   * none of them at start, so "a terminal arrived on this channel" is the whole
+   * of the correlation. There is no turn id to route by, which is why the
+   * sibling-aware predicate is the available answer rather than the second-best
+   * one.
+   *
+   * INDETERMINATE on a serviceable channel — owed the opposite. The provider may
+   * have received the text, intercepted it as a client-side command, and
+   * answered with the zero-turn success this tripwire exists to catch; the
+   * rejection the caller saw says nothing either way. Withdrawing the frame
+   * there is exactly how a swallowed directive escapes detection while the
+   * unsafe binding stays reusable. So the registration is RETAINED, the route is
+   * retained with it, and the turn's own terminal rules it — the argument the
+   * sibling driver's steer path could not make and this one can, because this
+   * path deliberately keeps both the route and the binding live.
+   *
+   * Retention has a cost, and it is worth naming rather than discovering: the
+   * retained frame becomes the FIRST claimant on this session's next terminal.
+   * If a later run then writes successfully and that run's turn settles, the
+   * ambiguous frame consumes the settling evidence and the later run is ruled
+   * against none — so the trip is reported against the wrong run. That is the
+   * fail-closed direction: the session is quarantined and disposed either way,
+   * and the participant is protected. The alternative — dropping the ambiguous
+   * frame so the attribution reads cleanly — is a SILENT PASS on the exact case
+   * this tripwire exists for.
+   *
+   * INDETERMINATE on a dead channel — the one case retention cannot cover. No
+   * terminal will ever arrive, so the frame would sit until the scope's budget
+   * is released and be dropped as mere occupancy: silence in the case that
+   * warrants the loudest answer. Ruled here instead, fail-closed, and ruled
+   * FRAME-scoped so a sibling frame on the same key whose delivery was never in
+   * doubt is not tripped alongside it.
+   *
+   * The route is deliberately LEFT on that last arm. `disposeRun` is what makes
+   * `findChannelForRun` refuse rather than answer `undefined`, and the two mean
+   * different things to a caller — a quiet `undefined` reads as "no channel
+   * yet", the one reading that invites a retry straight back into the swallow.
+   * Deleting the route would trade the loud refusal for exactly that silence.
+   *
+   * Residual, deliberately not closed here: a channel still serviceable at this
+   * moment that dies later without ever settling the turn leaves the retained
+   * frame to scope release. Closing it would mean carrying "delivery
+   * indeterminate" as tripwire state and ruling it at scope release, which
+   * fires neutralization failures on ordinary session closes that happen to
+   * have a turn in flight — a false trip on every clean shutdown, to cover a
+   * window this path already narrows to one that opens after the
+   * classification.
+   */
+  #ruleFailedOpeningFrame(ruling: {
+    readonly sessionId: SessionId;
+    readonly runId: RunId;
+    readonly channel: ClaudeSessionChannel;
+    readonly frame: ClaudeUserTextFrame;
+    readonly delivery: ClaudeUserTextDelivery;
+  }): void {
+    if (ruling.delivery === "unsent") {
+      this.#outboundFrameTripwire.forgetFrame(ruling.frame);
+      if (!this.#outboundFrameTripwire.hasPendingFrame(ruling.runId)) {
+        this.#sessionIdByRunId.delete(ruling.runId);
+      }
+      return;
+    }
+    if (!ruling.channel.isClosed) {
+      return;
+    }
+    const decision = this.#outboundFrameTripwire.settleFrame(
+      ruling.frame,
+      UNRECOGNIZED_TURN_EVIDENCE,
+    );
+    if (!decision.tripped) {
+      return;
+    }
+    // The same disposal the settlement path performs, in the same order: the
+    // SESSION arm first, so a caller reacting synchronously to the run failure
+    // cannot reach the condemned process by the other door. `startRun` resolves
+    // a session, so a run-keyed refusal alone would leave the next run free to
+    // dispatch onto the same channel.
+    this.#providerBindingQuarantine.disposeSession(ruling.sessionId);
+    this.#providerBindingQuarantine.disposeRun(ruling.runId, ruling.sessionId);
+    this.#reportTextNeutralizationFailure(
+      ruling.sessionId,
+      ruling.runId,
+      composeTextNeutralizationRunFailure(decision),
+    );
+    this.#disposeQuarantinedSession(ruling.sessionId);
   }
 
   /**
@@ -2138,10 +2575,6 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       }
       validatedRollbackResult = validated.data;
 
-      // Routes go before the swap: every run bound to this session was running
-      // on the PREDECESSOR's turn, and a route surviving into the forked session
-      // would aim a later interrupt at a turn that never started.
-      this.#retireRunRoutes(params.sessionId);
       this.#registerLiveSession({
         sessionId: params.sessionId,
         providerSessionId: attachment.providerSessionId,
@@ -2176,6 +2609,38 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
         fallbackAction: `rewind-adoption-failed: ${sanitizeFailureDetail(describeFailure(error))}${disposalNote}`,
       });
     }
+
+    // The predecessor's correlation is dropped only AFTER adoption has
+    // committed, and outside the try so that no throw can land between the drop
+    // and the registration.
+    //
+    // All three calls move together because they are one record read three
+    // ways: the tripwire finds a session's correlated runs THROUGH the routes,
+    // so acting on the frames while the routes stood — or the reverse — leaves a
+    // predecessor the slot machinery can restore but whose swallowed turns
+    // nothing can rule. A failed adoption restores a still-running predecessor,
+    // and it must come back correlated.
+    //
+    // The ORDER within the group is the mechanism rather than a preference. The
+    // failure sweep runs FIRST, while `#sessionIdByRunId` still names the runs
+    // its frames belong to; the retirement that empties that map runs second;
+    // the budget release is what is left once both have run.
+    //
+    // Retiring the routes is still right on the committed path: every run bound
+    // to this session was running on the PREDECESSOR's turn, so a surviving
+    // route would aim a later interrupt at a turn that never started. Dropping
+    // the FRAMES with them is what was not — the predecessor's turns can no
+    // longer settle, so a silent drop leaves a run whose text may never have
+    // reached the model looking exactly like one whose words landed. Nothing can
+    // observe the interval: the three calls are synchronous and adjacent to the
+    // registration, with no await between them.
+    this.#failSupersededDeliveries(params.sessionId);
+    this.#retireRunRoutes(params.sessionId);
+    // A no-op in the ordinary case: `#failSupersededDeliveries` consumed the
+    // scope's registrations already. Kept because it is the budget release's one
+    // and only home on this path, and a scope that somehow held a frame no route
+    // could explain must still not hold its budget for the fork's whole lifetime.
+    this.#outboundFrameTripwire.forgetScope(params.sessionId);
 
     // The predecessor is released only AFTER the successor is installed, which
     // is what made every failure path above non-destructive. Its disposal
@@ -2286,6 +2751,13 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
           // Routes go first and unconditionally: a route pointing into a process
           // that is being torn down would aim a later interrupt at a dead run.
           this.#retireRunRoutes(params.sessionId);
+          // And with them the frames no turn on this channel can ever settle.
+          // Called HERE and at the rewind above rather than folded into
+          // `#retireRunRoutes`, because that helper's third caller is the
+          // terminal path — where the tripwire has just been ruled and dropping
+          // whatever it left behind would rest on "provably already empty"
+          // rather than on the binding being gone.
+          this.#outboundFrameTripwire.forgetScope(params.sessionId);
           // Before the await, for the same reason the routes go first: a
           // subagent waiting on a slot in a process being torn down would wait
           // for the session's whole remaining lifetime and answer its provider
@@ -2342,6 +2814,12 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   }
 
   findChannelForRun(runId: RunId): ClaudeSessionChannel | undefined {
+    // T3.18. A binding a tripwire trip disposed is refused rather than answered
+    // with `undefined`: the two states mean different things to the caller, and
+    // a quiet `undefined` would read as "this run has no channel yet" — the one
+    // reading that invites a retry into the same swallow. The refusal carries
+    // the SAME code the run terminal did, so one cause reads as one cause.
+    this.#providerBindingQuarantine.assertRunAttachable(runId);
     const sessionId = this.#sessionIdByRunId.get(runId);
     if (sessionId === undefined) {
       return undefined;
@@ -2930,6 +3408,12 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       }
       throw error;
     }
+    // T3.18. Released only on a registration that SUCCEEDED, so a failed
+    // adoption cannot lift a refusal the failed leg never replaced. The
+    // quarantine names a BINDING, not an identifier: a fresh channel now answers
+    // for this session id, so the refusal a prior trip installed has outlived
+    // the process it condemned.
+    this.#providerBindingQuarantine.releaseSession(live.sessionId);
   }
 
   // The listener half of registration, separated so the slot rollback above has
@@ -2942,7 +3426,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     //
     // Retiring routes only — never the slot. The session stays LIVE and startable
     // after a turn ends; it is the RUN that is over.
-    const retireOnTurnTerminal = (): void => {
+    const retireOnTurnTerminal = (terminalFrame: unknown): void => {
       // Identity-gated. A channel that has been disposed, quarantined, or
       // replaced can still fire — the driver holds no kill, so an undead process
       // may emit a terminal long after the daemon stopped listening to it — and
@@ -2953,6 +3437,11 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       if (this.#findLiveSession(live.sessionId)?.channel !== live.channel) {
         return;
       }
+      // T3.18, BEFORE the retirement. The tripwire is keyed by run id, and
+      // `#retireRunRoutes` is what empties the map those ids are read from — so
+      // ruling after retiring would rule on nothing and let every swallowed turn
+      // through.
+      this.#ruleTextNeutralizationTripwire(live.sessionId, terminalFrame);
       this.#retireRunRoutes(live.sessionId);
     };
     live.channel.onTurnTerminal(retireOnTurnTerminal);
@@ -3134,6 +3623,271 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   // the slot: route retirement and slot transition are separate concerns, and
   // fusing them is what previously let a close free the slot as a side effect of
   // clearing routes.
+  /**
+   * Rules the text-neutralization tripwire on a settling turn (T3.18).
+   *
+   * Claude serializes turns per session and its terminal frame names no run, so
+   * the run that just ended is the one routed to this session — the same
+   * identity argument `#retireRunRoutes` already runs on.
+   *
+   * ONE terminal settles ONE turn, so exactly one run may consume this
+   * terminal's evidence: the oldest with a frame still awaiting settlement.
+   * Ordering is taken over PENDING FRAMES, not over routes, because the two
+   * sets genuinely differ — a run whose failed write was already ruled by
+   * `#ruleFailedOpeningFrame` on the dead-channel arm keeps its route, so that
+   * `findChannelForRun` refuses it loudly rather than answering `undefined`,
+   * while its registration is long consumed. Ordering by route would let that
+   * run consume the evidence a live one needed. Spreading one turn's evidence
+   * across every correlated run is the masking this tripwire exists to prevent:
+   * a good turn would vouch for text that never ran.
+   *
+   * Any FURTHER correlated run is ruled against no evidence at all, which trips
+   * it. That is not a guess: `#retireRunRoutes` destroys every route for this
+   * session on this same terminal, so a second correlated run's frame is, at
+   * this moment, provably never going to be confirmed — text written to the
+   * provider with no model turn attributable to it, which is exactly what the
+   * refusal says. The driver does not create that state; this is what it does
+   * if the state ever appears.
+   *
+   * One way that state now arises is worth naming: a frame RETAINED by
+   * `#ruleFailedOpeningFrame` on the serviceable-channel arm stays pending, so
+   * it holds position 0 here and a later run that wrote cleanly is ruled
+   * against no evidence. The trip is then attributed to the wrong run. That is
+   * the fail-closed direction and the deliberate price of retention — the
+   * alternative is a silent pass on a frame whose delivery is in doubt — and
+   * the session is quarantined and disposed either way.
+   *
+   * This band reads NO member of `terminalFrame`. It hands the value to the
+   * normalizer's classifier — the module that owns frame content — and acts on
+   * the classification alone.
+   */
+  #ruleTextNeutralizationTripwire(sessionId: SessionId, terminalFrame: unknown): void {
+    const correlatedRunIds = [...this.#sessionIdByRunId]
+      .filter(([, boundSessionId]) => boundSessionId === sessionId)
+      .map(([runId]) => runId)
+      .filter((runId) => this.#outboundFrameTripwire.hasPendingFrame(runId));
+    if (correlatedRunIds.length === 0) {
+      return;
+    }
+    const settlingClassification = classifyClaudeTurnEvidence(terminalFrame);
+    let tripped = false;
+    for (const [framePosition, runId] of correlatedRunIds.entries()) {
+      // With the session-serialization guard in startRun, at most one run can
+      // hold a pending frame per session, so every position past 0 is
+      // unreachable via startRun. The else-arm is retained fail-closed: if
+      // state ever drifts to two pending runs, crediting the terminal's real
+      // classification to both would let a swallowed frame ride a sibling's
+      // evidence.
+      const classification =
+        framePosition === 0 ? settlingClassification : UNRECOGNIZED_TURN_EVIDENCE;
+      const decision = this.#outboundFrameTripwire.settle(runId, classification);
+      if (!decision.tripped) {
+        continue;
+      }
+      if (!tripped) {
+        tripped = true;
+        // Quarantined FIRST, and on BOTH axes, so that a caller reacting
+        // synchronously to the failure cannot reach the process that just
+        // swallowed the text by either door. The run key alone is not enough:
+        // `startRun` resolves a SESSION, so a run-keyed refusal would leave the
+        // next run free to dispatch onto the same channel.
+        this.#providerBindingQuarantine.disposeSession(sessionId);
+      }
+      this.#providerBindingQuarantine.disposeRun(runId, sessionId);
+      this.#reportTextNeutralizationFailure(
+        sessionId,
+        runId,
+        composeTextNeutralizationRunFailure(decision),
+      );
+    }
+    if (tripped) {
+      this.#disposeQuarantinedSession(sessionId);
+    }
+  }
+
+  /**
+   * Rules every frame a condemned binding leaves unsettled, fail-closed (T3.18).
+   *
+   * The gap this closes is a SIBLING's, not the ruled run's. Both callers of
+   * {@link ClaudeSessionLifecycle.prototype} `#disposeQuarantinedSession` rule
+   * one run's frames before condemning the session, and only one of them rules
+   * the rest: the settlement path loops every correlated run holding a pending
+   * frame, so it arrives here with nothing left, while `#ruleFailedOpeningFrame`
+   * is deliberately FRAME-scoped — a sibling run whose delivery was never in
+   * doubt must not be tripped by another run's failed write. That scoping is
+   * right at the moment it acts and stops being right one line later, when the
+   * session is condemned and its channel disposed: the sibling's turn can no
+   * longer settle, the terminal listener is identity-gated to a live slot this
+   * teardown is about to vacate, and the frame would sit pending until some
+   * later close dropped it as occupancy. Silence, in the case that warrants the
+   * loudest answer.
+   *
+   * Ruled with `UNRECOGNIZED_TURN_EVIDENCE` because that is exactly what this
+   * driver knows — no settling envelope was ever seen — and it is the same
+   * classification both fail-closed arms beside it use. Exempt frames still
+   * pass: `#rule` answers on the frame before the classification.
+   *
+   * Reported at most ONCE per run. A run this driver already condemned has had
+   * its terminal composed from the ruling that condemned it, and the quarantine
+   * is the record of that, which is why it is consulted rather than a set built
+   * here.
+   *
+   * The failure carries the TRIP's cause rather than the superseded-delivery
+   * one, and the difference is the difference between the two paths: a supersede
+   * observed no swallow, while this binding is being condemned precisely because
+   * one was observed on it. A frame still riding that binding shares its verdict.
+   */
+  #ruleAbandonedFramesFailClosed(sessionId: SessionId): void {
+    const rulings = this.#outboundFrameTripwire.settleScope(sessionId, UNRECOGNIZED_TURN_EVIDENCE);
+    for (const ruling of rulings) {
+      if (!ruling.decision.tripped) {
+        continue;
+      }
+      const runId = this.#runIdBoundToSession(ruling.joinKey, sessionId);
+      if (runId === undefined || this.#providerBindingQuarantine.isRunDisposed(runId)) {
+        continue;
+      }
+      this.#providerBindingQuarantine.disposeRun(runId, sessionId);
+      this.#reportTextNeutralizationFailure(
+        sessionId,
+        runId,
+        composeTextNeutralizationRunFailure(ruling.decision),
+      );
+    }
+  }
+
+  /**
+   * Tears down the channel a tripwire trip condemned (T3.18).
+   *
+   * Reuses `#disposeHeldChannel` rather than inventing a second teardown: this
+   * is the same close every other disposal performs, so the slot transitions,
+   * the retained-channel quarantine on a process that will not exit, and the
+   * per-session band cleanup are the ones the rest of the driver already relies
+   * on. The promised recovery is a fresh spawn, which is what a close makes
+   * possible.
+   *
+   * Detached on purpose: the only caller runs inside a channel's synchronous
+   * terminal listener, which must neither wait on a child's death nor be
+   * unwound by one. The teardown is BEST-EFFORT and the refusal is not — the
+   * quarantine entry is installed before this runs, so every later resolution
+   * refuses whether or not the process actually exits.
+   */
+  #disposeQuarantinedSession(sessionId: SessionId): void {
+    // BEFORE the liveness read and outside it, so the ruling does not depend on
+    // whether a channel is still there to dispose. The frames are owed an answer
+    // because the BINDING was condemned, which has already happened by the time
+    // any caller reaches this method.
+    this.#ruleAbandonedFramesFailClosed(sessionId);
+    const live = this.#findLiveSession(sessionId);
+    if (live === undefined) {
+      return;
+    }
+    void this.#disposeHeldChannel(sessionId, live.channel).catch(() => {
+      // Swallowed HERE and recorded THERE: a rejected dispose has already moved
+      // the slot to `quarantined` with the channel retained, which is this
+      // driver's own record of a process that would not exit and the handle a
+      // later close retries through. Rethrowing would only surface as an
+      // unhandled rejection out of a channel's terminal listener.
+    });
+  }
+
+  // A throwing consumer must not become a second failure on top of the one being
+  // reported: the run terminal is the guarantee, and losing it because a listener
+  // threw would leave the swallowed turn with no record at all.
+  #reportTextNeutralizationFailure(
+    sessionId: SessionId,
+    runId: RunId,
+    failure: TextNeutralizationRunFailure,
+  ): void {
+    try {
+      this.#onTextNeutralizationFailure(sessionId, runId, failure);
+    } catch (error) {
+      this.#diagnostics.emit({
+        provider: "claude",
+        kind: "text_neutralization_trip_report_failed",
+        rawWireType: null,
+        dispositionReason: describeFailure(error),
+        details: { sessionId, runId, providerFailureDetail: failure.providerFailureDetail },
+      });
+    }
+  }
+
+  /**
+   * Fails the runs whose frames a REWIND superseded before the provider settled
+   * them (T3.18).
+   *
+   * The visible-failure guarantee this closes: a participant's text that
+   * provably may not have reached the model never silently vanishes. A rewind
+   * replaces the binding those frames were written on and keeps the session id
+   * live, so no terminal for them can ever arrive — the successor's terminal
+   * hook is identity-gated on ITS channel — and before this existed the frames
+   * were dropped with the scope's budget, leaving the run to look exactly like
+   * one whose words landed on a session that forked cleanly.
+   *
+   * Not ruled fail-closed, and not dropped either — the two arms this path used
+   * to have to choose between. A trip claims the provider swallowed the text,
+   * which nothing observed here; a drop claims nothing at all. `abandonScope`
+   * states the third thing, which is the true one: the answer became
+   * unreachable when the binding was superseded, and it will never arrive.
+   *
+   * Reported through the SAME seam a trip reports through, with a deliberately
+   * different cause on it — `composeSupersededDeliveryRunFailure` carries no
+   * dotted code and claims only what is known, where borrowing the trip's
+   * detail would publish a swallow nobody observed.
+   *
+   * Reported at most ONCE per run. This leg registers one frame per run and
+   * never re-keys, so the guard is cheap; it is kept because "one supersede is
+   * one cause" is the claim, not "one frame is one cause".
+   *
+   * The superseded runs are deliberately NOT quarantined. A quarantine condemns
+   * a binding, and this one is already gone — the fresh process is exactly where
+   * any future work on those runs belongs, and refusing them would take their
+   * interrupt and intervention controls away for nothing.
+   *
+   * A join key this leg cannot resolve to a bound run is unreachable rather than
+   * tolerated: `startRun` writes the route in the same synchronous block as the
+   * registration, and every path that deletes a route either forgets that run's
+   * LAST pending frame (`#ruleFailedOpeningFrame` on the unsent arm, which
+   * leaves the route standing while a sibling frame on the same key is still
+   * owed a ruling) or settles it (`#ruleTextNeutralizationTripwire`, which rules
+   * every correlated run holding a pending frame before `#retireRunRoutes`
+   * empties the map). The lookup is what produces the branded run id, not a
+   * filter on a case that happens.
+   */
+  #failSupersededDeliveries(sessionId: SessionId): void {
+    const abandoned = this.#outboundFrameTripwire.abandonScope(sessionId);
+    const reportedRunIds = new Set<RunId>();
+    for (const frame of abandoned) {
+      const runId = this.#runIdBoundToSession(frame.joinKey, sessionId);
+      if (runId === undefined || reportedRunIds.has(runId)) {
+        continue;
+      }
+      reportedRunIds.add(runId);
+      this.#reportTextNeutralizationFailure(
+        sessionId,
+        runId,
+        composeSupersededDeliveryRunFailure(frame.detailOrigin),
+      );
+    }
+  }
+
+  /**
+   * The run a join key names, verified against the session it is bound to.
+   *
+   * Scanned rather than looked up because the map is keyed by the BRANDED run
+   * id and the tripwire's join key is a plain string — the scan is what turns
+   * one into the other, and the session comparison is what keeps a key from
+   * naming a run that has since moved to another binding.
+   */
+  #runIdBoundToSession(joinKey: string, sessionId: SessionId): RunId | undefined {
+    for (const [runId, boundSessionId] of this.#sessionIdByRunId) {
+      if (runId === joinKey && boundSessionId === sessionId) {
+        return runId;
+      }
+    }
+    return undefined;
+  }
+
   #retireRunRoutes(sessionId: SessionId): void {
     for (const [runId, boundSessionId] of this.#sessionIdByRunId) {
       if (boundSessionId === sessionId) {

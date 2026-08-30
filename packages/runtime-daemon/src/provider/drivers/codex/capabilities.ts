@@ -67,10 +67,13 @@
 // SCOPE BOUNDARY: the MCP idempotency floor + server-status census (T3.13)
 // EXTEND this driver in a sibling PR-B task and are NOT implemented here; the
 // CLI-version floor and the refresh cadence landed with T3.12 (the floor
-// enforced below, the cadence in `../../capability-refresh.js`). `transcript_replay` is not declared
-// because it is not a member of the current canonical flag set; it lands with
-// its own task later in this phase, and the `Record` totality above makes
-// adding it a compile error until it is answered.
+// enforced below, the cadence in `../../capability-refresh.js`). `transcript_replay`
+// is answered `false` below, and that is a SCOPE BOUNDARY rather than a verdict:
+// this provider's injection surface is real, but the replay leg that drives it —
+// and the post-replay assertion that is the only admissible evidence it worked —
+// is authored by a later task in this phase, and a flag declared ahead of the
+// code it gates is a promise no caller can keep. The `supported = 0` row
+// backfilled at migration 0012 matches this declaration until both flip together.
 //
 // Spec coverage: `Spec-005 §Required Behavior` (drivers declare capability
 // flags; the runtime treats undeclared capabilities as unsupported),
@@ -153,6 +156,8 @@ export const CODEX_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boole
     callback_tools: true,
     // Peer agents can be spawned, messaged, and closed from within a turn.
     subagents: true,
+    // FALSE pending the replay leg — see the scope boundary in the header.
+    transcript_replay: false,
     // FALSE: no native spawn-time hard budget cap. Consumed fail-closed by
     // Spec-016's native-cap unpriced-family escape, which refuses reservation
     // on a capless leg rather than admitting an unbounded run

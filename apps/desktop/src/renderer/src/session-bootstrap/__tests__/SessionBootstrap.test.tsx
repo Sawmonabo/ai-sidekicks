@@ -52,7 +52,8 @@ function installMockBridge(call: ReturnType<typeof vi.fn>): void {
     bridge as unknown as SidekicksBridge;
 }
 
-describe("SessionBootstrap (Plan-001 Phase 5 T5.2 Lane C)", () => {
+// Component under test: `SessionBootstrap` (Plan-001 Phase 5 T5.2 Lane C).
+describe("SessionBootstrap", () => {
   afterEach(() => {
     // RTL auto-cleanup runs because `vitest/globals: true` lets
     // `@testing-library/react@^16` register its `afterEach` hook. We still

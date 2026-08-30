@@ -32,6 +32,9 @@ import {
   type DriverInterventionResult,
   type DriverResumeResult,
   type DriverRollbackResult,
+  type DriverTranscriptExportResult,
+  type DriverTranscriptReplayResult,
+  type ExportTranscriptParams,
   type GetCapabilitiesResult,
   type InterruptRunParams,
   type ProviderDriver,
@@ -39,6 +42,7 @@ import {
   type ProviderMode,
   type ProviderSessionHandle,
   type RespondToRequestParams,
+  type ReplayTranscriptParams,
   type ResumeSessionParams,
   type RollbackToParams,
   type SetSessionGoalParams,
@@ -95,7 +99,7 @@ const CLI_VERSION_REPORT: DriverCliVersionReport = {
 /**
  * A minimal fake `ProviderDriver`. Only `getCapabilities` is meaningful: it
  * returns a caller-chosen `flags` record and counts its own invocations so a test
- * can assert the registry snapshots it EXACTLY ONCE. The other thirteen ops throw —
+ * can assert the registry snapshots it EXACTLY ONCE. The other fifteen ops throw —
  * if the registry ever calls one, the test fails loudly.
  */
 class FakeProviderDriver implements ProviderDriver {
@@ -123,7 +127,7 @@ class FakeProviderDriver implements ProviderDriver {
     return Promise.resolve({ capabilities, tools: [], cliVersion: CLI_VERSION_REPORT });
   }
 
-  // The remaining thirteen ops are never exercised here — the gate reads the
+  // The remaining fifteen ops are never exercised here — the gate reads the
   // cached snapshot, not the live driver — so they throw to catch any accidental
   // call. Declared in contract order.
   createSession(_params: CreateSessionParams): Promise<ProviderSessionHandle> {
@@ -163,6 +167,12 @@ class FakeProviderDriver implements ProviderDriver {
     throw new Error("not implemented in test");
   }
   probeAuth(): Promise<DriverAuthProbeResult> {
+    throw new Error("not implemented in test");
+  }
+  exportTranscript(_params: ExportTranscriptParams): Promise<DriverTranscriptExportResult> {
+    throw new Error("not implemented in test");
+  }
+  replayTranscript(_params: ReplayTranscriptParams): Promise<DriverTranscriptReplayResult> {
     throw new Error("not implemented in test");
   }
 }

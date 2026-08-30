@@ -240,7 +240,8 @@ function createSubscribeCapture(unsubscribe: Unsubscribe = noopUnsubscribe): {
   return { daemonSubscribe, emitNodeHealthPush };
 }
 
-describe("NodeRoster (Plan-003 Phase 5 T5.1)", () => {
+// Component under test: `NodeRoster` (Plan-003 Phase 5 T5.1).
+describe("NodeRoster", () => {
   afterEach(() => {
     delete (window as unknown as { sidekicks?: SidekicksBridge }).sidekicks;
     vi.clearAllMocks();
@@ -302,7 +303,8 @@ describe("NodeRoster (Plan-003 Phase 5 T5.1)", () => {
       expect(belowFloorRow).not.toBeNull();
     });
 
-    it("renders a below-floor node read-only rather than dropping it (AC4)", async () => {
+    // `Spec-003 §Acceptance Criteria` AC4.
+    it("renders a below-floor node read-only rather than dropping it", async () => {
       const controlPlaneCall = vi.fn().mockResolvedValue(FIRST_SNAPSHOT);
       const { daemonSubscribe } = createSubscribeCapture();
       installMockBridge(controlPlaneCall, daemonSubscribe);
@@ -559,7 +561,7 @@ describe("NodeRoster (Plan-003 Phase 5 T5.1)", () => {
     });
   });
 
-  describe("bridge-projection (CP-003-3)", () => {
+  describe("bridge-projection", () => {
     // Spec-023 §Trust Stance + Plan-003 CP-003-3, and BL-131 exit criterion (b)
     // ("assert bridge-only data access (no `node:*`/`electron` imports)"). The
     // `@ai-sidekicks/runtime-daemon` / `@ai-sidekicks/control-plane` arm has no

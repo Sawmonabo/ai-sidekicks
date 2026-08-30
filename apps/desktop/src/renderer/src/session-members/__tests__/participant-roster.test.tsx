@@ -179,7 +179,8 @@ function installMockBridge(
 // test below uses a dedicated `vi.fn()` spy instead.
 const noopUnsubscribe: Unsubscribe = () => {};
 
-describe("ParticipantRoster (Plan-002 Phase 6 T6.3)", () => {
+// Component under test: `ParticipantRoster` (Plan-002 Phase 6 T6.3).
+describe("ParticipantRoster", () => {
   afterEach(() => {
     delete (window as unknown as { sidekicks?: SidekicksBridge }).sidekicks;
     vi.clearAllMocks();
@@ -566,7 +567,7 @@ describe("ParticipantRoster (Plan-002 Phase 6 T6.3)", () => {
     expect(screen.queryByText(`participant id: ${PARTICIPANT_ONLINE}`)).toBeNull();
   });
 
-  describe("bridge-projection (CP-002-5)", () => {
+  describe("bridge-projection", () => {
     // Spec-023 §Trust Stance + Plan-002 CP-002-5 operational enforcement. The
     // renderer is the UNTRUSTED surface: it must reach the daemon / control-plane
     // ONLY through the `window.sidekicks` preload bridge, NEVER by importing the

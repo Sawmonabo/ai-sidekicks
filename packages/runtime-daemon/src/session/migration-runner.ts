@@ -18,8 +18,9 @@
 // `migrations/0007-pii-participant-id.ts`,
 // `migrations/0008-pending-anchor-uploads.ts`,
 // `migrations/0009-retention-class-and-stub-signature.ts`); version 10 by
-// Plan-009 (`migrations/0010-repo-workspaces.ts`); version 11 by Plan-005
-// (`migrations/0011-driver-capability-currency.ts`). Subsequent plans
+// Plan-009 (`migrations/0010-repo-workspaces.ts`); versions 11 and 12 by
+// Plan-005 (`migrations/0011-driver-capability-currency.ts`,
+// `migrations/0012-transcript-capability-backfill.ts`). Subsequent plans
 // (015, 022...) — and Plan-006's own remaining migrations — register their
 // version as a further guarded block of the same shape and bump
 // `schema_version`.
@@ -57,6 +58,15 @@
 // both impossible inside this runner's transaction and unnecessary for a table
 // that participates in no foreign key in either direction).
 //
+// Version 12 requires version 11 and nothing else. It inserts the fourteenth
+// `driver_capabilities` row per cached driver — the value version 11's CHECK
+// already admits and deliberately gave no row — and touches nothing else. It is
+// the one version so far whose statement is idempotent on its own (`ON CONFLICT
+// ... DO NOTHING`), so the `schema_version` guard here prevents a redundant
+// apply rather than a destructive one. Ordering against 11 is not merely
+// conventional: run first, the insert would be rejected by the superseded
+// seven-value CHECK version 11 replaces.
+//
 // SQL is sourced as a TypeScript string constant (not a sibling .sql file)
 // because `tsc -b` does not copy non-TS assets into `dist/` and `package.json`
 // `"files": ["dist"]` would exclude `src/migrations/` from publish; see the
@@ -84,6 +94,7 @@ import { PENDING_ANCHOR_UPLOADS_MIGRATION_SQL } from "../migrations/0008-pending
 import { RETENTION_CLASS_AND_STUB_SIGNATURE_MIGRATION_SQL } from "../migrations/0009-retention-class-and-stub-signature.js";
 import { REPO_WORKSPACES_MIGRATION_SQL } from "../migrations/0010-repo-workspaces.js";
 import { DRIVER_CAPABILITY_CURRENCY_MIGRATION_SQL } from "../migrations/0011-driver-capability-currency.js";
+import { TRANSCRIPT_CAPABILITY_BACKFILL_MIGRATION_SQL } from "../migrations/0012-transcript-capability-backfill.js";
 
 /**
  * Apply pragmas to an open Database handle. MUST be called on every
@@ -296,6 +307,24 @@ export function applyMigrations(db: DatabaseType): void {
     db.transaction(() => {
       if (!hasMigrationApplied(db, 11)) {
         db.exec(DRIVER_CAPABILITY_CURRENCY_MIGRATION_SQL);
+      }
+    }).immediate();
+  }
+
+  if (!hasMigrationApplied(db, 12)) {
+    // Version 12 (Plan-005) — the transcript capability backfill: a
+    // `supported = 0` `transcript_replay` row for every cached `driver_name`,
+    // landing the fourteenth row against the CHECK version 11 already widened.
+    // Atomicity carries the same weight it does at version 11 and for the same
+    // reason: the backfill and its `schema_version` stamp must land together, or
+    // a re-run would be gated on a version marker whose rows never arrived. What
+    // makes the row set urgent rather than cosmetic is the hydrator's
+    // exact-cardinality guard — a cache left at thirteen rows against the
+    // fourteen-member union throws on the first cold-start read, before any
+    // capability refresh could heal it.
+    db.transaction(() => {
+      if (!hasMigrationApplied(db, 12)) {
+        db.exec(TRANSCRIPT_CAPABILITY_BACKFILL_MIGRATION_SQL);
       }
     }).immediate();
   }

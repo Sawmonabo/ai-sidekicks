@@ -32,7 +32,9 @@ import type {
   ClaudeSessionRewindRequest,
   ClaudeSessionSpawnRequest,
   ClaudeSessionTransport,
+  ClaudeUserTextDelivery,
   ClaudeUserTextFrame,
+  ClaudeUserTextWriteAttempt,
 } from "../lifecycle.js";
 
 export const TEST_SESSION_ID: SessionId = "session-1" as SessionId;
@@ -62,7 +64,33 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
   readonly disposals: ClaudeChannelDisposalReason[] = [];
   controlResponse: ClaudeControlResponse = { subtype: "success" };
   controlRequestFailure: Error | undefined = undefined;
+  /**
+   * A write failure the double REPORTS, the way the port obliges a transport to.
+   *
+   * Paired with `sendUserTextDelivery` rather than carrying its own
+   * classification, so a test that sets a failure and forgets the delivery gets
+   * the port's own fail-closed default instead of the convenient arm.
+   */
   sendUserTextFailure: Error | undefined = undefined;
+  /**
+   * How `sendUserTextFailure` is classified. Defaults to the fail-closed arm for
+   * the same reason the real transport's default is: `unsent` is a positive
+   * claim about bytes, and a double that volunteered it would let a test assert
+   * the forgiving path without anyone having claimed the bytes never left.
+   */
+  sendUserTextDelivery: ClaudeUserTextDelivery = "indeterminate";
+  /**
+   * A write failure the double RAISES instead of reporting — a transport in
+   * breach of the port's obligation. Distinct from `sendUserTextFailure`
+   * precisely so the driver's containment of a broken contract is reachable
+   * from a test rather than taken on trust.
+   */
+  sendUserTextRejection: Error | undefined = undefined;
+  /**
+   * Whether a turn terminal can still arrive, as the port defines it. `false`
+   * while the channel is serviceable, which is the state a live double is in.
+   */
+  isClosed = false;
   disposeFailure: Error | undefined = undefined;
 
   constructor(providerSessionId: string) {
@@ -73,12 +101,45 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
     return this.sentTextFrames.length + this.controlRequests.length;
   }
 
-  async sendUserText(frame: ClaudeUserTextFrame): Promise<void> {
+  /**
+   * The bytes each frame actually put on the wire, in order.
+   *
+   * Read from `wireText` rather than from the frame object, which is what makes
+   * an assertion on it a BYTE-level assertion: a neutralized frame and its
+   * author's text are different strings, and a test comparing whole frame
+   * objects would pass while reading neither.
+   */
+  get sentWireTexts(): string[] {
+    return this.sentTextFrames.map((frame) => frame.wireText);
+  }
+
+  /**
+   * The author's bytes behind each frame, in order — what the daemon persists,
+   * events, replays, and rewinds to. Neutralization must never touch these.
+   */
+  get sentAuthoredTexts(): string[] {
+    return this.sentTextFrames.map((frame) => frame.authoredText);
+  }
+
+  async sendUserText(frame: ClaudeUserTextFrame): Promise<ClaudeUserTextWriteAttempt> {
+    if (this.sendUserTextRejection !== undefined) {
+      throw this.sendUserTextRejection;
+    }
     if (this.sendUserTextFailure !== undefined) {
-      throw this.sendUserTextFailure;
+      // The frame is deliberately NOT recorded on either failure arm. A double
+      // that recorded it would make `sentWireTexts` mean "offered" rather than
+      // "written", and every assertion that nothing reached the provider would
+      // pass for the wrong reason.
+      await Promise.resolve();
+      return {
+        settled: "failed",
+        delivery: this.sendUserTextDelivery,
+        cause: this.sendUserTextFailure,
+      };
     }
     this.sentTextFrames.push(frame);
     await Promise.resolve();
+    return { settled: "written" };
   }
 
   async sendControlRequest(request: ClaudeControlRequest): Promise<ClaudeControlResponse> {
@@ -98,14 +159,30 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
   // that runs inside the driver's adoption window.
   onTurnTerminalFailure: Error | undefined = undefined;
 
-  onTurnTerminal(listener: () => void): void {
+  onTurnTerminal(listener: (terminalFrame: unknown) => void): void {
     if (this.onTurnTerminalFailure !== undefined) {
       throw this.onTurnTerminalFailure;
     }
     this.turnTerminalListener = listener;
   }
 
-  turnTerminalListener: (() => void) | undefined = undefined;
+  turnTerminalListener: ((terminalFrame: unknown) => void) | undefined = undefined;
+
+  /**
+   * The terminal `result` body this double hands the driver's turn-terminal
+   * hook, overridable per test.
+   *
+   * The default carries POSITIVE turn evidence, so an ordinary terminal does
+   * not trip the T3.18 tripwire and every test in this file that merely needs a
+   * turn to end keeps meaning what it meant. A test exercising the tripwire
+   * overrides it — with a zero-turn body, or with a shape the classifier does
+   * not recognize.
+   *
+   * The double supplies a body at all because the transport obligation says it
+   * must: the hook carries the frame, and a transport that passed nothing would
+   * be handing the driver an unrecognized envelope on every turn.
+   */
+  terminalFrameBody: unknown = undefined;
 
   // The `onInboundFrame` half of the same discipline. Registration failure is
   // kept on its own switch because the two hooks register at different points
@@ -141,8 +218,8 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
    * a double that delivered regardless — or that delivered only `project` —
    * would let a routing regression pass every test in this file. The
    * terminal-vs-non-terminal discriminant stays here too: a real transport
-   * knows which terminal it saw, and the driver's `onTurnTerminal` hook
-   * deliberately carries no payload.
+   * knows which terminal it saw, and it is the transport that hands the hook
+   * the terminal frame body.
    */
   emitStreamFrame(
     frameKind: string,
@@ -167,7 +244,9 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
     }
     this.deliveredFrameKinds.push(frameKind);
     if (frameKind.startsWith("result/")) {
-      this.turnTerminalListener?.();
+      this.turnTerminalListener?.(
+        this.terminalFrameBody ?? synthesizeTurnEvidenceResult(frameKind),
+      );
     }
     return route;
   }
@@ -362,4 +441,25 @@ export function makeSilentDriverDiagnostics(): DriverDiagnosticsEmitter {
     logSink: { record: () => undefined },
     counterSink: { increment: () => undefined },
   });
+}
+
+/**
+ * A `result` frame body carrying positive turn evidence, for the default
+ * terminal a test drives when the tripwire is not what it is testing.
+ *
+ * The numbers are shaped after the measured ordinary-turn reading recorded in
+ * `docs/reference/provider-wire/claude.md` rather than invented: a real turn
+ * reports a non-zero turn count, a non-zero API duration, a non-zero cost, and
+ * a populated per-model usage map, and all four move together.
+ */
+export function synthesizeTurnEvidenceResult(frameKind: string): Record<string, unknown> {
+  return {
+    type: "result",
+    subtype: frameKind.slice("result/".length),
+    is_error: frameKind !== "result/success",
+    num_turns: 1,
+    duration_api_ms: 2972,
+    total_cost_usd: 0.67144,
+    modelUsage: { "claude-fable-5": { inputTokens: 2, outputTokens: 98 } },
+  };
 }

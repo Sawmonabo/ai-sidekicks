@@ -150,6 +150,12 @@ import {
   type TerminalSuppressionReason,
 } from "../../terminal-emission-gate.js";
 import type { ChildThreadAnnouncement, ThreadFrameFamilyClass } from "../../thread-frame-router.js";
+import {
+  UNRECOGNIZED_TURN_EVIDENCE,
+  observedTurnEvidence,
+  type TurnEvidenceClass,
+  type TurnEvidenceClassification,
+} from "../outbound-frame.js";
 
 // --------------------------------------------------------------------------
 // The wire channel a frame arrives on.
@@ -1359,3 +1365,99 @@ export type ClaudeTerminalEmissionDecision = TerminalEmissionDecision;
  * is what a later one would land on.
  */
 export class ClaudeTerminalEmissionGate extends TerminalEmissionGate {}
+
+// --------------------------------------------------------------------------
+// T3.18 — turn evidence on the terminal `result` frame
+// --------------------------------------------------------------------------
+
+/**
+ * The four `result` subtypes that ARE a declared failure.
+ *
+ * Derived from this module's own frame-kind census rather than restated, so a
+ * subtype added to the census joins this set without a second edit. `success`
+ * is excluded by construction: it is the subtype a swallowed turn wears, and
+ * treating it as a declared failure would make the tripwire unreachable.
+ */
+const CLAUDE_DECLARED_FAILURE_RESULT_SUBTYPES: ReadonlySet<string> = new Set(
+  CLAUDE_WIRE_FRAME_KINDS.filter((kind) => kind.startsWith("result/error_")).map((kind) =>
+    kind.slice("result/".length),
+  ),
+);
+
+/** Every `result` subtype the pin censuses, failure and success alike. */
+const CLAUDE_RESULT_SUBTYPES: ReadonlySet<string> = new Set(
+  CLAUDE_WIRE_FRAME_KINDS.filter((kind) => kind.startsWith("result/")).map((kind) =>
+    kind.slice("result/".length),
+  ),
+);
+
+/** True for a number that is finite and strictly positive. */
+function isPositiveFiniteNumber(value: unknown): boolean {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+/** True for a non-array object carrying at least one own key. */
+function isNonEmptyRecord(value: unknown): boolean {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.keys(value).length > 0
+  );
+}
+
+/**
+ * Reads a settling Claude `result` frame for positive, typed evidence that a
+ * model turn happened (T3.18, I-005-7).
+ *
+ * WHAT IT READS AND WHY. The discriminants are the ones measured side by side
+ * against the pinned build — `num_turns`, `duration_api_ms`, `total_cost_usd`,
+ * and `modelUsage` — recorded in `docs/reference/provider-wire/claude.md`.
+ * They move together on a real turn and are all zero-valued on an intercepted
+ * one.
+ *
+ * WHAT IT DELIBERATELY DOES NOT READ, which is the sharper half:
+ *
+ *   * `is_error` does not discriminate. The intercepted run reports `false`;
+ *     a genuine turn that ends in a provider-side refusal reports `true`.
+ *   * The assistant frame's `message.model === "<synthetic>"` marker does not
+ *     discriminate either — the same measurement shows a genuine API-errored
+ *     turn rendering synthetic. It is evidence of a locally-composed frame,
+ *     never evidence that no turn occurred.
+ *   * The `<local-command-stdout>` wrapper and the `is_meta` marker are real
+ *     and are NOT consulted. They recognize DISPATCH, and the set of shapes a
+ *     command layer can emit is open, so a classifier keyed on them fails open
+ *     the day the wrapper changes. This function only ever recognizes the
+ *     presence of a turn.
+ *
+ * No message prose is parsed anywhere in it.
+ */
+export function classifyClaudeTurnEvidence(terminalFrame: unknown): TurnEvidenceClassification {
+  if (typeof terminalFrame !== "object" || terminalFrame === null || Array.isArray(terminalFrame)) {
+    return UNRECOGNIZED_TURN_EVIDENCE;
+  }
+  const frame = terminalFrame as Record<string, unknown>;
+  if (frame["type"] !== "result") {
+    return UNRECOGNIZED_TURN_EVIDENCE;
+  }
+  const subtype = frame["subtype"];
+  if (typeof subtype !== "string" || !CLAUDE_RESULT_SUBTYPES.has(subtype)) {
+    return UNRECOGNIZED_TURN_EVIDENCE;
+  }
+
+  const observations: TurnEvidenceClass[] = [];
+  if (
+    isPositiveFiniteNumber(frame["num_turns"]) ||
+    isPositiveFiniteNumber(frame["duration_api_ms"]) ||
+    isPositiveFiniteNumber(frame["total_cost_usd"])
+  ) {
+    observations.push("turn_accounting");
+  }
+  if (isNonEmptyRecord(frame["modelUsage"])) {
+    observations.push("model_output");
+  }
+  if (CLAUDE_DECLARED_FAILURE_RESULT_SUBTYPES.has(subtype)) {
+    observations.push("declared_turn_failure");
+  }
+  return observedTurnEvidence(...observations);
+}

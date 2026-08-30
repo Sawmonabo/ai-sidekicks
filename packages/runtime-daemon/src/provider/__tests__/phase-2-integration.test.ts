@@ -223,7 +223,7 @@ interface MockProviderDriver extends ProviderDriver {
 // registry caches `getCapabilities()` once per registration, so a distinct
 // result per registration is what drives the gate to behave differently.
 //
-// The 12 methods this suite does not exercise are throwing stubs (typed
+// The 14 methods this suite does not exercise are throwing stubs (typed
 // `Promise<never>`, assignable to every declared return) — a call to one is a
 // test bug, not a silent no-op. `getCapabilities` + `applyIntervention` carry
 // REAL behavior.
@@ -276,6 +276,12 @@ function makeMockDriver(capabilitiesResult: GetCapabilitiesResult): MockProvider
     },
     probeAuth(): Promise<never> {
       return Promise.reject(new Error("probeAuth not exercised in this integration suite"));
+    },
+    exportTranscript(): Promise<never> {
+      return Promise.reject(new Error("exportTranscript not exercised in this integration suite"));
+    },
+    replayTranscript(): Promise<never> {
+      return Promise.reject(new Error("replayTranscript not exercised in this integration suite"));
     },
   };
 }

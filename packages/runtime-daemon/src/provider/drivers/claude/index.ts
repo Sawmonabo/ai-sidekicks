@@ -94,7 +94,9 @@ export {
   type ClaudeSubagentAdmissionPort,
   type ClaudeSubagentPolicyRealization,
   type ClaudeSubagentSlotRelease,
+  type ClaudeUserTextDelivery,
   type ClaudeUserTextFrame,
+  type ClaudeUserTextWriteAttempt,
   type ClaudeWithheldSubagentDefinition,
 } from "./lifecycle.js";
 

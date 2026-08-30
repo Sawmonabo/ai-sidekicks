@@ -65,6 +65,7 @@ const SPEC_CODEX_MATRIX: Record<DriverCapabilityFlag, boolean> = {
   session_goals: true,
   callback_tools: true,
   subagents: true,
+  transcript_replay: false,
   cost_cap: false,
 };
 
@@ -152,11 +153,13 @@ describe("Codex capability declaration (T3.3)", () => {
     }).not.toThrow();
   });
 
-  it("does not declare a flag outside the current canonical set", () => {
-    // Phase tripwire: `transcript_replay` lands later in this phase with its
-    // own task. When the contract union grows, the module's `Record` totality
-    // forces an answer and this expectation must be revisited deliberately.
-    expect(Object.keys(CODEX_CAPABILITY_FLAGS)).not.toContain("transcript_replay");
+  it("declares transcript_replay FALSE pending the replay leg", () => {
+    // The union now carries the flag, so the module's `Record` totality forces
+    // an answer and the only question is which one. `false` is the fail-closed
+    // reading until the driver-side replay operation ships and re-probes it —
+    // undeclared and declared-unsupported must look the same to a caller.
+    expect(Object.hasOwn(CODEX_CAPABILITY_FLAGS, "transcript_replay")).toBe(true);
+    expect(CODEX_CAPABILITY_FLAGS.transcript_replay).toBe(false);
   });
 
   it("declares reasoning_stream and cost_cap FALSE (the two fail-closed rows)", () => {

@@ -37,7 +37,7 @@ import {
 import { describe, expect, it, vi } from "vitest";
 
 import type { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
-import type { SessionId } from "@ai-sidekicks/contracts";
+import type { RunId, SessionId } from "@ai-sidekicks/contracts";
 
 import type { SubagentLifecycleEmission, ThreadFrameRoute } from "../../../thread-frame-router.js";
 import type { MeteredUsageDelta } from "../../../usage-delta-accountant.js";
@@ -68,11 +68,18 @@ import {
   TEST_SESSION_ID,
 } from "./claude-test-doubles.js";
 
+interface RecordedTextNeutralizationFailure {
+  readonly sessionId: SessionId;
+  readonly runId: RunId;
+  readonly providerFailureDetail: string;
+}
+
 interface LifecycleHarness {
   readonly lifecycle: ClaudeSessionLifecycle;
   readonly transport: FakeClaudeSessionTransport;
   readonly runDispatchResolver: FakeClaudeRunDispatchResolver;
   readonly diagnostics: DriverDiagnosticsEmitter;
+  readonly textNeutralizationFailures: RecordedTextNeutralizationFailure[];
 }
 
 function buildHarness(
@@ -81,12 +88,23 @@ function buildHarness(
   const transport = new FakeClaudeSessionTransport();
   const runDispatchResolver = new FakeClaudeRunDispatchResolver();
   const diagnostics = makeSilentDriverDiagnostics();
+  const textNeutralizationFailures: RecordedTextNeutralizationFailure[] = [];
   const dependencies: ClaudeSessionLifecycleDependencies = {
     transport,
     runDispatchResolver,
     diagnostics,
     mintProviderSessionId: () => TEST_PINNED_PROVIDER_SESSION_ID,
     mintBindingId: () => TEST_BINDING_ID,
+    // Required rather than optional (T3.18): a trip's run terminal is the only
+    // user-visible surface a swallowed turn has, so no construction site may
+    // leave it unbound.
+    onTextNeutralizationFailure: (sessionId, runId, failure) => {
+      textNeutralizationFailures.push({
+        sessionId,
+        runId,
+        providerFailureDetail: failure.providerFailureDetail,
+      });
+    },
     ...overrides,
   };
   return {
@@ -94,6 +112,7 @@ function buildHarness(
     transport,
     runDispatchResolver,
     diagnostics: dependencies.diagnostics,
+    textNeutralizationFailures,
   };
 }
 
@@ -420,7 +439,7 @@ describe("ClaudeSessionLifecycle.startRun", () => {
     await harness.lifecycle.startRun(buildStartRunParams());
 
     const channel = harness.transport.spawnedChannels[0];
-    expect(channel?.sentTextFrames).toStrictEqual([{ text: "review the diff" }]);
+    expect(channel?.sentWireTexts).toStrictEqual(["review the diff"]);
     expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBe(channel);
   });
 
@@ -445,6 +464,86 @@ describe("ClaudeSessionLifecycle.startRun", () => {
     });
   });
 
+  it("refuses a second dispatch while the run's opening frame is still pending", async () => {
+    // The one-frame-per-run-key invariant the tripwire's settle attributes by:
+    // position 0 gets the terminal's real classification and every later frame
+    // under the key is ruled unrecognized, which trips. A duplicate dispatch
+    // admitted here would therefore quarantine the session over the duplicate,
+    // not over a swallowed participant.
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "review the diff",
+    });
+    await harness.lifecycle.startRun(buildStartRunParams());
+
+    await expect(harness.lifecycle.startRun(buildStartRunParams())).rejects.toMatchObject({
+      code: "driver.unavailable",
+      fields: { reason: "run_already_dispatched" },
+    });
+
+    // Refused before compose and register: the duplicate reached the wire as
+    // nothing, and the first dispatch's turn still settles benignly — one frame,
+    // one real classification, no false trip.
+    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual(["review the diff"]);
+    harness.transport.spawnedChannels[0]?.emitStreamFrame("result/success");
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+  });
+
+  it("admits a re-dispatch once the first opening frame's turn has settled", async () => {
+    // The guard keys on the PENDING frame and on nothing longer-lived: a run
+    // whose turn settled holds no frame, so dispatching it again is admitted.
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "review the diff",
+    });
+    await harness.lifecycle.startRun(buildStartRunParams());
+    harness.transport.spawnedChannels[0]?.emitStreamFrame("result/success");
+
+    await harness.lifecycle.startRun(buildStartRunParams());
+
+    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual([
+      "review the diff",
+      "review the diff",
+    ]);
+  });
+
+  it("refuses a DIFFERENT run's start while another run's opening frame is pending", async () => {
+    // The session-scoped completion of the duplicate guard: Claude's settling
+    // envelope carries no run id, so with two runs' frames pending on one
+    // session the tripwire could rule only the oldest-bound run on the real
+    // verdict and every other unrecognized — quarantining a healthy session
+    // over a perfectly valid queued start.
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "review the diff",
+    });
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_SECOND_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "and now the second directive",
+    });
+    await harness.lifecycle.startRun(buildStartRunParams());
+
+    await expect(
+      harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID }),
+    ).rejects.toMatchObject({
+      code: "driver.unavailable",
+      fields: { reason: "session_turn_in_flight" },
+    });
+
+    // Refused before compose and register: nothing reached the wire, no route
+    // was bound, and the pending run's turn still settles benignly.
+    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual(["review the diff"]);
+    expect(harness.lifecycle.findChannelForRun(TEST_SECOND_RUN_ID)).toBeUndefined();
+    harness.transport.spawnedChannels[0]?.emitStreamFrame("result/success");
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+  });
+
   // `Spec-016 §Cost Derivation And Absent-Cost Semantics` names both refusal
   // shapes for a cap-declaring run: "an existing uncapped (or differently-capped)
   // process forces a capped relaunch ... never a start inside an uncapped
@@ -461,7 +560,7 @@ describe("ClaudeSessionLifecycle.startRun", () => {
     await expect(
       harness.lifecycle.startRun({ ...buildStartRunParams(), admittedCostCapCents: 500 }),
     ).rejects.toMatchObject({ fields: { reason: "cost_cap_mismatch" } });
-    expect(harness.transport.spawnedChannels[0]?.sentTextFrames).toStrictEqual([]);
+    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual([]);
     expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
   });
 
@@ -479,7 +578,7 @@ describe("ClaudeSessionLifecycle.startRun", () => {
     await expect(
       harness.lifecycle.startRun({ ...buildStartRunParams(), admittedCostCapCents: 500 }),
     ).rejects.toMatchObject({ fields: { reason: "cost_cap_mismatch" } });
-    expect(harness.transport.spawnedChannels[0]?.sentTextFrames).toStrictEqual([]);
+    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual([]);
     expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
   });
 
@@ -502,9 +601,7 @@ describe("ClaudeSessionLifecycle.startRun", () => {
     // relaunch no spec sentence orders.
     await harness.lifecycle.startRun(buildStartRunParams());
 
-    expect(harness.transport.spawnedChannels[0]?.sentTextFrames).toStrictEqual([
-      { text: "review the diff" },
-    ]);
+    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual(["review the diff"]);
   });
 
   it("never starts a run whose posture disagrees with the spawned sandbox", async () => {
@@ -522,7 +619,7 @@ describe("ClaudeSessionLifecycle.startRun", () => {
     await expect(
       harness.lifecycle.startRun({ ...buildStartRunParams(), executionPosture: TRUSTED_POSTURE }),
     ).rejects.toMatchObject({ fields: { reason: "execution_posture_mismatch" } });
-    expect(harness.transport.spawnedChannels[0]?.sentTextFrames).toStrictEqual([]);
+    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual([]);
   });
 
   it("never starts a schema-constrained run inside a session spawned without a schema", async () => {
@@ -561,9 +658,7 @@ describe("ClaudeSessionLifecycle.startRun spawn-bound realization (agreeing runs
 
     await harness.lifecycle.startRun({ ...buildStartRunParams(), admittedCostCapCents: 500 });
 
-    expect(harness.transport.spawnedChannels[0]?.sentTextFrames).toStrictEqual([
-      { text: "review the diff" },
-    ]);
+    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual(["review the diff"]);
   });
 
   it("starts a run whose posture agrees with the spawned sandbox by value, not by reference", async () => {
@@ -582,9 +677,7 @@ describe("ClaudeSessionLifecycle.startRun spawn-bound realization (agreeing runs
       executionPosture: { ...SANDBOXED_POSTURE },
     });
 
-    expect(harness.transport.spawnedChannels[0]?.sentTextFrames).toStrictEqual([
-      { text: "review the diff" },
-    ]);
+    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual(["review the diff"]);
   });
 
   it("starts a schema-constrained run inside a session that was spawned schema-bound", async () => {
@@ -600,9 +693,7 @@ describe("ClaudeSessionLifecycle.startRun spawn-bound realization (agreeing runs
       outputSchema: { type: "object" },
     });
 
-    expect(harness.transport.spawnedChannels[0]?.sentTextFrames).toStrictEqual([
-      { text: "review the diff" },
-    ]);
+    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual(["review the diff"]);
   });
 });
 
@@ -683,7 +774,7 @@ describe("ClaudeSessionLifecycle.startRun execution-posture axes", () => {
       code: "driver.unavailable",
       fields: { reason: "execution_posture_mismatch" },
     });
-    expect(harness.transport.spawnedChannels[0]?.sentTextFrames).toStrictEqual([]);
+    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual([]);
   });
 
   it("names the first divergent axis in the refusal detail", async () => {
@@ -717,9 +808,7 @@ describe("ClaudeSessionLifecycle.startRun execution-posture axes", () => {
       },
     });
 
-    expect(harness.transport.spawnedChannels[0]?.sentTextFrames).toStrictEqual([
-      { text: "review the diff" },
-    ]);
+    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual(["review the diff"]);
   });
 
   it("never starts a posture-declaring run in a session spawned with no posture", async () => {
@@ -745,9 +834,7 @@ describe("ClaudeSessionLifecycle.startRun execution-posture axes", () => {
     // The one-directional rule is unchanged by the axis widening.
     await harness.lifecycle.startRun(buildStartRunParams());
 
-    expect(harness.transport.spawnedChannels[0]?.sentTextFrames).toStrictEqual([
-      { text: "review the diff" },
-    ]);
+    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual(["review the diff"]);
   });
 });
 
@@ -790,7 +877,7 @@ describe("ClaudeSessionLifecycle.startRun output-schema identity", () => {
       code: "driver.unavailable",
       fields: { reason: "output_schema_mismatch" },
     });
-    expect(harness.transport.spawnedChannels[0]?.sentTextFrames).toStrictEqual([]);
+    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual([]);
   });
 
   it("admits the same schema written with its keys in a different order", async () => {
@@ -806,9 +893,7 @@ describe("ClaudeSessionLifecycle.startRun output-schema identity", () => {
       },
     });
 
-    expect(harness.transport.spawnedChannels[0]?.sentTextFrames).toStrictEqual([
-      { text: "review the diff" },
-    ]);
+    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual(["review the diff"]);
   });
 
   it("refuses a schema differing only in ARRAY order, which is semantic", async () => {
@@ -842,9 +927,7 @@ describe("ClaudeSessionLifecycle.startRun output-schema identity", () => {
 
     await harness.lifecycle.startRun(buildStartRunParams());
 
-    expect(harness.transport.spawnedChannels[0]?.sentTextFrames).toStrictEqual([
-      { text: "review the diff" },
-    ]);
+    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual(["review the diff"]);
   });
 });
 
@@ -1373,10 +1456,7 @@ describe("ClaudeSessionLifecycle run-route retirement on turn terminal", () => {
     await harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID });
 
     expect(harness.lifecycle.findChannelForRun(TEST_SECOND_RUN_ID)).toBe(channel);
-    expect(channel.sentTextFrames).toStrictEqual([
-      { text: "review the diff" },
-      { text: "now the next task" },
-    ]);
+    expect(channel.sentWireTexts).toStrictEqual(["review the diff", "now the next task"]);
   });
 });
 
@@ -2671,5 +2751,466 @@ describe("ClaudeSessionLifecycle thread routing and usage metering (T3.11, I-005
       0,
     );
     expect(harness.meteredUsage[0]?.delta.axisDeltas.input).toBe(20);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The pending-frame settlement matrix (T3.18).
+//
+// The invariant, stated once and enforced by ENUMERATION rather than by
+// whichever cell a review happened to name: no reachable lifecycle transition
+// leaves a frame whose delivery was never proven both unruled and unreported.
+// Every row below drives one transition against a session that is holding a
+// pending opening frame, and every row declares which of four settlements the
+// surrounding contract owes for that cell. A transition added to this driver
+// without a row here is the gap this table exists to make loud.
+//
+// Four settlements, and the distinctions between them are the adjudication:
+//
+//   * `provider-evidence` — the provider's own terminal accounted for the turn,
+//     so the frame is ruled by the ordinary path and nothing is owed.
+//   * `run-failure` — the binding was taken away from a turn that was still
+//     live, so the frame can never be ruled by a terminal and the run is owed a
+//     visible failure naming why.
+//   * `refusal` — the transition is refused while the frame is pending, so the
+//     binding is untouched and the frame stays watched.
+//   * `daemon-intent` — the daemon itself destroyed the session, so the run's
+//     ending is a consequence of an act the initiator already holds a record
+//     of, and a driver-composed failure would be a second record of it.
+// ---------------------------------------------------------------------------
+
+/** A `result` body a real classifier reads as carrying no turn evidence at all. */
+const ZERO_TURN_RESULT_BODY: Record<string, unknown> = {
+  type: "result",
+  subtype: "success",
+  num_turns: 0,
+};
+
+type PendingFrameSettlement =
+  | {
+      readonly kind: "run-failure";
+      /** In report order — the table asserts the order, not merely the set. */
+      readonly runIds: readonly RunId[];
+      readonly detailContains: string;
+    }
+  | { readonly kind: "refusal" }
+  | { readonly kind: "provider-evidence" }
+  | { readonly kind: "daemon-intent" };
+
+interface DrivenTransitionOutcome {
+  readonly threw: unknown;
+  readonly returned: unknown;
+}
+
+async function captureTransition(drive: () => Promise<unknown>): Promise<DrivenTransitionOutcome> {
+  return await drive().then(
+    (returned) => ({ threw: undefined, returned }),
+    (threw: unknown) => ({ threw, returned: undefined }),
+  );
+}
+
+interface PendingFrameTransitionCase {
+  readonly label: string;
+  readonly drive: (
+    harness: LifecycleHarness,
+    channel: FakeClaudeSessionChannel,
+  ) => Promise<DrivenTransitionOutcome>;
+  readonly expected: PendingFrameSettlement;
+}
+
+const PENDING_FRAME_TRANSITIONS: readonly PendingFrameTransitionCase[] = [
+  {
+    label: "a turn terminal carrying model output",
+    drive: async (_harness, channel) =>
+      await captureTransition(() => Promise.resolve(channel.emitStreamFrame("result/success"))),
+    expected: { kind: "provider-evidence" },
+  },
+  {
+    label: "a turn terminal carrying no evidence at all",
+    drive: async (_harness, channel) => {
+      channel.terminalFrameBody = ZERO_TURN_RESULT_BODY;
+      return await captureTransition(() =>
+        Promise.resolve(channel.emitStreamFrame("result/success")),
+      );
+    },
+    expected: {
+      kind: "run-failure",
+      runIds: [TEST_RUN_ID],
+      detailContains: "driver.text_neutralization_failed",
+    },
+  },
+  {
+    label: "an interrupt, then the interrupted turn's own terminal",
+    drive: async (harness, channel) =>
+      await captureTransition(async () => {
+        await harness.lifecycle.interruptRun({ runId: TEST_RUN_ID });
+        return channel.emitStreamFrame("result/success");
+      }),
+    expected: { kind: "provider-evidence" },
+  },
+  {
+    label: "a SECOND run's start while the first frame is still pending",
+    drive: async (harness) =>
+      await captureTransition(async () => {
+        // Refused by the session-serialization guard before a byte is
+        // composed: with no run id on the settling envelope, a second run's
+        // frame in this scope could only ever be ruled unrecognized — the
+        // false trip the guard exists to prevent. The first run's frame stays
+        // watched, still owed its own ruling, and this cell's refusal
+        // expectation is what proves the guard fired instead of the write.
+        harness.runDispatchResolver.dispatchByRunId.set(TEST_SECOND_RUN_ID, {
+          sessionId: TEST_SESSION_ID,
+          openingText: "and now the second directive",
+        });
+        return await harness.lifecycle.startRun({
+          ...buildStartRunParams(),
+          runId: TEST_SECOND_RUN_ID,
+        });
+      }),
+    expected: { kind: "refusal" },
+  },
+  {
+    label: "an overlapping start on the SAME run whose write is refused before a byte leaves",
+    drive: async (harness, channel) =>
+      await captureTransition(async () => {
+        // A retry beside the attempt it retries. Both frames carry one run id,
+        // so both share the single run-keyed route — and the refused one is
+        // withdrawn frame-scoped while the accepted one is still on the wire and
+        // still owed a ruling. Deleting the route unconditionally here retires
+        // the ACCEPTED frame's only correlation, and the terminal below then
+        // finds no correlated run to rule.
+        channel.sendUserTextFailure = new Error("refused before a byte left");
+        channel.sendUserTextDelivery = "unsent";
+        await harness.lifecycle.startRun(buildStartRunParams()).then(
+          () => {
+            throw new Error("unreachable: a refused write must reject its caller");
+          },
+          () => undefined,
+        );
+        channel.sendUserTextFailure = undefined;
+        channel.sendUserTextDelivery = "indeterminate";
+        // The FIRST frame is still unaccounted for, so a terminal carrying no
+        // turn evidence is its ruling — the ordinary path, reached only if the
+        // route survived the withdrawal above.
+        channel.terminalFrameBody = ZERO_TURN_RESULT_BODY;
+        return channel.emitStreamFrame("result/success");
+      }),
+    expected: {
+      kind: "run-failure",
+      runIds: [TEST_RUN_ID],
+      detailContains: "driver.text_neutralization_failed",
+    },
+  },
+  {
+    label: "a rewind that supersedes the binding the frame was written on",
+    drive: async (harness) =>
+      await captureTransition(
+        async () =>
+          await harness.lifecycle.rollbackTo({
+            sessionId: TEST_SESSION_ID,
+            bindingId: "binding-predecessor",
+            position: 4,
+          }),
+      ),
+    expected: {
+      kind: "run-failure",
+      runIds: [TEST_RUN_ID],
+      detailContains: "was superseded by a fresh spawn",
+    },
+  },
+  {
+    label: "a resume attempted beside the live binding",
+    drive: async (harness) =>
+      await captureTransition(
+        async () =>
+          await harness.lifecycle.resumeSession({
+            sessionId: TEST_SESSION_ID,
+            resumeHandle: TEST_PINNED_PROVIDER_SESSION_ID,
+          }),
+      ),
+    expected: { kind: "refusal" },
+  },
+  {
+    label: "a daemon-initiated close",
+    drive: async (harness) =>
+      await captureTransition(
+        async () => await harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID }),
+      ),
+    expected: { kind: "daemon-intent" },
+  },
+];
+
+describe("ClaudeSessionLifecycle pending-frame settlement matrix (T3.18)", () => {
+  async function arrangePendingFrame(harness: LifecycleHarness): Promise<FakeClaudeSessionChannel> {
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "/compact the thread please",
+    });
+    await harness.lifecycle.startRun(buildStartRunParams());
+    const channel = harness.transport.spawnedChannels[0];
+    if (channel === undefined) {
+      throw new Error("unreachable: the session must have spawned a channel");
+    }
+    // The premise every row runs against: the bytes are on the wire and no
+    // terminal has accounted for them.
+    expect(channel.sentWireTexts).toHaveLength(1);
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+    return channel;
+  }
+
+  async function assertSettlement(
+    harness: LifecycleHarness,
+    outcome: DrivenTransitionOutcome,
+    expected: PendingFrameSettlement,
+  ): Promise<void> {
+    if (expected.kind === "run-failure") {
+      expect(harness.textNeutralizationFailures.map((failure) => failure.runId)).toStrictEqual([
+        ...expected.runIds,
+      ]);
+      for (const failure of harness.textNeutralizationFailures) {
+        expect(failure.sessionId).toBe(TEST_SESSION_ID);
+        expect(failure.providerFailureDetail).toContain(expected.detailContains);
+      }
+      return;
+    }
+    // Every remaining settlement owes NO driver-composed failure, and each owes
+    // a different second thing — which is what keeps the three from collapsing
+    // into one assertion that any of them would pass.
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+    if (expected.kind === "refusal") {
+      const returned = outcome.returned;
+      const refusedByArm =
+        typeof returned === "object" && returned !== null && "status" in returned
+          ? (returned as { readonly status: unknown }).status === "failed"
+          : false;
+      expect(outcome.threw !== undefined || refusedByArm).toBe(true);
+      // The binding was NOT taken away, so the frame is still watched and the
+      // run still resolves to the channel it was written on.
+      expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeDefined();
+      return;
+    }
+    expect(outcome.threw).toBeUndefined();
+    if (expected.kind === "provider-evidence") {
+      // The RUN ended and the SESSION did not. Proven by STARTING a next run on
+      // the same binding and watching its bytes reach the wire, rather than by
+      // asking whether a run that never dispatched has a channel — which is
+      // `undefined` on a healthy session and on a condemned one alike.
+      expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
+      harness.runDispatchResolver.dispatchByRunId.set(TEST_SECOND_RUN_ID, {
+        sessionId: TEST_SESSION_ID,
+        openingText: "carry on",
+      });
+      await harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID });
+      // The first entry is the neutralized form of the opening text this suite
+      // arranges; the second is the follow-on run's, delivered verbatim because
+      // it is not command-shaped. Both reaching the wire is the proof.
+      expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual([
+        "\n/compact the thread please",
+        "carry on",
+      ]);
+      return;
+    }
+    // `daemon-intent`: the session is gone, which is the record of the ending.
+    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
+  }
+
+  for (const transitionCase of PENDING_FRAME_TRANSITIONS) {
+    it(`settles a pending frame through ${transitionCase.expected.kind} on ${transitionCase.label}`, async () => {
+      const harness = buildHarness();
+      const channel = await arrangePendingFrame(harness);
+
+      const outcome = await transitionCase.drive(harness, channel);
+
+      await assertSettlement(harness, outcome, transitionCase.expected);
+    });
+  }
+
+  it("covers every settlement kind, so no kind is enumerated and never driven", () => {
+    // The table's own negative control. A row deleted or retyped to the
+    // convenient settlement would otherwise shrink the matrix silently.
+    expect(new Set(PENDING_FRAME_TRANSITIONS.map((row) => row.expected.kind))).toStrictEqual(
+      new Set(["provider-evidence", "run-failure", "refusal", "daemon-intent"]),
+    );
+  });
+});
+
+// The route is RUN-keyed and the registration is FRAME-keyed, so the unsent arm
+// has to decide between them. These two cases pin both directions of that
+// decision: the deletion still happens where it was always right, and stops
+// happening where it took a sibling's correlation with it. A guard asked in the
+// wrong order passes one and fails the other, which is why neither alone is
+// enough.
+describe("ClaudeSessionLifecycle unsent opening frame — route retirement (T3.18)", () => {
+  async function arrangeSession(harness: LifecycleHarness): Promise<FakeClaudeSessionChannel> {
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "/compact the thread please",
+    });
+    const channel = harness.transport.spawnedChannels[0];
+    if (channel === undefined) {
+      throw new Error("unreachable: the session must have spawned a channel");
+    }
+    return channel;
+  }
+
+  it("retires the route when the refused write was the run's ONLY frame", async () => {
+    const harness = buildHarness();
+    const channel = await arrangeSession(harness);
+    channel.sendUserTextFailure = new Error("refused before a byte left");
+    channel.sendUserTextDelivery = "unsent";
+
+    await expect(harness.lifecycle.startRun(buildStartRunParams())).rejects.toThrow();
+
+    // No turn can ever exist for this run, so a surviving route would aim a
+    // later CHANNEL-scoped interrupt at whatever older turn the channel is
+    // genuinely running.
+    expect(channel.sentWireTexts).toStrictEqual([]);
+    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
+  });
+
+  it("keeps the accepted frame's route when a duplicate dispatch is refused", async () => {
+    // This test once drove the unsent arm of the failed-opening-frame ruling —
+    // a second same-run frame whose write dies before a byte leaves, withdrawn
+    // while its sibling's route survives. The duplicate-dispatch guard now
+    // refuses that second start BEFORE compose and register, so the arm is
+    // unreachable through startRun and the sibling-aware predicate it consults
+    // is pinned at the tripwire unit level instead (outbound-frame.test.ts).
+    // What this test still owns: the refusal names the run-keyed cause and
+    // leaves the accepted frame's write and route untouched — that route is
+    // the only way its terminal will be found.
+    const harness = buildHarness();
+    const channel = await arrangeSession(harness);
+    await harness.lifecycle.startRun(buildStartRunParams());
+    expect(channel.sentWireTexts).toHaveLength(1);
+
+    await expect(harness.lifecycle.startRun(buildStartRunParams())).rejects.toMatchObject({
+      code: "driver.unavailable",
+      fields: { reason: "run_already_dispatched" },
+    });
+
+    expect(channel.sentWireTexts).toHaveLength(1);
+    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeDefined();
+  });
+});
+
+// The condemnation arm of the failed opening write, driven from the only place
+// it can still be reached now that starts are session-serialized: the FIRST
+// write on a session dying with indeterminate delivery on a channel that is
+// already closed. The bytes may have left and no terminal will ever arrive, so
+// retention cannot cover it — the frame is ruled fail-closed and the binding is
+// condemned, because silence here is exactly a swallowed directive escaping
+// detection.
+describe("ClaudeSessionLifecycle indeterminate opening-write death (T3.18)", () => {
+  it("rules the frame fail-closed and condemns the binding on both axes", async () => {
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "/compact the thread please",
+    });
+    const channel = harness.transport.spawnedChannels[0];
+    if (channel === undefined) {
+      throw new Error("unreachable: the session must have spawned a channel");
+    }
+    channel.isClosed = true;
+    channel.sendUserTextFailure = new Error("the channel died mid-write");
+
+    await expect(harness.lifecycle.startRun(buildStartRunParams())).rejects.toThrow(
+      "the channel died mid-write",
+    );
+
+    expect(harness.textNeutralizationFailures.map((failure) => failure.runId)).toStrictEqual([
+      TEST_RUN_ID,
+    ]);
+    expect(harness.textNeutralizationFailures[0]?.providerFailureDetail).toContain(
+      "driver.text_neutralization_failed",
+    );
+    // Condemned on the SESSION axis too: the next run cannot dispatch into the
+    // process whose delivery is in doubt.
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_SECOND_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "carry on",
+    });
+    await expect(
+      harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID }),
+    ).rejects.toThrow();
+  });
+});
+
+describe("ClaudeSessionLifecycle rewind supersede (T3.18)", () => {
+  async function arrangePendingFrameAcrossRewind(harness: LifecycleHarness): Promise<void> {
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "/compact the thread please",
+    });
+    await harness.lifecycle.startRun(buildStartRunParams());
+    await harness.lifecycle.rollbackTo({
+      sessionId: TEST_SESSION_ID,
+      bindingId: "binding-predecessor",
+      position: 4,
+    });
+  }
+
+  it("does NOT condemn the superseded run, whose future work belongs to the fresh binding", async () => {
+    const harness = buildHarness();
+    await arrangePendingFrameAcrossRewind(harness);
+
+    // A quarantine condemns a BINDING, and the superseded one is already gone.
+    // Refusing the run would take its interrupt and intervention controls away
+    // for a process nobody can reach anyway.
+    expect(() => harness.lifecycle.findChannelForRun(TEST_RUN_ID)).not.toThrow();
+  });
+
+  it("leaves the rewound session startable, so the report is a run failure and not a session one", async () => {
+    const harness = buildHarness();
+    await arrangePendingFrameAcrossRewind(harness);
+
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_SECOND_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "carry on from the fork",
+    });
+    await harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID });
+
+    const forkedChannel = harness.transport.spawnedChannels[1];
+    expect(harness.lifecycle.findChannelForRun(TEST_SECOND_RUN_ID)).toBe(forkedChannel);
+  });
+
+  it("reports NOTHING for a rewind of a session holding no pending frame", async () => {
+    // The negative control the supersede sweep needs: an ordinary rewind of an
+    // idle session must stay silent, or the fix would fail every rewind.
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+
+    await harness.lifecycle.rollbackTo({
+      sessionId: TEST_SESSION_ID,
+      bindingId: "binding-predecessor",
+      position: 4,
+    });
+
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+  });
+
+  it("reports NOTHING for a rewind whose pending frame the turn's own terminal already settled", async () => {
+    // The second half of the same control: a frame the ordinary path consumed
+    // is not owed a supersede failure on top of the ruling it already had.
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "/compact the thread please",
+    });
+    await harness.lifecycle.startRun(buildStartRunParams());
+    harness.transport.spawnedChannels[0]?.emitStreamFrame("result/success");
+
+    await harness.lifecycle.rollbackTo({
+      sessionId: TEST_SESSION_ID,
+      bindingId: "binding-predecessor",
+      position: 4,
+    });
+
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
   });
 });

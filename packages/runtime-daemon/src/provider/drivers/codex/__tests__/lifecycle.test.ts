@@ -43,6 +43,12 @@ import {
 } from "@ai-sidekicks/contracts";
 
 import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
+import {
+  OutboundFrameCapacityRefusedError,
+  OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY,
+  TEXT_NEUTRALIZATION_REFUSAL_CODE,
+  TextNeutralizationRefusedError,
+} from "../../outbound-frame.js";
 import type { SubagentLifecycleEmission } from "../../../thread-frame-router.js";
 import type { CumulativeAxisReadings, MeteredUsageDelta } from "../../../usage-delta-accountant.js";
 import {
@@ -449,7 +455,21 @@ interface Harness {
   driver: CodexDriver;
   diagnostics: CodexTransportDiagnostic[];
   driverDiagnostics: DriverDiagnosticsEmitter;
+  textNeutralizationFailures: RecordedTextNeutralizationFailure[];
   scheduler: ReturnType<typeof makeManualScheduler>;
+}
+
+/**
+ * One run terminal a text-neutralization trip produced (T3.18).
+ *
+ * The callback is a REQUIRED dependency, so every harness binds it — the trip
+ * raises no JSON-RPC error, and an unbound sink would let a swallowed turn end
+ * with no record an operator can read.
+ */
+interface RecordedTextNeutralizationFailure {
+  readonly sessionId: SessionId;
+  readonly runId: RunId;
+  readonly providerFailureDetail: string;
 }
 
 /**
@@ -476,9 +496,17 @@ function createHarness(
   server.on("getAuthStatus", () => ({ result: { authMethod: "chatgpt", authToken: null } }));
   const diagnostics: CodexTransportDiagnostic[] = [];
   const driverDiagnostics = makeSilentDriverDiagnostics();
+  const textNeutralizationFailures: RecordedTextNeutralizationFailure[] = [];
   const scheduler = makeManualScheduler();
   const driver = new CodexDriver({
     ptyHost: server,
+    onTextNeutralizationFailure: (sessionId, runId, failure) => {
+      textNeutralizationFailures.push({
+        sessionId,
+        runId,
+        providerFailureDetail: failure.providerFailureDetail,
+      });
+    },
     diagnostics: driverDiagnostics,
     subscribeToPtySession:
       options.subscribeToPtySession ??
@@ -492,7 +520,7 @@ function createHarness(
     newBindingId: () => "binding-abc",
     readCapabilities: () => makeCapabilities(options.steer ?? true),
   });
-  return { server, driver, diagnostics, driverDiagnostics, scheduler };
+  return { server, driver, diagnostics, driverDiagnostics, textNeutralizationFailures, scheduler };
 }
 
 function threadStartResult(turnCount = 0): JsonRpcAnswer {
@@ -517,6 +545,7 @@ interface ManagerHarness {
   manager: CodexLifecycleManager;
   diagnostics: CodexTransportDiagnostic[];
   driverDiagnostics: DriverDiagnosticsEmitter;
+  textNeutralizationFailures: RecordedTextNeutralizationFailure[];
   notifications: Array<{ method: string; params: unknown }>;
   meteredUsage: Array<{ sessionId: SessionId; delta: MeteredUsageDelta }>;
   subagentLifecycle: Array<{ sessionId: SessionId; emission: SubagentLifecycleEmission }>;
@@ -581,6 +610,7 @@ function createManagerHarness(options: ManagerHarnessOptions = {}): ManagerHarne
   const meteredUsage: Array<{ sessionId: SessionId; delta: MeteredUsageDelta }> = [];
   const subagentLifecycle: Array<{ sessionId: SessionId; emission: SubagentLifecycleEmission }> =
     [];
+  const textNeutralizationFailures: RecordedTextNeutralizationFailure[] = [];
   const scheduler = makeManualScheduler();
   let firstDiagnosticThrown = false;
   let firstNotificationThrown = false;
@@ -610,6 +640,13 @@ function createManagerHarness(options: ManagerHarnessOptions = {}): ManagerHarne
     newBindingId: options.newBindingId ?? ((): string => "binding-abc"),
     onMeteredUsage: (sessionId, delta) => meteredUsage.push({ sessionId, delta }),
     onSubagentLifecycle: (sessionId, emission) => subagentLifecycle.push({ sessionId, emission }),
+    onTextNeutralizationFailure: (sessionId, runId, failure) => {
+      textNeutralizationFailures.push({
+        sessionId,
+        runId,
+        providerFailureDetail: failure.providerFailureDetail,
+      });
+    },
     ...(options.readPriorEmittedUsage === undefined
       ? {}
       : { readPriorEmittedUsage: options.readPriorEmittedUsage }),
@@ -633,17 +670,63 @@ function createManagerHarness(options: ManagerHarnessOptions = {}): ManagerHarne
     notifications,
     meteredUsage,
     subagentLifecycle,
+    textNeutralizationFailures,
     scheduler,
   };
 }
 
-/** A `turn/completed` frame at the pinned shape (`params.turn.{id,status}`). */
+/**
+ * A `turn/completed` frame at the pinned shape (`params.turn.{id,status}`),
+ * carrying one model-output item.
+ *
+ * The item is not decoration. A `completed` turn with an EMPTY item list is
+ * exactly the zero-turn reply the T3.18 tripwire exists to catch, so a fixture
+ * without one would trip every test that merely needs a turn to end — and would
+ * then dispose the session those tests go on to use.
+ */
 function turnCompletedFrame(turnId: string, status: string): Record<string, unknown> {
   return {
     jsonrpc: "2.0",
     method: "turn/completed",
-    params: { threadId: THREAD_ID, turn: { id: turnId, status, items: [] } },
+    params: {
+      threadId: THREAD_ID,
+      turn: { id: turnId, status, items: [{ type: "agentMessage", id: "item-1" }] },
+    },
   };
+}
+
+/**
+ * A `completed` turn that produced NOTHING — the shape a provider answers with
+ * when its input surface consumed the participant's words as a client-side
+ * command (T3.18).
+ */
+function zeroTurnCompletedFrame(turnId: string): Record<string, unknown> {
+  return {
+    jsonrpc: "2.0",
+    method: "turn/completed",
+    params: { threadId: THREAD_ID, turn: { id: turnId, status: "completed", items: [] } },
+  };
+}
+
+/** An in-flight `item/completed` naming one model message on a turn (T3.18). */
+function modelOutputItemFrame(turnId: string): Record<string, unknown> {
+  return {
+    jsonrpc: "2.0",
+    method: "item/completed",
+    params: { threadId: THREAD_ID, turnId, item: { type: "agentMessage", id: "item-1" } },
+  };
+}
+
+/**
+ * The opening text one `turn/start` request carries.
+ *
+ * Lets a handler answer two OVERLAPPING attempts differently by reading the
+ * request itself rather than counting calls — which attempt reaches the server
+ * first is exactly what an overlap test must not assume.
+ */
+function readTurnStartInputText(params: unknown): string | undefined {
+  const input = (params as { input?: ReadonlyArray<{ text?: string }> }).input;
+  return input?.[0]?.text;
 }
 
 // --------------------------------------------------------------------------
@@ -1141,6 +1224,7 @@ describe("CodexDriver resumeSession (I-005-5, Spec-005 §Fallback Behavior)", ()
         };
       },
       reportDiagnostic: () => {},
+      onTextNeutralizationFailure: () => undefined,
       scheduleTimeout: scheduler.schedule,
       executablePath: EXECUTABLE_PATH,
       resumeSpawnConfig: RESUME_SPAWN_CONFIG,
@@ -1543,6 +1627,7 @@ describe("CodexDriver session ownership (Spec-005 §Required Behavior)", () => {
       diagnostics: makeSilentDriverDiagnostics(),
       subscribeToPtySession: (ptySessionId, listeners) => server.subscribe(ptySessionId, listeners),
       reportDiagnostic: () => {},
+      onTextNeutralizationFailure: () => undefined,
       scheduleTimeout: scheduler.schedule,
       executablePath: EXECUTABLE_PATH,
       resumeSpawnConfig: RESUME_SPAWN_CONFIG,
@@ -1564,6 +1649,137 @@ describe("CodexDriver session ownership (Spec-005 §Required Behavior)", () => {
     // The replacement record knows no runs, so `closeSession` could never sweep
     // this route afterwards: unswept here, it would outlive the daemon.
     expect(manager.hasActiveTurn(RUN_ID)).toBe(false);
+  });
+
+  it("fails a superseded leg's unsettled frame instead of dropping it", async () => {
+    // The guarantee: a participant's text that provably may not have reached the
+    // model never silently vanishes. The resume replaces the binding the frame
+    // was written on, so no terminal for it can ever arrive — and a dropped
+    // frame leaves the run looking exactly like one whose words landed.
+    const harness = createHarness();
+    await createdSession(harness);
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    // Started and deliberately never settled: no terminal notification is sent,
+    // so the opening frame is still pending when the resume supersedes the leg.
+    await harness.driver.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "please rebase onto develop" },
+    });
+
+    harness.server.spawnResponse = { kind: "spawn_response", session_id: "pty-session-2" };
+    harness.server.on("thread/resume", () => threadStartResult(2));
+    await harness.driver.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
+
+    expect(harness.textNeutralizationFailures).toHaveLength(1);
+    expect(harness.textNeutralizationFailures[0]?.runId).toBe(RUN_ID);
+  });
+
+  it("states the supersede as its own cause, never as a swallowed turn", async () => {
+    // The cause is the other half of the fix. Borrowing the trip's detail would
+    // publish a swallow nobody observed, and that detail's registered code has a
+    // fixed parseable form a consumer reads — so the wrong cause is not merely
+    // imprecise prose, it is a claim another layer will act on.
+    const harness = createHarness();
+    await createdSession(harness);
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.driver.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "please rebase onto develop" },
+    });
+
+    harness.server.spawnResponse = { kind: "spawn_response", session_id: "pty-session-2" };
+    harness.server.on("thread/resume", () => threadStartResult(2));
+    await harness.driver.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
+
+    const detail = harness.textNeutralizationFailures[0]?.providerFailureDetail ?? "";
+    expect(detail).not.toContain(TEXT_NEUTRALIZATION_REFUSAL_CODE);
+    expect(detail).toContain("superseded");
+    // And the participant's own words are never quoted into the detail — the
+    // cause says what happened to them, not what they were.
+    expect(detail).not.toContain("rebase");
+  });
+
+  it("leaves a superseded run attachable — the fresh binding is where it belongs", async () => {
+    // The trip path quarantines both axes because the process is condemned.
+    // Nothing is condemned here: the binding is simply gone, replaced by one
+    // that works. Quarantining the run would take its interrupt and intervention
+    // controls away for the daemon's lifetime, in exchange for nothing.
+    const harness = createHarness();
+    await createdSession(harness);
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.driver.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "please rebase onto develop" },
+    });
+
+    harness.server.spawnResponse = { kind: "spawn_response", session_id: "pty-session-2" };
+    harness.server.on("thread/resume", () => threadStartResult(2));
+    await harness.driver.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
+
+    // The run has no live turn on the replacement leg, so the refusal is the
+    // ordinary one — and specifically NOT the quarantine's, which the resolver
+    // consults first and which would answer here if the run had been condemned.
+    const refusal = await harness.driver.interruptRun({ runId: RUN_ID, reason: "user" }).then(
+      () => undefined,
+      (cause: unknown) => cause,
+    );
+    expect(refusal).toBeInstanceOf(CodexTransportError);
+    expect(refusal).not.toBeInstanceOf(TextNeutralizationRefusedError);
+    expect(String(refusal)).toContain("No active Codex turn");
+  });
+
+  it("reports one failure per run, not one per frame", async () => {
+    // Two frames on one run — the opening frame and a steer — and one supersede.
+    // One supersede is one cause; a report per frame would tell the participant
+    // their run failed twice for the same reason.
+    const harness = createHarness();
+    await createdSession(harness);
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    harness.server.on("turn/steer", () => ({ result: { turnId: TURN_ID } }));
+    await harness.driver.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "please rebase onto develop" },
+    });
+    await harness.driver.applyIntervention({
+      type: "steer",
+      targetRunId: RUN_ID,
+      expectedRunVersion: 1,
+      clientIdempotencyKey: "9a1d8f30-0000-4000-8000-0000000000ab",
+      payload: { content: "and squash the fixups", expectedTurnId: TURN_ID },
+    });
+
+    harness.server.spawnResponse = { kind: "spawn_response", session_id: "pty-session-2" };
+    harness.server.on("thread/resume", () => threadStartResult(2));
+    await harness.driver.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
+
+    expect(harness.textNeutralizationFailures).toHaveLength(1);
+    const reported = harness.diagnostics.filter(
+      (diagnostic) => diagnostic.kind === "superseded-frames-failed",
+    );
+    expect(reported).toHaveLength(1);
+    // The frame count is the operator's only sight of the writes the superseded
+    // binding was carrying, so it is NOT collapsed to the report count.
+    expect(reported[0]).toMatchObject({ abandonedFrameCount: 2, reportedRunCount: 1 });
+  });
+
+  it("reports nothing when the superseded leg was carrying no frames", async () => {
+    // The negative control: a resume over an idle leg is the ordinary case, and
+    // failing a run there would invent a loss out of a clean recovery.
+    const harness = createHarness();
+    await createdSession(harness);
+
+    harness.server.spawnResponse = { kind: "spawn_response", session_id: "pty-session-2" };
+    harness.server.on("thread/resume", () => threadStartResult(2));
+    await harness.driver.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
+
+    expect(harness.textNeutralizationFailures).toEqual([]);
+    expect(
+      harness.diagnostics.filter((diagnostic) => diagnostic.kind === "superseded-frames-failed"),
+    ).toEqual([]);
   });
 });
 
@@ -2786,6 +3002,1149 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     },
   );
 
+  it("refuses a later steer against a binding a text-neutralization trip disposed", async () => {
+    // The assertion that separates FAILED THE RUN from QUARANTINED THE PROCESS.
+    // A trip retires the route as well as disposing the binding, so without the
+    // quarantine check this steer would fail with "no active turn" — a
+    // plausible wrong cause that reads as a race and invites a retry into the
+    // process that already swallowed the participant's words.
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: {
+        sessionId: SESSION_ID,
+        input: "/status please",
+        frameOrigin: "participant_text",
+      },
+    });
+
+    // A settled turn carrying no model output and no declared failure: the
+    // provider reported success for a turn that never reached a model.
+    harness.server.emitFrame(zeroTurnCompletedFrame(TURN_ID));
+    await Promise.resolve();
+
+    await expect(
+      harness.manager.steerRun({
+        runId: RUN_ID,
+        content: "actually, stop",
+        clientIdempotencyKey: "steer-after-trip",
+        frameOrigin: "participant_text",
+      }),
+    ).rejects.toThrow(TextNeutralizationRefusedError);
+    await expect(harness.manager.interruptRun({ runId: RUN_ID })).rejects.toThrow(
+      TextNeutralizationRefusedError,
+    );
+  });
+
+  it("trips when the swallowed turn terminates in the SAME read chunk as its start response", async () => {
+    // The interleave that beat the tripwire before the unmatched-turn memory
+    // carried evidence. The `turn/start` response resolves `startRun` as a
+    // MICROTASK, but `#ingest` drains the rest of the chunk SYNCHRONOUSLY — so
+    // the terminal settles a turn no frame is correlated with yet, and the
+    // re-key that moves the opening frame onto the turn id runs afterwards,
+    // against a settlement that has already gone by. A memory holding only turn
+    // ids retires the route and reports the swallowed turn as a completed one.
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({
+      result: { turn: { id: TURN_ID } },
+      trailingFrames: [zeroTurnCompletedFrame(TURN_ID)],
+    }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: {
+        sessionId: SESSION_ID,
+        input: "/status please",
+        frameOrigin: "participant_text",
+      },
+    });
+
+    expect(harness.textNeutralizationFailures).toStrictEqual([
+      {
+        sessionId: SESSION_ID,
+        runId: RUN_ID,
+        providerFailureDetail: "driver.text_neutralization_failed origin=participant_text",
+      },
+    ]);
+    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
+    expect(harness.manager.textNeutralizationDecisionForTurn(TURN_ID).refused).toBe(true);
+  });
+
+  it("does not trip a REAL turn that terminates in the same read chunk with an unloaded item list", async () => {
+    // The negative control for the test above, and the only one that proves the
+    // remembered evidence is load-bearing rather than decoration. This provider
+    // can settle a turn with an EMPTY item list — `itemsView: "notLoaded"` — so a
+    // memory that kept only the terminal would rule this real turn evidence-free
+    // and fail it. The in-flight `item/completed` is the evidence, and it arrives
+    // in the same chunk, before any frame is correlated with the turn.
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({
+      result: { turn: { id: TURN_ID } },
+      trailingFrames: [modelOutputItemFrame(TURN_ID), zeroTurnCompletedFrame(TURN_ID)],
+    }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: {
+        sessionId: SESSION_ID,
+        input: "review the diff",
+        frameOrigin: "participant_text",
+      },
+    });
+
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+    expect(harness.manager.textNeutralizationDecisionForTurn(TURN_ID).refused).toBe(false);
+    // Still retired: the turn ended, whatever it produced.
+    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
+  });
+
+  it("refuses a later run on the SESSION a trip disposed, not only the run that was on it", async () => {
+    // A run-keyed quarantine cannot reach this: `startRun` resolves a SESSION,
+    // so the surviving record would hand the next run straight back to the
+    // process that swallowed the participant's words. The refusal names the
+    // neutralization rather than a transport fault, so one cause reads as one
+    // cause.
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: {
+        sessionId: SESSION_ID,
+        input: "/status please",
+        frameOrigin: "participant_text",
+      },
+    });
+    harness.server.emitFrame(zeroTurnCompletedFrame(TURN_ID));
+    await Promise.resolve();
+
+    const writtenLinesAfterTrip = harness.server.writtenLines.length;
+    await expect(
+      harness.manager.startRun({
+        runId: SECOND_RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
+      }),
+    ).rejects.toThrow(TextNeutralizationRefusedError);
+    // Refused BEFORE the provider was asked anything: a refusal that still sent
+    // a `turn/start` would have reached the condemned process.
+    expect(harness.server.writtenLines).toHaveLength(writtenLinesAfterTrip);
+  });
+
+  it("lets a fresh spawn under the same session id run again after a trip", async () => {
+    // The quarantine names a BINDING, not an identifier. The promised recovery
+    // is a fresh process, so a refusal that outlived the process it condemned
+    // would refuse the recovery itself.
+    const harness = createManagerHarness();
+    harness.server.uniqueSpawnSessionIds = true;
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: {
+        sessionId: SESSION_ID,
+        input: "/status please",
+        frameOrigin: "participant_text",
+      },
+    });
+    harness.server.emitFrame(zeroTurnCompletedFrame(TURN_ID));
+    // The trip's teardown is DETACHED — it runs inside the read-chunk drain and
+    // must not be awaited there — so the slot reads `closing` until it settles.
+    // A create in that window is refused as it is for every other disposal, so
+    // the recovery this test is about begins once the condemned child is gone.
+    await drainMicrotasks();
+
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    await expect(
+      harness.manager.startRun({
+        runId: SECOND_RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("passes a steer on its acknowledgment when no item follows it", async () => {
+    // A turn carries many frames, and each keeps its own correlation state. The
+    // provider's typed answer to `turn/steer` is the transport's statement
+    // that it TOOK the steer — the only per-frame attribution it produces —
+    // so a steer taken near the turn's end, with no item after it, passes
+    // rather than tripping a healthy session. Every item-based substitute got
+    // a polarity wrong: keying the store by turn let pre-steer output vouch a
+    // swallowed steer, and crediting the oldest-unevidenced frame both tripped
+    // this delivered steer AND let the opener's delayed item vouch a swallowed
+    // one. The coverage boundary is a conjunction stated in the tripwire's
+    // attribution rule (an answer proves receipt, not the model reading the
+    // text) — the detectable swallow shapes are the UNANSWERED ones (the
+    // timeout and dead-connection tests below) and the unrecognized
+    // settlement, which outranks any answer.
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    harness.server.on("turn/steer", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: {
+        sessionId: SESSION_ID,
+        input: "review the diff",
+        frameOrigin: "participant_text",
+      },
+    });
+    // The opening frame's own evidence, observed BEFORE the steer is written.
+    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
+    await Promise.resolve();
+
+    await harness.manager.steerRun({
+      runId: RUN_ID,
+      content: "/clear and start over",
+      clientIdempotencyKey: "steer-1",
+      frameOrigin: "system_narration",
+    });
+    // Every item the terminal carries PRECEDES the steer. The acknowledgment
+    // alone rules the steer; the items rule the opener.
+    harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
+    await drainMicrotasks();
+
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+    expect(harness.manager.textNeutralizationDecisionForTurn(TURN_ID).refused).toBe(false);
+  });
+
+  it("follows a steer's frame onto the turn the provider ACKNOWLEDGED, not the one targeted", async () => {
+    // The acknowledgement is the provider's own statement about where the bytes
+    // went, and its answered request is what the steer is consumed on — so
+    // wherever the frame sits, the recorded answer is what rules it. The move itself is
+    // correlation hygiene: the frame is consumed by the settlement of the turn
+    // that actually took it rather than lingering on one it provably did not
+    // enter (the frame-scoped move semantics are pinned at the tripwire unit
+    // level). What this test holds is the integration contract: the mismatch
+    // is returned to the dispatcher for degraded grading (P3-1), no turn trips
+    // over it, and the binding is not condemned.
+    const acknowledgedTurnId = "turn-acknowledged";
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    harness.server.on("turn/steer", () => ({ result: { turnId: acknowledgedTurnId } }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
+    });
+    // The opening frame's own evidence, observed BEFORE the steer is written, so
+    // it vouches for that frame and for no other.
+    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
+    await Promise.resolve();
+
+    const acknowledgement = await harness.manager.steerRun({
+      runId: RUN_ID,
+      content: "/clear and start over",
+      clientIdempotencyKey: "steer-1",
+      frameOrigin: "participant_text",
+    });
+    expect(acknowledgement).toStrictEqual({
+      targetedTurnId: TURN_ID,
+      acknowledgedTurnId,
+    });
+
+    // The targeted turn ends carrying only the items that preceded the steer.
+    // Its opening frame is vouched for, and the steer's frame is not its to rule.
+    harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
+    await drainMicrotasks();
+    expect(harness.manager.textNeutralizationDecisionForTurn(TURN_ID).refused).toBe(false);
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+
+    // The ACKNOWLEDGED turn settles with nothing of its own — and the moved
+    // steer, carrying its recorded acknowledgment, passes there rather than
+    // tripping a delivery the provider attested. The binding stays usable.
+    harness.server.emitFrame(zeroTurnCompletedFrame(acknowledgedTurnId));
+    await drainMicrotasks();
+    expect(harness.manager.textNeutralizationDecisionForTurn(acknowledgedTurnId).refused).toBe(
+      false,
+    );
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+    harness.server.on("turn/start", () => ({ result: { turn: { id: "turn-after-steer" } } }));
+    await expect(
+      harness.manager.startRun({
+        runId: SECOND_RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("keeps a null-acked steer on the targeted turn and rules it on the acknowledgment", async () => {
+    // The other arm, and the reason the move is conditional: an ack naming no
+    // turn disproves nothing about where the bytes went, so moving the frame
+    // would abandon the only correlation there is evidence for. Naming no turn
+    // weakens the correlation, never the delivery: the answered request is
+    // still the provider's typed statement that it took the bytes, so the
+    // steer passes at the targeted turn's settlement — the dispatcher already
+    // grades the null ack degraded rather than applied (P3-1), which is where
+    // that weakness is reported.
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    harness.server.on("turn/steer", () => ({ result: {} }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
+    });
+    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
+    await Promise.resolve();
+
+    const acknowledgement = await harness.manager.steerRun({
+      runId: RUN_ID,
+      content: "/clear and start over",
+      clientIdempotencyKey: "steer-1",
+      frameOrigin: "participant_text",
+    });
+    expect(acknowledgement).toStrictEqual({
+      targetedTurnId: TURN_ID,
+      acknowledgedTurnId: null,
+    });
+
+    // Every item on the terminal precedes the steer; the recorded
+    // acknowledgment is what rules it, and it rules it a pass.
+    harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
+    await drainMicrotasks();
+
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+    expect(harness.manager.textNeutralizationDecisionForTurn(TURN_ID).refused).toBe(false);
+  });
+
+  it("consumes a steer's frame on its ack when the acknowledged turn settled in the SAME read chunk", async () => {
+    // The move the acknowledgement asks for is only safe onto a turn that can
+    // still rule something. A terminal sharing the steer response's read chunk
+    // is drained SYNCHRONOUSLY, so it goes by before this steer's continuation
+    // runs — and a frame moved onto it afterwards would wait for a second
+    // terminal that is never coming, dropping as occupancy. The refusal to
+    // move stands; what changed is the ruling: the answered request already
+    // proved receipt, so the frame is consumed on its own answer rather than
+    // tripped — condemning the session over a receipt the provider just
+    // attested contradicted the attribution rule that consumes every other
+    // answered steer. The mismatch stays visible through
+    // the dispatcher's degraded grading (P3-1).
+    const acknowledgedTurnId = "turn-acknowledged";
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    harness.server.on("turn/steer", () => ({
+      result: { turnId: acknowledgedTurnId },
+      trailingFrames: [zeroTurnCompletedFrame(acknowledgedTurnId)],
+    }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
+    });
+    // Vouches for the OPENING frame and for no other, so a trip here names the
+    // steer's frame rather than merely some frame on the session.
+    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
+    await Promise.resolve();
+
+    const acknowledgement = await harness.manager.steerRun({
+      runId: RUN_ID,
+      content: "/clear and start over",
+      clientIdempotencyKey: "steer-1",
+      frameOrigin: "system_narration",
+    });
+    // The acknowledgement is still a fact and is still returned: the ruling is a
+    // second act beside it, not a replacement for the driver's answer.
+    expect(acknowledgement).toStrictEqual({ targetedTurnId: TURN_ID, acknowledgedTurnId });
+    await drainMicrotasks();
+
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+    // The targeted turn still settles clean on its opener's own evidence, and
+    // the binding is NOT condemned: the next run dispatches onto it.
+    harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
+    await drainMicrotasks();
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+    harness.server.on("turn/start", () => ({ result: { turn: { id: "turn-after-steer" } } }));
+    await expect(
+      harness.manager.startRun({
+        runId: SECOND_RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("consumes a steer's frame on its ack when the acknowledged turn AGED OUT of the settled memory", async () => {
+    // The same window as the read-chunk case above, reached by ageing instead
+    // of by ordering. The settled memory is bounded, and the acknowledgement
+    // continuation reads ABSENCE from it as "that turn can still rule this
+    // frame" — so a burst of terminals arriving in the steer response's own
+    // chunk used to push the acknowledged turn's own settlement out, and the
+    // frame was moved onto a turn no second terminal was ever coming for,
+    // sitting as occupancy until the scope was released. The `inFlightSteers`
+    // pin keeps the settlement readable across the round trip, so the
+    // continuation refuses the move and consumes the frame on its own
+    // acknowledgment instead of leaking it.
+    //
+    // The burst rides `trailingFrames`, which is ONE read chunk with the
+    // response, so every one of these drains synchronously before the
+    // continuation resumes — the ordering that makes the eviction reachable.
+    // Seventy: comfortably past the memory's unpinned bound of 64, so a
+    // size-based prune would certainly have reached the acknowledged turn's own
+    // settlement, and comfortably under the pinned ceiling of 256, so this is
+    // the eviction case rather than the overflow refusal beside it.
+    const acknowledgedTurnId = "turn-acknowledged";
+    const burstTurnIds: readonly string[] = Array.from(
+      { length: 70 },
+      (_unused, index) => `turn-burst-${String(index)}`,
+    );
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    harness.server.on("turn/steer", () => ({
+      result: { turnId: acknowledgedTurnId },
+      trailingFrames: [
+        zeroTurnCompletedFrame(acknowledgedTurnId),
+        ...burstTurnIds.map((burstTurnId) => turnCompletedFrame(burstTurnId, "completed")),
+      ],
+    }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
+    });
+    // Vouches for the OPENING frame and for no other, so a trip here names the
+    // steer's frame rather than merely some frame on the session.
+    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
+    await Promise.resolve();
+
+    const acknowledgement = await harness.manager.steerRun({
+      runId: RUN_ID,
+      content: "/clear and start over",
+      clientIdempotencyKey: "steer-1",
+      frameOrigin: "system_narration",
+    });
+    expect(acknowledgement).toStrictEqual({ targetedTurnId: TURN_ID, acknowledgedTurnId });
+    await drainMicrotasks();
+
+    // The premise, asserted rather than assumed: this stayed under the ceiling,
+    // so the trip below is the ageing guard's and not the overflow refusal's.
+    expect(
+      harness.diagnostics.filter(
+        (diagnostic) => diagnostic.kind === "settled-turn-memory-overflowed",
+      ),
+    ).toHaveLength(0);
+
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+    // The targeted turn still settles clean on its opener's own evidence, and
+    // the binding is NOT condemned: the next run dispatches onto it.
+    harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
+    await drainMicrotasks();
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+    harness.server.on("turn/start", () => ({ result: { turn: { id: "turn-after-steer" } } }));
+    await expect(
+      harness.manager.startRun({
+        runId: SECOND_RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("refuses the binding when the settled memory overflows during a steer", async () => {
+    // The ceiling, and the reason the pin needs one: a burst past it cannot be
+    // admitted beside entries the continuation may be about to read, and
+    // evicting one to make room would answer "still running" for a turn that
+    // ended. So the driver refuses rather than choosing which settlement to
+    // forget — the same prune-then-refuse-and-never-evict answer the evidence
+    // memory gives — and the teardown rules the steer's own pending frame
+    // fail-closed on the way out.
+    // Three hundred, past the pinned ceiling of 256, matching the figure the
+    // evidence memory's own overflow test drives its refusal with.
+    const acknowledgedTurnId = "turn-acknowledged";
+    const burstTurnIds: readonly string[] = Array.from(
+      { length: 300 },
+      (_unused, index) => `turn-burst-${String(index)}`,
+    );
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    harness.server.on("turn/steer", () => ({
+      result: { turnId: acknowledgedTurnId },
+      trailingFrames: burstTurnIds.map((burstTurnId) =>
+        turnCompletedFrame(burstTurnId, "completed"),
+      ),
+    }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
+    });
+    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
+    await Promise.resolve();
+
+    await harness.manager.steerRun({
+      runId: RUN_ID,
+      content: "/clear and start over",
+      clientIdempotencyKey: "steer-1",
+      frameOrigin: "system_narration",
+    });
+    await drainMicrotasks();
+
+    // Named as its OWN overflow rather than the evidence memory's: an operator
+    // reading either needs to know which memory could not hold.
+    expect(
+      harness.diagnostics.filter(
+        (diagnostic) => diagnostic.kind === "settled-turn-memory-overflowed",
+      ),
+    ).toHaveLength(1);
+    // Loud on the run, not merely diagnosed: the refusal rules every frame the
+    // departing binding was carrying, the steer's included.
+    expect(harness.textNeutralizationFailures).toHaveLength(1);
+    expect(harness.textNeutralizationFailures[0]?.runId).toBe(RUN_ID);
+    await expect(
+      harness.manager.startRun({
+        runId: SECOND_RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
+      }),
+    ).rejects.toThrow(TextNeutralizationRefusedError);
+  });
+
+  it("consumes a steer acked onto a turn that already ended, on the acknowledgment itself", async () => {
+    // The acknowledged turn ended before the steer was written, so no second
+    // terminal is coming for it and the move is refused. The frame is ruled
+    // here — on its own recorded acknowledgment, not on the settled turn's
+    // recorded outcome and not fail-closed. Not inherited, because that turn's
+    // output predates the directive and vouches for nothing; not tripped,
+    // because the answered request is the provider's own typed statement that
+    // it took the bytes, and the attribution rule that accepts that statement
+    // on the live-destination path does not stop holding because the
+    // destination finished first. The oddity of the ack itself — a provider
+    // naming a turn it had already ended — reaches the caller through the
+    // dispatcher's degraded grading of the mismatch (P3-1).
+    const acknowledgedTurnId = "turn-acknowledged";
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    harness.server.on("turn/steer", () => ({ result: { turnId: acknowledgedTurnId } }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
+    });
+    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
+    // The acknowledged turn ends BEFORE the steer is written, carrying a model
+    // message of its own.
+    harness.server.emitFrame(turnCompletedFrame(acknowledgedTurnId, "completed"));
+    await drainMicrotasks();
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+
+    await harness.manager.steerRun({
+      runId: RUN_ID,
+      content: "/clear and start over",
+      clientIdempotencyKey: "steer-1",
+      frameOrigin: "system_narration",
+    });
+    await drainMicrotasks();
+
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+    // And the frame did not linger on the TARGETED turn either: its settlement
+    // finds only the opener, vouched by its own item.
+    harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
+    await drainMicrotasks();
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+    expect(harness.manager.textNeutralizationDecisionForTurn(TURN_ID).refused).toBe(false);
+  });
+
+  it("rules a steer's frame where it was registered when the TARGET settles in one chunk", async () => {
+    // The no-turn-named arm's own ordering hazard, and the reason it needs no
+    // guard: the frame is registered on the targeted turn BEFORE the bytes go
+    // out, so a terminal sharing the response's chunk finds it correlated and
+    // rules it in the ordinary place. A regression pin on that registration
+    // rather than on anything the acknowledgement path does.
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    harness.server.on("turn/steer", () => ({
+      result: {},
+      trailingFrames: [turnCompletedFrame(TURN_ID, "completed")],
+    }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
+    });
+    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
+    await Promise.resolve();
+
+    const acknowledgement = await harness.manager.steerRun({
+      runId: RUN_ID,
+      content: "/clear and start over",
+      clientIdempotencyKey: "steer-1",
+      frameOrigin: "system_narration",
+    });
+    expect(acknowledgement).toStrictEqual({ targetedTurnId: TURN_ID, acknowledgedTurnId: null });
+    await drainMicrotasks();
+
+    // Every item the terminal carries precedes the steer, so the opening frame
+    // is vouched for and the steer's is the one that trips.
+    expect(harness.textNeutralizationFailures).toHaveLength(1);
+    expect(harness.textNeutralizationFailures[0]?.providerFailureDetail).toBe(
+      "driver.text_neutralization_failed origin=system_narration",
+    );
+    expect(harness.manager.textNeutralizationDecisionForTurn(TURN_ID).refused).toBe(true);
+  });
+
+  it("does not trip the opening frame when a legitimate steer settles with an unloaded item list", async () => {
+    // The other polarity, and the one a per-frame store must not lose: every
+    // frame on the turn produced output, and the terminal simply did not carry
+    // the item list. Nothing here may fail.
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    harness.server.on("turn/steer", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: {
+        sessionId: SESSION_ID,
+        input: "review the diff",
+        frameOrigin: "participant_text",
+      },
+    });
+    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
+    await Promise.resolve();
+    await harness.manager.steerRun({
+      runId: RUN_ID,
+      content: "also check the tests",
+      clientIdempotencyKey: "steer-1",
+      frameOrigin: "participant_text",
+    });
+    // Answered after the steer, so it is attributable to the steer.
+    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
+    await Promise.resolve();
+
+    harness.server.emitFrame(zeroTurnCompletedFrame(TURN_ID));
+    await drainMicrotasks();
+
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+    expect(harness.manager.textNeutralizationDecisionForTurn(TURN_ID).refused).toBe(false);
+  });
+
+  it("drops the frame of a steer the provider ANSWERED with an error", async () => {
+    // A provider error is an answer, and an answer is proof the provider read
+    // the directive and declined it — so it started no turn and swallowed
+    // nothing. Left registered, the frame would be ruled evidence-free by the
+    // turn's own terminal and trip: a run failed and a provider session disposed
+    // over text the provider demonstrably did not act on. Frame-scoped, so the
+    // opening frame stays correlated and still gets ruled.
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    harness.server.on("turn/steer", () => ({
+      error: { code: -32600, message: "no active turn" },
+    }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: {
+        sessionId: SESSION_ID,
+        input: "review the diff",
+        frameOrigin: "participant_text",
+      },
+    });
+    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
+    await Promise.resolve();
+
+    await expect(
+      harness.manager.steerRun({
+        runId: RUN_ID,
+        content: "also check the tests",
+        clientIdempotencyKey: "steer-1",
+        frameOrigin: "participant_text",
+      }),
+    ).rejects.toThrow();
+    harness.server.emitFrame(zeroTurnCompletedFrame(TURN_ID));
+    await drainMicrotasks();
+
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+  });
+
+  it("drops the frame of a steer refused before its write ever reached the host", async () => {
+    // The other provably-unsent arm, and the one whose failure looks IDENTICAL
+    // to a mid-flight death from the caller's side: the connection refuses ahead
+    // of the write and raises the same transport error class, with near-identical
+    // text, that an exit raises for a request already on the wire. Classified at
+    // the transport, this one is known to have put no byte anywhere, so the
+    // frame is dropped and nothing trips. Misread as merely-unknown delivery, it
+    // would trip here — the connection is closed — and fail a run over a
+    // directive the provider was never sent.
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: {
+        sessionId: SESSION_ID,
+        input: "review the diff",
+        frameOrigin: "participant_text",
+      },
+    });
+    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
+    await Promise.resolve();
+    // Kills the transport without touching the manager's record, so the steer
+    // still reaches the write path and is refused there rather than upstream.
+    harness.server.emitExit(1);
+    await drainMicrotasks();
+
+    await expect(
+      harness.manager.steerRun({
+        runId: RUN_ID,
+        content: "also check the tests",
+        clientIdempotencyKey: "steer-1",
+        frameOrigin: "system_narration",
+      }),
+    ).rejects.toThrow();
+    await drainMicrotasks();
+
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+    expect(harness.manager.textNeutralizationDecisionForTurn(TURN_ID).refused).toBe(false);
+  });
+
+  it("keeps the frame of a steer that timed out after its bytes were written", async () => {
+    // The unsafe case. The write SUCCEEDED and the provider simply never
+    // answered: it may have taken the command-shaped directive, intercepted it
+    // client-side, and be on its way to a zero-turn success — the rejection the
+    // caller sees carries no information either way. Withdrawing the frame here
+    // is exactly how a swallowed directive escapes, because the turn's terminal
+    // would then rule only the opening frame, which was answered and observed.
+    // Retained instead, the terminal rules the steer on its own merits.
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    // `turn/steer` is deliberately NOT registered: the fake writes the line and
+    // answers nothing, which is the shape of an intercepted directive.
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: {
+        sessionId: SESSION_ID,
+        input: "review the diff",
+        frameOrigin: "participant_text",
+      },
+    });
+    // The opening frame's own evidence, observed BEFORE the steer is written, so
+    // the opening frame passes on its own account and only the steer is at issue.
+    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
+    await Promise.resolve();
+
+    const steer = harness.manager.steerRun({
+      runId: RUN_ID,
+      content: "/clear and start over",
+      clientIdempotencyKey: "steer-1",
+      // A different origin from the opening frame's, so the recorded detail
+      // names WHICH frame the turn failed to account for.
+      frameOrigin: "system_narration",
+    });
+    await drainMicrotasks();
+    // The line is on the wire before the deadline fires: this is a post-write
+    // failure, not a refusal.
+    expect(harness.server.framesForMethod("turn/steer")).toHaveLength(1);
+    harness.scheduler.fireAll();
+    await expect(steer).rejects.toBeInstanceOf(CodexRequestTimeoutError);
+
+    // Every item this terminal carries PRECEDES the steer, so none of them is
+    // evidence for it.
+    harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
+    await drainMicrotasks();
+
+    expect(harness.textNeutralizationFailures).toHaveLength(1);
+    expect(harness.textNeutralizationFailures[0]?.providerFailureDetail).toBe(
+      "driver.text_neutralization_failed origin=system_narration",
+    );
+    // And the binding the swallow was observed on is condemned, not reused.
+    await expect(
+      harness.manager.startRun({
+        runId: SECOND_RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
+      }),
+    ).rejects.toThrow(TextNeutralizationRefusedError);
+  });
+
+  it("rules a steer whose write died with the connection instead of releasing it", async () => {
+    // Retention alone cannot cover this one: the connection is gone, so the turn
+    // the frame joined will never settle and no terminal will ever rule it. Left
+    // pending, it would sit until the scope's budget was reclaimed and then be
+    // dropped as pure occupancy — silence in the case that most warrants an
+    // answer, since the provider may already have swallowed the directive.
+    // Ruled fail-closed here, and ruled FRAME-scoped: settling the whole turn
+    // would also trip the opening frame, whose request was answered and whose
+    // delivery was therefore never in doubt.
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: {
+        sessionId: SESSION_ID,
+        input: "review the diff",
+        frameOrigin: "participant_text",
+      },
+    });
+    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
+    await Promise.resolve();
+    // Kills the child mid-write and then fails that write: the bytes were handed
+    // to the host, and how many of them reached the child is unknowable.
+    harness.server.failWriteAfterChildExit = true;
+    // Baseline, so the kill asserted below is attributable to THIS teardown.
+    expect(harness.server.killedSessions).toStrictEqual([]);
+
+    await expect(
+      harness.manager.steerRun({
+        runId: RUN_ID,
+        content: "/clear and start over",
+        clientIdempotencyKey: "steer-1",
+        frameOrigin: "system_narration",
+      }),
+    ).rejects.toThrow(/broken pipe/);
+    await drainMicrotasks();
+
+    // The steer's own origin, so the report names the frame whose delivery was
+    // in doubt rather than the opening frame that was answered.
+    expect(harness.textNeutralizationFailures).toHaveLength(1);
+    expect(harness.textNeutralizationFailures[0]?.providerFailureDetail).toBe(
+      "driver.text_neutralization_failed origin=system_narration",
+    );
+    expect(harness.textNeutralizationFailures[0]?.runId).toBe(RUN_ID);
+    // Disposed, not merely refused: the promised recovery is a fresh spawn. The
+    // follow-up call below spawns again, so this is asserted first.
+    expect(harness.server.killedSessions).toHaveLength(1);
+    await expect(
+      harness.manager.startRun({
+        runId: SECOND_RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
+      }),
+    ).rejects.toThrow(TextNeutralizationRefusedError);
+  });
+
+  it("reports a trip on the run whose route an interrupt had already retired", async () => {
+    // `turn/interrupt` resolves when the provider ACCEPTS the interrupt, not
+    // when the turn ends — `turn/completed` still follows. The route is retired
+    // at acceptance, correctly, so that the run stops reporting an active turn;
+    // but the tripwire is ruled on the terminal. Without a correlation that
+    // survives that gap the trip quarantines the session and the process while
+    // the run's own subscribers hear nothing at all.
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    harness.server.on("turn/interrupt", () => ({ result: {} }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: {
+        sessionId: SESSION_ID,
+        input: "/status please",
+        frameOrigin: "participant_text",
+      },
+    });
+    await harness.manager.interruptRun({ runId: RUN_ID });
+    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
+
+    harness.server.emitFrame(zeroTurnCompletedFrame(TURN_ID));
+    await drainMicrotasks();
+
+    expect(harness.textNeutralizationFailures).toStrictEqual([
+      {
+        sessionId: SESSION_ID,
+        runId: RUN_ID,
+        providerFailureDetail: "driver.text_neutralization_failed origin=participant_text",
+      },
+    ]);
+    // And the session arm too: the run failure alone would leave the next run
+    // free to resolve this record by session id and dispatch into the process
+    // that swallowed the participant's words.
+    await expect(
+      harness.manager.startRun({
+        runId: SECOND_RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
+      }),
+    ).rejects.toThrow(TextNeutralizationRefusedError);
+  });
+
+  it("releases the retained interrupt correlation once its terminal has been ruled", async () => {
+    // The correlation is retained only until the ruling it is owed. A duplicate
+    // terminal for the same turn — which this provider can send after an
+    // interrupt — must not be reported a second time, and a benign one must
+    // release the entry exactly as a trip does.
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    harness.server.on("turn/interrupt", () => ({ result: {} }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: {
+        sessionId: SESSION_ID,
+        input: "/status please",
+        frameOrigin: "participant_text",
+      },
+    });
+    await harness.manager.interruptRun({ runId: RUN_ID });
+
+    harness.server.emitFrame(zeroTurnCompletedFrame(TURN_ID));
+    await drainMicrotasks();
+    harness.server.emitFrame(zeroTurnCompletedFrame(TURN_ID));
+    await drainMicrotasks();
+
+    expect(harness.textNeutralizationFailures).toHaveLength(1);
+  });
+
+  it("does not trip an interrupted turn whose terminal carries model output", async () => {
+    // The negative control. A retained correlation must not become a second
+    // route that fails an ordinary interrupted turn — the overwhelmingly common
+    // case, where a participant simply stopped a run that was working.
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    harness.server.on("turn/interrupt", () => ({ result: {} }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: {
+        sessionId: SESSION_ID,
+        input: "review the diff",
+        frameOrigin: "participant_text",
+      },
+    });
+    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
+    await Promise.resolve();
+    await harness.manager.interruptRun({ runId: RUN_ID });
+
+    harness.server.emitFrame(turnCompletedFrame(TURN_ID, "interrupted"));
+    await drainMicrotasks();
+
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+    // The binding is untouched, so the session takes the next run.
+    await expect(
+      harness.manager.startRun({
+        runId: SECOND_RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("refuses a run this session is already holding too many unwatched frames for", async () => {
+    // The capacity refusal, end to end on this leg, and the bound the retained
+    // interrupt correlations inherit: every retained correlation is backed by a
+    // frame the tripwire is still holding, so the outstanding-interrupt set can
+    // never outgrow this session's watch budget.
+    //
+    // Refusing is the honest answer. Admitting the write and evicting the oldest
+    // registration to make room means that turn later settles against nothing
+    // and PASSES, which is the swallowed turn reported as a completed one.
+    const harness = createManagerHarness();
+    let nextTurnOrdinal = 0;
+    harness.server.on("turn/start", () => {
+      nextTurnOrdinal += 1;
+      return { result: { turn: { id: `turn-${String(nextTurnOrdinal)}` } } };
+    });
+    harness.server.on("turn/interrupt", () => ({ result: {} }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    const interruptedRunIds: RunId[] = [];
+    for (let index = 0; index < OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY; index += 1) {
+      const runId = `44444444-4444-4444-8444-${String(index).padStart(12, "0")}` as RunId;
+      interruptedRunIds.push(runId);
+      await harness.manager.startRun({
+        runId,
+        channelId: CHANNEL_ID,
+        agentConfig: {
+          sessionId: SESSION_ID,
+          input: "/status please",
+          frameOrigin: "participant_text",
+        },
+      });
+      // Interrupted and never terminated, so every frame stays unsettled and
+      // every correlation stays retained.
+      await harness.manager.interruptRun({ runId });
+    }
+
+    const writtenLinesBeforeRefusal = harness.server.writtenLines.length;
+    await expect(
+      harness.manager.startRun({
+        runId: RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "one more" },
+      }),
+    ).rejects.toThrow(OutboundFrameCapacityRefusedError);
+    // Refused BEFORE any byte reached the provider: a frame written past the
+    // tripwire's reach is precisely the frame no turn can be ruled against.
+    expect(harness.server.writtenLines).toHaveLength(writtenLinesBeforeRefusal);
+
+    // Nothing was discarded to make room — every one of the interrupted turns is
+    // still watched, and each still reports on its own run when it settles.
+    for (let index = 0; index < interruptedRunIds.length; index += 1) {
+      harness.server.emitFrame(zeroTurnCompletedFrame(`turn-${String(index + 1)}`));
+    }
+    await drainMicrotasks();
+    expect(harness.textNeutralizationFailures.map((failure) => failure.runId)).toStrictEqual(
+      interruptedRunIds,
+    );
+  });
+
+  it("refuses the binding when stale interrupt correlations reach the route-memory ceiling", async () => {
+    // The one reachable road to the ceiling: an interrupt whose continuation
+    // resumes after its turn's terminal drained AND after enough further
+    // terminals pruned that turn's id out of the settled memory — the settled
+    // gate then reads absence, records a correlation nothing will ever release,
+    // and stale entries accumulate toward the ceiling. At it the driver refuses
+    // rather than evicting, because a live correlation evicted to make room is
+    // a terminal ruled against no run.
+    const harness = createManagerHarness();
+    let nextTurnOrdinal = 0;
+    let currentTurnId = "";
+    harness.server.on("turn/start", () => {
+      nextTurnOrdinal += 1;
+      currentTurnId = `turn-${String(nextTurnOrdinal)}`;
+      return { result: { turn: { id: currentTurnId } } };
+    });
+    harness.server.on("turn/interrupt", () => ({
+      result: {},
+      // The turn's own benign terminal, then a burst that prunes its id out of
+      // the settled memory before the interrupt continuation resumes.
+      trailingFrames: [
+        turnCompletedFrame(currentTurnId, "completed"),
+        ...Array.from({ length: 64 }, (_unused, index) =>
+          turnCompletedFrame(`${currentTurnId}-prune-${String(index)}`, "completed"),
+        ),
+      ],
+    }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    for (let index = 0; index < 65; index += 1) {
+      const runId = `77777777-7777-4777-8777-${String(index).padStart(12, "0")}` as RunId;
+      await harness.manager.startRun({
+        runId,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "go" },
+      });
+      harness.server.emitFrame(modelOutputItemFrame(`turn-${String(index + 1)}`));
+      await Promise.resolve();
+      await harness.manager.interruptRun({ runId });
+      await drainMicrotasks();
+    }
+
+    const overflowDiagnostics = harness.diagnostics.filter(
+      (diagnostic) => diagnostic.kind === "interrupted-route-memory-overflowed",
+    );
+    expect(overflowDiagnostics).toHaveLength(1);
+    expect(overflowDiagnostics[0]).toMatchObject({ retainedTurnCount: 64 });
+    // The refusal condemned the binding: nothing later runs on it.
+    await expect(
+      harness.manager.startRun({
+        runId: RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("records nothing for an interrupt whose turn had already settled in the same chunk", async () => {
+    // The settled gate, driven at the same seam as the refusal above but with
+    // the prune burst absent: presence in the settled memory is proof the
+    // terminal this correlation would route has already arrived and been ruled,
+    // so nothing is recorded and nothing accumulates. Sixty-five of these —
+    // one past the ceiling — leave the session healthy, where recording each
+    // one would have refused the binding on the sixty-fifth.
+    const harness = createManagerHarness();
+    let nextTurnOrdinal = 0;
+    let currentTurnId = "";
+    harness.server.on("turn/start", () => {
+      nextTurnOrdinal += 1;
+      currentTurnId = `turn-${String(nextTurnOrdinal)}`;
+      return { result: { turn: { id: currentTurnId } } };
+    });
+    harness.server.on("turn/interrupt", () => ({
+      result: {},
+      trailingFrames: [turnCompletedFrame(currentTurnId, "completed")],
+    }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    for (let index = 0; index < 65; index += 1) {
+      const runId = `88888888-8888-4888-8888-${String(index).padStart(12, "0")}` as RunId;
+      await harness.manager.startRun({
+        runId,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "go" },
+      });
+      harness.server.emitFrame(modelOutputItemFrame(`turn-${String(index + 1)}`));
+      await Promise.resolve();
+      await harness.manager.interruptRun({ runId });
+      await drainMicrotasks();
+    }
+
+    expect(
+      harness.diagnostics.filter(
+        (diagnostic) => diagnostic.kind === "interrupted-route-memory-overflowed",
+      ),
+    ).toHaveLength(0);
+    await expect(
+      harness.manager.startRun({
+        runId: RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("returns a closed session's watch budget, so a fresh spawn under the id runs", async () => {
+    // The scope's budget is reclaimed where the record is provably gone. Without
+    // it, a session whose turns never settled would hold its own budget for the
+    // daemon's lifetime and refuse every later run on that id — a leak that
+    // presents as a permanently unusable session rather than as memory.
+    const harness = createManagerHarness();
+    let nextTurnOrdinal = 0;
+    harness.server.on("turn/start", () => {
+      nextTurnOrdinal += 1;
+      return { result: { turn: { id: `turn-${String(nextTurnOrdinal)}` } } };
+    });
+    harness.server.on("turn/interrupt", () => ({ result: {} }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    for (let index = 0; index < OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY; index += 1) {
+      const runId = `66666666-6666-4666-8666-${String(index).padStart(12, "0")}` as RunId;
+      await harness.manager.startRun({
+        runId,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "go" },
+      });
+      await harness.manager.interruptRun({ runId });
+    }
+
+    await harness.manager.closeSession({ sessionId: SESSION_ID });
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    await expect(
+      harness.manager.startRun({
+        runId: RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
+      }),
+    ).resolves.toBeUndefined();
+  });
+
   it("keeps the route while the turn is still inProgress", async () => {
     const harness = createManagerHarness();
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
@@ -2869,8 +4228,366 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
     expect(harness.notifications).toContainEqual({
       method: "turn/completed",
-      params: { threadId: THREAD_ID, turn: { id: TURN_ID, status: "completed", items: [] } },
+      params: {
+        threadId: THREAD_ID,
+        turn: {
+          id: TURN_ID,
+          status: "completed",
+          items: [{ type: "agentMessage", id: "item-1" }],
+        },
+      },
     });
+  });
+
+  it("keeps watching a concurrent attempt's frame when an overlapping start is refused", async () => {
+    // Nothing serializes two starts for one run, and a frame is registered under
+    // the RUN id until the provider names a turn — so both attempts are
+    // correlated to the SAME key while either is in flight. A failure that drops
+    // the whole key takes the live attempt's frame with it, and a turn that
+    // settles against no correlated frame PASSES: the swallowed turn reported as
+    // a completed one, which is the outcome the tripwire exists to catch.
+    const refusedOpeningText = "the attempt the provider rejects";
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", (params) =>
+      readTurnStartInputText(params) === refusedOpeningText
+        ? { error: { code: -32602, message: "input rejected" } }
+        : { result: { turn: { id: TURN_ID } } },
+    );
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    // The handler is attached synchronously, before anything is awaited: an
+    // unattached rejection is decided unhandled on the next full microtask drain.
+    const refused = harness.manager
+      .startRun({
+        runId: RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: refusedOpeningText },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    // Registered while the first attempt is still suspended on its own request,
+    // which is the only window in which the overlap exists at all.
+    const accepted = harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
+    });
+
+    // A CLEAN refusal: the provider answered "no", so nothing is disposed and
+    // the session the second attempt is running on stays live.
+    expect(await refused).toBeInstanceOf(CodexProviderRequestError);
+    expect(harness.server.killedSessions).toEqual([]);
+    await accepted;
+
+    harness.server.emitFrame(zeroTurnCompletedFrame(TURN_ID));
+    await drainMicrotasks();
+
+    // One trip, on the turn the SURVIVING attempt opened. Zero trips would be
+    // the key-wide drop that silenced a live frame.
+    expect(harness.manager.textNeutralizationDecisionForTurn(TURN_ID).refused).toBe(true);
+    expect(harness.textNeutralizationFailures).toHaveLength(1);
+    expect(harness.textNeutralizationFailures[0]?.providerFailureDetail).toBe(
+      "driver.text_neutralization_failed origin=participant_text",
+    );
+  });
+
+  it("rules each of two overlapping accepted starts on the turn IT opened", async () => {
+    // The other half of the overlap: both attempts are ACCEPTED, and each is
+    // answered with a turn id of its own. Correlation is per FRAME because the
+    // join key cannot separate them — every attempt on this run registers under
+    // the same run id — so a key-wide re-key would carry the second attempt's
+    // frame onto the first attempt's turn, and the second attempt would then
+    // find nothing left under the run id and move nothing. Its own turn would
+    // settle against no correlated frame, and that PASSES: the swallowed turn
+    // reported as a completed one.
+    const firstOpeningText = "the attempt answered first";
+    const firstTurnId = "turn-overlap-a";
+    const secondTurnId = "turn-overlap-b";
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", (params) => ({
+      result: {
+        turn: {
+          id: readTurnStartInputText(params) === firstOpeningText ? firstTurnId : secondTurnId,
+        },
+      },
+    }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    const first = harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: firstOpeningText },
+    });
+    const second = harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
+    });
+    await first;
+    await second;
+
+    // The SECOND attempt's turn swallows its text. Its frame has to be the one
+    // ruled here, and it is reachable only if the re-key moved that frame alone.
+    harness.server.emitFrame(zeroTurnCompletedFrame(secondTurnId));
+    await drainMicrotasks();
+
+    expect(harness.manager.textNeutralizationDecisionForTurn(secondTurnId).refused).toBe(true);
+    expect(harness.textNeutralizationFailures).toHaveLength(1);
+    expect(harness.textNeutralizationFailures[0]?.providerFailureDetail).toBe(
+      "driver.text_neutralization_failed origin=participant_text",
+    );
+    // The first attempt's frame stayed on ITS turn: still unsettled, still owed
+    // a ruling, and not consumed by the turn beside it.
+    expect(harness.manager.textNeutralizationDecisionForTurn(firstTurnId).refused).toBe(false);
+  });
+
+  it("reports the run when the OLDER of two overlapping turns swallows its text", async () => {
+    // The correlation half of the overlap. Both attempts are accepted, so the
+    // session carries two live turns for one run — and the turn that swallows is
+    // the one that started FIRST. A routing table that could hold one turn per
+    // run had already replaced the first turn's entry with the second's by then,
+    // so the terminal matched no route: the trip quarantined the session and the
+    // run itself was told nothing at all. Routes are keyed by turn precisely so
+    // the ruling reaches the run that wrote the words.
+    const firstOpeningText = "the attempt answered first";
+    const firstTurnId = "turn-older-swallows-a";
+    const secondTurnId = "turn-older-swallows-b";
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", (params) => ({
+      result: {
+        turn: {
+          id: readTurnStartInputText(params) === firstOpeningText ? firstTurnId : secondTurnId,
+        },
+      },
+    }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    const first = harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: firstOpeningText },
+    });
+    const second = harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
+    });
+    await first;
+    await second;
+
+    harness.server.emitFrame(zeroTurnCompletedFrame(firstTurnId));
+    await drainMicrotasks();
+
+    // The run heard it. This is the assertion the overwrite silenced.
+    expect(harness.textNeutralizationFailures).toHaveLength(1);
+    expect(harness.textNeutralizationFailures[0]?.runId).toBe(RUN_ID);
+    expect(harness.textNeutralizationFailures[0]?.providerFailureDetail).toBe(
+      "driver.text_neutralization_failed origin=participant_text",
+    );
+    expect(harness.manager.textNeutralizationDecisionForTurn(firstTurnId).refused).toBe(true);
+    // And the second turn's frame was RULED as the condemned binding went away
+    // rather than discarded with it. No second report: the run had already been
+    // failed by the ruling that condemned the session, and one cause is owed one
+    // terminal — but the frame was accounted for, which is what the count says.
+    expect(harness.diagnostics).toContainEqual({
+      kind: "abandoned-frames-ruled",
+      ruledFrameCount: 1,
+      reportedRunCount: 0,
+    });
+    expect(harness.textNeutralizationFailures).toHaveLength(1);
+    // The process the swallow happened on is gone, and the session refuses.
+    expect(harness.server.killedSessions).toHaveLength(1);
+  });
+
+  it("keeps a run's older live turn steerable after its newest is interrupted", async () => {
+    // The other side of per-turn routing: retiring one turn's route must not
+    // retire the run's session binding while another of its turns is still
+    // running. A run-keyed retirement dropped both in one act, so the surviving
+    // turn became unreachable — every intervention on it answered "no active
+    // turn" while the provider went on working.
+    const firstOpeningText = "the attempt answered first";
+    const firstTurnId = "turn-interrupt-survivor-a";
+    const secondTurnId = "turn-interrupt-survivor-b";
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", (params) => ({
+      result: {
+        turn: {
+          id: readTurnStartInputText(params) === firstOpeningText ? firstTurnId : secondTurnId,
+        },
+      },
+    }));
+    harness.server.on("turn/interrupt", () => ({ result: {} }));
+    harness.server.on("turn/steer", () => ({ result: { turn: { id: firstTurnId } } }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    const first = harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: firstOpeningText },
+    });
+    const second = harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
+    });
+    await first;
+    await second;
+
+    // The interrupt names the NEWEST turn, so the older one survives it.
+    await harness.manager.interruptRun({ runId: RUN_ID });
+    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(true);
+
+    // Reachable, and reached on the turn that is still live.
+    await harness.manager.steerRun({
+      runId: RUN_ID,
+      content: "narrow the diff to the parser",
+      clientIdempotencyKey: "steer-survivor",
+      frameOrigin: "participant_text",
+    });
+    expect(harness.server.framesForMethod("turn/steer")[0]?.["params"]).toMatchObject({
+      expectedTurnId: firstTurnId,
+    });
+  });
+
+  it("refuses the binding rather than evicting a terminal a pending start is owed", async () => {
+    // The evidence memory's hazard, driven from the one direction that reaches
+    // it: ONE read chunk. The whole chunk drains synchronously while the
+    // `turn/start` continuation waits as a microtask, so every turn the provider
+    // mentions in it lands in the unmatched memory before the run that is about
+    // to claim one of them gets to run. Oldest-first eviction discards the head
+    // of that chunk — which is this run's OWN terminal, the zero-turn reply that
+    // says its opening words were swallowed — and the continuation then installs
+    // a live route and a re-keyed frame whose only terminal has already gone by.
+    // Nothing would ever rule it. Evidence is not traded for room: the session is
+    // refused instead, and the run with it.
+    const swallowedRunTurnId = "turn-drain-overflow-owed";
+    const chatter: Array<Record<string, unknown>> = [
+      // FIRST in the chunk, so it is the first entry eviction would reach.
+      zeroTurnCompletedFrame(swallowedRunTurnId),
+    ];
+    for (let index = 0; index < 300; index += 1) {
+      chatter.push(turnCompletedFrame(`turn-drain-overflow-chatter-${index}`, "completed"));
+    }
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({
+      result: { turn: { id: swallowedRunTurnId } },
+      trailingFrames: chatter,
+    }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    const started = harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
+    });
+
+    // The run is REFUSED. Silently evicting instead resolved this call and left
+    // the daemon believing a turn was running on a session that had swallowed
+    // its opening words.
+    await expect(started).rejects.toThrow(CodexTransportError);
+    await drainMicrotasks();
+
+    const overflows = harness.diagnostics.filter(
+      (diagnostic) => diagnostic.kind === "turn-evidence-memory-overflowed",
+    );
+    // Exactly one, though hundreds of frames followed the refusal in that same
+    // chunk: the binding is condemned once and the rest of the drain is quiet.
+    expect(overflows).toHaveLength(1);
+    expect(harness.server.killedSessions).toHaveLength(1);
+    // And the session refuses every later resolution, so the recovery is a fresh
+    // spawn rather than a retry into the process whose account was lost.
+    await expect(
+      harness.manager.startRun({
+        runId: RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "try again" },
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("evicts the evidence memory freely once no start can claim from it", async () => {
+    // The other half of the policy, and the reason the refusal above is not just
+    // a smaller cap: with no `turn/start` in flight, NOTHING can ever claim an
+    // entry — turn ids are never reused, so a later start cannot match one — and
+    // eviction there is provably free. A session that hears about hundreds of
+    // turns it never started stays live and stays usable.
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    for (let index = 0; index < 300; index += 1) {
+      harness.server.emitFrame(
+        turnCompletedFrame(`turn-unclaimable-chatter-${index}`, "completed"),
+      );
+    }
+    await drainMicrotasks();
+
+    expect(
+      harness.diagnostics.filter(
+        (diagnostic) => diagnostic.kind === "turn-evidence-memory-overflowed",
+      ),
+    ).toHaveLength(0);
+    expect(harness.server.killedSessions).toEqual([]);
+    await expect(
+      harness.manager.startRun({
+        runId: RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("refuses a run whose config declares a frame origin, before any byte is written", async () => {
+    // The origin of a run's opening frame is MINTED at the boundary, so the
+    // untyped `agentConfig` bag cannot name one — least of all the exempt arm,
+    // which would have the participant's command-shaped words delivered verbatim
+    // to the provider's own command layer AND excuse the swallowed turn from the
+    // tripwire. No type reaches a bag, so the refusal is the enforcement.
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    await expect(
+      harness.manager.startRun({
+        runId: RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: {
+          sessionId: SESSION_ID,
+          input: "/compact",
+          frameOrigin: "driver_command",
+        },
+      }),
+    ).rejects.toThrow(CodexDriverConfigError);
+
+    // Refused ahead of the write, so the text never reached the provider and no
+    // route or turn was left behind by the attempt.
+    expect(harness.server.writtenLines.filter((line) => line.includes("turn/start"))).toStrictEqual(
+      [],
+    );
+    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
+  });
+
+  it("accepts a run whose config declares the origin the boundary itself mints", async () => {
+    // Declaring the truth is a no-op rather than an error: the refusal above is
+    // about a caller CHOOSING an origin, not about vocabulary churn for one that
+    // matches what this path writes anyway.
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: {
+        sessionId: SESSION_ID,
+        input: "review the diff",
+        frameOrigin: "participant_text",
+      },
+    });
+
+    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(true);
   });
 });
 
@@ -3686,6 +5403,7 @@ describe("CodexDriver transport construction (T3.15 leg 6)", () => {
       diagnostics: makeSilentDriverDiagnostics(),
       subscribeToPtySession: () => () => undefined,
       reportDiagnostic: () => undefined,
+      onTextNeutralizationFailure: () => undefined,
       scheduleTimeout: makeManualScheduler().schedule,
       executablePath: EXECUTABLE_PATH,
       resumeSpawnConfig: RESUME_SPAWN_CONFIG,
@@ -3810,6 +5528,7 @@ async function routedAskHarness(
     diagnostics: driverDiagnostics,
     subscribeToPtySession: (ptySessionId, listeners) => server.subscribe(ptySessionId, listeners),
     reportDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+    onTextNeutralizationFailure: () => undefined,
     scheduleTimeout: scheduler.schedule,
     executablePath: EXECUTABLE_PATH,
     resumeSpawnConfig: RESUME_SPAWN_CONFIG,
@@ -3818,7 +5537,14 @@ async function routedAskHarness(
     ...(responder === undefined ? {} : { answerServerRequest: responder }),
   });
   await driver.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-  const harness: Harness = { server, driver, diagnostics, driverDiagnostics, scheduler };
+  const harness: Harness = {
+    server,
+    driver,
+    diagnostics,
+    driverDiagnostics,
+    textNeutralizationFailures: [],
+    scheduler,
+  };
 
   let nextAskId = 9000;
   const askProvider = async (
@@ -3898,6 +5624,49 @@ describe("CodexAppServerConnection routed server requests (T3.15 R3)", () => {
     expect((await askProvider("mcpServer/elicitation/request"))["result"]).toStrictEqual({
       action: "decline",
     });
+  });
+
+  it("attributes the ask to the run when overlapping turns ALL belong to it", async () => {
+    // Two overlapping accepted starts on ONE run put two live turns on the
+    // session — the very shape the turn-keyed routes retain. Every value in the
+    // turn-to-run map names the same run, so the attribution is unambiguous at
+    // any turn count; a turn-count gate here dropped the run association, and
+    // its `driver_ask.requested` projection, in exactly the state the routing
+    // supports.
+    const attributedRunIds: Array<RunId | null> = [];
+    const { harness, askProvider } = await routedAskHarness({
+      answer: async (request): Promise<CodexServerRequestDecision> => {
+        attributedRunIds.push(request.runId);
+        return await Promise.resolve({ decision: "refuse", reason: "policy denied" });
+      },
+    });
+    const firstOpeningText = "the attempt answered first";
+    harness.server.on("turn/start", (params) => ({
+      result: {
+        turn: {
+          id:
+            readTurnStartInputText(params) === firstOpeningText
+              ? "turn-overlap-a"
+              : "turn-overlap-b",
+        },
+      },
+    }));
+    const first = harness.driver.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: firstOpeningText },
+    });
+    const second = harness.driver.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
+    });
+    await first;
+    await second;
+
+    await askProvider("item/commandExecution/requestApproval");
+
+    expect(attributedRunIds).toStrictEqual([RUN_ID]);
   });
 
   it("refuses when NO responder is registered rather than leaving the ask unanswered", async () => {
