@@ -1964,6 +1964,47 @@ describe("transform pipeline — a result whose enclosure cannot be resolved is 
     ).toContain("42 passed");
   });
 
+  it("keeps a portable enclosure under that same bound, which is not an oversight", () => {
+    // The asymmetry the private case makes tempting to "fix": with a `summary`
+    // enclosure the fold records nothing, so a bound that cuts the block away
+    // leaves the result unmarked and the strip keeps it. That is correct — a
+    // summary block is portable, and its enclosed output is portable with it.
+    // Only a withholding resolution needs a carrier that outlives the bound.
+    const fixture = makeFixture();
+    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
+    fixture.contentSource.participantTextBySequence.set(1, "run the tests");
+    fixture.log.append(
+      storedEvent(2, "tool.invoked", {
+        runId: RUN_ID,
+        toolCallId: "call-1",
+        toolName: "run_tests",
+      }),
+    );
+    fixture.contentSource.toolArgumentsBySequence.set(2, '{"suite":"unit"}');
+    fixture.log.append(storedEvent(3, "tool.result", { runId: RUN_ID, toolCallId: "call-1" }));
+    fixture.contentSource.toolResultBodyBySequence.set(3, {
+      text: "42 passed",
+      enclosingReasoningBlockId: "block-summary-1",
+    });
+    fixture.log.append(storedEvent(4, "assistant.thinking_update", { runId: RUN_ID }));
+    fixture.contentSource.reasoningBlocksBySequence.set(4, [
+      {
+        blockId: "block-summary-1",
+        reasoningKind: "thinking",
+        disclosure: "summary",
+        text: "checking the suite",
+      },
+    ]);
+
+    const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
+    const bounded: CanonicalTranscriptProjection = boundProjectionToPosition(projection, 3);
+
+    expect(
+      exportedToolResultTexts(
+        new TranscriptTransformPipeline().exportTranscript(bounded, "unbounded"),
+      ),
+    ).toContain("42 passed");
+  });
   it("keeps a result citing a block from another turn, which stays deliberate", () => {
     // The retention rule the fix must not widen: a citation across a turn
     // boundary is not an enclosure, and the turn it sits in read its own
