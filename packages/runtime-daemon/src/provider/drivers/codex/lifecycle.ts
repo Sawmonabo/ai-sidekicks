@@ -3940,15 +3940,16 @@ export class CodexLifecycleManager {
       // those runs, so a route left behind would never be collected and the map
       // would grow by one entry per in-flight run per resume, for the daemon's
       // whole lifetime.
-      // The frames the predecessor left unsettled are RULED before that sweep
-      // rather than merely reclaimed after it. The replacement record holds no
-      // route for them, so nothing will ever rule them — and a turn that was
-      // still live when its connection was released is precisely the case where
-      // "we never learned whether these words were delivered" has to be said out
-      // loud instead of freeing a watch budget in silence.
-      if (existing !== undefined) {
-        this.#ruleAbandonedFramesFailClosed(existing);
-      }
+      // The frames the predecessor left unsettled are reclaimed with that
+      // budget and deliberately NOT ruled fail-closed, unlike the quarantine
+      // teardown path. There the binding is condemned BECAUSE text was
+      // swallowed, so reporting the run states something true about the
+      // participant's words. A resume supersedes a leg for reasons of its own,
+      // and the only vocabulary this driver holds for an unsettled frame is a
+      // neutralization trip — which quarantines the run and refuses every later
+      // attach, a specific claim the resume path cannot support. The honest
+      // state is "we never learned whether these words landed", and no arm says
+      // that today; recorded here rather than approximated by the nearest arm.
       this.#forgetRunRoutes(params.sessionId);
       this.#releaseOutboundFrameBudget(params.sessionId);
       // A resume is a fresh spawn, so any prior leg for this session is now

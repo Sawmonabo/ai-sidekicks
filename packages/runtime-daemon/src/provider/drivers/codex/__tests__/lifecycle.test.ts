@@ -3989,7 +3989,7 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     expect(harness.server.killedSessions).toHaveLength(1);
   });
 
-  it("keeps a run's second live turn steerable after its first is interrupted", async () => {
+  it("keeps a run's older live turn steerable after its newest is interrupted", async () => {
     // The other side of per-turn routing: retiring one turn's route must not
     // retire the run's session binding while another of its turns is still
     // running. A run-keyed retirement dropped both in one act, so the surviving

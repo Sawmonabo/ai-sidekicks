@@ -1436,11 +1436,8 @@ export function memoSettlementAsReplayResult(
       // Exhaustive by construction: a disposition added to the union lands here
       // as a type error rather than defaulting into the established arm, which
       // is the direction a new arm must never silently take.
-      const unhandled: never = settlement.disposition;
-      throw new MemoDeliveryNotEstablishedError({
-        ...settlement,
-        disposition: unhandled,
-      });
+      void (settlement.disposition satisfies never);
+      throw new MemoDeliveryNotEstablishedError(settlement);
     }
   }
 }
