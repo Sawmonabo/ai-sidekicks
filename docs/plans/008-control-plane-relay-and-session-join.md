@@ -654,6 +654,8 @@ The Tier-5 tests are authored inline per task in the five `#### Tasks` blocks ab
 
 ## Progress Log
 
+- **2026-08-30 — `content_payload` joins the never-backfilled set (§6 node NS-94) — recorded no-flip.** [Spec-008](../specs/008-control-plane-relay-and-session-join.md) adds `session_events.content_payload` beside `pii_payload` at the three sites that enumerate the backfill exclusions, and flips-and-restores `approved` for it. This plan takes **no** Status flip and no task change: the exclusion is a prohibition rather than a filter — a `HistoryBackfillChunk` carries the origin daemon's canonical bytes, and the column is absent from the canonical form, so no serving task ever read it and none needs narrowing. The recorded-no-flip shape is the B13 one-clause-consumer precedent. The residual it names — a peer's canonical-transcript projection reporting `'turn_content_unavailable'` for turns it did not author — is owed by the swap that distributes the session content key, not by this plan.
+
 ### Shipment Manifest
 
 <!-- Machine-readable. Housekeeper-emitted, orchestrator-written, preflight-read.

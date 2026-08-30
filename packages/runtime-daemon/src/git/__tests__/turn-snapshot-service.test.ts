@@ -1646,6 +1646,62 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
     expect(await repository.git(["ls-tree", snapshotTree, "created.txt"])).toContain("blob");
   });
 
+  it("FAILS the capture when the embedded HEAD probe exits zero without an object id", async () => {
+    const repository: FixtureRepository = fixture.repository;
+    applyTurnEffects();
+    // A HEALTHY, RECORDABLE embedded repository — the discriminator of this case.
+    // The two skip classes are both genuinely unrecordable, so enumerating them
+    // costs the snapshot nothing it could have held; this one is a `160000`
+    // gitlink the capture is able to record, which is why a skip here would be a
+    // silent narrowing rather than an honest degrade.
+    await createEmbeddedRepository("embedded");
+    const refsBefore: string = await repository.refListing();
+    const embeddedRoot: string = join(repository.root, "embedded");
+
+    // Exit ZERO with stdout that is not an object id — the shape bare
+    // `git rev-parse HEAD` produces on a miss, echoing its own argument. Keyed on
+    // the `-C` DIRECTORY rather than on the subcommand: the capture's own base
+    // resolution runs the identical `rev-parse --verify HEAD` against the
+    // execution root, and only the embedded one is under test here.
+    const echoingRunner: TurnSnapshotGitRunner = async (argv, options) => {
+      if (argv.includes(embeddedRoot) && argv.includes("rev-parse")) {
+        return { stdout: Buffer.from("HEAD\n"), stderr: "" };
+      }
+      return runTurnSnapshotGitWithExecFile(argv, options);
+    };
+
+    const result = await buildService({ git: echoingRunner }).captureTurnSnapshot({
+      ...CAPTURE_DEFAULTS,
+      executionRoot: repository.root,
+    });
+
+    // Refused through the capture funnel under its own step — never skipped, and
+    // never a throw either, since capture is still not a turn gate.
+    expect(result).toEqual({
+      outcome: "failed",
+      ref: `refs/sidekicks/runs/${RUN_ID}/epoch-0/turn-1`,
+      failedStep: "normalize-embedded-repositories",
+    });
+    expect(fixture.diagnostics).toHaveLength(1);
+    expect(fixture.diagnostics[0]).toMatchObject({
+      kind: "capture-failed",
+      runId: RUN_ID,
+      epoch: 0,
+      turnOrdinal: 1,
+      failedStep: "normalize-embedded-repositories",
+      detail: "git did not report an object id",
+    });
+    // The negative half of the same assertion: the path was NOT enumerated as an
+    // unrecordable repository, which is the report a swallow produced.
+    expect(
+      fixture.diagnostics.some((diagnostic) => diagnostic.kind === "embedded-repositories-skipped"),
+    ).toBe(false);
+    // And nothing was published — a failed capture leaves the ref namespace and
+    // the scratch-index directory exactly as it found them.
+    expect(await repository.refListing()).toBe(refsBefore);
+    expect(readdirSync(join(fixture.executionRootsDirectory, ".snapshot-indexes"))).toEqual([]);
+  });
+
   it("keeps the snapshot message's bytes when nothing was skipped, and records the skips when something was", async () => {
     const repository: FixtureRepository = fixture.repository;
     applyTurnEffects();
