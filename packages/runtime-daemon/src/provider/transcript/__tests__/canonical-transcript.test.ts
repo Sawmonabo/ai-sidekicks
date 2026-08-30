@@ -1785,3 +1785,221 @@ describe("canonical transcript fold — a tool row naming no call identifier", (
     expect(projection.turns).toEqual([]);
   });
 });
+
+// --------------------------------------------------------------------------
+// An enclosure the fold could not resolve travels nowhere
+// --------------------------------------------------------------------------
+
+/**
+ * The hazard these pin: the strip decides a keyed tool result's portability from
+ * the reasoning segments standing beside it in the same turn. Two ways that
+ * neighbour stops being there — the row it came from could not be read, and a
+ * positional bound cut it away — and in both the result is enclosed by a block
+ * whose disclosure nothing can now establish. Retaining it exports content that
+ * may be private reasoning's, into a target the provider never showed it to.
+ */
+/**
+ * The bodies the export's tool RESULTS carry. `exportedText` reads text segments
+ * only, so a result asserted through it is asserted vacuously — the one mistake
+ * that would make every case below pass without the pipeline doing anything.
+ */
+function exportedToolResultTexts(exported: DriverTranscriptExportResult): string[] {
+  return segmentsOf(exported.frames as readonly RenderedTranscriptFrame[]).flatMap((segment) =>
+    segment.kind === "tool_result" ? [segment.text] : [],
+  );
+}
+
+describe("transform pipeline — a result whose enclosure cannot be resolved is withheld", () => {
+  /**
+   * The interrupted-tool shape with ONE change: the reasoning row is present in
+   * the log and unreadable through the content port, which is exactly what the
+   * port's absent answer means.
+   */
+  function seedUnreadableEnclosureFixture(fixture: TranscriptFixture): void {
+    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
+    fixture.contentSource.participantTextBySequence.set(1, "run the tests");
+    // Seeded into the log, deliberately NOT into the content source.
+    fixture.log.append(storedEvent(2, "assistant.thinking_update", { runId: RUN_ID }));
+    fixture.log.append(
+      storedEvent(3, "tool.invoked", {
+        runId: RUN_ID,
+        toolCallId: "call-1",
+        toolName: "run_tests",
+      }),
+    );
+    fixture.contentSource.toolArgumentsBySequence.set(3, '{"suite":"unit"}');
+    fixture.log.append(storedEvent(4, "tool.result", { runId: RUN_ID, toolCallId: "call-1" }));
+    fixture.contentSource.toolResultBodyBySequence.set(4, {
+      text: "42 passed",
+      enclosingReasoningBlockId: "block-private-1",
+    });
+  }
+
+  it("withholds a result enclosed by reasoning the fold could not read", () => {
+    const fixture = makeFixture();
+    seedUnreadableEnclosureFixture(fixture);
+
+    const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
+    const exported: DriverTranscriptExportResult =
+      new TranscriptTransformPipeline().exportTranscript(projection, "unbounded");
+
+    // The body never reaches the target. Its CALL survives and the pairing
+    // repair answers for it, exactly as on the private arm.
+    expect(exportedToolResultTexts(exported)).not.toContain("42 passed");
+    expect(segmentsOf(exported.frames as readonly RenderedTranscriptFrame[])).toContainEqual(
+      expect.objectContaining({
+        kind: "tool_result",
+        text: SYNTHETIC_INTERRUPTED_TOOL_RESULT_TEXT,
+      }),
+    );
+    // Declared, not silent: a withheld body that reported nothing would read to
+    // every consumer as a transcript that dropped nothing.
+    expect(exported.declaredLosses).toContain("turn_content_unavailable");
+    // And NOT reported as private reasoning, which is a claim nothing here can
+    // make: the block was never read, so what it disclosed is unknown.
+    expect(exported.declaredLosses).not.toContain("provider_private_reasoning");
+  });
+
+  it("negative control — the same transcript without the fold's resolution exports the body", () => {
+    // Precisely the projection the fold produced before it recorded what it
+    // resolved an enclosure to: the block id is there, the unreadable-reasoning
+    // stand-in is there, and the strip has nothing but a citation it cannot
+    // match. It keeps the result and the body ships.
+    const fixture = makeFixture();
+    seedUnreadableEnclosureFixture(fixture);
+    const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
+
+    const unresolved: CanonicalTranscriptProjection = {
+      ...projection,
+      turns: projection.turns.map((turn) => ({
+        ...turn,
+        segments: turn.segments.map((segment) =>
+          segment.kind === "tool_result" ? { ...segment, enclosureDisclosure: undefined } : segment,
+        ),
+      })),
+    };
+
+    expect(
+      exportedToolResultTexts(
+        new TranscriptTransformPipeline().exportTranscript(unresolved, "unbounded"),
+      ),
+    ).toContain("42 passed");
+  });
+
+  /**
+   * The private block logged AFTER the answer it enclosed — the order the fold's
+   * own turn close exists to handle — with a bound falling between the two.
+   */
+  function seedLateBlockFixture(fixture: TranscriptFixture): void {
+    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
+    fixture.contentSource.participantTextBySequence.set(1, "run the tests");
+    fixture.log.append(
+      storedEvent(2, "tool.invoked", {
+        runId: RUN_ID,
+        toolCallId: "call-1",
+        toolName: "run_tests",
+      }),
+    );
+    fixture.contentSource.toolArgumentsBySequence.set(2, '{"suite":"unit"}');
+    fixture.log.append(storedEvent(3, "tool.result", { runId: RUN_ID, toolCallId: "call-1" }));
+    fixture.contentSource.toolResultBodyBySequence.set(3, {
+      text: "42 passed",
+      enclosingReasoningBlockId: "block-private-1",
+    });
+    fixture.log.append(storedEvent(4, "assistant.thinking_update", { runId: RUN_ID }));
+    fixture.contentSource.reasoningBlocksBySequence.set(4, [
+      {
+        blockId: "block-private-1",
+        reasoningKind: "thinking",
+        disclosure: "private",
+        text: "internal deliberation",
+      },
+    ]);
+  }
+
+  it("withholds it under a bound that cuts the enclosing block away", () => {
+    const fixture = makeFixture();
+    seedLateBlockFixture(fixture);
+    const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
+
+    // The bound admits the result and not the block that carried it. The block
+    // is the only segment that could classify the result, and it is gone before
+    // the first step runs.
+    const bounded: CanonicalTranscriptProjection = boundProjectionToPosition(projection, 3);
+    expect(
+      bounded.turns
+        .flatMap((turn) => turn.segments)
+        .some((segment) => segment.kind === "reasoning"),
+    ).toBe(false);
+
+    expect(
+      exportedToolResultTexts(
+        new TranscriptTransformPipeline().exportTranscript(bounded, "unbounded"),
+      ),
+    ).not.toContain("42 passed");
+  });
+
+  it("negative control — that bound leaks the body when the resolution is dropped", () => {
+    const fixture = makeFixture();
+    seedLateBlockFixture(fixture);
+    const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
+    const bounded: CanonicalTranscriptProjection = boundProjectionToPosition(projection, 3);
+
+    const unresolved: CanonicalTranscriptProjection = {
+      ...bounded,
+      turns: bounded.turns.map((turn) => ({
+        ...turn,
+        segments: turn.segments.map((segment) =>
+          segment.kind === "tool_result" ? { ...segment, enclosureDisclosure: undefined } : segment,
+        ),
+      })),
+    };
+
+    // The in-turn block set is empty, so the strip's own lookup finds nothing to
+    // match and private reasoning's tool output ships.
+    expect(
+      exportedToolResultTexts(
+        new TranscriptTransformPipeline().exportTranscript(unresolved, "unbounded"),
+      ),
+    ).toContain("42 passed");
+  });
+
+  it("keeps a result citing a block from another turn, which stays deliberate", () => {
+    // The retention rule the fix must not widen: a citation across a turn
+    // boundary is not an enclosure, and the turn it sits in read its own
+    // reasoning in full. Nothing is unknown here, so nothing is withheld.
+    const fixture = makeFixture();
+    fixture.log.append(storedEvent(1, "assistant.thinking_update", { runId: RUN_ID }));
+    fixture.contentSource.reasoningBlocksBySequence.set(1, [
+      {
+        blockId: "block-private-1",
+        reasoningKind: "thinking",
+        disclosure: "private",
+        text: "internal deliberation",
+      },
+    ]);
+    fixture.log.append(storedEvent(2, "user.message", { runId: RUN_ID, actor: "participant" }));
+    fixture.contentSource.participantTextBySequence.set(2, "and the tests?");
+    fixture.log.append(
+      storedEvent(3, "tool.invoked", {
+        runId: RUN_ID,
+        toolCallId: "call-1",
+        toolName: "run_tests",
+      }),
+    );
+    fixture.contentSource.toolArgumentsBySequence.set(3, '{"suite":"unit"}');
+    fixture.log.append(storedEvent(4, "tool.result", { runId: RUN_ID, toolCallId: "call-1" }));
+    fixture.contentSource.toolResultBodyBySequence.set(4, {
+      text: "42 passed",
+      enclosingReasoningBlockId: "block-private-1",
+    });
+
+    const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
+
+    expect(
+      exportedToolResultTexts(
+        new TranscriptTransformPipeline().exportTranscript(projection, "unbounded"),
+      ),
+    ).toContain("42 passed");
+  });
+});

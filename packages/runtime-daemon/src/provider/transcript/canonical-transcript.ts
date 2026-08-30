@@ -283,6 +283,64 @@ function unkeyedToolResultSegment(
   return { kind: "text", position, text: renderUnkeyedToolResultText(outcome, body.text) };
 }
 
+/**
+ * Records on a KEYED enclosed result what the turn close resolved its enclosure
+ * to, for the two resolutions that withhold it and for no other.
+ *
+ * The stamp exists because the block id ALONE is not evidence a later reader can
+ * act on. Two ways it stops being enough, and the second is why this is not a
+ * lookup the strip could simply repeat:
+ *
+ *   * The turn's reasoning row was UNREADABLE. There are then no block ids in the
+ *     turn at all — not even the one this result names — so the citation is
+ *     indistinguishable from a portable one and from a citation of another turn's
+ *     block. The fold knows which of the three it is, at this moment and nowhere
+ *     later, so it must say so here.
+ *
+ *   * A positional bound is applied to the projection BEFORE the pipeline runs,
+ *     and it filters by segment position. An enclosing reasoning row logged after
+ *     the answer it enclosed sits at a HIGHER position than that answer, so a
+ *     bound between the two keeps the result and cuts away the only segment that
+ *     could classify it. The stamp rides the result it governs and survives any
+ *     bound the result itself survives.
+ *
+ * Silent on the portable arm deliberately: a `summary` enclosure and a citation
+ * of a block from another turn both leave the member absent, because nothing
+ * branches on either and a stamp nothing reads is one every later fold has to
+ * keep true. What IS stamped is the closed set of results that must not travel.
+ *
+ * A disclosure this fold does not classify stamps `unknown` rather than passing,
+ * for the reason the turn close gives on its own third arm:
+ * `CanonicalReasoningDisclosure` is closed at two members today, the strip
+ * removes reasoning at `private` ALONE, and a third member would otherwise carry
+ * an enclosed body past a strip that never claimed it.
+ */
+function stampEnclosureDisclosure(
+  segment: CanonicalTranscriptSegment,
+  disclosureByBlockId: ReadonlyMap<string, CanonicalReasoningDisclosure>,
+  turnHoldsUnreadableReasoning: boolean,
+): CanonicalTranscriptSegment {
+  if (segment.kind !== "tool_result" || segment.enclosingReasoningBlockId === undefined) {
+    return segment;
+  }
+  const disclosure: CanonicalReasoningDisclosure | undefined = disclosureByBlockId.get(
+    segment.enclosingReasoningBlockId,
+  );
+  if (disclosure === "summary") {
+    return segment;
+  }
+  if (disclosure === "private") {
+    return { ...segment, enclosureDisclosure: "private" };
+  }
+  if (disclosure === undefined && !turnHoldsUnreadableReasoning) {
+    // A citation of a block this turn never carried, in a turn whose reasoning
+    // was read in full. Deliberately retained as provider output — the strip's
+    // cross-turn rule, unchanged.
+    return segment;
+  }
+  return { ...segment, enclosureDisclosure: "unknown" };
+}
+
 // --------------------------------------------------------------------------
 // The fold
 // --------------------------------------------------------------------------
@@ -357,12 +415,22 @@ export class CanonicalTranscriptFold {
     // them. Build-scoped like everything else here: the fold memoizes nothing.
     const deferredEnclosedResults: Map<number, DeferredEnclosedToolResult> = new Map();
 
+    // Positions of `assistant.thinking_update` rows whose blocks could not be
+    // read. Build-scoped like the map above, and read only at turn close.
+    const unreadableReasoningPositions: Set<number> = new Set<number>();
+
     /**
-     * Settles the turn's deferred legacy answers against the turn's OWN
-     * reasoning segments — the boundary the pipeline's strip already scopes
-     * enclosure to, since a block id is unique only within the exchange that
-     * minted it. Taken at turn close because the row carrying the enclosing
-     * block may be logged AFTER the answer it enclosed.
+     * Settles every enclosure the turn carries against the turn's OWN reasoning
+     * segments — the boundary the pipeline's strip already scopes enclosure to,
+     * since a block id is unique only within the exchange that minted it. Taken
+     * at turn close because the row carrying the enclosing block may be logged
+     * AFTER the answer it enclosed.
+     *
+     * Two dispositions, one lookup. A deferred LEGACY answer is rendered,
+     * removed, or left withheld by the three arms below. A KEYED result keeps its
+     * segment either way and is stamped with the resolution instead, because its
+     * removal belongs to the strip — see the stamp helper for why the resolution
+     * may not simply be re-derived there.
      *
      * Returns the settled segments rather than patching them in place: one of
      * the three arms REMOVES a segment, which an index-keyed patch cannot do.
@@ -400,25 +468,31 @@ export class CanonicalTranscriptFold {
      * an `else`-shaped removal arm would then erase an enclosed body in silence.
      * A new member belongs on the fail-closed arm until the strip claims it.
      */
-    const settleDeferredEnclosedResults = (
+    const settleTurnEnclosures = (
       segments: CanonicalTranscriptSegment[],
     ): CanonicalTranscriptSegment[] => {
-      if (deferredEnclosedResults.size === 0) {
-        return segments;
-      }
       const disclosureByBlockId: Map<string, CanonicalReasoningDisclosure> = new Map();
       for (const segment of segments) {
         if (segment.kind === "reasoning") {
           disclosureByBlockId.set(segment.blockId, segment.disclosure);
         }
       }
+      // Whether any row in THIS turn carried reasoning the fold could not read.
+      // The unreadable row contributes no block ids at all — not even the id the
+      // enclosed result names — so an unresolved citation inside such a turn is
+      // exactly the case that cannot be told apart from a portable one.
+      const turnHoldsUnreadableReasoning: boolean = segments.some((segment) =>
+        unreadableReasoningPositions.has(segment.position),
+      );
       const settledSegments: CanonicalTranscriptSegment[] = [];
       for (const segment of segments) {
         const deferred: DeferredEnclosedToolResult | undefined = deferredEnclosedResults.get(
           segment.position,
         );
         if (deferred === undefined) {
-          settledSegments.push(segment);
+          settledSegments.push(
+            stampEnclosureDisclosure(segment, disclosureByBlockId, turnHoldsUnreadableReasoning),
+          );
           continue;
         }
         deferredEnclosedResults.delete(segment.position);
@@ -447,7 +521,7 @@ export class CanonicalTranscriptFold {
       if (closingTurn === undefined) {
         return;
       }
-      const settledSegments: CanonicalTranscriptSegment[] = settleDeferredEnclosedResults(
+      const settledSegments: CanonicalTranscriptSegment[] = settleTurnEnclosures(
         closingTurn.segments,
       );
       // Belt-and-braces rather than the thing carrying the `private` arm: that
@@ -508,7 +582,12 @@ export class CanonicalTranscriptFold {
       appendSegments(
         "assistant",
         event.sequence,
-        this.#assistantSegmentsFor(event, reference, deferredEnclosedResults),
+        this.#assistantSegmentsFor(
+          event,
+          reference,
+          deferredEnclosedResults,
+          unreadableReasoningPositions,
+        ),
       );
     }
 
@@ -571,6 +650,7 @@ export class CanonicalTranscriptFold {
     event: StoredEvent,
     reference: TranscriptContentReference,
     deferredEnclosedResults: Map<number, DeferredEnclosedToolResult>,
+    unreadableReasoningPositions: Set<number>,
   ): readonly CanonicalTranscriptSegment[] {
     switch (event.type) {
       case "assistant.message": {
@@ -594,7 +674,15 @@ export class CanonicalTranscriptFold {
         // all; and this fold has no block to read a `disclosure` from, which
         // that arm requires. Text is the one honest carrier — and it is what the
         // strip turns a kept block into anyway.
+        //
+        // The position is ALSO registered, because the marker alone cannot say
+        // what it stands in for: an unreadable assistant message and an
+        // unreadable tool body produce a segment of exactly this shape. The turn
+        // close needs the distinction — a result citing a block from a row that
+        // could not be read is a result whose portability is unknowable — and
+        // this is the only moment the fold still knows which row it was.
         if (blocks === undefined) {
+          unreadableReasoningPositions.add(reference.sequence);
           return [
             { kind: "text", position: reference.sequence, text: "", contentUnavailable: true },
           ];

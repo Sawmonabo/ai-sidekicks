@@ -353,6 +353,7 @@ export const stripNonPortableContent: TranscriptPipelineStep = (state) => {
 
   const strippedTurns: CanonicalTranscriptTurn[] = [];
   let recordedPrivateReasoningLoss = false;
+  let recordedUnknownEnclosureLoss = false;
 
   state.turns.forEach((turn, turnIndex) => {
     const strippedBlockIdsInTurn: ReadonlySet<string> =
@@ -367,15 +368,33 @@ export const stripNonPortableContent: TranscriptPipelineStep = (state) => {
         keptSegments.push({ kind: "text", position: segment.position, text: segment.text });
         continue;
       }
-      if (
-        segment.kind === "tool_result" &&
-        segment.enclosingReasoningBlockId !== undefined &&
-        strippedBlockIdsInTurn.has(segment.enclosingReasoningBlockId)
-      ) {
-        // The result goes with the block that carried it. Its CALL survives —
-        // that asymmetry is what step 4 exists to answer.
-        recordedPrivateReasoningLoss = true;
-        continue;
+      if (segment.kind === "tool_result" && segment.enclosingReasoningBlockId !== undefined) {
+        if (
+          segment.enclosureDisclosure === "private" ||
+          strippedBlockIdsInTurn.has(segment.enclosingReasoningBlockId)
+        ) {
+          // The result goes with the block that carried it. Its CALL survives —
+          // that asymmetry is what step 4 exists to answer.
+          //
+          // Two sources, and the second is not redundant. The fold's stamp is the
+          // one that survives a positional bound, which can cut away the private
+          // reasoning segment while keeping the result it enclosed. The in-turn
+          // set is the FLOOR for a projection assembled by anything that does not
+          // stamp: without it a producer that forgets the stamp fails open, and
+          // failing open here means exporting private reasoning.
+          recordedPrivateReasoningLoss = true;
+          continue;
+        }
+        if (segment.enclosureDisclosure === "unknown") {
+          // The enclosure could not be established portable. Withheld on exactly
+          // the reasoning of the private arm, with the one honest difference:
+          // this is not a claim the content WAS private, so it does not declare
+          // the private-reasoning loss. It declares the unavailability that
+          // caused it, which is also what the fold declares over the unreadable
+          // row itself when a bound has not cut that row away.
+          recordedUnknownEnclosureLoss = true;
+          continue;
+        }
       }
       keptSegments.push(segment);
     }
@@ -386,6 +405,13 @@ export const stripNonPortableContent: TranscriptPipelineStep = (state) => {
 
   if (recordedPrivateReasoningLoss) {
     declaredLosses.push("provider_private_reasoning");
+  }
+  if (recordedUnknownEnclosureLoss) {
+    // Declared by THIS step rather than left to step 1, which sees the unreadable
+    // reasoning marker only when a bound has not cut it away. A withheld result
+    // that declared nothing would read to every consumer as a transcript that
+    // dropped nothing.
+    declaredLosses.push("turn_content_unavailable");
   }
 
   return { ...state, turns: strippedTurns, declaredLosses: orderDeclaredLosses(declaredLosses) };

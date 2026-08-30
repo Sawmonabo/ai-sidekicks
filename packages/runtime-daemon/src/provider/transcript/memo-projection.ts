@@ -138,6 +138,65 @@ export interface MemoTargetIdentity {
   readonly providerSessionId: string;
 }
 
+/**
+ * A target one coordinator has ESTABLISHED, and the only thing a delivery may be
+ * addressed to.
+ *
+ * Once-only delivery is a property of a provider session, not of a coordinator
+ * instance, and this module holds no durable record of what it has sent. Its
+ * whole guard against sending a memo twice is an in-memory register of ambiguous
+ * sends, which a restarted daemon and a second coordinator both start empty. The
+ * hole that leaves is precise: an ambiguous send is still applying, a coordinator
+ * that never made it reads the target, finds no marker, and sends the same memo
+ * again — both land.
+ *
+ * That hole is closed by making the ambiguity's OWNER the only party that can
+ * send. A handle is minted by {@link MemoDeliveryCoordinator.establishTarget},
+ * refused by every other coordinator, and — the load-bearing part — it is a class
+ * instance carrying a private field, so it does not survive a process boundary
+ * and cannot be reconstructed from anything durable. After a restart no inherited
+ * handle exists to adopt; there is only a fresh establishment of a fresh target,
+ * which is the replay-target lifecycle's own rule (a partially-seeded or
+ * ambiguously-sent target is abandoned and never reused, and the memo settlement
+ * lands in a fresh one).
+ *
+ * The residual is named rather than papered over: a caller may take a provider
+ * session id it inherited, hand it to `establishTarget`, and assert freshness
+ * that is not true. No check inside this module can catch that — the coordinator
+ * does not create targets and cannot tell a fresh id from a reused one — and it
+ * is a caller violating the abandon-never-reuse rule, not a gap in it. What this
+ * type removes is every path that reaches a send WITHOUT that assertion.
+ *
+ * Constructing one directly is possible and useless: the coordinator admits only
+ * handles it minted itself, by object identity. The class is nominal so a bare
+ * `{ providerSessionId }` is a compile error; the identity check is what refuses
+ * a handle at run time.
+ */
+export class EstablishedMemoTarget {
+  readonly #providerSessionId: string;
+
+  constructor(providerSessionId: string) {
+    this.#providerSessionId = providerSessionId;
+  }
+
+  get providerSessionId(): string {
+    return this.#providerSessionId;
+  }
+}
+
+/** Thrown when a coordinator is handed a target it did not itself establish. */
+export class UnownedMemoTargetError extends Error {
+  readonly providerSessionId: string;
+
+  constructor(providerSessionId: string) {
+    super(
+      `Refusing to deliver a memo into provider session "${providerSessionId}": this coordinator did not establish that target, so it holds no record of what may already have been sent into it.`,
+    );
+    this.name = "UnownedMemoTargetError";
+    this.providerSessionId = providerSessionId;
+  }
+}
+
 // --------------------------------------------------------------------------
 // The derived memo-identity key
 // --------------------------------------------------------------------------
@@ -967,7 +1026,12 @@ export type MemoSendSettlementBarrier = () => Promise<void>;
 
 export interface MemoDeliveryRequest {
   readonly projection: CanonicalTranscriptProjection;
-  readonly target: MemoTargetIdentity;
+  /**
+   * An ESTABLISHED target, never a bare identity: the coordinator that delivers
+   * this request must be the one that minted the handle. See
+   * {@link EstablishedMemoTarget} for what that closes and what it does not.
+   */
+  readonly target: EstablishedMemoTarget;
   readonly budget: MemoBudgetPolicy;
   /**
    * Optional. Without it an ambiguous send is never resolvable to a refusal, so
@@ -1093,6 +1157,18 @@ export class MemoDeliveryCoordinator {
   readonly #gateway: MemoTargetGateway;
   readonly #projection: MemoProjection;
   readonly #frameWriter: OutboundTextFrameWriter;
+  /**
+   * The targets this coordinator established, by provider session id.
+   *
+   * Serves both halves of the gate: idempotence, so a caller may establish the
+   * same target twice and get one handle rather than a refusal, and ownership, so
+   * a handle from another coordinator — or from a bare `new` — is refused by
+   * object identity rather than by comparing the id it carries.
+   */
+  readonly #establishedTargets: Map<string, EstablishedMemoTarget> = new Map<
+    string,
+    EstablishedMemoTarget
+  >();
   /** Deliveries this coordinator has started and not yet settled. */
   readonly #deliveriesInFlight: Map<string, Promise<MemoDeliverySettlement>> = new Map<
     string,
@@ -1103,6 +1179,13 @@ export class MemoDeliveryCoordinator {
    * known either way. Held in memory and scoped to this coordinator exactly as
    * the flight map above is: it is a refusal to send twice, never a claim, and
    * nothing about it outlives the process.
+   *
+   * A SAME-LIFETIME guard, stated as what it is — and sufficient because of the
+   * establishment gate rather than in spite of it. Every send this module can
+   * perform goes through a handle this coordinator minted, so the set of sends
+   * this register is answerable for is exactly the set it can see. A coordinator
+   * that never sent into a target can never send into it either, so the empty
+   * register a restart starts from is not a register that lost anything.
    *
    * Deliberately UNBOUNDED and never swept on age or size. An entry is one
    * fixed-length key, at most one per memo this coordinator ever attempted, and
@@ -1130,7 +1213,41 @@ export class MemoDeliveryCoordinator {
     this.#frameWriter = frameWriter;
   }
 
+  /**
+   * Claims a target for this coordinator and mints the handle a delivery is
+   * addressed to. The caller asserts by calling it that the target is FRESH —
+   * this coordinator neither created it nor can verify that, and the residual is
+   * named on {@link EstablishedMemoTarget}.
+   *
+   * Idempotent per provider session: a second call for the same id returns the
+   * first handle rather than refusing, because a caller re-establishing a target
+   * it already owns is an ordinary retry and refusing it would push callers into
+   * caching handles themselves. It deliberately does NOT touch the unconfirmed
+   * register — re-establishing a target must not hand back the guarantee that
+   * register holds, which is precisely what a reset here would do.
+   */
+  establishTarget(target: MemoTargetIdentity): EstablishedMemoTarget {
+    const alreadyEstablished: EstablishedMemoTarget | undefined = this.#establishedTargets.get(
+      target.providerSessionId,
+    );
+    if (alreadyEstablished !== undefined) {
+      return alreadyEstablished;
+    }
+    const established: EstablishedMemoTarget = new EstablishedMemoTarget(target.providerSessionId);
+    this.#establishedTargets.set(target.providerSessionId, established);
+    return established;
+  }
+
   async deliver(request: MemoDeliveryRequest): Promise<MemoDeliverySettlement> {
+    // Before anything is rendered, read, or sent: a target this coordinator did
+    // not establish is one whose send history it cannot see, so it is dead to
+    // this coordinator. Thrown rather than settled `withheld` — that arm asserts
+    // the target was never sent to, and a coordinator holding a foreign handle is
+    // in no position to claim that about anyone's send but its own.
+    if (this.#establishedTargets.get(request.target.providerSessionId) !== request.target) {
+      throw new UnownedMemoTargetError(request.target.providerSessionId);
+    }
+
     // Rendering reads only its argument and writes nothing, so two overlapping
     // callers may both perform it; what may not happen twice is what follows.
     const rendering: MemoRendering = this.#projection.render({

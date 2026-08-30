@@ -1204,6 +1204,23 @@ export type CanonicalTranscriptSegment =
       // Stripping that block removes the result and orphans its call, which is
       // the only way an orphan arises from a well-formed transcript.
       enclosingReasoningBlockId?: string | undefined;
+      // How the fold resolved that enclosure at turn close, and the ONLY carrier
+      // of that resolution that survives a positional bound: the block id names a
+      // sibling segment a bound may cut away, while this member rides the result
+      // it governs.
+      //
+      // Recorded for the two dispositions that WITHHOLD and for no other. A
+      // portable (`summary`) enclosure and a citation of a block from another
+      // turn both leave it absent, because nothing branches on either and a
+      // member minted ahead of its reader is one every later fold must keep true.
+      //
+      //   `private`  the enclosing block was read and is not portable;
+      //   `unknown`  the enclosure could not be established portable — the turn's
+      //              reasoning row was unreadable, so its block ids are not
+      //              knowable at all, or the block carried a disclosure this fold
+      //              does not classify. Fail-closed: content that MIGHT be
+      //              private must travel with the block, not past it.
+      enclosureDisclosure?: "private" | "unknown" | undefined;
       // As on the `text` arm.
       contentUnavailable?: boolean | undefined;
     };
