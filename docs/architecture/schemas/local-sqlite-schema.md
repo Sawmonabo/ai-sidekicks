@@ -303,14 +303,18 @@ CREATE TABLE driver_capabilities (
                       'tool_calls', 'reasoning_stream', 'model_mutation',
                       'structured_output', 'rollback', 'session_goals',
                       'callback_tools', 'subagents', 'cost_cap',
-                      'transcript_replay'
+                      'transcript_replay', 'context_compaction',
+                      'provider_commands', 'output_speed'
                     )),
   supported         INTEGER NOT NULL DEFAULT 0, -- boolean: 0 or 1
                     -- Campaign-B3/B6 widening note: the catch-up migration that widens the CHECK above MUST
-                    -- widen the CHECK to all fourteen values at once — a CHECK is a whitelist, so admitting a value before any
+                    -- widen the CHECK to every value the union declares at that moment, all at once — a CHECK is a whitelist, so admitting a value before any
                     -- row uses it costs nothing and spares a second migration — and MUST backfill supported=0 rows for every existing driver_name (undeclared =
-                    -- unsupported, I-005-2), since a cache whose row count differs from the union's breaks the hydrator's exact-cardinality guard before any refresh could heal it. The rows land in two waves
-                    -- matching the two union widenings: the thirteen campaign flags at Plan-005 T1.7, and transcript_replay when T3.19 widens the union (2026-08-26).
+                    -- unsupported, I-005-2), since a cache whose row count differs from the union's breaks the hydrator's exact-cardinality guard before any refresh could heal it. The rows land in three waves
+                    -- matching the three union widenings: the thirteen campaign flags at Plan-005 T1.7, transcript_replay when T3.19 widens the union (2026-08-26), and
+                    -- context_compaction / provider_commands / output_speed when T3.26 widens it to seventeen (2026-08-29, the desktop-console parity amendment). That last
+                    -- widening rebuilds an ALREADY-SHIPPED CHECK (migration 0011 froze it at fourteen), so it consumes a next-ordinal table-rebuild migration in the documented
+                    -- lang_altertable shape rather than amending a CREATE — it adds no table and no column, and the local-SQLite table census does not move.
   refreshed_at      TEXT NOT NULL,
   PRIMARY KEY (driver_name, capability_flag)
 );
@@ -1476,6 +1480,16 @@ CREATE TABLE agents (
                                                         -- model's driver-reported `effortLevels` rather than a schema CHECK --
                                                         -- the valid set is per-model and provider-owned, so a CHECK here would
                                                         -- go stale against the provider rather than protect anything
+  output_speed    TEXT,                                 -- 2026-08-29 (D-016-26, the output-speed axis): the EFFECTIVE speed mode this
+                                                        -- agent spawns under. NULL = never set, so the provider's own default stands --
+                                                        -- an agent is not born with a speed mode and no attach surface carries one.
+                                                        -- Uncheckable here for the same reason as `effort`: the valid set is the
+                                                        -- driver-published `outputSpeedLevels`, so a CHECK would go stale behind a vendor.
+                                                        -- A column rather than a `config` key because the applying coordinator commits
+                                                        -- the effective binding into these columns inside the transaction that clears
+                                                        -- `pending_switch` below: a spawn-bound axis with a durable pending slot and no
+                                                        -- durable effective slot would apply once and silently revert at the next
+                                                        -- restart, and `config` is opaque to the spawn path that has to read it
   execution_posture_mode TEXT
                   CHECK(execution_posture_mode IS NULL OR execution_posture_mode IN
                         ('trusted','workspace-sandboxed','readonly-sandboxed')),
@@ -1500,7 +1514,7 @@ CREATE TABLE agents (
                                                         -- reproduced in a column: a row read in isolation names what it is -- {status:
                                                         -- 'pending', switchId, appliesAt: 'turn_boundary'|'run_boundary',
                                                         -- interruptRequested, pendingAxes: {driverName?, providerAccountId?, modelId?,
-                                                        -- effort?}, replacedSwitchId?} -- shared with the mutation reply and the
+                                                        -- effort?, outputSpeed? (2026-08-29)}, replacedSwitchId?} -- shared with the mutation reply and the
                                                         -- agent.config_updated payload, so what a client was told, what the log records,
                                                         -- and what a restart re-arms from are the same record. What is stored here is a
                                                         -- SUPERSET of that shared shape: it additionally carries admittingPrincipalId

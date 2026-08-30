@@ -3757,7 +3757,16 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // verified. The legacy compact-inline channel is untouched.
     // Re-pinned 2026-08-28 (NS-91): Plan-005 T3.11's `none` arm became a resolved
     // marker naming I-005-11 + I-005-12 (-1 noneArm, +2 resolved); legacy unmoved.
-    bold: { resolved: 982, noneArm: 161, parentResolved: 0 },
+    // 982 -> 988 bold resolved, noneArm unmoved at 161 (2026-08-29, the
+    // desktop-console parity amendment — §6 node NS-93; read off a live census
+    // run on this tree, not reconciled by arithmetic against a predecessor
+    // bullet). Four new marker blocks carry six resolved ids: Plan-005 T3.26 and
+    // T4.9 each name I-005-2 + I-005-13, and Plan-013's two new rows each name
+    // I-013-9. The `none` arm holds because the amendment's one `none`-arm edit
+    // is a REWORDING of an existing arm (Plan-028 T28.5.7, "read-only view
+    // layer" -> "read-and-steer view layer"), which moves no count. The legacy
+    // compact-inline channel is untouched.
+    bold: { resolved: 988, noneArm: 161, parentResolved: 0 },
     legacy: { resolved: 64, noneArm: 3, parentResolved: 1 },
   });
 });
