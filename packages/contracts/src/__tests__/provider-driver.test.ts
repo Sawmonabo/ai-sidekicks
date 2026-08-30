@@ -78,6 +78,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DECLARED_LOSS_KINDS,
   DRIVER_AUTH_DETAIL_MAX_LEN,
   DRIVER_BINDING_ID_MAX_LEN,
   DRIVER_CAPABILITY_FLAGS,
@@ -2229,6 +2230,44 @@ describe("T1.8 spawn/turn parity surfaces — structural invariants", () => {
 // `unknown` element inside a Zod object has surprising optionality semantics —
 // so "the frames come back byte-for-byte" is asserted rather than assumed.
 
+describe("DECLARED_LOSS_KINDS — the closed declared-loss vocabulary", () => {
+  it("is exactly the canonical member list, in canonical order", () => {
+    // A LITERAL pin, deliberately not derived from the const it is checking.
+    // Every other assertion over this vocabulary in the workspace compares
+    // against `DECLARED_LOSS_KINDS` itself and therefore passes whatever the
+    // const happens to say — which is precisely the drift this one exists to
+    // catch. The canonical contract owns the set and a member joins it by
+    // amendment; a build whose enum lags then reports an "upper bound" that
+    // bounds nothing and refuses, as unreadable, a marker a peer wrote correctly.
+    //
+    // ORDER is pinned with membership because two callers normalize a loss list
+    // by filtering this array, so it is the reported ordering of every
+    // declared-loss list and not merely a set.
+    expect(DECLARED_LOSS_KINDS).toStrictEqual([
+      "provider_private_reasoning",
+      "context_truncated",
+      "tool_call_history_repaired",
+      "conversation_history_summarized",
+      "turn_content_unavailable",
+      "turn_content_truncated",
+    ]);
+  });
+
+  it("admits every member through the validator, so the enum and the schema cannot diverge", () => {
+    // The pin above fixes the list; this one fixes the list's relationship to
+    // the boundary. A member added to the array but not reachable through the
+    // schema would be a vocabulary the daemon can name and the trust boundary
+    // rejects.
+    for (const kind of DECLARED_LOSS_KINDS) {
+      const parsed = DriverTranscriptExportResultSchema.parse({
+        frames: [],
+        declaredLosses: [kind],
+      });
+      expect(parsed.declaredLosses).toEqual([kind]);
+    }
+  });
+});
+
 describe("DriverTranscriptExportResultSchema — the canonical transcript export envelope", () => {
   it("round-trips provider-shaped frames without stripping or reshaping them", () => {
     const frames: unknown[] = [
@@ -2382,9 +2421,14 @@ describe("DriverTranscriptReplayResultSchema — the canonical transcript replay
         "context_truncated",
         "tool_call_history_repaired",
         "turn_content_unavailable",
+        "turn_content_truncated",
       ],
     });
-    expect(parsed.declaredLosses).toHaveLength(4);
+    // Every member of the vocabulary except the one the inverse rule forbids
+    // here, so the count is a quantifier over the enum rather than a tally: a
+    // member admitted to `DECLARED_LOSS_KINDS` without being listed here would
+    // leave "every OTHER kind" claiming more than the case drives.
+    expect(parsed.declaredLosses).toHaveLength(DECLARED_LOSS_KINDS.length - 1);
   });
 });
 

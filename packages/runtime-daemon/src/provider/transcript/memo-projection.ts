@@ -485,6 +485,27 @@ function appendSegmentToKeyPreimage(parts: string[], segment: CanonicalTranscrip
       appendKeyField(parts, segment.provenance);
       appendKeyField(parts, segment.text);
       appendKeyField(parts, segment.enclosingReasoningBlockId ?? "");
+      // The enclosure VERDICT, beside the block id it resolves. Both are hashed
+      // and neither substitutes for the other: the id names a sibling segment a
+      // positional bound may cut away, while this member rides the result it
+      // governs and is what decides whether the body travels at all.
+      //
+      // Two projections of one conversation can agree on every other field here
+      // and differ in exactly this member. A fold whose reasoning row was
+      // unreadable resolves the enclosure `unknown` and withholds the result; a
+      // later fold that could read the row ships the real body. Omitting the
+      // member gives those two renderings ONE once-only key, so the corrected
+      // memo is settled as already-delivered and the target keeps the diminished
+      // one permanently — the exact failure the key exists to prevent, in the
+      // one direction that never self-repairs.
+      //
+      // The cost is stated rather than discovered: adding a field re-keys every
+      // transcript holding a tool result, so a memo already delivered under the
+      // old key is not found and is sent once more. That is the direction this
+      // file's admission rule already prices as acceptable — a false no costs
+      // one redundant summary, a false yes leaves the target with no context at
+      // all — and it settles at the first re-render.
+      appendKeyField(parts, segment.enclosureDisclosure ?? "");
       return;
     default:
       return;
@@ -1561,10 +1582,20 @@ function thisDeliveryLosses(rendering: MemoRendering): MemoDeclaredLossRecord {
  * What the memo the target ALREADY holds recorded, for every settlement that
  * rests on having read a marker rather than on having sent one.
  *
- * The unreadable arm declares the floor's whole producible set. Conservative on
- * purpose and not merely defensive: every kind in that set is reachable from this
- * floor, so the set IS the bound, and understating it would let a participant
- * believe a summary carries reasoning or exchanges it may not.
+ * The unreadable arm declares the whole CLOSED VOCABULARY, which is the only
+ * honest bound available to it: the record it could not read was written by some
+ * other rendering, and nothing about that rendering is knowable from a token run
+ * this parser rejected. Conservative on purpose and not merely defensive —
+ * understating it would let a participant believe a summary carries reasoning or
+ * exchanges it may not.
+ *
+ * The vocabulary rather than the subset this build can currently PRODUCE, and
+ * the two are not the same set: a loss kind is admitted to the vocabulary before
+ * its producer lands, by the ordering the canonical contract prescribes. The
+ * difference falls in the direction that costs nothing — a peer daemon that
+ * already emits such a kind writes it into a marker this daemon then reads, so a
+ * bound drawn around this build's own producers would be too small for exactly
+ * the records it cannot parse.
  */
 function deliveredMemoLosses(
   targetTurns: readonly string[],

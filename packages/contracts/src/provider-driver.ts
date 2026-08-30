@@ -1116,6 +1116,31 @@ export const DECLARED_LOSS_KINDS = [
   // dropped. Named because the alternative readings — a turn that never
   // happened, or one whose author said nothing — are both false.
   "turn_content_unavailable",
+  // A logged turn's body exceeded the append-time plaintext ceiling and is
+  // stored as a codepoint-boundary PREFIX, so the fold carries the prefix and
+  // names the loss rather than replaying a silently shortened turn. Deliberately
+  // NOT folded into `context_truncated`, whose scope is the memo budget evicting
+  // whole exchanges and never halves, and not reported as
+  // `turn_content_unavailable`, which would overstate a turn that is available
+  // as a prefix.
+  //
+  // RECOGNIZED here and produced nowhere in this workspace, which is the
+  // ordering the canonical contract prescribes rather than a field minted ahead
+  // of its reader: a loss kind is an amendment, never a code-first free string,
+  // so the vocabulary entry precedes its producer. The signal it reports is a
+  // durable per-event flag that does not exist yet (Plan-006 Phase 3B's
+  // `session_events.content_payload` and its `contentTruncated` marker), and the
+  // leg that would read that flag into a loss list is a fold-emission leg
+  // `Plan-005 §Cross-Plan Obligations` names as an unowned residual — no task
+  // in that plan yet reads it.
+  //
+  // It has two readers the day it lands, and both get strictly better for
+  // knowing it. The memo continuity-marker parser refuses a record carrying any
+  // token it cannot place, so a marker written by a daemon that DOES know this
+  // kind would otherwise degrade that whole record to unreadable; and the
+  // unreadable-record upper bound reports this very list, which is a bound only
+  // while the list is the whole vocabulary.
+  "turn_content_truncated",
 ] as const;
 
 export type DeclaredLossKind = (typeof DECLARED_LOSS_KINDS)[number];

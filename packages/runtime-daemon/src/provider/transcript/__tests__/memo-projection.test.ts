@@ -1959,6 +1959,67 @@ describe("memo identity key — derived, never stored", () => {
     expect(roomy.memoIdentityKey).toBe(deriveMemoIdentityKey(projection, TARGET));
   });
 
+  /**
+   * One conversation whose tool result sits inside a reasoning block, varying in
+   * exactly the member under test: how the fold resolved that enclosure.
+   */
+  function projectionEnclosing(
+    enclosureDisclosure: "private" | "unknown" | undefined,
+  ): CanonicalTranscriptProjection {
+    return projectionOf([
+      turn(1, "participant", [{ kind: "text", text: "run the tests" }]),
+      turn(2, "assistant", [
+        { kind: "tool_call", toolCallId: "call-1", toolName: "bash", argumentsJson: "{}" },
+        {
+          kind: "tool_result",
+          toolCallId: "call-1",
+          outcome: "succeeded",
+          provenance: "provider",
+          text: "42 passed",
+          enclosingReasoningBlockId: "block-1",
+          ...(enclosureDisclosure === undefined ? {} : { enclosureDisclosure }),
+        },
+      ]),
+    ]);
+  }
+
+  it("moves when a WITHHELD enclosure is later resolved portable, so the repair can be sent", () => {
+    // The once-only key's hardest direction. A fold whose reasoning row was
+    // unreadable cannot establish the enclosure portable, resolves it `unknown`,
+    // and withholds the result; a fold rebuilt at a boundary before that row —
+    // or after it became readable — carries the real body. Every OTHER hashed
+    // field is identical across the two, so a key blind to this member settles
+    // the corrected rendering as already-delivered and leaves the target holding
+    // the diminished memo for good.
+    const withheld: string = deriveMemoIdentityKey(projectionEnclosing("unknown"), TARGET);
+    const corrected: string = deriveMemoIdentityKey(projectionEnclosing(undefined), TARGET);
+
+    expect(withheld).not.toBe(corrected);
+  });
+
+  it("distinguishes the two withholding verdicts, which are different facts", () => {
+    // `private` is a block that was READ and is not portable; `unknown` is a
+    // block whose disclosure could not be established at all. They withhold the
+    // same body and say different things about why, and the memo discloses the
+    // reason — so collapsing them would let one rendering settle the other.
+    expect(deriveMemoIdentityKey(projectionEnclosing("private"), TARGET)).not.toBe(
+      deriveMemoIdentityKey(projectionEnclosing("unknown"), TARGET),
+    );
+  });
+
+  it("stays put when the enclosure verdict AGREES, so an unchanged fold re-sends nothing", () => {
+    // The other direction of the same rule, and the one a too-eager key breaks:
+    // two folds that resolved the enclosure the same way are the same memo, and
+    // a key that moved anyway would send a second summary into a target that
+    // already holds one.
+    expect(deriveMemoIdentityKey(projectionEnclosing("private"), TARGET)).toBe(
+      deriveMemoIdentityKey(projectionEnclosing("private"), TARGET),
+    );
+    expect(deriveMemoIdentityKey(projectionEnclosing(undefined), TARGET)).toBe(
+      deriveMemoIdentityKey(projectionEnclosing(undefined), TARGET),
+    );
+  });
+
   it("serializes fields unambiguously — text carrying a delimiter does not collide", () => {
     const left: CanonicalTranscriptProjection = projectionOf([
       turn(1, "participant", [{ kind: "text", text: 'a"b' }]),

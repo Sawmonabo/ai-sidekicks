@@ -2794,6 +2794,38 @@ const PENDING_FRAME_TRANSITIONS: readonly PendingFrameTransitionCase[] = [
     },
   },
   {
+    label: "an overlapping start on the SAME run whose write is refused before a byte leaves",
+    drive: async (harness, channel) =>
+      await captureTransition(async () => {
+        // A retry beside the attempt it retries. Both frames carry one run id,
+        // so both share the single run-keyed route — and the refused one is
+        // withdrawn frame-scoped while the accepted one is still on the wire and
+        // still owed a ruling. Deleting the route unconditionally here retires
+        // the ACCEPTED frame's only correlation, and the terminal below then
+        // finds no correlated run to rule.
+        channel.sendUserTextFailure = new Error("refused before a byte left");
+        channel.sendUserTextDelivery = "unsent";
+        await harness.lifecycle.startRun(buildStartRunParams()).then(
+          () => {
+            throw new Error("unreachable: a refused write must reject its caller");
+          },
+          () => undefined,
+        );
+        channel.sendUserTextFailure = undefined;
+        channel.sendUserTextDelivery = "indeterminate";
+        // The FIRST frame is still unaccounted for, so a terminal carrying no
+        // turn evidence is its ruling — the ordinary path, reached only if the
+        // route survived the withdrawal above.
+        channel.terminalFrameBody = ZERO_TURN_RESULT_BODY;
+        return channel.emitStreamFrame("result/success");
+      }),
+    expected: {
+      kind: "run-failure",
+      runIds: [TEST_RUN_ID],
+      detailContains: "driver.text_neutralization_failed",
+    },
+  },
+  {
     label: "a rewind that supersedes the binding the frame was written on",
     drive: async (harness) =>
       await captureTransition(
@@ -2924,6 +2956,60 @@ describe("ClaudeSessionLifecycle pending-frame settlement matrix (T3.18)", () =>
     expect(new Set(PENDING_FRAME_TRANSITIONS.map((row) => row.expected.kind))).toStrictEqual(
       new Set(["provider-evidence", "run-failure", "refusal", "daemon-intent"]),
     );
+  });
+});
+
+// The route is RUN-keyed and the registration is FRAME-keyed, so the unsent arm
+// has to decide between them. These two cases pin both directions of that
+// decision: the deletion still happens where it was always right, and stops
+// happening where it took a sibling's correlation with it. A guard asked in the
+// wrong order passes one and fails the other, which is why neither alone is
+// enough.
+describe("ClaudeSessionLifecycle unsent opening frame — route retirement (T3.18)", () => {
+  async function arrangeSession(harness: LifecycleHarness): Promise<FakeClaudeSessionChannel> {
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "/compact the thread please",
+    });
+    const channel = harness.transport.spawnedChannels[0];
+    if (channel === undefined) {
+      throw new Error("unreachable: the session must have spawned a channel");
+    }
+    return channel;
+  }
+
+  it("retires the route when the refused write was the run's ONLY frame", async () => {
+    const harness = buildHarness();
+    const channel = await arrangeSession(harness);
+    channel.sendUserTextFailure = new Error("refused before a byte left");
+    channel.sendUserTextDelivery = "unsent";
+
+    await expect(harness.lifecycle.startRun(buildStartRunParams())).rejects.toThrow();
+
+    // No turn can ever exist for this run, so a surviving route would aim a
+    // later CHANNEL-scoped interrupt at whatever older turn the channel is
+    // genuinely running.
+    expect(channel.sentWireTexts).toStrictEqual([]);
+    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
+  });
+
+  it("keeps the route while a sibling frame on the same run is still owed a ruling", async () => {
+    const harness = buildHarness();
+    const channel = await arrangeSession(harness);
+    await harness.lifecycle.startRun(buildStartRunParams());
+    expect(channel.sentWireTexts).toHaveLength(1);
+
+    channel.sendUserTextFailure = new Error("refused before a byte left");
+    channel.sendUserTextDelivery = "unsent";
+    await expect(harness.lifecycle.startRun(buildStartRunParams())).rejects.toThrow();
+
+    // Only the refused frame was withdrawn — the fake records a write it never
+    // took, so the count standing still is the proof. The accepted frame is on
+    // the wire and unaccounted for, and this route is the only way its terminal
+    // will be found.
+    expect(channel.sentWireTexts).toHaveLength(1);
+    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeDefined();
   });
 });
 

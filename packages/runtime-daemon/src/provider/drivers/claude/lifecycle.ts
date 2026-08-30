@@ -2219,14 +2219,41 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
    * frame-scoped for the shape this leg does not yet have but the sibling does
    * — a second frame on the same key, still live and still owed its own ruling.
    *
-   * The route goes with it, and that is a DEPARTURE from what a failed write
-   * used to leave behind. A route is not inert bookkeeping on this leg: Claude's
-   * interrupt is CHANNEL-scoped, so a route pointing at a run that provably
-   * never dispatched is an aimed weapon with nothing to aim at, and the
-   * interrupt it answers would stop whatever older turn the channel is actually
-   * running. The old blanket "an interruptible run beats a turn with no route to
-   * it" is the right trade only where a turn MIGHT exist; here, provably, none
-   * does.
+   * The route goes with it once nothing else on that run is still owed a
+   * ruling, and that is a DEPARTURE from what a failed write used to leave
+   * behind. A route is not inert bookkeeping on this leg: Claude's interrupt is
+   * CHANNEL-scoped, so a route pointing at a run that provably never dispatched
+   * is an aimed weapon with nothing to aim at, and the interrupt it answers
+   * would stop whatever older turn the channel is actually running. The old
+   * blanket "an interruptible run beats a turn with no route to it" is the right
+   * trade only where a turn MIGHT exist; here, provably, none does.
+   *
+   * The condition on that deletion is what stops the trade from paying for
+   * itself with a sibling's silence. The registration this arm drops is
+   * FRAME-scoped and the route is RUN-scoped, so where two writes overlapped on
+   * one run — a retry beside the attempt it was retrying — deleting the route
+   * unconditionally would retire the ACCEPTED frame's only correlation along
+   * with the unsent one's. The terminal path reaches its runs through this map:
+   * `#ruleTextNeutralizationTripwire` intersects the routes with the keys still
+   * holding a pending frame, so that run would not appear among the correlated
+   * ids at all, its live frame would never be ruled, and command-intercepted
+   * text would vanish with no failure reported — the silent pass this whole leg
+   * exists to close, reached by way of the cleanup rather than by the swallow.
+   *
+   * The predicate is asked AFTER the forget, and about the RUN rather than about
+   * the frame. Both halves are load-bearing and both fail in a different
+   * direction: asking first would see this frame pending on every call and
+   * delete no route ever, restoring the aimed-weapon case above, while asking
+   * about the frame would answer a question the route is not keyed by. What the
+   * route still owes is exactly whether any OTHER frame on that key is still
+   * awaiting a turn.
+   *
+   * This leg cannot key its routes by turn the way the sibling driver does, and
+   * the reason is the transport's: Claude serializes turns per session and names
+   * none of them at start, so "a terminal arrived on this channel" is the whole
+   * of the correlation. There is no turn id to route by, which is why the
+   * sibling-aware predicate is the available answer rather than the second-best
+   * one.
    *
    * INDETERMINATE on a serviceable channel — owed the opposite. The provider may
    * have received the text, intercepted it as a client-side command, and
@@ -2279,7 +2306,9 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   }): void {
     if (ruling.delivery === "unsent") {
       this.#outboundFrameTripwire.forgetFrame(ruling.frame);
-      this.#sessionIdByRunId.delete(ruling.runId);
+      if (!this.#outboundFrameTripwire.hasPendingFrame(ruling.runId)) {
+        this.#sessionIdByRunId.delete(ruling.runId);
+      }
       return;
     }
     if (!ruling.channel.isClosed) {
@@ -3764,10 +3793,12 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
    * A join key this leg cannot resolve to a bound run is unreachable rather than
    * tolerated: `startRun` writes the route in the same synchronous block as the
    * registration, and every path that deletes a route either forgets that run's
-   * frame (`#ruleFailedOpeningFrame` on the unsent arm) or settles it
-   * (`#ruleTextNeutralizationTripwire`, which rules every correlated run holding
-   * a pending frame before `#retireRunRoutes` empties the map). The lookup is
-   * what produces the branded run id, not a filter on a case that happens.
+   * LAST pending frame (`#ruleFailedOpeningFrame` on the unsent arm, which
+   * leaves the route standing while a sibling frame on the same key is still
+   * owed a ruling) or settles it (`#ruleTextNeutralizationTripwire`, which rules
+   * every correlated run holding a pending frame before `#retireRunRoutes`
+   * empties the map). The lookup is what produces the branded run id, not a
+   * filter on a case that happens.
    */
   #failSupersededDeliveries(sessionId: SessionId): void {
     const abandoned = this.#outboundFrameTripwire.abandonScope(sessionId);
