@@ -186,6 +186,16 @@ export function renderMemoContinuityMarker(
   )}`;
 }
 
+/**
+ * The loss this floor declares on EVERY path it can emit (see the settlement's
+ * own `preBudgetLosses`).
+ *
+ * Named once and read by both halves so the writer's guarantee and the reader's
+ * admissibility test cannot drift apart: the reader treats a record that omits
+ * this kind as unattributable precisely because the writer can never emit one.
+ */
+const MEMO_FLOOR_DECLARED_LOSS_KIND: DeclaredLossKind = "conversation_history_summarized";
+
 /** The key-only prefix of this memo's marker, which every marker form leads with. */
 function renderMemoContinuityMarkerKey(memoIdentityKey: string): string {
   return `${MEMO_CONTINUITY_MARKER_PREFIX}${memoIdentityKey}`;
@@ -204,16 +214,31 @@ export function targetTurnsCarryMemoMarker(
  * Reads back what the memo the target ALREADY holds recorded as dropped, or
  * ABSENT where that record cannot be trusted.
  *
- * Absent covers three readings that all mean the same thing to a caller: a
- * marker written before this record existed, a record that does not parse as a
- * closed set of loss kinds, and — since a target holding two markers under one
- * key holds two summaries — ANY occurrence lacking a readable record. Every one
- * of them is a memo whose omissions this reader cannot account for, and the
- * caller owes the conservative answer for all three.
+ * Absent covers readings that all mean the same thing to a caller: a marker
+ * written before this record existed, a record that does not parse as a closed
+ * set of loss kinds, and — since a target holding two markers under one key
+ * holds two summaries — ANY occurrence lacking a readable record. Every one of
+ * them is a memo whose omissions this reader cannot account for, and the caller
+ * owes the conservative answer for all of them.
  *
- * Parsed strictly against the closed enum for the same reason: an unrecognized
- * token is a record this reader does not understand, and understanding it partly
- * is worse than not claiming to understand it at all.
+ * A record parses only when it is a `+`-joined list of at least one recognized
+ * kind, carries no empty component (so a leading, trailing, or doubled joiner
+ * is malformed rather than ignored), and names the kind this floor declares on
+ * EVERY path. The last is what makes an empty or partial list unreadable rather
+ * than believable: this writer cannot emit a memo that dropped nothing, so a
+ * record claiming as much was written by something else, and reading it as "the
+ * summary lost nothing" would turn a marker this reader cannot account for into
+ * a positive guarantee. Checked per OCCURRENCE, on the same ground the
+ * any-occurrence rule above rests on.
+ *
+ * Deliberately NOT rejected: trailing prose after the token run. The record ends
+ * where the token does, so `...+conversation_history_summarizedX` reads the kind
+ * and treats `X` as the prose that follows the marker — the same rule that lets
+ * a marker be carried mid-sentence.
+ *
+ * Parsed strictly against the closed enum: an unrecognized token is a record
+ * this reader does not understand, and understanding it partly is worse than
+ * not claiming to understand it at all.
  */
 export function readDeliveredMemoDeclaredLosses(
   targetTurns: readonly string[],
@@ -237,16 +262,34 @@ export function readDeliveredMemoDeclaredLosses(
       // with underscores, so anything else — a newline, a space, the prose that
       // follows — is outside the marker.
       const record: string = tail.slice(MEMO_CONTINUITY_LOSS_SEPARATOR.length);
-      const tokens: string[] = (/^[a-z_+]*/.exec(record)?.[0] ?? "")
-        .split(MEMO_CONTINUITY_LOSS_JOINER)
-        .filter((token) => token.length > 0);
-      for (const token of tokens) {
+      const tokenRun: string = /^[a-z_+]*/.exec(record)?.[0] ?? "";
+      // An EMPTY run is a marker with no record at all — `;dropped=` and then
+      // prose — and an empty component is a leading, trailing, or doubled
+      // joiner. Both were previously read as "this memo dropped nothing", which
+      // is the strongest claim the record can make and the one least supported
+      // by a record that failed to state anything.
+      if (tokenRun.length === 0) {
+        return undefined;
+      }
+      const components: readonly string[] = tokenRun.split(MEMO_CONTINUITY_LOSS_JOINER);
+      const occurrenceKinds: Set<DeclaredLossKind> = new Set<DeclaredLossKind>();
+      for (const component of components) {
         const kind: DeclaredLossKind | undefined = DECLARED_LOSS_KINDS.find(
-          (candidate) => candidate === token,
+          (candidate) => candidate === component,
         );
         if (kind === undefined) {
           return undefined;
         }
+        occurrenceKinds.add(kind);
+      }
+      // Per OCCURRENCE. This floor declares the summarization on every path it
+      // can emit, so an occurrence that omits it was not written by this writer
+      // — and a record this reader cannot attribute is one whose omissions it
+      // cannot account for.
+      if (!occurrenceKinds.has(MEMO_FLOOR_DECLARED_LOSS_KIND)) {
+        return undefined;
+      }
+      for (const kind of occurrenceKinds) {
         recorded.add(kind);
       }
     }
@@ -703,7 +746,7 @@ export class MemoProjection {
       // The floor's OWN loss, on every path. Without it a memo settlement could
       // carry an empty list, and an empty list is the positive claim that
       // nothing was dropped.
-      "conversation_history_summarized",
+      MEMO_FLOOR_DECLARED_LOSS_KIND,
     ]);
     // Truncation is the ONE loss the walk can move, and the marker records it —
     // so the marker's own length depends on an outcome the marker's length helps
@@ -847,10 +890,21 @@ export interface MemoOutboundFrame {
  */
 export interface MemoTargetGateway {
   /**
-   * The target session's turns, as text, for deciding whether this memo's
-   * marker is already there.
+   * The turns of the NAMED provider session, as text, for deciding whether this
+   * memo's marker is already there.
    *
-   * The returned set MUST be sufficient to decide marker presence for the
+   * The session is a parameter rather than a property of the gateway, and it is
+   * the same id `sendMemoTurn` is handed on `MemoOutboundFrame`. The two must
+   * name one session: reconciliation decides whether to send INTO the session
+   * the frame names, so a gateway free to answer for a different one — a
+   * long-lived implementation serving several sessions, or one whose notion of
+   * "current" moved between the read and the send — would let an absent marker
+   * in session A license a send into session B, and the memo's identity key is
+   * derived over the target session id, so the answer would not even be about
+   * the same key. Naming the session on the read is what makes the once-only
+   * guarantee a property of a session rather than of a gateway instance.
+   *
+   * The returned set MUST be sufficient to decide marker presence for that
    * ENTIRE provider session — not a recent tail. An implementor may answer with
    * the whole transcript, or with any subset it can prove marker-complete; a
    * bounded window of the newest N turns satisfies neither and violates this
@@ -867,7 +921,7 @@ export interface MemoTargetGateway {
    * Rejecting means the target could not be read — which is a settlement, never
    * a reason to send anyway.
    */
-  readTurnsForMarkerReconciliation(): Promise<readonly string[]>;
+  readTurnsForMarkerReconciliation(targetProviderSessionId: string): Promise<readonly string[]>;
   /**
    * Deliver the memo turn. A rejection is AMBIGUOUS by construction: the frame
    * may have been applied before the acknowledgment was lost.
@@ -1132,7 +1186,9 @@ export class MemoDeliveryCoordinator {
 
     let priorTurns: readonly string[];
     try {
-      priorTurns = await this.#gateway.readTurnsForMarkerReconciliation();
+      priorTurns = await this.#gateway.readTurnsForMarkerReconciliation(
+        request.target.providerSessionId,
+      );
     } catch {
       // The target cannot be read, so whether it already holds this memo is
       // unknowable. Nothing is sent: a duplicate corrupts the conversation the
@@ -1200,7 +1256,9 @@ export class MemoDeliveryCoordinator {
       this.#unconfirmedDeliveries.add(deliveryPairKey);
       let turnsAfterSend: readonly string[];
       try {
-        turnsAfterSend = await this.#gateway.readTurnsForMarkerReconciliation();
+        turnsAfterSend = await this.#gateway.readTurnsForMarkerReconciliation(
+          request.target.providerSessionId,
+        );
       } catch {
         return settle(rendering, "unconfirmed", undefined, thisDeliveryLosses(rendering));
       }

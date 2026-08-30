@@ -85,6 +85,23 @@ export const OUTBOUND_FRAME_ORIGINS: readonly OutboundFrameOrigin[] = Object.fre
 ]);
 
 /**
+ * The origins a CALLER may name on text it asks a driver to write.
+ *
+ * `driver_command` is absent BY CONSTRUCTION. It is the single arm that both
+ * suppresses neutralization and exempts the turn from the tripwire, so a field
+ * a caller fills able to carry it is a route for participant text to be
+ * delivered command-shaped AND then swallowed unwatched — the two halves of the
+ * hazard at once. Only a driver's own command dispatch may claim that arm, from
+ * a literal, in the module that composes the frame.
+ *
+ * Naming it as a type rather than validating it at each entry point is
+ * deliberate: an in-process caller is held to it by the compiler, and the
+ * boundaries that read an UNTYPED bag — where no type reaches — refuse the
+ * exempt arm themselves.
+ */
+export type CallerDeclaredFrameOrigin = Exclude<OutboundFrameOrigin, "driver_command">;
+
+/**
  * The origin value the tripwire's operator-visible detail may carry.
  *
  * `driver_command` is absent BY CONSTRUCTION rather than by omission: an exempt
@@ -569,10 +586,10 @@ interface PendingCorrelatedFrame {
   /**
    * The key the settling turn will carry.
    *
-   * MUTABLE, and the only mutable field here: `recorrelate` re-keys a frame
-   * registered under a run id onto the turn id the provider names, and the
-   * frame's own correlation value — which is what the store is keyed by — does
-   * not move with it.
+   * MUTABLE, and the only mutable field here: `recorrelateFrame` re-keys a
+   * frame registered under a run id onto the turn id the provider names, and
+   * the frame's own correlation value — which is what the store is keyed by —
+   * does not move with it.
    */
   joinKey: string;
   readonly observations: Set<TurnEvidenceClass>;
@@ -741,21 +758,45 @@ export class OutboundFrameTripwire {
   }
 
   /**
-   * Re-keys every pending registration once the provider names the turn it
-   * started.
+   * Re-keys ONE pending registration once the provider names the turn its
+   * bytes opened.
    *
-   * Each frame keeps its position in the store, so registration order — and
-   * with it the oldest-frame attribution — survives the move.
+   * Frame-scoped rather than key-wide, and it has to be: a run id is the key
+   * every attempt on that run registers under, so re-keying the KEY would
+   * carry a concurrent attempt's frame onto a turn it never opened and leave
+   * the attempt that did open that turn with nothing correlated — and a turn
+   * that settles against no correlated frame PASSES. Naming the frame keeps
+   * each attempt's ruling its own.
+   *
+   * A no-op for a frame that is no longer pending. A frame already settled,
+   * forgotten, or reclaimed is owed no further correlation, and re-admitting
+   * it here would resurrect a registration the store has already answered for.
+   *
+   * The frame keeps its position in the store and every observation it has
+   * accrued, so registration order — and with it the oldest-frame attribution
+   * — survives the move.
+   *
+   * NEITHER key's retained decision is touched. This is a MOVE, not a fresh
+   * attempt: `register` clears the destination because a new write is starting
+   * there, while a settled turn's ruling is a property of the turn and outlives
+   * any one frame arriving at or leaving it — the rule `forgetFrame` and
+   * `forgetScope` already state. Clearing the destination here would erase
+   * exactly the ruling the intervention path reads back when an acknowledged
+   * steer names a turn that has already settled.
+   *
+   * Named residual: a frame moved onto an ALREADY-settled turn can never be
+   * ruled — no second terminal for that turn is coming — so it sits as
+   * occupancy until its binding's scope is released. Accepted rather than
+   * closed, on the same ground the steer path's late-connection-death case is:
+   * the provider naming a turn is not evidence that the frame was swallowed,
+   * and tripping on it would dispose a binding that swallowed nothing.
    */
-  recorrelate(fromJoinKey: string, toJoinKey: string): void {
-    if (fromJoinKey === toJoinKey) {
+  recorrelateFrame(frame: OutboundTextFrame, toJoinKey: string): void {
+    const pending = this.#pendingByCorrelationId.get(frame.correlationId);
+    if (pending === undefined) {
       return;
     }
-    for (const pending of this.#pendingByCorrelationId.values()) {
-      if (pending.joinKey === fromJoinKey) {
-        pending.joinKey = toJoinKey;
-      }
-    }
+    pending.joinKey = toJoinKey;
   }
 
   /**

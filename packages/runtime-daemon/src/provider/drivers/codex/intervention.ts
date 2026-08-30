@@ -104,7 +104,10 @@ import {
   type InterventionType,
   type RunId,
 } from "@ai-sidekicks/contracts";
-import { TEXT_NEUTRALIZATION_REFUSAL_CODE } from "../outbound-frame.js";
+import {
+  TEXT_NEUTRALIZATION_REFUSAL_CODE,
+  type CallerDeclaredFrameOrigin,
+} from "../outbound-frame.js";
 
 /**
  * The fallback the orchestration layer performs when a native intervention is
@@ -157,8 +160,13 @@ export interface CodexSteerRunRequest {
    * absent-origin default — the default is fail-closed and would neutralize
    * identically, but it would report `origin=unknown` on a trip, which is a
    * worse answer than the true one when the true one is known.
+   *
+   * Typed as the CALLER-declarable subset, so the tripwire-exempt arm is not
+   * nameable through this request at all: a steer that claimed it would have
+   * its command-shaped bytes delivered verbatim AND its turn excused from the
+   * tripwire, which is the swallow this whole path exists to catch.
    */
-  readonly frameOrigin?: string | undefined;
+  readonly frameOrigin?: CallerDeclaredFrameOrigin | undefined;
 }
 
 /**

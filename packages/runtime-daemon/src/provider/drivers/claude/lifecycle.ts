@@ -109,6 +109,7 @@ import {
   ProviderBindingQuarantine,
   UNRECOGNIZED_TURN_EVIDENCE,
   composeTextNeutralizationRunFailure,
+  type CallerDeclaredFrameOrigin,
   type OutboundTextFrame,
   type TextNeutralityMechanismGrade,
   type TextNeutralizationRunFailure,
@@ -702,6 +703,15 @@ export interface ClaudeSessionTransport {
 // Run dispatch resolution — the daemon-owned half of `startRun`
 // --------------------------------------------------------------------------
 
+/**
+ * The origin a run's opening frame is written under (T3.18).
+ *
+ * A CONSTANT rather than a port member. The text this driver opens a run with
+ * is the participant's own message, composed by the daemon's run pipeline, so
+ * the origin is a fact of the code path and not a claim a resolver gets to make.
+ */
+const RUN_OPENING_FRAME_ORIGIN: CallerDeclaredFrameOrigin = "participant_text";
+
 // `StartRunParams` carries `runId` / `channelId` / `agentConfig` and NEITHER the
 // owning `sessionId` NOR the run's opening text. Both are daemon-owned facts:
 // the run-to-binding mapping lives in `runtime_bindings` (T2.2) and the opening
@@ -712,18 +722,6 @@ export interface ClaudeSessionTransport {
 export interface ClaudeRunDispatch {
   readonly sessionId: SessionId;
   readonly openingText: string;
-  /**
-   * Why this text is being written (T3.18). Typed as `string` rather than as
-   * the origin union because the resolver reads it out of daemon-side run
-   * state, so an off-union value is a runtime state the frame writer classifies
-   * fail-closed — it neutralizes and reports `origin=unknown` — rather than a
-   * compile error pushed onto a caller that cannot fix it.
-   *
-   * ABSENT ALSO NEUTRALIZES. That is the whole reason this is a frame-origin
-   * discriminator instead of a capability flag: an undeclared capability
-   * resolves fail-OPEN under I-005-2, which is exactly backwards here.
-   */
-  readonly frameOrigin?: string | undefined;
 }
 
 export interface ClaudeRunDispatchResolver {
@@ -2138,9 +2136,17 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     // path to the wire rather than on a path a reviewer has to remember to
     // check. Composed before the registration because the registration is keyed
     // by the frame it admits.
+    // The origin is MINTED from a literal and is deliberately not a member of
+    // `ClaudeRunDispatch`. A run's opening text is the participant's own
+    // message, composed by the daemon's run pipeline, so the origin is a fact of
+    // this code path rather than a claim the resolver gets to make — and the arm
+    // a resolver could otherwise have named, `driver_command`, is the one that
+    // delivers command-shaped bytes verbatim AND exempts the turn from the
+    // tripwire, so a wrong value there would swallow the participant's words and
+    // report the turn completed. A port that cannot state it cannot get it wrong.
     const frame = this.#outboundTextFrameWriter.compose({
       text: dispatch.openingText,
-      origin: dispatch.frameOrigin,
+      origin: RUN_OPENING_FRAME_ORIGIN,
     });
     // A REFUSED registration aborts before the write. Taking the write anyway
     // would be the one genuinely unsafe option — a turn that settles against no

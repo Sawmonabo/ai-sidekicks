@@ -33,6 +33,7 @@ import {
 import {
   ClaudeSessionLifecycle,
   ClaudeSessionUnavailableError,
+  type ClaudeRunDispatch,
   type ClaudeSessionLifecycleDependencies,
 } from "../claude/lifecycle.js";
 import {
@@ -566,11 +567,64 @@ describe("outbound frame tripwire", () => {
 
   it("re-keys a registration onto the turn id the provider names", () => {
     const tripwire = new OutboundFrameTripwire();
-    registerFrame(tripwire, "run-1", frameFor("participant_text"));
-    tripwire.recorrelate("run-1", "turn-1");
+    const openingFrame = frameFor("participant_text");
+    registerFrame(tripwire, "run-1", openingFrame);
+    tripwire.recorrelateFrame(openingFrame, "turn-1");
 
     expect(tripwire.settle("run-1", UNRECOGNIZED_TURN_EVIDENCE).tripped).toBe(false);
     expect(tripwire.settle("turn-1", UNRECOGNIZED_TURN_EVIDENCE).tripped).toBe(true);
+  });
+
+  it("carries the observations a frame accrued under its old key across the move", () => {
+    // The evidence a frame collected is the reason its turn passes, and the
+    // re-key happens AFTER a fast turn may already have produced output — so a
+    // move that reset the accrual would report a turn that visibly answered as
+    // one that swallowed its input.
+    const tripwire = new OutboundFrameTripwire();
+    const openingFrame = frameFor("participant_text");
+    registerFrame(tripwire, "run-1", openingFrame);
+    tripwire.observe("run-1", "model_output");
+    tripwire.recorrelateFrame(openingFrame, "turn-1");
+
+    expect(tripwire.settle("turn-1", observedTurnEvidence())).toStrictEqual({
+      tripped: false,
+      reason: "turn-evidence-observed",
+    });
+  });
+
+  it("leaves a frame that is no longer pending un-registered", () => {
+    // A frame already settled, forgotten, or reclaimed is owed no further
+    // correlation; re-admitting it would resurrect a registration the store has
+    // already answered for and let one frame be ruled twice.
+    const tripwire = new OutboundFrameTripwire();
+    const openingFrame = frameFor("participant_text");
+    registerFrame(tripwire, "run-1", openingFrame);
+    tripwire.forgetFrame(openingFrame);
+
+    tripwire.recorrelateFrame(openingFrame, "turn-1");
+
+    expect(tripwire.hasPendingFrame("turn-1")).toBe(false);
+    expect(tripwire.settle("turn-1", UNRECOGNIZED_TURN_EVIDENCE)).toStrictEqual({
+      tripped: false,
+      reason: "no-correlated-frame",
+    });
+  });
+
+  it("leaves the destination turn's retained decision standing", () => {
+    // A move is not a fresh attempt: `register` clears the key it writes to
+    // because a new write is starting there, while a settled turn's ruling is a
+    // property of the turn. Clearing it here would erase exactly the trip the
+    // intervention path reads back when an acknowledged steer names a turn whose
+    // terminal has already gone by.
+    const tripwire = new OutboundFrameTripwire();
+    registerFrame(tripwire, "turn-1", frameFor("participant_text"));
+    tripwire.settle("turn-1", UNRECOGNIZED_TURN_EVIDENCE);
+    const laterFrame = frameFor("participant_text", "/clear");
+    registerFrame(tripwire, "run-1", laterFrame);
+
+    tripwire.recorrelateFrame(laterFrame, "turn-1");
+
+    expect(tripwire.decisionFor("turn-1")?.tripped).toBe(true);
   });
 
   it("drops a registration no turn will ever settle", () => {
@@ -684,16 +738,28 @@ describe("outbound frame tripwire", () => {
     expect(tripwire.decisionFor("turn-1")?.tripped).toBe(true);
   });
 
-  it("re-keys every frame on a run, not merely the first", () => {
+  it("re-keys ONLY the named frame, leaving a concurrent attempt's on the run", () => {
+    // The run id is the key EVERY attempt on that run registers under, and
+    // nothing serializes two starts. A key-wide move would carry the second
+    // attempt's still-unnamed frame onto the first attempt's turn, and the
+    // second attempt would then find nothing left to move — leaving its own
+    // turn to settle against no correlated frame, which PASSES.
     const tripwire = new OutboundFrameTripwire();
-    registerFrame(tripwire, "run-1", frameFor("participant_text"));
-    registerFrame(tripwire, "run-1", frameFor("participant_text", "/clear"));
-    tripwire.recorrelate("run-1", "turn-1");
+    const firstAttemptFrame = frameFor("participant_text");
+    const secondAttemptFrame = frameFor("participant_text", "/clear");
+    registerFrame(tripwire, "run-1", firstAttemptFrame);
+    registerFrame(tripwire, "run-1", secondAttemptFrame);
 
-    expect(tripwire.hasPendingFrame("run-1")).toBe(false);
-    expect(tripwire.hasPendingFrame("turn-1")).toBe(true);
+    tripwire.recorrelateFrame(firstAttemptFrame, "turn-1");
+
+    expect(tripwire.hasPendingFrame("run-1")).toBe(true);
     expect(tripwire.settle("turn-1", UNRECOGNIZED_TURN_EVIDENCE).tripped).toBe(true);
     expect(tripwire.hasPendingFrame("turn-1")).toBe(false);
+
+    // The second attempt is still there to be named, and its own turn rules it.
+    tripwire.recorrelateFrame(secondAttemptFrame, "turn-2");
+    expect(tripwire.hasPendingFrame("run-1")).toBe(false);
+    expect(tripwire.settle("turn-2", UNRECOGNIZED_TURN_EVIDENCE).tripped).toBe(true);
   });
 
   it("drops one frame without disturbing the others on its turn", () => {
@@ -1107,13 +1173,11 @@ describe("Claude driver provider-bound text path", () => {
   async function startRunWith(
     harness: Harness,
     openingText: string,
-    frameOrigin?: string,
   ): Promise<FakeClaudeSessionTransport["spawnedChannels"][number]> {
     await harness.lifecycle.createSession(buildCreateSessionParams());
     harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
       sessionId: TEST_SESSION_ID,
       openingText,
-      ...(frameOrigin === undefined ? {} : { frameOrigin }),
     });
     await harness.lifecycle.startRun(buildStartRunParams());
     const channel = harness.transport.spawnedChannels[0];
@@ -1125,7 +1189,7 @@ describe("Claude driver provider-bound text path", () => {
 
   it("neutralizes command-shaped run-opening text on the wire only", async () => {
     const harness = buildHarness();
-    const channel = await startRunWith(harness, "/status please", "participant_text");
+    const channel = await startRunWith(harness, "/status please");
 
     // The wire bytes carry the sentinel; the author's bytes do not. The
     // transport-only property, asserted at the byte level on a real driver path.
@@ -1139,14 +1203,13 @@ describe("Claude driver provider-bound text path", () => {
     // second run on the same live session, which is the shape a queue admission
     // takes, so a reader does not have to take the single-path claim on trust.
     const harness = buildHarness();
-    const channel = await startRunWith(harness, "first turn", "participant_text");
+    const channel = await startRunWith(harness, "first turn");
     channel.terminalFrameBody = CLAUDE_ORDINARY_TURN_RESULT_FRAME;
     channel.emitStreamFrame("result/success");
 
     harness.runDispatchResolver.dispatchByRunId.set(TEST_SECOND_RUN_ID, {
       sessionId: TEST_SESSION_ID,
       openingText: "/status please",
-      frameOrigin: "participant_text",
     });
     await harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID });
 
@@ -1164,7 +1227,7 @@ describe("Claude driver provider-bound text path", () => {
     // obligation: it mutates neither the record nor the author's bytes, and the
     // one string that differs is the one that never leaves the wire.
     const harness = buildHarness();
-    const channel = await startRunWith(harness, "/status please", "participant_text");
+    const channel = await startRunWith(harness, "/status please");
 
     const dispatch = harness.runDispatchResolver.dispatchByRunId.get(TEST_RUN_ID);
     expect(dispatch?.openingText).toBe("/status please");
@@ -1175,28 +1238,62 @@ describe("Claude driver provider-bound text path", () => {
 
   it("leaves ordinary run-opening text byte-identical", async () => {
     const harness = buildHarness();
-    const channel = await startRunWith(harness, "please read /etc/hosts", "participant_text");
+    const channel = await startRunWith(harness, "please read /etc/hosts");
 
     expect(channel.sentWireTexts).toStrictEqual(["please read /etc/hosts"]);
   });
 
-  it("neutralizes when the dispatch declares no origin at all", async () => {
+  it("neutralizes on a dispatch that names no origin, because none can be named", async () => {
+    // The port carries no origin member at all: the run-opening boundary mints
+    // `participant_text` from a literal. A resolver reading daemon-side run
+    // state cannot state the origin, so it cannot state it wrongly.
     const harness = buildHarness();
     const channel = await startRunWith(harness, "/status please");
 
     expect(channel.sentWireTexts).toStrictEqual(["\n/status please"]);
   });
 
+  it("ignores an exempt origin smuggled onto the dispatch record", async () => {
+    // The hazard behind the minting: `driver_command` is the one arm that both
+    // delivers command-shaped bytes verbatim AND excuses the turn from the
+    // tripwire. A dispatch record that could carry it would hand a caller the
+    // participant's words dispatched as a provider command and the swallow
+    // reported as a completed turn. Written through a cast because TypeScript
+    // already refuses it — the cast is what makes the runtime claim testable.
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "/compact",
+      frameOrigin: "driver_command",
+    } as ClaudeRunDispatch);
+    await harness.lifecycle.startRun(buildStartRunParams());
+    const channel = harness.transport.spawnedChannels[0];
+    if (channel === undefined) {
+      throw new Error("expected the harness to have spawned a channel");
+    }
+
+    // Neutralized on the wire, and still WATCHED: the zero-turn terminal fails
+    // the run under the minted origin rather than passing as an exempt frame.
+    expect(channel.sentWireTexts).toStrictEqual(["\n/compact"]);
+    channel.terminalFrameBody = CLAUDE_ZERO_TURN_RESULT_FRAME;
+    channel.emitStreamFrame("result/success");
+
+    expect(harness.failures.map((failure) => failure.providerFailureDetail)).toStrictEqual([
+      "driver.text_neutralization_failed origin=participant_text",
+    ]);
+  });
+
   it("emits the author's bytes when the leg is declared native", async () => {
     const harness = buildHarness({ textNeutralityMechanismGrade: "native" });
-    const channel = await startRunWith(harness, "/status please", "participant_text");
+    const channel = await startRunWith(harness, "/status please");
 
     expect(channel.sentWireTexts).toStrictEqual(["/status please"]);
   });
 
   it("fails the run with the exact composed detail when the turn is swallowed", async () => {
     const harness = buildHarness();
-    const channel = await startRunWith(harness, "/status please", "participant_text");
+    const channel = await startRunWith(harness, "/status please");
 
     channel.terminalFrameBody = CLAUDE_ZERO_TURN_RESULT_FRAME;
     channel.emitStreamFrame("result/success");
@@ -1212,7 +1309,7 @@ describe("Claude driver provider-bound text path", () => {
 
   it("disposes the run's provider binding, so a later attach is refused", async () => {
     const harness = buildHarness();
-    const channel = await startRunWith(harness, "/status please", "participant_text");
+    const channel = await startRunWith(harness, "/status please");
 
     channel.terminalFrameBody = CLAUDE_ZERO_TURN_RESULT_FRAME;
     channel.emitStreamFrame("result/success");
@@ -1234,7 +1331,7 @@ describe("Claude driver provider-bound text path", () => {
     // `no_live_session`: a plausible wrong cause that reads as a race and
     // invites a retry into the same swallow.
     const harness = buildHarness();
-    const channel = await startRunWith(harness, "/status please", "participant_text");
+    const channel = await startRunWith(harness, "/status please");
 
     channel.terminalFrameBody = CLAUDE_ZERO_TURN_RESULT_FRAME;
     channel.emitStreamFrame("result/success");
@@ -1243,7 +1340,6 @@ describe("Claude driver provider-bound text path", () => {
     harness.runDispatchResolver.dispatchByRunId.set(TEST_SECOND_RUN_ID, {
       sessionId: TEST_SESSION_ID,
       openingText: "carry on",
-      frameOrigin: "participant_text",
     });
     await expect(
       harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID }),
@@ -1261,7 +1357,7 @@ describe("Claude driver provider-bound text path", () => {
     // nor the slot, is only worth as much as a case that would fail if it
     // stopped being true.
     const harness = buildHarness();
-    const channel = await startRunWith(harness, "/status please", "participant_text");
+    const channel = await startRunWith(harness, "/status please");
 
     await harness.lifecycle.interruptRun({ runId: TEST_RUN_ID, reason: "participant_stop" });
     channel.terminalFrameBody = CLAUDE_ZERO_TURN_RESULT_FRAME;
@@ -1280,7 +1376,6 @@ describe("Claude driver provider-bound text path", () => {
     harness.runDispatchResolver.dispatchByRunId.set(TEST_SECOND_RUN_ID, {
       sessionId: TEST_SESSION_ID,
       openingText: "carry on",
-      frameOrigin: "participant_text",
     });
     await expect(
       harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID }),
@@ -1301,7 +1396,6 @@ describe("Claude driver provider-bound text path", () => {
       harness.runDispatchResolver.dispatchByRunId.set(runId, {
         sessionId: TEST_SESSION_ID,
         openingText: "/status please",
-        frameOrigin: "participant_text",
       });
       await harness.lifecycle.startRun({ ...buildStartRunParams(), runId });
     }
@@ -1313,7 +1407,6 @@ describe("Claude driver provider-bound text path", () => {
     harness.runDispatchResolver.dispatchByRunId.set(TEST_SECOND_RUN_ID, {
       sessionId: TEST_SESSION_ID,
       openingText: "one more",
-      frameOrigin: "participant_text",
     });
     await expect(
       harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID }),
@@ -1337,7 +1430,6 @@ describe("Claude driver provider-bound text path", () => {
       harness.runDispatchResolver.dispatchByRunId.set(runId, {
         sessionId: TEST_SESSION_ID,
         openingText: "keep the turn open",
-        frameOrigin: "participant_text",
       });
       await harness.lifecycle.startRun({ ...buildStartRunParams(), runId });
     }
@@ -1349,7 +1441,6 @@ describe("Claude driver provider-bound text path", () => {
     harness.runDispatchResolver.dispatchByRunId.set(TEST_SECOND_RUN_ID, {
       sessionId: TEST_SESSION_ID,
       openingText: "one more",
-      frameOrigin: "participant_text",
     });
     await expect(
       harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID }),
@@ -1371,7 +1462,7 @@ describe("Claude driver provider-bound text path", () => {
     // which may neither wait on a child's death nor be unwound by one — so it is
     // observed after a drain rather than synchronously.
     const harness = buildHarness();
-    const channel = await startRunWith(harness, "/status please", "participant_text");
+    const channel = await startRunWith(harness, "/status please");
 
     channel.terminalFrameBody = CLAUDE_ZERO_TURN_RESULT_FRAME;
     channel.emitStreamFrame("result/success");
@@ -1387,7 +1478,7 @@ describe("Claude driver provider-bound text path", () => {
     // The quarantine names a BINDING, not an identifier. Refusing the id forever
     // would refuse the very recovery the trip promises.
     const harness = buildHarness();
-    const channel = await startRunWith(harness, "/status please", "participant_text");
+    const channel = await startRunWith(harness, "/status please");
     channel.terminalFrameBody = CLAUDE_ZERO_TURN_RESULT_FRAME;
     channel.emitStreamFrame("result/success");
     await drainMicrotasks();
@@ -1396,7 +1487,6 @@ describe("Claude driver provider-bound text path", () => {
     harness.runDispatchResolver.dispatchByRunId.set(TEST_SECOND_RUN_ID, {
       sessionId: TEST_SESSION_ID,
       openingText: "carry on",
-      frameOrigin: "participant_text",
     });
 
     await expect(
@@ -1407,7 +1497,7 @@ describe("Claude driver provider-bound text path", () => {
   it("does not fail an ordinary turn", async () => {
     // The negative control on the real driver path.
     const harness = buildHarness();
-    const channel = await startRunWith(harness, "/status please", "participant_text");
+    const channel = await startRunWith(harness, "/status please");
 
     channel.terminalFrameBody = CLAUDE_ORDINARY_TURN_RESULT_FRAME;
     channel.emitStreamFrame("result/success");
@@ -1418,7 +1508,7 @@ describe("Claude driver provider-bound text path", () => {
 
   it("does not fail a genuine turn that ended in a provider-side refusal", async () => {
     const harness = buildHarness();
-    const channel = await startRunWith(harness, "/status please", "participant_text");
+    const channel = await startRunWith(harness, "/status please");
 
     channel.terminalFrameBody = CLAUDE_API_ERRORED_TURN_RESULT_FRAME;
     channel.emitStreamFrame("result/success");
@@ -1427,16 +1517,24 @@ describe("Claude driver provider-bound text path", () => {
   });
 
   it("does not fail a run whose text was delivered verbatim as a driver command", async () => {
-    const harness = buildHarness();
-    const channel = await startRunWith(harness, "/compact", "driver_command");
-    expect(channel.sentWireTexts).toStrictEqual(["/compact"]);
+    // The exempt arm is reachable only from a driver composing its own command
+    // frame in-module — no run-opening port offers it — so the claim is asserted
+    // on the writer and the tripwire directly. A command dispatch legitimately
+    // produces no model turn, and failing it would make every driver-issued
+    // command an outage.
+    const commandFrame = new OutboundTextFrameWriter({
+      mechanismGrade: "emulated",
+      mintCorrelationId: () => "correlation-driver-command",
+    }).compose({ text: "/compact", origin: "driver_command" });
+    expect(commandFrame.wireText).toBe("/compact");
 
-    channel.terminalFrameBody = CLAUDE_ZERO_TURN_RESULT_FRAME;
-    channel.emitStreamFrame("result/success");
+    const tripwire = new OutboundFrameTripwire();
+    tripwire.register({ scopeKey: "session-1", joinKey: "turn-1", frame: commandFrame });
 
-    // A command dispatch legitimately produces no model turn. Failing it would
-    // make every driver-issued command an outage.
-    expect(harness.failures).toStrictEqual([]);
+    expect(tripwire.settle("turn-1", UNRECOGNIZED_TURN_EVIDENCE)).toStrictEqual({
+      tripped: false,
+      reason: "frame-exempt",
+    });
   });
 
   /**
@@ -1460,7 +1558,6 @@ describe("Claude driver provider-bound text path", () => {
     harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
       sessionId: TEST_SESSION_ID,
       openingText,
-      frameOrigin: "participant_text",
     });
     await expect(harness.lifecycle.startRun(buildStartRunParams())).rejects.toThrow(
       "the provider stream is closed",
@@ -1483,7 +1580,6 @@ describe("Claude driver provider-bound text path", () => {
     harness.runDispatchResolver.dispatchByRunId.set(TEST_SECOND_RUN_ID, {
       sessionId: TEST_SESSION_ID,
       openingText: "second turn",
-      frameOrigin: "participant_text",
     });
     await harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID });
 
@@ -1570,7 +1666,6 @@ describe("Claude driver provider-bound text path", () => {
     harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
       sessionId: TEST_SESSION_ID,
       openingText: "/status please",
-      frameOrigin: "participant_text",
     });
     await expect(harness.lifecycle.startRun(buildStartRunParams())).rejects.toThrow(
       "the provider stream is closed",
@@ -1594,7 +1689,6 @@ describe("Claude driver provider-bound text path", () => {
     harness.runDispatchResolver.dispatchByRunId.set(TEST_SECOND_RUN_ID, {
       sessionId: TEST_SESSION_ID,
       openingText: "carry on",
-      frameOrigin: "participant_text",
     });
     await expect(
       harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID }),
@@ -1616,7 +1710,6 @@ describe("Claude driver provider-bound text path", () => {
     harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
       sessionId: TEST_SESSION_ID,
       openingText: "/status please",
-      frameOrigin: "participant_text",
     });
     await expect(harness.lifecycle.startRun(buildStartRunParams())).rejects.toThrow(
       "the transport threw instead of reporting",
@@ -1635,11 +1728,10 @@ describe("Claude driver provider-bound text path", () => {
     // for text that never ran. The second run's route is destroyed by this same
     // terminal, so its frame is provably never going to be confirmed.
     const harness = buildHarness();
-    const channel = await startRunWith(harness, "first turn", "participant_text");
+    const channel = await startRunWith(harness, "first turn");
     harness.runDispatchResolver.dispatchByRunId.set(TEST_SECOND_RUN_ID, {
       sessionId: TEST_SESSION_ID,
       openingText: "second turn",
-      frameOrigin: "participant_text",
     });
     await harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID });
 
@@ -1663,7 +1755,7 @@ describe("Claude driver provider-bound text path", () => {
     // would let the evidence-free terminal below pass as a completed turn — the
     // exact swallow this tripwire exists to catch, hidden by the recovery path.
     const harness = buildHarness();
-    const predecessorChannel = await startRunWith(harness, "/status please", "participant_text");
+    const predecessorChannel = await startRunWith(harness, "/status please");
 
     // The transport refuses the terminal-hook registration, which is the last
     // thing that runs inside the driver's adoption window.
@@ -1704,7 +1796,7 @@ describe("Claude driver provider-bound text path", () => {
         throw new Error("the emission pipeline is unavailable");
       },
     });
-    const channel = await startRunWith(harness, "/status please", "participant_text");
+    const channel = await startRunWith(harness, "/status please");
 
     channel.terminalFrameBody = CLAUDE_ZERO_TURN_RESULT_FRAME;
     expect(() => channel.emitStreamFrame("result/success")).not.toThrow();

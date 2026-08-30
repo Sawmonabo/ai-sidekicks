@@ -202,6 +202,7 @@ import {
   ProviderBindingQuarantine,
   UNRECOGNIZED_TURN_EVIDENCE,
   composeTextNeutralizationRunFailure,
+  type CallerDeclaredFrameOrigin,
   type OutboundTextFrame,
   type TextNeutralityMechanismGrade,
   type TextNeutralizationRunFailure,
@@ -1314,6 +1315,15 @@ export interface CodexSessionConfig {
 }
 
 /**
+ * The origin a run's opening frame is written under (T3.18).
+ *
+ * A CONSTANT rather than an input. The text this driver opens a run with is
+ * the participant's own message, composed by the daemon's run pipeline, so the
+ * origin is a fact of the code path and not a claim a caller gets to make.
+ */
+const RUN_OPENING_FRAME_ORIGIN: CallerDeclaredFrameOrigin = "participant_text";
+
+/**
  * What this driver requires inside `StartRunParams.agentConfig`.
  *
  * `StartRunParams` carries no session key and no turn text, so both travel here.
@@ -1325,18 +1335,6 @@ export interface CodexRunConfig {
   input: string;
   model?: string | undefined;
   clientUserMessageId?: string | undefined;
-  /**
-   * Why this run's opening text is being written (T3.18). Read off the untyped
-   * `agentConfig` as a plain string, so an off-union value is classified
-   * fail-closed by the frame writer rather than refused here — the daemon's run
-   * pipeline composes this text, and a parse refusal would fail a run for
-   * declaring its origin badly when neutralizing it is both safe and correct.
-   *
-   * ABSENT ALSO NEUTRALIZES, which is why this is a frame-origin discriminator
-   * and not a capability flag: an undeclared capability resolves fail-OPEN
-   * under I-005-2, and fail-open is the wrong default for this hazard.
-   */
-  frameOrigin?: string | undefined;
 }
 
 // --------------------------------------------------------------------------
@@ -1706,17 +1704,35 @@ export function parseCodexRunConfig(agentConfig: unknown): CodexRunConfig {
     "clientUserMessageId",
     "StartRunParams.agentConfig.clientUserMessageId",
   );
-  const frameOrigin = readOptionalString(
+  // T3.18. Read only to REFUSE, never to carry: the run-opening boundary mints
+  // its own frame origin (see `#composeRunOpeningFrame`), so this bag cannot
+  // name one. Accepting a declared origin here would put the tripwire-EXEMPT
+  // arm inside an untyped record the daemon's run pipeline fills — and that arm
+  // both delivers command-shaped bytes verbatim and excuses the turn from the
+  // tripwire, so a caller that named it would get the participant's words
+  // dispatched as a provider command and the swallow reported as a completed
+  // turn. No type can reach a bag, so the refusal is the enforcement.
+  //
+  // The minted value alone is tolerated, because declaring the truth is a
+  // no-op; anything else — the exempt arm, another union member, or a value off
+  // the union entirely — fails the run loudly rather than being silently
+  // dropped, which would hide the caller's bug on the one axis that matters.
+  const declaredFrameOrigin = readOptionalString(
     source,
     "frameOrigin",
     "StartRunParams.agentConfig.frameOrigin",
   );
+  if (declaredFrameOrigin !== undefined && declaredFrameOrigin !== RUN_OPENING_FRAME_ORIGIN) {
+    throw new CodexDriverConfigError(
+      `StartRunParams.agentConfig.frameOrigin cannot be declared; a run's opening text is written as "${RUN_OPENING_FRAME_ORIGIN}".`,
+      "StartRunParams.agentConfig.frameOrigin",
+    );
+  }
   return {
     sessionId,
     input,
     ...(model === undefined ? {} : { model }),
     ...(clientUserMessageId === undefined ? {} : { clientUserMessageId }),
-    ...(frameOrigin === undefined ? {} : { frameOrigin }),
   };
 }
 
@@ -3501,9 +3517,16 @@ export class CodexLifecycleManager {
    *   more unsettled frames than the tripwire will watch.
    */
   #composeRunOpeningFrame(params: StartRunParams, runConfig: CodexRunConfig): OutboundTextFrame {
+    // The origin is MINTED here from a literal rather than carried in from the
+    // caller's config bag. A run's opening text is the participant's message by
+    // construction on this path, and the arm a caller could otherwise have named
+    // — `driver_command` — is the one that skips neutralization and exempts the
+    // turn from the tripwire, so leaving it nameable through an untyped record
+    // would put both halves of the hazard in a caller's hands. `parseCodexRunConfig`
+    // refuses a declared origin; this is where the true one is stated.
     const frame = this.#outboundTextFrameWriter.compose({
       text: runConfig.input,
-      origin: runConfig.frameOrigin,
+      origin: RUN_OPENING_FRAME_ORIGIN,
     });
     this.#outboundFrameTripwire.register({
       scopeKey: runConfig.sessionId,
@@ -3809,8 +3832,8 @@ export class CodexLifecycleManager {
       // binding still serving, so it borrows the fail-closed ruling instead.
       //
       // The retained decision is deliberately left alone, unlike the key-wide
-      // drop this replaced. It is keyed by RUN id only until `recorrelate` runs,
-      // `decisionFor` is read by turn id, and `register` clears the key's
+      // drop this replaced. It is keyed by RUN id only until `recorrelateFrame`
+      // runs, `decisionFor` is read by turn id, and `register` clears the key's
       // decision on every retry — so no stale answer is reachable through it.
       //
       // No quarantine entry is installed here, and none is owed: disposal drops
@@ -3822,9 +3845,17 @@ export class CodexLifecycleManager {
       }
       throw cause;
     }
-    // The provider has named the turn, so the correlation moves onto the key the
-    // terminal notification will actually carry.
-    this.#outboundFrameTripwire.recorrelate(params.runId, turnId);
+    // The provider has named the turn, so THIS attempt's frame moves onto the key
+    // the terminal notification will actually carry.
+    //
+    // Frame-scoped for the reason the drop above is: the run id is the key every
+    // attempt on this run registers under, so a key-wide re-key would drag a
+    // concurrent attempt's still-unnamed frame onto the turn THIS attempt opened
+    // — and then the second attempt, finding nothing left under the run id, would
+    // move nothing, leaving its own turn to settle against no correlated frame.
+    // A settle with nothing correlated PASSES, which is the swallowed turn
+    // reported as a completed one.
+    this.#outboundFrameTripwire.recorrelateFrame(openingFrame, turnId);
     // Everything from here is ONE synchronous run, so a single slot check covers
     // both the install and the terminal-memory consume below it.
     if (!this.#stillHoldsSlot(record)) {
@@ -3875,9 +3906,9 @@ export class CodexLifecycleManager {
     // is the consume, so a later turn reusing the id (it cannot — turn ids are
     // UUIDv7) could not be retired twice.
     //
-    // T3.18. The SAME interleave beats the tripwire, and worse: the recorrelate
-    // above ran after the terminal settled nothing, so the frame this run opened
-    // with is pending under a turn id whose settlement has already gone by. A
+    // T3.18. The SAME interleave beats the tripwire, and worse: the re-key above
+    // ran after the terminal settled nothing, so the frame this run opened with
+    // is pending under a turn id whose settlement has already gone by. A
     // consume that only retired the route would leave a swallowed turn reported
     // as a completed one, so the remembered evidence is replayed onto the
     // re-keyed frame and the terminal is ruled here instead.
@@ -4898,7 +4929,29 @@ export class CodexLifecycleManager {
     });
     const attempt = await this.#requestTurnSteer(record, request, steerFrame, targetedTurnId);
     if (attempt.settled === "answered") {
-      return { targetedTurnId, acknowledgedTurnId: readSteeredTurnId(attempt.result) };
+      const acknowledgedTurnId = readSteeredTurnId(attempt.result);
+      if (acknowledgedTurnId !== null && acknowledgedTurnId !== targetedTurnId) {
+        // T3.18. The provider named a turn OTHER than the one this steer
+        // targeted, which is the provider's own statement about where the bytes
+        // went. Leaving the frame on the disproven target gets both halves
+        // wrong at once: the target's terminal would rule a frame whose text
+        // never entered it — a trip on a turn that swallowed nothing — while
+        // the turn that DID take the directive settles against no correlated
+        // frame, and that PASSES. The swallow the tripwire exists for would go
+        // out under the wrong turn's ruling.
+        //
+        // A NULL acknowledgement is deliberately left where it is: naming no
+        // turn disproves nothing, so the target remains the best evidence of
+        // where the bytes went, and the dispatcher already grades that answer
+        // degraded rather than applied (P3-1).
+        //
+        // If the acknowledged turn has already settled, the moved frame can no
+        // longer be ruled — the named residual on `recorrelateFrame`. That is
+        // still strictly better than ruling it on a turn the provider has told
+        // us it did not join.
+        this.#outboundFrameTripwire.recorrelateFrame(steerFrame, acknowledgedTurnId);
+      }
+      return { targetedTurnId, acknowledgedTurnId };
     }
     this.#ruleFailedSteerFrame(record, request.runId, steerFrame, attempt.delivery);
     throw attempt.cause;

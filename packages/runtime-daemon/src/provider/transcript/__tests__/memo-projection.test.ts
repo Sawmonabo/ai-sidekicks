@@ -143,6 +143,10 @@ function requestFor(
 class FakeTargetSession {
   readonly turns: string[] = [];
   readonly readOutcomes: Array<"ok" | "fail"> = [];
+  /** The session each reconciliation read was asked about, in order. */
+  readonly readTargetIds: string[] = [];
+  /** The session each send named, in order. */
+  readonly sentTargetIds: string[] = [];
   sendBehavior: "accept" | "apply-then-fail" | "apply-late-then-fail" | "refuse" = "accept";
   sendAttempts = 0;
   readAttempts = 0;
@@ -163,8 +167,11 @@ class FakeTargetSession {
    * fake that answered a window would make once-only look like it holds while
    * the contract it rests on went untested.
    */
-  async readTurnsForMarkerReconciliation(): Promise<readonly string[]> {
+  async readTurnsForMarkerReconciliation(
+    targetProviderSessionId: string,
+  ): Promise<readonly string[]> {
     this.readAttempts += 1;
+    this.readTargetIds.push(targetProviderSessionId);
     if (this.readOutcomes.shift() === "fail") {
       throw new Error("target session could not be read");
     }
@@ -173,6 +180,7 @@ class FakeTargetSession {
 
   async sendMemoTurn(frame: MemoOutboundFrame): Promise<void> {
     this.sendAttempts += 1;
+    this.sentTargetIds.push(frame.targetProviderSessionId);
     // `wireText` rather than the authored prose: the readback must reconcile
     // against what the provider was actually handed.
     if (this.sendBehavior === "apply-then-fail") {
@@ -946,8 +954,12 @@ describe("memo delivery — once-only under a lost acknowledgment", () => {
     class WindowedTargetSession extends FakeTargetSession {
       static readonly WINDOW_TURN_COUNT: number = 20;
 
-      override async readTurnsForMarkerReconciliation(): Promise<readonly string[]> {
-        const wholeHistory: readonly string[] = await super.readTurnsForMarkerReconciliation();
+      override async readTurnsForMarkerReconciliation(
+        targetProviderSessionId: string,
+      ): Promise<readonly string[]> {
+        const wholeHistory: readonly string[] = await super.readTurnsForMarkerReconciliation(
+          targetProviderSessionId,
+        );
         return wholeHistory.slice(-WindowedTargetSession.WINDOW_TURN_COUNT);
       }
     }
@@ -1042,6 +1054,108 @@ describe("memo reconciliation — the losses reported are the DELIVERED summary'
     });
     expect(disclosure).toContain("not recorded");
     expect(disclosure).toContain("at most");
+  });
+
+  it("refuses a record that lists nothing, or lists it malformed", async () => {
+    // A vacuous record was previously read as a memo that dropped NOTHING —
+    // the strongest claim the marker can make, drawn from a record that failed
+    // to state anything. This floor declares its own summarization on every
+    // path, so a record that omits it was not written by this writer and its
+    // omissions cannot be accounted for.
+    const projection: CanonicalTranscriptProjection = plainConversation();
+    const memoIdentityKey: string = deriveMemoIdentityKey(projection, TARGET);
+    const marker: string = `${MEMO_CONTINUITY_MARKER_PREFIX}${memoIdentityKey}`;
+    const unreadable: readonly string[] = [
+      // No record at all after the separator.
+      `${marker};dropped=`,
+      `${marker};dropped= conversation_history_summarized`,
+      // Empty components, from a leading, trailing, or doubled joiner.
+      `${marker};dropped=+conversation_history_summarized`,
+      `${marker};dropped=conversation_history_summarized+`,
+      `${marker};dropped=context_truncated++conversation_history_summarized`,
+      // A well-formed list that omits the kind this floor always declares.
+      `${marker};dropped=context_truncated`,
+    ];
+
+    for (const turnText of unreadable) {
+      expect(readDeliveredMemoDeclaredLosses([turnText], memoIdentityKey)).toBeUndefined();
+    }
+
+    // And per OCCURRENCE: one readable record does not vouch for the memo beside
+    // it, because a target holding two markers under one key holds two summaries.
+    expect(
+      readDeliveredMemoDeclaredLosses(
+        [
+          renderMemoContinuityMarker(memoIdentityKey, [
+            "context_truncated",
+            "conversation_history_summarized",
+          ]),
+          `${marker};dropped=`,
+        ],
+        memoIdentityKey,
+      ),
+    ).toBeUndefined();
+
+    // The floor's own single-kind record still reads, so the strictness is about
+    // records this writer cannot produce rather than about short ones.
+    expect(
+      readDeliveredMemoDeclaredLosses(
+        [`${marker};dropped=conversation_history_summarized`],
+        memoIdentityKey,
+      ),
+    ).toStrictEqual(["conversation_history_summarized"]);
+  });
+
+  it("names the target session on every reconciliation read, as the send does", async () => {
+    // Reconciliation decides whether to send INTO the session the frame names,
+    // so an un-targeted read would let an absent marker in one session license a
+    // send into another — and the memo's identity key is derived over the target
+    // session id, so such an answer would not even be about the same key. Both
+    // reads are asserted, including the post-send readback that settles an
+    // ambiguous send, because a settlement resting on an un-targeted readback is
+    // the same defect one call later.
+    const target = new FakeTargetSession();
+    target.sendBehavior = "apply-then-fail";
+    const projection: CanonicalTranscriptProjection = plainConversation();
+    // Deliberately NOT the default target, so the id is shown to come from the
+    // request rather than from whatever this suite happens to use most.
+    const request: MemoDeliveryRequest = requestFor(projection, ROOMY_BUDGET, OTHER_TARGET);
+
+    const settlement: MemoDeliverySettlement = await new MemoDeliveryCoordinator(target).deliver(
+      request,
+    );
+
+    expect(settlement.disposition).toBe("delivered");
+    expect(target.readAttempts).toBe(2);
+    expect(target.readTargetIds).toStrictEqual([
+      OTHER_TARGET.providerSessionId,
+      OTHER_TARGET.providerSessionId,
+    ]);
+    // One session, read and written: the two must agree or the reconciliation
+    // is not about the send it guards.
+    expect(target.sentTargetIds).toStrictEqual([OTHER_TARGET.providerSessionId]);
+  });
+
+  it("declares the upper bound when the delivered memo's record is vacuous", async () => {
+    // The consequence a caller sees: an unreadable record settles as the whole
+    // producible set, stated as a bound, rather than as an account of nothing.
+    const target = new FakeTargetSession();
+    const projection: CanonicalTranscriptProjection = plainConversation();
+    const request: MemoDeliveryRequest = requestFor(projection, ROOMY_BUDGET);
+    target.turns.push(
+      `an older summary ${MEMO_CONTINUITY_MARKER_PREFIX}${deriveMemoIdentityKey(
+        projection,
+        TARGET,
+      )};dropped=`,
+    );
+
+    const settlement: MemoDeliverySettlement = await new MemoDeliveryCoordinator(target).deliver(
+      request,
+    );
+
+    expect(settlement.disposition).toBe("already-delivered");
+    expect(settlement.declaredLossSource).toBe("unknown");
+    expect(settlement.declaredLosses).toStrictEqual(DECLARED_LOSS_KINDS);
   });
 
   it("refuses to read a record it does not fully understand", async () => {
