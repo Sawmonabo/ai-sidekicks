@@ -15,7 +15,7 @@ Every control-plane endpoint defined in this document is implicitly scoped to th
 - **Principal identity.** The Cedar `principal` is the `sub` claim of the caller's PASETO v4.public access token (a `ParticipantId`). This is the only identity Cedar evaluates. See [RFC 9068 §2.2 — `sub` claim](https://datatracker.ietf.org/doc/html/rfc9068#section-2.2) for the `sub`-as-principal pattern and [ADR-010 PASETO + WebAuthn + MLS Auth](../../decisions/010-paseto-webauthn-mls-auth.md) for the V1 PASETO profile.
 - **Proof-of-possession binding.** Each access token carries a DPoP-style confirmation claim (`cnf.jkt`, per [RFC 9449 §3.1 — Public Key Confirmation via Thumbprint](https://datatracker.ietf.org/doc/html/rfc9449#section-3.1)) whose value is the SHA-256 thumbprint of the caller's bound JWK. A token is valid only when accompanied by a DPoP proof signed by the matching private key. The bound access token is presented as `Authorization: DPoP <token>` per [RFC 9449 §7.1](https://www.rfc-editor.org/rfc/rfc9449#section-7.1) — never `Bearer`, which a conforming resource server rejects for a DPoP-bound token — and the accompanying proof carries the token's `ath` hash per [RFC 9449 §4.3](https://www.rfc-editor.org/rfc/rfc9449#section-4.3); see [security-architecture.md §DPoP sender-constraining](../security-architecture.md#control-plane-authentication-task-52) for the canonical statement. `cnf.jkt` is a replay-protection binding — **not** a second principal identity; Cedar never reads it as a `principal` input.
 - **Informational body fields.** Any body field that names a participant — `approver`, `inviter`, `requester`, `initiatorId`, `actor`, and equivalents — is routing/audit metadata only. Cedar does **not** read these fields as authorization input. Servers must reject a request when the body-supplied actor disagrees with the verified `sub`, rather than trusting the body.
-- **Run-control resource context (2026-08-03 cross-user run-control authorization amendment).** For run-control adjudication — the Cedar `Action::"intervene"` evaluation on the target `Run` resource, covering interventions and the orchestration-layer `run.pause` / `run.resume` verbs identically — the target run's **hosting node** is a controlling request-context input, resolved daemon-side from the target run and never from a client-supplied field (the informational-body-fields rule above applies unchanged; the durable per-run hosting-node carrier this resolution reads is a named [Plan-004 §Preconditions](../../plans/004-queue-steer-pause-resume.md#preconditions) prerequisite — no shipped run accessor or schema column carries the node today): authorization evaluates against session membership role, never run authorship, and a non-local hosting node **adds** the target-node-owner approval requirement (an approval in the `tool_execution` category per [Spec-024 Cross-Node Dispatch And Approval](../../specs/024-cross-node-dispatch-and-approval.md)) rather than substituting for the role check. The principal is transport-verified on both run-control paths: on the daemon's local socket — which admits only the node owner's own clients under the layered socket-reachability + session-token model and carries no PASETO token (the Local-daemon endpoints bullet below; [security-architecture.md §Local Daemon Authentication](../security-architecture.md#local-daemon-authentication-task-51)) — the daemon binds the Cedar principal to its **node-owner participant identity** — the daemon's standing control-plane-authentication posture ([component-architecture-local-daemon.md §Responsibilities](../component-architecture-local-daemon.md#responsibilities)) — resolved through the Plan-018-gated credential/identity provider seam the §Signing-Key Registration Method Registry below already rides (the CP-006-13 constructor-injected credential-provider and `resolveCurrentParticipantId` pattern; `runtimenode.attach` is client-driven and hands the daemon no principal, so no attach hook supplies the value), daemon-resolved, never read from a body actor field, and failing closed while the provider is unwired — the run-control registration of that provider is a named [Plan-004 §Preconditions](../../plans/004-queue-steer-pause-resume.md#preconditions) prerequisite; a cross-user caller reaches run-control only over identity-carrying paths — a cross-node intervention arrives via Spec-024 dispatch, where the target binds the principal to the verified `caller_token.sub` after checking the token's signature and its `req_hash` body binding (the Cross-node dispatch bullet below): the envelope's request-hash-bound signed token is that transport's sender-constraining mechanism, and no separate DPoP proof rides the relay leg. Contract text: [Spec-004 §Interfaces And Contracts](../../specs/004-queue-steer-pause-resume.md#interfaces-and-contracts); rule owner: [Spec-012 §Required Behavior](../../specs/012-approvals-permissions-and-trust-boundaries.md#required-behavior).
+- **Run-control resource context (2026-08-03 cross-user run-control authorization amendment).** For run-control adjudication — the Cedar `Action::"intervene"` evaluation on the target `Run` resource, covering interventions, the orchestration-layer `run.pause` / `run.resume` verbs, and — since 2026-08-29 — participant-triggered `driver.compactContext` identically — the target run's **hosting node** is a controlling request-context input, resolved daemon-side from the target run and never from a client-supplied field (the informational-body-fields rule above applies unchanged; the durable per-run hosting-node carrier this resolution reads is a named [Plan-004 §Preconditions](../../plans/004-queue-steer-pause-resume.md#preconditions) prerequisite — no shipped run accessor or schema column carries the node today, and the one consumer that needs no carrier is `driver.compactContext`, whose target is by construction a provider binding this daemon holds, so its hosting node resolves local without a lookup): authorization evaluates against session membership role, never run authorship, and a non-local hosting node **adds** the target-node-owner approval requirement (an approval in the `tool_execution` category per [Spec-024 Cross-Node Dispatch And Approval](../../specs/024-cross-node-dispatch-and-approval.md)) rather than substituting for the role check. The principal is transport-verified on both run-control paths: on the daemon's local socket — which admits only the node owner's own clients under the layered socket-reachability + session-token model and carries no PASETO token (the Local-daemon endpoints bullet below; [security-architecture.md §Local Daemon Authentication](../security-architecture.md#local-daemon-authentication-task-51)) — the daemon binds the Cedar principal to its **node-owner participant identity** — the daemon's standing control-plane-authentication posture ([component-architecture-local-daemon.md §Responsibilities](../component-architecture-local-daemon.md#responsibilities)) — resolved through the Plan-018-gated credential/identity provider seam the §Signing-Key Registration Method Registry below already rides (the CP-006-13 constructor-injected credential-provider and `resolveCurrentParticipantId` pattern; `runtimenode.attach` is client-driven and hands the daemon no principal, so no attach hook supplies the value), daemon-resolved, never read from a body actor field, and failing closed while the provider is unwired — the run-control registration of that provider is a named [Plan-004 §Preconditions](../../plans/004-queue-steer-pause-resume.md#preconditions) prerequisite; a cross-user caller reaches run-control only over identity-carrying paths — a cross-node intervention arrives via Spec-024 dispatch, where the target binds the principal to the verified `caller_token.sub` after checking the token's signature and its `req_hash` body binding (the Cross-node dispatch bullet below): the envelope's request-hash-bound signed token is that transport's sender-constraining mechanism, and no separate DPoP proof rides the relay leg. Contract text: [Spec-004 §Interfaces And Contracts](../../specs/004-queue-steer-pause-resume.md#interfaces-and-contracts); rule owner: [Spec-012 §Required Behavior](../../specs/012-approvals-permissions-and-trust-boundaries.md#required-behavior).
 - **Local-daemon endpoints.** Endpoints reachable only over the daemon's local IPC socket (JSON-RPC 2.0 per [ADR-009 JSON-RPC IPC Wire Format](../../decisions/009-json-rpc-ipc-wire-format.md)) are authorized by socket reachability plus a required 256-bit session token presented by the Desktop Shell or CLI client (per BL-056 reconciliation on 2026-04-18; see [security-architecture.md §Local Daemon Authentication](../security-architecture.md#local-daemon-authentication-task-51)); they do not require a PASETO access token. The renderer is not a direct daemon client — renderer-originated requests are brokered by the shell via the preload bridge. When a local-daemon request is later forwarded cross-node via dispatch, the target daemon verifies the dispatch envelope's `caller_token` — signature plus the `req_hash` body binding per [Spec-024 Cross-Node Dispatch And Approval](../../specs/024-cross-node-dispatch-and-approval.md) — before Cedar runs: the request-hash-bound signed token is that path's sender-constraining, and no separate DPoP proof is carried on the relay leg (the Cross-node dispatch bullet below).
 - **Cross-node dispatch.** Cross-node approval envelopes follow [Spec-024 Cross-Node Dispatch And Approval](../../specs/024-cross-node-dispatch-and-approval.md): the Cedar `principal` on the target side is bound only to `caller_token.sub`; `approver_token.sub` is carried for audit and replay-binding via the shared `bound_jti` + `request_body_hash` and does **not** become a second principal.
 - **Durable principal recording on admitting writes (2026-08-18 admitting-principal carrier amendment).** The four bullets above govern how a principal is _resolved_ for one request. This bullet governs how it is _retained_. **Every admitting write records the daemon-resolved transport-authenticated principal on its own durable row.** An admitting write is one whose acceptance authorizes later work that the original request no longer accompanies — a subsequent turn, a drained queue item, a remembered grant — so the identity must survive the request that carried it. The recorded value is resolved by exactly the mechanisms above (node-owner binding on the local socket, the verified PASETO `sub` on authenticated surfaces, `caller_token.sub` on the cross-node arm), never read from a body actor field; a body-supplied actor disagreeing with the verified identity refuses as the existing `auth.principal_mismatch` error rather than being trusted or silently normalized. Recording it on the row it admits — rather than deriving it later from event history — is what makes the identity **replay-stable**: an accumulating history offers no single answer to "under whose authority was _this_ unit of work admitted", and the informational-body-fields rule above already forbids the only wire-carried candidate. Where the row can also be written by a non-participant path, a daemon-resolved origin discriminator on the same row carries which admission path produced it, with the principal required exactly on the participant arm and forbidden on the system arm — enforced by the storage engine wherever the carrier is a table row, and by the recorded value's own closed shape where it is not, so the participant arm cannot persist unidentified and the system arm cannot smuggle an identity in. Instances — **(1)**-**(3)** each one column per owning surface under [cross-plan-dependencies.md §2](../cross-plan-dependencies.md#2-package-path-ownership-map) one-writer discipline, **(4)** a payload member for the reason the shape-deviation paragraph below gives: **(1)** `approval_resolutions.approver_id` — the shipped instance ([Spec-012 §Required Behavior](../../specs/012-approvals-permissions-and-trust-boundaries.md#required-behavior), Plan-012 D-012-12), the approver whose decision a remembered grant later re-applies; **(2)** `interventions.admitting_principal_id` beside its `origin` discriminator — the intervention caller whose principal a steer-opened or replacement-send-opened turn executes under ([Spec-004 §Required Behavior](../../specs/004-queue-steer-pause-resume.md#required-behavior), Plan-004 D-004-4; consumed by Plan-012's turn-scoped resolution, CP-004-14 ⇄ CP-012-12); **(3)** the chat-borne workflow start's authoring participant, adjudicated as `Action::"workflow::start"` ([Spec-017 §Start authorization (SA-39)](../../specs/017-workflow-authoring-and-execution.md#start-authorization-sa-39)) — [Plan-017](../../plans/017-workflow-authoring-and-execution.md) instantiates its own column on its own surface when that surface lands, since the rule is a class and not a shared column; **(4)** the turn-scoped effective principal on `usage.cost_update`'s payload — the party whose causation a unit of metered spend is attributed to ([Spec-006 §Usage Telemetry](../../specs/006-session-event-taxonomy-and-audit-log.md#usage-telemetry-usage_telemetry), 2026-08-26; produced by [Plan-004](../../plans/004-queue-steer-pause-resume.md) under CP-004-16 and consumed by [Spec-016 §Session Cost Receipt](../../specs/016-multi-agent-channels-and-orchestration.md#session-cost-receipt)).
@@ -196,8 +196,9 @@ type DriverCapabilityFlag =
   | "output_speed"; // declares a participant-settable provider-side output-speed mode; Claude only, detectionSource STATIC because reading the declared state is not zero-turn (2026-08-29, Spec-005 §The output-speed axis)
 // Code-mirror gate (campaign B3/B6): the shipped executable union
 // (packages/contracts/src/provider-driver.ts) now exports THIRTEEN of these — every member above
-// except transcript_replay — and the shipped assertValidCapabilityFlags rejects any snapshot whose key
-// count differs, so a driver MUST NOT declare transcript_replay against the shipped validator. Union +
+// except transcript_replay, context_compaction, provider_commands, and output_speed — and the shipped
+// assertValidCapabilityFlags rejects any snapshot whose key
+// count differs, so a driver MUST NOT declare any of those four against the shipped validator. Union +
 // validator + driver_capabilities migration backfill + conformance tests widened together as ONE change
 // via the campaign's Plan-005 bundle for the first six; Plan-005 T3.19 (2026-08-26) lands the fourteenth
 // by extending that same union rather than opening a second seam, and Plan-005 T3.26 (2026-08-29) lands
@@ -816,6 +817,13 @@ interface ProviderDriver {
   // is a driver_command frame that only settles, so acceptance is evidence of delivery and of
   // nothing else. There is deliberately NO prompt-injected emulation arm; a driver that cannot
   // compact declares the flag false and the call refuses as driver.capability_unsupported.
+  // The wait for that evidence is BOUNDED and has TWO terminals (2026-08-29): the driver's own
+  // declared per-binding compaction bound, and the run's provider binding ceasing to be live —
+  // whichever lands first ends the wait, so a provider that acknowledges and then produces no
+  // frame, or exits mid-compaction, cannot hold the operation open indefinitely. Expiry settles
+  // `failed`, never `applied`. Late evidence is NOT lost: a compaction frame arriving after the
+  // wait ended normalizes into usage.context_compacted exactly as an unsolicited provider-initiated
+  // compaction does, so no boundary escapes Spec-004's rewind classifier.
   compactContext(params: CompactContextParams): Promise<DriverCompactionResult>;
   // Read the provider's own enumeration of native slash-commands and skills for the bound
   // session (2026-08-29, Spec-005 §The provider command and skill surface). Gated on
@@ -823,11 +831,37 @@ interface ProviderDriver {
   // persisted, not cached across sessions, and folded into no projection — which is why this
   // capability adds no table and no column. Every entry carries the (driverName,
   // providerAccountId) it was read under, and that binding is a ROUTING INVARIANT: an entry is
-  // offerable and dispatchable only through agents of that same binding.
+  // offerable only to agents of that same binding, and the one entry V1 dispatches is dispatchable
+  // only through them.
   listProviderCommands(params: ListProviderCommandsParams): Promise<ProviderCommandEntry[]>;
 }
 
 // Console-parity shapes (2026-08-29, Spec-005 §Desktop Console Parity Surfaces).
+//
+// AUTHORIZATION (both verbs, at the wire boundary — before the capability gate and before any
+// driver dispatch). Neither mints a Cedar action and neither mints an error code.
+//   * A caller who is not an ACTIVE participant of the named session is refused the already-
+//     registered `session.not_found`, whose registered description is "does not exist or is not
+//     accessible" — a non-member and an unknown session collapse into one byte-identical refusal,
+//     so neither verb is a session-existence oracle (the runtimenode family's no-info-leak rule).
+//   * `driver.listProviderCommands` needs nothing beyond that: any active role reads, the
+//     `runtimenode.signingkeyroster` precedent.
+//   * `driver.compactContext` mutates the bound run's provider context, so it is adjudicated by
+//     the IDENTICAL `Action::"intervene"` evaluation the intervention path runs on the run that
+//     owns the named binding — the `run.pause` / `run.resume` precedent above (§Authenticated
+//     Principal And Authorization Model: that action covers interventions and those orchestration
+//     verbs identically), reading the same Security Architecture permission-matrix run-control
+//     row — whose subject names compaction as of 2026-08-29, so this citation lands on a row that
+//     names the operation; the matrix gains NO row, which is the same claim as reusing the
+//     action. It is NOT an intervention and does not widen `Spec-004`'s closed V1 control set; it
+//     shares the adjudication, not the envelope. I-004-19's non-local hosting-node approval leg
+//     is unreachable here BY CONSTRUCTION rather than waived: a binding this daemon holds is
+//     hosted on this node, so the resolved hosting node is always local and the operation carries
+//     no dependency on the per-run hosting-node carrier Plan-004 still holds open.
+//   * A deny settles on the operation's own `refused` arm as `not_permitted`, never as a
+//     JSON-RPC error — the way an authorization-rejected intervention rides
+//     `InterventionResponseBase.rejectionReason`, and the way Spec-030 routes peer-invocation
+//     denials onto the callback-tool result arms.
 interface CompactContextParams {
   sessionId: SessionId;
   // Daemon-resolved at dispatch, the same per-binding addressing rollbackTo and goal delivery
@@ -835,21 +869,27 @@ interface CompactContextParams {
   bindingId: string;
 }
 
-// The result of a compaction ATTEMPT, not of the request. `status: 'applied'` is reachable only
-// after the provider's typed compaction frame is observed; a mechanism that acknowledged and
-// produced no frame settles 'failed'. `refused` is the capability arm — the driver declared the
-// flag false, or the pre-dispatch command-presence check on the emulated leg did not find the
-// command in the provider's own enumeration, so nothing was sent.
-interface DriverCompactionResult {
-  status: "applied" | "failed" | "refused";
-  // Present exactly on 'applied': the normalized position of the compaction boundary the
-  // provider produced, which is the same boundary Spec-004's compaction-aware rewind targeting
-  // classifies against. Never synthesized when the frame carries no position.
-  boundaryPosition?: number | null;
-  // Present on 'failed' and 'refused': the daemon-facing reason, closed at the four states the
-  // operation can reach. 'capability_undeclared' and 'command_absent' are the refused arms.
-  reason?: "capability_undeclared" | "command_absent" | "no_compaction_evidence" | "provider_error";
-}
+// The result of a compaction ATTEMPT, not of the request — a DISCRIMINATED UNION on `status`
+// (2026-08-29), so no arm can carry a member another arm's state makes meaningless and no
+// consumer has to guess which optional members its arm implies. `applied` is reachable only
+// after the provider's typed compaction frame is observed, and `boundaryPosition` is REQUIRED
+// there, typed `number | null` so a frame carrying no position is representable without being
+// synthesized — the NS-75 `RollbackDegradedResult` shape. `refused` means NOTHING WAS SENT;
+// `failed` means something was sent and no boundary was witnessed. There is deliberately no
+// `capability_undeclared` reason: an undeclared flag refuses at the static capability gate with
+// `driver.capability_unsupported` BEFORE the driver is called (`Spec-005 §Required Behavior`),
+// so an arm for it would be a second, contradictory encoding of one refusal.
+type DriverCompactionResult =
+  | { status: "applied"; boundaryPosition: number | null }
+  // `command_absent`: the pre-dispatch presence check on the emulated leg did not find the
+  // command in the provider's own enumeration for this binding. `not_permitted`: the
+  // `Action::"intervene"` adjudication above denied the caller.
+  | { status: "refused"; reason: "command_absent" | "not_permitted" }
+  // `wait_expired`: the driver's declared per-binding compaction bound elapsed with no typed
+  // compaction frame. `binding_lost`: the run's provider binding stopped being live (process
+  // exit or disposal) before one arrived. `provider_error`: the mechanism itself errored.
+  // Every arm records a diagnostic; none is silent, and none can settle `applied`.
+  | { status: "failed"; reason: "wait_expired" | "binding_lost" | "provider_error" };
 
 interface ListProviderCommandsParams {
   sessionId: SessionId;
@@ -862,6 +902,19 @@ interface ListProviderCommandsParams {
 // under one syntax; `scope` is present only where the provider declares one (the Codex skills
 // surface does, the Claude handshake enumeration does not), so its absence means the provider
 // stated no scope rather than that the scope is unknown to the driver.
+//
+// V1 IS ENUMERATION AND DISCOVERY, NOT A DISPATCH CHANNEL (2026-08-29). No member of this shape
+// is a dispatch handle, and no wire route takes one: the ONLY entry V1 sends is the compaction
+// command, composed by the driver's own emulated leg and reached through `compactContext`, which
+// checks presence against this same enumeration. Selecting any other entry inserts nothing into
+// the composer and starts no turn. That is a contract consequence, not a UI preference: text
+// beginning with `/` is refused outright on provider-bound composer paths by
+// `Spec-017 §Command interception — the reserved / prefix (C-18)`, and the `driver_command` frame
+// origin — the only origin exempt from the neutralization tripwire — is admitted by
+// `Spec-005 §Required Behavior` only against POST-DISPATCH typed evidence, which an arbitrary
+// provider command does not supply. A dispatch route therefore needs both C-18's escape
+// activated and a per-command typed-evidence contract, and is left to a future amendment.
+// `Spec-005 §Required Behavior`'s "exactly one `driver_command` producer" count stays exact.
 interface ProviderCommandEntry {
   name: string;
   kind: "command" | "skill";
@@ -1402,7 +1455,7 @@ interface GetCapabilitiesResult {
   // reads as "cache reconstruction", never as "unknown provenance" — a consumer that needs
   // provenance re-reads the driver. Driver-side only: deliberately NOT mirrored into
   // `CapabilityDetails` (same carve-out as `cliVersion`) and NOT carried on the client-facing
-  // `driver.listCapabilities` payload, which is unwidened. That client-facing `driver.*` set
+  // `driver.listCapabilities` payload, which this member does not widen. That client-facing `driver.*` set
   // stood at SEVEN names from its 2026-05-27 ratification until 2026-08-29, when
   // `driver.compactContext` and `driver.listProviderCommands` took it to NINE (Plan-005 §Phase 4
   // decision #2; registered against the Plan-007 namespace registry under CP-007-6). Both were
@@ -1410,6 +1463,19 @@ interface GetCapabilitiesResult {
   // operates on an already-existing session and neither establishes, restores, starts, nor tears
   // one down. The other four lifecycle operations above remain daemon-internal.
   detectionSource?: Record<DriverCapabilityFlag, CapabilityDetectionSource>;
+  // The output-speed axis's VALUE VOCABULARY (2026-08-29, Spec-005 §Provider Parameter
+  // Vocabularies + §The output-speed axis). Present iff `capabilities.flags.output_speed` is
+  // `true`; absent or empty means the axis is unsettable and an `agent.configUpdate` carrying
+  // `outputSpeed` refuses fail-closed rather than forwarding an unvalidated value.
+  // STATICALLY DECLARED from the same per-driver table the `output_speed` flag itself comes
+  // from, and never read from the provider: obtaining the provider's declared speed state costs
+  // a turn-bearing request, which is exactly the conjunct that makes that flag `static`, so a
+  // vocabulary sourced by reading would contradict its own detection source. Unlike
+  // `detectionSource`, this member IS served on the client-facing `driver.listCapabilities`
+  // payload — its reader is a client control that must offer the choice set, the same reason
+  // `ProviderModel.effortLevels` travels to the client that renders the effort selector. The
+  // values themselves are the provider's own; this contract names none of them.
+  outputSpeedLevels?: string[];
 }
 
 type CapabilityDetectionSource = "static" | "probed";
@@ -1423,7 +1489,7 @@ type CapabilityDetectionSource = "static" | "probed";
 // CapabilityDetails — wrapper shape carried by `runtime_node.capability_declared` and
 // `runtime_node.capability_updated` event payloads (Spec-006 §Runtime Node Lifecycle, the capability rows). Bound to the same
 // three surfaces a driver advertises via `ProviderDriver.getCapabilities()` (GetCapabilitiesResult
-// above): the fourteen-flag matrix, the declared contract version, and the per-tool metadata —
+// above): the seventeen-flag matrix, the declared contract version, and the per-tool metadata —
 // here as `NormalizedProviderToolMetadata` (post-default), since these payloads cross the event
 // boundary and must never carry an un-normalized `idempotency_class`. `GetCapabilitiesResult.cliVersion`
 // is intentionally NOT mirrored here — the CLI-version floor is an attach-time fail-closed gate, not a
@@ -4222,12 +4288,17 @@ interface AgentConfigUpdateRequest {
   // special-cased: Spec-005 binds this axis to the provider's spawn-time settings mechanism, the
   // only one whose effect was measured. Stated explicitly because it is the minority case here.
   // Deliberately absent from AgentAttach: an agent is not born with a speed mode, so no
-  // attach-time snapshot column joins the `agents` row.
+  // attach-time snapshot column joins the `agents` row. VALIDATED against the target driver's
+  // reported `GetCapabilitiesResult.outputSpeedLevels`, never against a list hardcoded here —
+  // the rule `effort?` above already follows. An absent or empty vocabulary makes the axis
+  // unsettable and the mutation refuses `agent.provider_axis_invalid` (400) fail-closed, so no
+  // unvalidated value is ever forwarded to a provider.
   outputSpeed?: string;
   // Applies at the next boundary the TARGET AXIS permits, never at a fixed one: a turn boundary
   // for an axis the target driver takes as a per-turn override, a run boundary for a spawn-bound
   // one (`driverName` and `providerAccountId` always, since Spec-029 binds a run's account for
-  // the run's lifetime). A multi-axis update takes the WIDEST of its axes' boundaries, so no axis
+  // the run's lifetime, and `outputSpeed` since 2026-08-29 — three spawn-bound axes, re-derived
+  // by count when the fifth axis landed). A multi-axis update takes the WIDEST of its axes' boundaries, so no axis
   // applies earlier than its own rule allows. `true` dispatches the EXISTING `interrupt`
   // intervention first and then switches — an entry point into a control the corpus already has,
   // not a sixth run control, so Spec-004's V1 control set stays closed. The interrupt is
@@ -4262,7 +4333,7 @@ interface AgentConfigUpdateResponse {
 // own discriminator rather than left to each client to re-derive from `continuity`. "failed" is
 // the immediate arm's share of the `agent.provider_switch_failed` terminal: an accepted switch
 // that cannot be applied settles the held-open request instead of stranding it, and reuses that
-// event's already-closed six-member `reason` vocabulary verbatim rather than minting a second one.
+// event's already-closed `reason` vocabulary verbatim — seven members since 2026-08-29 — rather than minting a second one.
 type AgentProviderSwitchDisposition =
   | AgentProviderSwitchPending
   | ({ status: "applied" } & AgentProviderSwitchOutcome)
@@ -4330,7 +4401,7 @@ interface AgentProviderSwitchPending {
 // authority; keeping the slot a superset is what lets the wire shape stay exactly the intent a
 // client is entitled to see.
 
-// The immediate arm's failure settlement, carrying the SAME closed six-member vocabulary as the
+// The immediate arm's failure settlement, carrying the SAME closed seven-member vocabulary as the
 // `agent.provider_switch_failed` event (Spec-006 §Channel and Agent Lifecycle) — one vocabulary
 // across two surfaces, so a held-open refusal and the terminal event render the same reason set.
 // This is a RESULT, not a JSON-RPC error: the switch was accepted, a `switchId` was minted, and
@@ -4345,25 +4416,41 @@ interface AgentProviderSwitchFailed {
     | "model_unavailable"
     | "effort_unavailable"
     | "account_unavailable"
+    // 2026-08-29 — the deferred application reached a target whose driver no longer declares
+    // `output_speed`, or whose declared vocabulary no longer carries the pended value. Minted
+    // WITH the fifth axis rather than after it: a spawn-bound axis is settled at a run boundary
+    // the caller has already been acknowledged for, so without its own member an axis-specific
+    // failure would have to render as one of the four above and misname what went wrong.
+    | "output_speed_unavailable"
     | "interrupt_refused"
     | "target_unstartable";
 }
 
-// The four provider axes as a partial record: an omitted key is an axis this switch does not
+// The five provider axes as a partial record: an omitted key is an axis this switch does not
 // move. One shape serves three surfaces — the wire acknowledgment above, the durable
 // `agents.pending_switch` slot, and the `agent.config_updated` payload's `pendingSwitch` member —
 // so a client, a projector, and a restarted daemon all read the same record of the same intent.
 // The record is deliberately TWO-STATE and not the `defaultNodeId?: NodeId | null` tri-state
 // above: no V1 operation clears a provider axis back to a driver default, so an omitted key is an
 // axis not moving and there is no third meaning to encode. `driverName` and `modelId` cannot be
-// cleared at all (an agent always has both), and clearing `providerAccountId` or `effort` is not
-// an operation `AgentConfigUpdate` offers, whose omitted members are uniformly "unchanged, never
+// cleared at all (an agent always has both), and clearing `providerAccountId`, `effort`, or
+// `outputSpeed` is not an operation `AgentConfigUpdate` offers, whose omitted members are
+// uniformly "unchanged, never
 // reset". Minting the clear would widen this record to the tri-state in the same amendment.
+// `outputSpeed` joined 2026-08-29 with the fifth axis and NOT after it: it is spawn-bound, so it
+// is the axis most likely to be pending across a restart, and an axis a caller can request but
+// the durable slot cannot hold would be acknowledged and then silently dropped. Its settlement is
+// describable in the vocabulary already below rather than needing an arm of its own — being
+// spawn-bound it reaches a FRESH provider process, so it settles "replayed" when the canonical
+// transcript reaches that process and "memo" when it cannot, never "in_place", which is reserved
+// for an override carried on the running one. That it changes a settings flag rather than the
+// model does not make the reconstitution smaller: the same conversation has to arrive.
 interface AgentProviderSwitchTarget {
   driverName?: string;
   providerAccountId?: ProviderAccountId;
   modelId?: string;
   effort?: string;
+  outputSpeed?: string;
 }
 
 type AgentProviderAxis = keyof AgentProviderSwitchTarget;
@@ -4409,9 +4496,14 @@ interface AgentListResponse {
     state: AgentState;
     // 2026-08-26 (D-016-26): the agent's EFFECTIVE provider axis — the binding it runs under now,
     // never the pending one. Absent `providerAccountId` = the provider's registered default;
-    // absent `effort` = the driver's own default for the model.
+    // absent `effort` = the driver's own default for the model; absent `outputSpeed` (added
+    // 2026-08-29 with the fifth axis) = never set, so the provider's own default stands. Each is
+    // served from that axis's own column on the agent row — the columns an applying switch commits
+    // its binding into — so every axis a caller can move is also an axis a caller can read back.
+    // A spawn-bound axis readable only as a PENDING intent would go dark at the moment it applied.
     providerAccountId?: ProviderAccountId;
     effort?: string;
+    outputSpeed?: string;
     // Present exactly while a switch is pending on this agent, so the deferred intent is readable
     // rather than inferable — including after a daemon restart, which re-arms it from the durable
     // agent row. A list read is how a caller that was not the mutator learns a switch is queued.
