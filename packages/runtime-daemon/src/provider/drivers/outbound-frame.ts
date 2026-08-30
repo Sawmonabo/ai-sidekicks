@@ -571,6 +571,16 @@ function evictOldestBeyondCapacity(keyed: {
   }
 }
 
+/** One frame's ruling from {@link OutboundFrameTripwire.settleScope}. */
+export interface ScopeFrameRuling {
+  /**
+   * The key the frame was correlated to when its binding went away — a run id
+   * for a frame the provider had not yet named a turn for, a turn id after.
+   */
+  readonly joinKey: string;
+  readonly decision: TripwireDecision;
+}
+
 interface PendingCorrelatedFrame {
   readonly frame: OutboundTextFrame;
   /**
@@ -913,6 +923,47 @@ export class OutboundFrameTripwire {
    */
   forgetFrame(frame: OutboundTextFrame): void {
     this.#pendingByCorrelationId.delete(frame.correlationId);
+  }
+
+  /**
+   * Rules on every frame still pending on one provider binding and consumes
+   * their registrations, returning each ruling beside the key it was owed on.
+   *
+   * The counterpart of `forgetScope` for a binding being taken away from turns
+   * that are still LIVE — a session quarantined by a trip, or superseded by a
+   * resume. `forgetScope` is right only where no turn on the binding could ever
+   * settle anyway and the frames are pure occupancy; where the turns were still
+   * running, dropping their frames converts "we never learned whether these
+   * words were delivered" into silence, which is the swallowed-turn outcome
+   * this class exists to make loud. The caller rules them instead, and reports.
+   *
+   * Each frame is ruled ALONE and never given the oldest-unsettled position,
+   * exactly as `settleFrame` does and for the same reason: no settling envelope
+   * is present here, so no envelope's observations are attributable to any of
+   * them. The join key rides out with each decision because it is the only
+   * handle the caller can resolve a run from — a frame is keyed by run id until
+   * the provider names its turn and by turn id afterwards.
+   *
+   * Writes no retained decision, again as `settleFrame` does: no turn settled,
+   * and storing a trip under a turn key would answer `decisionFor` with a
+   * verdict the provider never actually delivered a terminal for.
+   */
+  settleScope(
+    scopeKey: string,
+    classification: TurnEvidenceClassification,
+  ): readonly ScopeFrameRuling[] {
+    const rulings: ScopeFrameRuling[] = [];
+    for (const [correlationId, pending] of this.#pendingByCorrelationId) {
+      if (pending.scopeKey !== scopeKey) {
+        continue;
+      }
+      this.#pendingByCorrelationId.delete(correlationId);
+      rulings.push({
+        joinKey: pending.joinKey,
+        decision: this.#rule(pending, classification, false),
+      });
+    }
+    return rulings;
   }
 
   /**

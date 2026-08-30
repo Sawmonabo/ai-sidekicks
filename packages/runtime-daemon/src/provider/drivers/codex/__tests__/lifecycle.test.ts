@@ -3931,6 +3931,202 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     expect(harness.manager.textNeutralizationDecisionForTurn(firstTurnId).refused).toBe(false);
   });
 
+  it("reports the run when the OLDER of two overlapping turns swallows its text", async () => {
+    // The correlation half of the overlap. Both attempts are accepted, so the
+    // session carries two live turns for one run — and the turn that swallows is
+    // the one that started FIRST. A routing table that could hold one turn per
+    // run had already replaced the first turn's entry with the second's by then,
+    // so the terminal matched no route: the trip quarantined the session and the
+    // run itself was told nothing at all. Routes are keyed by turn precisely so
+    // the ruling reaches the run that wrote the words.
+    const firstOpeningText = "the attempt answered first";
+    const firstTurnId = "turn-older-swallows-a";
+    const secondTurnId = "turn-older-swallows-b";
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", (params) => ({
+      result: {
+        turn: {
+          id: readTurnStartInputText(params) === firstOpeningText ? firstTurnId : secondTurnId,
+        },
+      },
+    }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    const first = harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: firstOpeningText },
+    });
+    const second = harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
+    });
+    await first;
+    await second;
+
+    harness.server.emitFrame(zeroTurnCompletedFrame(firstTurnId));
+    await drainMicrotasks();
+
+    // The run heard it. This is the assertion the overwrite silenced.
+    expect(harness.textNeutralizationFailures).toHaveLength(1);
+    expect(harness.textNeutralizationFailures[0]?.runId).toBe(RUN_ID);
+    expect(harness.textNeutralizationFailures[0]?.providerFailureDetail).toBe(
+      "driver.text_neutralization_failed origin=participant_text",
+    );
+    expect(harness.manager.textNeutralizationDecisionForTurn(firstTurnId).refused).toBe(true);
+    // And the second turn's frame was RULED as the condemned binding went away
+    // rather than discarded with it. No second report: the run had already been
+    // failed by the ruling that condemned the session, and one cause is owed one
+    // terminal — but the frame was accounted for, which is what the count says.
+    expect(harness.diagnostics).toContainEqual({
+      kind: "abandoned-frames-ruled",
+      ruledFrameCount: 1,
+      reportedRunCount: 0,
+    });
+    expect(harness.textNeutralizationFailures).toHaveLength(1);
+    // The process the swallow happened on is gone, and the session refuses.
+    expect(harness.server.killedSessions).toHaveLength(1);
+  });
+
+  it("keeps a run's second live turn steerable after its first is interrupted", async () => {
+    // The other side of per-turn routing: retiring one turn's route must not
+    // retire the run's session binding while another of its turns is still
+    // running. A run-keyed retirement dropped both in one act, so the surviving
+    // turn became unreachable — every intervention on it answered "no active
+    // turn" while the provider went on working.
+    const firstOpeningText = "the attempt answered first";
+    const firstTurnId = "turn-interrupt-survivor-a";
+    const secondTurnId = "turn-interrupt-survivor-b";
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", (params) => ({
+      result: {
+        turn: {
+          id: readTurnStartInputText(params) === firstOpeningText ? firstTurnId : secondTurnId,
+        },
+      },
+    }));
+    harness.server.on("turn/interrupt", () => ({ result: {} }));
+    harness.server.on("turn/steer", () => ({ result: { turn: { id: firstTurnId } } }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    const first = harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: firstOpeningText },
+    });
+    const second = harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
+    });
+    await first;
+    await second;
+
+    // The interrupt names the NEWEST turn, so the older one survives it.
+    await harness.manager.interruptRun({ runId: RUN_ID });
+    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(true);
+
+    // Reachable, and reached on the turn that is still live.
+    await harness.manager.steerRun({
+      runId: RUN_ID,
+      content: "narrow the diff to the parser",
+      clientIdempotencyKey: "steer-survivor",
+      frameOrigin: "participant_text",
+    });
+    expect(harness.server.framesForMethod("turn/steer")[0]?.["params"]).toMatchObject({
+      expectedTurnId: firstTurnId,
+    });
+  });
+
+  it("refuses the binding rather than evicting a terminal a pending start is owed", async () => {
+    // The evidence memory's hazard, driven from the one direction that reaches
+    // it: ONE read chunk. The whole chunk drains synchronously while the
+    // `turn/start` continuation waits as a microtask, so every turn the provider
+    // mentions in it lands in the unmatched memory before the run that is about
+    // to claim one of them gets to run. Oldest-first eviction discards the head
+    // of that chunk — which is this run's OWN terminal, the zero-turn reply that
+    // says its opening words were swallowed — and the continuation then installs
+    // a live route and a re-keyed frame whose only terminal has already gone by.
+    // Nothing would ever rule it. Evidence is not traded for room: the session is
+    // refused instead, and the run with it.
+    const swallowedRunTurnId = "turn-drain-overflow-owed";
+    const chatter: Array<Record<string, unknown>> = [
+      // FIRST in the chunk, so it is the first entry eviction would reach.
+      zeroTurnCompletedFrame(swallowedRunTurnId),
+    ];
+    for (let index = 0; index < 300; index += 1) {
+      chatter.push(turnCompletedFrame(`turn-drain-overflow-chatter-${index}`, "completed"));
+    }
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({
+      result: { turn: { id: swallowedRunTurnId } },
+      trailingFrames: chatter,
+    }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    const started = harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
+    });
+
+    // The run is REFUSED. Silently evicting instead resolved this call and left
+    // the daemon believing a turn was running on a session that had swallowed
+    // its opening words.
+    await expect(started).rejects.toThrow(CodexTransportError);
+    await drainMicrotasks();
+
+    const overflows = harness.diagnostics.filter(
+      (diagnostic) => diagnostic.kind === "turn-evidence-memory-overflowed",
+    );
+    // Exactly one, though hundreds of frames followed the refusal in that same
+    // chunk: the binding is condemned once and the rest of the drain is quiet.
+    expect(overflows).toHaveLength(1);
+    expect(harness.server.killedSessions).toHaveLength(1);
+    // And the session refuses every later resolution, so the recovery is a fresh
+    // spawn rather than a retry into the process whose account was lost.
+    await expect(
+      harness.manager.startRun({
+        runId: RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "try again" },
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("evicts the evidence memory freely once no start can claim from it", async () => {
+    // The other half of the policy, and the reason the refusal above is not just
+    // a smaller cap: with no `turn/start` in flight, NOTHING can ever claim an
+    // entry — turn ids are never reused, so a later start cannot match one — and
+    // eviction there is provably free. A session that hears about hundreds of
+    // turns it never started stays live and stays usable.
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    for (let index = 0; index < 300; index += 1) {
+      harness.server.emitFrame(
+        turnCompletedFrame(`turn-unclaimable-chatter-${index}`, "completed"),
+      );
+    }
+    await drainMicrotasks();
+
+    expect(
+      harness.diagnostics.filter(
+        (diagnostic) => diagnostic.kind === "turn-evidence-memory-overflowed",
+      ),
+    ).toHaveLength(0);
+    expect(harness.server.killedSessions).toEqual([]);
+    await expect(
+      harness.manager.startRun({
+        runId: RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
+      }),
+    ).resolves.toBeUndefined();
+  });
+
   it("refuses a run whose config declares a frame origin, before any byte is written", async () => {
     // The origin of a run's opening frame is MINTED at the boundary, so the
     // untyped `agentConfig` bag cannot name one — least of all the exempt arm,
