@@ -468,30 +468,87 @@ export interface TripwireTrip {
 export type TripwireDecision = TripwirePass | TripwireTrip;
 
 /**
- * The run-terminal landing a trip produces.
+ * The run-terminal landing an UNPROVEN DELIVERY produces.
  *
- * One landing serves BOTH paths — a run-opening frame and a steer directive
- * frame fail the run identically. The trip mints no driver event, no third
- * driver-result status, no persisted column, and no state transition: both
- * `starting -> failed` and `running -> failed` are already declared, so the
- * terminal this composes is an existing one reached for a new reason.
+ * One landing serves every path that reaches it — a run-opening frame and a
+ * steer directive frame fail the run identically, and so does a frame whose
+ * binding was taken away before the provider settled it. It mints no driver
+ * event, no third driver-result status, no persisted column, and no state
+ * transition: both `starting -> failed` and `running -> failed` are already
+ * declared, so the terminal this composes is an existing one reached for a new
+ * reason.
+ *
+ * What varies between the paths is `providerFailureDetail`, and the difference
+ * is load-bearing rather than cosmetic. A trip's detail carries the registered
+ * dotted code in a fixed parseable form and means "the provider swallowed a
+ * turn". A supersede's does not and must not: nobody observed a swallow there,
+ * only an answer that will now never come. Each composer below states its own
+ * claim, and neither may borrow the other's.
  */
-export interface TextNeutralizationRunFailure {
+export interface UnprovenDeliveryRunFailure {
   readonly eventType: "run.failed";
   readonly failureCategory: "provider failure";
   readonly recoveryCondition: "recovery-needed";
   readonly providerFailureDetail: string;
 }
 
+/**
+ * The trip's landing, which is one instance of {@link UnprovenDeliveryRunFailure}.
+ *
+ * An alias rather than a second declaration: the concept widened when the
+ * supersede path arrived, the shape did not, and forking it would have given
+ * two names to one record. Retained because it is the name the driver callback
+ * surface and every existing producer already use.
+ */
+export type TextNeutralizationRunFailure = UnprovenDeliveryRunFailure;
+
 /** Composes the run terminal for a trip. */
 export function composeTextNeutralizationRunFailure(
   trip: TripwireTrip,
-): TextNeutralizationRunFailure {
+): UnprovenDeliveryRunFailure {
   return {
     eventType: "run.failed",
     failureCategory: "provider failure",
     recoveryCondition: "recovery-needed",
     providerFailureDetail: trip.failureDetail,
+  };
+}
+
+/**
+ * How a superseded frame's origin reads in the detail this composes.
+ *
+ * Prose rather than the trip's `origin=<token>` form, deliberately. That form is
+ * a parseable contract two producers emit and a consumer reads, and it is bound
+ * to the neutralization code; reusing its SHAPE here would invite a reader to
+ * parse a supersede as a swallow. The two details are meant to be told apart at
+ * a glance and by any parser.
+ */
+const SUPERSEDED_DELIVERY_ORIGIN_PHRASE: Readonly<Record<TripwireDetailOrigin, string>> =
+  Object.freeze({
+    participant_text: "a participant's text",
+    system_narration: "system narration",
+    unknown: "text of unrecorded origin",
+  });
+
+/**
+ * Composes the run terminal for a frame whose binding was superseded before the
+ * provider settled it.
+ *
+ * Carries NO dotted code, on the same reasoning as `OutboundFrameCapacityRefusedError`
+ * below: the error registry has no row for this, and reusing the neutralization
+ * code would state something the driver did not observe. What IS claimed is
+ * exactly what is known — the words may or may not have reached the model, and
+ * nothing will ever say which — and the run fails on it, because the alternative
+ * is a participant's text disappearing behind a session that resumed cleanly.
+ */
+export function composeSupersededDeliveryRunFailure(
+  origin: TripwireDetailOrigin,
+): UnprovenDeliveryRunFailure {
+  return {
+    eventType: "run.failed",
+    failureCategory: "provider failure",
+    recoveryCondition: "recovery-needed",
+    providerFailureDetail: `The provider binding carrying ${SUPERSEDED_DELIVERY_ORIGIN_PHRASE[origin]} for this run was superseded by a fresh spawn before the provider settled the turn, so whether those words reached the model was never established.`,
   };
 }
 
@@ -579,6 +636,18 @@ export interface ScopeFrameRuling {
    */
   readonly joinKey: string;
   readonly decision: TripwireDecision;
+}
+
+/** One frame's abandonment from {@link OutboundFrameTripwire.abandonScope}. */
+export interface AbandonedFrameDelivery {
+  /**
+   * The key the frame was correlated to when its binding went away — a run id
+   * for a frame the provider had not yet named a turn for, a turn id after. The
+   * same vocabulary {@link ScopeFrameRuling} uses, for the same reason: it is the
+   * only handle the caller can resolve a run from.
+   */
+  readonly joinKey: string;
+  readonly detailOrigin: TripwireDetailOrigin;
 }
 
 interface PendingCorrelatedFrame {
@@ -987,6 +1056,47 @@ export class OutboundFrameTripwire {
   }
 
   /**
+   * Consumes every pending registration on one binding and reports the frames
+   * whose delivery was left UNPROVEN.
+   *
+   * The third disposal, between `settleScope` and `forgetScope`, and it exists
+   * because the gap between those two is real. `forgetScope` is right where no
+   * turn could ever settle and the frames are pure occupancy. `settleScope` is
+   * right where the binding was condemned BECAUSE text was swallowed — it mints
+   * `TripwireTrip`s, and a trip's detail carries the registered dotted code and
+   * asserts a swallow. A binding SUPERSEDED by a fresh spawn is neither: the
+   * turns were live, so their frames are owed an answer, but nothing observed a
+   * swallow, so the trip's claim is unsupportable. Manufacturing one would trade
+   * a silent loss for a false accusation, and both are worse than the truth.
+   *
+   * So this returns facts and no verdict. The caller composes the terminal —
+   * `composeSupersededDeliveryRunFailure` is what states the honest cause — and
+   * this method mints no `TripwireTrip`, sets no refusal code, and quarantines
+   * nothing. A superseded run is not condemned; the fresh binding is exactly
+   * where its future work belongs.
+   *
+   * Exempt frames are consumed and NOT reported, matching `#rule`'s own first
+   * test: a `driver_command` carries no participant words, so its disappearance
+   * costs nobody their turn.
+   *
+   * Writes no retained decision, as `settleScope` does not: no turn settled.
+   */
+  abandonScope(scopeKey: string): readonly AbandonedFrameDelivery[] {
+    const abandoned: AbandonedFrameDelivery[] = [];
+    for (const [correlationId, pending] of this.#pendingByCorrelationId) {
+      if (pending.scopeKey !== scopeKey) {
+        continue;
+      }
+      this.#pendingByCorrelationId.delete(correlationId);
+      if (pending.frame.tripwireExempt) {
+        continue;
+      }
+      abandoned.push({ joinKey: pending.joinKey, detailOrigin: pending.frame.detailOrigin });
+    }
+    return abandoned;
+  }
+
+  /**
    * How many unsettled frames one binding is holding.
    *
    * A scan rather than a maintained counter, deliberately: the store is capped
@@ -1220,16 +1330,50 @@ export class TextNeutralizationRefusedError extends Error {
  * promised recovery is a fresh spawn, and a session id whose new process is
  * already running is not the binding that was quarantined. This class means
  * "this binding", not "this identifier, permanently".
+ *
+ * ---------------------------------------------------------------------------
+ * Both axes are keyed by BINDING, and the run axis is looked up by run
+ * ---------------------------------------------------------------------------
+ *
+ * The condemned thing is the process, so the release condition is a property of
+ * the process — and a run quarantine that could only be entered and never left
+ * made the run axis mean "this identifier, permanently" while the session axis
+ * meant "this binding". A run reopened after the fresh spawn — a rewind
+ * reinstating it is the reachable case — then lost its interrupt and
+ * intervention controls for the rest of the daemon's life, refused by a
+ * quarantine on a process that no longer exists.
+ *
+ * So a run is recorded WITH the binding that condemned it, and releasing that
+ * binding releases every run condemned on it. The two axes now share one release
+ * condition, stated once, instead of one axis having none.
+ *
+ * The LOOKUP stays keyed by run, because binding identity is not available where
+ * the refusal is made and cannot be made available without weakening it: both
+ * drivers call `assertRunAttachable` BEFORE resolving the session, deliberately,
+ * so that a run whose binding was condemned refuses with THAT cause rather than
+ * with the "no active turn" the swept route would otherwise produce. Deriving a
+ * session there would mean resolving first and refusing second — the exact
+ * ordering the assert exists to invert. Recording the binding and looking up by
+ * run keeps both properties.
  */
 export class ProviderBindingQuarantine {
-  readonly #disposedRunIds = new Set<string>();
+  // Run id → the session whose binding condemned it. The VALUE is what makes the
+  // release possible; the KEY is what the assert sites can supply.
+  readonly #condemningSessionIdByRunId = new Map<string, string>();
   readonly #disposedSessionIds = new Set<string>();
 
-  /** Quarantines a run's provider binding. Idempotent. */
-  disposeRun(runId: string): void {
-    this.#disposedRunIds.delete(runId);
-    this.#disposedRunIds.add(runId);
-    evictOldestBeyondCapacity(this.#disposedRunIds);
+  /**
+   * Quarantines a run's provider binding. Idempotent.
+   *
+   * `sessionId` is the binding the trip condemned, not merely context: it is the
+   * identity this quarantine is released against. Every caller already holds it
+   * — a trip is ruled against a session's terminal — so it is required rather
+   * than optional, which is what keeps an unreleasable entry unreachable.
+   */
+  disposeRun(runId: string, sessionId: string): void {
+    this.#condemningSessionIdByRunId.delete(runId);
+    this.#condemningSessionIdByRunId.set(runId, sessionId);
+    evictOldestBeyondCapacity(this.#condemningSessionIdByRunId);
   }
 
   /** Quarantines the provider session the tripped run was running on. Idempotent. */
@@ -1240,19 +1384,30 @@ export class ProviderBindingQuarantine {
   }
 
   /**
-   * Releases a session id whose binding has been replaced by a fresh spawn.
+   * Releases a session id whose binding has been replaced by a fresh spawn, and
+   * with it every run that binding condemned.
    *
    * Called from the establishment paths, where a new provider process has just
    * been adopted under this id. Deliberately NOT called anywhere a record is
    * merely re-read: what is released is the quarantine on a binding that no
    * longer exists, not the quarantine on the identifier.
+   *
+   * The run sweep is part of the same act rather than a second call a caller
+   * could forget. A caller that released the session and left the runs would
+   * reopen the process to new work while permanently refusing the runs that were
+   * on it — the worst of both arms.
    */
   releaseSession(sessionId: string): void {
     this.#disposedSessionIds.delete(sessionId);
+    for (const [runId, condemningSessionId] of [...this.#condemningSessionIdByRunId]) {
+      if (condemningSessionId === sessionId) {
+        this.#condemningSessionIdByRunId.delete(runId);
+      }
+    }
   }
 
   isRunDisposed(runId: string): boolean {
-    return this.#disposedRunIds.has(runId);
+    return this.#condemningSessionIdByRunId.has(runId);
   }
 
   isSessionDisposed(sessionId: string): boolean {
@@ -1261,7 +1416,7 @@ export class ProviderBindingQuarantine {
 
   /** Refuses an attach to a quarantined run binding. */
   assertRunAttachable(runId: string): void {
-    if (this.#disposedRunIds.has(runId)) {
+    if (this.#condemningSessionIdByRunId.has(runId)) {
       throw new TextNeutralizationRefusedError("run", runId);
     }
   }

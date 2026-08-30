@@ -998,6 +998,80 @@ describe("outbound frame tripwire", () => {
     expect(tripwire.decisionFor("turn-1")).toStrictEqual(decision);
   });
 
+  it("abandons a superseded binding's frames as facts, minting no verdict", () => {
+    // The third disposal, between the two the tripwire already had. A supersede
+    // is neither "no turn could ever settle" (which is `forgetScope`) nor "text
+    // was swallowed" (which is `settleScope`, and which mints a trip carrying
+    // the registered dotted code). The frames are consumed and REPORTED, and
+    // what they carry is what is known — a join key and an origin — with no
+    // decision attached, because no evidence was observed either way.
+    const tripwire = new OutboundFrameTripwire();
+    registerFrame(tripwire, "turn-1", frameFor("participant_text"), "session-1");
+    registerFrame(tripwire, "turn-2", frameFor("system_narration"), "session-1");
+    registerFrame(tripwire, "turn-3", frameFor("participant_text"), "session-2");
+
+    const abandoned = tripwire.abandonScope("session-1");
+
+    expect(abandoned).toStrictEqual([
+      { joinKey: "turn-1", detailOrigin: "participant_text" },
+      { joinKey: "turn-2", detailOrigin: "system_narration" },
+    ]);
+    // Consumed, not merely read: leaving them pending would spend the binding's
+    // budget forever on a binding that no longer exists.
+    expect(tripwire.pendingFrameCountForScope("session-1")).toBe(0);
+    // And scoped: the other binding is untouched and still owed its ruling.
+    expect(tripwire.hasPendingFrame("turn-3")).toBe(true);
+  });
+
+  it("consumes an exempt frame without reporting it", () => {
+    // `#rule`'s own first test, applied here: a driver command carries no
+    // participant words, so its disappearance costs nobody their turn. Consumed
+    // all the same — the budget is about occupancy, not about who was harmed.
+    const tripwire = new OutboundFrameTripwire();
+    registerFrame(tripwire, "turn-1", frameFor("driver_command"), "session-1");
+    registerFrame(tripwire, "turn-2", frameFor("participant_text"), "session-1");
+
+    const abandoned = tripwire.abandonScope("session-1");
+
+    expect(abandoned.map((frame) => frame.joinKey)).toStrictEqual(["turn-2"]);
+    expect(tripwire.pendingFrameCountForScope("session-1")).toBe(0);
+  });
+
+  it("reports an unrecognized origin rather than assuming it was harmless", () => {
+    // The fail-closed direction the frame writer already takes: an absent or
+    // unrecognized origin becomes `unknown`, and `unknown` is reported. Assuming
+    // it was a driver command would silently exempt exactly the frames whose
+    // provenance nobody could establish.
+    const tripwire = new OutboundFrameTripwire();
+    registerFrame(tripwire, "turn-1", frameFor(undefined), "session-1");
+
+    expect(tripwire.abandonScope("session-1")).toStrictEqual([
+      { joinKey: "turn-1", detailOrigin: "unknown" },
+    ]);
+  });
+
+  it("leaves retained decisions alone, as the other two disposals do", () => {
+    // The intervention path reads a decision by turn id after the binding is
+    // gone. An abandon writes no decision of its own — no turn settled — and
+    // must not erase one that was.
+    const tripwire = new OutboundFrameTripwire();
+    registerFrame(tripwire, "turn-1", frameFor("participant_text"), "session-1");
+    registerFrame(tripwire, "turn-2", frameFor("participant_text"), "session-1");
+    const decision = tripwire.settle(
+      "turn-1",
+      classifyClaudeTurnEvidence(CLAUDE_ZERO_TURN_RESULT_FRAME),
+    );
+
+    const abandoned = tripwire.abandonScope("session-1");
+
+    // The settled frame is already consumed, so only the live one is abandoned.
+    expect(abandoned.map((frame) => frame.joinKey)).toStrictEqual(["turn-2"]);
+    expect(tripwire.decisionFor("turn-1")).toStrictEqual(decision);
+    // And no decision was invented for the abandoned frame: `decisionFor` on it
+    // would be a verdict the provider never delivered a terminal for.
+    expect(tripwire.decisionFor("turn-2")).toBeUndefined();
+  });
+
   it("still trips a turn that settles long after the store filled behind it", () => {
     // The regression this replaces: the oldest unsettled frame was evicted to
     // admit a newer one, so when its turn finally settled as a zero-turn
@@ -1027,7 +1101,7 @@ describe("outbound frame tripwire", () => {
 describe("provider binding quarantine", () => {
   it("refuses an attach to a disposed binding with the code the trip carried", () => {
     const quarantine = new ProviderBindingQuarantine();
-    quarantine.disposeRun("run-1");
+    quarantine.disposeRun("run-1", "session-1");
 
     expect(quarantine.isRunDisposed("run-1")).toBe(true);
     expect(() => quarantine.assertRunAttachable("run-1")).toThrow(TextNeutralizationRefusedError);
@@ -1041,7 +1115,7 @@ describe("provider binding quarantine", () => {
 
   it("leaves an unaffected binding attachable", () => {
     const quarantine = new ProviderBindingQuarantine();
-    quarantine.disposeRun("run-1");
+    quarantine.disposeRun("run-1", "session-1");
 
     expect(() => quarantine.assertRunAttachable("run-2")).not.toThrow();
   });
@@ -1061,22 +1135,66 @@ describe("provider binding quarantine", () => {
     expect(() => quarantine.assertSessionAttachable("session-2")).not.toThrow();
   });
 
-  it("releases a session id whose binding a fresh spawn replaced", () => {
+  it("releases a session id whose binding a fresh spawn replaced, and its runs with it", () => {
     // The quarantine names a binding, not an identifier: the promised recovery
     // is a fresh process, and refusing the id forever would refuse the recovery.
+    // That applies to BOTH axes. A run reopened after the fresh spawn — a rewind
+    // reinstating it is the reachable case — would otherwise stay refused for
+    // the daemon's lifetime, having lost its interrupt and intervention controls
+    // to a quarantine on a process that no longer exists.
     const quarantine = new ProviderBindingQuarantine();
     quarantine.disposeSession("session-1");
-    quarantine.disposeRun("run-1");
+    quarantine.disposeRun("run-1", "session-1");
     quarantine.releaseSession("session-1");
 
     expect(() => quarantine.assertSessionAttachable("session-1")).not.toThrow();
-    // The tripped run stays refused: it is terminal, and no spawn revives it.
+    expect(quarantine.isRunDisposed("run-1")).toBe(false);
+    expect(() => quarantine.assertRunAttachable("run-1")).not.toThrow();
+  });
+
+  it("releases only the runs the released binding condemned", () => {
+    // The negative control for the sweep: it is keyed by the CONDEMNING binding,
+    // not by "release everything". A run quarantined on a different session is
+    // still on a process nothing has replaced, and reaching it must still
+    // refuse.
+    const quarantine = new ProviderBindingQuarantine();
+    quarantine.disposeRun("run-1", "session-1");
+    quarantine.disposeRun("run-2", "session-2");
+    quarantine.releaseSession("session-1");
+
+    expect(() => quarantine.assertRunAttachable("run-1")).not.toThrow();
+    expect(() => quarantine.assertRunAttachable("run-2")).toThrow(TextNeutralizationRefusedError);
+  });
+
+  it("keeps a run refused when a DIFFERENT session is respawned", () => {
+    // The other half of the same control, from the release side: releasing a
+    // binding that condemned nothing releases nothing.
+    const quarantine = new ProviderBindingQuarantine();
+    quarantine.disposeRun("run-1", "session-1");
+    quarantine.releaseSession("session-9");
+
     expect(() => quarantine.assertRunAttachable("run-1")).toThrow(TextNeutralizationRefusedError);
+  });
+
+  it("re-quarantines a released run when the fresh binding trips too", () => {
+    // Release is not absolution. The run is attachable again after the respawn,
+    // and a second trip on the new binding condemns it again — under the new
+    // binding, so the next release is the one that clears it.
+    const quarantine = new ProviderBindingQuarantine();
+    quarantine.disposeRun("run-1", "session-1");
+    quarantine.releaseSession("session-1");
+    quarantine.disposeRun("run-1", "session-2");
+
+    expect(() => quarantine.assertRunAttachable("run-1")).toThrow(TextNeutralizationRefusedError);
+    quarantine.releaseSession("session-1");
+    expect(() => quarantine.assertRunAttachable("run-1")).toThrow(TextNeutralizationRefusedError);
+    quarantine.releaseSession("session-2");
+    expect(() => quarantine.assertRunAttachable("run-1")).not.toThrow();
   });
 
   it("names its subject in the refusal so one cause reads as one cause", () => {
     const quarantine = new ProviderBindingQuarantine();
-    quarantine.disposeRun("run-1");
+    quarantine.disposeRun("run-1", "session-1");
     quarantine.disposeSession("session-1");
 
     expect(() => quarantine.assertRunAttachable("run-1")).toThrow(/run run-1/);
@@ -1092,7 +1210,7 @@ describe("provider binding quarantine", () => {
     const quarantine = new ProviderBindingQuarantine();
     const disposedRunCount = 200;
     for (let index = 0; index < disposedRunCount; index += 1) {
-      quarantine.disposeRun(`run-${String(index)}`);
+      quarantine.disposeRun(`run-${String(index)}`, "session-1");
     }
 
     expect(quarantine.isRunDisposed("run-0")).toBe(false);
@@ -1100,12 +1218,12 @@ describe("provider binding quarantine", () => {
   });
 
   it("caps the session axis independently of the run axis", () => {
-    // Separate sets, so a busy run axis cannot age a session refusal out from
-    // under the session it condemned.
+    // Separate collections, so a busy run axis cannot age a session refusal out
+    // from under the session it condemned.
     const quarantine = new ProviderBindingQuarantine();
     quarantine.disposeSession("session-1");
     for (let index = 0; index < 200; index += 1) {
-      quarantine.disposeRun(`run-${String(index)}`);
+      quarantine.disposeRun(`run-${String(index)}`, "session-2");
     }
 
     expect(quarantine.isSessionDisposed("session-1")).toBe(true);
@@ -1113,10 +1231,10 @@ describe("provider binding quarantine", () => {
 
   it("keeps a re-disposed binding at the newest position", () => {
     const quarantine = new ProviderBindingQuarantine();
-    quarantine.disposeRun("run-old");
+    quarantine.disposeRun("run-old", "session-1");
     for (let index = 0; index < 100; index += 1) {
-      quarantine.disposeRun(`run-${String(index)}`);
-      quarantine.disposeRun("run-old");
+      quarantine.disposeRun(`run-${String(index)}`, "session-1");
+      quarantine.disposeRun("run-old", "session-1");
     }
 
     expect(quarantine.isRunDisposed("run-old")).toBe(true);

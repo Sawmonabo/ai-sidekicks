@@ -2297,7 +2297,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     // a session, so a run-keyed refusal alone would leave the next run free to
     // dispatch onto the same channel.
     this.#providerBindingQuarantine.disposeSession(ruling.sessionId);
-    this.#providerBindingQuarantine.disposeRun(ruling.runId);
+    this.#providerBindingQuarantine.disposeRun(ruling.runId, ruling.sessionId);
     this.#reportTextNeutralizationFailure(
       ruling.sessionId,
       ruling.runId,
@@ -3598,7 +3598,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
         // next run free to dispatch onto the same channel.
         this.#providerBindingQuarantine.disposeSession(sessionId);
       }
-      this.#providerBindingQuarantine.disposeRun(runId);
+      this.#providerBindingQuarantine.disposeRun(runId, sessionId);
       this.#reportTextNeutralizationFailure(
         sessionId,
         runId,

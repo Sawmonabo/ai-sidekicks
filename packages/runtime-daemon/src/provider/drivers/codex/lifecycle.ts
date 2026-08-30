@@ -201,6 +201,7 @@ import {
   OutboundTextFrameWriter,
   ProviderBindingQuarantine,
   UNRECOGNIZED_TURN_EVIDENCE,
+  composeSupersededDeliveryRunFailure,
   composeTextNeutralizationRunFailure,
   type CallerDeclaredFrameOrigin,
   type OutboundTextFrame,
@@ -1307,7 +1308,24 @@ export type CodexTransportDiagnostic =
    * that condemned the binding — a duplicate report is suppressed, the ruling
    * itself never is.
    */
-  | { kind: "abandoned-frames-ruled"; ruledFrameCount: number; reportedRunCount: number };
+  | { kind: "abandoned-frames-ruled"; ruledFrameCount: number; reportedRunCount: number }
+  /**
+   * A resume superseded a live binding that was still carrying unsettled frames,
+   * so those frames were failed on their runs as unproven deliveries.
+   *
+   * Distinct from `abandoned-frames-ruled` because the CAUSE is: nothing was
+   * observed swallowing the text here, the answer simply became unreachable. The
+   * runs are failed and deliberately NOT quarantined — the fresh binding is
+   * where their future work belongs.
+   *
+   * `reportedRunCount` is lower than `abandonedFrameCount` whenever several
+   * frames belonged to one run, or a frame's join key resolved to no run at all.
+   */
+  | {
+      kind: "superseded-frames-failed";
+      abandonedFrameCount: number;
+      reportedRunCount: number;
+    };
 
 /** Required — a no-op default would reintroduce silent drops. */
 export type CodexDiagnosticSink = (diagnostic: CodexTransportDiagnostic) => void;
@@ -3934,23 +3952,36 @@ export class CodexLifecycleManager {
         mode: "resume",
         priorEmittedThreadId: thread.id,
       });
+      // The frames the predecessor left unsettled are failed on their runs
+      // BEFORE any route is swept, and that ordering is the mechanism rather
+      // than a preference: `#forgetRunRoutes` clears `#sessionIdByRunId`, which
+      // is the third and last source `#runIdForAbandonedFrame` consults, so a
+      // sweep first would leave the frames with no run to report against.
+      //
+      // Not ruled fail-closed, unlike the quarantine teardown path, and not
+      // dropped either — the two arms this path used to have to choose between.
+      // A trip claims the provider swallowed the text, which nothing observed
+      // here; a drop claims nothing at all, and a participant's words vanish
+      // behind a session that resumed cleanly. `abandonScope` states the third
+      // thing, which is the true one: the answer became unreachable when the
+      // binding was superseded, and it will never arrive. The run fails on that.
+      //
+      // The superseded runs are deliberately NOT quarantined. A quarantine
+      // condemns a binding, and this one is already gone — the fresh process is
+      // exactly where any future work on those runs belongs, and refusing them
+      // would take their interrupt and intervention controls away for nothing.
+      this.#failSupersededDeliveries(existing, params.sessionId);
       // The replacement record starts with an empty turn map, so every route
       // that pointed at the superseded leg is now dead. Swept here rather than
       // at teardown: `closeSession` reads the LIVE record, which no longer knows
       // those runs, so a route left behind would never be collected and the map
       // would grow by one entry per in-flight run per resume, for the daemon's
       // whole lifetime.
-      // The frames the predecessor left unsettled are reclaimed with that
-      // budget and deliberately NOT ruled fail-closed, unlike the quarantine
-      // teardown path. There the binding is condemned BECAUSE text was
-      // swallowed, so reporting the run states something true about the
-      // participant's words. A resume supersedes a leg for reasons of its own,
-      // and the only vocabulary this driver holds for an unsettled frame is a
-      // neutralization trip — which quarantines the run and refuses every later
-      // attach, a specific claim the resume path cannot support. The honest
-      // state is "we never learned whether these words landed", and no arm says
-      // that today; recorded here rather than approximated by the nearest arm.
       this.#forgetRunRoutes(params.sessionId);
+      // A no-op in the ordinary case: `#failSupersededDeliveries` consumed the
+      // scope's registrations already. Kept because it is the budget release's
+      // one and only home, and a scope that somehow held a frame no record could
+      // explain must still not hold its budget forever.
       this.#releaseOutboundFrameBudget(params.sessionId);
       // A resume is a fresh spawn, so any prior leg for this session is now
       // superseded and its process would otherwise be orphaned. Released AFTER
@@ -4140,7 +4171,7 @@ export class CodexLifecycleManager {
       return;
     }
     this.#providerBindingQuarantine.disposeSession(record.sessionId);
-    this.#providerBindingQuarantine.disposeRun(params.runId);
+    this.#providerBindingQuarantine.disposeRun(params.runId, record.sessionId);
     this.#reportTextNeutralizationFailure(
       record.sessionId,
       params.runId,
@@ -5884,7 +5915,7 @@ export class CodexLifecycleManager {
     if (!decision.tripped) {
       return;
     }
-    this.#providerBindingQuarantine.disposeRun(runId);
+    this.#providerBindingQuarantine.disposeRun(runId, sessionId);
     this.#reportTextNeutralizationFailure(
       sessionId,
       runId,
@@ -5981,6 +6012,82 @@ export class CodexLifecycleManager {
       ruledFrameCount: rulings.length,
       reportedRunCount: reportedRunIds.size,
     });
+  }
+
+  /**
+   * Fails the runs whose frames a RESUME superseded before the provider settled
+   * them (T3.18).
+   *
+   * The visible-failure guarantee this closes: a participant's text that
+   * provably may not have reached the model never silently vanishes. A resume
+   * replaces the binding those frames were written on, so no terminal for them
+   * can ever arrive — and before this existed the frames were dropped with the
+   * scope's budget, leaving the run to look exactly like one whose words landed.
+   *
+   * Reported through the SAME seam a trip reports through, and with a
+   * deliberately different cause on it. The seam is "the driver states that the
+   * run failed and why", which is what happened; the cause is
+   * `composeSupersededDeliveryRunFailure`, which carries no dotted code and
+   * claims only what is known. Borrowing the trip's detail would publish a
+   * swallow nobody observed, and the registered code's parseable form is read by
+   * a consumer that would then read it as one.
+   *
+   * Reported at most ONCE per run. Several frames can belong to one run — an
+   * opening frame and a steer, or two steers — and one supersede is one cause,
+   * not one cause per frame.
+   *
+   * `record` is the leg being superseded, captured before the swap. It is
+   * `undefined` only where the resume found no predecessor, in which case there
+   * is no route map to resolve through and the third source below is the whole
+   * answer.
+   */
+  #failSupersededDeliveries(record: CodexSessionRecord | undefined, sessionId: SessionId): void {
+    const abandoned = this.#outboundFrameTripwire.abandonScope(sessionId);
+    if (abandoned.length === 0) {
+      return;
+    }
+    const reportedRunIds = new Set<RunId>();
+    for (const frame of abandoned) {
+      const runId =
+        record === undefined
+          ? this.#runIdBoundToSession(frame.joinKey, sessionId)
+          : this.#runIdForAbandonedFrame(record, frame.joinKey);
+      if (runId === undefined || reportedRunIds.has(runId)) {
+        continue;
+      }
+      reportedRunIds.add(runId);
+      this.#reportTextNeutralizationFailure(
+        sessionId,
+        runId,
+        composeSupersededDeliveryRunFailure(frame.detailOrigin),
+      );
+    }
+    // Emitted whenever a supersede abandoned anything, INCLUDING the case where
+    // no frame resolved to a run. The two counts are the point: the first says
+    // how many writes the superseded binding was carrying, and it is the
+    // operator's only sight of them, since a frame abandoned here delivers no
+    // terminal of its own.
+    reportDiagnosticFromDetachedFrame(this.#options.reportDiagnostic, {
+      kind: "superseded-frames-failed",
+      abandonedFrameCount: abandoned.length,
+      reportedRunCount: reportedRunIds.size,
+    });
+  }
+
+  /**
+   * The run a join key names when there is no record to route through — the
+   * third of `#runIdForAbandonedFrame`'s three sources, on its own.
+   *
+   * Matched against the run axis rather than cast, for that method's reason: a
+   * turn id that outlived its route maps must not be mistaken for a run.
+   */
+  #runIdBoundToSession(joinKey: string, sessionId: SessionId): RunId | undefined {
+    for (const [runId, boundSessionId] of this.#sessionIdByRunId) {
+      if (runId === joinKey && boundSessionId === sessionId) {
+        return runId;
+      }
+    }
+    return undefined;
   }
 
   /**

@@ -46,6 +46,7 @@ import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
 import {
   OutboundFrameCapacityRefusedError,
   OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY,
+  TEXT_NEUTRALIZATION_REFUSAL_CODE,
   TextNeutralizationRefusedError,
 } from "../../outbound-frame.js";
 import type { SubagentLifecycleEmission } from "../../../thread-frame-router.js";
@@ -1648,6 +1649,137 @@ describe("CodexDriver session ownership (Spec-005 §Required Behavior)", () => {
     // The replacement record knows no runs, so `closeSession` could never sweep
     // this route afterwards: unswept here, it would outlive the daemon.
     expect(manager.hasActiveTurn(RUN_ID)).toBe(false);
+  });
+
+  it("fails a superseded leg's unsettled frame instead of dropping it", async () => {
+    // The guarantee: a participant's text that provably may not have reached the
+    // model never silently vanishes. The resume replaces the binding the frame
+    // was written on, so no terminal for it can ever arrive — and a dropped
+    // frame leaves the run looking exactly like one whose words landed.
+    const harness = createHarness();
+    await createdSession(harness);
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    // Started and deliberately never settled: no terminal notification is sent,
+    // so the opening frame is still pending when the resume supersedes the leg.
+    await harness.driver.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "please rebase onto develop" },
+    });
+
+    harness.server.spawnResponse = { kind: "spawn_response", session_id: "pty-session-2" };
+    harness.server.on("thread/resume", () => threadStartResult(2));
+    await harness.driver.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
+
+    expect(harness.textNeutralizationFailures).toHaveLength(1);
+    expect(harness.textNeutralizationFailures[0]?.runId).toBe(RUN_ID);
+  });
+
+  it("states the supersede as its own cause, never as a swallowed turn", async () => {
+    // The cause is the other half of the fix. Borrowing the trip's detail would
+    // publish a swallow nobody observed, and that detail's registered code has a
+    // fixed parseable form a consumer reads — so the wrong cause is not merely
+    // imprecise prose, it is a claim another layer will act on.
+    const harness = createHarness();
+    await createdSession(harness);
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.driver.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "please rebase onto develop" },
+    });
+
+    harness.server.spawnResponse = { kind: "spawn_response", session_id: "pty-session-2" };
+    harness.server.on("thread/resume", () => threadStartResult(2));
+    await harness.driver.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
+
+    const detail = harness.textNeutralizationFailures[0]?.providerFailureDetail ?? "";
+    expect(detail).not.toContain(TEXT_NEUTRALIZATION_REFUSAL_CODE);
+    expect(detail).toContain("superseded");
+    // And the participant's own words are never quoted into the detail — the
+    // cause says what happened to them, not what they were.
+    expect(detail).not.toContain("rebase");
+  });
+
+  it("leaves a superseded run attachable — the fresh binding is where it belongs", async () => {
+    // The trip path quarantines both axes because the process is condemned.
+    // Nothing is condemned here: the binding is simply gone, replaced by one
+    // that works. Quarantining the run would take its interrupt and intervention
+    // controls away for the daemon's lifetime, in exchange for nothing.
+    const harness = createHarness();
+    await createdSession(harness);
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.driver.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "please rebase onto develop" },
+    });
+
+    harness.server.spawnResponse = { kind: "spawn_response", session_id: "pty-session-2" };
+    harness.server.on("thread/resume", () => threadStartResult(2));
+    await harness.driver.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
+
+    // The run has no live turn on the replacement leg, so the refusal is the
+    // ordinary one — and specifically NOT the quarantine's, which the resolver
+    // consults first and which would answer here if the run had been condemned.
+    const refusal = await harness.driver.interruptRun({ runId: RUN_ID, reason: "user" }).then(
+      () => undefined,
+      (cause: unknown) => cause,
+    );
+    expect(refusal).toBeInstanceOf(CodexTransportError);
+    expect(refusal).not.toBeInstanceOf(TextNeutralizationRefusedError);
+    expect(String(refusal)).toContain("No active Codex turn");
+  });
+
+  it("reports one failure per run, not one per frame", async () => {
+    // Two frames on one run — the opening frame and a steer — and one supersede.
+    // One supersede is one cause; a report per frame would tell the participant
+    // their run failed twice for the same reason.
+    const harness = createHarness();
+    await createdSession(harness);
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    harness.server.on("turn/steer", () => ({ result: { turnId: TURN_ID } }));
+    await harness.driver.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "please rebase onto develop" },
+    });
+    await harness.driver.applyIntervention({
+      type: "steer",
+      targetRunId: RUN_ID,
+      expectedRunVersion: 1,
+      clientIdempotencyKey: "9a1d8f30-0000-4000-8000-0000000000ab",
+      payload: { content: "and squash the fixups", expectedTurnId: TURN_ID },
+    });
+
+    harness.server.spawnResponse = { kind: "spawn_response", session_id: "pty-session-2" };
+    harness.server.on("thread/resume", () => threadStartResult(2));
+    await harness.driver.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
+
+    expect(harness.textNeutralizationFailures).toHaveLength(1);
+    const reported = harness.diagnostics.filter(
+      (diagnostic) => diagnostic.kind === "superseded-frames-failed",
+    );
+    expect(reported).toHaveLength(1);
+    // The frame count is the operator's only sight of the writes the superseded
+    // binding was carrying, so it is NOT collapsed to the report count.
+    expect(reported[0]).toMatchObject({ abandonedFrameCount: 2, reportedRunCount: 1 });
+  });
+
+  it("reports nothing when the superseded leg was carrying no frames", async () => {
+    // The negative control: a resume over an idle leg is the ordinary case, and
+    // failing a run there would invent a loss out of a clean recovery.
+    const harness = createHarness();
+    await createdSession(harness);
+
+    harness.server.spawnResponse = { kind: "spawn_response", session_id: "pty-session-2" };
+    harness.server.on("thread/resume", () => threadStartResult(2));
+    await harness.driver.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
+
+    expect(harness.textNeutralizationFailures).toEqual([]);
+    expect(
+      harness.diagnostics.filter((diagnostic) => diagnostic.kind === "superseded-frames-failed"),
+    ).toEqual([]);
   });
 });
 
