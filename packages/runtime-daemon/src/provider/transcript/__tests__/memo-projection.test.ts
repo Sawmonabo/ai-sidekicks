@@ -87,12 +87,24 @@ const ROOMY_BUDGET: MemoBudgetPolicy = defaultMemoBudgetPolicy(1_000_000);
 // Fixtures
 // --------------------------------------------------------------------------
 
+// A fixture names a turn's segments without repeating the position on each one —
+// `turn` stamps its own onto all of them, which is a shape the fold really
+// produces (one thinking update yields several segments at one position). Written
+// distributively because a bare `Omit` over a union collapses to the members its
+// arms share, which would let a `tool_call` fixture drop its identifier.
+type WithoutPosition<TSegment> = TSegment extends unknown ? Omit<TSegment, "position"> : never;
+type TurnSegmentFixture = WithoutPosition<CanonicalTranscriptSegment>;
+
 function turn(
   position: number,
   role: "participant" | "assistant",
-  segments: readonly CanonicalTranscriptSegment[],
+  segments: readonly TurnSegmentFixture[],
 ): CanonicalTranscriptTurn {
-  return { position, role, segments };
+  return {
+    position,
+    role,
+    segments: segments.map((segment): CanonicalTranscriptSegment => ({ ...segment, position })),
+  };
 }
 
 function projectionOf(
@@ -325,7 +337,7 @@ function generateTranscript(seed: number): GeneratedTranscript {
 
   const pushTurn = (
     role: "participant" | "assistant",
-    segments: readonly CanonicalTranscriptSegment[],
+    segments: readonly TurnSegmentFixture[],
   ): void => {
     position += 1;
     turns.push(turn(position, role, segments));
@@ -337,7 +349,7 @@ function generateTranscript(seed: number): GeneratedTranscript {
       { kind: "text", text: `participant utterance ${exchangeIndex.toString()} ${PADDING}` },
     ]);
 
-    const callSegments: CanonicalTranscriptSegment[] = [];
+    const callSegments: TurnSegmentFixture[] = [];
     const callIds: string[] = [];
     // Deliberately reaches ZERO: a corpus in which every exchange used a tool
     // never exercises the protected tail's unsatisfiable-anchor arms.
@@ -385,7 +397,7 @@ function generateTranscript(seed: number): GeneratedTranscript {
       continue;
     }
 
-    const resultSegments: CanonicalTranscriptSegment[] = callIds.map((toolCallId) => ({
+    const resultSegments: TurnSegmentFixture[] = callIds.map((toolCallId) => ({
       kind: "tool_result",
       toolCallId,
       outcome: "succeeded",

@@ -233,13 +233,14 @@ function renderUnkeyedToolResultText(outcome: CanonicalToolResultOutcome, body: 
  *     honest reading, and the pipeline declares the loss over the turn.
  */
 function unkeyedToolResultSegment(
+  position: number,
   outcome: CanonicalToolResultOutcome,
   body: TranscriptToolResultBody | undefined,
 ): CanonicalTranscriptSegment {
   if (body === undefined || body.enclosingReasoningBlockId !== undefined) {
-    return { kind: "text", text: "", contentUnavailable: true };
+    return { kind: "text", position, text: "", contentUnavailable: true };
   }
-  return { kind: "text", text: renderUnkeyedToolResultText(outcome, body.text) };
+  return { kind: "text", position, text: renderUnkeyedToolResultText(outcome, body.text) };
 }
 
 // --------------------------------------------------------------------------
@@ -267,10 +268,13 @@ export interface CanonicalTranscriptFoldRequest {
    * that built it was bounded to, and where this fold ran unbounded, by the
    * projection's newest turn position. The two are not answers that can
    * disagree, because the driver is handed the reconciliation rule rather than a
-   * choice — it exports exactly the turns whose `position` is at or below the
-   * bound. That is a deterministic filter over turns it already holds: it opens
-   * no log, and mints no second record of the session's order. A projection this
-   * fold already bounded filters to itself.
+   * choice — it retains exactly the SEGMENTS whose `position` is at or below the
+   * bound, dropping any turn that leaves empty. Per segment and not per turn,
+   * because this fold coalesces consecutive same-role events into one turn
+   * positioned at the first of them: a turn-level filter would carry every later
+   * event folded into it across the boundary. That is a deterministic filter over
+   * segments it already holds: it opens no log, and mints no second record of the
+   * session's order. A projection this fold already bounded filters to itself.
    */
   readonly boundary?: number | undefined;
 }
@@ -392,9 +396,13 @@ export class CanonicalTranscriptFold {
   ): CanonicalTranscriptSegment {
     const argumentsJson: string | undefined = this.#contentSource.readToolCallArguments(reference);
     if (argumentsJson === undefined) {
-      return { kind: "text", text: "", contentUnavailable: true };
+      return { kind: "text", position: reference.sequence, text: "", contentUnavailable: true };
     }
-    return { kind: "text", text: renderUnkeyedToolCallText(toolName, argumentsJson) };
+    return {
+      kind: "text",
+      position: reference.sequence,
+      text: renderUnkeyedToolCallText(toolName, argumentsJson),
+    };
   }
 
   /**
@@ -412,9 +420,9 @@ export class CanonicalTranscriptFold {
   ): readonly CanonicalTranscriptSegment[] {
     const text: string | undefined = this.#contentSource.readParticipantText(reference);
     if (text === undefined) {
-      return [{ kind: "text", text: "", contentUnavailable: true }];
+      return [{ kind: "text", position: reference.sequence, text: "", contentUnavailable: true }];
     }
-    return text.length === 0 ? [] : [{ kind: "text", text }];
+    return text.length === 0 ? [] : [{ kind: "text", position: reference.sequence, text }];
   }
 
   #assistantSegmentsFor(
@@ -428,14 +436,17 @@ export class CanonicalTranscriptFold {
         // apart here: the first is a turn whose words this fold could not read,
         // the second a row that carried none.
         if (text === undefined) {
-          return [{ kind: "text", text: "", contentUnavailable: true }];
+          return [
+            { kind: "text", position: reference.sequence, text: "", contentUnavailable: true },
+          ];
         }
-        return text.length === 0 ? [] : [{ kind: "text", text }];
+        return text.length === 0 ? [] : [{ kind: "text", position: reference.sequence, text }];
       }
       case "assistant.thinking_update": {
         return this.#contentSource.readReasoningBlocks(reference).map(
           (block): CanonicalTranscriptSegment => ({
             kind: "reasoning",
+            position: reference.sequence,
             blockId: block.blockId,
             reasoningKind: block.reasoningKind,
             disclosure: block.disclosure,
@@ -473,6 +484,7 @@ export class CanonicalTranscriptFold {
         return [
           {
             kind: "tool_call",
+            position: reference.sequence,
             toolCallId,
             toolName,
             argumentsJson: argumentsJson ?? "",
@@ -490,11 +502,12 @@ export class CanonicalTranscriptFold {
         // The invocation arm's rule, applied to the answer half: a legacy row
         // with no pairing key is carried as content rather than dropped.
         if (toolCallId === undefined) {
-          return [unkeyedToolResultSegment(outcome, body)];
+          return [unkeyedToolResultSegment(reference.sequence, outcome, body)];
         }
         return [
           {
             kind: "tool_result",
+            position: reference.sequence,
             toolCallId,
             outcome,
             provenance: "provider",

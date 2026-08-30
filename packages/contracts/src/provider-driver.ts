@@ -1140,6 +1140,16 @@ export type CanonicalToolResultProvenance = "provider" | "repaired";
 
 // One unit of turn content.
 //
+// Every arm carries `position`: the session-log sequence of the event that
+// contributed THIS segment. It is derived provenance projected from the log,
+// never a second record of the session's order, which is what ADR-029 requires.
+// It is required on every arm rather than optional because it is what a bound
+// filters on — an absent position would exempt its segment from every bound, and
+// the call site that forgot it would look no different from one that had nothing
+// to record. Steps that re-home a segment carry the value through unchanged, so
+// positions within a turn are ascending as the fold builds them but need not stay
+// so once the pairing repair has moved a result behind its call.
+//
 // A `tool_call` deliberately carries NO enclosing-block member while a
 // `tool_result` does. That asymmetry is structural, not incidental: it makes
 // "the strip never drops a call" unrepresentable-otherwise rather than a rule
@@ -1149,6 +1159,7 @@ export type CanonicalToolResultProvenance = "provider" | "repaired";
 export type CanonicalTranscriptSegment =
   | {
       kind: "text";
+      position: number;
       text: string;
       // Set when the row's body was unavailable at fold time. `text` is then
       // empty because inventing content is the one thing the fold may not do,
@@ -1159,6 +1170,7 @@ export type CanonicalTranscriptSegment =
     }
   | {
       kind: "reasoning";
+      position: number;
       blockId: string;
       // The provider's own block-kind label, carried verbatim for diagnostics.
       // It is NOT what the strip keys on — see `CanonicalReasoningDisclosure`.
@@ -1168,6 +1180,7 @@ export type CanonicalTranscriptSegment =
     }
   | {
       kind: "tool_call";
+      position: number;
       // The CANONICAL id. Replay never re-mints one and never reuses one across
       // two distinct calls; the target-facing id is supplied by the identity map.
       toolCallId: string;
@@ -1182,6 +1195,7 @@ export type CanonicalTranscriptSegment =
     }
   | {
       kind: "tool_result";
+      position: number;
       toolCallId: string;
       outcome: "succeeded" | "failed";
       provenance: CanonicalToolResultProvenance;
@@ -1196,8 +1210,12 @@ export type CanonicalTranscriptSegment =
 
 /** One ordered turn of the canonical transcript. */
 export interface CanonicalTranscriptTurn {
-  // The session-log sequence of the event that opened this turn. Turns are
-  // strictly ascending in it, which is what makes the fold's order the log's.
+  // The session-log sequence of the event that OPENED this turn — the position
+  // of its first segment. Turns are strictly ascending in it, which is what makes
+  // the fold's order the log's. Consecutive same-role events coalesce INTO an open
+  // turn and keep their own, higher, positions on their own segments, so this
+  // member bounds nothing on its own: a filter written against it admits every
+  // later event folded into a turn that opened early.
   position: number;
   role: CanonicalTranscriptRole;
   segments: readonly CanonicalTranscriptSegment[];
@@ -1222,20 +1240,24 @@ export interface CanonicalTranscriptProjection {
 //
 // The projection also arrives already folded, so the two members could be read as
 // two answers to "where does this transcript end?". They are not, because the
-// driver is given the reconciliation rule rather than a choice: it exports
-// exactly the turns whose `position` is at or below `boundary`. That is a
-// deterministic filter over data it already holds — it opens no log, consults
-// nothing the daemon did not hand it, and mints no second record of the session's
-// order, which is what ADR-029 requires of a driver. A projection the fold
-// already bounded to the same position filters to itself, so the rule is a no-op
-// on the common path and a stated bound on every path.
+// driver is given the reconciliation rule rather than a choice: it retains
+// exactly the SEGMENTS whose `position` is at or below `boundary`, dropping any
+// turn that leaves empty. Stated per segment and not per turn because the fold
+// coalesces consecutive same-role events into ONE turn positioned at the first of
+// them — a turn-level filter would carry every later event's content across the
+// boundary with it. That is a deterministic filter over data it already holds —
+// it opens no log, consults nothing the daemon did not hand it, and mints no
+// second record of the session's order, which is what ADR-029 requires of a
+// driver. It is equal to the fold bounded at the same position, so a projection
+// the fold already bounded filters to itself and the rule is a no-op on the
+// common path and a stated bound on every path.
 export interface ExportTranscriptParams {
   sessionId: SessionId;
   transcript: CanonicalTranscriptProjection;
   // Export up to and INCLUDING this normalized session position — the same
   // position vocabulary `RollbackToParams.position` uses, and the same one
-  // `CanonicalTranscriptTurn.position` carries, which is what makes the filter
-  // above expressible against the turns in hand rather than needing a lookup.
+  // `CanonicalTranscriptSegment.position` carries, which is what makes the filter
+  // above expressible against the segments in hand rather than needing a lookup.
   boundary: number;
 }
 

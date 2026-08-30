@@ -2346,7 +2346,7 @@ describe("DriverTranscriptReplayResultSchema — the canonical transcript replay
 });
 
 describe("transcript operation params — nominal shapes", () => {
-  it("states the inclusive bound beside the projection, in the turns' own position vocabulary", () => {
+  it("states the inclusive bound beside the projection, in the segments' own position vocabulary", () => {
     const params: ExportTranscriptParams = {
       sessionId: "session-transcript-1" as SessionId,
       transcript: {
@@ -2354,20 +2354,47 @@ describe("transcript operation params — nominal shapes", () => {
         runId: "run-transcript-1" as RunId,
         builtAtPosition: 41,
         turns: [
-          { position: 7, role: "participant", segments: [{ kind: "text", text: "go" }] },
-          { position: 12, role: "assistant", segments: [{ kind: "text", text: "going" }] },
-          { position: 30, role: "participant", segments: [{ kind: "text", text: "and past" }] },
+          {
+            position: 7,
+            role: "participant",
+            segments: [{ kind: "text", position: 7, text: "go" }],
+          },
+          {
+            // Two consecutive same-role events folded into ONE turn: it opened at
+            // 12 and took more content at 30, which is past the bound below.
+            position: 12,
+            role: "assistant",
+            segments: [
+              { kind: "text", position: 12, text: "going" },
+              { kind: "text", position: 30, text: "and past" },
+            ],
+          },
+          {
+            position: 35,
+            role: "participant",
+            segments: [{ kind: "text", position: 35, text: "later still" }],
+          },
         ],
       },
       boundary: 12,
     };
     expect([...Object.keys(params)].sort()).toStrictEqual(["boundary", "sessionId", "transcript"]);
-    // `boundary` and `CanonicalTranscriptTurn.position` speak one vocabulary, so
-    // "export up to and including the bound" is a filter over the turns already
-    // in hand — the driver needs no access to anything else to apply it, and the
-    // bound is inclusive, so the turn AT it comes along.
-    const exported = params.transcript.turns.filter((turn) => turn.position <= params.boundary);
+    // `boundary` and `CanonicalTranscriptSegment.position` speak one vocabulary,
+    // so "export up to and including the bound" is a filter over the segments
+    // already in hand — the driver needs no access to anything else to apply it,
+    // and the bound is inclusive, so the segment AT it comes along. Applied per
+    // SEGMENT: the middle turn's own position is inside the bound while half its
+    // content is not, so a turn-level filter would carry position 30 across.
+    const exported = params.transcript.turns
+      .map((turn) => ({
+        ...turn,
+        segments: turn.segments.filter((segment) => segment.position <= params.boundary),
+      }))
+      .filter((turn) => turn.segments.length > 0);
     expect(exported.map((turn) => turn.position)).toStrictEqual([7, 12]);
+    expect(
+      exported.flatMap((turn) => turn.segments.map((segment) => segment.position)),
+    ).toStrictEqual([7, 12]);
   });
 
   it("requires the bound on an export request rather than leaving it to be inferred", () => {
@@ -2378,7 +2405,13 @@ describe("transcript operation params — nominal shapes", () => {
         sessionId: "session-transcript-2" as SessionId,
         runId: "run-transcript-2" as RunId,
         builtAtPosition: 9,
-        turns: [{ position: 9, role: "participant", segments: [{ kind: "text", text: "go" }] }],
+        turns: [
+          {
+            position: 9,
+            role: "participant",
+            segments: [{ kind: "text", position: 9, text: "go" }],
+          },
+        ],
       },
     };
     void unbounded;

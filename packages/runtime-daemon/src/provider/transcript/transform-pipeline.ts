@@ -364,7 +364,7 @@ export const stripNonPortableContent: TranscriptPipelineStep = (state) => {
           recordedPrivateReasoningLoss = true;
           continue;
         }
-        keptSegments.push({ kind: "text", text: segment.text });
+        keptSegments.push({ kind: "text", position: segment.position, text: segment.text });
         continue;
       }
       if (
@@ -536,6 +536,12 @@ export const repairPairingIntegrity: TranscriptPipelineStep = (state) => {
         segments.push({ ...segment, toolCallId: disambiguatedToolCallId });
         segments.push({
           kind: "tool_result",
+          // A minted answer stands in at the point its call awaited one, so it
+          // takes the CALL's position rather than a position of its own — the
+          // only honest value, since no logged event contributed it. It can
+          // never postdate a bound: the bound is applied before step 1, so the
+          // call it copies was already inside.
+          position: segment.position,
           toolCallId: disambiguatedToolCallId,
           outcome: "failed",
           provenance: "repaired",
@@ -564,6 +570,8 @@ export const repairPairingIntegrity: TranscriptPipelineStep = (state) => {
         repaired = true;
         segments.push({
           kind: "tool_result",
+          // The minted-answer rule above: the orphaned call's own position.
+          position: segment.position,
           toolCallId: segment.toolCallId,
           outcome: "failed",
           provenance: "repaired",
@@ -680,9 +688,18 @@ export type TranscriptExportBound = number | "unbounded";
 /**
  * The projection an export bounded at `bound` is entitled to see.
  *
- * INCLUSIVE, matching the export contract: an export carries exactly the turns
- * whose `position` is at or below the bound. `"unbounded"` means the whole
- * projection — stated, never defaulted; see {@link TranscriptExportBound}.
+ * INCLUSIVE, matching the export contract: an export carries exactly the
+ * SEGMENTS whose `position` is at or below the bound, and a turn left with none
+ * is dropped. `"unbounded"` means the whole projection — stated, never
+ * defaulted; see {@link TranscriptExportBound}.
+ *
+ * Per segment and not per turn, because the fold coalesces consecutive same-role
+ * events into ONE turn positioned at the first of them: a turn opened at 5 and
+ * holding a segment from position 7 passes a `turn.position <= 5` filter whole,
+ * carrying the later event's content straight across the boundary. Filtering the
+ * segments instead yields exactly the turn the fold bounded at the same position
+ * would have built, because the fold walks the log in ascending order, so within
+ * a turn it builds the over-bound segments are always a suffix.
  *
  * `builtAtPosition` is deliberately left where the fold put it. It records the
  * position the projection was TAKEN at — evidence of the fold's liveness — and a
@@ -696,7 +713,9 @@ export type TranscriptExportBound = number | "unbounded";
  * calls have answers within it. Filtering afterwards would let content the
  * export may not carry decide the declared losses — and would pair a call inside
  * the bound with a result outside it, so the bound would silently repair itself
- * away.
+ * away. It is also why the suffix property above is stated of the FOLD's output
+ * and not of any turn: pairing repair re-homes a result behind the call it
+ * answers, which can leave a repaired turn's positions out of order.
  */
 export function boundProjectionToPosition(
   projection: CanonicalTranscriptProjection,
@@ -705,10 +724,16 @@ export function boundProjectionToPosition(
   if (bound === "unbounded") {
     return projection;
   }
-  return {
-    ...projection,
-    turns: projection.turns.filter((turn) => turn.position <= bound),
-  };
+  const boundedTurns: CanonicalTranscriptTurn[] = [];
+  for (const turn of projection.turns) {
+    const segments: readonly CanonicalTranscriptSegment[] = turn.segments.filter(
+      (segment) => segment.position <= bound,
+    );
+    if (segments.length > 0) {
+      boundedTurns.push({ ...turn, segments });
+    }
+  }
+  return { ...projection, turns: boundedTurns };
 }
 
 // --------------------------------------------------------------------------
