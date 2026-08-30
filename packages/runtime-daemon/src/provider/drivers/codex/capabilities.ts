@@ -64,6 +64,18 @@
 // hand-written mirror interface would silently keep compiling against a stale
 // shape. It also keeps a test's typed fake honest without a new abstraction.
 //
+// -- Detection sources (T3.24) --
+//
+// The declaration is the matrix INTERSECTED with what a zero-turn probe found
+// on the installed build, and every flag reports which of the two decided it.
+// `../../capability-probe.ts` owns the per-driver mechanism table, the probes,
+// their negative control, and the withdraw-only resolution; this module owns
+// the ORDERING — floor first, probe second — so no probe is ever issued against
+// a build the daemon has already refused. `detectionSource` is composed only
+// here, on the live read; the T2.4 writer's `hydrate()` reconstruction leaves it
+// absent, which is specified to read as cache reconstruction rather than as
+// unknown provenance.
+//
 // SCOPE BOUNDARY: the MCP idempotency floor + server-status census (T3.13)
 // EXTEND this driver in a sibling PR-B task and are NOT implemented here; the
 // CLI-version floor and the refresh cadence landed with T3.12 (the floor
@@ -90,6 +102,12 @@ import type {
   GetCapabilitiesResult,
 } from "@ai-sidekicks/contracts";
 
+import {
+  applyCapabilityDetection,
+  readCapabilityDetection,
+  type CapabilityDetectionReading,
+  type CapabilityProbeExchange,
+} from "../../capability-probe.js";
 import { assertCliVersionMeetsFloor } from "../../capability-refresh.js";
 import type {
   DeclareDriverCapabilitiesInput,
@@ -192,6 +210,7 @@ export const CODEX_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boole
  */
 export function getCodexCapabilities(
   reading: SpawnedProviderVersionReading,
+  detection: CapabilityDetectionReading,
 ): GetCapabilitiesResult {
   // A reading taken from ANOTHER driver's build would compose this driver's
   // flags against a foreign version — a daemon wiring fault, not provider
@@ -202,16 +221,47 @@ export function getCodexCapabilities(
       `getCodexCapabilities: refusing a spawned-version reading taken from driver '${reading.driverName}'`,
     );
   }
+  if (detection.driverName !== CODEX_DRIVER_NAME) {
+    throw new Error(
+      `getCodexCapabilities: refusing a detection reading taken from driver '${detection.driverName}'`,
+    );
+  }
   const cliVersion: DriverCliVersionReport = reading.report;
   assertCliVersionMeetsFloor(CODEX_DRIVER_NAME, cliVersion);
   return {
     capabilities: {
-      flags: { ...CODEX_CAPABILITY_FLAGS },
+      flags: applyCapabilityDetection(CODEX_CAPABILITY_FLAGS, detection),
       contractVersion: CODEX_CAPABILITY_CONTRACT_VERSION,
     },
     tools: getCodexToolMetadata(),
     cliVersion: { raw: cliVersion.raw, semver: cliVersion.semver },
+    // Fresh, for the same reason every other member is: the reading's record is
+    // frozen and shared, and a caller that mutates a reply must not rewrite the
+    // next caller's provenance.
+    detectionSource: { ...detection.detectionSource },
   };
+}
+
+/**
+ * Take one detection reading for the Codex build described by `reading`.
+ *
+ * ORDERING IS THE CONTRACT, and it is why this wrapper exists rather than
+ * callers invoking `readCapabilityDetection` directly. The floor gate runs
+ * FIRST: `Spec-005` refuses every use of a below-floor build beyond the version
+ * handshake itself, and a probe is such a use. A build this daemon has already
+ * refused is therefore never asked what it can do.
+ */
+export async function readCodexCapabilityDetection(
+  reading: SpawnedProviderVersionReading,
+  exchange: CapabilityProbeExchange,
+): Promise<CapabilityDetectionReading> {
+  if (reading.driverName !== CODEX_DRIVER_NAME) {
+    throw new Error(
+      `readCodexCapabilityDetection: refusing a spawned-version reading taken from driver '${reading.driverName}'`,
+    );
+  }
+  assertCliVersionMeetsFloor(CODEX_DRIVER_NAME, reading.report);
+  return readCapabilityDetection({ driverName: CODEX_DRIVER_NAME, exchange });
 }
 
 /**
@@ -233,6 +283,14 @@ export interface CodexCapabilityRefreshInput {
    * entry closes over a reader rather than over a value.
    */
   readonly reading: SpawnedProviderVersionReading;
+  /**
+   * The zero-turn probe transport (T3.24). Held as the SEAM rather than as a
+   * reading, because the cadence must RE-PROBE: each refresh takes a new
+   * detection reading through this exchange for the same reason it takes a new
+   * version reading, and a caller that passed a value could replay attach-time
+   * provenance for a build that has since been replaced.
+   */
+  readonly probe: CapabilityProbeExchange;
   /** EventEnvelope actor; omitted means the system actor. */
   readonly actor?: string | null;
 }
@@ -250,11 +308,12 @@ export async function refreshCodexCapabilities(
   sink: DriverCapabilityDeclarationSink,
   input: CodexCapabilityRefreshInput,
 ): Promise<DeclareDriverCapabilitiesResult> {
+  const detection = await readCodexCapabilityDetection(input.reading, input.probe);
   const declareInput: DeclareDriverCapabilitiesInput = {
     sessionId: input.sessionId,
     nodeId: input.nodeId,
     driverName: CODEX_DRIVER_NAME,
-    result: getCodexCapabilities(input.reading),
+    result: getCodexCapabilities(input.reading, detection),
     // Spread conditionally: under `exactOptionalPropertyTypes` an explicit
     // `actor: undefined` is NOT the same as an absent `actor`, and the writer
     // defaults an ABSENT actor to the system actor.

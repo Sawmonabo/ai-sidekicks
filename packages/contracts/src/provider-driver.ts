@@ -606,14 +606,45 @@ export interface DriverCliVersionReport {
 // `CapabilityDetails`, because the version floor is an attach-time gate, not a
 // per-snapshot capability property.
 //
-// The canonical doc additionally declares an additive-optional `detectionSource`
-// member here; it is NOT authored by T1.8 — Plan-005 T3.24 owns it by name,
-// together with the `CapabilityDetectionSource` type it carries.
+// `detectionSource` (T3.24) is ADDITIVE-OPTIONAL and LIVE-SCOPED, and the two
+// halves are one decision rather than two: it is present and TOTAL over the flag
+// set whenever this wrapper is a live driver read, and ABSENT exactly when the
+// wrapper was reconstructed by `DriverCapabilitiesWriter.hydrate()` from the
+// durable cache, which persists flag VALUES for change detection and NOT
+// provenance. Absence therefore reads as "cache reconstruction" and never as
+// "unknown provenance" — a consumer that needs provenance re-reads the driver.
+// A REQUIRED member would be unsatisfiable on the hydrate path and would have
+// forced a cache column whose only content is a fact about a reading that is
+// over; no column is minted here for exactly that reason.
+//
+// Driver-side only: deliberately NOT mirrored into `CapabilityDetails` (the same
+// carve-out `cliVersion` takes) and NOT carried on the client-facing
+// `driver.listCapabilities` payload, which this member does not widen.
 export interface GetCapabilitiesResult {
   capabilities: DriverCapabilities;
   tools: ProviderToolMetadata[];
   cliVersion: DriverCliVersionReport;
+  detectionSource?: Record<DriverCapabilityFlag, CapabilityDetectionSource>;
 }
+
+// How one flag's declared value on THIS reading was arrived at (T3.24, mirroring
+// `docs/architecture/contracts/api-payload-contracts.md §Plan-005 — Provider Driver Contract (Internal Interface)`).
+//
+//   * `probed` — read from the installed build by a zero-turn probe whose
+//     negative control still refused. `Spec-005 §Capability discovery` admits a
+//     probe only where it is all three of zero-turn, non-mutating, and decisive
+//     at the granularity the capability is consumed at.
+//   * `static` — declared from the driver's own per-driver table, which that
+//     same rule admits only where no ADMISSIBLE probe exists, and only where the
+//     driver's mechanism table names the conjunct that fails.
+//
+// A bare union rather than a `const` tuple plus a derived type: there is no
+// runtime consumer here — no iteration, no membership test, no schema built from
+// the values — and the sibling `RecoverySpanClassification` sets that precedent
+// in this file. The runtime half lives with the mechanism table that produces
+// the values (`runtime-daemon/src/provider/capability-probe.ts`), where the
+// per-driver totality is a compile-time `Record` obligation.
+export type CapabilityDetectionSource = "static" | "probed";
 
 // --------------------------------------------------------------------------
 // T1.4 — Intervention surface (`Spec-005 §Required Behavior`, ADR-011; verifies I-005-4)

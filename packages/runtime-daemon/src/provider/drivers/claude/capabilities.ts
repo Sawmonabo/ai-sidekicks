@@ -44,13 +44,19 @@
  *   a supported outcome rather than a failure. Replacing the constant with the
  *   probe's own reading is Plan-005 T3.20's, and the row backfilled at
  *   migration 0012 matches this declaration until it lands.
- * * **Probe-based declaration + `detectionSource`** — `Spec-005 §Capability
- *   discovery` (2026-08-26) binds every flag carrying an *admissible* probe
- *   to be read from the installed build and to carry its detection source on
- *   the report. `DriverCapabilities` carries no `detectionSource` member
- *   today, so a probed reading is not yet representable at the contract; the
- *   probe table and that member are Plan-005 T3.24. This module's static
- *   declaration is that sequencing, not a rejection of the rule.
+ * * **Probe-based declaration + `detectionSource`** — LANDED (T3.24).
+ *   `Spec-005 §Capability discovery` binds every flag carrying an *admissible*
+ *   probe to be read from the installed build and to carry its detection source
+ *   on the report. `../../capability-probe.ts` owns the mechanism table, the
+ *   probes, their negative control, and the withdraw-only resolution; what this
+ *   module owns is the ORDERING — floor first, probe second, compose third — so
+ *   no probe is ever issued against a build the daemon has already refused.
+ *   {@link CLAUDE_CAPABILITY_FLAGS} remains the declaration a probe INTERSECTS
+ *   with: a probe may withdraw a flag from a build that turns out not to carry
+ *   the surface, and may never grant one this driver does not implement.
+ *   `detectionSource` is composed only on this live read; the writer's
+ *   `hydrate()` reconstruction leaves it absent, which is specified to read as
+ *   cache reconstruction rather than as unknown provenance.
  * * **The refresh cadence** — the 15-minute poll and its pairing with the
  *   zero-turn auth probe are the `CapabilityRefreshScheduler`'s
  *   (`../../capability-refresh.ts`, T3.12 P2-9).
@@ -89,6 +95,12 @@ import {
   type GetCapabilitiesResult,
 } from "@ai-sidekicks/contracts";
 
+import {
+  applyCapabilityDetection,
+  readCapabilityDetection,
+  type CapabilityDetectionReading,
+  type CapabilityProbeExchange,
+} from "../../capability-probe.js";
 import { assertCliVersionMeetsFloor } from "../../capability-refresh.js";
 import type {
   DeclareDriverCapabilitiesResult,
@@ -206,6 +218,18 @@ export const CLAUDE_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, bool
  */
 export interface ClaudeCapabilityReporterDependencies {
   readonly readSpawnedVersion: () => Promise<SpawnedProviderVersionReading>;
+  /**
+   * The zero-turn probe transport (T3.24) — a control-request exchange against
+   * the same resolved build `readSpawnedVersion` read. Injected as the SEAM and
+   * not as a reading, because every declaration re-probes: the refresh cadence
+   * drives {@link ClaudeCapabilityReporter.refreshDeclaration}, and a detection
+   * reading captured once would report attach-time provenance for a build that
+   * may since have been replaced.
+   *
+   * REQUIRED, with no default. A default would let a caller compose a
+   * declaration whose provenance claims a probe nobody ran.
+   */
+  readonly probe: CapabilityProbeExchange;
 }
 
 /**
@@ -243,9 +267,11 @@ export interface ClaudeCapabilityDeclarationTarget {
  */
 export class ClaudeCapabilityReporter {
   readonly #readSpawnedVersion: () => Promise<SpawnedProviderVersionReading>;
+  readonly #probe: CapabilityProbeExchange;
 
   constructor(dependencies: ClaudeCapabilityReporterDependencies) {
     this.#readSpawnedVersion = dependencies.readSpawnedVersion;
+    this.#probe = dependencies.probe;
   }
 
   /**
@@ -277,14 +303,24 @@ export class ClaudeCapabilityReporter {
     }
     const cliVersion: DriverCliVersionReport = reading.report;
     assertCliVersionMeetsFloor(CLAUDE_DRIVER_NAME, cliVersion);
+    // STRICTLY AFTER the floor gate. `Spec-005` refuses every use of a
+    // below-floor build beyond the version handshake itself, and a probe is such
+    // a use — so a build this daemon has already refused is never asked what it
+    // can do. Sequencing this read rather than racing it with the version read
+    // is what makes that ordering structural.
+    const detection: CapabilityDetectionReading = await readCapabilityDetection({
+      driverName: CLAUDE_DRIVER_NAME,
+      exchange: this.#probe,
+    });
     const capabilities: DriverCapabilities = {
-      flags: { ...CLAUDE_CAPABILITY_FLAGS },
+      flags: applyCapabilityDetection(CLAUDE_CAPABILITY_FLAGS, detection),
       contractVersion: CLAUDE_CAPABILITY_CONTRACT_VERSION,
     };
     return {
       capabilities,
       tools: getClaudeToolMetadata(),
       cliVersion: { raw: cliVersion.raw, semver: cliVersion.semver },
+      detectionSource: { ...detection.detectionSource },
     };
   }
 

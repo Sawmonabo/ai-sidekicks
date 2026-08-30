@@ -101,6 +101,7 @@ import {
   ProviderToolMetadataSchema,
   type ApplyInterventionParams,
   type CallbackToolResult,
+  type CapabilityDetectionSource,
   type ClearSessionGoalParams,
   type CloseSessionParams,
   type CreateSessionParams,
@@ -2091,6 +2092,66 @@ describe("T1.8 spawn/turn parity surfaces — structural invariants", () => {
       tools: [],
     };
     void reportWithoutVersion;
+  });
+
+  // ---- T3.24 — `detectionSource`, additive-optional and live-scoped ----
+
+  it("accepts a report WITHOUT `detectionSource` — the hydrate arm", () => {
+    // ADDITIVE-OPTIONAL by contract, and the optionality is load-bearing rather
+    // than lenient: `DriverCapabilitiesWriter.hydrate()` reconstructs this
+    // wrapper from a cache that persists flag VALUES and not provenance, so a
+    // REQUIRED member would be unsatisfiable there and would have forced a
+    // durable column whose only content is a fact about a reading that is over.
+    const hydrated: GetCapabilitiesResult = {
+      capabilities: { flags: allFlagsDenied, contractVersion: "1.0" },
+      tools: [],
+      cliVersion: { raw: "2.1.251", semver: "2.1.251" },
+    };
+    expect(Object.hasOwn(hydrated, "detectionSource")).toBe(false);
+  });
+
+  it("requires `detectionSource` to be TOTAL over the flag set when present", () => {
+    const live: GetCapabilitiesResult = {
+      capabilities: { flags: allFlagsDenied, contractVersion: "1.0" },
+      tools: [],
+      cliVersion: { raw: "2.1.251", semver: "2.1.251" },
+      detectionSource: {
+        resume: "static",
+        steer: "probed",
+        interactive_requests: "probed",
+        mcp: "static",
+        tool_calls: "static",
+        reasoning_stream: "static",
+        model_mutation: "static",
+        structured_output: "static",
+        rollback: "static",
+        session_goals: "probed",
+        callback_tools: "static",
+        subagents: "static",
+        transcript_replay: "static",
+        cost_cap: "static",
+      },
+    };
+    expect(Object.keys(live.detectionSource ?? {})).toHaveLength(DRIVER_CAPABILITY_FLAGS.length);
+
+    const partial: GetCapabilitiesResult = {
+      capabilities: { flags: allFlagsDenied, contractVersion: "1.0" },
+      tools: [],
+      cliVersion: { raw: "2.1.251", semver: "2.1.251" },
+      // @ts-expect-error `Record<DriverCapabilityFlag, …>` is TOTAL — a partial provenance map would leave a flag's origin unstated
+      detectionSource: { resume: "static" },
+    };
+    void partial;
+  });
+
+  it("closes `CapabilityDetectionSource` at exactly `static` and `probed`", () => {
+    const declared: CapabilityDetectionSource = "static";
+    const read: CapabilityDetectionSource = "probed";
+    expect([declared, read]).toStrictEqual(["static", "probed"]);
+
+    // @ts-expect-error the union is closed — a third provenance would need a spec amendment, not a free string
+    const invented: CapabilityDetectionSource = "assumed";
+    void invented;
   });
 
   it("carries all five spawn-bound parity legs on CreateSessionParams", () => {

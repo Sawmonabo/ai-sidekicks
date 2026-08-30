@@ -83,8 +83,9 @@ import semver from "semver";
 
 import type { DriverAuthProbeResult, DriverCliVersionReport } from "@ai-sidekicks/contracts";
 
+import { isCapabilityProbeError } from "./capability-probe.js";
 import type { DeclareDriverCapabilitiesResult } from "./driver-capabilities-writer.js";
-import { type DriverDiagnosticsEmitter } from "./driver-diagnostics.js";
+import { type DriverDiagnosticKind, type DriverDiagnosticsEmitter } from "./driver-diagnostics.js";
 import { CLI_VERSION_RAW_MAX_LEN } from "./provider-output-validation.js";
 
 // --------------------------------------------------------------------------
@@ -265,6 +266,17 @@ export interface CapabilityRefreshDriverEntry {
    * (`refreshCodexCapabilities` / `ClaudeCapabilityReporter.refreshDeclaration`).
    * The writer owns change detection and emission (CP-005-5); the scheduler
    * reacts to the discriminant not at all.
+   *
+   * THE CADENCE RE-PROBES (T3.24). Every poll must take a NEW capability
+   * detection reading (`readCapabilityDetection`) alongside its new version
+   * reading, for the same reason the version reading is re-taken: a mid-lifetime
+   * provider replacement is detectable only by asking the build that is
+   * installed NOW. Replaying the attach-time reading would make a capability
+   * that has since disappeared invisible until the next attach, and would report
+   * `probed` provenance for an answer no longer measured. A flag a re-probe
+   * withdraws changes the snapshot, so the writer's own change detection turns
+   * it into exactly one `runtime_node.capability_updated` — an unchanged poll
+   * still emits nothing.
    */
   readonly refreshDeclaration: () => Promise<DeclareDriverCapabilitiesResult>;
   /** The zero-turn authentication probe, paired with every refresh. */
@@ -306,13 +318,42 @@ export interface DriverAuthStateRecord {
 export interface CapabilityRefreshDiagnostic {
   readonly nodeId: string;
   readonly driverName: FlooredDriverName;
-  readonly leg: "capability-refresh" | "auth-probe";
+  /**
+   * `capability-probe` is a REFINEMENT of `capability-refresh`, not a separate
+   * poll leg: the T3.24 detection read runs inside `refreshDeclaration()`, and
+   * this value marks the refresh failures the probe surface caused (its negative
+   * control answered, its transport rejected, a prohibited wire name was
+   * reached) so an operator can tell "the probe channel is broken" from "the
+   * declaration could not be written". Both land on the same diagnostic kind:
+   * distinguishing them is a `details` concern, and a new kind here would move a
+   * closed census this task does not own.
+   */
+  readonly leg: "capability-refresh" | "auth-probe" | "capability-probe";
   /** The typed error's registered code, where the failure carried one. */
   readonly code?: string | undefined;
   readonly message: string;
   /** `true` when the leg never settled inside the scheduler's backstop. */
   readonly timedOut: boolean;
 }
+
+/**
+ * The diagnostic kind each poll leg meters under.
+ *
+ * Keyed by the closed leg union so a leg added without a kind is a compile
+ * error. `capability-probe` maps onto the EXISTING `capability_refresh_failed`
+ * kind deliberately: the probe read is part of the refresh leg, and
+ * `DriverDiagnosticKind` is a closed union paired one-for-one with an
+ * OpenTelemetry counter name, so minting a kind here would move a census this
+ * task does not own. The leg still reaches the operator — it rides `details`
+ * on the record and is a first-class member of the richer callback shape.
+ */
+const CAPABILITY_REFRESH_DIAGNOSTIC_KINDS: Readonly<
+  Record<CapabilityRefreshDiagnostic["leg"], DriverDiagnosticKind>
+> = Object.freeze({
+  "capability-refresh": "capability_refresh_failed",
+  "capability-probe": "capability_refresh_failed",
+  "auth-probe": "auth_probe_failed",
+});
 
 export interface CapabilityRefreshSchedulerDependencies {
   /**
@@ -565,11 +606,19 @@ export class CapabilityRefreshScheduler {
   #reportFailure(
     nodeId: string,
     driverName: FlooredDriverName,
-    leg: CapabilityRefreshDiagnostic["leg"],
+    dispatchedLeg: CapabilityRefreshDiagnostic["leg"],
     outcome: PollLegOutcome<unknown>,
   ): void {
     const timedOut = outcome.settled === "timed-out";
     const reason = outcome.settled === "rejected" ? outcome.reason : undefined;
+    // Refine the dispatched leg where the rejection names the probe surface
+    // itself. Only the refresh leg can carry one — the auth probe is a separate
+    // seam with its own failure vocabulary — so the refinement is scoped rather
+    // than applied to whatever leg happened to reject.
+    const leg: CapabilityRefreshDiagnostic["leg"] =
+      dispatchedLeg === "capability-refresh" && isCapabilityProbeError(reason)
+        ? "capability-probe"
+        : dispatchedLeg;
     const code =
       typeof reason === "object" &&
       reason !== null &&
@@ -585,7 +634,7 @@ export class CapabilityRefreshScheduler {
 
     this.#diagnostics.emit({
       provider: driverName,
-      kind: leg === "capability-refresh" ? "capability_refresh_failed" : "auth_probe_failed",
+      kind: CAPABILITY_REFRESH_DIAGNOSTIC_KINDS[leg],
       rawWireType: null,
       dispositionReason: timedOut
         ? "poll leg exceeded the scheduler's liveness backstop; abandoned and retried next cadence, with the auth record left fail-closed"
