@@ -1248,7 +1248,9 @@ describe("memo reconciliation — the losses reported are the DELIVERED summary'
 
   it("declares the upper bound when the delivered memo's record is vacuous", async () => {
     // The consequence a caller sees: an unreadable record settles as the whole
-    // producible set, stated as a bound, rather than as an account of nothing.
+    // closed vocabulary, stated as a bound, rather than as an account of
+    // nothing. The vocabulary rather than this build's producible subset — the
+    // two are different sets, and only the wider one is a bound.
     const target = new FakeTargetSession();
     const projection: CanonicalTranscriptProjection = plainConversation();
     const request: DeliveryDraft = requestFor(projection, ROOMY_BUDGET);
@@ -1295,6 +1297,33 @@ describe("memo reconciliation — the losses reported are the DELIVERED summary'
         memoIdentityKey,
       ),
     ).toStrictEqual(["context_truncated", "conversation_history_summarized"]);
+  });
+
+  it("reads a record naming a kind this build produces NOWHERE", () => {
+    // The vocabulary is the wire's, not this workspace's. A record can be
+    // written by a peer daemon running a build whose fold emits a kind no leg
+    // here emits yet, and the reader's job is to PLACE the token rather than to
+    // ask whether the running build has a producer for it.
+    //
+    // Unrecognized, this record would take the refusal above and settle as the
+    // whole bound — reporting a memo that dropped everything the vocabulary can
+    // name, from a writer that said precisely what it dropped. That is the
+    // reader half of why the vocabulary is carried complete here and not
+    // trimmed to what this build emits.
+    const projection: CanonicalTranscriptProjection = plainConversation();
+    const memoIdentityKey: string = deriveMemoIdentityKey(projection, TARGET);
+
+    expect(
+      readDeliveredMemoDeclaredLosses(
+        [
+          renderMemoContinuityMarker(memoIdentityKey, [
+            "conversation_history_summarized",
+            "turn_content_truncated",
+          ]),
+        ],
+        memoIdentityKey,
+      ),
+    ).toStrictEqual(["conversation_history_summarized", "turn_content_truncated"]);
   });
 
   it("reports the delivered summary's losses on an acknowledgment lost after it landed", async () => {
@@ -2005,6 +2034,18 @@ describe("memo identity key — derived, never stored", () => {
     expect(deriveMemoIdentityKey(projectionEnclosing("private"), TARGET)).not.toBe(
       deriveMemoIdentityKey(projectionEnclosing("unknown"), TARGET),
     );
+
+    // And PAIRWISE across all three, so the rule reads "a different verdict is a
+    // different memo" rather than as two special cases. It also settles what the
+    // stability test beside this one cannot: a key that never moved at all would
+    // satisfy every equality assertion here.
+    const keysByVerdict: Set<string> = new Set<string>([
+      deriveMemoIdentityKey(projectionEnclosing("private"), TARGET),
+      deriveMemoIdentityKey(projectionEnclosing("unknown"), TARGET),
+      deriveMemoIdentityKey(projectionEnclosing(undefined), TARGET),
+    ]);
+
+    expect(keysByVerdict.size).toBe(3);
   });
 
   it("stays put when the enclosure verdict AGREES, so an unchanged fold re-sends nothing", () => {
