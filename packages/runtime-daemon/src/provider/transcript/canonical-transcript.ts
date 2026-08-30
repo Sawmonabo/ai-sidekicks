@@ -118,23 +118,24 @@ export interface TranscriptToolResultBody {
  * Supplies every body the clear durable payloads do not carry — see the header
  * for the two distinct reasons they do not, one per method group.
  *
- * Every method may answer "nothing": an absent body is a row whose
- * content is unavailable, which the fold renders as an EMPTY body marked
+ * Every method may answer "nothing", and every one of them means one thing: the
+ * row's content is UNAVAILABLE, which the fold renders as an EMPTY body marked
  * `contentUnavailable` rather than by inventing text or by dropping the row.
  * Dropping it would erase a turn that happened, and the pipeline would then
  * declare no loss over it — the one reading the declared-loss rule forbids.
  *
- * `readReasoningBlocks` is the exception and returns no unavailability signal,
- * because its return type has no absent arm to answer with: a block list is
- * total and every block's body is required, so there is nothing here to mark.
- * Should a block body ever become expressibly absent, this arm owes the same
- * treatment as the others — a non-private block is FLATTENED and kept by step 3
- * under no declared loss, so an unreadable one would go out silently.
+ * `readReasoningBlocks` answers a LIST, so it has two distinct empty answers and
+ * both are load-bearing: an empty list is a row that carried no blocks, and an
+ * ABSENT list is a row whose blocks could not be read. One return type for both
+ * is how summary-disclosure reasoning — participant-visible history that step 3
+ * flattens and keeps under no declared loss — leaves an export in silence.
  */
 export interface TranscriptContentSource {
   readAssistantText(reference: TranscriptContentReference): string | undefined;
   readParticipantText(reference: TranscriptContentReference): string | undefined;
-  readReasoningBlocks(reference: TranscriptContentReference): readonly TranscriptReasoningBlock[];
+  readReasoningBlocks(
+    reference: TranscriptContentReference,
+  ): readonly TranscriptReasoningBlock[] | undefined;
   readToolCallArguments(reference: TranscriptContentReference): string | undefined;
   readToolResultBody(reference: TranscriptContentReference): TranscriptToolResultBody | undefined;
 }
@@ -215,29 +216,63 @@ function renderUnkeyedToolResultText(outcome: CanonicalToolResultOutcome, body: 
 }
 
 /**
- * The segment an unkeyed tool RESULT contributes.
+ * A legacy answer the provider emitted INSIDE a named reasoning block, held
+ * until the turn that carried it is complete.
  *
- * Two rows land on the empty-body-marked disposition rather than on rendered
- * text, and the second is the load-bearing one:
+ * Enclosure alone settles nothing. A `summary` block is participant-visible
+ * history, so an answer carried inside one is portable content, and withholding
+ * it would drop a body the participant already read AND declare a loss that did
+ * not happen. What settles it is the enclosing block's OWN disclosure — and the
+ * row carrying that block may be logged after the answer it enclosed, so the
+ * lookup is taken at turn close rather than row by row.
+ */
+interface DeferredEnclosedToolResult {
+  readonly enclosingReasoningBlockId: string;
+  readonly outcome: CanonicalToolResultOutcome;
+  readonly bodyText: string;
+}
+
+/**
+ * The segment an unkeyed tool RESULT contributes, registering the deferral an
+ * enclosed one owes.
  *
- *   * An unreadable body has no content to carry, exactly as everywhere else in
- *     this fold.
+ * Three arms, and the first two are different facts:
  *
- *   * A body the provider emitted INSIDE a reasoning block cannot ride a text
- *     segment at all. Step 3 of the pipeline decides a tool result's
- *     portability from `enclosingReasoningBlockId`, and a `text` segment has no
- *     such member to carry — so rendering the body as text would walk private
- *     provider reasoning straight past the strip that exists to remove it. The
- *     content is therefore withheld and MARKED, never silently dropped: the
- *     reader learns a body was here and is not in this transcript, which is the
- *     honest reading, and the pipeline declares the loss over the turn.
+ *   * An UNREADABLE body has no content to carry, exactly as everywhere else in
+ *     this fold, and no disclosure lookup could rescue it — so it registers no
+ *     deferral.
+ *
+ *   * A body the provider emitted inside a named reasoning block is withheld
+ *     PROVISIONALLY, and the withholding is what the turn close then keeps or
+ *     replaces. It may not ride text before the disclosure is known: step 3
+ *     decides a tool result's portability from `enclosingReasoningBlockId`, a
+ *     `text` segment has no such member to carry, and rendering the body early
+ *     would walk private provider reasoning straight past the strip that exists
+ *     to remove it.
+ *
+ *   * Everything else is ordinary legacy history and rides text directly.
+ *
+ * The deferral is keyed by the row's own `sequence`, which is exactly the
+ * `position` its segment carries: an unkeyed result row contributes ONE segment,
+ * so that key names one segment in the whole fold. A row that ever contributed
+ * two would break the property the turn close patches by.
  */
 function unkeyedToolResultSegment(
   position: number,
   outcome: CanonicalToolResultOutcome,
   body: TranscriptToolResultBody | undefined,
+  deferredEnclosedResults: Map<number, DeferredEnclosedToolResult>,
 ): CanonicalTranscriptSegment {
-  if (body === undefined || body.enclosingReasoningBlockId !== undefined) {
+  if (body === undefined) {
+    return { kind: "text", position, text: "", contentUnavailable: true };
+  }
+  const enclosingReasoningBlockId: string | undefined = body.enclosingReasoningBlockId;
+  if (enclosingReasoningBlockId !== undefined) {
+    deferredEnclosedResults.set(position, {
+      enclosingReasoningBlockId,
+      outcome,
+      bodyText: body.text,
+    });
     return { kind: "text", position, text: "", contentUnavailable: true };
   }
   return { kind: "text", position, text: renderUnkeyedToolResultText(outcome, body.text) };
@@ -313,15 +348,71 @@ export class CanonicalTranscriptFold {
       | { role: CanonicalTranscriptRole; position: number; segments: CanonicalTranscriptSegment[] }
       | undefined;
 
+    // Legacy enclosed answers awaiting the disclosure of the block that carried
+    // them. Build-scoped like everything else here: the fold memoizes nothing.
+    const deferredEnclosedResults: Map<number, DeferredEnclosedToolResult> = new Map();
+
+    /**
+     * Settles the turn's deferred legacy answers against the turn's OWN
+     * reasoning segments — the boundary the pipeline's strip already scopes
+     * enclosure to, since a block id is unique only within the exchange that
+     * minted it. Taken at turn close because the row carrying the enclosing
+     * block may be logged AFTER the answer it enclosed.
+     *
+     * A `summary` block is participant-visible history: its answer is portable
+     * content and rides ordinary legacy text, with nothing lost and nothing
+     * declared. Anything else stays withheld and marked.
+     *
+     * FAIL-CLOSED on a block this turn does not carry, which is stricter than
+     * the strip's rule for a KEYED result — that one survives citing a block
+     * from another turn. The asymmetry is erasure: a keyed result carries its
+     * enclosure member forward, so a later reader can still act on it, while
+     * rendering a legacy answer to text drops the member for good. An unknown
+     * disclosure is therefore never treated as a visible one.
+     */
+    const settleDeferredEnclosedResults = (segments: CanonicalTranscriptSegment[]): void => {
+      if (deferredEnclosedResults.size === 0) {
+        return;
+      }
+      const disclosureByBlockId: Map<string, CanonicalReasoningDisclosure> = new Map();
+      for (const segment of segments) {
+        if (segment.kind === "reasoning") {
+          disclosureByBlockId.set(segment.blockId, segment.disclosure);
+        }
+      }
+      segments.forEach((segment, segmentIndex) => {
+        const deferred: DeferredEnclosedToolResult | undefined = deferredEnclosedResults.get(
+          segment.position,
+        );
+        if (deferred === undefined) {
+          return;
+        }
+        deferredEnclosedResults.delete(segment.position);
+        if (disclosureByBlockId.get(deferred.enclosingReasoningBlockId) !== "summary") {
+          return;
+        }
+        segments[segmentIndex] = {
+          kind: "text",
+          position: segment.position,
+          text: renderUnkeyedToolResultText(deferred.outcome, deferred.bodyText),
+        };
+      });
+    };
+
     const closeOpenTurn = (): void => {
-      if (openTurn !== undefined && openTurn.segments.length > 0) {
+      const closingTurn = openTurn;
+      openTurn = undefined;
+      if (closingTurn === undefined) {
+        return;
+      }
+      settleDeferredEnclosedResults(closingTurn.segments);
+      if (closingTurn.segments.length > 0) {
         turns.push({
-          position: openTurn.position,
-          role: openTurn.role,
-          segments: openTurn.segments,
+          position: closingTurn.position,
+          role: closingTurn.role,
+          segments: closingTurn.segments,
         });
       }
-      openTurn = undefined;
     };
 
     const appendSegments = (
@@ -367,7 +458,11 @@ export class CanonicalTranscriptFold {
         continue;
       }
 
-      appendSegments("assistant", event.sequence, this.#assistantSegmentsFor(event, reference));
+      appendSegments(
+        "assistant",
+        event.sequence,
+        this.#assistantSegmentsFor(event, reference, deferredEnclosedResults),
+      );
     }
 
     closeOpenTurn();
@@ -428,6 +523,7 @@ export class CanonicalTranscriptFold {
   #assistantSegmentsFor(
     event: StoredEvent,
     reference: TranscriptContentReference,
+    deferredEnclosedResults: Map<number, DeferredEnclosedToolResult>,
   ): readonly CanonicalTranscriptSegment[] {
     switch (event.type) {
       case "assistant.message": {
@@ -443,7 +539,20 @@ export class CanonicalTranscriptFold {
         return text.length === 0 ? [] : [{ kind: "text", position: reference.sequence, text }];
       }
       case "assistant.thinking_update": {
-        return this.#contentSource.readReasoningBlocks(reference).map(
+        const blocks: readonly TranscriptReasoningBlock[] | undefined =
+          this.#contentSource.readReasoningBlocks(reference);
+        // Unreadable blocks are marked on a TEXT segment, and neither half of
+        // that is incidental. The pipeline's unavailability predicate excludes
+        // the reasoning arm, so a reasoning-kind marker would declare no loss at
+        // all; and this fold has no block to read a `disclosure` from, which
+        // that arm requires. Text is the one honest carrier — and it is what the
+        // strip turns a kept block into anyway.
+        if (blocks === undefined) {
+          return [
+            { kind: "text", position: reference.sequence, text: "", contentUnavailable: true },
+          ];
+        }
+        return blocks.map(
           (block): CanonicalTranscriptSegment => ({
             kind: "reasoning",
             position: reference.sequence,
@@ -502,7 +611,9 @@ export class CanonicalTranscriptFold {
         // The invocation arm's rule, applied to the answer half: a legacy row
         // with no pairing key is carried as content rather than dropped.
         if (toolCallId === undefined) {
-          return [unkeyedToolResultSegment(reference.sequence, outcome, body)];
+          return [
+            unkeyedToolResultSegment(reference.sequence, outcome, body, deferredEnclosedResults),
+          ];
         }
         return [
           {

@@ -2491,14 +2491,6 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       }
       validatedRollbackResult = validated.data;
 
-      // Routes go before the swap: every run bound to this session was running
-      // on the PREDECESSOR's turn, and a route surviving into the forked session
-      // would aim a later interrupt at a turn that never started.
-      this.#retireRunRoutes(params.sessionId);
-      // Same argument for the frames: the predecessor's turns can no longer
-      // settle, so their registrations are owed no ruling and would otherwise
-      // hold this session's watch budget for the fork's whole lifetime.
-      this.#outboundFrameTripwire.forgetScope(params.sessionId);
       this.#registerLiveSession({
         sessionId: params.sessionId,
         providerSessionId: attachment.providerSessionId,
@@ -2533,6 +2525,27 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
         fallbackAction: `rewind-adoption-failed: ${sanitizeFailureDetail(describeFailure(error))}${disposalNote}`,
       });
     }
+
+    // The predecessor's correlation is dropped only AFTER adoption has
+    // committed, and outside the try so that no throw can land between the drop
+    // and the registration.
+    //
+    // Both calls move together because they are one record read two ways: the
+    // tripwire finds a session's correlated runs THROUGH the routes, so
+    // forgetting the frames while the routes stood — or the reverse — leaves a
+    // predecessor the slot machinery can restore but whose swallowed turns
+    // nothing can rule. A failed adoption restores a still-running predecessor,
+    // and it must come back correlated.
+    //
+    // Dropping them at all is still right on the committed path: every run bound
+    // to this session was running on the PREDECESSOR's turn, so a surviving
+    // route would aim a later interrupt at a turn that never started, and the
+    // predecessor's turns can no longer settle, so their frame registrations are
+    // owed no ruling and would hold this session's watch budget for the fork's
+    // whole lifetime. Nothing can observe the interval: the two calls are
+    // synchronous and adjacent to the registration, with no await between them.
+    this.#retireRunRoutes(params.sessionId);
+    this.#outboundFrameTripwire.forgetScope(params.sessionId);
 
     // The predecessor is released only AFTER the successor is installed, which
     // is what made every failure path above non-destructive. Its disposal

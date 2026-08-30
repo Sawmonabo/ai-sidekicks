@@ -156,8 +156,38 @@ const MEMO_IDENTITY_KEY_BYTE_LENGTH = 16;
  */
 export const MEMO_CONTINUITY_MARKER_PREFIX: string = "continuity-ref:";
 
-/** The exact marker text a memo carrying `memoIdentityKey` renders. */
-export function renderMemoContinuityMarker(memoIdentityKey: string): string {
+/** Separates the key from the record of what the memo carrying it dropped. */
+const MEMO_CONTINUITY_LOSS_SEPARATOR = ";dropped=";
+
+/** Joins the recorded loss kinds. Not a comma: a comma invites a space after it. */
+const MEMO_CONTINUITY_LOSS_JOINER = "+";
+
+/**
+ * The exact marker text a memo renders — its key AND what that memo dropped.
+ *
+ * The losses ride the marker because the marker is the only trace a delivered
+ * memo leaves. A later delivery that finds one has found a memo rendered at some
+ * earlier moment, possibly under a tighter budget, and its own fresh render is
+ * evidence about a memo the target does not hold. Recording the losses at the
+ * moment they are true is the one way the later reconciliation can report what
+ * the target ACTUALLY holds rather than what this call would have sent.
+ *
+ * One whitespace-free token, so no provider's reflow can break it in half, and
+ * the key still leads — a marker written before this record existed is still
+ * found by `targetTurnsCarryMemoMarker`, and a reader that predates the record
+ * still finds a marker written with one.
+ */
+export function renderMemoContinuityMarker(
+  memoIdentityKey: string,
+  declaredLosses: readonly DeclaredLossKind[],
+): string {
+  return `${MEMO_CONTINUITY_MARKER_PREFIX}${memoIdentityKey}${MEMO_CONTINUITY_LOSS_SEPARATOR}${declaredLosses.join(
+    MEMO_CONTINUITY_LOSS_JOINER,
+  )}`;
+}
+
+/** The key-only prefix of this memo's marker, which every marker form leads with. */
+function renderMemoContinuityMarkerKey(memoIdentityKey: string): string {
   return `${MEMO_CONTINUITY_MARKER_PREFIX}${memoIdentityKey}`;
 }
 
@@ -166,8 +196,62 @@ export function targetTurnsCarryMemoMarker(
   targetTurns: readonly string[],
   memoIdentityKey: string,
 ): boolean {
-  const marker: string = renderMemoContinuityMarker(memoIdentityKey);
-  return targetTurns.some((turnText) => turnText.includes(marker));
+  const markerKey: string = renderMemoContinuityMarkerKey(memoIdentityKey);
+  return targetTurns.some((turnText) => turnText.includes(markerKey));
+}
+
+/**
+ * Reads back what the memo the target ALREADY holds recorded as dropped, or
+ * ABSENT where that record cannot be trusted.
+ *
+ * Absent covers three readings that all mean the same thing to a caller: a
+ * marker written before this record existed, a record that does not parse as a
+ * closed set of loss kinds, and — since a target holding two markers under one
+ * key holds two summaries — ANY occurrence lacking a readable record. Every one
+ * of them is a memo whose omissions this reader cannot account for, and the
+ * caller owes the conservative answer for all three.
+ *
+ * Parsed strictly against the closed enum for the same reason: an unrecognized
+ * token is a record this reader does not understand, and understanding it partly
+ * is worse than not claiming to understand it at all.
+ */
+export function readDeliveredMemoDeclaredLosses(
+  targetTurns: readonly string[],
+  memoIdentityKey: string,
+): readonly DeclaredLossKind[] | undefined {
+  const markerKey: string = renderMemoContinuityMarkerKey(memoIdentityKey);
+  const recorded: Set<DeclaredLossKind> = new Set<DeclaredLossKind>();
+  let found = false;
+  for (const turnText of targetTurns) {
+    for (
+      let markerStart: number = turnText.indexOf(markerKey);
+      markerStart >= 0;
+      markerStart = turnText.indexOf(markerKey, markerStart + markerKey.length)
+    ) {
+      found = true;
+      const tail: string = turnText.slice(markerStart + markerKey.length);
+      if (!tail.startsWith(MEMO_CONTINUITY_LOSS_SEPARATOR)) {
+        return undefined;
+      }
+      // The record ends where the token does. Loss kinds are lowercase ASCII
+      // with underscores, so anything else — a newline, a space, the prose that
+      // follows — is outside the marker.
+      const record: string = tail.slice(MEMO_CONTINUITY_LOSS_SEPARATOR.length);
+      const tokens: string[] = (/^[a-z_+]*/.exec(record)?.[0] ?? "")
+        .split(MEMO_CONTINUITY_LOSS_JOINER)
+        .filter((token) => token.length > 0);
+      for (const token of tokens) {
+        const kind: DeclaredLossKind | undefined = DECLARED_LOSS_KINDS.find(
+          (candidate) => candidate === token,
+        );
+        if (kind === undefined) {
+          return undefined;
+        }
+        recorded.add(kind);
+      }
+    }
+  }
+  return found ? DECLARED_LOSS_KINDS.filter((kind) => recorded.has(kind)) : undefined;
 }
 
 /**
@@ -608,10 +692,31 @@ export class MemoProjection {
     );
 
     const openingText: string = MEMO_OPENING_LINES.join("\n");
-    const markerText: string = renderMemoContinuityMarker(memoIdentityKey);
     // Rendered once per exchange and re-joined per candidate, so the admission
     // walk below prices assemblies rather than re-rendering prose it already has.
     const exchangeRenderings: readonly string[] = exchanges.map(renderExchange);
+
+    // Every loss but truncation is settled before the walk runs: the transforms
+    // have already reported theirs, and the floor's own loss holds on every path.
+    const preBudgetLosses: readonly DeclaredLossKind[] = orderDeclaredLosses([
+      ...transformed.losses,
+      // The floor's OWN loss, on every path. Without it a memo settlement could
+      // carry an empty list, and an empty list is the positive claim that
+      // nothing was dropped.
+      "conversation_history_summarized",
+    ]);
+    // Truncation is the ONE loss the walk can move, and the marker records it —
+    // so the marker's own length depends on an outcome the marker's length helps
+    // decide. Broken by pricing every candidate against the truncation-inclusive
+    // marker, which is the longer of the exactly two the walk can produce: a
+    // walk that evicts priced the marker it emits, and one that does not priced a
+    // marker no shorter than the one it emits. The emitted text is then measured
+    // in its own right below, so a tokenizer that is not monotone in length
+    // surfaces as `exceedsBudget` rather than as a body that quietly overran.
+    const pricingMarkerText: string = renderMemoContinuityMarker(
+      memoIdentityKey,
+      orderDeclaredLosses([...preBudgetLosses, "context_truncated"]),
+    );
 
     // Every price is taken over the ASSEMBLED candidate — the exact prose that
     // set of exchanges would be sent as, eviction notice and joining separators
@@ -620,7 +725,7 @@ export class MemoProjection {
     // estimator does not owe: near the ceiling that gap admits a set which
     // assembles to more than the budget while the render reports itself as
     // fitting.
-    const assembleFor = (admittedIndices: ReadonlySet<number>): string =>
+    const assembleFor = (admittedIndices: ReadonlySet<number>, markerText: string): string =>
       assembleMemoBody({
         openingText,
         markerText,
@@ -634,8 +739,6 @@ export class MemoProjection {
     // The protected exchanges are admitted unconditionally — that is what
     // protection means — so the floor is priced but never refused.
     const includedIndices: Set<number> = new Set<number>(protectedIndices);
-    let text: string = assembleFor(includedIndices);
-    let estimatedTokens: number = this.#estimateTokens(text);
 
     // Admit the REMAINING exchanges newest-first, stopping at the first that does
     // not fit. Protected exchanges are already in and are skipped rather than
@@ -647,18 +750,11 @@ export class MemoProjection {
         continue;
       }
       includedIndices.add(index);
-      const candidateText: string = assembleFor(includedIndices);
-      const candidateTokens: number = this.#estimateTokens(candidateText);
-      if (candidateTokens > budgetTokens) {
+      if (this.#estimateTokens(assembleFor(includedIndices, pricingMarkerText)) > budgetTokens) {
         includedIndices.delete(index);
         break;
       }
-      text = candidateText;
-      estimatedTokens = candidateTokens;
     }
-
-    // Measured over the prose the settlement carries, so the two cannot disagree.
-    const exceedsBudget: boolean = estimatedTokens > budgetTokens;
 
     const includedExchanges: readonly TranscriptExchange[] = exchanges.filter((_exchange, index) =>
       includedIndices.has(index),
@@ -668,17 +764,22 @@ export class MemoProjection {
       (exchange) => [...exchange.turns],
     );
 
-    const declaredLosses: DeclaredLossKind[] = [...transformed.losses];
-    // The floor's OWN loss, on every path. Without it a memo settlement could
-    // carry an empty list, and an empty list is the positive claim that nothing
-    // was dropped.
-    declaredLosses.push("conversation_history_summarized");
-    if (evictedExchangeCount > 0) {
+    const declaredLosses: readonly DeclaredLossKind[] = orderDeclaredLosses([
+      ...preBudgetLosses,
       // Declared on eviction alone. An over-budget render that evicted nothing
       // dropped nothing either, and claiming truncation there would be a loss
       // reported against a conversation that arrived whole.
-      declaredLosses.push("context_truncated");
-    }
+      ...(evictedExchangeCount > 0 ? (["context_truncated"] as const) : []),
+    ]);
+
+    // Assembled and measured with the marker it will actually be SENT with, so
+    // the memo carries a record of its own losses and `estimatedTokens` prices
+    // the emitted bytes rather than the pricing candidate.
+    const text: string = assembleFor(
+      includedIndices,
+      renderMemoContinuityMarker(memoIdentityKey, declaredLosses),
+    );
+    const estimatedTokens: number = this.#estimateTokens(text);
 
     return {
       memoIdentityKey,
@@ -688,8 +789,10 @@ export class MemoProjection {
       evictedExchangeCount,
       estimatedTokens,
       budgetTokens,
-      exceedsBudget,
-      declaredLosses: orderDeclaredLosses(declaredLosses),
+      // Measured over the prose the settlement carries, so the two cannot
+      // disagree.
+      exceedsBudget: estimatedTokens > budgetTokens,
+      declaredLosses,
     };
   }
 }
@@ -858,6 +961,23 @@ export type MemoDeliveryDisposition =
  */
 export type MemoWithheldReason = "target-unreadable" | "send-refused";
 
+/**
+ * Which memo the settlement's declared-loss list describes.
+ *
+ * The two are not interchangeable and the distinction is not cosmetic. A
+ * settlement resting on this call's own send describes prose this call rendered.
+ * A settlement resting on a marker READ off the target describes a memo some
+ * earlier moment rendered — possibly under a tighter budget, dropping more — and
+ * reporting this render's list there would tell the participant the target holds
+ * a summary it does not hold.
+ *
+ * `unknown` is the fail-closed arm: the delivered memo's record could not be read
+ * or did not parse, so the list is the floor's whole producible set — an upper
+ * bound stated AS an upper bound, never a fresh render passed off as the
+ * delivered one.
+ */
+export type MemoDeclaredLossSource = "this-delivery" | "delivered-memo" | "unknown";
+
 export interface MemoDeliverySettlement {
   /**
    * A literal, not a union: every operation settled on this floor reports
@@ -869,6 +989,9 @@ export interface MemoDeliverySettlement {
   readonly disposition: MemoDeliveryDisposition;
   readonly memoIdentityKey: string;
   readonly declaredLosses: readonly DeclaredLossKind[];
+  /** Which memo {@link declaredLosses} describes. Required: a list whose subject
+   * is ambiguous cannot be disclosed honestly. */
+  readonly declaredLossSource: MemoDeclaredLossSource;
   readonly withheldReason?: MemoWithheldReason | undefined;
   /** What was rendered, whether or not it was sent. Held in memory only. */
   readonly rendering: MemoRendering;
@@ -1017,15 +1140,20 @@ export class MemoDeliveryCoordinator {
       // a send is already outstanding the honest arm is the ambiguous one —
       // calling that withheld would assert non-delivery nobody established.
       return priorSendUnconfirmed
-        ? settle(rendering, "unconfirmed", undefined)
-        : settle(rendering, "withheld", "target-unreadable");
+        ? settle(rendering, "unconfirmed", undefined, thisDeliveryLosses(rendering))
+        : settle(rendering, "withheld", "target-unreadable", thisDeliveryLosses(rendering));
     }
 
     if (targetTurnsCarryMemoMarker(priorTurns, rendering.memoIdentityKey)) {
       // Definitive, and the one evidence that needs no barrier: an outstanding
       // send is now known to have applied, so the pair leaves the register.
       this.#unconfirmedDeliveries.delete(deliveryPairKey);
-      return settle(rendering, "already-delivered", undefined);
+      return settle(
+        rendering,
+        "already-delivered",
+        undefined,
+        deliveredMemoLosses(priorTurns, rendering.memoIdentityKey),
+      );
     }
 
     if (priorSendUnconfirmed) {
@@ -1034,7 +1162,7 @@ export class MemoDeliveryCoordinator {
         // is the sequential retry the whole register exists for: it reports the
         // ambiguity again and sends nothing, rather than racing a memo that is
         // already on its way in.
-        return settle(rendering, "unconfirmed", undefined);
+        return settle(rendering, "unconfirmed", undefined, thisDeliveryLosses(rendering));
       }
       // The barrier ordered this read behind a send that completed in an earlier
       // call, and the marker is not there: that send did not land. The ambiguity
@@ -1044,7 +1172,7 @@ export class MemoDeliveryCoordinator {
       // open another. The pair leaves the register, so the caller's next
       // delivery reconciles and sends as an ordinary first attempt.
       this.#unconfirmedDeliveries.delete(deliveryPairKey);
-      return settle(rendering, "withheld", "send-refused");
+      return settle(rendering, "withheld", "send-refused", thisDeliveryLosses(rendering));
     }
 
     try {
@@ -1056,7 +1184,7 @@ export class MemoDeliveryCoordinator {
           origin: "system_narration",
         }),
       });
-      return settle(rendering, "delivered", undefined);
+      return settle(rendering, "delivered", undefined, thisDeliveryLosses(rendering));
     } catch {
       // Ambiguous, and NOT resolvable inside this call. The pair is registered
       // FIRST, before anything that can throw or return, so no path out of here
@@ -1074,17 +1202,27 @@ export class MemoDeliveryCoordinator {
       try {
         turnsAfterSend = await this.#gateway.readTurnsForMarkerReconciliation();
       } catch {
-        return settle(rendering, "unconfirmed", undefined);
+        return settle(rendering, "unconfirmed", undefined, thisDeliveryLosses(rendering));
       }
       if (targetTurnsCarryMemoMarker(turnsAfterSend, rendering.memoIdentityKey)) {
         // The one evidence that needs no ordering at all: the memo is visibly
         // there, so the send that just failed to acknowledge in fact applied.
         this.#unconfirmedDeliveries.delete(deliveryPairKey);
-        return settle(rendering, "delivered", undefined);
+        // The same rule as the reconciliation above, and it is one rule: the
+        // losses come from the MARKER wherever the settlement rests on reading
+        // one. A found marker carrying no record is provably not the memo this
+        // call just composed, so it takes the conservative arm rather than this
+        // render's list.
+        return settle(
+          rendering,
+          "delivered",
+          undefined,
+          deliveredMemoLosses(turnsAfterSend, rendering.memoIdentityKey),
+        );
       }
       // One absent snapshot, read while the provider may still be applying the
       // frame. It is not evidence of non-delivery, so it settles nothing.
-      return settle(rendering, "unconfirmed", undefined);
+      return settle(rendering, "unconfirmed", undefined, thisDeliveryLosses(rendering));
     }
   }
 }
@@ -1131,18 +1269,62 @@ function settle(
   rendering: MemoRendering,
   disposition: MemoDeliveryDisposition,
   withheldReason: MemoWithheldReason | undefined,
+  lossRecord: MemoDeclaredLossRecord,
 ): MemoDeliverySettlement {
   return {
     status: "degraded",
     disposition,
     memoIdentityKey: rendering.memoIdentityKey,
-    declaredLosses: rendering.declaredLosses,
+    declaredLosses: lossRecord.losses,
+    declaredLossSource: lossRecord.source,
     withheldReason,
     rendering,
   };
 }
 
-/** The driver-boundary result a memo settlement reports. Never `applied`. */
+/** A declared-loss list paired with the memo it describes. */
+interface MemoDeclaredLossRecord {
+  readonly source: MemoDeclaredLossSource;
+  readonly losses: readonly DeclaredLossKind[];
+}
+
+/** What THIS call rendered — the honest subject wherever the settlement rests on
+ * this call's own send. */
+function thisDeliveryLosses(rendering: MemoRendering): MemoDeclaredLossRecord {
+  return { source: "this-delivery", losses: rendering.declaredLosses };
+}
+
+/**
+ * What the memo the target ALREADY holds recorded, for every settlement that
+ * rests on having read a marker rather than on having sent one.
+ *
+ * The unreadable arm declares the floor's whole producible set. Conservative on
+ * purpose and not merely defensive: every kind in that set is reachable from this
+ * floor, so the set IS the bound, and understating it would let a participant
+ * believe a summary carries reasoning or exchanges it may not.
+ */
+function deliveredMemoLosses(
+  targetTurns: readonly string[],
+  memoIdentityKey: string,
+): MemoDeclaredLossRecord {
+  const recorded: readonly DeclaredLossKind[] | undefined = readDeliveredMemoDeclaredLosses(
+    targetTurns,
+    memoIdentityKey,
+  );
+  return recorded === undefined
+    ? { source: "unknown", losses: DECLARED_LOSS_KINDS }
+    : { source: "delivered-memo", losses: recorded };
+}
+
+/**
+ * The driver-boundary result a memo settlement reports. Never `applied`.
+ *
+ * The list travels unqualified because the driver result declares no subject for
+ * it — deliberately, since widening that contract to carry one would make every
+ * driver a reader of this floor's internals. Where the subject matters, it is the
+ * DISCLOSURE that says so: `renderReconstitutionDisclosure` reads the settlement
+ * itself and states the upper bound as an upper bound.
+ */
 export function memoSettlementAsReplayResult(
   settlement: MemoDeliverySettlement,
 ): DriverTranscriptReplayResult {
@@ -1236,16 +1418,26 @@ export function renderReconstitutionDisclosure(settlement: ReconstitutionSettlem
       : `The prior conversation was replayed into the new session, apart from what could not be carried across (${losses}).`;
   }
 
+  // A settlement resting on a summary the new session ALREADY holds knows only
+  // what that summary recorded about itself, and where it recorded nothing the
+  // honest report is an upper bound stated as one. Rendering the list
+  // unqualified there would present what this call happened to render as an
+  // account of a summary it did not compose.
+  const memoLosses: string =
+    settlement.memo.declaredLossSource === "unknown"
+      ? `what that summary dropped is not recorded; at most ${losses}`
+      : losses;
+
   switch (settlement.memo.disposition) {
     case "delivered":
-      return `The prior conversation was summarized rather than replayed; the new session holds a bounded summary of it (${losses}).`;
+      return `The prior conversation was summarized rather than replayed; the new session holds a bounded summary of it (${memoLosses}).`;
     case "already-delivered":
-      return `The prior conversation was summarized rather than replayed; the new session already held that summary and it was not sent again (${losses}).`;
+      return `The prior conversation was summarized rather than replayed; the new session already held that summary and it was not sent again (${memoLosses}).`;
     case "withheld":
-      return `The prior conversation was summarized rather than replayed, and the summary did not reach the new session (${losses}).`;
+      return `The prior conversation was summarized rather than replayed, and the summary did not reach the new session (${memoLosses}).`;
     case "unconfirmed":
-      return `The prior conversation was summarized rather than replayed, and whether the summary reached the new session could not be confirmed (${losses}).`;
+      return `The prior conversation was summarized rather than replayed, and whether the summary reached the new session could not be confirmed (${memoLosses}).`;
     default:
-      return `The prior conversation was summarized rather than replayed (${losses}).`;
+      return `The prior conversation was summarized rather than replayed (${memoLosses}).`;
   }
 }

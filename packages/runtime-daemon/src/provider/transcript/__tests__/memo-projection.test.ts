@@ -40,6 +40,7 @@ import type {
   RunId,
   SessionId,
 } from "@ai-sidekicks/contracts";
+import { DECLARED_LOSS_KINDS } from "@ai-sidekicks/contracts";
 
 import type { StoredEvent } from "../../../session/types.js";
 import {
@@ -59,6 +60,7 @@ import {
   defaultMemoBudgetPolicy,
   deriveMemoIdentityKey,
   partitionIntoExchanges,
+  readDeliveredMemoDeclaredLosses,
   renderMemoContinuityMarker,
   renderReconstitutionDisclosure,
   type MemoBudgetPolicy,
@@ -971,6 +973,136 @@ describe("memo delivery — once-only under a lost acknowledgment", () => {
   });
 });
 
+/** A conversation long enough that a tight budget must evict some of it. */
+function plainConversation(): CanonicalTranscriptProjection {
+  const turns: CanonicalTranscriptTurn[] = [];
+  for (let index = 0; index < 12; index += 1) {
+    turns.push(
+      turn(index + 1, index % 2 === 0 ? "participant" : "assistant", [
+        { kind: "text", text: `plain exchange ${index.toString()} ${PADDING}` },
+      ]),
+    );
+  }
+  return projectionOf(turns);
+}
+
+describe("memo reconciliation — the losses reported are the DELIVERED summary's", () => {
+  it("reports what the delivered summary dropped, not what a later render would", async () => {
+    // The hazard: the summary the new session holds was rendered under a tight
+    // budget and left older exchanges out. A later delivery under a roomier one
+    // finds that summary, sends nothing — and would otherwise report the fresh
+    // render's losses, telling the participant a summary they can scroll back and
+    // read carries exchanges it does not.
+    const target = new FakeTargetSession();
+    const projection: CanonicalTranscriptProjection = plainConversation();
+
+    const delivered: MemoDeliverySettlement = await new MemoDeliveryCoordinator(target).deliver(
+      requestFor(projection, defaultMemoBudgetPolicy(600)),
+    );
+    expect(delivered.disposition).toBe("delivered");
+    expect(delivered.declaredLosses).toContain("context_truncated");
+
+    // A fresh coordinator under a budget wide enough to drop nothing, so only
+    // the read decides what is reported.
+    const retry: MemoDeliverySettlement = await new MemoDeliveryCoordinator(target).deliver(
+      requestFor(projection, ROOMY_BUDGET),
+    );
+
+    expect(retry.disposition).toBe("already-delivered");
+    expect(retry.rendering.declaredLosses).not.toContain("context_truncated");
+    expect(retry.declaredLossSource).toBe("delivered-memo");
+    expect(retry.declaredLosses).toStrictEqual(delivered.declaredLosses);
+    expect(target.sendAttempts).toBe(1);
+  });
+
+  it("declares an upper bound when the delivered summary recorded no losses of its own", async () => {
+    // A summary placed in the conversation before summaries recorded what they
+    // dropped. Nothing can be learned from it, so the report is the floor's whole
+    // producible set — stated as a bound rather than as an account.
+    const target = new FakeTargetSession();
+    const projection: CanonicalTranscriptProjection = plainConversation();
+    const request: MemoDeliveryRequest = requestFor(projection, ROOMY_BUDGET);
+    target.turns.push(
+      `an older summary ${MEMO_CONTINUITY_MARKER_PREFIX}${deriveMemoIdentityKey(projection, TARGET)}`,
+    );
+
+    const settlement: MemoDeliverySettlement = await new MemoDeliveryCoordinator(target).deliver(
+      request,
+    );
+
+    expect(settlement.disposition).toBe("already-delivered");
+    expect(settlement.declaredLossSource).toBe("unknown");
+    expect(settlement.declaredLosses).toStrictEqual(DECLARED_LOSS_KINDS);
+    expect(target.sendAttempts).toBe(0);
+
+    const disclosure: string = renderReconstitutionDisclosure({
+      route: "memo",
+      memo: settlement,
+      result: { status: "degraded", declaredLosses: [...settlement.declaredLosses] },
+    });
+    expect(disclosure).toContain("not recorded");
+    expect(disclosure).toContain("at most");
+  });
+
+  it("refuses to read a record it does not fully understand", async () => {
+    // Fail-closed on the parse, for the same reason the fold fails closed on an
+    // unknown disclosure: understanding a record partly is worse than not
+    // claiming to understand it. The unrecognized token could name any loss.
+    const projection: CanonicalTranscriptProjection = plainConversation();
+    const memoIdentityKey: string = deriveMemoIdentityKey(projection, TARGET);
+
+    expect(
+      readDeliveredMemoDeclaredLosses(
+        [
+          `${MEMO_CONTINUITY_MARKER_PREFIX}${memoIdentityKey};dropped=context_truncated+a_kind_from_later`,
+        ],
+        memoIdentityKey,
+      ),
+    ).toBeUndefined();
+    expect(
+      readDeliveredMemoDeclaredLosses(
+        [
+          `carried in prose: ${renderMemoContinuityMarker(memoIdentityKey, [
+            "context_truncated",
+            "conversation_history_summarized",
+          ])} and the summary follows.`,
+        ],
+        memoIdentityKey,
+      ),
+    ).toStrictEqual(["context_truncated", "conversation_history_summarized"]);
+  });
+
+  it("reports the delivered summary's losses on an acknowledgment lost after it landed", async () => {
+    // The same rule at the other site where a settlement rests on a marker read
+    // rather than on this call's own acknowledged send. Placing an unrecorded
+    // marker under this memo's key proves the rule is read off the marker: a
+    // marker with no record is provably not the memo this call composed.
+    const target = new FakeTargetSession();
+    const projection: CanonicalTranscriptProjection = plainConversation();
+    const request: MemoDeliveryRequest = requestFor(projection, ROOMY_BUDGET);
+    target.sendBehavior = "apply-then-fail";
+    target.readOutcomes.push("ok");
+    // Blind the PRE-send read only, so the send is attempted and its readback is
+    // what settles the delivery.
+    const priorTurn = `an older summary ${MEMO_CONTINUITY_MARKER_PREFIX}${deriveMemoIdentityKey(
+      projection,
+      TARGET,
+    )}`;
+
+    const settlement: MemoDeliverySettlement = await new MemoDeliveryCoordinator({
+      readTurnsForMarkerReconciliation: async (): Promise<readonly string[]> =>
+        target.sendAttempts === 0 ? [] : [priorTurn, ...target.turns],
+      sendMemoTurn: async (frame: MemoOutboundFrame): Promise<void> => {
+        await target.sendMemoTurn(frame);
+      },
+    }).deliver(request);
+
+    expect(settlement.disposition).toBe("delivered");
+    expect(settlement.declaredLossSource).toBe("unknown");
+    expect(settlement.declaredLosses).toStrictEqual(DECLARED_LOSS_KINDS);
+  });
+});
+
 // --------------------------------------------------------------------------
 // 2b — an ambiguous send is held unconfirmed, never settled off one snapshot
 // --------------------------------------------------------------------------
@@ -1628,16 +1760,22 @@ describe("memo frame — the key is carried as visible characters", () => {
       requestFor(projection),
     );
 
+    const marker: string = renderMemoContinuityMarker(
+      settlement.memoIdentityKey,
+      settlement.declaredLosses,
+    );
     const frame: MemoOutboundFrame | undefined = sentFrames[0];
     expect(frame).toBeDefined();
     // Asserted on the FRAME, not on the projection or the settlement.
-    expect(frame?.frame.wireText).toContain(renderMemoContinuityMarker(settlement.memoIdentityKey));
+    expect(frame?.frame.wireText).toContain(marker);
     expect(frame?.memoIdentityKey).toBe(settlement.memoIdentityKey);
 
-    const markerIndex: number = (frame?.frame.wireText ?? "").indexOf(
-      renderMemoContinuityMarker(settlement.memoIdentityKey),
-    );
+    const markerIndex: number = (frame?.frame.wireText ?? "").indexOf(marker);
     expect(markerIndex).toBeGreaterThanOrEqual(0);
+    // The whole marker is one whitespace-free run of printable ASCII, which is
+    // what makes it survive a provider's reflow — the record it now carries
+    // included, not just the prefix it leads with.
+    expect(marker).toMatch(/^[\x21-\x7E]+$/);
   });
 
   it("reaches the gateway only through a composed frame, minted as system narration", async () => {

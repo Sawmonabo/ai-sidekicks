@@ -1656,6 +1656,46 @@ describe("Claude driver provider-bound text path", () => {
     );
   });
 
+  it("keeps the predecessor's frames correlated when a rewind's adoption fails", async () => {
+    // A rewind that fails after the fork is minted restores the PREDECESSOR,
+    // which is still running and still owes a ruling on the turn it is in the
+    // middle of. Dropping that correlation ahead of the successor's adoption
+    // would let the evidence-free terminal below pass as a completed turn — the
+    // exact swallow this tripwire exists to catch, hidden by the recovery path.
+    const harness = buildHarness();
+    const predecessorChannel = await startRunWith(harness, "/status please", "participant_text");
+
+    // The transport refuses the terminal-hook registration, which is the last
+    // thing that runs inside the driver's adoption window.
+    harness.transport.onTurnTerminalFailure = new Error("the transport refused the terminal hook");
+
+    const rollback = await harness.lifecycle.rollbackTo({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+      position: 4,
+    });
+
+    expect(rollback.status).toBe("degraded");
+    // Non-destructive on failure: the predecessor is the bound channel again,
+    // and the FORK is what was released. Asserted so the ruling below is read
+    // off the predecessor's own frame rather than off a successor that was
+    // adopted and inherited the correlation.
+    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBe(predecessorChannel);
+    const forkChannel = harness.transport.spawnedChannels[1];
+    if (forkChannel === undefined) {
+      throw new Error("expected the rewind to have spawned a fork channel");
+    }
+    expect(forkChannel.disposals).toStrictEqual(["establishment_failed"]);
+
+    predecessorChannel.terminalFrameBody = CLAUDE_ZERO_TURN_RESULT_FRAME;
+    predecessorChannel.emitStreamFrame("result/success");
+
+    expect(harness.failures.map((failure) => failure.runId)).toStrictEqual([TEST_RUN_ID]);
+    expect(() => harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toThrow(
+      TextNeutralizationRefusedError,
+    );
+  });
+
   it("still disposes the binding when the failure consumer throws", async () => {
     // The run terminal is the guarantee; losing the disposal because a listener
     // threw would leave the swallowed turn reachable as well as unrecorded.

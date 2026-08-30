@@ -126,8 +126,16 @@ class RecordedContentSource implements TranscriptContentSource {
     return this.participantTextBySequence.get(reference.sequence);
   }
 
-  readReasoningBlocks(reference: TranscriptContentReference): readonly TranscriptReasoningBlock[] {
-    return this.reasoningBlocksBySequence.get(reference.sequence) ?? [];
+  /**
+   * Answers ABSENT for a row nothing seeded, matching the port's sibling
+   * readers: an unseeded row is one whose blocks this source could not read, and
+   * a fake that answered the empty list instead would make the unreadable arm
+   * untestable by making it unreachable.
+   */
+  readReasoningBlocks(
+    reference: TranscriptContentReference,
+  ): readonly TranscriptReasoningBlock[] | undefined {
+    return this.reasoningBlocksBySequence.get(reference.sequence);
   }
 
   readToolCallArguments(reference: TranscriptContentReference): string | undefined {
@@ -1566,6 +1574,137 @@ describe("canonical transcript fold — a tool row naming no call identifier", (
       "provider_private_reasoning",
       "turn_content_unavailable",
     ]);
+  });
+
+  it("carries an unkeyed answer the provider emitted inside a summary block", () => {
+    const fixture = makeFixture();
+    // The private case's twin, and the whole point of resolving enclosure rather
+    // than treating it as decisive: a summary block is history the participant
+    // already read, so the answer inside it is portable content. Withholding it
+    // would drop the body AND declare a loss that did not happen.
+    fixture.log.append(storedEvent(1, "assistant.thinking_update", { runId: RUN_ID }));
+    fixture.contentSource.reasoningBlocksBySequence.set(1, [
+      {
+        blockId: "block-1",
+        reasoningKind: "summary",
+        disclosure: "summary",
+        text: "checking the test suite",
+      },
+    ]);
+    fixture.log.append(storedEvent(2, "tool.result", { runId: RUN_ID }));
+    fixture.contentSource.toolResultBodyBySequence.set(2, {
+      text: "42 tests passed",
+      enclosingReasoningBlockId: "block-1",
+    });
+
+    const exported: DriverTranscriptExportResult =
+      new TranscriptTransformPipeline().exportTranscript(
+        fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID }),
+        "unbounded",
+      );
+
+    expect(exportedText(exported)).toContain("[tool result succeeded] 42 tests passed");
+    expect(exported.declaredLosses).toEqual([]);
+  });
+
+  it("carries an unkeyed answer logged before the summary block that enclosed it", () => {
+    const fixture = makeFixture();
+    // The row order that earns the deferral. The answer is logged FIRST and the
+    // block that enclosed it second, which a row-by-row lookup cannot see — it
+    // would withhold portable content and declare a loss over a summary block
+    // the very next row carries.
+    fixture.log.append(storedEvent(1, "tool.result", { runId: RUN_ID }));
+    fixture.contentSource.toolResultBodyBySequence.set(1, {
+      text: "42 tests passed",
+      enclosingReasoningBlockId: "block-1",
+    });
+    fixture.log.append(storedEvent(2, "assistant.thinking_update", { runId: RUN_ID }));
+    fixture.contentSource.reasoningBlocksBySequence.set(2, [
+      {
+        blockId: "block-1",
+        reasoningKind: "summary",
+        disclosure: "summary",
+        text: "checking the test suite",
+      },
+    ]);
+
+    const exported: DriverTranscriptExportResult =
+      new TranscriptTransformPipeline().exportTranscript(
+        fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID }),
+        "unbounded",
+      );
+
+    expect(exportedText(exported)).toContain("[tool result succeeded] 42 tests passed");
+    expect(exported.declaredLosses).toEqual([]);
+  });
+
+  it("withholds an unkeyed answer citing a block its own turn does not carry", () => {
+    const fixture = makeFixture();
+    // The summary block lives in an EARLIER turn, so this turn cannot say what
+    // the citation's disclosure is. Rendering it to text would erase the
+    // enclosure for good, so an unknown disclosure fails closed.
+    fixture.log.append(storedEvent(1, "assistant.thinking_update", { runId: RUN_ID }));
+    fixture.contentSource.reasoningBlocksBySequence.set(1, [
+      {
+        blockId: "block-1",
+        reasoningKind: "summary",
+        disclosure: "summary",
+        text: "checking the test suite",
+      },
+    ]);
+    fixture.log.append(storedEvent(2, "run.turn_started", { runId: RUN_ID }));
+    fixture.log.append(storedEvent(3, "tool.result", { runId: RUN_ID }));
+    fixture.contentSource.toolResultBodyBySequence.set(3, {
+      text: "42 tests passed",
+      enclosingReasoningBlockId: "block-1",
+    });
+
+    const exported: DriverTranscriptExportResult =
+      new TranscriptTransformPipeline().exportTranscript(
+        fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID }),
+        "unbounded",
+      );
+
+    expect(exportedText(exported)).not.toContain("42 tests passed");
+    expect(exported.declaredLosses).toContain("turn_content_unavailable");
+  });
+
+  it("marks a reasoning row whose blocks could not be read", () => {
+    const fixture = makeFixture();
+    // No blocks seeded: this row's reasoning is UNREADABLE, not absent. A
+    // summary block would have been flattened and kept under no declared loss,
+    // so answering the empty list here would carry participant-visible history
+    // out of the export in silence.
+    fixture.log.append(storedEvent(1, "assistant.thinking_update", { runId: RUN_ID }));
+
+    const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
+
+    expect(projection.turns[0]?.segments).toEqual([
+      { kind: "text", position: 1, text: "", contentUnavailable: true },
+    ]);
+    expect(
+      new TranscriptTransformPipeline().exportTranscript(projection, "unbounded").declaredLosses,
+    ).toEqual(["turn_content_unavailable"]);
+  });
+
+  it("keeps a reasoning row that carried no blocks apart from one it could not read", () => {
+    const fixture = makeFixture();
+    // The other empty answer, and the reason the two are distinguishable: this
+    // row genuinely carried nothing, so it contributes no segment and the export
+    // declares nothing over it.
+    fixture.log.append(storedEvent(1, "assistant.thinking_update", { runId: RUN_ID }));
+    fixture.contentSource.reasoningBlocksBySequence.set(1, []);
+    fixture.log.append(storedEvent(2, "assistant.message", { runId: RUN_ID }));
+    fixture.contentSource.assistantTextBySequence.set(2, "done");
+
+    const exported: DriverTranscriptExportResult =
+      new TranscriptTransformPipeline().exportTranscript(
+        fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID }),
+        "unbounded",
+      );
+
+    expect(exportedText(exported)).toBe("done");
+    expect(exported.declaredLosses).toEqual([]);
   });
 
   it("marks an unkeyed invocation whose arguments could not be read", () => {
