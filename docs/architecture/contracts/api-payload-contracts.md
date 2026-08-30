@@ -894,6 +894,23 @@ interface ProviderDriver {
 //     (driverName, providerAccountId) binding. Addressing it by run would force the one caller
 //     that has an agent to obtain a run id it does not otherwise need.
 //
+// AN AGENT CAN HOLD SEVERAL LIVE BINDINGS AT ONCE, so the RESULT is discriminated rather than the
+// request (2026-08-29, round-3 fold). Plan-016's admission pipeline has no one-active-run-per-agent
+// gate and V1 permits concurrent runs, so `agentId` does not resolve to one binding: the agent may
+// have a run per leg, and a provider switch that applied at a run boundary leaves older runs on the
+// binding they spawned under. An enumeration is held per driver session and two of them can
+// legitimately differ. The fix is NOT to re-address the request by `runId`: that would reverse the
+// bullet above for the one caller that has an agent and not a run, and it would still not name a
+// binding, since `runtime_bindings` is keyed by its own id with `run_id` on the row and run ->
+// bindings is 1:many. Instead the reply carries one group PER LIVE BINDING, each naming the run it
+// belongs to and the `(driverName, providerAccountId)` it was read under — the tuple a client can
+// actually construct, no `bindingId` being published anywhere. The reply is therefore TOTAL under
+// concurrency: a caller can never receive an arbitrary leg's commands mistaken for the agent's,
+// because every entry arrives inside the group that says where it came from. Consumers MUST NOT
+// flatten the groups into one list — the routing invariant is stated per binding, so a flattened
+// list is exactly the lost provenance the `binding` member on each entry exists to prevent
+// (`Spec-005 §The provider command and skill surface`; the composer's rule is Plan-023 T-023r-6-2).
+//
 // Resolution refuses in a FIXED ORDER, each on an ALREADY-REGISTERED code, so this addressing
 // mints none: `session.not_found` (unknown or inaccessible session — the collapsed refusal
 // above), then `run.not_found` / `agent.not_found` (no such run or agent, or not one of that
@@ -956,7 +973,18 @@ interface ListProviderCommandsParams {
 // a held list instead of re-reading. `kind` distinguishes the two things providers publish
 // under one syntax; `scope` is present only where the provider declares one (the Codex skills
 // surface does, the Claude handshake enumeration does not), so its absence means the provider
-// stated no scope rather than that the scope is unknown to the driver.
+// stated no scope rather than that the scope is unknown to the driver. `enabled` follows that same
+// present-iff-the-provider-declares-one rule (2026-08-29, round-3 fold): the Codex `skills/list`
+// entry carries an `enabled` Boolean (`Spec-005 §Per-Driver Capability Matrix`) and the Claude
+// handshake enumeration publishes no enabled/disabled distinction at all, so ABSENT means the
+// provider draws no such distinction on this surface — never that the entry's state is unknown to
+// the driver, and never a driver-synthesized `true`, which would be exactly the fabricated reading
+// the verbatim rules elsewhere in this section forbid. The driver DOES NOT FILTER: a disabled entry
+// is returned, because dropping it would make the result stop being the provider's enumeration as
+// observed, and a consumer would have no way to tell a disabled command from one that does not
+// exist. What the flag governs is OFFERABILITY, not presence — an entry whose `enabled` is
+// explicitly `false` is not offerable and is rendered unavailable rather than advertised as
+// runnable, since the bound provider will not execute it; an absent `enabled` is offerable.
 //
 // V1 IS ENUMERATION AND DISCOVERY, NOT A DISPATCH CHANNEL (2026-08-29). No member of this shape
 // is a dispatch handle, and no wire route takes one: the ONLY entry V1 sends is the compaction
@@ -986,17 +1014,37 @@ interface ProviderCommandEntry {
   kind: "command" | "skill";
   description?: string;
   scope?: string;
+  // Absent = the provider draws no enabled/disabled distinction on this surface. `false` = the
+  // provider published the entry AND declared it disabled: returned, never filtered, not offerable.
+  enabled?: boolean;
   binding: { driverName: string; providerAccountId: string };
 }
 
-// `complete: false` means the provider published more entries than the cap admits and the tail was
-// dropped. The cap is a WIRE-AND-RENDER bound only: `compactContext`'s pre-dispatch presence check
-// reads the driver's OWN HELD enumeration for the binding, never this capped result, so a
-// truncated read can never manufacture a `command_absent` refusal for a command the provider
-// actually publishes.
-interface ProviderCommandListResult {
+// One live binding's enumeration. `runId` and `binding` TOGETHER say where these entries came from:
+// neither alone is a key (run -> bindings is 1:many, and one agent can hold bindings on the same
+// provider and account across two runs), and no claim is made here that either is unique — the pair
+// is provenance a client can read and construct, not an addressing handle, and V1 dispatches
+// nothing from this read. `complete: false` means the provider published more entries than the cap
+// admits and this group's tail was dropped; the cap and the flag are PER GROUP, so one truncated
+// binding never marks another complete or incomplete. The cap is a WIRE-AND-RENDER bound only:
+// `compactContext`'s pre-dispatch presence check reads the driver's OWN HELD enumeration for the
+// binding, never this capped result, so a truncated read can never manufacture a `command_absent`
+// refusal for a command the provider actually publishes.
+interface ProviderCommandBindingGroup {
+  runId: RunId;
+  binding: { driverName: string; providerAccountId: string };
   entries: ProviderCommandEntry[];
   complete: boolean;
+}
+
+// The reply is the GROUP LIST, never a bare entry array (2026-08-29, round-3 fold — see the
+// concurrent-bindings note at the request above). A single-binding agent yields one group, so the
+// common case costs one level of nesting and the concurrent case stays representable instead of
+// silently collapsing. The array is never empty on a success reply: an agent with no live binding
+// refuses `driver.unavailable` in the fixed order above rather than returning zero groups, so an
+// empty list cannot be mistaken for "this provider publishes nothing".
+interface ProviderCommandListResult {
+  bindings: ProviderCommandBindingGroup[];
 }
 
 // Transcript export/replay shapes (2026-08-26, ADR-029). The canonical transcript is a PROJECTION
@@ -1065,7 +1113,7 @@ interface CreateSessionParams {
   // than reaching the provider. Spawn-bound like posture and schema: the axis is a settings opt-in
   // the provider reads at process start, so a fresh process is the only place it can be realized
   // and `ResumeSessionParams` re-realizes it below. Requesting it is NOT the same as getting it —
-  // what the provider actually declared comes back on `ProviderSessionHandle.outputSpeedState`.
+  // what the provider actually declared is observed later as binding-held `ProviderOutputSpeedState`.
   outputSpeed?: string;
   callbackTools?: SessionCallbackTool[]; // daemon-curated callback-tool registry exposed into the session (Codex function-form dynamicTools; Claude daemon-hosted ephemeral MCP server via --mcp-config); gated on the callback_tools flag
   subagentPolicy?: SubagentPolicy; // provider-native in-session subagent policy pass-through under the single-supervisor invariant (Spec-016 semantics land via campaign B6); gated on the subagents flag
@@ -1250,15 +1298,15 @@ type DriverGoalResult =
 // `runtime_bindings.updated_at` (Plan-005 T2.1); the result shape carries only the
 // discriminated-union semantic payload.
 type DriverResumeResult =
-  // `outputSpeedState` is the relaunched process's OWN declaration, read on the handshake the
-  // resume performs anyway (2026-08-29). Optional because a driver without the `output_speed`
-  // flag reads nothing to report — its absence means the axis was never in play on this leg, and
-  // is never read as "the mode is off".
+  // NO `outputSpeedState` MEMBER, and its absence is the 2026-08-29 round-3 correction rather than
+  // an omission: a resume is a fresh spawn, so it has exactly the defect `ProviderSessionHandle`
+  // does — the declaring handshake is turn-bearing, and this result resolves before any turn-bearing
+  // exchange on the relaunched process. The declared state is observed later, as the binding-held
+  // state `ProviderOutputSpeedState` below defines.
   | {
       status: "resumed";
       bindingId: string;
       sessionPosition: number;
-      outputSpeedState?: ProviderOutputSpeedState;
     }
   | {
       status: "failed";
@@ -1308,21 +1356,29 @@ interface CloseSessionParams {
   sessionId: SessionId;
 }
 
+// NO `outputSpeedState` MEMBER (2026-08-29 round-3 correction — it was drafted here and REMOVED
+// before any producer landed). This is the driver-constructed RETURN of `createSession`, which
+// resolves before `startRun` can begin the first turn-bearing exchange, and `Spec-005 §Detection
+// source is static` establishes that the handshake declaring the speed state is emitted only as
+// part of such an exchange. A member here could therefore never be populated on any path, and a
+// structurally always-absent member is a field minted ahead of its producer — the NS-84 ground on
+// which a capability flag with no reader was withdrawn rather than shipped. The observation is
+// binding-held state instead; see `ProviderOutputSpeedState` below.
 interface ProviderSessionHandle {
   providerSessionId: string;
   resumeHandle: string;
-  // What the provider ACTUALLY declared for the accelerated-output axis on this session's own
-  // handshake (2026-08-29, Spec-005 §The output-speed axis). Present iff the driver declares
-  // `output_speed`; absent means the axis was never in play on this leg, never that the mode is
-  // off. This is the member that makes a false success unrepresentable: `CreateSessionParams
-  // .outputSpeed` is what was ASKED FOR, and the two are separate values precisely because a
-  // provider may accept the setting and leave the mode off.
-  outputSpeedState?: ProviderOutputSpeedState;
 }
 
-// The provider's own report, read at the spawn handshake the driver performs anyway — never a
-// probe of its own and never synthesized from the request (2026-08-29). READ AND DISCARDED WITH
-// THE SESSION: it is deliberately NOT written to `runtime_bindings.spawn_config`, which records
+// The provider's own report — never a probe of its own and never synthesized from the request
+// (2026-08-29). IT IS BINDING-HELD DRIVER-SESSION STATE, NOT A SPAWN RETURN (round-3 correction).
+// The declaring handshake is emitted only as part of a turn-bearing exchange (`Spec-005 §Detection
+// source is static`), so neither `createSession` nor `resumeSession` can carry it: both resolve
+// before the first such exchange, and neither may spend a synthetic turn or block waiting for one.
+// The driver therefore records the state against the binding WHEN THE HANDSHAKE ACTUALLY ARRIVES,
+// on the first turn-bearing exchange the participant's own work produces, and holds it for the
+// binding's life — the same held-state shape `listProviderCommands` already uses. Until then the
+// binding HAS NO OBSERVATION, and every reader of it is absent-until-observed rather than defaulted.
+// READ AND DISCARDED WITH THE SESSION: it is deliberately NOT written to `runtime_bindings.spawn_config`, which records
 // what was REQUESTED so a resume can re-realize it, and not to `agents.output_speed`, which
 // records the operator's accepted choice. Persisting an observation into either would create a
 // second, staler record of a fact the live session already holds — and would make a mode that
@@ -4666,12 +4722,26 @@ interface AgentListResponse {
     outputSpeed?: string;
     // What the PROVIDER declared, as against `outputSpeed` above, which is what was REQUESTED
     // (2026-08-29, Spec-005 §The output-speed axis). Projected at response-build time from the
-    // live binding's own `ProviderSessionHandle.outputSpeedState` — the handshake reading the
-    // spawn already performed — and stored in no column, so it cannot go stale. LIVE-SCOPED on
-    // the SA-44 park-member precedent: present only while a provider binding for this agent is
-    // live AND that binding's driver declares `output_speed`. Its presence is therefore the
-    // wire's discriminator for "this was read from the provider"; its absence means nothing was
-    // read, never that the mode is off. This member is what makes the prohibited false success
+    // binding-held `ProviderOutputSpeedState` — the observation the driver recorded when the
+    // declaring handshake arrived — and stored in no column, so it cannot go stale. LIVE-SCOPED on
+    // the SA-44 park-member precedent.
+    //
+    // ABSENT HAS EXACTLY THREE CAUSES, and none of them is "the mode is off" (round-3 fold): the
+    // binding's driver declares no `output_speed` and there is nothing to read; the driver declares
+    // it and NO TURN-BEARING EXCHANGE HAS YET CARRIED THE HANDSHAKE, so the observation has not
+    // happened; or no binding for this agent is live. The middle arm is the one a spawn-time reader
+    // will hit — an agent read immediately after a switch applies is expected to show the requested
+    // value with this member absent — so consumers render "not yet observed", never "off" and never
+    // a stand-in for `outputSpeed`. Presence stays the discriminator for "this was read from the
+    // provider"; absence now means nothing has been read YET or ever, which is the same instruction
+    // to the reader in every arm.
+    //
+    // UNDER CONCURRENT BINDINGS the projection is the agent's MOST RECENTLY ESTABLISHED live
+    // binding, stated as a rule rather than left to "the live binding" (round-3 fold): an agent can
+    // hold several at once, and that one is the only binding whose spawn could have realized the
+    // `outputSpeed` served beside it, so the two values in this row compare like with like instead
+    // of pairing a current request with an older leg's declaration. A single-binding agent — the
+    // ordinary case — is unaffected. This member is what makes the prohibited false success
     // unrenderable — a provider that ACCEPTS the setting and then leaves the mode off shows a
     // requested value and a differing declared one, with the provider's own reason beside it.
     // That disagreement is deliberately NOT a switch failure: the switch applied, the provider
