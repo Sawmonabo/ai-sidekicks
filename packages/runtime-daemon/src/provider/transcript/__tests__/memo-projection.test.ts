@@ -68,6 +68,7 @@ import {
   readDeliveredMemoDeclaredLosses,
   renderMemoContinuityMarker,
   renderReconstitutionDisclosure,
+  targetTurnsCarryAttributableMemoMarker,
   targetTurnsCarryMemoMarker,
   type MemoBudgetPolicy,
   type MemoDeliveryRequest,
@@ -1215,6 +1216,71 @@ describe("memo reconciliation — the losses reported are the DELIVERED summary'
     expect(target.sendAttempts).toBe(1);
   });
 
+  it("sends the memo past a pasted foreign marker rather than settling on it", async () => {
+    // Marker text is plain prose, so a participant can paste another
+    // conversation's marker — syntactically complete, valid record and all —
+    // into the target. An admission that matched ANY well-shaped key read that
+    // quotation as a delivery and settled `already-delivered` over a target
+    // holding no memo: the silent-non-delivery direction the admission's own
+    // asymmetry note prices as the worse one. A key this coordinator never
+    // attempted settles nothing.
+    const target = new FakeTargetSession();
+    const foreignMemoIdentityKey: string = "ab".repeat(16);
+    target.turns.push(
+      `the other session said: ${MEMO_CONTINUITY_MARKER_PREFIX}${foreignMemoIdentityKey};dropped=conversation_history_summarized`,
+      `and bare: ${MEMO_CONTINUITY_MARKER_PREFIX}${"cd".repeat(16)}`,
+    );
+
+    const settlement: MemoDeliverySettlement = await deliverVia(
+      new MemoDeliveryCoordinator(target),
+      requestFor(plainConversation(), ROOMY_BUDGET),
+    );
+
+    expect(settlement.disposition).toBe("delivered");
+    expect(target.sendAttempts).toBe(1);
+  });
+
+  it("still settles already-delivered on its own marker beside pasted foreign ones", async () => {
+    const target = new FakeTargetSession();
+    const coordinator = new MemoDeliveryCoordinator(target);
+    const request: DeliveryDraft = requestFor(plainConversation(), ROOMY_BUDGET);
+
+    const first: MemoDeliverySettlement = await deliverVia(coordinator, request);
+    expect(first.disposition).toBe("delivered");
+    target.turns.push(`quoted: ${MEMO_CONTINUITY_MARKER_PREFIX}${"ef".repeat(16)}`);
+
+    const retry: MemoDeliverySettlement = await deliverVia(coordinator, request);
+
+    expect(retry.disposition).toBe("already-delivered");
+    expect(target.sendAttempts).toBe(1);
+  });
+
+  it("admits exactly the attributable keys, at the predicate level", () => {
+    const attributedKey: string = "12".repeat(16);
+    const foreignKey: string = "34".repeat(16);
+    const attributable: ReadonlySet<string> = new Set([attributedKey]);
+    expect(
+      targetTurnsCarryAttributableMemoMarker(
+        [`${MEMO_CONTINUITY_MARKER_PREFIX}${attributedKey}`],
+        attributable,
+      ),
+    ).toBe(true);
+    expect(
+      targetTurnsCarryAttributableMemoMarker(
+        [`${MEMO_CONTINUITY_MARKER_PREFIX}${foreignKey}`],
+        attributable,
+      ),
+    ).toBe(false);
+    // The grammar is still the strict shared one: an attributable key in a
+    // non-marker shape is not an occurrence at all.
+    expect(
+      targetTurnsCarryAttributableMemoMarker(
+        [`${MEMO_CONTINUITY_MARKER_PREFIX}${attributedKey}0`],
+        attributable,
+      ),
+    ).toBe(false);
+  });
+
   it("names the target session on every reconciliation read, as the send does", async () => {
     // Reconciliation decides whether to send INTO the session the frame names,
     // so an un-targeted read would let an absent marker in one session license a
@@ -1754,6 +1820,54 @@ describe("memo delivery — once-only is per target, not per memo", () => {
     // The marker found is another memo's; its record cannot account for THIS
     // projection's omissions, so the losses are the conservative ceiling.
     expect(grown.declaredLossSource).toBe("unknown");
+  });
+
+  it("still settles a restarted coordinator already-delivered on its own memo's marker", async () => {
+    // The attributable-key admission always includes the CURRENT rendering's
+    // key, so a predecessor lifetime's delivery of THIS memo suppresses a
+    // fresh coordinator's resend — the attempted-key register is a widening
+    // for grown projections, not the sole source of attribution.
+    const target = new FakeTargetSession();
+    const first: MemoDeliverySettlement = await deliverVia(
+      new MemoDeliveryCoordinator(target),
+      requestFor(FIRST_PROJECTION),
+    );
+    expect(first.disposition).toBe("delivered");
+
+    const restarted: MemoDeliverySettlement = await deliverVia(
+      new MemoDeliveryCoordinator(target),
+      requestFor(FIRST_PROJECTION),
+    );
+
+    expect(restarted.disposition).toBe("already-delivered");
+    expect(target.sendAttempts).toBe(1);
+  });
+
+  it("re-sends a grown projection after a restart onto a predecessor-seeded target", async () => {
+    // The RECORDED residual of attributable-key admission, pinned so the
+    // choice is read here rather than inferred: the attempted-key register
+    // lives in the coordinator, so a restarted coordinator rendering a GROWN
+    // projection does not recognize its predecessor's marker as its own and
+    // sends one redundant visible summary. Priced acceptable deliberately —
+    // the admission this replaced (settle on ANY well-formed marker) let a
+    // pasted transcript forge suppression of a memo that was never delivered,
+    // and the false-no side costs a duplicate summary while the false-yes
+    // side costs the participant their continuity.
+    const target = new FakeTargetSession();
+    const first: MemoDeliverySettlement = await deliverVia(
+      new MemoDeliveryCoordinator(target),
+      requestFor(FIRST_PROJECTION),
+    );
+    expect(first.disposition).toBe("delivered");
+
+    const restarted: MemoDeliverySettlement = await deliverVia(
+      new MemoDeliveryCoordinator(target),
+      requestFor(GROWN_PROJECTION),
+    );
+
+    expect(restarted.disposition).toBe("delivered");
+    expect(target.sendAttempts).toBe(2);
+    expect(target.turns.filter((turnText) => turnText.includes("continuity-ref:"))).toHaveLength(2);
   });
 
   it("collapses overlapping deliveries of two different memos into one send", async () => {

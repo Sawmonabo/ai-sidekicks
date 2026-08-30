@@ -296,6 +296,92 @@ describe("canonical transcript fold — scope and ordering", () => {
     expect(projection.turns.map((turn) => turn.position)).toEqual([1, 3]);
   });
 
+  it("splits assistant turns across a readable-but-empty participant row", () => {
+    const fixture = makeFixture();
+    // Exchange 1: a tool call whose result names an enclosing block that lives
+    // in NO block of its own exchange. Exchange 2 carries a private block with
+    // that same id — block ids are exchange-scoped, so if the empty participant
+    // row between them failed to split the turns, exchange 2's block would
+    // wrongly stamp exchange 1's result withheld.
+    fixture.log.append(
+      storedEvent(1, "tool.invoked", { runId: RUN_ID, toolCallId: "call-1", toolName: "probe" }),
+    );
+    fixture.contentSource.toolArgumentsBySequence.set(1, "{}");
+    fixture.log.append(storedEvent(2, "tool.result", { runId: RUN_ID, toolCallId: "call-1" }));
+    fixture.contentSource.toolResultBodyBySequence.set(2, {
+      text: "probe output",
+      enclosingReasoningBlockId: "block-reused",
+    });
+    // The participant said nothing readable — a zero-length body, not an
+    // unreadable one — but it is still a role boundary.
+    fixture.log.append(storedEvent(3, "user.message", { runId: RUN_ID, actor: "participant" }));
+    fixture.contentSource.participantTextBySequence.set(3, "");
+    fixture.log.append(storedEvent(4, "assistant.thinking_update", { runId: RUN_ID }));
+    fixture.contentSource.reasoningBlocksBySequence.set(4, [
+      {
+        blockId: "block-reused",
+        reasoningKind: "thinking",
+        disclosure: "private",
+        text: "second exchange's deliberation",
+      },
+    ]);
+    fixture.log.append(storedEvent(5, "assistant.message", { runId: RUN_ID }));
+    fixture.contentSource.assistantTextBySequence.set(5, "second answer");
+
+    const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
+
+    expect(projection.turns.map((turn) => turn.role)).toEqual(["assistant", "assistant"]);
+    const firstTurnResult = projection.turns[0]?.segments.find(
+      (segment) => segment.kind === "tool_result",
+    );
+    expect(firstTurnResult?.kind === "tool_result" && firstTurnResult.text).toBe("probe output");
+    // No segment of the first turn was replaced by a withheld-enclosure stamp.
+    expect(
+      projection.turns[0]?.segments.some(
+        (segment) => segment.kind === "text" && segment.withheldEnclosure !== undefined,
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps same-role coalescing across a readable-but-empty same-role row", () => {
+    const fixture = makeFixture();
+    fixture.log.append(storedEvent(1, "assistant.message", { runId: RUN_ID }));
+    fixture.contentSource.assistantTextBySequence.set(1, "first");
+    // Same role, zero-length body: no boundary is crossed, so this stays a no-op.
+    fixture.log.append(storedEvent(2, "assistant.message", { runId: RUN_ID }));
+    fixture.contentSource.assistantTextBySequence.set(2, "");
+    fixture.log.append(storedEvent(3, "assistant.message", { runId: RUN_ID }));
+    fixture.contentSource.assistantTextBySequence.set(3, "second");
+
+    const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
+
+    expect(projection.turns).toHaveLength(1);
+    expect(projection.turns[0]?.segments).toEqual([
+      { kind: "text", position: 1, text: "first" },
+      { kind: "text", position: 3, text: "second" },
+    ]);
+  });
+
+  it("treats a readable-but-empty assistant row as a boundary symmetrically", () => {
+    const fixture = makeFixture();
+    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
+    fixture.contentSource.participantTextBySequence.set(1, "first ask");
+    fixture.log.append(storedEvent(2, "assistant.message", { runId: RUN_ID }));
+    fixture.contentSource.assistantTextBySequence.set(2, "");
+    fixture.log.append(storedEvent(3, "user.message", { runId: RUN_ID, actor: "participant" }));
+    fixture.contentSource.participantTextBySequence.set(3, "second ask");
+
+    const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
+
+    expect(projection.turns.map((turn) => turn.role)).toEqual(["participant", "participant"]);
+    expect(projection.turns[0]?.segments).toEqual([
+      { kind: "text", position: 1, text: "first ask" },
+    ]);
+    expect(projection.turns[1]?.segments).toEqual([
+      { kind: "text", position: 3, text: "second ask" },
+    ]);
+  });
+
   it("honours a boundary without moving the position the fold was taken at", () => {
     const fixture = makeFixture();
     seedInterruptedToolFixture(fixture);

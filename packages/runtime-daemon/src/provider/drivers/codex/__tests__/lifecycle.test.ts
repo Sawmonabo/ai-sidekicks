@@ -3174,12 +3174,20 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     ).resolves.toBeUndefined();
   });
 
-  it("trips on a swallowed STEER even though the opening frame was answered", async () => {
-    // A turn carries many frames, and each keeps its own correlation state. With
-    // one registration per key the steer REPLACED the opening frame, so the
-    // model output that answered the opening text became the evidence that
-    // vouched for the steer — the swallowed directive passed on words it never
-    // produced.
+  it("passes a steer on its acknowledgment when no item follows it", async () => {
+    // A turn carries many frames, and each keeps its own correlation state. The
+    // provider's typed answer to `turn/steer` is the transport's statement
+    // that it TOOK the steer — the only per-frame attribution it produces —
+    // so a steer taken near the turn's end, with no item after it, passes
+    // rather than tripping a healthy session. Every item-based substitute got
+    // a polarity wrong: keying the store by turn let pre-steer output vouch a
+    // swallowed steer, and crediting the oldest-unevidenced frame both tripped
+    // this delivered steer AND let the opener's delayed item vouch a swallowed
+    // one. The coverage boundary is a conjunction stated in the tripwire's
+    // attribution rule (an answer proves receipt, not the model reading the
+    // text) — the detectable swallow shapes are the UNANSWERED ones (the
+    // timeout and dead-connection tests below) and the unrecognized
+    // settlement, which outranks any answer.
     const harness = createManagerHarness();
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
     harness.server.on("turn/steer", () => ({ result: { turn: { id: TURN_ID } } }));
@@ -3197,31 +3205,31 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
     await Promise.resolve();
 
-    // A DIFFERENT origin from the opening frame's, so the recorded detail names
-    // which frame the turn failed to account for rather than merely that one did.
     await harness.manager.steerRun({
       runId: RUN_ID,
       content: "/clear and start over",
       clientIdempotencyKey: "steer-1",
       frameOrigin: "system_narration",
     });
-    // The terminal carries the item list, and every item in it PRECEDES the
-    // steer. Attributing those items to the steer is exactly the false pass.
+    // Every item the terminal carries PRECEDES the steer. The acknowledgment
+    // alone rules the steer; the items rule the opener.
     harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
     await drainMicrotasks();
 
-    expect(harness.textNeutralizationFailures).toHaveLength(1);
-    expect(harness.textNeutralizationFailures[0]?.providerFailureDetail).toBe(
-      "driver.text_neutralization_failed origin=system_narration",
-    );
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+    expect(harness.manager.textNeutralizationDecisionForTurn(TURN_ID).refused).toBe(false);
   });
 
   it("follows a steer's frame onto the turn the provider ACKNOWLEDGED, not the one targeted", async () => {
     // The acknowledgement is the provider's own statement about where the bytes
-    // went. When it names a turn other than the target, a frame left on the
-    // target gets both halves wrong: the target's terminal rules a frame whose
-    // text never entered it, and the turn that actually took the directive
-    // settles against no correlated frame — which PASSES.
+    // went, and its answered request is what the steer is consumed on — so
+    // wherever the frame sits, the recorded answer is what rules it. The move itself is
+    // correlation hygiene: the frame is consumed by the settlement of the turn
+    // that actually took it rather than lingering on one it provably did not
+    // enter (the frame-scoped move semantics are pinned at the tripwire unit
+    // level). What this test holds is the integration contract: the mismatch
+    // is returned to the dispatcher for degraded grading (P3-1), no turn trips
+    // over it, and the binding is not condemned.
     const acknowledgedTurnId = "turn-acknowledged";
     const harness = createManagerHarness();
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
@@ -3255,19 +3263,34 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     expect(harness.manager.textNeutralizationDecisionForTurn(TURN_ID).refused).toBe(false);
     expect(harness.textNeutralizationFailures).toStrictEqual([]);
 
-    // The ACKNOWLEDGED turn swallows the directive, and that is where the trip
-    // lands — reachable only because the frame followed the acknowledgement.
+    // The ACKNOWLEDGED turn settles with nothing of its own — and the moved
+    // steer, carrying its recorded acknowledgment, passes there rather than
+    // tripping a delivery the provider attested. The binding stays usable.
     harness.server.emitFrame(zeroTurnCompletedFrame(acknowledgedTurnId));
     await drainMicrotasks();
     expect(harness.manager.textNeutralizationDecisionForTurn(acknowledgedTurnId).refused).toBe(
-      true,
+      false,
     );
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+    harness.server.on("turn/start", () => ({ result: { turn: { id: "turn-after-steer" } } }));
+    await expect(
+      harness.manager.startRun({
+        runId: SECOND_RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
+      }),
+    ).resolves.toBeUndefined();
   });
 
-  it("leaves a steer's frame on the targeted turn when the ack names no turn at all", async () => {
+  it("keeps a null-acked steer on the targeted turn and rules it on the acknowledgment", async () => {
     // The other arm, and the reason the move is conditional: an ack naming no
     // turn disproves nothing about where the bytes went, so moving the frame
-    // would abandon the only correlation there is evidence for.
+    // would abandon the only correlation there is evidence for. Naming no turn
+    // weakens the correlation, never the delivery: the answered request is
+    // still the provider's typed statement that it took the bytes, so the
+    // steer passes at the targeted turn's settlement — the dispatcher already
+    // grades the null ack degraded rather than applied (P3-1), which is where
+    // that weakness is reported.
     const harness = createManagerHarness();
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
     harness.server.on("turn/steer", () => ({ result: {} }));
@@ -3291,22 +3314,27 @@ describe("CodexLifecycleManager turn route lifetime", () => {
       acknowledgedTurnId: null,
     });
 
-    // Every item on the terminal precedes the steer, so the steer's own frame is
-    // unvouched-for and the targeted turn is where it is ruled.
+    // Every item on the terminal precedes the steer; the recorded
+    // acknowledgment is what rules it, and it rules it a pass.
     harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
     await drainMicrotasks();
 
-    expect(harness.textNeutralizationFailures).toHaveLength(1);
-    expect(harness.manager.textNeutralizationDecisionForTurn(TURN_ID).refused).toBe(true);
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+    expect(harness.manager.textNeutralizationDecisionForTurn(TURN_ID).refused).toBe(false);
   });
 
-  it("rules a steer's frame when the acknowledged turn settled in the SAME read chunk", async () => {
+  it("consumes a steer's frame on its ack when the acknowledged turn settled in the SAME read chunk", async () => {
     // The move the acknowledgement asks for is only safe onto a turn that can
     // still rule something. A terminal sharing the steer response's read chunk
     // is drained SYNCHRONOUSLY, so it goes by before this steer's continuation
     // runs — and a frame moved onto it afterwards would wait for a second
-    // terminal that is never coming, dropping as occupancy while the run
-    // reported success and the unsafe session stayed reusable.
+    // terminal that is never coming, dropping as occupancy. The refusal to
+    // move stands; what changed is the ruling: the answered request already
+    // proved receipt, so the frame is consumed on its own answer rather than
+    // tripped — condemning the session over a receipt the provider just
+    // attested contradicted the attribution rule that consumes every other
+    // answered steer. The mismatch stays visible through
+    // the dispatcher's degraded grading (P3-1).
     const acknowledgedTurnId = "turn-acknowledged";
     const harness = createManagerHarness();
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
@@ -3336,30 +3364,33 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     expect(acknowledgement).toStrictEqual({ targetedTurnId: TURN_ID, acknowledgedTurnId });
     await drainMicrotasks();
 
-    expect(harness.textNeutralizationFailures).toHaveLength(1);
-    expect(harness.textNeutralizationFailures[0]?.runId).toBe(RUN_ID);
-    expect(harness.textNeutralizationFailures[0]?.providerFailureDetail).toBe(
-      "driver.text_neutralization_failed origin=system_narration",
-    );
-    // And the binding the directive vanished into is not handed to a later run.
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+    // The targeted turn still settles clean on its opener's own evidence, and
+    // the binding is NOT condemned: the next run dispatches onto it.
+    harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
+    await drainMicrotasks();
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+    harness.server.on("turn/start", () => ({ result: { turn: { id: "turn-after-steer" } } }));
     await expect(
       harness.manager.startRun({
         runId: SECOND_RUN_ID,
         channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "carry on" },
       }),
-    ).rejects.toThrow(TextNeutralizationRefusedError);
+    ).resolves.toBeUndefined();
   });
 
-  it("rules a steer's frame when the acknowledged turn AGED OUT of the settled memory", async () => {
-    // The same hazard as the read-chunk case above, reached by ageing instead of
-    // by ordering. The settled memory is bounded, and the acknowledgement
+  it("consumes a steer's frame on its ack when the acknowledged turn AGED OUT of the settled memory", async () => {
+    // The same window as the read-chunk case above, reached by ageing instead
+    // of by ordering. The settled memory is bounded, and the acknowledgement
     // continuation reads ABSENCE from it as "that turn can still rule this
     // frame" — so a burst of terminals arriving in the steer response's own
     // chunk used to push the acknowledged turn's own settlement out, and the
-    // frame was moved onto a turn no second terminal was ever coming for. It
-    // then sat as occupancy until the scope was released: the swallowed
-    // directive reported as nothing at all.
+    // frame was moved onto a turn no second terminal was ever coming for,
+    // sitting as occupancy until the scope was released. The `inFlightSteers`
+    // pin keeps the settlement readable across the round trip, so the
+    // continuation refuses the move and consumes the frame on its own
+    // acknowledgment instead of leaking it.
     //
     // The burst rides `trailingFrames`, which is ONE read chunk with the
     // response, so every one of these drains synchronously before the
@@ -3410,19 +3441,20 @@ describe("CodexLifecycleManager turn route lifetime", () => {
       ),
     ).toHaveLength(0);
 
-    expect(harness.textNeutralizationFailures).toHaveLength(1);
-    expect(harness.textNeutralizationFailures[0]?.runId).toBe(RUN_ID);
-    expect(harness.textNeutralizationFailures[0]?.providerFailureDetail).toBe(
-      "driver.text_neutralization_failed origin=system_narration",
-    );
-    // And the binding the directive vanished into is not handed to a later run.
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+    // The targeted turn still settles clean on its opener's own evidence, and
+    // the binding is NOT condemned: the next run dispatches onto it.
+    harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
+    await drainMicrotasks();
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+    harness.server.on("turn/start", () => ({ result: { turn: { id: "turn-after-steer" } } }));
     await expect(
       harness.manager.startRun({
         runId: SECOND_RUN_ID,
         channelId: CHANNEL_ID,
         agentConfig: { sessionId: SESSION_ID, input: "carry on" },
       }),
-    ).rejects.toThrow(TextNeutralizationRefusedError);
+    ).resolves.toBeUndefined();
   });
 
   it("refuses the binding when the settled memory overflows during a steer", async () => {
@@ -3485,12 +3517,18 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     ).rejects.toThrow(TextNeutralizationRefusedError);
   });
 
-  it("rules a steer's frame on a turn that already ended, whatever that turn produced", async () => {
-    // Ruled fail-closed rather than against the acknowledged turn's own recorded
-    // outcome, and this is the case that decides between them. That turn ran
-    // normally and produced output before it ended — so inheriting its outcome
-    // would report a PASS, which is exactly the shape of the hazard: a turn that
-    // worked, and then had a directive its command layer intercepted.
+  it("consumes a steer acked onto a turn that already ended, on the acknowledgment itself", async () => {
+    // The acknowledged turn ended before the steer was written, so no second
+    // terminal is coming for it and the move is refused. The frame is ruled
+    // here — on its own recorded acknowledgment, not on the settled turn's
+    // recorded outcome and not fail-closed. Not inherited, because that turn's
+    // output predates the directive and vouches for nothing; not tripped,
+    // because the answered request is the provider's own typed statement that
+    // it took the bytes, and the attribution rule that accepts that statement
+    // on the live-destination path does not stop holding because the
+    // destination finished first. The oddity of the ack itself — a provider
+    // naming a turn it had already ended — reaches the caller through the
+    // dispatcher's degraded grading of the mismatch (P3-1).
     const acknowledgedTurnId = "turn-acknowledged";
     const harness = createManagerHarness();
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
@@ -3516,10 +3554,13 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     });
     await drainMicrotasks();
 
-    expect(harness.textNeutralizationFailures).toHaveLength(1);
-    expect(harness.textNeutralizationFailures[0]?.providerFailureDetail).toBe(
-      "driver.text_neutralization_failed origin=system_narration",
-    );
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+    // And the frame did not linger on the TARGETED turn either: its settlement
+    // finds only the opener, vouched by its own item.
+    harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
+    await drainMicrotasks();
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+    expect(harness.manager.textNeutralizationDecisionForTurn(TURN_ID).refused).toBe(false);
   });
 
   it("rules a steer's frame where it was registered when the TARGET settles in one chunk", async () => {

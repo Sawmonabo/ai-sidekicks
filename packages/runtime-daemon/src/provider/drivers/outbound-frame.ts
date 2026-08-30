@@ -671,7 +671,16 @@ interface PendingCorrelatedFrame {
    * does not move with it.
    */
   joinKey: string;
+  /** The declared part this frame plays in its turn — see the attribution rule. */
+  readonly frameRole: OutboundFrameRole;
   readonly observations: Set<TurnEvidenceClass>;
+  /**
+   * Whether the provider ANSWERED this frame's own request. MUTABLE, set once
+   * by `recordRequestAnswered`. Proof the provider TOOK the frame — the
+   * strongest per-frame statement the transport makes — and NOT proof the
+   * model read its text; see the attribution rule's conjunction residual.
+   */
+  requestAnswered: boolean;
 }
 
 /**
@@ -693,6 +702,24 @@ function foldTripwireDecision(carried: TripwireDecision, next: TripwireDecision)
   return next.reason === "turn-evidence-observed" ? next : carried;
 }
 
+/**
+ * The part a frame plays in the turn it is correlated to.
+ *
+ * `turn-opening` — the frame whose text the turn exists to answer. The turn's
+ * stream items and its settling envelope are evidence about THIS frame, and a
+ * transport-level acknowledgment can never vouch for it: the zero-turn hazard
+ * is precisely a request acknowledged as taken and then answered with an empty
+ * turn, so an ack-vouched opener would pass in exactly the case the tripwire
+ * exists to catch.
+ *
+ * `turn-joining` — a frame written into a turn that already exists (a steer
+ * directive). Stream items carry no frame attribution, so none of them can
+ * vouch for it; the one per-frame statement the transport produces is the
+ * provider's answer to the frame's own request, recorded via
+ * {@link OutboundFrameTripwire.recordRequestAnswered}.
+ */
+export type OutboundFrameRole = "turn-opening" | "turn-joining";
+
 /** One frame's registration with the tripwire that will rule on it. */
 export interface OutboundFrameRegistration {
   /**
@@ -706,6 +733,14 @@ export interface OutboundFrameRegistration {
   readonly scopeKey: string;
   /** The key the settling turn will carry — a run id or a provider turn id. */
   readonly joinKey: string;
+  /**
+   * Which part this frame plays in its turn, DECLARED by the caller rather
+   * than inferred from registration order: a recorrelated turn-joining frame
+   * can end up insertion-ordered ahead of a later turn's opening frame, so
+   * order encodes nothing about who opened which turn. The role decides which
+   * evidence can vouch for the frame — see the attribution rule on the class.
+   */
+  readonly frameRole: OutboundFrameRole;
   readonly frame: OutboundTextFrame;
 }
 
@@ -751,24 +786,44 @@ export interface OutboundFrameTripwireOptions {
  * for the steer, and the steer's own registration could trip the turn the
  * opening frame had already been confirmed on. Both failures are silent.
  *
- * THE ATTRIBUTION RULE, stated once because both halves are load-bearing:
+ * THE ATTRIBUTION RULE, stated once because every reader is load-bearing:
  *
- *   * In-flight evidence — `observe` — is credited to the OLDEST frame that
- *     was registered at that moment and still holds none, and to no other. Not
- *     to a frame registered later: evidence observed before a frame was written
- *     cannot be evidence that THAT frame reached a model. And not to every
- *     pending frame at once: an in-flight item carries no position within the
- *     turn — the same fact the envelope half below rests on — so crediting the
- *     whole set would let delayed output caused by an already-vouched directive
- *     vouch a later one the provider swallowed, and the swallowed words would
- *     vanish behind a green terminal. The residual is one frame wide and named:
- *     a directive producing several items in a row still credits the frame
- *     registered after it, where crediting every frame bounded nothing.
- *   * The settling envelope's own observations carry no position within the
- *     turn, so they are attributed to the OLDEST unsettled frame alone — the
- *     one frame every item in that list provably follows. Its `recognized` flag
- *     is a property of the envelope rather than of any item in it, so that half
- *     applies to every frame: an unparsable terminal trips them all.
+ *   * A provider's stream items and its settling envelope's observations carry
+ *     no frame attribution — nothing in either says WHICH written frame caused
+ *     an item — so they are evidence about exactly one frame: the one whose
+ *     role declares it opened the turn (`frameRole: "turn-opening"`). Every
+ *     positional substitute for that declaration was a guess with a silent
+ *     failure mode. Crediting every pending frame let output caused by an
+ *     already-vouched directive vouch a later one the provider swallowed.
+ *     Crediting the oldest-unevidenced frame moved the same guess: a DELAYED
+ *     item from the opener's own output credited the steer written after it —
+ *     the swallowed steer passed behind a green terminal — while a delivered
+ *     steer that produced no further item tripped a healthy session.
+ *   * A turn-joining frame (`frameRole: "turn-joining"`) is consumed on the
+ *     provider's answer to ITS OWN request, recorded via
+ *     `recordRequestAnswered` — the one per-frame statement the transport
+ *     produces. An answered request proves the provider TOOK the frame, not
+ *     that the model read its text, so it is a declared coverage boundary
+ *     rather than delivery proof. A joined frame whose request was never
+ *     answered holds no evidence and trips at its turn's settlement,
+ *     deterministically: request unanswered is the fail-closed arm, not a
+ *     coin flip on item timing.
+ *   * The envelope's `recognized` flag is a property of the envelope rather
+ *     than of any item in it, so it applies to every frame: an unparsable
+ *     terminal trips them all, acknowledged or not — a zero-turn settlement
+ *     means the TURN was swallowed, and no frame's delivery outranks that.
+ *
+ * The residual this boundary accepts is a CONJUNCTION, and every conjunct is
+ * required: the joined frame's wire text survived `compose` in
+ * command-effective shape (the same neutralization every non-exempt frame
+ * takes before these bytes exist), AND the provider answered the request as
+ * taken, AND an interception layer then dropped the text before the model —
+ * on a request path where the watched surface is not known to parse client
+ * commands at all (its command parsing lives in the interactive frontends).
+ * No daemon-side rule can split that conjunction, because the answer is the
+ * transport's last per-frame statement. The turn-level swallow stays covered
+ * regardless: a zero-turn settlement trips the turn-opening frame, and an
+ * unrecognized envelope trips every frame, answered or not.
  *
  * The Claude leg additionally spreads one terminal across several correlated
  * RUNS, positionally and for the same reason. That rule composes above this one
@@ -814,7 +869,7 @@ export class OutboundFrameTripwire {
    *   pending is discarded to make room — see the module bounds.
    */
   register(registration: OutboundFrameRegistration): void {
-    const { scopeKey, joinKey, frame } = registration;
+    const { scopeKey, joinKey, frameRole, frame } = registration;
     if (!this.#pendingByCorrelationId.has(frame.correlationId)) {
       this.#admit(scopeKey);
     }
@@ -823,7 +878,9 @@ export class OutboundFrameTripwire {
       frame,
       scopeKey,
       joinKey,
+      frameRole,
       observations: new Set(),
+      requestAnswered: false,
     });
     this.#decisionByJoinKey.delete(joinKey);
   }
@@ -836,22 +893,47 @@ export class OutboundFrameTripwire {
    * other's does not, so an accumulating tripwire works on both without either
    * classifier having to reconstruct what it did not see.
    *
-   * Credited to the OLDEST frame pending under the key that holds no evidence
-   * yet — insertion order is registration order — which is how the attribution
-   * rule is ENCODED rather than merely described: a frame registered after this
-   * call does not receive it, and a frame that already holds evidence does not
-   * collect an item that may in truth belong to the directive written after it.
-   * An item arriving when every pending frame is evidenced is dropped, not
-   * stored: the only reader of these observations asks whether a frame has any,
-   * so a second item on one frame proves nothing its first did not.
+   * Credited to the TURN-OPENING frame under the key and to no other — which is
+   * how the attribution rule is ENCODED rather than merely described. An item
+   * carries no frame attribution, so any rule that hands items to turn-joining
+   * frames is guessing: crediting every pending frame let output caused by an
+   * already-vouched directive vouch a later one the provider swallowed, and
+   * crediting the oldest-unevidenced frame merely moved the same guess — a
+   * DELAYED item from the opener's own output credited the steer written after
+   * it, and the swallowed steer passed behind it, while a delivered steer that
+   * happened to produce no further item tripped. A turn-joining frame is
+   * consumed on the provider's answer to its own request
+   * (`recordRequestAnswered`).
    */
   observe(joinKey: string, observation: TurnEvidenceClass): void {
     for (const pending of this.#pendingByCorrelationId.values()) {
-      if (pending.joinKey === joinKey && pending.observations.size === 0) {
+      if (pending.joinKey === joinKey && pending.frameRole === "turn-opening") {
         pending.observations.add(observation);
         return;
       }
     }
+  }
+
+  /**
+   * Records that the provider ANSWERED one frame's own request — the per-frame
+   * statement a turn-joining frame is consumed on at its turn's settlement.
+   *
+   * An answered request proves the provider took the frame, not that the model
+   * read its text; the coverage boundary that record draws, and its conjunction
+   * residual, are stated on the class. A no-op for a frame that is no longer
+   * pending: a frame already ruled is owed nothing further. A no-op —
+   * deliberately, and fail-closed — for a TURN-OPENING frame: the zero-turn
+   * hazard is a request answered as taken and met with an empty turn, so an
+   * answered request can never vouch for the frame the turn exists to answer;
+   * ignoring the call leaves that frame to the turn evidence it is properly
+   * ruled on.
+   */
+  recordRequestAnswered(frame: OutboundTextFrame): void {
+    const pending = this.#pendingByCorrelationId.get(frame.correlationId);
+    if (pending === undefined || pending.frameRole === "turn-opening") {
+      return;
+    }
+    pending.requestAnswered = true;
   }
 
   /**
@@ -869,9 +951,9 @@ export class OutboundFrameTripwire {
    * forgotten, or reclaimed is owed no further correlation, and re-admitting
    * it here would resurrect a registration the store has already answered for.
    *
-   * The frame keeps its position in the store and every observation it has
-   * accrued, so registration order — and with it the oldest-frame attribution
-   * — survives the move.
+   * The frame keeps its declared role, every observation it has accrued, and
+   * any recorded answered request, so the evidence that will rule it survives
+   * the move unchanged.
    *
    * NEITHER key's retained decision is touched. This is a MOVE, not a fresh
    * attempt: `register` clears the destination because a new write is starting
@@ -892,7 +974,8 @@ export class OutboundFrameTripwire {
    * is still live from the settlement record its own driver keeps, and rules
    * the frame itself when it is not — the Codex run-opening path by replaying
    * the terminal its session remembered onto the re-keyed frame, and the steer
-   * path by refusing the move and ruling fail-closed.
+   * path by refusing the move and consuming the frame on its own recorded
+   * answered request.
    */
   recorrelateFrame(frame: OutboundTextFrame, toJoinKey: string): void {
     const pending = this.#pendingByCorrelationId.get(frame.correlationId);
@@ -912,11 +995,11 @@ export class OutboundFrameTripwire {
       return { tripped: false, reason: "no-correlated-frame" };
     }
     let aggregate: TripwireDecision = { tripped: false, reason: "frame-exempt" };
-    for (const [framePosition, pending] of pendingFrames.entries()) {
+    for (const pending of pendingFrames) {
       this.#pendingByCorrelationId.delete(pending.frame.correlationId);
       aggregate = foldTripwireDecision(
         aggregate,
-        this.#rule(pending, classification, framePosition === 0),
+        this.#rule(pending, classification, pending.frameRole === "turn-opening"),
       );
     }
     this.#decisionByJoinKey.delete(joinKey);
@@ -951,9 +1034,10 @@ export class OutboundFrameTripwire {
       return { tripped: false, reason: "no-correlated-frame" };
     }
     this.#pendingByCorrelationId.delete(frame.correlationId);
-    // Never given the oldest-unsettled position: the settling envelope's own
-    // observations are attributable to the frame the TURN settles, and this
-    // frame is being ruled outside any such envelope.
+    // The envelope never vouches here: this frame is being ruled outside any
+    // settling envelope, so the classification's observations are attributable
+    // to nobody. Its own accrued evidence — observations for a turn-opening
+    // frame, a recorded answered request for a turn-joining one — still counts.
     return this.#rule(pending, classification, false);
   }
 
@@ -1044,8 +1128,8 @@ export class OutboundFrameTripwire {
    * words were delivered" into silence, which is the swallowed-turn outcome
    * this class exists to make loud. The caller rules them instead, and reports.
    *
-   * Each frame is ruled ALONE and never given the oldest-unsettled position,
-   * exactly as `settleFrame` does and for the same reason: no settling envelope
+   * Each frame is ruled ALONE and the envelope vouches for none of them,
+   * exactly as `settleFrame` rules and for the same reason: no settling envelope
    * is present here, so no envelope's observations are attributable to any of
    * them. The join key rides out with each decision because it is the only
    * handle the caller can resolve a run from — a frame is keyed by run id until
@@ -1115,7 +1199,11 @@ export class OutboundFrameTripwire {
    *
    * Exempt frames are consumed and NOT reported, matching `#rule`'s own first
    * test: a `driver_command` carries no participant words, so its disappearance
-   * costs nobody their turn.
+   * costs nobody their turn. A frame whose request was ANSWERED is reported
+   * like any other: an answered request proves the provider took the frame,
+   * not that the model read its text, and a turn that died unsettled never
+   * reached the settlement that consumes the frame on that answer — so
+   * "delivery left unproven" is exactly true of it.
    *
    * Writes no retained decision, as `settleScope` does not: no turn settled.
    */
@@ -1235,7 +1323,7 @@ export class OutboundFrameTripwire {
   #rule(
     pending: PendingCorrelatedFrame,
     classification: TurnEvidenceClassification,
-    isOldestUnsettledFrame: boolean,
+    envelopeVouchesForFrame: boolean,
   ): TripwireDecision {
     if (pending.frame.tripwireExempt) {
       return { tripped: false, reason: "frame-exempt" };
@@ -1243,11 +1331,14 @@ export class OutboundFrameTripwire {
     if (!classification.recognized) {
       return this.#trip(pending.frame, "unrecognized-settling-envelope");
     }
-    // The settling envelope's observations are attributable only to the oldest
-    // unsettled frame — see the attribution rule on the class.
+    // The settling envelope's observations are attributable only to the frame
+    // that OPENED the settling turn — see the attribution rule on the class. A
+    // turn-joining frame is consumed on the provider's recorded answer to its
+    // own request: a declared coverage boundary, not delivery proof.
     const hasEvidence =
       pending.observations.size > 0 ||
-      (isOldestUnsettledFrame && classification.observations.length > 0);
+      pending.requestAnswered ||
+      (envelopeVouchesForFrame && classification.observations.length > 0);
     if (hasEvidence) {
       return { tripped: false, reason: "turn-evidence-observed" };
     }

@@ -698,11 +698,22 @@ export class CanonicalTranscriptFold {
       position: number,
       segments: readonly CanonicalTranscriptSegment[],
     ): void => {
+      // Close a different-role open turn BEFORE the empty-content discard: a
+      // readable-but-empty row is still a role boundary, and letting it fall
+      // through would coalesce the assistant turns on either side of an empty
+      // participant row — and settle one exchange's enclosures against a later
+      // exchange's reasoning blocks, whose ids are exchange-scoped. Deliberately
+      // symmetric: an empty assistant row closes an open participant turn for
+      // the same reason, matching the `run.turn_started` handler below, which
+      // closes whatever is open without contributing content. Same-role empty
+      // rows still coalesce (no boundary crossed).
+      if (openTurn !== undefined && openTurn.role !== role) {
+        closeOpenTurn();
+      }
       if (segments.length === 0) {
         return;
       }
-      if (openTurn === undefined || openTurn.role !== role) {
-        closeOpenTurn();
+      if (openTurn === undefined) {
         openTurn = { role, position, segments: [] };
       }
       openTurn.segments.push(...segments);

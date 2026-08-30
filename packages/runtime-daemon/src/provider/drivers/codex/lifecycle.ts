@@ -201,6 +201,7 @@ import {
   OutboundTextFrameWriter,
   ProviderBindingQuarantine,
   UNRECOGNIZED_TURN_EVIDENCE,
+  observedTurnEvidence,
   composeSupersededDeliveryRunFailure,
   composeTextNeutralizationRunFailure,
   type CallerDeclaredFrameOrigin,
@@ -3858,6 +3859,7 @@ export class CodexLifecycleManager {
     this.#outboundFrameTripwire.register({
       scopeKey: runConfig.sessionId,
       joinKey: params.runId,
+      frameRole: "turn-opening",
       frame,
     });
     return frame;
@@ -5317,6 +5319,10 @@ export class CodexLifecycleManager {
     this.#outboundFrameTripwire.register({
       scopeKey: record.sessionId,
       joinKey: targetedTurnId,
+      // A steer joins a turn another frame opened, so no stream item can vouch
+      // for it — it is consumed on the provider's answer to its own request,
+      // recorded below.
+      frameRole: "turn-joining",
       frame: steerFrame,
     });
     // T3.18. PINS the settled-turn memory for the whole round trip, including
@@ -5333,6 +5339,18 @@ export class CodexLifecycleManager {
       const attempt = await this.#requestTurnSteer(record, request, steerFrame, targetedTurnId);
       if (attempt.settled === "answered") {
         const acknowledgedTurnId = readSteeredTurnId(attempt.result);
+        // T3.18. The answered request is the transport's statement that the
+        // provider TOOK this frame — the only per-frame attribution it
+        // produces, and the declared coverage boundary a joined frame is
+        // consumed on (proof of receipt, not of the model reading the text;
+        // the tripwire's class doc states the conjunction residual). Stream
+        // items carry no frame attribution, so they credit the turn-opening
+        // frame alone (the tripwire's attribution rule); without this record
+        // every steer would reach its turn's settlement evidence-less and trip
+        // a healthy session. Recorded for a NULL acknowledgment too: naming no
+        // turn weakens the correlation, never the receipt — the dispatcher
+        // already grades that answer degraded rather than applied (P3-1).
+        this.#outboundFrameTripwire.recordRequestAnswered(steerFrame);
         if (acknowledgedTurnId !== null && acknowledgedTurnId !== targetedTurnId) {
           // T3.18. The provider named a turn OTHER than the one this steer
           // targeted, which is the provider's own statement about where the bytes
@@ -5340,46 +5358,32 @@ export class CodexLifecycleManager {
           // wrong at once: the target's terminal would rule a frame whose text
           // never entered it — a trip on a turn that swallowed nothing — while
           // the turn that DID take the directive settles against no correlated
-          // frame, and that PASSES. The swallow the tripwire exists for would go
-          // out under the wrong turn's ruling.
+          // frame, and that PASSES. So the frame follows the acknowledgment,
+          // carrying the answered-request record just written, which is what
+          // rules it at the destination's settlement.
           //
           // A NULL acknowledgement is deliberately left where it is: naming no
           // turn disproves nothing, so the target remains the best evidence of
-          // where the bytes went, and the dispatcher already grades that answer
-          // degraded rather than applied (P3-1).
+          // where the bytes went.
           //
-          // The move is REFUSED when that turn can no longer rule anything, and
-          // the frame is ruled here instead. A settled turn emits no second
-          // terminal, so a frame moved onto one is never ruled at all: it sits as
-          // occupancy until its binding's scope is released — silence in the exact
-          // case that warrants the loudest answer. The window is ordinary rather
-          // than exotic: a terminal sharing a read chunk with this steer's own
-          // response is drained SYNCHRONOUSLY, so it goes by before this
-          // continuation runs.
-          //
-          // Ruled fail-closed rather than against the settled turn's own recorded
-          // outcome, and that is the whole of the choice. The hazard case is a
-          // turn that ran normally, produced output, and THEN took the directive
-          // its command layer intercepted — so that turn's recorded outcome is
-          // "model output observed", and inheriting it would report the swallow
-          // this module exists to catch as a pass.
-          //
-          // It overrides the attribution rule the tripwire's header states, and
-          // deliberately: this frame may have accrued observations while it sat on
-          // the targeted turn, and `UNRECOGNIZED_TURN_EVIDENCE` trips regardless of
-          // them. Those observations belong to a turn the provider has just told us
-          // did not take these bytes, so they cannot vouch for them.
-          //
-          // The run terminal carries the loudness, as it does on every other trip.
-          // The dispatcher grades this answer on `decisionFor(targetedTurnId)`,
-          // which a frame-scoped ruling deliberately does not write — a retained
-          // trip there would answer "swallowed" for a turn whose other frames are
-          // still live — so the steer is graded on its ack mismatch and the
-          // refusal reaches the caller through `run.failed`.
+          // The move is REFUSED when the acknowledged turn can no longer rule
+          // anything — it settled already, ordinarily via a terminal sharing
+          // this steer's own response read chunk and drained SYNCHRONOUSLY
+          // before this continuation ran — and the frame is consumed here
+          // instead, as a frame-scoped ruling on its own recorded
+          // acknowledgment. A settled turn emits no second terminal, so a
+          // frame left on one would sit as occupancy until scope release. This
+          // arm once ruled fail-closed and condemned the session; that
+          // contradicted the attribution rule this leg now carries — the
+          // acknowledgment that vouches for a steer on the live-destination
+          // path is the same statement here, and delivery it proves does not
+          // stop being proven because the destination finished first. The
+          // mismatch itself stays visible: the dispatcher grades this answer
+          // degraded on the ack comparison (P3-1), so nothing here is silent.
           if (this.#canStillRuleFrameOnTurn(record, acknowledgedTurnId)) {
             this.#outboundFrameTripwire.recorrelateFrame(steerFrame, acknowledgedTurnId);
           } else {
-            this.#ruleSteerFrameFailClosed(record, request.runId, steerFrame);
+            this.#consumeAnsweredSteerFrame(record, request.runId, steerFrame);
           }
         }
         return { targetedTurnId, acknowledgedTurnId };
@@ -5407,8 +5411,12 @@ export class CodexLifecycleManager {
    * catch — the rejection the caller sees says nothing either way. Withdrawing
    * the frame there is precisely how a swallowed directive escapes detection
    * while the unsafe binding stays reusable, so the registration is RETAINED and
-   * the turn's own terminal rules it. That costs one pending slot on a scope
-   * that already admitted it, and session disposal still reclaims it.
+   * the turn's own terminal rules it — and under the attribution rule that
+   * ruling is DETERMINISTIC: a retained steer holds no answered request, and
+   * stream items credit only the turn-opening frame, so an ordinary settlement
+   * trips it fail-closed. Delivery left unproven by the transport fails the
+   * run loudly rather than riding item timing. That costs one pending slot on
+   * a scope that already admitted it, and session disposal still reclaims it.
    *
    * The connection's death is the one case retention cannot cover: no terminal
    * will ever arrive, so the frame would sit until the scope's budget is
@@ -5449,11 +5457,12 @@ export class CodexLifecycleManager {
    * Rules ONE steer frame fail-closed and reports it with the full loudness of
    * the settlement path (T3.18).
    *
-   * Shared by the two conditions under which no terminal will ever rule the
-   * frame: a response phase that died with the connection, and an
-   * acknowledgement naming a turn that has already settled. One helper rather
-   * than two call sites, because "the same loudness the live path would have" is
-   * the claim being made, and two copies of it are two things to keep equal.
+   * Reached on the one condition under which no terminal will ever rule the
+   * frame AND no answer was produced: a response phase that died with the
+   * connection. An acknowledgment naming an already-settled turn once landed
+   * here too; that arm now consumes the frame on its own answered request in
+   * `steerRun` (`#consumeAnsweredSteerFrame`), because a receipt the provider
+   * just attested is not one to condemn the session over.
    *
    * Frame-scoped: settling the whole turn would trip the frame that OPENED it,
    * which is still live and whose delivery was never in doubt.
@@ -5477,6 +5486,34 @@ export class CodexLifecycleManager {
     // The same disposal the settlement path performs, in the same order: the
     // session arm first, so a consumer reacting synchronously to the run failure
     // cannot attach to the condemned process in between.
+    this.#providerBindingQuarantine.disposeSession(record.sessionId);
+    this.#ruleTurnTerminalAgainstRun(record.sessionId, runId, decision);
+    this.#disposeQuarantinedSession(record);
+  }
+
+  /**
+   * Consumes a steer's frame on its own answered request when the turn the
+   * acknowledgment named can no longer be ruled by any terminal (T3.18).
+   *
+   * The expected outcome is a pass: the answered-request record was written on
+   * this same synchronous path moments earlier, and the classification handed
+   * in is recognized. The decision is still READ rather than discarded,
+   * because the pass rests on an ordering this method cannot see —
+   * `recordRequestAnswered` no-ops on a frame that is no longer pending, so an
+   * edit that reorders the record after a consumption point would leave this
+   * settlement to trip. A discarded return value turns that trip into
+   * silence; handling it here gives it the settlement path's full disposal
+   * and loudness instead.
+   */
+  #consumeAnsweredSteerFrame(
+    record: CodexSessionRecord,
+    runId: RunId,
+    steerFrame: OutboundTextFrame,
+  ): void {
+    const decision = this.#outboundFrameTripwire.settleFrame(steerFrame, observedTurnEvidence());
+    if (!decision.tripped) {
+      return;
+    }
     this.#providerBindingQuarantine.disposeSession(record.sessionId);
     this.#ruleTurnTerminalAgainstRun(record.sessionId, runId, decision);
     this.#disposeQuarantinedSession(record);

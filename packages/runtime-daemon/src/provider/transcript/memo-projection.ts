@@ -427,21 +427,39 @@ function readMemoContinuityRecord(record: string): MemoContinuityRecordReading {
 
 /**
  * Whether any of the target's turns already carries a COMPLETE marker
- * occurrence for ANY memo.
+ * occurrence for a memo among ATTRIBUTABLE keys — the keys this coordinator
+ * itself attempted against this target, plus the one it is delivering now.
  *
- * The ADMISSION question, and it is target-scoped where the reader below is
- * not: one memo per TARGET, never one per (target, memo) — the projection
- * grows between deliveries, a grown projection derives a new key, and a
- * key-scoped read of a seeded target finds nothing and licenses a second
- * summary into the one conversation the participant is watching. Reads the
- * shared grammar rather than searching for the prefix, so an occurrence good
- * enough to settle a delivery is exactly one good enough to be read back. The
- * two directions are not symmetric — a false yes leaves the target with no
- * context while the caller reports success, and a false no costs one redundant
- * summary — so the grammar is the strict one and every reader shares it.
+ * The ADMISSION question. Attribution-scoped rather than any-key because
+ * marker text is plain prose: a participant can paste a foreign
+ * conversation's marker — or quote one — into the target, and an any-key
+ * admission read that quotation as a delivery and settled `already-delivered`
+ * over a target holding no memo at all, which is the false yes the asymmetry
+ * below prices as the worse direction. So admission matches only occurrences
+ * whose key this coordinator can account for. It stays broader than the
+ * current key alone — the projection grows between deliveries and a grown
+ * projection derives a NEW key, so the earlier keys this coordinator
+ * attempted must keep suppressing a second summary into the one conversation
+ * the participant is watching — and it includes the current key even before
+ * any attempt, so a predecessor lifetime's delivery of THIS memo still
+ * suppresses (forging that occurrence takes the exact digest of this memo for
+ * this target, not any well-shaped hex run). Reads the shared grammar rather
+ * than searching for the prefix, so an occurrence good enough to settle a
+ * delivery is exactly one good enough to be read back. The two directions are
+ * not symmetric — a false yes leaves the target with no context while the
+ * caller reports success, and a false no costs one redundant, visible summary
+ * — so the grammar is the strict one, every reader shares it, and the one
+ * residual this scoping accepts (a restarted coordinator rendering a GROWN
+ * projection over a target its predecessor seeded under an older key) lands
+ * on the false-no side by construction.
  */
-export function targetTurnsCarryAnyMemoMarker(targetTurns: readonly string[]): boolean {
-  return readAnyMemoContinuityMarkerOccurrences(targetTurns).length > 0;
+export function targetTurnsCarryAttributableMemoMarker(
+  targetTurns: readonly string[],
+  attributableMemoIdentityKeys: ReadonlySet<string>,
+): boolean {
+  return readAnyMemoContinuityMarkerOccurrences(targetTurns).some((occurrence) =>
+    attributableMemoIdentityKeys.has(occurrence.memoIdentityKey),
+  );
 }
 
 /**
@@ -1383,6 +1401,22 @@ export class MemoDeliveryCoordinator {
    * evidence or not at all.
    */
   readonly #unconfirmedDeliveries: Set<string> = new Set<string>();
+  /**
+   * Every memo identity key this coordinator has attempted against each
+   * target — recorded at the attempt, BEFORE the send is dispatched, so a send
+   * whose outcome is ambiguous is already accounted for when the next call
+   * reads the target back. This is the attribution set the admission read
+   * consumes: a marker occurrence whose key is absent from it is prose this
+   * coordinator cannot account for — pasted, quoted, foreign — and settles
+   * nothing. Same lifetime scope and the same deliberate unboundedness as the
+   * register above: one key per rendering ever attempted, and evicting one
+   * would let its marker stop suppressing the second summary it exists to
+   * suppress.
+   */
+  readonly #attemptedMemoIdentityKeysByTarget: Map<string, Set<string>> = new Map<
+    string,
+    Set<string>
+  >();
 
   /**
    * The frame writer defaults to the `emulated` grade, which is the arm that
@@ -1521,13 +1555,19 @@ export class MemoDeliveryCoordinator {
         : settle(rendering, "withheld", "target-unreadable", thisDeliveryLosses(rendering));
     }
 
-    if (targetTurnsCarryAnyMemoMarker(priorTurns)) {
+    const attributableMemoIdentityKeys: Set<string> = new Set<string>(
+      this.#attemptedMemoIdentityKeysByTarget.get(request.target.providerSessionId),
+    );
+    attributableMemoIdentityKeys.add(rendering.memoIdentityKey);
+    if (targetTurnsCarryAttributableMemoMarker(priorTurns, attributableMemoIdentityKeys)) {
       // Definitive, and the one evidence that needs no barrier: the target is
-      // seeded — by this memo, by an earlier projection's memo, or by an
-      // outstanding send now known to have applied, since the only sender into
-      // an established target is this coordinator and it sends only where it
-      // found nothing — so the target leaves the register and nothing more is
-      // sent into the one conversation.
+      // seeded — by this memo, by an earlier key this coordinator attempted, or
+      // by an outstanding send now known to have applied, since the only sender
+      // into an established target is this coordinator and it sends only where
+      // it found nothing — so the target leaves the register and nothing more
+      // is sent into the one conversation. A marker under a key this
+      // coordinator cannot account for is prose, not evidence, and settles
+      // nothing here.
       this.#unconfirmedDeliveries.delete(request.target.providerSessionId);
       return settle(
         rendering,
@@ -1556,6 +1596,19 @@ export class MemoDeliveryCoordinator {
       return settle(rendering, "withheld", "send-refused", thisDeliveryLosses(rendering));
     }
 
+    // The attempt is recorded before the dispatch, not after: the send that
+    // throws below is exactly the ambiguous one whose marker the next call
+    // must be able to attribute.
+    let attemptedKeysForTarget: Set<string> | undefined =
+      this.#attemptedMemoIdentityKeysByTarget.get(request.target.providerSessionId);
+    if (attemptedKeysForTarget === undefined) {
+      attemptedKeysForTarget = new Set<string>();
+      this.#attemptedMemoIdentityKeysByTarget.set(
+        request.target.providerSessionId,
+        attemptedKeysForTarget,
+      );
+    }
+    attemptedKeysForTarget.add(rendering.memoIdentityKey);
     try {
       await this.#gateway.sendMemoTurn({
         targetProviderSessionId: request.target.providerSessionId,

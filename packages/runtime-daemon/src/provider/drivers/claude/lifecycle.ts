@@ -2212,6 +2212,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     this.#outboundFrameTripwire.register({
       scopeKey: dispatch.sessionId,
       joinKey: params.runId,
+      frameRole: "turn-opening",
       frame,
     });
     // Bound BEFORE the frame is written: once the text is on the wire the turn

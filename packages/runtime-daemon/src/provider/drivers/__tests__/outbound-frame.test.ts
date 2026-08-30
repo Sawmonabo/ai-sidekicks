@@ -77,6 +77,7 @@ import {
   TextNeutralizationRefusedError,
   TEXT_NEUTRALIZATION_REFUSAL_CODE,
   UNRECOGNIZED_TURN_EVIDENCE,
+  type OutboundFrameRole,
   type OutboundTextFrame,
 } from "../outbound-frame.js";
 
@@ -461,8 +462,9 @@ describe("outbound frame tripwire", () => {
     joinKey: string,
     frame: OutboundTextFrame,
     scopeKey = "session-1",
+    frameRole: OutboundFrameRole = "turn-opening",
   ): void {
-    tripwire.register({ scopeKey, joinKey, frame });
+    tripwire.register({ scopeKey, joinKey, frameRole, frame });
   }
 
   it("trips when a correlated turn settles with no evidence", () => {
@@ -695,13 +697,20 @@ describe("outbound frame tripwire", () => {
     // The false-pass half of the multi-frame defect. The settling envelope's
     // item list is the whole turn's, so every item in it precedes a steer
     // written later — attributing that list to the steer lets a swallowed
-    // directive pass on words it never produced. The two frames carry different
-    // origins so the composed detail names WHICH frame the turn failed to
-    // account for.
+    // directive pass on words it never produced. Items and the envelope credit
+    // the turn-opening frame alone; the unacknowledged steer holds nothing.
+    // The two frames carry different origins so the composed detail names
+    // WHICH frame the turn failed to account for.
     const tripwire = new OutboundFrameTripwire();
     registerFrame(tripwire, "turn-1", frameFor("participant_text"));
     tripwire.observe("turn-1", "model_output");
-    registerFrame(tripwire, "turn-1", frameFor("system_narration", "/clear"));
+    registerFrame(
+      tripwire,
+      "turn-1",
+      frameFor("system_narration", "/clear"),
+      "session-1",
+      "turn-joining",
+    );
 
     const decision = tripwire.settle("turn-1", observedTurnEvidence("model_output"));
 
@@ -714,16 +723,19 @@ describe("outbound frame tripwire", () => {
     );
   });
 
-  it("keeps each frame's own in-flight evidence when a later frame joins the turn", () => {
+  it("rules the opening frame on its items and a joined frame on its answered request", () => {
     // The false-trip half: an opening frame that was answered stays answered
     // when a steer joins its turn, and a terminal with an UNLOADED item list
-    // must not then fail it. Each item lands on the oldest frame still holding
-    // none, so the first vouches the opening frame and the second the steer.
+    // must not then fail either — the opener holds its item, and the steer
+    // holds the provider's answer to its own request, which is the only
+    // per-frame statement the transport produces for it (receipt, not
+    // delivery — the class doc states the conjunction residual).
     const tripwire = new OutboundFrameTripwire();
     registerFrame(tripwire, "turn-1", frameFor("participant_text"));
     tripwire.observe("turn-1", "model_output");
-    registerFrame(tripwire, "turn-1", frameFor("participant_text", "also check the tests"));
-    tripwire.observe("turn-1", "model_output");
+    const steerFrame = frameFor("participant_text", "also check the tests");
+    registerFrame(tripwire, "turn-1", steerFrame, "session-1", "turn-joining");
+    tripwire.recordRequestAnswered(steerFrame);
 
     expect(tripwire.settle("turn-1", observedTurnEvidence())).toStrictEqual({
       tripped: false,
@@ -731,27 +743,62 @@ describe("outbound frame tripwire", () => {
     });
   });
 
-  it("does not let one directive's delayed output vouch a directive registered beside it", () => {
-    // The false-pass twin of the two tests above. Two directives are pending
-    // when a single item arrives — output the FIRST caused, delayed past the
-    // second's registration. Crediting every pending frame would let that item
-    // vouch the second directive too, and a steer the provider swallowed would
-    // pass on words another directive produced. The item lands on the oldest
-    // frame still holding no evidence, so the second is owed its own item.
+  it("does not let the opener's delayed output vouch an already-evidenced turn's steer", () => {
+    // The exact false-pass the oldest-unevidenced heuristic still carried: the
+    // opener is already vouched, a steer registers, and a DELAYED item from the
+    // opener's own output arrives. Crediting the oldest frame still holding no
+    // evidence handed that item to the steer — the swallowed steer passed
+    // behind it. Items credit the turn-opening frame alone, evidenced or not,
+    // so the unacknowledged steer trips.
     const tripwire = new OutboundFrameTripwire();
     registerFrame(tripwire, "turn-1", frameFor("participant_text"));
-    registerFrame(tripwire, "turn-1", frameFor("system_narration", "/clear"));
+    tripwire.observe("turn-1", "model_output");
+    registerFrame(
+      tripwire,
+      "turn-1",
+      frameFor("system_narration", "/clear"),
+      "session-1",
+      "turn-joining",
+    );
     tripwire.observe("turn-1", "model_output");
 
     const decision = tripwire.settle("turn-1", observedTurnEvidence());
 
     if (!decision.tripped) {
-      throw new Error("expected the directive no item is attributable to to trip");
+      throw new Error("expected the steer no item is attributable to to trip");
     }
     expect(decision.cause).toBe("no-turn-evidence");
     expect(decision.failureDetail).toBe(
       "driver.text_neutralization_failed origin=system_narration",
     );
+  });
+
+  it("never lets an answered request vouch for a turn-opening frame", () => {
+    // The zero-turn hazard IS a request answered as taken and met with an
+    // empty turn, so an answer-vouched opener would pass in exactly the case
+    // the tripwire exists to catch. The call is a fail-closed no-op.
+    const tripwire = new OutboundFrameTripwire();
+    const openingFrame = frameFor("participant_text");
+    registerFrame(tripwire, "turn-1", openingFrame);
+    tripwire.recordRequestAnswered(openingFrame);
+
+    const decision = tripwire.settle("turn-1", observedTurnEvidence());
+
+    expect(decision.tripped).toBe(true);
+  });
+
+  it("trips even an acknowledged steer when the settlement is unrecognized", () => {
+    // The envelope's `recognized` flag is a property of the TURN: a zero-turn
+    // settlement means the whole turn was swallowed, and no frame's proven
+    // delivery outranks that.
+    const tripwire = new OutboundFrameTripwire();
+    registerFrame(tripwire, "turn-1", frameFor("participant_text"));
+    tripwire.observe("turn-1", "model_output");
+    const steerFrame = frameFor("participant_text", "keep going");
+    registerFrame(tripwire, "turn-1", steerFrame, "session-1", "turn-joining");
+    tripwire.recordRequestAnswered(steerFrame);
+
+    expect(tripwire.settle("turn-1", UNRECOGNIZED_TURN_EVIDENCE).tripped).toBe(true);
   });
 
   it("consumes every frame on a turn, so a second terminal rules on none", () => {
@@ -1077,6 +1124,27 @@ describe("outbound frame tripwire", () => {
     const abandoned = tripwire.abandonScope("session-1");
 
     expect(abandoned.map((frame) => frame.joinKey)).toStrictEqual(["turn-2"]);
+    expect(tripwire.pendingFrameCountForScope("session-1")).toBe(0);
+  });
+
+  it("reports an answered frame whose turn never settled as delivery unproven", () => {
+    // An answered request proves the provider TOOK the frame, not that the
+    // model read its text — and a turn that died unsettled never reached the
+    // settlement that consumes the frame on that answer. "Delivery left
+    // unproven" is therefore exactly true of it, so it is reported beside the
+    // opener rather than quietly consumed.
+    const tripwire = new OutboundFrameTripwire();
+    const answeredSteer = frameFor("system_narration", "keep going");
+    registerFrame(tripwire, "turn-1", frameFor("participant_text"), "session-1");
+    registerFrame(tripwire, "turn-1", answeredSteer, "session-1", "turn-joining");
+    tripwire.recordRequestAnswered(answeredSteer);
+
+    const abandoned = tripwire.abandonScope("session-1");
+
+    expect(abandoned).toStrictEqual([
+      { joinKey: "turn-1", detailOrigin: "participant_text" },
+      { joinKey: "turn-1", detailOrigin: "system_narration" },
+    ]);
     expect(tripwire.pendingFrameCountForScope("session-1")).toBe(0);
   });
 
