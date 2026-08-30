@@ -1597,6 +1597,38 @@ export type ReconstitutionSettlement =
   | { readonly route: "memo"; readonly memo: MemoDeliverySettlement };
 
 /**
+ * Raised when a caller reports native replay applied while ALSO declaring that a
+ * bounded prose summary stood in for the conversation.
+ *
+ * The two claims are mutually exclusive by construction — the summary standing in
+ * IS the memo floor, and the memo floor is the `degraded` settlement — so the
+ * value states no reachable outcome. `DriverTranscriptReplayResultSchema` refuses
+ * it at parse, but this router is a SECOND producer of a boundary result and it
+ * constructs one in TypeScript rather than parsing it, so the schema alone leaves
+ * the contradiction reachable on exactly the path that publishes continuity.
+ *
+ * Thrown rather than corrected. Rewriting the outcome to `degraded` would invent
+ * a settlement the caller never reported, and dropping the kind from the list
+ * would hide a loss the caller did report — both of which answer "which of the
+ * caller's two claims is the true one?" by guessing. The caller knows; this
+ * module does not.
+ */
+export class ContradictoryReplayDispositionError extends Error {
+  readonly disposition: NativeReplayDisposition;
+
+  constructor(disposition: NativeReplayDisposition) {
+    super(
+      "A native-replay disposition reported 'applied' while declaring " +
+        "'conversation_history_summarized', which names the memo floor standing in for " +
+        "the conversation; a replay cannot both have landed the conversation and have " +
+        "been summarized away, so no reconstitution settlement is reported for it.",
+    );
+    this.name = "ContradictoryReplayDispositionError";
+    this.disposition = disposition;
+  }
+}
+
+/**
  * Routes a reconstitution to native replay's own settlement or to the memo floor.
  *
  * On the `applied` arm the memo coordinator is never consulted, so the gateway is
@@ -1615,6 +1647,15 @@ export class TranscriptReconstitutionRouter {
     request: MemoDeliveryRequest,
   ): Promise<ReconstitutionSettlement> {
     if (disposition.outcome === "applied") {
+      // Checked here rather than left to the schema because this construction
+      // never passes one. The result below is assembled from a TypeScript
+      // literal, and `DriverTranscriptReplayResult` is flat by design, so the
+      // arm-scoping the schema enforces has no structural counterpart the
+      // compiler can hold us to. Absent this guard the one path that publishes
+      // native-replay continuity is precisely the path that skips the parse.
+      if (disposition.declaredLosses.includes("conversation_history_summarized")) {
+        throw new ContradictoryReplayDispositionError(disposition);
+      }
       return {
         route: "native-replay",
         result: { status: "applied", declaredLosses: [...disposition.declaredLosses] },

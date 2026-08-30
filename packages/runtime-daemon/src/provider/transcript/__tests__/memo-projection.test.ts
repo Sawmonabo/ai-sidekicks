@@ -52,6 +52,7 @@ import {
   type TranscriptToolResultBody,
 } from "../canonical-transcript.js";
 import {
+  ContradictoryReplayDispositionError,
   DEFAULT_PROTECTED_TAIL_TOOL_EXCHANGE_COUNT,
   EstablishedMemoTarget,
   MEMO_CONTINUITY_MARKER_PREFIX,
@@ -2157,6 +2158,61 @@ describe("reconstitution routing — the memo is the caller's fallback", () => {
       expect(result.declaredLosses).toContain("conversation_history_summarized");
       expect(target.sendAttempts).toBe(1);
     }
+  });
+
+  it("refuses an applied disposition that also declares the summarization", async () => {
+    // The router builds its boundary result from a TypeScript literal and never
+    // parses one, so the schema's arm-scoping does not reach this construction.
+    // Left unguarded, the one path that publishes native-replay continuity is
+    // exactly the path that skips the parse — and it would publish it for a
+    // session holding a bounded prose summary.
+    const target = new FakeTargetSession();
+    const coordinator = new MemoDeliveryCoordinator(target);
+    const router = new TranscriptReconstitutionRouter(coordinator);
+
+    await expect(
+      router.route(
+        { outcome: "applied", declaredLosses: ["conversation_history_summarized"] },
+        addressedTo(
+          coordinator,
+          requestFor(projectionOf([turn(1, "participant", [{ kind: "text", text: "hello" }])])),
+        ),
+      ),
+    ).rejects.toBeInstanceOf(ContradictoryReplayDispositionError);
+
+    // Refused rather than rerouted: the memo floor is not consulted, because
+    // sending a summary here would answer the caller's contradiction by picking
+    // one of its two claims.
+    expect(target.sendAttempts).toBe(0);
+  });
+
+  it("still routes an applied disposition carrying ordinary losses", async () => {
+    // The negative control for the guard above: it keys on the one kind that
+    // names the memo floor, not on "the list is non-empty". An applied replay
+    // that stripped private reasoning is the ordinary case and must still route.
+    const target = new FakeTargetSession();
+    const coordinator = new MemoDeliveryCoordinator(target);
+    const router = new TranscriptReconstitutionRouter(coordinator);
+
+    const settlement: ReconstitutionSettlement = await router.route(
+      {
+        outcome: "applied",
+        declaredLosses: ["provider_private_reasoning", "tool_call_history_repaired"],
+      },
+      addressedTo(
+        coordinator,
+        requestFor(projectionOf([turn(1, "participant", [{ kind: "text", text: "hello" }])])),
+      ),
+    );
+
+    expect(settlement.route).toBe("native-replay");
+    if (settlement.route !== "native-replay") {
+      throw new Error("an applied replay is the native-replay route");
+    }
+    expect(settlement.result.declaredLosses).toEqual([
+      "provider_private_reasoning",
+      "tool_call_history_repaired",
+    ]);
   });
 });
 
