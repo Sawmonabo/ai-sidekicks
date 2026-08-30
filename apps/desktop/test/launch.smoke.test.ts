@@ -99,7 +99,7 @@
 //                              on Electron 41.6.1.
 //   See `apps/desktop/electron.vite.config.ts` header for the decision log.
 
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -199,10 +199,33 @@ function needsXvfb(): boolean {
 // fires, the "bounded" spawn promise never settles, and the orphan keeps its
 // profile lock. The spawn below is `detached` on POSIX, so the child leads its
 // own process group and a negative-pid signal reaches every process in the
-// tree at once. The direct-child fallback covers the group already being
-// reaped (ESRCH) and platforms without POSIX process groups.
+// tree at once; on Windows, where no process group exists, `taskkill /t`
+// walks the descendant tree to the same effect. The direct-child fallback
+// covers the group already being reaped (ESRCH) and a child that never
+// received a pid.
 function terminateElectronTree(child: ChildProcess, signal: NodeJS.Signals): void {
-  const groupLeaderPid = process.platform === "win32" ? undefined : child.pid;
+  if (process.platform === "win32") {
+    // No POSIX process group exists here, and `child.kill` reaches only the
+    // launcher: Windows "signals" are TerminateProcess calls, which are never
+    // forwarded, so the browser would survive holding the inherited stdout
+    // write end — the same orphan the group delivery prevents on POSIX.
+    // `taskkill /t` walks the launcher's descendant tree instead: without
+    // `/f` it posts WM_CLOSE to each windowed process (the graceful analog —
+    // exactly the tree members that matter here have windows), with `/f` it
+    // terminates every node outright (the SIGKILL analog). A tree already
+    // gone makes taskkill exit non-zero, which is the same no-op the POSIX
+    // arm absorbs via ESRCH.
+    if (child.pid !== undefined) {
+      const forcedArguments = signal === "SIGKILL" ? ["/f"] : [];
+      spawnSync("taskkill", ["/pid", String(child.pid), "/t", ...forcedArguments], {
+        stdio: "ignore",
+      });
+      return;
+    }
+    child.kill(signal);
+    return;
+  }
+  const groupLeaderPid = child.pid;
   if (groupLeaderPid !== undefined) {
     try {
       process.kill(-groupLeaderPid, signal);
