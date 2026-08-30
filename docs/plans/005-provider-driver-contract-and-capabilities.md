@@ -879,6 +879,7 @@ Phase 1 ships `DriverCapabilityFlag` and `NormalizedProviderToolMetadata` in `pr
 
 ```yaml
 manifest_schema_version: 1
+non_shipment_prs: [376] # PR-A housekeeping: docs errata + dead-literal code chore + NS-90 DAG bookkeeping; no plan task shipped
 shipped:
   - phase: 1
     task: [T1.1, T1.2, T1.3, T1.4, T1.5, T1.6]
@@ -1050,6 +1051,172 @@ shipped:
       verifies_invariant = the T3.1-T3.10 audit-marker union {I-005-2, I-005-3, I-005-4, I-005-5} at the driver-core layer on the established multi-layer convention (this plan's PR #159 / #369 / #372 entries all invoke it): I-005-5 at the T3.1/T3.6 lifecycle state machines, I-005-4 at the T3.2/T3.7 intervention degrade paths, I-005-2 at the T3.3/T3.8 capability surfaces, I-005-3 at the T3.4/T3.9 tool-identity namespaces. T3.5/T3.10 carry no invariant marker; SDK-layer re-verification of I-005-2/I-005-4 stays at T4.6 per the Phase-1/2 entries' projections.
       Both driver cores model the provider-session slot as an explicit held state machine (Codex establishing|live|closing behind #claimSessionSlot; Claude a single-registry five-state union with EMPTY as absence and quarantined retaining the channel of a rejected disposal). The event normalizers are closed pinned censuses onto Plan-006's 35-kind normalized map that THROW on unmapped kinds — the deliberate interim strictness T3.11 (PR-B) replaces with the EVENT_DISPOSITION_BY_KIND-driven diagnostic — with the corrected turn/diff/updated + turn/plan/updated wire names verified first-party against codex-cli 0.149.1. No dotted driver.* code is minted (the namespace stays seven); no census moves.
       Review: three Codex rounds folded eighteen findings (seventeen fixed, one refuted) plus same-class residual sweeps (ingest-wide sink-fault containment; DRIVER_FAILURE_DETAIL_MAX_LEN leak-safe failure-detail normalization).
+  - phase: 3
+    task: [T3.11, T3.13, T3.14, T3.23]
+    pr: 378
+    sha: 0bad852d
+    merged_at: 2026-08-29
+    files:
+      - .github/workflows/provider-compat.yml
+      - docs/architecture/cross-plan-dependencies.md
+      - docs/decisions/018-cross-version-compatibility.md
+      - docs/plans/005-provider-driver-contract-and-capabilities.md
+      - docs/plans/006-session-event-taxonomy-and-audit-log.md
+      - docs/reference/INDEX.md
+      - docs/reference/provider-wire/README.md
+      - docs/reference/provider-wire/claude.md
+      - docs/reference/provider-wire/codex.md
+      - docs/specs/005-provider-driver-contract-and-capabilities.md
+      - docs/specs/016-multi-agent-channels-and-orchestration.md
+      - packages/runtime-daemon/src/node/__tests__/node-registry.test.ts
+      - packages/runtime-daemon/src/node/node-registry.ts
+      - packages/runtime-daemon/src/provider/__tests__/callback-tool-host.test.ts
+      - packages/runtime-daemon/src/provider/__tests__/capability-refresh.test.ts
+      - packages/runtime-daemon/src/provider/__tests__/driver-diagnostics.test.ts
+      - packages/runtime-daemon/src/provider/__tests__/node-provider-plane.test.ts
+      - packages/runtime-daemon/src/provider/__tests__/runtime-binding-store.test.ts
+      - packages/runtime-daemon/src/provider/__tests__/thread-frame-router.test.ts
+      - packages/runtime-daemon/src/provider/__tests__/usage-delta-accountant.test.ts
+      - packages/runtime-daemon/src/provider/__tests__/version-gate.test.ts
+      - packages/runtime-daemon/src/provider/callback-tool-host.ts
+      - packages/runtime-daemon/src/provider/capability-refresh.ts
+      - packages/runtime-daemon/src/provider/driver-diagnostics.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/__fixtures__/control-request-subtype-census.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/__fixtures__/stream-surface-census.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/__tests__/claude-capabilities.test.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/__tests__/claude-driver.test.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/__tests__/claude-test-doubles.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/__tests__/claude-tools.test.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/__tests__/event-normalizer.test.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/__tests__/intervention.test.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/__tests__/lifecycle.test.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/capabilities.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/event-normalizer.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/index.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/intervention.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/lifecycle.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/tools.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/__fixtures__/server-notification-methods.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/__fixtures__/server-request-methods.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/__tests__/capabilities.test.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/__tests__/event-normalizer.test.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/__tests__/intervention.test.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/__tests__/lifecycle.test.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/__tests__/tools.test.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/capabilities.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/event-normalizer.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/index.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/intervention.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/lifecycle.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/tools.ts
+      - packages/runtime-daemon/src/provider/node-provider-plane.ts
+      - packages/runtime-daemon/src/provider/runtime-binding-store.ts
+      - packages/runtime-daemon/src/provider/terminal-emission-gate.ts
+      - packages/runtime-daemon/src/provider/thread-frame-router.ts
+      - packages/runtime-daemon/src/provider/usage-delta-accountant.ts
+      - packages/runtime-daemon/src/provider/version-gate.ts
+    verifies_invariant: [I-005-3, I-005-5, I-005-10, I-005-11, I-005-12]
+    spec_coverage:
+      [
+        "Spec-005 §Required Behavior (drivers emit normalized events rather than provider-native types; the per-turn usage-delta rule and its non-overlapping token partition; the child-frame routing rule; the semver floor at capability fetch and undeclared = unsupported; spawn-env hygiene, intended-close, at-most-once terminal, interactive-request mechanisms, and idempotency-key ride-through; the ratified V1 floors Claude Code `2.1.234` / codex-cli `0.141.0` and the rule that the version a driver reports is the version that spawned)",
+        "Spec-005 §Interfaces And Contracts (the `windowSource` / `exceeded` normalize-boundary obligation; the usage-delta and thread-routing normalize-boundary bullet; the seven R8 parity legs)",
+        "Spec-005 §Per-Driver Capability Matrix (the declared capability flags and their per-leg mechanism grades — T3.12's six campaign rows including the Claude-only `cost_cap`, and T3.15's parity legs)",
+        "Spec-005 §Provider Parameter Vocabularies (per-provider effort vocabularies and per-turn overrides)",
+        "Spec-005 §Resolved Questions and V1 Scope Decisions (the bounded capability-refresh cadence)",
+        "Spec-005 §Tool Metadata (MCP-discovered tool always `manual_reconcile_only`; class never derived from annotations; the durable-task-handle carve-out)",
+        "Spec-005 §Recovery Consequences (receipt recovery dispatched on `idempotency_class`)",
+        "Spec-005 §Fallback Behavior (resume position-compare, resume-failure taxonomy, `RecoveryCondition`)",
+        "Spec-005 §Pitfalls To Avoid (no cumulative emission, no compaction re-base, no positional parent inference)",
+        "Spec-006 §Usage Telemetry (usage_telemetry) (`usage.rate_limit_update`, cost/window fields)",
+        "Spec-006 §Tool Activity (tool_activity) (`subagent.*` lifecycle)",
+        "Spec-006 §Run Lifecycle (run_lifecycle) (at-most-once terminal per `(runId, runVersion)`)",
+        "Spec-012 §Required Behavior (execution-posture authorization + `approvalsReviewer` pin, B20)",
+        "Spec-016 §Provider-Native Subagents (single-supervisor invariant, B6)",
+      ]
+    notes: |
+      Phase-3 tasks T3.11 + T3.13 + T3.14 + T3.23 shipped as one daemon PR (the PR itself carried the T3.12 and T3.15 diffs too, but those two rows are deliberately WITHHELD from this shipped set — each still carries an undischarged in-row duty, named below — so the declared-subset-of-shipped comparison keeps holding the gates they guard) — the PR-B slice of the phase's four-PR partition (PR-A: T3.1-T3.10 as PR #375; PR-C: T3.18/T3.19/T3.21; PR-D: T3.20/T3.22/T3.24/T3.25, which the 2026-08-29 T3.26 console-parity row joins). Fourteen of the phase's twenty-four declared tasks are shipped at this entry — the declared count re-derived by counting this phase's `#### Tasks` rows (T3.1-T3.15 + T3.18-T3.26; T3.16/T3.17 are Phase 3B and are not this phase's) rather than carried from the PR #375 note's twenty-three, which predates T3.26 — so the phase stays partially_shipped under declared-subset-of-shipped and NO Gate-5 entry re-resolves: the two { plan: 005, phase: 3, status: merged } entries repo-wide, Plan-005 Phase 3B and Plan-005 Phase 5, both local self-gates, stay held.
+      verifies_invariant = the shipped-set audit-marker union {I-005-3, I-005-5, I-005-10, I-005-11, I-005-12} (I-005-2 and I-005-4 are deliberately absent: their citing rows T3.12 / T3.15 are withheld from this shipped set, I-005-2 is already canonically recorded at the PR #369 entry, and I-005-4 stays canonically at T4.6 exactly as the Phase-1 entry projected). I-005-11 and I-005-12 verify canonically here and for the first time: each names a single enforcer this PR authors — `provider/usage-delta-accountant.ts` as the single metering path both normalizers emit through, and `provider/thread-frame-router.ts` as the single routing decision both normalizers consult — and the assertions each invariant's Test clause enumerates (AC18's cumulative-sequence / interleaved-attribution / fresh-first-reading / replay-seeded / resume-prior-emitted-sum / compaction-no-re-base / late-frame / floor-hit / cross-check-mismatch / nested-cache / failed-identity set, and AC19's foreign-thread-suppression / connection-scoped-pass / unknown-family-quarantine / absent-identity-quarantine / quarantine-shed / pending-hold-release / hold-timeout-shed / child-spend-attribution / compaction-child-run-scope / child-request-carve-through / surviving-lifecycle-pair set) land with them. I-005-2 (T3.12's flag declaration, T3.15's per-leg gating), I-005-3 (T3.13's MCP idempotency floor), I-005-4 (T3.15's unsupported-implies-degraded legs) and I-005-5 (T3.14's resume-failure surfacing `recovery-needed`) re-verify at the driver-enrichment layer on the established multi-layer convention this plan's PR #159 / #369 / #372 / #375 entries all invoke; their SDK-layer re-verification sites stay at T4.6 (I-005-2, I-005-4) and T4.7 (I-005-5) exactly as those entries projected, while I-005-3's canonical site is neither — it is the T1.3 ingress-default contract test already recorded in this manifest's PR #157 entry.
+      I-005-10 is recorded on an explicitly PARTIAL basis rather than silently or by omission, because the shipment demonstrates part of it with a test the invariant itself names: of the four tests I-005-10's Test clause enumerates, only "the binding row's version equals the spawned process's own report under launcher drift (T3.23)" lands here — the three probe-table / zero-billed-turn assertions are T3.24's and auto-update suppression is T3.25's, both PR-D. The conjuncts verified at this shipment are therefore admission-by-version-alone (floor compare, fail-closed refusal before any capability probe and before any billed turn) and one-reading identity (the version compared, the version recorded on the binding, and the version of the process that runs the session are the same reading, asserted against a launcher naming a different build); per-capability probe resolution with its detection source, and the disabled auto-updater that keeps the reading true for the session's life, are NOT verified here. The alternative — omitting it on the PR #369 discriminator, that a shipment structurally cannot demonstrate the invariant — does not apply: this one can, and does, for two of its conjuncts.
+      Shipped surface: the T3.11 normalizer-enrichment band — `driver-diagnostics.ts` as the off-timeline default-branch surface both normalizers route an unmapped or `typePending` kind to (never a `session_events` envelope and never a silent drop), the bounded reorder buffer with its paired overflow diagnostic and counter, and the two modules the 2026-08-28 NS-91 amendment specified: `usage-delta-accountant.ts` (one base register per provider thread and axis advanced in stream order, each interval attributed to the turn the metered frame itself names, two-armed base establishment with a provider-native resume basing at the daemon's own prior-emitted sum, no re-base on compaction, and a floor-at-zero plus diagnostic on a falsified cumulative declaration) and `thread-frame-router.ts` (family-scoped classification ahead of any projection decision, registration ahead of the refusal rule, a bounded pending-registration hold distinct from the bounded quarantine, and both usage counters and child-raised interactive requests carved out ahead of suppression) — plus the provider-neutral `terminal-emission-gate.ts` hoist; T3.12's capability declaration, CLI-version floor and `CapabilityRefreshScheduler` cadence with change-detected emission; T3.13's MCP idempotency floor and server-status census; T3.14's lifecycle / intervention / resume enrichment; T3.15's R8 parity legs with `callback-tool-host.ts`; and T3.23's `version-gate.ts` — resolve, spawn, in-band read (Claude `get_binary_version`; the Codex `initialize` `userAgent` extraction with its refuse-rather-than-shell-out rule), floor compare, and the same reading persisted at the T2.2 binding write seam.
+      Withheld tasks, and why (the PR's own Review Notes, promoted from residuals to the shipped-set decision): T3.12 is withheld because its in-row C-8 duty (`ProviderModel.effortLevels` + `listModels` current-catalog carriage) is an open contracts gap this PR did not land — the cadence scheduler, floor gate, and refresh legs it also owns did land and are exercised by the shipped tests; T3.15 is withheld because leg 3's dispatch-path contract (the driver invokes the daemon-injected dispatcher and no invocation is left unanswered) is not yet true end-to-end — `CallbackToolHost` is unit-verified on both halves but the composition-root injection into both drivers' callback seam is unwired, and every degradation is fail-closed meanwhile (a seam-absent host answers `denied` plus a diagnostic). Codex callback-tool registration is structurally unreachable at the pin (`dynamicTools` sits behind `experimentalApi: false`) and is withheld at spawn rather than attempted; the Codex-leg `frameRouterFor` / `usageAccountantFor` get-or-create asymmetry against the now-non-creating Claude accessors is accepted as-is with closing it named for the T3.15 completion slice. Both rows complete in the Phase-3 remainder alongside T3.20/T3.22/T3.24/T3.25/T3.26.
+      Review: lead-orchestrated rather than run through the /plan-execution pipeline, with skill-compatible artifacts maintained. A consolidated 21-finding fold (`47f2c2a9`) wired the router, accountant and reorder buffer into both driver session paths; its most serious self-found defect was the Codex usage reader consuming `params.usage.total` where the pin publishes `params.tokenUsage.total`, so nothing would have metered against a real Codex — fixed with a negative control. A focused post-gate review of the new Claude inbound-frame seam (`c2665f42`) folded 4 ACTIONABLE + 2 POLISH (+16 tests, each with a mutation negative control), and a round-3 user review plus a focused independent review adjudicated three externally-reported P1s — two refuted at head with line evidence (the router and accountant ARE wired into both production lifecycles; the scheduler's stale-poll overwrite is generation-guarded and test-pinned) and one confirmed and fixed (the refresh scheduler had zero production callers, closed by an additive-optional, exception-contained `NodeRegistry` lifecycle observer and the new `provider/node-provider-plane.ts` binder) — plus 1 ACTIONABLE + 4 POLISH on the Codex rewind rebind (+17 tests). Codex-bot was rate-limited across both external rounds, so the rewind-rebind code was reviewed by a focused independent pass instead; that is recorded here rather than left to read as a clean Codex round.
+      The same PR carried an operator-directed provider re-pin — codex-cli `0.149.1` -> `0.150.1` and Claude Code `2.1.245` -> `2.1.251`. The census claims that measured it (ServerNotification full-list set difference 75 -> 79 with the default and `--experimental` unions re-verified identical, and the `thread/realtime/*` family eight -> eleven by addition) are NOT restated here as this entry's own claims: their primary-source homes are the dated ADR-018 §Decision Log row this PR added and the regenerated provider-wire references (`docs/reference/provider-wire/codex.md` / `claude.md`), which carry the regeneration provenance (`codex app-server generate-json-schema` at the pinned binary) a reviewer reproduces the counts from. The ratified floors are unchanged, so admission stays floor-compare only. The round-3 doc rider registered the previously-unrecorded `packages/runtime-daemon/src/node/` ownership row in cross-plan-dependencies.md §2 (Plan-003 Phase 2 CREATE, with its two sanctioned in-place extenders). No census moves: no wire method, error code, event type, table, or column is minted, error-contracts.md is untouched, and the realtime-family recount is a reference-pin erratum that moves none of the tracked censuses.
+  - phase: 3
+    task: [T3.18, T3.19, T3.21]
+    pr: 379
+    sha: 92f6850c
+    merged_at: 2026-08-30
+    files:
+      - apps/desktop/src/renderer/src/runtime-node-attach/__tests__/AttachFlow.test.tsx
+      - apps/desktop/src/renderer/src/runtime-node-attach/__tests__/CapabilityDeclaration.test.tsx
+      - apps/desktop/src/renderer/src/runtime-node-attach/__tests__/MixedVersionStatus.test.tsx
+      - apps/desktop/src/renderer/src/runtime-node-attach/__tests__/NodeRoster.test.tsx
+      - apps/desktop/src/renderer/src/runtime-node-attach/__tests__/renderer-import-boundary.test.ts
+      - apps/desktop/src/renderer/src/session-bootstrap/__tests__/SessionBootstrap.test.tsx
+      - apps/desktop/src/renderer/src/session-members/__tests__/invite-accept-view.test.tsx
+      - apps/desktop/src/renderer/src/session-members/__tests__/participant-roster.test.tsx
+      - apps/desktop/test/launch.smoke.test.ts
+      - apps/desktop/test/lifecycle.gc.test.ts
+      - apps/desktop/test/sidecar-lifecycle.test.ts
+      - docs/reference/provider-wire/claude.md
+      - docs/reference/provider-wire/codex.md
+      - packages/contracts/src/__tests__/provider-driver.test.ts
+      - packages/contracts/src/provider-driver.ts
+      - packages/runtime-daemon/src/git/__tests__/turn-snapshot-service.test.ts
+      - packages/runtime-daemon/src/migrations/0011-driver-capability-currency.ts
+      - packages/runtime-daemon/src/migrations/0012-transcript-capability-backfill.ts
+      - packages/runtime-daemon/src/provider/__tests__/driver-capabilities-writer.test.ts
+      - packages/runtime-daemon/src/provider/__tests__/phase-2-integration.test.ts
+      - packages/runtime-daemon/src/provider/__tests__/provider-registry.test.ts
+      - packages/runtime-daemon/src/provider/driver-capabilities-writer.ts
+      - packages/runtime-daemon/src/provider/driver-diagnostics.ts
+      - packages/runtime-daemon/src/provider/drivers/__tests__/outbound-frame.test.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/__fixtures__/turn-evidence-transcripts.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/__tests__/claude-capabilities.test.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/__tests__/claude-driver.test.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/__tests__/claude-test-doubles.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/__tests__/intervention.test.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/__tests__/lifecycle.test.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/capabilities.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/event-normalizer.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/index.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/lifecycle.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/__fixtures__/turn-evidence-transcripts.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/__tests__/capabilities.test.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/__tests__/intervention.test.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/__tests__/lifecycle.test.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/capabilities.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/event-normalizer.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/index.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/intervention.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/lifecycle.ts
+      - packages/runtime-daemon/src/provider/drivers/outbound-frame.ts
+      - packages/runtime-daemon/src/provider/transcript/__tests__/canonical-transcript.test.ts
+      - packages/runtime-daemon/src/provider/transcript/__tests__/memo-projection.test.ts
+      - packages/runtime-daemon/src/provider/transcript/canonical-transcript.ts
+      - packages/runtime-daemon/src/provider/transcript/memo-projection.ts
+      - packages/runtime-daemon/src/provider/transcript/transform-pipeline.ts
+      - packages/runtime-daemon/src/session/__tests__/migration-shape.test.ts
+      - packages/runtime-daemon/src/session/__tests__/session-service.test.ts
+      - packages/runtime-daemon/src/session/migration-runner.ts
+    verifies_invariant: [I-005-7, I-005-8, I-005-9]
+    spec_coverage:
+      [
+        "Spec-005 §Required Behavior (prose delivery, frame origin, runtime tripwire)",
+        "Spec-005 §Canonical Transcript Export And Replay (the projection-never-a-store rule and the ordered five-step pipeline; the four normative memo properties)",
+        "Spec-005 §Interfaces And Contracts (the two new driver operations `exportTranscript` / `replayTranscript`)",
+        "Spec-005 §Parity Capability Mechanism Grades (the provider-bound text-neutrality row)",
+        "Spec-005 §Fallback Behavior (a memo-settled operation reports `degraded` and carries the declared-loss list)",
+        "Spec-005 §Pitfalls To Avoid (no invisible sentinel; no mutation upstream of the driver; no re-minted tool-call ids; no strip-after-repair; no cached render)",
+      ]
+    notes: |
+      Phase-3 tasks T3.18, T3.19 and T3.21 shipped as one contracts+daemon PR — the PR-C slice of the phase's four-PR partition (PR-A: T3.1-T3.10 as PR #375; PR-B: T3.11-T3.15 + T3.23 as PR #378). Nineteen of the phase's twenty-four declared tasks are merged; T3.20, T3.22, T3.24, T3.25 and T3.26 remain, so the phase stays partially_shipped under declared-subset-of-shipped and NO Gate-5 entry re-resolves — the two { plan: 005, phase: 3, status: merged } entries repo-wide, Plan-005 Phase 3B and Plan-005 Phase 5, stay held. T3.20 additionally holds on an external leg: CP-005-13 (registered 2026-08-30 by the machine-authored-prose amendment, §6 node NS-94, reciprocal to Plan-006's CP-006-15) dispatches it only after Plan-006 Phase 3B merges, because a post-replay assertion over content-free turns cannot distinguish an accepted replay from a silently dropped one. T3.19 is deliberately not held by that obligation — its fold and export are correct over a body-less log, which is the state they were authored against.
+      verifies_invariant = the T3.18 / T3.19 / T3.21 audit-marker union {I-005-7, I-005-8, I-005-9}. I-005-7 verifies canonically and in full: its Enforced-by clause names T3.18 alone — the shared outbound frame boundary, the tripwire classification, and the encapsulated child-stdin handle that makes bypassing the frame writer unrepresentable rather than merely discouraged — and every test that clause enumerates ships here. I-005-8 and I-005-9 are each recorded on an explicitly PARTIAL basis, with the split stated rather than implied. I-005-8 is enforced by T3.19 and T3.20; T3.19's half lands (the projection-never-a-store property, the ordered pipeline whose step order is asserted by a deliberately reordered pipeline failing the pairing assertion, and the stable bidirectional tool-call id map), while T3.20's post-replay assertion — the conjunct holding that a provider's success return is not evidence a replay worked — is PR-D's and is not verified here. I-005-9 is enforced by T3.21 and T3.22; T3.21's half lands (the memo floor's `degraded` settlement, the always-present `conversation_history_summarized` declared loss, and the tight-budget property that a memo never splits a tool exchange), while T3.22's permanent-refusal classification — a structurally invalid history called exactly once rather than retried — is PR-D's. Both are recorded rather than omitted on the PR #369 discriminator: that entry omitted I-005-4 because a contracts-and-migration shipment structurally could not demonstrate it, whereas each of these lands a test the invariant's own Test clause names.
+      Shipped surface: T3.18's `drivers/outbound-frame.ts` — the closed daemon-local origin union (deliberately not hoisted onto the wire-facing contract, since a client-chosen origin is the one input that must never be client-chosen), the coarse command-shaped-first-word predicate, the transport-only single-leading-newline neutralization that never mutates persisted, evented, replayed or participant-visible text, the neutralize-on-absent-or-unrecognized-origin default, and the correlation-minting tripwire whose trip fails the run with `driver.text_neutralization_failed` on the run's ordinary `run.failed` terminal (`failureCategory: 'provider failure'`, `recoveryCondition: 'recovery-needed'`, and a `providerFailureDetail` in the fixed `<code> origin=<...>` form) and disposes the run's provider binding rather than recording a zero-turn success as a completed turn; the additive-optional closed-literal `refusalCode` on `DriverInterventionResult` / `DriverInterventionResultSchema` as a Phase-3 EXTEND of the T1.6 contract, best-effort by construction with the run terminal as the guarantee. T3.19's `transcript/canonical-transcript.ts` + `transcript/transform-pipeline.ts` fold and ordered five-step pipeline, the `exportTranscript` / `replayTranscript` operation shapes, the `DeclaredLossKind` closed union, and the `transcript_replay` capability flag with migration `0012-transcript-capability-backfill.ts` landing its `supported = 0` row per cached `driver_name` in the same ordinal that widens the union — the row set needing the backfill because the writer's snapshot reader enforces exact flag cardinality, while the CHECK needs no second widening because migration 0011 already admits all fourteen values. T3.21's `transcript/memo-projection.ts` floor: a budget as a fraction of the target's context window, whole-exchange eviction behind a protected set (the newest exchange plus the newest N tool-bearing exchanges wherever they sit, replacing the originally-authored recency window that silently dropped older tool exchanges), a once-only key DERIVED from the projection and the target and carried visibly on the memo turn rather than held in a durable claim, and reconcile-before-every-send so an ack-loss delivers exactly once and an unreadable target sends nothing.
+      Review ran five rounds, every finding folded and every thread replied to and resolved: round 1 (eight codex findings, 5 P1 / 3 P2), a nine-finding round-2 fold, a four-finding codex round 3 (including steer delivery classified at the transport — `unsent` / `refused` / `indeterminate`, fail-closed to indeterminate — and participant text routed through the encrypted content port after the fold's clear-payload read was found to drop every real participant turn silently), a three-finding round 4, and a rounds-5-terminal fold in which the remaining findings were adjudicated at the orchestrator and fixed rather than deferred.
+      The terminal round's largest change is the outbound-frame attribution redesign (`837a8b6e`): frames now declare a role at registration (`turn-opening` | `turn-joining`); items and envelope evidence credit only the turn-opening frame, and a turn-joining steer is consumed on the provider's answer to its own request (`recordRequestAnswered`) — receipt evidence that the provider took the frame, deliberately NOT proof the model read its text, with the accepted residual stated as a conjunction in the tripwire's class doc (wire text survives compose in command-effective shape AND the request is answered AND an interception layer drops the text, on a request path not known to parse client commands). The reviewer's remedy was a disjunction — serialize provider-bound frames on a turn, or require per-frame evidence — and the second branch was taken because serialization would hold steers to turn boundaries, a product change to the steering surface rather than a tripwire fix. Six steer regression pins inverted from trip to pass in that commit, stated plainly rather than absorbed: the previous oldest-unevidenced heuristic caught a swallowed steer only when item timing happened to expose it (the same round documents its false PASS) and false-tripped delivered steers under delayed-item timing, so the inversion trades a luck-dependent catch that came bundled with false trips for a deterministic boundary — an unanswered steer (timeout, dead connection) trips at settlement, a zero-turn terminal still trips the turn-opening frame, and an unrecognized envelope still trips every frame, answered or not.
+      One escalated design decision is recorded rather than buried: T3.19's `TranscriptContentSource` port is declared and deliberately unimplemented, because Spec-006's assistant / tool payload shapes are metadata-shaped and Spec-022's PII map confirms no durable home for assistant prose, reasoning bodies or tool bodies — so the fold takes content through a port rather than minting the second record ADR-029 forbids. It was answered before this PR merged, by the 2026-08-30 machine-authored-prose amendment (§6 node NS-94, PR #383), which registers CP-005-13 and routes T3.20's consumption through Plan-006's `HydratedSessionEvent` projection. Two in-PR flake fixes are test-harness-only and touch no production file: per-spawn `--user-data-dir` isolation plus SIGTERM-then-SIGKILL (and win32 `taskkill /t`) shim termination for the desktop launch smoke test, and a 45s file-scoped budget for the turn-snapshot OID-determinism case whose root cause was subprocess budget under load, not determinism. One defect was flagged and NOT fixed, owner named: `turn-snapshot-service.ts` `#normalizeEmbeddedRepositories` wraps `rev-parse --verify HEAD` in a bare catch that turns an infrastructure failure into a durable embedded-repo skip claim the restore leg trusts.
+      Census: no move. Migration 0012 widens no CHECK, rebuilds no table and adds no column — it inserts one `supported = 0` `transcript_replay` row per already-cached `driver_name` — so the local SQLite census stays 58; the `transcript_replay` flag had already taken the Spec-005 matrix from thirteen to fourteen at NS-84, so this shipment lands the code for a doc census that had already moved; `driver.text_neutralization_failed` was registered reserved at NS-76 and neither this PR nor PR #378 touches error-contracts.md, so no error-code row is added; and no wire method, event type, table or column is minted. `DriverInterventionResult` takes one additive-optional closed-literal member with `.strict()` retained, which changes no shipped field's type and makes no merged manifest entry mean something different.
 ```
 
 ### Notes
