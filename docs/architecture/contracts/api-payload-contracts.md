@@ -776,15 +776,28 @@ interface RuntimeNodeSigningKeyRosterResponse {
 // §Default Behavior forward-compat: "Unknown capability fields are ignored (tolerant
 // reader)" — campaign B3 re-framed contractVersion as change-detection, not negotiation),
 // while the result envelopes reject unknown keys (`.strict()`);
-// and all twelve untrusted provider-output free-form strings (`ProviderToolMetadata.name`/`.description`,
+// and all seventeen untrusted provider-output free-form strings (`ProviderToolMetadata.name`/`.description`,
 // `DriverInterventionResult.fallbackAction`, `DriverResumeResult.bindingId`/`.providerFailureDetail`,
 // `DriverRollbackResult.fallbackAction`/`.bindingId`, `DriverGoalResult.fallbackAction`,
 // `DriverAuthProbeResult.detail`, `CallbackToolInvocation.toolName`/`.toolCallId`,
-// `McpServerStatusEmission.serverName` — the last three added by campaign B10, Codex rounds 4–5) —
+// `McpServerStatusEmission.serverName` — the last three added by campaign B10, Codex rounds 4–5 —
+// and `ProviderCommandEntry.name`/`.description`/`.scope` plus
+// `ProviderOutputSpeedState.declared`/`.reason`, the five added 2026-08-29 with the console-parity
+// surfaces: both shapes are built from provider- or skill-authored metadata at the driver's own
+// normalize boundary and both travel to a client, so an unbounded one is an arbitrarily large
+// IPC response and renderer workload) —
 // each on a Zod-validated result envelope, `ProviderToolMetadata`, or a driver-normalized
-// seam shape (`CallbackToolInvocation` / `McpServerStatusEmission`) below —
+// seam shape (`CallbackToolInvocation` / `McpServerStatusEmission` / `ProviderCommandEntry` /
+// `ProviderOutputSpeedState`) below —
 // are runtime-bounded (length + non-whitespace + NUL-rejection) via the package's `wireFreeFormString`
 // helper — Zod constraints not expressible in these TS interface shapes.
+// SHIPPED SUBSET vs CANONICAL SET (2026-08-29). `packages/contracts/src/provider-driver.ts` realizes
+// the TWELVE pre-amendment strings and names that count in its own comments, which is correct for the
+// surface it ships: the five added here belong to shapes no task has landed yet. The catch-up has a
+// named owner rather than being left to drift — Plan-005 T3.26 (the `ProviderCommandEntry` and
+// `ProviderOutputSpeedState` producers) and T4.9 (their SDK-seam schemas) both EXTEND that file, and
+// they carry the re-derivation of its count claim to seventeen with them. Until then the file's
+// "twelve" reads as the shipped subset of this enumeration, never as a competing census of it.
 interface ProviderDriver {
   createSession(params: CreateSessionParams): Promise<ProviderSessionHandle>;
   resumeSession(params: ResumeSessionParams): Promise<DriverResumeResult>;
@@ -833,7 +846,7 @@ interface ProviderDriver {
   // providerAccountId) it was read under, and that binding is a ROUTING INVARIANT: an entry is
   // offerable only to agents of that same binding, and the one entry V1 dispatches is dispatchable
   // only through them.
-  listProviderCommands(params: ListProviderCommandsParams): Promise<ProviderCommandEntry[]>;
+  listProviderCommands(params: ListProviderCommandsParams): Promise<ProviderCommandListResult>;
 }
 
 // Console-parity shapes (2026-08-29, Spec-005 §Desktop Console Parity Surfaces).
@@ -862,6 +875,48 @@ interface ProviderDriver {
 //     JSON-RPC error — the way an authorization-rejected intervention rides
 //     `InterventionResponseBase.rejectionReason`, and the way Spec-030 routes peer-invocation
 //     denials onto the callback-tool result arms.
+//
+// WIRE ADDRESSING (2026-08-29). NEITHER client-facing verb takes a `bindingId`, and the daemon
+// resolves the live provider binding at dispatch — the addressing `RollbackToParams` already
+// specifies ("clients address the run"). This is not stylistic: no client-facing read publishes a
+// `bindingId` anywhere, so a binding-addressed wire request would be unconstructible from every
+// response a client can obtain, and a client that somehow held one would be holding a
+// daemon-internal lifecycle identifier whose liveness it cannot check.
+//
+// The two verbs take DIFFERENT identifiers, each the one its own authorization and its own
+// consumer already use, rather than one identifier chosen for symmetry:
+//   * `compactContext` takes a RUN. It mutates that run's provider context and is adjudicated by
+//     the `Action::"intervene"` evaluation on the run that owns the binding, so the run is the
+//     subject of its authorization, not an addressing convenience.
+//   * `listProviderCommands` takes an AGENT. It is a membership-only read whose consumer is the
+//     composer, which is addressed to a target agent and re-reads when that target changes
+//     (Plan-023 CP-023-8), and whose routing invariant is stated over the agent's
+//     (driverName, providerAccountId) binding. Addressing it by run would force the one caller
+//     that has an agent to obtain a run id it does not otherwise need.
+//
+// Resolution refuses in a FIXED ORDER, each on an ALREADY-REGISTERED code, so this addressing
+// mints none: `session.not_found` (unknown or inaccessible session — the collapsed refusal
+// above), then `run.not_found` / `agent.not_found` (no such run or agent, or not one of that
+// session), then `driver.unavailable` (no live provider binding: one was never started, or the
+// process is gone — which is also the honest answer for an enumeration, this being a live read
+// held as driver-session state and not a catalog that outlives one). A live binding whose driver
+// lacks the flag still refuses at the capability gate with `driver.capability_unsupported`,
+// unchanged. A caller therefore cannot name another leg's binding at all: the class of request
+// the driver-side dispatch check exists to reject is unrepresentable on the wire, and that check
+// remains as the daemon-interior backstop rather than as the only one.
+interface CompactContextRequest {
+  sessionId: SessionId;
+  runId: RunId;
+}
+
+interface ListProviderCommandsRequest {
+  sessionId: SessionId;
+  agentId: AgentId;
+}
+
+// The DRIVER-FACING params, composed by the daemon AFTER that resolution. They stay binding-
+// addressed because run -> bindings is 1:many and the operation acts on exactly one leg; they
+// cross no wire, and no client constructs one.
 interface CompactContextParams {
   sessionId: SessionId;
   // Daemon-resolved at dispatch, the same per-binding addressing rollbackTo and goal delivery
@@ -915,12 +970,33 @@ interface ListProviderCommandsParams {
 // provider command does not supply. A dispatch route therefore needs both C-18's escape
 // activated and a per-command typed-evidence contract, and is left to a future amendment.
 // `Spec-005 §Required Behavior`'s "exactly one `driver_command` producer" count stays exact.
+//
+// BOUNDED AT THE NORMALIZE BOUNDARY (2026-08-29). Every entry is assembled from provider- and
+// skill-authored metadata — a local skill file's front matter is operator-writable and a provider
+// handshake enumeration is provider-writable — and the assembled list travels to a client, so an
+// unbounded one is an arbitrarily large IPC response and renderer workload rather than a merely
+// ugly read. `name`, `description`, and `scope` are therefore `wireFreeFormString`-bounded
+// (length + non-whitespace + NUL-rejection) exactly as the other untrusted provider-output strings
+// enumerated at the head of this section are, and the ENTRY COUNT is capped by the same schema. Truncation is NEVER
+// SILENT: the result is the envelope below, not a bare array, so a caller can always tell a
+// provider that published few commands from a provider whose list was cut — the NS-75 rule that a
+// degraded outcome gets a representable shape rather than an indistinguishable one.
 interface ProviderCommandEntry {
   name: string;
   kind: "command" | "skill";
   description?: string;
   scope?: string;
   binding: { driverName: string; providerAccountId: string };
+}
+
+// `complete: false` means the provider published more entries than the cap admits and the tail was
+// dropped. The cap is a WIRE-AND-RENDER bound only: `compactContext`'s pre-dispatch presence check
+// reads the driver's OWN HELD enumeration for the binding, never this capped result, so a
+// truncated read can never manufacture a `command_absent` refusal for a command the provider
+// actually publishes.
+interface ProviderCommandListResult {
+  entries: ProviderCommandEntry[];
+  complete: boolean;
 }
 
 // Transcript export/replay shapes (2026-08-26, ADR-029). The canonical transcript is a PROJECTION
@@ -983,6 +1059,14 @@ interface CreateSessionParams {
   // for the run and recovery paths (Spec-016 §Cost Derivation And Absent-Cost Semantics).
   admittedCostCapCents?: number;
   executionPosture?: ExecutionPosture; // spawn-time posture — provider legs that bind posture at process spawn (Claude `--settings` sandbox) realize it here; the per-run effective posture rides StartRunParams (Spec-005 §Required Behavior, campaign B3)
+  // The REQUESTED accelerated-output mode (2026-08-29, Spec-005 §The output-speed axis). Gated on
+  // the `output_speed` flag and validated against that driver's declared `outputSpeedLevels`
+  // BEFORE spawn — an out-of-vocabulary value refuses with `agent.provider_axis_invalid` rather
+  // than reaching the provider. Spawn-bound like posture and schema: the axis is a settings opt-in
+  // the provider reads at process start, so a fresh process is the only place it can be realized
+  // and `ResumeSessionParams` re-realizes it below. Requesting it is NOT the same as getting it —
+  // what the provider actually declared comes back on `ProviderSessionHandle.outputSpeedState`.
+  outputSpeed?: string;
   callbackTools?: SessionCallbackTool[]; // daemon-curated callback-tool registry exposed into the session (Codex function-form dynamicTools; Claude daemon-hosted ephemeral MCP server via --mcp-config); gated on the callback_tools flag
   subagentPolicy?: SubagentPolicy; // provider-native in-session subagent policy pass-through under the single-supervisor invariant (Spec-016 semantics land via campaign B6); gated on the subagents flag
   outputSchema?: Record<string, unknown>; // normalized JSON Schema constraining schema-constrained final output (Spec-005 §Per-Driver Capability Matrix structured_output, campaign B10); gated on the structured_output flag. The Claude leg binds it per session at spawn (--json-schema); the Codex leg realizes it per turn via StartRunParams.outputSchema (turn/start.outputSchema). Named consumers: Spec-024 dispatch results, Plan-016 orchestration reads
@@ -1001,11 +1085,18 @@ interface ResumeSessionParams {
   // Resume is a FRESH process spawn (the C-12 posture-relaunch precedent), so every spawn-bound
   // surface CreateSessionParams binds must re-realize here or the resumed leg silently sheds it —
   // a posture-less resume relaunches UNSANDBOXED, a schema-less one unconstrained (campaign B10,
-  // Codex rounds 3–4). The four DATA legs below are reconstructed by the daemon from the durable
+  // Codex rounds 3–4). The five DATA legs below are reconstructed by the daemon from the durable
   // runtime_bindings.spawn_config record (written at every spawn; Plan-005 T1.7) — never from the
   // original client request, which recovery does not have; the two FUNCTION legs are re-injected
   // fresh at every spawn (functions are never stored in spawn_config).
   executionPosture?: ExecutionPosture;
+  // The requested mode, re-realized on the fresh process (2026-08-29). It is spawn_config's fifth
+  // reconstructed leg for exactly the reason posture is: a speed-less resume relaunches at the
+  // provider's default while `agents.output_speed` still records the operator's accepted choice,
+  // which is the silent-shedding failure this list exists to prevent. What the relaunched process
+  // declares comes back on `DriverResumeResult`'s `resumed` arm, so a mode that stops being
+  // available across a restart surfaces as an observation rather than as a stale request.
+  outputSpeed?: string;
   callbackTools?: SessionCallbackTool[];
   subagentPolicy?: SubagentPolicy;
   outputSchema?: Record<string, unknown>; // the Claude leg re-binds per session at spawn (--json-schema); the Codex leg realizes per turn via StartRunParams.outputSchema
@@ -1107,7 +1198,7 @@ interface RollbackToParams {
 type DriverRollbackResult =
   // A successful rollback without a confirmed floor is structurally inexpressible (mirrors
   // `DriverResumeResult`): position-compares consume it per Spec-015 via campaign B5/B14.
-  | { status: "applied"; sessionPosition: number; bindingId?: string } // sessionPosition: REQUIRED driver-confirmed post-rollback position — the new authoritative recovery floor. Untrusted driver output: the daemon domain-validates it like the request target (integer ≥ 0, recorded boundary, strictly below the pre-rollback position) before trusting it — an invalid or no-op report is a no-rewind failure, never a run.rolled_back — with the file-leg recovery carve-out excepted: on a recovery-admitted current-position target the driver's convergence no-op (sessionPosition == targetPosition, no movement) IS the confirmed floor and the composite proceeds to the fixpoint restore (Spec-004 §Required Behavior). bindingId (campaign B2): present iff the mechanism minted a new provider binding for the same run — the store-minted surrogate of a binding row already registered (provider resume_handle + runtime metadata) through the relaunch pattern's write seam before the result returned, never itself a resume handle; the daemon repoints the run's live binding on receipt. Under the 2026-08-26 Codex rebinding **both V1 legs mint one** — Claude `--resume-session-at` + `--fork-session`, and Codex `thread/fork`, which mints a new thread and repoints the run's live binding in the same operation — so a V1 driver reporting `applied` without it is reporting an unrecorded binding. The member stays optional for a future in-place mechanism, not for either shipped leg; runtime-bounded (length + non-whitespace + NUL-rejection) like `DriverResumeResult.bindingId` — the trust-boundary header's twelve-string enumeration above
+  | { status: "applied"; sessionPosition: number; bindingId?: string } // sessionPosition: REQUIRED driver-confirmed post-rollback position — the new authoritative recovery floor. Untrusted driver output: the daemon domain-validates it like the request target (integer ≥ 0, recorded boundary, strictly below the pre-rollback position) before trusting it — an invalid or no-op report is a no-rewind failure, never a run.rolled_back — with the file-leg recovery carve-out excepted: on a recovery-admitted current-position target the driver's convergence no-op (sessionPosition == targetPosition, no movement) IS the confirmed floor and the composite proceeds to the fixpoint restore (Spec-004 §Required Behavior). bindingId (campaign B2): present iff the mechanism minted a new provider binding for the same run — the store-minted surrogate of a binding row already registered (provider resume_handle + runtime metadata) through the relaunch pattern's write seam before the result returned, never itself a resume handle; the daemon repoints the run's live binding on receipt. Under the 2026-08-26 Codex rebinding **both V1 legs mint one** — Claude `--resume-session-at` + `--fork-session`, and Codex `thread/fork`, which mints a new thread and repoints the run's live binding in the same operation — so a V1 driver reporting `applied` without it is reporting an unrecorded binding. The member stays optional for a future in-place mechanism, not for either shipped leg; runtime-bounded (length + non-whitespace + NUL-rejection) like `DriverResumeResult.bindingId` — the trust-boundary header's seventeen-string enumeration above
   | { status: "degraded"; fallbackAction?: string };
 
 // Session-goal injection (campaign B3). `goalText` is the daemon-rendered textual form of the
@@ -1159,7 +1250,16 @@ type DriverGoalResult =
 // `runtime_bindings.updated_at` (Plan-005 T2.1); the result shape carries only the
 // discriminated-union semantic payload.
 type DriverResumeResult =
-  | { status: "resumed"; bindingId: string; sessionPosition: number }
+  // `outputSpeedState` is the relaunched process's OWN declaration, read on the handshake the
+  // resume performs anyway (2026-08-29). Optional because a driver without the `output_speed`
+  // flag reads nothing to report — its absence means the axis was never in play on this leg, and
+  // is never read as "the mode is off".
+  | {
+      status: "resumed";
+      bindingId: string;
+      sessionPosition: number;
+      outputSpeedState?: ProviderOutputSpeedState;
+    }
   | {
       status: "failed";
       recoveryCondition: RecoveryCondition;
@@ -1211,6 +1311,35 @@ interface CloseSessionParams {
 interface ProviderSessionHandle {
   providerSessionId: string;
   resumeHandle: string;
+  // What the provider ACTUALLY declared for the accelerated-output axis on this session's own
+  // handshake (2026-08-29, Spec-005 §The output-speed axis). Present iff the driver declares
+  // `output_speed`; absent means the axis was never in play on this leg, never that the mode is
+  // off. This is the member that makes a false success unrepresentable: `CreateSessionParams
+  // .outputSpeed` is what was ASKED FOR, and the two are separate values precisely because a
+  // provider may accept the setting and leave the mode off.
+  outputSpeedState?: ProviderOutputSpeedState;
+}
+
+// The provider's own report, read at the spawn handshake the driver performs anyway — never a
+// probe of its own and never synthesized from the request (2026-08-29). READ AND DISCARDED WITH
+// THE SESSION: it is deliberately NOT written to `runtime_bindings.spawn_config`, which records
+// what was REQUESTED so a resume can re-realize it, and not to `agents.output_speed`, which
+// records the operator's accepted choice. Persisting an observation into either would create a
+// second, staler record of a fact the live session already holds — and would make a mode that
+// stopped being available look accepted after a restart. It reaches clients as a LIVE-SCOPED
+// projection on `AgentListResponse.agents[]`, present only while the binding it was read on is
+// live.
+//
+// `declared` is carried VERBATIM and is deliberately not narrowed to `outputSpeedLevels`: that
+// vocabulary bounds what a caller may REQUEST, while this is what the provider REPORTED, and a
+// provider that returns a level the driver's table does not list is reporting a real state under
+// version skew — coercing it to `off` would fabricate exactly the false reading this member
+// exists to prevent. `reason` is the provider's own explanation, present only where the provider
+// supplied one; its absence means the provider gave no reason, never that there was none. Both
+// strings are provider-authored and `wireFreeFormString`-bounded per the head of §Plan-005.
+interface ProviderOutputSpeedState {
+  declared: string;
+  reason?: string;
 }
 
 interface ProviderModel {
@@ -1274,7 +1403,7 @@ interface SessionCallbackTool {
 // DriverDiagnosticRecord — never `completed` without Cedar, never unanswered; the allow path activates
 // when Plan-012's seam registers (CP-005-7).
 interface CallbackToolInvocation {
-  toolName: string; // untrusted provider output — wireFreeFormString-bounded (the trust-boundary header's twelve-string enumeration); resolved against the session's registered SessionCallbackTool set, and an UNKNOWN name answers `failed` without dispatch (campaign B10, Codex round 4)
+  toolName: string; // untrusted provider output — wireFreeFormString-bounded (the trust-boundary header's seventeen-string enumeration); resolved against the session's registered SessionCallbackTool set, and an UNKNOWN name answers `failed` without dispatch (campaign B10, Codex round 4)
   arguments: Record<string, unknown>; // validated against the registered tool's inputSchema BEFORE any Cedar round-trip — schema-invalid arguments answer `failed` without dispatch, so malformed provider output never reaches the approval pipeline
   toolCallId: string; // untrusted provider correlation id — wireFreeFormString-bounded, copied verbatim onto the answered result (tool-event pairing is exact-string match)
   sessionId: SessionId;
@@ -1298,7 +1427,7 @@ type McpServerStatus = "unknown" | "starting" | "connected" | "needs-auth" | "fa
 // pre-minted before the spawn per the relaunch write-seam pattern), so a driver cannot misattribute —
 // or spoof — another leg's rows, and the init census emitted DURING createSession needs no id the driver
 // does not have (Codex round 5). `serverName` is untrusted provider/CLI output — wireFreeFormString-
-// bounded at the driver normalization seam (the twelve-string enumeration above) before it reaches the
+// bounded at the driver normalization seam (the seventeen-string enumeration above) before it reaches the
 // producer.
 interface McpServerStatusEmission {
   serverName: string;
@@ -1475,6 +1604,19 @@ interface GetCapabilitiesResult {
   // payload — its reader is a client control that must offer the choice set, the same reason
   // `ProviderModel.effortLevels` travels to the client that renders the effort selector. The
   // values themselves are the provider's own; this contract names none of them.
+  //
+  // PRESENT ON BOTH READ PATHS, and that is a consequence of being static rather than a second
+  // rule (2026-08-29). Because the vocabulary is a property of the DRIVER, not of a reading, the
+  // wrapper carries it identically whether it was built by a live `getCapabilities()` call or
+  // reconstructed by `DriverCapabilitiesWriter.hydrate()` — the hydrating path re-derives it from
+  // the same per-driver table the live path reads, so nothing has to survive the durable cache.
+  // This is exactly why it does NOT follow `detectionSource` into absence-on-hydrate: that member
+  // is a fact about one reading and cannot be re-derived, while this one is a constant of the
+  // driver and always can. Consequences: the durable capability cache gains NO column, and
+  // `CapabilityDetails` — the event-payload wrapper below — is NOT widened, since replaying a
+  // capability snapshot never needs a vocabulary the current driver table already states. A
+  // client therefore never receives `output_speed: true` without the values it must render, on
+  // either path, so Plan-016's fail-closed refusal rule can never be triggered by the cache.
   outputSpeedLevels?: string[];
 }
 
@@ -2349,13 +2491,25 @@ interface RunRolledBackEvent {
 // emission parse, never at peer/restart projection; base-type optionality admits pre-amendment rows at replay only.
 // `options` (2026-08-29) is ADDITIVE-OPTIONAL and carries the closed choice set an input-kind ask
 // offers, where the provider's own ask declares one — the Codex item/tool/requestUserInput and MCP
-// elicitation surfaces can, the Claude control round-trip does not. Produced at the DRIVER's
-// normalize boundary (Plan-005 T3.26) and never synthesized by a consumer, so its absence means the
-// provider offered no choice set rather than that one was lost. It carries NO refinement on either
-// kind or any state, deliberately: requiring it anywhere would refuse a legitimate ask from the one
-// mechanism that cannot supply it. Its reader is the Spec-013 input-ask card, whose free-text answer
-// arm is unconditional for exactly that reason. Answers travel on the already-registered
-// `driver.respondToRequest`, whose `response` is unknown-typed — no wire member is minted for them.
+// elicitation surfaces can, the Claude control round-trip does not. Reported at the DRIVER's
+// normalize boundary and never synthesized by a consumer, so its absence means the provider offered
+// no choice set the driver could represent — never that a represented one was lost in transit. It
+// carries NO refinement on either kind or any state, deliberately: requiring it anywhere would
+// refuse a legitimate ask from the one mechanism that cannot supply it. Its reader is the Spec-013
+// input-ask card, whose free-text answer arm is unconditional for exactly that reason. Answers
+// travel on the already-registered `driver.respondToRequest`, whose `response` is unknown-typed —
+// no wire member is minted for them.
+// BOUNDED BEFORE APPEND. The choice set is provider- or MCP-authored and this payload is a durable
+// canonical event, so the array's CARDINALITY and both `value` and `label` are bounded in the
+// payload schema itself (`wireFreeFormString`: length + non-whitespace + NUL-rejection). Without
+// those bounds the event log's 32 KiB canonical ceiling would be the first guard, and an oversized
+// but schema-valid ask would fail only at append — leaving the run waiting on an input card that was
+// never recorded, which is the one outcome an interactive-request family must not produce. With
+// them the over-large set is refused at the driver's own boundary while the ask itself still
+// arrives: the driver reports the ask WITHOUT `options` and records a driver-band diagnostic naming
+// the drop, and the card's unconditional free-text arm carries the answer. That is why the absence
+// clause above is scoped to representability rather than to the provider's intent — a dropped set
+// is legible in the driver diagnostics, and no path both drops a set and reports nothing.
 interface DriverAskEvent {
   sessionId: SessionId;
   runId: RunId;
@@ -4473,6 +4627,12 @@ interface AgentProviderSwitchOutcome {
   // MUST carry the empty array (no replay happened, so no loss could), "memo" MUST be non-empty
   // and MUST include "conversation_history_summarized", and "replayed" MAY be empty — that
   // emptiness being the positive assertion above.
+  // The claim is scoped to TRANSCRIPT CONTENT and to nothing else (2026-08-29). An empty array
+  // asserts that the conversation arrived intact; it asserts nothing about whether a requested
+  // provider SETTING took effect on the new binding. Those are different facts with different
+  // carriers — a spawn-bound axis the provider declined is reported by the live read-back on the
+  // agent row, not by a loss kind — and conflating them would either fabricate a transcript loss
+  // that did not happen or let an empty array be read as a guarantee it was never making.
   declaredLosses: DeclaredLossKind[];
 }
 
@@ -4504,6 +4664,22 @@ interface AgentListResponse {
     providerAccountId?: ProviderAccountId;
     effort?: string;
     outputSpeed?: string;
+    // What the PROVIDER declared, as against `outputSpeed` above, which is what was REQUESTED
+    // (2026-08-29, Spec-005 §The output-speed axis). Projected at response-build time from the
+    // live binding's own `ProviderSessionHandle.outputSpeedState` — the handshake reading the
+    // spawn already performed — and stored in no column, so it cannot go stale. LIVE-SCOPED on
+    // the SA-44 park-member precedent: present only while a provider binding for this agent is
+    // live AND that binding's driver declares `output_speed`. Its presence is therefore the
+    // wire's discriminator for "this was read from the provider"; its absence means nothing was
+    // read, never that the mode is off. This member is what makes the prohibited false success
+    // unrenderable — a provider that ACCEPTS the setting and then leaves the mode off shows a
+    // requested value and a differing declared one, with the provider's own reason beside it.
+    // That disagreement is deliberately NOT a switch failure: the switch applied, the provider
+    // then declared something else, and reporting it as a failure would be the same false claim
+    // in the other direction — so `AgentProviderSwitchFailed.reason` stays unwidened for it, and
+    // `output_speed_unavailable` keeps its own narrower meaning (the mode could not be requested
+    // at all: the vocabulary is gone, or the target driver stopped declaring the flag).
+    observedOutputSpeed?: ProviderOutputSpeedState;
     // Present exactly while a switch is pending on this agent, so the deferred intent is readable
     // rather than inferable — including after a daemon restart, which re-arms it from the durable
     // agent row. A list read is how a caller that was not the mutator learns a switch is queued.
@@ -5379,7 +5555,7 @@ In V1 every call resolves to the unconditional `-32603` / `data.type = "gdpr.end
 
 ## Plan-028 — MCP Governance Contract Surfaces
 
-Registered 2026-07-22 (campaign B18; [Spec-028](../../specs/028-mcp-server-configuration-and-governance.md)). The eleven `mcp.*` operations register against the Plan-007 `MethodRegistry` at Plan-028's tier (the CP-007-3 late-namespace pattern; `mcp.subscribe` rides the Plan-007 streaming primitive, the `session.subscribe` consumer shape); the five event payloads mirror [Spec-006 §MCP Governance (`mcp_governance`)](../../specs/006-session-event-taxonomy-and-audit-log.md#mcp-governance-mcp_governance) (registered into contracts by Plan-006 T1.10; payloads authored by Plan-028 — the emitter-authors-payload precedent); the status read model consumes the Plan-005 `McpServerStatusUpdate` seam (§Tier 4 above). Authorization: every mutating operation evaluates the Cedar `mcp` action family through Plan-012's `PermissionCheckService` before any provider call or store write; the V1 principal is the node-local operator (caller-owns-the-node) — no `ApprovalCategory` value is added. Idempotency: every governance mutation — and the receipted operational command `mcp.oauthLogin` — carries the mandatory requester-generated UUID `clientIdempotencyKey` (the Spec-005/B3 discipline; the intervention-surface precedent) with durable receipt replay per Spec-028 §Authorization (`mcp.reconnect` is unreceipted). Error codes: [error-contracts.md §MCP Governance](./error-contracts.md#mcp-governance). Sanitization: no payload below carries config values, env-var values, header values, tokens, or unsanitized paths (Spec-028's no-custody invariant) — raw `scopeRef` filesystem paths included: durable event payloads identify project/local bindings by the keyed `scopeRefDigest` of the audit ref (`McpServerBindingAuditRef` below), never the path itself; `serverName` / `toolName` are untrusted provider-adjacent strings, `wireFreeFormString`-bounded under the twelve-string rule, classified as non-PII infrastructure identifiers for the plaintext audit payload per Spec-028 §Status Observation and Events — the deliberate, documented residual Plan-022's call-site PII classification pass inherits. Identity throughout is the scope-qualified binding `(provider, scope, scopeRef, serverName)` per Spec-028 §Unified Inventory — a **discriminated union on `scope`**, so an invalid shape (`scopeRef` on `user`, a missing `scopeRef` on `project`/`local`, or the non-existent `(codex, local)` combination) is a schema-level rejection, never a service-layer surprise or a collapsed primary key. Two grains share this section deliberately: the config **binding** above and the Plan-005 **runtime-binding leg** (`sessionId` + `bindingId`) — live per-session state (status legs, live mutation results, reconnect targets) always keys by leg, never by collapsing legs into the binding scalar.
+Registered 2026-07-22 (campaign B18; [Spec-028](../../specs/028-mcp-server-configuration-and-governance.md)). The eleven `mcp.*` operations register against the Plan-007 `MethodRegistry` at Plan-028's tier (the CP-007-3 late-namespace pattern; `mcp.subscribe` rides the Plan-007 streaming primitive, the `session.subscribe` consumer shape); the five event payloads mirror [Spec-006 §MCP Governance (`mcp_governance`)](../../specs/006-session-event-taxonomy-and-audit-log.md#mcp-governance-mcp_governance) (registered into contracts by Plan-006 T1.10; payloads authored by Plan-028 — the emitter-authors-payload precedent); the status read model consumes the Plan-005 `McpServerStatusUpdate` seam (§Tier 4 above). Authorization: every mutating operation evaluates the Cedar `mcp` action family through Plan-012's `PermissionCheckService` before any provider call or store write; the V1 principal is the node-local operator (caller-owns-the-node) — no `ApprovalCategory` value is added. Idempotency: every governance mutation — and the receipted operational command `mcp.oauthLogin` — carries the mandatory requester-generated UUID `clientIdempotencyKey` (the Spec-005/B3 discipline; the intervention-surface precedent) with durable receipt replay per Spec-028 §Authorization (`mcp.reconnect` is unreceipted). Error codes: [error-contracts.md §MCP Governance](./error-contracts.md#mcp-governance). Sanitization: no payload below carries config values, env-var values, header values, tokens, or unsanitized paths (Spec-028's no-custody invariant) — raw `scopeRef` filesystem paths included: durable event payloads identify project/local bindings by the keyed `scopeRefDigest` of the audit ref (`McpServerBindingAuditRef` below), never the path itself; `serverName` / `toolName` are untrusted provider-adjacent strings, `wireFreeFormString`-bounded under the seventeen-string rule, classified as non-PII infrastructure identifiers for the plaintext audit payload per Spec-028 §Status Observation and Events — the deliberate, documented residual Plan-022's call-site PII classification pass inherits. Identity throughout is the scope-qualified binding `(provider, scope, scopeRef, serverName)` per Spec-028 §Unified Inventory — a **discriminated union on `scope`**, so an invalid shape (`scopeRef` on `user`, a missing `scopeRef` on `project`/`local`, or the non-existent `(codex, local)` combination) is a schema-level rejection, never a service-layer surprise or a collapsed primary key. Two grains share this section deliberately: the config **binding** above and the Plan-005 **runtime-binding leg** (`sessionId` + `bindingId`) — live per-session state (status legs, live mutation results, reconnect targets) always keys by leg, never by collapsing legs into the binding scalar.
 
 ```ts
 // ---- Primitives (Spec-028) ----
