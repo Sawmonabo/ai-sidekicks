@@ -3168,6 +3168,133 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     expect(harness.manager.textNeutralizationDecisionForTurn(TURN_ID).refused).toBe(true);
   });
 
+  it("rules a steer's frame when the acknowledged turn settled in the SAME read chunk", async () => {
+    // The move the acknowledgement asks for is only safe onto a turn that can
+    // still rule something. A terminal sharing the steer response's read chunk
+    // is drained SYNCHRONOUSLY, so it goes by before this steer's continuation
+    // runs — and a frame moved onto it afterwards would wait for a second
+    // terminal that is never coming, dropping as occupancy while the run
+    // reported success and the unsafe session stayed reusable.
+    const acknowledgedTurnId = "turn-acknowledged";
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    harness.server.on("turn/steer", () => ({
+      result: { turnId: acknowledgedTurnId },
+      trailingFrames: [zeroTurnCompletedFrame(acknowledgedTurnId)],
+    }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
+    });
+    // Vouches for the OPENING frame and for no other, so a trip here names the
+    // steer's frame rather than merely some frame on the session.
+    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
+    await Promise.resolve();
+
+    const acknowledgement = await harness.manager.steerRun({
+      runId: RUN_ID,
+      content: "/clear and start over",
+      clientIdempotencyKey: "steer-1",
+      frameOrigin: "system_narration",
+    });
+    // The acknowledgement is still a fact and is still returned: the ruling is a
+    // second act beside it, not a replacement for the driver's answer.
+    expect(acknowledgement).toStrictEqual({ targetedTurnId: TURN_ID, acknowledgedTurnId });
+    await drainMicrotasks();
+
+    expect(harness.textNeutralizationFailures).toHaveLength(1);
+    expect(harness.textNeutralizationFailures[0]?.runId).toBe(RUN_ID);
+    expect(harness.textNeutralizationFailures[0]?.providerFailureDetail).toBe(
+      "driver.text_neutralization_failed origin=system_narration",
+    );
+    // And the binding the directive vanished into is not handed to a later run.
+    await expect(
+      harness.manager.startRun({
+        runId: SECOND_RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
+      }),
+    ).rejects.toThrow(TextNeutralizationRefusedError);
+  });
+
+  it("rules a steer's frame on a turn that already ended, whatever that turn produced", async () => {
+    // Ruled fail-closed rather than against the acknowledged turn's own recorded
+    // outcome, and this is the case that decides between them. That turn ran
+    // normally and produced output before it ended — so inheriting its outcome
+    // would report a PASS, which is exactly the shape of the hazard: a turn that
+    // worked, and then had a directive its command layer intercepted.
+    const acknowledgedTurnId = "turn-acknowledged";
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    harness.server.on("turn/steer", () => ({ result: { turnId: acknowledgedTurnId } }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
+    });
+    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
+    // The acknowledged turn ends BEFORE the steer is written, carrying a model
+    // message of its own.
+    harness.server.emitFrame(turnCompletedFrame(acknowledgedTurnId, "completed"));
+    await drainMicrotasks();
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+
+    await harness.manager.steerRun({
+      runId: RUN_ID,
+      content: "/clear and start over",
+      clientIdempotencyKey: "steer-1",
+      frameOrigin: "system_narration",
+    });
+    await drainMicrotasks();
+
+    expect(harness.textNeutralizationFailures).toHaveLength(1);
+    expect(harness.textNeutralizationFailures[0]?.providerFailureDetail).toBe(
+      "driver.text_neutralization_failed origin=system_narration",
+    );
+  });
+
+  it("rules a steer's frame where it was registered when the TARGET settles in one chunk", async () => {
+    // The no-turn-named arm's own ordering hazard, and the reason it needs no
+    // guard: the frame is registered on the targeted turn BEFORE the bytes go
+    // out, so a terminal sharing the response's chunk finds it correlated and
+    // rules it in the ordinary place. A regression pin on that registration
+    // rather than on anything the acknowledgement path does.
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    harness.server.on("turn/steer", () => ({
+      result: {},
+      trailingFrames: [turnCompletedFrame(TURN_ID, "completed")],
+    }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
+    });
+    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
+    await Promise.resolve();
+
+    const acknowledgement = await harness.manager.steerRun({
+      runId: RUN_ID,
+      content: "/clear and start over",
+      clientIdempotencyKey: "steer-1",
+      frameOrigin: "system_narration",
+    });
+    expect(acknowledgement).toStrictEqual({ targetedTurnId: TURN_ID, acknowledgedTurnId: null });
+    await drainMicrotasks();
+
+    // Every item the terminal carries precedes the steer, so the opening frame
+    // is vouched for and the steer's is the one that trips.
+    expect(harness.textNeutralizationFailures).toHaveLength(1);
+    expect(harness.textNeutralizationFailures[0]?.providerFailureDetail).toBe(
+      "driver.text_neutralization_failed origin=system_narration",
+    );
+    expect(harness.manager.textNeutralizationDecisionForTurn(TURN_ID).refused).toBe(true);
+  });
+
   it("does not trip the opening frame when a legitimate steer settles with an unloaded item list", async () => {
     // The other polarity, and the one a per-frame store must not lose: every
     // frame on the turn produced output, and the terminal simply did not carry

@@ -906,6 +906,17 @@ const CODEX_UNMATCHED_TURN_MEMORY = 64;
  */
 const CODEX_INTERRUPTED_ROUTE_MEMORY = 64;
 
+/**
+ * How many settled turn ids one session remembers (see
+ * `CodexSessionRecord.settledTurnIds`).
+ *
+ * Same figure and same reasoning as the two memories above. The question this
+ * one answers is asked one microtask after the terminal that answers it was
+ * ingested, so a bound this size is already orders of magnitude past the window
+ * it has to cover.
+ */
+const CODEX_SETTLED_TURN_MEMORY = 64;
+
 const DEFAULT_STARTUP_TIMEOUT_MS = 30_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
 
@@ -3000,6 +3011,21 @@ interface CodexSessionRecord {
    */
   readonly unmatchedTurnEvidence: Map<string, UnmatchedTurnEvidence>;
   /**
+   * The turn ids whose terminal this session has already ingested, newest last.
+   *
+   * A DIFFERENT question from `unmatchedTurnEvidence` above, which is why it is
+   * not folded into it. That memory answers "what is a run whose route is not
+   * installed yet still owed", so it is written only when no route matched and
+   * `startRun` CONSUMES an entry when it claims one. This one answers "has this
+   * turn ended", for a caller that is owed nothing and consumes nothing: it is
+   * written for every terminal, matched or not, and read by `steerRun` to decide
+   * whether the turn a provider acknowledged can still rule a frame. Folding the
+   * two would make one map's consume erase the other's fact.
+   *
+   * Insertion-ordered and capped (`CODEX_SETTLED_TURN_MEMORY`).
+   */
+  readonly settledTurnIds: Set<string>;
+  /**
    * Runs whose route an INTERRUPT retired while their turn's terminal was still
    * owed, keyed by the turn id that terminal will carry.
    *
@@ -3080,6 +3106,26 @@ function rememberUnmatchedTurn(record: CodexSessionRecord, turnId: string): Unma
     memory.delete(oldest.value);
   }
   return remembered;
+}
+
+/**
+ * Records that a turn's terminal has been ingested on this session.
+ *
+ * Bounded exactly like the two memories above, oldest-first and re-inserting on
+ * a repeat. Unlike them it is never consumed: a turn that has ended stays ended,
+ * and a reader that erased the fact by asking would hide it from the next one.
+ */
+function rememberSettledTurn(record: CodexSessionRecord, turnId: string): void {
+  const memory = record.settledTurnIds;
+  memory.delete(turnId);
+  memory.add(turnId);
+  while (memory.size > CODEX_SETTLED_TURN_MEMORY) {
+    const oldest = memory.values().next();
+    if (oldest.done === true) {
+      break;
+    }
+    memory.delete(oldest.value);
+  }
 }
 
 /**
@@ -3598,6 +3644,7 @@ export class CodexLifecycleManager {
         spawnConfig: config,
         activeTurnIdByRunId: new Map(),
         unmatchedTurnEvidence: new Map(),
+        settledTurnIds: new Set(),
         interruptedRunIdByTurnId: new Map(),
       });
       // The quarantine names a BINDING, not an identifier: a fresh process now
@@ -3731,6 +3778,7 @@ export class CodexLifecycleManager {
         spawnConfig,
         activeTurnIdByRunId: new Map(),
         unmatchedTurnEvidence: new Map(),
+        settledTurnIds: new Set(),
         interruptedRunIdByTurnId: new Map(),
       });
       // Released for the same reason the create path releases it: a resume is a
@@ -4945,11 +4993,39 @@ export class CodexLifecycleManager {
         // where the bytes went, and the dispatcher already grades that answer
         // degraded rather than applied (P3-1).
         //
-        // If the acknowledged turn has already settled, the moved frame can no
-        // longer be ruled — the named residual on `recorrelateFrame`. That is
-        // still strictly better than ruling it on a turn the provider has told
-        // us it did not join.
-        this.#outboundFrameTripwire.recorrelateFrame(steerFrame, acknowledgedTurnId);
+        // The move is REFUSED when that turn can no longer rule anything, and
+        // the frame is ruled here instead. A settled turn emits no second
+        // terminal, so a frame moved onto one is never ruled at all: it sits as
+        // occupancy until its binding's scope is released — silence in the exact
+        // case that warrants the loudest answer. The window is ordinary rather
+        // than exotic: a terminal sharing a read chunk with this steer's own
+        // response is drained SYNCHRONOUSLY, so it goes by before this
+        // continuation runs.
+        //
+        // Ruled fail-closed rather than against the settled turn's own recorded
+        // outcome, and that is the whole of the choice. The hazard case is a
+        // turn that ran normally, produced output, and THEN took the directive
+        // its command layer intercepted — so that turn's recorded outcome is
+        // "model output observed", and inheriting it would report the swallow
+        // this module exists to catch as a pass.
+        //
+        // It overrides the attribution rule the tripwire's header states, and
+        // deliberately: this frame may have accrued observations while it sat on
+        // the targeted turn, and `UNRECOGNIZED_TURN_EVIDENCE` trips regardless of
+        // them. Those observations belong to a turn the provider has just told us
+        // did not take these bytes, so they cannot vouch for them.
+        //
+        // The run terminal carries the loudness, as it does on every other trip.
+        // The dispatcher grades this answer on `decisionFor(targetedTurnId)`,
+        // which a frame-scoped ruling deliberately does not write — a retained
+        // trip there would answer "swallowed" for a turn whose other frames are
+        // still live — so the steer is graded on its ack mismatch and the
+        // refusal reaches the caller through `run.failed`.
+        if (this.#canStillRuleFrameOnTurn(record, acknowledgedTurnId)) {
+          this.#outboundFrameTripwire.recorrelateFrame(steerFrame, acknowledgedTurnId);
+        } else {
+          this.#ruleSteerFrameFailClosed(record, request.runId, steerFrame);
+        }
       }
       return { targetedTurnId, acknowledgedTurnId };
     }
@@ -5008,6 +5084,31 @@ export class CodexLifecycleManager {
     if (!record.connection.isClosed) {
       return;
     }
+    this.#ruleSteerFrameFailClosed(record, runId, steerFrame);
+  }
+
+  /**
+   * Rules ONE steer frame fail-closed and reports it with the full loudness of
+   * the settlement path (T3.18).
+   *
+   * Shared by the two conditions under which no terminal will ever rule the
+   * frame: a response phase that died with the connection, and an
+   * acknowledgement naming a turn that has already settled. One helper rather
+   * than two call sites, because "the same loudness the live path would have" is
+   * the claim being made, and two copies of it are two things to keep equal.
+   *
+   * Frame-scoped: settling the whole turn would trip the frame that OPENED it,
+   * which is still live and whose delivery was never in doubt.
+   *
+   * A frame that is no longer pending — one the targeted turn's own terminal
+   * already consumed in the same read chunk — settles as `no-correlated-frame`
+   * and falls out here, so a frame ruled once is never ruled twice.
+   */
+  #ruleSteerFrameFailClosed(
+    record: CodexSessionRecord,
+    runId: RunId,
+    steerFrame: OutboundTextFrame,
+  ): void {
     const decision = this.#outboundFrameTripwire.settleFrame(
       steerFrame,
       UNRECOGNIZED_TURN_EVIDENCE,
@@ -5021,6 +5122,37 @@ export class CodexLifecycleManager {
     this.#providerBindingQuarantine.disposeSession(record.sessionId);
     this.#ruleTurnTerminalAgainstRun(record.sessionId, runId, decision);
     this.#disposeQuarantinedSession(record);
+  }
+
+  /**
+   * Whether a terminal on `record` can still rule a frame correlated to
+   * `turnId` (T3.18).
+   *
+   * Two ways the answer is no, and both end a frame's chance of ever being
+   * ruled by the ordinary path:
+   *
+   *   * the turn has already settled — its terminal has been ingested and no
+   *     second one is coming;
+   *   * the record is no longer the one this manager holds for the session. The
+   *     test is IDENTITY rather than presence: a supersede-resume installs a new
+   *     record under the same session id and ingests nothing further on the old
+   *     connection, so the replacement's memories are statements about a
+   *     different process and answering from them would answer for the wrong
+   *     leg.
+   *
+   * That second arm is defence in depth and is deliberately labelled as such:
+   * every path that replaces or drops a record releases the predecessor's frames
+   * in the SAME act, so the frame is already gone by the time this could be
+   * asked and both answers lead to the same no-op. No test can tell the arms
+   * apart today. It is kept because the predicate's meaning — can a terminal on
+   * THIS leg still rule this frame — is what the caller depends on, and a rule
+   * with no exception in it is the one that survives the next edit.
+   */
+  #canStillRuleFrameOnTurn(record: CodexSessionRecord, turnId: string): boolean {
+    if (this.#sessions.get(record.sessionId) !== record) {
+      return false;
+    }
+    return !record.settledTurnIds.has(turnId);
   }
 
   /** The `turn/steer` request itself, split out so `steerRun` reads as its policy. */
@@ -5474,6 +5606,13 @@ export class CodexLifecycleManager {
       // remember.
       return;
     }
+    // T3.18. Marked for EVERY terminal, before any of the ruling below and
+    // whether or not a route or a correlated frame is waiting on it. The two
+    // memories beside it are both conditional — one is written only when no
+    // route matched, the other only for interrupted runs — so neither can be
+    // asked the plain question "has this turn ended", which is what `steerRun`
+    // needs before it moves a frame onto a turn the provider named.
+    rememberSettledTurn(record, turnId);
     // Keyed by TURN id, not by run id. A run whose route was superseded (by a
     // resume) or already retired (by an interrupt) must not have a NEWER turn
     // cleared out from under it by a late terminal for the old one.

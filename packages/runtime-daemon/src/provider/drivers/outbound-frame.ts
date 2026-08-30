@@ -784,12 +784,18 @@ export class OutboundFrameTripwire {
    * exactly the ruling the intervention path reads back when an acknowledged
    * steer names a turn that has already settled.
    *
-   * Named residual: a frame moved onto an ALREADY-settled turn can never be
-   * ruled — no second terminal for that turn is coming — so it sits as
-   * occupancy until its binding's scope is released. Accepted rather than
-   * closed, on the same ground the steer path's late-connection-death case is:
-   * the provider naming a turn is not evidence that the frame was swallowed,
-   * and tripping on it would dispose a binding that swallowed nothing.
+   * A CALLER OBLIGATION, and the one this method cannot discharge: a frame
+   * moved onto an ALREADY-settled turn can never be ruled — no second terminal
+   * for that turn is coming — so it would sit as occupancy until its binding's
+   * scope is released, which is silence in the case that warrants the loudest
+   * answer. Refusing the move here is not possible, because this store cannot
+   * tell a settled key from a live one: a turn that settles with nothing
+   * correlated to it returns before any decision is retained, so it leaves no
+   * trace here at all. Each caller therefore establishes that its destination
+   * is still live from the settlement record its own driver keeps, and rules
+   * the frame itself when it is not — the Codex run-opening path by replaying
+   * the terminal its session remembered onto the re-keyed frame, and the steer
+   * path by refusing the move and ruling fail-closed.
    */
   recorrelateFrame(frame: OutboundTextFrame, toJoinKey: string): void {
     const pending = this.#pendingByCorrelationId.get(frame.correlationId);
