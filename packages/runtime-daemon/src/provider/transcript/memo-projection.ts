@@ -255,11 +255,6 @@ export function renderMemoContinuityMarker(
  */
 const MEMO_FLOOR_DECLARED_LOSS_KIND: DeclaredLossKind = "conversation_history_summarized";
 
-/** The key-only prefix of this memo's marker, which every marker form leads with. */
-function renderMemoContinuityMarkerKey(memoIdentityKey: string): string {
-  return `${MEMO_CONTINUITY_MARKER_PREFIX}${memoIdentityKey}`;
-}
-
 /**
  * Characters that CONTINUE a token, so a marker abutting one of them is part of
  * something longer rather than a marker.
@@ -280,68 +275,110 @@ function renderMemoContinuityMarkerKey(memoIdentityKey: string): string {
  */
 const MEMO_MARKER_TOKEN_CHARACTER = /[A-Za-z0-9_-]/;
 
-/** One syntactically complete occurrence of this memo's marker in a target turn. */
+/** One syntactically complete marker occurrence in a target turn, whatever memo wrote it. */
 type MemoContinuityMarkerOccurrence =
   /** The marker carried a record, and every component of it parsed. */
-  | { readonly form: "recorded"; readonly kinds: ReadonlySet<DeclaredLossKind> }
+  | {
+      readonly form: "recorded";
+      readonly memoIdentityKey: string;
+      readonly kinds: ReadonlySet<DeclaredLossKind>;
+    }
   /** The key-only form, written before the record existed. */
-  | { readonly form: "key-only" }
+  | { readonly form: "key-only"; readonly memoIdentityKey: string }
   /** A marker whose record is present and does not parse. */
+  | { readonly form: "unreadable-record"; readonly memoIdentityKey: string };
+
+/** A record's parse, before the scanner attaches the key that carried it. */
+type MemoContinuityRecordReading =
+  | { readonly form: "recorded"; readonly kinds: ReadonlySet<DeclaredLossKind> }
   | { readonly form: "unreadable-record" };
 
+/** The identity key's exact wire shape: lowercase hex, two characters per digest byte. */
+const MEMO_IDENTITY_KEY_TEXT_PATTERN: RegExp = new RegExp(
+  `^[0-9a-f]{${String(MEMO_IDENTITY_KEY_BYTE_LENGTH * 2)}}`,
+);
+
 /**
- * THE grammar. Every occurrence of this memo's marker the target's turns carry,
- * classified, in the order they were read.
+ * THE grammar. Every syntactically complete continuity marker the target's
+ * turns carry — WHICHEVER memo wrote it — classified and carrying the key it
+ * names, in the order they were read.
  *
- * One producer, two consumers. `targetTurnsCarryMemoMarker` asks whether the
- * list is non-empty and `readDeliveredMemoDeclaredLosses` asks what the entries
- * say, so the admission decision and the record read can no longer disagree
+ * One producer, so the admission decision and the record read cannot disagree
  * about what counts as a marker — which is exactly how a substring admission
- * came to settle a delivery the strict parser beside it would have refused.
+ * once came to settle a delivery the strict parser beside it would have
+ * refused. Scanning for ANY key rather than a given one is what once-only
+ * actually requires: the projection grows between deliveries and a grown
+ * projection derives a NEW key, so a target seeded under an earlier projection
+ * carries a marker a key-scoped read would walk straight past — and the caller
+ * would seed the one conversation twice.
  *
- * A boundary failure yields NO entry rather than a rejected one, and that is
- * what keeps this a single grammar: an occurrence that is not this marker is not
- * evidence about this marker, so neither consumer should see it. A complete
- * occurrence whose RECORD is garbage is the opposite — it is this marker, so it
- * counts as delivered and is simultaneously unreadable, which is the pair of
- * answers the two consumers already give it.
+ * A key is admitted only in its exact wire shape: lowercase hex, fixed length,
+ * complete at a token boundary or at the record separator. A shorter hex run,
+ * or one that runs on into more token characters, is a longer identifier that
+ * happens to contain a key — a boundary failure yields NO entry rather than a
+ * rejected one, because an occurrence that is not a marker is not evidence
+ * about any memo. A complete occurrence whose RECORD is garbage is the
+ * opposite — it is a marker, so it counts as delivered and is simultaneously
+ * unreadable, which is the pair of answers the consumers already give it.
  *
  * The left boundary is checked as well as the right. `continuity-ref:` is
  * ordinary lowercase text, so a longer word ending in it would otherwise open a
  * marker that was never written.
  */
-function readMemoContinuityMarkerOccurrences(
+function readAnyMemoContinuityMarkerOccurrences(
   targetTurns: readonly string[],
-  memoIdentityKey: string,
 ): readonly MemoContinuityMarkerOccurrence[] {
-  const markerKey: string = renderMemoContinuityMarkerKey(memoIdentityKey);
   const occurrences: MemoContinuityMarkerOccurrence[] = [];
   for (const turnText of targetTurns) {
     for (
-      let markerStart: number = turnText.indexOf(markerKey);
+      let markerStart: number = turnText.indexOf(MEMO_CONTINUITY_MARKER_PREFIX);
       markerStart >= 0;
-      markerStart = turnText.indexOf(markerKey, markerStart + markerKey.length)
+      markerStart = turnText.indexOf(
+        MEMO_CONTINUITY_MARKER_PREFIX,
+        markerStart + MEMO_CONTINUITY_MARKER_PREFIX.length,
+      )
     ) {
       const precedingCharacter: string = turnText.slice(Math.max(0, markerStart - 1), markerStart);
       if (precedingCharacter !== "" && MEMO_MARKER_TOKEN_CHARACTER.test(precedingCharacter)) {
         continue;
       }
-      const tail: string = turnText.slice(markerStart + markerKey.length);
+      const afterPrefix: string = turnText.slice(
+        markerStart + MEMO_CONTINUITY_MARKER_PREFIX.length,
+      );
+      const memoIdentityKey: string | undefined =
+        MEMO_IDENTITY_KEY_TEXT_PATTERN.exec(afterPrefix)?.[0];
+      if (memoIdentityKey === undefined) {
+        continue;
+      }
+      const tail: string = afterPrefix.slice(memoIdentityKey.length);
       if (!tail.startsWith(MEMO_CONTINUITY_LOSS_SEPARATOR)) {
         // No record follows. The key-only form is complete only where the token
-        // ENDS: a key that runs on into more token characters is a different
-        // key that happens to begin with this one.
+        // ENDS: a key that runs on into more token characters is a different,
+        // longer identifier that happens to begin with a key.
         const followingCharacter: string = tail.slice(0, 1);
         if (followingCharacter !== "" && MEMO_MARKER_TOKEN_CHARACTER.test(followingCharacter)) {
           continue;
         }
-        occurrences.push({ form: "key-only" });
+        occurrences.push({ form: "key-only", memoIdentityKey });
         continue;
       }
-      occurrences.push(readMemoContinuityRecord(tail.slice(MEMO_CONTINUITY_LOSS_SEPARATOR.length)));
+      occurrences.push({
+        ...readMemoContinuityRecord(tail.slice(MEMO_CONTINUITY_LOSS_SEPARATOR.length)),
+        memoIdentityKey,
+      });
     }
   }
   return occurrences;
+}
+
+/** The occurrences of ONE memo's marker — the any-key grammar above, filtered. */
+function readMemoContinuityMarkerOccurrences(
+  targetTurns: readonly string[],
+  memoIdentityKey: string,
+): readonly MemoContinuityMarkerOccurrence[] {
+  return readAnyMemoContinuityMarkerOccurrences(targetTurns).filter(
+    (occurrence) => occurrence.memoIdentityKey === memoIdentityKey,
+  );
 }
 
 /**
@@ -365,7 +402,7 @@ function readMemoContinuityMarkerOccurrences(
  * this reader does not understand, and understanding it partly is worse than
  * not claiming to understand it at all.
  */
-function readMemoContinuityRecord(record: string): MemoContinuityMarkerOccurrence {
+function readMemoContinuityRecord(record: string): MemoContinuityRecordReading {
   // Loss kinds are lowercase ASCII with underscores, so anything else — a
   // newline, a space, the prose that follows — is outside the marker.
   const tokenRun: string = /^[a-z_+]*/.exec(record)?.[0] ?? "";
@@ -389,16 +426,33 @@ function readMemoContinuityRecord(record: string): MemoContinuityMarkerOccurrenc
 }
 
 /**
- * Whether any of the target's turns already carries a COMPLETE occurrence of
- * this memo's marker.
+ * Whether any of the target's turns already carries a COMPLETE marker
+ * occurrence for ANY memo.
  *
- * Reads the shared grammar rather than searching for the key: this answer skips
- * the only context transfer, so admitting an occurrence the record parser would
- * refuse means believing a memo was delivered on the strength of text that is
- * not a marker at all. The two directions are not symmetric — a false yes leaves
- * the target with no context while the caller reports success, and a false no
- * costs one redundant summary — so the grammar is the strict one and both
- * readers share it.
+ * The ADMISSION question, and it is target-scoped where the reader below is
+ * not: one memo per TARGET, never one per (target, memo) — the projection
+ * grows between deliveries, a grown projection derives a new key, and a
+ * key-scoped read of a seeded target finds nothing and licenses a second
+ * summary into the one conversation the participant is watching. Reads the
+ * shared grammar rather than searching for the prefix, so an occurrence good
+ * enough to settle a delivery is exactly one good enough to be read back. The
+ * two directions are not symmetric — a false yes leaves the target with no
+ * context while the caller reports success, and a false no costs one redundant
+ * summary — so the grammar is the strict one and every reader shares it.
+ */
+export function targetTurnsCarryAnyMemoMarker(targetTurns: readonly string[]): boolean {
+  return readAnyMemoContinuityMarkerOccurrences(targetTurns).length > 0;
+}
+
+/**
+ * Whether any of the target's turns already carries a COMPLETE occurrence of
+ * THIS memo's marker.
+ *
+ * The READBACK question — did the send this call just made land — which is
+ * key-scoped where admission is not: the coordinator serializes deliveries per
+ * target and sends only where its pre-send read found no marker at all, so the
+ * only marker a post-send readback can newly find is the one that send
+ * composed, and naming its key keeps the answer about that send.
  */
 export function targetTurnsCarryMemoMarker(
   targetTurns: readonly string[],
@@ -1157,8 +1211,9 @@ export interface MemoDeliveryRequest {
  *
  *   `delivered`         the target holds it, confirmed by the send resolving or
  *                       by a readback finding the marker after an ambiguous send;
- *   `already-delivered` a reconcile found the marker already there — including
- *                       the retry that finds an earlier ambiguous send's own memo
+ *   `already-delivered` a reconcile found A marker already there — this memo's,
+ *                       an earlier projection's memo already seeding the one
+ *                       conversation, or an earlier ambiguous send's own memo
  *                       arriving late;
  *   `withheld`          nothing reached the target and that is KNOWN: the target
  *                       was never sent to, or an absence was read after the
@@ -1168,8 +1223,9 @@ export interface MemoDeliveryRequest {
  *                       rather than resolved by a duplicate.
  *
  * `unconfirmed` is a standing state, not a one-call verdict: it persists across
- * `deliver` calls for the pair until evidence moves it, which is what keeps a
- * retry from sending into a provider still applying the first send.
+ * `deliver` calls for the TARGET until evidence moves it, which is what keeps a
+ * retry — under this key or a grown projection's — from sending into a provider
+ * still applying the first send.
  */
 export type MemoDeliveryDisposition =
   | "delivered"
@@ -1232,21 +1288,27 @@ export interface MemoDeliverySettlement {
  * unresolved. A caller that retries calls `deliver` again, which reconciles
  * again; a target that already holds the memo is never sent a second one.
  *
- * OVERLAPPING calls for one memo into one target are one delivery: the second
- * awaits the first's settlement rather than starting a delivery of its own.
+ * OVERLAPPING calls into one target are one delivery at a time. A second call
+ * rendering the SAME memo awaits the first's settlement rather than starting a
+ * delivery of its own; one rendering a DIFFERENT memo — a projection that grew
+ * between the renders derives a different key — waits the flight out and then
+ * reconciles afresh against the target that flight may just have seeded.
  * Reconciliation cannot close that window on its own, because both reads
  * legitimately find no marker — the first send has not landed when the second
  * read is taken — and the send is the one act here that cannot be taken back.
  *
  * SEQUENTIAL calls after an ambiguous send are that same hazard displaced in
  * time, and the flight map cannot close it: the flight in question has already
- * settled. The pair is carried in an unconfirmed register instead, and while it
- * sits there no `deliver` call may send. An ambiguous send enters that register
+ * settled. The TARGET is carried in an unconfirmed register instead, and while
+ * it sits there no `deliver` call may send into it — whatever memo the later
+ * call renders, because a register scoped to the (target, memo) pair would be
+ * invisible to a call whose grown projection derives a new key, and that call
+ * would send beside a memo still landing. An ambiguous send enters that register
  * UNCONDITIONALLY — nothing a caller can pass makes its own call able to clear
  * it — so the protection does not rest on anything being answered correctly in
  * the moment the answer is unavailable.
  *
- * It leaves the register only on evidence a LATER call can hold: the marker read
+ * It leaves the register only on evidence a LATER call can hold: a marker read
  * off the target, or an absence read behind that call's settlement barrier. The
  * second reports `withheld` and sends nothing, so resolving an old ambiguity and
  * attempting a new send are never the same act; the call after it sends as an
@@ -1278,16 +1340,34 @@ export class MemoDeliveryCoordinator {
     string,
     EstablishedMemoTarget
   >();
-  /** Deliveries this coordinator has started and not yet settled. */
-  readonly #deliveriesInFlight: Map<string, Promise<MemoDeliverySettlement>> = new Map<
+  /**
+   * The delivery in flight into each target, by provider session id, beside the
+   * key of the memo that flight rendered.
+   *
+   * Target-scoped rather than pair-scoped because the hazard it closes is
+   * target-scoped: two overlapping calls holding DIFFERENT keys — a projection
+   * that grew between the renders — would each read the target, each find no
+   * marker, and each send, and the one conversation holds two summaries. The
+   * key rides along so a caller whose render matches shares the flight's
+   * settlement, while one whose render differs waits the flight out and then
+   * reconciles afresh against whatever it left on the target.
+   */
+  readonly #deliveriesInFlight: Map<string, MemoDeliveryInFlight> = new Map<
     string,
-    Promise<MemoDeliverySettlement>
+    MemoDeliveryInFlight
   >();
   /**
-   * Pairs whose last send was AMBIGUOUS, and whose delivery is therefore not
+   * Targets whose last send was AMBIGUOUS, and whose delivery is therefore not
    * known either way. Held in memory and scoped to this coordinator exactly as
    * the flight map above is: it is a refusal to send twice, never a claim, and
    * nothing about it outlives the process.
+   *
+   * Keyed by provider session id — the TARGET, never the (target, memo) pair —
+   * because a pair-scoped entry held a duplicate and a deadlock at once: a
+   * later call rendering a grown projection carries a new key, so it neither
+   * saw the old pair's entry (and would have sent beside a memo still landing)
+   * nor could a read scoped to its OWN key's marker ever release an entry
+   * whose only marker exit is written under the old one.
    *
    * A SAME-LIFETIME guard, stated as what it is — and sufficient because of the
    * establishment gate rather than in spite of it. Every send this module can
@@ -1297,8 +1377,8 @@ export class MemoDeliveryCoordinator {
    * register a restart starts from is not a register that lost anything.
    *
    * Deliberately UNBOUNDED and never swept on age or size. An entry is one
-   * fixed-length key, at most one per memo this coordinator ever attempted, and
-   * evicting one would hand back precisely the guarantee it holds — the next
+   * provider session id, at most one per target this coordinator ever attempted,
+   * and evicting one would hand back precisely the guarantee it holds — the next
    * call would read the target, find nothing, and send. Entries leave on
    * evidence or not at all.
    */
@@ -1365,25 +1445,39 @@ export class MemoDeliveryCoordinator {
       budget: request.budget,
     });
 
-    const deliveryPairKey: string = renderDeliveryPairKey(
-      request.target.providerSessionId,
-      rendering.memoIdentityKey,
-    );
-    const alreadyInFlight: Promise<MemoDeliverySettlement> | undefined =
-      this.#deliveriesInFlight.get(deliveryPairKey);
-    if (alreadyInFlight !== undefined) {
-      // One memo into one target is one delivery, so both callers settle on what
-      // that delivery did — including the caller whose own rendering carried a
-      // different budget, whose memo is exactly the one that must not also land.
-      return await alreadyInFlight;
+    const targetProviderSessionId: string = request.target.providerSessionId;
+    // One delivery into one target at a time. A caller whose render carries the
+    // SAME key is a second caller of one delivery and shares its settlement —
+    // including the caller whose own rendering carried a different budget,
+    // whose memo is exactly the one that must not also land. A caller whose
+    // render carries a DIFFERENT key is a different memo aimed at the same
+    // conversation: it waits the flight out and reconciles afresh, because the
+    // target it is about to read is one that flight may just have seeded. The
+    // loop terminates — an entry leaves the map on its owner's own settlement
+    // continuation, and no new entry appears under this id until a waiter
+    // claims it below.
+    for (;;) {
+      const inFlight: MemoDeliveryInFlight | undefined =
+        this.#deliveriesInFlight.get(targetProviderSessionId);
+      if (inFlight === undefined) {
+        break;
+      }
+      if (inFlight.memoIdentityKey === rendering.memoIdentityKey) {
+        return await inFlight.settlement;
+      }
+      // Awaited for completion only: that settlement is another memo's, and
+      // this call re-derives its own from the target afterwards.
+      await inFlight.settlement.then(
+        () => undefined,
+        () => undefined,
+      );
     }
 
-    const flight: Promise<MemoDeliverySettlement> = this.#reconcileThenSend(
-      request,
-      rendering,
-      deliveryPairKey,
-    );
-    this.#deliveriesInFlight.set(deliveryPairKey, flight);
+    const flight: Promise<MemoDeliverySettlement> = this.#reconcileThenSend(request, rendering);
+    this.#deliveriesInFlight.set(targetProviderSessionId, {
+      memoIdentityKey: rendering.memoIdentityKey,
+      settlement: flight,
+    });
     try {
       return await flight;
     } finally {
@@ -1391,21 +1485,22 @@ export class MemoDeliveryCoordinator {
       // must never keep the next call from reconciling against the target afresh.
       // The unconfirmed register is deliberately NOT cleared here — an ambiguous
       // send outlives the call that made it, and that is the whole point of it.
-      this.#deliveriesInFlight.delete(deliveryPairKey);
+      this.#deliveriesInFlight.delete(targetProviderSessionId);
     }
   }
 
   async #reconcileThenSend(
     request: MemoDeliveryRequest,
     rendering: MemoRendering,
-    deliveryPairKey: string,
   ): Promise<MemoDeliverySettlement> {
-    // A pair an earlier call left ambiguous is treated as POSSIBLY-APPLIED until
-    // something definitive says otherwise. The barrier is awaited before the read
-    // rather than after it, because what makes the read definitive is its
-    // position after the provider settled that send — a barrier consulted
+    // A target an earlier call left ambiguous is treated as POSSIBLY-APPLIED
+    // until something definitive says otherwise. The barrier is awaited before
+    // the read rather than after it, because what makes the read definitive is
+    // its position after the provider settled that send — a barrier consulted
     // afterwards would order nothing.
-    const priorSendUnconfirmed: boolean = this.#unconfirmedDeliveries.has(deliveryPairKey);
+    const priorSendUnconfirmed: boolean = this.#unconfirmedDeliveries.has(
+      request.target.providerSessionId,
+    );
     const priorSendSettled: boolean = priorSendUnconfirmed
       ? await awaitSendSettlement(request)
       : false;
@@ -1426,10 +1521,14 @@ export class MemoDeliveryCoordinator {
         : settle(rendering, "withheld", "target-unreadable", thisDeliveryLosses(rendering));
     }
 
-    if (targetTurnsCarryMemoMarker(priorTurns, rendering.memoIdentityKey)) {
-      // Definitive, and the one evidence that needs no barrier: an outstanding
-      // send is now known to have applied, so the pair leaves the register.
-      this.#unconfirmedDeliveries.delete(deliveryPairKey);
+    if (targetTurnsCarryAnyMemoMarker(priorTurns)) {
+      // Definitive, and the one evidence that needs no barrier: the target is
+      // seeded — by this memo, by an earlier projection's memo, or by an
+      // outstanding send now known to have applied, since the only sender into
+      // an established target is this coordinator and it sends only where it
+      // found nothing — so the target leaves the register and nothing more is
+      // sent into the one conversation.
+      this.#unconfirmedDeliveries.delete(request.target.providerSessionId);
       return settle(
         rendering,
         "already-delivered",
@@ -1451,9 +1550,9 @@ export class MemoDeliveryCoordinator {
       // is resolved and REPORTED, and nothing is sent here — evidence about the
       // old send is not evidence about a new one, and folding the two into one
       // act is what would let a barrier's single word both close a delivery and
-      // open another. The pair leaves the register, so the caller's next
+      // open another. The target leaves the register, so the caller's next
       // delivery reconciles and sends as an ordinary first attempt.
-      this.#unconfirmedDeliveries.delete(deliveryPairKey);
+      this.#unconfirmedDeliveries.delete(request.target.providerSessionId);
       return settle(rendering, "withheld", "send-refused", thisDeliveryLosses(rendering));
     }
 
@@ -1468,7 +1567,7 @@ export class MemoDeliveryCoordinator {
       });
       return settle(rendering, "delivered", undefined, thisDeliveryLosses(rendering));
     } catch {
-      // Ambiguous, and NOT resolvable inside this call. The pair is registered
+      // Ambiguous, and NOT resolvable inside this call. The target is registered
       // FIRST, before anything that can throw or return, so no path out of here
       // leaves an outstanding send unrecorded.
       //
@@ -1479,7 +1578,7 @@ export class MemoDeliveryCoordinator {
       // waited, and the refusal it licensed would clear the register and let the
       // next call send the duplicate. Only a later call, whose barrier is
       // ordered behind a send that completed before it began, may resolve this.
-      this.#unconfirmedDeliveries.add(deliveryPairKey);
+      this.#unconfirmedDeliveries.add(request.target.providerSessionId);
       let turnsAfterSend: readonly string[];
       try {
         turnsAfterSend = await this.#gateway.readTurnsForMarkerReconciliation(
@@ -1491,7 +1590,7 @@ export class MemoDeliveryCoordinator {
       if (targetTurnsCarryMemoMarker(turnsAfterSend, rendering.memoIdentityKey)) {
         // The one evidence that needs no ordering at all: the memo is visibly
         // there, so the send that just failed to acknowledge in fact applied.
-        this.#unconfirmedDeliveries.delete(deliveryPairKey);
+        this.#unconfirmedDeliveries.delete(request.target.providerSessionId);
         // The same rule as the reconciliation above, and it is one rule: the
         // losses come from the MARKER wherever the settlement rests on reading
         // one. A found marker carrying no record is provably not the memo this
@@ -1534,19 +1633,10 @@ async function awaitSendSettlement(request: MemoDeliveryRequest): Promise<boolea
   }
 }
 
-/**
- * The key one delivery — one memo into one target — is tracked under, by both
- * the in-flight map and the unconfirmed register.
- *
- * The memo-identity key is derived over the target's own session identifier, so
- * it already separates two targets; naming the target here as well keeps the
- * pair's scope legible where it is read and true independently of what the
- * derivation happens to cover. The identity key is fixed-length hex, so the pair
- * admits one reading. One spelling for both structures, so a pair held
- * unconfirmed cannot be missed by a later call that looked it up differently.
- */
-function renderDeliveryPairKey(providerSessionId: string, memoIdentityKey: string): string {
-  return `${memoIdentityKey}:${providerSessionId}`;
+/** One in-flight delivery: the memo it rendered, and the settlement it will reach. */
+interface MemoDeliveryInFlight {
+  readonly memoIdentityKey: string;
+  readonly settlement: Promise<MemoDeliverySettlement>;
 }
 
 function settle(
@@ -1582,32 +1672,44 @@ function thisDeliveryLosses(rendering: MemoRendering): MemoDeclaredLossRecord {
  * What the memo the target ALREADY holds recorded, for every settlement that
  * rests on having read a marker rather than on having sent one.
  *
- * The unreadable arm declares the whole CLOSED VOCABULARY, which is the only
- * honest bound available to it: the record it could not read was written by some
- * other rendering, and nothing about that rendering is knowable from a token run
- * this parser rejected. Conservative on purpose and not merely defensive —
- * understating it would let a participant believe a summary carries reasoning or
- * exchanges it may not.
+ * The recorded arm is admissible only where EVERY occurrence on the target is a
+ * readable record of THIS rendering's memo. A marker carrying ANOTHER key is a
+ * memo this call did not render — an earlier projection's summary, whose
+ * omissions relative to THIS projection no record can account for — and a
+ * key-only or unreadable occurrence is unaccountable outright: the record it
+ * could not read was written by some other rendering, and nothing about that
+ * rendering is knowable from a token run this parser rejected. Any of them
+ * takes the conservative arm. Conservative on purpose and not merely defensive
+ * — understating it would let a participant believe a summary carries reasoning
+ * or exchanges it may not.
  *
- * The vocabulary rather than the subset this build can currently PRODUCE, and
- * the two are not the same set: a loss kind is admitted to the vocabulary before
- * its producer lands, by the ordering the canonical contract prescribes. The
- * difference falls in the direction that costs nothing — a peer daemon that
- * already emits such a kind writes it into a marker this daemon then reads, so a
- * bound drawn around this build's own producers would be too small for exactly
- * the records it cannot parse.
+ * The conservative arm declares the whole CLOSED VOCABULARY rather than the
+ * subset this build can currently PRODUCE, and the two are not the same set: a
+ * loss kind is admitted to the vocabulary before its producer lands, by the
+ * ordering the canonical contract prescribes. The difference falls in the
+ * direction that costs nothing — a peer daemon that already emits such a kind
+ * writes it into a marker this daemon then reads, so a bound drawn around this
+ * build's own producers would be too small for exactly the records it cannot
+ * parse.
  */
 function deliveredMemoLosses(
   targetTurns: readonly string[],
   memoIdentityKey: string,
 ): MemoDeclaredLossRecord {
-  const recorded: readonly DeclaredLossKind[] | undefined = readDeliveredMemoDeclaredLosses(
-    targetTurns,
-    memoIdentityKey,
-  );
-  return recorded === undefined
+  const occurrences: readonly MemoContinuityMarkerOccurrence[] =
+    readAnyMemoContinuityMarkerOccurrences(targetTurns);
+  const recorded: Set<DeclaredLossKind> = new Set<DeclaredLossKind>();
+  for (const occurrence of occurrences) {
+    if (occurrence.form !== "recorded" || occurrence.memoIdentityKey !== memoIdentityKey) {
+      return { source: "unknown", losses: DECLARED_LOSS_KINDS };
+    }
+    for (const kind of occurrence.kinds) {
+      recorded.add(kind);
+    }
+  }
+  return occurrences.length === 0
     ? { source: "unknown", losses: DECLARED_LOSS_KINDS }
-    : { source: "delivered-memo", losses: recorded };
+    : { source: "delivered-memo", losses: [...recorded] };
 }
 
 /**

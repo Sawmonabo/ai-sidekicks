@@ -753,9 +753,17 @@ export interface OutboundFrameTripwireOptions {
  *
  * THE ATTRIBUTION RULE, stated once because both halves are load-bearing:
  *
- *   * In-flight evidence — `observe` — counts for every frame registered AT
- *     THAT MOMENT and for no frame registered later. Evidence observed before a
- *     frame was written cannot be evidence that THAT frame reached a model.
+ *   * In-flight evidence — `observe` — is credited to the OLDEST frame that
+ *     was registered at that moment and still holds none, and to no other. Not
+ *     to a frame registered later: evidence observed before a frame was written
+ *     cannot be evidence that THAT frame reached a model. And not to every
+ *     pending frame at once: an in-flight item carries no position within the
+ *     turn — the same fact the envelope half below rests on — so crediting the
+ *     whole set would let delayed output caused by an already-vouched directive
+ *     vouch a later one the provider swallowed, and the swallowed words would
+ *     vanish behind a green terminal. The residual is one frame wide and named:
+ *     a directive producing several items in a row still credits the frame
+ *     registered after it, where crediting every frame bounded nothing.
  *   * The settling envelope's own observations carry no position within the
  *     turn, so they are attributed to the OLDEST unsettled frame alone — the
  *     one frame every item in that list provably follows. Its `recognized` flag
@@ -828,14 +836,20 @@ export class OutboundFrameTripwire {
    * other's does not, so an accumulating tripwire works on both without either
    * classifier having to reconstruct what it did not see.
    *
-   * Applied to every frame currently pending under the key, which is how the
-   * attribution rule is ENCODED rather than merely described: a frame
-   * registered after this call is not in the set and does not receive it.
+   * Credited to the OLDEST frame pending under the key that holds no evidence
+   * yet — insertion order is registration order — which is how the attribution
+   * rule is ENCODED rather than merely described: a frame registered after this
+   * call does not receive it, and a frame that already holds evidence does not
+   * collect an item that may in truth belong to the directive written after it.
+   * An item arriving when every pending frame is evidenced is dropped, not
+   * stored: the only reader of these observations asks whether a frame has any,
+   * so a second item on one frame proves nothing its first did not.
    */
   observe(joinKey: string, observation: TurnEvidenceClass): void {
     for (const pending of this.#pendingByCorrelationId.values()) {
-      if (pending.joinKey === joinKey) {
+      if (pending.joinKey === joinKey && pending.observations.size === 0) {
         pending.observations.add(observation);
+        return;
       }
     }
   }

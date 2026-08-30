@@ -1718,6 +1718,103 @@ describe("memo delivery — overlapping calls for one memo", () => {
   });
 });
 
+// --------------------------------------------------------------------------
+// Once-only is per TARGET — a grown projection is not a second admission
+// --------------------------------------------------------------------------
+
+describe("memo delivery — once-only is per target, not per memo", () => {
+  const FIRST_PROJECTION: CanonicalTranscriptProjection = projectionOf([
+    turn(1, "participant", [{ kind: "text", text: "hello" }]),
+  ]);
+  const GROWN_PROJECTION: CanonicalTranscriptProjection = projectionOf([
+    turn(1, "participant", [{ kind: "text", text: "hello" }]),
+    turn(2, "assistant", [{ kind: "text", text: "hello to you" }]),
+  ]);
+
+  it("settles a grown projection already-delivered on a target seeded under an earlier one", async () => {
+    const target = new FakeTargetSession();
+    const coordinator = new MemoDeliveryCoordinator(target);
+
+    const first: MemoDeliverySettlement = await deliverVia(
+      coordinator,
+      requestFor(FIRST_PROJECTION),
+    );
+    expect(first.disposition).toBe("delivered");
+
+    const grown: MemoDeliverySettlement = await deliverVia(
+      coordinator,
+      requestFor(GROWN_PROJECTION),
+    );
+
+    // The keys differ — this is the seeded target a (target, memo)-scoped read
+    // walks straight past, and the second summary it would have licensed.
+    expect(grown.memoIdentityKey).not.toBe(first.memoIdentityKey);
+    expect(grown.disposition).toBe("already-delivered");
+    expect(target.sendAttempts).toBe(1);
+    // The marker found is another memo's; its record cannot account for THIS
+    // projection's omissions, so the losses are the conservative ceiling.
+    expect(grown.declaredLossSource).toBe("unknown");
+  });
+
+  it("collapses overlapping deliveries of two different memos into one send", async () => {
+    const target = new FakeTargetSession();
+    const coordinator = new MemoDeliveryCoordinator(target);
+
+    const [first, grown] = await Promise.all([
+      deliverVia(coordinator, requestFor(FIRST_PROJECTION)),
+      deliverVia(coordinator, requestFor(GROWN_PROJECTION)),
+    ]);
+
+    expect(first.disposition).toBe("delivered");
+    expect(grown.disposition).toBe("already-delivered");
+    expect(target.sendAttempts).toBe(1);
+    expect(target.turns.filter((turnText) => turnText.includes("continuity-ref:"))).toHaveLength(1);
+  });
+
+  it("holds a grown projection unconfirmed while an earlier memo's send is still ambiguous", async () => {
+    // The register is target-scoped: were it scoped to the (target, memo) pair,
+    // the grown projection's new key would not see the outstanding send and
+    // this call would send beside a memo still landing.
+    const target = new FakeTargetSession();
+    target.sendBehavior = "apply-late-then-fail";
+    const coordinator = new MemoDeliveryCoordinator(target);
+
+    const first: MemoDeliverySettlement = await deliverVia(
+      coordinator,
+      requestFor(FIRST_PROJECTION),
+    );
+    expect(first.disposition).toBe("unconfirmed");
+
+    const grown: MemoDeliverySettlement = await deliverVia(
+      coordinator,
+      requestFor(GROWN_PROJECTION),
+    );
+
+    expect(grown.disposition).toBe("unconfirmed");
+    expect(target.sendAttempts).toBe(1);
+  });
+
+  it("resolves that ambiguity with the marker the earlier memo actually left", async () => {
+    const target = new FakeTargetSession();
+    target.sendBehavior = "apply-late-then-fail";
+    const coordinator = new MemoDeliveryCoordinator(target);
+    await deliverVia(coordinator, requestFor(FIRST_PROJECTION));
+
+    const settled: MemoDeliverySettlement = await coordinator.deliver({
+      ...addressedTo(coordinator, requestFor(GROWN_PROJECTION)),
+      sendSettlementBarrier: settlementBarrierFor(target),
+    });
+
+    // The earlier memo landed, so the target is seeded and stays seeded. What
+    // it holds is the EARLIER memo, so the loss list is the ceiling, not this
+    // render's own.
+    expect(settled.disposition).toBe("already-delivered");
+    expect(settled.declaredLossSource).toBe("unknown");
+    expect(target.sendAttempts).toBe(1);
+    expect(target.turns.filter((turnText) => turnText.includes("continuity-ref:"))).toHaveLength(1);
+  });
+});
+
 describe("memo delivery — an unreadable target", () => {
   it("sends nothing when the target cannot be read before the send", async () => {
     const target = new FakeTargetSession();

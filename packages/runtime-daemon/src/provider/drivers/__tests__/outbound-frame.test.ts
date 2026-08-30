@@ -695,10 +695,10 @@ describe("outbound frame tripwire", () => {
   });
 
   it("keeps each frame's own in-flight evidence when a later frame joins the turn", () => {
-    // The false-trip half, and the reason `observe` applies to every frame
-    // pending under the key rather than to the newest one: an opening frame that
-    // was answered stays answered when a steer joins its turn, and a terminal
-    // with an UNLOADED item list must not then fail it.
+    // The false-trip half: an opening frame that was answered stays answered
+    // when a steer joins its turn, and a terminal with an UNLOADED item list
+    // must not then fail it. Each item lands on the oldest frame still holding
+    // none, so the first vouches the opening frame and the second the steer.
     const tripwire = new OutboundFrameTripwire();
     registerFrame(tripwire, "turn-1", frameFor("participant_text"));
     tripwire.observe("turn-1", "model_output");
@@ -709,6 +709,29 @@ describe("outbound frame tripwire", () => {
       tripped: false,
       reason: "turn-evidence-observed",
     });
+  });
+
+  it("does not let one directive's delayed output vouch a directive registered beside it", () => {
+    // The false-pass twin of the two tests above. Two directives are pending
+    // when a single item arrives — output the FIRST caused, delayed past the
+    // second's registration. Crediting every pending frame would let that item
+    // vouch the second directive too, and a steer the provider swallowed would
+    // pass on words another directive produced. The item lands on the oldest
+    // frame still holding no evidence, so the second is owed its own item.
+    const tripwire = new OutboundFrameTripwire();
+    registerFrame(tripwire, "turn-1", frameFor("participant_text"));
+    registerFrame(tripwire, "turn-1", frameFor("system_narration", "/clear"));
+    tripwire.observe("turn-1", "model_output");
+
+    const decision = tripwire.settle("turn-1", observedTurnEvidence());
+
+    if (!decision.tripped) {
+      throw new Error("expected the directive no item is attributable to to trip");
+    }
+    expect(decision.cause).toBe("no-turn-evidence");
+    expect(decision.failureDetail).toBe(
+      "driver.text_neutralization_failed origin=system_narration",
+    );
   });
 
   it("consumes every frame on a turn, so a second terminal rules on none", () => {
