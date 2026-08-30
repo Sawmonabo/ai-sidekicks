@@ -370,6 +370,18 @@ export const stripNonPortableContent: TranscriptPipelineStep = (state) => {
         keptSegments.push({ kind: "text", position: segment.position, text: segment.text });
         continue;
       }
+      if (segment.kind === "text" && segment.withheldEnclosure === "private") {
+        // The settle's stand-in for an id-less legacy result whose enclosing
+        // block resolved `private` — the carrier that survives a positional
+        // bound after the bound has cut the private block itself away. Dropped
+        // here for the same reason the keyed arm below drops its result, and
+        // declaring the same loss: the body went with the block that carried
+        // it. The dedup boolean makes the unbounded case — where the private
+        // block ALSO survives to this step and declares this same kind —
+        // declare once, not twice.
+        recordedPrivateReasoningLoss = true;
+        continue;
+      }
       if (segment.kind === "tool_result" && segment.enclosingReasoningBlockId !== undefined) {
         if (
           segment.enclosureDisclosure === "private" ||

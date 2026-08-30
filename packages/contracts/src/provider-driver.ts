@@ -1192,6 +1192,28 @@ export type CanonicalTranscriptSegment =
       // dropped turn is indistinguishable from one that never happened. Every
       // projection carrying one owes the matching declared loss.
       contentUnavailable?: boolean | undefined;
+      // Present on the stand-in the settle emits for an ID-LESS legacy tool
+      // result whose enclosing reasoning block resolved `private` at turn close.
+      // The body was read and withheld, so `text` is empty and
+      // `contentUnavailable` stays absent — setting it would claim a read
+      // failure that never happened, the exact lie the deferred settlement was
+      // built to avoid.
+      //
+      // A `text` arm rather than the `tool_result` + `enclosureDisclosure`
+      // carrier because that arm REQUIRES `toolCallId` and a legacy id-less
+      // result has none: minting a synthetic id would hand the pairing repair a
+      // call to chase that no provider ever made. Like `enclosureDisclosure`,
+      // this member rides the segment it governs and survives any positional
+      // bound the segment survives — which is the point: a bound between the
+      // result and its later-logged private reasoning row cuts away the only
+      // sibling that could classify it, and without this marker that bounded
+      // export would declare nothing.
+      //
+      // Never rendered and never exported: the strip drops the segment and
+      // declares `provider_private_reasoning`. Closed at one literal because
+      // only the `private` disposition withholds a read body — an `unknown`
+      // enclosure keeps its placeholder on the `contentUnavailable` path.
+      withheldEnclosure?: "private" | undefined;
     }
   | {
       kind: "reasoning";

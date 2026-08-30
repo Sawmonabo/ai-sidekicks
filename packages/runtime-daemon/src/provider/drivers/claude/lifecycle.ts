@@ -754,6 +754,7 @@ export type ClaudeSessionUnavailableReason =
   | "session_id_pin_diverged"
   | "no_live_session"
   | "no_live_run"
+  | "run_already_dispatched"
   | "run_dispatch_unresolved"
   | "cost_cap_mismatch"
   | "execution_posture_mismatch"
@@ -767,6 +768,8 @@ const SESSION_UNAVAILABLE_MESSAGES: Readonly<Record<ClaudeSessionUnavailableReas
     "The spawned Claude process announced a session id other than the pinned one.",
   no_live_session: "No live Claude session is bound to this session.",
   no_live_run: "No live Claude session is bound to this run.",
+  run_already_dispatched:
+    "This run's opening frame is already on the wire and its turn has not settled.",
   run_dispatch_unresolved: "The daemon resolved no Claude dispatch for this run.",
   cost_cap_mismatch:
     "The run's admitted cost cap does not match the cap the Claude session was spawned with.",
@@ -2131,6 +2134,26 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     }
 
     this.#assertSpawnBoundRealization(params, live);
+
+    // One run key holds at most ONE pending frame on this leg — the invariant
+    // the tripwire's settle already attributes by: it classifies the frame at
+    // position 0 with the terminal's real verdict and rules every later frame
+    // under the same key `UNRECOGNIZED_TURN_EVIDENCE`, which trips. Registering
+    // a second opening frame for a run whose first has not settled would
+    // therefore quarantine this session over a duplicate dispatch, not over a
+    // swallowed participant. Refused HERE, before compose and register, so the
+    // duplicate mutates nothing; the first dispatch's frame, route, and pending
+    // turn all stand exactly as they were. Deliberately NOT keyed on the run
+    // route (`#sessionIdByRunId`): `#ruleFailedOpeningFrame`'s dead-channel arm
+    // retains the route precisely so `findChannelForRun` refuses loudly, and a
+    // ruled run re-dispatching after that failure is a real path this guard
+    // must not close.
+    if (this.#outboundFrameTripwire.hasPendingFrame(params.runId)) {
+      throw new ClaudeSessionUnavailableError("run_already_dispatched", {
+        sessionId: dispatch.sessionId,
+        runId: params.runId,
+      });
+    }
 
     // T3.18. The bytes are composed HERE and nowhere else: this band cannot
     // build a `ClaudeUserTextFrame` itself, so the neutralization is on the only

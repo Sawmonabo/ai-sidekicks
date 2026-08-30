@@ -765,7 +765,11 @@ export interface OutboundFrameTripwireOptions {
  * The Claude leg additionally spreads one terminal across several correlated
  * RUNS, positionally and for the same reason. That rule composes above this one
  * rather than duplicating it: on that leg each run key holds exactly one frame,
- * so the two never overlap.
+ * so the two never overlap. Not an assumption — that leg's `startRun` refuses a
+ * dispatch whose run key already holds a pending frame (`run_already_dispatched`)
+ * before it composes or registers anything, because a second frame under one key
+ * would be attributed `UNRECOGNIZED_TURN_EVIDENCE` here and trip the session
+ * over a duplicate dispatch rather than a swallowed participant.
  */
 export class OutboundFrameTripwire {
   /**

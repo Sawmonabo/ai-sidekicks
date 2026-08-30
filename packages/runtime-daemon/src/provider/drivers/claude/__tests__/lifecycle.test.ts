@@ -464,6 +464,53 @@ describe("ClaudeSessionLifecycle.startRun", () => {
     });
   });
 
+  it("refuses a second dispatch while the run's opening frame is still pending", async () => {
+    // The one-frame-per-run-key invariant the tripwire's settle attributes by:
+    // position 0 gets the terminal's real classification and every later frame
+    // under the key is ruled unrecognized, which trips. A duplicate dispatch
+    // admitted here would therefore quarantine the session over the duplicate,
+    // not over a swallowed participant.
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "review the diff",
+    });
+    await harness.lifecycle.startRun(buildStartRunParams());
+
+    await expect(harness.lifecycle.startRun(buildStartRunParams())).rejects.toMatchObject({
+      code: "driver.unavailable",
+      fields: { reason: "run_already_dispatched" },
+    });
+
+    // Refused before compose and register: the duplicate reached the wire as
+    // nothing, and the first dispatch's turn still settles benignly — one frame,
+    // one real classification, no false trip.
+    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual(["review the diff"]);
+    harness.transport.spawnedChannels[0]?.emitStreamFrame("result/success");
+    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+  });
+
+  it("admits a re-dispatch once the first opening frame's turn has settled", async () => {
+    // The guard keys on the PENDING frame and on nothing longer-lived: a run
+    // whose turn settled holds no frame, so dispatching it again is admitted.
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "review the diff",
+    });
+    await harness.lifecycle.startRun(buildStartRunParams());
+    harness.transport.spawnedChannels[0]?.emitStreamFrame("result/success");
+
+    await harness.lifecycle.startRun(buildStartRunParams());
+
+    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual([
+      "review the diff",
+      "review the diff",
+    ]);
+  });
+
   // `Spec-016 §Cost Derivation And Absent-Cost Semantics` names both refusal
   // shapes for a cap-declaring run: "an existing uncapped (or differently-capped)
   // process forces a capped relaunch ... never a start inside an uncapped

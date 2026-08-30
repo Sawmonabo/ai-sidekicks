@@ -567,20 +567,26 @@ export class CanonicalTranscriptFold {
      *   * `summary` — participant-visible history. The answer is portable
      *     content, rides ordinary legacy text, and loses nothing.
      *
-     *   * `private` — the answer is REMOVED, exactly as the strip removes a
-     *     KEYED enclosed result along with the block that carried it. Keeping
-     *     the provisional placeholder here would put a false statement in the
-     *     record: the body was read successfully and then deliberately withheld,
-     *     so a retained `contentUnavailable` marker declares an unavailability
-     *     that never happened, and both consumers repeat it — the export adds
-     *     `turn_content_unavailable` beside a loss it already declared, and the
-     *     memo renders the body as content that could not be recovered. The real
-     *     loss belongs to the enclosing block, and both consumers already
-     *     declare THAT one: the strip drops the private block and declares
-     *     `provider_private_reasoning`, and the memo floor runs that same strip.
-     *     A turn cannot go empty on this arm — the disclosure was read off a
-     *     reasoning segment in THIS array and reasoning segments are never
-     *     deferred, so the enclosing segment always survives the settle.
+     *   * `private` — the answer is replaced by an empty text segment carrying
+     *     `withheldEnclosure`, at the position the result held. Not the
+     *     provisional placeholder: the body was read successfully and then
+     *     deliberately withheld, so a retained `contentUnavailable` marker
+     *     declares an unavailability that never happened, and both consumers
+     *     repeat it — the export adds `turn_content_unavailable` beside a loss
+     *     it already declared, and the memo renders the body as content that
+     *     could not be recovered. And not bare removal either, which this arm
+     *     once did: removal delegated the loss declaration to the enclosing
+     *     reasoning segment, and a positional bound between the result and its
+     *     LATER-logged reasoning row keeps the result's position while cutting
+     *     away the only segment that could declare the loss — the bounded
+     *     export then declared nothing. The same geometry forced the keyed
+     *     arm's stamp, and the remedy is the same carrier rule: the marker
+     *     rides the position the withheld body held and survives any bound the
+     *     result itself would have survived. The strip drops the marker and
+     *     declares `provider_private_reasoning` — deduplicated, so the
+     *     unbounded case, where the private block survives to the strip and
+     *     declares the same kind, still declares once — and the memo floor runs
+     *     that same strip, so the marker reaches no rendered surface.
      *
      *   * anything else — FAIL-CLOSED: the placeholder stays. Two readings
      *     land here: the block the turn does not carry, which has no enclosing
@@ -653,6 +659,12 @@ export class CanonicalTranscriptFold {
           continue;
         }
         if (disclosure === "private") {
+          settledSegments.push({
+            kind: "text",
+            position: segment.position,
+            text: "",
+            withheldEnclosure: "private",
+          });
           continue;
         }
         settledSegments.push(segment);
@@ -670,7 +682,7 @@ export class CanonicalTranscriptFold {
         closingTurn.segments,
       );
       // Belt-and-braces rather than the thing carrying the `private` arm: that
-      // arm always leaves its enclosing reasoning segment behind. What this
+      // arm always leaves its `withheldEnclosure` marker behind. What this
       // guards is every other way a turn can reach here with nothing in it.
       if (settledSegments.length > 0) {
         turns.push({

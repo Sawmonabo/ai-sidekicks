@@ -3964,6 +3964,111 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     );
   });
 
+  it("refuses the binding when stale interrupt correlations reach the route-memory ceiling", async () => {
+    // The one reachable road to the ceiling: an interrupt whose continuation
+    // resumes after its turn's terminal drained AND after enough further
+    // terminals pruned that turn's id out of the settled memory — the settled
+    // gate then reads absence, records a correlation nothing will ever release,
+    // and stale entries accumulate toward the ceiling. At it the driver refuses
+    // rather than evicting, because a live correlation evicted to make room is
+    // a terminal ruled against no run.
+    const harness = createManagerHarness();
+    let nextTurnOrdinal = 0;
+    let currentTurnId = "";
+    harness.server.on("turn/start", () => {
+      nextTurnOrdinal += 1;
+      currentTurnId = `turn-${String(nextTurnOrdinal)}`;
+      return { result: { turn: { id: currentTurnId } } };
+    });
+    harness.server.on("turn/interrupt", () => ({
+      result: {},
+      // The turn's own benign terminal, then a burst that prunes its id out of
+      // the settled memory before the interrupt continuation resumes.
+      trailingFrames: [
+        turnCompletedFrame(currentTurnId, "completed"),
+        ...Array.from({ length: 64 }, (_unused, index) =>
+          turnCompletedFrame(`${currentTurnId}-prune-${String(index)}`, "completed"),
+        ),
+      ],
+    }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    for (let index = 0; index < 65; index += 1) {
+      const runId = `77777777-7777-4777-8777-${String(index).padStart(12, "0")}` as RunId;
+      await harness.manager.startRun({
+        runId,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "go" },
+      });
+      harness.server.emitFrame(modelOutputItemFrame(`turn-${String(index + 1)}`));
+      await Promise.resolve();
+      await harness.manager.interruptRun({ runId });
+      await drainMicrotasks();
+    }
+
+    const overflowDiagnostics = harness.diagnostics.filter(
+      (diagnostic) => diagnostic.kind === "interrupted-route-memory-overflowed",
+    );
+    expect(overflowDiagnostics).toHaveLength(1);
+    expect(overflowDiagnostics[0]).toMatchObject({ retainedTurnCount: 64 });
+    // The refusal condemned the binding: nothing later runs on it.
+    await expect(
+      harness.manager.startRun({
+        runId: RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("records nothing for an interrupt whose turn had already settled in the same chunk", async () => {
+    // The settled gate, driven at the same seam as the refusal above but with
+    // the prune burst absent: presence in the settled memory is proof the
+    // terminal this correlation would route has already arrived and been ruled,
+    // so nothing is recorded and nothing accumulates. Sixty-five of these —
+    // one past the ceiling — leave the session healthy, where recording each
+    // one would have refused the binding on the sixty-fifth.
+    const harness = createManagerHarness();
+    let nextTurnOrdinal = 0;
+    let currentTurnId = "";
+    harness.server.on("turn/start", () => {
+      nextTurnOrdinal += 1;
+      currentTurnId = `turn-${String(nextTurnOrdinal)}`;
+      return { result: { turn: { id: currentTurnId } } };
+    });
+    harness.server.on("turn/interrupt", () => ({
+      result: {},
+      trailingFrames: [turnCompletedFrame(currentTurnId, "completed")],
+    }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    for (let index = 0; index < 65; index += 1) {
+      const runId = `88888888-8888-4888-8888-${String(index).padStart(12, "0")}` as RunId;
+      await harness.manager.startRun({
+        runId,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "go" },
+      });
+      harness.server.emitFrame(modelOutputItemFrame(`turn-${String(index + 1)}`));
+      await Promise.resolve();
+      await harness.manager.interruptRun({ runId });
+      await drainMicrotasks();
+    }
+
+    expect(
+      harness.diagnostics.filter(
+        (diagnostic) => diagnostic.kind === "interrupted-route-memory-overflowed",
+      ),
+    ).toHaveLength(0);
+    await expect(
+      harness.manager.startRun({
+        runId: RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
+      }),
+    ).resolves.toBeUndefined();
+  });
+
   it("returns a closed session's watch budget, so a fresh spawn under the id runs", async () => {
     // The scope's budget is reclaimed where the record is provably gone. Without
     // it, a session whose turns never settled would hold its own budget for the

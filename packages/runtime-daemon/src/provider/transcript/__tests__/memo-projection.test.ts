@@ -2644,6 +2644,39 @@ describe("memo floor — a result whose enclosure cannot be resolved is withheld
     expect(target.turns[0]).not.toContain("42 passed");
   });
 
+  it("keeps a withheld private-enclosed legacy answer out of the summary and its key", () => {
+    // The settle's marker for an id-less legacy answer withheld inside a
+    // private block. Beside a real sibling so the turn survives the strip.
+    const withMarker: CanonicalTranscriptProjection = projectionOf([
+      turn(1, "participant", [{ kind: "text", text: "run the tests" }]),
+      turn(2, "assistant", [
+        { kind: "text", text: "", withheldEnclosure: "private" },
+        { kind: "text", text: "all green" },
+      ]),
+    ]);
+    const withoutMarker: CanonicalTranscriptProjection = projectionOf([
+      turn(1, "participant", [{ kind: "text", text: "run the tests" }]),
+      turn(2, "assistant", [{ kind: "text", text: "all green" }]),
+    ]);
+
+    const rendering: MemoRendering = new MemoProjection().render(requestFor(withMarker));
+
+    // The floor runs the same strip the export does: the marker is consumed
+    // before rendering, contributes no prose, and declares the enclosing
+    // block's loss.
+    expect(rendering.text).toContain("all green");
+    expect(rendering.text).not.toContain("withheldEnclosure");
+    expect(rendering.declaredLosses).toContain("provider_private_reasoning");
+    // The key is derived over the RAW projection, so the marker IS key
+    // material: a fold that now emits it derives a different identity than the
+    // removal-shaped fold did. That re-key is this file's stated price — a
+    // false no costs one redundant summary and settles at the first re-render —
+    // asserted here so the cost is a recorded decision rather than a surprise.
+    expect(deriveMemoIdentityKey(withMarker, TARGET)).not.toBe(
+      deriveMemoIdentityKey(withoutMarker, TARGET),
+    );
+  });
+
   it("negative control — the summary carries the body when the resolution is dropped", async () => {
     const built: CanonicalTranscriptProjection = foldUnreadableEnclosure();
     const unresolved: CanonicalTranscriptProjection = {

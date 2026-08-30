@@ -1672,16 +1672,26 @@ describe("canonical transcript fold — a tool row naming no call identifier", (
     expect(exportedText(exported)).not.toContain("private notes");
     expect(exportedText(exported)).not.toContain("internal deliberation");
     // Asserted on the FOLD, because that one segment is the single input both
-    // consumers read: the export folds it into `turn_content_unavailable` and
-    // the memo renders it as content that could not be recovered. The body was
-    // read successfully and then deliberately withheld, so either statement
-    // would be a false unavailability in a record whose whole point is that a
+    // consumers read. The withheld answer settles to the `withheldEnclosure`
+    // marker — empty, and deliberately NOT `contentUnavailable`: the body was
+    // read successfully and then deliberately withheld, so an unavailability
+    // claim would be a false statement in a record whose whole point is that a
     // person can trust it.
-    expect(
-      projection.turns.flatMap((turn) => turn.segments).map((segment) => segment.kind),
-    ).toEqual(["reasoning"]);
-    // Exactly one loss, and it is the enclosing block's own — the loss that
-    // genuinely happened and already covers everything the block enclosed.
+    expect(projection.turns.flatMap((turn) => turn.segments)).toEqual([
+      {
+        kind: "reasoning",
+        position: 1,
+        blockId: "block-1",
+        reasoningKind: "thinking",
+        disclosure: "private",
+        text: "internal deliberation",
+      },
+      { kind: "text", position: 2, text: "", withheldEnclosure: "private" },
+    ]);
+    // Exactly one loss even though the private block AND its marker both reach
+    // the strip on this unbounded export — the declaration is deduplicated, and
+    // it is the enclosing block's own loss, which already covers everything the
+    // block enclosed.
     expect(exported.declaredLosses).toEqual(["provider_private_reasoning"]);
   });
 
@@ -1720,10 +1730,92 @@ describe("canonical transcript fold — a tool row naming no call identifier", (
         disclosure: "private",
         text: "internal deliberation",
       },
+      { kind: "text", position: 2, text: "", withheldEnclosure: "private" },
       { kind: "text", position: 3, text: "all green" },
     ]);
     expect(exportedText(exported)).toContain("all green");
     expect(exported.declaredLosses).toEqual(["provider_private_reasoning"]);
+  });
+
+  it("declares the withheld enclosure across a bound that cuts away the private block", () => {
+    const fixture = makeFixture();
+    // The geometry that forced the marker: the answer is logged BEFORE the
+    // reasoning row that encloses it, so a bound at the answer's own position
+    // keeps the position the body held while cutting away the only sibling that
+    // could classify it. The block id names a segment the bound removed; the
+    // marker rides the position the result held and is the one carrier of the
+    // loss the bounded export can still see.
+    fixture.log.append(storedEvent(1, "tool.result", { runId: RUN_ID }));
+    fixture.contentSource.toolResultBodyBySequence.set(1, {
+      text: "private notes",
+      enclosingReasoningBlockId: "block-1",
+    });
+    fixture.log.append(storedEvent(2, "assistant.thinking_update", { runId: RUN_ID }));
+    fixture.contentSource.reasoningBlocksBySequence.set(2, [
+      {
+        blockId: "block-1",
+        reasoningKind: "thinking",
+        disclosure: "private",
+        text: "internal deliberation",
+      },
+    ]);
+
+    const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
+    // The settle resolved the late-logged block against the early answer and
+    // left the marker at the answer's position.
+    expect(projection.turns.flatMap((turn) => turn.segments)).toEqual([
+      { kind: "text", position: 1, text: "", withheldEnclosure: "private" },
+      {
+        kind: "reasoning",
+        position: 2,
+        blockId: "block-1",
+        reasoningKind: "thinking",
+        disclosure: "private",
+        text: "internal deliberation",
+      },
+    ]);
+
+    const exported: DriverTranscriptExportResult =
+      new TranscriptTransformPipeline().exportTranscript(projection, 1);
+
+    // The loss is DECLARED even though the private block itself is outside the
+    // bound — before the marker existed, this export declared nothing at all.
+    expect(exported.declaredLosses).toEqual(["provider_private_reasoning"]);
+    expect(exportedText(exported)).not.toContain("private notes");
+    expect(exportedText(exported)).not.toContain("internal deliberation");
+    // The marker never renders: the strip consumed it, and the turn it alone
+    // occupied went with it.
+    expect(exported.frames).toEqual([]);
+  });
+
+  it("declares nothing when the bound falls below the withheld answer", () => {
+    const fixture = makeFixture();
+    fixture.log.append(storedEvent(1, "tool.result", { runId: RUN_ID }));
+    fixture.contentSource.toolResultBodyBySequence.set(1, {
+      text: "private notes",
+      enclosingReasoningBlockId: "block-1",
+    });
+    fixture.log.append(storedEvent(2, "assistant.thinking_update", { runId: RUN_ID }));
+    fixture.contentSource.reasoningBlocksBySequence.set(2, [
+      {
+        blockId: "block-1",
+        reasoningKind: "thinking",
+        disclosure: "private",
+        text: "internal deliberation",
+      },
+    ]);
+
+    const exported: DriverTranscriptExportResult =
+      new TranscriptTransformPipeline().exportTranscript(
+        fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID }),
+        0,
+      );
+
+    // A bound below the answer excludes the marker with it: an export entitled
+    // to none of the turn's content did not lose the withheld body, and a
+    // declaration here would report a loss the export never contained.
+    expect(exported.declaredLosses).toEqual([]);
+    expect(exported.frames).toEqual([]);
   });
 
   it("carries an unkeyed answer the provider emitted inside a summary block", () => {

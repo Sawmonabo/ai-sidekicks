@@ -919,13 +919,22 @@ const CODEX_UNMATCHED_TURN_MEMORY = 64;
 const CODEX_UNMATCHED_TURN_MEMORY_CEILING = CODEX_UNMATCHED_TURN_MEMORY * 4;
 
 /**
- * How many interrupted runs one session holds turn correlations for while their
- * terminals are still owed (see `CodexSessionRecord.interruptedRunIdByTurnId`).
+ * The ceiling on how many interrupted runs one session holds turn correlations
+ * for while their terminals are still owed (see
+ * `CodexSessionRecord.interruptedRunIdByTurnId`).
  *
- * Same figure and same reasoning as the evidence memory above: the window is one
- * provider round trip, Codex serializes turns per thread so the live set is
- * ~one, and a session that accumulates beyond a handful is one whose interrupted
- * turns are not terminating at all.
+ * Same figure as the evidence memory above, but a REFUSAL ceiling rather than a
+ * prune bound. The two memories beside this one earn their free-prune windows
+ * from a claim predicate that can be zero — while no `turn/start` or
+ * `turn/steer` is in flight, nothing can ask about what they hold. This memory
+ * has no such window: every entry it holds is owed a terminal that may arrive
+ * in the very next read chunk, so there is never a moment when pruning the
+ * oldest is provably free, and an evicted entry is a terminal ruled against no
+ * run — the interrupted run's subscribers hear nothing, which is the exact
+ * silence the map exists to prevent. At the ceiling the driver refuses and
+ * takes the loud path instead. The window an entry covers is one provider
+ * round trip and Codex serializes turns per thread, so a session that reaches
+ * even this figure is one whose interrupted turns are not terminating at all.
  */
 const CODEX_INTERRUPTED_ROUTE_MEMORY = 64;
 
@@ -1336,6 +1345,18 @@ export type CodexTransportDiagnostic =
    * which memory could not hold, and one kind for both would answer neither.
    */
   | { kind: "settled-turn-memory-overflowed"; retainedTurnCount: number }
+  /**
+   * A session's interrupted-route memory hit its ceiling, so the binding was
+   * refused rather than evicting a correlation whose terminal is still owed —
+   * an evicted entry is that terminal ruled against no run.
+   *
+   * A THIRD separate kind on the same ground the settled-turn kind states:
+   * this loss is a run that was interrupted and would never hear its turn end.
+   * Unlike both siblings it names no in-flight condition, because the memory it
+   * reports on has no free-prune window at all (see
+   * `CODEX_INTERRUPTED_ROUTE_MEMORY`).
+   */
+  | { kind: "interrupted-route-memory-overflowed"; retainedTurnCount: number }
   /**
    * A binding was taken away from turns that were still live, so the frames it
    * was carrying were ruled fail-closed rather than dropped.
@@ -3182,12 +3203,14 @@ interface CodexSessionRecord {
    * the reporting needs: a route here is not a live route, so `hasActiveTurn`
    * and the intervention paths still read the run as having no turn.
    *
-   * Insertion-ordered and capped (`CODEX_INTERRUPTED_ROUTE_MEMORY`), on the same
-   * reasoning as `unmatchedTurnEvidence` above: an entry lives from an interrupt
-   * to the terminal that immediately follows it, so anything that accumulates
-   * past a handful is a provider not terminating the turns it accepted
-   * interrupts for. Released when the terminal is ruled, and collected with the
-   * record on teardown or supersede.
+   * Insertion-ordered and bounded by REFUSAL at `CODEX_INTERRUPTED_ROUTE_MEMORY`,
+   * never by eviction — see the constant for why this memory, unlike
+   * `unmatchedTurnEvidence` above, has no in-flight window outside which
+   * pruning is provably free. An entry lives from an interrupt to the terminal
+   * that immediately follows it, so anything that accumulates toward the
+   * ceiling is a provider not terminating the turns it accepted interrupts
+   * for. Released when the terminal is ruled, and collected with the record on
+   * teardown or supersede.
    */
   readonly interruptedRunIdByTurnId: Map<string, RunId>;
 }
@@ -3360,24 +3383,31 @@ function rememberSettledTurn(record: CodexSessionRecord, turnId: string): boolea
 
 /**
  * Retains an interrupted run's turn correlation so the terminal that follows can
- * still be reported against it.
+ * still be reported against it — or refuses, which is a session-fatal condition.
  *
- * Bounded exactly like `rememberUnmatchedTurn` above, oldest-first and
- * re-inserting on a repeat, and for the same reason: the entry is claimed within
- * one provider round trip of being written, so the oldest is always the least
- * likely to still matter.
+ * Refuse-and-never-evict like `rememberSettledTurn` below, not prune-like
+ * `rememberUnmatchedTurn` above, because this memory has no free-prune window
+ * at all: its readers — the terminal path and the abandoned-frame resolver —
+ * can be asked about ANY retained entry at any time, and every entry is by
+ * construction still owed its terminal (the terminal's arrival is what deletes
+ * it). An evicted correlation is that terminal ruled against no run, so at the
+ * ceiling the driver says it can no longer account for what it holds rather
+ * than silently choosing whose report to lose.
+ *
+ * A turn id already held is re-inserted rather than refused, on the ground the
+ * two siblings both state: an entry already here is one of the entries the
+ * refusal exists to protect, and the re-insert only refreshes it.
+ *
+ * Returns whether the correlation was retained.
  */
-function rememberInterruptedRun(record: CodexSessionRecord, turnId: string, runId: RunId): void {
+function rememberInterruptedRun(record: CodexSessionRecord, turnId: string, runId: RunId): boolean {
   const memory = record.interruptedRunIdByTurnId;
+  if (!memory.has(turnId) && memory.size >= CODEX_INTERRUPTED_ROUTE_MEMORY) {
+    return false;
+  }
   memory.delete(turnId);
   memory.set(turnId, runId);
-  while (memory.size > CODEX_INTERRUPTED_ROUTE_MEMORY) {
-    const oldest = memory.keys().next();
-    if (oldest.done === true) {
-      break;
-    }
-    memory.delete(oldest.value);
-  }
+  return true;
 }
 
 /**
@@ -4456,12 +4486,30 @@ export class CodexLifecycleManager {
       threadId: record.threadId,
       turnId,
     });
-    // Retained UNCONDITIONALLY rather than only when a frame is pending. Whether
-    // one is pending is a point-in-time read, and this state is consulted at a
-    // later point in time; gating on it would make the correlation correct by
-    // argument about what can interleave rather than by construction, and the
-    // argument is what this file's own header warns against relying on.
-    rememberInterruptedRun(record, turnId, params.runId);
+    // Retained whenever the turn has not already SETTLED, and on no narrower
+    // condition. Whether a frame is pending is a point-in-time read consulted at
+    // a later point in time, so gating on it would make the correlation correct
+    // by argument about what can interleave rather than by construction — but
+    // presence in `settledTurnIds` is not that kind of read: it is marked for
+    // EVERY terminal and never consumed, so presence is proof the terminal this
+    // correlation exists to route has already arrived and been ruled. Recording
+    // it anyway would install an entry nothing will ever release — the read
+    // chunk that settled the turn can drain entirely before this continuation
+    // resumes — and stale entries now accumulate toward a refusal rather than
+    // evicting live ones, so each one costs headroom a live interrupt needs.
+    if (!record.settledTurnIds.has(turnId)) {
+      if (!rememberInterruptedRun(record, turnId, params.runId)) {
+        // The interrupt itself SUCCEEDED — `turn/interrupt` resolved above — so
+        // this resolves rather than throws, and the caller's `applied` stays
+        // truthful about the provider operation it grades. What failed is this
+        // driver's promise to route the turn's terminal to the run, and the
+        // refusal reports that the way its two siblings do: quarantine and
+        // teardown, which rules the run's still-pending frame fail-closed so
+        // the run hears `run.failed` rather than nothing.
+        this.#refuseUnretainableInterruptedRoute(record);
+        return;
+      }
+    }
     // Retires THIS turn's route and no other. An interrupt names one turn — the
     // one `#requireActiveTurn` resolved — so a run holding a second live turn
     // keeps its second route and the second turn's terminal still finds its run.
@@ -6116,6 +6164,23 @@ export class CodexLifecycleManager {
   }
 
   /**
+   * The same loud path for a session whose INTERRUPTED-route memory can no
+   * longer hold what the terminal path is owed (T3.18).
+   *
+   * Reached only from `rememberInterruptedRun`'s refusal. Unlike its two
+   * siblings this fires under no in-flight condition, because that memory has
+   * no free-prune window to fall back to outside one — every retained entry is
+   * still owed its terminal, so evicting any of them would rule that terminal
+   * against no run and the interrupted run's subscribers would hear nothing.
+   */
+  #refuseUnretainableInterruptedRoute(record: CodexSessionRecord): void {
+    this.#refuseUnretainableTurnMemory(record, {
+      kind: "interrupted-route-memory-overflowed",
+      retainedTurnCount: record.interruptedRunIdByTurnId.size,
+    });
+  }
+
+  /**
    * Refuses a binding whose per-session turn memory overflowed, reporting which
    * one (T3.18).
    *
@@ -6124,9 +6189,9 @@ export class CodexLifecycleManager {
    * treatment an ambiguous `turn/start` gets, and for the same reason: this
    * driver will not carry a session whose turns it can no longer account for.
    *
-   * One body for both memories rather than two, because "the same loudness the
-   * ordinary path would have" is the claim each of them makes, and two copies of
-   * it are two things to keep equal.
+   * One body for the three memories rather than three, because "the same
+   * loudness the ordinary path would have" is the claim each of them makes, and
+   * several copies of it are several things to keep equal.
    */
   #refuseUnretainableTurnMemory(
     record: CodexSessionRecord,
