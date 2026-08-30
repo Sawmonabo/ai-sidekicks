@@ -40,6 +40,8 @@ import { DECLARED_LOSS_KINDS } from "@ai-sidekicks/contracts";
 
 import type { OutboundFrameOrigin } from "../drivers/outbound-frame.js";
 
+import { boundProjectionToPosition, type TranscriptExportBound } from "./canonical-transcript.js";
+
 // --------------------------------------------------------------------------
 // Tool-call identity
 // --------------------------------------------------------------------------
@@ -697,70 +699,18 @@ export const CANONICAL_TRANSCRIPT_PIPELINE: readonly TranscriptPipelineStep[] = 
 // The export boundary
 // --------------------------------------------------------------------------
 
-/**
- * The bound one export is taken under: an inclusive position ceiling, or the
- * EXPLICIT statement that the caller wants the whole projection.
- *
- * Deliberately not an optional number. The export contract's `boundary` member
- * is required, so every production caller holds a value and only has to forward
- * it — and an optional parameter is precisely the seam where forwarding is
- * forgettable: a caller that omits it would silently export the entire
- * conversation, which is the leak this bound exists to prevent. Requiring
- * `"unbounded"` turns that omission into a type error and makes the whole-
- * projection arm a decision a reader can see at the call site.
- */
-export type TranscriptExportBound = number | "unbounded";
-
-/**
- * The projection an export bounded at `bound` is entitled to see.
- *
- * INCLUSIVE, matching the export contract: an export carries exactly the
- * SEGMENTS whose `position` is at or below the bound, and a turn left with none
- * is dropped. `"unbounded"` means the whole projection — stated, never
- * defaulted; see {@link TranscriptExportBound}.
- *
- * Per segment and not per turn, because the fold coalesces consecutive same-role
- * events into ONE turn positioned at the first of them: a turn opened at 5 and
- * holding a segment from position 7 passes a `turn.position <= 5` filter whole,
- * carrying the later event's content straight across the boundary. Filtering the
- * segments instead yields exactly the turn the fold bounded at the same position
- * would have built, because the fold walks the log in ascending order, so within
- * a turn it builds the over-bound segments are always a suffix.
- *
- * `builtAtPosition` is deliberately left where the fold put it. It records the
- * position the projection was TAKEN at — evidence of the fold's liveness — and a
- * bound is a question about what this one export may carry, not a claim that the
- * conversation stopped there. Moving it would make a bounded export
- * indistinguishable from a stale one.
- *
- * Applied BEFORE the first pipeline step, never after. Every later step reads
- * the turn list: the fold declares `turn_content_unavailable` over it, the strip
- * removes non-portable content from it, and pairing repair reasons about which
- * calls have answers within it. Filtering afterwards would let content the
- * export may not carry decide the declared losses — and would pair a call inside
- * the bound with a result outside it, so the bound would silently repair itself
- * away. It is also why the suffix property above is stated of the FOLD's output
- * and not of any turn: pairing repair re-homes a result behind the call it
- * answers, which can leave a repaired turn's positions out of order.
- */
-export function boundProjectionToPosition(
-  projection: CanonicalTranscriptProjection,
-  bound: TranscriptExportBound,
-): CanonicalTranscriptProjection {
-  if (bound === "unbounded") {
-    return projection;
-  }
-  const boundedTurns: CanonicalTranscriptTurn[] = [];
-  for (const turn of projection.turns) {
-    const segments: readonly CanonicalTranscriptSegment[] = turn.segments.filter(
-      (segment) => segment.position <= bound,
-    );
-    if (segments.length > 0) {
-      boundedTurns.push({ ...turn, segments });
-    }
-  }
-  return { ...projection, turns: boundedTurns };
-}
+// Re-exported from the fold rather than declared here.
+//
+// The bound now belongs to `canonical-transcript.ts`, which applies it to its own
+// output as the LAST thing it does, and this pipeline receives an already-bounded
+// projection from a bounded fold. Declaring it here would put the definition
+// downstream of its primary applier and force the fold to import from the
+// pipeline it feeds — the wrong direction. Re-exported so every existing importer
+// and this module's own `exportTranscript` signature keep one name for one
+// concept: a caller holding an unbounded projection still bounds it here, and it
+// is the same function the fold ran.
+export type { TranscriptExportBound };
+export { boundProjectionToPosition };
 
 // --------------------------------------------------------------------------
 // The runner

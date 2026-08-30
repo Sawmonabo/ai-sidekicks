@@ -1413,6 +1413,108 @@ describe("transform pipeline — a bounded export carries only what the bound ad
     expect(boundProjectionToPosition(whole, 4).builtAtPosition).toBe(6);
   });
 
+  it("agrees when a withholding enclosure crosses the bound, block logged last", () => {
+    // The equivalence case the fixture above cannot reach: its enclosures all
+    // resolve on one side of the bound, so a bounded fold that skipped
+    // over-bound rows as it walked passed that test while getting this one
+    // wrong. Here the answer is inside the bound and the private block that
+    // condemns it is outside — so a fold that stopped at the bound never meets
+    // the row that withholds, and the body ships.
+    const fixture = makeFixture();
+    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
+    fixture.contentSource.participantTextBySequence.set(1, "run the tests");
+    fixture.log.append(
+      storedEvent(2, "tool.invoked", {
+        runId: RUN_ID,
+        toolCallId: "call-1",
+        toolName: "run_tests",
+      }),
+    );
+    fixture.contentSource.toolArgumentsBySequence.set(2, '{"suite":"unit"}');
+    fixture.log.append(storedEvent(3, "tool.result", { runId: RUN_ID, toolCallId: "call-1" }));
+    fixture.contentSource.toolResultBodyBySequence.set(3, {
+      text: "42 passed",
+      enclosingReasoningBlockId: "block-private-1",
+    });
+    fixture.log.append(storedEvent(4, "assistant.thinking_update", { runId: RUN_ID }));
+    fixture.contentSource.reasoningBlocksBySequence.set(4, [
+      {
+        blockId: "block-private-1",
+        reasoningKind: "thinking",
+        disclosure: "private",
+        text: "internal deliberation",
+      },
+    ]);
+
+    const request = { sessionId: SESSION_ID, runId: RUN_ID };
+    const whole = fixture.fold.build(request);
+    const foldedToThree = fixture.fold.build({ ...request, boundary: 3 });
+
+    // The premise, asserted rather than assumed: the bound really does split the
+    // enclosure, keeping the answer and cutting the block that classifies it.
+    expect(
+      foldedToThree.turns.flatMap((turn) => turn.segments).map((segment) => segment.position),
+    ).toEqual([1, 2, 3]);
+
+    expect(boundProjectionToPosition(whole, 3)).toEqual(foldedToThree);
+
+    // Behaviour, not only shape: the equality above would also hold if BOTH
+    // paths shipped the body. This is the assertion that says which side of the
+    // equality they agree on.
+    expect(
+      exportedToolResultTexts(
+        new TranscriptTransformPipeline().exportTranscript(foldedToThree, "unbounded"),
+      ),
+    ).not.toContain("42 passed");
+  });
+
+  it("agrees when a withholding enclosure crosses the bound, block logged first", () => {
+    // The other crossing: the block is inside the bound and the answer it
+    // encloses is outside. Nothing can leak here — the answer is cut away — and
+    // that is the point: the fold now reads past the bound, so this pins that
+    // the over-bound answer does not come BACK across on the strength of an
+    // in-bound block. The two orderings together fence the fix on both sides.
+    const fixture = makeFixture();
+    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
+    fixture.contentSource.participantTextBySequence.set(1, "run the tests");
+    fixture.log.append(storedEvent(2, "assistant.thinking_update", { runId: RUN_ID }));
+    fixture.contentSource.reasoningBlocksBySequence.set(2, [
+      {
+        blockId: "block-private-1",
+        reasoningKind: "thinking",
+        disclosure: "private",
+        text: "internal deliberation",
+      },
+    ]);
+    fixture.log.append(
+      storedEvent(3, "tool.invoked", {
+        runId: RUN_ID,
+        toolCallId: "call-1",
+        toolName: "run_tests",
+      }),
+    );
+    fixture.contentSource.toolArgumentsBySequence.set(3, '{"suite":"unit"}');
+    fixture.log.append(storedEvent(4, "tool.result", { runId: RUN_ID, toolCallId: "call-1" }));
+    fixture.contentSource.toolResultBodyBySequence.set(4, {
+      text: "42 passed",
+      enclosingReasoningBlockId: "block-private-1",
+    });
+
+    const request = { sessionId: SESSION_ID, runId: RUN_ID };
+    const whole = fixture.fold.build(request);
+    const foldedToThree = fixture.fold.build({ ...request, boundary: 3 });
+
+    expect(
+      foldedToThree.turns.flatMap((turn) => turn.segments).map((segment) => segment.position),
+    ).toEqual([1, 2, 3]);
+    expect(boundProjectionToPosition(whole, 3)).toEqual(foldedToThree);
+    expect(
+      exportedToolResultTexts(
+        new TranscriptTransformPipeline().exportTranscript(foldedToThree, "unbounded"),
+      ),
+    ).not.toContain("42 passed");
+  });
+
   it("repairs a call the bound admits whose answer it does not, inside one folded turn", () => {
     const fixture = makeFixture();
     // Call and answer coalesce into ONE turn, so the bound has to reach inside it

@@ -342,6 +342,86 @@ function stampEnclosureDisclosure(
 }
 
 // --------------------------------------------------------------------------
+// The export bound
+// --------------------------------------------------------------------------
+
+/**
+ * The bound one export is taken under: an inclusive position ceiling, or the
+ * EXPLICIT statement that the caller wants the whole projection.
+ *
+ * Deliberately not an optional number. The export contract's `boundary` member
+ * is required, so every production caller holds a value and only has to forward
+ * it — and an optional parameter is precisely the seam where forwarding is
+ * forgettable: a caller that omits it would silently export the entire
+ * conversation, which is the leak this bound exists to prevent. Requiring
+ * `"unbounded"` turns that omission into a type error and makes the whole-
+ * projection arm a decision a reader can see at the call site.
+ */
+export type TranscriptExportBound = number | "unbounded";
+
+/**
+ * The projection an export bounded at `bound` is entitled to see.
+ *
+ * INCLUSIVE, matching the export contract: an export carries exactly the
+ * SEGMENTS whose `position` is at or below the bound, and a turn left with none
+ * is dropped. `"unbounded"` means the whole projection — stated, never
+ * defaulted; see {@link TranscriptExportBound}.
+ *
+ * Per segment and not per turn, because the fold coalesces consecutive same-role
+ * events into ONE turn positioned at the first of them: a turn opened at 5 and
+ * holding a segment from position 7 passes a `turn.position <= 5` filter whole,
+ * carrying the later event's content straight across the boundary. Filtering the
+ * segments instead yields exactly the turn the fold bounded at the same position
+ * would have built, because the fold walks the log in ascending order, so within
+ * a turn it builds the over-bound segments are always a suffix.
+ *
+ * `builtAtPosition` is deliberately left where the fold put it. It records the
+ * position the projection was TAKEN at — evidence of the fold's liveness — and a
+ * bound is a question about what this one export may carry, not a claim that the
+ * conversation stopped there. Moving it would make a bounded export
+ * indistinguishable from a stale one.
+ *
+ * Applied BEFORE the first pipeline step, never after. Every later step reads
+ * the turn list: the export declares `turn_content_unavailable` over it, the
+ * strip removes non-portable content from it, and pairing repair reasons about
+ * which calls have answers within it. Filtering afterwards would let content the
+ * export may not carry decide the declared losses — and would pair a call inside
+ * the bound with a result outside it, so the bound would silently repair itself
+ * away. It is also why the suffix property above is stated of the FOLD's output
+ * and not of any turn: pairing repair re-homes a result behind the call it
+ * answers, which can leave a repaired turn's positions out of order.
+ *
+ * Applied AFTER the whole fold, equally deliberately, and that is why this lives
+ * here rather than beside the pipeline it feeds. A bounded fold that skipped
+ * over-bound events as it walked would settle each turn's enclosures against a
+ * truncated view of that turn: a keyed result at position 3 enclosed by private
+ * reasoning logged at position 4 would never meet the row that condemns it, so
+ * it would leave the fold unstamped and the strip would ship its body. The
+ * enclosure resolution is a property of the whole turn, and the fold has to see
+ * the whole turn to settle it. Bounding the finished projection is what makes
+ * `build({boundary: n})` equal to `boundProjectionToPosition(build({}), n)` by
+ * construction rather than by convention.
+ */
+export function boundProjectionToPosition(
+  projection: CanonicalTranscriptProjection,
+  bound: TranscriptExportBound,
+): CanonicalTranscriptProjection {
+  if (bound === "unbounded") {
+    return projection;
+  }
+  const boundedTurns: CanonicalTranscriptTurn[] = [];
+  for (const turn of projection.turns) {
+    const segments: readonly CanonicalTranscriptSegment[] = turn.segments.filter(
+      (segment) => segment.position <= bound,
+    );
+    if (segments.length > 0) {
+      boundedTurns.push({ ...turn, segments });
+    }
+  }
+  return { ...projection, turns: boundedTurns };
+}
+
+// --------------------------------------------------------------------------
 // The fold
 // --------------------------------------------------------------------------
 
@@ -373,6 +453,12 @@ export interface CanonicalTranscriptFoldRequest {
    * event folded into it across the boundary. That is a deterministic filter over
    * segments it already holds: it opens no log, and mints no second record of the
    * session's order. A projection this fold already bounded filters to itself.
+   *
+   * Honoured by running {@link boundProjectionToPosition} over the FINISHED fold
+   * rather than by skipping over-bound rows as the log is walked, so a bounded
+   * build is the bound of the unbounded one by construction. The reason the
+   * distinction matters — enclosure resolution being a property of the whole turn
+   * — is on that function.
    */
   readonly boundary?: number | undefined;
 }
@@ -555,9 +641,20 @@ export class CanonicalTranscriptFold {
       if (!isEventInRunScope(event, request.runId)) {
         continue;
       }
-      if (request.boundary !== undefined && event.sequence > request.boundary) {
-        continue;
-      }
+      // No boundary skip here, deliberately, and restoring one as the obvious
+      // optimization reopens a real leak. Enclosure resolution is settled at
+      // turn CLOSE against the turn's own reasoning segments, and the row
+      // carrying an enclosing block may be logged after the answer it enclosed —
+      // so a walk that stopped at the bound would settle a turn against a
+      // truncated view of itself, and a result inside the bound enclosed by
+      // private reasoning just past it would leave the fold unstamped and ship
+      // its body. The fold reads the whole run and bounds its OUTPUT below.
+      //
+      // Reading past the bound is not a disclosure. The reader here is the
+      // daemon's own event store, over a session the daemon already holds in
+      // full; every over-bound segment is discarded before this method returns,
+      // and nothing built from one survives except the enclosure verdict, which
+      // is a decision to WITHHOLD.
 
       // A turn marker closes whatever is open WITHOUT contributing content, so
       // two assistant turns in a row stay two turns.
@@ -593,12 +690,19 @@ export class CanonicalTranscriptFold {
 
     closeOpenTurn();
 
-    return {
+    const projection: CanonicalTranscriptProjection = {
       sessionId: request.sessionId,
       runId: request.runId,
       builtAtPosition: newestLoggedPosition,
       turns,
     };
+    // The one place the request's bound is honoured, and it runs over the
+    // FINISHED fold. `builtAtPosition` rides through untouched — it records where
+    // the fold was taken, not where this projection was cut; see
+    // {@link boundProjectionToPosition}.
+    return request.boundary === undefined
+      ? projection
+      : boundProjectionToPosition(projection, request.boundary);
   }
 
   /**
