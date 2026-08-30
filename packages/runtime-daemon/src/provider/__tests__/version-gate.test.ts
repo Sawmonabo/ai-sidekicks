@@ -31,6 +31,7 @@ import { join } from "node:path";
 import type { DriverCliVersionReport } from "@ai-sidekicks/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { RecordingCapabilityProbeTransport } from "../__fixtures__/capability-probe-doubles.js";
 import {
   DRIVER_CLI_VERSION_FLOORS,
   DriverCliVersionBelowFloorError,
@@ -45,9 +46,9 @@ import {
   withSpawnedVersionCarriers,
   type CreateRuntimeBindingInput,
 } from "../runtime-binding-store.js";
+import { PROVIDER_AUTO_UPDATE_OPT_OUT_ENV } from "../spawn-env.js";
 import {
   DEFAULT_PROVIDER_VERSION_CLIENT_NAME,
-  PROVIDER_AUTO_UPDATE_OPT_OUT_ENV,
   ProviderExecutableUnresolvableError,
   composeProviderChildEnvironment,
   extractClaudeReportedVersion,
@@ -477,6 +478,7 @@ describe("the ratified floor gate at the spawn (T3.23, I-005-10)", () => {
   async function attachCodex(
     sink: RecordingDeclarationSink,
     handshake: RecordingHandshake,
+    probe: RecordingCapabilityProbeTransport = new RecordingCapabilityProbeTransport("codex"),
   ): Promise<DeclareDriverCapabilitiesResult> {
     const reading = await readSpawnedProviderVersion({
       driverName: CODEX_DRIVER_NAME,
@@ -489,6 +491,7 @@ describe("the ratified floor gate at the spawn (T3.23, I-005-10)", () => {
       sessionId: "session-attach",
       nodeId: "node-attach",
       reading,
+      probe: probe.exchange,
     });
   }
 
@@ -501,10 +504,11 @@ describe("the ratified floor gate at the spawn (T3.23, I-005-10)", () => {
       [CODEX_EXECUTABLE]: { userAgent: codexUserAgent("0.140.0") },
     });
     const sink = new RecordingDeclarationSink();
+    const probe = new RecordingCapabilityProbeTransport("codex");
 
     let thrown: unknown;
     try {
-      await attachCodex(sink, handshake);
+      await attachCodex(sink, handshake, probe);
     } catch (error) {
       thrown = error;
     }
@@ -517,6 +521,10 @@ describe("the ratified floor gate at the spawn (T3.23, I-005-10)", () => {
     });
     expect(handshake.requests).toHaveLength(1);
     expect(sink.calls).toHaveLength(0);
+    // T3.24 joins "every use of that process beyond the handshake": a build the
+    // daemon has already refused is never asked what it can do, so not even the
+    // probe channel's negative control is issued against it.
+    expect(probe.requests).toHaveLength(0);
   });
 
   it("admits the ratified floor itself", async () => {

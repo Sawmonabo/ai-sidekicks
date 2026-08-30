@@ -41,6 +41,7 @@ import type { RunId, SessionId } from "@ai-sidekicks/contracts";
 
 import type { SubagentLifecycleEmission, ThreadFrameRoute } from "../../../thread-frame-router.js";
 import type { MeteredUsageDelta } from "../../../usage-delta-accountant.js";
+import { buildProviderSpawnEnv } from "../../../spawn-env.js";
 import {
   ClaudeAuthenticationRequiredError,
   ClaudeControlRequestRefusedError,
@@ -1887,6 +1888,60 @@ describe("ClaudeSessionLifecycle session goals (T3.15 leg 2, EMULATED)", () => {
     });
 
     expect(harness.transport.rewindRequests[1]?.goalText).toBe("land the parity legs");
+  });
+});
+
+// --------------------------------------------------------------------------
+// Auto-update suppression on every spawn-bound leg
+// --------------------------------------------------------------------------
+
+describe("ClaudeSessionLifecycle mandated spawn environment", () => {
+  // Taken from the shared builder rather than written out, so this suite fails
+  // if the driver stops routing through it — and pinned against the literal
+  // pairs beside it, so a builder that returned nothing could not make both
+  // sides vacuously agree.
+  const MANDATED = buildProviderSpawnEnv({ driverName: "claude", baseEnv: [] });
+
+  it("realizes this provider's documented opt-out, presence-style", () => {
+    expect(MANDATED).toEqual([
+      ["DISABLE_AUTOUPDATER", "1"],
+      ["DISABLE_UPDATES", "1"],
+    ]);
+  });
+
+  it("carries it on a created session's spawn", async () => {
+    const harness = buildHarness();
+
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+
+    expect(harness.transport.spawnRequests[0]?.mandatedEnvironment).toEqual(MANDATED);
+  });
+
+  it("carries it on a resume, which is a fresh process and not a reattach", async () => {
+    // The leg that would shed it. A resume relaunches the CLI, so suppression
+    // bound at create and omitted here would expire at the first relaunch — and
+    // `ResumeSessionParams` carries no config to rebuild it from.
+    const harness = buildHarness();
+
+    await harness.lifecycle.resumeSession({
+      sessionId: TEST_SESSION_ID,
+      resumeHandle: "provider-session-earlier",
+    });
+
+    expect(harness.transport.resumeRequests[0]?.mandatedEnvironment).toEqual(MANDATED);
+  });
+
+  it("carries it on a rewind, which spawns a forked process of its own", async () => {
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+
+    await harness.lifecycle.rollbackTo({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+      position: 4,
+    });
+
+    expect(harness.transport.rewindRequests[0]?.mandatedEnvironment).toEqual(MANDATED);
   });
 });
 

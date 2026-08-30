@@ -81,6 +81,7 @@ import {
   type FlooredDriverName,
 } from "./capability-refresh.js";
 import type { SpawnedVersionBindingCarriers } from "./runtime-binding-store.js";
+import { PROVIDER_AUTO_UPDATE_OPT_OUT_ENV } from "./spawn-env.js";
 
 // The two driver ids as LITERALS rather than as imports from the driver trees:
 // a `provider/`-level module is imported BY `provider/drivers/**`, never the
@@ -95,31 +96,10 @@ const CODEX_DRIVER: FlooredDriverName = "codex";
 // Auto-update suppression in the spawned child
 // --------------------------------------------------------------------------
 
-/**
- * The documented auto-update opt-out each provider's child environment carries
- * (`Spec-005 §Required Behavior`, 2026-08-26).
- *
- * Suppression is a CORRECTNESS obligation, not hygiene: a build that replaces
- * itself mid-session invalidates the version recorded on the run's binding AND
- * the capability snapshot the run was admitted against, because neither
- * describes the process that is still executing.
- *
- * TOTAL over `FlooredDriverName`, and the empty Codex entry is a DECLARATION
- * rather than an omission — the same doctrine the per-driver capability tables
- * use. codex-cli documents no environment opt-out, so it reaches the same
- * guarantee the spec's fallback names: the driver resolves and spawns an EXACT
- * BUILD PATH rather than a floating launcher, which {@link
- * resolveProviderExecutable} is. An omitted key and a deliberately-empty one
- * must never look alike.
- */
-export const PROVIDER_AUTO_UPDATE_OPT_OUT_ENV: Readonly<
-  Record<FlooredDriverName, Readonly<Record<string, string>>>
-> = Object.freeze({
-  // Presence-style gates on the pinned build
-  // (`docs/reference/provider-wire/claude.md`).
-  claude: Object.freeze({ DISABLE_AUTOUPDATER: "1", DISABLE_UPDATES: "1" }),
-  codex: Object.freeze({}),
-});
+// The opt-out table lives in `spawn-env.ts`, with the deny strip the session
+// spawn paths also apply, so the two consumers cannot drift: this module needs
+// the opt-out half for its version handshake, and the drivers need both halves
+// for the sessions they start. One table, read from both.
 
 /**
  * Compose the environment for a driver-spawned child.
@@ -129,6 +109,11 @@ export const PROVIDER_AUTO_UPDATE_OPT_OUT_ENV: Readonly<
  * re-enable a provider auto-updater underneath a running driver. The base
  * environment is otherwise passed through untouched — this function decides
  * exactly one thing, and pruning the rest would be a second, undeclared policy.
+ *
+ * Deliberately NOT the credential-policy strip: the child this composes is the
+ * version handshake, which no execution posture governs and which therefore has
+ * no resolved policy to apply. A session child is composed by `spawn-env.ts`'s
+ * `buildProviderSpawnEnv`, which applies both halves.
  */
 export function composeProviderChildEnvironment(
   driverName: FlooredDriverName,

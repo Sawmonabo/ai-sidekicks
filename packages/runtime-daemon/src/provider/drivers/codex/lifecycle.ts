@@ -185,6 +185,11 @@ import {
   type CumulativeUsageReading,
   type MeteredUsageDelta,
 } from "../../usage-delta-accountant.js";
+import {
+  buildProviderSpawnEnv,
+  type CredentialEnvPolicy,
+  type SpawnEnvNameMatch,
+} from "../../spawn-env.js";
 
 import {
   CODEX_THREAD_STARTED_METHOD,
@@ -1438,6 +1443,16 @@ export type CodexServerNotificationSink = (method: string, params: unknown) => v
 export interface CodexSessionConfig {
   cwd: string;
   env: ReadonlyArray<readonly [string, string]>;
+  /**
+   * The effective credential policy AS RESOLVED by the daemon, whose denied
+   * names are stripped from the child environment this connection spawns with.
+   *
+   * The RESOLUTION, never the `credentialPolicyRef` the posture carries: this
+   * driver reads no credential axis and expands no reference, which is exactly
+   * why `#composeThreadEstablishmentLegs` forwards none. Absent under a
+   * `trusted` posture, which denies nothing.
+   */
+  credentialEnvPolicy?: CredentialEnvPolicy | undefined;
 }
 
 /**
@@ -1448,6 +1463,72 @@ export interface CodexSessionConfig {
  * origin is a fact of the code path and not a claim a caller gets to make.
  */
 const RUN_OPENING_FRAME_ORIGIN: CallerDeclaredFrameOrigin = "participant_text";
+
+/**
+ * The posture-affecting `turn/start` fields the DAEMON derives, and which a
+ * caller's run bag therefore may not carry (`Spec-012 §Required Behavior`).
+ *
+ * The class, not a sample of it. `StartRunParams.agentConfig` is an untyped bag
+ * the daemon's run pipeline fills, so nothing but this refusal stands between a
+ * caller-declared value and the wire — and a posture-affecting field that
+ * reached the wire from a caller would run the turn under a policy the daemon
+ * never authorized and never recorded.
+ */
+export const CALLER_DERIVED_TURN_POSTURE_FIELDS: readonly string[] = [
+  "cwd",
+  "sandboxPolicy",
+  "permissions",
+  "permissionProfile",
+  "approvalPolicy",
+  "approvalsReviewer",
+];
+
+/**
+ * The posture members V1 does NOT realize, asserted absent from every
+ * constructed `turn/start` (`Spec-005 §Required Behavior`).
+ *
+ * `sandboxPolicy` and `permissions` are documented un-combinable, and the pair
+ * cannot be adjudicated by asking the provider: a DEFAULT connection refuses
+ * `permissions` outright as `-32600`, while an `experimentalApi` connection
+ * accepts BOTH together with no refusal and no documented precedence. So the
+ * exclusion has to hold on this side of the wire. V1 realizes the
+ * non-experimental `sandboxPolicy`; `permissions` is the un-realized member and
+ * is refused rather than passed through. `permissionProfile` is not a member of
+ * the pair at all — it refuses `-32602` at the pin — and is listed for the same
+ * reason it appears in the caller-refusal table above: a field that is never
+ * constructed is cheaper to keep never-constructed than to diagnose from a
+ * provider-side error code.
+ *
+ * NOT a cardinality check. "Exactly one" is the rule for a turn that HAS a
+ * posture, and a turn with none legitimately carries neither member — the spawn
+ * posture governs it, and inventing a turn-level one here would narrow a session
+ * the daemon deliberately left ungoverned at the turn boundary.
+ */
+export const UNREALIZED_TURN_POSTURE_MEMBERS: readonly string[] = [
+  "permissions",
+  "permissionProfile",
+];
+
+/**
+ * Fail-closed assertion over the params of a constructed `turn/start`.
+ *
+ * Applied to the object that is HANDED TO the request, after every spread that
+ * contributes to it, because a check against the inputs would pass for a
+ * composer that added a member downstream of it. `#requestTurnStart` is this
+ * driver's only `turn/start` construction site — `turn/steer` requires an
+ * already-active turn and creates none — which is what makes one assertion here
+ * total rather than representative.
+ */
+export function assertRealizedTurnPostureMembers(params: Record<string, unknown>): void {
+  for (const member of UNREALIZED_TURN_POSTURE_MEMBERS) {
+    if (member in params) {
+      throw new CodexDriverConfigError(
+        `turn/start must not carry ${member}; V1 realizes the sandboxPolicy member of the posture pair.`,
+        `turn/start.${member}`,
+      );
+    }
+  }
+}
 
 /**
  * What this driver requires inside `StartRunParams.agentConfig`.
@@ -1798,7 +1879,57 @@ export function parseCodexSessionConfig(config: unknown): CodexSessionConfig {
     }
     return [entry[0], entry[1]] as const;
   });
-  return { cwd, env };
+  return { cwd, env, ...parseCredentialEnvPolicy(source["credentialEnvPolicy"]) };
+}
+
+const ENV_NAME_MATCH_MODES: readonly SpawnEnvNameMatch[] = ["case-sensitive", "case-insensitive"];
+
+/**
+ * Fail-closed parse of the daemon's resolved credential policy.
+ *
+ * ABSENT and MALFORMED are deliberately different answers. Absent is a
+ * legitimate state — a `trusted` posture resolves to no policy — so it yields no
+ * member rather than an empty one. Malformed REFUSES: a policy that arrived as
+ * an unreadable shape has denied names in it that this parse could not read, and
+ * defaulting to "deny nothing" would spawn the child with exactly the variables
+ * the policy exists to withhold.
+ *
+ * `envNameMatch` is required whenever a policy is present, and is not defaulted
+ * for the same reason. The mode is a property of the HOST the daemon canonicalized
+ * the names against; guessing it here would silently decide whether `path` slips
+ * past a list that names `PATH`.
+ */
+function parseCredentialEnvPolicy(
+  value: unknown,
+): { credentialEnvPolicy: CredentialEnvPolicy } | Record<string, never> {
+  if (value === undefined) {
+    return {};
+  }
+  const label = "CreateSessionParams.config.credentialEnvPolicy";
+  const source = readRecord(value, label);
+  const rawDenyEnvVars = source["denyEnvVars"];
+  if (!Array.isArray(rawDenyEnvVars)) {
+    throw new CodexDriverConfigError(`${label}.denyEnvVars must be an array of names.`, label);
+  }
+  const denyEnvVars = rawDenyEnvVars.map((entry, index) => {
+    if (typeof entry !== "string" || entry.length === 0) {
+      throw new CodexDriverConfigError(
+        `${label}.denyEnvVars[${index}] must be a non-empty string.`,
+        label,
+      );
+    }
+    return entry;
+  });
+  // `find`, not `some`: the match narrows the value to the union without a cast,
+  // so the parse cannot claim a mode the check did not actually admit.
+  const envNameMatch = ENV_NAME_MATCH_MODES.find((mode) => mode === source["envNameMatch"]);
+  if (envNameMatch === undefined) {
+    throw new CodexDriverConfigError(
+      `${label}.envNameMatch must be one of ${ENV_NAME_MATCH_MODES.join(" | ")}.`,
+      label,
+    );
+  }
+  return { credentialEnvPolicy: { denyEnvVars, envNameMatch } };
 }
 
 /** Fail-closed parse of `StartRunParams.agentConfig`. */
@@ -1853,6 +1984,23 @@ export function parseCodexRunConfig(agentConfig: unknown): CodexRunConfig {
       `StartRunParams.agentConfig.frameOrigin cannot be declared; a run's opening text is written as "${RUN_OPENING_FRAME_ORIGIN}".`,
       "StartRunParams.agentConfig.frameOrigin",
     );
+  }
+  // Read only to REFUSE, exactly like `frameOrigin` above — but refused
+  // UNIFORMLY, including a value that happens to match what the daemon derived.
+  // That is the one place this differs from the `frameOrigin` precedent, and
+  // deliberately: an origin has a single legitimate value a caller could only be
+  // restating, whereas a posture is a decision, and a caller that agrees with
+  // today's derivation would still be asserting authority over tomorrow's.
+  // Tolerating a match would also oblige this parse to COMPARE a posture — a
+  // structural equality over roots, network axes and a policy reference — where
+  // a flat refusal needs no comparison to be correct.
+  for (const field of CALLER_DERIVED_TURN_POSTURE_FIELDS) {
+    if (source[field] !== undefined) {
+      throw new CodexDriverConfigError(
+        `StartRunParams.agentConfig.${field} cannot be declared; the daemon derives every posture-affecting turn field.`,
+        `StartRunParams.agentConfig.${field}`,
+      );
+    }
   }
   return {
     sessionId,
@@ -2290,12 +2438,27 @@ export class CodexAppServerConnection {
         CODEX_APP_SERVER_SHELL_ARGV0,
         ...composeCodexTransportArgv(this.#transportSelection, bearerCredential),
       ],
-      // Exactly the caller-supplied pairs plus the binary path the prelude reads.
-      // `process.env` is never consulted (asserted by test).
-      env: [
-        ...config.env.map((pair) => [pair[0], pair[1]] as [string, string]),
-        [CODEX_APP_SERVER_BIN_ENV_VAR, this.#executablePath] as [string, string],
-      ],
+      // Exactly the caller-supplied pairs, minus what the effective credential
+      // policy denies, plus the binary path the prelude reads. `process.env` is
+      // never consulted (asserted by test).
+      //
+      // Through the shared builder rather than composed here, and this is the
+      // ONE seam every Codex spawn reaches — create, resume against a live
+      // record, resume after a daemon restart, and the zero-turn auth probe all
+      // arrive at this method. A per-call-site composition would put the
+      // suppression obligation on four call sites and shed it from whichever one
+      // a later leg forgets.
+      //
+      // The binary path rides as a MANDATED pair, so the deny strip cannot
+      // remove it: it is the exact-build-path pin that stands in for this
+      // provider's absent environment opt-out, and a strippable pin would leave
+      // the child running whatever the launcher resolves to.
+      env: buildProviderSpawnEnv({
+        driverName: "codex",
+        baseEnv: config.env,
+        credentialEnvPolicy: config.credentialEnvPolicy,
+        additionalMandatedPairs: [[CODEX_APP_SERVER_BIN_ENV_VAR, this.#executablePath]],
+      }).map((pair) => [pair[0], pair[1]] as [string, string]),
       cwd: config.cwd,
       rows: this.#rows,
       cols: this.#cols,
@@ -3492,6 +3655,19 @@ export interface CodexLifecycleOptions extends CodexConnectionOptions {
    * `thread/resume`, so `cwd` here is the process's directory rather than the
    * thread's. Required, never defaulted, so nothing is silently inherited from
    * the daemon process (this module reads `process.env` nowhere).
+   *
+   * PROVENANCE, because it differs from the create path and the difference is
+   * load-bearing. `createSession` receives `params.config` as an untyped bag off
+   * the wire and validates it through {@link parseCodexSessionConfig}, which is
+   * what makes a malformed `credentialEnvPolicy` a refusal rather than a strip
+   * that silently removes nothing. This value is CONSTRUCTION-TIME and typed:
+   * the composition root supplies an already-resolved `CodexSessionConfig`, so
+   * it is validated by the type system rather than at a parse boundary. A future
+   * construction root that sources this from untyped input — configuration file,
+   * IPC payload, restored record — must pass it through
+   * {@link parseCodexSessionConfig} first; assigning an unvalidated bag here
+   * would put the deny strip's fail-closed behaviour back at risk on exactly the
+   * resume and probe paths that have no other parse.
    */
   readonly resumeSpawnConfig: CodexSessionConfig;
   /** Mints `DriverResumeResult.bindingId`; supply the store's minter in the daemon. */
@@ -4319,40 +4495,41 @@ export class CodexLifecycleManager {
     params: StartRunParams,
     openingFrame: OutboundTextFrame,
   ): Promise<unknown> {
-    return await record.connection.request(
-      "turn/start",
-      {
-        threadId: record.threadId,
-        // T3.18. The bytes come off a frame this method cannot construct, so
-        // the neutralization is structurally on the path rather than a call-site
-        // convention. `runConfig.input` is deliberately NOT read here — the
-        // author's text stays on the frame as `authoredText`, which is what the
-        // daemon persists, events, and replays.
-        input: [{ type: "text", text: openingFrame.wireText, text_elements: [] }],
-        // The pin that actually carries the security property. A TURN is what
-        // generates approval requests, and `TurnStartParams.approvalsReviewer` is
-        // documented as overriding routing for "this turn and subsequent turns"
-        // — so a config- or profile-selected `auto_review` reviewer would win on
-        // every turn if only the thread-level pin were sent. Pinning it here is
-        // idempotent rather than redundant, and `turn/steer` needs no pin because
-        // it requires an already-active turn and creates none. Field verified
-        // present on `TurnStartParams` at `codex-cli 0.150.1` (regenerated
-        // 2026-08-28 — `docs/reference/provider-wire/codex.md`), on a params
-        // type byte-identical back to the `0.141.0` floor.
-        approvalsReviewer: "user",
-        // Leg 5's per-turn half. The RUN's posture wins where it declares one,
-        // and the session's spawn posture is the floor otherwise, so a turn is
-        // never dispatched with no policy at all. Both arms send the roots the
-        // thread-level mode selector cannot carry.
-        ...this.#composeTurnPostureParams(record, params),
-        ...(runConfig.model === undefined ? {} : { model: runConfig.model }),
-        ...(runConfig.clientUserMessageId === undefined
-          ? {}
-          : { clientUserMessageId: runConfig.clientUserMessageId }),
-        ...(params.outputSchema === undefined ? {} : { outputSchema: params.outputSchema }),
-      },
-      this.#turnStartTimeoutMs,
-    );
+    const turnStartParams: Record<string, unknown> = {
+      threadId: record.threadId,
+      // T3.18. The bytes come off a frame this method cannot construct, so
+      // the neutralization is structurally on the path rather than a call-site
+      // convention. `runConfig.input` is deliberately NOT read here — the
+      // author's text stays on the frame as `authoredText`, which is what the
+      // daemon persists, events, and replays.
+      input: [{ type: "text", text: openingFrame.wireText, text_elements: [] }],
+      // The pin that actually carries the security property. A TURN is what
+      // generates approval requests, and `TurnStartParams.approvalsReviewer` is
+      // documented as overriding routing for "this turn and subsequent turns"
+      // — so a config- or profile-selected `auto_review` reviewer would win on
+      // every turn if only the thread-level pin were sent. Pinning it here is
+      // idempotent rather than redundant, and `turn/steer` needs no pin because
+      // it requires an already-active turn and creates none. Field verified
+      // present on `TurnStartParams` at `codex-cli 0.150.1` (regenerated
+      // 2026-08-28 — `docs/reference/provider-wire/codex.md`), on a params
+      // type byte-identical back to the `0.141.0` floor.
+      approvalsReviewer: "user",
+      // Leg 5's per-turn half. The RUN's posture wins where it declares one,
+      // and the session's spawn posture is the floor otherwise, so a turn is
+      // never dispatched with no policy at all. Both arms send the roots the
+      // thread-level mode selector cannot carry.
+      ...this.#composeTurnPostureParams(record, params),
+      ...(runConfig.model === undefined ? {} : { model: runConfig.model }),
+      ...(runConfig.clientUserMessageId === undefined
+        ? {}
+        : { clientUserMessageId: runConfig.clientUserMessageId }),
+      ...(params.outputSchema === undefined ? {} : { outputSchema: params.outputSchema }),
+    };
+    // Over the composed object, not over its inputs: every spread above has
+    // already contributed, so this is the last moment at which what the provider
+    // will receive is knowable in one place.
+    assertRealizedTurnPostureMembers(turnStartParams);
+    return await record.connection.request("turn/start", turnStartParams, this.#turnStartTimeoutMs);
   }
 
   /**

@@ -102,6 +102,7 @@ import {
   type CumulativeAxisReadings,
   type MeteredUsageDelta,
 } from "../../usage-delta-accountant.js";
+import { buildProviderSpawnEnv, type SpawnEnvPair } from "../../spawn-env.js";
 
 import {
   OutboundFrameTripwire,
@@ -524,6 +525,28 @@ export interface ClaudeSpawnBoundLegs {
    */
   readonly subagentAdmission: ClaudeSubagentAdmissionPort | undefined;
   readonly onMcpServerStatus: McpServerStatusProducer | undefined;
+  /**
+   * The variables this provider's child MUST carry, whatever else it carries —
+   * for this CLI, its documented auto-update opt-out.
+   *
+   * NOT the child environment. The curated base and the run-provisioned
+   * variables are the transport's per the P0-4 obligation on `spawnSession`, and
+   * so is the deny strip, because the transport is what resolves the
+   * `credentialPolicyRef` this shape already carries on `sandboxSettings`. What
+   * rides here is the other half of that composition: the pairs the daemon
+   * mandates, which the transport applies LAST and must not shed — a policy that
+   * could strip them, or a base that carried `DISABLE_AUTOUPDATER=0`, would let
+   * a provider build replace itself mid-session and invalidate both the version
+   * recorded on the run's binding and the capability snapshot the run was
+   * admitted against.
+   *
+   * Composed by the shared spawn-environment builder rather than written out
+   * here, so the opt-out has ONE definition across both drivers, and carried on
+   * the SPAWN-BOUND shape for the reason that shape exists: a resume is a fresh
+   * spawn, and suppression bound at create and omitted at resume would silently
+   * expire at the first relaunch.
+   */
+  readonly mandatedEnvironment: readonly SpawnEnvPair[];
 }
 
 export interface ClaudeSessionSpawnRequest extends ClaudeSpawnBoundLegs {
@@ -641,6 +664,13 @@ export interface ClaudeSessionTransport {
    * reach an agent's process, and configuration is supplied through `--settings`
    * rather than the ambient `~/.claude`, so two sessions on one node cannot read
    * each other's settings.
+   *
+   * `mandatedEnvironment` is applied LAST, after that strip, on every one of the
+   * three spawn-bound requests: those pairs are the daemon's own instructions to
+   * the child rather than inherited state, so a deny list has no authority over
+   * them, and a base carrying one of their names is REPLACED rather than
+   * appended beside — a duplicate name resolves at the discretion of whatever
+   * finally execs the process.
    *
    * AUTH-FAILURE OBLIGATION, shared with `resumeSession` below (P3-3): a
    * DETERMINATE logged-out failure throws `ClaudeAuthenticationRequiredError`,
@@ -3217,6 +3247,12 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       outputSchema: params.outputSchema,
       onCallbackToolCall: params.onCallbackToolCall,
       onMcpServerStatus: params.onMcpServerStatus,
+      // An EMPTY base is the honest input from this band: it holds no curated
+      // environment to prune, and the names a policy denies are reachable only
+      // through the `credentialPolicyRef` the transport resolves. So the builder
+      // is asked for exactly what this side owns — the mandated pairs — and the
+      // transport composes them over the base it built.
+      mandatedEnvironment: buildProviderSpawnEnv({ driverName: "claude", baseEnv: [] }),
     };
   }
 
