@@ -2145,4 +2145,146 @@ describe("transform pipeline — a result whose enclosure cannot be resolved is 
       ),
     ).toContain("42 passed");
   });
+
+  /**
+   * ONE block id carried twice in one turn under DISAGREEING disclosures, with a
+   * bound falling between the answer and both of them.
+   *
+   * The segment contract does not require block ids to be unique within a turn,
+   * so a resolution that assigns rather than accumulates keeps whichever
+   * occurrence it read last. Ordering the summary second is what makes that
+   * silent: the private stamp is written and then overwritten, and the answer
+   * leaves the fold looking portable.
+   */
+  function seedDisagreeingDuplicateBlockFixture(fixture: TranscriptFixture): void {
+    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
+    fixture.contentSource.participantTextBySequence.set(1, "run the tests");
+    fixture.log.append(
+      storedEvent(2, "tool.invoked", {
+        runId: RUN_ID,
+        toolCallId: "call-1",
+        toolName: "run_tests",
+      }),
+    );
+    fixture.contentSource.toolArgumentsBySequence.set(2, '{"suite":"unit"}');
+    fixture.log.append(storedEvent(3, "tool.result", { runId: RUN_ID, toolCallId: "call-1" }));
+    fixture.contentSource.toolResultBodyBySequence.set(3, {
+      text: "42 passed",
+      enclosingReasoningBlockId: "block-1",
+    });
+    fixture.log.append(storedEvent(4, "assistant.thinking_update", { runId: RUN_ID }));
+    fixture.contentSource.reasoningBlocksBySequence.set(4, [
+      {
+        blockId: "block-1",
+        reasoningKind: "thinking",
+        disclosure: "private",
+        text: "internal deliberation",
+      },
+    ]);
+    fixture.log.append(storedEvent(5, "assistant.thinking_update", { runId: RUN_ID }));
+    fixture.contentSource.reasoningBlocksBySequence.set(5, [
+      {
+        blockId: "block-1",
+        reasoningKind: "thinking",
+        disclosure: "summary",
+        text: "checking the suite",
+      },
+    ]);
+  }
+
+  it("withholds it when the turn carries that block id twice under disagreeing disclosures", () => {
+    const fixture = makeFixture();
+    seedDisagreeingDuplicateBlockFixture(fixture);
+    const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
+
+    // The premise, asserted rather than assumed: the bound admits the answer and
+    // cuts BOTH occurrences away, so the strip's in-turn floor sees no private
+    // block and the fold's stamp is the only thing left that can withhold.
+    const bounded: CanonicalTranscriptProjection = boundProjectionToPosition(projection, 3);
+    expect(
+      bounded.turns
+        .flatMap((turn) => turn.segments)
+        .some((segment) => segment.kind === "reasoning"),
+    ).toBe(false);
+
+    // There is no occurrence-specific answer to prefer — the result names its
+    // enclosure by block id and by nothing else — so the disagreement resolves
+    // to unknown and the body does not travel.
+    expect(
+      exportedToolResultTexts(
+        new TranscriptTransformPipeline().exportTranscript(bounded, "unbounded"),
+      ),
+    ).not.toContain("42 passed");
+  });
+
+  it("negative control — resolving that duplicate to its LAST occurrence ships the body", () => {
+    // Exactly the projection a last-write-wins resolution produced: the summary
+    // occurrence was read second, the summary arm records nothing, and the
+    // answer leaves the fold carrying no stamp at all. Reconstructed by dropping
+    // the member rather than by re-implementing the fold, so what this control
+    // proves is that the assertion above rides the stamp and nothing else.
+    const fixture = makeFixture();
+    seedDisagreeingDuplicateBlockFixture(fixture);
+    const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
+    const bounded: CanonicalTranscriptProjection = boundProjectionToPosition(projection, 3);
+
+    const lastWriteWins: CanonicalTranscriptProjection = {
+      ...bounded,
+      turns: bounded.turns.map((turn) => ({
+        ...turn,
+        segments: turn.segments.map((segment) =>
+          segment.kind === "tool_result" ? { ...segment, enclosureDisclosure: undefined } : segment,
+        ),
+      })),
+    };
+
+    expect(
+      exportedToolResultTexts(
+        new TranscriptTransformPipeline().exportTranscript(lastWriteWins, "unbounded"),
+      ),
+    ).toContain("42 passed");
+  });
+
+  it("keeps it when a repeated block id AGREES, which is not a disagreement", () => {
+    // The boundary of the fix, and the reason it tests disclosure equality
+    // rather than repetition: two occurrences that say the same thing answer the
+    // citation identically, so there is nothing to fail over. Withholding here
+    // would drop portable content on the strength of a duplicate id alone.
+    const fixture = makeFixture();
+    fixture.log.append(storedEvent(1, "user.message", { runId: RUN_ID, actor: "participant" }));
+    fixture.contentSource.participantTextBySequence.set(1, "run the tests");
+    fixture.log.append(
+      storedEvent(2, "tool.invoked", {
+        runId: RUN_ID,
+        toolCallId: "call-1",
+        toolName: "run_tests",
+      }),
+    );
+    fixture.contentSource.toolArgumentsBySequence.set(2, '{"suite":"unit"}');
+    fixture.log.append(storedEvent(3, "tool.result", { runId: RUN_ID, toolCallId: "call-1" }));
+    fixture.contentSource.toolResultBodyBySequence.set(3, {
+      text: "42 passed",
+      enclosingReasoningBlockId: "block-1",
+    });
+    for (const sequence of [4, 5]) {
+      fixture.log.append(storedEvent(sequence, "assistant.thinking_update", { runId: RUN_ID }));
+      fixture.contentSource.reasoningBlocksBySequence.set(sequence, [
+        {
+          blockId: "block-1",
+          reasoningKind: "thinking",
+          disclosure: "summary",
+          text: "checking the suite",
+        },
+      ]);
+    }
+
+    const projection = fixture.fold.build({ sessionId: SESSION_ID, runId: RUN_ID });
+    const bounded: CanonicalTranscriptProjection = boundProjectionToPosition(projection, 3);
+
+    expect(
+      exportedToolResultTexts(
+        new TranscriptTransformPipeline().exportTranscript(bounded, "unbounded"),
+      ),
+    ).toContain("42 passed");
+  });
 });

@@ -260,25 +260,92 @@ function renderMemoContinuityMarkerKey(memoIdentityKey: string): string {
   return `${MEMO_CONTINUITY_MARKER_PREFIX}${memoIdentityKey}`;
 }
 
-/** Whether any of the target's turns already carries this memo's marker. */
-export function targetTurnsCarryMemoMarker(
+/**
+ * Characters that CONTINUE a token, so a marker abutting one of them is part of
+ * something longer rather than a marker.
+ *
+ * The boundary is what makes an occurrence syntactically complete. Without it a
+ * plain substring search reports this memo as delivered on a target holding a
+ * DIFFERENT memo whose key merely extends ours, and on any turn where the token
+ * was pasted into the middle of a longer word — and the consequence of a false
+ * positive here is the one failure this whole floor exists to prevent: the
+ * caller skips the only context transfer and the target holds nothing.
+ *
+ * Digits and letters cover the key's own alphabet and any longer identifier the
+ * token could be embedded in; `_` and `-` are the two separators that read as
+ * part of a word rather than as punctuation ending one. Everything else —
+ * whitespace, `;`, `.`, quotes, brackets, end of string — ends the token, which
+ * is what lets a marker be carried mid-sentence exactly as the record parser
+ * below already allows.
+ */
+const MEMO_MARKER_TOKEN_CHARACTER = /[A-Za-z0-9_-]/;
+
+/** One syntactically complete occurrence of this memo's marker in a target turn. */
+type MemoContinuityMarkerOccurrence =
+  /** The marker carried a record, and every component of it parsed. */
+  | { readonly form: "recorded"; readonly kinds: ReadonlySet<DeclaredLossKind> }
+  /** The key-only form, written before the record existed. */
+  | { readonly form: "key-only" }
+  /** A marker whose record is present and does not parse. */
+  | { readonly form: "unreadable-record" };
+
+/**
+ * THE grammar. Every occurrence of this memo's marker the target's turns carry,
+ * classified, in the order they were read.
+ *
+ * One producer, two consumers. `targetTurnsCarryMemoMarker` asks whether the
+ * list is non-empty and `readDeliveredMemoDeclaredLosses` asks what the entries
+ * say, so the admission decision and the record read can no longer disagree
+ * about what counts as a marker — which is exactly how a substring admission
+ * came to settle a delivery the strict parser beside it would have refused.
+ *
+ * A boundary failure yields NO entry rather than a rejected one, and that is
+ * what keeps this a single grammar: an occurrence that is not this marker is not
+ * evidence about this marker, so neither consumer should see it. A complete
+ * occurrence whose RECORD is garbage is the opposite — it is this marker, so it
+ * counts as delivered and is simultaneously unreadable, which is the pair of
+ * answers the two consumers already give it.
+ *
+ * The left boundary is checked as well as the right. `continuity-ref:` is
+ * ordinary lowercase text, so a longer word ending in it would otherwise open a
+ * marker that was never written.
+ */
+function readMemoContinuityMarkerOccurrences(
   targetTurns: readonly string[],
   memoIdentityKey: string,
-): boolean {
+): readonly MemoContinuityMarkerOccurrence[] {
   const markerKey: string = renderMemoContinuityMarkerKey(memoIdentityKey);
-  return targetTurns.some((turnText) => turnText.includes(markerKey));
+  const occurrences: MemoContinuityMarkerOccurrence[] = [];
+  for (const turnText of targetTurns) {
+    for (
+      let markerStart: number = turnText.indexOf(markerKey);
+      markerStart >= 0;
+      markerStart = turnText.indexOf(markerKey, markerStart + markerKey.length)
+    ) {
+      const precedingCharacter: string = turnText.slice(Math.max(0, markerStart - 1), markerStart);
+      if (precedingCharacter !== "" && MEMO_MARKER_TOKEN_CHARACTER.test(precedingCharacter)) {
+        continue;
+      }
+      const tail: string = turnText.slice(markerStart + markerKey.length);
+      if (!tail.startsWith(MEMO_CONTINUITY_LOSS_SEPARATOR)) {
+        // No record follows. The key-only form is complete only where the token
+        // ENDS: a key that runs on into more token characters is a different
+        // key that happens to begin with this one.
+        const followingCharacter: string = tail.slice(0, 1);
+        if (followingCharacter !== "" && MEMO_MARKER_TOKEN_CHARACTER.test(followingCharacter)) {
+          continue;
+        }
+        occurrences.push({ form: "key-only" });
+        continue;
+      }
+      occurrences.push(readMemoContinuityRecord(tail.slice(MEMO_CONTINUITY_LOSS_SEPARATOR.length)));
+    }
+  }
+  return occurrences;
 }
 
 /**
- * Reads back what the memo the target ALREADY holds recorded as dropped, or
- * ABSENT where that record cannot be trusted.
- *
- * Absent covers readings that all mean the same thing to a caller: a marker
- * written before this record existed, a record that does not parse as a closed
- * set of loss kinds, and — since a target holding two markers under one key
- * holds two summaries — ANY occurrence lacking a readable record. Every one of
- * them is a memo whose omissions this reader cannot account for, and the caller
- * owes the conservative answer for all of them.
+ * Parses one occurrence's record — the text after `;dropped=` — strictly.
  *
  * A record parses only when it is a `+`-joined list of at least one recognized
  * kind, carries no empty component (so a leading, trailing, or doubled joiner
@@ -287,8 +354,7 @@ export function targetTurnsCarryMemoMarker(
  * than believable: this writer cannot emit a memo that dropped nothing, so a
  * record claiming as much was written by something else, and reading it as "the
  * summary lost nothing" would turn a marker this reader cannot account for into
- * a positive guarantee. Checked per OCCURRENCE, on the same ground the
- * any-occurrence rule above rests on.
+ * a positive guarantee.
  *
  * Deliberately NOT rejected: trailing prose after the token run. The record ends
  * where the token does, so `...+conversation_history_summarizedX` reads the kind
@@ -299,61 +365,83 @@ export function targetTurnsCarryMemoMarker(
  * this reader does not understand, and understanding it partly is worse than
  * not claiming to understand it at all.
  */
+function readMemoContinuityRecord(record: string): MemoContinuityMarkerOccurrence {
+  // Loss kinds are lowercase ASCII with underscores, so anything else — a
+  // newline, a space, the prose that follows — is outside the marker.
+  const tokenRun: string = /^[a-z_+]*/.exec(record)?.[0] ?? "";
+  if (tokenRun.length === 0) {
+    return { form: "unreadable-record" };
+  }
+  const kinds: Set<DeclaredLossKind> = new Set<DeclaredLossKind>();
+  for (const component of tokenRun.split(MEMO_CONTINUITY_LOSS_JOINER)) {
+    const kind: DeclaredLossKind | undefined = DECLARED_LOSS_KINDS.find(
+      (candidate) => candidate === component,
+    );
+    if (kind === undefined) {
+      return { form: "unreadable-record" };
+    }
+    kinds.add(kind);
+  }
+  if (!kinds.has(MEMO_FLOOR_DECLARED_LOSS_KIND)) {
+    return { form: "unreadable-record" };
+  }
+  return { form: "recorded", kinds };
+}
+
+/**
+ * Whether any of the target's turns already carries a COMPLETE occurrence of
+ * this memo's marker.
+ *
+ * Reads the shared grammar rather than searching for the key: this answer skips
+ * the only context transfer, so admitting an occurrence the record parser would
+ * refuse means believing a memo was delivered on the strength of text that is
+ * not a marker at all. The two directions are not symmetric — a false yes leaves
+ * the target with no context while the caller reports success, and a false no
+ * costs one redundant summary — so the grammar is the strict one and both
+ * readers share it.
+ */
+export function targetTurnsCarryMemoMarker(
+  targetTurns: readonly string[],
+  memoIdentityKey: string,
+): boolean {
+  return readMemoContinuityMarkerOccurrences(targetTurns, memoIdentityKey).length > 0;
+}
+
+/**
+ * Reads back what the memo the target ALREADY holds recorded as dropped, or
+ * ABSENT where that record cannot be trusted.
+ *
+ * Absent covers readings that all mean the same thing to a caller: no marker at
+ * all, a marker written before this record existed, and — since a target holding
+ * two markers under one key holds two summaries — ANY occurrence lacking a
+ * readable record. Every one of them is a memo whose omissions this reader
+ * cannot account for, and the caller owes the conservative answer for all of
+ * them.
+ *
+ * The occurrences come from the SAME grammar the admission decision reads, so a
+ * marker good enough to settle a delivery is exactly one good enough to be read
+ * here. The strictness lives in `readMemoContinuityRecord`, per occurrence, on
+ * the same ground the any-occurrence rule rests on.
+ */
 export function readDeliveredMemoDeclaredLosses(
   targetTurns: readonly string[],
   memoIdentityKey: string,
 ): readonly DeclaredLossKind[] | undefined {
-  const markerKey: string = renderMemoContinuityMarkerKey(memoIdentityKey);
+  const occurrences: readonly MemoContinuityMarkerOccurrence[] =
+    readMemoContinuityMarkerOccurrences(targetTurns, memoIdentityKey);
+  if (occurrences.length === 0) {
+    return undefined;
+  }
   const recorded: Set<DeclaredLossKind> = new Set<DeclaredLossKind>();
-  let found = false;
-  for (const turnText of targetTurns) {
-    for (
-      let markerStart: number = turnText.indexOf(markerKey);
-      markerStart >= 0;
-      markerStart = turnText.indexOf(markerKey, markerStart + markerKey.length)
-    ) {
-      found = true;
-      const tail: string = turnText.slice(markerStart + markerKey.length);
-      if (!tail.startsWith(MEMO_CONTINUITY_LOSS_SEPARATOR)) {
-        return undefined;
-      }
-      // The record ends where the token does. Loss kinds are lowercase ASCII
-      // with underscores, so anything else — a newline, a space, the prose that
-      // follows — is outside the marker.
-      const record: string = tail.slice(MEMO_CONTINUITY_LOSS_SEPARATOR.length);
-      const tokenRun: string = /^[a-z_+]*/.exec(record)?.[0] ?? "";
-      // An EMPTY run is a marker with no record at all — `;dropped=` and then
-      // prose — and an empty component is a leading, trailing, or doubled
-      // joiner. Both were previously read as "this memo dropped nothing", which
-      // is the strongest claim the record can make and the one least supported
-      // by a record that failed to state anything.
-      if (tokenRun.length === 0) {
-        return undefined;
-      }
-      const components: readonly string[] = tokenRun.split(MEMO_CONTINUITY_LOSS_JOINER);
-      const occurrenceKinds: Set<DeclaredLossKind> = new Set<DeclaredLossKind>();
-      for (const component of components) {
-        const kind: DeclaredLossKind | undefined = DECLARED_LOSS_KINDS.find(
-          (candidate) => candidate === component,
-        );
-        if (kind === undefined) {
-          return undefined;
-        }
-        occurrenceKinds.add(kind);
-      }
-      // Per OCCURRENCE. This floor declares the summarization on every path it
-      // can emit, so an occurrence that omits it was not written by this writer
-      // — and a record this reader cannot attribute is one whose omissions it
-      // cannot account for.
-      if (!occurrenceKinds.has(MEMO_FLOOR_DECLARED_LOSS_KIND)) {
-        return undefined;
-      }
-      for (const kind of occurrenceKinds) {
-        recorded.add(kind);
-      }
+  for (const occurrence of occurrences) {
+    if (occurrence.form !== "recorded") {
+      return undefined;
+    }
+    for (const kind of occurrence.kinds) {
+      recorded.add(kind);
     }
   }
-  return found ? DECLARED_LOSS_KINDS.filter((kind) => recorded.has(kind)) : undefined;
+  return DECLARED_LOSS_KINDS.filter((kind) => recorded.has(kind));
 }
 
 /**

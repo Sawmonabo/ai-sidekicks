@@ -3351,6 +3351,140 @@ describe("CodexLifecycleManager turn route lifetime", () => {
     ).rejects.toThrow(TextNeutralizationRefusedError);
   });
 
+  it("rules a steer's frame when the acknowledged turn AGED OUT of the settled memory", async () => {
+    // The same hazard as the read-chunk case above, reached by ageing instead of
+    // by ordering. The settled memory is bounded, and the acknowledgement
+    // continuation reads ABSENCE from it as "that turn can still rule this
+    // frame" — so a burst of terminals arriving in the steer response's own
+    // chunk used to push the acknowledged turn's own settlement out, and the
+    // frame was moved onto a turn no second terminal was ever coming for. It
+    // then sat as occupancy until the scope was released: the swallowed
+    // directive reported as nothing at all.
+    //
+    // The burst rides `trailingFrames`, which is ONE read chunk with the
+    // response, so every one of these drains synchronously before the
+    // continuation resumes — the ordering that makes the eviction reachable.
+    // Seventy: comfortably past the memory's unpinned bound of 64, so a
+    // size-based prune would certainly have reached the acknowledged turn's own
+    // settlement, and comfortably under the pinned ceiling of 256, so this is
+    // the eviction case rather than the overflow refusal beside it.
+    const acknowledgedTurnId = "turn-acknowledged";
+    const burstTurnIds: readonly string[] = Array.from(
+      { length: 70 },
+      (_unused, index) => `turn-burst-${String(index)}`,
+    );
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    harness.server.on("turn/steer", () => ({
+      result: { turnId: acknowledgedTurnId },
+      trailingFrames: [
+        zeroTurnCompletedFrame(acknowledgedTurnId),
+        ...burstTurnIds.map((burstTurnId) => turnCompletedFrame(burstTurnId, "completed")),
+      ],
+    }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
+    });
+    // Vouches for the OPENING frame and for no other, so a trip here names the
+    // steer's frame rather than merely some frame on the session.
+    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
+    await Promise.resolve();
+
+    const acknowledgement = await harness.manager.steerRun({
+      runId: RUN_ID,
+      content: "/clear and start over",
+      clientIdempotencyKey: "steer-1",
+      frameOrigin: "system_narration",
+    });
+    expect(acknowledgement).toStrictEqual({ targetedTurnId: TURN_ID, acknowledgedTurnId });
+    await drainMicrotasks();
+
+    // The premise, asserted rather than assumed: this stayed under the ceiling,
+    // so the trip below is the ageing guard's and not the overflow refusal's.
+    expect(
+      harness.diagnostics.filter(
+        (diagnostic) => diagnostic.kind === "settled-turn-memory-overflowed",
+      ),
+    ).toHaveLength(0);
+
+    expect(harness.textNeutralizationFailures).toHaveLength(1);
+    expect(harness.textNeutralizationFailures[0]?.runId).toBe(RUN_ID);
+    expect(harness.textNeutralizationFailures[0]?.providerFailureDetail).toBe(
+      "driver.text_neutralization_failed origin=system_narration",
+    );
+    // And the binding the directive vanished into is not handed to a later run.
+    await expect(
+      harness.manager.startRun({
+        runId: SECOND_RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
+      }),
+    ).rejects.toThrow(TextNeutralizationRefusedError);
+  });
+
+  it("refuses the binding when the settled memory overflows during a steer", async () => {
+    // The ceiling, and the reason the pin needs one: a burst past it cannot be
+    // admitted beside entries the continuation may be about to read, and
+    // evicting one to make room would answer "still running" for a turn that
+    // ended. So the driver refuses rather than choosing which settlement to
+    // forget — the same prune-then-refuse-and-never-evict answer the evidence
+    // memory gives — and the teardown rules the steer's own pending frame
+    // fail-closed on the way out.
+    // Three hundred, past the pinned ceiling of 256, matching the figure the
+    // evidence memory's own overflow test drives its refusal with.
+    const acknowledgedTurnId = "turn-acknowledged";
+    const burstTurnIds: readonly string[] = Array.from(
+      { length: 300 },
+      (_unused, index) => `turn-burst-${String(index)}`,
+    );
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    harness.server.on("turn/steer", () => ({
+      result: { turnId: acknowledgedTurnId },
+      trailingFrames: burstTurnIds.map((burstTurnId) =>
+        turnCompletedFrame(burstTurnId, "completed"),
+      ),
+    }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
+    });
+    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
+    await Promise.resolve();
+
+    await harness.manager.steerRun({
+      runId: RUN_ID,
+      content: "/clear and start over",
+      clientIdempotencyKey: "steer-1",
+      frameOrigin: "system_narration",
+    });
+    await drainMicrotasks();
+
+    // Named as its OWN overflow rather than the evidence memory's: an operator
+    // reading either needs to know which memory could not hold.
+    expect(
+      harness.diagnostics.filter(
+        (diagnostic) => diagnostic.kind === "settled-turn-memory-overflowed",
+      ),
+    ).toHaveLength(1);
+    // Loud on the run, not merely diagnosed: the refusal rules every frame the
+    // departing binding was carrying, the steer's included.
+    expect(harness.textNeutralizationFailures).toHaveLength(1);
+    expect(harness.textNeutralizationFailures[0]?.runId).toBe(RUN_ID);
+    await expect(
+      harness.manager.startRun({
+        runId: SECOND_RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "carry on" },
+      }),
+    ).rejects.toThrow(TextNeutralizationRefusedError);
+  });
+
   it("rules a steer's frame on a turn that already ended, whatever that turn produced", async () => {
     // Ruled fail-closed rather than against the acknowledged turn's own recorded
     // outcome, and this is the case that decides between them. That turn ran

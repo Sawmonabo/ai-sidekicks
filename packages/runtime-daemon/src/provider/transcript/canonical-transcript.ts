@@ -284,6 +284,45 @@ function unkeyedToolResultSegment(
 }
 
 /**
+ * What a block id resolves to when one turn carries it MORE THAN ONCE under
+ * disagreeing disclosures.
+ *
+ * The segment contract does not require block ids to be unique within a turn,
+ * and a last-write-wins lookup over them silently resolves every enclosed
+ * result to whichever occurrence the fold happened to read last. A private
+ * block followed by a summary block reusing its id therefore erased the private
+ * resolution, and an export bounded between the answer and the reasoning — the
+ * one case where the stamp is the only surviving defence, since the bound cuts
+ * away the in-turn floor the strip otherwise applies — shipped the enclosed
+ * body.
+ *
+ * There is no honest occurrence-specific answer available: the enclosed result
+ * names its enclosure by BLOCK ID and by nothing else, so a turn carrying two
+ * different answers under one id offers the reader no way to say which one it
+ * meant. Position cannot break the tie either — the enclosing row may be logged
+ * after the answer it encloses, which is the whole reason this settles at turn
+ * close. So the disagreement is resolved to AMBIGUOUS and both consumers take
+ * their fail-closed arm: the keyed result is stamped `unknown` and withheld by
+ * the strip, and the deferred legacy answer keeps its placeholder rather than
+ * being rendered.
+ *
+ * A repeated id whose occurrences AGREE is not ambiguous. Two identical
+ * disclosures answer the citation identically, so there is nothing to fail over
+ * and no reason to withhold portable content.
+ *
+ * A unique symbol rather than a third string, so the sentinel cannot collide
+ * with a member a later widening of `CanonicalReasoningDisclosure` adds. The
+ * lookup's three string tests then reject it structurally rather than by
+ * agreeing not to use the same word.
+ */
+const AMBIGUOUS_ENCLOSURE_DISCLOSURE: unique symbol = Symbol("ambiguous-enclosure-disclosure");
+
+/** One block id's settled disclosure, or the statement that the turn disagrees. */
+type ResolvedEnclosureDisclosure =
+  | CanonicalReasoningDisclosure
+  | typeof AMBIGUOUS_ENCLOSURE_DISCLOSURE;
+
+/**
  * Records on a KEYED enclosed result what the turn close resolved its enclosure
  * to, for the two resolutions that withhold it and for no other.
  *
@@ -313,17 +352,21 @@ function unkeyedToolResultSegment(
  * for the reason the turn close gives on its own third arm:
  * `CanonicalReasoningDisclosure` is closed at two members today, the strip
  * removes reasoning at `private` ALONE, and a third member would otherwise carry
- * an enclosed body past a strip that never claimed it.
+ * an enclosed body past a strip that never claimed it. An AMBIGUOUS resolution —
+ * a block id this turn carries twice under disagreeing disclosures — stamps
+ * `unknown` on that same arm and for the same reason: there is no answer to
+ * pass, and the reading that would let the body travel is the one no evidence
+ * supports. See {@link AMBIGUOUS_ENCLOSURE_DISCLOSURE}.
  */
 function stampEnclosureDisclosure(
   segment: CanonicalTranscriptSegment,
-  disclosureByBlockId: ReadonlyMap<string, CanonicalReasoningDisclosure>,
+  disclosureByBlockId: ReadonlyMap<string, ResolvedEnclosureDisclosure>,
   turnHoldsUnreadableReasoning: boolean,
 ): CanonicalTranscriptSegment {
   if (segment.kind !== "tool_result" || segment.enclosingReasoningBlockId === undefined) {
     return segment;
   }
-  const disclosure: CanonicalReasoningDisclosure | undefined = disclosureByBlockId.get(
+  const disclosure: ResolvedEnclosureDisclosure | undefined = disclosureByBlockId.get(
     segment.enclosingReasoningBlockId,
   );
   if (disclosure === "summary") {
@@ -539,13 +582,15 @@ export class CanonicalTranscriptFold {
      *     reasoning segment in THIS array and reasoning segments are never
      *     deferred, so the enclosing segment always survives the settle.
      *
-     *   * anything else — FAIL-CLOSED: the placeholder stays, because this is
-     *     the block the turn does not carry and there is no enclosing segment
-     *     for a loss to ride. Stricter than the strip's rule for a keyed result,
-     *     which survives citing a block from another turn, and the asymmetry is
-     *     erasure: a keyed result carries its enclosure member forward so a
-     *     later reader can still act on it, while rendering a legacy answer to
-     *     text drops the member for good.
+     *   * anything else — FAIL-CLOSED: the placeholder stays. Two readings
+     *     land here: the block the turn does not carry, which has no enclosing
+     *     segment for a loss to ride, and a block id the turn carries twice
+     *     under disagreeing disclosures, which has no answer at all. Stricter
+     *     than the strip's rule for a keyed result, which survives citing a
+     *     block from another turn, and the asymmetry is erasure: a keyed result
+     *     carries its enclosure member forward so a later reader can still act
+     *     on it, while rendering a legacy answer to text drops the member for
+     *     good.
      *
      * The `private` arm is an explicit test rather than the `else` of the
      * `summary` one. `CanonicalReasoningDisclosure` is closed at two members, so
@@ -557,10 +602,24 @@ export class CanonicalTranscriptFold {
     const settleTurnEnclosures = (
       segments: CanonicalTranscriptSegment[],
     ): CanonicalTranscriptSegment[] => {
-      const disclosureByBlockId: Map<string, CanonicalReasoningDisclosure> = new Map();
+      // Accumulated rather than assigned: a block id this turn carries twice
+      // under disagreeing disclosures resolves to AMBIGUOUS and both arms below
+      // fail closed on it. See the sentinel's own note for why no
+      // occurrence-specific answer exists to prefer instead.
+      const disclosureByBlockId: Map<string, ResolvedEnclosureDisclosure> = new Map();
       for (const segment of segments) {
-        if (segment.kind === "reasoning") {
+        if (segment.kind !== "reasoning") {
+          continue;
+        }
+        const alreadyResolved: ResolvedEnclosureDisclosure | undefined = disclosureByBlockId.get(
+          segment.blockId,
+        );
+        if (alreadyResolved === undefined) {
           disclosureByBlockId.set(segment.blockId, segment.disclosure);
+          continue;
+        }
+        if (alreadyResolved !== segment.disclosure) {
+          disclosureByBlockId.set(segment.blockId, AMBIGUOUS_ENCLOSURE_DISCLOSURE);
         }
       }
       // Whether any row in THIS turn carried reasoning the fold could not read.
@@ -582,7 +641,7 @@ export class CanonicalTranscriptFold {
           continue;
         }
         deferredEnclosedResults.delete(segment.position);
-        const disclosure: CanonicalReasoningDisclosure | undefined = disclosureByBlockId.get(
+        const disclosure: ResolvedEnclosureDisclosure | undefined = disclosureByBlockId.get(
           deferred.enclosingReasoningBlockId,
         );
         if (disclosure === "summary") {

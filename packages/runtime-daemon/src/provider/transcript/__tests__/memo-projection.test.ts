@@ -68,6 +68,7 @@ import {
   readDeliveredMemoDeclaredLosses,
   renderMemoContinuityMarker,
   renderReconstitutionDisclosure,
+  targetTurnsCarryMemoMarker,
   type MemoBudgetPolicy,
   type MemoDeliveryRequest,
   type MemoDeliverySettlement,
@@ -1146,6 +1147,72 @@ describe("memo reconciliation — the losses reported are the DELIVERED summary'
         memoIdentityKey,
       ),
     ).toStrictEqual(["conversation_history_summarized"]);
+  });
+
+  it("admits delivery only on a syntactically COMPLETE marker occurrence", () => {
+    // The admission decides whether to skip the only context transfer there is,
+    // so a false yes leaves the target holding nothing while the caller reports
+    // success. A substring test answers yes to any text the key happens to sit
+    // inside — so the two boundaries are what make an occurrence THIS marker
+    // rather than something longer that contains it.
+    const projection: CanonicalTranscriptProjection = plainConversation();
+    const memoIdentityKey: string = deriveMemoIdentityKey(projection, TARGET);
+    const marker: string = `${MEMO_CONTINUITY_MARKER_PREFIX}${memoIdentityKey}`;
+
+    const notThisMarker: readonly string[] = [
+      // The key RUNS ON into more token characters: a different key that happens
+      // to begin with this one, and a summary this reader knows nothing about.
+      `${marker}0`,
+      `${marker}-second`,
+      `${marker}_b`,
+      // The token OPENED mid-word. `continuity-ref:` is ordinary lowercase text,
+      // so a longer word ending in it would otherwise open a marker never
+      // written.
+      `x${marker}`,
+      `discontinuity-ref:${memoIdentityKey}`,
+    ];
+    for (const turnText of notThisMarker) {
+      expect(targetTurnsCarryMemoMarker([turnText], memoIdentityKey)).toBe(false);
+      // And the SAME answer from the record reader, because one grammar serves
+      // both: a marker the admission does not see is not one this may read.
+      expect(readDeliveredMemoDeclaredLosses([turnText], memoIdentityKey)).toBeUndefined();
+    }
+
+    const thisMarker: readonly string[] = [
+      marker,
+      `an older summary ${marker}`,
+      `${marker} and then some prose`,
+      `(${marker})`,
+      `${marker};dropped=conversation_history_summarized`,
+      // Complete, and its RECORD unreadable — still this marker, so still
+      // delivered. The two questions are separate: presence says a summary is in
+      // the target, and re-sending on an unparseable record would put a second
+      // one there. What the record cannot say is reported as the upper bound
+      // instead, which is the arm asserted above.
+      `${marker};dropped=`,
+    ];
+    for (const turnText of thisMarker) {
+      expect(targetTurnsCarryMemoMarker([turnText], memoIdentityKey)).toBe(true);
+    }
+  });
+
+  it("sends the memo into a target whose text merely EXTENDS the marker key", async () => {
+    // The consequence, through the coordinator rather than the predicate: the
+    // near-miss must not settle the delivery, because settling it is how the
+    // participant's context transfer silently does not happen.
+    const target = new FakeTargetSession();
+    const projection: CanonicalTranscriptProjection = plainConversation();
+    target.turns.push(
+      `${MEMO_CONTINUITY_MARKER_PREFIX}${deriveMemoIdentityKey(projection, TARGET)}-second`,
+    );
+
+    const settlement: MemoDeliverySettlement = await deliverVia(
+      new MemoDeliveryCoordinator(target),
+      requestFor(projection, ROOMY_BUDGET),
+    );
+
+    expect(settlement.disposition).toBe("delivered");
+    expect(target.sendAttempts).toBe(1);
   });
 
   it("names the target session on every reconciliation read, as the send does", async () => {
