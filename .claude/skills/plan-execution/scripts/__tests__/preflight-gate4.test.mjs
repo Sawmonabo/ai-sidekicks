@@ -3766,7 +3766,24 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // is a REWORDING of an existing arm (Plan-028 T28.5.7, "read-only view
     // layer" -> "read-and-steer view layer"), which moves no count. The legacy
     // compact-inline channel is untouched.
-    bold: { resolved: 988, noneArm: 161, parentResolved: 0 },
+    // 988 -> 994 bold resolved, noneArm unmoved at 161 (2026-08-30, the
+    // machine-authored prose amendment — §6 node NS-94; re-derived from a live
+    // census run on this tree and cross-checked against the diff, not bumped by
+    // arithmetic). Plan-006's new Phase 3B carries all six of the added ids
+    // across three marker blocks: T3.6 names I-006-3-05 + I-006-3-06 +
+    // I-006-3-08, T3.7 names I-006-3-05 + I-006-3-06, and T3.8 names
+    // I-006-3-07. That is 988 + 6 = 994. The last two of those four invariants
+    // and the whole of T3.8 arrived at the PR #383 round-1 Codex fold: T3.8
+    // owns verify-on-read (I-006-3-07, the sixteenth verification mode) and
+    // I-006-3-08 pins the key-custody rule that the sealing key is stored
+    // wrapped and never derived from the daemon master key.
+    // Nothing else in the diff touches a `Verifies invariant:` row — Plan-005
+    // gains a task-scoped hold and CP-005-13 but no marker block; Plan-016,
+    // Plan-022, and Plan-008 take recorded no-flips that edit prose only; and
+    // Spec-006 / Spec-008 / Spec-022 are specs, which carry no marker blocks.
+    // The `none` arm holds because no none-arm row is added, removed, or
+    // reworded. The legacy compact-inline channel is untouched.
+    bold: { resolved: 994, noneArm: 161, parentResolved: 0 },
     legacy: { resolved: 64, noneArm: 3, parentResolved: 1 },
   });
 });
