@@ -3766,7 +3766,18 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // is a REWORDING of an existing arm (Plan-028 T28.5.7, "read-only view
     // layer" -> "read-and-steer view layer"), which moves no count. The legacy
     // compact-inline channel is untouched.
-    bold: { resolved: 988, noneArm: 161, parentResolved: 0 },
+    // 988 -> 992 bold resolved, noneArm unmoved at 161 (2026-08-30, the
+    // machine-authored prose amendment — §6 node NS-94; re-derived from a live
+    // census run on this tree and cross-checked against the diff, not bumped by
+    // arithmetic). Exactly two new marker blocks carry four resolved ids:
+    // Plan-006's new Phase 3B tasks T3.6 and T3.7 each name I-006-3-05 +
+    // I-006-3-06, the two invariants that amendment mints. Nothing else in the
+    // diff touches a `Verifies invariant:` row — Plan-005 gains a task-scoped
+    // hold and CP-005-13 but no marker block, and Plan-016 / Plan-022 take
+    // recorded no-flips that edit prose only. The `none` arm holds because no
+    // none-arm row is added, removed, or reworded. The legacy compact-inline
+    // channel is untouched.
+    bold: { resolved: 992, noneArm: 161, parentResolved: 0 },
     legacy: { resolved: 64, noneArm: 3, parentResolved: 1 },
   });
 });
