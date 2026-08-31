@@ -21,11 +21,13 @@
 //
 // `implements Pick<ProviderDriver, ...>` rather than a hand-written interface, so
 // each signature is checked against the canonical contract and drifts with it. The
-// remaining operations of the 14-op surface (`getCapabilities`, `listModels`,
-// `listModes`, `rollbackTo`, `respondToRequest`, `setSessionGoal`,
-// `clearSessionGoal`) are authored by the sibling Phase-3 tasks; this class is
-// widened to the full `ProviderDriver` when they land, which the `Pick` makes a
-// purely additive edit.
+// operations still absent from the `Pick` below (`getCapabilities`, `listModes`,
+// `respondToRequest`, `exportTranscript`, `replayTranscript`) are authored by the
+// sibling Phase-3 tasks; this class is widened to the full `ProviderDriver` when
+// they land, which the `Pick` makes a purely additive edit. `listModels` joined
+// the `Pick` with T3.12's currency duty (C-8) — the enumeration above is
+// re-derived from the type argument rather than restated, so it cannot drift
+// from what the class actually implements.
 //
 // ---------------------------------------------------------------------------
 // Why every collaborator is injected
@@ -64,6 +66,7 @@ import type {
   DriverTransportConfig,
   InterruptRunParams,
   ProviderDriver,
+  ProviderModel,
   ProviderSessionHandle,
   ResumeSessionParams,
   RollbackToParams,
@@ -71,6 +74,7 @@ import type {
   StartRunParams,
 } from "@ai-sidekicks/contracts";
 
+import { resolveCodexModelCatalog, type CodexModelCatalogExchange } from "./capabilities.js";
 import { CodexInterventionDispatcher, type CodexCapabilitySnapshotReader } from "./intervention.js";
 import {
   CodexDriverConfigError,
@@ -134,6 +138,18 @@ export {
   type CodexWebsocketTransportConnector,
 } from "./lifecycle.js";
 
+// The model-catalog symbols only — `listModels` is served by this class, so the
+// barrel advertises exactly what the driver object can answer. The declaration,
+// refresh, and probe symbols of `./capabilities.ts` stay unexported here because
+// no operation on this class serves them.
+export {
+  CODEX_DECLARED_MODEL_CATALOG,
+  CodexModelCatalogUnreadableError,
+  normalizeCodexModelCatalog,
+  resolveCodexModelCatalog,
+  type CodexModelCatalogExchange,
+} from "./capabilities.js";
+
 export {
   CodexTerminalEmissionGate,
   type CodexTerminalEmissionDecision,
@@ -166,6 +182,24 @@ export interface CodexDriverOptions extends CodexLifecycleOptions {
    * driver cannot disagree about which process they reach.
    */
   readonly transportConfig?: DriverTransportConfig | undefined;
+  /**
+   * The live `model/list` read backing `listModels()` (T3.12 C-8), or an
+   * EXPLICIT `null` for a composition that binds none — in which case the
+   * driver answers the provenance-stamped declaration in `./capabilities.ts`.
+   *
+   * REQUIRED, on the same reasoning as `resolveCredentialEnvPolicy`: an
+   * optional arm would let a construction site that simply never bound it reach
+   * the declaration by accident rather than by decision, and a stale catalog
+   * served as though it were a reading is exactly the confusion the
+   * detection-source doctrine exists to prevent.
+   *
+   * NO PRODUCTION IMPLEMENTATION EXISTS YET, and that is a recorded residual
+   * rather than an oversight: no composition root constructs this driver, so
+   * there is no live connection for the read to ride. The exchange binds when
+   * the first composition root lands — beside the `resolveCredentialEnvPolicy`
+   * binding, which is unimplemented for the same reason.
+   */
+  readonly modelCatalogExchange: CodexModelCatalogExchange | null;
 }
 
 /** The Codex provider driver: lifecycle operations plus intervention dispatch. */
@@ -181,9 +215,11 @@ export class CodexDriver implements Pick<
   | "setSessionGoal"
   | "clearSessionGoal"
   | "probeAuth"
+  | "listModels"
 > {
   readonly #lifecycle: CodexLifecycleManager;
   readonly #interventions: CodexInterventionDispatcher;
+  readonly #modelCatalogExchange: CodexModelCatalogExchange | null;
 
   readonly #transportSelection: CodexTransportSelection;
 
@@ -193,6 +229,7 @@ export class CodexDriver implements Pick<
     // websocket arm with no resolver and only discovered it when a participant
     // started a run would have reported a healthy driver for the whole
     // interval in between.
+    this.#modelCatalogExchange = options.modelCatalogExchange;
     this.#transportSelection = resolveCodexTransportSelection(options.transportConfig);
     if (this.#transportSelection.transport === "websocket") {
       if (options.resolveBearerCredential === undefined) {
@@ -258,6 +295,17 @@ export class CodexDriver implements Pick<
 
   probeAuth(): Promise<DriverAuthProbeResult> {
     return this.#lifecycle.probeAuth();
+  }
+
+  /**
+   * The selectable model catalog (T3.12 C-8).
+   *
+   * Delegates rather than deciding: `./capabilities.ts` owns both the declared
+   * catalog and the normalization of a live reply, so the wire shape and its
+   * provenance stamp sit in one place and this class stays a composition root.
+   */
+  listModels(): Promise<ProviderModel[]> {
+    return resolveCodexModelCatalog(this.#modelCatalogExchange);
   }
 
   /** The transport this driver reaches its provider processes over. */

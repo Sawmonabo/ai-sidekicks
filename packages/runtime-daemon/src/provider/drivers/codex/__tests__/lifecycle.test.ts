@@ -40,9 +40,21 @@ import {
   type ApplyInterventionParams,
   type DrainResult,
   type ExecutionPosture,
+  type CallbackToolInvocation,
+  type CallbackToolResult,
+  type SessionCallbackTool,
 } from "@ai-sidekicks/contracts";
 
-import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
+import {
+  bindCallbackToolsForSpawn,
+  CallbackToolHost,
+  createCallbackToolAskResponder,
+  type CallbackToolSpawnBinding,
+} from "../../../callback-tool-host.js";
+import {
+  DriverDiagnosticsEmitter,
+  type DriverDiagnosticRecord,
+} from "../../../driver-diagnostics.js";
 import {
   OutboundFrameCapacityRefusedError,
   OUTBOUND_FRAME_PENDING_SCOPE_CAPACITY,
@@ -86,6 +98,7 @@ import {
   type CodexTransportDiagnostic,
   type CodexTransportSelection,
   CODEX_INTERVENTION_FALLBACK_ACTION,
+  CODEX_DECLARED_MODEL_CATALOG,
 } from "../index.js";
 import { CODEX_NEGOTIATION_GATED_METHODS } from "../event-normalizer.js";
 // Directly from the module rather than through the driver barrel: these are
@@ -93,6 +106,7 @@ import { CODEX_NEGOTIATION_GATED_METHODS } from "../event-normalizer.js";
 // reach them from a test would make them look like part of its contract.
 import {
   CALLER_DERIVED_TURN_POSTURE_FIELDS,
+  CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL,
   UNREALIZED_TURN_POSTURE_MEMBERS,
   assertRealizedTurnPostureMembers,
 } from "../lifecycle.js";
@@ -532,6 +546,7 @@ function createHarness(
   const scheduler = makeManualScheduler();
   const driver = new CodexDriver({
     ptyHost: server,
+    modelCatalogExchange: null,
     onTextNeutralizationFailure: (sessionId, runId, failure) => {
       textNeutralizationFailures.push({
         sessionId,
@@ -1255,6 +1270,7 @@ describe("CodexDriver resumeSession (I-005-5, Spec-005 §Fallback Behavior)", ()
     const scheduler = makeManualScheduler();
     const driver = new CodexDriver({
       ptyHost: server,
+      modelCatalogExchange: null,
       diagnostics: makeSilentDriverDiagnostics(),
       // The disposer is caller-supplied code, so it is a real throw source on a
       // path whose whole obligation is to RETURN rather than throw.
@@ -6137,6 +6153,10 @@ describe("CodexDriver transport construction (T3.15 leg 6)", () => {
   function buildDriverOptions(): ConstructorParameters<typeof CodexDriver>[0] {
     return {
       ptyHost: new FakeCodexAppServer(),
+      // Explicit `null`: these tests bind no live `model/list` read, so
+      // `listModels()` answers the module's declared catalog. The option is
+      // required precisely so that choice is written down rather than defaulted.
+      modelCatalogExchange: null,
       diagnostics: makeSilentDriverDiagnostics(),
       subscribeToPtySession: () => () => undefined,
       reportDiagnostic: () => undefined,
@@ -6263,6 +6283,7 @@ async function routedAskHarness(
   const diagnostics: CodexTransportDiagnostic[] = [];
   const driver = new CodexDriver({
     ptyHost: server,
+    modelCatalogExchange: null,
     diagnostics: driverDiagnostics,
     subscribeToPtySession: (ptySessionId, listeners) => server.subscribe(ptySessionId, listeners),
     reportDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
@@ -7486,5 +7507,267 @@ describe("CodexLifecycleManager thread routing and usage metering (T3.11, I-005-
     expect(
       harness.driverDiagnostics.recentRecordsOfKind("usage_resume_base_unavailable"),
     ).toHaveLength(1);
+  });
+});
+
+// --------------------------------------------------------------------------
+// T3.12 C-8 — the model catalog, reachable through the composed driver.
+// --------------------------------------------------------------------------
+
+describe("CodexDriver model catalog (T3.12 C-8)", () => {
+  function buildCatalogDriverOptions(): ConstructorParameters<typeof CodexDriver>[0] {
+    return {
+      ptyHost: new FakeCodexAppServer(),
+      modelCatalogExchange: null,
+      diagnostics: makeSilentDriverDiagnostics(),
+      subscribeToPtySession: () => () => undefined,
+      reportDiagnostic: () => undefined,
+      onTextNeutralizationFailure: () => undefined,
+      scheduleTimeout: makeManualScheduler().schedule,
+      executablePath: EXECUTABLE_PATH,
+      resumeSpawnConfig: RESUME_SPAWN_CONFIG,
+      resolveCredentialEnvPolicy: resolveNoDeniedCredentialNames,
+      newBindingId: () => "binding-abc",
+      readCapabilities: () => makeCapabilities(true),
+    };
+  }
+
+  it("serves the declared catalog through the composed entry", async () => {
+    const driver = new CodexDriver(buildCatalogDriverOptions());
+
+    const models = await driver.listModels();
+
+    expect(models.map((model) => model.id)).toEqual(
+      CODEX_DECLARED_MODEL_CATALOG.map((model) => model.id),
+    );
+    // The member the currency duty exists for, reachable from the driver object
+    // rather than only from the module that declares it — and carrying the
+    // vocabulary split the pinned build publishes.
+    expect(models.find((model) => model.id === "gpt-5.6-sol")?.effortLevels).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      "ultra",
+    ]);
+    expect(models.find((model) => model.id === "gpt-5.5")?.effortLevels).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+    ]);
+  });
+
+  it("serves a bound exchange's reading instead of the declaration", async () => {
+    const driver = new CodexDriver({
+      ...buildCatalogDriverOptions(),
+      modelCatalogExchange: async () => ({
+        data: [
+          {
+            id: "gpt-future-9",
+            displayName: "GPT-Future-9",
+            supportedReasoningEfforts: [{ reasoningEffort: "glacial" }],
+          },
+        ],
+        nextCursor: null,
+      }),
+    });
+
+    const models = await driver.listModels();
+
+    // A level this file never enumerates: the vocabulary is the build's, not
+    // this driver's, which is what keeps the catalog current without an edit.
+    expect(models).toEqual([
+      { id: "gpt-future-9", name: "GPT-Future-9", capabilities: [], effortLevels: ["glacial"] },
+    ]);
+  });
+
+  it("propagates a bound exchange's failure rather than serving the declaration", async () => {
+    const driver = new CodexDriver({
+      ...buildCatalogDriverOptions(),
+      modelCatalogExchange: async () => ({ data: [], nextCursor: "page-2" }),
+    });
+
+    await expect(driver.listModels()).rejects.toThrow(/paginated/);
+  });
+});
+
+// --------------------------------------------------------------------------
+// T3.15 leg 3 — the callback-tool host reaches the provider end to end.
+// --------------------------------------------------------------------------
+//
+// Spec coverage under test:
+//   `Spec-005 §Required Behavior` — the driver answers EVERY callback-tool
+//     invocation. Asserted through the composed path a production spawn will
+//     use rather than through the host in isolation: a provider `item/tool/call`
+//     frame reaches the daemon's `CallbackToolHost`, and the host's answer
+//     reaches the provider as a `DynamicToolCallResponse`.
+//   `Spec-012 §Required Behavior` — every invocation is adjudicated. Asserted
+//     as the evaluation seam having been consulted before the executor ran on
+//     the admitted path, and as no executor reaching a withheld registry.
+//
+// THE COMPILE-TIME HALF OF THIS TEST IS THE `answerServerRequest` ARGUMENT.
+// `createCallbackToolAskResponder` returns the host module's own structurally
+// declared port; passing it where `CodexSessionServerRequestResponder` is
+// required is what proves the two independent declarations still agree, and a
+// divergence would fail here as a type error rather than at runtime.
+
+const SEARCH_CALLBACK_TOOL: SessionCallbackTool = {
+  name: "search_workspace",
+  description: "Searches the session's mounted workspace.",
+  inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
+};
+
+interface CallbackToolRoundTripHarness {
+  readonly askProvider: (method: string, params?: unknown) => Promise<Record<string, unknown>>;
+  readonly binding: CallbackToolSpawnBinding;
+  readonly executedInvocations: CallbackToolInvocation[];
+  readonly evaluatedToolNames: string[];
+  readonly hostDiagnostics: DriverDiagnosticRecord[];
+  readonly startTurn: () => Promise<void>;
+}
+
+async function callbackToolRoundTripHarness(options: {
+  readonly providerRegistrationAvailable: boolean;
+  readonly executeResult?: CallbackToolResult;
+}): Promise<CallbackToolRoundTripHarness> {
+  const executedInvocations: CallbackToolInvocation[] = [];
+  const evaluatedToolNames: string[] = [];
+  const hostDiagnostics: DriverDiagnosticRecord[] = [];
+  const host = new CallbackToolHost({
+    provider: "codex",
+    diagnostics: new DriverDiagnosticsEmitter({
+      logSink: { record: (record) => hostDiagnostics.push(record) },
+      counterSink: { increment: () => undefined },
+    }),
+    executor: {
+      execute: async (invocation) => {
+        executedInvocations.push(invocation);
+        return await Promise.resolve(
+          options.executeResult ?? { status: "completed", output: "2 matches" },
+        );
+      },
+    },
+    activitySink: { record: () => undefined },
+    approvalSeam: {
+      evaluate: async (request) => {
+        evaluatedToolNames.push(request.toolName);
+        return await Promise.resolve({ decision: "allow", basis: "policy" });
+      },
+    },
+  });
+  const binding = bindCallbackToolsForSpawn(host, {
+    sessionId: SESSION_ID,
+    requestedTools: [SEARCH_CALLBACK_TOOL],
+    providerRegistrationAvailable: options.providerRegistrationAvailable,
+    providerRegistrationUnavailableDetail: CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL,
+  });
+  const { harness, askProvider } = await routedAskHarness(
+    createCallbackToolAskResponder({ host, approvalAskResponder: null }),
+  );
+  const startTurn = async (): Promise<void> => {
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.driver.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "search the workspace" },
+    });
+  };
+  return {
+    askProvider,
+    binding,
+    executedInvocations,
+    evaluatedToolNames,
+    hostDiagnostics,
+    startTurn,
+  };
+}
+
+describe("CodexDriver callback-tool round trip (T3.15 leg 3)", () => {
+  it("carries a provider tool call to the host and the host's answer back", async () => {
+    const roundTrip = await callbackToolRoundTripHarness({ providerRegistrationAvailable: true });
+    await roundTrip.startTurn();
+
+    const answer = await roundTrip.askProvider("item/tool/call", {
+      tool: SEARCH_CALLBACK_TOOL.name,
+      callId: "call-77",
+      arguments: { query: "needle" },
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+
+    // Adjudicated before executed, and answered in the provider's own shape.
+    expect(roundTrip.evaluatedToolNames).toStrictEqual([SEARCH_CALLBACK_TOOL.name]);
+    expect(roundTrip.executedInvocations[0]?.toolCallId).toBe("call-77");
+    // The run identity the transport does not hold was resolved at answer time
+    // and reached the invocation, which is what makes the call attributable.
+    expect(roundTrip.executedInvocations[0]?.runId).toBe(RUN_ID);
+    expect(answer["result"]).toStrictEqual({
+      success: true,
+      contentItems: [{ type: "inputText", text: "2 matches" }],
+    });
+  });
+
+  it("answers the provider's own refusal shape when the tool is not registered", async () => {
+    const roundTrip = await callbackToolRoundTripHarness({ providerRegistrationAvailable: true });
+    await roundTrip.startTurn();
+
+    const answer = await roundTrip.askProvider("item/tool/call", {
+      tool: "delete_everything",
+      callId: "call-78",
+      arguments: {},
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+
+    expect(answer["result"]).toMatchObject({ success: false });
+    // Refused BEFORE the pipeline: malformed or unknown provider output never
+    // reaches Cedar, and it certainly never reaches the executor.
+    expect(roundTrip.evaluatedToolNames).toStrictEqual([]);
+    expect(roundTrip.executedInvocations).toStrictEqual([]);
+  });
+
+  it("refuses every call when the registry was withheld at spawn", async () => {
+    // The truthful production value at this pin: `ThreadStartParams.dynamicTools`
+    // is experimental-generation-only, so a Codex composition root reports the
+    // registration unavailable and the host withholds the whole registry.
+    const roundTrip = await callbackToolRoundTripHarness({ providerRegistrationAvailable: false });
+    await roundTrip.startTurn();
+
+    const answer = await roundTrip.askProvider("item/tool/call", {
+      tool: SEARCH_CALLBACK_TOOL.name,
+      callId: "call-79",
+      arguments: { query: "needle" },
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+
+    expect(roundTrip.binding.resolution).toStrictEqual({
+      admitted: false,
+      reason: "provider-registration-unavailable",
+      detail: CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL,
+    });
+    expect(answer["result"]).toMatchObject({ success: false });
+    expect(roundTrip.executedInvocations).toStrictEqual([]);
+  });
+
+  it("refuses and records a tool call raised with no turn active", async () => {
+    const roundTrip = await callbackToolRoundTripHarness({ providerRegistrationAvailable: true });
+
+    // No `startTurn()`: the session is established and no run is live, which is
+    // exactly when `#activeRunIdFor` answers `null`.
+    const answer = await roundTrip.askProvider("item/tool/call", {
+      tool: SEARCH_CALLBACK_TOOL.name,
+      callId: "call-80",
+      arguments: { query: "needle" },
+      threadId: THREAD_ID,
+    });
+
+    expect(answer["result"]).toMatchObject({ success: false });
+    expect(roundTrip.hostDiagnostics.map((record) => record.kind)).toStrictEqual([
+      "callback_tool_invocation_refused",
+    ]);
+    expect(roundTrip.hostDiagnostics[0]?.details["runId"]).toBeNull();
   });
 });
