@@ -1390,8 +1390,17 @@ type RecoverySpanClassification =
 type ProviderUsageLimitCause = "plan-allowance-exhausted";
 
 // Whether the reset instant is the provider's own statement or the runtime's derivation, so a
-// consumer can tell the two apart: the Codex leg stamps provider-stated off the published
-// rate-limit shapes; the Claude leg's retry-window arithmetic stamps runtime-derived.
+// consumer can tell the two apart. Primary sources, per the AGENTS.md citation standard: the
+// Codex leg stamps provider-stated off the published rate-limit shapes — the
+// `account/rateLimits/read` pull + `account/rateLimits/updated` push pair the provider-wire
+// reference family's codex file records (Generated schema, Verified at the codex-cli 0.150.1
+// pin), consumed by the shipped codex event-normalizer's push row. The Claude leg stamps
+// runtime-derived because no Claude surface states a reset instant: the arithmetic is
+// observation time plus the `api_retry` frame's own `retry_delay_ms`, emitted only on the
+// final announced retry beside the typed `rate_limit` error member — the mid-session retry
+// taxonomy the provider-wire claude file records (Binary probe, Verified at Claude Code
+// 2.1.245). The sibling-axis rule and typed-only recognition are `Spec-005 §Fallback
+// Behavior`'s.
 type ProviderUsageLimitResetProvenance = "provider-stated" | "runtime-derived";
 
 interface ProviderUsageLimitResetBoundary {
