@@ -1219,6 +1219,48 @@ shipped:
       The terminal round's largest change is the outbound-frame attribution redesign (`837a8b6e`): frames now declare a role at registration (`turn-opening` | `turn-joining`); items and envelope evidence credit only the turn-opening frame, and a turn-joining steer is consumed on the provider's answer to its own request (`recordRequestAnswered`) — receipt evidence that the provider took the frame, deliberately NOT proof the model read its text, with the accepted residual stated as a conjunction in the tripwire's class doc (wire text survives compose in command-effective shape AND the request is answered AND an interception layer drops the text, on a request path not known to parse client commands). The reviewer's remedy was a disjunction — serialize provider-bound frames on a turn, or require per-frame evidence — and the second branch was taken because serialization would hold steers to turn boundaries, a product change to the steering surface rather than a tripwire fix. Six steer regression pins inverted from trip to pass in that commit, stated plainly rather than absorbed: the previous oldest-unevidenced heuristic caught a swallowed steer only when item timing happened to expose it (the same round documents its false PASS) and false-tripped delivered steers under delayed-item timing, so the inversion trades a luck-dependent catch that came bundled with false trips for a deterministic boundary — an unanswered steer (timeout, dead connection) trips at settlement, a zero-turn terminal still trips the turn-opening frame, and an unrecognized envelope still trips every frame, answered or not.
       One escalated design decision is recorded rather than buried: T3.19's `TranscriptContentSource` port is declared and deliberately unimplemented, because Spec-006's assistant / tool payload shapes are metadata-shaped and Spec-022's PII map confirms no durable home for assistant prose, reasoning bodies or tool bodies — so the fold takes content through a port rather than minting the second record ADR-029 forbids. It was answered before this PR merged, by the 2026-08-30 machine-authored-prose amendment (§6 node NS-94, PR #383), which registers CP-005-13 and routes T3.20's consumption through Plan-006's `HydratedSessionEvent` projection. Two in-PR flake fixes are test-harness-only and touch no production file: per-spawn `--user-data-dir` isolation plus SIGTERM-then-SIGKILL (and win32 `taskkill /t`) shim termination for the desktop launch smoke test, and a 45s file-scoped budget for the turn-snapshot OID-determinism case whose root cause was subprocess budget under load, not determinism. One defect was flagged and NOT fixed, owner named: `turn-snapshot-service.ts` `#normalizeEmbeddedRepositories` wraps `rev-parse --verify HEAD` in a bare catch that turns an infrastructure failure into a durable embedded-repo skip claim the restore leg trusts.
       Census: no move. Migration 0012 widens no CHECK, rebuilds no table and adds no column — it inserts one `supported = 0` `transcript_replay` row per already-cached `driver_name` — so the local SQLite census stays 58; the `transcript_replay` flag had already taken the Spec-005 matrix from thirteen to fourteen at NS-84, so this shipment lands the code for a doc census that had already moved; `driver.text_neutralization_failed` was registered reserved at NS-76 and neither this PR nor PR #378 touches error-contracts.md, so no error-code row is added; and no wire method, event type, table or column is minted. `DriverInterventionResult` takes one additive-optional closed-literal member with `.strict()` retained, which changes no shipped field's type and makes no merged manifest entry mean something different.
+  - phase: 3
+    task: [T3.24, T3.25]
+    pr: 385
+    sha: dc6fc0a7
+    merged_at: 2026-08-30
+    files:
+      - docs/plans/005-provider-driver-contract-and-capabilities.md
+      - docs/reference/provider-wire/claude.md
+      - docs/reference/provider-wire/codex.md
+      - packages/contracts/src/__tests__/provider-driver.test.ts
+      - packages/contracts/src/provider-driver.ts
+      - packages/runtime-daemon/src/provider/__fixtures__/capability-probe-doubles.ts
+      - packages/runtime-daemon/src/provider/__tests__/capability-probe.test.ts
+      - packages/runtime-daemon/src/provider/__tests__/capability-refresh.test.ts
+      - packages/runtime-daemon/src/provider/__tests__/spawn-env.test.ts
+      - packages/runtime-daemon/src/provider/__tests__/version-gate.test.ts
+      - packages/runtime-daemon/src/provider/capability-probe.ts
+      - packages/runtime-daemon/src/provider/capability-refresh.ts
+      - packages/runtime-daemon/src/provider/driver-diagnostics.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/__tests__/claude-capabilities.test.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/__tests__/claude-test-doubles.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/__tests__/lifecycle.test.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/capabilities.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/lifecycle.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/__tests__/capabilities.test.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/__tests__/lifecycle.test.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/capabilities.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/index.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/lifecycle.ts
+      - packages/runtime-daemon/src/provider/spawn-env.ts
+      - packages/runtime-daemon/src/provider/version-gate.ts
+    verifies_invariant: [I-005-10]
+    spec_coverage:
+      [
+        "Spec-005 §Required Behavior (per-capability zero-turn detection with registry membership neither necessary nor sufficient; provider auto-update disabled in every driver-spawned child, the auth probe included; exactly one member of the mutually-exclusive turn-posture pair realized)",
+        "Spec-005 §Capability discovery (declaration is a reading of the installed build; detectionSource additive-optional and live-scoped, absent on hydrate)",
+        "Spec-012 §Required Behavior (the daemon-side credential-policy derivation half: the resolved deny strip, host-name-match semantics, and the posture-bound resolution on create and resume)",
+      ]
+    notes: |
+      T3.24 ships the declared detection-mechanism tables, compile-time total over the seventeen-flag union per driver — 2 probed on Codex (steer; session_goals over the conjunctive thread/goal/set + thread/goal/clear pair) and, as landed, ZERO probed on Claude: the round-1 review fold's first-party probe at the 2.1.251 pin showed the inbound dispatcher refuses the outbound-raised subtypes by name, so interactive_requests demoted to static with that failing conjunct and the T3.24 row carries the erratum-class landed-fact annotation. The negative control runs first and disqualifies an answering channel; withdrawal is withdraw-only; mcp_set_servers is refused at both the table screen and the dispatch guard; probes bind to the version handshake's resolved build via boundExecutablePath; withdrawal diagnostics reach the sink through the module-local capability_flag_withdrawn kind/counter pair (verified uncensused before minting). T3.25 ships the provider-neutral spawn-env builder (strip-then-set, replace-not-append, uniform conflict refusal, required host name-match semantics independent of the optional credential policy) with the Claude opt-out pairs and the deliberately-empty Codex entry compensated by the strip-exempt exact-build-path pin, the T3.23 duplicate table consolidated in, and the Codex turn/start posture pair realized at exactly sandboxPolicy with the unrealized members refused at the composer.
+      Three Codex review rounds, ten findings, all accepted and folded in-PR: round 1 killed two live bugs (every probed flag on both providers would have been withdrawn on real reads — the -32600 conflation and the inbound-dispatcher direction fact) and added the build binding, sink routing, host-match independence, and the demote; round 2 made every resume derive its credential policy from the posture being resumed (the CodexCredentialEnvPolicyResolver port, required) and carried the mandated environment into Claude probeAuth; round 3 closed the create-path asymmetry through the same generalized posture rule and classified the parameter-level thread/fork lastTurnId refusal into the promised driver.capability_unsupported surface (driver-local class on the ClaudeControlRequestRefusedError precedent — no code minted). Both wire references gained measured refusal-shape sections at their pins.
+      Zero census moves: no event type, wire method, error code, table, or column. Named residuals, none blocking: the resolver port's production binder lands with the first composition root (symmetric with the create path's already-resolved arrival); the Claude can_use_tool inbound arm's settling measurement stays the recorded first-party probe path; the ignoring-build fork arm remains answered by the fork-turn-ledger-unconfirmed diagnostic by design.
 ```
 
 ### Notes
