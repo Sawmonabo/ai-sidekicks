@@ -425,6 +425,50 @@ export interface SessionContentKeyReader {
  */
 export interface SessionContentKeyDisposer {
   deleteIfUnreferenced(sessionId: SessionId): Promise<boolean>;
+  /**
+   * Retire EVERY wrapped DEK this database holds that no retained ciphertext
+   * still depends on, and report what the pass did.
+   *
+   * THE PER-SESSION CALL IS THE PROMPT PATH; THIS IS THE ONE THAT CANNOT BE
+   * MISSED. A clearing pass that calls `deleteIfUnreferenced` after clearing has
+   * exactly one attempt: if that call throws, or the process exits between the
+   * last body being cleared and the call completing, the key survives — and the
+   * next pass finds nothing left to clear, so it never calls again. The
+   * obligation is derived from work the pass just did, which is state that does
+   * not survive the pass.
+   *
+   * This asks the durable question instead — which keys exist with no live
+   * content row — so the answer is re-derivable on every pass, from a database
+   * that remembers. It subsumes the per-session call rather than replacing it:
+   * the prompt path still runs at the moment the last body goes, and this is
+   * what makes that path's failure a delay rather than a permanent leak.
+   */
+  sweepUnreferenced(): Promise<SessionContentKeySweepResult>;
+}
+
+/**
+ * What one {@link SessionContentKeyDisposer.sweepUnreferenced} pass did.
+ *
+ * TWO NUMBERS RATHER THAN ONE, and the second is the whole reason this is a
+ * shape rather than a count. The sweep skips a candidate whose disposal throws
+ * so that one bad session cannot stop a reclamation pass — but a fault that
+ * affects one session usually affects every one of them, and with only a
+ * reclaim count a sweep that failed on all of its candidates is indistinguishable
+ * from a healthy sweep that found nothing to do. That is exactly the "silently
+ * stops reclaiming" failure this whole mechanism exists to prevent, reintroduced
+ * one layer down.
+ */
+export interface SessionContentKeySweepResult {
+  /** Wrapped DEKs actually removed. */
+  readonly reclaimed: number;
+  /**
+   * Candidates whose disposal threw and were passed over.
+   *
+   * Nonzero is not by itself an alarm — a contended `SQLITE_BUSY` costs a skip
+   * and the next pass re-derives the same candidate — but a count that stays
+   * nonzero across passes is a sweep that is not sweeping.
+   */
+  readonly skipped: number;
 }
 
 /**
@@ -441,6 +485,7 @@ export class SessionContentKeyStore
   readonly #now: () => string;
   readonly #selectStmt: Statement;
   readonly #selectAllStmt: Statement;
+  readonly #selectUnreferencedStmt: Statement;
   readonly #insertStmt: Statement;
   readonly #rewrapStmt: Statement;
   readonly #deleteIfUnreferencedTransaction: (sessionId: string) => boolean;
@@ -479,6 +524,22 @@ export class SessionContentKeyStore
               key_version AS key_version
          FROM session_content_keys
         ORDER BY session_id`,
+    );
+    // The SWEEP's candidate read. Deliberately a candidate list rather than the
+    // decision: it runs outside every lock and can be stale the instant it
+    // returns, and the authoritative check is re-run inside
+    // `#deleteIfUnreferencedTransaction` under the session's append hold. A
+    // NOT EXISTS anti-join rather than a walk of every key: the sweep runs on a
+    // cadence and the rows it wants are the rare ones.
+    this.#selectUnreferencedStmt = database.prepare(
+      `SELECT k.session_id AS session_id
+         FROM session_content_keys k
+        WHERE NOT EXISTS (
+                SELECT 1
+                  FROM session_events e
+                 WHERE e.session_id = k.session_id
+                   AND e.content_payload IS NOT NULL)
+        ORDER BY k.session_id`,
     );
     this.#insertStmt = database.prepare(
       `INSERT INTO session_content_keys (session_id, encrypted_key_blob, key_version, created_at)
@@ -780,6 +841,59 @@ export class SessionContentKeyStore
     return withSessionAppendLock(sessionId, async () =>
       this.#deleteIfUnreferencedTransaction(sessionId),
     );
+  }
+
+  /**
+   * Retire every unreferenced wrapped DEK. See {@link SessionContentKeyDisposer}
+   * for WHY the obligation has to be re-derivable rather than remembered.
+   *
+   * TWO STEPS, AND THE SPLIT IS THE SAFETY. The candidate read runs outside every
+   * lock and holds no claim: by the time a candidate is reached, an append may
+   * have sealed a body under the very key it names. The decision is therefore
+   * re-run per session inside {@link deleteIfUnreferenced}, which is the same
+   * `IMMEDIATE` transaction under the same append hold the prompt path uses — so
+   * a stale candidate costs one no-op call rather than a body nobody can open.
+   * A single sweeping DELETE would have been shorter and would have had exactly
+   * that bug.
+   *
+   * ONE HOLD PER SESSION, never one hold for the pass. The append lock is
+   * per-session by design, and taking them together would stall every session's
+   * appends for the length of a sweep that concerns almost none of them.
+   *
+   * NEVER FAILS THE PASS ON ONE SESSION, AND NEVER HIDES THAT IT DIDN'T. A
+   * session whose disposal throws is skipped and the sweep continues — this is a
+   * reclamation pass, its whole point is that it runs again, and letting one bad
+   * row stop it would recreate the single-attempt failure it exists to remove.
+   * The skip is COUNTED rather than swallowed, because a fault that stops one
+   * disposal usually stops all of them, and a bare reclaim count would report a
+   * wholly broken sweep and an idle one with the same zero.
+   */
+  async sweepUnreferenced(): Promise<SessionContentKeySweepResult> {
+    const candidates = this.#selectUnreferencedStmt.all() as ReadonlyArray<{
+      readonly session_id: unknown;
+    }>;
+    let reclaimed = 0;
+    let skipped = 0;
+    for (const candidate of candidates) {
+      // The read-side stance this file takes everywhere: a declared column type
+      // is a claim SQLite does not enforce, and a non-string here would reach
+      // the lock as a key nothing can be keyed by. Counted as a skip rather than
+      // ignored, for the same reason a throwing disposal is.
+      if (typeof candidate.session_id !== "string" || candidate.session_id.length === 0) {
+        skipped += 1;
+        continue;
+      }
+      const sessionId = candidate.session_id as SessionId;
+      try {
+        if (await this.deleteIfUnreferenced(sessionId)) {
+          reclaimed += 1;
+        }
+      } catch {
+        // Passed over, not fatal — the next pass re-derives this same candidate.
+        skipped += 1;
+      }
+    }
+    return { reclaimed, skipped };
   }
 
   async #readMasterKey(sessionId: string): Promise<Uint8Array> {

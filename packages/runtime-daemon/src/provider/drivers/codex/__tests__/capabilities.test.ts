@@ -635,6 +635,23 @@ describe("Codex model catalog (T3.12 C-8)", () => {
     expect(models[0] && "effortLevels" in models[0]).toBe(false);
   });
 
+  it.each([
+    ["an explicit null", null],
+    ["an empty array", []],
+  ])("reads %s effort surface as ABSENT rather than refusing", (_label, rawEfforts) => {
+    // The over-strictness control for the present-but-unreadable refusal. Both
+    // shapes STATE that the model exposes no effort selection, and refusing
+    // either would cost the whole catalog: this normalizer throws for the
+    // entire reply on any entry fault, so one odd field would drop every model.
+    const models = normalizeCodexModelCatalog({
+      data: [{ id: "model-x", displayName: "X", supportedReasoningEfforts: rawEfforts }],
+      nextCursor: null,
+    });
+
+    expect(models.map((model) => model.id)).toEqual(["model-x"]);
+    expect(models[0] && "effortLevels" in models[0]).toBe(false);
+  });
+
   it("drops hidden models", () => {
     const models = normalizeCodexModelCatalog({
       data: [
@@ -690,6 +707,22 @@ describe("Codex model catalog (T3.12 C-8)", () => {
         nextCursor: null,
       },
       /unreadable reasoning-effort entry/,
+    ],
+    [
+      "a PRESENT but non-array effort surface",
+      {
+        data: [{ id: "model-x", displayName: "A", supportedReasoningEfforts: "low,medium" }],
+        nextCursor: null,
+      },
+      /unreadable `supportedReasoningEfforts`/,
+    ],
+    [
+      "an OBJECT effort surface",
+      {
+        data: [{ id: "model-x", displayName: "A", supportedReasoningEfforts: { low: true } }],
+        nextCursor: null,
+      },
+      /unreadable `supportedReasoningEfforts`/,
     ],
   ])("refuses %s", (_label, payload, message) => {
     expect(() => normalizeCodexModelCatalog(payload)).toThrow(CodexModelCatalogUnreadableError);

@@ -3475,10 +3475,14 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   // than admitted by an omission.
   //
   // A REJECTED ENTRY IS DROPPED, NEVER SILENTLY AND NEVER FATALLY. Dropping is
-  // per-entry so one unusable name cannot empty a participant's palette; the
-  // diagnostic is what keeps the drop findable, which is the half the sibling
-  // driver's module-level composer cannot supply — it holds no emitter, and its
-  // silence is recorded in its own doc rather than mirrored here.
+  // per-entry so one unusable name cannot empty a participant's palette, and the
+  // diagnostic is what keeps the drop findable. The sibling driver reports the
+  // same condition on the same kind: its module-level composer stays pure and
+  // RETURNS what it refused, and the manager seam that holds the emitter and the
+  // session id records it. Only `name` is provider-supplied on this leg — the
+  // terminal `scope` is authored here — so a rejected entry here is always a
+  // rejected name, while the sibling additionally reports a refused caption or
+  // scope that cost the field rather than the entry.
   #composeProviderCommandEntries(
     sessionId: SessionId,
     declaration: ClaudeHandshakeDeclaration,

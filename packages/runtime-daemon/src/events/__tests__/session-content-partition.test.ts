@@ -114,6 +114,8 @@ import {
   SessionContentKeyUnavailableError,
   buildSessionContentWrapAad,
   type DaemonMasterKeySource,
+  type SessionContentKeyDisposer,
+  type SessionContentKeySweepResult,
   type SessionContentKeyUnavailableReason,
 } from "../session-content-key-store.js";
 import {
@@ -1990,6 +1992,125 @@ describe("appending a row that carries machine-authored prose", () => {
       expect(keyRowCount(OTHER_SESSION)).toBe(1);
     });
 
+    // ------------------------------------------------------------------------
+    // THE TABLE-WIDE RECONCILIATION — `sweepUnreferenced`
+    // ------------------------------------------------------------------------
+    //
+    // The per-session call above is the PROMPT path and it has exactly one
+    // attempt: a clearing pass that calls it after clearing loses the obligation
+    // if that call throws or the process exits, because the next pass finds
+    // nothing left to clear and so never calls again. These arms pin the
+    // re-derivable question — which keys exist with no live content row — which
+    // is what makes the prompt path's failure a DELAY rather than a leak, and
+    // which also collects the orphan class the prompt path structurally cannot
+    // see: a key minted by an append that aborted before sealing anything.
+    it("retires every unreferenced key in the table and spares the referenced ones", async () => {
+      const { service, store } = buildAppendFixture();
+      const doomed = makeAssistantEnvelope();
+      const survivor = makeAssistantEnvelopeFor(OTHER_SESSION);
+      await service.append(doomed, { content: { body: "will be cleared" } });
+      await service.append(survivor, { content: { body: "will survive" } });
+
+      clearBody(doomed.id);
+
+      // ONE, not two: the sweep is table-wide but its predicate is per session,
+      // so a session that still seals a body is never a candidate.
+      expect(await store.sweepUnreferenced()).toEqual({ reclaimed: 1, skipped: 0 });
+      expect(keyRowCount(SESSION)).toBe(0);
+      expect(keyRowCount(OTHER_SESSION)).toBe(1);
+      // And the survivor still opens — the sweep took no key that was in use.
+      const resolved = await store.read(OTHER_SESSION);
+      const row = readStoredRow(survivor.id);
+      expect(
+        openContentPayload(row.content_payload!, resolved.key, OTHER_SESSION, survivor.id),
+      ).toBe("will survive");
+    });
+
+    it("collects the arrear a failed prompt disposal left behind", async () => {
+      // THE FAILURE MODE THE SWEEP EXISTS FOR, reproduced end to end: the body
+      // is cleared and the prompt disposal never lands. Nothing in the database
+      // records that a disposal is owed, so no later clearing pass will ever
+      // call again — the sweep is the only thing that can still find this key.
+      const { service, store } = buildAppendFixture();
+      const only = makeAssistantEnvelope();
+      await service.append(only, { content: { body: "the only body" } });
+      clearBody(only.id);
+      // The prompt call is simply not made, which is what a throw or a crash at
+      // this exact point leaves behind.
+      expect(keyRowCount(SESSION)).toBe(1);
+
+      expect(await store.sweepUnreferenced()).toEqual({ reclaimed: 1, skipped: 0 });
+      expect(keyRowCount(SESSION)).toBe(0);
+    });
+
+    it("reports nothing to reclaim while every key still seals a body", async () => {
+      // The negative control: a sweep that returned a nonzero count here — or
+      // that deleted anything — would be destroying live keys, and the bodies
+      // they open would be unreadable with every integrity check still green.
+      const { service, store } = buildAppendFixture();
+      const live = makeAssistantEnvelope();
+      await service.append(live, { content: { body: "still referenced" } });
+
+      expect(await store.sweepUnreferenced()).toEqual({ reclaimed: 0, skipped: 0 });
+      expect(keyRowCount(SESSION)).toBe(1);
+      const resolved = await store.read(SESSION);
+      const row = readStoredRow(live.id);
+      expect(openContentPayload(row.content_payload!, resolved.key, SESSION, live.id)).toBe(
+        "still referenced",
+      );
+    });
+
+    it("passes over a candidate whose disposal throws, counts it, and keeps sweeping", async () => {
+      // ONE BAD SESSION MUST NOT STOP THE PASS — that is the single-attempt
+      // failure this mechanism exists to remove, and rethrowing here would
+      // reintroduce it one layer down. But the pass-over is COUNTED rather than
+      // swallowed: a fault that stops one disposal usually stops all of them,
+      // and a bare reclaim count reports a wholly broken sweep and an idle one
+      // with the same zero.
+      class RefusingDisposalStore extends SessionContentKeyStore {
+        refuseFor: string | undefined;
+
+        override async deleteIfUnreferenced(sessionId: SessionId): Promise<boolean> {
+          if (sessionId === this.refuseFor) throw new Error("this session's delete is wedged");
+          return super.deleteIfUnreferenced(sessionId);
+        }
+      }
+
+      const store = new RefusingDisposalStore({
+        database,
+        masterKeySource: new ScriptedMasterKeySource(),
+      });
+      const service = new EventLogService({
+        db: database,
+        signingKeySource: {
+          create: () => Promise.resolve({ publicKey: DAEMON_PUBLIC_KEY }),
+          read: () => Promise.resolve(DAEMON_PRIVATE_KEY),
+        },
+        haltSource: new IngestHaltRegistry(),
+        piiEncryptor: new DeterministicPiiEncryptor(),
+        contentKeySource: store,
+      });
+      const wedged = makeAssistantEnvelope();
+      const healthy = makeAssistantEnvelopeFor(OTHER_SESSION);
+      await service.append(wedged, { content: { body: "wedged session body" } });
+      await service.append(healthy, { content: { body: "healthy session body" } });
+      clearBody(wedged.id);
+      clearBody(healthy.id);
+      store.refuseFor = SESSION;
+
+      expect(await store.sweepUnreferenced()).toEqual({ reclaimed: 1, skipped: 1 });
+      // The sweep reached the SECOND candidate, which it could only do by not
+      // rethrowing the first.
+      expect(keyRowCount(SESSION)).toBe(1);
+      expect(keyRowCount(OTHER_SESSION)).toBe(0);
+    });
+
+    it("is a silent no-op against a table that holds no keys at all", async () => {
+      const { store } = buildAppendFixture();
+      expect(await store.sweepUnreferenced()).toEqual({ reclaimed: 0, skipped: 0 });
+      expect(await store.sweepUnreferenced()).toEqual({ reclaimed: 0, skipped: 0 });
+    });
+
     it("cannot delete the key out from under an in-flight append", async () => {
       // THE RACE THE APPEND LOCK EXISTS FOR HERE. An append resolves the key and
       // only LATER inserts the sealed row. Between those two moments the session
@@ -2078,6 +2199,237 @@ describe("appending a row that carries machine-authored prose", () => {
       expect(openContentPayload(row.content_payload!, resolved.key, SESSION, second.id)).toBe(
         "second body",
       );
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // THE OTHER END OF THE SAME LIFECYCLE — an append that MINTS and then ABORTS
+  // --------------------------------------------------------------------------
+  //
+  // The arms above retire a key when the last body it sealed is CLEARED. These
+  // retire one that never sealed a body at all. `resolveForWrite` mints on a
+  // miss and commits that mint in a transaction of its own — it has to, because
+  // unwrapping blocks on the master key's custody ladder and a better-sqlite3
+  // transaction cannot span an await — so the key row is durable well before
+  // the append knows whether it will produce a row. Every refusal downstream of
+  // that point leaves `session_content_keys` holding a key for a session that
+  // sealed nothing, and on a session whose FIRST content-bearing append is the
+  // one that failed, nothing will ever reference it and nothing will ever mint
+  // it again.
+  //
+  // TWO LAYERS, PINNED SEPARATELY, because they abort at different places and
+  // one does not imply the other: the codec's own refusals fire before the
+  // INSERT is reached at all, while a throwing prelude or a constraint
+  // violation rolls a reached INSERT back.
+  describe("reconciling the key an aborted append minted", () => {
+    /**
+     * A disposer that DELEGATES to the real store rather than faking it.
+     *
+     * The delegation is what makes the arms mean something: a stub returning
+     * `false` would let every assertion below pass against a service that never
+     * reclaimed anything. What is added is the call RECORD — needed for the
+     * arm that asserts the reconciliation is not attempted at all — and an
+     * injectable failure, needed for the arm that asserts a disposal fault
+     * never displaces the append's own error.
+     */
+    class RecordingContentKeyDisposer implements SessionContentKeyDisposer {
+      readonly disposedSessionIds: string[] = [];
+      failure: Error | undefined;
+      readonly #delegate: SessionContentKeyStore;
+
+      constructor(delegate: SessionContentKeyStore) {
+        this.#delegate = delegate;
+      }
+
+      async deleteIfUnreferenced(sessionId: SessionId): Promise<boolean> {
+        this.disposedSessionIds.push(sessionId);
+        if (this.failure !== undefined) throw this.failure;
+        return this.#delegate.deleteIfUnreferenced(sessionId);
+      }
+
+      async sweepUnreferenced(): Promise<SessionContentKeySweepResult> {
+        return this.#delegate.sweepUnreferenced();
+      }
+    }
+
+    function buildReconcilingFixture(options?: { readonly withoutDisposer?: boolean }): {
+      readonly service: EventLogService;
+      readonly store: SessionContentKeyStore;
+      readonly disposer: RecordingContentKeyDisposer;
+    } {
+      const store = new SessionContentKeyStore({
+        database,
+        masterKeySource: new ScriptedMasterKeySource(),
+      });
+      const disposer = new RecordingContentKeyDisposer(store);
+      const service = new EventLogService({
+        db: database,
+        signingKeySource: {
+          create: () => Promise.resolve({ publicKey: DAEMON_PUBLIC_KEY }),
+          read: () => Promise.resolve(DAEMON_PRIVATE_KEY),
+        },
+        haltSource: new IngestHaltRegistry(),
+        piiEncryptor: new DeterministicPiiEncryptor(),
+        contentKeySource: store,
+        ...(options?.withoutDisposer === true ? {} : { contentKeyDisposer: disposer }),
+      });
+      return { service, store, disposer };
+    }
+
+    function keyRowCount(sessionId: string): number {
+      const row = database
+        .prepare(`SELECT COUNT(*) AS n FROM session_content_keys WHERE session_id = ?`)
+        .get(sessionId) as { readonly n: number };
+      return row.n;
+    }
+
+    /**
+     * A content-bearing append that is refused AFTER the mint and BEFORE the
+     * INSERT, by the codec's own refusal 9.
+     *
+     * The unregistered payload member is the lever: `assistant.message`'s
+     * registered variant is `.strict()`, and refusal 9 parses the composed
+     * envelope between the seal and the signature. So the mint has committed,
+     * the AEAD seal has been spent, and no row has been written — which is
+     * precisely the state the reconciliation exists for. Chosen over the
+     * canonical-size ceiling because it needs no 32 KiB fixture to reach the
+     * same window.
+     */
+    function appendRefusedAfterTheMint(service: EventLogService): Promise<unknown> {
+      const envelope = makeAssistantEnvelope();
+      return service.append(
+        {
+          ...envelope,
+          payload: { ...envelope.payload, unregisteredMember: "refused by the strict variant" },
+        },
+        { content: { body: "prose whose row never lands" } },
+      );
+    }
+
+    it("retires the key a post-mint refusal left behind", async () => {
+      const { service } = buildReconcilingFixture();
+
+      await expect(appendRefusedAfterTheMint(service)).rejects.toThrow(
+        /registered SessionEventSchema variant rejects/,
+      );
+
+      // No row, and — the point of the fix — no key either. Before the
+      // reconciliation this session held a wrapped DEK forever: it never
+      // compacts (there is nothing to compact) so no clearing path would ever
+      // reach it, and `rewrapAll` would walk it on every unrelated
+      // participant's erasure for the life of the node.
+      expect(keyRowCount(SESSION)).toBe(0);
+      expect(database.prepare(`SELECT COUNT(*) AS total FROM session_events`).get()).toEqual({
+        total: 0,
+      });
+    });
+
+    it("leaves the orphan behind when no disposer is wired", async () => {
+      // THE NON-VACUITY CONTROL for the arm above, and the honest statement of
+      // the degraded stance in one arm. It proves the mint really does commit
+      // ahead of the refusal — without it, "no key row afterwards" would pass
+      // just as well against a service that never minted one — and it records
+      // that an unwired disposer DELAYS the reclaim rather than losing it: the
+      // compactor's pass-level sweep re-derives this same obligation from
+      // durable state and takes the row on a later tick.
+      const { service } = buildReconcilingFixture({ withoutDisposer: true });
+
+      await expect(appendRefusedAfterTheMint(service)).rejects.toThrow(
+        /registered SessionEventSchema variant rejects/,
+      );
+
+      expect(keyRowCount(SESSION)).toBe(1);
+    });
+
+    it("keeps the key when an earlier append already sealed a body", async () => {
+      // The reconciliation must be a NO-OP the instant anything is sealed under
+      // the key — it asks the disposer's durable predicate rather than
+      // remembering that it minted, so a later refusal on a live session cannot
+      // destroy the bodies the session already holds.
+      const { service, store } = buildReconcilingFixture();
+      const sealed = makeAssistantEnvelope();
+      await service.append(sealed, { content: { body: "an earlier body" } });
+
+      await expect(appendRefusedAfterTheMint(service)).rejects.toThrow(
+        /registered SessionEventSchema variant rejects/,
+      );
+
+      expect(keyRowCount(SESSION)).toBe(1);
+      const resolved = await store.read(SESSION);
+      const row = readStoredRow(sealed.id);
+      expect(openContentPayload(row.content_payload!, resolved.key, SESSION, sealed.id)).toBe(
+        "an earlier body",
+      );
+    });
+
+    it("retires the key when a throwing prelude rolls the row back", async () => {
+      // THE SECOND LAYER. The codec succeeded, the INSERT was reached, and the
+      // prelude aborted the transaction — so the sealed row this append minted
+      // a key for does not exist. Independent of the first layer rather than a
+      // repetition of it: no codec refusal fires on this path at all.
+      const { service } = buildReconcilingFixture();
+
+      await expect(
+        service.append(makeAssistantEnvelope(), {
+          content: { body: "prose the prelude discards" },
+          transactionalPrelude: () => {
+            throw new Error("the prelude refused this write");
+          },
+        }),
+      ).rejects.toThrow("the prelude refused this write");
+
+      expect(keyRowCount(SESSION)).toBe(0);
+      expect(database.prepare(`SELECT COUNT(*) AS total FROM session_events`).get()).toEqual({
+        total: 0,
+      });
+    });
+
+    it("never reaches for the disposer when the aborted append carried no body", async () => {
+      // THE GUARD'S OWN NEGATIVE CONTROL. An append with no content partition
+      // never reached the minting path, so there is nothing it could have
+      // orphaned — and calling anyway would let an unrelated failure delete a
+      // key some OTHER append is about to seal under. Asserted on the CALL
+      // RECORD and not only on the surviving row count, because the delegating
+      // disposer would decline this one anyway and a passing count would prove
+      // nothing about whether the guard ran.
+      const { service, disposer } = buildReconcilingFixture();
+      await service.append(makeAssistantEnvelope(), { content: { body: "a live body" } });
+      disposer.disposedSessionIds.length = 0;
+
+      await expect(
+        service.append(
+          {
+            ...makeAssistantEnvelope(),
+            category: "session_lifecycle",
+            type: "session.updated",
+            payload: { sessionId: SESSION },
+          },
+          {
+            transactionalPrelude: () => {
+              throw new Error("an unrelated prelude failure");
+            },
+          },
+        ),
+      ).rejects.toThrow("an unrelated prelude failure");
+
+      expect(disposer.disposedSessionIds).toEqual([]);
+      expect(keyRowCount(SESSION)).toBe(1);
+    });
+
+    it("reports the append's own failure when the disposal itself fails", async () => {
+      // The caller's error describes what went wrong with the APPEND. Replacing
+      // it with a housekeeping fault would hide the real refusal behind a
+      // cleanup one, and the leak that swallowing admits is bounded rather than
+      // permanent — the pass-level sweep re-derives it.
+      const { service, disposer } = buildReconcilingFixture();
+      disposer.failure = new Error("the disposer itself is broken");
+
+      await expect(appendRefusedAfterTheMint(service)).rejects.toThrow(
+        /registered SessionEventSchema variant rejects/,
+      );
+
+      expect(disposer.disposedSessionIds).toEqual([SESSION]);
+      expect(keyRowCount(SESSION)).toBe(1);
     });
   });
 });

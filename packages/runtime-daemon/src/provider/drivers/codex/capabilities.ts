@@ -570,7 +570,7 @@ function readNonEmptyCodexString(source: Record<string, unknown>, key: string): 
  * Normalize one `model/list` reply into the contract's model shape.
  *
  * STRICT, not tolerant — the accepted shape is the one the pinned build
- * answers and nothing else. Three rules the wire forces:
+ * answers and nothing else. Four rules the wire forces:
  *
  *   1. **A paginated reply REFUSES.** `nextCursor` is `null` at the pin. A
  *      non-null cursor means this page is not the catalog, and answering the
@@ -584,6 +584,16 @@ function readNonEmptyCodexString(source: Record<string, unknown>, key: string): 
  *      no alias mechanism — every row names its own model — so two rows for one
  *      id is a malformed reply rather than a shape to collapse, and collapsing
  *      it would hide the malformation.
+ *   4. **A PRESENT but unreadable effort surface REFUSES.** Absence and
+ *      unreadability are opposite claims about the same model: absence means
+ *      the model exposes no effort selection, which the contract's
+ *      `effortLevels` reads as normative, so admitting an unreadable value
+ *      under that same shape would publish a claim the provider never made.
+ *      Only the array form is readable; `null` joins absence deliberately,
+ *      since a provider answering `null` for a model with no effort surface is
+ *      stating absence and refusing it would cost the WHOLE catalog — this
+ *      normalizer throws for the entire reply on any entry fault, so a single
+ *      odd field would become a total loss of model listing.
  */
 export function normalizeCodexModelCatalog(payload: unknown): ProviderModel[] {
   if (typeof payload !== "object" || payload === null) {
@@ -625,6 +635,11 @@ export function normalizeCodexModelCatalog(payload: unknown): ProviderModel[] {
     }
     const model: ProviderModel = { id, name: displayName, capabilities: [] };
     const rawEfforts = entry["supportedReasoningEfforts"];
+    if (rawEfforts !== undefined && rawEfforts !== null && !Array.isArray(rawEfforts)) {
+      throw new CodexModelCatalogUnreadableError(
+        `model '${id}' has an unreadable \`supportedReasoningEfforts\``,
+      );
+    }
     if (Array.isArray(rawEfforts) && rawEfforts.length > 0) {
       const effortLevels: string[] = [];
       for (const rawEffort of rawEfforts) {

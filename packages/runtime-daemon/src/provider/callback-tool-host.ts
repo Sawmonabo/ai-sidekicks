@@ -252,6 +252,23 @@ export type CallbackToolRegistryResolution =
 interface InstalledCallbackToolRegistry {
   readonly token: CallbackToolRegistryToken;
   readonly toolsByName: ReadonlyMap<string, SessionCallbackTool>;
+  /**
+   * The installation this one displaced, restorable by
+   * {@link CallbackToolHost.rollbackSpawnRegistry} when the spawn that installed
+   * this one fails to establish.
+   *
+   * DEPTH ONE, ALWAYS. The record stored here is itself stripped of its own
+   * predecessor, so a session resumed repeatedly holds at most two registries
+   * rather than a chain that grows with every attempt. That is not only a memory
+   * bound, it is the honest one: an installation two supersedes back has already
+   * been displaced by a spawn that SUCCEEDED, and restoring it would revive a
+   * registry whose process is gone.
+   *
+   * It rides the installed record rather than a second map so its lifetime is
+   * exactly the installed record's — a registry that is forgotten cannot leave a
+   * rollback target behind it.
+   */
+  readonly superseded: InstalledCallbackToolRegistry | undefined;
 }
 
 export interface CallbackToolHostOptions {
@@ -292,7 +309,12 @@ export interface CallbackToolHostOptions {
  *   2. Spawn the session passing `callbackTools: resolution.tools` (an empty
  *      list on a withholding) and `onCallbackToolCall: (invocation) =>
  *      host.dispatch(invocation, resolution.registryToken)`.
- *   3. `forgetSession(sessionId, resolution.registryToken)` at teardown.
+ *   3. `forgetSession(sessionId, resolution.registryToken)` at teardown — or
+ *      `rollbackSpawnRegistry(sessionId, resolution.registryToken)` where the
+ *      spawn in step 2 FAILED, which additionally restores the installation
+ *      step 1 displaced. The two are not interchangeable: a failed replacement
+ *      released rather than rolled back leaves a live predecessor process whose
+ *      every later callback is refused for a registry that is simply absent.
  *
  * CARRYING THE TOKEN THROUGH STEPS 2 AND 3 IS WHAT SCOPES THEM TO THIS SPAWN.
  * Without it, a resume that installed a replacement registry before the
@@ -419,18 +441,7 @@ export class CallbackToolHost {
       // RECORDED, never silently honoured and never silently dropped: honouring
       // it would tear down the LIVE spawn's registry, and dropping it without a
       // record would leave an operator watching a teardown that did nothing.
-      this.#diagnostics.emit({
-        provider: this.#provider,
-        kind: "callback_tool_registry_release_ignored",
-        rawWireType: null,
-        dispositionReason:
-          "a superseded spawn's teardown ran after its callback-tool registry had been replaced; leaving the live installation in place",
-        details: {
-          sessionId,
-          releasingInstallation: registryToken.installation,
-          installedInstallation: installed.token.installation,
-        },
-      });
+      this.#recordReleaseIgnored(sessionId, registryToken, installed.token);
       return;
     }
     this.#registriesBySessionId.delete(sessionId);
@@ -458,23 +469,125 @@ export class CallbackToolHost {
       toolsByName.set(tool.name, tool);
     }
     const superseded = this.#registriesBySessionId.get(sessionId);
-    this.#registriesBySessionId.set(sessionId, { token, toolsByName });
+    this.#registriesBySessionId.set(sessionId, {
+      token,
+      toolsByName,
+      // Stripped of ITS own predecessor: see `superseded` on the record type.
+      superseded:
+        superseded === undefined
+          ? undefined
+          : { token: superseded.token, toolsByName: superseded.toolsByName, superseded: undefined },
+    });
     if (superseded !== undefined) {
-      this.#diagnostics.emit({
-        provider: this.#provider,
-        kind: "callback_tool_registry_superseded",
-        rawWireType: null,
-        dispositionReason:
-          "a second spawn installed a callback-tool registry for a session that still had one installed; the superseded installation no longer dispatches or releases",
-        details: {
-          sessionId,
-          supersededInstallation: superseded.token.installation,
-          installedInstallation: token.installation,
-          installedToolCount: toolsByName.size,
-        },
-      });
+      this.#recordRegistryReplacement(
+        sessionId,
+        "a second spawn installed a callback-tool registry for a session that still had one installed; the superseded installation no longer dispatches or releases",
+        superseded.token,
+        token,
+        toolsByName.size,
+      );
     }
     return token;
+  }
+
+  /**
+   * Undo one installation, restoring the registry it displaced.
+   *
+   * THE ARM THIS CLOSES. A resume or relaunch resolves its registry BEFORE it
+   * spawns — step 1 before step 2 is load-bearing, since a dispatcher bound
+   * without a registry advertises tools every invocation is refused for — so a
+   * spawn that then FAILS to establish has already superseded a predecessor that
+   * is still alive. The Codex resume path deliberately keeps its prior
+   * connection live on a failed establishment, and that surviving process's
+   * callback closure holds the PREDECESSOR's token: releasing the failed
+   * replacement alone deletes only the replacement, so every later tool call
+   * from the live process is refused for a registry that is simply absent. The
+   * failure is total and permanent for that session, and nothing about it
+   * resembles the transient establishment error that caused it.
+   *
+   * SCOPED EXACTLY AS {@link forgetSession} IS. A rollback naming an
+   * installation that is no longer current is a THIRD spawn's problem: it
+   * installed after this replacement, so undoing anything here would tear down a
+   * live registry to restore a dead one. That case is recorded and ignored,
+   * reusing the same kind an out-of-order release takes, because it is the same
+   * condition — a superseded spawn's teardown arriving late.
+   *
+   * DEGENERATES TO A RELEASE where the replacement displaced nothing: there is
+   * no predecessor to restore, so the correct end state is the one `release()`
+   * produces. That is what makes a rollback safe to call unconditionally on a
+   * failed spawn without first asking whether the session had a registry.
+   *
+   * Idempotent: a second rollback finds either nothing installed or a token it
+   * does not own, and both arms already do nothing.
+   */
+  rollbackSpawnRegistry(sessionId: SessionId, registryToken: CallbackToolRegistryToken): void {
+    const installed = this.#registriesBySessionId.get(sessionId);
+    if (installed === undefined) {
+      return;
+    }
+    if (installed.token !== registryToken) {
+      this.#recordReleaseIgnored(sessionId, registryToken, installed.token);
+      return;
+    }
+    const predecessor = installed.superseded;
+    if (predecessor === undefined) {
+      this.#registriesBySessionId.delete(sessionId);
+      return;
+    }
+    this.#registriesBySessionId.set(sessionId, predecessor);
+    // The RESTORE is a registry replacement like any other and takes the kind
+    // that names one: installation N is displaced by installation N-1. Recording
+    // it is what keeps an operator's model of which installation is live from
+    // going stale at the supersede record this undoes.
+    this.#recordRegistryReplacement(
+      sessionId,
+      "a failed spawn rolled its callback-tool registry back; the installation it had superseded is live again and the failed one no longer dispatches or releases",
+      registryToken,
+      predecessor.token,
+      predecessor.toolsByName.size,
+    );
+  }
+
+  /** One registry displacing another — an install, or a rollback's restore. */
+  #recordRegistryReplacement(
+    sessionId: SessionId,
+    dispositionReason: string,
+    supersededToken: CallbackToolRegistryToken,
+    installedToken: CallbackToolRegistryToken,
+    installedToolCount: number,
+  ): void {
+    this.#diagnostics.emit({
+      provider: this.#provider,
+      kind: "callback_tool_registry_superseded",
+      rawWireType: null,
+      dispositionReason,
+      details: {
+        sessionId,
+        supersededInstallation: supersededToken.installation,
+        installedInstallation: installedToken.installation,
+        installedToolCount,
+      },
+    });
+  }
+
+  /** A scoped teardown or rollback that arrived after its installation was replaced. */
+  #recordReleaseIgnored(
+    sessionId: SessionId,
+    releasingToken: CallbackToolRegistryToken,
+    installedToken: CallbackToolRegistryToken,
+  ): void {
+    this.#diagnostics.emit({
+      provider: this.#provider,
+      kind: "callback_tool_registry_release_ignored",
+      rawWireType: null,
+      dispositionReason:
+        "a superseded spawn's teardown ran after its callback-tool registry had been replaced; leaving the live installation in place",
+      details: {
+        sessionId,
+        releasingInstallation: releasingToken.installation,
+        installedInstallation: installedToken.installation,
+      },
+    });
   }
 
   /**
@@ -899,11 +1012,14 @@ function describeExecutorFailure(cause: unknown): string {
  * This value makes the three inseparable: a caller that holds it has already
  * performed step 1 and cannot reach step 2 without the products of step 1.
  *
- * NO PRODUCTION COMPOSITION ROOT CALLS `release` YET, and that is a RECORDED
- * RESIDUAL rather than an oversight: no composition root constructs a driver at
- * all today, so this binder rides the first one alongside the two other
- * bindings waiting on it — `CodexDriverOptions.resolveCredentialEnvPolicy` and
- * both drivers' `modelCatalogExchange`.
+ * NO PRODUCTION COMPOSITION ROOT CALLS `release` OR `rollback` YET, and that is
+ * a RECORDED RESIDUAL rather than an oversight: no composition root constructs a
+ * driver at all today, so this binder rides the first one alongside the two
+ * other bindings waiting on it — `CodexDriverOptions.resolveCredentialEnvPolicy`
+ * and both drivers' `modelCatalogExchange`. The obligation the first root
+ * inherits is that a FAILED spawn takes `rollback` and a torn-down one takes
+ * `release`; the two end states differ only when this spawn displaced a
+ * predecessor, which is exactly the case the failure path must not get wrong.
  */
 export interface CallbackToolSpawnBinding {
   /** Step 1's answer, carried through so a caller can report a withholding. */
@@ -932,11 +1048,27 @@ export interface CallbackToolSpawnBinding {
    */
   readonly onCallbackToolCall: (invocation: CallbackToolInvocation) => Promise<CallbackToolResult>;
   /**
-   * Step 3. Idempotent, so a teardown path that runs twice is harmless, and
-   * SCOPED to this spawn's installation, so a superseded spawn's teardown
-   * leaves its successor's registry installed and records that it did.
+   * Step 3 on the SUCCESS path. Idempotent, so a teardown path that runs twice
+   * is harmless, and SCOPED to this spawn's installation, so a superseded
+   * spawn's teardown leaves its successor's registry installed and records that
+   * it did.
    */
   readonly release: () => void;
+  /**
+   * Step 3 on the FAILURE path — the spawn in step 2 never established.
+   *
+   * `release()` is not the right call there, and the difference is not
+   * cosmetic. Step 1 already installed this spawn's registry, so a resume or
+   * relaunch whose spawn then fails has superseded a predecessor that, on at
+   * least one driver, is deliberately still alive. Releasing deletes only this
+   * spawn's installation and leaves that surviving process dispatching against
+   * nothing; rolling back restores the registry it displaced, which is the
+   * state the failed attempt should never have left.
+   *
+   * Safe to call unconditionally on a failed spawn: where this binding
+   * displaced no predecessor, it does exactly what `release()` does.
+   */
+  readonly rollback: () => void;
 }
 
 /**
@@ -964,6 +1096,9 @@ export function bindCallbackToolsForSpawn(
     onCallbackToolCall: async (invocation) => await host.dispatch(invocation, registryToken),
     release: () => {
       host.forgetSession(request.sessionId, registryToken);
+    },
+    rollback: () => {
+      host.rollbackSpawnRegistry(request.sessionId, registryToken);
     },
   };
 }
@@ -1202,11 +1337,24 @@ const CALLBACK_TOOL_CONTENT_ITEM_REQUIRED_MEMBERS: ReadonlyMap<string, string> =
  * a tool that completed and returned nothing. A tool that produced an answer
  * nobody can see is worse than one that failed, because nothing reports it.
  *
- * So: an ALREADY-WELL-FORMED array passes through untouched (an executor that
- * composed content items meant them), an ABSENT output is a genuine empty
- * result, and EVERYTHING ELSE is wrapped as a single `inputText` item — the arm
- * the refusal path already uses, so this adapter introduces no vocabulary of
- * its own.
+ * So: an ALREADY-WELL-FORMED array is REBUILT arm by arm (an executor that
+ * composed content items meant them, so every one of them survives), an ABSENT
+ * output is a genuine empty result, and EVERYTHING ELSE is wrapped as a single
+ * `inputText` item — the arm the refusal path already uses, so this adapter
+ * introduces no vocabulary of its own.
+ *
+ * REBUILT, NOT PASSED THROUGH, and the difference is a second silent-loss arm.
+ * A well-formed item may carry SIBLING members beside its discriminator and
+ * required member, and those members are executor-supplied `unknown`: a
+ * `BigInt`, a cycle, a getter that throws. The provider frame is serialized
+ * downstream of this function and outside its `try`, so one unserializable
+ * sibling on an otherwise perfect item throws at the write and leaves the
+ * callback ask UNANSWERED — the provider waits forever on a tool the daemon
+ * already ran. Rebuilding each admitted item from exactly its discriminator and
+ * its one required member — both proven `string` by the check below — makes the
+ * returned array serializable BY CONSTRUCTION rather than by inspection. What
+ * is lost is only members the pinned union does not declare, which the provider
+ * would have ignored or rejected; what is kept is every item, in order.
  *
  * WELL-FORMED IS CHECKED PER ARM, not per discriminator, and the difference is
  * the whole guarantee. An item naming a real arm while omitting that arm's
@@ -1228,30 +1376,58 @@ export function composeCallbackToolContentItems(output: unknown): unknown[] {
   if (output === undefined) {
     return [];
   }
-  if (Array.isArray(output) && output.every(isWellFormedContentItem)) {
-    return [...output];
+  if (Array.isArray(output)) {
+    const rebuilt = rebuildContentItems(output);
+    if (rebuilt !== null) {
+      return rebuilt;
+    }
   }
   return [{ type: "inputText", text: renderContentItemText(output) }];
 }
 
-function isWellFormedContentItem(candidate: unknown): boolean {
+/**
+ * Every candidate rebuilt from its own arm, or `null` if ANY of them is not a
+ * value the provider's closed union can hold.
+ *
+ * `null` rather than a shorter array: one malformed item routes the WHOLE
+ * output through the text fallback, for the reason stated above the caller.
+ */
+function rebuildContentItems(candidates: readonly unknown[]): unknown[] | null {
+  const rebuilt: unknown[] = [];
+  for (const candidate of candidates) {
+    const item = rebuildContentItem(candidate);
+    if (item === null) {
+      return null;
+    }
+    rebuilt.push(item);
+  }
+  return rebuilt;
+}
+
+/** One admitted item reduced to its two declared members, or `null`. */
+function rebuildContentItem(candidate: unknown): Record<string, string> | null {
   if (typeof candidate !== "object" || candidate === null) {
-    return false;
+    return null;
   }
   const item = candidate as Record<string, unknown>;
   const itemType = item["type"];
   if (typeof itemType !== "string") {
-    return false;
+    return null;
   }
   const requiredMemberName = CALLBACK_TOOL_CONTENT_ITEM_REQUIRED_MEMBERS.get(itemType);
   if (requiredMemberName === undefined) {
-    return false;
+    return null;
   }
   // The member must be a NON-EMPTY string: the union types all three as
   // `string`, and an empty one is the same invisible answer a missing one is —
   // an image item with `imageUrl: ""` resolves to nothing the model can see.
   const requiredMember = item[requiredMemberName];
-  return typeof requiredMember === "string" && requiredMember.length > 0;
+  if (typeof requiredMember !== "string" || requiredMember.length === 0) {
+    return null;
+  }
+  // Only the two members the arm declares, both already proven `string`. This
+  // is the line that makes the result serializable by construction.
+  return { type: itemType, [requiredMemberName]: requiredMember };
 }
 
 /**

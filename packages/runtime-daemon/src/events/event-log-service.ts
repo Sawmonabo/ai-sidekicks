@@ -135,7 +135,10 @@ import {
   type RawEventInput,
 } from "./pii-indirection.js";
 import { withSessionAppendLock } from "./session-append-lock.js";
-import type { SessionContentKeySource } from "./session-content-key-store.js";
+import type {
+  SessionContentKeyDisposer,
+  SessionContentKeySource,
+} from "./session-content-key-store.js";
 import { GENESIS_PREV_HASH, signRow, type Ed25519PrivateKey, type SignedRow } from "./signer.js";
 import type { DaemonSigningKeySource } from "./signing-key-source.js";
 
@@ -343,6 +346,28 @@ export interface EventLogServiceDeps {
    * Plan-022's erasure orchestrator.
    */
   readonly contentKeySource?: SessionContentKeySource;
+  /**
+   * The DISPOSAL half of the same store, used on ONE path: reconciling the key
+   * a content-bearing append minted when that append then failed.
+   *
+   * WHY THE APPEND PATH NEEDS IT AT ALL. `resolveForWrite` mints and COMMITS a
+   * wrapped DEK in its own transaction, before the codec runs and well before
+   * the INSERT — it has to, because unwrapping can block on the master key's
+   * custody ladder and a better-sqlite3 transaction cannot span an await. Every
+   * failure after that point therefore leaves a durable key row with nothing
+   * sealed under it: the strict-variant check, the canonical-size ceiling, a
+   * throwing transactional prelude, a UNIQUE violation on the INSERT. On a
+   * session that never runs another content-bearing append — an inactive one
+   * never compacts either — the row is permanent, and `rewrapAll` walks it on
+   * every unrelated participant's erasure for the life of the node.
+   *
+   * OPTIONAL, and the degraded stance is honest rather than convenient: with it
+   * unwired the orphan is not leaked, it is DELAYED — the compactor's pass-level
+   * reconciliation sweep re-derives exactly this obligation from durable state
+   * and reclaims the row on a later tick. That is the same reason
+   * `contentKeySource` is optional, arrived at from the other side.
+   */
+  readonly contentKeyDisposer?: SessionContentKeyDisposer;
   /** `monotonic_ns` default source. Defaults to `process.hrtime.bigint()`. */
   readonly monotonicNow?: () => bigint;
 }
@@ -380,6 +405,7 @@ export class EventLogService {
   readonly #haltSource: IngestHaltSource;
   readonly #piiEncryptor: PiiEncryptor | undefined;
   readonly #contentKeySource: SessionContentKeySource | undefined;
+  readonly #contentKeyDisposer: SessionContentKeyDisposer | undefined;
   readonly #monotonicNow: () => bigint;
   #shredCallback: ShredCallback | undefined;
 
@@ -388,6 +414,7 @@ export class EventLogService {
     this.#haltSource = deps.haltSource ?? new NeverHaltedIngestHaltSource();
     this.#piiEncryptor = deps.piiEncryptor;
     this.#contentKeySource = deps.contentKeySource;
+    this.#contentKeyDisposer = deps.contentKeyDisposer;
     this.#monotonicNow = deps.monotonicNow ?? (() => process.hrtime.bigint());
 
     this.#insertStmt = deps.db.prepare(
@@ -596,45 +623,71 @@ export class EventLogService {
       // (6) SIGN. Either through T2.4's codec (PII path) or plain
       // canonicalize-then-sign. Both produce the same four persistables.
       const daemonSigningKey: Ed25519PrivateKey = await this.#signingKeySource.read(sessionId);
-      const signed: SignedEventRow = await this.#signEvent({
-        envelope,
-        sequence,
-        occurredAt: normalizedOccurredAt,
-        actor: narrowedActor,
-        prevHash,
-        daemonSigningKey,
-        ...(options?.pii !== undefined ? { pii: options.pii } : {}),
-        ...(options?.content !== undefined ? { content: options.content } : {}),
-      });
+      let signed: SignedEventRow;
+      try {
+        signed = await this.#signEvent({
+          envelope,
+          sequence,
+          occurredAt: normalizedOccurredAt,
+          actor: narrowedActor,
+          prevHash,
+          daemonSigningKey,
+          ...(options?.pii !== undefined ? { pii: options.pii } : {}),
+          ...(options?.content !== undefined ? { content: options.content } : {}),
+        });
+      } catch (error) {
+        // THE MINT IS COMMITTED BY NOW AND NOTHING IS SEALED UNDER IT.
+        // `resolveForWrite` runs inside `#signEvent` and commits its own
+        // transaction, so every refusal raised after it — the strict-variant
+        // check, the canonical-size ceiling, a codec fault — leaves a durable
+        // wrapped DEK with no body. Reconciled here, while this append still
+        // holds the session's lock: the disposer's predicate is "any retained
+        // ciphertext", so this is a no-op the instant any earlier append sealed
+        // one, and the hold is what keeps a CONCURRENT first append from having
+        // its key taken between its own mint and its insert.
+        await this.#reconcileOrphanedContentKey(sessionId, options?.content !== undefined);
+        throw error;
+      }
 
       // (7) PERSIST — the prelude and the row, atomically. Everything bound
       // here comes from `signed`, never from the caller's input: substituting
       // any of the four (a re-canonicalized envelope, a re-read `prev_hash`, a
       // stamp taken from anywhere else) yields an untampered row that can never
       // verify, because the verifier recomputes from what was STORED.
-      this.#writeTxn(
-        {
-          id: signed.envelope.id,
-          session_id: sessionId,
-          sequence,
-          occurred_at: signed.envelope.occurredAt,
-          monotonic_ns: options?.monotonicNs ?? this.#monotonicNow(),
-          category: signed.envelope.category,
-          type: signed.envelope.type,
-          actor: signed.envelope.actor ?? null,
-          payload: JSON.stringify(signed.envelope.payload),
-          pii_payload: signed.piiPayload ?? null,
-          correlation_id: signed.envelope.correlationId ?? null,
-          causation_id: signed.envelope.causationId ?? null,
-          version: signed.envelope.version,
-          prev_hash: Buffer.from(signed.signedRow.prevHash),
-          row_hash: Buffer.from(signed.signedRow.rowHash),
-          daemon_signature: Buffer.from(signed.signedRow.daemonSignature),
-          pii_participant_id: signed.piiParticipantId ?? null,
-          content_payload: signed.contentPayload ?? null,
-        },
-        options?.transactionalPrelude,
-      );
+      try {
+        this.#writeTxn(
+          {
+            id: signed.envelope.id,
+            session_id: sessionId,
+            sequence,
+            occurred_at: signed.envelope.occurredAt,
+            monotonic_ns: options?.monotonicNs ?? this.#monotonicNow(),
+            category: signed.envelope.category,
+            type: signed.envelope.type,
+            actor: signed.envelope.actor ?? null,
+            payload: JSON.stringify(signed.envelope.payload),
+            pii_payload: signed.piiPayload ?? null,
+            correlation_id: signed.envelope.correlationId ?? null,
+            causation_id: signed.envelope.causationId ?? null,
+            version: signed.envelope.version,
+            prev_hash: Buffer.from(signed.signedRow.prevHash),
+            row_hash: Buffer.from(signed.signedRow.rowHash),
+            daemon_signature: Buffer.from(signed.signedRow.daemonSignature),
+            pii_participant_id: signed.piiParticipantId ?? null,
+            content_payload: signed.contentPayload ?? null,
+          },
+          options?.transactionalPrelude,
+        );
+      } catch (error) {
+        // THE SECOND LAYER, and it is independent of the first rather than a
+        // repetition of it. A throwing prelude or a UNIQUE violation rolls the
+        // INSERT back, so the sealed row this append minted a key for does not
+        // exist — and the key does. Post-INSERT this call could only ever be a
+        // no-op, because the predicate would find the very row just written;
+        // reaching it at all means the write did not stand.
+        await this.#reconcileOrphanedContentKey(sessionId, options?.content !== undefined);
+        throw error;
+      }
 
       const receipt: EventLogAppendReceipt = {
         id: signed.envelope.id,
@@ -719,6 +772,69 @@ export class EventLogService {
           `it, and a digest naming ciphertext this row does not hold can never verify. Pass ` +
           `the PII partition as append options instead of embedding it in the payload.`,
       );
+    }
+  }
+
+  /**
+   * Retire the wrapped DEK this append may have just minted, when the append
+   * itself did not stand.
+   *
+   * THE HAZARD. `resolveForWrite` MINTS on a miss and commits that mint in its
+   * own transaction, so the key row is durable the instant the codec asks for
+   * it — well before this append knows whether it will produce a row. Every
+   * refusal downstream of the mint (a strict-variant rejection, the canonical
+   * size ceiling, a codec fault, a throwing `transactionalPrelude`, a UNIQUE
+   * violation on the INSERT) therefore leaves `session_content_keys` holding a
+   * key for a session that sealed nothing. On a session whose FIRST
+   * content-bearing append is the one that failed, that row is unreachable
+   * garbage: nothing references it and nothing else will ever mint it again,
+   * because the next append finds it and reuses it.
+   *
+   * WHY DISPOSE RATHER THAN VALIDATE-BEFORE-MINTING. The mint is inside the
+   * codec, below the refusals, and hoisting it above them would mean
+   * re-deriving every downstream refusal at this layer — a second copy of the
+   * codec's own rules, wrong the moment either copy moves. Disposal asks the
+   * durable question instead, and the question is already implemented: the
+   * disposer's predicate is "does any retained ciphertext still depend on this
+   * key", so this is a NO-OP on every session that has ever successfully sealed
+   * a body, and removes the row only when the failed append was genuinely the
+   * only thing that had ever asked for one.
+   *
+   * WHY IT IS SAFE UNDER CONCURRENCY. This runs while the failing append still
+   * holds the session's append lock, and `deleteIfUnreferenced` re-runs its
+   * predicate inside that same hold — reentrantly, since the hold is
+   * owner-scoped. A concurrent append on this session cannot be between its own
+   * mint and its own INSERT while this executes, so there is no window in which
+   * a live key is taken out from under a body about to be written.
+   *
+   * BEST-EFFORT BY CONSTRUCTION. A disposal failure is swallowed: the caller's
+   * original error is the one that describes what went wrong with the append,
+   * and replacing it with a cleanup fault would hide the real refusal behind a
+   * housekeeping one. The leak that swallowing admits is bounded rather than
+   * permanent — {@link SessionContentKeyDisposer.sweepUnreferenced} re-derives
+   * the same obligation from durable state on every compaction pass, so this
+   * path is the PROMPT disposal and that one is the guarantee.
+   *
+   * UNWIRED IS NOT AN ERROR. The disposer is optional on
+   * {@link EventLogServiceDeps} for the same reason the content key source is:
+   * a service constructed without content sealing can never mint a key, so it
+   * can never orphan one.
+   */
+  async #reconcileOrphanedContentKey(
+    sessionId: SessionId,
+    appendCarriedContent: boolean,
+  ): Promise<void> {
+    // An append that carried no content partition never reached the minting
+    // path, so there is nothing this call could dispose of that it did not
+    // create — and calling anyway would let an unrelated failure delete a key
+    // that some OTHER append is about to seal under.
+    if (!appendCarriedContent || this.#contentKeyDisposer === undefined) {
+      return;
+    }
+    try {
+      await this.#contentKeyDisposer.deleteIfUnreferenced(sessionId);
+    } catch {
+      // Deliberately swallowed — see BEST-EFFORT BY CONSTRUCTION above.
     }
   }
 
