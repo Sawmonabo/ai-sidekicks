@@ -8,6 +8,11 @@
 //   * `presence.*` (`subscribe` / `read`) — Plan-002 Phase 3 (T3.3). The
 //     `presence.subscribe` binder pushes `PresenceUpdate` values over the
 //     streaming primitive; see `presence-subscribe.ts` for the rationale.
+//   * `driver.*` (seven client-facing verbs) — Plan-005 Phase 4 (T4.1), all
+//     bound from the single `driver-handlers.ts` module. The four session/run
+//     LIFECYCLE driver operations are deliberately absent: they are
+//     orchestration-owned and registered nowhere, so a client cannot reach them
+//     (Plan-005 §Phase 4 decision #2).
 //
 // Each handler is registered separately (no aggregated `registerAll`)
 // so the bootstrap orchestrator retains explicit control over which
@@ -24,3 +29,17 @@ export { registerSessionSubscribe, type SessionSubscribeDeps } from "./session-s
 export { registerPresenceSubscribe, type PresenceSubscribeDeps } from "./presence-subscribe.js";
 
 export { registerPresenceRead, type PresenceReadDeps } from "./presence-read.js";
+
+export {
+  registerDriverApplyIntervention,
+  registerDriverInterruptRun,
+  registerDriverListCapabilities,
+  registerDriverListModels,
+  registerDriverListModes,
+  registerDriverRespondToRequest,
+  registerDriverSubscribeEvents,
+  type DriverCatalogDeps,
+  type DriverDispatchDeps,
+  type DriverListCapabilitiesDeps,
+  type DriverSubscribeEventsDeps,
+} from "./driver-handlers.js";
