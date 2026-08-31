@@ -1089,7 +1089,9 @@ export type ClaudeSessionUnavailableReason =
   | "cost_cap_mismatch"
   | "execution_posture_mismatch"
   | "output_schema_unbound"
-  | "output_schema_mismatch";
+  | "output_schema_mismatch"
+  | "provider_account_unusable"
+  | "provider_account_ambiguous";
 
 const SESSION_UNAVAILABLE_MESSAGES: Readonly<Record<ClaudeSessionUnavailableReason, string>> = {
   session_already_live:
@@ -1113,6 +1115,14 @@ const SESSION_UNAVAILABLE_MESSAGES: Readonly<Record<ClaudeSessionUnavailableReas
     "The run's output schema differs from the schema the Claude session was spawned with.",
   output_schema_unbound:
     "The run requires schema-constrained output but the Claude session was spawned without a schema.",
+  // Two DIFFERENT faults, deliberately not one reason. "Unusable" is one source
+  // that arrived malformed; "ambiguous" is two well-formed sources that disagree.
+  // An operator repairs those differently, and the `reason` field exists to carry
+  // exactly the distinction the shared 503 code cannot.
+  provider_account_unusable:
+    "The request named a provider account that is present but empty; an account was meant to be bound and none was.",
+  provider_account_ambiguous:
+    "Two resolvers name different provider accounts for this Claude session.",
 };
 
 export interface ClaudeSessionUnavailableFields {
@@ -2092,6 +2102,29 @@ interface LiveClaudeSession {
    * emitted sum exists.
    */
   readonly establishment: ClaudeUsageEstablishment;
+  /**
+   * The provider account the daemon ADMITTED this process against, or `null`
+   * when the request named none (T3.17).
+   *
+   * CAPTURED, NEVER RESOLVED. It is copied off `CreateSessionParams` /
+   * `ResumeSessionParams` at establishment and held as an OPAQUE string: never
+   * parsed, never used to locate credentials, and never fed to
+   * `#buildSpawnBinding` or `#buildSpawnBoundLegs`. Environment construction is
+   * the daemon's, and a driver that started deriving anything from this value
+   * would be doing the credential location this band deliberately does not do.
+   *
+   * ON THE RECORD RATHER THAN RE-READ, because the enumeration's routing binding
+   * must report the account THIS process was admitted under, and the account
+   * registry is a live surface that can move underneath a long-lived session. A
+   * value captured at establishment cannot drift from the process it describes;
+   * a value re-read at enumeration time can, and did — see
+   * {@link ClaudeSessionLifecycleDependencies.readBoundProviderAccountId}.
+   *
+   * A REWIND INHERITS IT rather than re-reading, for the same reason it inherits
+   * `spawnBinding`: a fork continues the run the daemon already admitted, and
+   * `RollbackToParams` names no account of its own.
+   */
+  readonly admittedProviderAccountId: string | null;
 }
 
 /**
@@ -2145,6 +2178,37 @@ type ClaudeSessionSlot =
   // `dispose` rejected: the process is still alive and this channel is the only
   // handle anyone holds on it. Retained until a later close disposes it.
   | { readonly state: "quarantined"; readonly channel: ClaudeSessionChannel };
+
+/**
+ * Normalizes the typed provider-account member a request carries into the value
+ * the session record holds (T3.17).
+ *
+ * TWO ARMS AND NO THIRD. An ABSENT member is the ordinary case — the account
+ * plane is not shipped, so most requests name nothing — and becomes `null`, the
+ * value that matches nothing in the consuming routing check. A PRESENT member is
+ * carried through verbatim, as an opaque string this band never parses.
+ *
+ * A PRESENT-BUT-EMPTY MEMBER IS NEITHER, so it is refused by the caller rather
+ * than folded into one of them. An empty string is a daemon that meant to bind an
+ * account and bound nothing, which is a different fact from a session that never
+ * had one — and only the second may enumerate under a `null`. Folding it to
+ * `null` would hide the wiring fault; carrying it would be worse, because two
+ * accountless bindings stamped `""` compare EQUAL in the routing check that
+ * `null` exists to make match nothing. The sibling band refuses the same value at
+ * the same point, for the same reason.
+ *
+ * REFUSED BY THE CALLER rather than here, because the two establishment paths
+ * have different failure channels — `createSession` throws and `resumeSession`
+ * owes the typed `failed` arm (I-005-5) — and a helper that threw would force the
+ * resume path to catch its own precondition.
+ */
+function isUnusableAdmittedProviderAccountId(requested: string | undefined): boolean {
+  return requested !== undefined && requested.length === 0;
+}
+
+function readAdmittedProviderAccountId(requested: string | undefined): string | null {
+  return requested ?? null;
+}
 
 export interface ClaudeSessionLifecycleDependencies {
   readonly transport: ClaudeSessionTransport;
@@ -2287,27 +2351,45 @@ export interface ClaudeSessionLifecycleDependencies {
    */
   readonly compactionWaitScheduler?: CompactionWaitScheduler | undefined;
   /**
-   * The provider account this session's process was spawned under, or `null`
-   * when none was bound.
+   * The daemon account registry's answer for this session, or `null` when it
+   * reports none.
    *
-   * Optional because the driver cannot rebuild it: the account registry is the
-   * daemon's, and the only place this band needs the identity is the
-   * enumeration's routing binding, which is a READ — the same reason
-   * `readPriorEmittedUsage` is injected rather than derived.
+   * A CROSS-CHECK, NO LONGER THE SOURCE. It was once the only thing this band
+   * could ask, because the driver cannot rebuild the registry — that is still
+   * true, and it is why the port remains injected rather than derived, the same
+   * reason `readPriorEmittedUsage` is. What changed is that the session record
+   * now CAPTURES the account the daemon admitted the process against
+   * ({@link LiveClaudeSession.admittedProviderAccountId}), so the registry is
+   * second opinion rather than sole testimony.
    *
-   * T3.17 ADDED A SECOND SOURCE, AND THIS PORT DELIBERATELY DOES NOT TAKE IT.
-   * `CreateSessionParams` / `ResumeSessionParams` now carry a typed
-   * `providerAccountId` — the account the daemon ADMITTED the run against — and
-   * the Codex band reconciles it with its own untyped config bag at the spawn
-   * seam, refusing where the two disagree. Nothing equivalent happens here:
-   * neither `#buildSpawnBinding` nor `#buildSpawnBoundLegs` carries the account,
-   * so re-pointing this port at the typed member would be a second,
-   * unadjudicated implementation of that precedence rule rather than an
-   * inheritance of it. The asymmetry is stated rather than papered over — until
-   * a swap adjudicates it, a Claude leg's routing binding reads the daemon's
-   * registry while a Codex leg's reads its own composed spawn config, and a
-   * caller that supplies only the typed member reads `null` here: safe, because
-   * a `null` matches nothing (below), but silent about why.
+   * THE FOLD AT THE ENUMERATION, which is the one place this band needs the
+   * identity at all:
+   *
+   *   * RECORD NAMES AN ACCOUNT, THIS PORT ANSWERS NOTHING — the record's. An
+   *     unbound port and a `null` answer are the same fact here (see the
+   *     conflation below), and neither contradicts a session that was admitted
+   *     against a named account. Reading the port's silence as authoritative was
+   *     the defect: a caller that supplied only the typed member stamped `null`,
+   *     and because the consuming routing check treats `null` as matching
+   *     NOTHING, every such session's enumeration was unroutable.
+   *   * BOTH NAME THE SAME ACCOUNT — that account, stamped once.
+   *   * BOTH NAME AN ACCOUNT AND THEY DIFFER — the call REFUSES. Neither
+   *     candidate is stamped, because a stale registry answering for a process
+   *     admitted under another account is the identity divergence this driver
+   *     must not launder into a correct-looking binding, and two resolvers
+   *     disagreeing about a billing identity is a wiring fault rather than a
+   *     precedence question.
+   *   * RECORD NAMES NONE — this port's answer, unchanged. A pre-T3.17 caller
+   *     that omits the typed member leaves the registry as the only source there
+   *     has ever been, and that path is preserved exactly.
+   *
+   * THE SIBLING IMPLEMENTATION IS THE CODEX BAND'S `resolveBoundProviderAccountId`,
+   * which applies the same ratified rule — the identity reported is the one the
+   * process actually runs under, and a disagreement refuses rather than picking.
+   * It is deliberately NOT imported: the two bands are parallel structures with
+   * different records, different seams, and different typed error classes, and a
+   * shared function would have to be generic over all three to say the same
+   * thing it says in each. The rule is shared; the code is not.
    *
    * TWO FACTS COINCIDE HERE AND THE CONFLATION IS DELIBERATE. An unbound reader
    * means "this driver could not ask"; a `null` answer means "no account is
@@ -2536,6 +2618,13 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   }
 
   async #establishCreatedSession(params: CreateSessionParams): Promise<ProviderSessionHandle> {
+    // BEFORE THE SPAWN, so a request that cannot state its own billing identity
+    // never reaches a process. `createSession`'s only failure channel is a throw.
+    if (isUnusableAdmittedProviderAccountId(params.providerAccountId)) {
+      throw new ClaudeSessionUnavailableError("provider_account_unusable", {
+        sessionId: params.sessionId,
+      });
+    }
     const pinnedProviderSessionId = this.#mintProviderSessionId();
     // Built ONCE and retained, not built twice. The second build would read
     // `#sessionGoals` again, so a goal set between the spawn and the
@@ -2577,6 +2666,12 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
         spawnBinding: this.#buildSpawnBinding(params),
         spawnBoundLegs: spawnBoundLegs,
         establishment: { mode: "fresh" },
+        // CAPTURED, not resolved: the account the daemon admitted this run
+        // against, held opaquely so the enumeration reports the identity this
+        // process actually runs under rather than whatever the registry says
+        // later. It reaches neither `#buildSpawnBinding` nor `spawnBoundLegs`
+        // above — environment construction stays the daemon's.
+        admittedProviderAccountId: readAdmittedProviderAccountId(params.providerAccountId),
       });
     } catch (error) {
       // Dispose, then re-throw the ORIGINAL cause. `createSession` has no
@@ -2619,6 +2714,15 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   }
 
   async #establishResumedSession(params: ResumeSessionParams): Promise<DriverResumeResult> {
+    // BEFORE THE SPAWN, and through the `failed` ARM rather than a throw: resume's
+    // contractual failure channel is that arm (I-005-5), and a raw rejection here
+    // would reach a caller with no arm for it.
+    if (isUnusableAdmittedProviderAccountId(params.providerAccountId)) {
+      return this.#buildResumeFailure(
+        "recovery-needed",
+        "ResumeSessionParams.providerAccountId is present but empty; an account was meant to be bound and none was.",
+      );
+    }
     const spawnBoundLegs = this.#buildSpawnBoundLegs(params);
     let attachment: ClaudeResumedSessionAttachment;
     try {
@@ -2690,6 +2794,16 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
         // the caller supplied, so the session being established IS the thread
         // the daemon has been emitting against.
         establishment: { mode: "resume", priorEmittedThreadId: attachment.providerSessionId },
+        // CAPTURED FROM THE REQUEST, WITH NOTHING TO RECONCILE AGAINST, and the
+        // absence of a reconciliation here is structural rather than an omission.
+        // The sibling band reconciles a resume's typed member against a surviving
+        // live record because its resume SUPERSEDES a live predecessor. This band
+        // cannot reach that state: `resumeSession` refuses on any non-EMPTY slot
+        // (`#describeSlotHolder`), so a resume that gets this far holds a claim on
+        // a session with no record at all. Writing a reconciliation for a record
+        // that provably cannot exist would be an unreachable branch asserting a
+        // rule nothing can violate.
+        admittedProviderAccountId: readAdmittedProviderAccountId(params.providerAccountId),
       });
     } catch (error) {
       const disposalNote = await this.#disposeRefusedChannel(
@@ -3253,6 +3367,11 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
         // inverse failure: silent double-counting of every pre-rewind turn,
         // which reaches a receipt as real money and says nothing.
         establishment: { mode: "resume", priorEmittedThreadId: predecessor.providerSessionId },
+        // INHERITED, for the reason `spawnBinding` above is: a fork continues the
+        // run the daemon already admitted, and `RollbackToParams` names no
+        // account of its own. Re-reading the registry here would let a rewind
+        // silently re-bill a session the daemon never re-admitted.
+        admittedProviderAccountId: predecessor.admittedProviderAccountId,
       });
     } catch (error) {
       const disposalNote = await this.#disposeRefusedChannel(
@@ -3595,8 +3714,10 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     }
     const binding = {
       driverName: CLAUDE_DRIVER_NAME,
-      // `null` STATED, never synthesized. See `readBoundProviderAccountId`.
-      providerAccountId: this.#readBoundProviderAccountId?.(params.sessionId) ?? null,
+      // The RECORD is primary and the registry port is a cross-check; `null` is
+      // STATED, never synthesized. See `readBoundProviderAccountId` for the four
+      // arms and why a disagreement refuses instead of picking.
+      providerAccountId: this.#resolveStampedProviderAccountId(params.sessionId, live),
     };
     const held = this.#heldHandshakeFor(params.sessionId, live.providerSessionId);
     const declared =
@@ -3627,6 +3748,51 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
           complete: admitted.length === declared.length,
         },
       ],
+    });
+  }
+
+  /**
+   * Answers which provider account an enumeration's routing binding is stamped
+   * with (T3.17).
+   *
+   * ONE INVARIANT: the account stamped is the account this process actually runs
+   * under. The session record holds it because the daemon admitted the process
+   * against it and supplied the environment for it, so the record is PRIMARY and
+   * the injected registry port is a CROSS-CHECK. The four arms and the reasoning
+   * behind each live on
+   * {@link ClaudeSessionLifecycleDependencies.readBoundProviderAccountId}; what
+   * they amount to is that a stale registry can never overwrite a live record,
+   * and a registry naming a DIFFERENT account is a fault rather than a
+   * preference.
+   *
+   * REFUSING IS THE ONLY SAFE ANSWER TO A DISAGREEMENT, and it is safe in a way
+   * neither candidate is. Stamping the record's would publish an identity the
+   * daemon's own registry contradicts; stamping the registry's would route a
+   * participant's command enumeration onto an account this process never
+   * authenticated as — the same identity divergence the sibling band refuses at
+   * its spawn seam. A refusal is the only answer that cannot move a session's
+   * billing identity without saying so, and this call is a READ: refusing it
+   * costs a palette, not a run.
+   *
+   * A `null` FROM THE PORT IS NOT A DISAGREEMENT. An unbound port and a port
+   * answering `null` are the same fact by construction (see the conflation
+   * paragraph on that port), and neither contradicts a record naming an account —
+   * it is silence, not testimony. Treating silence as a conflict would refuse
+   * every session whose registry lookup has not caught up with an admission that
+   * already happened.
+   */
+  #resolveStampedProviderAccountId(sessionId: SessionId, live: LiveClaudeSession): string | null {
+    const admitted = live.admittedProviderAccountId;
+    const registered = this.#readBoundProviderAccountId?.(sessionId) ?? null;
+    if (admitted === null) {
+      return registered;
+    }
+    if (registered === null || registered === admitted) {
+      return admitted;
+    }
+    throw new ClaudeSessionUnavailableError("provider_account_ambiguous", {
+      sessionId,
+      detail: `The session was admitted against provider account ${admitted} while the daemon's account registry reports ${registered}; the enumeration is routed by that identity, so neither resolver may silently win.`,
     });
   }
 
