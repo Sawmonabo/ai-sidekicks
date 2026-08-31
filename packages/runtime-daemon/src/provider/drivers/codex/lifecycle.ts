@@ -2576,12 +2576,22 @@ export interface CodexSessionConfig {
    * The provider account this leg's credential home is pinned to, when the
    * daemon bound one (T3.26).
    *
-   * OPTIONAL BECAUSE THE ACCOUNT PLANE IS NOT SHIPPED. Plan-005 Phase 3B is
-   * where an opaque account identity becomes a typed member threaded through
-   * spawn and resume; until it lands, a session with no bound account is the
-   * ORDINARY case rather than an edge one, so the driver reads the identity out
-   * of the same untyped config bag it reads `cwd` and `env` from and reports
-   * its absence honestly.
+   * OPTIONAL BECAUSE THE ACCOUNT PLANE IS NOT SHIPPED. A session with no bound
+   * account is the ORDINARY case rather than an edge one, so this driver reads
+   * the identity out of the same untyped config bag it reads `cwd` and `env`
+   * from and reports its absence honestly.
+   *
+   * T3.17 HAS LANDED, AND THIS READ IS STILL THE CONFIG BAG. That task made the
+   * identity a typed member of `CreateSessionParams` / `ResumeSessionParams` and
+   * a resume leg of the durable `runtime_bindings.spawn_config` record, so the
+   * daemon can now hand a relaunch the account its run was ADMITTED against. It
+   * did NOT re-point this read: `#composeResumeSpawnConfig` still inherits the
+   * account from the live record and falls back to the manager-wide
+   * `resumeSpawnConfig` when no record survives, which is the one path where the
+   * typed member would say something the fallback cannot. Until the write seam
+   * populates both — or this read moves to the typed member — a caller must set
+   * the config-bag member, and the typed one is not yet a second source of truth
+   * because nothing here reads it.
    *
    * ABSENCE IS STATED, NEVER SYNTHESIZED. It reaches an enumerated command
    * entry as a literal `null` — never `""`, never a placeholder, and never the

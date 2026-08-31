@@ -308,6 +308,37 @@ export interface CreateSessionParams {
   // (`--json-schema`); the Codex leg realizes it PER TURN via
   // `StartRunParams.outputSchema` — which is why both carriers declare it.
   outputSchema?: Record<string, unknown> | undefined;
+  // T3.17 — the provider account this leg is admitted against
+  // (`Spec-005 §Interfaces And Contracts`, `Spec-029 §Node provider readiness and
+  // the sign-in handoff`; consumed per CP-005-9). ADDITIVE-OPTIONAL: omitting it
+  // is the unchanged pre-amendment path, in which the leg spawns against
+  // whatever the node resolves as that provider's default.
+  //
+  // OPAQUE TO THE DRIVER, and that is the whole contract. A driver MUST NOT
+  // parse it, derive a path from it, or use it to LOCATE credentials — it is a
+  // daemon-minted identifier whose internal structure is Plan-029's and carries
+  // no meaning here. What the driver receives instead is the ALREADY-CONSTRUCTED
+  // spawn environment. Pinning that account's credential home into it, and
+  // denying the ambient names a bound leg must not read, are OBLIGATIONS ON THE
+  // SPAWN PATH — Plan-029's fail-closed binding, consumed here per CP-005-9 —
+  // rather than properties this member carries or work any driver performs: the
+  // daemon's environment builder strips exactly the names the request's resolved
+  // credential policy denies, and no in-tree path pins a per-account home yet.
+  // Stating that as an obligation rather than as a settled fact is the point.
+  // What this member DOES settle is the driver side, and it settles it by
+  // subtraction: two readers of the same identity — the daemon resolving a
+  // credential home and a driver guessing at one — is precisely the second
+  // source of truth that would let a run bill an account it was never admitted
+  // against, so the driver is handed nothing it could guess FROM.
+  //
+  // SERVER-RESOLVED AND SERVER-STAMPED: a client-supplied value is an INPUT to
+  // resolution, never the recorded outcome. What lands here, and what is durably
+  // recorded, is the value the daemon resolved.
+  //
+  // The reason it is spawn-bound rather than per-turn: a run's paying account is
+  // bound for the run's LIFETIME, so `ResumeSessionParams` re-realizes it below
+  // from the durable record rather than re-resolving the current default.
+  providerAccountId?: string | undefined;
   // Daemon-injected callback-tool dispatcher (gated on `callback_tools`). The
   // driver invokes it on a provider callback-tool request and answers the
   // provider with the result, so no invocation is left unanswered and no
@@ -342,14 +373,16 @@ export interface ResumeSessionParams {
   // schema-less one unconstrained. That is a security property, not a
   // convenience, which is why these are duplicated rather than inherited.
   //
-  // The five DATA legs are reconstructed by the daemon from the durable
+  // The SIX DATA legs are reconstructed by the daemon from the durable
   // `runtime_bindings.spawn_config` record (written at every spawn; the column
   // ships with T1.7's currency migration) — never from the original client
-  // request, which recovery does not have. The two FUNCTION legs are re-injected
+  // request, which recovery does not have. Re-derived from five by counting when
+  // T3.17 added `providerAccountId` below. The two FUNCTION legs are re-injected
   // fresh at every spawn; functions are never stored in `spawn_config`.
   executionPosture?: ExecutionPosture | undefined;
-  // The FIFTH reconstructed data leg (T3.26), on exactly the ground the four
-  // beside it stand on: a speed-less resume relaunches at the provider's default
+  // The FIFTH reconstructed data leg (T3.26), on exactly the ground the five
+  // beside it stand on (re-derived from four by counting when T3.17 added
+  // `providerAccountId`): a speed-less resume relaunches at the provider's default
   // while `agents.output_speed` still records the operator's accepted mode, which
   // is the silent-shedding failure this list exists to prevent. What the
   // relaunched process declares is observed as binding-held state, NOT returned
@@ -358,6 +391,15 @@ export interface ResumeSessionParams {
   callbackTools?: SessionCallbackTool[] | undefined;
   subagentPolicy?: SubagentPolicy | undefined;
   outputSchema?: Record<string, unknown> | undefined;
+  // The SIXTH reconstructed data leg (T3.17), and the one whose silent shedding
+  // is a BILLING fault rather than a capability one: a resume that re-resolved
+  // "whichever account is default now" would move a live run's spend onto an
+  // account it was never admitted against, mid-run, with the receipt's
+  // per-paying-account key still claiming the original. So the value is read back
+  // from the durable `runtime_bindings.spawn_config` record written at the
+  // original spawn — never re-resolved, and never taken from a client request
+  // recovery does not hold. Same opacity rule as on `CreateSessionParams` above.
+  providerAccountId?: string | undefined;
   // An omitted rebind would strand provider callback-tool requests unanswered on
   // the resumed leg.
   onCallbackToolCall?:
@@ -1138,6 +1180,111 @@ export const DriverResumeResultSchema: z.ZodType<DriverResumeResult, DriverResum
       })
       .strict(),
   ]);
+
+// --------------------------------------------------------------------------
+// T3.16 — Typed provider usage-limit signal (`Spec-005 §Fallback Behavior`;
+//         consumed by `Spec-017 §Provider-limit pacing and durable resumption (SA-40)`
+//         C-19 through CP-005-9 / CP-017-10; verifies I-005-6)
+// --------------------------------------------------------------------------
+//
+// A SIBLING AXIS beside `RecoveryCondition`, minted on exactly the ground
+// `RecoverySpanClassification` above was minted on: the two answer different
+// questions. Every `RecoveryCondition` member means A HUMAN MUST ACT — reconcile
+// the diverged span, or re-authenticate the provider CLI on the runtime node. A
+// spent usage allowance means the opposite: no operator action shortens the
+// wait, and the run resumes unattended once the provider's window turns over.
+// Folding this into `RecoveryCondition` would route a self-clearing pause into
+// the operator-remediation queue, which is the conflation that axis exists to
+// prevent — and widening the union would silently re-type every existing
+// consumer's exhaustive switch.
+//
+// RECOGNITION IS TYPED-ONLY (I-005-6). A driver emits a signal ONLY when a
+// STRUCTURED provider event it can NAME states the allowance is spent. Prose in
+// a message, a process exit code, and a bare HTTP status are all forbidden
+// inputs: each is a surface the provider may reword or reuse freely, so matching
+// on one converts an upstream copy edit into a silent misclassification here.
+// An unrecognized shape therefore emits NOTHING, and that absence reads "not
+// known to be limited" — never "known not to be limited".
+//
+// NO CAPABILITY FLAG IS ADDED, and `DRIVER_CAPABILITY_FLAGS` above is restated
+// UNWIDENED. Recognition is a UNIFORM OBLIGATION of every driver, the footing
+// `probeAuth` already stands on: a flag would let a driver declare the
+// obligation away, and a run the provider refused for spend would then sit in
+// the generic failure path with nothing telling anyone why.
+//
+// NOMINAL rather than Zod, by the file header's own rule rather than by
+// exception. The Zod set in the header's (2) exists for surfaces that carry
+// provider-VERBATIM values across the trust boundary — `ProviderOutputSpeedState`
+// is schema'd because `declared` is the provider's own string, and
+// `ProviderCommandEntry` because the command names are. NO member below is
+// provider-verbatim: `cause` and `provenance` are closed literals the driver
+// SELECTS, and `resetsAt` is a timestamp the driver COMPOSES. A schema over them
+// would validate the driver against itself. Same disposition, and the same
+// reason, as `RecoverySpanClassification`. No count in the header moves.
+
+// The closed cause set. ONE member today, and the arity is a finding rather than
+// a placeholder: across both pinned provider surfaces, exactly one condition
+// satisfies this axis's own defining property — that it clears on its own.
+//
+// `plan-allowance-exhausted` — the subscription/plan allowance for a rolling
+// window is spent. It clears when the window turns over, with no operator
+// action, which is what makes it this axis's member.
+//
+// DELIBERATELY EXCLUDED, enumerated so that a typed provider arm reaching a
+// driver and producing nothing is a RECORDED decision rather than a hole (an
+// excluded arm and a dormant one are not the same thing, and collapsing them is
+// how a normalizer quietly stops covering its wire):
+//   * A DEPLETED CREDIT BALANCE (Codex `workspace_owner_credits_depleted` /
+//     `workspace_member_credits_depleted`). No window turnover restores a
+//     balance — a purchase does. It is operator-remediable, so it fails this
+//     axis's defining property, and admitting it here would park a run against a
+//     boundary at which nothing changes.
+//   * A PAYMENT FAULT (Claude `billing_error`). Same reason: a human must act.
+//   * A SPEND-CONTROL CEILING (Codex `spendControlReached`). That is an
+//     administrative budget state carried on a snapshot, not a statement that a
+//     turn was refused, and reading a state flag as a refusal would park runs
+//     that the provider is still willing to serve.
+// WHERE THE EXCLUDED ARMS GO TODAY: nowhere in particular, and that is stated
+// rather than implied. Neither `RecoveryCondition` member names them — that
+// union is `recovery-needed | reauth-required` — so a turn refused for any of
+// the three settles on the driver's ordinary turn-failure path, unchanged by
+// this task. Excluding them from THIS axis is the decision recorded here; giving
+// them a typed home of their own is a separate one nothing above claims to make.
+// Widening this union is an ordinary amendment; inventing a free string is not.
+export type ProviderUsageLimitCause = "plan-allowance-exhausted";
+
+// Where the reset instant CAME FROM, carried on the boundary itself rather than
+// inferred by the consumer from which driver produced it.
+//
+// `provider-stated` — the provider named this instant, for the window it also
+// named as the spent one. `runtime-derived` — the provider named no reset
+// instant, and the daemon computed one from a delay the provider did give. The
+// two are not interchangeable evidence: a consumer may arm a schedule on either,
+// but only the first is safe to SHOW as the provider's own answer, and only the
+// second should widen when a retry lands early.
+export type ProviderUsageLimitResetProvenance = "provider-stated" | "runtime-derived";
+
+// The boundary, as ONE object rather than two sibling optionals on the signal.
+// That is the structural point: "an instant with no provenance" and "a
+// provenance stamp with no instant" are both inexpressible, so a consumer that
+// has an instant always knows what it is worth.
+export interface ProviderUsageLimitResetBoundary {
+  // RFC 3339 UTC, the encoding `PhaseState.autoResumeAt` already consumes, so
+  // the pacing surface carries this value through without re-encoding it.
+  resetsAt: string;
+  provenance: ProviderUsageLimitResetProvenance;
+}
+
+// The signal itself. The BOUNDARY IS OPTIONAL AND THE CAUSE IS NOT, because the
+// two absences mean different things and only one of them is routine: a
+// recognized refusal parks the run whether or not a window was reported, and a
+// missing boundary changes only whether a resume is SCHEDULED. An absent
+// boundary means no reset instant is known from what has been observed — never
+// that the provider publishes none.
+export interface ProviderUsageLimitSignal {
+  cause: ProviderUsageLimitCause;
+  resetBoundary?: ProviderUsageLimitResetBoundary | undefined;
+}
 
 // --------------------------------------------------------------------------
 // T1.8 — R8 parity operation shapes (`Spec-005 §Interfaces And Contracts`,

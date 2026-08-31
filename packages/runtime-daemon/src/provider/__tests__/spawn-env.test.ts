@@ -414,3 +414,115 @@ describe("provider spawn environment — host name-matching semantics", () => {
     }
   });
 });
+
+// --------------------------------------------------------------------------
+// T3.17 — a bound account's child environment, asserted over its FULL set
+// --------------------------------------------------------------------------
+
+describe("bound-account child environment carries no ambient credential inheritance", () => {
+  /**
+   * A credential-bearing name a provider CLI would read if it were inherited.
+   *
+   * Seeded into the DAEMON's own `process.env` for the duration of the test,
+   * because that is the only inheritance path that could exist: the builder
+   * composes from the `baseEnv` it is handed, and the property under test is
+   * that no fold reaches past that argument for a value.
+   */
+  const AMBIENT_CREDENTIAL_NAME = "AI_SIDEKICKS_T317_AMBIENT_PROVIDER_TOKEN";
+
+  /** The credential home the daemon pinned for the bound account. */
+  const BOUND_ACCOUNT_CREDENTIAL_HOME = "/var/lib/ai-sidekicks/accounts/acct-01J0ND/claude";
+
+  function withAmbientCredential<Result>(run: () => Result): Result {
+    const previous = process.env[AMBIENT_CREDENTIAL_NAME];
+    process.env[AMBIENT_CREDENTIAL_NAME] = "sk-ambient-operator-token";
+    try {
+      return run();
+    } finally {
+      if (previous === undefined) {
+        delete process.env[AMBIENT_CREDENTIAL_NAME];
+      } else {
+        process.env[AMBIENT_CREDENTIAL_NAME] = previous;
+      }
+    }
+  }
+
+  it("composes EXACTLY the curated base plus the mandated pairs, and nothing else", () => {
+    // Asserted over the WHOLE variable set rather than by probing for the
+    // absence of one name: an assertion that only checks what it thought to look
+    // for cannot report a variable nobody anticipated. Set equality can.
+    const { composed, ambientDuringBuild } = withAmbientCredential(() => ({
+      composed: buildProviderSpawnEnv({
+        driverName: "claude",
+        baseEnv: [
+          ["PATH", "/usr/bin:/bin"],
+          ["HOME", "/var/empty"],
+          ["CLAUDE_CONFIG_DIR", BOUND_ACCOUNT_CREDENTIAL_HOME],
+        ],
+        hostEnvNameMatch: hostEnvNameMatchForPlatform(process.platform),
+      }),
+      // Read INSIDE the seeded window: the restore runs before the assertions
+      // below, so sampling it out here would prove only that cleanup worked.
+      ambientDuringBuild: process.env[AMBIENT_CREDENTIAL_NAME],
+    }));
+
+    expect(Object.fromEntries(composed)).toStrictEqual({
+      PATH: "/usr/bin:/bin",
+      HOME: "/var/empty",
+      CLAUDE_CONFIG_DIR: BOUND_ACCOUNT_CREDENTIAL_HOME,
+      ...PROVIDER_AUTO_UPDATE_OPT_OUT_ENV.claude,
+    });
+    // The seeded ambient credential existed in this process while the child
+    // environment was composed, and reached no child.
+    expect(ambientDuringBuild).toBeDefined();
+    expect(composed.map(([name]) => name)).not.toContain(AMBIENT_CREDENTIAL_NAME);
+  });
+
+  it("keeps the account's pinned credential home while a deny list strips the ambient name", () => {
+    // The two halves compose: the bound account's home survives (it is the
+    // daemon's own instruction to the child), and an ambient credential name a
+    // caller carried in anyway is removed by the resolved policy.
+    const composed = withAmbientCredential(() =>
+      buildProviderSpawnEnv({
+        driverName: "claude",
+        baseEnv: [
+          ["PATH", "/usr/bin:/bin"],
+          ["CLAUDE_CONFIG_DIR", BOUND_ACCOUNT_CREDENTIAL_HOME],
+          [AMBIENT_CREDENTIAL_NAME, "sk-ambient-operator-token"],
+        ],
+        hostEnvNameMatch: hostEnvNameMatchForPlatform(process.platform),
+        credentialEnvPolicy: {
+          denyEnvVars: [AMBIENT_CREDENTIAL_NAME],
+          envNameMatch: hostEnvNameMatchForPlatform(process.platform),
+        },
+      }),
+    );
+
+    expect(Object.fromEntries(composed)).toStrictEqual({
+      PATH: "/usr/bin:/bin",
+      CLAUDE_CONFIG_DIR: BOUND_ACCOUNT_CREDENTIAL_HOME,
+      ...PROVIDER_AUTO_UPDATE_OPT_OUT_ENV.claude,
+    });
+  });
+
+  it("never reads the daemon's own environment for either provider", () => {
+    // Total over the driver union, so a provider added later inherits the
+    // property rather than needing it re-asserted. An empty curated base yields
+    // exactly that driver's mandated pairs — the strongest form of "no ambient
+    // inheritance", since any leak would have to appear here.
+    for (const driverName of Object.keys(
+      PROVIDER_AUTO_UPDATE_OPT_OUT_ENV,
+    ) as readonly FlooredDriverName[]) {
+      const composed = withAmbientCredential(() =>
+        buildProviderSpawnEnv({
+          driverName,
+          baseEnv: [],
+          hostEnvNameMatch: hostEnvNameMatchForPlatform(process.platform),
+        }),
+      );
+      expect(Object.fromEntries(composed)).toStrictEqual({
+        ...PROVIDER_AUTO_UPDATE_OPT_OUT_ENV[driverName],
+      });
+    }
+  });
+});

@@ -53,7 +53,11 @@ import {
   CLAUDE_SUBAGENT_STOP_SIGNAL,
   CLAUDE_WIRE_FRAME_KINDS,
   UnknownClaudeWireFrameError,
+  CLAUDE_API_RETRY_FRAME_SUBTYPE,
+  CLAUDE_API_RETRY_FRAME_TYPE,
+  CLAUDE_USAGE_LIMIT_RETRY_ERROR_MEMBER,
   classifyClaudeFrameFamilyForRouting,
+  classifyClaudeUsageLimitSignal,
   composeClaudeWireFrameKind,
   normalizeClaudeSubagentLifecycle,
   normalizeClaudeWireFrame,
@@ -974,5 +978,226 @@ describe("ClaudeTerminalEmissionGate (T3.14 P1-1, P1-2-driver)", () => {
     expect(gate.hasSettledEpoch("run-a", 1)).toBe(false);
     expect(gate.hasSettledEpoch("run-b", 1)).toBe(true);
     expect(gate.hasSettledEpoch("run-c", 1)).toBe(true);
+  });
+});
+
+// --------------------------------------------------------------------------
+// T3.16 — typed provider usage-limit signal, Claude leg (I-005-6)
+// --------------------------------------------------------------------------
+//
+// Frames below carry the member set `docs/reference/provider-wire/claude.md`
+// records verbatim for the retry channel: `{ type: "system", subtype:
+// "api_retry", attempt, max_retries, retry_delay_ms, error_status, error }`,
+// with `error_status` sitting beside the typed `error`.
+
+/** A fixed observation clock, so the derived boundary is asserted, not approximated. */
+const RETRY_OBSERVED_AT_EPOCH_MS = Date.parse("2026-08-31T12:00:00.000Z");
+
+function apiRetryFrame(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    type: "system",
+    subtype: "api_retry",
+    attempt: 2,
+    max_retries: 10,
+    retry_delay_ms: 60000,
+    error_status: 429,
+    error: "rate_limit",
+    ...overrides,
+  };
+}
+
+describe("classifyClaudeUsageLimitSignal — typed-only recognition on the retry frame", () => {
+  it("names the frame discriminants by identity rather than by repeated literals", () => {
+    expect(CLAUDE_API_RETRY_FRAME_TYPE).toBe("system");
+    expect(CLAUDE_API_RETRY_FRAME_SUBTYPE).toBe("api_retry");
+    expect(CLAUDE_USAGE_LIMIT_RETRY_ERROR_MEMBER).toBe("rate_limit");
+  });
+
+  it("emits the signal with a RUNTIME-DERIVED boundary composed from the backoff", () => {
+    // The provider states a delay, not a reset. The instant is still worth
+    // arming a schedule on, and the provenance stamp is what stops a consumer
+    // showing it as the provider's own answer.
+    expect(classifyClaudeUsageLimitSignal(apiRetryFrame(), RETRY_OBSERVED_AT_EPOCH_MS)).toEqual({
+      cause: "plan-allowance-exhausted",
+      resetBoundary: { resetsAt: "2026-08-31T12:01:00.000Z", provenance: "runtime-derived" },
+    });
+  });
+
+  it("differs from the Codex leg in PROVENANCE, which is the whole point of the stamp", () => {
+    const claudeSignal = classifyClaudeUsageLimitSignal(
+      apiRetryFrame(),
+      RETRY_OBSERVED_AT_EPOCH_MS,
+    );
+    expect(claudeSignal?.resetBoundary?.provenance).toBe("runtime-derived");
+    expect(claudeSignal?.resetBoundary?.provenance).not.toBe("provider-stated");
+  });
+
+  it("stays PURE — the same frame and clock always compose the same boundary", () => {
+    const first = classifyClaudeUsageLimitSignal(apiRetryFrame(), RETRY_OBSERVED_AT_EPOCH_MS);
+    const second = classifyClaudeUsageLimitSignal(apiRetryFrame(), RETRY_OBSERVED_AT_EPOCH_MS);
+    expect(first).toEqual(second);
+  });
+
+  it("fires on ANY attempt — the ladder position is the consumer's concern, not this leg's", () => {
+    // Decided on purpose rather than by omission: the frame carries `attempt`
+    // and `max_retries` and this classifier reads neither, because it reports an
+    // observed refusal and not a decision to stop waiting. Suppressing the first
+    // attempts would leave the run with no recognized reason for the whole
+    // ladder. Asserted across the ladder's ends so a later attempt gate fails.
+    for (const [attempt, maxRetries] of [
+      [1, 10],
+      [2, 10],
+      [10, 10],
+    ]) {
+      expect(
+        classifyClaudeUsageLimitSignal(
+          apiRetryFrame({ attempt, max_retries: maxRetries }),
+          RETRY_OBSERVED_AT_EPOCH_MS,
+        ),
+      ).toEqual({
+        cause: "plan-allowance-exhausted",
+        resetBoundary: { resetsAt: "2026-08-31T12:01:00.000Z", provenance: "runtime-derived" },
+      });
+    }
+    // And an absent pair is not a recognition input either — the frame is
+    // recognized on its typed members alone.
+    expect(
+      classifyClaudeUsageLimitSignal(
+        { type: "system", subtype: "api_retry", retry_delay_ms: 60000, error: "rate_limit" },
+        RETRY_OBSERVED_AT_EPOCH_MS,
+      ),
+    ).toEqual({
+      cause: "plan-allowance-exhausted",
+      resetBoundary: { resetsAt: "2026-08-31T12:01:00.000Z", provenance: "runtime-derived" },
+    });
+  });
+
+  it("returns the CAUSE ALONE when the frame carries no usable delay", () => {
+    for (const retryDelayMs of [undefined, null, 0, -1, Number.NaN, "60000", {}]) {
+      expect(
+        classifyClaudeUsageLimitSignal(
+          apiRetryFrame({ retry_delay_ms: retryDelayMs }),
+          RETRY_OBSERVED_AT_EPOCH_MS,
+        ),
+      ).toEqual({ cause: "plan-allowance-exhausted" });
+    }
+  });
+
+  it("returns the CAUSE ALONE when the observation clock names no instant", () => {
+    for (const observedAt of [Number.NaN, Number.POSITIVE_INFINITY, 1e18]) {
+      expect(classifyClaudeUsageLimitSignal(apiRetryFrame(), observedAt)).toEqual({
+        cause: "plan-allowance-exhausted",
+      });
+    }
+  });
+
+  it("SEEDED DISCRIMINATING CONTROL — usage-limit prose plus a 429 produce NO signal", () => {
+    // Every one of these carries the HTTP status a status-matcher would fire on
+    // and the prose a text-matcher would fire on, while the typed `error` member
+    // says something else. All must be silent.
+    const proseAndStatusFrames: readonly unknown[] = [
+      apiRetryFrame({
+        error: "server_error",
+        error_status: 429,
+        message: "Rate limit exceeded — usage limit reached, retry after 60s",
+      }),
+      apiRetryFrame({
+        error: "overloaded",
+        error_status: 429,
+        detail: "You have exceeded your plan's usage limit.",
+      }),
+      {
+        type: "result",
+        subtype: "error_during_execution",
+        is_error: true,
+        error_status: 429,
+        exitCode: 1,
+        result: "Claude usage limit reached. Your limit will reset at 3pm.",
+      },
+      { type: "system", subtype: "api_error", error_status: 429, error: "rate_limit" },
+    ];
+    for (const frame of proseAndStatusFrames) {
+      expect(classifyClaudeUsageLimitSignal(frame, RETRY_OBSERVED_AT_EPOCH_MS)).toBeNull();
+    }
+  });
+
+  it("does not read `error_status` — a bare 429 is not evidence an allowance is spent", () => {
+    // Positive control for the negative claim above: the SAME frame recognized
+    // on its typed member is silent the moment that member changes, while the
+    // status stays 429 throughout.
+    expect(
+      classifyClaudeUsageLimitSignal(
+        apiRetryFrame({ error_status: 429 }),
+        RETRY_OBSERVED_AT_EPOCH_MS,
+      ),
+    ).not.toBeNull();
+    expect(
+      classifyClaudeUsageLimitSignal(
+        apiRetryFrame({ error: "overloaded", error_status: 429 }),
+        RETRY_OBSERVED_AT_EPOCH_MS,
+      ),
+    ).toBeNull();
+    // And the typed member alone is enough — no status present at all.
+    const { error_status: _omitted, ...withoutStatus } = apiRetryFrame();
+    expect(
+      classifyClaudeUsageLimitSignal(withoutStatus, RETRY_OBSERVED_AT_EPOCH_MS),
+    ).not.toBeNull();
+  });
+
+  it("recognizes EXACTLY ONE member of the pinned typed-error census", () => {
+    // Checked against the census fixture rather than a list written down here,
+    // so a member added to the pin cannot quietly land in the recognized set —
+    // and so the deliberate exclusions are checked rather than merely asserted.
+    // `billing_error` is the sharpest of them: a payment fault is a human's to
+    // fix, so a park against a reset boundary would never lift.
+    const recognized = CLAUDE_API_RETRY_TYPED_ERRORS.filter(
+      (errorMember) =>
+        classifyClaudeUsageLimitSignal(
+          apiRetryFrame({ error: errorMember }),
+          RETRY_OBSERVED_AT_EPOCH_MS,
+        ) !== null,
+    );
+    expect(recognized).toEqual([CLAUDE_USAGE_LIMIT_RETRY_ERROR_MEMBER]);
+    expect(CLAUDE_API_RETRY_TYPED_ERRORS).toContain("billing_error");
+  });
+
+  it("RECOGNIZES rather than REJECTS — an unfamiliar member takes the ordinary null path", () => {
+    // The reference grades the `error` union's arity Derived, so failing closed
+    // on an unrecognized member would turn a set the evidence cannot close into
+    // an enforced allow-list. Silence is the same answer as for any other shape
+    // the driver has not been taught, and it throws nothing.
+    expect(() =>
+      classifyClaudeUsageLimitSignal(
+        apiRetryFrame({ error: "some_future_member" }),
+        RETRY_OBSERVED_AT_EPOCH_MS,
+      ),
+    ).not.toThrow();
+    expect(
+      classifyClaudeUsageLimitSignal(
+        apiRetryFrame({ error: "some_future_member" }),
+        RETRY_OBSERVED_AT_EPOCH_MS,
+      ),
+    ).toBeNull();
+  });
+
+  it("yields NOTHING — never a default-caused signal — on unparseable or absent input", () => {
+    const unrecognized: readonly unknown[] = [
+      null,
+      undefined,
+      "api_retry",
+      42,
+      [],
+      [apiRetryFrame()],
+      {},
+      apiRetryFrame({ type: "assistant" }),
+      apiRetryFrame({ subtype: "api_error" }),
+      apiRetryFrame({ error: undefined }),
+      apiRetryFrame({ error: null }),
+      apiRetryFrame({ error: 429 }),
+      apiRetryFrame({ error: { type: "rate_limit" } }),
+    ];
+    for (const frame of unrecognized) {
+      expect(classifyClaudeUsageLimitSignal(frame, RETRY_OBSERVED_AT_EPOCH_MS)).toBeNull();
+    }
   });
 });

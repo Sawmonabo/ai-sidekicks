@@ -139,6 +139,7 @@ import {
   SESSION_EVENT_TYPES,
   type EventCategory,
   type NormalizedEventKind,
+  type ProviderUsageLimitSignal,
   type SessionEventType,
 } from "@ai-sidekicks/contracts";
 
@@ -1460,4 +1461,106 @@ export function classifyClaudeTurnEvidence(terminalFrame: unknown): TurnEvidence
     observations.push("declared_turn_failure");
   }
   return observedTurnEvidence(...observations);
+}
+
+// --------------------------------------------------------------------------
+// T3.16 — Typed provider usage-limit signal, Claude leg
+// (`Spec-005 §Fallback Behavior`; verifies I-005-6)
+// --------------------------------------------------------------------------
+
+/** The retry frame's discriminating `type` / `subtype` pair. */
+export const CLAUDE_API_RETRY_FRAME_TYPE = "system" as const;
+export const CLAUDE_API_RETRY_FRAME_SUBTYPE = "api_retry" as const;
+
+/**
+ * The single `api_retry` typed-error member that names a spent allowance.
+ *
+ * `billing_error` sits beside it in the same enum and is deliberately NOT a
+ * member here: a payment fault is remediated by a human, not by a window turning
+ * over, so admitting it would park a run against a boundary that never arrives.
+ * That is the same split the Codex leg makes for a depleted credit balance, and
+ * it is what keeps this axis meaning "resolves unattended".
+ */
+export const CLAUDE_USAGE_LIMIT_RETRY_ERROR_MEMBER = "rate_limit" as const;
+
+/**
+ * Classifies a Claude `system/api_retry` frame for a spent usage allowance
+ * (T3.16, I-005-6), or `null` when it states none.
+ *
+ * THE WEAKER OF THE TWO LEGS, and recorded as such. The Codex account plane
+ * publishes a dedicated reached-type enum beside provider-stated reset instants;
+ * Claude publishes a retry notification whose typed `error` member names the
+ * condition and whose only temporal member is a backoff delay. The frame's shape
+ * is graded Derived in `docs/reference/provider-wire/claude.md` — a string
+ * census cannot prove the `error` union closed — so this leg RECOGNIZES a member
+ * and never REJECTS one: an unfamiliar `error` value takes the same `null` path
+ * as any other unrecognized shape.
+ *
+ * RECOGNITION IS TYPED-ONLY, gated on the frame's `type` / `subtype` pair and
+ * the typed `error` member. In particular `error_status` — the HTTP status the
+ * reference calls out as sitting beside the typed member — is NOT read, on this
+ * axis or any other: a bare `429` is emitted for transport-level throttling that
+ * no allowance is spent on, so keying on it would park runs the provider is
+ * still willing to serve the moment it retried. No message prose is parsed.
+ *
+ * THE BOUNDARY IS RUNTIME-DERIVED, and the stamp says so. `retry_delay_ms` is
+ * when the provider intends to try again, not when the allowance is restored;
+ * the frame carries no documented reset field at all. Composing an instant from
+ * the delay is still worth doing — an armed schedule beats an unbounded wait —
+ * but the consumer must be able to tell it apart from an instant the provider
+ * actually stated, which is exactly what the provenance member is for.
+ *
+ * `observedAtEpochMs` is an EXPLICIT PARAMETER rather than a `Date.now()` read,
+ * so this classifier stays pure and total: the same frame with the same clock
+ * always yields the same signal, which is what makes the boundary assertable in
+ * a test instead of approximable.
+ *
+ * A recognized refusal with no usable delay still returns the CAUSE. A missing
+ * boundary changes only whether a resume is scheduled — never whether the run is
+ * known to be limited.
+ *
+ * `attempt` AND `max_retries` ARE DELIBERATELY NOT READ, and the frame carries
+ * both, so the omission is a decision rather than an oversight. This classifier
+ * reports an OBSERVED CONDITION — the provider refused this request because a
+ * rolling allowance is spent — and says nothing about whether to wait it out. A
+ * signal suppressed until the ladder's final attempt would leave the run with no
+ * recognized reason for the whole ladder, which is the "generic failure path
+ * with nothing telling anyone why" the contract's own no-capability-flag
+ * rationale rejects. Where the honesty is owed instead: the derived boundary is
+ * the provider's OWN next-attempt instant, so a consumer arming a schedule from
+ * an early-attempt frame arms it exactly where the provider was going to retry
+ * anyway. The residual is the consumer's and is stated rather than absorbed — a
+ * pacing surface that treats any recognized refusal as terminal will act on a
+ * ladder the provider may still complete, and this axis carries no attempt
+ * member to help it, because minting one here would mint a member ahead of its
+ * reader. The signal fires on ANY attempt; a test pins that.
+ */
+export function classifyClaudeUsageLimitSignal(
+  frame: unknown,
+  observedAtEpochMs: number,
+): ProviderUsageLimitSignal | null {
+  if (typeof frame !== "object" || frame === null || Array.isArray(frame)) {
+    return null;
+  }
+  const record = frame as Record<string, unknown>;
+  if (
+    record["type"] !== CLAUDE_API_RETRY_FRAME_TYPE ||
+    record["subtype"] !== CLAUDE_API_RETRY_FRAME_SUBTYPE ||
+    record["error"] !== CLAUDE_USAGE_LIMIT_RETRY_ERROR_MEMBER
+  ) {
+    return null;
+  }
+
+  const retryDelayMs = record["retry_delay_ms"];
+  if (!isPositiveFiniteNumber(retryDelayMs) || !Number.isFinite(observedAtEpochMs)) {
+    return { cause: "plan-allowance-exhausted" };
+  }
+  const instant = new Date(observedAtEpochMs + (retryDelayMs as number));
+  if (Number.isNaN(instant.getTime())) {
+    return { cause: "plan-allowance-exhausted" };
+  }
+  return {
+    cause: "plan-allowance-exhausted",
+    resetBoundary: { resetsAt: instant.toISOString(), provenance: "runtime-derived" },
+  };
 }

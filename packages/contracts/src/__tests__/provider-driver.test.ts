@@ -155,6 +155,11 @@ import {
   type ProviderModel,
   type ProviderMode,
   type ProviderSessionHandle,
+  type ProviderUsageLimitCause,
+  type ProviderUsageLimitResetBoundary,
+  type ProviderUsageLimitResetProvenance,
+  type ProviderUsageLimitSignal,
+  type RecoveryCondition,
   type RecoverySpanClassification,
   type ReplayTranscriptParams,
   type RespondToRequestParams,
@@ -3358,5 +3363,145 @@ describe("DriverSubscribeEventsParamsSchema — run-scoped, and answered by the 
       DriverSubscribeEventsParamsSchema.safeParse({ runId: A_RUN_ID, afterCursor: "c1" }).success,
     ).toBe(false);
     expect(DriverSubscribeEventsParamsSchema.safeParse({}).success).toBe(false);
+  });
+});
+
+// --------------------------------------------------------------------------
+// T3.16 — the typed provider usage-limit signal, as a SIBLING axis
+// --------------------------------------------------------------------------
+
+describe("ProviderUsageLimitSignal — a sibling axis, never a RecoveryCondition member", () => {
+  it("keeps the two cause vocabularies mutually unassignable in BOTH directions", () => {
+    // The row's rule — "the signal is never emitted as a `RecoveryCondition`
+    // member" — is a claim about the TYPES, so it is asserted where it can
+    // actually fail. A runtime check could only ever sample the values a test
+    // happened to write down; these two lines fail the build the moment either
+    // union grows into the other, which is the drift that would let a
+    // self-clearing pause be routed into the operator-remediation queue.
+    //
+    // BOTH directions, deliberately. A one-way check would still pass if
+    // `RecoveryCondition` were widened to contain the usage-limit cause, which
+    // is precisely the widening this axis exists to prevent.
+    // @ts-expect-error — a usage-limit cause is not a recovery condition.
+    const conditionFromCause: RecoveryCondition = "plan-allowance-exhausted";
+    // @ts-expect-error — a recovery condition is not a usage-limit cause.
+    const causeFromCondition: ProviderUsageLimitCause = "reauth-required";
+    void conditionFromCause;
+    void causeFromCondition;
+
+    // The runtime companion: the value sets are disjoint too, so a consumer
+    // switching on one can never fall into the other's arm.
+    const recoveryConditions: readonly RecoveryCondition[] = ["recovery-needed", "reauth-required"];
+    const usageLimitCauses: readonly ProviderUsageLimitCause[] = ["plan-allowance-exhausted"];
+    for (const cause of usageLimitCauses) {
+      expect(recoveryConditions).not.toContain(cause as string);
+    }
+  });
+
+  it("restates the V1 capability matrix UNWIDENED — recognition is a uniform obligation", () => {
+    // T3.16 adds NO capability flag, on the `probeAuth` precedent: a flag would
+    // let a driver declare the obligation away, and a run refused for spend
+    // would then sit in the generic failure path with nothing saying why.
+    expect(DRIVER_CAPABILITY_FLAGS).toHaveLength(17);
+    for (const flag of DRIVER_CAPABILITY_FLAGS) {
+      expect(flag).not.toMatch(/usage|limit|rate/);
+    }
+  });
+
+  it("makes a bare instant and a bare provenance stamp both inexpressible", () => {
+    // The boundary is ONE object rather than two sibling optionals, which is
+    // what stops a consumer holding an instant it cannot weigh.
+    const boundary: ProviderUsageLimitResetBoundary = {
+      resetsAt: "2026-09-01T00:00:00.000Z",
+      provenance: "provider-stated",
+    };
+    expect(boundary.provenance).toBe("provider-stated");
+
+    // @ts-expect-error — an instant with no provenance stamp does not typecheck.
+    const instantOnly: ProviderUsageLimitResetBoundary = { resetsAt: "2026-09-01T00:00:00.000Z" };
+    // @ts-expect-error — a provenance stamp naming no instant does not either.
+    const provenanceOnly: ProviderUsageLimitResetBoundary = { provenance: "runtime-derived" };
+    void instantOnly;
+    void provenanceOnly;
+
+    const provenances: readonly ProviderUsageLimitResetProvenance[] = [
+      "provider-stated",
+      "runtime-derived",
+    ];
+    expect(provenances).toHaveLength(2);
+  });
+
+  it("carries a REQUIRED cause and an OPTIONAL boundary, because the absences differ", () => {
+    // A recognized refusal parks whether or not a window was reported; a missing
+    // boundary changes only whether a resume is SCHEDULED.
+    const withoutBoundary: ProviderUsageLimitSignal = { cause: "plan-allowance-exhausted" };
+    expect(withoutBoundary.resetBoundary).toBeUndefined();
+
+    const withBoundary: ProviderUsageLimitSignal = {
+      cause: "plan-allowance-exhausted",
+      resetBoundary: { resetsAt: "2026-09-01T00:00:00.000Z", provenance: "runtime-derived" },
+    };
+    expect(withBoundary.resetBoundary?.provenance).toBe("runtime-derived");
+
+    // @ts-expect-error — a signal with no cause is not a signal.
+    const causeless: ProviderUsageLimitSignal = {
+      resetBoundary: { resetsAt: "2026-09-01T00:00:00.000Z", provenance: "provider-stated" },
+    };
+    void causeless;
+  });
+});
+
+// --------------------------------------------------------------------------
+// T3.17 — additive-optional provider-account identity on the spawn carriers
+// --------------------------------------------------------------------------
+
+describe("provider-account identity on CreateSessionParams / ResumeSessionParams", () => {
+  it("leaves a no-identifier create structurally identical to the pre-amendment shape", () => {
+    // ADDITIVE-OPTIONAL means the unchanged path stays unchanged: a create that
+    // names no account carries no member for one, so nothing downstream can read
+    // an absent account as a present-but-empty one.
+    const preAmendmentCreate: CreateSessionParams = {
+      sessionId: SESSION_ID,
+      config: { cwd: "/tmp/session" },
+    };
+    expect(Object.keys(preAmendmentCreate).sort()).toEqual(["config", "sessionId"]);
+    expect("providerAccountId" in preAmendmentCreate).toBe(false);
+    expect(preAmendmentCreate.providerAccountId).toBeUndefined();
+
+    const preAmendmentResume: ResumeSessionParams = {
+      sessionId: SESSION_ID,
+      resumeHandle: "provider-handle-1",
+    };
+    expect(Object.keys(preAmendmentResume).sort()).toEqual(["resumeHandle", "sessionId"]);
+    expect("providerAccountId" in preAmendmentResume).toBe(false);
+  });
+
+  it("admits the identifier on BOTH carriers, because resume is a fresh spawn", () => {
+    const create: CreateSessionParams = {
+      sessionId: SESSION_ID,
+      config: {},
+      providerAccountId: "acct-01J8ZK",
+    };
+    const resume: ResumeSessionParams = {
+      sessionId: SESSION_ID,
+      resumeHandle: "provider-handle-1",
+      providerAccountId: "acct-01J8ZK",
+    };
+    // The SAME identity on both, which is the property: a resume that re-realized
+    // whichever account is default now would move a live run's spend onto an
+    // account it was never admitted against.
+    expect(resume.providerAccountId).toBe(create.providerAccountId);
+  });
+
+  it("keeps the identifier OPAQUE — a structured value is not admitted", () => {
+    // The driver may not parse it, so the contract does not hand it anything
+    // parseable: it is a string, not a record naming a home or a credential.
+    const structured: CreateSessionParams = {
+      sessionId: SESSION_ID,
+      config: {},
+      // @ts-expect-error — an account identity is opaque, never a structure.
+      providerAccountId: { accountId: "acct-01J8ZK", credentialHome: "/home/.codex" },
+    };
+    void structured;
   });
 });

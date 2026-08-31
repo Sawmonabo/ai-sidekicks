@@ -1643,6 +1643,7 @@ describe("composeResumeSessionParams (T3.15 R4, CP-005-1)", () => {
       subagentPolicy: FULL_SPAWN_CONFIG.subagentPolicy,
       outputSchema: FULL_SPAWN_CONFIG.outputSchema,
       admittedCostCapCents: 2500,
+      providerAccountId: FULL_SPAWN_CONFIG.providerAccountId,
       outputSpeed: "on",
       onCallbackToolCall: undefined,
       onMcpServerStatus: undefined,
@@ -1651,8 +1652,10 @@ describe("composeResumeSessionParams (T3.15 R4, CP-005-1)", () => {
 
   it("carries no `relaunch-input` member onto the resume params", () => {
     // A spread from `spawnConfig` would carry members the params shape does not
-    // declare — the resolved executable path and the paying account among them,
-    // which the relaunch path owns rather than the resume path.
+    // declare — the resolved executable path, which the relaunch path owns
+    // rather than the resume path. The paying account is NOT in that class as of
+    // T3.17: the driver is handed it on the params, and the relaunch reads it
+    // too.
     const store = makeStore();
     const binding = store.create({
       runId: RUN_ID,
@@ -1665,7 +1668,7 @@ describe("composeResumeSessionParams (T3.15 R4, CP-005-1)", () => {
     const params = composeResumeSessionParams(SESSION_ID, binding, NO_FUNCTION_LEGS);
 
     expect(Object.keys(params)).not.toContain("resolvedExecutablePath");
-    expect(Object.keys(params)).not.toContain("providerAccountId");
+    expect(Object.keys(params)).toContain("providerAccountId");
   });
 
   it("binds the injected function legs, which no row can carry", () => {
@@ -1771,5 +1774,145 @@ describe("composeResumeSessionParams (T3.15 R4, CP-005-1)", () => {
 
     expect(binding.spawnConfig).toStrictEqual({ outputSpeed: "off" });
     expect(Object.keys(binding.spawnConfig)).not.toContain("declared");
+  });
+});
+
+// --------------------------------------------------------------------------
+// T3.17 — provider-account identity through the `spawn_config` carrier
+// --------------------------------------------------------------------------
+
+describe("provider-account identity at spawn and resume (T3.17)", () => {
+  const SESSION_ID = "11111111-1111-4111-8111-111111111111" as SessionId;
+  const NO_FUNCTION_LEGS = {
+    onCallbackToolCall: undefined,
+    onMcpServerStatus: undefined,
+  };
+  const ADMITTED_ACCOUNT_ID = "acct-01J0ND0000NN5J5J5J5J5J5J";
+  const LATER_DEFAULT_ACCOUNT_ID = "acct-01K7XXXXXXXXXXXXXXXXXXXXXX";
+
+  it("leaves a NO-IDENTIFIER create byte-identical to the pre-amendment column", () => {
+    // Additive-optional means the unchanged path is unchanged all the way down
+    // to the stored bytes: no key, so nothing downstream can read an unbound
+    // account as a bound-but-empty one.
+    const store = makeStore();
+    const preAmendmentSpawnConfig: RuntimeBindingSpawnConfig = {
+      executionPosture: EXECUTION_POSTURE,
+      admittedCostCapCents: 2500,
+    };
+    const binding = store.create({
+      runId: RUN_ID,
+      driverName: DRIVER_NAME,
+      contractVersion: CONTRACT_VERSION,
+      spawnConfig: preAmendmentSpawnConfig,
+      resumeHandle: "opaque-handle-abc",
+    });
+
+    expect(readRawSpawnConfig(binding.id)).toBe(JSON.stringify(preAmendmentSpawnConfig));
+    expect(readRawSpawnConfig(binding.id)).not.toContain("providerAccountId");
+    expect(binding.spawnConfig.providerAccountId).toBeUndefined();
+    expect(
+      composeResumeSessionParams(SESSION_ID, binding, NO_FUNCTION_LEGS).providerAccountId,
+    ).toBeUndefined();
+  });
+
+  it("ROUND-TRIPS the identity through the durable row and back onto the resume params", () => {
+    const store = makeStore();
+    const binding = store.create({
+      runId: RUN_ID,
+      driverName: DRIVER_NAME,
+      contractVersion: CONTRACT_VERSION,
+      spawnConfig: { ...FULL_SPAWN_CONFIG, providerAccountId: ADMITTED_ACCOUNT_ID },
+      resumeHandle: "opaque-handle-abc",
+    });
+
+    expect(JSON.parse(readRawSpawnConfig(binding.id))).toMatchObject({
+      providerAccountId: ADMITTED_ACCOUNT_ID,
+    });
+    // Read back through the store's own typed accessor — never by re-parsing the
+    // column at the call site, which would be a second reader of a closed key
+    // set with its own idea of what the members mean.
+    const reread = store.findById(binding.id);
+    expect(reread?.spawnConfig.providerAccountId).toBe(ADMITTED_ACCOUNT_ID);
+    expect(
+      composeResumeSessionParams(SESSION_ID, binding, NO_FUNCTION_LEGS).providerAccountId,
+    ).toBe(ADMITTED_ACCOUNT_ID);
+  });
+
+  it("REBINDS to the ADMITTED account after the provider default changed mid-session", () => {
+    // The failure this task exists to prevent is a BILLING one, not a lost
+    // capability: a resume that re-resolved "whichever account is default now"
+    // would move a live run's spend onto an account it was never admitted
+    // against, while the receipt's per-paying-account key still named the
+    // original. The durable row is the source, so the default may move freely.
+    const store = makeStore();
+    let nodeResolvedDefaultAccountId = ADMITTED_ACCOUNT_ID;
+    const binding = store.create({
+      runId: RUN_ID,
+      driverName: DRIVER_NAME,
+      contractVersion: CONTRACT_VERSION,
+      spawnConfig: { ...FULL_SPAWN_CONFIG, providerAccountId: nodeResolvedDefaultAccountId },
+      resumeHandle: "opaque-handle-abc",
+    });
+
+    // The operator changes the node's default while the run is live.
+    nodeResolvedDefaultAccountId = LATER_DEFAULT_ACCOUNT_ID;
+
+    // Recovery does not hold the admitting request; it holds the row.
+    const resumed = store.findById(binding.id);
+    expect(resumed).toBeDefined();
+    const params = composeResumeSessionParams(SESSION_ID, resumed!, NO_FUNCTION_LEGS);
+
+    expect(params.providerAccountId).toBe(ADMITTED_ACCOUNT_ID);
+    expect(params.providerAccountId).not.toBe(nodeResolvedDefaultAccountId);
+  });
+
+  it("records the SERVER-RESOLVED value, never the client's request for one", () => {
+    // A client-supplied identifier is an INPUT to resolution. What is stored,
+    // and therefore what a relaunch re-realizes, is the value the daemon
+    // resolved — so a client cannot pin a run to an account by asking.
+    const clientRequestedAccountId = "acct-client-asked-for-this";
+    const resolveProviderAccountId = (requested: string): string => {
+      expect(requested).toBe(clientRequestedAccountId);
+      return ADMITTED_ACCOUNT_ID;
+    };
+
+    const store = makeStore();
+    const binding = store.create({
+      runId: RUN_ID,
+      driverName: DRIVER_NAME,
+      contractVersion: CONTRACT_VERSION,
+      spawnConfig: {
+        ...FULL_SPAWN_CONFIG,
+        providerAccountId: resolveProviderAccountId(clientRequestedAccountId),
+      },
+      resumeHandle: "opaque-handle-abc",
+    });
+
+    expect(readRawSpawnConfig(binding.id)).not.toContain(clientRequestedAccountId);
+    expect(binding.spawnConfig.providerAccountId).toBe(ADMITTED_ACCOUNT_ID);
+    expect(
+      composeResumeSessionParams(SESSION_ID, binding, NO_FUNCTION_LEGS).providerAccountId,
+    ).toBe(ADMITTED_ACCOUNT_ID);
+  });
+
+  it("refuses a non-string identity at the closed-key-set parse seam", () => {
+    // The member check is `typeof value === "string"`, so a row corrupted behind
+    // the store's back surfaces as an unreadable `spawn_config` rather than
+    // reaching a spawn as a structure a driver might try to interpret — the
+    // opacity rule enforced at the read, not merely written above the member.
+    const store = makeStore();
+    const created = store.create({
+      runId: RUN_ID,
+      driverName: DRIVER_NAME,
+      contractVersion: CONTRACT_VERSION,
+      spawnConfig: FULL_SPAWN_CONFIG,
+      resumeHandle: "opaque-handle-abc",
+    });
+    corruptSpawnConfigOutOfBand(
+      created.id,
+      JSON.stringify({ providerAccountId: { accountId: ADMITTED_ACCOUNT_ID } }),
+    );
+
+    expect(() => store.findById(created.id)).toThrow(/spawn_config/);
   });
 });
