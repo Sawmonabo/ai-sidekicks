@@ -207,6 +207,7 @@ import {
   SESSION_EVENT_TYPES,
   type EventCategory,
   type NormalizedEventKind,
+  type ProviderUsageLimitSignal,
   type SessionEventType,
 } from "@ai-sidekicks/contracts";
 
@@ -1597,3 +1598,261 @@ export function classifyCodexTurnEvidence(params: unknown): TurnEvidenceClassifi
   }
   return observedTurnEvidence(...observations);
 }
+
+// --------------------------------------------------------------------------
+// T3.16 — Typed provider usage-limit signal, Codex leg
+// (`Spec-005 §Fallback Behavior`; verifies I-005-6)
+// --------------------------------------------------------------------------
+//
+// The two account-plane carriers this leg reads, named as constants so the
+// binding is by IDENTITY rather than by a string repeated at a call site. Both
+// carry the same `RateLimitSnapshot`; they differ only in how it arrives.
+//
+// The PULL leg is a reply to a daemon-issued request and so is deliberately not
+// a member of the inbound-frame census above — the census header states that
+// exclusion, and naming the method here does not change it.
+export const CODEX_ACCOUNT_RATE_LIMITS_READ_METHOD = "account/rateLimits/read" as const;
+export const CODEX_ACCOUNT_RATE_LIMITS_UPDATED_METHOD = "account/rateLimits/updated" as const;
+
+/**
+ * Every `RateLimitReachedType` member the pin's generated schema carries —
+ * TRANSCRIBED BY HAND from the `RateLimitReachedType` enum published by
+ * `codex-cli 0.150.1`, which is the pin `Spec-005` records for this driver.
+ *
+ * Exported so a test can assert the two dispositions below PARTITION it. What
+ * that assertion actually guards is a change to the CLASSIFIER: dropping an arm
+ * from one disposition set without placing it in the other, or widening one set
+ * past this census, fails it — and either would silently turn a decided arm into
+ * an unrecognized one, which is indistinguishable from the outside from a shape
+ * never seen before, though excluded and dormant are different states.
+ *
+ * WHAT IT DOES NOT GUARD, stated because the constant's name invites the wrong
+ * reading: an arm the VENDOR adds in a later release is undetected here, since
+ * this list is the test's own input rather than a read of the provider's schema.
+ * A member new to the wire simply matches neither set and takes the unrecognized
+ * path — the fail-quiet direction, and the only one available to a typed-only
+ * recognizer, but not a covered case. Re-transcribing this list is part of
+ * moving the pin.
+ */
+export const CODEX_RATE_LIMIT_REACHED_TYPES: readonly string[] = Object.freeze([
+  "rate_limit_reached",
+  "workspace_owner_credits_depleted",
+  "workspace_member_credits_depleted",
+  "workspace_owner_usage_limit_reached",
+  "workspace_member_usage_limit_reached",
+]);
+
+/**
+ * The arms that mean A ROLLING ALLOWANCE IS SPENT — the condition that clears on
+ * its own when the window turns over, with no operator action.
+ */
+const CODEX_PLAN_ALLOWANCE_REACHED_TYPES: ReadonlySet<string> = new Set([
+  "rate_limit_reached",
+  "workspace_owner_usage_limit_reached",
+  "workspace_member_usage_limit_reached",
+]);
+
+/**
+ * The arms that are OPERATOR-REMEDIABLE and therefore deliberately produce NO
+ * signal on this axis: a depleted credit balance is restored by a purchase, not
+ * by a window turning over, so parking a run against a reset instant would be
+ * promising a boundary at which nothing changes.
+ *
+ * Enumerated rather than left to the fall-through, so the decision is recorded
+ * where the classifier is read and the partition test has both halves to check.
+ */
+const CODEX_OPERATOR_REMEDIABLE_REACHED_TYPES: ReadonlySet<string> = new Set([
+  "workspace_owner_credits_depleted",
+  "workspace_member_credits_depleted",
+]);
+
+/**
+ * The two account-plane readings a usage-limit classification is made from.
+ *
+ * BOTH, rather than one frame at a time, because the vendor says so: the push
+ * notification's own schema documents it as a "sparse rolling rate-limit update"
+ * whose clients "should merge available values into the most recent
+ * `account/rateLimits/read` response", and states that a nullable member absent
+ * from a rolling update "does not clear a previously observed value". A
+ * classifier fed only the push frame would therefore read a routinely-absent
+ * window as "the provider reported no reset boundary" — a false reading of a
+ * sparse frame rather than a fact about the account.
+ *
+ * Either member may be `null` when that reading has not been taken; both `null`
+ * is a legitimate state and yields no signal.
+ *
+ * CALLER OBLIGATION — RECENCY IS THE CALLER'S TO MAINTAIN, and it is stated here
+ * because the caller is authored elsewhere. The merge below is unconditional:
+ * a present value in `rollingUpdate` always wins, which is the vendor's rule and
+ * is correct only while the update is the NEWER of the two readings. A caller
+ * that refetches `account/rateLimits/read` must therefore DISCARD the rolling
+ * update it was holding (set it back to `null`) in the same act, or a stale push
+ * will override the fresh read it just took. This shape holds two readings and
+ * no clock, so it cannot enforce that ordering itself; it is not inferred from
+ * the values, because a boundary that legitimately did not move is
+ * indistinguishable from one carried over.
+ */
+export interface CodexRateLimitObservation {
+  /** The `account/rateLimits/read` REPLY body, or `null` if none has landed. */
+  readonly latestRead: unknown;
+  /** The `account/rateLimits/updated` NOTIFICATION params, or `null`. */
+  readonly rollingUpdate: unknown;
+}
+
+/** The three snapshot members this classifier reads, after the vendor merge. */
+interface CodexMergedRateLimitReading {
+  readonly rateLimitReachedType: unknown;
+  readonly primary: unknown;
+  readonly secondary: unknown;
+}
+
+/** Lifts the `rateLimits` snapshot out of either account-plane carrier. */
+function readCodexRateLimitSnapshot(carrier: unknown): Record<string, unknown> | null {
+  const record = readCodexRecord(carrier);
+  return record === null ? null : readCodexRecord(record["rateLimits"]);
+}
+
+/**
+ * Applies the vendor's stated merge: a value present in the sparse update wins,
+ * and a member absent or explicitly null there falls back to the last full read
+ * rather than clearing it.
+ *
+ * Merged MEMBER-BY-MEMBER over exactly what the classifier consumes, not by
+ * spreading the untrusted records. A spread-then-assign merge would write
+ * attacker-chosen keys onto a prototype-bearing object; enumerating the three
+ * read members removes that surface entirely and keeps the reader from carrying
+ * fields nothing here looks at.
+ *
+ * UNCONDITIONAL, never recency-checked — see the caller obligation on
+ * {@link CodexRateLimitObservation}.
+ */
+function mergeCodexRateLimitReading(
+  latestRead: Record<string, unknown> | null,
+  rollingUpdate: Record<string, unknown> | null,
+): CodexMergedRateLimitReading {
+  return {
+    rateLimitReachedType:
+      rollingUpdate?.["rateLimitReachedType"] ?? latestRead?.["rateLimitReachedType"],
+    primary: rollingUpdate?.["primary"] ?? latestRead?.["primary"],
+    secondary: rollingUpdate?.["secondary"] ?? latestRead?.["secondary"],
+  };
+}
+
+/**
+ * The reset instant of one window, but ONLY when the provider's own reading says
+ * that window is the spent one.
+ *
+ * `usedPercent` is documented as "percentage of the window that has been
+ * consumed", so reading it to identify WHICH of the provider's windows is
+ * exhausted is not a threshold heuristic standing in for recognition —
+ * recognition already happened, on the typed enum, before this is ever called.
+ * What it buys is the honesty of the provenance stamp: the instant returned is
+ * one the provider stated about the window the provider says is spent, rather
+ * than a driver's pick among equals.
+ *
+ * Numbers are read TOLERANTLY (any finite value, no integer test): the consumed
+ * fraction is `f64` in the core protocol type and `i32` in the app-server struct
+ * at the pin, and a reader that rejected one of those would fail on the
+ * provider's own wire.
+ */
+function readCodexSpentWindowResetEpochSeconds(window: unknown): number | null {
+  const record = readCodexRecord(window);
+  if (record === null) {
+    return null;
+  }
+  const usedPercent = record["usedPercent"];
+  if (typeof usedPercent !== "number" || !Number.isFinite(usedPercent) || usedPercent < 100) {
+    return null;
+  }
+  const resetsAt = record["resetsAt"];
+  if (typeof resetsAt !== "number" || !Number.isFinite(resetsAt)) {
+    return null;
+  }
+  return resetsAt;
+}
+
+/**
+ * Unix SECONDS to RFC 3339 UTC, or `null` when the value cannot name an instant.
+ *
+ * The unit is verified against the pinned protocol source, where `resetsAt` is
+ * documented as "Unix timestamp (seconds since epoch) when the window resets"
+ * and is copied verbatim into the app-server struct. Reading it as milliseconds
+ * would place every boundary about fifty-five years too early — an error that
+ * surfaces as "the pacing surface resumes immediately", not as a parse failure.
+ */
+function codexEpochSecondsToRfc3339Utc(epochSeconds: number): string | null {
+  const instant = new Date(epochSeconds * 1000);
+  return Number.isNaN(instant.getTime()) ? null : instant.toISOString();
+}
+
+/**
+ * Classifies the account-plane rate-limit readings for a spent usage allowance
+ * (T3.16, I-005-6), or `null` when they state none.
+ *
+ * RECOGNITION IS TYPED-ONLY, and the single gate is the `rateLimitReachedType`
+ * enum. No prose is read — `limitName` and `planType` are provider-authored
+ * strings this function never inspects — no exit code is read, and no HTTP
+ * status is read. Neither is `usedPercent` a recognition input: a snapshot
+ * sitting at a hundred percent with no reached-type arm is an account at its
+ * ceiling, not a statement that a turn was refused, and treating it as one would
+ * park runs the provider is still willing to serve.
+ *
+ * `spendControlReached` is likewise not read. It is an administrative budget
+ * state carried on the snapshot rather than a refusal, and the pin's own schema
+ * warns that its absence "is unavailable, not a sparse-update recovery" — a
+ * member whose absence carries no information is not a discriminant.
+ *
+ * `TurnError.codexErrorInfo: "usageLimitExceeded"` is a typed arm that also
+ * states this condition, and it is deliberately NOT a source here: it carries no
+ * reset boundary of its own at the pin, and the turn-failure classification it
+ * belongs to is the permanent-versus-transient refusal axis rather than this
+ * one. The account plane is the only carrier stating both the refusal and the
+ * instant it lifts.
+ *
+ * Returns `null` for everything it does not recognize, and that absence means
+ * "not known to be limited" — never "known not to be limited".
+ */
+export function classifyCodexUsageLimitSignal(
+  observation: CodexRateLimitObservation,
+): ProviderUsageLimitSignal | null {
+  const reading = mergeCodexRateLimitReading(
+    readCodexRateLimitSnapshot(observation.latestRead),
+    readCodexRateLimitSnapshot(observation.rollingUpdate),
+  );
+  const reachedType = reading.rateLimitReachedType;
+  if (typeof reachedType !== "string" || !CODEX_PLAN_ALLOWANCE_REACHED_TYPES.has(reachedType)) {
+    // Covers the operator-remediable arms, every unrecognized arm, and absence
+    // alike — all three emit nothing rather than a default-caused signal.
+    return null;
+  }
+
+  // LATEST among the windows the provider marks spent. Picking the earliest
+  // would schedule a resume the other window still refuses, converting one park
+  // into a retry ladder against a provider that has already said no.
+  const spentResets = [reading.primary, reading.secondary]
+    .map(readCodexSpentWindowResetEpochSeconds)
+    .filter((epochSeconds): epochSeconds is number => epochSeconds !== null);
+  if (spentResets.length === 0) {
+    return { cause: "plan-allowance-exhausted" };
+  }
+  const resetsAt = codexEpochSecondsToRfc3339Utc(Math.max(...spentResets));
+  if (resetsAt === null) {
+    return { cause: "plan-allowance-exhausted" };
+  }
+  return {
+    cause: "plan-allowance-exhausted",
+    resetBoundary: { resetsAt, provenance: "provider-stated" },
+  };
+}
+
+/**
+ * The operator-remediable arms, exported for the partition assertion only.
+ *
+ * Read by no production path: the classifier's gate is the plan-allowance set,
+ * and every other arm falls through to `null` by that gate alone. This export
+ * exists so the decision to exclude these two is CHECKED rather than merely
+ * written down.
+ */
+export const CODEX_USAGE_LIMIT_EXCLUDED_REACHED_TYPES: readonly string[] = Object.freeze([
+  ...CODEX_OPERATOR_REMEDIABLE_REACHED_TYPES,
+]);

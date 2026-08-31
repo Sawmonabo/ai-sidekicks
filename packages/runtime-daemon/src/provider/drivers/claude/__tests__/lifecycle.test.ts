@@ -4502,6 +4502,219 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
     });
   });
 
+  it("stamps the account the CREATE was admitted against when no registry port is bound", async () => {
+    // THE FAIL-OPEN THIS CLOSES. T3.17 made `providerAccountId` a typed member of
+    // `CreateSessionParams`, and this band read it nowhere: a caller following the
+    // typed contract stamped `null`, and because the consuming routing check
+    // treats `null` as matching NOTHING, every account-bound Claude session's
+    // enumeration was unroutable. The record is the source; the registry port is
+    // an unbound cross-check here, which is silence rather than a contradiction.
+    const harness = buildHarness();
+    await harness.lifecycle.createSession({
+      ...buildCreateSessionParams(),
+      providerAccountId: "account-admitted",
+    });
+    harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
+      handshake: buildHandshake(),
+    });
+
+    const result = await harness.lifecycle.listProviderCommands({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+    });
+
+    expect(result.bindings[0]?.binding).toStrictEqual({
+      driverName: "claude",
+      providerAccountId: "account-admitted",
+    });
+    // Stamped ONCE: the group's binding and every entry's carry the same value,
+    // because both are composed from the one resolution.
+    for (const entry of result.bindings[0]?.entries ?? []) {
+      expect(entry.binding).toStrictEqual({
+        driverName: "claude",
+        providerAccountId: "account-admitted",
+      });
+    }
+  });
+
+  it("stamps once when the record and the registry AGREE", async () => {
+    const harness = buildHarness({ readBoundProviderAccountId: () => "account-admitted" });
+    await harness.lifecycle.createSession({
+      ...buildCreateSessionParams(),
+      providerAccountId: "account-admitted",
+    });
+    harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
+      handshake: buildHandshake(),
+    });
+
+    const result = await harness.lifecycle.listProviderCommands({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+    });
+
+    expect(result.bindings[0]?.binding).toStrictEqual({
+      driverName: "claude",
+      providerAccountId: "account-admitted",
+    });
+  });
+
+  it("REFUSES the enumeration when a STALE registry names a different account", async () => {
+    // The second defect, and the one a `null` stamp cannot express: a registry
+    // that has moved on since admission would route this participant's palette
+    // onto an account this process never authenticated as. Neither candidate is
+    // stamped — publishing the record's would assert an identity the daemon's own
+    // registry contradicts, and publishing the registry's would launder the
+    // divergence into a correct-looking binding. This is a READ, so a refusal
+    // costs a palette rather than a run.
+    const harness = buildHarness({ readBoundProviderAccountId: () => "account-stale" });
+    await harness.lifecycle.createSession({
+      ...buildCreateSessionParams(),
+      providerAccountId: "account-admitted",
+    });
+    harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
+      handshake: buildHandshake(),
+    });
+
+    const refused = await harness.lifecycle
+      .listProviderCommands({ sessionId: TEST_SESSION_ID, bindingId: TEST_BINDING_ID })
+      .then(
+        () => undefined,
+        (cause: unknown) => cause,
+      );
+
+    expect(refused).toBeInstanceOf(ClaudeSessionUnavailableError);
+    expect((refused as ClaudeSessionUnavailableError).fields.reason).toBe(
+      "provider_account_ambiguous",
+    );
+    // BOTH ids are named, because a refusal reporting only that two values
+    // disagreed leaves an operator unable to tell which resolver is wrong.
+    expect((refused as ClaudeSessionUnavailableError).message).toContain("account-admitted");
+    expect((refused as ClaudeSessionUnavailableError).message).toContain("account-stale");
+    // And the session is untouched — a refused READ disposes nothing.
+    expect(harness.transport.spawnedChannels).toHaveLength(1);
+  });
+
+  it("keeps the registry as the ONLY source when the request named no account", async () => {
+    // The pre-T3.17 flow, pinned so making the record primary cannot be satisfied
+    // by an implementation that simply stopped consulting the port. A caller that
+    // omits the typed member leaves the registry as the only source there has
+    // ever been.
+    const harness = buildHarness({ readBoundProviderAccountId: () => "account-registry" });
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
+      handshake: buildHandshake(),
+    });
+
+    const result = await harness.lifecycle.listProviderCommands({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+    });
+
+    expect(result.bindings[0]?.binding).toStrictEqual({
+      driverName: "claude",
+      providerAccountId: "account-registry",
+    });
+  });
+
+  it("carries the admitted account through a REWIND rather than re-reading it", async () => {
+    // A fork continues the run the daemon already admitted, and `RollbackToParams`
+    // names no account of its own — so the successor INHERITS the predecessor's,
+    // exactly as it inherits `spawnBinding`. An implementation that re-consulted
+    // the registry here would let a rewind silently re-bill a session the daemon
+    // never re-admitted; the registry port is left unbound so only inheritance
+    // can produce this answer.
+    const harness = buildHarness();
+    await harness.lifecycle.createSession({
+      ...buildCreateSessionParams(),
+      providerAccountId: "account-admitted",
+    });
+
+    const rewound = await harness.lifecycle.rollbackTo({
+      sessionId: TEST_SESSION_ID,
+      bindingId: "binding-predecessor",
+      position: 4,
+    });
+    expect(rewound.status).toBe("applied");
+
+    harness.transport.spawnedChannels.at(-1)?.emitStreamFrame("system/init", {
+      handshake: buildHandshake(),
+    });
+    const result = await harness.lifecycle.listProviderCommands({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+    });
+
+    expect(result.bindings[0]?.binding).toStrictEqual({
+      driverName: "claude",
+      providerAccountId: "account-admitted",
+    });
+  });
+
+  it("REFUSES a create whose typed account member is present but EMPTY", async () => {
+    // An empty string is a daemon that meant to bind an account and bound
+    // nothing. Folding it to `null` would hide the wiring fault; carrying it
+    // would be worse, since two bindings stamped `""` compare EQUAL in the very
+    // routing check `null` exists to make match nothing.
+    const harness = buildHarness();
+
+    const refused = await harness.lifecycle
+      .createSession({ ...buildCreateSessionParams(), providerAccountId: "" })
+      .then(
+        () => undefined,
+        (cause: unknown) => cause,
+      );
+
+    expect(refused).toBeInstanceOf(ClaudeSessionUnavailableError);
+    expect((refused as ClaudeSessionUnavailableError).fields.reason).toBe(
+      "provider_account_unusable",
+    );
+    // Refused BEFORE the spawn: no process ever ran under an unsettled identity.
+    expect(harness.transport.spawnedChannels).toHaveLength(0);
+  });
+
+  it("captures a RESUME's typed account member into the record it stamps from", async () => {
+    // A resume in this band is a fresh spawn onto an EMPTY slot, so the record it
+    // installs is the only one there is and the request is the only source for it.
+    const harness = buildHarness();
+    await harness.lifecycle.resumeSession({
+      sessionId: TEST_SESSION_ID,
+      resumeHandle: "provider-session-earlier",
+      providerAccountId: "account-admitted",
+    });
+    harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
+      handshake: buildHandshake(),
+    });
+
+    const result = await harness.lifecycle.listProviderCommands({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+    });
+
+    expect(result.bindings[0]?.binding).toStrictEqual({
+      driverName: "claude",
+      providerAccountId: "account-admitted",
+    });
+  });
+
+  it("REFUSES a resume whose typed account member is EMPTY, through the `failed` ARM", async () => {
+    // I-005-5: resume's contractual failure channel is the arm, never a throw. A
+    // rejection here would reach a caller that has no arm for it.
+    const harness = buildHarness();
+
+    const result = await harness.lifecycle.resumeSession({
+      sessionId: TEST_SESSION_ID,
+      resumeHandle: "provider-session-earlier",
+      providerAccountId: "",
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.status === "failed" ? result.providerFailureDetail : "").toContain(
+      "present but empty",
+    );
+    // Refused before the spawn, so nothing was resumed.
+    expect(harness.transport.resumeRequests).toHaveLength(0);
+  });
+
   it("answers `runId: null` when NO run holds a live turn", async () => {
     // The ordinary pre-first-turn palette read. It SUCCEEDS.
     const harness = buildHarness();

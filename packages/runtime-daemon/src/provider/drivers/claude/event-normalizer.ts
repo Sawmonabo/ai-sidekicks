@@ -139,6 +139,7 @@ import {
   SESSION_EVENT_TYPES,
   type EventCategory,
   type NormalizedEventKind,
+  type ProviderUsageLimitSignal,
   type SessionEventType,
 } from "@ai-sidekicks/contracts";
 
@@ -1460,4 +1461,140 @@ export function classifyClaudeTurnEvidence(terminalFrame: unknown): TurnEvidence
     observations.push("declared_turn_failure");
   }
   return observedTurnEvidence(...observations);
+}
+
+// --------------------------------------------------------------------------
+// T3.16 — Typed provider usage-limit signal, Claude leg
+// (`Spec-005 §Fallback Behavior`; verifies I-005-6)
+// --------------------------------------------------------------------------
+
+/** The retry frame's discriminating `type` / `subtype` pair. */
+export const CLAUDE_API_RETRY_FRAME_TYPE = "system" as const;
+export const CLAUDE_API_RETRY_FRAME_SUBTYPE = "api_retry" as const;
+
+/**
+ * The single `api_retry` typed-error member that names a spent allowance.
+ *
+ * `billing_error` sits beside it in the same enum and is deliberately NOT a
+ * member here: a payment fault is remediated by a human, not by a window turning
+ * over, so admitting it would park a run against a boundary that never arrives.
+ * That is the same split the Codex leg makes for a depleted credit balance, and
+ * it is what keeps this axis meaning "resolves unattended".
+ */
+export const CLAUDE_USAGE_LIMIT_RETRY_ERROR_MEMBER = "rate_limit" as const;
+
+/**
+ * Classifies a Claude `system/api_retry` frame for a spent usage allowance
+ * (T3.16, I-005-6), or `null` when it states none.
+ *
+ * THE WEAKER OF THE TWO LEGS, and recorded as such. The Codex account plane
+ * publishes a dedicated reached-type enum beside provider-stated reset instants;
+ * Claude publishes a retry notification whose typed `error` member names the
+ * condition and whose only temporal member is a backoff delay. The frame's shape
+ * is graded Derived in `docs/reference/provider-wire/claude.md` — a string
+ * census cannot prove the `error` union closed — so this leg RECOGNIZES a member
+ * and never REJECTS one: an unfamiliar `error` value takes the same `null` path
+ * as any other unrecognized shape.
+ *
+ * RECOGNITION IS TYPED-ONLY, gated on the frame's `type` / `subtype` pair and
+ * the typed `error` member. In particular `error_status` — the HTTP status the
+ * reference calls out as sitting beside the typed member — is NOT read, on this
+ * axis or any other: a bare `429` is emitted for transport-level throttling that
+ * no allowance is spent on, so keying on it would park runs the provider is
+ * still willing to serve the moment it retried. No message prose is parsed.
+ *
+ * THE BOUNDARY IS RUNTIME-DERIVED, and the stamp says so. `retry_delay_ms` is
+ * when the provider intends to try again, not when the allowance is restored;
+ * the frame carries no documented reset field at all. Composing an instant from
+ * the delay is still worth doing — an armed schedule beats an unbounded wait —
+ * but the consumer must be able to tell it apart from an instant the provider
+ * actually stated, which is exactly what the provenance member is for.
+ *
+ * `observedAtEpochMs` is an EXPLICIT PARAMETER rather than a `Date.now()` read,
+ * so this classifier stays pure and total: the same frame with the same clock
+ * always yields the same signal, which is what makes the boundary assertable in
+ * a test instead of approximable.
+ *
+ * A recognized refusal with no usable delay still returns the CAUSE. A missing
+ * boundary changes only whether a resume is scheduled — never whether the run is
+ * known to be limited.
+ *
+ * `attempt` AND `max_retries` GATE THE SIGNAL. It fires only on the ladder's
+ * FINAL ANNOUNCED RETRY — both members present, numeric, and
+ * `attempt >= max_retries` — because that is the point at which the provider has
+ * committed to failing the request on the next refusal, and a `rate_limit` that
+ * persisted across the WHOLE ladder is the strongest typed evidence this frame
+ * can offer that an allowance is spent rather than a burst being throttled.
+ *
+ * WHY A MID-LADDER EMISSION IS WRONG, read off the consumer's own contract
+ * rather than argued from taste. `Spec-017 §Provider-limit pacing and durable
+ * resumption (SA-40)` parks the phase IMMEDIATELY on any recognized signal — the
+ * refusal is itself the proof, and the park happens even when no reset window
+ * was reported — while it arms `autoResumeAt` ONLY where the boundary's own
+ * provenance is provider-reported. This leg's boundary is `runtime-derived`, so
+ * a signal from here parks the phase and arms NO schedule at all. An
+ * `attempt: 1, max_retries: 10` frame is the provider still retrying
+ * internally, and emitting on it would turn an ordinary transient burst 429 into
+ * an UNSCHEDULED park of work the provider was about to complete. The frame
+ * cannot distinguish a spent allowance from burst throttling, so emitting on any
+ * attempt overclaims a condition the frame does not state — the synthesis
+ * I-005-6 forbids.
+ *
+ * ABSENT OR MALFORMED LADDER MEMBERS YIELD `null`, on this axis's own rule that
+ * silence means "not known to be limited" rather than "known not to be limited":
+ * the run simply continues, and an eventual failure takes the ordinary failure
+ * path. Both members are read through `isPositiveFiniteNumber` rather than a
+ * bare finite check, and that choice is load-bearing at exactly one value —
+ * `max_retries: 0` announces no ladder at all, and a bare check would let
+ * `0 >= 0` emit a signal off a frame stating there was nothing to exhaust.
+ *
+ * THE RESIDUAL, stated rather than absorbed. A final-attempt frame whose last
+ * retry then SUCCEEDS yields a signal for a turn that completed: this reads ONE
+ * frame and returns no verdict on the run, so the consumer correlates the signal
+ * to the run's own outcome rather than treating it as terminal by itself. The
+ * mirror residual is the same silence stated above — a provider that abandons
+ * its ladder early emits no final-attempt frame, so a genuinely spent allowance
+ * can go unrecognized and the run fails ordinarily instead of parking against a
+ * boundary nothing stated. Both residuals fail in the recoverable direction.
+ */
+export function classifyClaudeUsageLimitSignal(
+  frame: unknown,
+  observedAtEpochMs: number,
+): ProviderUsageLimitSignal | null {
+  if (typeof frame !== "object" || frame === null || Array.isArray(frame)) {
+    return null;
+  }
+  const record = frame as Record<string, unknown>;
+  if (
+    record["type"] !== CLAUDE_API_RETRY_FRAME_TYPE ||
+    record["subtype"] !== CLAUDE_API_RETRY_FRAME_SUBTYPE ||
+    record["error"] !== CLAUDE_USAGE_LIMIT_RETRY_ERROR_MEMBER
+  ) {
+    return null;
+  }
+  // The ladder gate, applied BEFORE any boundary is composed: a mid-ladder frame
+  // is not a weaker signal to be emitted without a schedule, it is no signal at
+  // all. `isPositiveFiniteNumber` for both members rather than a finite check
+  // — see the docblock's `max_retries: 0` case.
+  const attempt = record["attempt"];
+  const maxRetries = record["max_retries"];
+  if (!isPositiveFiniteNumber(attempt) || !isPositiveFiniteNumber(maxRetries)) {
+    return null;
+  }
+  if ((attempt as number) < (maxRetries as number)) {
+    return null;
+  }
+
+  const retryDelayMs = record["retry_delay_ms"];
+  if (!isPositiveFiniteNumber(retryDelayMs) || !Number.isFinite(observedAtEpochMs)) {
+    return { cause: "plan-allowance-exhausted" };
+  }
+  const instant = new Date(observedAtEpochMs + (retryDelayMs as number));
+  if (Number.isNaN(instant.getTime())) {
+    return { cause: "plan-allowance-exhausted" };
+  }
+  return {
+    cause: "plan-allowance-exhausted",
+    resetBoundary: { resetsAt: instant.toISOString(), provenance: "runtime-derived" },
+  };
 }

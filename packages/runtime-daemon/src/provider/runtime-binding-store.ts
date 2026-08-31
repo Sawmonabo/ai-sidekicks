@@ -132,13 +132,18 @@ export interface RuntimeBindingSpawnConfig {
   readonly subagentPolicy?: SubagentPolicy | undefined;
   readonly outputSchema?: Record<string, unknown> | undefined;
   readonly admittedCostCapCents?: number | undefined;
-  // Minted NOW, valued LATER — deliberately, so the task that supplies the value
-  // does not have to re-widen this type (and re-widen its closed-key-set parser,
-  // which would reject the member as unknown until it did).
-  //
   // Owner: Plan-005 T3.17 — the Spec-029 provider-account identity bound at
-  // spawn. A run's paying account is bound for the run's LIFETIME, so a resume
-  // that re-resolved "whichever account is default now" would silently re-bill.
+  // spawn, and a RESUME LEG (see the disposition table below). A run's paying
+  // account is bound for the run's LIFETIME, so a resume that re-resolved
+  // "whichever account is default now" would silently re-bill it.
+  //
+  // OPAQUE. Nothing in this package parses it, derives a path from it, or uses
+  // it to locate credentials. Pinning that account's credential home when the
+  // spawn environment is constructed is the spawn path's obligation (Plan-029's
+  // fail-closed binding) and not yet in-tree work; THIS record's only job is to
+  // make the SAME identity available to a relaunch that no longer holds the
+  // admitting request. Stored as the SERVER-RESOLVED value — a client-supplied
+  // identifier is an input to that resolution, never what lands here.
   readonly providerAccountId?: string | undefined;
   // Owner: Plan-005 T3.23 — `Spec-005 §Required Behavior`: the RESOLVED
   // executable path rides this carrier, so a resumed leg re-spawns the same
@@ -146,7 +151,11 @@ export interface RuntimeBindingSpawnConfig {
   // that may have changed underneath it.
   readonly resolvedExecutablePath?: string | undefined;
   // Owner: Plan-005 T3.26 — `Spec-005 §Desktop Console Parity Surfaces`: the
-  // FIFTH resume leg, and spawn-bound for the same reason the other four are.
+  // SIXTH member this table marks `resume-leg` by mint order, and spawn-bound for
+  // the same reason the other six are — re-derived by counting against
+  // `SPAWN_CONFIG_RESUME_DISPOSITION` when T3.17 MOVED `providerAccountId` into
+  // that set (the member already existed as a `relaunch-input`).
+  //
   // The accelerated-output axis is realized at process spawn on the one provider
   // that publishes it, so a resume that dropped it would silently relaunch at the
   // provider's default speed while every layer above still read the operator's
@@ -437,9 +446,10 @@ export interface ResumeFunctionLegInjection {
  * exact class of loss CP-005-1 exists to prevent, and prose cannot enforce it.
  *
  * `"relaunch-input"` names the members that ARE re-realized but NOT through this
- * parameter object: `providerAccountId` pins the credential home and
- * `resolvedExecutablePath` names the binary, both consumed by the spawn
- * resolution that precedes the driver call rather than by the driver itself.
+ * parameter object: `resolvedExecutablePath` names the binary, consumed by the
+ * spawn resolution that precedes the driver call rather than by the driver
+ * itself. ONE member, re-derived by counting when T3.17 moved
+ * `providerAccountId` to `"resume-leg"` below.
  *
  * The table is not documentation. `ResumeLegSpawnConfigKey` below reads it, and
  * the composer's `satisfies` clause is checked against that key set, so a member
@@ -464,13 +474,22 @@ const SPAWN_CONFIG_RESUME_DISPOSITION = {
   subagentPolicy: "resume-leg",
   outputSchema: "resume-leg",
   admittedCostCapCents: "resume-leg",
-  providerAccountId: "relaunch-input",
+  // A RESUME LEG as of T3.17, and BOTH things are true of it at once: the spawn
+  // RESOLUTION still consumes it to pin that account's credential home before
+  // the process starts — that does not change — and the driver ALSO receives it
+  // on `ResumeSessionParams`, where its only permitted use is to be carried
+  // opaquely. The disposition follows the PARAMETER OBJECT rather than the
+  // consumer count: a member the driver is handed is a resume leg even when the
+  // relaunch reads it too. Composing it is what keeps a resumed run bound to the
+  // account it was ADMITTED against instead of whichever account resolves as the
+  // provider's default at recovery time — a silent re-bill, not a lost feature,
+  // which is why it is not left to the resolution path alone.
+  providerAccountId: "resume-leg",
   resolvedExecutablePath: "relaunch-input",
   // A RESUME LEG rather than a relaunch input, and the split is exactly the one
-  // the two `relaunch-input` members above sit on: those are consumed by the
-  // spawn RESOLUTION that precedes the driver call (which binary, which
-  // credential home), while this is a parameter the driver itself takes and
-  // hands to the provider.
+  // the `relaunch-input` member above sits on: that one is consumed by the spawn
+  // RESOLUTION that precedes the driver call (which binary), while this is a
+  // parameter the driver itself takes and hands to the provider.
   outputSpeed: "resume-leg",
 } satisfies Readonly<Record<keyof RuntimeBindingSpawnConfig, "resume-leg" | "relaunch-input">>;
 
@@ -533,8 +552,8 @@ export function composeResumeSessionParams(
   }
   const spawnConfig = binding.spawnConfig;
   // Enumerated member-by-member rather than spread from `spawnConfig`: a spread
-  // would carry the `relaunch-input` members onto a params object that does not
-  // declare them. The `satisfies` clause is what makes the enumeration
+  // would carry the `relaunch-input` member onto a params object that does not
+  // declare it. The `satisfies` clause is what makes the enumeration
   // TRUSTWORTHY rather than merely current — a missing resume leg and a stray
   // one are both compile errors against the disposition table above.
   const resumeLegs = {
@@ -543,6 +562,8 @@ export function composeResumeSessionParams(
     subagentPolicy: spawnConfig.subagentPolicy,
     outputSchema: spawnConfig.outputSchema,
     admittedCostCapCents: spawnConfig.admittedCostCapCents,
+    // Read back VERBATIM from the durable record, never re-resolved (T3.17).
+    providerAccountId: spawnConfig.providerAccountId,
     outputSpeed: spawnConfig.outputSpeed,
   } satisfies { [Key in ResumeLegSpawnConfigKey]: RuntimeBindingSpawnConfig[Key] };
   return {

@@ -60,9 +60,14 @@ import {
 import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
 import {
   classifyCodexFrameFamilyForRouting,
+  classifyCodexUsageLimitSignal,
+  CODEX_ACCOUNT_RATE_LIMITS_READ_METHOD,
+  CODEX_ACCOUNT_RATE_LIMITS_UPDATED_METHOD,
+  CODEX_RATE_LIMIT_REACHED_TYPES,
   CODEX_SUBAGENT_ATTRIBUTED_THREAD_SOURCE_KINDS,
   CODEX_THREAD_STARTED_METHOD,
   CODEX_THREAD_TOKEN_USAGE_METHOD,
+  CODEX_USAGE_LIMIT_EXCLUDED_REACHED_TYPES,
   deriveCodexChildThreadAnnouncement,
   resolveCodexFrameEmissionRoute,
 } from "../event-normalizer.js";
@@ -1389,5 +1394,286 @@ describe("CodexTerminalEmissionGate (T3.14 P1-1, P1-2-driver)", () => {
     expect(gate.hasSettledEpoch("run-a", 1)).toBe(false);
     expect(gate.hasSettledEpoch("run-b", 1)).toBe(true);
     expect(gate.hasSettledEpoch("run-c", 1)).toBe(true);
+  });
+});
+
+// --------------------------------------------------------------------------
+// T3.16 — typed provider usage-limit signal, Codex leg (I-005-6)
+// --------------------------------------------------------------------------
+//
+// Shapes below are built from the pinned generated protocol
+// (`docs/reference/provider-wire/codex.md`): `RateLimitSnapshot` carries
+// `rateLimitReachedType`, `limitId`, `limitName`, `planType`, `credits`,
+// `individualLimit`, `spendControlReached`, and the `primary` / `secondary`
+// `RateLimitWindow`s, each with `usedPercent`, `windowDurationMins`, and a
+// `resetsAt` documented as Unix SECONDS.
+
+/** `2026-09-01T00:00:00.000Z`, as the provider states it. */
+const SEPTEMBER_RESET_EPOCH_SECONDS = 1788220800;
+/** Six hours later, so "latest wins" is distinguishable from "first wins". */
+const LATER_RESET_EPOCH_SECONDS = SEPTEMBER_RESET_EPOCH_SECONDS + 21600;
+
+function rateLimitsReadReply(snapshot: Record<string, unknown>): Record<string, unknown> {
+  return { rateLimits: snapshot };
+}
+
+function rateLimitsUpdatedParams(snapshot: Record<string, unknown>): Record<string, unknown> {
+  return { rateLimits: snapshot };
+}
+
+describe("classifyCodexUsageLimitSignal — typed-only recognition on the account plane", () => {
+  it("names both account-plane carriers by identity rather than by a repeated literal", () => {
+    expect(CODEX_ACCOUNT_RATE_LIMITS_READ_METHOD).toBe("account/rateLimits/read");
+    expect(CODEX_ACCOUNT_RATE_LIMITS_UPDATED_METHOD).toBe("account/rateLimits/updated");
+  });
+
+  it("PARTITIONS the pinned reached-type enum into recognized and deliberately excluded", () => {
+    // The guard against "excluded and dormant collapsed": every typed arm the
+    // pin publishes is accounted for by exactly one disposition, so an arm added
+    // upstream cannot slip into the unrecognized path unnoticed.
+    expect(CODEX_RATE_LIMIT_REACHED_TYPES).toHaveLength(5);
+    const recognized = CODEX_RATE_LIMIT_REACHED_TYPES.filter(
+      (reachedType) =>
+        classifyCodexUsageLimitSignal({
+          latestRead: rateLimitsReadReply({ rateLimitReachedType: reachedType }),
+          rollingUpdate: null,
+        }) !== null,
+    );
+    expect([...recognized].sort()).toEqual([
+      "rate_limit_reached",
+      "workspace_member_usage_limit_reached",
+      "workspace_owner_usage_limit_reached",
+    ]);
+    expect([...CODEX_USAGE_LIMIT_EXCLUDED_REACHED_TYPES].sort()).toEqual([
+      "workspace_member_credits_depleted",
+      "workspace_owner_credits_depleted",
+    ]);
+    // Partition, not merely two lists: their union is the census and they do not
+    // overlap.
+    expect([...recognized, ...CODEX_USAGE_LIMIT_EXCLUDED_REACHED_TYPES].sort()).toEqual(
+      [...CODEX_RATE_LIMIT_REACHED_TYPES].sort(),
+    );
+  });
+
+  it("emits the signal with a PROVIDER-STATED boundary read from the spent window", () => {
+    const signal = classifyCodexUsageLimitSignal({
+      latestRead: rateLimitsReadReply({
+        rateLimitReachedType: "rate_limit_reached",
+        limitName: "Weekly limit",
+        primary: {
+          usedPercent: 100,
+          windowDurationMins: 10080,
+          resetsAt: SEPTEMBER_RESET_EPOCH_SECONDS,
+        },
+        secondary: {
+          usedPercent: 42,
+          windowDurationMins: 300,
+          resetsAt: LATER_RESET_EPOCH_SECONDS,
+        },
+      }),
+      rollingUpdate: null,
+    });
+
+    expect(signal).toEqual({
+      cause: "plan-allowance-exhausted",
+      resetBoundary: { resetsAt: "2026-09-01T00:00:00.000Z", provenance: "provider-stated" },
+    });
+  });
+
+  it("reads `resetsAt` as Unix SECONDS, not milliseconds", () => {
+    // A millisecond reading would place this boundary about fifty-five years
+    // early, and would surface as "the pacing surface resumes immediately"
+    // rather than as a parse failure — so the unit is pinned by assertion.
+    const signal = classifyCodexUsageLimitSignal({
+      latestRead: rateLimitsReadReply({
+        rateLimitReachedType: "workspace_owner_usage_limit_reached",
+        primary: { usedPercent: 100, resetsAt: SEPTEMBER_RESET_EPOCH_SECONDS },
+      }),
+      rollingUpdate: null,
+    });
+    expect(signal?.resetBoundary?.resetsAt).toBe("2026-09-01T00:00:00.000Z");
+    expect(signal?.resetBoundary?.resetsAt).not.toBe(
+      new Date(SEPTEMBER_RESET_EPOCH_SECONDS).toISOString(),
+    );
+  });
+
+  it("takes the LATEST reset among the windows the provider marks spent", () => {
+    // Picking the earliest would schedule a resume the other window still
+    // refuses, converting one park into a retry ladder.
+    const signal = classifyCodexUsageLimitSignal({
+      latestRead: rateLimitsReadReply({
+        rateLimitReachedType: "workspace_member_usage_limit_reached",
+        primary: { usedPercent: 100, resetsAt: SEPTEMBER_RESET_EPOCH_SECONDS },
+        secondary: { usedPercent: 100, resetsAt: LATER_RESET_EPOCH_SECONDS },
+      }),
+      rollingUpdate: null,
+    });
+    expect(signal?.resetBoundary?.resetsAt).toBe(
+      new Date(LATER_RESET_EPOCH_SECONDS * 1000).toISOString(),
+    );
+  });
+
+  it("MERGES the sparse push frame over the last full read, per the vendor's own rule", () => {
+    // The push notification's schema documents it as sparse and instructs
+    // clients to merge into the most recent read. A classifier fed only the push
+    // would read a routinely-absent window as "no boundary was reported".
+    const signal = classifyCodexUsageLimitSignal({
+      latestRead: rateLimitsReadReply({
+        rateLimitReachedType: null,
+        primary: { usedPercent: 100, resetsAt: SEPTEMBER_RESET_EPOCH_SECONDS },
+      }),
+      rollingUpdate: rateLimitsUpdatedParams({ rateLimitReachedType: "rate_limit_reached" }),
+    });
+    expect(signal).toEqual({
+      cause: "plan-allowance-exhausted",
+      resetBoundary: { resetsAt: "2026-09-01T00:00:00.000Z", provenance: "provider-stated" },
+    });
+  });
+
+  it("does not let a NULL member of a sparse update clear a previously observed value", () => {
+    // Stated by the vendor in the same sentence: "Nullable account metadata may
+    // be unavailable in a rolling update and does not clear a previously
+    // observed value."
+    const signal = classifyCodexUsageLimitSignal({
+      latestRead: rateLimitsReadReply({
+        rateLimitReachedType: "rate_limit_reached",
+        primary: { usedPercent: 100, resetsAt: SEPTEMBER_RESET_EPOCH_SECONDS },
+      }),
+      rollingUpdate: rateLimitsUpdatedParams({ rateLimitReachedType: null, primary: null }),
+    });
+    expect(signal?.cause).toBe("plan-allowance-exhausted");
+    expect(signal?.resetBoundary?.resetsAt).toBe("2026-09-01T00:00:00.000Z");
+  });
+
+  it("returns the CAUSE ALONE when no window the provider marks spent names a reset", () => {
+    // A missing boundary changes only whether a resume is scheduled — never
+    // whether the run is known to be limited.
+    const signal = classifyCodexUsageLimitSignal({
+      latestRead: rateLimitsReadReply({
+        rateLimitReachedType: "rate_limit_reached",
+        primary: { usedPercent: 100, resetsAt: null },
+        secondary: { usedPercent: 12, resetsAt: LATER_RESET_EPOCH_SECONDS },
+      }),
+      rollingUpdate: null,
+    });
+    expect(signal).toEqual({ cause: "plan-allowance-exhausted" });
+  });
+
+  it("SEEDED DISCRIMINATING CONTROL — prose plus an exit code produce NO signal", () => {
+    // The control a TEXT-MATCHING implementation would classify as a usage
+    // limit. Every one of these carriers is prose or a numeric status; none is
+    // the typed enum the classifier gates on, so all four must be silent.
+    const proseAndExitCodeCarriers: readonly unknown[] = [
+      { exitCode: 429, message: "You have exceeded your usage limit. Resets 2026-09-01." },
+      { rateLimits: { limitName: "usage limit reached — try again after the weekly reset" } },
+      {
+        rateLimits: {
+          limitId: "weekly",
+          limitName: "Rate limit exceeded",
+          planType: "pro",
+          spendControlReached: true,
+          primary: { usedPercent: 100, resetsAt: SEPTEMBER_RESET_EPOCH_SECONDS },
+        },
+      },
+      { error: { code: -32000, message: "429 Too Many Requests: usage limit reached" } },
+    ];
+
+    for (const carrier of proseAndExitCodeCarriers) {
+      expect(
+        classifyCodexUsageLimitSignal({ latestRead: carrier, rollingUpdate: null }),
+      ).toBeNull();
+      expect(
+        classifyCodexUsageLimitSignal({ latestRead: null, rollingUpdate: carrier }),
+      ).toBeNull();
+    }
+  });
+
+  it("does not let boundary SELECTION leak into recognition", () => {
+    // Both windows fully consumed with reset instants present, and no
+    // reached-type arm: an account at its ceiling is not a statement that a turn
+    // was refused. Proves `usedPercent` is a selection input only.
+    expect(
+      classifyCodexUsageLimitSignal({
+        latestRead: rateLimitsReadReply({
+          primary: { usedPercent: 100, resetsAt: SEPTEMBER_RESET_EPOCH_SECONDS },
+          secondary: { usedPercent: 100, resetsAt: LATER_RESET_EPOCH_SECONDS },
+        }),
+        rollingUpdate: null,
+      }),
+    ).toBeNull();
+  });
+
+  it("stays silent on the OPERATOR-REMEDIABLE arms rather than parking a run", () => {
+    // A depleted credit balance is restored by a purchase, not by a window
+    // turning over, so a reset boundary would promise an instant at which
+    // nothing changes.
+    for (const reachedType of CODEX_USAGE_LIMIT_EXCLUDED_REACHED_TYPES) {
+      expect(
+        classifyCodexUsageLimitSignal({
+          latestRead: rateLimitsReadReply({
+            rateLimitReachedType: reachedType,
+            primary: { usedPercent: 100, resetsAt: SEPTEMBER_RESET_EPOCH_SECONDS },
+          }),
+          rollingUpdate: null,
+        }),
+      ).toBeNull();
+    }
+  });
+
+  it("yields NOTHING — never a default-caused signal — on unparseable or absent input", () => {
+    const unrecognized: readonly unknown[] = [
+      null,
+      undefined,
+      "account/rateLimits/read",
+      42,
+      [],
+      [{ rateLimits: { rateLimitReachedType: "rate_limit_reached" } }],
+      {},
+      { rateLimits: null },
+      { rateLimits: "rate_limit_reached" },
+      { rateLimits: { rateLimitReachedType: "quota_exhausted" } },
+      { rateLimits: { rateLimitReachedType: 7 } },
+      { rateLimits: { rateLimitReachedType: { kind: "rate_limit_reached" } } },
+    ];
+    for (const carrier of unrecognized) {
+      expect(
+        classifyCodexUsageLimitSignal({ latestRead: carrier, rollingUpdate: null }),
+      ).toBeNull();
+      expect(
+        classifyCodexUsageLimitSignal({ latestRead: null, rollingUpdate: carrier }),
+      ).toBeNull();
+    }
+    expect(classifyCodexUsageLimitSignal({ latestRead: null, rollingUpdate: null })).toBeNull();
+  });
+
+  it("refuses a reset instant that names no representable moment", () => {
+    // A window marked spent whose `resetsAt` cannot be turned into an instant
+    // still yields the cause: the refusal is real even when the boundary is not.
+    for (const resetsAt of [Number.NaN, Number.POSITIVE_INFINITY, 1e18, "soon", {}]) {
+      expect(
+        classifyCodexUsageLimitSignal({
+          latestRead: rateLimitsReadReply({
+            rateLimitReachedType: "rate_limit_reached",
+            primary: { usedPercent: 100, resetsAt },
+          }),
+          rollingUpdate: null,
+        }),
+      ).toEqual({ cause: "plan-allowance-exhausted" });
+    }
+  });
+
+  it("reads the consumed fraction TOLERANTLY across the pin's two numeric widths", () => {
+    // `f64` in the core protocol type, `i32` in the app-server struct.
+    for (const usedPercent of [100, 100.0, 100.5, 137]) {
+      expect(
+        classifyCodexUsageLimitSignal({
+          latestRead: rateLimitsReadReply({
+            rateLimitReachedType: "rate_limit_reached",
+            primary: { usedPercent, resetsAt: SEPTEMBER_RESET_EPOCH_SECONDS },
+          }),
+          rollingUpdate: null,
+        })?.resetBoundary?.resetsAt,
+      ).toBe("2026-09-01T00:00:00.000Z");
+    }
   });
 });
