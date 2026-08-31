@@ -924,25 +924,30 @@ describe("non-absolute input is refused before resolution (I-009-2)", () => {
   });
 
   it("never returns the daemon-cwd-resolved root for a relative input", async () => {
-    // The exact silent-wrong-answer shape this gate exists to stop. Under
-    // vitest the daemon's cwd sits inside the ai-sidekicks checkout, so
-    // `src/workspace` names a real and resolvable directory relative to it —
-    // without the gate, resolution succeeds and answers about the wrong tree.
-    const cwdRelativeInput = "src/workspace";
-    const settled = await new RepoRootResolver().resolveCanonicalRoot(cwdRelativeInput).then(
+    // The exact silent-wrong-answer shape this gate exists to stop: a relative
+    // input that a daemon-supplied base directory WOULD complete to a real,
+    // resolvable repo path — without the gate, resolution succeeds and answers
+    // about whatever tree the daemon happens to be running in.
+    const relativeInput = "nested/deep";
+    const settled = await new RepoRootResolver().resolveCanonicalRoot(relativeInput).then(
       (value: RepoRootResolution) => ({ resolved: true as const, value }),
       (error: unknown) => ({ resolved: false as const, value: error }),
     );
     expect(settled.resolved).toBe(false);
-    // Negative control — the daemon's cwd DOES contain a resolvable root for
-    // this input, so the refusal above is a real refusal and not an artifact of
-    // the input being unresolvable anywhere.
-    const daemonCwdRoot = await new RepoRootResolver().resolveCanonicalRoot(
-      resolvePath(process.cwd(), cwdRelativeInput),
+    // Negative control — completed against a daemon-side base directory, the
+    // SAME input resolves, so the refusal above is a real refusal and not an
+    // artifact of the input being unresolvable anywhere. The base is the
+    // test's own fixture repo, not the live checkout the daemon's cwd sits
+    // in: the control's premise is "this input is resolvable once completed",
+    // and pinning it to fixture state keeps the test hermetic — no
+    // process.cwd(), no dependency on the surrounding checkout's tree or on
+    // ambient GIT_* environment reaching a git spawned against it.
+    const baseCompletedRoot = await new RepoRootResolver().resolveCanonicalRoot(
+      resolvePath(fixtures.repositoryRoot, relativeInput),
     );
-    expect(isAbsolute(daemonCwdRoot.canonicalRoot)).toBe(true);
+    expect(baseCompletedRoot).toEqual({ canonicalRoot: fixtures.repositoryRoot, vcsType: "git" });
     expect(settled.value).toBeInstanceOf(RepoRootResolutionError);
-    expect(JSON.stringify(settled.value)).not.toContain(daemonCwdRoot.canonicalRoot);
+    expect(JSON.stringify(settled.value)).not.toContain(baseCompletedRoot.canonicalRoot);
   });
 
   it("refuses a `~`-prefixed path with not_absolute — loudly, not by accident", async () => {
