@@ -107,6 +107,8 @@ import { CODEX_NEGOTIATION_GATED_METHODS } from "../event-normalizer.js";
 import {
   CALLER_DERIVED_TURN_POSTURE_FIELDS,
   CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL,
+  CODEX_MAX_OUTBOUND_FRAME_BYTES,
+  CODEX_OUTBOUND_ANSWER_TOO_LARGE_REASON,
   UNREALIZED_TURN_POSTURE_MEMBERS,
   assertRealizedTurnPostureMembers,
 } from "../lifecycle.js";
@@ -171,6 +173,15 @@ class FakeCodexAppServer implements PtyHost {
   failWriteAfterChildExit = false;
   /** Parks the next write on a macrotask, leaving its caller suspended. */
   parkNextWrite = false;
+  /**
+   * Rejects the next write WITHOUT killing the child.
+   *
+   * Distinct from `failWriteAfterChildExit` on purpose: that arm models a dead
+   * process, where the exit path is the record. This one models a write that
+   * rejects on a connection nothing else reports on, which is exactly the case
+   * a swallowed `.catch()` made invisible.
+   */
+  rejectNextWriteWith: Error | undefined = undefined;
 
   readonly #listeners = new Map<string, CodexPtySessionListeners>();
   readonly #handlers = new Map<string, MethodHandler>();
@@ -276,6 +287,11 @@ class FakeCodexAppServer implements PtyHost {
       return new Promise((resolve) => {
         setTimeout(resolve, 0);
       });
+    }
+    if (this.rejectNextWriteWith !== undefined) {
+      const rejection = this.rejectNextWriteWith;
+      this.rejectNextWriteWith = undefined;
+      return Promise.reject(rejection);
     }
     if (this.failWriteAfterChildExit) {
       this.failWriteAfterChildExit = false;
@@ -456,6 +472,10 @@ const SECOND_RUN_ID = "33333333-3333-4333-8333-333333333333" as RunId;
 const CHANNEL_ID = deriveMainChannelId(SESSION_ID);
 const THREAD_ID = "01a04202-0148-7ae2-8560-622babf33ed0";
 const TURN_ID = "turn-01";
+// The turn of the SECOND run. Two distinct runs holding live turns is the state
+// the sole-active run heuristic cannot answer in, and the state a turn-keyed
+// attribution resolves exactly.
+const SECOND_TURN_ID = "turn-02";
 const EXECUTABLE_PATH = "/opt/codex/bin/codex";
 
 const SESSION_CWD = "/work/session";
@@ -6269,6 +6289,13 @@ describe("CodexDriver transport construction (T3.15 leg 6)", () => {
 interface RoutedAskHarness {
   readonly harness: Harness;
   readonly askProvider: (method: string, params?: unknown) => Promise<Record<string, unknown>>;
+  /**
+   * The CENSUSED records the manager emitted, distinct from `harness.diagnostics`
+   * (the transport-local arm). Both are captured because a turn-attribution
+   * refusal is required to reach BOTH sinks, and a test reading only one could
+   * not tell a two-sink report from a one-sink one.
+   */
+  readonly driverDiagnosticRecords: DriverDiagnosticRecord[];
 }
 
 async function routedAskHarness(
@@ -6279,7 +6306,11 @@ async function routedAskHarness(
   server.on("getAuthStatus", () => ({ result: { authMethod: "chatgpt", authToken: null } }));
   server.on("thread/start", () => threadStartResult());
   const scheduler = makeManualScheduler();
-  const driverDiagnostics = makeSilentDriverDiagnostics();
+  const driverDiagnosticRecords: DriverDiagnosticRecord[] = [];
+  const driverDiagnostics = new DriverDiagnosticsEmitter({
+    logSink: { record: (record) => driverDiagnosticRecords.push(record) },
+    counterSink: { increment: () => undefined },
+  });
   const diagnostics: CodexTransportDiagnostic[] = [];
   const driver = new CodexDriver({
     ptyHost: server,
@@ -6328,26 +6359,113 @@ async function routedAskHarness(
     }
     throw new Error(`the driver never answered the ${method} ask`);
   };
-  return { harness, askProvider };
+  return { harness, askProvider, driverDiagnosticRecords };
 }
 
 describe("CodexAppServerConnection routed server requests (T3.15 R3)", () => {
   it("answers an allowed `item/tool/call` with the provider's own success shape", async () => {
-    const { askProvider } = await routedAskHarness({
+    const { harness, askProvider } = await routedAskHarness({
       answer: async (): Promise<CodexServerRequestDecision> =>
         await Promise.resolve({
           decision: "allow",
           payload: { contentItems: [{ type: "inputText", text: "ok" }] },
         }),
     });
+    // A live turn, and an ask that NAMES it: a callback-tool invocation is
+    // attributed by its own `turnId` and refused when that cannot be resolved,
+    // so the allow arm is only reachable through a turn this daemon routes.
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.driver.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "search the workspace" },
+    });
 
-    const answer = await askProvider("item/tool/call", { toolName: "search", arguments: {} });
+    const answer = await askProvider("item/tool/call", {
+      toolName: "search",
+      arguments: {},
+      turnId: TURN_ID,
+    });
 
     expect(answer["error"]).toBeUndefined();
     expect(answer["result"]).toStrictEqual({
       success: true,
       contentItems: [{ type: "inputText", text: "ok" }],
     });
+  });
+
+  it("REFUSES rather than truncates an answer larger than the outbound bound", async () => {
+    // `CODEX_MAX_LINE_LENGTH` bounds only what this transport ACCEPTS, so an
+    // answer composed from daemon-side content had no ceiling at all. A
+    // truncated tool output is a WRONG answer the model cannot tell from a
+    // complete one; a refusal is one it can act on.
+    const { harness, askProvider } = await routedAskHarness({
+      answer: async (): Promise<CodexServerRequestDecision> =>
+        await Promise.resolve({
+          decision: "allow",
+          payload: {
+            contentItems: [
+              { type: "inputText", text: "x".repeat(CODEX_MAX_OUTBOUND_FRAME_BYTES + 1) },
+            ],
+          },
+        }),
+    });
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.driver.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "search the workspace" },
+    });
+
+    const answer = await askProvider("item/tool/call", {
+      toolName: "search",
+      arguments: {},
+      turnId: TURN_ID,
+    });
+
+    // The provider still receives a WELL-FORMED answer in this method's own
+    // refusal shape — never silence, which would hang the turn.
+    expect(answer["error"]).toBeUndefined();
+    expect(answer["result"]).toStrictEqual({
+      success: false,
+      contentItems: [{ type: "inputText", text: CODEX_OUTBOUND_ANSWER_TOO_LARGE_REASON }],
+    });
+    const oversized = harness.diagnostics.filter(
+      (diagnostic) => diagnostic.kind === "server-request-answer-oversized",
+    );
+    expect(oversized).toHaveLength(1);
+    expect(oversized[0]).toMatchObject({
+      kind: "server-request-answer-oversized",
+      method: "item/tool/call",
+      limit: CODEX_MAX_OUTBOUND_FRAME_BYTES,
+    });
+  }, 30_000);
+
+  it("records a rejected answer write rather than swallowing it", async () => {
+    const { harness, askProvider } = await routedAskHarness({
+      answer: async (): Promise<CodexServerRequestDecision> =>
+        await Promise.resolve({ decision: "refuse", reason: "policy denied" }),
+    });
+    harness.server.rejectNextWriteWith = new Error("pty write failed: broken pipe");
+
+    // The ask is never answered on the wire, which is precisely the fact the
+    // swallowed `.catch()` hid: the exit path records that a process died, not
+    // that one specific ask will never be answered.
+    await expect(askProvider("item/commandExecution/requestApproval")).rejects.toThrow(
+      "never answered",
+    );
+
+    expect(
+      harness.diagnostics.filter(
+        (diagnostic) => diagnostic.kind === "server-request-answer-write-failed",
+      ),
+    ).toStrictEqual([
+      {
+        kind: "server-request-answer-write-failed",
+        method: "item/commandExecution/requestApproval",
+        detail: "pty write failed: broken pipe",
+      },
+    ]);
   });
 
   it("answers a refused ask with the method's REFUSAL shape, never `-32601`", async () => {
@@ -6363,6 +6481,62 @@ describe("CodexAppServerConnection routed server requests (T3.15 R3)", () => {
     // method's OWN vocabulary.
     expect(answer["error"]).toBeUndefined();
     expect(answer["result"]).toStrictEqual({ decision: "decline" });
+  });
+
+  it("attributes an approval whose named turn is unresolvable to the sole active run", async () => {
+    // NOT a refusal. Refusing here would DECLINE a legitimate approval over a
+    // bookkeeping gap, and two of the routed approval shapes publish no
+    // `turnId` member at all, so the fallback is their normal path.
+    const attributedRuns: Array<string | null> = [];
+    const { harness, askProvider } = await routedAskHarness({
+      answer: async (request): Promise<CodexServerRequestDecision> => {
+        attributedRuns.push(request.runId);
+        return await Promise.resolve({ decision: "allow" });
+      },
+    });
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.driver.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "search the workspace" },
+    });
+
+    const answer = await askProvider("item/commandExecution/requestApproval", {
+      turnId: "turn-that-already-retired",
+    });
+
+    expect(answer["result"]).toStrictEqual({ decision: "accept" });
+    expect(attributedRuns).toStrictEqual([RUN_ID]);
+    // Recorded on the transport-local arm only: nothing was refused, so
+    // counting it as a refusal would overstate.
+    expect(
+      harness.diagnostics.filter((diagnostic) => diagnostic.kind === "routed-ask-turn-unresolved"),
+    ).toStrictEqual([
+      {
+        kind: "routed-ask-turn-unresolved",
+        method: "item/commandExecution/requestApproval",
+        turnId: "turn-that-already-retired",
+        turnIdTruncated: false,
+        disposition: "attributed-by-sole-active-run",
+      },
+    ]);
+  });
+
+  it("records nothing for a legacy approval that publishes no turn id at all", async () => {
+    // `ExecCommandApprovalParams` carries no `turnId` member at the pin, so the
+    // fallback IS the pinned protocol working. A diagnostic per legacy approval
+    // would be noise rather than signal.
+    const { harness, askProvider } = await routedAskHarness({
+      answer: async (): Promise<CodexServerRequestDecision> =>
+        await Promise.resolve({ decision: "allow" }),
+    });
+
+    const answer = await askProvider("execCommandApproval", { callId: "call-9" });
+
+    expect(answer["result"]).toStrictEqual({ decision: "approved" });
+    expect(
+      harness.diagnostics.filter((diagnostic) => diagnostic.kind === "routed-ask-turn-unresolved"),
+    ).toStrictEqual([]);
   });
 
   it("refuses each approval spelling in that method's own vocabulary", async () => {
@@ -7625,7 +7799,16 @@ interface CallbackToolRoundTripHarness {
   readonly executedInvocations: CallbackToolInvocation[];
   readonly evaluatedToolNames: string[];
   readonly hostDiagnostics: DriverDiagnosticRecord[];
+  /** The manager's CENSUSED records — the sink an operator's counters read. */
+  readonly driverDiagnosticRecords: DriverDiagnosticRecord[];
+  /** The transport-local arm, captured beside the censused one. */
+  readonly transportDiagnostics: CodexTransportDiagnostic[];
   readonly startTurn: () => Promise<void>;
+  /**
+   * A SECOND run with its own live turn on the same session — the state in
+   * which the sole-active heuristic can answer nothing at all.
+   */
+  readonly startSecondTurn: () => Promise<void>;
 }
 
 async function callbackToolRoundTripHarness(options: {
@@ -7663,7 +7846,7 @@ async function callbackToolRoundTripHarness(options: {
     providerRegistrationAvailable: options.providerRegistrationAvailable,
     providerRegistrationUnavailableDetail: CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL,
   });
-  const { harness, askProvider } = await routedAskHarness(
+  const { harness, askProvider, driverDiagnosticRecords } = await routedAskHarness(
     createCallbackToolAskResponder({ host, approvalAskResponder: null }),
   );
   const startTurn = async (): Promise<void> => {
@@ -7674,13 +7857,24 @@ async function callbackToolRoundTripHarness(options: {
       agentConfig: { sessionId: SESSION_ID, input: "search the workspace" },
     });
   };
+  const startSecondTurn = async (): Promise<void> => {
+    harness.server.on("turn/start", () => ({ result: { turn: { id: SECOND_TURN_ID } } }));
+    await harness.driver.startRun({
+      runId: SECOND_RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "search the workspace again" },
+    });
+  };
   return {
     askProvider,
     binding,
     executedInvocations,
     evaluatedToolNames,
     hostDiagnostics,
+    driverDiagnosticRecords,
+    transportDiagnostics: harness.diagnostics,
     startTurn,
+    startSecondTurn,
   };
 }
 
@@ -7747,16 +7941,23 @@ describe("CodexDriver callback-tool round trip (T3.15 leg 3)", () => {
       admitted: false,
       reason: "provider-registration-unavailable",
       detail: CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL,
+      // A withholding still INSTALLS an empty registry, so the binding still
+      // owes a scoped teardown and still carries the token that scopes it.
+      registryToken: roundTrip.binding.resolution.registryToken,
     });
+    expect(roundTrip.binding.resolution.registryToken).not.toBeNull();
     expect(answer["result"]).toMatchObject({ success: false });
     expect(roundTrip.executedInvocations).toStrictEqual([]);
   });
 
-  it("refuses and records a tool call raised with no turn active", async () => {
+  it("refuses a tool call that names no turn, BEFORE the host is reached", async () => {
     const roundTrip = await callbackToolRoundTripHarness({ providerRegistrationAvailable: true });
 
-    // No `startTurn()`: the session is established and no run is live, which is
-    // exactly when `#activeRunIdFor` answers `null`.
+    // `DynamicToolCallParams` carries a REQUIRED non-nullable `turnId` at the
+    // pin, so a callback-tool ask without one is a shape this daemon cannot
+    // attribute — and attributing it to whichever run happened to be
+    // sole-active is exactly what a delayed request after an earlier run ended
+    // would exploit.
     const answer = await roundTrip.askProvider("item/tool/call", {
       tool: SEARCH_CALLBACK_TOOL.name,
       callId: "call-80",
@@ -7765,9 +7966,115 @@ describe("CodexDriver callback-tool round trip (T3.15 leg 3)", () => {
     });
 
     expect(answer["result"]).toMatchObject({ success: false });
-    expect(roundTrip.hostDiagnostics.map((record) => record.kind)).toStrictEqual([
+    // The host was never asked: an unattributable invocation is refused ahead
+    // of adjudication rather than adjudicated against a guessed run.
+    expect(roundTrip.hostDiagnostics).toStrictEqual([]);
+    expect(roundTrip.executedInvocations).toStrictEqual([]);
+    // BOTH sinks. The censused kind is what an operator's counters name.
+    expect(roundTrip.driverDiagnosticRecords.map((record) => record.kind)).toStrictEqual([
       "callback_tool_invocation_refused",
     ]);
-    expect(roundTrip.hostDiagnostics[0]?.details["runId"]).toBeNull();
+    expect(roundTrip.driverDiagnosticRecords[0]?.details["turnId"]).toBeNull();
+    expect(
+      roundTrip.transportDiagnostics.filter(
+        (diagnostic) => diagnostic.kind === "routed-ask-turn-unresolved",
+      ),
+    ).toStrictEqual([
+      {
+        kind: "routed-ask-turn-unresolved",
+        method: "item/tool/call",
+        turnId: null,
+        turnIdTruncated: false,
+        disposition: "refused",
+      },
+    ]);
+  });
+
+  it("refuses an over-bound turn id and records it as a MARKED truncation, never as absent", async () => {
+    // Two different provider faults with two different fixes. Collapsed to a
+    // bare `null` they would read identically in the record, and an operator
+    // would be told the ask named no turn when it named one 4096 characters
+    // long. The over-bound value is never RESOLVED — a truncated prefix could
+    // match a shorter live turn — but it is still reported.
+    const roundTrip = await callbackToolRoundTripHarness({ providerRegistrationAvailable: true });
+    await roundTrip.startTurn();
+
+    const answer = await roundTrip.askProvider("item/tool/call", {
+      tool: SEARCH_CALLBACK_TOOL.name,
+      callId: "call-84",
+      arguments: { query: "needle" },
+      threadId: THREAD_ID,
+      turnId: "t".repeat(4096),
+    });
+
+    expect(answer["result"]).toMatchObject({ success: false });
+    expect(roundTrip.executedInvocations).toStrictEqual([]);
+    expect(
+      roundTrip.transportDiagnostics.filter(
+        (diagnostic) => diagnostic.kind === "routed-ask-turn-unresolved",
+      ),
+    ).toStrictEqual([
+      {
+        kind: "routed-ask-turn-unresolved",
+        method: "item/tool/call",
+        turnId: "t".repeat(256),
+        turnIdTruncated: true,
+        disposition: "refused",
+      },
+    ]);
+    expect(roundTrip.driverDiagnosticRecords[0]?.details["turnIdTruncated"]).toBe(true);
+  });
+
+  it("resolves the callback run from the turn the ask names, with two runs live", async () => {
+    // THE FINDING. The sole-active heuristic returns `null` here — two distinct
+    // runs hold live turns — so every callback invocation on this session used
+    // to be refused. The turn the ask NAMES resolves it exactly.
+    const roundTrip = await callbackToolRoundTripHarness({ providerRegistrationAvailable: true });
+    await roundTrip.startTurn();
+    await roundTrip.startSecondTurn();
+
+    const answer = await roundTrip.askProvider("item/tool/call", {
+      tool: SEARCH_CALLBACK_TOOL.name,
+      callId: "call-81",
+      arguments: { query: "needle" },
+      threadId: THREAD_ID,
+      turnId: SECOND_TURN_ID,
+    });
+
+    expect(answer["result"]).toMatchObject({ success: true });
+    expect(roundTrip.executedInvocations[0]?.runId).toBe(SECOND_RUN_ID);
+    // And the first run's turn resolves to the FIRST run over the same
+    // connection, which is what makes this attribution rather than a coin flip.
+    await roundTrip.askProvider("item/tool/call", {
+      tool: SEARCH_CALLBACK_TOOL.name,
+      callId: "call-82",
+      arguments: { query: "needle" },
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+    });
+    expect(roundTrip.executedInvocations[1]?.runId).toBe(RUN_ID);
+  });
+
+  it("refuses a tool call naming a turn this daemon holds no live route for", async () => {
+    // The delayed-request shape: the ask arrives after its own turn retired,
+    // while a NEWER run is live. Misattributing it would run the older turn's
+    // tool against the newer run's registry and approval seam.
+    const roundTrip = await callbackToolRoundTripHarness({ providerRegistrationAvailable: true });
+    await roundTrip.startTurn();
+
+    const answer = await roundTrip.askProvider("item/tool/call", {
+      tool: SEARCH_CALLBACK_TOOL.name,
+      callId: "call-83",
+      arguments: { query: "needle" },
+      threadId: THREAD_ID,
+      turnId: "turn-that-already-retired",
+    });
+
+    expect(answer["result"]).toMatchObject({ success: false });
+    expect(roundTrip.hostDiagnostics).toStrictEqual([]);
+    expect(roundTrip.executedInvocations).toStrictEqual([]);
+    expect(roundTrip.driverDiagnosticRecords[0]?.details["turnId"]).toBe(
+      "turn-that-already-retired",
+    );
   });
 });

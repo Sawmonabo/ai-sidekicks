@@ -508,6 +508,63 @@ export function composeCodexTransportArgv(
 export const CODEX_MAX_LINE_LENGTH: number = 32 * 1024 * 1024;
 
 /**
+ * The ceiling on one OUTBOUND frame, in encoded UTF-8 bytes.
+ *
+ * WHY THIS EXISTS AT ALL. {@link CODEX_MAX_LINE_LENGTH} bounds what this
+ * transport will ACCEPT and says nothing about what it will send, so an answer
+ * composed from daemon-side content — a callback tool's output, an
+ * elicitation's structured content — had no ceiling at all before this. A
+ * single unbounded answer is a write the provider's own reader may reject, and
+ * a rejected answer leaves the ask permanently unanswered.
+ *
+ * WHY THIS FIGURE. The pinned generation publishes NO outbound frame or byte
+ * limit anywhere: a sweep of the `--experimental` generation at `codex-cli
+ * 0.151.0` for size-limit members finds only `McpElicitationStringSchema
+ * .maxLength`, which is a JSON-Schema validation keyword for an elicited
+ * string rather than a transport bound. Absent a published figure the honest
+ * default is the one this transport already applies to the same wire in the
+ * other direction, so the bound is the inbound ceiling's numeric figure.
+ *
+ * THE UNITS DIFFER ON PURPOSE, and in the safe direction. The inbound ceiling
+ * counts UTF-16 code units of a retained tail (see above — measuring bytes
+ * there is quadratic); this one counts the ENCODED BYTES, which the encode step
+ * has already produced, so measuring is free. Since a UTF-8 encoding is never
+ * shorter than the code-unit count, an outbound bound stated in bytes at the
+ * same figure is never LOOSER than the inbound one and is strictly tighter for
+ * any non-ASCII payload — the transport refuses to send anything it would have
+ * refused to receive.
+ */
+export const CODEX_MAX_OUTBOUND_FRAME_BYTES: number = CODEX_MAX_LINE_LENGTH;
+
+/**
+ * The refusal reason substituted for an answer that will not fit the wire.
+ *
+ * A SHORT CONSTANT rather than anything derived from the oversized answer, and
+ * that is the whole point: a reason built from the payload that blew the bound
+ * can blow it again, leaving nothing sendable and the ask unanswered — which is
+ * the failure this bound exists to prevent, reintroduced by its own remedy.
+ *
+ * REFUSED, NEVER TRUNCATED. A truncated tool output is a WRONG answer the model
+ * cannot distinguish from a complete one; a refusal is an answer the model can
+ * act on. The provider therefore receives the method's own refusal shape and
+ * the loss is recorded on both diagnostic sinks rather than shipped as success.
+ */
+export const CODEX_OUTBOUND_ANSWER_TOO_LARGE_REASON: string =
+  "The daemon composed an answer larger than this transport will send; refusing rather than delivering a truncated result.";
+
+/**
+ * The bound applied to a provider-supplied `turnId` before it is copied into a
+ * refusal reason or a diagnostic record.
+ *
+ * Module-local rather than a contracts mint: the field is read at exactly one
+ * seam, and a wire-contract constant registered for one reader would be a
+ * member minted ahead of its census. The figure matches the tool-call-id class
+ * bound (`DRIVER_TOOL_CALL_ID_MAX_LEN`) because a turn id is the same kind of
+ * value — an opaque provider-minted correlation handle, never prose.
+ */
+const CODEX_ROUTED_ASK_TURN_ID_MAX_LEN = 256;
+
+/**
  * The ten server-initiated REQUEST methods of the pinned protocol, read from the
  * generated `ServerRequest` union at `codex-cli 0.150.1` (regenerate, never
  * transcribe — `docs/reference/provider-wire/codex.md`; re-verified against the
@@ -779,10 +836,15 @@ export interface CodexServerRequestResponder {
  * the lifecycle manager resolves it and wraps the daemon's responder per
  * connection.
  *
- * `runId` is `null` when no turn is active on the session. A real case rather
- * than a defensive one: a provider may ask during establishment or after a
- * turn has retired, and inventing a run id there would attribute the ask — and
- * its `driver_ask.requested` projection — to a run that did not raise it.
+ * `runId` is `null` when the ask could not be attributed to a run — real cases
+ * rather than defensive ones. A provider may ask during establishment or after
+ * a turn has retired; and an approval whose named turn this daemon holds no
+ * live route for falls back to the sole-active-run arm, which answers `null`
+ * when turns from two runs are live and nothing is left to disambiguate them
+ * with. Inventing a run id in any of those would attribute the ask — and its
+ * `driver_ask.requested` projection — to a run that did not raise it. A
+ * callback-tool invocation never reaches the un-attributed case at all: its
+ * params type always names a turn, so an unresolvable one is refused.
  */
 export interface CodexSessionServerRequest extends CodexInboundServerRequest {
   readonly sessionId: SessionId;
@@ -811,6 +873,97 @@ function readGrantedPermissionProfile(
     ? (permissions as Record<string, unknown>)
     : {};
 }
+
+/**
+ * The `turnId` a routed ask names, bounded, or `null` when it names none.
+ *
+ * WHICH SHAPES CARRY ONE, read from the pinned generation's own param types
+ * rather than assumed uniform across the routed seven:
+ *
+ *   `DynamicToolCallParams`                     `turnId: string` — REQUIRED,
+ *                                               non-nullable
+ *   `CommandExecutionRequestApprovalParams`     `turnId: string` — required
+ *   `FileChangeRequestApprovalParams`           `turnId: string` — required
+ *   `PermissionsRequestApprovalParams`          `turnId: string` — required
+ *   `McpServerElicitationRequestParams`         `turnId: string | null` — the
+ *                                               generation's own comment records
+ *                                               that an elicitation's identity
+ *                                               is not turn-scoped
+ *   `ExecCommandApprovalParams` /
+ *   `ApplyPatchApprovalParams`                  NO `turnId` member at all — the
+ *                                               legacy pair correlates by
+ *                                               `conversationId` and `callId`
+ *
+ * So an absent turn id is a REAL shape on three of the seven, not a malformed
+ * frame, and the caller's disposition has to differ by ask kind.
+ *
+ * BOUNDED HERE rather than at each recording site: the value is untrusted
+ * provider text that flows into a refusal reason the provider reads back and
+ * into a bounded diagnostic buffer, and a bound applied at the reader is one a
+ * later consumer cannot forget.
+ *
+ * RESOLUTION AND RECORDING TAKE THE BOUND DIFFERENTLY, and the split is the
+ * point. An over-long id is never RESOLVED — a truncated prefix could match a
+ * shorter live turn, and mis-resolving is worse than declining to resolve — but
+ * it is still RECORDED, as a marked truncation rather than as nothing. Reported
+ * as `null` it would be indistinguishable from an ask that named no turn at
+ * all, and those are different provider faults with different fixes.
+ */
+interface CodexRoutedAskTurnIdReading {
+  /** Usable for a route lookup: the id EXACTLY as sent, or `null`. */
+  readonly resolvableTurnId: string | null;
+  /** The same field rendered for a record: bounded, or `null` if none was sent. */
+  readonly recordedTurnId: string | null;
+  readonly recordedTurnIdTruncated: boolean;
+}
+
+const NO_ROUTED_ASK_TURN_ID: CodexRoutedAskTurnIdReading = Object.freeze({
+  resolvableTurnId: null,
+  recordedTurnId: null,
+  recordedTurnIdTruncated: false,
+});
+
+function readRoutedAskTurnId(params: unknown): CodexRoutedAskTurnIdReading {
+  if (typeof params !== "object" || params === null) {
+    return NO_ROUTED_ASK_TURN_ID;
+  }
+  const namedTurnId = (params as Record<string, unknown>)["turnId"];
+  if (typeof namedTurnId !== "string" || namedTurnId.length === 0) {
+    return NO_ROUTED_ASK_TURN_ID;
+  }
+  if (namedTurnId.length <= CODEX_ROUTED_ASK_TURN_ID_MAX_LEN) {
+    return {
+      resolvableTurnId: namedTurnId,
+      recordedTurnId: namedTurnId,
+      recordedTurnIdTruncated: false,
+    };
+  }
+  // Cut on a CODE POINT boundary: a lone surrogate no longer round-trips
+  // through a JSON log sink, so a naive slice can make the record itself
+  // unreadable at exactly the moment it matters most.
+  const boundedPrefix = namedTurnId.slice(0, CODEX_ROUTED_ASK_TURN_ID_MAX_LEN);
+  const lastUnit = boundedPrefix.charCodeAt(boundedPrefix.length - 1);
+  const splitsSurrogatePair = lastUnit >= 0xd800 && lastUnit <= 0xdbff;
+  return {
+    resolvableTurnId: null,
+    recordedTurnId: splitsSurrogatePair ? boundedPrefix.slice(0, -1) : boundedPrefix,
+    recordedTurnIdTruncated: true,
+  };
+}
+
+/**
+ * How one routed ask was attributed to a run before the responder saw it.
+ *
+ * A closed union rather than a nullable run id, because the three outcomes are
+ * genuinely different events: an ask resolved BY the turn it names, an ask that
+ * named no usable turn and fell back to the session's sole active run, and an
+ * ask that named a turn this daemon cannot resolve and is therefore refused
+ * without ever reaching adjudication.
+ */
+type CodexRoutedAskAttribution =
+  | { readonly outcome: "attributed"; readonly runId: RunId }
+  | { readonly outcome: "unattributed"; readonly runId: RunId | null }
+  | { readonly outcome: "refused"; readonly reason: string };
 
 /** JSON-RPC "method not found" — the fail-closed answer to an unhandled server request. */
 const JSON_RPC_METHOD_NOT_FOUND = -32601;
@@ -1403,6 +1556,64 @@ export type CodexTransportDiagnostic =
   | { kind: "unrouted-server-request-refused"; method: string }
   | { kind: "callback-tools-withheld"; withheldToolCount: number; reason: string }
   | { kind: "server-request-responder-failed"; method: string; detail: string }
+  /**
+   * A routed ask named a `turnId` this daemon holds no live route for, or
+   * carried none at all on a shape whose pinned params REQUIRE one.
+   *
+   * `disposition` is what the ask kind decided. A `callback-tool` invocation is
+   * `refused`: its params type carries a required non-nullable `turnId`, so an
+   * unresolvable one means the daemon cannot say which run's tool registry and
+   * approval seam should adjudicate it, and attributing it to whichever run
+   * happens to be sole-active would run another run's tool. An `approval` is
+   * `attributed-by-sole-active-run`: refusing there would DECLINE a legitimate
+   * approval over a bookkeeping gap, and two of the routed approval shapes
+   * publish no `turnId` member at all, so the fallback is the normal path for
+   * them rather than a degradation.
+   *
+   * `turnId` is bounded at the reader (`readRoutedAskTurnId`) and is `null`
+   * when the ask named none or named one past that bound.
+   */
+  | {
+      kind: "routed-ask-turn-unresolved";
+      method: string;
+      turnId: string | null;
+      /**
+       * `true` when the provider named a turn id past the reader's bound. The
+       * pair distinguishes the two provider faults a single nullable field
+       * would collapse: an ask that named NO turn, and one that named a turn id
+       * too long to be one.
+       */
+      turnIdTruncated: boolean;
+      disposition: "refused" | "attributed-by-sole-active-run";
+    }
+  /**
+   * The composed answer to a routed ask exceeded
+   * {@link CODEX_MAX_OUTBOUND_FRAME_BYTES}.
+   *
+   * Recorded on the way to a REFUSAL, never a truncation: the provider still
+   * receives the method's own refusal shape carrying
+   * {@link CODEX_OUTBOUND_ANSWER_TOO_LARGE_REASON}. This arm can fire twice for
+   * one ask — once for the oversized answer and once more if the substituted
+   * refusal ALSO will not fit, which is only reachable when the request `id`
+   * itself is the bulk. In that second case nothing is sent, because there is
+   * nothing sendable, and the pair of records is what says so.
+   */
+  | {
+      kind: "server-request-answer-oversized";
+      method: string;
+      encodedByteLength: number;
+      limit: number;
+    }
+  /**
+   * The answer to a routed ask could not be encoded or could not be written.
+   *
+   * The write rejection used to be swallowed on the theory that "the exit path
+   * reports it". It does not report THIS: the exit path records that the
+   * process died, not that a specific ask went unanswered, and the two are not
+   * the same fact — a write can reject on a closed connection while the ask's
+   * caller is still waiting on an answer that will now never come.
+   */
+  | { kind: "server-request-answer-write-failed"; method: string; detail: string }
   | { kind: "notification-write-failed"; method: string }
   | { kind: "unconsumed-server-notification"; method: string }
   /**
@@ -3252,9 +3463,100 @@ export class CodexAppServerConnection {
         result = descriptor.composeRefusedResult(detail);
       }
     }
-    await this.#writeFrame({ jsonrpc: "2.0", id, result }).catch(() => {
-      /* connection already gone; the exit path reports it */
+    const encodedAnswer = this.#encodeBoundedAnswerFrame(id, method, descriptor, result);
+    if (encodedAnswer === null) {
+      // Nothing sendable, and both attempts are already on the record.
+      return;
+    }
+    await this.#writeEncodedFrame(encodedAnswer.ptySessionId, encodedAnswer.bytes).catch(
+      (cause: unknown) => {
+        // NOT swallowed. A rejected answer is an ask the provider will wait on
+        // forever, which is a different fact from the process having exited and
+        // is invisible on every other path.
+        this.#reportDiagnosticQuietly({
+          kind: "server-request-answer-write-failed",
+          method,
+          detail: normalizeProviderFailureDetail(cause),
+        });
+      },
+    );
+  }
+
+  /**
+   * Encode one answer frame, bounded, substituting a refusal for anything the
+   * wire will not carry. `null` means nothing is sendable and every attempt has
+   * been recorded.
+   *
+   * ENCODE-THEN-MEASURE, deliberately: the bound is on the encoded frame, the
+   * encode step already exists as the "provably unsent" split, and measuring
+   * the produced bytes costs nothing where estimating the serialized size of a
+   * composed object would be a second, disagreeing implementation of
+   * `JSON.stringify`.
+   *
+   * The substitute carries {@link CODEX_OUTBOUND_ANSWER_TOO_LARGE_REASON} — a
+   * constant, never a slice of what overflowed — so the refusal cannot inherit
+   * the size that caused it.
+   */
+  #encodeBoundedAnswerFrame(
+    id: unknown,
+    method: string,
+    descriptor: CodexRoutedServerRequestDescriptor,
+    result: CodexServerRequestResult,
+  ): CodexEncodedFrame | null {
+    const composedAnswer = this.#encodeAnswerFrameOrReport(id, method, result);
+    if (composedAnswer === null) {
+      return null;
+    }
+    if (composedAnswer.bytes.length <= CODEX_MAX_OUTBOUND_FRAME_BYTES) {
+      return composedAnswer;
+    }
+    this.#reportDiagnosticQuietly({
+      kind: "server-request-answer-oversized",
+      method,
+      encodedByteLength: composedAnswer.bytes.length,
+      limit: CODEX_MAX_OUTBOUND_FRAME_BYTES,
     });
+    const substitutedRefusal = this.#encodeAnswerFrameOrReport(
+      id,
+      method,
+      descriptor.composeRefusedResult(CODEX_OUTBOUND_ANSWER_TOO_LARGE_REASON),
+    );
+    if (substitutedRefusal === null) {
+      return null;
+    }
+    if (substitutedRefusal.bytes.length <= CODEX_MAX_OUTBOUND_FRAME_BYTES) {
+      return substitutedRefusal;
+    }
+    // Reachable only when the request `id` the provider chose is itself past
+    // the bound: the refusal body is a constant that fits by construction.
+    this.#reportDiagnosticQuietly({
+      kind: "server-request-answer-oversized",
+      method,
+      encodedByteLength: substitutedRefusal.bytes.length,
+      limit: CODEX_MAX_OUTBOUND_FRAME_BYTES,
+    });
+    return null;
+  }
+
+  /** The frame encode with its throw recorded rather than raised. */
+  #encodeAnswerFrameOrReport(
+    id: unknown,
+    method: string,
+    result: CodexServerRequestResult,
+  ): CodexEncodedFrame | null {
+    try {
+      return this.#encodeFrame({ jsonrpc: "2.0", id, result });
+    } catch (cause) {
+      // A closed connection, or a `result` that will not serialize. Both leave
+      // the ask unanswered, and neither may escape: this method is reached from
+      // a `void`-called handler on the synchronous ingest loop.
+      this.#reportDiagnosticQuietly({
+        kind: "server-request-answer-write-failed",
+        method,
+        detail: normalizeProviderFailureDetail(cause),
+      });
+      return null;
+    }
   }
 
   #isEchoOfOurOwnRequest(id: unknown, method: string): boolean {
@@ -6343,12 +6645,21 @@ export class CodexLifecycleManager {
           : {
               answer: async (
                 request: CodexInboundServerRequest,
-              ): Promise<CodexServerRequestDecision> =>
-                await answerServerRequest.answer({
+              ): Promise<CodexServerRequestDecision> => {
+                const attribution = this.#attributeRoutedAsk(sessionId, request);
+                if (attribution.outcome === "refused") {
+                  // Refused BEFORE adjudication, on purpose: the responder
+                  // cannot decide an ask it cannot attribute, and returning a
+                  // refusal here routes through the method's own refusal shape
+                  // rather than inventing a second refusal vocabulary.
+                  return { decision: "refuse", reason: attribution.reason };
+                }
+                return await answerServerRequest.answer({
                   ...request,
                   sessionId,
-                  runId: this.#activeRunIdFor(sessionId),
-                }),
+                  runId: attribution.runId,
+                });
+              },
             },
       onServerNotification: (method: string, params: unknown): void => {
         this.#observeServerNotification(sessionId, method, params);
@@ -6557,14 +6868,123 @@ export class CodexLifecycleManager {
   }
 
   /**
+   * Attribute one routed ask to the run that raised it, before the daemon's
+   * responder ever sees it.
+   *
+   * RESOLVE BY THE TURN THE ASK NAMES. Every routed ask arrives with the raw
+   * `params` the provider sent, and the pinned generation puts a `turnId` on
+   * five of the seven routed shapes (see `readRoutedAskTurnId`). Where one is
+   * present and live, `runIdByActiveTurnId` answers exactly which run raised
+   * the ask — which is the only attribution that stays correct while two runs
+   * hold live turns on one session, and the only one that stays correct for a
+   * request the provider delays past the end of an earlier run.
+   *
+   * THE TWO DISPOSITIONS FOR AN UNRESOLVABLE TURN DIFFER BY ASK KIND, because
+   * the consequences do:
+   *
+   *   `callback-tool` — REFUSED, fail-closed and recorded. `DynamicToolCallParams`
+   *   carries a required non-nullable `turnId` at the pin, so an absent or
+   *   unresolvable one is not a shape this daemon can attribute. Falling back
+   *   to the sole-active run here would dispatch one run's tool call against
+   *   another run's registry and approval seam.
+   *
+   *   `approval` — FALLS BACK to the sole-active heuristic below, recorded.
+   *   Refusing would DECLINE a real approval over a bookkeeping gap, and the
+   *   fallback is not a degradation for the legacy pair at all: neither
+   *   `ExecCommandApprovalParams` nor `ApplyPatchApprovalParams` publishes a
+   *   `turnId` member, and `McpServerElicitationRequestParams` publishes a
+   *   nullable one whose own generated comment records that elicitation
+   *   identity is not turn-scoped. For those shapes the heuristic IS the
+   *   attribution, which is why it is retained rather than deleted.
+   */
+  #attributeRoutedAsk(
+    sessionId: SessionId,
+    request: CodexInboundServerRequest,
+  ): CodexRoutedAskAttribution {
+    const turnIdReading = readRoutedAskTurnId(request.params);
+    const resolvableTurnId = turnIdReading.resolvableTurnId;
+    if (resolvableTurnId !== null) {
+      const routedRunId = this.#sessions.get(sessionId)?.runIdByActiveTurnId.get(resolvableTurnId);
+      if (routedRunId !== undefined) {
+        return { outcome: "attributed", runId: routedRunId };
+      }
+    }
+    if (request.askKind !== "callback-tool") {
+      if (turnIdReading.recordedTurnId !== null) {
+        // Only recorded when a turn WAS named: a shape that publishes no
+        // `turnId` reaching the fallback is the pinned protocol working, and a
+        // diagnostic per legacy approval would be noise, not signal.
+        this.#reportRoutedAskTurnUnresolved(
+          sessionId,
+          request.method,
+          turnIdReading,
+          "attributed-by-sole-active-run",
+        );
+      }
+      return { outcome: "unattributed", runId: this.#activeRunIdFor(sessionId) };
+    }
+    this.#reportRoutedAskTurnUnresolved(sessionId, request.method, turnIdReading, "refused");
+    return {
+      outcome: "refused",
+      // The reason is read BACK by the provider, so it carries the bounded
+      // rendering and never the raw field.
+      reason:
+        resolvableTurnId === null
+          ? "The callback-tool invocation named no resolvable turn, so the daemon cannot say which run's tool registry adjudicates it; refusing rather than guessing a run."
+          : `The callback-tool invocation named turn "${resolvableTurnId}", which this daemon holds no live route for; refusing rather than adjudicating it against another run's registry.`,
+    };
+  }
+
+  /**
+   * Record one unresolvable routed-ask turn on BOTH sinks for the refusal arm.
+   *
+   * The duplication follows the withheld-registry precedent in this file: the
+   * transport-local arm is this driver's own structured record, and the
+   * censused kind is the one the daemon's counters name. A refused callback
+   * invocation that appeared only on the local arm would be invisible to every
+   * operator surface reading the counters. The fallback arm takes the local arm
+   * only — nothing was refused, so counting it as a refusal would overstate.
+   */
+  #reportRoutedAskTurnUnresolved(
+    sessionId: SessionId,
+    method: string,
+    turnIdReading: CodexRoutedAskTurnIdReading,
+    disposition: "refused" | "attributed-by-sole-active-run",
+  ): void {
+    const turnId = turnIdReading.recordedTurnId;
+    const turnIdTruncated = turnIdReading.recordedTurnIdTruncated;
+    reportDiagnosticFromDetachedFrame(this.#options.reportDiagnostic, {
+      kind: "routed-ask-turn-unresolved",
+      method,
+      turnId,
+      turnIdTruncated,
+      disposition,
+    });
+    if (disposition !== "refused") {
+      return;
+    }
+    this.#options.diagnostics.emit({
+      provider: "codex",
+      kind: "callback_tool_invocation_refused",
+      rawWireType: method,
+      dispositionReason:
+        "the invocation named no turn this daemon holds a live route for, so no run's tool registry could adjudicate it",
+      // UNTRUSTED provider text, bounded at the reader, carried verbatim as
+      // data so an operator can correlate the refusal with the provider's log.
+      details: { sessionId, method, turnId, turnIdTruncated },
+    });
+  }
+
+  /**
    * The run whose turn is currently active on a session, or `null`.
    *
-   * Answered only when every live turn on the session belongs to ONE run. The
-   * routed ask this attributes carries no turn id — `CodexInboundServerRequest`
-   * holds a method, a kind, and raw params — so with turns from TWO runs live
-   * there is nothing to disambiguate them with, and picking either would
-   * attribute the ask, and its `driver_ask.requested` projection, to a run that
-   * may not have raised it. But the count that decides is of RUNS, not turns:
+   * Answered only when every live turn on the session belongs to ONE run. This
+   * is the FALLBACK arm of `#attributeRoutedAsk`, reached only by an ask whose
+   * shape carries no usable `turnId` — never by a callback-tool invocation,
+   * which refuses instead. With turns from TWO runs live there is nothing left
+   * to disambiguate them with, and picking either would attribute the ask, and
+   * its `driver_ask.requested` projection, to a run that may not have raised
+   * it. But the count that decides is of RUNS, not turns:
    * two overlapping accepted starts on one run — the very shape the turn-keyed
    * routes retain — put two turns on the session whose values all name the same
    * run, and that attribution is unambiguous at any turn count, so a turn-count

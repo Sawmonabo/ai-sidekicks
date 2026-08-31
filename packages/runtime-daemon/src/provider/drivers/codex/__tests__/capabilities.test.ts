@@ -673,6 +673,37 @@ describe("Codex model catalog (T3.12 C-8)", () => {
     );
   });
 
+  it("refuses an in-place mutation of the shared declared catalog", () => {
+    // `Object.freeze` on the ENTRY is shallow: it stops `entry.effortLevels =
+    // […]` and does nothing about `entry.effortLevels.push(…)`. This constant
+    // is re-exported from the driver barrel and shared process-wide, so an
+    // out-of-band consumer was one `push` away from rewriting the declared
+    // vocabulary for every later caller.
+    const declaredEntry = CODEX_DECLARED_MODEL_CATALOG[0];
+    if (declaredEntry === undefined) {
+      throw new Error("the declared catalog is empty");
+    }
+
+    expect(Object.isFrozen(declaredEntry)).toBe(true);
+    expect(Object.isFrozen(declaredEntry.capabilities)).toBe(true);
+    expect(Object.isFrozen(declaredEntry.effortLevels)).toBe(true);
+    expect(Object.isFrozen(CODEX_DECLARED_MODEL_CATALOG)).toBe(true);
+    // Strict mode — every module in this package is one — so the write THROWS
+    // rather than failing silently, which is what makes the freeze observable.
+    expect(() => declaredEntry.effortLevels?.push("mutated")).toThrow(TypeError);
+    expect(() => declaredEntry.capabilities.push("mutated")).toThrow(TypeError);
+
+    expect(declaredEntry.capabilities).toStrictEqual([]);
+    expect(declaredEntry.effortLevels).toStrictEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      "ultra",
+    ]);
+  });
+
   it("hands out fresh copies of the declared catalog", async () => {
     const first = await resolveCodexModelCatalog(null);
     first[0]?.capabilities.push("mutated");

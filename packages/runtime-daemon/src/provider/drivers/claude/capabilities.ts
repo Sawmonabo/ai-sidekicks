@@ -442,9 +442,30 @@ function declaredClaudeModel(
   return Object.freeze({
     id,
     name,
-    capabilities: [],
-    ...(effortLevels === undefined ? {} : { effortLevels: [...effortLevels] }),
+    capabilities: freezeDeclaredModelArray([]),
+    ...(effortLevels === undefined
+      ? {}
+      : { effortLevels: freezeDeclaredModelArray([...effortLevels]) }),
   });
+}
+
+/**
+ * Freeze one nested catalog array WITHOUT widening its declared type.
+ *
+ * `Object.freeze` on the entry alone is shallow: it stops `entry.effortLevels =
+ * […]` and does nothing about `entry.effortLevels.push(…)`, so a process-wide
+ * constant re-exported from this driver's barrel was one `push` away from being
+ * rewritten for every later caller. `ProviderModel` declares these members as
+ * MUTABLE `string[]`, and this returns the same declared type rather than
+ * `readonly string[]` on purpose: making the contract type deep-readonly would
+ * ripple through every driver-constructed catalog and every normalizer that
+ * builds one, to fix a hazard that only exists for the two shared constants.
+ * The freeze is therefore a runtime property of these declarations, enforced by
+ * a mutation-attempt test rather than by the type.
+ */
+function freezeDeclaredModelArray(values: string[]): string[] {
+  Object.freeze(values);
+  return values;
 }
 
 /** The effort vocabulary every effort-bearing Claude model publishes at the pin. */
