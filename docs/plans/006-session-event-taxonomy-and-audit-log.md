@@ -1075,6 +1075,56 @@ shipped:
       ]
     notes: |
       Remediation ship — the owed follow-up code PR the 2026-08-11 §Notes record dispatched on PR #323's merge, not new phase work: T3.1/T3.2/T3.3 re-listed because the already-shipped surfaces took their amendment-mandated checks. Leg 1 (T3.3): the exported buildAnchorClaimBytes preimage builder with anchorRange signing the five-member claim, a golden byte pin, and per-coordinate relabeling negatives; the 0008 migration's root_signature comment re-mirrored byte-exact from the schema doc its header names as authority. Leg 2 (T3.1 + T3.2): the ceiling enforced at both payload-writing sites — EventLogService refuses typed at both branches (the PII branch checks the codec's digest-bearing canonicalByteLength measurement, which can exceed the ceiling when the plain payload would not), and canonicalizeBoundedStubProjection holds the stub to the bound by code-point summary truncation, refusing with CompactionRefusal when preserved members alone exceed it (the row stays live and the pass reports the refusal). Codex round 1 acked clean; the same PR tense-flipped every corpus "owed follow-up code PR" claim (13 sites) and re-scoped Spec-006 §Compacted Event Format's false only-unbounded-member quantifier with the refusal arm named — a clarification of the existing MUST-hold, no status flip.
+  - phase: 3
+    task: [T3.6, T3.7, T3.8]
+    pr: 386
+    sha: 787d75f3
+    merged_at: 2026-08-31
+    files:
+      - docs/architecture/contracts/api-payload-contracts.md
+      - docs/architecture/cross-plan-dependencies.md
+      - docs/architecture/security-architecture.md
+      - docs/plans/006-session-event-taxonomy-and-audit-log.md
+      - docs/specs/006-session-event-taxonomy-and-audit-log.md
+      - packages/contracts/src/__tests__/event-source-epoch.test.ts
+      - packages/contracts/src/__tests__/session-event.test.ts
+      - packages/contracts/src/event.ts
+      - packages/runtime-daemon/package.json
+      - packages/runtime-daemon/src/events/__tests__/compactor.test.ts
+      - packages/runtime-daemon/src/events/__tests__/content-read.test.ts
+      - packages/runtime-daemon/src/events/__tests__/event-log-service.test.ts
+      - packages/runtime-daemon/src/events/__tests__/post-shred-verify.test.ts
+      - packages/runtime-daemon/src/events/__tests__/session-content-partition.test.ts
+      - packages/runtime-daemon/src/events/__tests__/shred-safety-e2e.test.ts
+      - packages/runtime-daemon/src/events/compactor.ts
+      - packages/runtime-daemon/src/events/content-read.ts
+      - packages/runtime-daemon/src/events/event-log-service.ts
+      - packages/runtime-daemon/src/events/pii-indirection.ts
+      - packages/runtime-daemon/src/events/session-content-key-store.ts
+      - packages/runtime-daemon/src/migrations/0013-content-payload.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/__tests__/event-normalizer.test.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/event-normalizer.ts
+      - packages/runtime-daemon/src/session/__tests__/__snapshots__/migration-shape.test.ts.snap
+      - packages/runtime-daemon/src/session/__tests__/migration-shape.test.ts
+      - packages/runtime-daemon/src/session/__tests__/session-service.test.ts
+      - packages/runtime-daemon/src/session/migration-runner.ts
+      - pnpm-lock.yaml
+    verifies_invariant: [I-006-3-05, I-006-3-06, I-006-3-07, I-006-3-08]
+    spec_coverage:
+      [
+        "Spec-006 §Assistant Output (assistant_output) (the five body-bearing payload variants)",
+        "Spec-006 §Tool Activity (tool_activity) (tool.invoked / tool.result / tool.error bodies)",
+        "Spec-006 §Canonical Serialization Rules (content_payload excluded from canonical bytes; contentCiphertextDigest embedded under the Encrypt-Then-Digest-Then-Sign order)",
+        "Spec-006 §Compacted Event Format (compaction clears content_payload beside pii_payload; the stub's surviving contentLength / contentTruncated)",
+        "Spec-006 §Audit Integrity (audit_integrity) (content_ciphertext_digest_unbound, the sixteenth verification mode)",
+        "Spec-022 §PII Data Map (the content_payload durable-tier row)",
+        "Spec-022 §Data Export (the machine-authored-body export disposition)",
+      ]
+    notes: |
+      Phase-3B tasks T3.6-T3.8 shipped as one contracts+daemon PR — the NS-94 machine-authored-prose supplement, recorded under phase 3 because the manifest schema keys phases as integers and the 3B supplement continues the Phase-3 task series (the same encoding the repo-wide Gate-5 entries use for supplement phases). The phase's declared set {T3.6, T3.7, T3.8} closes at this single entry, so the { plan: 006, phase: 3, status: merged } gates that were waiting on Phase 3B — Plan-005 T3.20's CP-005-13 dispatch hold among them — re-resolve MET.
+      Shipped surface: T3.6's session_events.content_payload column and session_content_keys wrapped-DEK home (migration 0013-content-payload — the ordinal claimed in merge order ahead of Plan-005's in-flight console-parity migration, which renumbered to 0014; local SQLite census 58 -> 59 exactly as NS-94 priced), the per-session random 32-byte AES-256-GCM DEK held wrapped and re-wrapped inside rotate-on-shred's existing BEGIN EXCLUSIVE, AAD = session_id || event_id, the payload-embedded contentCiphertextDigest under the Encrypt-Then-Digest-Then-Sign order run once per row, the five body-bearing SessionEventSchema variants (assistant.message, assistant.thinking_update, tool.invoked, tool.result, tool.error), pii-indirection.ts as the sole write path for both codecs, the CONTENT_PAYLOAD_PLAINTEXT_MAX codepoint-boundary truncation arm (contentTruncated beside a pre-truncation contentLength, the DeclaredLossKind sixth member's condition), and the column unconstructible for audit_integrity / event_maintenance. T3.7's compactor clearing content_payload beside pii_payload with the wholesale stub replacement, content_payload joining both shipped byte-accounting statements, and the final content-key sweep. T3.8's verify-on-read binding as the sixteenth verification mode content_ciphertext_digest_unbound — provenance-dispatched on received_from_node_id exactly as the fourteenth is — plus the HydratedSessionEvent read projection that never splices a body into signed payload.
+      verifies_invariant = the T3.6-T3.8 audit-marker union {I-006-3-05, I-006-3-06, I-006-3-07, I-006-3-08}, each landing its Test-clause assertions in this shipment (the partition property, the truncation-never-refusal arm, the unconstructible-category proof, and the read-side binding check with its received-row arm).
+      Review: nine codex threads across the PR's rounds folded and resolved pre-merge; a final two-thread batch raced the merge and was adjudicated post-merge in the wave-2 close-out fix PR (the aborted-append orphan-key row and the final-sweep retry falsity) — recorded here so the merged-clean reading is not available.
 ```
 
 ### Notes
