@@ -89,7 +89,28 @@ import {
   DRIVER_TOOL_CALL_ID_MAX_LEN,
   DRIVER_TOOL_DESCRIPTION_MAX_LEN,
   DRIVER_TOOL_NAME_MAX_LEN,
+  DRIVER_WIRE_CATALOG_ENTRIES_MAX,
+  DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN,
+  DRIVER_WIRE_HANDLE_MAX_LEN,
+  DRIVER_WIRE_REASON_MAX_LEN,
+  DRIVER_WIRE_STEER_ATTACHMENTS_MAX,
+  DRIVER_WIRE_STEER_CONTENT_MAX_LEN,
+  DRIVER_WIRE_TOKEN_MAX_LEN,
+  ApplyInterventionParamsSchema,
   CallbackToolInvocationSchema,
+  DriverAckResultSchema,
+  DriverCapabilitiesSchema,
+  DriverCapabilityReportSchema,
+  DriverReadParamsSchema,
+  DriverSubscribeEventsParamsSchema,
+  InterruptRunParamsSchema,
+  ListCapabilitiesResultSchema,
+  ListModelsResultSchema,
+  ListModesResultSchema,
+  ProviderModelSchema,
+  ProviderModeSchema,
+  RespondToRequestParamsSchema,
+  RunIdSchema,
   DriverAuthProbeResultSchema,
   DriverGoalResultSchema,
   DriverInterventionResultSchema,
@@ -2906,5 +2927,436 @@ describe("ProviderCommandBindingGroup — provenance that is stated, never synth
       ],
     };
     expect(result.bindings.map((group) => group.complete)).toEqual([false, true]);
+  });
+});
+
+// --------------------------------------------------------------------------
+// T4.2 — client-facing SDK-seam wire schemas
+// --------------------------------------------------------------------------
+//
+// A DIFFERENT boundary from everything above: these schemas guard CLIENT input
+// crossing into the daemon over JSON-RPC and the daemon's own replies going back
+// out. The blocks below assert the three things that boundary is for — that a
+// caller cannot send a shape the daemon would have to guess at, that a reply
+// carries exactly the members the spec routes to a client and no more, and that
+// the two structural refusals this seam owns (a `rollback` dispatch arm, a
+// missing answer) are refusals rather than conventions.
+
+const A_RUN_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
+const ANOTHER_UUID = "0b1c2d3e-4f50-4162-8374-859607a8b9c0";
+
+/** Every declared flag answered `false` — the totality `DriverCapabilities` requires. */
+function allFlagsFalse(): Record<string, boolean> {
+  return Object.fromEntries(DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, false]));
+}
+
+describe("RunIdSchema — the brand's validator, co-located with the brand (CP-005-6)", () => {
+  it("accepts a UUID and brands it", () => {
+    expect(RunIdSchema.parse(A_RUN_ID)).toBe(A_RUN_ID);
+  });
+
+  it("REFUSES a non-UUID run id", () => {
+    // The whole point of validating rather than casting: a run id crossing the
+    // client boundary is untrusted, and a path fragment or SQL fragment reaching
+    // a store lookup keyed on this value is exactly what shape-rejection stops.
+    expect(RunIdSchema.safeParse("../../etc/passwd").success).toBe(false);
+    expect(RunIdSchema.safeParse("run-1").success).toBe(false);
+    expect(RunIdSchema.safeParse("").success).toBe(false);
+  });
+});
+
+describe("DriverReadParams / DriverAckResult — the two empty envelopes", () => {
+  it("accepts the empty object on both", () => {
+    expect(DriverReadParamsSchema.parse({})).toEqual({});
+    expect(DriverAckResultSchema.parse({})).toEqual({});
+  });
+
+  it("REFUSES a driver selector on the read request — the reads are no-arg by ratified signature", () => {
+    // Plan-005 §Phase 4 T4.3 ratifies `listCapabilities()` / `listModels()` /
+    // `listModes()` no-arg while the three run-addressed verbs take a param. A
+    // `{ driverName }` request would contradict that signature, and `.strict()`
+    // is what makes the contradiction a refusal instead of a silently ignored
+    // key that a caller would then believe had filtered the reply.
+    expect(DriverReadParamsSchema.safeParse({ driverName: "claude" }).success).toBe(false);
+    expect(DriverAckResultSchema.safeParse({ status: "ok" }).success).toBe(false);
+  });
+});
+
+describe("DriverCapabilitiesSchema — flag totality is derived, never hand-listed", () => {
+  it("accepts a report answering every declared flag", () => {
+    const parsed = DriverCapabilitiesSchema.parse({
+      flags: allFlagsFalse(),
+      contractVersion: "1.0.0",
+    });
+    expect(Object.keys(parsed.flags).sort()).toEqual([...DRIVER_CAPABILITY_FLAGS].sort());
+  });
+
+  it("REFUSES a flags object that omits a declared flag", () => {
+    // The runtime half of I-005-2's structural claim. `Record<DriverCapability
+    // Flag, boolean>` makes omission a compile error inside the daemon; over the
+    // wire there is no compiler, so the schema has to carry it — otherwise a
+    // client would read "undeclared" for a capability the driver declared true.
+    const flags = allFlagsFalse();
+    delete flags["steer"];
+    expect(DriverCapabilitiesSchema.safeParse({ flags, contractVersion: "1.0.0" }).success).toBe(
+      false,
+    );
+  });
+
+  it("REFUSES a flag outside the declared set, so the shape cannot be widened over the wire", () => {
+    expect(
+      DriverCapabilitiesSchema.safeParse({
+        flags: { ...allFlagsFalse(), telepathy: true },
+        contractVersion: "1.0.0",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("bounds contractVersion at the same value the event boundary uses", () => {
+    // Deliberately the same 64 as `CAPABILITY_CONTRACT_VERSION_MAX_LEN`: a
+    // version string that survives this reply must also survive the
+    // `runtime_node.capability_*` event, or the two surfaces disagree about one
+    // value.
+    expect(DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN).toBe(64);
+    expect(
+      DriverCapabilitiesSchema.safeParse({
+        flags: allFlagsFalse(),
+        contractVersion: "v".repeat(DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN + 1),
+      }).success,
+    ).toBe(false);
+    expect(
+      DriverCapabilitiesSchema.safeParse({ flags: allFlagsFalse(), contractVersion: "" }).success,
+    ).toBe(false);
+  });
+});
+
+describe("ListCapabilitiesResultSchema — what crosses to a client, and what stops at the driver", () => {
+  const report = {
+    driverName: "claude",
+    capabilities: { flags: { ...allFlagsFalse(), output_speed: true }, contractVersion: "1.0.0" },
+    outputSpeedLevels: ["off", "on"],
+  };
+
+  it("carries the flags and the output-speed vocabulary", () => {
+    const parsed = ListCapabilitiesResultSchema.parse({ drivers: [report] });
+    expect(parsed.drivers[0]?.outputSpeedLevels).toEqual(["off", "on"]);
+    expect(parsed.drivers[0]?.capabilities.flags.output_speed).toBe(true);
+  });
+
+  it("REFUSES detectionSource, cliVersion, and tools — the three members that stop at the driver", () => {
+    // `Spec-005 §Capability discovery` scopes this reply to the flags, and
+    // §Required Behavior rules that the mechanism grades and `cliVersion` alike
+    // do not reach it. `.strict()` is what turns those sentences into something
+    // a test can fail on: without it a daemon that composed the whole
+    // `GetCapabilitiesResult` would ship provenance to every client and nothing
+    // would notice.
+    for (const forbidden of [
+      { detectionSource: { steer: "static" } },
+      { cliVersion: { raw: "2.1.251", semver: "2.1.251" } },
+      { tools: [{ name: "bash", idempotency_class: "idempotent" }] },
+    ]) {
+      expect(
+        ListCapabilitiesResultSchema.safeParse({ drivers: [{ ...report, ...forbidden }] }).success,
+      ).toBe(false);
+    }
+  });
+
+  it("keeps outputSpeedLevels ABSENT rather than defaulting it to an empty list", () => {
+    // Absent and empty are different readings — an empty vocabulary asserts an
+    // axis with nothing settable on it. A `.default([])` here would erase the
+    // distinction at the parse meant to preserve it.
+    const { outputSpeedLevels: _levels, ...withoutLevels } = report;
+    const parsed = DriverCapabilityReportSchema.parse(withoutLevels);
+    expect(Object.hasOwn(parsed, "outputSpeedLevels")).toBe(false);
+  });
+
+  it("bounds the vocabulary's tokens and its length", () => {
+    expect(
+      DriverCapabilityReportSchema.safeParse({
+        ...report,
+        outputSpeedLevels: ["x".repeat(DRIVER_WIRE_TOKEN_MAX_LEN + 1)],
+      }).success,
+    ).toBe(false);
+    expect(
+      DriverCapabilityReportSchema.safeParse({
+        ...report,
+        outputSpeedLevels: Array.from({ length: DRIVER_WIRE_CATALOG_ENTRIES_MAX + 1 }, () => "on"),
+      }).success,
+    ).toBe(false);
+  });
+
+  it("REFUSES an empty driverName — the reply quotes the daemon's own registry key", () => {
+    expect(
+      ListCapabilitiesResultSchema.safeParse({ drivers: [{ ...report, driverName: "" }] }).success,
+    ).toBe(false);
+  });
+});
+
+describe("ListModelsResultSchema / ListModesResultSchema — provenance survives the reply", () => {
+  const claudeModel = { id: "claude-haiku-4-5-20251001", name: "Haiku 4.5", capabilities: [] };
+
+  it("groups entries per driver rather than flattening them", () => {
+    const parsed = ListModelsResultSchema.parse({
+      drivers: [
+        { driverName: "claude", models: [claudeModel] },
+        { driverName: "codex", models: [{ id: "gpt-5.6-luna", name: "Luna", capabilities: [] }] },
+      ],
+    });
+    // The grouping IS the provenance: model ids collide across providers and
+    // carry no vendor marker, so a flat array would hand a caller one driver's
+    // catalog with no way to tell which.
+    expect(parsed.drivers.map((entry) => entry.driverName)).toEqual(["claude", "codex"]);
+  });
+
+  it("keeps effortLevels ABSENT for a model that exposes no effort axis", () => {
+    const parsed = ProviderModelSchema.parse(claudeModel);
+    expect(Object.hasOwn(parsed, "effortLevels")).toBe(false);
+    expect(
+      ProviderModelSchema.safeParse({ ...claudeModel, effortLevels: ["low", "high"] }).success,
+    ).toBe(true);
+  });
+
+  it("bounds model tokens and the per-driver catalog length", () => {
+    expect(
+      ProviderModelSchema.safeParse({
+        ...claudeModel,
+        id: "x".repeat(DRIVER_WIRE_TOKEN_MAX_LEN + 1),
+      }).success,
+    ).toBe(false);
+    expect(ProviderModelSchema.safeParse({ ...claudeModel, id: "" }).success).toBe(false);
+    expect(
+      ListModelsResultSchema.safeParse({
+        drivers: [
+          {
+            driverName: "claude",
+            models: Array.from({ length: DRIVER_WIRE_CATALOG_ENTRIES_MAX + 1 }, () => claudeModel),
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("REFUSES an unknown key on a model, a mode, and either group", () => {
+    expect(ProviderModelSchema.safeParse({ ...claudeModel, deprecated: true }).success).toBe(false);
+    expect(ProviderModeSchema.safeParse({ id: "plan", name: "Plan", default: true }).success).toBe(
+      false,
+    );
+    expect(
+      ListModesResultSchema.safeParse({
+        drivers: [{ driverName: "codex", modes: [{ id: "plan", name: "Plan" }], count: 1 }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts a well-formed mode reply", () => {
+    const parsed = ListModesResultSchema.parse({
+      drivers: [{ driverName: "codex", modes: [{ id: "plan", name: "Plan" }] }],
+    });
+    expect(parsed.drivers[0]?.modes[0]?.id).toBe("plan");
+  });
+});
+
+describe("InterruptRunParamsSchema — the run-addressed wire shape, RunIdSchema's first consumer", () => {
+  it("accepts the run id alone and with a reason", () => {
+    expect(InterruptRunParamsSchema.parse({ runId: A_RUN_ID }).runId).toBe(A_RUN_ID);
+    expect(
+      InterruptRunParamsSchema.safeParse({ runId: A_RUN_ID, reason: "user asked to stop" }).success,
+    ).toBe(true);
+  });
+
+  it("REFUSES a session selector beside the run id", () => {
+    // A run id is globally unique, so a `sessionId` here would be a second
+    // addressing key with no honest answer when the two disagree. T4.9's
+    // console-parity verbs are the deliberate contrast — their targets are only
+    // identified within a session.
+    expect(
+      InterruptRunParamsSchema.safeParse({ runId: A_RUN_ID, sessionId: ANOTHER_UUID }).success,
+    ).toBe(false);
+  });
+
+  it("REFUSES a non-UUID run id and an over-length reason", () => {
+    expect(InterruptRunParamsSchema.safeParse({ runId: "run-1" }).success).toBe(false);
+    expect(
+      InterruptRunParamsSchema.safeParse({
+        runId: A_RUN_ID,
+        reason: "x".repeat(DRIVER_WIRE_REASON_MAX_LEN + 1),
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("ApplyInterventionParamsSchema — three arms, and the fourth is a parse refusal", () => {
+  const base = {
+    targetRunId: A_RUN_ID,
+    expectedRunVersion: 3,
+    clientIdempotencyKey: ANOTHER_UUID,
+  };
+
+  it("accepts all three V1 intervention arms", () => {
+    expect(
+      ApplyInterventionParamsSchema.safeParse({
+        ...base,
+        type: "steer",
+        payload: { content: "use the other branch" },
+      }).success,
+    ).toBe(true);
+    expect(
+      ApplyInterventionParamsSchema.safeParse({ ...base, type: "interrupt", payload: {} }).success,
+    ).toBe(true);
+    expect(
+      ApplyInterventionParamsSchema.safeParse({
+        ...base,
+        type: "cancel",
+        payload: { reason: "abandoned" },
+      }).success,
+    ).toBe(true);
+  });
+
+  it("REFUSES a rollback arm at the discriminator, not merely at its payload", () => {
+    // `InterventionType` carries four members; this dispatch surface carries
+    // three. Rollback's driver leg is the dedicated `rollbackTo` operation with
+    // its own params and its own result envelope, so a `rollback` request must
+    // fail PARSE rather than reach a handler that would have to invent a
+    // refusal for it.
+    //
+    // The payload here is `{}` — VALID for the interrupt and cancel arms —
+    // deliberately, so the refusal can only be coming from the discriminator. A
+    // rollback-shaped payload would refuse under any of the three arms' own
+    // `.strict()` and would therefore prove nothing about the arm set. The
+    // second assertion adds the rollback-shaped case for completeness, and the
+    // third pins the issue path to the discriminant so a future arm rename
+    // cannot make this test pass for the wrong reason.
+    expect(
+      ApplyInterventionParamsSchema.safeParse({ ...base, type: "rollback", payload: {} }).success,
+    ).toBe(false);
+    expect(
+      ApplyInterventionParamsSchema.safeParse({
+        ...base,
+        type: "rollback",
+        payload: { targetPosition: 4 },
+      }).success,
+    ).toBe(false);
+    const refusal = ApplyInterventionParamsSchema.safeParse({
+      ...base,
+      type: "rollback",
+      payload: {},
+    });
+    expect(refusal.success).toBe(false);
+    expect(refusal.error?.issues.some((issue) => issue.path.join(".") === "type")).toBe(true);
+  });
+
+  it("REFUSES a non-UUID idempotency key — this is the seam that validates it", () => {
+    // The §1 param shape carries no schema precisely because this boundary owns
+    // the check. A caller-chosen free string would land in a durable receipt and
+    // make replay keying depend on client discipline.
+    expect(
+      ApplyInterventionParamsSchema.safeParse({
+        ...base,
+        clientIdempotencyKey: "my-key",
+        type: "interrupt",
+        payload: {},
+      }).success,
+    ).toBe(false);
+  });
+
+  it("REFUSES a fractional or negative expectedRunVersion", () => {
+    // Optimistic-concurrency state: either would compare unequal to every stored
+    // version and turn the check into an unconditional refusal that reads as a
+    // conflict.
+    for (const version of [1.5, -1]) {
+      expect(
+        ApplyInterventionParamsSchema.safeParse({
+          ...base,
+          expectedRunVersion: version,
+          type: "interrupt",
+          payload: {},
+        }).success,
+      ).toBe(false);
+    }
+  });
+
+  it("bounds steer content, its attachment count, and the turn handle", () => {
+    expect(
+      ApplyInterventionParamsSchema.safeParse({
+        ...base,
+        type: "steer",
+        payload: { content: "x".repeat(DRIVER_WIRE_STEER_CONTENT_MAX_LEN + 1) },
+      }).success,
+    ).toBe(false);
+    expect(
+      ApplyInterventionParamsSchema.safeParse({
+        ...base,
+        type: "steer",
+        payload: {
+          content: "ok",
+          attachments: Array.from({ length: DRIVER_WIRE_STEER_ATTACHMENTS_MAX + 1 }, () => ({})),
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      ApplyInterventionParamsSchema.safeParse({
+        ...base,
+        type: "steer",
+        payload: { content: "ok", expectedTurnId: "t".repeat(DRIVER_WIRE_HANDLE_MAX_LEN + 1) },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("REFUSES an empty steer directive and an unknown payload key", () => {
+    expect(
+      ApplyInterventionParamsSchema.safeParse({ ...base, type: "steer", payload: { content: "" } })
+        .success,
+    ).toBe(false);
+    expect(
+      ApplyInterventionParamsSchema.safeParse({
+        ...base,
+        type: "steer",
+        payload: { content: "ok", priority: "high" },
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("RespondToRequestParamsSchema — a missing answer is not an answer", () => {
+  const base = { runId: A_RUN_ID, requestId: "req-42" };
+
+  it("accepts every legitimate JSON answer, `null` and `false` included", () => {
+    for (const response of [null, false, 0, "", { choice: "b" }, []]) {
+      expect(RespondToRequestParamsSchema.safeParse({ ...base, response }).success).toBe(true);
+    }
+  });
+
+  it("REFUSES a request that omits the response key", () => {
+    // `z.unknown()` would accept this: `unknown` admits `undefined`, so an
+    // omitted key parses clean and the daemon forwards "no answer" to a provider
+    // that is blocked waiting for one. The explicit presence predicate is what
+    // makes the omission a refusal without narrowing the answer's shape.
+    expect(RespondToRequestParamsSchema.safeParse(base).success).toBe(false);
+    expect(RespondToRequestParamsSchema.safeParse({ ...base, response: undefined }).success).toBe(
+      false,
+    );
+  });
+
+  it("bounds the provider-minted request handle", () => {
+    expect(
+      RespondToRequestParamsSchema.safeParse({
+        ...base,
+        requestId: "r".repeat(DRIVER_WIRE_HANDLE_MAX_LEN + 1),
+        response: null,
+      }).success,
+    ).toBe(false);
+    expect(
+      RespondToRequestParamsSchema.safeParse({ ...base, requestId: "", response: null }).success,
+    ).toBe(false);
+  });
+});
+
+describe("DriverSubscribeEventsParamsSchema — run-scoped, and answered by the shared ack", () => {
+  it("accepts the run id and refuses anything beside it", () => {
+    expect(DriverSubscribeEventsParamsSchema.parse({ runId: A_RUN_ID }).runId).toBe(A_RUN_ID);
+    expect(
+      DriverSubscribeEventsParamsSchema.safeParse({ runId: A_RUN_ID, afterCursor: "c1" }).success,
+    ).toBe(false);
+    expect(DriverSubscribeEventsParamsSchema.safeParse({}).success).toBe(false);
   });
 });

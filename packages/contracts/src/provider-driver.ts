@@ -88,13 +88,21 @@
 //      persistence / log-injection hazards on values that reach `driver_tools`,
 //      `runtime_bindings`, and `runtime_node.capability_*` events. After T3.26
 //      this file realizes ALL SEVENTEEN strings the canonical doc's
-//      seventeen-string enumeration names, over the TWELVE length caps declared
-//      below — T3.26 carrying that re-derivation from twelve with the five
-//      strings its console-parity shapes introduced.
-//   3. The CLIENT-FACING SDK-SEAM Zod schemas (`InterruptRunParamsSchema`,
-//      `RunIdSchema`, …) validate client→daemon WIRE input — a DIFFERENT
-//      boundary — and ship in Phase 4 (T4.2). Do not conflate them with (2):
-//      (2) guards provider→daemon output; the SDK seam guards client→daemon input.
+//      seventeen-string enumeration names, over the TWELVE PROVIDER-BOUNDARY
+//      length caps declared below — T3.26 carrying that re-derivation from twelve
+//      with the five strings its console-parity shapes introduced. Both counts are
+//      scoped to THIS boundary: the seventeen-string enumeration censuses provider
+//      OUTPUT, so the SDK-seam caps (3) declares are a SEPARATE set and move
+//      neither number.
+//   3. The CLIENT-FACING SDK-SEAM Zod schemas (`RunIdSchema`,
+//      `InterruptRunParamsSchema`, `ApplyInterventionParamsSchema`, the three
+//      `List*ResultSchema` replies, …) validate client→daemon WIRE input and the
+//      daemon's own replies — a DIFFERENT boundary — and ship in Phase 4 (T4.2).
+//      Do not conflate them with (2): (2) guards provider→daemon output; the SDK
+//      seam guards client→daemon input. They carry their own length caps, declared
+//      with their own section, for the same reason the boundaries are separate —
+//      a cap sized against what a PROVIDER emits is not evidence about what a
+//      CLIENT may send.
 //
 // I-005-1 (driver authority remains local even when the provider endpoint is
 // remote): this contract IS the local surface. A driver MAY call a remote
@@ -130,11 +138,33 @@ import { wireFreeFormString, SessionIdSchema, type SessionId, type ChannelId } f
 // structurally identical to api-payload-contracts.md § Branded ID Types lets
 // cross-package consumers verify their imports against the doc.
 //
-// TYPE-ONLY at Phase 1 by design: the paired `RunIdSchema`
-// (`brandedUuidIdSchema<RunId>("RunId")`) co-locates at T4.2 — its first
-// consumer is `InterruptRunParamsSchema` at the SDK seam. Authoring the schema
-// here would break the deliberate type-only ratification of Phase 1.
+// TYPE-ONLY at Phase 1 by design; the paired `RunIdSchema` co-locates HERE at
+// T4.2, which is where its first consumer lands (`InterruptRunParamsSchema` at
+// the client→daemon SDK seam). Authoring the schema at Phase 1 would have broken
+// that phase's deliberate type-only ratification, so the brand shipped alone and
+// the validator joins it now — same file, same section, per CP-005-6.
 export type RunId = string & { readonly __brand: "RunId" };
+
+// The runtime validator for the brand above, and the ONLY place a caller-supplied
+// run id becomes a `RunId`.
+//
+// Homed here rather than in Plan-004's run-control contract for a STRUCTURAL
+// reason, not a stylistic one: this file is the brand's lowest-tier consumer
+// (Tier 4), and Plan-004's `runControl.ts` (Tier 5) / Plan-012's approval surface
+// (Tier 6) import it UPWARD. Authoring it in either of those would make this
+// file's own SDK seam import backwards across tiers — forbidden by the build
+// order, not merely undesirable. Those higher-tier modules consume this symbol
+// rather than declaring a sibling; a second `z.string().uuid().brand(...)`
+// anywhere would be a second source of truth for what a run id is, and the two
+// would drift the first time either grew a constraint.
+//
+// `brandedUuidIdSchema` (not a bare `z.string()`): a run id crossing the client
+// boundary is an UNTRUSTED caller-supplied string, and UUID-shape rejection is
+// what stops a path fragment, a SQL fragment, or an unbounded blob from reaching
+// a store lookup keyed on this value. The double-`T` `ZodType<RunId, RunId>` the
+// helper returns is what lets the schema compose into the request objects below
+// under `exactOptionalPropertyTypes` (see the `IdempotencyClassSchema` note).
+export const RunIdSchema: z.ZodType<RunId, RunId> = brandedUuidIdSchema<RunId>("RunId");
 
 // --------------------------------------------------------------------------
 // ProviderDriver — the 18-operation normalized contract (`Spec-005 §Interfaces And Contracts`)
@@ -407,11 +437,22 @@ export interface ProviderSessionHandle {
 // model exposes no effort selection at all. An EMPTY array would instead assert
 // that the model has an effort axis with nothing on it, which no provider
 // surface expresses.
+//
+// `effortLevels?: string[] | undefined` carries the explicit `| undefined` this
+// package uses for EVERY schema-backed optional (`ProviderToolMetadata`,
+// `GetCapabilitiesResult.outputSpeedLevels`). It reads as a widening and is not
+// one: under `exactOptionalPropertyTypes` a bare `?: string[]` forbids an
+// explicit `undefined`, which is exactly what Zod's `.optional()` produces, so
+// the bare form cannot be given a schema at all (TS2375). T4.2 is the first task
+// to give this shape one — the vocabulary travels to the client that renders the
+// effort selector — so the member takes the idiom the rest of the file already
+// uses. Every existing constructor and reader is unaffected: absence still means
+// "no effort axis", and no call site is newly required to supply anything.
 export interface ProviderModel {
   id: string;
   name: string;
   capabilities: string[];
-  effortLevels?: string[];
+  effortLevels?: string[] | undefined;
 }
 
 export interface ProviderMode {
@@ -537,7 +578,10 @@ export type IdempotencyClass = "idempotent" | "compensable" | "manual_reconcile_
 // Twelve caps cover SEVENTEEN fields because four are reused across surfaces that
 // carry the same category of value (see the per-cap notes) — the seventeen are
 // exactly the canonical doc's seventeen-string enumeration, all of which this
-// file now realizes. T3.26 carried that count from twelve to seventeen along
+// file now realizes. Both counts are PROVIDER-BOUNDARY counts. T4.2's
+// client→daemon SDK seam declares its own caps in its own section at the foot of
+// this file; those bound what a CLIENT may send and are censused by neither
+// number. T3.26 carried that count from twelve to seventeen along
 // with the five strings the console-parity shapes introduced, which is the
 // re-derivation api-payload-contracts.md §Plan-005 names it the owner of.
 //
@@ -2047,12 +2091,12 @@ export const CallbackToolInvocationSchema: z.ZodType<
       "CallbackToolInvocation.toolCallId",
     ),
     sessionId: SessionIdSchema,
-    // Inline `brandedUuidIdSchema` rather than a named `RunIdSchema` const: the
-    // exported `RunIdSchema` symbol is deliberately deferred to T4.2, whose SDK
-    // seam is its first consumer (see the `RunId` brand comment at the top of this
-    // file). Using the helper inline validates the id here without minting the
-    // symbol early and without leaving the field unchecked.
-    runId: brandedUuidIdSchema<RunId>("RunId"),
+    // The named `RunIdSchema` const, which T4.2 shipped beside the brand at the
+    // top of this file. This site previously inlined `brandedUuidIdSchema<RunId>`
+    // because the exported symbol did not exist yet; now that it does, a second
+    // inline construction of the same validator would be a second source of truth
+    // for run-id shape — the precise drift CP-005-6 co-locates the pair to avoid.
+    runId: RunIdSchema,
   })
   .strict();
 
@@ -2169,3 +2213,481 @@ export type DriverTransportConfig =
   | { transport: "stdio" }
   | { transport: "unix-socket"; endpoint: string }
   | { transport: "websocket"; endpoint: string; bearerTokenRef: string };
+
+// --------------------------------------------------------------------------
+// T4.2 — Client-facing SDK-seam wire schemas
+//        (`Spec-005 §Capability discovery`; Plan-005 §Phase 4 decisions
+//         #2 / #3 / #4; verifies I-005-4)
+// --------------------------------------------------------------------------
+//
+// THE THIRD BOUNDARY, and the reason this section does not reuse a single
+// constant from the block above. Everything before this line guards one of two
+// directions: §1 nominal TypeScript for shapes the DAEMON constructs and hands
+// to a driver (and the shapes a driver hands back inside the daemon's own
+// process), and §2 Zod validation of PROVIDER output crossing into the daemon.
+// This section is neither. It guards CLIENT input crossing into the daemon over
+// JSON-RPC, plus the daemon's own replies going back out. A caller here is an
+// SDK consumer on the far side of a socket — untrusted in exactly the way a
+// provider process is, but untrusted about DIFFERENT values. A cap sized against
+// what a provider EMITS is not evidence about what a client may SEND, so the
+// caps below are a disjoint set and the provider-boundary census (twelve caps
+// over seventeen strings) does not move.
+//
+// WHAT IS REGISTERED, AND WHAT DELIBERATELY IS NOT. Plan-005 §Phase 4 decision
+// #2 fixes the client-facing surface at the `driver.*` names that operate on an
+// ALREADY-EXISTING session or run. The four lifecycle operations —
+// `createSession`, `resumeSession`, `startRun`, `closeSession` — establish,
+// restore, start, or tear one down, so they are orchestration-owned and get NO
+// client-facing schema here. Their absence IS the contract: a shape that does
+// not exist cannot be reached by a client guessing a method name, and one minted
+// "for symmetry" would be a wire surface with no registered method and no
+// reader — the same mistake `Spec-005 §Capability discovery` forbids when it
+// requires a capability flag to be minted together with its consumer.
+//
+// The seven pairs below are exactly the seven names T4.1 registers:
+//   `driver.listCapabilities`  DriverReadParams        -> ListCapabilitiesResult
+//   `driver.listModels`        DriverReadParams        -> ListModelsResult
+//   `driver.listModes`         DriverReadParams        -> ListModesResult
+//   `driver.interruptRun`      InterruptRunParams      -> DriverAckResult
+//   `driver.applyIntervention` ApplyInterventionParams -> DriverInterventionResult
+//   `driver.respondToRequest`  RespondToRequestParams  -> DriverAckResult
+//   `driver.subscribeEvents`   DriverSubscribeEventsParams -> SubscribeAckResponse
+// T4.9's two console-parity verbs (`driver.compactContext`,
+// `driver.listProviderCommands`) take their wire pairs in this same section when
+// they land; their §1 param and result shapes already ship above.
+//
+// WHY THE THREE READS TAKE NO PARAMETERS. Plan-005 §Phase 4 T4.3 ratifies the
+// consuming `DriverClient` interface with `listCapabilities()`, `listModels()`,
+// and `listModes()` written no-arg while `interruptRun(p)`,
+// `applyIntervention(p)`, and `respondToRequest(p)` take one. That asymmetry is
+// deliberate and it is a signature, so a `{ driverName }` request here would
+// contradict a ratified line rather than merely differ from it. The refusal arm
+// a per-driver request would have carried is not lost: the reads are served from
+// the daemon's capability cache with no provider round-trip per call, so there
+// is no unavailable driver to refuse ON; the run-addressed verbs below keep
+// `driver.unavailable` reachable where a live binding actually is required.
+//
+// WHY THE THREE READS REPLY PER DRIVER. Each reply is a GROUP LIST keyed by
+// `driverName`, never a flat merged array — the same rule
+// `ProviderCommandListResult` states for provider commands. A flat array would
+// hand a caller one arbitrary driver's models with the provenance stripped, and
+// a caller cannot re-derive which driver published an entry from the entry
+// itself: model ids collide across providers and mode ids carry no vendor
+// marker. Grouping is what keeps a Claude-published value from being offered to
+// or sent through a Codex-bound agent.
+//
+// WHAT THE CAPABILITY REPLY CARRIES, AND WHAT STOPS AT THE DRIVER. `Spec-005
+// §Capability discovery` scopes this reply precisely: "the registered
+// client-facing payload carries the flags". `GetCapabilitiesResult` additionally
+// carries `detectionSource`, `cliVersion`, and `tools`, and `Spec-005 §Required
+// Behavior` rules that the mechanism grades and `cliVersion` alike "stop there"
+// — they do not reach this payload, and a consumer needing provenance or a
+// version reads it through the daemon rather than off this reply. `tools` is a
+// daemon-side ingress concern (it reaches `driver_tools` and the
+// `runtime_node.capability_*` events, which is where its readers are), and no
+// clause routes it to a client, so it is omitted on the stated bias that adding
+// a member later is additive while removing one is a break. `outputSpeedLevels`
+// is the one member that DOES cross, and it must: `Spec-005 §Provider Parameter
+// Vocabularies` makes its reader a participant-facing control, so a client would
+// otherwise receive `output_speed: true` without the values it has to render.
+
+// Per-field length caps for the SDK seam. Same defense-in-depth posture as the
+// provider-boundary block (the framework layer is authoritative on body size;
+// these are the second line), and consumed through the same
+// `wireFreeFormString` helper so empty, whitespace-only, NUL-bearing, and
+// over-length values all refuse rather than reaching a store lookup or a driver
+// dispatch.
+//
+//   • DRIVER_WIRE_TOKEN_MAX_LEN (128) — the short identifier/label tier on this
+//     seam: model and mode `id` + `name`, and the provider-declared vocabulary
+//     tokens inside `capabilities`, `effortLevels`, and `outputSpeedLevels`. One
+//     cap because it is one category — a per-field cap would let five values of
+//     one kind drift apart for no reason. Sized with 5x headroom over the pinned
+//     surfaces (the longest published model id at this spec's pins is 25
+//     characters).
+//   • DRIVER_WIRE_HANDLE_MAX_LEN (256) — the opaque provider correlation handles
+//     a client echoes BACK to the daemon: `RespondToRequestParams.requestId` and
+//     `SteerPayload.expectedTurnId`. Opaque-handle tier, deliberately roomier
+//     than the token tier because neither value is a label a human reads and
+//     neither is minted here — refusing a legitimate provider-minted handle
+//     would make an answerable request unanswerable.
+//   • DRIVER_WIRE_REASON_MAX_LEN (512) — the human-authored `reason` on
+//     `InterruptRunParams`, `InterruptPayload`, and `CancelPayload`. Short-prose
+//     tier, matching the `DRIVER_AUTH_DETAIL_MAX_LEN` sizing rather than the
+//     32 KiB failure tier: a reason wraps no stack trace, and the helper rejects
+//     rather than truncating, so an over-long one refuses the whole
+//     intervention. That is the right trade for a field whose loss costs only
+//     descriptive colour while the intervention itself is expressible without
+//     it.
+//   • DRIVER_WIRE_STEER_CONTENT_MAX_LEN (16384) — `SteerPayload.content`, the
+//     participant's actual directive text. Prose/message tier, sized like the
+//     tool-description cap: a steer routinely carries a paragraph of correction
+//     and occasionally a pasted fragment, and because the helper REJECTS the
+//     whole payload rather than truncating it, a tight cap would silently make
+//     long-but-honest corrections impossible to send. This is the one cap on
+//     this seam whose value a participant typed, so it is sized to accept what a
+//     participant plausibly types.
+//   • DRIVER_WIRE_CATALOG_ENTRIES_MAX (256) — per-driver entry cap on the model
+//     and mode lists, and on the token arrays inside a model. Unlike
+//     `DRIVER_PROVIDER_COMMAND_ENTRIES_MAX` this cap REJECTS rather than
+//     truncating with a completeness marker, because these replies carry no
+//     `complete` flag and a silently short catalog would look to a renderer
+//     exactly like a provider that publishes fewer models. Sized far above the
+//     pinned surfaces (eight models on the Codex leg, four on the Claude leg),
+//     so tripping it means a daemon-side composition bug rather than an honest
+//     catalog.
+//   • DRIVER_WIRE_STEER_ATTACHMENTS_MAX (64) — count cap on
+//     `SteerPayload.attachments`. The element type is `unknown` by contract, so
+//     this bound is on COUNT alone and the framework layer's body-size limit is
+//     what bounds the bytes; without it a single steer could carry an unbounded
+//     array of arbitrary JSON through the daemon and into a driver dispatch.
+//   • DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN (64) — `DriverCapabilities.contract\
+//     Version` on the capability reply. This is the ONE cap on this seam that
+//     duplicates a value rather than choosing one: it deliberately matches
+//     `CAPABILITY_CONTRACT_VERSION_MAX_LEN` (event-core.ts), which bounds the
+//     same field on the `runtime_node.capability_*` event payloads, so a version
+//     string that survives this reply also survives the event and the two
+//     surfaces cannot disagree about one value. The constant is redeclared here
+//     rather than imported because event-core.ts already imports
+//     `DRIVER_CAPABILITY_FLAGS` from this file — the import back would close a
+//     value cycle whose provider-driver-first evaluation order leaves that array
+//     in its temporal dead zone, crashing module init rather than merely
+//     warning. Redeclaring is the cost of not restructuring two modules for one
+//     integer; the coupling is stated here so a future change to either lands on
+//     both.
+export const DRIVER_WIRE_TOKEN_MAX_LEN = 128;
+export const DRIVER_WIRE_HANDLE_MAX_LEN = 256;
+export const DRIVER_WIRE_REASON_MAX_LEN = 512;
+export const DRIVER_WIRE_STEER_CONTENT_MAX_LEN = 16384;
+export const DRIVER_WIRE_CATALOG_ENTRIES_MAX = 256;
+export const DRIVER_WIRE_STEER_ATTACHMENTS_MAX = 64;
+export const DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN = 64;
+
+// The request shape shared by the three no-arg reads, and the reply shape shared
+// by the two verbs whose driver-side operation returns `Promise<void>`.
+//
+// TWO NAMES FOR ONE STRUCTURE, DELIBERATELY. Both are the empty object, and
+// collapsing them into one alias would be the cheaper spelling. They sit on
+// OPPOSITE sides of the wire — one is what a client may send, the other is what
+// the daemon replies — and the first of them to grow a member must grow without
+// dragging the other with it. A shared alias would make that growth a breaking
+// edit at an unrelated call site.
+//
+// `.strict()` on both: an unknown key on a fixed-protocol envelope is a caller
+// that believes it is talking to a different method, and answering it as though
+// the extra key were absent hides the mismatch until something downstream reads
+// the field that never arrived.
+export type DriverReadParams = Record<string, never>;
+export const DriverReadParamsSchema: z.ZodType<DriverReadParams, DriverReadParams> = z
+  .object({})
+  .strict();
+
+export type DriverAckResult = Record<string, never>;
+export const DriverAckResultSchema: z.ZodType<DriverAckResult, DriverAckResult> = z
+  .object({})
+  .strict();
+
+// The per-flag boolean shape, DERIVED from `DRIVER_CAPABILITY_FLAGS` rather than
+// hand-listed. Module-local: its only consumer is the capability schema below,
+// so it fails the export hoist bar (2+ surfaces).
+//
+// Derivation is the point, not brevity. `DriverCapabilities.flags` is
+// `Record<DriverCapabilityFlag, boolean>` precisely so a flag cannot be silently
+// omitted (the structural half of I-005-2), and a hand-written literal here
+// would reintroduce exactly the omission the type forbids: an eighteenth flag
+// appended to the array above would typecheck everywhere and then be stripped
+// off this reply at runtime, so a client would read "undeclared" for a
+// capability the driver declared `true`. Building the shape from the array makes
+// that drift impossible by construction.
+//
+// The `as` cast is load-bearing and narrow: `Object.fromEntries` is typed to
+// return an index signature, and the array's `as const` is what makes the
+// narrowing sound.
+const DRIVER_CAPABILITY_FLAG_SHAPE: Record<DriverCapabilityFlag, z.ZodBoolean> = Object.fromEntries(
+  DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, z.boolean()]),
+) as Record<DriverCapabilityFlag, z.ZodBoolean>;
+
+// `DriverCapabilities` (flags + contractVersion) as a wire schema. The type has
+// shipped since T1.2 as a §1 nominal shape; this is its first schema, and it
+// exists because the capability reply below crosses a wire that nominal types do
+// not guard.
+//
+// `contractVersion` is bounded at the same 64 the event boundary uses, via this
+// seam's own constant — see `DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN` above for why
+// the value is duplicated rather than imported.
+export const DriverCapabilitiesSchema: z.ZodType<DriverCapabilities, DriverCapabilities> = z
+  .object({
+    flags: z.object(DRIVER_CAPABILITY_FLAG_SHAPE).strict(),
+    contractVersion: wireFreeFormString(
+      DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN,
+      "DriverCapabilities.contractVersion",
+    ),
+  })
+  .strict();
+
+// One driver's entry in the `driver.listCapabilities` reply. See the section
+// header for why this is `GetCapabilitiesResult` minus `detectionSource`,
+// `cliVersion`, and `tools`, and plus `driverName`.
+export interface DriverCapabilityReport {
+  driverName: string;
+  capabilities: DriverCapabilities;
+  outputSpeedLevels?: string[] | undefined;
+}
+
+export interface ListCapabilitiesResult {
+  drivers: DriverCapabilityReport[];
+}
+
+// `driverName: z.string().min(1)` rather than a `wireFreeFormString` cap, on the
+// in-file precedent already set for this exact field by
+// `ProviderCommandBindingGroup.binding`. The value is a daemon-side registry key
+// (`"claude"`, `"codex"`), not untrusted text, and it appears here on a REPLY —
+// the daemon is quoting its own map key back. `.min(1)` is the honest assertion:
+// an empty driver name is a composition bug, and there is nothing else about the
+// value this layer knows.
+//
+// `outputSpeedLevels` is present iff `capabilities.flags.output_speed` is true —
+// a cross-field rule the daemon's cache enforces at composition time rather than
+// a schema conjunct here, because absence is also the legitimate shape for every
+// driver whose flag is false, and a schema-level implication would have to be
+// re-stated identically at every producer. What the schema DOES enforce is that
+// when the member is present it is a bounded array of bounded tokens, so a
+// renderer offered a choice set is never offered an unbounded one.
+export const DriverCapabilityReportSchema: z.ZodType<
+  DriverCapabilityReport,
+  DriverCapabilityReport
+> = z
+  .object({
+    driverName: z.string().min(1),
+    capabilities: DriverCapabilitiesSchema,
+    outputSpeedLevels: z
+      .array(
+        wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "DriverCapabilityReport.outputSpeedLevels"),
+      )
+      .max(DRIVER_WIRE_CATALOG_ENTRIES_MAX)
+      .optional(),
+  })
+  .strict();
+
+export const ListCapabilitiesResultSchema: z.ZodType<
+  ListCapabilitiesResult,
+  ListCapabilitiesResult
+> = z.object({ drivers: z.array(DriverCapabilityReportSchema) }).strict();
+
+// `ProviderModel` / `ProviderMode` as wire schemas. Both types have shipped as
+// §1 nominal shapes since Phase 1; T4.2 gives them their first schemas because
+// T4.1's `listModels` / `listModes` replies are the first surfaces on which they
+// leave the daemon.
+//
+// These validate a DAEMON-COMPOSED reply, so their job is to catch a
+// composition bug before it reaches a renderer — an empty model id, an
+// unbounded token a driver read straight off a provider catalog — and not to
+// re-validate anything the provider boundary already normalized, because for
+// these two shapes there is no such prior normalization: neither type appears in
+// the §2 seventeen-string enumeration, so this is the FIRST bound either has
+// ever carried.
+export const ProviderModelSchema: z.ZodType<ProviderModel, ProviderModel> = z
+  .object({
+    id: wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "ProviderModel.id"),
+    name: wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "ProviderModel.name"),
+    capabilities: z
+      .array(wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "ProviderModel.capabilities"))
+      .max(DRIVER_WIRE_CATALOG_ENTRIES_MAX),
+    // ABSENT and EMPTY are different readings here and the schema must keep them
+    // distinguishable: absence means the model exposes no effort selection at
+    // all, which is the registered reading, while an empty array would assert an
+    // effort axis with nothing on it — a claim no provider surface makes. So
+    // `.optional()` with no `.default([])`; a default would erase the
+    // distinction at the parse that is supposed to preserve it.
+    effortLevels: z
+      .array(wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "ProviderModel.effortLevels"))
+      .max(DRIVER_WIRE_CATALOG_ENTRIES_MAX)
+      .optional(),
+  })
+  .strict();
+
+export const ProviderModeSchema: z.ZodType<ProviderMode, ProviderMode> = z
+  .object({
+    id: wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "ProviderMode.id"),
+    name: wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "ProviderMode.name"),
+  })
+  .strict();
+
+export interface DriverModelReport {
+  driverName: string;
+  models: ProviderModel[];
+}
+
+export interface ListModelsResult {
+  drivers: DriverModelReport[];
+}
+
+export const DriverModelReportSchema: z.ZodType<DriverModelReport, DriverModelReport> = z
+  .object({
+    driverName: z.string().min(1),
+    models: z.array(ProviderModelSchema).max(DRIVER_WIRE_CATALOG_ENTRIES_MAX),
+  })
+  .strict();
+
+export const ListModelsResultSchema: z.ZodType<ListModelsResult, ListModelsResult> = z
+  .object({ drivers: z.array(DriverModelReportSchema) })
+  .strict();
+
+export interface DriverModeReport {
+  driverName: string;
+  modes: ProviderMode[];
+}
+
+export interface ListModesResult {
+  drivers: DriverModeReport[];
+}
+
+export const DriverModeReportSchema: z.ZodType<DriverModeReport, DriverModeReport> = z
+  .object({
+    driverName: z.string().min(1),
+    modes: z.array(ProviderModeSchema).max(DRIVER_WIRE_CATALOG_ENTRIES_MAX),
+  })
+  .strict();
+
+export const ListModesResultSchema: z.ZodType<ListModesResult, ListModesResult> = z
+  .object({ drivers: z.array(DriverModeReportSchema) })
+  .strict();
+
+// `driver.interruptRun` — the first consumer of `RunIdSchema`, which is why that
+// validator homes in this file (see the brand at the top).
+//
+// The wire shape is the DRIVER PARAM shape, not a session-addressed envelope. A
+// run id is globally unique, so a `sessionId` beside it would be a second
+// addressing key the daemon would have to reconcile against the first — and
+// disagreement between them has no honest answer. T4.9's two console-parity
+// verbs are the deliberate contrast: those ARE session-addressed, because their
+// targets (a binding, an agent) are only identified within a session.
+export const InterruptRunParamsSchema: z.ZodType<InterruptRunParams, InterruptRunParams> = z
+  .object({
+    runId: RunIdSchema,
+    reason: wireFreeFormString(DRIVER_WIRE_REASON_MAX_LEN, "InterruptRunParams.reason").optional(),
+  })
+  .strict();
+
+// `driver.applyIntervention` — a DISCRIMINATED union on `type`, mirroring
+// `ApplyInterventionParams` arm for arm.
+//
+// THREE ARMS, NOT FOUR, AND THE MISSING ONE IS THE POINT. `InterventionType`
+// enumerates four values; `rollback` is Spec-004 content whose driver-side
+// operation is the separate `rollbackTo`, with its own params and its own result
+// envelope. Because this union IS the dispatch surface, a `type: "rollback"`
+// request must fail PARSE here rather than reach a handler that would have to
+// invent a refusal — which is what makes `z.discriminatedUnion` the right
+// primitive and not merely a faster one: it refuses an unknown discriminant at
+// the discriminator, before any arm's fields are considered.
+//
+// `clientIdempotencyKey` is a REQUESTER-generated UUID and this is the seam that
+// validates it. The §1 comment on `ApplyInterventionParams` states exactly that
+// division: the param shape carries no paired schema because the key "is
+// validated at the client→daemon WIRE seam, a different boundary, before it ever
+// reaches this shape". `z.string().uuid()` is that validation — a non-UUID key
+// would land in a durable receipt as an unbounded caller-chosen string and make
+// replay keying depend on client discipline.
+//
+// `expectedRunVersion` is optimistic-concurrency state, so `.int()` and
+// `.nonnegative()` are both load-bearing rather than decorative: a float or a
+// negative would compare unequal to every stored version and turn a
+// concurrency check into an unconditional refusal that looks like a conflict.
+export const ApplyInterventionParamsSchema: z.ZodType<
+  ApplyInterventionParams,
+  ApplyInterventionParams
+> = z.discriminatedUnion("type", [
+  z
+    .object({
+      type: z.literal("steer"),
+      targetRunId: RunIdSchema,
+      expectedRunVersion: z.number().int().nonnegative(),
+      clientIdempotencyKey: z.string().uuid(),
+      payload: z
+        .object({
+          content: wireFreeFormString(DRIVER_WIRE_STEER_CONTENT_MAX_LEN, "SteerPayload.content"),
+          // `unknown` elements by contract, so the bound is on COUNT alone; the
+          // framework layer's body-size limit is what bounds the bytes.
+          attachments: z.array(z.unknown()).max(DRIVER_WIRE_STEER_ATTACHMENTS_MAX).optional(),
+          expectedTurnId: wireFreeFormString(
+            DRIVER_WIRE_HANDLE_MAX_LEN,
+            "SteerPayload.expectedTurnId",
+          ).optional(),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("interrupt"),
+      targetRunId: RunIdSchema,
+      expectedRunVersion: z.number().int().nonnegative(),
+      clientIdempotencyKey: z.string().uuid(),
+      payload: z
+        .object({
+          reason: wireFreeFormString(
+            DRIVER_WIRE_REASON_MAX_LEN,
+            "InterruptPayload.reason",
+          ).optional(),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("cancel"),
+      targetRunId: RunIdSchema,
+      expectedRunVersion: z.number().int().nonnegative(),
+      clientIdempotencyKey: z.string().uuid(),
+      payload: z
+        .object({
+          reason: wireFreeFormString(DRIVER_WIRE_REASON_MAX_LEN, "CancelPayload.reason").optional(),
+        })
+        .strict(),
+    })
+    .strict(),
+]);
+
+// `driver.respondToRequest` — the client's answer to a provider-raised ask.
+//
+// `response` is `unknown` BY CONTRACT: the answer's shape is the provider's
+// question's shape, and this layer neither knows nor may narrow it. What it must
+// still enforce is PRESENCE, and `z.unknown()` cannot — `unknown` accepts
+// `undefined`, so a request that simply omits the key parses clean and the
+// daemon forwards "no answer" to a provider blocked on one. `z.custom` with an
+// explicit presence predicate is what makes a missing key a refusal while
+// leaving every legitimate JSON value — `null` and `false` included, both real
+// answers — untouched.
+export const RespondToRequestParamsSchema: z.ZodType<
+  RespondToRequestParams,
+  RespondToRequestParams
+> = z
+  .object({
+    runId: RunIdSchema,
+    requestId: wireFreeFormString(DRIVER_WIRE_HANDLE_MAX_LEN, "RespondToRequestParams.requestId"),
+    response: z.custom<unknown>((value) => value !== undefined, {
+      message: "response is required (a missing answer is not an answer)",
+    }),
+  })
+  .strict();
+
+// `driver.subscribeEvents` — Plan-005 §Phase 4 decision #4.
+//
+// Run-scoped: a subscription is opened against one run's driver event stream,
+// so the request carries the run id and nothing else.
+//
+// THE RESPONSE IS THE SHARED ACK, NOT A DRIVER-SPECIFIC TWIN. Every registered
+// `*.subscribe` method answers with `SubscribeAckResponse` (jsonrpc-streaming.ts)
+// — the opaque `subscriptionId` and nothing more, with the events themselves
+// arriving as later `$/subscription/notify` frames. Declaring a
+// `DriverSubscribeEventsResult` here would fork a fixed-protocol envelope that
+// the SDK's inbound dispatcher keys on uniformly, so this pair deliberately has
+// no response type of its own.
+export interface DriverSubscribeEventsParams {
+  runId: RunId;
+}
+
+export const DriverSubscribeEventsParamsSchema: z.ZodType<
+  DriverSubscribeEventsParams,
+  DriverSubscribeEventsParams
+> = z.object({ runId: RunIdSchema }).strict();
