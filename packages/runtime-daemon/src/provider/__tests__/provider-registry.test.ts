@@ -54,7 +54,6 @@ import {
   type ReplayTranscriptParams,
   type ResumeSessionParams,
   type RollbackToParams,
-  type SessionId,
   type SetSessionGoalParams,
   type StartRunParams,
 } from "@ai-sidekicks/contracts";
@@ -472,15 +471,27 @@ describe("ProviderRegistry — re-register refresh seam + listAvailable", () => 
 });
 
 // ----------------------------------------------------------------------------
-// T4.6 — the gate refuses AT the orchestration-to-driver boundary (I-005-2, AC2)
+// T4.6 — the capability gate refuses fail-closed, touching no driver (I-005-2, AC2)
 // ----------------------------------------------------------------------------
+//
+// The ORDERING proof — that production dispatch runs this gate before the
+// driver operation — deliberately does NOT live here. A locally-defined caller
+// that gates-then-dispatches pins nothing about production ordering (Codex
+// review, PR #396 round 2): the callers of this gate are T4.9's registered
+// `driver.*` verbs, and their tests assert the zero-driver-call property
+// through the registered SDK client rather than through a closure a test file
+// invents. What THIS suite owns is the gate itself: fail-closed on `!== true`,
+// the registered dotted code, no driver method consulted at decision time, and
+// unregistered-id refusal without driver contact.
 
 /**
  * A fake that COUNTS the capability-bound operations instead of only throwing on
  * them. `FakeProviderDriver`'s bare `throw` proves a call was a mistake but not
- * that no call happened — an assertion needs a counter, because a gate that let
- * the call through and a driver that refused it produce the same failed test for
- * different reasons.
+ * that no call happened — an assertion needs a counter, because a gate that
+ * reached into the driver and a driver that refused it produce the same failed
+ * test for different reasons. Here the counter's job is proving the GATE ITSELF
+ * dispatches nothing — the caller-side half of that proof is T4.9's (see the
+ * section note above).
  *
  * The overrides still throw after counting, so the loud-failure property the
  * base class provides for every OTHER test in this file is preserved.
@@ -502,16 +513,8 @@ class CallCountingProviderDriver extends FakeProviderDriver {
   }
 }
 
-/** A low-entropy sentinel session id — no real identifier is involved. */
-const TEST_SESSION_ID = "00000000-0000-4000-8000-000000000001" as SessionId;
-
-const COMPACT_CONTEXT_PARAMS: CompactContextParams = {
-  sessionId: TEST_SESSION_ID,
-  bindingId: "binding-under-test",
-};
-
-describe("ProviderRegistry — refusal precedes the driver call (`Spec-005 §Required Behavior`, I-005-2, AC2)", () => {
-  it("refuses a capability-bound invocation with the registered code and never invokes the operation", async () => {
+describe("ProviderRegistry.checkCapability — fail-closed refusal (`Spec-005 §Required Behavior`, I-005-2, AC2)", () => {
+  it("refuses a declared-false flag with the registered error, consulting no driver at decision time", async () => {
     const registry = new ProviderRegistry();
     // The driver declares `tool_calls` true and `context_compaction` FALSE —
     // `makeFlags` answers every flag, so this is the declared-`false` shape. The
@@ -520,19 +523,12 @@ describe("ProviderRegistry — refusal precedes the driver call (`Spec-005 §Req
     const driver = new CallCountingProviderDriver(makeFlags({ tool_calls: true }));
     await registry.register(DRIVER_ID, driver);
 
-    // The orchestration-to-driver boundary in the order the caller runs it: gate
-    // first, dispatch second. The gate is the real `ProviderRegistry` method —
-    // nothing about the guard is restated here, only the caller's ordering.
-    const capabilityBoundInvocation = (): Promise<DriverCompactionResult> => {
-      registry.checkCapability(DRIVER_ID, "context_compaction");
-      return driver.compactContext(COMPACT_CONTEXT_PARAMS);
-    };
+    expect(() => registry.checkCapability(DRIVER_ID, "context_compaction")).toThrow(
+      DriverCapabilityUnsupportedError,
+    );
 
-    expect(capabilityBoundInvocation).toThrow(DriverCapabilityUnsupportedError);
-
-    // The claim this test exists for: the refusal happened BEFORE the driver was
-    // reached. Not "the driver refused" and not "the driver threw" — the driver
-    // was never asked.
+    // The gate dispatched nothing on its way to refusing: a gate that "checked"
+    // by probing the operation would read non-zero here.
     expect(driver.operationCallCount).toBe(0);
     // And the gate itself consulted no driver method either: `getCapabilities`
     // is still at the single call `register` made. A gate that had to ask the
@@ -542,7 +538,7 @@ describe("ProviderRegistry — refusal precedes the driver call (`Spec-005 §Req
     expect(driver.getCapabilitiesCallCount).toBe(1);
   });
 
-  it("refuses an UNDECLARED flag at the boundary too, with the operation call count still zero", async () => {
+  it("refuses an UNDECLARED flag the same way — the gate keys on `!== true`, never `=== false`", async () => {
     const registry = new ProviderRegistry();
     // A flags record with `context_compaction` ABSENT rather than `false`. The
     // cast is the honest reproduction of the hazard: the contract `Record` is
@@ -558,12 +554,9 @@ describe("ProviderRegistry — refusal precedes the driver call (`Spec-005 §Req
     const driver = new CallCountingProviderDriver(partialFlags);
     await registry.register(DRIVER_ID, driver);
 
-    const capabilityBoundInvocation = (): Promise<DriverCompactionResult> => {
-      registry.checkCapability(DRIVER_ID, "context_compaction");
-      return driver.compactContext(COMPACT_CONTEXT_PARAMS);
-    };
-
-    expect(capabilityBoundInvocation).toThrow(DriverCapabilityUnsupportedError);
+    expect(() => registry.checkCapability(DRIVER_ID, "context_compaction")).toThrow(
+      DriverCapabilityUnsupportedError,
+    );
     expect(driver.operationCallCount).toBe(0);
   });
 
