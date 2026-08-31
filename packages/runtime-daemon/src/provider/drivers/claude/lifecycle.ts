@@ -120,6 +120,11 @@ import {
   type SpawnEnvPair,
 } from "../../spawn-env.js";
 import {
+  classifyProviderRequestFailure,
+  mayReattemptAfterDefinitelyUnsent,
+  type ProviderRequestFailureObservation,
+} from "../../transcript/failure-mapping.js";
+import {
   assertReplayReconstituted,
   PostReplayAssertionFailedError,
   ReplayTargetLedger,
@@ -270,6 +275,30 @@ export type ClaudeUserTextWriteAttempt =
       readonly delivery: ClaudeUserTextDelivery;
       readonly cause: unknown;
     };
+
+/**
+ * One failed user-text write, normalized for the shared classifier (T3.22).
+ *
+ * A two-member mapping onto a three-member vocabulary, and the missing member is
+ * the point. `consumed-and-refused` is unreachable from this seam BY
+ * CONSTRUCTION: a user-text write here is one-way stdin, so the provider answers
+ * a TURN and never the write, and {@link ClaudeUserTextDelivery} carries no
+ * refused arm for exactly that reason. Producing one would be inventing the
+ * evidence that arm's absence exists to prevent — so the permanent structural
+ * class, which is reachable only from a typed refusal, is unreachable at this
+ * seam and the classifier is never asked to rule on one here.
+ *
+ * `refusalShape` is therefore never supplied, and its absence is not a default
+ * standing in for an unread value: there is nothing on this path that could
+ * carry one. The provider's structural rejections arrive on this leg's INBOUND
+ * frame path — `system/api_retry` with a typed `error`, and the result subtypes —
+ * which is a different seam with a different owner.
+ */
+export function observeClaudeUserTextFailure(
+  delivery: ClaudeUserTextDelivery,
+): ProviderRequestFailureObservation {
+  return { delivery: delivery === "unsent" ? "unsent" : "indeterminate" };
+}
 
 // The one control-request subtype this band drives. `interrupt` is censused at
 // the pin; `cancel` is NOT a control-request subtype at all
@@ -2727,11 +2756,70 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       });
     }
 
+    // T3.22. The write is attempted inside a bounded ladder rather than once,
+    // and the ladder is entered on ONE classification only. The shared
+    // classifier rules, so this leg cannot drift from the Codex one about what a
+    // failure means; what it can supply is narrower — see
+    // `observeClaudeUserTextFailure` for why the refusal arm is unreachable at
+    // this seam.
+    for (let dispatchAttemptsMade = 1; ; dispatchAttemptsMade += 1) {
+      const frame = this.#registerOpeningDispatch(dispatch, params);
+      const attempt = await this.#attemptFrameWrite(live.channel, frame);
+      if (attempt.settled === "written") {
+        return;
+      }
+      // Ruled BEFORE the retry decision, unconditionally, and in the same place
+      // it was ruled before this ladder existed. The ruling is what releases the
+      // frame's registration — the `unsent` arm forgets it — so a re-attempt that
+      // registered a second frame without it would put two frames on one run key
+      // and trip the tripwire over the driver's own retry.
+      this.#ruleFailedOpeningFrame({
+        sessionId: dispatch.sessionId,
+        runId: params.runId,
+        channel: live.channel,
+        frame,
+        delivery: attempt.delivery,
+      });
+      const disposition = classifyProviderRequestFailure(
+        observeClaudeUserTextFailure(attempt.delivery),
+      ).disposition;
+      // The ONLY arm that re-sends, and only because `unsent` is a positive
+      // claim about bytes: the provider saw nothing, so there is no turn to
+      // duplicate and no spend to repeat. The other arm reaching here is
+      // `reconcile-ambiguous-delivery`, which on this leg has no positional read
+      // available — this driver holds no acknowledged-participant-send ledger and
+      // the provider publishes no turn readback — so it settles the way an
+      // unreadable target settles everywhere: nothing is re-sent, nothing is
+      // assumed delivered, and the turn fails visibly on the run's existing
+      // failure path.
+      if (
+        disposition !== "retry-definitely-unsent" ||
+        !mayReattemptAfterDefinitelyUnsent(dispatchAttemptsMade)
+      ) {
+        throw attempt.cause;
+      }
+    }
+  }
+
+  /**
+   * Composes one run-opening frame, admits it to the tripwire, and binds the run
+   * route — the three steps that must happen together for every dispatch attempt.
+   *
+   * Extracted so a re-attempt (T3.22) reconstitutes ALL of them. A retry that
+   * re-composed without re-registering would write an unwatched frame, and a turn
+   * that settles against no correlated frame PASSES — the silent swallow the
+   * tripwire exists to catch.
+   */
+  #registerOpeningDispatch(
+    dispatch: ClaudeRunDispatch,
+    params: StartRunParams,
+  ): ClaudeUserTextFrame {
     // T3.18. The bytes are composed HERE and nowhere else: this band cannot
     // build a `ClaudeUserTextFrame` itself, so the neutralization is on the only
     // path to the wire rather than on a path a reviewer has to remember to
     // check. Composed before the registration because the registration is keyed
     // by the frame it admits.
+    //
     // The origin is MINTED from a literal and is deliberately not a member of
     // `ClaudeRunDispatch`. A run's opening text is the participant's own
     // message, composed by the daemon's run pipeline, so the origin is a fact of
@@ -2740,6 +2828,11 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     // delivers command-shaped bytes verbatim AND exempts the turn from the
     // tripwire, so a wrong value there would swallow the participant's words and
     // report the turn completed. A port that cannot state it cannot get it wrong.
+    //
+    // A re-attempt therefore composes a FRESH frame rather than re-offering the
+    // ruled one: neutralization and correlation are per-frame, and re-writing a
+    // frame the tripwire has already forgotten would put unwatched bytes on the
+    // wire.
     const frame = this.#outboundTextFrameWriter.compose({
       text: dispatch.openingText,
       origin: RUN_OPENING_FRAME_ORIGIN,
@@ -2771,17 +2864,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     // route. What a FAILED write leaves behind is now decided by how far its
     // bytes got — see `#ruleFailedOpeningFrame`.
     this.#sessionIdByRunId.set(params.runId, dispatch.sessionId);
-    const attempt = await this.#attemptFrameWrite(live.channel, frame);
-    if (attempt.settled === "failed") {
-      this.#ruleFailedOpeningFrame({
-        sessionId: dispatch.sessionId,
-        runId: params.runId,
-        channel: live.channel,
-        frame,
-        delivery: attempt.delivery,
-      });
-      throw attempt.cause;
-    }
+    return frame;
   }
 
   /**

@@ -94,6 +94,23 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
    */
   isClosed = false;
   disposeFailure: Error | undefined = undefined;
+  /**
+   * Every `sendUserText` invocation, failures included.
+   *
+   * `sentTextFrames` deliberately records only WRITTEN frames, so it cannot
+   * answer how many times the driver tried — which is exactly the question a
+   * retry ladder is asserted on (T3.22). Counted here instead of inferred, so
+   * "called exactly once" and "called twice" are both directly observable.
+   */
+  sendUserTextAttempts = 0;
+  /**
+   * Called at the top of every `sendUserText`, with the 1-based attempt number.
+   *
+   * The seam a test drives a RECOVERING transport from: a ladder that only ever
+   * meets a permanently-failing write proves it stops, and never proves the
+   * second rung can succeed.
+   */
+  onSendUserTextAttempt: ((attemptNumber: number) => void) | undefined = undefined;
 
   constructor(providerSessionId: string) {
     this.providerSessionId = providerSessionId;
@@ -124,6 +141,8 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
   }
 
   async sendUserText(frame: ClaudeUserTextFrame): Promise<ClaudeUserTextWriteAttempt> {
+    this.sendUserTextAttempts += 1;
+    this.onSendUserTextAttempt?.(this.sendUserTextAttempts);
     if (this.sendUserTextRejection !== undefined) {
       throw this.sendUserTextRejection;
     }

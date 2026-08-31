@@ -52,6 +52,7 @@ import {
   memoSettlementAsReplayResult,
   type NativeReplayDisposition,
 } from "../../../transcript/memo-projection.js";
+import { MAX_DEFINITELY_UNSENT_DISPATCH_ATTEMPTS } from "../../../transcript/failure-mapping.js";
 import {
   PostReplayAssertionFailedError,
   ReplayTargetAbandonedError,
@@ -3288,6 +3289,99 @@ describe("ClaudeSessionLifecycle unsent opening frame — route retirement (T3.1
   });
 });
 
+// --------------------------------------------------------------------------
+// T3.22 — the transient arm at the Claude dispatch seam
+// --------------------------------------------------------------------------
+//
+// `unsent` is the one delivery on this leg that is a POSITIVE claim about bytes:
+// the provider saw nothing, so no turn exists on account of the frame and a
+// re-send duplicates neither a turn nor its spend. Every other delivery here is
+// `indeterminate`, and the ladder must not touch it — the whole point of the
+// classification is that the two classes are provably distinguishable rather
+// than merged into one hopeful retry.
+describe("ClaudeSessionLifecycle definitely-unsent dispatch retry (T3.22)", () => {
+  async function arrangeSession(harness: LifecycleHarness): Promise<FakeClaudeSessionChannel> {
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "please summarize the thread",
+    });
+    const channel = harness.transport.spawnedChannels[0];
+    if (channel === undefined) {
+      throw new Error("unreachable: the session must have spawned a channel");
+    }
+    return channel;
+  }
+
+  it("re-attempts a definitely-unsent write and stops at the ladder's ceiling", async () => {
+    const harness = buildHarness();
+    const channel = await arrangeSession(harness);
+    channel.sendUserTextFailure = new Error("refused before a byte left");
+    channel.sendUserTextDelivery = "unsent";
+
+    await expect(harness.lifecycle.startRun(buildStartRunParams())).rejects.toThrow();
+
+    // BOUNDED, and the bound is the assertion. A ladder with no ceiling would
+    // spin against a permanently-unwritable channel; one rung is what the
+    // transient class is worth.
+    expect(channel.sendUserTextAttempts).toBe(MAX_DEFINITELY_UNSENT_DISPATCH_ATTEMPTS);
+    // Nothing reached the provider on either rung, which is what makes the
+    // re-send free of duplicates rather than merely unlikely to produce one.
+    expect(channel.sentWireTexts).toStrictEqual([]);
+    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeUndefined();
+  });
+
+  it("starts the run when the second attempt succeeds, writing the text ONCE", async () => {
+    const harness = buildHarness();
+    const channel = await arrangeSession(harness);
+    channel.sendUserTextFailure = new Error("refused before a byte left");
+    channel.sendUserTextDelivery = "unsent";
+    // The transport recovers after the first rung, which is the case a ladder
+    // exists for at all — a permanently-failing write only ever proves it stops.
+    channel.onSendUserTextAttempt = (attemptNumber): void => {
+      if (attemptNumber === 2) {
+        channel.sendUserTextFailure = undefined;
+      }
+    };
+
+    await harness.lifecycle.startRun(buildStartRunParams());
+
+    expect(channel.sendUserTextAttempts).toBe(2);
+    // ONE frame on the wire, not two: the first rung's bytes never left, so the
+    // participant's text is delivered exactly once.
+    expect(channel.sentWireTexts).toStrictEqual(["please summarize the thread"]);
+    expect(harness.lifecycle.findChannelForRun(TEST_RUN_ID)).toBeDefined();
+  });
+
+  it("never re-attempts an INDETERMINATE write", async () => {
+    const harness = buildHarness();
+    const channel = await arrangeSession(harness);
+    channel.sendUserTextFailure = new Error("the write rejected mid-line");
+    channel.sendUserTextDelivery = "indeterminate";
+
+    await expect(harness.lifecycle.startRun(buildStartRunParams())).rejects.toThrow();
+
+    // The two classes are distinguishable, and this is the half that proves it:
+    // the bytes may have reached a child that read the newline, so a re-send
+    // risks a duplicate turn and duplicate spend against a turn nobody can see.
+    expect(channel.sendUserTextAttempts).toBe(1);
+    expect(channel.sentWireTexts).toStrictEqual([]);
+  });
+
+  it("never re-attempts a write the transport REJECTED instead of reporting", async () => {
+    const harness = buildHarness();
+    const channel = await arrangeSession(harness);
+    // A transport in breach of the port's obligation. A rejection carries no
+    // claim about bytes, and `unsent` is precisely a claim about bytes, so the
+    // containment must land on the fail-closed arm and stay off the ladder.
+    channel.sendUserTextRejection = new Error("transport rejected the write");
+
+    await expect(harness.lifecycle.startRun(buildStartRunParams())).rejects.toThrow();
+
+    expect(channel.sendUserTextAttempts).toBe(1);
+  });
+});
+
 // The condemnation arm of the failed opening write, driven from the only place
 // it can still be reached now that starts are session-serialized: the FIRST
 // write on a session dying with indeterminate delivery on a channel that is
@@ -4885,6 +4979,67 @@ describe("ClaudeSessionLifecycle.replayTranscript (T3.20)", () => {
     // …and the replacement holds the memo and NO native frames.
     expect(memoTurnsBySession.get(replacementProviderSessionId)).toHaveLength(1);
     expect(double.seededPositions).toStrictEqual([1, 2]);
+  });
+
+  // T3.22's half of the same seam, and it asserts a COUNT rather than a route:
+  // a refusal raised inside the replay settles on the memo floor with exactly ONE
+  // reconstitution attempted. The property is structural rather than counted at
+  // runtime — the dispatch-seam ladder is absent from `replayTranscript`, so
+  // there is no rung a replay could climb — and this is what makes the absence
+  // observable: seeding a target begins at position 1, so the number of times
+  // position 1 is seeded IS the number of reconstitutions attempted.
+  it("settles a replay-interior refusal on the memo floor with ONE reconstitution", async () => {
+    const double = seedingDouble({ answers: SEEDED_BODIES, refuseAtPosition: 2 });
+    const harness = harnessWithSurface(double);
+
+    await expect(
+      harness.lifecycle.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
+    ).rejects.toThrow(/abandoned and must not be reused/);
+
+    // Two callers reaching for recovery after the same refusal — the run's own
+    // failure path and a caller retrying the operation — must between them start
+    // no second native reconstitution.
+    await expect(
+      harness.lifecycle.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
+    ).rejects.toBeInstanceOf(ReplayTargetAbandonedError);
+    await expect(
+      harness.lifecycle.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
+    ).rejects.toBeInstanceOf(ReplayTargetAbandonedError);
+
+    expect(double.seededPositions.filter((position) => position === 1)).toHaveLength(1);
+    expect(double.seededPositions).toStrictEqual([1]);
+
+    // And the settlement the participant is owed is the memo floor's, carrying
+    // its declared loss — never a silently applied replay.
+    const coordinator = new MemoDeliveryCoordinator({
+      readTurnsForMarkerReconciliation: () => Promise.resolve([]),
+      sendMemoTurn: () => Promise.resolve(),
+    });
+    const settlement = await new TranscriptReconstitutionRouter(coordinator).route(
+      { outcome: "refused" },
+      {
+        projection: {
+          sessionId: "22222222-2222-4222-8222-222222222222" as SessionId,
+          runId: "33333333-3333-4333-8333-333333333333" as RunId,
+          builtAtPosition: 4,
+          turns: [
+            {
+              position: 1,
+              role: "participant",
+              segments: [{ kind: "text", position: 1, text: "summarize the fold" }],
+            },
+          ],
+        },
+        target: coordinator.establishTarget({ providerSessionId: "claude-session-79" }),
+        budget: {
+          targetContextWindowTokens: 200_000,
+          budgetFraction: 0.1,
+          protectedTailToolExchangeCount: 1,
+        },
+      },
+    );
+    expect(settlement.route).toBe("memo");
+    expect(double.seededPositions).toStrictEqual([1]);
   });
 
   it("abandons a target whose delivery was AMBIGUOUS, rather than retrying it", async () => {

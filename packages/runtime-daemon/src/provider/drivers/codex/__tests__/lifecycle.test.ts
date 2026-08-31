@@ -69,6 +69,10 @@ import type { SubagentLifecycleEmission } from "../../../thread-frame-router.js"
 import type { CumulativeAxisReadings, MeteredUsageDelta } from "../../../usage-delta-accountant.js";
 import { hostEnvNameMatchForPlatform } from "../../../spawn-env.js";
 import {
+  PermanentStructuralRefusalError,
+  type ParticipantTurnReadbackReader,
+} from "../../../transcript/failure-mapping.js";
+import {
   PostReplayAssertionFailedError,
   ReplayTargetAbandonedError,
   type ReplayTargetReadback,
@@ -757,6 +761,14 @@ interface ManagerHarnessOptions {
   config?: Record<string, unknown>;
   /** Binds the replay target-readback reader, so the post-replay assertion can run. */
   transcriptReplayReadback?: ReplayTargetReadbackReader;
+  /**
+   * Binds the participant-turn readback, so T3.22's positional reconcile can run.
+   *
+   * Left unbound by default, exactly as the production composition leaves it, so
+   * every test that does not name it exercises the unreadable settlement — which
+   * is the shipped teardown-and-replay behaviour.
+   */
+  participantTurnReadback?: ParticipantTurnReadbackReader;
 }
 
 /**
@@ -833,6 +845,9 @@ function createManagerHarness(options: ManagerHarnessOptions = {}): ManagerHarne
     ...(options.transcriptReplayReadback === undefined
       ? {}
       : { transcriptReplayReadback: options.transcriptReplayReadback }),
+    ...(options.participantTurnReadback === undefined
+      ? {}
+      : { participantTurnReadback: options.participantTurnReadback }),
     ...(options.onServerNotification === true
       ? {
           onServerNotification: (method: string, params: unknown): void => {
@@ -3686,6 +3701,298 @@ describe("CodexLifecycleManager turn/start ambiguity", () => {
     });
     expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(true);
     expect(harness.server.spawnRequests).toHaveLength(1);
+  });
+});
+
+// --------------------------------------------------------------------------
+// T3.22 — permanent-vs-transient refusal classification at the dispatch seam
+// --------------------------------------------------------------------------
+
+/** A `turn/start` refusal carrying the pin's typed `CodexErrorInfo` member. */
+function typedTurnStartRefusal(codexErrorInfo: string): Record<string, unknown> {
+  return {
+    error: {
+      code: -32600,
+      // Prose the classifier must never read. It says "history" on purpose: a
+      // classifier that matched text would pass this test for the wrong reason,
+      // and the negative control below removes the typed member while leaving
+      // this sentence in place.
+      message: "Invalid request: the thread history is not acceptable",
+      data: { codexErrorInfo },
+    },
+  };
+}
+
+/**
+ * What one positional read observed, so the ORDERING can be asserted.
+ *
+ * The frame count at read time is the load-bearing member: it is how a test
+ * proves the reconcile happened before any further send on the thread, which is
+ * the property that makes the count trustworthy at all.
+ */
+interface RecordedParticipantTurnReads {
+  readonly targetIds: string[];
+  readonly turnStartFramesAtRead: number[];
+}
+
+/** Answers a fixed participant-turn count, recording what the wire held when asked. */
+function countingParticipantTurnReadback(
+  participantOriginatedTurns: number,
+  reads: RecordedParticipantTurnReads,
+  readHarness: () => ManagerHarness,
+): ParticipantTurnReadbackReader {
+  return (targetProviderSessionId: string) => {
+    reads.targetIds.push(targetProviderSessionId);
+    reads.turnStartFramesAtRead.push(readHarness().server.framesForMethod("turn/start").length);
+    return Promise.resolve({ kind: "counted" as const, participantOriginatedTurns });
+  };
+}
+
+describe("CodexLifecycleManager permanent structural refusal", () => {
+  it("calls a permanently-refusing provider exactly ONCE and condemns the binding", async () => {
+    const harness = createManagerHarness();
+    let turnStartCalls = 0;
+    harness.server.on("turn/start", () => {
+      turnStartCalls += 1;
+      return typedTurnStartRefusal("badRequest");
+    });
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    const outcome = await harness.manager
+      .startRun({
+        runId: RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "go" },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+    // The assertion is the CALL COUNT, because the defect being prevented is
+    // expenditure: a ladder over a history the provider has typed as
+    // unacceptable spends one provider request per rung and draws the identical
+    // refusal every time.
+    expect(turnStartCalls).toBe(1);
+    expect(harness.server.framesForMethod("turn/start")).toHaveLength(1);
+    expect(outcome).toBeInstanceOf(PermanentStructuralRefusalError);
+    expect((outcome as PermanentStructuralRefusalError).providerSessionId).toBe(THREAD_ID);
+    expect((outcome as PermanentStructuralRefusalError).reconstitutionRequired).toBe(true);
+    // Condemned, not merely failed: the binding is gone, so a caller cannot
+    // re-dispatch onto the poisoned thread and draw the refusal again.
+    expect(harness.server.killedSessions).toEqual([
+      { sessionId: "pty-session-1", signal: "SIGKILL" },
+    ]);
+    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
+    const redispatch = await harness.manager
+      .startRun({
+        runId: RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "go" },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    expect(redispatch).toBeInstanceOf(Error);
+    expect(turnStartCalls).toBe(1);
+  });
+
+  it("does NOT condemn a typed refusal that names something other than the history", async () => {
+    const harness = createManagerHarness();
+    harness.server.on("turn/start", () => typedTurnStartRefusal("contextWindowExceeded"));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    const outcome = await harness.manager
+      .startRun({
+        runId: RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "go" },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+    // A ceiling is not a poisoned history. Condemning the binding here would
+    // cost a re-establish for a condition the next turn may not even meet.
+    expect(outcome).toBeInstanceOf(CodexProviderRequestError);
+    expect(outcome).not.toBeInstanceOf(PermanentStructuralRefusalError);
+    expect(harness.server.killedSessions).toEqual([]);
+  });
+
+  it("reads the TYPED member and not the message — an untyped refusal stays declined", async () => {
+    const harness = createManagerHarness();
+    // The identical sentence the structural fixture carries, with the typed
+    // member removed. Text matching would condemn here; the typed reading does
+    // not, which is what makes the prohibition testable rather than asserted.
+    harness.server.on("turn/start", () => ({
+      error: { code: -32600, message: "Invalid request: the thread history is not acceptable" },
+    }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    const outcome = await harness.manager
+      .startRun({
+        runId: RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "go" },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+    expect(outcome).not.toBeInstanceOf(PermanentStructuralRefusalError);
+    expect(harness.server.killedSessions).toEqual([]);
+  });
+});
+
+describe("CodexLifecycleManager ambiguous turn/start reconciliation", () => {
+  it("settles an ambiguous start DELIVERED and re-sends nothing", async () => {
+    const reads: RecordedParticipantTurnReads = { targetIds: [], turnStartFramesAtRead: [] };
+    // One more turn than the daemon ever acknowledged: the ambiguous start landed
+    // at the provider even though its answer never came back. The reader closes
+    // over the harness it is bound into, which is only ever CALLED after the
+    // constructor returned.
+    const built: ManagerHarness = createManagerHarness({
+      participantTurnReadback: countingParticipantTurnReadback(1, reads, () => built),
+    });
+    built.server.uniqueSpawnSessionIds = true;
+    // Unanswered on purpose: the deadline is the only way this settles, and it is
+    // exactly the case the provider may nonetheless have ACCEPTED.
+    await built.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    const starting = built.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "go" },
+    });
+    const failure = starting.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    built.scheduler.fireAll();
+    expect(await failure).toBeInstanceOf(CodexRequestTimeoutError);
+
+    // Read against the thread, once, and BEFORE anything else could reach the
+    // wire — the reconcile-before-send ordering the count depends on.
+    expect(reads.targetIds).toEqual([THREAD_ID]);
+    expect(reads.turnStartFramesAtRead).toEqual([1]);
+    // ZERO duplicate turns: the landed turn is unaddressable, so the session is
+    // disposed and a re-dispatch cannot put a second copy of it on the wire.
+    expect(built.server.framesForMethod("turn/start")).toHaveLength(1);
+    expect(built.server.killedSessions).toEqual([
+      { sessionId: "pty-session-1", signal: "SIGKILL" },
+    ]);
+    const redispatch = await built.manager
+      .startRun({
+        runId: RUN_ID,
+        channelId: CHANNEL_ID,
+        agentConfig: { sessionId: SESSION_ID, input: "go" },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    expect(redispatch).toBeInstanceOf(Error);
+    expect(built.server.framesForMethod("turn/start")).toHaveLength(1);
+  });
+
+  it("CLEARS an ambiguous start for retry when the target proves nothing landed", async () => {
+    const reads: RecordedParticipantTurnReads = { targetIds: [], turnStartFramesAtRead: [] };
+    // The thread holds exactly what the daemon already knows about, so the
+    // ambiguous start never landed and a re-dispatch duplicates nothing.
+    const harness: ManagerHarness = createManagerHarness({
+      participantTurnReadback: countingParticipantTurnReadback(0, reads, () => harness),
+    });
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    const starting = harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "go" },
+    });
+    const failure = starting.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    harness.scheduler.fireAll();
+    expect(await failure).toBeInstanceOf(CodexRequestTimeoutError);
+
+    expect(reads.turnStartFramesAtRead).toEqual([1]);
+    // The transient arm: the session is LEFT LIVE, so the caller's re-dispatch
+    // costs no re-establish and reaches the same process.
+    expect(harness.server.killedSessions).toEqual([]);
+    expect(harness.server.closedSessions).toEqual([]);
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "go" },
+    });
+    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(true);
+    expect(harness.server.spawnRequests).toHaveLength(1);
+    expect(harness.server.framesForMethod("turn/start")).toHaveLength(2);
+  });
+
+  it("fails visibly and sends NOTHING when the target cannot be read back", async () => {
+    let reads = 0;
+    const harness = createManagerHarness({
+      participantTurnReadback: () => {
+        reads += 1;
+        return Promise.resolve({ kind: "unreadable" as const, reason: "no turn read on this pin" });
+      },
+    });
+    harness.server.uniqueSpawnSessionIds = true;
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    const starting = harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "go" },
+    });
+    const failure = starting.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    harness.scheduler.fireAll();
+
+    // A FAILED settlement, never a silent success — and zero re-sends beside it.
+    // Neither silent option is admissible: a re-send risks duplicate spend and an
+    // assumed delivery suppresses the participant's request.
+    expect(await failure).toBeInstanceOf(CodexRequestTimeoutError);
+    expect(reads).toBe(1);
+    expect(harness.server.framesForMethod("turn/start")).toHaveLength(1);
+    expect(harness.server.killedSessions).toEqual([
+      { sessionId: "pty-session-1", signal: "SIGKILL" },
+    ]);
+    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
+  });
+
+  it("treats a THROWING participant-turn reader as an unreadable target", async () => {
+    const harness = createManagerHarness({
+      participantTurnReadback: () => Promise.reject(new Error("read failed")),
+    });
+    harness.server.uniqueSpawnSessionIds = true;
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    const starting = harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "go" },
+    });
+    const failure = starting.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    harness.scheduler.fireAll();
+
+    // The caller is owed the settlement it can classify, not the reader's own
+    // exception standing in for one.
+    expect(await failure).toBeInstanceOf(CodexRequestTimeoutError);
+    expect(harness.server.killedSessions).toEqual([
+      { sessionId: "pty-session-1", signal: "SIGKILL" },
+    ]);
   });
 });
 
