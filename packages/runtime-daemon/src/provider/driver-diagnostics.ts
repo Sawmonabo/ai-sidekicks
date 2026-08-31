@@ -109,18 +109,25 @@ export type DriverProviderName = "codex" | "claude";
  *     child thread's transcript projection (deduplicated per thread so child
  *     content deltas do not flood the channel).
  *
- * Two are owned by the T3.12 capability-refresh cadence. They live here for the
- * same reason as everything else on this union: a scheduler-local callback
- * would be a second diagnostic surface, and a failure reported there is
- * unmetered.
+ * Three are owned by the T3.12 capability-refresh cadence and the T3.24
+ * detection read that runs inside it. They live here for the same reason as
+ * everything else on this union: a scheduler-local callback would be a second
+ * diagnostic surface, and a failure reported there is unmetered.
  *
  *   - `capability_refresh_failed` — a driver's capability re-declaration threw
  *     or exceeded its liveness deadline during a scheduled refresh.
  *   - `auth_probe_failed` — a driver's auth probe threw or exceeded its
  *     liveness deadline, so the node's auth state for that driver is unchanged
  *     rather than presumed authenticated.
+ *   - `capability_flag_withdrawn` — a detection read that SUCCEEDED and
+ *     withdrew a flag the driver's matrix declares: the probe channel answered,
+ *     and this build turned out not to carry the surface behind that flag. The
+ *     two kinds above cover only reads that FAILED, so without this one the
+ *     node-visible outcome — a capability quietly lost between one refresh and
+ *     the next — is the single capability-band condition that reaches an
+ *     operator through no counter at all.
  *
- * The remaining five are owned by named Plan-005 T3.15 legs (callback-tool
+ * The remaining six are owned by named Plan-005 T3.15 and T3.18 legs (callback-tool
  * hosting, leg 3; `subagentPolicy` pass-through, leg 4). They live here rather
  * than on a second diagnostic surface because the closed-union-plus-counter-map
  * pairing above is the property worth keeping: a parallel record type would let
@@ -168,6 +175,7 @@ export type DriverDiagnosticKind =
   | "thread_child_transcript_suppressed"
   | "capability_refresh_failed"
   | "auth_probe_failed"
+  | "capability_flag_withdrawn"
   | "callback_tool_seam_absent"
   | "callback_tool_registry_withheld"
   | "callback_tool_invocation_refused"
@@ -224,6 +232,7 @@ export const DRIVER_DIAGNOSTIC_COUNTER_NAMES: Readonly<Record<DriverDiagnosticKi
     thread_child_transcript_suppressed: "driver.thread_router.child_transcript_suppressed",
     capability_refresh_failed: "driver.capability_refresh.declaration_failed",
     auth_probe_failed: "driver.capability_refresh.auth_probe_failed",
+    capability_flag_withdrawn: "driver.capability_refresh.flag_withdrawn",
     callback_tool_seam_absent: "driver.callback_tool.seam_absent",
     callback_tool_registry_withheld: "driver.callback_tool.registry_withheld",
     callback_tool_invocation_refused: "driver.callback_tool.invocation_refused",

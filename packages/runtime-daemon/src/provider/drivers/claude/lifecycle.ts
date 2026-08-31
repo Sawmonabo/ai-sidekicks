@@ -102,6 +102,11 @@ import {
   type CumulativeAxisReadings,
   type MeteredUsageDelta,
 } from "../../usage-delta-accountant.js";
+import {
+  buildProviderSpawnEnv,
+  hostEnvNameMatchForPlatform,
+  type SpawnEnvPair,
+} from "../../spawn-env.js";
 
 import {
   OutboundFrameTripwire,
@@ -524,6 +529,28 @@ export interface ClaudeSpawnBoundLegs {
    */
   readonly subagentAdmission: ClaudeSubagentAdmissionPort | undefined;
   readonly onMcpServerStatus: McpServerStatusProducer | undefined;
+  /**
+   * The variables this provider's child MUST carry, whatever else it carries —
+   * for this CLI, its documented auto-update opt-out.
+   *
+   * NOT the child environment. The curated base and the run-provisioned
+   * variables are the transport's per the P0-4 obligation on `spawnSession`, and
+   * so is the deny strip, because the transport is what resolves the
+   * `credentialPolicyRef` this shape already carries on `sandboxSettings`. What
+   * rides here is the other half of that composition: the pairs the daemon
+   * mandates, which the transport applies LAST and must not shed — a policy that
+   * could strip them, or a base that carried `DISABLE_AUTOUPDATER=0`, would let
+   * a provider build replace itself mid-session and invalidate both the version
+   * recorded on the run's binding and the capability snapshot the run was
+   * admitted against.
+   *
+   * Composed by the shared spawn-environment builder rather than written out
+   * here, so the opt-out has ONE definition across both drivers, and carried on
+   * the SPAWN-BOUND shape for the reason that shape exists: a resume is a fresh
+   * spawn, and suppression bound at create and omitted at resume would silently
+   * expire at the first relaunch.
+   */
+  readonly mandatedEnvironment: readonly SpawnEnvPair[];
 }
 
 export interface ClaudeSessionSpawnRequest extends ClaudeSpawnBoundLegs {
@@ -625,6 +652,61 @@ export interface ClaudeAuthProbeReading {
   readonly detail?: string | undefined;
 }
 
+/**
+ * What the auth probe's spawn is obliged to carry.
+ *
+ * A STANDALONE shape rather than a `ClaudeSpawnBoundLegs` extender, and the
+ * difference is the point: a probe binds to no session, starts no thread, and
+ * admits no run, so it has no posture, no goal, no callback registry, and no
+ * cost cap to carry. Widening the spawn-bound shape to reach it would hand the
+ * probe legs it must not have — and would move the "every one of the three
+ * spawn-bound requests" count the port's obligations below are stated against.
+ *
+ * What it does share is the one leg that is not about a session at all: the
+ * pairs the daemon mandates on EVERY child it causes to exist.
+ */
+export interface ClaudeAuthProbeRequest {
+  /**
+   * The variables the probe's child MUST carry — for this CLI, its documented
+   * auto-update opt-out, composed by the same shared builder that composes the
+   * spawn-bound requests' copy.
+   *
+   * REQUIRED rather than optional, because the probe is simultaneously the spawn
+   * path where the suppression is easiest to lose and the one where losing it
+   * costs most. A probe runs on a cadence and its child is short-lived, so an
+   * unsuppressed probe can UPDATE THE INSTALLATION underneath the very version
+   * and capability readings the next admission is decided against — drift with
+   * no participant action anywhere behind it, produced by the check that exists
+   * to make admission safe.
+   */
+  readonly mandatedEnvironment: readonly SpawnEnvPair[];
+}
+
+/**
+ * The daemon's mandated pairs for a Claude child — ONE definition, every spawn.
+ *
+ * Shared by the spawn-bound legs builder and the auth probe rather than composed
+ * at each site. Two composition sites are two chances for one to drift, and this
+ * particular drift is invisible from the outside: a probe that shed the opt-out
+ * still answers the question it was asked, correctly, while the installation
+ * moves underneath the answer.
+ */
+function composeClaudeMandatedEnvironment(): readonly SpawnEnvPair[] {
+  return buildProviderSpawnEnv({
+    driverName: "claude",
+    // An EMPTY base is the honest input from this band: it holds no curated
+    // environment to prune, and the names a policy denies are reachable only
+    // through the `credentialPolicyRef` the transport resolves. So the builder
+    // is asked for exactly what this side owns — the mandated pairs — and the
+    // transport composes them over the base it built.
+    baseEnv: [],
+    // The host's own semantics, not a policy's: this side holds no policy, and
+    // the transport applies these pairs by comparing names under the same rule
+    // the builder folded them under.
+    hostEnvNameMatch: hostEnvNameMatchForPlatform(process.platform),
+  });
+}
+
 export interface ClaudeSessionTransport {
   /**
    * Starts a provider process for a new session.
@@ -636,11 +718,48 @@ export interface ClaudeSessionTransport {
    * variables and strips the effective credential policy's denied names, and no
    * path spreads the daemon's own `process.env` into a child. It applies
    * identically to `resumeSession`, which is a fresh spawn and not a reattach.
+   *
+   * WHOSE POLICY, stated per request, because "the effective policy" is only
+   * well-defined once its source is named. It is always the
+   * `credentialPolicyRef` carried on THAT REQUEST'S OWN `sandboxSettings`, never
+   * one the transport resolved for an earlier spawn of the same session:
+   *
+   *   * a spawn and a resume both take it from `#buildSpawnBoundLegs`, the one
+   *     builder both paths use, which reads `params.executionPosture` — so a
+   *     posture that CHANGED between create and resume governs the resumed
+   *     child, in both directions. A resume under a tightened posture strips
+   *     names the create did not; a resume under a `trusted` posture strips
+   *     nothing, because that arm types `credentialPolicyRef?: never` and is a
+   *     positive statement that nothing is denied.
+   *   * a rewind reuses its predecessor's legs, and that is deliberate rather
+   *     than the same rule going missing: `RollbackToParams` carries no posture,
+   *     so no newer one is reachable at that call, and substituting a default
+   *     would invent a policy no caller stated.
+   *
+   * A transport that resolved a ref once and reused the resolution across a
+   * session's relaunches would put the stale-policy spawn back — the child would
+   * run under whatever was in force when the session was first created.
+   *
    * Beneath it sits the provider-native layer this CLI needs: `CLAUDE_*` and
    * `CLAUDECODE*` are stripped so an ambient developer configuration cannot
    * reach an agent's process, and configuration is supplied through `--settings`
    * rather than the ambient `~/.claude`, so two sessions on one node cannot read
    * each other's settings.
+   *
+   * `mandatedEnvironment` is applied LAST, after that strip, on every one of the
+   * three spawn-bound requests: those pairs are the daemon's own instructions to
+   * the child rather than inherited state, so a deny list has no authority over
+   * them, and a base carrying one of their names is REPLACED rather than
+   * appended beside — a duplicate name resolves at the discretion of whatever
+   * finally execs the process.
+   *
+   * Both that strip and that replacement compare NAMES under THIS HOST's
+   * semantics — case-insensitively on Windows and byte-for-byte elsewhere,
+   * which `hostEnvNameMatchForPlatform` is the one definition of — and never
+   * under whatever a policy artifact happens to declare. A resolved policy that
+   * disagrees with the host is a wiring fault the shared builder REFUSES rather
+   * than applies, so a transport that folded under the policy's value would be
+   * reintroducing exactly the case the builder rejects.
    *
    * AUTH-FAILURE OBLIGATION, shared with `resumeSession` below (P3-3): a
    * DETERMINATE logged-out failure throws `ClaudeAuthenticationRequiredError`,
@@ -683,7 +802,7 @@ export interface ClaudeSessionTransport {
    * probe is a port obligation rather than a method here, and this band supplies
    * the classification instead.
    *
-   * TRANSPORT OBLIGATIONS, all four load-bearing:
+   * TRANSPORT OBLIGATIONS, all five load-bearing:
    *   1. It spends NO turn and admits no run. A probe that cost a turn would
    *      defeat its own purpose, which is to refuse admission before one is spent.
    *   2. It returns, logs, and persists NO credential material — in particular
@@ -696,8 +815,18 @@ export interface ClaudeSessionTransport {
    *      applies on the resume path.
    *   4. Any process it starts is torn down before the returned promise settles,
    *      on every path including the throwing ones.
+   *   5. Every process it starts carries `request.mandatedEnvironment`, applied
+   *      the same way the three spawn-bound requests apply theirs — LAST, and
+   *      never shed. Obligation 4 is what makes this one necessary rather than
+   *      redundant: the probe's child is short-lived AND recurring, so an
+   *      unsuppressed probe is the one spawn path that can update the
+   *      installation out from under the version and capability readings the
+   *      next admission is decided against. The request carries the pairs
+   *      because the port is where the rule can bind — a zero-argument probe
+   *      could not receive them, and a transport-construction-time copy would be
+   *      a second definition this band could not check.
    */
-  probeAuth(): Promise<ClaudeAuthProbeReading>;
+  probeAuth(request: ClaudeAuthProbeRequest): Promise<ClaudeAuthProbeReading>;
 }
 
 // --------------------------------------------------------------------------
@@ -2409,7 +2538,14 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
    */
   async probeAuth(): Promise<DriverAuthProbeResult> {
     try {
-      const reading = await this.#transport.probeAuth();
+      // The probe spawns a child like every other path here, so it carries the
+      // mandated pairs like every other path here — obligation 5 on the port. A
+      // probe that shed them would be the one spawn able to update the
+      // installation underneath the readings the next admission is decided
+      // against, and it would do it on a cadence.
+      const reading = await this.#transport.probeAuth({
+        mandatedEnvironment: composeClaudeMandatedEnvironment(),
+      });
       return buildAuthProbeResult(
         "authenticated",
         reading.detail ?? CLAUDE_AUTH_PROBE_REACHED_DETAIL,
@@ -3217,6 +3353,10 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       outputSchema: params.outputSchema,
       onCallbackToolCall: params.onCallbackToolCall,
       onMcpServerStatus: params.onMcpServerStatus,
+      // The shared composer rather than a second `buildProviderSpawnEnv` call,
+      // so this path and the auth probe cannot come to hold different opt-outs —
+      // see `composeClaudeMandatedEnvironment`.
+      mandatedEnvironment: composeClaudeMandatedEnvironment(),
     };
   }
 

@@ -51,6 +51,7 @@ import {
 } from "../../outbound-frame.js";
 import type { SubagentLifecycleEmission } from "../../../thread-frame-router.js";
 import type { CumulativeAxisReadings, MeteredUsageDelta } from "../../../usage-delta-accountant.js";
+import { hostEnvNameMatchForPlatform } from "../../../spawn-env.js";
 import {
   CodexAppServerConnection,
   CodexDriver,
@@ -59,6 +60,7 @@ import {
   CodexSessionAlreadyLiveError,
   CodexProviderRequestError,
   CodexRequestTimeoutError,
+  CodexRewindBoundaryUnsupportedError,
   CodexTransportError,
   CODEX_APP_SERVER_BIN_ENV_VAR,
   CODEX_APP_SERVER_READY_SENTINEL,
@@ -78,6 +80,7 @@ import {
   resolveCodexTransportSelection,
   type CodexPtySessionListeners,
   type CodexPtySessionSubscriber,
+  type CodexCredentialEnvPolicyResolver,
   type CodexScheduleTimeout,
   type CodexSessionConfig,
   type CodexTransportDiagnostic,
@@ -85,6 +88,14 @@ import {
   CODEX_INTERVENTION_FALLBACK_ACTION,
 } from "../index.js";
 import { CODEX_NEGOTIATION_GATED_METHODS } from "../event-normalizer.js";
+// Directly from the module rather than through the driver barrel: these are
+// internal enforcement details, and widening the driver's public surface to
+// reach them from a test would make them look like part of its contract.
+import {
+  CALLER_DERIVED_TURN_POSTURE_FIELDS,
+  UNREALIZED_TURN_POSTURE_MEMBERS,
+  assertRealizedTurnPostureMembers,
+} from "../lifecycle.js";
 
 // --------------------------------------------------------------------------
 // Fakes
@@ -450,6 +461,22 @@ const RESUME_SPAWN_CONFIG: CodexSessionConfig = {
   env: [["HOME", "/home/agent"]],
 };
 
+/**
+ * The daemon's stand-in policy resolver: a well-formed policy denying nothing.
+ *
+ * Deliberately a real policy rather than `undefined`. A sandboxed posture OWES a
+ * resolution, and answering `undefined` is the wiring fault the driver refuses —
+ * so a harness default of `undefined` would make every posture-bearing resume in
+ * this file fail for a reason none of them are about. Its `envNameMatch` is the
+ * HOST's, because the shared builder refuses a policy that declares a different
+ * one.
+ */
+const resolveNoDeniedCredentialNames: CodexCredentialEnvPolicyResolver = () =>
+  Promise.resolve({
+    denyEnvVars: [],
+    envNameMatch: hostEnvNameMatchForPlatform(process.platform),
+  });
+
 interface Harness {
   server: FakeCodexAppServer;
   driver: CodexDriver;
@@ -485,7 +512,12 @@ function makeSilentDriverDiagnostics(): DriverDiagnosticsEmitter {
 }
 
 function createHarness(
-  options: { steer?: boolean; subscribeToPtySession?: CodexPtySessionSubscriber } = {},
+  options: {
+    steer?: boolean;
+    subscribeToPtySession?: CodexPtySessionSubscriber;
+    resumeSpawnConfig?: CodexSessionConfig;
+    resolveCredentialEnvPolicy?: CodexCredentialEnvPolicyResolver;
+  } = {},
 ): Harness {
   const server = new FakeCodexAppServer();
   server.on("initialize", () => ({ result: { userAgent: "codex-driver/0.149.1" } }));
@@ -516,7 +548,9 @@ function createHarness(
     },
     scheduleTimeout: scheduler.schedule,
     executablePath: EXECUTABLE_PATH,
-    resumeSpawnConfig: RESUME_SPAWN_CONFIG,
+    resumeSpawnConfig: options.resumeSpawnConfig ?? RESUME_SPAWN_CONFIG,
+    resolveCredentialEnvPolicy:
+      options.resolveCredentialEnvPolicy ?? resolveNoDeniedCredentialNames,
     newBindingId: () => "binding-abc",
     readCapabilities: () => makeCapabilities(options.steer ?? true),
   });
@@ -578,6 +612,10 @@ interface ManagerHarnessOptions {
    * survived, so throwing from every one would make the property unobservable.
    */
   throwOnFirstNotification?: boolean;
+  /** Overrides the spawn context every manager-owned spawn is composed from. */
+  resumeSpawnConfig?: CodexSessionConfig;
+  /** Overrides the daemon's per-resume credential-policy resolution. */
+  resolveCredentialEnvPolicy?: CodexCredentialEnvPolicyResolver;
   /** Supplies the daemon's prior-emitted cumulative sums for a resume base. */
   readPriorEmittedUsage?: (
     sessionId: SessionId,
@@ -636,7 +674,9 @@ function createManagerHarness(options: ManagerHarnessOptions = {}): ManagerHarne
     },
     scheduleTimeout: scheduler.schedule,
     executablePath: EXECUTABLE_PATH,
-    resumeSpawnConfig: RESUME_SPAWN_CONFIG,
+    resumeSpawnConfig: options.resumeSpawnConfig ?? RESUME_SPAWN_CONFIG,
+    resolveCredentialEnvPolicy:
+      options.resolveCredentialEnvPolicy ?? resolveNoDeniedCredentialNames,
     newBindingId: options.newBindingId ?? ((): string => "binding-abc"),
     onMeteredUsage: (sessionId, delta) => meteredUsage.push({ sessionId, delta }),
     onSubagentLifecycle: (sessionId, emission) => subagentLifecycle.push({ sessionId, emission }),
@@ -787,8 +827,10 @@ describe("CodexDriver spawn and handshake", () => {
     harness.server.on("thread/start", () => threadStartResult());
 
     const pending = harness.driver.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
-    await Promise.resolve();
-    await Promise.resolve();
+    // Drained rather than counted. The create path resolves its credential
+    // policy before it opens a connection, so how many microtasks separate the
+    // call from the subscribe is the driver's business and not this arm's.
+    await drainMicrotasks();
     expect(harness.server.writtenLines).toHaveLength(0);
 
     harness.server.emitLine(CODEX_APP_SERVER_READY_SENTINEL);
@@ -1228,6 +1270,7 @@ describe("CodexDriver resumeSession (I-005-5, Spec-005 §Fallback Behavior)", ()
       scheduleTimeout: scheduler.schedule,
       executablePath: EXECUTABLE_PATH,
       resumeSpawnConfig: RESUME_SPAWN_CONFIG,
+      resolveCredentialEnvPolicy: resolveNoDeniedCredentialNames,
       newBindingId: () => "binding-abc",
       readCapabilities: () => makeCapabilities(true),
     });
@@ -1631,6 +1674,7 @@ describe("CodexDriver session ownership (Spec-005 §Required Behavior)", () => {
       scheduleTimeout: scheduler.schedule,
       executablePath: EXECUTABLE_PATH,
       resumeSpawnConfig: RESUME_SPAWN_CONFIG,
+      resolveCredentialEnvPolicy: resolveNoDeniedCredentialNames,
       newBindingId: () => "binding-abc",
     });
 
@@ -2030,6 +2074,592 @@ describe("CodexDriver spawn-environment hygiene (T3.14 P0-4)", () => {
       ["HOME", "/home/agent"],
       [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
     ]);
+  });
+});
+
+// --------------------------------------------------------------------------
+// The shared spawn-environment builder, reached through the driver
+// --------------------------------------------------------------------------
+
+describe("CodexDriver credential-policy strip at the spawn seam", () => {
+  const DENIED_ENV_VAR = "ANTHROPIC_API_KEY";
+
+  // The daemon's RESOLUTION of the posture's `credentialPolicyRef`. The driver
+  // is handed the names because it never expands a reference — that is the
+  // disclosure the content-addressed ref exists to avoid.
+  const DENY_POLICY = { denyEnvVars: [DENIED_ENV_VAR], envNameMatch: "case-sensitive" } as const;
+
+  it("strips a denied name from a created session's child", async () => {
+    // Also the NO-POSTURE arm of the create path: this request states no
+    // `executionPosture`, so the config bag's own policy is what governs and the
+    // resolver is never consulted. The posture-stated arms follow below.
+    const harness = createHarness();
+    harness.server.on("thread/start", () => threadStartResult());
+
+    await harness.driver.createSession({
+      sessionId: SESSION_ID,
+      config: {
+        cwd: SESSION_CWD,
+        env: [
+          ["HOME", "/home/agent"],
+          [DENIED_ENV_VAR, "sk-live"],
+        ],
+        credentialEnvPolicy: DENY_POLICY,
+      },
+    });
+
+    // Byte-exact, so the strip cannot be satisfied by a builder that also
+    // dropped or reordered something else.
+    expect(harness.server.spawnRequests[0]?.env).toEqual([
+      ["HOME", "/home/agent"],
+      [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
+    ]);
+  });
+
+  it("strips it on a resume relaunch, which is a fresh spawn from a different config", async () => {
+    // The whole point of routing every path through one builder: this config
+    // object never passes through `createSession`, so a create-site composition
+    // would have shed the strip here.
+    const harness = createHarness({
+      resumeSpawnConfig: {
+        cwd: "/work/resume",
+        env: [
+          ["HOME", "/home/agent"],
+          [DENIED_ENV_VAR, "sk-live"],
+        ],
+        credentialEnvPolicy: DENY_POLICY,
+      },
+    });
+    harness.server.on("thread/resume", () => threadStartResult(1));
+
+    await harness.driver.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
+
+    expect(harness.server.spawnRequests[0]?.env).toEqual([
+      ["HOME", "/home/agent"],
+      [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
+    ]);
+  });
+
+  // The two postures a spawn can be established under, kept as a PAIR because
+  // the property under test is symmetric: a session's posture can change between
+  // the create that established it and the resume that relaunches it, and the
+  // child has to follow the current one in BOTH directions. Named for neither
+  // path, because both paths resolve through the same rule — a create's arms and
+  // a resume's arms below drive these same two values.
+  const SANDBOXED_POSTURE: ExecutionPosture = {
+    mode: "workspace-sandboxed",
+    credentialPolicyRef: "policy://resume",
+    networkAccess: "none",
+    writableRoots: [SESSION_CWD],
+  };
+  const TRUSTED_POSTURE: ExecutionPosture = {
+    mode: "trusted",
+    networkAccess: "full",
+    writableRoots: [SESSION_CWD],
+  };
+
+  it("strips under the CREATED posture's policy though the config bag declared none", async () => {
+    // THE ASYMMETRY THIS CLOSES. A sandboxed posture REQUIRES a
+    // `credentialPolicyRef`, but the config bag is untyped and can simply omit
+    // `credentialEnvPolicy` — and before the two channels were joined that
+    // silence read as "deny nothing" and opened the child holding the very
+    // credential the posture withheld. The resume path already re-derived; this
+    // is the same rule reached from the create composer.
+    const harness = createHarness({
+      resolveCredentialEnvPolicy: () => Promise.resolve(DENY_POLICY),
+    });
+    harness.server.on("thread/start", () => threadStartResult());
+
+    await harness.driver.createSession({
+      sessionId: SESSION_ID,
+      config: {
+        cwd: SESSION_CWD,
+        env: [
+          ["HOME", "/home/agent"],
+          [DENIED_ENV_VAR, "sk-live"],
+        ],
+      },
+      executionPosture: SANDBOXED_POSTURE,
+    });
+
+    expect(harness.server.spawnRequests[0]?.env).toEqual([
+      ["HOME", "/home/agent"],
+      [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
+    ]);
+  });
+
+  it("lets the CREATED posture's policy override a bag that named a different one", async () => {
+    // THE PRECEDENCE ARM, and the only one where both channels actually speak.
+    // Every other arm has one of the two silent, so a resolution that merely
+    // FILLED IN for an absent bag policy would satisfy them all. Here the bag
+    // denies one name and the posture resolves to another: the posture's answer
+    // must be what governs, whole, rather than being merged with or deferred to
+    // what the untyped bag happened to declare beside it.
+    const OTHER_DENIED_ENV_VAR = "OPENAI_API_KEY";
+    const harness = createHarness({
+      resolveCredentialEnvPolicy: () =>
+        Promise.resolve({
+          denyEnvVars: [OTHER_DENIED_ENV_VAR],
+          envNameMatch: "case-sensitive",
+        }),
+    });
+    harness.server.on("thread/start", () => threadStartResult());
+
+    await harness.driver.createSession({
+      sessionId: SESSION_ID,
+      config: {
+        cwd: SESSION_CWD,
+        env: [
+          ["HOME", "/home/agent"],
+          [DENIED_ENV_VAR, "sk-live"],
+          [OTHER_DENIED_ENV_VAR, "sk-other"],
+        ],
+        credentialEnvPolicy: DENY_POLICY,
+      },
+      executionPosture: SANDBOXED_POSTURE,
+    });
+
+    // The posture's name is gone and the BAG's name survives. Both halves are
+    // load-bearing: the survival is what a fallback-only resolution fails, and
+    // the strip is what an ignore-the-posture composition fails.
+    expect(harness.server.spawnRequests[0]?.env).toEqual([
+      ["HOME", "/home/agent"],
+      [DENIED_ENV_VAR, "sk-live"],
+      [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
+    ]);
+  });
+
+  it("strips nothing under a `trusted` created posture though the config bag carried one", async () => {
+    const harness = createHarness();
+    harness.server.on("thread/start", () => threadStartResult());
+
+    await harness.driver.createSession({
+      sessionId: SESSION_ID,
+      config: {
+        cwd: SESSION_CWD,
+        env: [
+          ["HOME", "/home/agent"],
+          [DENIED_ENV_VAR, "sk-live"],
+        ],
+        credentialEnvPolicy: DENY_POLICY,
+      },
+      executionPosture: TRUSTED_POSTURE,
+    });
+
+    // The denied name SURVIVES, which is the DROP arm stated as an assertion.
+    // `trusted` types `credentialPolicyRef?: never`, so a policy sitting beside
+    // it in the bag is a wiring inconsistency and not a stricter grant the
+    // posture made. Honouring it here while the resume path drops it would
+    // rebuild the create/resume asymmetry mirror-imaged — one session stripping
+    // on create and not on relaunch.
+    expect(harness.server.spawnRequests[0]?.env).toEqual([
+      ["HOME", "/home/agent"],
+      [DENIED_ENV_VAR, "sk-live"],
+      [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
+    ]);
+  });
+
+  it("refuses a CREATED posture that resolves to no policy, before anything is spawned", async () => {
+    // The create twin of the resume's refusal arm, and it refuses through a
+    // different channel: `resumeSession` owes I-005-5 a typed `failed` result,
+    // while `createSession` has no result type to refuse into, so the refusal is
+    // the same typed config error its bag parse already raises.
+    const harness = createHarness({
+      resolveCredentialEnvPolicy: () => Promise.resolve(undefined),
+    });
+    harness.server.on("thread/start", () => threadStartResult());
+
+    const refused = await harness.driver
+      .createSession({
+        sessionId: SESSION_ID,
+        config: {
+          cwd: SESSION_CWD,
+          env: [
+            ["HOME", "/home/agent"],
+            [DENIED_ENV_VAR, "sk-live"],
+          ],
+        },
+        executionPosture: SANDBOXED_POSTURE,
+      })
+      .then(
+        () => undefined,
+        (cause: unknown) => cause,
+      );
+
+    expect(refused).toBeInstanceOf(CodexDriverConfigError);
+    // The field is the CREATE request's own parameter path. Asserted because the
+    // shared helper takes it as an argument: without this, a caller passing the
+    // resume label would name a parameter the operator never sent and nothing
+    // would fail.
+    expect((refused as CodexDriverConfigError).field).toBe(
+      "CreateSessionParams.executionPosture.credentialPolicyRef",
+    );
+    // Nothing was spawned at all: the composition runs before the connection
+    // object exists, so no child ever held the environment the policy filters.
+    expect(harness.server.spawnRequests).toEqual([]);
+  });
+
+  it("hands the create's RESOLVED policy to a resume that states no posture", async () => {
+    // The two fixes meeting. The create's posture resolves a policy the bag never
+    // declared, and the record stores that RESOLUTION rather than the bag — so a
+    // resume that states nothing inherits the policy the child actually ran
+    // under. Inheriting the bag's absence would relaunch unfiltered.
+    const harness = createHarness({
+      resolveCredentialEnvPolicy: () => Promise.resolve(DENY_POLICY),
+    });
+    harness.server.on("thread/start", () => threadStartResult());
+    await harness.driver.createSession({
+      sessionId: SESSION_ID,
+      config: {
+        cwd: SESSION_CWD,
+        env: [
+          ["HOME", "/home/agent"],
+          [DENIED_ENV_VAR, "sk-live"],
+        ],
+      },
+      executionPosture: SANDBOXED_POSTURE,
+    });
+    harness.server.on("thread/resume", () => threadStartResult(1));
+
+    await harness.driver.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
+
+    expect(harness.server.spawnRequests[1]?.env).toEqual([
+      ["HOME", "/home/agent"],
+      [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
+    ]);
+  });
+
+  it("strips under the RESUMED posture's policy though the create-time posture had none", async () => {
+    // The create leg carries no policy at all, so the session's own recorded
+    // spawn config denies nothing. A resume that reused that record would
+    // relaunch the child holding the credential the current posture withholds.
+    const harness = createHarness({
+      resolveCredentialEnvPolicy: () => Promise.resolve(DENY_POLICY),
+    });
+    harness.server.on("thread/start", () => threadStartResult());
+    await harness.driver.createSession({
+      sessionId: SESSION_ID,
+      config: {
+        cwd: SESSION_CWD,
+        env: [
+          ["HOME", "/home/agent"],
+          [DENIED_ENV_VAR, "sk-live"],
+        ],
+      },
+    });
+    harness.server.on("thread/resume", () => threadStartResult(1));
+
+    await harness.driver.resumeSession({
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+      executionPosture: SANDBOXED_POSTURE,
+    });
+
+    // The SECOND spawn is the resume's; the first is the create it supersedes.
+    // Byte-exact, so a strip that also dropped or reordered the process context
+    // it inherited would not pass.
+    expect(harness.server.spawnRequests[1]?.env).toEqual([
+      ["HOME", "/home/agent"],
+      [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
+    ]);
+  });
+
+  it("strips nothing under a `trusted` resumed posture though the create-time posture had a policy", async () => {
+    const harness = createHarness();
+    harness.server.on("thread/start", () => threadStartResult());
+    await harness.driver.createSession({
+      sessionId: SESSION_ID,
+      config: {
+        cwd: SESSION_CWD,
+        env: [
+          ["HOME", "/home/agent"],
+          [DENIED_ENV_VAR, "sk-live"],
+        ],
+        credentialEnvPolicy: DENY_POLICY,
+      },
+    });
+    harness.server.on("thread/resume", () => threadStartResult(1));
+
+    await harness.driver.resumeSession({
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+      executionPosture: TRUSTED_POSTURE,
+    });
+
+    // The denied name SURVIVES, and that direction is the one a "still strips
+    // things" assertion cannot catch. `trusted` types `credentialPolicyRef?:
+    // never`, so the posture is a positive statement that nothing is denied —
+    // carrying the create's policy forward would keep withholding a credential
+    // the session is no longer sandboxed against.
+    expect(harness.server.spawnRequests[1]?.env).toEqual([
+      ["HOME", "/home/agent"],
+      [DENIED_ENV_VAR, "sk-live"],
+      [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
+    ]);
+  });
+
+  it("honours the resumed posture on a COLD resume, which has no record to reuse", async () => {
+    // The daemon-restart case, and the one the manager-wide config cannot serve:
+    // `resumeSpawnConfig` is a single construction-time object, so it can carry
+    // at most one policy for every session on the node — here, none at all.
+    const harness = createHarness({
+      resumeSpawnConfig: {
+        cwd: "/work/resume",
+        env: [
+          ["HOME", "/home/agent"],
+          [DENIED_ENV_VAR, "sk-live"],
+        ],
+      },
+      resolveCredentialEnvPolicy: () => Promise.resolve(DENY_POLICY),
+    });
+    harness.server.on("thread/resume", () => threadStartResult(1));
+
+    await harness.driver.resumeSession({
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+      executionPosture: SANDBOXED_POSTURE,
+    });
+
+    expect(harness.server.spawnRequests[0]?.env).toEqual([
+      ["HOME", "/home/agent"],
+      [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
+    ]);
+  });
+
+  it("refuses a posture that resolves to no policy, and refuses it as a RESULT", async () => {
+    // Two properties in one arm because they are one guarantee. A posture whose
+    // mode is not `trusted` REQUIRES `credentialPolicyRef`, so an unresolved
+    // policy is a wiring fault — degrading it to "deny nothing" would launch the
+    // child holding exactly the credentials the reference exists to withhold.
+    // And I-005-5 requires the refusal to ARRIVE as the typed `failed` result: a
+    // rejection escaping `resumeSession` would be a second failure channel the
+    // recovery leg has no rule for.
+    const harness = createHarness({
+      resolveCredentialEnvPolicy: () => Promise.resolve(undefined),
+    });
+    harness.server.on("thread/resume", () => threadStartResult(1));
+
+    const result = await harness.driver.resumeSession({
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+      executionPosture: SANDBOXED_POSTURE,
+    });
+
+    expect(result.status).toBe("failed");
+    // Nothing was spawned at all: the refusal lands before `open()`, so no child
+    // ever held the environment the policy was supposed to filter.
+    expect(harness.server.spawnRequests).toEqual([]);
+  });
+
+  it("strips it on the auth probe's child, the third spawn path", async () => {
+    const harness = createManagerHarness({
+      resumeSpawnConfig: {
+        cwd: "/work/resume",
+        env: [
+          ["HOME", "/home/agent"],
+          [DENIED_ENV_VAR, "sk-live"],
+        ],
+        credentialEnvPolicy: DENY_POLICY,
+      },
+    });
+
+    await harness.manager.probeAuth();
+
+    expect(harness.server.spawnRequests[0]?.env).toEqual([
+      ["HOME", "/home/agent"],
+      [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
+    ]);
+  });
+
+  it("keeps the exact-build-path pin even when the policy names it", async () => {
+    // This provider documents no auto-update environment opt-out, so the pinned
+    // binary path IS its suppression mechanism. A deny list able to strip it
+    // would hand the child back to whatever the launcher resolves to.
+    const harness = createHarness();
+    harness.server.on("thread/start", () => threadStartResult());
+
+    await harness.driver.createSession({
+      sessionId: SESSION_ID,
+      config: {
+        cwd: SESSION_CWD,
+        env: [["HOME", "/home/agent"]],
+        credentialEnvPolicy: {
+          denyEnvVars: [CODEX_APP_SERVER_BIN_ENV_VAR],
+          envNameMatch: "case-sensitive",
+        },
+      },
+    });
+
+    expect(harness.server.spawnRequests[0]?.env).toContainEqual([
+      CODEX_APP_SERVER_BIN_ENV_VAR,
+      EXECUTABLE_PATH,
+    ]);
+  });
+
+  it("refuses a policy it cannot read rather than spawning with nothing stripped", () => {
+    // Absent and malformed are different answers, and defaulting the malformed
+    // one to "deny nothing" would spawn the child with exactly the variables the
+    // policy exists to withhold. `envNameMatch` is refused when missing for the
+    // same reason: the mode decides whether `path` slips past a list naming
+    // `PATH`, and this side of the wire does not know the host.
+    const unreadablePolicies: readonly unknown[] = [
+      {},
+      { denyEnvVars: [], envNameMatch: "whatever-the-host-does" },
+      { denyEnvVars: ["A"] },
+      { denyEnvVars: "ANTHROPIC_API_KEY", envNameMatch: "case-sensitive" },
+      { denyEnvVars: [""], envNameMatch: "case-sensitive" },
+      { denyEnvVars: [1], envNameMatch: "case-sensitive" },
+      "case-sensitive",
+    ];
+    for (const credentialEnvPolicy of unreadablePolicies) {
+      expect(() => parseCodexSessionConfig({ ...SESSION_CONFIG, credentialEnvPolicy })).toThrow(
+        CodexDriverConfigError,
+      );
+    }
+  });
+
+  it("carries an absent policy as an absent member, which a trusted posture is", () => {
+    expect(parseCodexSessionConfig(SESSION_CONFIG)).toEqual({
+      cwd: SESSION_CWD,
+      env: [
+        ["HOME", "/home/agent"],
+        ["PATH", "/usr/bin"],
+      ],
+    });
+  });
+});
+
+// --------------------------------------------------------------------------
+// The mutually-exclusive posture pair on `turn/start`
+// --------------------------------------------------------------------------
+
+describe("CodexDriver turn posture realization", () => {
+  // WHAT THESE ARMS ACTUALLY CATCH, stated so the guard is not over-trusted.
+  // They assert the OBSERVED WIRE FRAME, driven from
+  // `UNREALIZED_TURN_POSTURE_MEMBERS` rather than from a written-out list — so a
+  // composer that started emitting `permissions` fails here even if
+  // `assertRealizedTurnPostureMembers` were deleted outright. What is NOT
+  // asserted is the guard's PLACEMENT: nothing here proves `#requestTurnStart`
+  // remains its only construction site, so a second, unguarded `turn/start`
+  // composer added later would be caught by these arms only if a test drove it.
+  it("realizes the sandboxPolicy member from a stamped posture and never the other", async () => {
+    const harness = createHarness();
+    harness.server.on("thread/start", () => threadStartResult());
+    await harness.driver.createSession({
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+      executionPosture: WORKSPACE_POSTURE_WITH_NETWORK,
+    });
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+
+    await harness.driver.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
+    });
+
+    const params = firstParamsFor(harness, "turn/start");
+    expect(params["sandboxPolicy"]).toBeDefined();
+    for (const member of UNREALIZED_TURN_POSTURE_MEMBERS) {
+      expect(Object.keys(params)).not.toContain(member);
+    }
+  });
+
+  it("sends neither member when no posture is stamped, which is not a cardinality breach", async () => {
+    // "Exactly one" is the rule for a turn that HAS a posture. A session spawned
+    // without one is governed by its spawn posture, and minting a turn-level
+    // member here would narrow a session the daemon left ungoverned at the turn
+    // boundary. Asserted so a later tightening to a cardinality check cannot
+    // pass silently.
+    const harness = createHarness();
+    await createdSession(harness);
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+
+    await harness.driver.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "review the diff" },
+    });
+
+    const params = firstParamsFor(harness, "turn/start");
+    expect(Object.keys(params)).not.toContain("sandboxPolicy");
+    for (const member of UNREALIZED_TURN_POSTURE_MEMBERS) {
+      expect(Object.keys(params)).not.toContain(member);
+    }
+  });
+
+  it("refuses every posture-affecting field a caller declares, the whole class", async () => {
+    // Driven from the table rather than from a written-out list, so a field
+    // added to the class without a refusal path fails here.
+    const harness = createHarness();
+    await createdSession(harness);
+
+    for (const field of CALLER_DERIVED_TURN_POSTURE_FIELDS) {
+      await expect(
+        harness.driver.startRun({
+          runId: RUN_ID,
+          channelId: CHANNEL_ID,
+          agentConfig: {
+            sessionId: SESSION_ID,
+            input: "review the diff",
+            [field]: "anything at all",
+          },
+        }),
+      ).rejects.toBeInstanceOf(CodexDriverConfigError);
+    }
+
+    // Refused BEFORE the wire, not filtered on it.
+    expect(harness.server.framesForMethod("turn/start")).toHaveLength(0);
+  });
+
+  it("refuses a declared posture field even when it restates what the daemon derived", () => {
+    // The one place this differs from the `frameOrigin` precedent. A posture is
+    // a decision, not a fact a caller can only be restating, and tolerating a
+    // match would oblige this parse to compare postures structurally.
+    expect(() =>
+      parseCodexRunConfig({
+        sessionId: SESSION_ID,
+        input: "review the diff",
+        approvalsReviewer: "user",
+      }),
+    ).toThrow(CodexDriverConfigError);
+  });
+
+  it("NEGATIVE CONTROL — the guard fires on the un-realized member alone", () => {
+    // Without this, the wire assertions above would pass for a driver that has
+    // no guard at all: they only observe that nothing today constructs the
+    // member. This observes that constructing it would be caught.
+    expect(() =>
+      assertRealizedTurnPostureMembers({ threadId: THREAD_ID, permissions: "profile-id" }),
+    ).toThrow(CodexDriverConfigError);
+  });
+
+  it("NEGATIVE CONTROL — the guard fires on the un-combinable pair sent together", () => {
+    // The arm an `experimentalApi` connection accepts WITHOUT refusing, with no
+    // documented precedence. It cannot be adjudicated by asking the provider,
+    // so it has to be refused here.
+    expect(() =>
+      assertRealizedTurnPostureMembers({
+        threadId: THREAD_ID,
+        sandboxPolicy: { mode: "workspace-write" },
+        permissions: "profile-id",
+      }),
+    ).toThrow(CodexDriverConfigError);
+  });
+
+  it("NEGATIVE CONTROL — the guard fires on the field that refuses -32602 at the pin", () => {
+    expect(() =>
+      assertRealizedTurnPostureMembers({ threadId: THREAD_ID, permissionProfile: "profile-id" }),
+    ).toThrow(CodexDriverConfigError);
+  });
+
+  it("passes a params object carrying only realized members", () => {
+    expect(() =>
+      assertRealizedTurnPostureMembers({
+        threadId: THREAD_ID,
+        sandboxPolicy: { mode: "workspace-write" },
+      }),
+    ).not.toThrow();
   });
 });
 
@@ -4806,8 +5436,8 @@ describe("CodexAppServerConnection framing bounds (Spec-005 §Pitfalls To Avoid)
       sessionId: SESSION_ID,
       config: SESSION_CONFIG,
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    // Drained, not counted — same reason as the prelude-sentinel arm above.
+    await drainMicrotasks();
 
     harness.server.emitRaw(overlongFramePrefix());
 
@@ -5101,6 +5731,113 @@ describe("CodexDriver rollbackTo (T3.15 leg 1, native `thread/fork`)", () => {
     // The refusal is LOCAL: a fork that omitted the boundary would rewind the
     // whole thread, which is the one outcome a rollback must never report.
     expect(harness.server.framesForMethod("thread/fork")).toHaveLength(0);
+  });
+
+  // THE PARAMETER-LEVEL GAP the `rollback` flag's `static` detection source
+  // leaves open. The method enumeration establishes that `thread/fork` is
+  // accepted; it says nothing about `ThreadForkParams.lastTurnId`, which the wire
+  // reference verifies at the `0.150.1` pin and not at the `0.141.0` admission
+  // floor. A build in that gap passes the static capability gate and refuses at
+  // the parameter, so the classification has to happen at invocation.
+  //
+  // The SUCCESS path is asserted by the applied-arm test at the top of this
+  // block, which still reports `applied` with its minted binding — so the guard
+  // added around the fork dispatch is proven not to have moved the happy path.
+  const BOUNDARY_FIELD_REFUSALS: readonly string[] = [
+    // Measured verbatim on `thread/fork` itself at the pin — the deserializer's
+    // answer when a required field is absent from the params it was sent.
+    "Invalid request: missing field `lastTurnId`",
+    // The same deserializer's answer when the field is present but not declared
+    // on the params type, which is the shape a RENAMED boundary member produces.
+    "Invalid request: unknown field `lastTurnId`",
+  ];
+
+  it("classifies a fork refusing the boundary field as the registered capability refusal", async () => {
+    for (const providerMessage of BOUNDARY_FIELD_REFUSALS) {
+      const harness = createHarness();
+      await resumedSessionWithTurns(harness, 2);
+      harness.server.on("thread/fork", () => ({
+        error: { code: -32600, message: providerMessage },
+      }));
+
+      const refused = await harness.driver
+        .rollbackTo({ sessionId: SESSION_ID, bindingId: "binding-abc", position: 1 })
+        .then(
+          () => undefined,
+          (cause: unknown) => cause,
+        );
+
+      expect(refused).toBeInstanceOf(CodexRewindBoundaryUnsupportedError);
+      // The registered code, carried by class identity rather than invented
+      // here: an unregistered dotted literal would be a new error-contract row.
+      expect((refused as CodexRewindBoundaryUnsupportedError).code).toBe(
+        "driver.capability_unsupported",
+      );
+      expect((refused as CodexRewindBoundaryUnsupportedError).fields).toStrictEqual({
+        driverId: "codex",
+        flag: "rollback",
+        providerError: providerMessage,
+      });
+
+      // THE SLOT WAS NOT LEAKED. A throw out of the claimed establishment body
+      // must still release the session's transition slot, or this session could
+      // never be rewound — or resumed, or closed — again. Driven by attempting a
+      // second rollback and observing that it reaches the wire at all.
+      harness.server.on("thread/fork", () => ({
+        result: {
+          thread: { id: "thread-forked", sessionId: "session-tree-1", turns: [{ id: "turn-0" }] },
+        },
+      }));
+      const retried = await harness.driver.rollbackTo({
+        sessionId: SESSION_ID,
+        bindingId: "binding-abc",
+        position: 1,
+      });
+      expect(retried).toStrictEqual({
+        status: "applied",
+        sessionPosition: 1,
+        bindingId: "binding-abc",
+      });
+    }
+  });
+
+  it("leaves every other fork failure the generic provider error it is", async () => {
+    // THE NARROWNESS IS THE CONTRACT. Only a refusal that provably indicts the
+    // boundary member is a capability answer; everything else stays what the
+    // provider said. The third case is the one the wire reference explicitly
+    // warns about: `unknown variant` names the METHOD that was sent (or an enum
+    // value nested in it), so a classifier matching a phrase without the
+    // backticked field name would read "this build has no `thread/fork` at all"
+    // — a different condition, governed by the version floor — as a missing
+    // boundary field.
+    const genericRefusals: readonly string[] = [
+      "Invalid request: unknown variant `thread/fork`, expected one of `initialize`, `thread/start`",
+      "Invalid request: missing field `threadId`",
+      "thread not found",
+    ];
+    for (const providerMessage of genericRefusals) {
+      const harness = createHarness();
+      await resumedSessionWithTurns(harness, 2);
+      harness.server.on("thread/fork", () => ({
+        error: { code: -32600, message: providerMessage },
+      }));
+
+      const refused = await harness.driver
+        .rollbackTo({ sessionId: SESSION_ID, bindingId: "binding-abc", position: 1 })
+        .then(
+          () => undefined,
+          (cause: unknown) => cause,
+        );
+
+      // Asserted as a labelled pair rather than a bare negative so a failure
+      // names WHICH refusal was misread, which is the whole diagnostic value of
+      // driving three shapes through one arm.
+      expect({
+        providerMessage,
+        classifiedAsCapabilityRefusal: refused instanceof CodexRewindBoundaryUnsupportedError,
+      }).toStrictEqual({ providerMessage, classifiedAsCapabilityRefusal: false });
+      expect(refused).toBeInstanceOf(CodexProviderRequestError);
+    }
   });
 });
 
@@ -5407,6 +6144,7 @@ describe("CodexDriver transport construction (T3.15 leg 6)", () => {
       scheduleTimeout: makeManualScheduler().schedule,
       executablePath: EXECUTABLE_PATH,
       resumeSpawnConfig: RESUME_SPAWN_CONFIG,
+      resolveCredentialEnvPolicy: resolveNoDeniedCredentialNames,
       newBindingId: () => "binding-abc",
       readCapabilities: () => makeCapabilities(true),
     };
@@ -5532,6 +6270,7 @@ async function routedAskHarness(
     scheduleTimeout: scheduler.schedule,
     executablePath: EXECUTABLE_PATH,
     resumeSpawnConfig: RESUME_SPAWN_CONFIG,
+    resolveCredentialEnvPolicy: resolveNoDeniedCredentialNames,
     newBindingId: () => "binding-abc",
     readCapabilities: () => makeCapabilities(true),
     ...(responder === undefined ? {} : { answerServerRequest: responder }),

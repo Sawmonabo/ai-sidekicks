@@ -64,6 +64,18 @@
 // hand-written mirror interface would silently keep compiling against a stale
 // shape. It also keeps a test's typed fake honest without a new abstraction.
 //
+// -- Detection sources (T3.24) --
+//
+// The declaration is the matrix INTERSECTED with what a zero-turn probe found
+// on the installed build, and every flag reports which of the two decided it.
+// `../../capability-probe.ts` owns the per-driver mechanism table, the probes,
+// their negative control, and the withdraw-only resolution; this module owns
+// the ORDERING — floor first, probe second — so no probe is ever issued against
+// a build the daemon has already refused. `detectionSource` is composed only
+// here, on the live read; the T2.4 writer's `hydrate()` reconstruction leaves it
+// absent, which is specified to read as cache reconstruction rather than as
+// unknown provenance.
+//
 // SCOPE BOUNDARY: the MCP idempotency floor + server-status census (T3.13)
 // EXTEND this driver in a sibling PR-B task and are NOT implemented here; the
 // CLI-version floor and the refresh cadence landed with T3.12 (the floor
@@ -90,12 +102,22 @@ import type {
   GetCapabilitiesResult,
 } from "@ai-sidekicks/contracts";
 
-import { assertCliVersionMeetsFloor } from "../../capability-refresh.js";
+import {
+  applyCapabilityDetection,
+  readCapabilityDetection,
+  type CapabilityDetectionReading,
+  type CapabilityProbeExchange,
+} from "../../capability-probe.js";
+import {
+  assertCliVersionMeetsFloor,
+  emitCapabilityDetectionDiagnostics,
+} from "../../capability-refresh.js";
 import type {
   DeclareDriverCapabilitiesInput,
   DeclareDriverCapabilitiesResult,
   DriverCapabilitiesWriter,
 } from "../../driver-capabilities-writer.js";
+import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import type { SpawnedProviderVersionReading } from "../../version-gate.js";
 
 import { getCodexToolMetadata } from "./tools.js";
@@ -145,9 +167,11 @@ export const CODEX_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boole
     structured_output: true,
     // Rewind is delivered by forking a thread at an inclusive turn boundary.
     // Non-probeable at the parameter level, so it resolves from the matrix;
-    // an invocation against a build lacking the boundary field refuses as
-    // `driver.capability_unsupported` rather than rewinding to the wrong
-    // position (Plan-005 T3.24).
+    // a build that REFUSES the boundary field is classified at the
+    // `rollbackTo` fork dispatch as `driver.capability_unsupported` rather
+    // than surfacing as an opaque provider fault (Plan-005 T3.24). A build
+    // that IGNORES it instead forks the whole thread and is answered by that
+    // leg's turn-ledger check, which is a diagnostic and not a refusal.
     rollback: true,
     // Durable per-thread goal set/clear operations exist on the wire.
     session_goals: true,
@@ -192,6 +216,7 @@ export const CODEX_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boole
  */
 export function getCodexCapabilities(
   reading: SpawnedProviderVersionReading,
+  detection: CapabilityDetectionReading,
 ): GetCapabilitiesResult {
   // A reading taken from ANOTHER driver's build would compose this driver's
   // flags against a foreign version — a daemon wiring fault, not provider
@@ -202,16 +227,73 @@ export function getCodexCapabilities(
       `getCodexCapabilities: refusing a spawned-version reading taken from driver '${reading.driverName}'`,
     );
   }
+  if (detection.driverName !== CODEX_DRIVER_NAME) {
+    throw new Error(
+      `getCodexCapabilities: refusing a detection reading taken from driver '${detection.driverName}'`,
+    );
+  }
+  // The version and the flags must describe ONE executable. Both readings carry
+  // the path the version handshake resolved, so this is a comparison rather than
+  // a re-resolution — and it catches the case a re-resolution would create: a
+  // `PATH` change or an installer swap between the two reads, which would
+  // otherwise compose probed flags for one build onto the version of another
+  // with nothing downstream able to tell.
+  if (detection.boundExecutablePath !== reading.resolvedExecutablePath) {
+    throw new Error(
+      "getCodexCapabilities: refusing a detection reading bound to a different executable than the version reading",
+    );
+  }
   const cliVersion: DriverCliVersionReport = reading.report;
   assertCliVersionMeetsFloor(CODEX_DRIVER_NAME, cliVersion);
   return {
     capabilities: {
-      flags: { ...CODEX_CAPABILITY_FLAGS },
+      flags: applyCapabilityDetection(CODEX_CAPABILITY_FLAGS, detection),
       contractVersion: CODEX_CAPABILITY_CONTRACT_VERSION,
     },
     tools: getCodexToolMetadata(),
     cliVersion: { raw: cliVersion.raw, semver: cliVersion.semver },
+    // Fresh, for the same reason every other member is: the reading's record is
+    // frozen and shared, and a caller that mutates a reply must not rewrite the
+    // next caller's provenance.
+    detectionSource: { ...detection.detectionSource },
   };
+}
+
+/**
+ * Take one detection reading for the Codex build described by `reading`.
+ *
+ * ORDERING IS THE CONTRACT, and it is why this wrapper exists rather than
+ * callers invoking `readCapabilityDetection` directly. The floor gate runs
+ * FIRST: `Spec-005` refuses every use of a below-floor build beyond the version
+ * handshake itself, and a probe is such a use. A build this daemon has already
+ * refused is therefore never asked what it can do.
+ *
+ * The read is BOUND to the executable the version handshake resolved, taken
+ * from that same reading rather than resolved again, so the composition step
+ * can check that the version and the flags describe one build.
+ *
+ * Withdrawals are reported here rather than at the refresh entry point, so
+ * every path that takes a detection reading — attach and refresh alike — meters
+ * the same fact through the same counter.
+ */
+export async function readCodexCapabilityDetection(
+  reading: SpawnedProviderVersionReading,
+  exchange: CapabilityProbeExchange,
+  diagnostics: DriverDiagnosticsEmitter,
+): Promise<CapabilityDetectionReading> {
+  if (reading.driverName !== CODEX_DRIVER_NAME) {
+    throw new Error(
+      `readCodexCapabilityDetection: refusing a spawned-version reading taken from driver '${reading.driverName}'`,
+    );
+  }
+  assertCliVersionMeetsFloor(CODEX_DRIVER_NAME, reading.report);
+  const detection = await readCapabilityDetection({
+    driverName: CODEX_DRIVER_NAME,
+    boundExecutablePath: reading.resolvedExecutablePath,
+    exchange,
+  });
+  emitCapabilityDetectionDiagnostics(diagnostics, detection);
+  return detection;
 }
 
 /**
@@ -233,6 +315,22 @@ export interface CodexCapabilityRefreshInput {
    * entry closes over a reader rather than over a value.
    */
   readonly reading: SpawnedProviderVersionReading;
+  /**
+   * The zero-turn probe transport (T3.24). Held as the SEAM rather than as a
+   * reading, because the cadence must RE-PROBE: each refresh takes a new
+   * detection reading through this exchange for the same reason it takes a new
+   * version reading, and a caller that passed a value could replay attach-time
+   * provenance for a build that has since been replaced.
+   */
+  readonly probe: CapabilityProbeExchange;
+  /**
+   * The daemon diagnostic channel the detection read reports withdrawals on.
+   * REQUIRED for the same reason the refresh scheduler's emitter is: a flag a
+   * build silently stopped carrying is exactly the class of condition the
+   * closed-kind-plus-counter pairing exists to keep metered, and an optional
+   * emitter would let a whole node's withdrawals go uncounted.
+   */
+  readonly diagnostics: DriverDiagnosticsEmitter;
   /** EventEnvelope actor; omitted means the system actor. */
   readonly actor?: string | null;
 }
@@ -250,11 +348,16 @@ export async function refreshCodexCapabilities(
   sink: DriverCapabilityDeclarationSink,
   input: CodexCapabilityRefreshInput,
 ): Promise<DeclareDriverCapabilitiesResult> {
+  const detection = await readCodexCapabilityDetection(
+    input.reading,
+    input.probe,
+    input.diagnostics,
+  );
   const declareInput: DeclareDriverCapabilitiesInput = {
     sessionId: input.sessionId,
     nodeId: input.nodeId,
     driverName: CODEX_DRIVER_NAME,
-    result: getCodexCapabilities(input.reading),
+    result: getCodexCapabilities(input.reading, detection),
     // Spread conditionally: under `exactOptionalPropertyTypes` an explicit
     // `actor: undefined` is NOT the same as an absent `actor`, and the writer
     // defaults an ABSENT actor to the system actor.

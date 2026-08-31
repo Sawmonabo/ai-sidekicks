@@ -27,6 +27,8 @@ import {
   type GetCapabilitiesResult,
 } from "@ai-sidekicks/contracts";
 
+import { RecordingCapabilityProbeTransport } from "../../../__fixtures__/capability-probe-doubles.js";
+import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
 import {
   DRIVER_CLI_VERSION_FLOORS,
   DriverCliVersionBelowFloorError,
@@ -72,11 +74,28 @@ function claudeReading(report: DriverCliVersionReport): SpawnedProviderVersionRe
  * every existing assertion still says what it always said about the version,
  * while the reporter's dependency is exercised in its shipped shape.
  */
+/** The diagnostic band, muted: this suite asserts declarations, not records. */
+function silentDiagnostics(): DriverDiagnosticsEmitter {
+  return new DriverDiagnosticsEmitter({ logSink: { record: () => undefined } });
+}
+
 function makeReporter(
   readCliVersion: () => Promise<DriverCliVersionReport> = () => Promise.resolve({ ...CLI_VERSION }),
+  probe: RecordingCapabilityProbeTransport = new RecordingCapabilityProbeTransport("claude"),
 ): ClaudeCapabilityReporter {
   return new ClaudeCapabilityReporter({
     readSpawnedVersion: async () => claudeReading(await readCliVersion()),
+    // T3.24: the probe transport is a REQUIRED dependency, so a reporter that
+    // declares provenance nobody measured cannot be constructed. The default
+    // double answers every censused subtype and refuses the negative control,
+    // which is the happy path these pre-existing assertions assume; the probe
+    // table, the classifier, and the withdrawal paths are exercised in
+    // `provider/__tests__/capability-probe.test.ts`.
+    probe: probe.exchange,
+    // Likewise REQUIRED: a withdrawal a build never reports is a capability
+    // silently lost. Silent here, because these assertions are about the
+    // declaration rather than about the diagnostic band.
+    diagnostics: silentDiagnostics(),
   });
 }
 
@@ -389,7 +408,11 @@ describe("Claude composition is bound to the spawned build (T3.23, I-005-10)", (
     const readSpawnedVersion = vi.fn(() =>
       Promise.resolve(claudeReading({ raw: "2.1.246", semver: "2.1.246" })),
     );
-    const reporter = new ClaudeCapabilityReporter({ readSpawnedVersion });
+    const reporter = new ClaudeCapabilityReporter({
+      readSpawnedVersion,
+      probe: new RecordingCapabilityProbeTransport("claude").exchange,
+      diagnostics: silentDiagnostics(),
+    });
     const result = await reporter.getCapabilities();
 
     expect(readSpawnedVersion).toHaveBeenCalledTimes(1);
@@ -406,6 +429,8 @@ describe("Claude composition is bound to the spawned build (T3.23, I-005-10)", (
     };
     const reporter = new ClaudeCapabilityReporter({
       readSpawnedVersion: () => Promise.resolve(foreign),
+      probe: new RecordingCapabilityProbeTransport("claude").exchange,
+      diagnostics: silentDiagnostics(),
     });
     await expect(reporter.getCapabilities()).rejects.toThrow(/driver 'codex'/);
 

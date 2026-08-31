@@ -23,6 +23,11 @@ import type {
 import { describe, expect, it } from "vitest";
 
 import {
+  RecordingCapabilityProbeTransport,
+  fullyProbedDetectionReading,
+} from "../../../__fixtures__/capability-probe-doubles.js";
+import type { CapabilityDetectionReading } from "../../../capability-probe.js";
+import {
   DRIVER_CLI_VERSION_FLOORS,
   DriverCliVersionBelowFloorError,
   DriverCliVersionUnparseableError,
@@ -31,6 +36,7 @@ import type {
   DeclareDriverCapabilitiesInput,
   DeclareDriverCapabilitiesResult,
 } from "../../../driver-capabilities-writer.js";
+import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
 import { DriverCapabilityUnsupportedError, ProviderRegistry } from "../../../provider-registry.js";
 import {
   assertValidCapabilityFlags,
@@ -96,6 +102,22 @@ function codexReading(
 
 const CLI_VERSION_READING: SpawnedProviderVersionReading = codexReading();
 
+// T3.24: the composition now takes a detection reading beside the version
+// reading, so a matrix-only declaration is unrepresentable. These two carry the
+// happy path for the pre-existing assertions below; the probe table, the
+// classifier, the negative control, and the withdrawal paths are exercised in
+// `provider/__tests__/capability-probe.test.ts`.
+const CODEX_DETECTION: CapabilityDetectionReading = fullyProbedDetectionReading(
+  "codex",
+  CLI_VERSION_READING.resolvedExecutablePath,
+);
+const CODEX_PROBE = new RecordingCapabilityProbeTransport("codex");
+
+/** The diagnostic band, muted: this suite asserts declarations, not records. */
+function silentDiagnostics(): DriverDiagnosticsEmitter {
+  return new DriverDiagnosticsEmitter({ logSink: { record: () => undefined } });
+}
+
 // Type-level half of I-005-2: the declared key set is EXACTLY the canonical
 // flag union. A missing flag or a stray one fails to compile — the assignment
 // below is the assertion.
@@ -149,7 +171,9 @@ describe("Codex capability declaration (T3.3)", () => {
     // omissions. Driving the real guard proves the declaration is admissible,
     // which a hand-rolled key compare alone does not.
     expect(() => {
-      assertValidCapabilityFlags(getCodexCapabilities(CLI_VERSION_READING).capabilities.flags);
+      assertValidCapabilityFlags(
+        getCodexCapabilities(CLI_VERSION_READING, CODEX_DETECTION).capabilities.flags,
+      );
     }).not.toThrow();
   });
 
@@ -173,7 +197,10 @@ describe("Codex capability declaration (T3.3)", () => {
 
 describe("Codex getCapabilities() wrapper (T3.3)", () => {
   it("returns the V1 GetCapabilitiesResult wrapper shape", () => {
-    const result: GetCapabilitiesResult = getCodexCapabilities(CLI_VERSION_READING);
+    const result: GetCapabilitiesResult = getCodexCapabilities(
+      CLI_VERSION_READING,
+      CODEX_DETECTION,
+    );
     expect(() => {
       assertValidGetCapabilitiesResultShape(result);
     }).not.toThrow();
@@ -187,7 +214,7 @@ describe("Codex getCapabilities() wrapper (T3.3)", () => {
   });
 
   it("carries the T3.4 tool census, and every row passes the write-seam schema", () => {
-    const result = getCodexCapabilities(CLI_VERSION_READING);
+    const result = getCodexCapabilities(CLI_VERSION_READING, CODEX_DETECTION);
     expect(result.tools).toEqual([...CODEX_TOOL_METADATA]);
     for (const tool of result.tools) {
       expect(ProviderToolMetadataSchema.safeParse(tool).success).toBe(true);
@@ -202,7 +229,7 @@ describe("Codex getCapabilities() wrapper (T3.3)", () => {
       raw: "codex-cli 0.149.1 (build abc123)",
       semver: "0.149.1",
     };
-    const result = getCodexCapabilities(codexReading(oddReport));
+    const result = getCodexCapabilities(codexReading(oddReport), CODEX_DETECTION);
     expect(result.cliVersion).toEqual(oddReport);
     // Copied, not aliased — a caller mutating the report must not retroactively
     // change a declaration already handed to the writer.
@@ -210,15 +237,15 @@ describe("Codex getCapabilities() wrapper (T3.3)", () => {
   });
 
   it("hands out fresh objects so one caller cannot corrupt a later declaration", () => {
-    const first = getCodexCapabilities(CLI_VERSION_READING);
-    const second = getCodexCapabilities(CLI_VERSION_READING);
+    const first = getCodexCapabilities(CLI_VERSION_READING, CODEX_DETECTION);
+    const second = getCodexCapabilities(CLI_VERSION_READING, CODEX_DETECTION);
     expect(first).toEqual(second);
     expect(first.capabilities.flags).not.toBe(second.capabilities.flags);
     expect(first.tools).not.toBe(second.tools);
 
     first.capabilities.flags.cost_cap = true;
     first.tools.pop();
-    const third = getCodexCapabilities(CLI_VERSION_READING);
+    const third = getCodexCapabilities(CLI_VERSION_READING, CODEX_DETECTION);
     expect(third.capabilities.flags.cost_cap).toBe(false);
     expect(third.tools).toEqual([...CODEX_TOOL_METADATA]);
     expect(CODEX_CAPABILITY_FLAGS.cost_cap).toBe(false);
@@ -232,6 +259,8 @@ describe("Codex capability refresh seam (T3.3, CP-005-5)", () => {
       sessionId: "session-1",
       nodeId: "node-1",
       reading: CLI_VERSION_READING,
+      probe: CODEX_PROBE.exchange,
+      diagnostics: silentDiagnostics(),
     });
 
     expect(sink.calls).toHaveLength(1);
@@ -244,7 +273,7 @@ describe("Codex capability refresh seam (T3.3, CP-005-5)", () => {
     expect(call.driverName).toBe("codex");
     expect(call.sessionId).toBe("session-1");
     expect(call.nodeId).toBe("node-1");
-    expect(call.result).toEqual(getCodexCapabilities(CLI_VERSION_READING));
+    expect(call.result).toEqual(getCodexCapabilities(CLI_VERSION_READING, CODEX_DETECTION));
     // `actor` absent (not `undefined`) means the writer's system-actor default.
     expect(Object.prototype.hasOwnProperty.call(call, "actor")).toBe(false);
     // The writer owns change detection; this seam surfaces its verdict as-is.
@@ -257,6 +286,8 @@ describe("Codex capability refresh seam (T3.3, CP-005-5)", () => {
       sessionId: "session-2",
       nodeId: "node-2",
       reading: CLI_VERSION_READING,
+      probe: CODEX_PROBE.exchange,
+      diagnostics: silentDiagnostics(),
       actor: "participant-7",
     });
     expect(sink.calls[0]?.actor).toBe("participant-7");
@@ -272,6 +303,8 @@ describe("Codex capability refresh seam (T3.3, CP-005-5)", () => {
       sessionId: "session-4",
       nodeId: "node-4",
       reading: CLI_VERSION_READING,
+      probe: CODEX_PROBE.exchange,
+      diagnostics: silentDiagnostics(),
       actor: null,
     });
     const call = sink.calls[0];
@@ -289,6 +322,8 @@ describe("Codex capability refresh seam (T3.3, CP-005-5)", () => {
       sessionId: "session-3",
       nodeId: "node-3",
       reading: CLI_VERSION_READING,
+      probe: CODEX_PROBE.exchange,
+      diagnostics: silentDiagnostics(),
     });
     expect(emission.emitted).toBe("noop");
     expect(sink.calls).toHaveLength(1);
@@ -299,7 +334,10 @@ describe("Codex CLI-version floor (T3.12, P0-2)", () => {
   it("refuses a below-floor report at composition, so attach and refresh both hit the gate", () => {
     let thrown: unknown;
     try {
-      getCodexCapabilities(codexReading({ raw: "codex-cli 0.140.0", semver: "0.140.0" }));
+      getCodexCapabilities(
+        codexReading({ raw: "codex-cli 0.140.0", semver: "0.140.0" }),
+        CODEX_DETECTION,
+      );
     } catch (e) {
       thrown = e;
     }
@@ -315,16 +353,25 @@ describe("Codex CLI-version floor (T3.12, P0-2)", () => {
 
   it("admits the ratified floor itself and any newer build (above the pin included)", () => {
     expect(() => {
-      getCodexCapabilities(codexReading({ raw: "codex-cli 0.141.0", semver: "0.141.0" }));
+      getCodexCapabilities(
+        codexReading({ raw: "codex-cli 0.141.0", semver: "0.141.0" }),
+        CODEX_DETECTION,
+      );
     }).not.toThrow();
     expect(() => {
-      getCodexCapabilities(codexReading({ raw: "codex-cli 0.150.1", semver: "0.150.1" }));
+      getCodexCapabilities(
+        codexReading({ raw: "codex-cli 0.150.1", semver: "0.150.1" }),
+        CODEX_DETECTION,
+      );
     }).not.toThrow();
   });
 
   it("refuses a non-canonical semver member fail-closed as unparseable", () => {
     expect(() => {
-      getCodexCapabilities(codexReading({ raw: "codex-cli mystery", semver: "mystery" }));
+      getCodexCapabilities(
+        codexReading({ raw: "codex-cli mystery", semver: "mystery" }),
+        CODEX_DETECTION,
+      );
     }).toThrow(DriverCliVersionUnparseableError);
   });
 
@@ -335,6 +382,8 @@ describe("Codex CLI-version floor (T3.12, P0-2)", () => {
         sessionId: "session-floor",
         nodeId: "node-floor",
         reading: codexReading({ raw: "codex-cli 0.140.0", semver: "0.140.0" }),
+        probe: CODEX_PROBE.exchange,
+        diagnostics: silentDiagnostics(),
       }),
     ).rejects.toBeInstanceOf(DriverCliVersionBelowFloorError);
     // Fail-closed means the writer never saw the below-floor declaration.
@@ -352,7 +401,8 @@ describe("Codex cost_cap static refusal (T3.12)", () => {
     // contract; any other operation the registry hypothetically called would
     // fail loudly as undefined.
     const declarationOnlyDriver = {
-      getCapabilities: () => Promise.resolve(getCodexCapabilities(CLI_VERSION_READING)),
+      getCapabilities: () =>
+        Promise.resolve(getCodexCapabilities(CLI_VERSION_READING, CODEX_DETECTION)),
     } as unknown as Parameters<ProviderRegistry["register"]>[1];
     await registry.register(CODEX_DRIVER_NAME, declarationOnlyDriver);
 
@@ -381,7 +431,7 @@ describe("Codex composition is bound to the spawned build (T3.23, I-005-10)", ()
     // version that spawned". The composition takes the reading, so the wrapper
     // it emits carries exactly the version the resolved build reported.
     const reading = codexReading({ raw: "0.150.1", semver: "0.150.1" });
-    const result = getCodexCapabilities(reading);
+    const result = getCodexCapabilities(reading, CODEX_DETECTION);
     expect(result.cliVersion).toStrictEqual({ raw: "0.150.1", semver: "0.150.1" });
     expect(result.cliVersion).not.toBe(reading.report);
   });
@@ -396,7 +446,7 @@ describe("Codex composition is bound to the spawned build (T3.23, I-005-10)", ()
       resolvedExecutablePath: "/opt/homebrew/Cellar/claude/2.1.245/bin/claude",
       report: { raw: "2.1.245", semver: "2.1.245" },
     };
-    expect(() => getCodexCapabilities(foreign)).toThrow(/driver 'claude'/);
+    expect(() => getCodexCapabilities(foreign, CODEX_DETECTION)).toThrow(/driver 'claude'/);
 
     const sink = new RecordingDeclarationSink({ emitted: "noop", cliVersionRefreshed: false });
     await expect(
@@ -404,6 +454,8 @@ describe("Codex composition is bound to the spawned build (T3.23, I-005-10)", ()
         sessionId: "session-foreign",
         nodeId: "node-foreign",
         reading: foreign,
+        probe: CODEX_PROBE.exchange,
+        diagnostics: silentDiagnostics(),
       }),
     ).rejects.toThrow(/driver 'claude'/);
     expect(sink.calls).toHaveLength(0);

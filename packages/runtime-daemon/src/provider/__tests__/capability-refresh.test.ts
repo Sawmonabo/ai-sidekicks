@@ -22,6 +22,10 @@
 import type { DriverAuthProbeResult } from "@ai-sidekicks/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  CapabilityProbeNegativeControlError,
+  CapabilityProbeTransportError,
+} from "../capability-probe.js";
 import { DriverDiagnosticsEmitter, type DriverDiagnosticRecord } from "../driver-diagnostics.js";
 import type { DeclareDriverCapabilitiesResult } from "../driver-capabilities-writer.js";
 import {
@@ -536,5 +540,90 @@ describe("CapabilityRefreshScheduler", () => {
   it("refreshNow against an unregistered node is a no-op, never a throw", async () => {
     const { scheduler } = buildScheduler();
     await expect(scheduler.refreshNow("node-unknown")).resolves.toBeUndefined();
+  });
+});
+
+// --------------------------------------------------------------------------
+// Plan-005 T3.24 — the cadence re-probe's failures are legible as PROBE failures
+// --------------------------------------------------------------------------
+
+describe("the cadence re-probe's diagnostic leg", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("reports a probe-surface failure under the `capability-probe` leg", async () => {
+    // The detection read runs INSIDE `refreshDeclaration()`, so a probe failure
+    // arrives on the refresh leg. Reporting it as an ordinary refresh failure
+    // would leave an operator unable to tell "the probe channel is broken" from
+    // "the declaration could not be written" — two different repairs.
+    const emittedEvents: string[] = [];
+    const codex = buildFakeDriverEntry("codex", emittedEvents);
+    const { scheduler, diagnostics, emittedDiagnosticRecords } = buildScheduler();
+    scheduler.startForNode({ nodeId: "node-1", drivers: [codex.entry] });
+
+    codex.setRefreshResult(new CapabilityProbeNegativeControlError("codex", "zzq/nonexistent"));
+    await vi.advanceTimersByTimeAsync(CAPABILITY_REFRESH_INTERVAL_MS);
+
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]?.leg).toBe("capability-probe");
+    expect(diagnostics[0]?.message).toMatch(/negative control/);
+    // No new diagnostic KIND is minted: the record still meters under the
+    // shipped capability-refresh counter, and the leg rides `details`.
+    expect(emittedDiagnosticRecords).toHaveLength(1);
+    expect(emittedDiagnosticRecords[0]?.kind).toBe("capability_refresh_failed");
+    expect(emittedDiagnosticRecords[0]?.details["leg"]).toBe("capability-probe");
+    scheduler.shutdown();
+  });
+
+  it("refines a transport failure of the probe surface too", async () => {
+    const emittedEvents: string[] = [];
+    const codex = buildFakeDriverEntry("codex", emittedEvents);
+    const { scheduler, diagnostics } = buildScheduler();
+    scheduler.startForNode({ nodeId: "node-1", drivers: [codex.entry] });
+
+    codex.setRefreshResult(
+      new CapabilityProbeTransportError("codex", "turn/steer", { cause: new Error("pipe closed") }),
+    );
+    await vi.advanceTimersByTimeAsync(CAPABILITY_REFRESH_INTERVAL_MS);
+
+    expect(diagnostics[0]?.leg).toBe("capability-probe");
+    scheduler.shutdown();
+  });
+
+  it("leaves an ORDINARY refresh failure on the `capability-refresh` leg", async () => {
+    // The refinement is scoped, not a rename: a below-floor downgrade is still a
+    // refresh failure and must not be mislabelled as a probe fault.
+    const emittedEvents: string[] = [];
+    const codex = buildFakeDriverEntry("codex", emittedEvents);
+    const { scheduler, diagnostics } = buildScheduler();
+    scheduler.startForNode({ nodeId: "node-1", drivers: [codex.entry] });
+
+    codex.setRefreshResult(
+      new DriverCliVersionBelowFloorError("codex", "0.140.0", DRIVER_CLI_VERSION_FLOORS.codex),
+    );
+    await vi.advanceTimersByTimeAsync(CAPABILITY_REFRESH_INTERVAL_MS);
+
+    expect(diagnostics[0]?.leg).toBe("capability-refresh");
+    scheduler.shutdown();
+  });
+
+  it("never refines the AUTH-PROBE leg, whatever it rejects with", async () => {
+    // A probe error surfacing from the auth seam would be a wiring fault, and
+    // relabelling it would attribute an auth failure to the capability channel.
+    const emittedEvents: string[] = [];
+    const codex = buildFakeDriverEntry("codex", emittedEvents);
+    const { scheduler, diagnostics } = buildScheduler();
+    scheduler.startForNode({ nodeId: "node-1", drivers: [codex.entry] });
+
+    codex.setProbeResult(new CapabilityProbeNegativeControlError("codex", "zzq/nonexistent"));
+    await vi.advanceTimersByTimeAsync(CAPABILITY_REFRESH_INTERVAL_MS);
+
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]?.leg).toBe("auth-probe");
+    scheduler.shutdown();
   });
 });

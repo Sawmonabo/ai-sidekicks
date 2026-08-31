@@ -15,9 +15,11 @@ import type {
 } from "@ai-sidekicks/contracts";
 
 import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
+import { PROVIDER_AUTO_UPDATE_OPT_OUT_ENV, type SpawnEnvPair } from "../../../spawn-env.js";
 import type { ThreadFrameRoute } from "../../../thread-frame-router.js";
 import type {
   ClaudeAuthProbeReading,
+  ClaudeAuthProbeRequest,
   ClaudeChannelDisposalReason,
   ClaudeControlRequest,
   ClaudeControlResponse,
@@ -305,9 +307,35 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
   probeAuthFailure: Error | undefined = undefined;
   probeAuthDetail: string | undefined = undefined;
   probeAuthCallCount: number = 0;
+  readonly probeAuthRequests: ClaudeAuthProbeRequest[] = [];
+
+  /**
+   * Refuses to start a child that was not handed the daemon's mandated pairs.
+   *
+   * The port's obligation modelled as a REFUSAL rather than as a recording,
+   * because a recording only proves what some test remembers to read back. A
+   * spawn path that quietly stopped supplying the pairs would still return a
+   * working channel, and every assertion about the session it established would
+   * keep passing — the lost suppression is invisible from every other property a
+   * test could check. Here it is not invisible: nothing starts without them.
+   *
+   * Keyed on the canonical opt-out table rather than on a written-out pair, so a
+   * re-graded provider entry moves this guard with it instead of leaving it
+   * asserting a value the corpus no longer mandates.
+   */
+  #requireMandatedEnvironment(mandatedEnvironment: readonly SpawnEnvPair[]): void {
+    for (const [name, value] of Object.entries(PROVIDER_AUTO_UPDATE_OPT_OUT_ENV.claude)) {
+      if (mandatedEnvironment.find((pair) => pair[0] === name)?.[1] !== value) {
+        throw new Error(
+          `A Claude child was started without the mandated ${name}=${value}, which the transport obligations forbid.`,
+        );
+      }
+    }
+  }
 
   async spawnSession(request: ClaudeSessionSpawnRequest): Promise<ClaudeSessionAttachment> {
     this.spawnRequests.push(request);
+    this.#requireMandatedEnvironment(request.mandatedEnvironment);
     await this.establishmentGate;
     if (this.spawnFailure !== undefined) {
       throw this.spawnFailure;
@@ -324,6 +352,7 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
     request: ClaudeSessionResumeRequest,
   ): Promise<ClaudeResumedSessionAttachment> {
     this.resumeRequests.push(request);
+    this.#requireMandatedEnvironment(request.mandatedEnvironment);
     await this.establishmentGate;
     if (this.resumeFailure !== undefined) {
       throw this.resumeFailure;
@@ -344,6 +373,7 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
     request: ClaudeSessionRewindRequest,
   ): Promise<ClaudeRewoundSessionAttachment> {
     this.rewindRequests.push(request);
+    this.#requireMandatedEnvironment(request.mandatedEnvironment);
     await this.establishmentGate;
     if (this.rewindFailure !== undefined) {
       throw this.rewindFailure;
@@ -370,8 +400,12 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
     };
   }
 
-  async probeAuth(): Promise<ClaudeAuthProbeReading> {
+  async probeAuth(request: ClaudeAuthProbeRequest): Promise<ClaudeAuthProbeReading> {
     this.probeAuthCallCount += 1;
+    this.probeAuthRequests.push(request);
+    // Checked BEFORE the failure arms, because a probe that could not be taken
+    // still started a child: the obligation is on the spawn, not on the answer.
+    this.#requireMandatedEnvironment(request.mandatedEnvironment);
     await Promise.resolve();
     if (this.probeAuthFailure !== undefined) {
       throw this.probeAuthFailure;
