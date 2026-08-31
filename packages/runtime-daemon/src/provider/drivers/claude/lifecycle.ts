@@ -67,6 +67,8 @@ import {
   ProviderCommandEntrySchema,
   ProviderOutputSpeedStateSchema,
   type CallbackToolInvocation,
+  type DriverTranscriptReplayResult,
+  type ReplayTranscriptParams,
   type CallbackToolResult,
   type ClearSessionGoalParams,
   type CloseSessionParams,
@@ -117,6 +119,16 @@ import {
   hostEnvNameMatchForPlatform,
   type SpawnEnvPair,
 } from "../../spawn-env.js";
+import {
+  assertReplayReconstituted,
+  PostReplayAssertionFailedError,
+  ReplayTargetLedger,
+  type PostReplayVerdict,
+  type ReplayTargetAbandonmentCause,
+  type ReplayTargetReadback,
+  type ReplayTargetReadbackReader,
+  type SeededTranscriptFrame,
+} from "../../transcript/replay-assertion.js";
 
 import {
   OutboundFrameTripwire,
@@ -130,7 +142,13 @@ import {
   type TextNeutralityMechanismGrade,
   type TextNeutralizationRunFailure,
 } from "../outbound-frame.js";
-import { CLAUDE_DRIVER_NAME } from "./capabilities.js";
+import {
+  CLAUDE_DRIVER_NAME,
+  type ClaudeTranscriptReplayReading,
+  type ClaudeTranscriptReplaySurfaceReader,
+  type ClaudeTranscriptSeedOutcome,
+  type ClaudeTranscriptSeedingSurface,
+} from "./capabilities.js";
 import {
   CLAUDE_SUBAGENT_START_SIGNAL,
   ClaudeTerminalEmissionGate,
@@ -1135,6 +1153,136 @@ export class ClaudeControlRequestRefusedError extends Error {
 // must come from a typed signal and never from message-substring sniffing. The
 // producing side is T3.14's auth probe / mid-run reauth route; this band is the
 // consumer. Rides the registered `driver.not_authenticated` (409).
+/**
+ * Thrown when a replay is asked of a build whose transcript-replay probe refused
+ * (T3.20).
+ *
+ * A REFUSAL and not a fault. `Spec-005 §Fallback Behavior` makes a `false`
+ * `transcript_replay` a supported declaration: the caller catches this, settles
+ * on the memo projection, and reports `degraded` with
+ * `conversation_history_summarized` declared. Throwing rather than returning
+ * `degraded` from here is the same distinction the sibling Codex leg draws — the
+ * `degraded` result belongs to whoever actually delivered the memo, and minting
+ * it in a driver that delivered nothing would claim a summarized history exists.
+ */
+/**
+ * Thrown when a replay against a build that DOES carry a seeding surface fails
+ * (T3.20) — a malformed frame, a non-fresh target, an interior refusal, or an
+ * ambiguous delivery.
+ *
+ * Its own class rather than `ClaudeSessionUnavailableError`, whose `reason` is a
+ * closed union mapped to fixed operator-facing messages. Every failure here
+ * names a transcript POSITION or a target's contents, which that union has no
+ * member for, and widening it would put replay-specific arms into the vocabulary
+ * every session-lifecycle refusal shares.
+ */
+export class ClaudeTranscriptReplayFailedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ClaudeTranscriptReplayFailedError";
+  }
+}
+
+/**
+ * Calls a replay-target readback reader and converts a rejection into the
+ * `unreadable` arm (T3.20).
+ *
+ * That conversion is the seam's own contract — "rejecting is equivalent to
+ * answering `unreadable`" — realized once so neither call site can forget it and
+ * turn a failed read into a thrown transport error the assertion never sees.
+ */
+async function readReplayTargetSafely(
+  read: ReplayTargetReadbackReader,
+  targetProviderSessionId: string,
+): Promise<ReplayTargetReadback> {
+  try {
+    return await read(targetProviderSessionId);
+  } catch (error: unknown) {
+    return { kind: "unreadable", reason: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/**
+ * Parses one exported transcript frame for the Claude replay leg, fail-closed
+ * (T3.20).
+ *
+ * Deliberately a sibling of the Codex leg's parser rather than a shared helper:
+ * the two driver trees are import-independent by design, so neither can break
+ * the other by moving a file, and the same duplication rule the capability
+ * modules follow applies here. The RULES the two enforce are identical, and both
+ * are held to them by `replay-assertion.ts`, which is shared.
+ *
+ * Every refusal is deliberate: a frame this leg cannot read is a frame it cannot
+ * seed, and skipping one would be a loss with no `DeclaredLossKind` to declare
+ * it, falsifying the empty loss list the `applied` arm returns.
+ */
+function readRenderedTranscriptFrameForClaudeReplay(frame: unknown): SeededTranscriptFrame {
+  if (typeof frame !== "object" || frame === null || Array.isArray(frame)) {
+    throw new ClaudeTranscriptReplayFailedError(
+      "A transcript frame handed to the Claude replay leg was not an object.",
+    );
+  }
+  const candidate = frame as Record<string, unknown>;
+  const position = candidate["position"];
+  const role = candidate["role"];
+  const segments = candidate["segments"];
+  if (typeof position !== "number" || !Number.isInteger(position)) {
+    throw new ClaudeTranscriptReplayFailedError(
+      "A transcript frame handed to the Claude replay leg carried no integer position.",
+    );
+  }
+  if (role !== "participant" && role !== "assistant") {
+    throw new ClaudeTranscriptReplayFailedError(
+      `A transcript frame at position ${String(position)} carried the unrecognized role "${String(role)}".`,
+    );
+  }
+  if (!Array.isArray(segments)) {
+    throw new ClaudeTranscriptReplayFailedError(
+      `The transcript frame at position ${String(position)} carried no segment list.`,
+    );
+  }
+  const bodyParts: string[] = [];
+  for (const segment of segments) {
+    if (typeof segment !== "object" || segment === null || Array.isArray(segment)) {
+      throw new ClaudeTranscriptReplayFailedError(
+        `The transcript frame at position ${String(position)} carried a segment that was not an object.`,
+      );
+    }
+    const kind = (segment as Record<string, unknown>)["kind"];
+    if (kind === "text" || kind === "reasoning") {
+      const text = (segment as Record<string, unknown>)["text"];
+      if (typeof text !== "string") {
+        throw new ClaudeTranscriptReplayFailedError(
+          `A "${String(kind)}" segment of the transcript frame at position ${String(position)} carried no text.`,
+        );
+      }
+      if (text.length > 0) {
+        bodyParts.push(text);
+      }
+      continue;
+    }
+    if (kind === "tool_call" || kind === "tool_result") {
+      continue;
+    }
+    // The no-silent-drop rule: an unrecognized kind refuses rather than being
+    // passed over, so a kind added to the canonical union without this leg
+    // learning to seed it fails loudly on the first transcript carrying one.
+    throw new ClaudeTranscriptReplayFailedError(
+      `The transcript frame at position ${String(position)} carried an unsupported segment kind "${String(kind)}"; refusing to seed a frame this driver cannot represent.`,
+    );
+  }
+  return { position, role, text: bodyParts.join("\n\n") };
+}
+
+export class ClaudeTranscriptReplayUnsupportedError extends Error {
+  constructor(reason: string) {
+    super(
+      `The installed Claude build exposes no prior-turn seeding surface this driver can drive: ${reason}`,
+    );
+    this.name = "ClaudeTranscriptReplayUnsupportedError";
+  }
+}
+
 export class ClaudeAuthenticationRequiredError extends Error {
   readonly code = "driver.not_authenticated" as const;
   readonly fields: { readonly driverId: string };
@@ -2038,6 +2186,19 @@ export interface ClaudeSessionLifecycleDependencies {
    * transcript-suppressed, so this pair survives the suppression rather than
    * sharing it.
    */
+  /**
+   * Reads the installed build's transcript-replay surface (T3.20).
+   *
+   * The SAME reading `ClaudeCapabilityReporterDependencies.transcriptReplayProbe`
+   * turns into the `transcript_replay` flag — a composed daemon binds this as a
+   * closure over that probe and the executable path the capability read
+   * resolved. One reading serving both is what keeps the declared flag and this
+   * driver's behaviour from disagreeing about one build.
+   *
+   * OPTIONAL, and absent means every replay refuses — the honest state at this
+   * pin, where no published build carries a seeding surface.
+   */
+  readonly transcriptReplaySurfaceReader?: ClaudeTranscriptReplaySurfaceReader | undefined;
   readonly onSubagentLifecycle?:
     | ((sessionId: SessionId, emission: SubagentLifecycleEmission) => void)
     | undefined;
@@ -2212,6 +2373,14 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     runId: RunId,
     failure: TextNeutralizationRunFailure,
   ) => void;
+  readonly #transcriptReplaySurfaceReader: ClaudeTranscriptReplaySurfaceReader | undefined;
+  /**
+   * Replay targets this driver has burned (T3.20). Keyed by PROVIDER session id
+   * for the same reason the sibling Codex ledger is: the rule is about the
+   * provider-side conversation, and a caller reaching a burned target does so
+   * through the handle it still holds.
+   */
+  readonly #replayTargets: ReplayTargetLedger = new ReplayTargetLedger();
   readonly #onSubagentLifecycle:
     | ((sessionId: SessionId, emission: SubagentLifecycleEmission) => void)
     | undefined;
@@ -2256,6 +2425,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     this.#readPriorEmittedUsage = dependencies.readPriorEmittedUsage;
     this.#onMeteredUsage = dependencies.onMeteredUsage;
     this.#onSubagentLifecycle = dependencies.onSubagentLifecycle;
+    this.#transcriptReplaySurfaceReader = dependencies.transcriptReplaySurfaceReader;
     this.#onReleasedFrameRoute = dependencies.onReleasedFrameRoute;
     this.#mintProviderSessionId = dependencies.mintProviderSessionId ?? randomUUID;
     this.#mintBindingId = dependencies.mintBindingId ?? randomUUID;
@@ -3585,6 +3755,151 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       declaration,
       invocableCommandNames: new Set(declaration.slashCommands),
     });
+  }
+
+  /**
+   * Reconstitutes the canonical transcript into a FRESH provider session, and
+   * returns only after the target's own answer confirms it (T3.20, I-005-8).
+   *
+   * ## This leg refuses on every published build, and that is the answer
+   *
+   * `Spec-005`'s Claude cell for `transcript_replay` is `probe`, not a constant,
+   * because no stable prior-turn seeding contract is published for this
+   * provider. The control-request census carries no seeding subtype, and the
+   * resume family (`--resume`, `--fork-session`, `--resume-session-at`) resumes
+   * the CLI's own stored sessions, whose on-disk format is not a contract this
+   * daemon may write into. So the probe answers `false`, the flag declares
+   * `false`, and reconstitution settles on the memo floor reported `degraded` —
+   * a supported outcome rather than a defect.
+   *
+   * What ships here is therefore the whole leg behind a seam: when a build does
+   * publish a seeding surface, the probe carries it, the flag follows in the
+   * same reading, and this code drives it with no further edit. The alternative —
+   * an unconditional throw — would make the flag's `true` arm unreachable and the
+   * probe decoration.
+   *
+   * ## Freshness is READ here rather than inferred
+   *
+   * Unlike the sibling Codex leg, this driver keeps no per-session turn ledger to
+   * gate on, so freshness costs a read: the target is asked what it holds BEFORE
+   * anything is written, and any answer but an empty one refuses. Paying a round
+   * trip is the right trade, because the post-replay assertion cannot recover the
+   * check afterwards — it tolerates a target answering with MORE turns than were
+   * seeded (a provider is entitled to add its own), so a target that arrived
+   * carrying a prior conversation would pass on a matching tail.
+   */
+  async replayTranscript(params: ReplayTranscriptParams): Promise<DriverTranscriptReplayResult> {
+    const targetProviderSessionId: string = params.target.providerSessionId;
+    this.#replayTargets.assertUsable(targetProviderSessionId);
+
+    const readSurface: ClaudeTranscriptReplaySurfaceReader | undefined =
+      this.#transcriptReplaySurfaceReader;
+    if (readSurface === undefined) {
+      throw new ClaudeTranscriptReplayUnsupportedError(
+        "no transcript-replay surface reader is bound, so no build has been shown to carry one",
+      );
+    }
+    const reading: ClaudeTranscriptReplayReading = await readSurface();
+    if (!reading.supported) {
+      // NOT an abandonment: nothing was written, the target is untouched, and a
+      // caller may hand this very session to the memo floor. Burning it here
+      // would cost a session for a condition that has nothing to do with it.
+      throw new ClaudeTranscriptReplayUnsupportedError(reading.reason);
+    }
+    const surface: ClaudeTranscriptSeedingSurface = reading.surface;
+
+    const seeded: SeededTranscriptFrame[] = params.frames.map((frame) =>
+      readRenderedTranscriptFrameForClaudeReplay(frame),
+    );
+    if (seeded.length === 0) {
+      throw new ClaudeTranscriptReplayFailedError(
+        "Refusing to replay an empty transcript: there is nothing to reconstitute, and a post-replay assertion over no frames confirms nothing.",
+      );
+    }
+
+    const priorContents: ReplayTargetReadback = await readReplayTargetSafely(
+      surface.readBack,
+      targetProviderSessionId,
+    );
+    if (priorContents.kind === "unreadable") {
+      this.#abandonReplayTarget(targetProviderSessionId, "readback-unavailable");
+      throw new ClaudeTranscriptReplayFailedError(
+        `Replay target "${targetProviderSessionId}" could not be read before seeding (${priorContents.reason}), so its freshness is unknown; the target was abandoned.`,
+      );
+    }
+    if (priorContents.turns.length > 0) {
+      this.#abandonReplayTarget(targetProviderSessionId, "target-not-fresh");
+      throw new ClaudeTranscriptReplayFailedError(
+        `Refusing to replay into session "${targetProviderSessionId}": it already holds ${String(priorContents.turns.length)} turn(s), and a replay target must be fresh.`,
+      );
+    }
+
+    for (const frame of seeded) {
+      const outcome: ClaudeTranscriptSeedOutcome = await surface.seedFrame(
+        targetProviderSessionId,
+        frame,
+      );
+      if (outcome.delivery === "applied") {
+        continue;
+      }
+      const cause: ReplayTargetAbandonmentCause =
+        outcome.delivery === "ambiguous" ? "ambiguous-delivery" : "interior-refusal";
+      this.#abandonReplayTarget(targetProviderSessionId, cause);
+      throw new ClaudeTranscriptReplayFailedError(
+        `Claude replay seeding stopped at transcript position ${String(frame.position)} (${outcome.delivery}: ${outcome.reason}); the target was abandoned and must not be reused.`,
+      );
+    }
+
+    const readback: ReplayTargetReadback = await readReplayTargetSafely(
+      surface.readBack,
+      targetProviderSessionId,
+    );
+    const verdict: PostReplayVerdict = assertReplayReconstituted(seeded, readback);
+    if (verdict.outcome === "refuted") {
+      const cause: ReplayTargetAbandonmentCause =
+        verdict.refutation === "target-unreadable" ? "readback-unavailable" : "assertion-refuted";
+      this.#abandonReplayTarget(targetProviderSessionId, cause);
+      throw new PostReplayAssertionFailedError(targetProviderSessionId, seeded.length, verdict);
+    }
+
+    // Retire the target on SUCCESS, not only on failure. This leg's freshness
+    // gate is a pre-seed READ, so unlike the Codex ledger it would in fact catch
+    // a second replay through the same handle — but it would catch it as
+    // `target-not-fresh`, which reads as "the caller handed us a used session"
+    // rather than "this daemon already replayed into this one", and it would
+    // spend a round trip to learn what the ledger already knows. Burning a
+    // confirmed target keeps both legs' single-use rule identical and stated in
+    // one place instead of resting on an accident of the two gates' shapes.
+    this.#replayTargets.consume(targetProviderSessionId);
+
+    // Empty, and it is a positive claim: this leg has no silent-drop path — an
+    // unrepresentable frame refuses in the parse above — so nothing was lost at
+    // the replay boundary. The export's own declared losses belong to the fold
+    // that produced them and ride the caller's disposition, never a second
+    // derivation here.
+    return { status: "applied", declaredLosses: [] };
+  }
+
+  /**
+   * Burns a replay target.
+   *
+   * Records ONLY, unlike the sibling Codex leg, which also disposes the process:
+   * the seeding surface here is injected and this driver does not own whatever
+   * session it wrote into, so tearing one down would be reaching past the seam it
+   * was handed. The ledger entry is the guarantee either way — a burned target is
+   * refused at the entrance of every later replay — and the caller, which
+   * established the target, is the party that can retire it.
+   *
+   * The residual is therefore LARGER here than on the Codex leg, and named rather
+   * than left to look like an omission: a burned Claude target is never disposed
+   * by this driver at all, where the Codex one is disposed best-effort. Disposal
+   * for an injected surface belongs to whoever established the session behind it,
+   * because that is the only party holding a handle this driver was not given.
+   * What is identical on both legs is the guarantee that matters — a burned target
+   * is never seeded again — since that rests on the ledger and not on disposal.
+   */
+  #abandonReplayTarget(targetProviderSessionId: string, cause: ReplayTargetAbandonmentCause): void {
+    this.#replayTargets.abandon(targetProviderSessionId, cause);
   }
 
   async closeSession(params: CloseSessionParams): Promise<void> {

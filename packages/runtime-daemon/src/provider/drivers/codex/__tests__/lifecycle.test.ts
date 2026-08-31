@@ -46,6 +46,7 @@ import {
   type CallbackToolResult,
   type ProviderCommandEntry,
   type SessionCallbackTool,
+  DriverTranscriptReplayResultSchema,
 } from "@ai-sidekicks/contracts";
 
 import {
@@ -67,6 +68,12 @@ import {
 import type { SubagentLifecycleEmission } from "../../../thread-frame-router.js";
 import type { CumulativeAxisReadings, MeteredUsageDelta } from "../../../usage-delta-accountant.js";
 import { hostEnvNameMatchForPlatform } from "../../../spawn-env.js";
+import {
+  PostReplayAssertionFailedError,
+  ReplayTargetAbandonedError,
+  type ReplayTargetReadback,
+  type ReplayTargetReadbackReader,
+} from "../../../transcript/replay-assertion.js";
 import {
   CodexAppServerConnection,
   CodexDriver,
@@ -748,6 +755,8 @@ interface ManagerHarnessOptions {
   answerServerRequest?: CodexSessionServerRequestResponder;
   /** Overrides the untyped spawn config, so an account-bearing leg can be built. */
   config?: Record<string, unknown>;
+  /** Binds the replay target-readback reader, so the post-replay assertion can run. */
+  transcriptReplayReadback?: ReplayTargetReadbackReader;
 }
 
 /**
@@ -821,6 +830,9 @@ function createManagerHarness(options: ManagerHarnessOptions = {}): ManagerHarne
     ...(options.answerServerRequest === undefined
       ? {}
       : { answerServerRequest: options.answerServerRequest }),
+    ...(options.transcriptReplayReadback === undefined
+      ? {}
+      : { transcriptReplayReadback: options.transcriptReplayReadback }),
     ...(options.onServerNotification === true
       ? {
           onServerNotification: (method: string, params: unknown): void => {
@@ -9730,5 +9742,300 @@ describe("Codex ask normalization at the session seam (T3.26)", () => {
     expect(drops[0]?.rawWireType).toBe("mcpServer/elicitation/request");
     expect(drops[0]?.details["declaredOptionCount"]).toBe(CODEX_ASK_OPTION_SET_MAX + 1);
     expect(drops[0]?.details["optionSetMax"]).toBe(CODEX_ASK_OPTION_SET_MAX);
+  });
+});
+
+describe("CodexLifecycleManager.replayTranscript (T3.20)", () => {
+  // Plan-005 T3.20 / invariant I-005-8. Every case here turns on the same rule:
+  // the seeding calls answering successfully is not evidence, and only the
+  // target's own answer is.
+
+  const TARGET = {
+    providerSessionId: "session-tree-1",
+    resumeHandle: THREAD_ID,
+  } as const;
+
+  /** A rendered transcript frame at the shape `exportTranscript` emits. */
+  function frame(position: number, role: "participant" | "assistant", text: string): unknown {
+    return { position, role, segments: [{ kind: "text", position, text }] };
+  }
+
+  const TRANSCRIPT: readonly unknown[] = [
+    frame(1, "participant", "what changed in the parser?"),
+    frame(2, "assistant", "the enclosure settle moved after the strip"),
+    frame(3, "participant", "why that order?"),
+    frame(4, "assistant", "stripping first orphans the tool calls"),
+  ];
+
+  /** Answers every seeded frame, and reports what the target holds. */
+  function readbackAnswering(...turns: readonly string[]): ReplayTargetReadbackReader {
+    return () => Promise.resolve<ReplayTargetReadback>({ kind: "turns", turns });
+  }
+
+  const SEEDED_BODIES: readonly string[] = [
+    "what changed in the parser?",
+    "the enclosure settle moved after the strip",
+    "why that order?",
+    "stripping first orphans the tool calls",
+  ];
+
+  function injectedFrameCount(harness: ManagerHarness): number {
+    return harness.server.framesForMethod("thread/inject_items").length;
+  }
+
+  async function freshTarget(harness: ManagerHarness): Promise<void> {
+    harness.server.on("thread/inject_items", () => ({ result: {} }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+  }
+
+  it("seeds frame by frame and CONFIRMS against the target's own answer", async () => {
+    const harness = createManagerHarness({
+      transcriptReplayReadback: readbackAnswering(...SEEDED_BODIES),
+    });
+    await freshTarget(harness);
+
+    const result = await harness.manager.replayTranscript({
+      target: TARGET,
+      frames: [...TRANSCRIPT],
+    });
+
+    expect(result).toStrictEqual({ status: "applied", declaredLosses: [] });
+    // The envelope is the WIRE contract, whose refinements this leg has to
+    // satisfy rather than merely resemble — round-tripped instead of eyeballed,
+    // because the `applied` arm carries its own rule (it may not declare
+    // `conversation_history_summarized`) that a structural comparison cannot see.
+    expect(DriverTranscriptReplayResultSchema.parse(result)).toStrictEqual(result);
+    // One request per frame — the decision that makes an interior refusal an
+    // observable state rather than an unknowable prefix.
+    expect(injectedFrameCount(harness)).toBe(4);
+  });
+
+  // A REPLAY NEVER WRITES TO ANY SESSION BUT THE TARGET. Asserting that each
+  // written frame carried `TARGET.resumeHandle` against ONE live session proves
+  // nothing — the lookup matches records BY that handle, so the equality holds by
+  // construction and no implementation can fail it. Two live sessions with
+  // distinct threads make it a real claim: a leg that resolved the wrong record
+  // writes a whole conversation into a stranger's session, and here that shows up
+  // as frames on the second thread.
+  it("writes only to the target's thread while another session is live", async () => {
+    const OTHER_SESSION_ID = "22222222-2222-4222-8222-222222222222" as SessionId;
+    const OTHER_THREAD_ID = "01a04202-0148-7ae2-8560-000000000002";
+    const harness = createManagerHarness({
+      transcriptReplayReadback: readbackAnswering(...SEEDED_BODIES),
+    });
+    harness.server.uniqueSpawnSessionIds = true;
+    harness.server.on("thread/inject_items", () => ({ result: {} }));
+
+    // The BYSTANDER starts first, so a leg that reached for "the first session
+    // this manager holds" rather than the one the handle names lands on it.
+    harness.server.on("thread/start", () => ({
+      result: {
+        thread: { id: OTHER_THREAD_ID, sessionId: "session-tree-other", turns: [] },
+      },
+    }));
+    await harness.manager.createSession({ sessionId: OTHER_SESSION_ID, config: SESSION_CONFIG });
+    harness.server.on("thread/start", () => threadStartResult());
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    await harness.manager.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] });
+
+    const threadsWritten = harness.server
+      .framesForMethod("thread/inject_items")
+      .map((written) => (written["params"] as { threadId?: unknown }).threadId);
+    expect(threadsWritten).toStrictEqual([
+      TARGET.resumeHandle,
+      TARGET.resumeHandle,
+      TARGET.resumeHandle,
+      TARGET.resumeHandle,
+    ]);
+    expect(threadsWritten).not.toContain(OTHER_THREAD_ID);
+  });
+
+  // A replay target is SINGLE-USE, and the success path is the one that has to
+  // say so. `thread/inject_items` does not advance `turnBoundaries`, so the
+  // freshness gate cannot see a session this driver itself just seeded: without
+  // the ledger's success entry a second call writes the conversation in twice and
+  // the assertion CONFIRMS it, because more answered turns than seeded is
+  // tolerated and the tail still matches.
+  it("burns a CONFIRMED target, so replaying the same handle twice is impossible", async () => {
+    const harness = createManagerHarness({
+      // Answers the doubled transcript — the reading a second replay would
+      // actually produce, so this test fails on the ledger and not on the
+      // readback being unrealistically stale.
+      transcriptReplayReadback: readbackAnswering(...SEEDED_BODIES, ...SEEDED_BODIES),
+    });
+    await freshTarget(harness);
+
+    await harness.manager.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] });
+    expect(injectedFrameCount(harness)).toBe(4);
+
+    await expect(
+      harness.manager.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
+    ).rejects.toBeInstanceOf(ReplayTargetAbandonedError);
+    // Refused BEFORE writing: the doubling never reached the provider.
+    expect(injectedFrameCount(harness)).toBe(4);
+  });
+
+  // THE MANDATORY CASE. The fake provider accepts every `thread/inject_items`
+  // request and then answers with an empty session — the untyped-injection
+  // failure mode the whole assertion exists for.
+  it("REFUSES a provider that accepts every frame and answers with zero turns", async () => {
+    const harness = createManagerHarness({ transcriptReplayReadback: readbackAnswering() });
+    await freshTarget(harness);
+
+    await expect(
+      harness.manager.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
+    ).rejects.toBeInstanceOf(PostReplayAssertionFailedError);
+    // Every seeding call SUCCEEDED, which is exactly why the return value is
+    // worth nothing as evidence.
+    expect(injectedFrameCount(harness)).toBe(4);
+  });
+
+  // A RESUMED session is the reachable non-fresh target: its turn ledger is
+  // seeded from the provider's own `thread.turns`, and that ledger IS the
+  // session-position axis, so a non-empty one is proof the target has already
+  // held a conversation. The gate costs no round trip and runs before any write.
+  it("refuses a target that already holds turns, before writing anything", async () => {
+    const harness = createManagerHarness({
+      transcriptReplayReadback: readbackAnswering(...SEEDED_BODIES),
+    });
+    harness.server.on("thread/inject_items", () => ({ result: {} }));
+    harness.server.on("thread/resume", () => threadStartResult(3));
+    await harness.manager.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
+
+    await expect(
+      harness.manager.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
+    ).rejects.toThrow(/must be fresh/);
+    expect(injectedFrameCount(harness)).toBe(0);
+  });
+
+  // NS-89's replay-target lifecycle: a prefix-accepted, then-refused target is
+  // abandoned and never reused, so the memo settlement its caller falls back to
+  // lands in a FRESH target and no surviving session holds both native frames
+  // and a memo about the same exchanges.
+  it("abandons a target refused mid-seeding, and never admits it again", async () => {
+    let acceptedFrames = 0;
+    const harness = createManagerHarness({
+      transcriptReplayReadback: readbackAnswering(...SEEDED_BODIES),
+    });
+    harness.server.on("thread/inject_items", () => {
+      acceptedFrames += 1;
+      return acceptedFrames <= 2
+        ? { result: {} }
+        : { error: { code: -32602, message: "unsupported item shape" } };
+    });
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    await expect(
+      harness.manager.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
+    ).rejects.toThrow(/abandoned and must not be reused/);
+    // A PREFIX was applied: the target is not pristine, which is what makes
+    // reuse unsafe rather than merely untidy.
+    expect(acceptedFrames).toBe(3);
+
+    // The burn survives the session's disposal, so a caller holding the stale
+    // handle is told what happened rather than being quietly re-admitted.
+    await expect(
+      harness.manager.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
+    ).rejects.toBeInstanceOf(ReplayTargetAbandonedError);
+    expect(acceptedFrames).toBe(3);
+  });
+
+  it("abandons a target whose seeding delivery is AMBIGUOUS", async () => {
+    const harness = createManagerHarness({
+      transcriptReplayReadback: readbackAnswering(...SEEDED_BODIES),
+    });
+    await freshTarget(harness);
+    // The bytes leave and no answer ever comes back: the transport classifies
+    // the delivery `indeterminate`, and whether the frame landed is unknowable
+    // from here. That is a different fact from a refusal, and it is the one that
+    // makes a retry a duplicated turn rather than a second chance.
+    harness.server.holdAnswers("thread/inject_items");
+
+    const replaying = harness.manager.replayTranscript({
+      target: TARGET,
+      frames: [...TRANSCRIPT],
+    });
+    const rejects = expect(replaying).rejects.toThrow(/abandoned and must not be reused/);
+    harness.scheduler.fireAll();
+    await rejects;
+
+    // No surviving session may hold a duplicated frame, so the ambiguous target
+    // is refused for good rather than retried.
+    await expect(
+      harness.manager.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
+    ).rejects.toBeInstanceOf(ReplayTargetAbandonedError);
+  });
+
+  it("abandons rather than confirming when no readback reader is bound", async () => {
+    const harness = createManagerHarness();
+    await freshTarget(harness);
+
+    await expect(
+      harness.manager.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
+    ).rejects.toThrow(/post-replay assertion cannot run/);
+    await expect(
+      harness.manager.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
+    ).rejects.toBeInstanceOf(ReplayTargetAbandonedError);
+  });
+
+  it("treats a rejecting readback reader as unreadable, never as a pass", async () => {
+    const harness = createManagerHarness({
+      transcriptReplayReadback: () => Promise.reject(new Error("target vanished")),
+    });
+    await freshTarget(harness);
+
+    await expect(
+      harness.manager.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
+    ).rejects.toBeInstanceOf(PostReplayAssertionFailedError);
+  });
+
+  // A replay NEVER writes to the session the transcript came from: the target is
+  // resolved from the handle the caller passed, and a handle this manager holds
+  // no session for is refused rather than established.
+  it("refuses a target this manager holds no session for", async () => {
+    const harness = createManagerHarness({
+      transcriptReplayReadback: readbackAnswering(...SEEDED_BODIES),
+    });
+    await freshTarget(harness);
+
+    await expect(
+      harness.manager.replayTranscript({
+        target: { providerSessionId: "session-tree-9", resumeHandle: "some-other-thread" },
+        frames: [...TRANSCRIPT],
+      }),
+    ).rejects.toThrow(/No live Codex session is bound to replay target thread/);
+    expect(injectedFrameCount(harness)).toBe(0);
+  });
+
+  it("refuses a frame carrying a segment kind it cannot represent, rather than skipping it", async () => {
+    const harness = createManagerHarness({
+      transcriptReplayReadback: readbackAnswering(...SEEDED_BODIES),
+    });
+    await freshTarget(harness);
+
+    await expect(
+      harness.manager.replayTranscript({
+        target: TARGET,
+        frames: [
+          frame(1, "participant", "kept"),
+          { position: 2, role: "assistant", segments: [{ kind: "hologram", position: 2 }] },
+        ],
+      }),
+    ).rejects.toThrow(/unsupported segment kind/);
+    // Parsed BEFORE anything is written, so an unrepresentable transcript costs
+    // the provider nothing and leaves the target pristine.
+    expect(injectedFrameCount(harness)).toBe(0);
+  });
+
+  it("refuses an empty transcript rather than confirming a replay of nothing", async () => {
+    const harness = createManagerHarness({
+      transcriptReplayReadback: readbackAnswering(...SEEDED_BODIES),
+    });
+    await freshTarget(harness);
+
+    await expect(harness.manager.replayTranscript({ target: TARGET, frames: [] })).rejects.toThrow(
+      /nothing to reconstitute/,
+    );
   });
 });

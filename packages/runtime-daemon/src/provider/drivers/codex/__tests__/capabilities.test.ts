@@ -77,7 +77,7 @@ const SPEC_CODEX_MATRIX: Record<DriverCapabilityFlag, boolean> = {
   session_goals: true,
   callback_tools: true,
   subagents: true,
-  transcript_replay: false,
+  transcript_replay: true,
   cost_cap: false,
   // T3.26 console parity. `context_compaction` and `provider_commands` are
   // NATIVE on this provider (`thread/compact/start` + `thread/compacted`, and
@@ -191,13 +191,14 @@ describe("Codex capability declaration (T3.3)", () => {
     }).not.toThrow();
   });
 
-  it("declares transcript_replay FALSE pending the replay leg", () => {
-    // The union now carries the flag, so the module's `Record` totality forces
-    // an answer and the only question is which one. `false` is the fail-closed
-    // reading until the driver-side replay operation ships and re-probes it —
-    // undeclared and declared-unsupported must look the same to a caller.
+  it("declares transcript_replay TRUE now that the replay leg reads it (T3.20)", () => {
+    // The flag and the code it gates flip TOGETHER, which is the condition the
+    // scope boundary this replaces actually named: `thread/inject_items` is
+    // documented and non-experimental at the pin, and the driver's replay leg —
+    // seeding frame by frame, then refusing on anything short of a target answer
+    // consistent with the transcript's tail — ships in `../lifecycle.ts`.
     expect(Object.hasOwn(CODEX_CAPABILITY_FLAGS, "transcript_replay")).toBe(true);
-    expect(CODEX_CAPABILITY_FLAGS.transcript_replay).toBe(false);
+    expect(CODEX_CAPABILITY_FLAGS.transcript_replay).toBe(true);
   });
 
   it("declares reasoning_stream and cost_cap FALSE (the two fail-closed rows)", () => {
@@ -227,13 +228,18 @@ describe("Codex getCapabilities() wrapper (T3.3)", () => {
     expect(result.capabilities.contractVersion).toBe(CODEX_CAPABILITY_CONTRACT_VERSION);
   });
 
-  it("pins the contract version the T3.26 growth moved it to, as a MINOR bump", () => {
+  it("pins the contract version the T3.20 flag flip moved it to, as a MAJOR bump", () => {
     // Change detection only works if the token actually MOVES when the declared
     // shape does — the writer compares whole snapshots, and a frozen token on a
-    // grown declaration is the failure mode this pins against. MINOR because the
-    // growth is additive: three flags joined the census, and this driver's
-    // `output_speed: false` is a complete answer rather than a withdrawal.
-    expect(CODEX_CAPABILITY_CONTRACT_VERSION).toBe("1.1.0");
+    // changed declaration is the failure mode this pins against.
+    //
+    // MAJOR, unlike T3.26's additive MINOR: no flag joined the census,
+    // `transcript_replay` changed VALUE, and a previously declared flag changing
+    // meaning is exactly what separates the two. It is also the move that has to
+    // be seen — migration `0012` backfilled this flag's row `supported = 0`, so
+    // a node holding that cached row would keep routing every reconstitution to
+    // the memo floor on a driver that now replays natively.
+    expect(CODEX_CAPABILITY_CONTRACT_VERSION).toBe("2.0.0");
   });
 
   it("spells the shared vocabulary table rather than copying it", () => {

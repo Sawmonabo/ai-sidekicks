@@ -28,7 +28,10 @@ import {
 } from "@ai-sidekicks/contracts";
 
 import { RecordingCapabilityProbeTransport } from "../../../__fixtures__/capability-probe-doubles.js";
-import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
+import {
+  DriverDiagnosticsEmitter,
+  type DriverDiagnosticRecord,
+} from "../../../driver-diagnostics.js";
 import {
   DRIVER_CLI_VERSION_FLOORS,
   DriverCliVersionBelowFloorError,
@@ -55,6 +58,8 @@ import {
   ClaudeModelCatalogUnreadableError,
   normalizeClaudeModelCatalog,
   resolveClaudeModelCatalog,
+  type ClaudeTranscriptReplayReading,
+  type ClaudeTranscriptSeedingSurface,
   type DriverCapabilityDeclarationSink,
 } from "../capabilities.js";
 import { CLAUDE_TOOL_CATALOG } from "../tools.js";
@@ -193,9 +198,11 @@ describe("Claude capability declaration — explicit and total (I-005-2)", () =>
 
   it("declares no flag the contract does not carry", () => {
     // `transcript_replay` is now in the union, and its Spec-005 Claude cell is
-    // `probe` rather than a value — so the declaration is `false` until the
-    // driver-side replay leg probes the installed build. Undeclared and
-    // declared-unsupported must be indistinguishable to a caller.
+    // `probe` rather than a value — so the MATRIX reading here stays `false` and
+    // `getCapabilities` replaces it with the probe's own answer (T3.20). `false`
+    // is the right constant to sit here because it is what an unprobed build
+    // declares, and undeclared and declared-unsupported must be
+    // indistinguishable to a caller.
     expect(CLAUDE_CAPABILITY_FLAGS.transcript_replay).toBe(false);
     const canonical = new Set<string>(DRIVER_CAPABILITY_FLAGS);
     for (const flag of Object.keys(CLAUDE_CAPABILITY_FLAGS)) {
@@ -798,5 +805,111 @@ describe("Claude model catalog (T3.12 C-8)", () => {
     await expect(resolveClaudeModelCatalog(async () => ({ notModels: [] }))).rejects.toThrow(
       ClaudeModelCatalogUnreadableError,
     );
+  });
+});
+
+// AC12's positive/negative pair for the ONE probe-valued cell in the Spec-005
+// matrix (Plan-005 T3.20). Every capability a client can invoke must be one
+// `getCapabilities` declares — so the declaration has to track the probe in BOTH
+// directions, and a suite that only ever ran the refusing double would pass
+// against a hard-coded `false`. Flipping the same double is what makes the
+// negative arm non-vacuous.
+describe("ClaudeCapabilityReporter — the probe-derived transcript_replay declaration", () => {
+  const SEEDING_SURFACE: ClaudeTranscriptSeedingSurface = {
+    seedFrame: () => Promise.resolve({ delivery: "applied" as const }),
+    readBack: () => Promise.resolve({ kind: "turns" as const, turns: [] }),
+  };
+
+  function reporterWithReplayProbe(
+    reading: () => Promise<ClaudeTranscriptReplayReading>,
+  ): ClaudeCapabilityReporter {
+    return new ClaudeCapabilityReporter({
+      readSpawnedVersion: () => Promise.resolve(claudeReading({ ...CLI_VERSION })),
+      probe: new RecordingCapabilityProbeTransport("claude").exchange,
+      diagnostics: silentDiagnostics(),
+      transcriptReplayProbe: reading,
+    });
+  }
+
+  it("declares FALSE when the probe finds no seeding surface on the build", async () => {
+    const reporter = reporterWithReplayProbe(() =>
+      Promise.resolve({
+        supported: false,
+        reason: "this build publishes no prior-turn seeding contract",
+      }),
+    );
+    const result = await reporter.getCapabilities();
+    expect(result.capabilities.flags.transcript_replay).toBe(false);
+  });
+
+  it("declares TRUE when the probe finds one — the declaration follows the probe UP", async () => {
+    const reporter = reporterWithReplayProbe(() =>
+      Promise.resolve({ supported: true, surface: SEEDING_SURFACE }),
+    );
+    const result = await reporter.getCapabilities();
+    expect(result.capabilities.flags.transcript_replay).toBe(true);
+  });
+
+  // The same double, flipped, on one build: whichever way the probe answers, the
+  // declaration is that answer and never the module constant.
+  it("tracks a probe that flips, in both directions", async () => {
+    let supported = false;
+    const reporter = reporterWithReplayProbe(() =>
+      Promise.resolve(
+        supported
+          ? { supported: true, surface: SEEDING_SURFACE }
+          : { supported: false, reason: "not yet" },
+      ),
+    );
+    const before = await reporter.getCapabilities();
+    expect(before.capabilities.flags.transcript_replay).toBe(false);
+
+    supported = true;
+    const after = await reporter.getCapabilities();
+    expect(after.capabilities.flags.transcript_replay).toBe(true);
+
+    supported = false;
+    const again = await reporter.getCapabilities();
+    expect(again.capabilities.flags.transcript_replay).toBe(false);
+  });
+
+  it("declares FALSE with no probe bound, which is this pin's honest answer", async () => {
+    const result = await makeReporter().getCapabilities();
+    expect(result.capabilities.flags.transcript_replay).toBe(false);
+  });
+
+  // A probe that FAULTS is not an availability signal. It fails closed to
+  // `false` and is metered, because a probe that could not answer is a different
+  // operational condition from one that answered no — and the flag's value is
+  // the only place the two would otherwise be indistinguishable.
+  it("fails closed AND records a diagnostic when the probe throws", async () => {
+    const emitted: DriverDiagnosticRecord[] = [];
+    const reporter = new ClaudeCapabilityReporter({
+      readSpawnedVersion: () => Promise.resolve(claudeReading({ ...CLI_VERSION })),
+      probe: new RecordingCapabilityProbeTransport("claude").exchange,
+      diagnostics: new DriverDiagnosticsEmitter({
+        logSink: { record: (record) => emitted.push(record) },
+      }),
+      transcriptReplayProbe: () => Promise.reject(new Error("probe transport died")),
+    });
+    const result = await reporter.getCapabilities();
+    expect(result.capabilities.flags.transcript_replay).toBe(false);
+    const withdrawal = emitted.find((record) => record.details["flag"] === "transcript_replay");
+    expect(withdrawal?.kind).toBe("capability_flag_withdrawn");
+    expect(withdrawal?.details["disposition"]).toBe("probe-faulted");
+  });
+
+  // The structural guarantee that replaces withdraw-only for this one cell: the
+  // supported arm CARRIES the surface, so "declared true with nothing behind it"
+  // is unrepresentable rather than merely forbidden.
+  it("cannot represent a supported reading with no seeding surface", () => {
+    const supported: ClaudeTranscriptReplayReading = {
+      supported: true,
+      surface: SEEDING_SURFACE,
+    };
+    expect(supported.supported && supported.surface).toBeDefined();
+    // @ts-expect-error a supported reading without a surface does not type-check
+    const impossible: ClaudeTranscriptReplayReading = { supported: true };
+    expect(impossible.supported).toBe(true);
   });
 });

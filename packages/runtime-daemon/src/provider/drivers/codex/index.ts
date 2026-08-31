@@ -26,13 +26,14 @@
 // `implements Pick<ProviderDriver, ...>` rather than a hand-written interface, so
 // each signature is checked against the canonical contract and drifts with it.
 // The canonical surface is EIGHTEEN operations and the `Pick` below names
-// THIRTEEN of them — both counted from their own declarations rather than
-// carried forward, because each side of that subtraction moved twice this phase:
-// the earlier "14-op" figure in this comment predated `exportTranscript` /
+// FOURTEEN of them — both counted from their own declarations rather than
+// carried forward, because each side of that subtraction moved three times this
+// phase: the earlier "14-op" figure in this comment predated `exportTranscript` /
 // `replayTranscript` (T3.19–T3.22) and `compactContext` / `listProviderCommands`
-// (T3.26), while `listModels` joined the `Pick` with T3.12's currency duty (C-8).
-// The five remaining (`respondToRequest`, `listModes`, `getCapabilities`,
-// `exportTranscript`, `replayTranscript`) are authored by the sibling Phase-3
+// (T3.26), while `listModels` joined the `Pick` with T3.12's currency duty (C-8)
+// and `replayTranscript` joined it with T3.20's replay leg.
+// The four remaining (`respondToRequest`, `listModes`, `getCapabilities`,
+// `exportTranscript`) are authored by the sibling Phase-3
 // tasks, and this class is widened to the full `ProviderDriver` when they land,
 // which the `Pick` makes a purely additive edit. The enumeration above is
 // re-derived from the type argument rather than restated, so it cannot drift
@@ -80,7 +81,9 @@ import type {
   InterruptRunParams,
   ListProviderCommandsParams,
   ProviderCommandListResult,
+  DriverTranscriptReplayResult,
   ProviderDriver,
+  ReplayTranscriptParams,
   ProviderModel,
   ProviderSessionHandle,
   ResumeSessionParams,
@@ -233,6 +236,7 @@ export class CodexDriver implements Pick<
   | "listModels"
   | "compactContext"
   | "listProviderCommands"
+  | "replayTranscript"
 > {
   readonly #lifecycle: CodexLifecycleManager;
   readonly #interventions: CodexInterventionDispatcher;
@@ -331,6 +335,19 @@ export class CodexDriver implements Pick<
 
   listProviderCommands(params: ListProviderCommandsParams): Promise<ProviderCommandListResult> {
     return this.#lifecycle.listProviderCommands(params);
+  }
+
+  /**
+   * Reconstitutes the canonical transcript into a fresh provider session (T3.20).
+   *
+   * NOT capability-gated here, for the reason the T3.15 operations above are
+   * not: I-005-2's static refusal is the registry's `checkCapability`, reading
+   * the snapshot captured at registration. A second gate in this class would read
+   * a live snapshot and could disagree with the one that already admitted the
+   * call.
+   */
+  replayTranscript(params: ReplayTranscriptParams): Promise<DriverTranscriptReplayResult> {
+    return this.#lifecycle.replayTranscript(params);
   }
 
   /** The transport this driver reaches its provider processes over. */

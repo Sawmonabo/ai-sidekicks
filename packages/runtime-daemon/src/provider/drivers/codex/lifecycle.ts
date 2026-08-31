@@ -162,7 +162,9 @@ import {
   type DriverTransportConfig,
   type ExecutionPosture,
   type InterruptRunParams,
+  type DriverTranscriptReplayResult,
   type ProviderSessionHandle,
+  type ReplayTranscriptParams,
   type PtyHost,
   type RecoveryCondition,
   type ResumeSessionParams,
@@ -203,6 +205,16 @@ import {
   type CredentialEnvPolicy,
   type SpawnEnvNameMatch,
 } from "../../spawn-env.js";
+import {
+  assertReplayReconstituted,
+  PostReplayAssertionFailedError,
+  ReplayTargetLedger,
+  type PostReplayVerdict,
+  type ReplayTargetAbandonmentCause,
+  type ReplayTargetReadback,
+  type ReplayTargetReadbackReader,
+  type SeededTranscriptFrame,
+} from "../../transcript/replay-assertion.js";
 
 import {
   CODEX_SKILLS_CHANGED_METHOD,
@@ -1410,6 +1422,18 @@ const CODEX_THREAD_COMPACT_START_METHOD = "thread/compact/start" as const;
 
 /** The provider's live skill enumeration. */
 const CODEX_SKILLS_LIST_METHOD = "skills/list" as const;
+
+/**
+ * The item-injection method the replay leg seeds a fresh thread through (T3.20).
+ *
+ * `ThreadInjectItemsParams = { threadId, items: Array<JsonValue> }`, documented
+ * at the pin as "Raw Responses API items to append to the thread's model-visible
+ * history", and non-experimental. `items` being `Array<JsonValue>` is the whole
+ * reason the post-replay assertion exists: the wire type accepts anything that
+ * serializes, so a frame this build does not understand is taken and dropped
+ * rather than refused, and the request answers success either way.
+ */
+const CODEX_THREAD_INJECT_ITEMS_METHOD = "thread/inject_items" as const;
 
 /**
  * How long this driver waits for a compaction's typed evidence.
@@ -5091,6 +5115,33 @@ export interface CodexLifecycleOptions extends CodexConnectionOptions {
   readonly onSubagentLifecycle?:
     | ((sessionId: SessionId, emission: SubagentLifecycleEmission) => void)
     | undefined;
+  /**
+   * Reads a replay target's turns back, as text, for the post-replay assertion
+   * (T3.20).
+   *
+   * The SAME answer shape and the SAME key the memo floor's
+   * `MemoTargetGateway.readTurnsForMarkerReconciliation` is bound to, because
+   * both readers ask one provider one question and a second answer shape would
+   * be a second notion of what a target holds.
+   *
+   * UNBOUND AT THIS PIN, and that is a recorded residual rather than an
+   * oversight — the same posture `MemoTargetGateway` itself holds, which has no
+   * production binding either. The pinned wire reference documents this
+   * provider's INJECTION surface and documents no read that returns turn
+   * BODIES: `thread/resume` and `thread/fork` populate `Thread.turns`, and the
+   * shipped reader beside them takes turn IDS out of it, which is a position
+   * axis and not content. Inventing a method name here, or guessing at a field
+   * shape inside a turn, would put an ungrounded string on the wire and — worse
+   * — would let a guess that happened to read `undefined` become a passing
+   * assertion.
+   *
+   * Absent, `replayTranscript` REFUSES rather than confirming on the strength of
+   * the seeding calls' own return values, which is precisely the evidence
+   * `Spec-005 §Required Behavior` says is worth nothing. A caller then settles on
+   * the memo floor and reports `degraded`, which is a supported outcome. Binding
+   * this is a composition-root edit, not a driver edit.
+   */
+  readonly transcriptReplayReadback?: ReplayTargetReadbackReader | undefined;
 }
 
 /**
@@ -5304,6 +5355,15 @@ export class CodexLifecycleManager {
   readonly #outboundFrameTripwire: OutboundFrameTripwire;
   readonly #providerBindingQuarantine = new ProviderBindingQuarantine();
   readonly #sessions = new Map<SessionId, CodexSessionRecord>();
+  /**
+   * Replay targets this manager has burned (T3.20).
+   *
+   * Keyed by PROVIDER session id rather than by canonical session id, because
+   * the rule it enforces is about the provider-side conversation: the record has
+   * to outlive the disposal of the daemon-side session, and a caller reaching a
+   * burned target does so through the `ProviderSessionHandle` it still holds.
+   */
+  readonly #replayTargets: ReplayTargetLedger = new ReplayTargetLedger();
   // The P1-1 producer half. One gate per session, latched at the top of
   // `closeSession`; the terminal-emission boundary in `event-normalizer.ts` is
   // the CONSUMER that stamps the flag on the terminal payload, because that is
@@ -6742,6 +6802,215 @@ export class CodexLifecycleManager {
    * cached but still returns it to its own caller, which is correct, so the
    * provenance stamped on it must be the predecessor's too.
    */
+  /**
+   * Reconstitutes the canonical transcript into a FRESH provider session, and
+   * returns only after the target's own answer confirms it (T3.20, I-005-8).
+   *
+   * ## Why the seeding is one request per frame
+   *
+   * `thread/inject_items` takes an array, so the whole transcript could go in
+   * one request. It does not, and the reason is OBSERVABILITY rather than
+   * safety: with one request, a refusal or a lost acknowledgment leaves the
+   * applied prefix unknowable — the target holds somewhere between zero and all
+   * of the transcript and nothing can say which. Abandonment is identical either
+   * way (the target is burned on both), but the DIAGNOSTIC is not, and neither
+   * is the ability to test the interior-refusal arm as a real state rather than
+   * a hypothetical one. The cost is one round trip per turn against a session
+   * nobody is waiting on yet.
+   *
+   * ## Why every failure abandons the target
+   *
+   * See {@link ReplayTargetLedger}. A partially-seeded target is abandoned and
+   * never reused; the memo settlement its caller falls back to always lands in a
+   * fresh one, so no surviving session holds both native frames and a memo
+   * summarizing the same exchanges.
+   *
+   * Abandonment DISPOSES the session here rather than only recording it: this
+   * driver owns the provider process, and a burned target left running is a
+   * `codex app-server` holding half a conversation that nothing will ever read.
+   * The ledger entry survives the disposal so a caller replaying against a stale
+   * handle is told what happened rather than getting a bare "no such session".
+   *
+   * ## Failures THROW rather than returning `degraded`
+   *
+   * `DriverTranscriptReplayResult`'s `degraded` status is the memo floor's, and
+   * its schema requires the matching `conversation_history_summarized` loss — so
+   * returning it from here would report a summarized history to a caller that
+   * got neither a replay nor a memo. The `applied` arm this returns carries an
+   * EMPTY loss list, and that is a positive claim: this leg has no silent-drop
+   * path, because a frame it cannot represent is refused rather than skipped.
+   * The export's own declared losses ride the caller's disposition, not this
+   * result — the fold that produced them is a different task's, and re-deriving
+   * them here would be a second opinion on what the transcript lost.
+   */
+  async replayTranscript(params: ReplayTranscriptParams): Promise<DriverTranscriptReplayResult> {
+    const targetProviderSessionId: string = params.target.providerSessionId;
+    // FIRST, before any lookup or write: a target this daemon has already burned
+    // is refused at zero cost to the provider.
+    this.#replayTargets.assertUsable(targetProviderSessionId);
+
+    const record: CodexSessionRecord = this.#requireReplayTargetRecord(params.target);
+
+    // Structural freshness, and it costs nothing: the turn ledger IS the
+    // session-position axis, so a non-empty one is proof the target has already
+    // held a conversation. `Spec-005` binds a replay to reconstitute into a FRESH
+    // session, and enforcing that at the entrance beats inferring it later from a
+    // readback that would then be comparing against turns nobody seeded.
+    if (record.turnBoundaries.length > 0) {
+      this.#abandonReplayTarget(record, targetProviderSessionId, "target-not-fresh");
+      throw new CodexTransportError(
+        `Refusing to replay into Codex thread "${record.threadId}": it already holds ${String(record.turnBoundaries.length)} turn(s), and a replay target must be fresh.`,
+        { method: CODEX_THREAD_INJECT_ITEMS_METHOD },
+      );
+    }
+
+    const seeded: SeededTranscriptFrame[] = [];
+    for (const frame of params.frames) {
+      // Parsed fail-closed, and BEFORE anything is written: a frame this leg
+      // cannot represent is a refusal, never a skip. Nothing in
+      // `DeclaredLossKind` names "the driver dropped a frame it did not
+      // understand", so a skip would be a loss with no way to declare it, and
+      // the `applied` arm's empty loss list would become a lie.
+      seeded.push(readRenderedTranscriptFrameForReplay(frame));
+    }
+    if (seeded.length === 0) {
+      throw new CodexTransportError(
+        "Refusing to replay an empty transcript into a Codex thread: there is nothing to reconstitute, and a post-replay assertion over no frames confirms nothing.",
+        { method: CODEX_THREAD_INJECT_ITEMS_METHOD },
+      );
+    }
+
+    for (const frame of seeded) {
+      const attempt: CodexRequestAttempt = await record.connection.attemptRequest(
+        CODEX_THREAD_INJECT_ITEMS_METHOD,
+        { threadId: record.threadId, items: [codexResponsesItemForFrame(frame)] },
+      );
+      if (attempt.settled === "answered") {
+        continue;
+      }
+      // `unsent` and `refused` are both structural: the provider either never
+      // got the frame or answered that it would not take it, and in each case
+      // the daemon KNOWS what the target holds. `indeterminate` is the ambiguous
+      // one — the bytes left, and whether they landed is unknowable from here.
+      // Both abandon; they are distinguished because the cause is what a later
+      // reader needs, and because collapsing them would let an ambiguous
+      // delivery be recorded as a refusal, which asserts something this daemon
+      // cannot know.
+      const cause: ReplayTargetAbandonmentCause =
+        attempt.delivery === "indeterminate" ? "ambiguous-delivery" : "interior-refusal";
+      this.#abandonReplayTarget(record, targetProviderSessionId, cause);
+      throw new CodexTransportError(
+        `Codex replay seeding stopped at transcript position ${String(frame.position)} (${attempt.delivery}); the target was abandoned and must not be reused.`,
+        { method: CODEX_THREAD_INJECT_ITEMS_METHOD },
+      );
+    }
+
+    const readReadback: ReplayTargetReadbackReader | undefined =
+      this.#options.transcriptReplayReadback;
+    if (readReadback === undefined) {
+      // The seeding calls all answered, and that is exactly the evidence
+      // `Spec-005 §Required Behavior` refuses to accept. With no way to ask the
+      // target what it holds, this leg cannot tell a faithful seed from a
+      // silently discarded one, so it refuses rather than reporting the
+      // provider's own success back as a verified replay.
+      this.#abandonReplayTarget(record, targetProviderSessionId, "readback-unavailable");
+      throw new CodexTransportError(
+        `Codex replay into thread "${record.threadId}" seeded ${String(seeded.length)} frame(s) but no target-readback reader is bound, so the post-replay assertion cannot run; the target was abandoned.`,
+        { method: CODEX_THREAD_INJECT_ITEMS_METHOD },
+      );
+    }
+
+    let readback: ReplayTargetReadback;
+    try {
+      readback = await readReadback(targetProviderSessionId);
+    } catch (error: unknown) {
+      // A rejecting reader is the `unreadable` arm, per that seam's contract.
+      // Converted rather than propagated so the refutation below is the one
+      // failure shape a caller has to handle.
+      readback = {
+        kind: "unreadable",
+        reason: error instanceof Error ? error.message : String(error),
+      };
+    }
+
+    const verdict: PostReplayVerdict = assertReplayReconstituted(seeded, readback);
+    if (verdict.outcome === "refuted") {
+      const cause: ReplayTargetAbandonmentCause =
+        verdict.refutation === "target-unreadable" ? "readback-unavailable" : "assertion-refuted";
+      this.#abandonReplayTarget(record, targetProviderSessionId, cause);
+      throw new PostReplayAssertionFailedError(targetProviderSessionId, seeded.length, verdict);
+    }
+
+    // Retire the target on SUCCESS, not only on failure. `thread/inject_items`
+    // does not advance `turnBoundaries` — that ledger is seeded from
+    // `thread.turns` at resume/fork and appended at each accepted `turn/start` —
+    // so the freshness gate above is blind to a session this driver itself just
+    // seeded, and a second call through the same handle would write the whole
+    // conversation into it again. The assertion would then CONFIRM the doubled
+    // session: it tolerates more answered turns than were seeded and the tail
+    // still matches. The ledger is the only guard that can see this, so a
+    // confirmed target is burned exactly as an abandoned one is.
+    this.#replayTargets.consume(targetProviderSessionId);
+
+    return { status: "applied", declaredLosses: [] };
+  }
+
+  /**
+   * Resolves a replay target's session record from its PROVIDER handle.
+   *
+   * `ReplayTranscriptParams` carries a `ProviderSessionHandle` and no canonical
+   * session id, so the lookup runs the other way: `resumeHandle` is this
+   * provider's thread id, which is what this manager keys its records' identity
+   * on. Matched on the thread id rather than on `providerSessionId` because the
+   * thread is what a request is addressed to — a match on the other member would
+   * admit a record whose thread has since moved under it (a rewind forks and
+   * re-points), and the seed would then be written into the wrong thread.
+   *
+   * A miss THROWS rather than establishing a session: a target this manager does
+   * not hold is one whose process it does not own, and seeding into it would be
+   * writing through a handle with no lifecycle behind it.
+   */
+  #requireReplayTargetRecord(target: ProviderSessionHandle): CodexSessionRecord {
+    for (const record of this.#sessions.values()) {
+      if (record.threadId === target.resumeHandle) {
+        return record;
+      }
+    }
+    throw new CodexTransportError(
+      `No live Codex session is bound to replay target thread "${target.resumeHandle}".`,
+      { method: CODEX_THREAD_INJECT_ITEMS_METHOD },
+    );
+  }
+
+  /**
+   * Burns a replay target: records it, then disposes the process behind it.
+   *
+   * The ledger entry is written FIRST and unconditionally, so the target is
+   * unusable even if the disposal itself fails — the record is the guarantee,
+   * and the disposal is housekeeping on top of it. Disposal failures are
+   * swallowed deliberately: this method is called on a path that is already
+   * throwing a more informative error, and replacing that error with a teardown
+   * fault would hide why the replay failed behind how the cleanup did.
+   *
+   * Residual, stated rather than papered over: the ledger gates `replayTranscript`
+   * and nothing else, so a burned target whose disposal FAILS stays in
+   * `#sessions` and remains reachable by the ordinary session operations. That is
+   * the correct width — the guarantee this class owes is that no target is seeded
+   * twice, not that a partially-seeded session is unaddressable, and a caller who
+   * has one still needs `closeSession` to work on it. What such a session may
+   * never again be is a replay target, which is exactly what the ledger enforces.
+   */
+  #abandonReplayTarget(
+    record: CodexSessionRecord,
+    targetProviderSessionId: string,
+    cause: ReplayTargetAbandonmentCause,
+  ): void {
+    this.#replayTargets.abandon(targetProviderSessionId, cause);
+    void this.closeSession({ sessionId: record.sessionId }).catch(() => {
+      // Intentionally ignored — see above.
+    });
+  }
+
   async listProviderCommands(
     params: ListProviderCommandsParams,
   ): Promise<ProviderCommandListResult> {
@@ -8987,6 +9256,110 @@ interface ThreadView {
   id: string;
   sessionId: string;
   turns: unknown;
+}
+
+/**
+ * Parses one exported transcript frame, fail-closed (T3.20).
+ *
+ * `ReplayTranscriptParams.frames` is `unknown[]` at the contract, so this is the
+ * boundary where the export's own shape is re-established. Every refusal here is
+ * deliberate: a frame this leg cannot read is a frame it cannot seed, and the
+ * one thing it may not do is skip one. Nothing in `DeclaredLossKind` names a
+ * driver-side drop, so a skipped frame would be an undeclarable loss and would
+ * falsify the empty loss list the `applied` arm returns.
+ */
+function readRenderedTranscriptFrameForReplay(frame: unknown): SeededTranscriptFrame {
+  if (!isPlainObject(frame)) {
+    throw new CodexTransportError(
+      "A transcript frame handed to the Codex replay leg was not an object.",
+      { method: CODEX_THREAD_INJECT_ITEMS_METHOD },
+    );
+  }
+  const position = frame["position"];
+  const role = frame["role"];
+  const segments = frame["segments"];
+  if (typeof position !== "number" || !Number.isInteger(position)) {
+    throw new CodexTransportError(
+      "A transcript frame handed to the Codex replay leg carried no integer position.",
+      { method: CODEX_THREAD_INJECT_ITEMS_METHOD },
+    );
+  }
+  if (role !== "participant" && role !== "assistant") {
+    throw new CodexTransportError(
+      `A transcript frame at position ${String(position)} carried the unrecognized role "${String(role)}".`,
+      { method: CODEX_THREAD_INJECT_ITEMS_METHOD },
+    );
+  }
+  if (!Array.isArray(segments)) {
+    throw new CodexTransportError(
+      `The transcript frame at position ${String(position)} carried no segment list.`,
+      { method: CODEX_THREAD_INJECT_ITEMS_METHOD },
+    );
+  }
+  // The frame's BODY, which is what the post-replay assertion compares and what a
+  // turn readback answers with. Only the prose-bearing segment kinds contribute:
+  // a tool call is seeded as its own structured item below and is not part of the
+  // turn a reader would see as text. Joined by a blank line, matching how two
+  // consecutive prose segments of one turn read.
+  const bodyParts: string[] = [];
+  for (const segment of segments) {
+    if (!isPlainObject(segment)) {
+      throw new CodexTransportError(
+        `The transcript frame at position ${String(position)} carried a segment that was not an object.`,
+        { method: CODEX_THREAD_INJECT_ITEMS_METHOD },
+      );
+    }
+    const kind = segment["kind"];
+    if (kind === "text" || kind === "reasoning") {
+      const text = segment["text"];
+      if (typeof text !== "string") {
+        throw new CodexTransportError(
+          `A "${String(kind)}" segment of the transcript frame at position ${String(position)} carried no text.`,
+          { method: CODEX_THREAD_INJECT_ITEMS_METHOD },
+        );
+      }
+      if (text.length > 0) {
+        bodyParts.push(text);
+      }
+      continue;
+    }
+    if (kind === "tool_call" || kind === "tool_result") {
+      // Structurally valid and carried; it contributes no prose to the turn body.
+      continue;
+    }
+    // The no-silent-drop rule, enforced: an unrecognized kind refuses rather than
+    // being passed over. A kind added to the canonical union without this leg
+    // learning to seed it must fail loudly on the first transcript carrying one.
+    throw new CodexTransportError(
+      `The transcript frame at position ${String(position)} carried an unsupported segment kind "${String(kind)}"; refusing to seed a frame this driver cannot represent.`,
+      { method: CODEX_THREAD_INJECT_ITEMS_METHOD },
+    );
+  }
+  return { position, role, text: bodyParts.join("\n\n") };
+}
+
+/**
+ * Builds the Responses-API message item for one frame (T3.20).
+ *
+ * The pinned reference types `ThreadInjectItemsParams.items` as
+ * `Array<JsonValue>` and describes it as raw Responses API items, so the shape
+ * below is composed against that API's message item rather than against a Codex
+ * type: `input_text` for a participant turn and `output_text` for an assistant
+ * one, which is the split that API draws between what was given to the model and
+ * what it produced.
+ *
+ * Deliberately mints NOTHING — no id, no timestamp, no synthesized author. The
+ * never-re-mint rule that governs tool-call identity has the same force here: an
+ * item carrying an identifier this daemon invented is an item a later export
+ * cannot map back.
+ */
+function codexResponsesItemForFrame(frame: SeededTranscriptFrame): Record<string, unknown> {
+  const contentType: string = frame.role === "participant" ? "input_text" : "output_text";
+  return {
+    type: "message",
+    role: frame.role === "participant" ? "user" : "assistant",
+    content: [{ type: contentType, text: frame.text }],
+  };
 }
 
 function readThread(response: unknown, method: string): ThreadView {
