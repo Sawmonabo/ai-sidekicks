@@ -7,12 +7,15 @@
 // `ClaudeRunChannelLookup` — so the dispatcher can find the channel a run is
 // bound to without reaching into session state it must not mutate.
 //
-// WHY `Pick<ProviderDriver, ...>` AND NOT `implements ProviderDriver`. This class
-// implements the six operations PR-A owns. The other eight — `rollbackTo`,
-// `respondToRequest`, `setSessionGoal`, `clearSessionGoal`, `listModels`,
-// `listModes`, `getCapabilities` — are authored by sibling Phase-3
+// WHY `Pick<ProviderDriver, ...>` AND NOT `implements ProviderDriver`. The
+// operations still absent from `ClaudeDriverOperations` below — `respondToRequest`,
+// `listModes`, `getCapabilities`, `exportTranscript`, `replayTranscript` — are
+// authored by sibling Phase-3
 // tasks (T3.8 capabilities/models/modes, T3.14 interactive requests + auth probe,
-// T3.15 the R8 parity operations). Declaring the full interface today would force
+// T3.15 the R8 parity operations); `listModels` joined the list with T3.12's
+// currency duty (C-8). The enumeration is re-derived from the type argument
+// rather than restated, so it cannot drift from what this class implements.
+// Declaring the full interface today would force
 // throwing stubs into the driver, and a driver that answers a contract operation
 // by throwing is indistinguishable from one whose provider refused — the exact
 // conflation I-005-2 and I-005-4 exist to prevent. The `Pick` binds every
@@ -33,6 +36,7 @@ import type {
   DriverRollbackResult,
   InterruptRunParams,
   ProviderDriver,
+  ProviderModel,
   ProviderSessionHandle,
   ResumeSessionParams,
   RollbackToParams,
@@ -40,17 +44,27 @@ import type {
   StartRunParams,
 } from "@ai-sidekicks/contracts";
 
+import { resolveClaudeModelCatalog, type ClaudeModelCatalogExchange } from "./capabilities.js";
 import { ClaudeInterventionDispatcher } from "./intervention.js";
 import { ClaudeSessionLifecycle, type ClaudeSessionLifecycleDependencies } from "./lifecycle.js";
 
 // Curated rather than `export *`: this barrel is the driver's public surface, and
 // a star re-export would enlist every future symbol added to either band
 // automatically — the surface would grow by accident instead of by decision. The
-// sibling `capabilities.ts` / `tools.ts` modules are deliberately absent for the
-// same reason: whoever widens `ClaudeDriverOperations` toward the full
-// 14-operation `ProviderDriver` surface adds their exports alongside the
-// operations that consume them, so the barrel never advertises a capability the
-// driver object cannot yet serve.
+// rule is that whoever widens `ClaudeDriverOperations` toward the full
+// `ProviderDriver` surface adds their exports alongside the operations that
+// consume them, so the barrel never advertises a capability the driver object
+// cannot yet serve. `capabilities.ts` is therefore enlisted for its model-catalog
+// symbols ONLY — they ride `listModels`, which this driver now serves — and the
+// declaration, refresh, and probe symbols of that module stay unexported here
+// because no operation on this class serves them. `tools.ts` stays fully absent.
+export {
+  CLAUDE_DECLARED_MODEL_CATALOG,
+  ClaudeModelCatalogUnreadableError,
+  normalizeClaudeModelCatalog,
+  resolveClaudeModelCatalog,
+  type ClaudeModelCatalogExchange,
+} from "./capabilities.js";
 export {
   ClaudeInterventionDispatcher,
   CLAUDE_STEER_FALLBACK_ACTION,
@@ -114,15 +128,42 @@ export type ClaudeDriverOperations = Pick<
   | "setSessionGoal"
   | "clearSessionGoal"
   | "probeAuth"
+  | "listModels"
 >;
 
-export type ClaudeDriverDependencies = ClaudeSessionLifecycleDependencies;
+export type ClaudeDriverDependencies = ClaudeSessionLifecycleDependencies & {
+  /**
+   * The live `list_models` read backing `listModels()` (T3.12 C-8), or an
+   * EXPLICIT `null` for a composition that binds none — in which case the
+   * driver answers the provenance-stamped declaration in `./capabilities.ts`.
+   *
+   * REQUIRED, on the reasoning that makes the capability probe a required
+   * dependency of `ClaudeCapabilityReporter`: an optional arm would let a
+   * construction site that simply never bound it reach the declaration by
+   * accident rather than by decision, and a stale catalog served as though it
+   * were a reading is exactly the confusion the detection-source doctrine
+   * exists to prevent.
+   *
+   * Declared HERE rather than on `ClaudeSessionLifecycleDependencies` because
+   * the lifecycle band neither reads nor needs it: `listModels` is served by
+   * this composition root, so widening the lifecycle's dependency set would
+   * hand a band a dependency it has no use for.
+   *
+   * NO PRODUCTION IMPLEMENTATION EXISTS YET, and that is a recorded residual
+   * rather than an oversight: no composition root constructs this driver, so
+   * there is no live control-request channel for the read to ride. The exchange
+   * binds when the first composition root lands.
+   */
+  readonly modelCatalogExchange: ClaudeModelCatalogExchange | null;
+};
 
 export class ClaudeDriver implements ClaudeDriverOperations {
   readonly #lifecycle: ClaudeSessionLifecycle;
   readonly #interventionDispatcher: ClaudeInterventionDispatcher;
+  readonly #modelCatalogExchange: ClaudeModelCatalogExchange | null;
 
   constructor(dependencies: ClaudeDriverDependencies) {
+    this.#modelCatalogExchange = dependencies.modelCatalogExchange;
     this.#lifecycle = new ClaudeSessionLifecycle(dependencies);
     this.#interventionDispatcher = new ClaudeInterventionDispatcher({
       channelLookup: this.#lifecycle,
@@ -167,5 +208,16 @@ export class ClaudeDriver implements ClaudeDriverOperations {
 
   async probeAuth(): Promise<DriverAuthProbeResult> {
     return await this.#lifecycle.probeAuth();
+  }
+
+  /**
+   * The selectable model catalog (T3.12 C-8).
+   *
+   * Delegates rather than deciding: `./capabilities.ts` owns both the declared
+   * catalog and the normalization of a live reply, so the wire shape and its
+   * provenance stamp sit in one place and this class stays a composition root.
+   */
+  async listModels(): Promise<ProviderModel[]> {
+    return await resolveClaudeModelCatalog(this.#modelCatalogExchange);
   }
 }

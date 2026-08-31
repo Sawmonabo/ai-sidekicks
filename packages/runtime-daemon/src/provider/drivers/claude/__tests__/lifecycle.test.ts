@@ -49,6 +49,7 @@ import {
   ClaudeSessionUnavailableError,
   ClaudeSubagentConcurrencyGate,
   CLAUDE_CALLBACK_MCP_SERVER_NAME,
+  CLAUDE_CALLBACK_TOOL_TRANSPORT_UNAVAILABLE_DETAIL,
   CLAUDE_SUBAGENT_MAX_DEPTH_CEILING,
   composeClaudeCallbackMcpServer,
   composeClaudeProviderToolName,
@@ -2053,6 +2054,54 @@ describe("ClaudeSessionLifecycle callback-tool registry (T3.15 leg 3, Claude arm
     const withholdings = harness.diagnostics.recentRecordsOfKind("callback_tool_registry_withheld");
     expect(withholdings).toHaveLength(1);
     expect(withholdings[0]?.details["reason"]).toBe("no-dispatcher-bound");
+  });
+
+  it("injects NO registry when the bound transport does not realize the registration", async () => {
+    // THE THIRD GATE. The first two questions — did the daemon offer tools, is
+    // a dispatcher bound — are answerable from `params`. Whether the model ever
+    // SEES the registry is a property of whichever transport writes the process
+    // arguments, and left unasked it produced exactly the failure the Codex
+    // pin-withholding exists to prevent: a live daemon-side registry for tools
+    // the model was never told about, invisible because a tool the model never
+    // calls looks identical to a tool it chose not to call.
+    const harness = buildHarness();
+    harness.transport.realizesCallbackToolRegistration = false;
+
+    await harness.lifecycle.createSession({
+      ...buildCreateSessionParams(),
+      callbackTools: [SEARCH_TOOL],
+      onCallbackToolCall: async (): Promise<CallbackToolResult> =>
+        await Promise.resolve({ status: "completed" }),
+    });
+
+    const spawnRequest = harness.transport.spawnRequests[0];
+    expect(spawnRequest?.callbackTools).toBeUndefined();
+    expect(spawnRequest?.callbackToolServer).toBeUndefined();
+    const withholdings = harness.diagnostics.recentRecordsOfKind("callback_tool_registry_withheld");
+    expect(withholdings).toHaveLength(1);
+    expect(withholdings[0]?.details["reason"]).toBe("transport-registration-unavailable");
+    expect(withholdings[0]?.details["withheldToolCount"]).toBe(1);
+    expect(withholdings[0]?.dispositionReason).toBe(
+      CLAUDE_CALLBACK_TOOL_TRANSPORT_UNAVAILABLE_DETAIL,
+    );
+  });
+
+  it("withholds on the resume path too, since a resume is a fresh spawn", async () => {
+    const harness = buildHarness();
+    harness.transport.realizesCallbackToolRegistration = false;
+
+    await harness.lifecycle.resumeSession({
+      sessionId: TEST_SESSION_ID,
+      resumeHandle: "provider-session-earlier",
+      callbackTools: [SEARCH_TOOL],
+      onCallbackToolCall: async (): Promise<CallbackToolResult> =>
+        await Promise.resolve({ status: "completed" }),
+    });
+
+    expect(harness.transport.resumeRequests[0]?.callbackToolServer).toBeUndefined();
+    expect(harness.diagnostics.recentRecordsOfKind("callback_tool_registry_withheld")).toHaveLength(
+      1,
+    );
   });
 
   it("serves no registry and records nothing when no tools were offered", async () => {

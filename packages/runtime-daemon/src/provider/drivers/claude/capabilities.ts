@@ -93,6 +93,7 @@ import {
   type DriverCapabilityFlag,
   type DriverCliVersionReport,
   type GetCapabilitiesResult,
+  type ProviderModel,
 } from "@ai-sidekicks/contracts";
 
 import {
@@ -373,4 +374,264 @@ export class ClaudeCapabilityReporter {
       ...(target.actor !== undefined ? { actor: target.actor } : {}),
     });
   }
+}
+
+// --------------------------------------------------------------------------
+// The model catalog (T3.12 C-8)
+// --------------------------------------------------------------------------
+
+/**
+ * GOLDEN VECTOR — the Claude model catalog this driver declares.
+ *
+ *   Source doc      : `docs/reference/provider-wire/claude.md`
+ *   Section         : §Control requests (`list_models` answers
+ *                     `{"subtype":"success", …}`)
+ *   Pin             : Claude Code 2.1.251
+ *   Provenance      : Binary probe. One live `claude -p --input-format
+ *                     stream-json` control request `{"subtype":"list_models"}`
+ *                     against the on-disk build on 2026-08-30. Zero-turn: no
+ *                     user message is sent, `num_turns` stays 0, and nothing is
+ *                     billed.
+ *   Trust           : Verified at 2.1.251. Every id, name, and effort level
+ *                     below is a reading, not an illustration.
+ *   Derived by      : Plan-005 T3.12 (currency duty C-8).
+ *
+ * WHY A DECLARATION EXISTS AT ALL, given the read is admissible.
+ *
+ * `Spec-005 §Capability discovery` treats a value obtainable by a zero-turn,
+ * non-mutating, decisive read as one that must be READ from the installed
+ * build. This catalog is exactly that, which is why {@link
+ * ClaudeModelCatalogExchange} is the preferred source and why this constant is
+ * NOT presented as truth about the running build. It is the answer for a
+ * composition that has bound no exchange — a real state while no production
+ * composition root exists — and it is stamped above so a reader can tell a
+ * reading from a declaration without trusting this file's say-so.
+ *
+ * WHAT IS DELIBERATELY NOT COPIED FROM THE PROBE.
+ *
+ * * **Alias rows.** The wire answers five entries for four models: `default`
+ *   and `opus[1m]` both resolve to `claude-opus-5[1m]`. The reserved pointer
+ *   `default` names whichever model is currently default rather than naming a
+ *   model, so it is collapsed — see {@link normalizeClaudeModelCatalog}.
+ * * **The per-model auxiliary axes** (`supportsAdaptiveThinking`,
+ *   `supportsFastMode`, `supportsAutoMode`). They are recorded here rather than
+ *   flattened into `capabilities`, which carries no registered vocabulary
+ *   anywhere in the corpus and is read by nothing: populating it would mint a
+ *   tag set ahead of its reader, and one shared string list cannot mean both
+ *   "this model has a fast mode" and whatever the sibling provider's per-model
+ *   axes mean. At the pin, both `claude-opus-5[1m]` rows carry all three;
+ *   `claude-fable-5` and `claude-sonnet-5` carry adaptive-thinking and
+ *   auto-mode but not fast-mode; `claude-haiku-4-5-20251001` carries none.
+ * * **A provider-wide effort vocabulary.** There is none to copy: the levels
+ *   are a per-model list, and `claude-haiku-4-5-20251001` publishes no effort
+ *   surface at all — the live instance of the registered "absent = the model
+ *   exposes no effort selection" reading.
+ */
+/**
+ * One declared catalog entry, frozen at construction.
+ *
+ * `capabilities` is `[]` by CONSTRUCTION rather than by omission — the helper
+ * takes no argument for it, so no declaration can populate a member the corpus
+ * registers no vocabulary for and nothing reads.
+ */
+function declaredClaudeModel(
+  id: string,
+  name: string,
+  effortLevels?: readonly string[],
+): ProviderModel {
+  return Object.freeze({
+    id,
+    name,
+    capabilities: freezeDeclaredModelArray([]),
+    ...(effortLevels === undefined
+      ? {}
+      : { effortLevels: freezeDeclaredModelArray([...effortLevels]) }),
+  });
+}
+
+/**
+ * Freeze one nested catalog array WITHOUT widening its declared type.
+ *
+ * `Object.freeze` on the entry alone is shallow: it stops `entry.effortLevels =
+ * […]` and does nothing about `entry.effortLevels.push(…)`, so a process-wide
+ * constant re-exported from this driver's barrel was one `push` away from being
+ * rewritten for every later caller. `ProviderModel` declares these members as
+ * MUTABLE `string[]`, and this returns the same declared type rather than
+ * `readonly string[]` on purpose: making the contract type deep-readonly would
+ * ripple through every driver-constructed catalog and every normalizer that
+ * builds one, to fix a hazard that only exists for the two shared constants.
+ * The freeze is therefore a runtime property of these declarations, enforced by
+ * a mutation-attempt test rather than by the type.
+ */
+function freezeDeclaredModelArray(values: string[]): string[] {
+  Object.freeze(values);
+  return values;
+}
+
+/** The effort vocabulary every effort-bearing Claude model publishes at the pin. */
+const CLAUDE_PINNED_EFFORT_LEVELS: readonly string[] = Object.freeze([
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+]);
+
+export const CLAUDE_DECLARED_MODEL_CATALOG: readonly ProviderModel[] = Object.freeze([
+  declaredClaudeModel("claude-opus-5[1m]", "Opus (1M context)", CLAUDE_PINNED_EFFORT_LEVELS),
+  declaredClaudeModel("claude-fable-5", "Fable", CLAUDE_PINNED_EFFORT_LEVELS),
+  declaredClaudeModel("claude-sonnet-5", "Sonnet", CLAUDE_PINNED_EFFORT_LEVELS),
+  // No `effortLevels`, and that is the reading rather than an omission: this
+  // row answers with no `supportsEffort` and no `supportedEffortLevels`.
+  declaredClaudeModel("claude-haiku-4-5-20251001", "Haiku"),
+]);
+
+/**
+ * The live model-catalog read seam — one `list_models` control request against
+ * the build this driver spawns.
+ *
+ * Returns `unknown` for the same reason {@link CapabilityProbeExchange} does:
+ * everything it yields is UNTRUSTED provider output. The implementer dispatches
+ * against the connection it already holds and owns the deadline; THIS module
+ * composes and adjudicates, so the normalization is testable without a process
+ * and a wire-shape change surfaces here rather than in a transport.
+ *
+ * Deliberately payload-free and turn-free: like the capability probe, a billed
+ * turn is not merely forbidden, it is unrepresentable.
+ */
+export type ClaudeModelCatalogExchange = () => Promise<unknown>;
+
+/**
+ * A `list_models` reply that could not be read as a catalog.
+ *
+ * Carries no `code`, on the capability-probe module's reasoning: this is a
+ * provider-surface fault with no registered wire code, and inventing one would
+ * mint an error contract this task may not mint.
+ */
+export class ClaudeModelCatalogUnreadableError extends Error {
+  constructor(detail: string) {
+    super(`Claude list_models reply is not a readable model catalog: ${detail}`);
+    this.name = "ClaudeModelCatalogUnreadableError";
+  }
+}
+
+/** The reserved `value` that points at whichever model is currently default. */
+const CLAUDE_DEFAULT_MODEL_POINTER = "default";
+
+function readNonEmptyString(source: Record<string, unknown>, key: string): string | undefined {
+  const value = source[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/**
+ * Normalize one `list_models` reply into the contract's model shape.
+ *
+ * STRICT, not tolerant. The accepted shape is the one the pinned build answers
+ * — `{ models: [...] }` — and nothing else; a reply that merely resembles it is
+ * refused rather than partially read, because a tolerant reader would answer a
+ * short catalog for a shape change and nothing downstream could tell a provider
+ * that dropped a model from a parser that failed to see it.
+ *
+ * Two rules the wire forces, each the reason the corresponding branch exists:
+ *
+ *   1. **Alias collapse.** Entries are keyed by `resolvedModel`, not by
+ *      `value`: at the pin, four of five `value`s are short aliases
+ *      (`sonnet` → `claude-sonnet-5`), so keying on `value` would publish
+ *      selector strings as model ids — and `Spec-016 §Same-Agent Provider
+ *      Switch` validates a switch's model against this list, so an alias
+ *      admitted here is a switch whose target can move under the participant.
+ *      Where several entries resolve to one model, the reserved
+ *      `default` pointer loses to a row that names the model, and it is kept
+ *      only when it is that model's only row.
+ *   2. **Effort presence is copied, never defaulted.** `effortLevels` is
+ *      emitted only where the row publishes a non-empty level list AND does not
+ *      explicitly say `supportsEffort: false`. An absent list stays absent: the
+ *      contract reads that as "no effort selection", which is precisely what
+ *      the Haiku row means.
+ */
+export function normalizeClaudeModelCatalog(payload: unknown): ProviderModel[] {
+  if (typeof payload !== "object" || payload === null) {
+    throw new ClaudeModelCatalogUnreadableError("reply is not an object");
+  }
+  const rawModels = (payload as Record<string, unknown>)["models"];
+  if (!Array.isArray(rawModels)) {
+    throw new ClaudeModelCatalogUnreadableError("reply has no `models` array");
+  }
+
+  // Insertion-ordered, so the catalog keeps the provider's own ordering — the
+  // provider lists its recommended model first and a reordering here would
+  // silently re-rank what a client renders.
+  const byResolvedModel = new Map<string, { model: ProviderModel; fromPointer: boolean }>();
+  for (const rawEntry of rawModels) {
+    if (typeof rawEntry !== "object" || rawEntry === null) {
+      throw new ClaudeModelCatalogUnreadableError("a `models` entry is not an object");
+    }
+    const entry = rawEntry as Record<string, unknown>;
+    const resolvedModel = readNonEmptyString(entry, "resolvedModel");
+    if (resolvedModel === undefined) {
+      throw new ClaudeModelCatalogUnreadableError("a `models` entry has no `resolvedModel`");
+    }
+    const displayName = readNonEmptyString(entry, "displayName");
+    if (displayName === undefined) {
+      throw new ClaudeModelCatalogUnreadableError(
+        `model '${resolvedModel}' has no \`displayName\``,
+      );
+    }
+    const fromPointer = entry["value"] === CLAUDE_DEFAULT_MODEL_POINTER;
+    const existing = byResolvedModel.get(resolvedModel);
+    // A row that names the model beats the reserved pointer, in either arrival
+    // order — the pointer arrives first at the pin, and relying on that would
+    // make the rule an accident of the vendor's ordering.
+    if (existing !== undefined && (fromPointer || !existing.fromPointer)) {
+      continue;
+    }
+    const model: ProviderModel = { id: resolvedModel, name: displayName, capabilities: [] };
+    const effortLevels = entry["supportedEffortLevels"];
+    if (
+      entry["supportsEffort"] !== false &&
+      Array.isArray(effortLevels) &&
+      effortLevels.length > 0
+    ) {
+      if (!effortLevels.every((level): level is string => typeof level === "string")) {
+        throw new ClaudeModelCatalogUnreadableError(
+          `model '${resolvedModel}' has a non-string effort level`,
+        );
+      }
+      model.effortLevels = [...effortLevels];
+    }
+    byResolvedModel.set(resolvedModel, { model, fromPointer });
+  }
+
+  return [...byResolvedModel.values()].map((held) => held.model);
+}
+
+/**
+ * Answer the Claude driver's `listModels()`.
+ *
+ * @param exchange The live read, or an EXPLICIT `null` for a composition that
+ *   binds none. Null rather than optional so a construction site cannot arrive
+ *   at the declaration by never having decided — the reasoning that makes the
+ *   capability probe and the credential-env policy required options rather than
+ *   defaulted ones.
+ *
+ * A bound exchange that FAILS is never quietly answered from the declaration.
+ * Serving a stale catalog under the appearance of a live read is the one
+ * confusion the detection-source doctrine exists to prevent, so a read failure
+ * propagates and only an unbound exchange reaches the declaration.
+ */
+export async function resolveClaudeModelCatalog(
+  exchange: ClaudeModelCatalogExchange | null,
+): Promise<ProviderModel[]> {
+  if (exchange === null) {
+    // Fresh copies: the constant is frozen and shared process-wide, and
+    // `ProviderModel` carries mutable arrays a caller could otherwise rewrite
+    // for every later caller.
+    return CLAUDE_DECLARED_MODEL_CATALOG.map((model) => ({
+      id: model.id,
+      name: model.name,
+      capabilities: [...model.capabilities],
+      ...(model.effortLevels === undefined ? {} : { effortLevels: [...model.effortLevels] }),
+    }));
+  }
+  return normalizeClaudeModelCatalog(await exchange());
 }

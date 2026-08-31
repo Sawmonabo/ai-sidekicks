@@ -341,10 +341,24 @@ export interface ProviderSessionHandle {
   resumeHandle: string;
 }
 
+// Driver-CONSTRUCTED return (§1(b)) of `listModels`. One selectable model of
+// one provider, normalized at the driver's own boundary.
+//
+// `effortLevels` is the model's reasoning-effort vocabulary, and it is carried
+// PER MODEL rather than per provider because that is what
+// `Spec-005 §Provider Parameter Vocabularies` binds: the level list rides
+// `ProviderModel.effortLevels`. It is deliberately `string[]` and not a closed
+// union — the vocabularies differ between providers AND between models of one
+// provider, and a union frozen here would refuse a level the installed build
+// offers. ABSENT (not empty) is meaningful and is the registered reading: the
+// model exposes no effort selection at all. An EMPTY array would instead assert
+// that the model has an effort axis with nothing on it, which no provider
+// surface expresses.
 export interface ProviderModel {
   id: string;
   name: string;
   capabilities: string[];
+  effortLevels?: string[];
 }
 
 export interface ProviderMode {

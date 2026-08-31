@@ -100,6 +100,7 @@ import type {
   DriverCapabilityFlag,
   DriverCliVersionReport,
   GetCapabilitiesResult,
+  ProviderModel,
 } from "@ai-sidekicks/contracts";
 
 import {
@@ -364,4 +365,260 @@ export async function refreshCodexCapabilities(
     ...(input.actor === undefined ? {} : { actor: input.actor }),
   };
   return sink.declare(declareInput);
+}
+
+// --------------------------------------------------------------------------
+// The model catalog (T3.12 C-8)
+// --------------------------------------------------------------------------
+
+/**
+ * One declared catalog entry, frozen at construction.
+ *
+ * `capabilities` is `[]` by CONSTRUCTION rather than by omission — the helper
+ * takes no argument for it, so no declaration can populate a member the corpus
+ * registers no vocabulary for and nothing reads. This provider's per-model
+ * auxiliary axes (`inputModalities`, `additionalSpeedTiers`, `modelSpecialty`,
+ * `supportsPersonality`) are recorded in the catalog's provenance note rather
+ * than flattened into it: one shared string list cannot carry both a modality
+ * and a speed tier and still mean anything to a reader.
+ */
+function declaredCodexModel(
+  id: string,
+  name: string,
+  effortLevels: readonly string[],
+): ProviderModel {
+  return Object.freeze({
+    id,
+    name,
+    capabilities: freezeDeclaredModelArray([]),
+    effortLevels: freezeDeclaredModelArray([...effortLevels]),
+  });
+}
+
+/**
+ * Freeze one nested catalog array WITHOUT widening its declared type.
+ *
+ * `Object.freeze` on the entry alone is shallow: it stops `entry.effortLevels =
+ * […]` and does nothing about `entry.effortLevels.push(…)`, so a process-wide
+ * constant re-exported from this driver's barrel was one `push` away from being
+ * rewritten for every later caller. `ProviderModel` declares these members as
+ * MUTABLE `string[]`, and this returns the same declared type rather than
+ * `readonly string[]` on purpose: making the contract type deep-readonly would
+ * ripple through every driver-constructed catalog and every normalizer that
+ * builds one, to fix a hazard that only exists for the two shared constants.
+ * The freeze is therefore a runtime property of these declarations, enforced by
+ * a mutation-attempt test rather than by the type.
+ */
+function freezeDeclaredModelArray(values: string[]): string[] {
+  Object.freeze(values);
+  return values;
+}
+
+/** The two effort vocabularies the pinned build publishes, by model generation. */
+const CODEX_EXTENDED_EFFORT_LEVELS: readonly string[] = Object.freeze([
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+  "ultra",
+]);
+const CODEX_BASE_EFFORT_LEVELS: readonly string[] = Object.freeze([
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+]);
+
+/**
+ * GOLDEN VECTOR — the Codex model catalog this driver declares.
+ *
+ *   Source doc      : `docs/reference/provider-wire/codex.md`
+ *   Section         : §Client requests (`model/list` on the default,
+ *                     non-experimental generation)
+ *   Pin             : codex-cli 0.150.1
+ *   Provenance      : Binary probe. One live `codex app-server` JSON-RPC
+ *                     `model/list` request after `initialize` / `initialized`
+ *                     on 2026-08-30, `nextCursor: null` in the reply. Zero-turn:
+ *                     no thread is started and nothing is billed.
+ *   Trust           : Verified at 0.150.1. Every id, name, and effort level
+ *                     below is a reading, not an illustration.
+ *   Derived by      : Plan-005 T3.12 (currency duty C-8).
+ *
+ * WHY A DECLARATION EXISTS AT ALL: see the sibling Claude catalog's note. The
+ * read is admissible, so {@link CodexModelCatalogExchange} is the preferred
+ * source and this constant is the answer for a composition that binds none.
+ *
+ * The eight rows are ordered as the provider returns them — its own default
+ * (`gpt-5.6-sol`) first. `hidden` is `false` on every row at the pin;
+ * {@link normalizeCodexModelCatalog} still filters hidden rows, because a
+ * hidden model is one the provider declines to offer for selection and
+ * publishing it would offer a model its own surface does not.
+ */
+export const CODEX_DECLARED_MODEL_CATALOG: readonly ProviderModel[] = Object.freeze([
+  declaredCodexModel("gpt-5.6-sol", "GPT-5.6-Sol", CODEX_EXTENDED_EFFORT_LEVELS),
+  declaredCodexModel("gpt-5.6-terra", "GPT-5.6-Terra", CODEX_EXTENDED_EFFORT_LEVELS),
+  // `max` without `ultra` — the one row that splits the two vocabularies, and
+  // the reason the levels are carried per model rather than per provider.
+  declaredCodexModel(
+    "gpt-5.6-luna",
+    "GPT-5.6-Luna",
+    Object.freeze(["low", "medium", "high", "xhigh", "max"]),
+  ),
+  declaredCodexModel("gpt-daybreak-blue-latest", "Daybreak Blue", CODEX_EXTENDED_EFFORT_LEVELS),
+  declaredCodexModel("gpt-5.5", "GPT-5.5", CODEX_BASE_EFFORT_LEVELS),
+  declaredCodexModel("gpt-5.4", "GPT-5.4", CODEX_BASE_EFFORT_LEVELS),
+  declaredCodexModel("gpt-5.4-mini", "GPT-5.4-Mini", CODEX_BASE_EFFORT_LEVELS),
+  declaredCodexModel("gpt-5.3-codex-spark", "GPT-5.3-Codex-Spark", CODEX_BASE_EFFORT_LEVELS),
+]);
+
+/**
+ * The live model-catalog read seam — one `model/list` client request on the
+ * connection this driver already holds.
+ *
+ * Returns `unknown` for the same reason {@link CapabilityProbeExchange} does:
+ * everything it yields is UNTRUSTED provider output. The implementer dispatches
+ * and owns the deadline; THIS module composes and adjudicates, so the
+ * normalization is testable without a process and a wire-shape change surfaces
+ * here rather than in a transport.
+ *
+ * Deliberately payload-free and turn-free: like the capability probe, a billed
+ * turn is not merely forbidden, it is unrepresentable.
+ */
+export type CodexModelCatalogExchange = () => Promise<unknown>;
+
+/**
+ * A `model/list` reply that could not be read as a catalog.
+ *
+ * Carries no `code`, on the capability-probe module's reasoning: this is a
+ * provider-surface fault with no registered wire code, and inventing one would
+ * mint an error contract this task may not mint.
+ *
+ * Deliberately duplicated from the sibling Claude module rather than shared
+ * with it, on this file's standing reason: the two driver trees stay
+ * import-independent, so neither can break the other by moving a file.
+ */
+export class CodexModelCatalogUnreadableError extends Error {
+  constructor(detail: string) {
+    super(`Codex model/list reply is not a readable model catalog: ${detail}`);
+    this.name = "CodexModelCatalogUnreadableError";
+  }
+}
+
+function readNonEmptyCodexString(source: Record<string, unknown>, key: string): string | undefined {
+  const value = source[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/**
+ * Normalize one `model/list` reply into the contract's model shape.
+ *
+ * STRICT, not tolerant — the accepted shape is the one the pinned build
+ * answers and nothing else. Three rules the wire forces:
+ *
+ *   1. **A paginated reply REFUSES.** `nextCursor` is `null` at the pin. A
+ *      non-null cursor means this page is not the catalog, and answering the
+ *      first page would publish a silently short model list — a participant
+ *      would simply not see models the provider offers, with nothing anywhere
+ *      recording that a page was dropped. Refusing is loud and, at the pin,
+ *      unreachable.
+ *   2. **Hidden rows are dropped.** A hidden model is one the provider declines
+ *      to offer for selection.
+ *   3. **A duplicate id REFUSES.** Unlike the sibling provider, this surface has
+ *      no alias mechanism — every row names its own model — so two rows for one
+ *      id is a malformed reply rather than a shape to collapse, and collapsing
+ *      it would hide the malformation.
+ */
+export function normalizeCodexModelCatalog(payload: unknown): ProviderModel[] {
+  if (typeof payload !== "object" || payload === null) {
+    throw new CodexModelCatalogUnreadableError("reply is not an object");
+  }
+  const reply = payload as Record<string, unknown>;
+  const rawModels = reply["data"];
+  if (!Array.isArray(rawModels)) {
+    throw new CodexModelCatalogUnreadableError("reply has no `data` array");
+  }
+  const nextCursor = reply["nextCursor"];
+  if (nextCursor !== null && nextCursor !== undefined) {
+    throw new CodexModelCatalogUnreadableError(
+      "reply is paginated and this driver reads a single page",
+    );
+  }
+
+  const models: ProviderModel[] = [];
+  const seenIds = new Set<string>();
+  for (const rawEntry of rawModels) {
+    if (typeof rawEntry !== "object" || rawEntry === null) {
+      throw new CodexModelCatalogUnreadableError("a `data` entry is not an object");
+    }
+    const entry = rawEntry as Record<string, unknown>;
+    const id = readNonEmptyCodexString(entry, "id");
+    if (id === undefined) {
+      throw new CodexModelCatalogUnreadableError("a `data` entry has no `id`");
+    }
+    if (seenIds.has(id)) {
+      throw new CodexModelCatalogUnreadableError(`model '${id}' appears twice`);
+    }
+    seenIds.add(id);
+    if (entry["hidden"] === true) {
+      continue;
+    }
+    const displayName = readNonEmptyCodexString(entry, "displayName");
+    if (displayName === undefined) {
+      throw new CodexModelCatalogUnreadableError(`model '${id}' has no \`displayName\``);
+    }
+    const model: ProviderModel = { id, name: displayName, capabilities: [] };
+    const rawEfforts = entry["supportedReasoningEfforts"];
+    if (Array.isArray(rawEfforts) && rawEfforts.length > 0) {
+      const effortLevels: string[] = [];
+      for (const rawEffort of rawEfforts) {
+        // The level rides a nested object on this surface (`{ reasoningEffort,
+        // description }`), unlike the sibling provider's flat string list.
+        const level =
+          typeof rawEffort === "object" && rawEffort !== null
+            ? readNonEmptyCodexString(rawEffort as Record<string, unknown>, "reasoningEffort")
+            : undefined;
+        if (level === undefined) {
+          throw new CodexModelCatalogUnreadableError(
+            `model '${id}' has an unreadable reasoning-effort entry`,
+          );
+        }
+        effortLevels.push(level);
+      }
+      model.effortLevels = effortLevels;
+    }
+    models.push(model);
+  }
+  return models;
+}
+
+/**
+ * Answer the Codex driver's `listModels()`.
+ *
+ * @param exchange The live read, or an EXPLICIT `null` for a composition that
+ *   binds none. Null rather than optional so a construction site cannot arrive
+ *   at the declaration by never having decided — the reasoning that makes
+ *   `resolveCredentialEnvPolicy` and the capability probe required options
+ *   rather than defaulted ones.
+ *
+ * A bound exchange that FAILS is never quietly answered from the declaration.
+ * Serving a stale catalog under the appearance of a live read is the one
+ * confusion the detection-source doctrine exists to prevent, so a read failure
+ * propagates and only an unbound exchange reaches the declaration.
+ */
+export async function resolveCodexModelCatalog(
+  exchange: CodexModelCatalogExchange | null,
+): Promise<ProviderModel[]> {
+  if (exchange === null) {
+    // Fresh copies: the constant is frozen and shared process-wide, and
+    // `ProviderModel` carries mutable arrays a caller could otherwise rewrite
+    // for every later caller.
+    return CODEX_DECLARED_MODEL_CATALOG.map((model) => ({
+      id: model.id,
+      name: model.name,
+      capabilities: [...model.capabilities],
+      ...(model.effortLevels === undefined ? {} : { effortLevels: [...model.effortLevels] }),
+    }));
+  }
+  return normalizeCodexModelCatalog(await exchange());
 }

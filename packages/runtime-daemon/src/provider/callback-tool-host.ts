@@ -71,12 +71,15 @@
 // Refs: Plan-005 §Phase 3 / T3.15 leg 3, CP-005-7, `Spec-005 §Required
 // Behavior`, `Spec-012 §Required Behavior`.
 
-import type {
-  CallbackToolInvocation,
-  CallbackToolResult,
-  RunId,
-  SessionCallbackTool,
-  SessionId,
+import {
+  CallbackToolInvocationSchema,
+  DRIVER_TOOL_CALL_ID_MAX_LEN,
+  DRIVER_TOOL_NAME_MAX_LEN,
+  type CallbackToolInvocation,
+  type CallbackToolResult,
+  type RunId,
+  type SessionCallbackTool,
+  type SessionId,
 } from "@ai-sidekicks/contracts";
 
 import type { DriverDiagnosticsEmitter, DriverProviderName } from "./driver-diagnostics.js";
@@ -158,6 +161,7 @@ export type CallbackToolActivityDisposition =
   | "denied-no-seam"
   | "failed-unknown-tool"
   | "failed-invalid-arguments"
+  | "failed-superseded-binding"
   | "failed-in-execution";
 
 /**
@@ -199,14 +203,56 @@ export type CallbackToolRegistryWithholdingReason =
   /** The provider cannot register the tools at this negotiated posture. */
   | "provider-registration-unavailable";
 
-/** The resolved spawn-time registry: the admitted tools, or a withholding. */
+/**
+ * Identifies ONE installation of ONE session's callback-tool registry.
+ *
+ * WHY A SESSION ID IS NOT ENOUGH, which is the entire reason this exists. A
+ * resume or a relaunch installs a fresh registry under the SAME session id
+ * while the superseded provider process is still winding down. Keyed by session
+ * id alone, that process's teardown deletes the REPLACEMENT's registry, and its
+ * still-in-flight callbacks are adjudicated against the REPLACEMENT's
+ * registered tools — one spawn reaching into a sibling spawn's state, on both
+ * paths, with nothing reporting either. A token minted per installation makes
+ * the two distinguishable: the host acts for the binding whose token is still
+ * the installed one, and records a refusal for a binding whose is not.
+ *
+ * IDENTITY IS BY REFERENCE, never by the ordinal. The ordinal exists so a
+ * diagnostic can name WHICH installation was superseded; comparing it instead
+ * would let any caller synthesize a token that matches.
+ */
+export interface CallbackToolRegistryToken {
+  /** Daemon-local installation ordinal. Diagnostics only — see above. */
+  readonly installation: number;
+}
+
+/**
+ * The resolved spawn-time registry: the admitted tools, or a withholding.
+ *
+ * `registryToken` rides BOTH arms, including the withholding, and that is not
+ * symmetry for its own sake: a withholding still INSTALLS a registry (an empty
+ * one, so a stray invocation is refused as an unknown tool on a known session),
+ * so a withheld spawn still has an installation a later spawn can supersede and
+ * still owes a scoped teardown. Omitting the token there would leave exactly
+ * the withheld spawns tearing down their successors.
+ */
 export type CallbackToolRegistryResolution =
-  | { readonly admitted: true; readonly tools: readonly SessionCallbackTool[] }
+  | {
+      readonly admitted: true;
+      readonly tools: readonly SessionCallbackTool[];
+      readonly registryToken: CallbackToolRegistryToken;
+    }
   | {
       readonly admitted: false;
       readonly reason: CallbackToolRegistryWithholdingReason;
       readonly detail: string;
+      readonly registryToken: CallbackToolRegistryToken;
     };
+
+/** One session's currently-installed registry, and the token that installed it. */
+interface InstalledCallbackToolRegistry {
+  readonly token: CallbackToolRegistryToken;
+  readonly toolsByName: ReadonlyMap<string, SessionCallbackTool>;
+}
 
 export interface CallbackToolHostOptions {
   readonly provider: DriverProviderName;
@@ -240,11 +286,21 @@ export interface CallbackToolHostOptions {
  * spawn:
  *
  *   1. `resolveSpawnRegistry({ sessionId, requestedTools, ... })` — installs
- *      the session's registry and answers which tools may be offered.
+ *      the session's registry, mints the installation's
+ *      {@link CallbackToolRegistryToken}, and answers which tools may be
+ *      offered.
  *   2. Spawn the session passing `callbackTools: resolution.tools` (an empty
  *      list on a withholding) and `onCallbackToolCall: (invocation) =>
- *      host.dispatch(invocation)`.
- *   3. `forgetSession(sessionId)` at teardown.
+ *      host.dispatch(invocation, resolution.registryToken)`.
+ *   3. `forgetSession(sessionId, resolution.registryToken)` at teardown.
+ *
+ * CARRYING THE TOKEN THROUGH STEPS 2 AND 3 IS WHAT SCOPES THEM TO THIS SPAWN.
+ * Without it, a resume that installed a replacement registry before the
+ * superseded process finished winding down would have that process's teardown
+ * delete the live registry and its late callbacks adjudicated against the live
+ * registry's tools. {@link bindCallbackToolsForSpawn} performs this threading,
+ * which is the reason to prefer it over calling the three entry points by
+ * hand.
  *
  * STEP 1 BEFORE STEP 2 IS LOAD-BEARING. `dispatch` refuses any invocation whose
  * session has no installed registry, so a spawn that bound the dispatcher
@@ -260,7 +316,9 @@ export class CallbackToolHost {
   readonly #executor: CallbackToolExecutor;
   readonly #activitySink: CallbackToolActivitySink;
   readonly #approvalSeam: CallbackToolApprovalSeam | undefined;
-  readonly #registriesBySessionId = new Map<SessionId, ReadonlyMap<string, SessionCallbackTool>>();
+  readonly #registriesBySessionId = new Map<SessionId, InstalledCallbackToolRegistry>();
+  /** Monotonic within one host, so no two live installations share an ordinal. */
+  #nextRegistryInstallation = 1;
 
   constructor(options: CallbackToolHostOptions) {
     this.#provider = options.provider;
@@ -299,8 +357,11 @@ export class CallbackToolHost {
     // unknown tool rather than as a session this host never saw.
     const requestedTools = request.requestedTools ?? [];
     if (requestedTools.length === 0) {
-      this.#registriesBySessionId.set(request.sessionId, new Map());
-      return { admitted: true, tools: [] };
+      return {
+        admitted: true,
+        tools: [],
+        registryToken: this.#installRegistry(request.sessionId, []),
+      };
     }
 
     if (this.#approvalSeam === undefined) {
@@ -320,17 +381,154 @@ export class CallbackToolHost {
       );
     }
 
-    const registry = new Map<string, SessionCallbackTool>();
-    for (const tool of requestedTools) {
-      registry.set(tool.name, tool);
-    }
-    this.#registriesBySessionId.set(request.sessionId, registry);
-    return { admitted: true, tools: requestedTools };
+    // CLONED AND FROZEN at the boundary, so the host's registry and the list
+    // the driver is handed cannot drift apart. The caller keeps its own
+    // descriptors and may mutate them; what it may not do is change what this
+    // host validates against after the spawn admitted it — a driver that
+    // widened an `inputSchema` in place would move the argument admission
+    // without passing the spawn-time decision that admitted the tool at all.
+    const admittedTools = requestedTools.map(cloneRegisteredCallbackTool);
+    return {
+      admitted: true,
+      tools: Object.freeze(admittedTools),
+      registryToken: this.#installRegistry(request.sessionId, admittedTools),
+    };
   }
 
-  /** Forget one session's registry. Called by the driver at session teardown. */
-  forgetSession(sessionId: SessionId): void {
+  /**
+   * Forget one session's registry, scoped to the installation that asked.
+   *
+   * `registryToken` is REQUIRED-BUT-NULLABLE rather than optional, on the
+   * reasoning that makes `approvalAskResponder` required-but-nullable: every
+   * caller must DECIDE. Passing the binding's own token scopes the teardown to
+   * that spawn — the shape {@link bindCallbackToolsForSpawn} always produces.
+   * Passing `null` is an UNSCOPED teardown that forgets whichever installation
+   * is current, which is what a daemon-wide shutdown wants and what a
+   * per-spawn teardown must never use: an unscoped release from a superseded
+   * spawn is precisely the bug the token exists to close.
+   *
+   * Idempotent in both directions: a session with nothing installed is a
+   * no-op, and a teardown that runs twice deletes once.
+   */
+  forgetSession(sessionId: SessionId, registryToken: CallbackToolRegistryToken | null): void {
+    const installed = this.#registriesBySessionId.get(sessionId);
+    if (installed === undefined) {
+      return;
+    }
+    if (registryToken !== null && installed.token !== registryToken) {
+      // RECORDED, never silently honoured and never silently dropped: honouring
+      // it would tear down the LIVE spawn's registry, and dropping it without a
+      // record would leave an operator watching a teardown that did nothing.
+      this.#diagnostics.emit({
+        provider: this.#provider,
+        kind: "callback_tool_registry_release_ignored",
+        rawWireType: null,
+        dispositionReason:
+          "a superseded spawn's teardown ran after its callback-tool registry had been replaced; leaving the live installation in place",
+        details: {
+          sessionId,
+          releasingInstallation: registryToken.installation,
+          installedInstallation: installed.token.installation,
+        },
+      });
+      return;
+    }
     this.#registriesBySessionId.delete(sessionId);
+  }
+
+  /**
+   * Install one session's registry and mint the installation's token.
+   *
+   * A REPLACEMENT IS RECORDED rather than silent. It is not itself a fault — a
+   * resume or a relaunch reaches this legitimately — but it is the moment after
+   * which the superseded spawn's dispatcher and teardown stop acting on the
+   * session, so an operator reading either of those refusals needs this record
+   * to explain them.
+   */
+  #installRegistry(
+    sessionId: SessionId,
+    tools: readonly SessionCallbackTool[],
+  ): CallbackToolRegistryToken {
+    const token: CallbackToolRegistryToken = Object.freeze({
+      installation: this.#nextRegistryInstallation,
+    });
+    this.#nextRegistryInstallation += 1;
+    const toolsByName = new Map<string, SessionCallbackTool>();
+    for (const tool of tools) {
+      toolsByName.set(tool.name, tool);
+    }
+    const superseded = this.#registriesBySessionId.get(sessionId);
+    this.#registriesBySessionId.set(sessionId, { token, toolsByName });
+    if (superseded !== undefined) {
+      this.#diagnostics.emit({
+        provider: this.#provider,
+        kind: "callback_tool_registry_superseded",
+        rawWireType: null,
+        dispositionReason:
+          "a second spawn installed a callback-tool registry for a session that still had one installed; the superseded installation no longer dispatches or releases",
+        details: {
+          sessionId,
+          supersededInstallation: superseded.token.installation,
+          installedInstallation: token.installation,
+          installedToolCount: toolsByName.size,
+        },
+      });
+    }
+    return token;
+  }
+
+  /**
+   * Record one provider ask the driver band could not turn into a
+   * `CallbackToolInvocation` at all, so it never reached {@link dispatch}.
+   *
+   * WHY THIS EXISTS AS A HOST METHOD RATHER THAN A SECOND DIAGNOSTIC PATH. The
+   * host's stated posture is that BOTH its refusals are recorded rather than
+   * silent, and an ask refused one layer earlier is refused for the same
+   * reason class — the daemon would not answer without adjudication. Handing
+   * the adapter its own `DriverDiagnosticsEmitter` would give one provider band
+   * two independent emitters that could disagree about the provider label; this
+   * routes the record through the emitter and provider identity the host
+   * already holds. It reuses `callback_tool_invocation_refused` rather than
+   * minting a kind: the condition it reports — an invocation refused before any
+   * adjudication — is the one that kind already names.
+   *
+   * NO `tool_activity` ROW ACCOMPANIES IT, and the omission is structural
+   * rather than a choice: `CallbackToolActivityRecord` requires a `RunId` and a
+   * `toolCallId`, and an ask that could not form an invocation is precisely one
+   * that may be missing either. Fabricating them to satisfy the row would put a
+   * turn's identity on a record the provider never supplied.
+   */
+  recordUnformedInvocation(refusal: {
+    readonly sessionId: SessionId;
+    readonly runId: RunId | null;
+    /** The provider's own name for the tool, or `null` where it supplied none. */
+    readonly toolName: string | null;
+    readonly toolCallId: string | null;
+    readonly detail: string;
+  }): void {
+    this.#diagnostics.emit({
+      provider: this.#provider,
+      kind: "callback_tool_invocation_refused",
+      rawWireType: null,
+      dispositionReason: refusal.detail,
+      details: {
+        // UNTRUSTED provider output, carried as data on the same reasoning
+        // `#refuseInvocation` carries it — an operator needs to see which ask
+        // was refused, and it is never interpolated into anything executed —
+        // but BOUNDED, because this arm runs on a payload that never passed
+        // `CallbackToolInvocationSchema`: the refusal is often that it could
+        // not. An unbounded copy would put a provider-sized string into the
+        // emitter's 256-record ring and the log sink behind it.
+        sessionId: refusal.sessionId,
+        runId: refusal.runId,
+        ...describeBoundedWireIdentifier("toolName", refusal.toolName, DRIVER_TOOL_NAME_MAX_LEN),
+        ...describeBoundedWireIdentifier(
+          "toolCallId",
+          refusal.toolCallId,
+          DRIVER_TOOL_CALL_ID_MAX_LEN,
+        ),
+      },
+    });
   }
 
   /**
@@ -352,8 +550,20 @@ export class CallbackToolHost {
    *
    * The two pre-checks then answer `failed` WITHOUT dispatch, so malformed
    * provider output never reaches the approval pipeline.
+   *
+   * `registryToken` SCOPES THE CALL TO ONE INSTALLATION, and is
+   * required-but-nullable for the same reason {@link forgetSession}'s is: every
+   * caller decides. A spawn's own dispatcher passes the token that spawn
+   * installed, so a superseded process's late callback is refused rather than
+   * adjudicated against its successor's tools. `null` is the UNSCOPED call —
+   * whatever registry is installed now — which is correct for a per-driver
+   * routed-ask responder that outlives any one spawn and has no token to hold,
+   * and wrong for anything holding one.
    */
-  async dispatch(invocation: CallbackToolInvocation): Promise<CallbackToolResult> {
+  async dispatch(
+    invocation: CallbackToolInvocation,
+    registryToken: CallbackToolRegistryToken | null,
+  ): Promise<CallbackToolResult> {
     const approvalSeam = this.#approvalSeam;
     if (approvalSeam === undefined) {
       // The runtime backstop. Reachable even though the spawn withholding
@@ -369,15 +579,30 @@ export class CallbackToolHost {
       );
     }
 
-    const registry = this.#registriesBySessionId.get(invocation.sessionId);
-    const tool = registry?.get(invocation.toolName);
+    const installed = this.#registriesBySessionId.get(invocation.sessionId);
+    if (installed !== undefined && registryToken !== null && installed.token !== registryToken) {
+      // Ordered AHEAD of the tool lookup deliberately. A superseded spawn's
+      // late callback must be refused because of WHOSE registry it belongs to,
+      // never admitted merely because the replacement happens to register a
+      // tool by the same name — the replacement's descriptor may carry a
+      // different schema, and adjudicating against it would apply the live
+      // spawn's admission to a call the live spawn never made.
+      return this.#refuseInvocation(
+        invocation,
+        "failed",
+        "failed-superseded-binding",
+        "callback_tool_invocation_refused",
+        "invocation was raised against a callback-tool registry a later spawn has superseded; refusing rather than adjudicating it against the live spawn's registry",
+      );
+    }
+    const tool = installed?.toolsByName.get(invocation.toolName);
     if (tool === undefined) {
       return this.#refuseInvocation(
         invocation,
         "failed",
         "failed-unknown-tool",
         "callback_tool_invocation_refused",
-        registry === undefined
+        installed === undefined
           ? "invocation names a session with no registered callback-tool registry"
           : `invocation names no registered callback tool`,
       );
@@ -455,7 +680,7 @@ export class CallbackToolHost {
     // invokes anyway must be refused as an unknown tool on a known session, and
     // an absent registry would make that refusal indistinguishable from an
     // invocation naming a session this host never spawned.
-    this.#registriesBySessionId.set(sessionId, new Map());
+    const registryToken = this.#installRegistry(sessionId, []);
     this.#diagnostics.emit({
       provider: this.#provider,
       kind: "callback_tool_registry_withheld",
@@ -463,7 +688,7 @@ export class CallbackToolHost {
       dispositionReason: detail,
       details: { sessionId, reason, withheldToolCount },
     });
-    return { admitted: false, reason, detail };
+    return { admitted: false, reason, detail, registryToken };
   }
 
   #refuseInvocation(
@@ -481,10 +706,17 @@ export class CallbackToolHost {
       details: {
         sessionId: invocation.sessionId,
         runId: invocation.runId,
-        // UNTRUSTED provider output, carried verbatim as data so an operator can
-        // see which name was refused; never interpolated into anything executed.
-        toolName: invocation.toolName,
-        toolCallId: invocation.toolCallId,
+        // UNTRUSTED provider output, carried as data so an operator can see
+        // which name was refused; never interpolated into anything executed.
+        // Bounded on the same reasoning as `recordUnformedInvocation`'s copy:
+        // `dispatch` is a public entry point, so the schema's bound is the
+        // routed path's guarantee rather than this method's precondition.
+        ...describeBoundedWireIdentifier("toolName", invocation.toolName, DRIVER_TOOL_NAME_MAX_LEN),
+        ...describeBoundedWireIdentifier(
+          "toolCallId",
+          invocation.toolCallId,
+          DRIVER_TOOL_CALL_ID_MAX_LEN,
+        ),
       },
     });
     this.#recordActivity(invocation, disposition, null);
@@ -561,10 +793,486 @@ export function describeArgumentRefusal(
   return `invocation omits required argument(s) declared by the registered input schema: ${missingProperties.join(", ")}`;
 }
 
+// --------------------------------------------------------------------------
+// Bounded diagnostic identifiers.
+// --------------------------------------------------------------------------
+
+/**
+ * Describe one untrusted provider identifier as bounded diagnostic detail.
+ *
+ * WHY BOUND AT ALL, given the schema. `CallbackToolInvocationSchema` bounds
+ * these strings, but the two call sites that copy them are reached by payloads
+ * the schema did NOT admit: `recordUnformedInvocation` runs precisely when the
+ * parse failed, and `dispatch` is a public entry point a caller may reach with
+ * a hand-built value. So the bound belongs where the copy happens rather than
+ * where the happy path validates, and the destination is what makes it matter —
+ * the emitter retains 256 records in memory and a log sink serializes each one.
+ *
+ * TRUNCATION IS MARKED, never inferred: the record carries an explicit
+ * `<field>Truncated` flag whenever a string was present, so a value that
+ * happens to sit exactly at the bound is not read as a clipped one, and the
+ * pre-truncation length rides along so an operator can see how much was cut.
+ * Absent (`null`) values carry no flag at all, which keeps "the provider sent
+ * no name" distinguishable from "the provider sent a short one".
+ */
+function describeBoundedWireIdentifier(
+  fieldName: string,
+  value: string | null,
+  maxLength: number,
+): Readonly<Record<string, string | number | boolean | null>> {
+  if (value === null) {
+    return { [fieldName]: null };
+  }
+  if (value.length <= maxLength) {
+    return { [fieldName]: value, [`${fieldName}Truncated`]: false };
+  }
+  return {
+    [fieldName]: truncateAtCodePointBoundary(value, maxLength),
+    [`${fieldName}Truncated`]: true,
+    [`${fieldName}OriginalLength`]: value.length,
+  };
+}
+
+/**
+ * Cut a string to at most `maxLength` UTF-16 code units without splitting a
+ * surrogate pair — a lone surrogate would make the record itself unserializable
+ * by some sinks, which would turn a bounding measure into a new failure mode.
+ */
+function truncateAtCodePointBoundary(value: string, maxLength: number): string {
+  const cut = value.slice(0, maxLength);
+  const lastUnit = cut.charCodeAt(cut.length - 1);
+  const splitsSurrogatePair = lastUnit >= 0xd800 && lastUnit <= 0xdbff;
+  return splitsSurrogatePair ? cut.slice(0, -1) : cut;
+}
+
+/**
+ * Copy one registry descriptor so the host validates against a value no caller
+ * still holds a mutable reference to.
+ *
+ * The nested `inputSchema` is copied too, and that is the half that matters:
+ * `describeArgumentRefusal` reads `type` and `required` out of it on EVERY
+ * invocation, so a driver that mutated the object it handed over would move the
+ * argument admission after the spawn-time decision that admitted the tool —
+ * silently, and with no second adjudication anywhere.
+ *
+ * DELIBERATELY SHALLOW BELOW THE SCHEMA'S OWN TOP LEVEL, and the bound is the
+ * honest part. `required` is re-copied because it is the one nested value the
+ * admission actually reads; a deeper structure inside `properties` is shared,
+ * and nothing in this host reads it. A structured-clone pass would claim a
+ * guarantee this host does not need and would throw on the non-cloneable values
+ * a `Record<string, unknown>` may legally hold.
+ */
+function cloneRegisteredCallbackTool(tool: SessionCallbackTool): SessionCallbackTool {
+  const inputSchema: Record<string, unknown> = { ...tool.inputSchema };
+  const declaredRequired = inputSchema["required"];
+  if (Array.isArray(declaredRequired)) {
+    inputSchema["required"] = Object.freeze([...declaredRequired]);
+  }
+  return Object.freeze({
+    name: tool.name,
+    description: tool.description,
+    inputSchema: Object.freeze(inputSchema),
+  });
+}
+
 /** Normalizes an executor throw into a bounded, leak-safe detail string. */
 function describeExecutorFailure(cause: unknown): string {
   if (cause instanceof Error && cause.message.length > 0) {
     return cause.message;
   }
   return "The callback-tool executor failed with no describable detail.";
+}
+
+// --------------------------------------------------------------------------
+// Composition-root binding.
+// --------------------------------------------------------------------------
+
+/**
+ * One spawn's worth of callback-tool wiring: what to offer the provider, what
+ * to hand it as its dispatcher, and how to let the session go.
+ *
+ * The three-step obligation documented on {@link CallbackToolHost} is easy to
+ * perform out of order and easy to perform partially, and both mistakes are
+ * silent — a spawn that bound the dispatcher without resolving first advertises
+ * tools every invocation is refused for, and a teardown that forgot
+ * `forgetSession` leaks one registry per session for the daemon's lifetime.
+ * This value makes the three inseparable: a caller that holds it has already
+ * performed step 1 and cannot reach step 2 without the products of step 1.
+ *
+ * NO PRODUCTION COMPOSITION ROOT CALLS `release` YET, and that is a RECORDED
+ * RESIDUAL rather than an oversight: no composition root constructs a driver at
+ * all today, so this binder rides the first one alongside the two other
+ * bindings waiting on it — `CodexDriverOptions.resolveCredentialEnvPolicy` and
+ * both drivers' `modelCatalogExchange`.
+ */
+export interface CallbackToolSpawnBinding {
+  /** Step 1's answer, carried through so a caller can report a withholding. */
+  readonly resolution: CallbackToolRegistryResolution;
+  /**
+   * The value for `CreateSessionParams.callbackTools` / the resume equivalent.
+   * A fresh mutable array because the spawn params declare a mutable one, and
+   * handing over the resolution's own `readonly` list would let a driver's
+   * later mutation reach back into this host's answer.
+   *
+   * The DESCRIPTORS inside it are the host's own frozen clones, so a driver
+   * that mutated one in place changes neither the host's registry nor the other
+   * spawn's copy — it changes a frozen object, which fails loudly under strict
+   * mode rather than desyncing the admission silently.
+   */
+  readonly callbackTools: SessionCallbackTool[];
+  /**
+   * The value for `CreateSessionParams.onCallbackToolCall`.
+   *
+   * BOUND EVEN ON A WITHHOLDING, deliberately. The registry is empty then, so
+   * this daemon advertises nothing — but a provider can carry a registration
+   * this daemon did not perform (an earlier connection's, or a build offering
+   * one of its own), and the host's runtime backstop is what turns that stray
+   * invocation into a recorded refusal instead of an unanswered frame. Leaving
+   * it unbound would trade a recorded refusal for a silent one.
+   */
+  readonly onCallbackToolCall: (invocation: CallbackToolInvocation) => Promise<CallbackToolResult>;
+  /**
+   * Step 3. Idempotent, so a teardown path that runs twice is harmless, and
+   * SCOPED to this spawn's installation, so a superseded spawn's teardown
+   * leaves its successor's registry installed and records that it did.
+   */
+  readonly release: () => void;
+}
+
+/**
+ * Perform step 1 and compose steps 2 and 3 into one value.
+ *
+ * A free function rather than a host method because it is the COMPOSITION
+ * ROOT's operation, not the host's: it exists to shape what a caller hands a
+ * driver, and putting it on the host would suggest the host knows what a spawn
+ * looks like. The host still owns every decision it makes.
+ */
+export function bindCallbackToolsForSpawn(
+  host: CallbackToolHost,
+  request: {
+    readonly sessionId: SessionId;
+    readonly requestedTools: readonly SessionCallbackTool[] | undefined;
+    readonly providerRegistrationAvailable: boolean;
+    readonly providerRegistrationUnavailableDetail: string;
+  },
+): CallbackToolSpawnBinding {
+  const resolution = host.resolveSpawnRegistry(request);
+  const registryToken = resolution.registryToken;
+  return {
+    resolution,
+    callbackTools: resolution.admitted ? [...resolution.tools] : [],
+    onCallbackToolCall: async (invocation) => await host.dispatch(invocation, registryToken),
+    release: () => {
+      host.forgetSession(request.sessionId, registryToken);
+    },
+  };
+}
+
+/**
+ * Translate a PROVIDER-FACING tool name back to the registry name the host
+ * adjudicates, or return it unchanged when the map does not know it.
+ *
+ * Only one transport needs this today — the Claude leg hosts the registry as an
+ * ephemeral MCP server, where every tool surfaces mangled as
+ * `mcp__<server>__<tool>` — but the translation belongs beside the host rather
+ * than inside that transport, because a transport that forgot to perform it
+ * would hand the host a name no registry holds and reach `failed-unknown-tool`:
+ * the served-but-unanswerable state this leg exists to prevent, arrived at from
+ * the opposite direction.
+ *
+ * AN UNKNOWN NAME PASSES THROUGH UNCHANGED rather than refusing here. The host
+ * is the single place that decides what is registered, and passing the
+ * provider's own name into that decision is what puts the exact string the
+ * provider used into the refusal's diagnostic — which is the string an operator
+ * needs to see.
+ */
+export function resolveRegisteredCallbackToolName(
+  registryNamesByProviderName: ReadonlyMap<string, string>,
+  providerFacingToolName: string,
+): string {
+  return registryNamesByProviderName.get(providerFacingToolName) ?? providerFacingToolName;
+}
+
+// --------------------------------------------------------------------------
+// The routed-ask adapter.
+// --------------------------------------------------------------------------
+
+/**
+ * One inbound provider ask carrying the session and run identity the daemon
+ * needs to adjudicate it.
+ *
+ * DECLARED HERE rather than imported from the Codex band, on the same reasoning
+ * that band declares its responder port rather than importing this host: each
+ * side names the shape it needs and the composition root proves they match. The
+ * proof is structural and it is a COMPILE-TIME one — `createCallbackToolAskResponder`'s
+ * return value is passed as `CodexDriverOptions.answerServerRequest`, so a
+ * divergence between the two declarations is a type error at that call site
+ * rather than a runtime surprise.
+ */
+export interface RoutedProviderAsk {
+  /** The provider's own method name, verbatim and untrusted; a label only. */
+  readonly method: string;
+  readonly askKind: "callback-tool" | "approval";
+  /** The raw wire params, untrusted; this adapter parses what it needs. */
+  readonly params: unknown;
+  readonly sessionId: SessionId;
+  /** `null` when no turn is active — establishment, or after a turn retired. */
+  readonly runId: RunId | null;
+}
+
+/** The daemon's answer to one routed ask. */
+export type RoutedProviderAskDecision =
+  | { readonly decision: "allow"; readonly payload?: Record<string, unknown> | undefined }
+  | { readonly decision: "refuse"; readonly reason: string };
+
+/** The port a provider band binds to have its routed asks answered. */
+export interface RoutedProviderAskResponder {
+  answer(request: RoutedProviderAsk): Promise<RoutedProviderAskDecision>;
+}
+
+export interface CallbackToolAskResponderOptions {
+  readonly host: CallbackToolHost;
+  /**
+   * The responder for `askKind: "approval"` asks — Plan-012's, whose questions
+   * are permission decisions rather than tool calls — or an EXPLICIT `null` for
+   * a daemon composed without one.
+   *
+   * REQUIRED-BUT-NULLABLE rather than optional, on the reasoning that makes
+   * `resolveCredentialEnvPolicy` required: one responder answers BOTH ask kinds
+   * because the provider band binds exactly one port, so this adapter
+   * unavoidably stands in front of the approval methods too. An optional arm
+   * would let a composition root that simply never bound Plan-012's responder
+   * refuse every approval without anyone having decided to.
+   */
+  readonly approvalAskResponder: RoutedProviderAskResponder | null;
+}
+
+/**
+ * Compose the responder a provider band binds for its routed asks: callback
+ * tool calls answered by this daemon's {@link CallbackToolHost}, approval asks
+ * delegated to Plan-012's responder.
+ *
+ * EVERY PATH ANSWERS. The band this feeds turns a refusal into the asking
+ * method's own refusal shape, so a refusal here answers the question that was
+ * asked rather than reporting a protocol fault.
+ */
+export function createCallbackToolAskResponder(
+  options: CallbackToolAskResponderOptions,
+): RoutedProviderAskResponder {
+  const { host, approvalAskResponder } = options;
+  return {
+    async answer(request: RoutedProviderAsk): Promise<RoutedProviderAskDecision> {
+      if (request.askKind === "approval") {
+        if (approvalAskResponder === null) {
+          // No diagnostic is emitted, and the omission is deliberate: the
+          // `callback_tool_*` kinds name this host's own conditions, and
+          // labelling an approval refusal with one would misattribute it. The
+          // refusal is not silent — the reason travels to the provider on the
+          // method's own refusal shape — and the approval band owns the
+          // observability for the questions it is meant to answer.
+          return {
+            decision: "refuse",
+            reason: `The daemon has no approval responder registered for "${request.method}"; refusing rather than answering without adjudication.`,
+          };
+        }
+        return await approvalAskResponder.answer(request);
+      }
+
+      const invocation = readCallbackToolInvocation(request);
+      if (typeof invocation === "string") {
+        host.recordUnformedInvocation({
+          sessionId: request.sessionId,
+          runId: request.runId,
+          toolName: readOptionalWireString(request.params, "tool"),
+          toolCallId: readOptionalWireString(request.params, "callId"),
+          detail: invocation,
+        });
+        return { decision: "refuse", reason: invocation };
+      }
+
+      // UNSCOPED (`null`) deliberately, and the justification is PROVENANCE
+      // rather than lifetime. That this responder outlives any single spawn
+      // explains why it holds no token; it does not explain why dispatching
+      // against whatever registry is installed now is SAFE. What explains that
+      // is upstream: a `RoutedProviderAsk` reaches this arm only after the
+      // provider band has attributed it to a live run, and the band that
+      // routes callback-tool asks today attributes them by the turn the
+      // provider itself names, refusing any it holds no live route for. A
+      // superseded spawn's turns live on the session record the supersede
+      // displaced, so its invocation is refused BEFORE it reaches here and the
+      // laundering this arm cannot detect is one it can never be handed.
+      //
+      // The obligation that carries: a band routing callback-tool asks WITHOUT
+      // turn-keyed attribution would break that argument, not this code. Such
+      // a band owes a per-spawn token on the ask — the binding closure below
+      // already carries one — because at this boundary the invocation names no
+      // spawn and none can be inferred.
+      const result = await host.dispatch(invocation, null);
+      if (result.status !== "completed") {
+        return {
+          decision: "refuse",
+          reason:
+            result.error ?? "The daemon refused this callback tool call with no stated reason.",
+        };
+      }
+      return {
+        decision: "allow",
+        payload: { contentItems: composeCallbackToolContentItems(result.output) },
+      };
+    },
+  };
+}
+
+/**
+ * Build the `CallbackToolInvocation` one routed ask carries, or describe why it
+ * cannot be built.
+ *
+ * A `string` return is the refusal reason, which is why it is not `null`: an
+ * ask this daemon will not answer must say WHAT it could not read, both to the
+ * provider and to the diagnostic.
+ *
+ * The field names are the pinned generation's own `DynamicToolCallParams`
+ * (`tool`, `callId`, `arguments`, plus `threadId` / `turnId` / `namespace`,
+ * which the daemon's own routing already supplies and this shape therefore does
+ * not read). `arguments` is schema-typed as ANY JSON VALUE there — not an
+ * object — so a non-object argument payload is a shape the provider is entitled
+ * to send and this adapter is obliged to refuse rather than assume away.
+ */
+function readCallbackToolInvocation(request: RoutedProviderAsk): CallbackToolInvocation | string {
+  // Ordered ahead of the shape read because it is not a malformed-payload
+  // condition at all: a well-formed call raised outside any active turn simply
+  // cannot be attributed, and `CallbackToolInvocation.runId` is required
+  // precisely so no invocation is adjudicated against an invented run.
+  if (request.runId === null) {
+    return `The provider raised "${request.method}" with no turn active on the session, so the call cannot be attributed to a run; refusing rather than adjudicating it against an invented one.`;
+  }
+  const parsedInvocation = CallbackToolInvocationSchema.safeParse({
+    toolName: readWireValue(request.params, "tool"),
+    arguments: readWireValue(request.params, "arguments"),
+    toolCallId: readWireValue(request.params, "callId"),
+    sessionId: request.sessionId,
+    runId: request.runId,
+  });
+  if (!parsedInvocation.success) {
+    return `The provider's "${request.method}" params did not parse as a callback-tool invocation; refusing rather than dispatching a malformed call.`;
+  }
+  return parsedInvocation.data;
+}
+
+/** One member of an untrusted wire params object, or `undefined`. */
+function readWireValue(params: unknown, memberName: string): unknown {
+  if (typeof params !== "object" || params === null) {
+    return undefined;
+  }
+  return (params as Record<string, unknown>)[memberName];
+}
+
+/** The same read, narrowed to the string case, for a diagnostic's detail field. */
+function readOptionalWireString(params: unknown, memberName: string): string | null {
+  const value = readWireValue(params, memberName);
+  return typeof value === "string" ? value : null;
+}
+
+/**
+ * The three content-item arms the pinned generation's response type declares,
+ * each mapped to the ONE member that arm requires beside its discriminator.
+ *
+ * `DynamicToolCallOutputContentItem` is a closed union of exactly
+ * `{ type: "inputText", text: string }`, `{ type: "inputImage", imageUrl: string }`,
+ * and `{ type: "inputAudio", audioUrl: string }`. Keying the required member by
+ * arm is what makes the admission below a check of the union rather than a
+ * check of the discriminator: `{ type: "inputText" }` names a real arm and is
+ * still not a value that union can hold.
+ */
+const CALLBACK_TOOL_CONTENT_ITEM_REQUIRED_MEMBERS: ReadonlyMap<string, string> = new Map([
+  ["inputText", "text"],
+  ["inputImage", "imageUrl"],
+  ["inputAudio", "audioUrl"],
+]);
+
+/**
+ * Render a completed tool's `output` as the content-item array the provider's
+ * response type requires.
+ *
+ * THE SILENT-LOSS ARM THIS EXISTS TO CLOSE. `CallbackToolResult.output` is
+ * typed `unknown` — an executor may answer with a string, a number, or an
+ * object — while the response's `contentItems` is an array of a CLOSED
+ * three-arm union. Handing the raw value through would answer the provider
+ * `success` with an empty or malformed content array, and the model would read
+ * a tool that completed and returned nothing. A tool that produced an answer
+ * nobody can see is worse than one that failed, because nothing reports it.
+ *
+ * So: an ALREADY-WELL-FORMED array passes through untouched (an executor that
+ * composed content items meant them), an ABSENT output is a genuine empty
+ * result, and EVERYTHING ELSE is wrapped as a single `inputText` item — the arm
+ * the refusal path already uses, so this adapter introduces no vocabulary of
+ * its own.
+ *
+ * WELL-FORMED IS CHECKED PER ARM, not per discriminator, and the difference is
+ * the whole guarantee. An item naming a real arm while omitting that arm's
+ * required member — `{ type: "inputText" }`, an `inputImage` with no
+ * `imageUrl` — is a value the provider's closed union cannot hold, so shipping
+ * it would answer `success` with a payload the provider rejects or renders as
+ * nothing: the silent loss this function exists to close, arrived at through
+ * the pass-through arm instead of the wrapping one.
+ *
+ * ONE MALFORMED ITEM ROUTES THE WHOLE OUTPUT through the render-as-text
+ * fallback, and it is the whole output rather than the offending item because
+ * the alternatives are both worse: dropping the item silently loses part of an
+ * answer the model is told it received in full, and mixing rendered text into a
+ * partially-structured array reorders content the executor composed in a
+ * meaningful order. Rendering the whole value keeps everything the tool
+ * produced visible, in the order it produced it.
+ */
+export function composeCallbackToolContentItems(output: unknown): unknown[] {
+  if (output === undefined) {
+    return [];
+  }
+  if (Array.isArray(output) && output.every(isWellFormedContentItem)) {
+    return [...output];
+  }
+  return [{ type: "inputText", text: renderContentItemText(output) }];
+}
+
+function isWellFormedContentItem(candidate: unknown): boolean {
+  if (typeof candidate !== "object" || candidate === null) {
+    return false;
+  }
+  const item = candidate as Record<string, unknown>;
+  const itemType = item["type"];
+  if (typeof itemType !== "string") {
+    return false;
+  }
+  const requiredMemberName = CALLBACK_TOOL_CONTENT_ITEM_REQUIRED_MEMBERS.get(itemType);
+  if (requiredMemberName === undefined) {
+    return false;
+  }
+  // The member must be a NON-EMPTY string: the union types all three as
+  // `string`, and an empty one is the same invisible answer a missing one is —
+  // an image item with `imageUrl: ""` resolves to nothing the model can see.
+  const requiredMember = item[requiredMemberName];
+  return typeof requiredMember === "string" && requiredMember.length > 0;
+}
+
+/**
+ * Render one non-content-item output as text.
+ *
+ * A value that cannot be serialized at all — a cycle, a `BigInt` — still
+ * produces a visible item rather than an exception: the executor's answer has
+ * already been adjudicated and allowed, and letting a rendering failure escape
+ * would convert a completed tool call into an unanswered frame.
+ */
+function renderContentItemText(output: unknown): string {
+  if (typeof output === "string") {
+    return output;
+  }
+  try {
+    const serialized = JSON.stringify(output);
+    if (serialized !== undefined) {
+      return serialized;
+    }
+  } catch {
+    /* fall through to the un-renderable answer below */
+  }
+  return "The callback tool completed with an output this daemon could not render as text.";
 }

@@ -127,7 +127,7 @@ export type DriverProviderName = "codex" | "claude";
  *     the next — is the single capability-band condition that reaches an
  *     operator through no counter at all.
  *
- * The remaining six are owned by named Plan-005 T3.15 and T3.18 legs (callback-tool
+ * The remaining eight are owned by named Plan-005 T3.15 and T3.18 legs (callback-tool
  * hosting, leg 3; `subagentPolicy` pass-through, leg 4). They live here rather
  * than on a second diagnostic surface because the closed-union-plus-counter-map
  * pairing above is the property worth keeping: a parallel record type would let
@@ -141,8 +141,19 @@ export type DriverProviderName = "codex" | "claude";
  *     callback-tool registry was withheld from the provider because the daemon
  *     could not guarantee every invocation would be adjudicated.
  *   - `callback_tool_invocation_refused` — an invocation naming no registered
- *     tool, or carrying arguments the registered input schema rejects.
+ *     tool, carrying arguments the registered input schema rejects, or raised
+ *     against a registry installation a later spawn has already superseded.
  *     Answered `failed` without ever reaching the approval pipeline.
+ *   - `callback_tool_registry_superseded` — leg 3's spawn-scoping rule: a
+ *     second spawn installed a registry for a session that still had one
+ *     installed. Not itself a fault — a resume or relaunch reaches this
+ *     legitimately — but it is the moment after which the superseded spawn's
+ *     dispatcher and teardown stop acting on the session, so an operator
+ *     reading either of those refusals needs this record to explain them.
+ *   - `callback_tool_registry_release_ignored` — a superseded spawn's teardown
+ *     ran after its registry had been replaced. The replacement is left
+ *     installed and the release is recorded rather than silently honoured,
+ *     because honouring it would tear down the LIVE spawn's registry.
  *   - `subagent_definition_disabled` — leg 4's fail-closed spawn rule: a
  *     subagent definition the daemon cannot boundary-mediate is disabled at
  *     spawn rather than admitted unenforceable.
@@ -179,6 +190,8 @@ export type DriverDiagnosticKind =
   | "callback_tool_seam_absent"
   | "callback_tool_registry_withheld"
   | "callback_tool_invocation_refused"
+  | "callback_tool_registry_superseded"
+  | "callback_tool_registry_release_ignored"
   | "subagent_definition_disabled"
   | "subagent_concurrency_breach"
   | "text_neutralization_trip_report_failed";
@@ -236,6 +249,8 @@ export const DRIVER_DIAGNOSTIC_COUNTER_NAMES: Readonly<Record<DriverDiagnosticKi
     callback_tool_seam_absent: "driver.callback_tool.seam_absent",
     callback_tool_registry_withheld: "driver.callback_tool.registry_withheld",
     callback_tool_invocation_refused: "driver.callback_tool.invocation_refused",
+    callback_tool_registry_superseded: "driver.callback_tool.registry_superseded",
+    callback_tool_registry_release_ignored: "driver.callback_tool.registry_release_ignored",
     subagent_definition_disabled: "driver.subagent.definition_disabled",
     subagent_concurrency_breach: "driver.subagent.concurrency_breach",
     text_neutralization_trip_report_failed: "driver.text_neutralization.trip_report_failed",

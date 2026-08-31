@@ -269,6 +269,12 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
 }
 
 export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
+  // Mutable so a test can model BOTH transports: one that writes the callback
+  // `--mcp-config` and one that does not. Defaults `true` because every
+  // pre-existing spawn assertion in this suite describes a transport that
+  // realizes the registration, and a default of `false` would silently rewrite
+  // what those tests are about instead of adding the new arm beside them.
+  realizesCallbackToolRegistration: boolean = true;
   readonly spawnRequests: ClaudeSessionSpawnRequest[] = [];
   readonly resumeRequests: ClaudeSessionResumeRequest[] = [];
   readonly spawnedChannels: FakeClaudeSessionChannel[] = [];

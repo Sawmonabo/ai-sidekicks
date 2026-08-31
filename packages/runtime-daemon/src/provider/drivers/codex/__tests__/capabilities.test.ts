@@ -48,9 +48,13 @@ import type { SpawnedProviderVersionReading } from "../../../version-gate.js";
 import {
   CODEX_CAPABILITY_CONTRACT_VERSION,
   CODEX_CAPABILITY_FLAGS,
+  CODEX_DECLARED_MODEL_CATALOG,
   CODEX_DRIVER_NAME,
+  CodexModelCatalogUnreadableError,
   getCodexCapabilities,
+  normalizeCodexModelCatalog,
   refreshCodexCapabilities,
+  resolveCodexModelCatalog,
 } from "../capabilities.js";
 import type { DriverCapabilityDeclarationSink } from "../capabilities.js";
 import { CODEX_TOOL_METADATA } from "../tools.js";
@@ -459,5 +463,275 @@ describe("Codex composition is bound to the spawned build (T3.23, I-005-10)", ()
       }),
     ).rejects.toThrow(/driver 'claude'/);
     expect(sink.calls).toHaveLength(0);
+  });
+});
+
+// --------------------------------------------------------------------------
+// T3.12 C-8 — the current model catalog + per-model effort vocabularies
+// --------------------------------------------------------------------------
+
+/**
+ * GOLDEN VECTOR — the verbatim `model/list` result payload.
+ *
+ *   Pin        : codex-cli 0.150.1 (this repo's exact pin)
+ *   Provenance : Binary probe, 2026-08-30, one zero-turn JSON-RPC `model/list`
+ *                request to `codex app-server` after `initialize` /
+ *                `initialized`. Copied field-for-field from the reply; the
+ *                per-effort `description` strings are elided because nothing
+ *                reads them and their length would bury the levels.
+ *   Trust      : Verified at 0.150.1.
+ *
+ * Eight rows, `nextCursor: null`, `hidden: false` throughout — and TWO effort
+ * vocabularies across them, which is the fact that makes the level list a
+ * per-model member rather than a per-provider constant.
+ */
+const CODEX_RECORDED_MODEL_LIST_REPLY: Readonly<Record<string, unknown>> = Object.freeze({
+  data: [
+    codexRecordedModel("gpt-5.6-sol", "GPT-5.6-Sol", true, [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      "ultra",
+    ]),
+    codexRecordedModel("gpt-5.6-terra", "GPT-5.6-Terra", false, [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      "ultra",
+    ]),
+    codexRecordedModel("gpt-5.6-luna", "GPT-5.6-Luna", false, [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]),
+    codexRecordedModel("gpt-daybreak-blue-latest", "Daybreak Blue", false, [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      "ultra",
+    ]),
+    codexRecordedModel("gpt-5.5", "GPT-5.5", false, ["low", "medium", "high", "xhigh"]),
+    codexRecordedModel("gpt-5.4", "GPT-5.4", false, ["low", "medium", "high", "xhigh"]),
+    codexRecordedModel("gpt-5.4-mini", "GPT-5.4-Mini", false, ["low", "medium", "high", "xhigh"]),
+    codexRecordedModel("gpt-5.3-codex-spark", "GPT-5.3-Codex-Spark", false, [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+    ]),
+  ],
+  nextCursor: null,
+});
+
+/** One recorded row, in the reply's own shape (levels ride nested objects). */
+function codexRecordedModel(
+  id: string,
+  displayName: string,
+  isDefault: boolean,
+  efforts: readonly string[],
+): Record<string, unknown> {
+  return {
+    id,
+    model: id,
+    displayName,
+    hidden: false,
+    isDefault,
+    supportedReasoningEfforts: efforts.map((reasoningEffort) => ({ reasoningEffort })),
+    defaultReasoningEffort: efforts[0],
+    inputModalities: ["text"],
+  };
+}
+
+describe("Codex model catalog (T3.12 C-8)", () => {
+  it("reads the recorded reply into the provider's own eight models, in order", () => {
+    const models = normalizeCodexModelCatalog(CODEX_RECORDED_MODEL_LIST_REPLY);
+
+    // The provider lists its recommended model first; re-ordering here would
+    // silently re-rank what a client renders.
+    expect(models.map((model) => model.id)).toEqual([
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+      "gpt-daybreak-blue-latest",
+      "gpt-5.5",
+      "gpt-5.4",
+      "gpt-5.4-mini",
+      "gpt-5.3-codex-spark",
+    ]);
+    expect(models.map((model) => model.name)).toContain("GPT-5.3-Codex-Spark");
+  });
+
+  it("carries two DIFFERENT effort vocabularies across the catalog", () => {
+    const models = normalizeCodexModelCatalog(CODEX_RECORDED_MODEL_LIST_REPLY);
+    const levelsFor = (id: string): string[] | undefined =>
+      models.find((model) => model.id === id)?.effortLevels;
+
+    // This spread is the reason the contract carries the list PER MODEL: one
+    // provider-wide vocabulary cannot describe all three of these rows.
+    expect(levelsFor("gpt-5.6-sol")).toEqual(["low", "medium", "high", "xhigh", "max", "ultra"]);
+    expect(levelsFor("gpt-5.6-luna")).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    expect(levelsFor("gpt-5.5")).toEqual(["low", "medium", "high", "xhigh"]);
+  });
+
+  it("leaves effortLevels ABSENT for a row that publishes none", () => {
+    const models = normalizeCodexModelCatalog({
+      data: [{ id: "model-x", displayName: "X" }],
+      nextCursor: null,
+    });
+
+    expect(models[0] && "effortLevels" in models[0]).toBe(false);
+  });
+
+  it("drops hidden models", () => {
+    const models = normalizeCodexModelCatalog({
+      data: [
+        { id: "shown", displayName: "Shown" },
+        { id: "concealed", displayName: "Concealed", hidden: true },
+      ],
+      nextCursor: null,
+    });
+
+    // A hidden model is one the provider declines to offer for selection;
+    // publishing it would offer a model its own surface does not.
+    expect(models.map((model) => model.id)).toEqual(["shown"]);
+  });
+
+  it("populates no capabilities tags", () => {
+    const models = normalizeCodexModelCatalog(CODEX_RECORDED_MODEL_LIST_REPLY);
+
+    for (const model of models) {
+      expect(model.capabilities).toEqual([]);
+    }
+  });
+
+  it.each([
+    ["a non-object reply", 42, /not an object/],
+    ["a reply with no data array", { data: {}, nextCursor: null }, /no `data` array/],
+    [
+      "a paginated reply",
+      { data: [{ id: "a", displayName: "A" }], nextCursor: "page-2" },
+      /paginated/,
+    ],
+    ["a non-object entry", { data: ["gpt-5.5"], nextCursor: null }, /entry is not an object/],
+    ["an entry with no id", { data: [{ displayName: "A" }], nextCursor: null }, /no `id`/],
+    [
+      "an entry with no displayName",
+      { data: [{ id: "model-x" }], nextCursor: null },
+      /no `displayName`/,
+    ],
+    [
+      "a duplicate id",
+      {
+        data: [
+          { id: "model-x", displayName: "A" },
+          { id: "model-x", displayName: "B" },
+        ],
+        nextCursor: null,
+      },
+      /appears twice/,
+    ],
+    [
+      "an unreadable effort entry",
+      {
+        data: [{ id: "model-x", displayName: "A", supportedReasoningEfforts: ["low"] }],
+        nextCursor: null,
+      },
+      /unreadable reasoning-effort entry/,
+    ],
+  ])("refuses %s", (_label, payload, message) => {
+    expect(() => normalizeCodexModelCatalog(payload)).toThrow(CodexModelCatalogUnreadableError);
+    expect(() => normalizeCodexModelCatalog(payload)).toThrow(message);
+  });
+
+  it("refuses a paginated reply BEFORE answering its first page", () => {
+    // The hazard the refusal exists for: a first page that parses perfectly and
+    // is simply short. Answering it would drop models with nothing recording it.
+    expect(() =>
+      normalizeCodexModelCatalog({
+        data: [{ id: "gpt-5.6-sol", displayName: "GPT-5.6-Sol" }],
+        nextCursor: "cursor-2",
+      }),
+    ).toThrow(CodexModelCatalogUnreadableError);
+  });
+
+  it("answers the declared catalog when no exchange is bound", async () => {
+    const models = await resolveCodexModelCatalog(null);
+
+    // The declaration and the recorded reply are the same reading, so a drift
+    // between them is a failing test rather than a silently stale catalog.
+    expect(models).toEqual(normalizeCodexModelCatalog(CODEX_RECORDED_MODEL_LIST_REPLY));
+    expect(models.map((model) => model.id)).toEqual(
+      CODEX_DECLARED_MODEL_CATALOG.map((model) => model.id),
+    );
+  });
+
+  it("refuses an in-place mutation of the shared declared catalog", () => {
+    // `Object.freeze` on the ENTRY is shallow: it stops `entry.effortLevels =
+    // […]` and does nothing about `entry.effortLevels.push(…)`. This constant
+    // is re-exported from the driver barrel and shared process-wide, so an
+    // out-of-band consumer was one `push` away from rewriting the declared
+    // vocabulary for every later caller.
+    const declaredEntry = CODEX_DECLARED_MODEL_CATALOG[0];
+    if (declaredEntry === undefined) {
+      throw new Error("the declared catalog is empty");
+    }
+
+    expect(Object.isFrozen(declaredEntry)).toBe(true);
+    expect(Object.isFrozen(declaredEntry.capabilities)).toBe(true);
+    expect(Object.isFrozen(declaredEntry.effortLevels)).toBe(true);
+    expect(Object.isFrozen(CODEX_DECLARED_MODEL_CATALOG)).toBe(true);
+    // Strict mode — every module in this package is one — so the write THROWS
+    // rather than failing silently, which is what makes the freeze observable.
+    expect(() => declaredEntry.effortLevels?.push("mutated")).toThrow(TypeError);
+    expect(() => declaredEntry.capabilities.push("mutated")).toThrow(TypeError);
+
+    expect(declaredEntry.capabilities).toStrictEqual([]);
+    expect(declaredEntry.effortLevels).toStrictEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      "ultra",
+    ]);
+  });
+
+  it("hands out fresh copies of the declared catalog", async () => {
+    const first = await resolveCodexModelCatalog(null);
+    first[0]?.capabilities.push("mutated");
+    first[0]?.effortLevels?.push("mutated");
+
+    const second = await resolveCodexModelCatalog(null);
+
+    expect(second[0]?.capabilities).toEqual([]);
+    expect(second[0]?.effortLevels).toEqual(["low", "medium", "high", "xhigh", "max", "ultra"]);
+  });
+
+  it("prefers a bound exchange over the declaration", async () => {
+    const models = await resolveCodexModelCatalog(async () => ({
+      data: [{ id: "model-z", displayName: "Z" }],
+      nextCursor: null,
+    }));
+
+    expect(models).toEqual([{ id: "model-z", name: "Z", capabilities: [] }]);
+  });
+
+  it("never falls back to the declaration when a bound exchange fails", async () => {
+    const transportFailure = new Error("connection closed");
+
+    await expect(
+      resolveCodexModelCatalog(async () => {
+        throw transportFailure;
+      }),
+    ).rejects.toBe(transportFailure);
+    await expect(resolveCodexModelCatalog(async () => ({ data: [] }))).resolves.toEqual([]);
   });
 });

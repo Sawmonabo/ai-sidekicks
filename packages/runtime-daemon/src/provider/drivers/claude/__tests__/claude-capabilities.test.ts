@@ -47,8 +47,12 @@ import type { SpawnedProviderVersionReading } from "../../../version-gate.js";
 import {
   CLAUDE_CAPABILITY_CONTRACT_VERSION,
   CLAUDE_CAPABILITY_FLAGS,
+  CLAUDE_DECLARED_MODEL_CATALOG,
   CLAUDE_DRIVER_NAME,
   ClaudeCapabilityReporter,
+  ClaudeModelCatalogUnreadableError,
+  normalizeClaudeModelCatalog,
+  resolveClaudeModelCatalog,
   type DriverCapabilityDeclarationSink,
 } from "../capabilities.js";
 import { CLAUDE_TOOL_CATALOG } from "../tools.js";
@@ -439,5 +443,298 @@ describe("Claude composition is bound to the spawned build (T3.23, I-005-10)", (
       reporter.refreshDeclaration(sink, { sessionId: "s", nodeId: "n" }),
     ).rejects.toThrow(/driver 'codex'/);
     expect(sink.calls).toHaveLength(0);
+  });
+});
+
+// --------------------------------------------------------------------------
+// T3.12 C-8 — the current model catalog + per-model effort vocabularies
+// --------------------------------------------------------------------------
+
+/**
+ * GOLDEN VECTOR — the verbatim `list_models` control-response payload.
+ *
+ *   Pin        : Claude Code 2.1.251
+ *   Provenance : Binary probe, 2026-08-30, one zero-turn control request
+ *                `{"subtype":"list_models"}` over `-p --input-format
+ *                stream-json`. Copied field-for-field from the reply.
+ *   Trust      : Verified at 2.1.251.
+ *
+ * Keyed on real provider bytes rather than a hand-made shape, so the two rules
+ * the wire forces — the `default` pointer colliding with `opus[1m]` on one
+ * `resolvedModel`, and the Haiku row publishing no effort surface at all — are
+ * exercised against the thing that actually produced them.
+ */
+const CLAUDE_RECORDED_LIST_MODELS_REPLY: Readonly<Record<string, unknown>> = Object.freeze({
+  models: [
+    {
+      value: "default",
+      resolvedModel: "claude-opus-5[1m]",
+      displayName: "Default (recommended)",
+      description: "Opus 5 with 1M context · Best for everyday, complex tasks",
+      supportsEffort: true,
+      supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
+      supportsAdaptiveThinking: true,
+      supportsFastMode: true,
+      supportsAutoMode: true,
+    },
+    {
+      value: "opus[1m]",
+      resolvedModel: "claude-opus-5[1m]",
+      displayName: "Opus (1M context)",
+      description: "Opus 5 with 1M context · Best for everyday, complex tasks",
+      supportsEffort: true,
+      supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
+      supportsAdaptiveThinking: true,
+      supportsFastMode: true,
+      supportsAutoMode: true,
+    },
+    {
+      value: "claude-fable-5",
+      resolvedModel: "claude-fable-5",
+      displayName: "Fable",
+      description: "Fable 5 · Most capable for your hardest and longest-running tasks",
+      supportsEffort: true,
+      supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
+      supportsAdaptiveThinking: true,
+      supportsAutoMode: true,
+    },
+    {
+      value: "sonnet",
+      resolvedModel: "claude-sonnet-5",
+      displayName: "Sonnet",
+      description: "Sonnet 5 · Efficient for routine tasks",
+      supportsEffort: true,
+      supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
+      supportsAdaptiveThinking: true,
+      supportsAutoMode: true,
+    },
+    // No `supportsEffort` and no `supportedEffortLevels` — the live instance of
+    // the contract's "absent = the model exposes no effort selection" reading.
+    {
+      value: "haiku",
+      resolvedModel: "claude-haiku-4-5-20251001",
+      displayName: "Haiku",
+      description: "Haiku 4.5 · Fastest for quick answers",
+    },
+  ],
+});
+
+describe("Claude model catalog (T3.12 C-8)", () => {
+  it("reads the recorded reply into four models keyed by resolvedModel", () => {
+    const models = normalizeClaudeModelCatalog(CLAUDE_RECORDED_LIST_MODELS_REPLY);
+
+    // FIVE wire rows, FOUR models: `default` and `opus[1m]` resolve to one.
+    expect(models.map((model) => model.id)).toEqual([
+      "claude-opus-5[1m]",
+      "claude-fable-5",
+      "claude-sonnet-5",
+      "claude-haiku-4-5-20251001",
+    ]);
+    // The alias `value`s never become ids. `Spec-016 §Same-Agent Provider
+    // Switch` validates a switch's model against this list, so admitting
+    // `sonnet` or `default` here is a switch target that can move underneath
+    // the participant who chose it.
+    for (const aliasValue of ["default", "opus[1m]", "sonnet", "haiku"]) {
+      expect(models.map((model) => model.id)).not.toContain(aliasValue);
+    }
+  });
+
+  it("keeps the naming row over the reserved default pointer", () => {
+    const models = normalizeClaudeModelCatalog(CLAUDE_RECORDED_LIST_MODELS_REPLY);
+    const opus = models.find((model) => model.id === "claude-opus-5[1m]");
+
+    // Not "Default (recommended)": that names the CURRENT default rather than
+    // naming this model, so it would re-label whichever model the vendor
+    // promotes next.
+    expect(opus?.name).toBe("Opus (1M context)");
+  });
+
+  it("prefers the naming row whichever order it arrives in", () => {
+    const pointerLast = {
+      models: [
+        (CLAUDE_RECORDED_LIST_MODELS_REPLY["models"] as Record<string, unknown>[])[1],
+        (CLAUDE_RECORDED_LIST_MODELS_REPLY["models"] as Record<string, unknown>[])[0],
+      ],
+    };
+
+    const models = normalizeClaudeModelCatalog(pointerLast);
+
+    // The pinned build happens to send the pointer first; a rule that only
+    // worked in that order would be an accident of the vendor's ordering.
+    expect(models).toHaveLength(1);
+    expect(models[0]?.name).toBe("Opus (1M context)");
+  });
+
+  it("keeps the pointer row when it is a model's only row", () => {
+    const pointerOnly = {
+      models: [(CLAUDE_RECORDED_LIST_MODELS_REPLY["models"] as Record<string, unknown>[])[0]],
+    };
+
+    const models = normalizeClaudeModelCatalog(pointerOnly);
+
+    // Dropping it would lose the model entirely, which is worse than carrying
+    // the pointer's own display name.
+    expect(models).toHaveLength(1);
+    expect(models[0]?.id).toBe("claude-opus-5[1m]");
+  });
+
+  it("carries each model's published effort levels verbatim", () => {
+    const models = normalizeClaudeModelCatalog(CLAUDE_RECORDED_LIST_MODELS_REPLY);
+
+    for (const modelId of ["claude-opus-5[1m]", "claude-fable-5", "claude-sonnet-5"]) {
+      const model = models.find((candidate) => candidate.id === modelId);
+      // `xhigh` included: the level is read from the build, not restated from a
+      // vocabulary this file could get wrong.
+      expect(model?.effortLevels).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    }
+  });
+
+  it("leaves effortLevels ABSENT for a model with no effort surface", () => {
+    const models = normalizeClaudeModelCatalog(CLAUDE_RECORDED_LIST_MODELS_REPLY);
+    const haiku = models.find((model) => model.id === "claude-haiku-4-5-20251001");
+
+    // Absent, not empty: the contract reads absence as "no effort selection",
+    // and an empty array would instead assert an axis with nothing on it.
+    expect(haiku).toBeDefined();
+    expect(haiku && "effortLevels" in haiku).toBe(false);
+    expect(haiku?.effortLevels).toBeUndefined();
+  });
+
+  it("suppresses effortLevels when the row explicitly denies effort support", () => {
+    const models = normalizeClaudeModelCatalog({
+      models: [
+        {
+          value: "x",
+          resolvedModel: "model-x",
+          displayName: "X",
+          supportsEffort: false,
+          supportedEffortLevels: ["low", "high"],
+        },
+      ],
+    });
+
+    expect(models[0]?.effortLevels).toBeUndefined();
+  });
+
+  it("populates no capabilities tags", () => {
+    const models = normalizeClaudeModelCatalog(CLAUDE_RECORDED_LIST_MODELS_REPLY);
+
+    // The member carries no registered vocabulary anywhere in the corpus and is
+    // read by nothing; populating it from the row's `supportsAdaptiveThinking` /
+    // `supportsFastMode` / `supportsAutoMode` axes would mint a tag set ahead of
+    // its reader.
+    for (const model of models) {
+      expect(model.capabilities).toEqual([]);
+    }
+  });
+
+  it.each([
+    ["a non-object reply", null, /not an object/],
+    ["a reply with no models array", { models: "many" }, /no `models` array/],
+    ["a non-object entry", { models: ["sonnet"] }, /entry is not an object/],
+    ["an entry with no resolvedModel", { models: [{ displayName: "X" }] }, /no `resolvedModel`/],
+    [
+      "an entry with no displayName",
+      { models: [{ resolvedModel: "model-x" }] },
+      /no `displayName`/,
+    ],
+    [
+      "a non-string effort level",
+      { models: [{ resolvedModel: "model-x", displayName: "X", supportedEffortLevels: [7] }] },
+      /non-string effort level/,
+    ],
+  ])("refuses %s", (_label, payload, message) => {
+    // Strict rather than tolerant: a reader that skipped the bad row would
+    // answer a short catalog, and nothing downstream could tell a provider that
+    // dropped a model from a parser that failed to see one.
+    expect(() => normalizeClaudeModelCatalog(payload)).toThrow(ClaudeModelCatalogUnreadableError);
+    expect(() => normalizeClaudeModelCatalog(payload)).toThrow(message);
+  });
+
+  it("answers the declared catalog when no exchange is bound", async () => {
+    const models = await resolveClaudeModelCatalog(null);
+
+    expect(models.map((model) => model.id)).toEqual(
+      CLAUDE_DECLARED_MODEL_CATALOG.map((model) => model.id),
+    );
+    // The declaration and the recorded reply are the same reading, so a drift
+    // between them is a failing test rather than a silently stale catalog.
+    expect(models).toEqual(normalizeClaudeModelCatalog(CLAUDE_RECORDED_LIST_MODELS_REPLY));
+  });
+
+  it("refuses an in-place mutation of the shared declared catalog", () => {
+    // `Object.freeze` on the ENTRY is shallow: it stops `entry.effortLevels =
+    // […]` and does nothing about `entry.effortLevels.push(…)`. This constant
+    // is re-exported from the driver barrel and shared process-wide, so an
+    // out-of-band consumer was one `push` away from rewriting the declared
+    // vocabulary for every later caller.
+    const declaredEntry = CLAUDE_DECLARED_MODEL_CATALOG[0];
+    if (declaredEntry === undefined) {
+      throw new Error("the declared catalog is empty");
+    }
+
+    expect(Object.isFrozen(declaredEntry)).toBe(true);
+    expect(Object.isFrozen(declaredEntry.capabilities)).toBe(true);
+    expect(Object.isFrozen(declaredEntry.effortLevels)).toBe(true);
+    expect(Object.isFrozen(CLAUDE_DECLARED_MODEL_CATALOG)).toBe(true);
+    // Strict mode — every module in this package is one — so the write THROWS
+    // rather than failing silently, which is what makes the freeze observable.
+    expect(() => declaredEntry.effortLevels?.push("mutated")).toThrow(TypeError);
+    expect(() => declaredEntry.capabilities.push("mutated")).toThrow(TypeError);
+
+    expect(declaredEntry.capabilities).toStrictEqual([]);
+    expect(declaredEntry.effortLevels).toStrictEqual(["low", "medium", "high", "xhigh", "max"]);
+  });
+
+  it("freezes the no-effort row's capabilities too, not only the effort-bearing ones", () => {
+    // The `effortLevels`-absent row takes a DIFFERENT construction branch, so a
+    // freeze applied only on the branch that carries effort levels would leave
+    // this row's `capabilities` writable.
+    const noEffortEntry = CLAUDE_DECLARED_MODEL_CATALOG.find(
+      (model) => model.effortLevels === undefined,
+    );
+    if (noEffortEntry === undefined) {
+      throw new Error("the declared catalog carries no effort-free row");
+    }
+
+    expect(Object.isFrozen(noEffortEntry.capabilities)).toBe(true);
+    expect(() => noEffortEntry.capabilities.push("mutated")).toThrow(TypeError);
+  });
+
+  it("hands out fresh copies of the declared catalog", async () => {
+    const first = await resolveClaudeModelCatalog(null);
+    first[0]?.capabilities.push("mutated");
+    first[0]?.effortLevels?.push("mutated");
+
+    const second = await resolveClaudeModelCatalog(null);
+
+    // The constant is frozen and shared process-wide, but `ProviderModel`
+    // carries mutable arrays — a caller rewriting one must not rewrite every
+    // later caller's answer.
+    expect(second[0]?.capabilities).toEqual([]);
+    expect(second[0]?.effortLevels).toEqual(["low", "medium", "high", "xhigh", "max"]);
+  });
+
+  it("prefers a bound exchange over the declaration", async () => {
+    const models = await resolveClaudeModelCatalog(async () => ({
+      models: [{ value: "z", resolvedModel: "model-z", displayName: "Z" }],
+    }));
+
+    expect(models).toEqual([{ id: "model-z", name: "Z", capabilities: [] }]);
+  });
+
+  it("never falls back to the declaration when a bound exchange fails", async () => {
+    const transportFailure = new Error("channel closed");
+
+    // Serving a stale catalog under the appearance of a live read is the one
+    // confusion the detection-source doctrine exists to prevent.
+    await expect(
+      resolveClaudeModelCatalog(async () => {
+        throw transportFailure;
+      }),
+    ).rejects.toBe(transportFailure);
+    await expect(resolveClaudeModelCatalog(async () => ({ notModels: [] }))).rejects.toThrow(
+      ClaudeModelCatalogUnreadableError,
+    );
   });
 });

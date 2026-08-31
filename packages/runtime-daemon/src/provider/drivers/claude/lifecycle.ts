@@ -709,6 +709,33 @@ function composeClaudeMandatedEnvironment(): readonly SpawnEnvPair[] {
 
 export interface ClaudeSessionTransport {
   /**
+   * Whether THIS transport realizes the callback-tool registration — writing
+   * `--mcp-config` for `callbackToolServer` so the model actually sees the
+   * tools (T3.15 leg 3, the Claude half).
+   *
+   * WHY THE PORT DECLARES IT RATHER THAN THE DRIVER ASSUMING IT. The Codex half
+   * of this leg can settle the same question by reading the pinned protocol —
+   * `ThreadStartParams.dynamicTools` is experimental-generation-only, so the
+   * registration surface is provably unreachable and the registry is withheld
+   * (see `CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL`). This band has
+   * no equivalent reading: it spawns nothing, and whether the tools reach the
+   * model is a property of whichever transport is bound. Left unasked, a
+   * transport that never wrote `--mcp-config` would produce EXACTLY the failure
+   * the Codex withholding exists to prevent — the daemon holding a live
+   * registry and believing it offered tools the model was never told about —
+   * and it would be invisible, because a tool the model never calls looks
+   * identical to a tool the model chose not to call.
+   *
+   * REQUIRED rather than optional, on this file's own fail-open-forbidden rule:
+   * an optional member a composition root simply never set would decide this by
+   * omission. A transport that does not realize the registration is a
+   * REPRESENTABLE and supported configuration — it declares `false`, the
+   * registry is withheld, one diagnostic is recorded, and the session runs
+   * without callback tools rather than with tools nothing can deliver.
+   */
+  readonly realizesCallbackToolRegistration: boolean;
+
+  /**
    * Starts a provider process for a new session.
    *
    * SPAWN-ENVIRONMENT OBLIGATION (P0-4), owned here for the same reason the auth
@@ -1535,6 +1562,22 @@ export class ClaudeSubagentConcurrencyGate implements ClaudeSubagentAdmissionPor
  * the daemon's registry is already flat.
  */
 export const CLAUDE_CALLBACK_MCP_SERVER_NAME: string = "sidekicks";
+
+/**
+ * Why a spawn served the provider no callback-tool registry even though the
+ * daemon admitted one and bound a dispatcher (T3.15 leg 3, the Claude half).
+ *
+ * The mirror of `CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL` on the
+ * axis this provider's uncertainty actually lives on. There the registration
+ * surface is unreachable at the pinned protocol; here the protocol supports it
+ * and the open question is whether the BOUND TRANSPORT writes the
+ * `--mcp-config` that realizes it. Both withhold for one reason: a registry the
+ * model is never shown, held open on the daemon side, is worse than no registry
+ * at all — the daemon waits on invocations that cannot arrive and nothing says
+ * why.
+ */
+export const CLAUDE_CALLBACK_TOOL_TRANSPORT_UNAVAILABLE_DETAIL: string =
+  "the bound Claude transport declares it does not realize the callback-tool --mcp-config registration, so no invocation could arrive; the registry is withheld rather than offered undeliverable";
 
 /**
  * Composes the provider-facing name for one callback tool.
@@ -3379,6 +3422,13 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
    *
    * The registry is withheld rather than served-and-refused: a tool the model
    * never learns exists costs it no turns.
+   *
+   * THE THIRD GATE — the transport's own declaration — is the one this band
+   * cannot derive. The first two questions (did the daemon offer tools? is a
+   * dispatcher bound?) are answerable from `params` alone; whether the model
+   * ever SEES the registry is answerable only by whichever transport writes the
+   * process arguments. See `ClaudeSessionTransport.realizesCallbackToolRegistration`
+   * and {@link CLAUDE_CALLBACK_TOOL_TRANSPORT_UNAVAILABLE_DETAIL}.
    */
   #resolveCallbackToolServer(
     params: CreateSessionParams | ResumeSessionParams,
@@ -3397,6 +3447,20 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
         details: {
           sessionId: params.sessionId,
           reason: "no-dispatcher-bound",
+          withheldToolCount: requestedTools.length,
+        },
+      });
+      return undefined;
+    }
+    if (!this.#transport.realizesCallbackToolRegistration) {
+      this.#diagnostics.emit({
+        provider: "claude",
+        kind: "callback_tool_registry_withheld",
+        rawWireType: null,
+        dispositionReason: CLAUDE_CALLBACK_TOOL_TRANSPORT_UNAVAILABLE_DETAIL,
+        details: {
+          sessionId: params.sessionId,
+          reason: "transport-registration-unavailable",
           withheldToolCount: requestedTools.length,
         },
       });
