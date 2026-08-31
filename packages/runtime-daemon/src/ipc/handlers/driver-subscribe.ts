@@ -6,7 +6,7 @@
 // subscription leg alongside them; T4.4 is the task that gives that leg the
 // dedicated module the plan names, and it does so by MOVING the implementation
 // rather than adding a second one. `driver-handlers.ts` no longer registers
-// `driver.subscribeEvents` and no longer derives the driver event set — a
+// `driver.subscribeEvents` and no longer carries the driver event set — a
 // grep for `register("driver.subscribeEvents"` finds exactly this file. Two
 // competing registrations would not have merely been untidy: I-007-6 makes the
 // registry reject a duplicate name at register time, so a daemon binding both
@@ -58,20 +58,13 @@ import type {
   MethodRegistry,
   RunId,
   SessionEvent,
-  SessionEventType,
   SubscribeAckResponse,
 } from "@ai-sidekicks/contracts";
 import {
-  ARTIFACT_PUBLICATION_EVENT_TYPES,
-  ASSISTANT_OUTPUT_EVENT_TYPES,
+  DRIVER_EVENT_TYPES,
   DriverSubscribeEventsParamsSchema,
-  INTERACTIVE_REQUEST_EVENT_TYPES,
-  RUN_LIFECYCLE_EVENT_TYPES,
-  RUNTIME_NODE_LIFECYCLE_EVENT_TYPES,
   SessionEventSchema,
   SubscribeAckResponseSchema,
-  TOOL_ACTIVITY_EVENT_TYPES,
-  USAGE_TELEMETRY_EVENT_TYPES,
 } from "@ai-sidekicks/contracts";
 
 import type { StreamingPrimitive } from "../streaming-primitive.js";
@@ -108,35 +101,21 @@ export interface DriverSubscribeEventsDeps {
 // --------------------------------------------------------------------------
 // The driver event set
 // --------------------------------------------------------------------------
-
-// Plan-005 §Phase 4 decision #4 defines `DriverEvent` as the union of seven
-// EXISTING event-category types. The union type itself is Plan-006-owned, so
-// this module deliberately does not author the name — it derives the SET from
-// the per-category arrays that plan already exports, and keeps it module-local
-// and unexported. Moved here wholesale with the handler at T4.4: this filter has
-// exactly one consumer and leaving it behind in `driver-handlers.ts` would have
-// left that module exporting nothing that used it.
 //
-// Derivation rather than a literal list, for the reason every derived set in
-// this codebase is derived: a category that grows a new event type joins this
-// filter automatically, where a hand-written list would silently start dropping
-// a driver event from the stream and look correct while doing it.
+// This module CONSUMES `DRIVER_EVENT_TYPES`; it does not author it. The set has
+// its single home in `packages/contracts/src/driver-event.ts` — Plan-005's own
+// derived view over the seven EXISTING Plan-006 categories that
+// `Plan-005 §Phase 4 — Client SDK exposure + degraded-fallback` decision #4
+// ratifies. It was derived module-locally here until that home landed, which is
+// what left the SDK seam with no narrower schema to validate against (Codex
+// review, PR #396); both sides of the wire now read the one derivation.
 //
-// The filter is what makes this a stream of DRIVER events rather than of
+// The filter below is what makes this a stream of DRIVER events rather than of
 // whatever the injected source happens to emit. Without it a source wired to a
 // session-wide event feed would push approvals, memberships, and audit rows onto
 // a subscription a client opened for one run's driver activity — and because
 // each of those parses cleanly against `SessionEventSchema`, nothing downstream
 // would notice.
-const DRIVER_EVENT_TYPES: ReadonlySet<SessionEventType> = new Set<SessionEventType>([
-  ...RUN_LIFECYCLE_EVENT_TYPES,
-  ...ASSISTANT_OUTPUT_EVENT_TYPES,
-  ...TOOL_ACTIVITY_EVENT_TYPES,
-  ...INTERACTIVE_REQUEST_EVENT_TYPES,
-  ...ARTIFACT_PUBLICATION_EVENT_TYPES,
-  ...USAGE_TELEMETRY_EVENT_TYPES,
-  ...RUNTIME_NODE_LIFECYCLE_EVENT_TYPES,
-]);
 
 // --------------------------------------------------------------------------
 // Handler binder
@@ -153,12 +132,18 @@ const DRIVER_EVENT_TYPES: ReadonlySet<SessionEventType> = new Set<SessionEventTy
  * why a chained `queueMicrotask` cannot cross the dispatch response and
  * `setImmediate` can.
  *
- * The per-value schema is `SessionEventSchema` and the driver-category narrowing
- * is applied by this handler before `sub.next`, not by a narrower schema.
- * `DriverEvent` is Plan-006-owned and this module does not author it; filtering
- * at the boundary gets the same guarantee without minting a type this plan does
- * not own. The SDK consumer side pairs with that choice exactly — it validates
- * against the same full union rather than re-deriving the set a second time.
+ * THE PRODUCER SIDE KEEPS `SessionEventSchema` WHILE THE SDK CONSUMER VALIDATES
+ * WITH `DriverEventSchema`, AND THE ASYMMETRY IS THE DESIGN. Here the
+ * driver-category narrowing is a FILTER: a non-driver event from the injected
+ * source is dropped and the stream continues, which is the right disposition
+ * for a source that may legitimately be a session-wide feed. Handing the
+ * streaming primitive the narrower schema would convert that drop into a
+ * validation throw that cancels the whole subscription — punishing the client
+ * for what the daemon chose to wire up. The SDK, on the other side of the wire,
+ * has no such source to forgive: anything reaching it was already filtered here,
+ * so a non-driver value there means the daemon is buggy or version-mismatched,
+ * and `DriverEventSchema` refusing it is defense in depth rather than a second
+ * derivation — both sides read the one set that lives in contracts.
  */
 export function registerDriverSubscribeEvents(
   registry: MethodRegistry,

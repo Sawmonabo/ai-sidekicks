@@ -39,7 +39,12 @@
 // `DriverInterventionResultSchema` is `.strict()`, so a daemon answering
 // `{ status: "degraded" }` with the `fallbackAction` dropped, or with an unknown
 // key spliced in, fails the result parse and rejects rather than reaching a
-// caller that would render a fallback hint it never received (I-005-4).
+// caller that would render a fallback hint it never received (I-005-4). The
+// subscription path gets the same treatment on the values it streams: every
+// delivered frame is parsed against `DriverEventSchema` — the contracts-owned
+// narrowing to the seven driver-event categories — so a daemon that filtered
+// wrongly ends the subscription loudly instead of handing a driver-typed
+// consumer an approval or membership row.
 //
 // THE THREE READS TAKE NO ARGUMENT. `listCapabilities`, `listModels`, and
 // `listModes` are written no-arg here, matching the `DriverClient` signature
@@ -59,6 +64,7 @@
 import type {
   ApplyInterventionParams,
   DriverAckResult,
+  DriverEvent,
   DriverInterventionResult,
   DriverReadParams,
   DriverSubscribeEventsParams,
@@ -67,11 +73,11 @@ import type {
   ListModelsResult,
   ListModesResult,
   RespondToRequestParams,
-  SessionEvent,
 } from "@ai-sidekicks/contracts";
 import {
   ApplyInterventionParamsSchema,
   DriverAckResultSchema,
+  DriverEventSchema,
   DriverInterventionResultSchema,
   DriverReadParamsSchema,
   DriverSubscribeEventsParamsSchema,
@@ -80,7 +86,6 @@ import {
   ListModelsResultSchema,
   ListModesResultSchema,
   RespondToRequestParamsSchema,
-  SessionEventSchema,
 } from "@ai-sidekicks/contracts";
 
 import { JsonRpcSchemaError, type JsonRpcClient } from "./transport/jsonRpcClient.js";
@@ -205,8 +210,19 @@ export interface DriverClient {
    * (`driver.subscribeEvents(runId)`). The shipped wire schema
    * (`DriverSubscribeEventsParamsSchema`, one `runId` member and `.strict()`)
    * settles it: a no-arg call would fail the daemon's own request parse.
+   *
+   * The value type is `DriverEvent`, not `SessionEvent` — the contracts-owned
+   * union over the seven driver-event categories, which is the return type
+   * `Plan-005 §Phase 4 — Client SDK exposure + degraded-fallback` T4.3
+   * ratifies. A caller therefore branches over driver arms only and never has
+   * to type-handle a membership, approval, or audit event on a driver stream.
+   * Note that no `run.*` arm appears in that union today: `run_lifecycle` is on
+   * decision #4's category list, but no `run.*` payload variant is registered
+   * with `SessionEventSchema` yet, and `DriverEvent` covers registered arms
+   * rather than census names. Those arms join this type on the day their
+   * emitting plan registers them, with no edit here.
    */
-  subscribeEvents(params: DriverSubscribeEventsParams): LocalSubscriptionConsumer<SessionEvent>;
+  subscribeEvents(params: DriverSubscribeEventsParams): LocalSubscriptionConsumer<DriverEvent>;
 }
 
 // --------------------------------------------------------------------------
@@ -288,18 +304,24 @@ export function createDaemonProviderClient(client: JsonRpcClient): DriverClient 
  * Open the `driver.subscribeEvents` subscription — T4.4's SDK half of the
  * Plan-007 CP-007-4 producer/consumer split.
  *
- * THE PER-VALUE SCHEMA IS `SessionEventSchema`, NOT A `DriverEvent` SCHEMA, AND
- * THAT IS DELIBERATE. Plan-005 §Phase 4 decision #4 defines `DriverEvent` as the
- * union of seven EXISTING Plan-006-owned event categories. The name is
- * Plan-006's to author, so neither side of this wire mints it: the daemon
- * derives the SET from the per-category arrays that plan already exports and
- * filters against it BEFORE buffering, and this side validates each delivered
- * value against the full `SessionEvent` union. Declaring a narrower schema here
- * would mean authoring the union this package does not own, and it would buy
- * nothing — the filter that makes this a stream of driver events rather than of
- * whatever the source emits already ran, on the daemon, where the category
- * arrays live. Deriving the same set again here would be a SECOND definition
- * that could drift from the first while both looked correct.
+ * THE PER-VALUE SCHEMA IS `DriverEventSchema`, AND VALIDATING IT HERE TOO IS
+ * DEFENSE IN DEPTH, NOT A SECOND DEFINITION. Plan-005 §Phase 4 decision #4
+ * defines `DriverEvent` as the union of seven EXISTING Plan-006-owned event
+ * categories. That derived view is authored once, in Plan-005's own
+ * `packages/contracts/src/driver-event.ts`, so this side imports the schema
+ * rather than deriving anything. That is what dissolves the objection that kept
+ * this seam on the full `SessionEvent` union: with one home there is no second
+ * derivation to drift, and the drift risk was the only argument for validating
+ * wide here.
+ *
+ * The daemon already filters non-driver events out before they reach the wire,
+ * so in a correct pairing this schema never refuses anything. It earns its
+ * place against an INCORRECT one: a daemon whose filter regressed, or a peer
+ * running a version that widened the stream, otherwise hands this client an
+ * approval or membership row that parses cleanly and reaches a consumer typed
+ * to expect neither. With the narrow schema that value fails per-value
+ * validation and the subscription ends in a typed `JsonRpcSchemaError` on the
+ * `value` phase, which is the loud failure the SDK boundary exists to give.
  *
  * PARAMS ARE VALIDATED HERE, WHICH DIVERGES FROM THE TWO SIBLING SUBSCRIBE
  * WRAPPERS, ON PURPOSE. `sessionClient`'s `daemonSubscribe` and
@@ -325,7 +347,7 @@ export function createDaemonProviderClient(client: JsonRpcClient): DriverClient 
 function daemonSubscribeEvents(
   client: JsonRpcClient,
   params: DriverSubscribeEventsParams,
-): LocalSubscriptionConsumer<SessionEvent> {
+): LocalSubscriptionConsumer<DriverEvent> {
   const parsed = DriverSubscribeEventsParamsSchema.safeParse(params);
   if (!parsed.success) {
     throw new JsonRpcSchemaError(
@@ -335,9 +357,9 @@ function daemonSubscribeEvents(
     );
   }
 
-  return client.subscribe<SessionEvent>(
+  return client.subscribe<DriverEvent>(
     DRIVER_METHOD_SUBSCRIBE_EVENTS,
     parsed.data,
-    SessionEventSchema,
+    DriverEventSchema,
   );
 }

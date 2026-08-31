@@ -59,9 +59,19 @@ import type {
   JsonRpcNotification,
   JsonRpcRequest,
   JsonRpcResponseEnvelope,
+  MembershipId,
+  ParticipantId,
   RunId,
+  SessionEvent,
+  SessionId,
 } from "@ai-sidekicks/contracts";
-import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts";
+import {
+  JSONRPC_VERSION,
+  JsonRpcErrorCode,
+  SessionEventSchema,
+  SUBSCRIPTION_CANCEL_METHOD,
+  SUBSCRIPTION_NOTIFY_METHOD,
+} from "@ai-sidekicks/contracts";
 
 import type { DriverClient } from "../providerClient.js";
 import { createDaemonProviderClient } from "../providerClient.js";
@@ -102,6 +112,7 @@ const METHOD_APPLY_INTERVENTION = "driver.applyIntervention";
 const METHOD_LIST_CAPABILITIES = "driver.listCapabilities";
 const METHOD_LIST_MODELS = "driver.listModels";
 const METHOD_LIST_MODES = "driver.listModes";
+const METHOD_SUBSCRIBE_EVENTS = "driver.subscribeEvents";
 
 /** A well-formed steer against the run whose bound driver declares no steer. */
 const STEER_AGAINST_NO_NATIVE_STEER_DRIVER: ApplyInterventionParams = {
@@ -129,6 +140,14 @@ type ScriptedAnswer = { readonly result: unknown } | { readonly refusal: WireRef
 /** The transport double plus the outbound envelopes it captured. */
 interface ScriptedDaemon extends ClientTransport {
   readonly sentEnvelopes: OutboundEnvelope[];
+  /**
+   * Push a frame the daemon was never asked for — the streaming half of the
+   * double. The request/response script cannot express a `$/subscription/notify`
+   * because nothing on the wire solicits one, and the subscription assertions
+   * below are precisely about what the SDK does with a frame the daemon chose
+   * to send.
+   */
+  readonly deliverInbound: (message: InboundEnvelope) => void;
 }
 
 /**
@@ -146,7 +165,7 @@ interface ScriptedDaemon extends ClientTransport {
  */
 function createScriptedDaemon(script: Record<string, ScriptedAnswer>): ScriptedDaemon {
   const sentEnvelopes: OutboundEnvelope[] = [];
-  let deliverInbound: (message: InboundEnvelope) => void = () => undefined;
+  let inboundHandler: (message: InboundEnvelope) => void = () => undefined;
   let notifyClosed: (reason?: Error) => void = () => undefined;
 
   const answer = (envelope: JsonRpcRequest): InboundEnvelope => {
@@ -162,14 +181,17 @@ function createScriptedDaemon(script: Record<string, ScriptedAnswer>): ScriptedD
 
   return {
     sentEnvelopes,
+    deliverInbound(message: InboundEnvelope): void {
+      inboundHandler(message);
+    },
     send(envelope: OutboundEnvelope): void {
       sentEnvelopes.push(envelope);
       if ("id" in envelope) {
-        deliverInbound(answer(envelope));
+        inboundHandler(answer(envelope));
       }
     },
     onMessage(handler: (message: InboundEnvelope) => void): void {
-      deliverInbound = handler;
+      inboundHandler = handler;
     },
     onClose(handler: (reason?: Error) => void): void {
       notifyClosed = handler;
@@ -487,5 +509,147 @@ describe("DriverClient — the ratified client-facing surface (Plan-005 §Phase 
       JsonRpcSchemaError,
     );
     expect(daemon.sentEnvelopes.length).toBe(0);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// The stream is narrowed to driver events — the SDK's own enforcement
+// ----------------------------------------------------------------------------
+//
+// `subscribeEvents` hands back a `LocalSubscriptionConsumer<DriverEvent>` and
+// validates every delivered frame against `DriverEventSchema`, the
+// contracts-owned narrowing to the seven categories `Plan-005 §Phase 4 —
+// Client SDK exposure + degraded-fallback` decision #4 names. The daemon
+// handler filters the same set BEFORE buffering, so in a correct pairing this
+// schema refuses nothing.
+//
+// It is here for the incorrect pairing, which is the shape of the finding it
+// closes: a daemon whose filter regressed, or a peer on a version that widened
+// the stream, otherwise hands this client an approval or membership row that
+// parses cleanly against the full `SessionEvent` union and reaches a consumer
+// typed to expect neither. The scripted daemon below is exactly that daemon —
+// it pushes a frame no correct producer would send, and the assertion is that
+// the SDK refuses it rather than passing it through.
+
+/** Low-entropy sentinel ids — see the header note on the secret scanner. */
+const TEST_SUBSCRIPTION_ID = "00000000-0000-4000-8000-000000000003";
+const TEST_SESSION_ID = "00000000-0000-4000-8000-000000000004" as SessionId;
+const TEST_PARTICIPANT_ID = "00000000-0000-4000-8000-000000000005" as ParticipantId;
+const TEST_MEMBERSHIP_ID = "00000000-0000-4000-8000-000000000006" as MembershipId;
+
+/**
+ * The envelope version, branded at the fixture rather than at each use. The
+ * brand is a construction concern of the emitting daemon; a test composing a
+ * wire frame by hand is standing in for that producer.
+ */
+const EVENT_VERSION = "1.0" as SessionEvent["version"];
+
+/** An `assistant_output` row — on decision #4's category list and registered. */
+function buildDriverEvent(): SessionEvent {
+  return {
+    id: "evt-driver-0001",
+    sessionId: TEST_SESSION_ID,
+    sequence: 1,
+    occurredAt: "2026-01-22T19:14:35.000Z",
+    category: "assistant_output",
+    type: "assistant.message",
+    actor: null,
+    version: EVENT_VERSION,
+    payload: { sessionId: TEST_SESSION_ID, runId: TEST_RUN_ID },
+  };
+}
+
+/**
+ * A `membership_change` row — a fully valid `SessionEvent` that belongs on no
+ * driver stream. The membership family is the sharpest fixture available: it
+ * carries a participant identity and a role, so a consumer that received one
+ * from a driver subscription would be reading session-governance state off a
+ * per-run event channel.
+ */
+function buildNonDriverEvent(): SessionEvent {
+  return {
+    id: "evt-non-driver-0001",
+    sessionId: TEST_SESSION_ID,
+    sequence: 2,
+    occurredAt: "2026-01-22T19:14:36.000Z",
+    category: "membership_change",
+    type: "membership.created",
+    actor: TEST_PARTICIPANT_ID,
+    version: EVENT_VERSION,
+    payload: {
+      membershipId: TEST_MEMBERSHIP_ID,
+      participantId: TEST_PARTICIPANT_ID,
+      role: "owner",
+      identityHandle: "alice",
+    },
+  };
+}
+
+/** The `$/subscription/notify` frame the daemon's streaming primitive emits. */
+function subscriptionNotify(value: SessionEvent): JsonRpcNotification {
+  return {
+    jsonrpc: JSONRPC_VERSION,
+    method: SUBSCRIPTION_NOTIFY_METHOD,
+    params: { subscriptionId: TEST_SUBSCRIPTION_ID, value },
+  };
+}
+
+/** A daemon that acks the subscribe-init with the sentinel subscription id. */
+function buildSubscribingDriverClient(): {
+  readonly client: DriverClient;
+  readonly daemon: ScriptedDaemon;
+} {
+  return buildDriverClient(
+    scriptResult(METHOD_SUBSCRIBE_EVENTS, { subscriptionId: TEST_SUBSCRIPTION_ID }),
+  );
+}
+
+describe("driver.subscribeEvents — the stream is narrowed to driver events", () => {
+  it("delivers a driver event to the consumer unaltered", async () => {
+    const { client, daemon } = buildSubscribingDriverClient();
+
+    const subscription = client.subscribeEvents({ runId: TEST_RUN_ID });
+    daemon.deliverInbound(subscriptionNotify(buildDriverEvent()));
+
+    // The positive control for the refusal below: the narrowing must not have
+    // been bought by refusing everything.
+    await expect(subscription.next()).resolves.toEqual(buildDriverEvent());
+  });
+
+  it("ENDS the subscription when the daemon pushes a schema-valid NON-driver event", async () => {
+    const nonDriverEvent = buildNonDriverEvent();
+    // Premise, asserted rather than assumed: this frame is a well-formed
+    // session event. Without it the refusal below could be any parse failure —
+    // a malformed fixture would make the test pass for the wrong reason, and
+    // the finding is specifically about events that DO parse.
+    expect(SessionEventSchema.safeParse(nonDriverEvent).success).toBe(true);
+
+    const { client, daemon } = buildSubscribingDriverClient();
+    const subscription = client.subscribeEvents({ runId: TEST_RUN_ID });
+    daemon.deliverInbound(subscriptionNotify(nonDriverEvent));
+
+    let caught: unknown = null;
+    try {
+      await subscription.next();
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(JsonRpcSchemaError);
+    if (caught instanceof JsonRpcSchemaError) {
+      // `value` phase, not `params` or `result`: the caller's request was
+      // well-formed and so was the subscribe ack — what failed is one streamed
+      // value, which is how a consumer tells a bad daemon from its own bug.
+      expect(caught.phase).toBe("value");
+    }
+
+    // The subscription is torn down at BOTH ends: the SDK stops tracking it,
+    // and a best-effort wire cancel goes out so the daemon releases its
+    // streaming-primitive entry rather than framing notifications into a
+    // dispatcher that will silently drop them.
+    expect(daemon.sentEnvelopes.map(methodOf)).toStrictEqual([
+      METHOD_SUBSCRIBE_EVENTS,
+      SUBSCRIPTION_CANCEL_METHOD,
+    ]);
   });
 });

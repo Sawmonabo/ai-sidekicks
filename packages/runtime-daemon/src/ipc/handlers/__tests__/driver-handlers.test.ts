@@ -24,8 +24,11 @@
 //     the state at this task's landing, so the unimplemented-operation refusal
 //     is a live path rather than a defensive one.
 //   * THE EVENT FILTER IS A GUARANTEE, NOT A CONVENIENCE. A non-driver event
-//     parses cleanly against `SessionEventSchema`, so nothing downstream would
-//     notice one leaking onto a driver subscription.
+//     parses cleanly against `SessionEventSchema`, so nothing on this side of
+//     the wire would notice one leaking onto a driver subscription. The SDK's
+//     `DriverEventSchema` catches such a leak, but by ENDING the subscription —
+//     that is the client's backstop against a broken daemon, not a reason this
+//     filter may relax.
 //
 // Refs: Plan-005 §Phase 4 / T4.1, invariants I-005-1 / I-005-2,
 // `docs/plans/007-local-ipc-and-daemon-control.md §Invariants` I-007-6 … I-007-10.
@@ -689,7 +692,9 @@ describe("driver.subscribeEvents", () => {
     // A `session.created` event parses cleanly against `SessionEventSchema`, so
     // a source wired to a session-wide feed would push memberships, approvals,
     // and audit rows onto a subscription opened for one run's driver activity
-    // and nothing downstream would notice.
+    // and nothing on this side would notice. (A leak past this filter reaches
+    // the SDK's `DriverEventSchema`, which ends the subscription rather than
+    // delivering the row — a loud client-side failure, not a silent rescue.)
     let live: ((event: SessionEvent) => void) | undefined;
     const { registry, frames } = buildSubscribeHarness((_runId, onEvent) => {
       onEvent(buildNonDriverEvent());
