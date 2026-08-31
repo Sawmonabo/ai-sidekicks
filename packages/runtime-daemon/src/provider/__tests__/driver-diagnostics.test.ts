@@ -54,6 +54,29 @@ describe("DriverDiagnosticsEmitter (T3.11 P0-1)", () => {
     expect(counterSink.totalFor(DRIVER_DIAGNOSTIC_COUNTER_NAMES.payload_variant_pending)).toBe(1);
   });
 
+  it("pairs EVERY diagnostic kind with a counter name in the `driver.<band>.<condition>` shape", () => {
+    // The kind union and the counter table are paired at COMPILE time by the
+    // table's `satisfies Readonly<Record<DriverDiagnosticKind, string>>`, so a
+    // kind added without a counter is a build error rather than a silent shed.
+    // What that cannot check is the NAME, and a metric name is read by people and
+    // dashboards that the type system never sees — so the shape is asserted here,
+    // over the whole table rather than one entry at a time, which is what keeps
+    // this test non-vacuous as the union grows.
+    const counterNames = Object.entries(DRIVER_DIAGNOSTIC_COUNTER_NAMES);
+    expect(counterNames.length).toBeGreaterThan(0);
+    for (const [kind, counterName] of counterNames) {
+      expect(counterName, `counter name for kind ${kind}`).toMatch(
+        /^driver\.[a-z0-9_]+\.[a-z0-9_]+$/,
+      );
+    }
+    // No two kinds may share an instrument: a shared counter makes two distinct
+    // conditions indistinguishable in exactly the place someone looks to tell
+    // them apart.
+    expect(new Set(counterNames.map(([, counterName]) => counterName)).size).toBe(
+      counterNames.length,
+    );
+  });
+
   it("pins the reorder-buffer overflow instrument name verbatim", () => {
     // The Plan-005 T3.11 P2-1 leg names this counter literally; a rename is a
     // contract change, not a refactor.

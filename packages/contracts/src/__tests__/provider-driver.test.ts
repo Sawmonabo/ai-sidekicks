@@ -15,11 +15,11 @@
 //     ops, correctly-typed params + returns) compiles with no session-domain
 //     change. The compile is the assertion; a runtime smoke confirms the mock
 //     is constructable and a method returns the expected shape.
-//   • AC2 (`Spec-005 §Acceptance Criteria`) — a capability flag outside the 14-flag
+//   • AC2 (`Spec-005 §Acceptance Criteria`) — a capability flag outside the 17-flag
 //     `DriverCapabilityFlag` union is a TS error (`@ts-expect-error`, self-
 //     verifying via TS2578 if the invalid flag ever became valid).
-//   • T1.7 flag currency — `DRIVER_CAPABILITY_FLAGS` carries exactly the fourteen
-//     campaign flags in canonical §Shared Enums order, `transcript_replay`
+//   • T1.7 flag currency — `DRIVER_CAPABILITY_FLAGS` carries exactly the seventeen
+//     canonical flags in canonical §Shared Enums order, `transcript_replay`
 //     INSERTED at its canonical position rather than appended, and DELIBERATELY
 //     excludes `pause`, whose exclusion is permanent (ADR-011).
 //   • T1.8 parity ops — the four added operations (`rollbackTo`,
@@ -85,6 +85,7 @@ import {
   DRIVER_FAILURE_DETAIL_MAX_LEN,
   DRIVER_FALLBACK_ACTION_MAX_LEN,
   DRIVER_MCP_SERVER_NAME_MAX_LEN,
+  DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN,
   DRIVER_TOOL_CALL_ID_MAX_LEN,
   DRIVER_TOOL_DESCRIPTION_MAX_LEN,
   DRIVER_TOOL_NAME_MAX_LEN,
@@ -94,20 +95,24 @@ import {
   DriverInterventionResultSchema,
   DriverResumeResultSchema,
   DriverRollbackResultSchema,
+  DriverCompactionResultSchema,
   DriverTranscriptExportResultSchema,
   DriverTranscriptReplayResultSchema,
   IdempotencyClassSchema,
   McpServerStatusEmissionSchema,
+  ProviderCommandEntrySchema,
   ProviderToolMetadataSchema,
   type ApplyInterventionParams,
   type CallbackToolResult,
   type CapabilityDetectionSource,
   type ClearSessionGoalParams,
   type CloseSessionParams,
+  type CompactContextParams,
   type CreateSessionParams,
   type DriverAuthProbeResult,
   type DriverCapabilities,
   type DriverCapabilityFlag,
+  type DriverCompactionResult,
   type DriverGoalResult,
   type DriverInterventionResult,
   type DriverResumeResult,
@@ -120,9 +125,12 @@ import {
   type GetCapabilitiesResult,
   type InterruptRunParams,
   type InterventionType,
+  type ListProviderCommandsParams,
   type McpServerStatusUpdate,
   type NormalizedProviderToolMetadata,
   type ProviderDriver,
+  type ProviderCommandBindingGroup,
+  type ProviderCommandListResult,
   type ProviderModel,
   type ProviderMode,
   type ProviderSessionHandle,
@@ -160,7 +168,7 @@ const CLIENT_IDEMPOTENCY_KEY = "6f9619ff-8b86-4011-b42d-00cf4fc964ff";
 // AC1 (`Spec-005 §Acceptance Criteria`) — a mock fully implementing `ProviderDriver` compiles.
 // ===========================================================================
 //
-// The class below implements ALL 16 operations with correctly-typed params and
+// The class below implements ALL 18 operations with correctly-typed params and
 // return shapes. The fact that it typechecks under `implements ProviderDriver`
 // (with `exactOptionalPropertyTypes` + `isolatedDeclarations` on) IS the
 // acceptance assertion: a provider integration can satisfy this contract with
@@ -256,6 +264,9 @@ class MockProviderDriver implements ProviderDriver {
         subagents: false,
         transcript_replay: false,
         cost_cap: false,
+        context_compaction: true,
+        provider_commands: true,
+        output_speed: false,
       },
       contractVersion: "1.0",
     };
@@ -298,16 +309,54 @@ class MockProviderDriver implements ProviderDriver {
         })
       : Promise.resolve({ status: "applied", declaredLosses: [] });
   }
+
+  public compactContext(params: CompactContextParams): Promise<DriverCompactionResult> {
+    // `boundaryPosition` is REQUIRED on the applied arm, so a conformant driver
+    // cannot report a compaction it has no boundary for — the mock states one
+    // rather than reaching for a member the discriminated union does not admit.
+    return params.bindingId === ""
+      ? Promise.resolve({ status: "refused", reason: "command_absent" })
+      : Promise.resolve({ status: "applied", boundaryPosition: 7 });
+  }
+
+  public listProviderCommands(
+    _params: ListProviderCommandsParams,
+  ): Promise<ProviderCommandListResult> {
+    // ONE group: the params name one binding, and one binding has one
+    // enumeration. `enabled` is absent rather than synthesized `true`, which is
+    // what a provider publishing no enabled/disabled distinction looks like.
+    //
+    // `runId` is the SOLE-LIVE-RUN arm here. The mock states a run because the
+    // conformance surface needs the non-null arm exercised; the two `null` arms
+    // — zero live runs and two live runs — are resolved by each driver against
+    // its own session record and asserted there.
+    return Promise.resolve({
+      bindings: [
+        {
+          runId: RUN_ID,
+          binding: { driverName: "mock", providerAccountId: "account-1" },
+          entries: [
+            {
+              name: "compact",
+              kind: "command",
+              binding: { driverName: "mock", providerAccountId: "account-1" },
+            },
+          ],
+          complete: true,
+        },
+      ],
+    });
+  }
 }
 
-describe("ProviderDriver contract: a mock implements all 16 operations", () => {
+describe("ProviderDriver contract: a mock implements all 18 operations", () => {
   // Type-level proof that the mock satisfies the contract interface: assigning
   // it to a `ProviderDriver`-typed binding will fail to compile if any of the
-  // 16 method signatures drifts from the contract. This is the AC1 assertion;
+  // 18 method signatures drifts from the contract. This is the AC1 assertion;
   // the runtime checks below merely anchor it to an executing test.
   const driver: ProviderDriver = new MockProviderDriver();
 
-  it("is constructable and surfaces all 16 contract operations as callable methods", () => {
+  it("is constructable and surfaces all 18 contract operations as callable methods", () => {
     // Interface order, so a drift in the declaration order shows up as a diff
     // here rather than silently reordering.
     const operationNames = [
@@ -327,8 +376,10 @@ describe("ProviderDriver contract: a mock implements all 16 operations", () => {
       "probeAuth",
       "exportTranscript",
       "replayTranscript",
+      "compactContext",
+      "listProviderCommands",
     ] as const;
-    expect(operationNames).toHaveLength(16);
+    expect(operationNames).toHaveLength(18);
     expect(driver).toBeInstanceOf(MockProviderDriver);
     for (const operationName of operationNames) {
       expect(typeof (driver as unknown as Record<string, unknown>)[operationName]).toBe("function");
@@ -362,19 +413,22 @@ describe("ProviderDriver contract: a mock implements all 16 operations", () => {
     });
   });
 
-  it("getCapabilities answers every one of the 14 flags and returns ingress tools", async () => {
+  it("getCapabilities answers every one of the 17 flags and returns ingress tools", async () => {
     const result = await driver.getCapabilities();
-    // The canonical 14-flag `DriverCapabilityFlag` set, written alphabetically
+    // The canonical 17-flag `DriverCapabilityFlag` set, written alphabetically
     // and SPELLED OUT rather than derived from `DRIVER_CAPABILITY_FLAGS`: a
     // derived literal would agree with the const by construction and could never
     // catch a flag silently added or removed there. Keeping it hand-written is
     // what makes this an independent lockstep check.
     const canonicalCapabilityFlags = [
       "callback_tools",
+      "context_compaction",
       "cost_cap",
       "interactive_requests",
       "mcp",
       "model_mutation",
+      "output_speed",
+      "provider_commands",
       "reasoning_stream",
       "resume",
       "rollback",
@@ -385,7 +439,7 @@ describe("ProviderDriver contract: a mock implements all 16 operations", () => {
       "tool_calls",
       "transcript_replay",
     ];
-    // I-005-2 structural check: the flag record is total — exactly the 14
+    // I-005-2 structural check: the flag record is total — exactly the 17
     // canonical flags, every one answered with a boolean.
     expect(Object.keys(result.capabilities.flags).sort()).toEqual(canonicalCapabilityFlags);
     expect(result.tools).toHaveLength(2);
@@ -1309,7 +1363,7 @@ describe("DriverResumeResultSchema — resume result envelope (trust boundary)",
 });
 
 // ===========================================================================
-// T1.7 — capability-flag currency: fourteen flags, canonical order, one
+// T1.7 — capability-flag currency: seventeen flags, canonical order, one
 //        permanent exclusion.
 // ===========================================================================
 //
@@ -1319,8 +1373,8 @@ describe("DriverResumeResultSchema — resume result envelope (trust boundary)",
 // HAND-SPELLED expectations rather than against the const itself: a check
 // derived from the thing it checks is vacuous.
 
-describe("DRIVER_CAPABILITY_FLAGS — T1.7 fourteen-flag currency", () => {
-  it("carries exactly fourteen flags, in canonical §Shared Enums order", () => {
+describe("DRIVER_CAPABILITY_FLAGS — T1.7 seventeen-flag currency", () => {
+  it("carries exactly seventeen flags, in canonical §Shared Enums order", () => {
     expect([...DRIVER_CAPABILITY_FLAGS]).toEqual([
       "resume",
       "steer",
@@ -1336,8 +1390,11 @@ describe("DRIVER_CAPABILITY_FLAGS — T1.7 fourteen-flag currency", () => {
       "subagents",
       "transcript_replay",
       "cost_cap",
+      "context_compaction",
+      "provider_commands",
+      "output_speed",
     ]);
-    expect(DRIVER_CAPABILITY_FLAGS).toHaveLength(14);
+    expect(DRIVER_CAPABILITY_FLAGS).toHaveLength(17);
   });
 
   it("declares no duplicate flag (the cardinality guard compares key COUNT, so a duplicate would mask an omission)", () => {
@@ -1350,7 +1407,18 @@ describe("DRIVER_CAPABILITY_FLAGS — T1.7 fourteen-flag currency", () => {
     // appended for convenience would disagree with the enumeration every other
     // surface derives from. Asserted by INDEX so an append cannot pass.
     expect(DRIVER_CAPABILITY_FLAGS.indexOf("transcript_replay")).toBe(12);
-    expect(DRIVER_CAPABILITY_FLAGS.at(-1)).toBe("cost_cap");
+    expect(DRIVER_CAPABILITY_FLAGS.at(-1)).toBe("output_speed");
+  });
+
+  it("APPENDS the three console-parity flags after `cost_cap`, where the canonical order puts them", () => {
+    // The counterpart to the insertion above, and the reason the two rules
+    // coexist rather than contradict: position is canonical, and canonical
+    // position for these three IS the end. Asserted by INDEX for the same reason
+    // — a re-ordering that kept membership would pass a `toContain` and break
+    // every surface that reads position.
+    expect(DRIVER_CAPABILITY_FLAGS.indexOf("context_compaction")).toBe(14);
+    expect(DRIVER_CAPABILITY_FLAGS.indexOf("provider_commands")).toBe(15);
+    expect(DRIVER_CAPABILITY_FLAGS.indexOf("output_speed")).toBe(16);
   });
 
   it("EXCLUDES `pause` — a permanent exclusion, not a pending one", () => {
@@ -1366,7 +1434,7 @@ describe("DRIVER_CAPABILITY_FLAGS — T1.7 fourteen-flag currency", () => {
     // accept the const, because the const's element type would then carry a
     // literal the union lacks. The OPPOSITE direction — a union carrying a
     // member the const does not — still compiles here, and is caught instead by
-    // the AC2 totality literals ABOVE, whose hand-written fourteen-key
+    // the AC2 totality literals ABOVE, whose hand-written seventeen-key
     // `Record<DriverCapabilityFlag, boolean>` fails as INCOMPLETE the moment the
     // union outgrows the const. It compiles today BECAUSE the union is
     // `(typeof DRIVER_CAPABILITY_FLAGS)[number]` rather than a second listing.
@@ -1375,7 +1443,7 @@ describe("DRIVER_CAPABILITY_FLAGS — T1.7 fourteen-flag currency", () => {
     // assertion this test makes is the compile above, so the executing
     // expectation restates the cardinality the union is derived from rather
     // than `toBe`-ing the const against itself, which would hold for any value.
-    expect(flags).toHaveLength(14);
+    expect(flags).toHaveLength(17);
   });
 });
 
@@ -2083,6 +2151,9 @@ describe("T1.8 spawn/turn parity surfaces — structural invariants", () => {
     subagents: false,
     transcript_replay: false,
     cost_cap: false,
+    context_compaction: false,
+    provider_commands: false,
+    output_speed: false,
   };
 
   it("requires `cliVersion` on GetCapabilitiesResult (fail-closed by construction)", () => {
@@ -2130,6 +2201,13 @@ describe("T1.8 spawn/turn parity surfaces — structural invariants", () => {
         subagents: "static",
         transcript_replay: "static",
         cost_cap: "static",
+        // The three console-parity flags. `output_speed` is `static` on BOTH
+        // shipped drivers and the other two split, so a fixture that made them
+        // uniform would stop exercising the mixed-provenance shape this member
+        // exists to carry.
+        context_compaction: "probed",
+        provider_commands: "probed",
+        output_speed: "static",
       },
     };
     expect(Object.keys(live.detectionSource ?? {})).toHaveLength(DRIVER_CAPABILITY_FLAGS.length);
@@ -2593,5 +2671,240 @@ describe("transcript operation params — nominal shapes", () => {
     };
     expect(params.target.providerSessionId).toBe("provider-fresh-1");
     expect(params.frames).toHaveLength(1);
+  });
+});
+
+describe("DriverCompactionResultSchema — the two structural rules, made checkable", () => {
+  // This schema is NOT a wire guard and no dispatch path parses through it: the
+  // compaction result is composed daemon-side from the wait's own settlement.
+  // What it exists for is exactly what this suite asserts — the two structural
+  // rules the canonical doc states are enforced by the type rather than narrated
+  // in prose beside it, so a later widening that broke either one fails here.
+
+  it("REQUIRES `boundaryPosition` on the applied arm", () => {
+    // A driver reporting a compaction it has no boundary for is reporting a
+    // compaction it cannot prove: the boundary row IS the typed evidence, and an
+    // applied arm without one would let the operation settle on the request
+    // having been accepted, which is the exact failure both mechanisms invite.
+    const withoutPosition = { status: "applied" };
+    expect(DriverCompactionResultSchema.safeParse(withoutPosition).success).toBe(false);
+    expect(
+      DriverCompactionResultSchema.safeParse({ status: "applied", boundaryPosition: 12 }).success,
+    ).toBe(true);
+  });
+
+  it("accepts a NULL position as the positive statement that the frame named none", () => {
+    // `.nullable()` and not `.optional()` — see the shape's own doctrine. This is
+    // the one case where "no number" is a fact about the provider's frame rather
+    // than a gap in the driver's reporting.
+    const parsed = DriverCompactionResultSchema.safeParse({
+      status: "applied",
+      boundaryPosition: null,
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("admits `capability_undeclared` as NO arm's reason", () => {
+    // Dropped deliberately: the static capability gate refuses an undeclared
+    // compaction BEFORE the driver is called, so an arm for it would be a second
+    // and contradictory encoding of one refusal. Both refusal-shaped arms are
+    // probed, so this cannot pass by the reason landing on the other one.
+    expect(
+      DriverCompactionResultSchema.safeParse({
+        status: "refused",
+        reason: "capability_undeclared",
+      }).success,
+    ).toBe(false);
+    expect(
+      DriverCompactionResultSchema.safeParse({
+        status: "failed",
+        reason: "capability_undeclared",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("keeps the three failure reasons and the two refusal reasons on their own arms", () => {
+    // The split is not cosmetic: a refusal is a decision (the command is absent,
+    // the caller was denied) and a failure is an outcome (the evidence never
+    // arrived). Crossing them would let a denied caller read as a wedged
+    // provider.
+    for (const reason of ["wait_expired", "binding_lost", "provider_error"]) {
+      expect(DriverCompactionResultSchema.safeParse({ status: "failed", reason }).success).toBe(
+        true,
+      );
+      expect(DriverCompactionResultSchema.safeParse({ status: "refused", reason }).success).toBe(
+        false,
+      );
+    }
+    for (const reason of ["command_absent", "not_permitted"]) {
+      expect(DriverCompactionResultSchema.safeParse({ status: "refused", reason }).success).toBe(
+        true,
+      );
+      expect(DriverCompactionResultSchema.safeParse({ status: "failed", reason }).success).toBe(
+        false,
+      );
+    }
+  });
+
+  it("rejects an unknown key on every arm", () => {
+    expect(
+      DriverCompactionResultSchema.safeParse({
+        status: "applied",
+        boundaryPosition: 1,
+        elapsedMs: 900,
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("ProviderCommandEntrySchema — the routing pair a consumer cannot lose", () => {
+  const wellFormedEntry = {
+    name: "compact",
+    kind: "command",
+    binding: { driverName: "codex", providerAccountId: "account-1" },
+  } as const;
+
+  it("carries a NULL account rather than synthesizing a placeholder", () => {
+    // A session need not have bound a provider account at all. `null` states that
+    // positively; `""` or `"unknown"` would make the routing invariant
+    // unenforceable while looking enforced, since two accountless bindings on
+    // different providers would then compare equal on the half of the pair that
+    // is supposed to separate them.
+    expect(
+      ProviderCommandEntrySchema.safeParse({
+        ...wellFormedEntry,
+        binding: { driverName: "codex", providerAccountId: null },
+      }).success,
+    ).toBe(true);
+    expect(
+      ProviderCommandEntrySchema.safeParse({
+        ...wellFormedEntry,
+        binding: { driverName: "codex", providerAccountId: "" },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("REQUIRES the binding pair — an absent account key does not parse", () => {
+    // The difference `null` is carrying: absence would be indistinguishable from
+    // a driver that forgot to report one, and the pair is the routing key.
+    expect(
+      ProviderCommandEntrySchema.safeParse({
+        ...wellFormedEntry,
+        binding: { driverName: "codex" },
+      }).success,
+    ).toBe(false);
+    const { binding: _binding, ...withoutBinding } = wellFormedEntry;
+    expect(ProviderCommandEntrySchema.safeParse(withoutBinding).success).toBe(false);
+  });
+
+  it("keeps `enabled` optional so an absent flag is not synthesized `true`", () => {
+    // A provider publishing no enabled/disabled distinction reports no flag; a
+    // synthesized `true` would claim an offerability the provider never stated.
+    const parsed = ProviderCommandEntrySchema.parse(wellFormedEntry);
+    expect(Object.hasOwn(parsed, "enabled")).toBe(false);
+    expect(
+      ProviderCommandEntrySchema.safeParse({ ...wellFormedEntry, enabled: false }).success,
+    ).toBe(true);
+  });
+
+  it('refuses an EMPTY description, so a driver must omit rather than forward `""`', () => {
+    // Not hypothetical: the Codex skills surface types its description as
+    // REQUIRED, so a skill whose front matter declares none arrives as `""`. A
+    // driver that forwarded it verbatim would fail its own enumeration on an
+    // honest provider reading. Omission is also the truthful encoding — absence
+    // says the provider published no description, where `""` would say it
+    // published one and it was blank.
+    expect(
+      ProviderCommandEntrySchema.safeParse({ ...wellFormedEntry, description: "" }).success,
+    ).toBe(false);
+    expect(
+      ProviderCommandEntrySchema.safeParse({ ...wellFormedEntry, description: "   " }).success,
+    ).toBe(false);
+    expect(ProviderCommandEntrySchema.safeParse(wellFormedEntry).success).toBe(true);
+  });
+
+  it("bounds both provider-authored strings and refuses an unknown key", () => {
+    // A local skill file's front matter is operator-writable and the assembled
+    // list travels to a client, so the description is bounded like every other
+    // untrusted free-form string in this module.
+    expect(
+      ProviderCommandEntrySchema.safeParse({
+        ...wellFormedEntry,
+        description: "x".repeat(DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN + 1),
+      }).success,
+    ).toBe(false);
+    expect(
+      ProviderCommandEntrySchema.safeParse({ ...wellFormedEntry, invocationHandle: "/compact" })
+        .success,
+    ).toBe(false);
+  });
+});
+
+describe("ProviderCommandBindingGroup — provenance that is stated, never synthesized", () => {
+  // The group's `runId` and `binding` pair is PROVENANCE a client reads, not an
+  // addressing handle, and both halves are nullable for the same reason: a
+  // binding outlives any one of its runs and need not have bound an account at
+  // all, so the shape must be able to say "none" without saying it by omission.
+  //
+  // The RESOLUTION of which arm applies is each driver's, against its own session
+  // record; what is asserted here is that the contract admits all three answers
+  // and that no arm is reachable only by dropping a key.
+
+  const bindingPair = { driverName: "codex", providerAccountId: "account-1" } as const;
+  const entry = { name: "compact", kind: "command", binding: bindingPair } as const;
+
+  it("admits the sole-live-run arm, the zero-run arm, and the two-live-runs arm", () => {
+    // Arm 1 — exactly one live run: that run answers.
+    const soleLiveRun: ProviderCommandBindingGroup = {
+      runId: RUN_ID,
+      binding: bindingPair,
+      entries: [entry],
+      complete: true,
+    };
+    // Arm 2 — the ordinary pre-first-turn palette read. It SUCCEEDS with null
+    // rather than refusing: a binding that has not run anything yet is not an
+    // error, and the entries it enumerates are perfectly real.
+    const zeroLiveRuns: ProviderCommandBindingGroup = {
+      runId: null,
+      binding: bindingPair,
+      entries: [entry],
+      complete: true,
+    };
+    // Arm 3 — two live turns on one binding. No single run is attributable, and
+    // picking either would be a coin flip presented as provenance.
+    const noSingleAttributableRun: ProviderCommandBindingGroup = {
+      runId: null,
+      binding: bindingPair,
+      entries: [entry],
+      complete: true,
+    };
+
+    expect(soleLiveRun.runId).toBe(RUN_ID);
+    expect(zeroLiveRuns.runId).toBeNull();
+    expect(noSingleAttributableRun.runId).toBeNull();
+  });
+
+  it("keeps the key PRESENT on every arm, so absence is never the encoding", () => {
+    // The distinction the nullable buys: an omitted key would be
+    // indistinguishable from a producer that forgot to report one, which is the
+    // exact ambiguity the pair exists to remove.
+    const zeroLiveRuns: ProviderCommandBindingGroup = {
+      runId: null,
+      binding: { driverName: "codex", providerAccountId: null },
+      entries: [],
+      complete: true,
+    };
+    expect(Object.hasOwn(zeroLiveRuns, "runId")).toBe(true);
+    expect(Object.hasOwn(zeroLiveRuns.binding, "providerAccountId")).toBe(true);
+  });
+
+  it("scopes truncation PER GROUP, so one truncated binding never marks another", () => {
+    const result: ProviderCommandListResult = {
+      bindings: [
+        { runId: RUN_ID, binding: bindingPair, entries: [entry], complete: false },
+        { runId: null, binding: bindingPair, entries: [entry], complete: true },
+      ],
+    };
+    expect(result.bindings.map((group) => group.complete)).toEqual([false, true]);
   });
 });

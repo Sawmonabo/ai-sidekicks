@@ -166,6 +166,31 @@ export type DriverProviderName = "codex" | "claude";
  *     disposed; what this records is that the operator-visible terminal may not
  *     have landed, which is the one part of a trip that a swallowed exception
  *     could make invisible.
+ *
+ * Three are owned by the T3.26 console-parity surfaces. Each records a case
+ * where a caller's own result is already honest about the outcome but says
+ * nothing about WHY — the settlement carries a closed reason and the operator
+ * needs the terminal, the count, or the wire text behind it.
+ *
+ *   - `compaction_wait_terminal` — a participant-triggered compaction was
+ *     dispatched and the wait for the provider's typed compaction frame reached
+ *     a terminal that is not the frame: the declared per-driver bound elapsed,
+ *     or the binding stopped being live. The caller already settles `failed`
+ *     carrying the reason; what this records is WHICH terminal fired, since the
+ *     two are the difference between a slow provider and a dead one. Never
+ *     emitted on the applied path — a compaction that landed needs no record.
+ *   - `provider_command_entries_truncated` — a binding's enumeration published
+ *     more entries than the per-group cap admits, so the group's tail was
+ *     dropped and its `complete` flag is `false`. The flag is the caller's
+ *     signal; this is the operator's, and it carries both counts so the cap can
+ *     be re-derived against a real provider rather than re-guessed.
+ *   - `interactive_request_option_set_dropped` — a structured input ask
+ *     published a choice set the cardinality cap refuses, or one no admissible
+ *     option could be read from. The ask STILL NORMALIZES and still reaches the
+ *     participant as free text: dropping the ask would hang the turn, and
+ *     carrying an unbounded set would let provider-authored strings size a
+ *     client render. What is lost is the choice set, and losing it silently is
+ *     what this forbids.
  */
 export type DriverDiagnosticKind =
   | "unmapped_wire_kind"
@@ -194,7 +219,10 @@ export type DriverDiagnosticKind =
   | "callback_tool_registry_release_ignored"
   | "subagent_definition_disabled"
   | "subagent_concurrency_breach"
-  | "text_neutralization_trip_report_failed";
+  | "text_neutralization_trip_report_failed"
+  | "compaction_wait_terminal"
+  | "provider_command_entries_truncated"
+  | "interactive_request_option_set_dropped";
 
 /**
  * One operator-visible daemon diagnostic.
@@ -254,6 +282,9 @@ export const DRIVER_DIAGNOSTIC_COUNTER_NAMES: Readonly<Record<DriverDiagnosticKi
     subagent_definition_disabled: "driver.subagent.definition_disabled",
     subagent_concurrency_breach: "driver.subagent.concurrency_breach",
     text_neutralization_trip_report_failed: "driver.text_neutralization.trip_report_failed",
+    compaction_wait_terminal: "driver.compaction.wait_terminal",
+    provider_command_entries_truncated: "driver.provider_commands.entries_truncated",
+    interactive_request_option_set_dropped: "driver.interactive_request.option_set_dropped",
   });
 
 // --------------------------------------------------------------------------

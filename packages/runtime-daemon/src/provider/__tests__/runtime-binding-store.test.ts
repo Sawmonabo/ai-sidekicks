@@ -146,6 +146,7 @@ const FULL_SPAWN_CONFIG: RuntimeBindingSpawnConfig = {
   admittedCostCapCents: 2500,
   providerAccountId: "acct-01J0ND0000NN5J5J5J5J5J5J",
   resolvedExecutablePath: "/opt/homebrew/bin/claude",
+  outputSpeed: "on",
 };
 
 const CLI_VERSION: DriverCliVersionReport = { raw: "2.1.245 (Claude Code)", semver: "2.1.245" };
@@ -1642,6 +1643,7 @@ describe("composeResumeSessionParams (T3.15 R4, CP-005-1)", () => {
       subagentPolicy: FULL_SPAWN_CONFIG.subagentPolicy,
       outputSchema: FULL_SPAWN_CONFIG.outputSchema,
       admittedCostCapCents: 2500,
+      outputSpeed: "on",
       onCallbackToolCall: undefined,
       onMcpServerStatus: undefined,
     });
@@ -1726,5 +1728,48 @@ describe("composeResumeSessionParams (T3.15 R4, CP-005-1)", () => {
     expect(params.executionPosture).toBeUndefined();
     expect(params.outputSchema).toBeUndefined();
     expect(params.admittedCostCapCents).toBeUndefined();
+    expect(params.outputSpeed).toBeUndefined();
+  });
+
+  it("re-realizes the accelerated-output leg, which a resume would otherwise shed", () => {
+    // The FIFTH resume leg, and the reason it is one rather than a
+    // `relaunch-input`: the accelerated-output axis is realized at spawn on the
+    // one provider that publishes it, and it is a parameter the DRIVER takes —
+    // unlike the paying account and the resolved binary, which the spawn
+    // resolution consumes before the driver is ever called. A resume that
+    // dropped it would relaunch at the provider's default speed while every
+    // layer above still read the operator's accepted choice.
+    const store = makeStore();
+    const binding = store.create({
+      runId: RUN_ID,
+      driverName: DRIVER_NAME,
+      contractVersion: CONTRACT_VERSION,
+      spawnConfig: { outputSpeed: "on" },
+      resumeHandle: "opaque-handle-abc",
+    });
+
+    const params = composeResumeSessionParams(SESSION_ID, binding, NO_FUNCTION_LEGS);
+
+    expect(params.outputSpeed).toBe("on");
+  });
+
+  it("stores the REQUESTED level and never a provider observation", () => {
+    // `cooldown` is a state the Claude surface REPORTS and that no participant
+    // may request — it is a rate-limit condition, not a setting. It reaches the
+    // daemon on the binding-held `ProviderOutputSpeedState`, which is discarded
+    // with the session. If it could ever reach this column, a restart would
+    // re-realize a spawn asking for a level the provider does not accept, and a
+    // transient condition would read as an accepted choice forever.
+    const store = makeStore();
+    const binding = store.create({
+      runId: RUN_ID,
+      driverName: DRIVER_NAME,
+      contractVersion: CONTRACT_VERSION,
+      spawnConfig: { outputSpeed: "off" },
+      resumeHandle: "opaque-handle-abc",
+    });
+
+    expect(binding.spawnConfig).toStrictEqual({ outputSpeed: "off" });
+    expect(Object.keys(binding.spawnConfig)).not.toContain("declared");
   });
 });

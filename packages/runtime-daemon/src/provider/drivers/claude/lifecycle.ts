@@ -59,6 +59,7 @@
 import {
   DRIVER_AUTH_DETAIL_MAX_LEN,
   DRIVER_FAILURE_DETAIL_MAX_LEN,
+  DRIVER_PROVIDER_COMMAND_ENTRIES_MAX,
   DriverAuthProbeResultSchema,
   DriverGoalResultSchema,
   DriverResumeResultSchema,
@@ -67,14 +68,20 @@ import {
   type CallbackToolResult,
   type ClearSessionGoalParams,
   type CloseSessionParams,
+  type CompactContextParams,
   type CreateSessionParams,
   type DriverAuthProbeResult,
+  type DriverCompactionResult,
   type DriverGoalResult,
   type DriverResumeResult,
   type DriverRollbackResult,
   type ExecutionPosture,
   type InterruptRunParams,
+  type ListProviderCommandsParams,
   type McpServerStatusProducer,
+  type ProviderCommandEntry,
+  type ProviderCommandListResult,
+  type ProviderOutputSpeedState,
   type ProviderSessionHandle,
   type RecoveryCondition,
   type ResumeSessionParams,
@@ -89,6 +96,7 @@ import {
 } from "@ai-sidekicks/contracts";
 import { createHash, randomUUID } from "node:crypto";
 
+import { PendingCompactionRegistry, type CompactionWaitScheduler } from "../../compaction-wait.js";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import {
   ThreadFrameRouter,
@@ -148,6 +156,48 @@ const CLAUDE_RESUME_SPAN_CLASSIFICATION = "unclassifiable" as const;
 
 const UNDESCRIBED_FAILURE_DETAIL =
   "The Claude provider transport failed the resume with no describable detail.";
+
+// --------------------------------------------------------------------------
+// Console-parity constants — `Spec-005 §Desktop Console Parity Surfaces`
+// --------------------------------------------------------------------------
+
+// THE DECLARED BOUND for one participant-triggered compaction on this driver.
+//
+// "Declared" means exactly this: the driver states, up front, how long it will
+// wait for the provider's own typed compaction evidence before reporting the
+// OPERATION failed. It is not a guess at how long a compaction takes and it is
+// not a timeout on the provider — the provider is never cancelled, and a
+// boundary frame that arrives after this elapses still travels its ordinary
+// route and still produces its `usage.context_compacted` row.
+//
+// PER-DRIVER rather than shared, because the two mechanisms have nothing in
+// common but their name. Codex compacts inside a request/response it can
+// acknowledge; this driver sends a command frame the provider never answers and
+// waits on a stream frame emitted whenever the provider gets around to it, over
+// a conversation whose length is exactly the thing being compacted. A single
+// shared bound would be wrong for one of the two by construction, so each driver
+// declares its own and the wait registry takes it as an argument.
+export const CLAUDE_COMPACTION_WAIT_MS: number = 120_000;
+
+// The provider's own compaction command, as the provider itself enumerates it.
+//
+// BARE, WITHOUT THE LEADING SLASH. A live `system/init` frame publishes
+// `slash_commands` as names only (`"compact"`, `"autocompact"`, ...), so this is
+// the form the pre-dispatch presence check compares against; the dispatched
+// frame text composes the slash back on. Comparing a composed `/compact` against
+// the published names would never match and would refuse every compaction.
+const CLAUDE_COMPACTION_COMMAND_NAME = "compact";
+
+const CLAUDE_COMPACTION_COMMAND_TEXT = `/${CLAUDE_COMPACTION_COMMAND_NAME}`;
+
+// The origin this driver's own command dispatch claims.
+//
+// Minted from a LITERAL, in the module that composes the frame, which is the
+// discipline `OutboundTextFrameWriter` requires of the `driver_command` arm: the
+// arm is exempt from the text-neutralization tripwire, so a value that could be
+// forwarded from a caller would let participant words reach the provider under a
+// driver's exemption. Nothing outside this module can name it.
+const CLAUDE_COMPACTION_FRAME_ORIGIN = "driver_command";
 
 // --------------------------------------------------------------------------
 // Transport ports — the seam between this driver band and the provider process
@@ -261,6 +311,53 @@ export interface ClaudeCumulativeUsageObservation {
 }
 
 /**
+ * The provider's own declaration, as published on the `system/init` handshake.
+ *
+ * Read from a live frame's members verbatim: `slash_commands`, `skills`,
+ * `terminal_slash_commands`, `fast_mode_state`, `fast_mode_disabled_reason`.
+ * Every list is carried WHOLE — the driver caps nothing here, because the cap
+ * belongs to the composed reply and not to what the driver knows (see
+ * {@link ClaudeSessionLifecycle.listProviderCommands}).
+ *
+ * A LIVE READ HELD AS DRIVER-SESSION STATE AND NEVER A STORED REGISTRY. A stored
+ * copy would need invalidation, staleness, and reconciliation machinery whose
+ * only purpose is to re-derive what one handshake read already gives.
+ */
+export interface ClaudeHandshakeDeclaration {
+  /** `slash_commands` — interactively invocable, names WITHOUT a leading `/`. */
+  readonly slashCommands: readonly string[];
+  /** `skills` — the provider's skill surface, names verbatim. */
+  readonly skills: readonly string[];
+  /**
+   * `terminal_slash_commands` — published under a SEPARATE handshake member.
+   *
+   * The provider itself separates these from `slash_commands`, and the reason is
+   * load-bearing: they run in the provider's own terminal UI and are NOT
+   * interactively invocable over the programmatic surface this driver drives.
+   * Merging them into the invocable set would offer a participant a control that
+   * silently does nothing; dropping them would hide a surface the provider
+   * really does publish. They are therefore carried, and the distinction is
+   * recorded on the entry rather than erased (see `scope` below).
+   */
+  readonly terminalSlashCommands: readonly string[];
+  /** `fast_mode_state` — the provider's reportable vocabulary, verbatim. */
+  readonly fastModeState: string | null;
+  /** `fast_mode_disabled_reason` — present only where the provider supplies it. */
+  readonly fastModeDisabledReason: string | null;
+}
+
+/**
+ * A typed provider compaction frame, as the transport read it.
+ *
+ * The ONLY evidence that admits `applied`. `boundaryPosition` is `null` when the
+ * provider's frame names no position — a positive statement, not an absence of
+ * information about whether the compaction happened.
+ */
+export interface ClaudeCompactionBoundaryObservation {
+  readonly boundaryPosition: number | null;
+}
+
+/**
  * The routing-relevant facts of one inbound Claude stream frame.
  *
  * Deliberately not the frame. See {@link ClaudeSessionChannel.onInboundFrame}
@@ -281,6 +378,16 @@ export interface ClaudeInboundFrameObservation {
   readonly cumulativeUsage: ClaudeCumulativeUsageObservation | null;
   /** The `SubagentStart` / `SubagentStop` signal where the frame is one. */
   readonly subagentLifecycle: ClaudeSubagentLifecycleSignal | null;
+  /**
+   * The `system/init` handshake declaration where this frame is that handshake.
+   *
+   * Carried on the ordinary observation rather than on a second callback so the
+   * handshake cannot arrive down a path the routing band never sees: one seam,
+   * one arrival order, one place to reason about.
+   */
+  readonly handshake: ClaudeHandshakeDeclaration | null;
+  /** The typed compaction frame's reading where this frame is one. */
+  readonly compactionBoundary: ClaudeCompactionBoundaryObservation | null;
 }
 
 // One live Claude provider process, already handshaken through `system/init`.
@@ -551,6 +658,23 @@ export interface ClaudeSpawnBoundLegs {
    * expire at the first relaunch.
    */
   readonly mandatedEnvironment: readonly SpawnEnvPair[];
+  /**
+   * The output-speed level this session was REQUESTED at, or `undefined` when
+   * the caller named none.
+   *
+   * A SPAWN-BOUND leg and not a live control, which is why it rides this shape:
+   * the provider settles the state at process start and reports it on the
+   * handshake, so a level bound at create and omitted at resume would be
+   * silently shed at the first relaunch — precisely the shedding this shape
+   * exists to make impossible.
+   *
+   * Carried as the caller's REQUEST, never as the provider's answer. What the
+   * provider actually declares arrives on the `system/init` handshake and is
+   * held against the binding (see
+   * {@link ClaudeSessionLifecycle.observedOutputSpeedFor}); the two are
+   * different facts and this driver never writes one over the other.
+   */
+  readonly outputSpeed: string | undefined;
 }
 
 export interface ClaudeSessionSpawnRequest extends ClaudeSpawnBoundLegs {
@@ -1711,6 +1835,35 @@ export function composeClaudeSandboxSettings(posture: ExecutionPosture): ClaudeS
  * from two sides, and a band holding one without the other routes a frame
  * against a thread it can meter nothing for.
  */
+/**
+ * One provider session's `system/init` declaration, held for that session's life.
+ *
+ * STAMPED WITH THE PROVIDER SESSION ID IT WAS OBSERVED UNDER, and every read
+ * re-checks the stamp against the live session. A rewind forks a NEW provider
+ * process behind the SAME canonical `SessionId`, and the fork publishes its own
+ * handshake; without the stamp, a read landing between the fork and the new
+ * handshake would answer with the dead process's declaration — commands the new
+ * binding may not have, and an output-speed state it never reported. The stamp
+ * makes that read say "not yet observed" instead, which is the truth.
+ */
+interface ClaudeHeldHandshake {
+  readonly providerSessionId: string;
+  readonly declaration: ClaudeHandshakeDeclaration;
+  /**
+   * The INTERACTIVELY INVOCABLE names, built from `slash_commands` ALONE.
+   *
+   * Structurally separate from the composed entry list rather than derived from
+   * it, and that separation is the guard: `terminal_slash_commands` are carried
+   * as entries (they are a real published surface) but are not invocable over
+   * the programmatic transport, so a set built from the entries would let a
+   * terminal-only name satisfy a dispatch check by accident. It is also
+   * separate from the CAP: the cap trims the composed reply, never what the
+   * driver knows, so a command truncated out of a client's palette is still
+   * dispatchable by a control that names it.
+   */
+  readonly invocableCommandNames: ReadonlySet<string>;
+}
+
 interface ClaudeSessionRoutingBand {
   readonly router: ThreadFrameRouter<ClaudeRoutableFrame>;
   readonly accountant: UsageDeltaAccountant;
@@ -1933,6 +2086,33 @@ export interface ClaudeSessionLifecycleDependencies {
   // `runtime_bindings` store mints it in production; the default keeps this band
   // runnable without a database.
   readonly mintBindingId?: (() => string) | undefined;
+  /**
+   * Schedules the declared compaction bound. Defaults to a real, unref'd timer.
+   *
+   * Injected for the reason every timer in this band is injected: a test that
+   * has to wait out `CLAUDE_COMPACTION_WAIT_MS` to observe an expiry is a test
+   * nobody runs.
+   */
+  readonly compactionWaitScheduler?: CompactionWaitScheduler | undefined;
+  /**
+   * The provider account this session's process was spawned under, or `null`
+   * when none was bound.
+   *
+   * Optional because the driver cannot rebuild it: the account registry is the
+   * daemon's and neither `CreateSessionParams` nor `ResumeSessionParams` carries
+   * an account id, so this band has no second source to fall back on — the same
+   * reason `readPriorEmittedUsage` is injected rather than derived.
+   *
+   * TWO FACTS COINCIDE HERE AND THE CONFLATION IS DELIBERATE. An unbound reader
+   * means "this driver could not ask"; a `null` answer means "no account is
+   * bound". Both surface as `providerAccountId: null`, which is safe in the one
+   * direction that matters: the consuming routing check treats `null` as
+   * matching NOTHING, so neither fact can ever authorize a dispatch onto another
+   * binding. Synthesizing a placeholder instead would make that same check
+   * compare equal across two accountless bindings and look enforced while
+   * enforcing nothing.
+   */
+  readonly readBoundProviderAccountId?: ((sessionId: SessionId) => string | null) | undefined;
 }
 
 /**
@@ -2053,6 +2233,18 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
    * set against a session whose slot is mid-transition must still be recorded.
    */
   readonly #sessionGoals: Map<SessionId, string> = new Map();
+  /**
+   * The `system/init` declaration of each live session — a LIVE READ held as
+   * driver-session state, never a stored registry and never persisted.
+   *
+   * Keyed by the canonical `SessionId` because that is what every caller names,
+   * and stamped inside the record with the provider session id it was observed
+   * under (see {@link ClaudeHeldHandshake}). Discarded with the session, in the
+   * same place the routing band is.
+   */
+  readonly #handshakeBySession: Map<SessionId, ClaudeHeldHandshake> = new Map();
+  readonly #pendingCompactions: PendingCompactionRegistry;
+  readonly #readBoundProviderAccountId: ((sessionId: SessionId) => string | null) | undefined;
   readonly #diagnostics: DriverDiagnosticsEmitter;
 
   constructor(dependencies: ClaudeSessionLifecycleDependencies) {
@@ -2065,6 +2257,21 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     this.#onReleasedFrameRoute = dependencies.onReleasedFrameRoute;
     this.#mintProviderSessionId = dependencies.mintProviderSessionId ?? randomUUID;
     this.#mintBindingId = dependencies.mintBindingId ?? randomUUID;
+    this.#readBoundProviderAccountId = dependencies.readBoundProviderAccountId;
+    this.#pendingCompactions = new PendingCompactionRegistry(
+      dependencies.compactionWaitScheduler ??
+        ((callback: () => void, delayMs: number): (() => void) => {
+          const timer = setTimeout(callback, delayMs);
+          // Unref'd: a pending compaction wait is not a reason to keep the
+          // daemon process alive. The wait exists to bound one caller, and a
+          // shutdown that raced it settles the caller through the binding-loss
+          // terminal rather than by holding the event loop open.
+          timer.unref();
+          return (): void => {
+            clearTimeout(timer);
+          };
+        }),
+    );
     this.#onTextNeutralizationFailure = dependencies.onTextNeutralizationFailure;
     this.#outboundTextFrameWriter = new OutboundTextFrameWriter({
       // `emulated` is this leg's grade at the pin: the provider's own
@@ -2392,7 +2599,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     // route. What a FAILED write leaves behind is now decided by how far its
     // bytes got — see `#ruleFailedOpeningFrame`.
     this.#sessionIdByRunId.set(params.runId, dispatch.sessionId);
-    const attempt = await this.#attemptOpeningWrite(live.channel, frame);
+    const attempt = await this.#attemptFrameWrite(live.channel, frame);
     if (attempt.settled === "failed") {
       this.#ruleFailedOpeningFrame({
         sessionId: dispatch.sessionId,
@@ -2406,7 +2613,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   }
 
   /**
-   * Writes the opening frame, containing a transport that rejects instead of
+   * Writes ONE composed frame, containing a transport that rejects instead of
    * reporting.
    *
    * `sendUserText` is obliged to REPORT its failures so the delivery
@@ -2417,7 +2624,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
    * fail-closed arm — the same rule the classification itself runs under, where
    * anything that cannot be placed ahead of the first byte is `indeterminate`.
    */
-  async #attemptOpeningWrite(
+  async #attemptFrameWrite(
     channel: ClaudeSessionChannel,
     frame: ClaudeUserTextFrame,
   ): Promise<ClaudeUserTextWriteAttempt> {
@@ -2827,6 +3034,13 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     // rewind SUCCEEDED, and converting it into a throw would tell the daemon a
     // completed fork did not happen while leaving the forked process live.
     disposeSubagentAdmission(predecessor.spawnBoundLegs);
+    // The predecessor process is going away, so any compaction wait armed
+    // against it can never see its evidence. Pushed here rather than left to the
+    // declared bound for the same reason the close path pushes it: the loss is
+    // known now. Waits armed against the SUCCESSOR cannot exist yet — this
+    // method holds the rewind slot claim for the whole window, and
+    // `compactContext` requires a settled live slot.
+    this.#pendingCompactions.releaseBinding(params.sessionId);
     await this.#disposeRefusedChannel(predecessor.channel, "session_closed");
     return validatedRollbackResult;
   }
@@ -2886,6 +3100,379 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
           : { status: "applied" },
       ),
     );
+  }
+
+  // ------------------------------------------------------------------------
+  // Console parity — `Spec-005 §Desktop Console Parity Surfaces`
+  // ------------------------------------------------------------------------
+
+  /**
+   * Triggers a participant-requested context compaction (EMULATED on this
+   * provider).
+   *
+   * THE MECHANISM. This CLI publishes no compaction request on its programmatic
+   * surface; what it publishes is its own `/compact` command, in the same
+   * enumeration a participant would pick it from. So the driver sends that
+   * command as a `driver_command` frame — the FIRST V1 producer of one — and the
+   * two guards below are what make sending provider-interpreted text safe. They
+   * are independent and neither substitutes for the other.
+   *
+   * GUARD ONE, PRE-DISPATCH PRESENCE. The command must appear in the provider's
+   * OWN enumeration for this binding. Absent, the call refuses `command_absent`
+   * and NOTHING IS SENT — no frame is composed, no byte reaches the process.
+   * That matters because the `driver_command` origin is exempt from the
+   * text-neutralization tripwire: the tripwire is what would otherwise catch a
+   * command-shaped string being swallowed client-side, so a dispatch that
+   * bypasses it must prove the target exists BEFOREHAND rather than discover it
+   * afterwards. The enumeration publishes names without a leading `/`, so the
+   * comparison is bare and the slash is composed back on for the wire.
+   *
+   * GUARD TWO, POST-DISPATCH TYPED EVIDENCE. `applied` is admitted ONLY after
+   * the provider's own typed compaction frame — the same frame that normalizes
+   * into `usage.context_compacted`. The command frame is never answered, so
+   * settling on the request being accepted would report a compaction that may
+   * never happen. The wait is ARMED BEFORE THE DISPATCH so a provider fast
+   * enough to compact between the write resolving and the wait registering does
+   * not deliver its evidence to an empty registry.
+   *
+   * PROMPT-INJECTED SELF-SUMMARIZATION IS PROHIBITED AS A SUBSTITUTE. Asking the
+   * model to summarize its own context is not a compaction: it spends a turn, it
+   * produces no boundary, and every layer above would read a completed operation
+   * where the context window is exactly as full as before. There is deliberately
+   * no such arm here, and adding one would defeat guard two by making the
+   * evidence something this driver authored.
+   *
+   * THE FRAME IS NOT REGISTERED WITH THE OUTBOUND TRIPWIRE, and that is a
+   * decision rather than an omission. It carries no participant words, so there
+   * is nothing for the tripwire to rule; and `startRun`'s session-serialization
+   * guard refuses a run while this scope holds a pending frame, so registering
+   * one here would make a compaction block every subsequent run on the session
+   * until a turn terminal it will never produce arrives.
+   *
+   * NO LIVE SESSION THROWS rather than answering an arm. Both failure arms make
+   * a claim this call could not have earned — `failed` says something was sent,
+   * and the refusal arm is closed at `command_absent` / `not_permitted`, neither
+   * of which describes a session that does not exist.
+   */
+  async compactContext(params: CompactContextParams): Promise<DriverCompactionResult> {
+    const live = this.#findLiveSession(params.sessionId);
+    if (live === undefined) {
+      throw new ClaudeSessionUnavailableError("no_live_session", {
+        sessionId: params.sessionId,
+      });
+    }
+
+    // The held enumeration of THIS provider process, matched by stamp. That
+    // match is the routing guard on this leg, and it is strictly stronger than
+    // the `(driverName, providerAccountId)` pair the composed entries carry: the
+    // pair is provenance for a consumer holding groups from several bindings and
+    // no process handle, whereas here the driver dispatches only into the very
+    // process whose handshake it read. It never accepts a caller-supplied entry,
+    // so there is no entry-to-binding routing decision to make. Comparing the
+    // pair would also refuse every accountless session, since `null` matches
+    // nothing by design.
+    const held = this.#heldHandshakeFor(params.sessionId, live.providerSessionId);
+    if (held === undefined || !held.invocableCommandNames.has(CLAUDE_COMPACTION_COMMAND_NAME)) {
+      return { status: "refused", reason: "command_absent" };
+    }
+
+    // ARMED FIRST. See guard two above; the promise never rejects, and NO exit
+    // from here to the settlement leaves the registration behind — the reported
+    // write failure withdraws it below, and a THROWN one withdraws it in the
+    // guard immediately following.
+    const wait = this.#pendingCompactions.arm(params.sessionId, CLAUDE_COMPACTION_WAIT_MS);
+    let attempt: ClaudeUserTextWriteAttempt;
+    try {
+      const frame = this.#outboundTextFrameWriter.compose({
+        text: CLAUDE_COMPACTION_COMMAND_TEXT,
+        // A module-level LITERAL, per the frame writer's rule for this arm: a
+        // value forwarded from a caller could carry participant words under a
+        // driver's tripwire exemption.
+        origin: CLAUDE_COMPACTION_FRAME_ORIGIN,
+      });
+      attempt = await this.#attemptFrameWrite(live.channel, frame);
+    } catch (cause) {
+      // A THROW OUT OF THE ARMED SPAN WITHDRAWS BEFORE IT PROPAGATES, and the
+      // hazard here is exactly the one the reported-failure arm below closes:
+      // an armed timer outliving the caller that armed it by the whole of
+      // `CLAUDE_COMPACTION_WAIT_MS`.
+      //
+      // The span is REACHABLE rather than defensive. Composition mints a
+      // correlation value through an injected dependency, so a minter that
+      // throws is a state this driver can be constructed into — while the write
+      // itself is total by construction, reporting its transport failures as
+      // data rather than as rejections.
+      //
+      // The guard spans the whole armed region rather than only today's
+      // throwing statement, because a guard scoped to one call silently stops
+      // covering the span the moment a statement is inserted beside it, and the
+      // defect it would reopen is invisible at the call site.
+      //
+      // RETHROWN, never converted. Both result arms make a claim this call could
+      // not have earned: `failed` says something was sent, and the refusal arm is
+      // closed at `command_absent` / `not_permitted`. A driver that could not
+      // compose its own frame has not refused and has not dispatched.
+      wait.abandon();
+      throw cause;
+    }
+    if (attempt.settled === "failed") {
+      // `provider_error` on BOTH deliveries. `unsent` and `indeterminate` differ
+      // in what a TURN is owed, and this frame opens no turn — what the caller
+      // asked was whether a compaction happened, and on either delivery the
+      // honest answer is that the driver cannot say it did.
+      //
+      // The armed wait is WITHDRAWN, not left to time out. Withdrawal is
+      // per-waiter and is not a settlement: settling would be per-key and would
+      // report this caller's write failure to a CONCURRENT participant waiting on
+      // the same binding, while withdrawing cancels exactly this wait's timer and
+      // forgets exactly its registration. Left registered, it would hold an armed
+      // timer for the whole of `CLAUDE_COMPACTION_WAIT_MS` after its caller
+      // returned.
+      wait.abandon();
+      return { status: "failed", reason: "provider_error" };
+    }
+
+    const observed = await wait.settled;
+    if (observed.terminal === "observed") {
+      return { status: "applied", boundaryPosition: observed.boundaryPosition };
+    }
+    // Emitted on the two NON-OBSERVED terminals only. An applied compaction is
+    // an ordinary success and needs no diagnostic; recording one would make the
+    // kind's own counts useless for spotting the case it exists to spot.
+    this.#diagnostics.emit({
+      provider: "claude",
+      kind: "compaction_wait_terminal",
+      rawWireType: null,
+      dispositionReason:
+        observed.terminal === "wait_expired"
+          ? "the declared compaction bound elapsed with no typed compaction frame; a later boundary still projects"
+          : "the provider binding was lost while a compaction wait was armed",
+      details: { sessionId: params.sessionId, terminal: observed.terminal },
+    });
+    return { status: "failed", reason: observed.terminal };
+  }
+
+  /**
+   * Enumerates the provider's own command and skill surface for one binding.
+   *
+   * A LIVE READ, HELD AS DRIVER-SESSION STATE AND NEVER PERSISTED. The three
+   * sets come from the `system/init` handshake — `slash_commands`, `skills`,
+   * `terminal_slash_commands` — and are discarded with the session. A stored
+   * registry would need invalidation, staleness, and reconciliation machinery
+   * whose only purpose is to re-derive what one handshake read already gives.
+   *
+   * THE THREE SETS ARE CARRIED, NOT MERGED AND NOT DROPPED. `slash_commands` and
+   * `skills` differ in KIND and are reported as such. `terminal_slash_commands`
+   * are published by the provider under a separate member because they run in
+   * its own terminal UI and are not invocable over this transport; merging them
+   * into the commands would offer a participant a control that silently does
+   * nothing, and dropping them would hide a surface the provider really
+   * publishes. They are therefore carried with `scope: "terminal"` — the
+   * distinction recorded on the entry rather than erased — while the invocable
+   * set the dispatch guard consults is built from `slash_commands` alone.
+   *
+   * NAMES ARE VERBATIM, WITHOUT A LEADING SLASH, exactly as the provider
+   * publishes them. `enabled` is ABSENT rather than synthesized `true`: this
+   * provider declares no enablement axis, and a fabricated `true` would be a
+   * claim the driver invented.
+   *
+   * THE CAP APPLIES TO THIS REPLY, NEVER TO WHAT THE DRIVER KNOWS. The held
+   * enumeration stays whole; only the composed group is truncated, with
+   * `complete: false` and a diagnostic carrying both counts. That is what lets
+   * `compactContext`'s presence check still find a command this cap trimmed out
+   * of a client's palette.
+   *
+   * BEFORE THE HANDSHAKE IS OBSERVED this binding enumerates EMPTY with
+   * `complete: true`. `complete` is the contract's CAP marker and nothing else —
+   * it says no tail was dropped, which is true of an empty list — so it is not
+   * repurposed to mean "not yet known". A refusal was considered and rejected:
+   * the pre-first-turn palette read is an answerable question, and this
+   * provider's declaring handshake rides a turn-bearing exchange the participant
+   * has not yet produced.
+   */
+  async listProviderCommands(
+    params: ListProviderCommandsParams,
+  ): Promise<ProviderCommandListResult> {
+    const live = this.#findLiveSession(params.sessionId);
+    if (live === undefined) {
+      throw new ClaudeSessionUnavailableError("no_live_session", {
+        sessionId: params.sessionId,
+      });
+    }
+    const binding = {
+      driverName: CLAUDE_DRIVER_NAME,
+      // `null` STATED, never synthesized. See `readBoundProviderAccountId`.
+      providerAccountId: this.#readBoundProviderAccountId?.(params.sessionId) ?? null,
+    };
+    const held = this.#heldHandshakeFor(params.sessionId, live.providerSessionId);
+    const declared =
+      held === undefined ? [] : this.#composeProviderCommandEntries(held.declaration, binding);
+    const admitted = declared.slice(0, DRIVER_PROVIDER_COMMAND_ENTRIES_MAX);
+    if (admitted.length < declared.length) {
+      this.#diagnostics.emit({
+        provider: "claude",
+        kind: "provider_command_entries_truncated",
+        rawWireType: null,
+        dispositionReason:
+          "the provider published more command and skill entries than one group admits; the tail is dropped from this reply and the held enumeration is unchanged",
+        details: {
+          sessionId: params.sessionId,
+          declaredEntryCount: declared.length,
+          admittedEntryCount: admitted.length,
+        },
+      });
+    }
+    return await Promise.resolve({
+      bindings: [
+        {
+          runId: this.#soleLiveRunOn(params.sessionId),
+          binding,
+          entries: admitted,
+          complete: admitted.length === declared.length,
+        },
+      ],
+    });
+  }
+
+  /**
+   * The output-speed state this binding's provider DECLARED, or `undefined`
+   * before it declared one.
+   *
+   * ABSENT UNTIL OBSERVED, never defaulted. Neither establishment path can carry
+   * this: the declaring handshake rides a turn-bearing exchange, and neither
+   * `createSession` nor `resumeSession` may block waiting for one or spend a
+   * synthetic turn to provoke it. So it is recorded when the handshake actually
+   * arrives and read from the binding here — deliberately NOT on
+   * `ProviderSessionHandle` and NOT on `DriverResumeResult`, both of which
+   * resolve before any such exchange and would have to fabricate a value.
+   *
+   * `declared` is carried VERBATIM. The pinned provider reports `on`, `cooldown`,
+   * and `off`, while the settable vocabulary this driver publishes as
+   * `outputSpeedLevels` is `off` and `on` — a participant may not REQUEST a
+   * cooldown, but the provider may certainly REPORT one. Coercing a reported
+   * level into the settable set would fabricate a state the provider is not in.
+   */
+  observedOutputSpeedFor(sessionId: SessionId): ProviderOutputSpeedState | undefined {
+    const live = this.#findLiveSession(sessionId);
+    if (live === undefined) {
+      return undefined;
+    }
+    const held = this.#heldHandshakeFor(sessionId, live.providerSessionId);
+    if (held === undefined) {
+      return undefined;
+    }
+    const declared = held.declaration.fastModeState;
+    if (declared === null) {
+      return undefined;
+    }
+    const reason = held.declaration.fastModeDisabledReason;
+    return {
+      declared,
+      // Present only where the provider supplied one: an absent reason means the
+      // provider gave none, never that there was none.
+      ...(reason === null ? {} : { reason }),
+    };
+  }
+
+  // A held declaration answers only for the provider process it was read from.
+  // See `ClaudeHeldHandshake` for the rewind case this stamp closes.
+  //
+  // HONEST REACHABILITY. The stamp is the read-side half of a pair whose two
+  // halves have converged: `#registerLiveSession` clears the record at every
+  // establishment, and `#isChannelCurrentlyBound` already refuses a frame from a
+  // retired channel BEFORE the declaration tap runs, so while a session is live
+  // any record standing against its id was written under the id that is live.
+  // Mutating this comparison away therefore breaks no test. It is kept as
+  // fail-closed defensive code — the read is the last place the question can be
+  // asked, and answering a palette read from a process the caller is not talking
+  // to is the one failure this leg must never produce — and the redundancy is
+  // recorded here rather than presented as a guard that carries reachable
+  // weight.
+  #heldHandshakeFor(
+    sessionId: SessionId,
+    providerSessionId: string,
+  ): ClaudeHeldHandshake | undefined {
+    const held = this.#handshakeBySession.get(sessionId);
+    return held?.providerSessionId === providerSessionId ? held : undefined;
+  }
+
+  // Composed at READ time from the raw declaration rather than at observation
+  // time, so the held state stays exactly what the provider said and the cap,
+  // the composition, and the binding stamp all live in one place.
+  #composeProviderCommandEntries(
+    declaration: ClaudeHandshakeDeclaration,
+    binding: { driverName: string; providerAccountId: string | null },
+  ): ProviderCommandEntry[] {
+    const entries: ProviderCommandEntry[] = [];
+    for (const name of declaration.slashCommands) {
+      entries.push({ name, kind: "command", binding });
+    }
+    for (const name of declaration.skills) {
+      entries.push({ name, kind: "skill", binding });
+    }
+    for (const name of declaration.terminalSlashCommands) {
+      // `command` in KIND — it is one — with the terminal-only reach recorded on
+      // `scope`, which is the axis that exists for exactly this. The two
+      // published sets stay distinguishable without inventing a third kind.
+      entries.push({ name, kind: "command", scope: "terminal", binding });
+    }
+    return entries;
+  }
+
+  /**
+   * The one run holding a live turn on this session, or `null`.
+   *
+   * `#sessionIdByRunId` is precisely "runs holding a live turn": a route is bound
+   * as a turn dispatches and retired at every terminal, close, and rewind. So
+   * zero entries is the ordinary pre-first-turn palette read and answers `null`
+   * rather than refusing, two or more answers `null` because no single run is
+   * attributable, and exactly one answers with that run.
+   *
+   * A last-bound fallback was considered and REJECTED: a never-cleared id names
+   * a run that has already retired, which is false provenance wearing a nominal
+   * type — strictly worse than the honest `null`.
+   *
+   * THE TWO-OR-MORE ARM IS UNREACHABLE ON THIS DRIVER and is retained fail-closed
+   * anyway. `startRun`'s session-serialization guard refuses a second dispatch
+   * while the scope holds a pending frame, and a turn terminal retires every
+   * route on the session, so a Claude session holds at most one live run. The
+   * arm exists against state drift, exactly as
+   * `#ruleTextNeutralizationTripwire`'s two-pending-run else-arm does; the
+   * sibling driver, which names its turns, can reach it for real.
+   */
+  #soleLiveRunOn(sessionId: SessionId): RunId | null {
+    let soleRunId: RunId | null = null;
+    for (const [runId, boundSessionId] of this.#sessionIdByRunId) {
+      if (boundSessionId !== sessionId) {
+        continue;
+      }
+      if (soleRunId !== null) {
+        return null;
+      }
+      soleRunId = runId;
+    }
+    return soleRunId;
+  }
+
+  /**
+   * Records one `system/init` declaration against the live session.
+   *
+   * LAST DECLARATION WINS for a given provider session id. The provider emits
+   * this handshake on every turn-bearing exchange, and a later one is the newer
+   * truth about a surface an operator can change under a running session — a
+   * skill file added mid-session is a real change, and keeping the first read
+   * would answer a palette that no longer exists.
+   */
+  #observeHandshakeDeclaration(
+    sessionId: SessionId,
+    providerSessionId: string,
+    declaration: ClaudeHandshakeDeclaration,
+  ): void {
+    this.#handshakeBySession.set(sessionId, {
+      providerSessionId,
+      declaration,
+      invocableCommandNames: new Set(declaration.slashCommands),
+    });
   }
 
   async closeSession(params: CloseSessionParams): Promise<void> {
@@ -2964,6 +3551,13 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       markSettled = resolve;
     });
     this.#sessionSlots.set(sessionId, { state: "closing", settled });
+    // PUSHED HERE, at the CLOSING write and before the await, rather than polled
+    // from anywhere. From this instant the process is being torn down and no
+    // compaction frame it might still emit can be adopted, so a caller waiting
+    // on one is told at t=0 instead of at the end of the declared bound. This is
+    // the choke point every close path funnels through — the live arm, the
+    // quarantine retry, and the tripwire's own disposal.
+    this.#pendingCompactions.releaseBinding(sessionId);
     try {
       await channel.dispose("session_closed");
       // CLOSING -> EMPTY.
@@ -2978,6 +3572,10 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       // surviving its session would answer the next one with a thread registry
       // that session never made.
       this.#routingBands.delete(sessionId);
+      // And with it the handshake declaration: it is a LIVE READ of a process
+      // that no longer exists, so holding it past the session would turn the one
+      // thing that makes a stored registry unnecessary into a stale one.
+      this.#handshakeBySession.delete(sessionId);
     } catch (error) {
       // CLOSING -> QUARANTINED. The channel is retained rather than dropped: the
       // process is still running and nothing else holds a reference to it. The
@@ -3195,6 +3793,31 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     observation: ClaudeInboundFrameObservation,
   ): ThreadFrameRoute {
     const router = band.router;
+
+    // TWO TAPS, BOTH BESIDE THE ORDINARY ROUTE AND NEITHER A DIVERSION FROM IT.
+    // Every frame below still travels its ordinary path and still normalizes —
+    // a compaction boundary produces its `usage.context_compacted` row whether
+    // or not anyone is waiting on it, which is what makes "the operation failed
+    // and the compaction is still recorded" true by construction.
+    //
+    // Both are gated on the SESSION'S OWN THREAD. This provider carries no
+    // thread id, so an absent subagent identity IS the session's own thread; a
+    // child's handshake or a child's compaction says nothing about the parent
+    // binding, and recording either against the session would answer a palette
+    // read with a subagent's surface or settle a participant's compaction on a
+    // boundary they did not ask for.
+    if (observation.subagentId === null) {
+      if (observation.handshake !== null) {
+        this.#observeHandshakeDeclaration(sessionId, providerSessionId, observation.handshake);
+      }
+      if (observation.compactionBoundary !== null) {
+        this.#pendingCompactions.observeBoundary(
+          sessionId,
+          observation.compactionBoundary.boundaryPosition,
+        );
+      }
+    }
+
     const lifecycleSignal = observation.subagentLifecycle;
     if (lifecycleSignal !== null && lifecycleSignal.signal === CLAUDE_SUBAGENT_START_SIGNAL) {
       const normalized = normalizeClaudeSubagentLifecycle(lifecycleSignal, providerSessionId);
@@ -3400,6 +4023,11 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       // so this path and the auth probe cannot come to hold different opt-outs —
       // see `composeClaudeMandatedEnvironment`.
       mandatedEnvironment: composeClaudeMandatedEnvironment(),
+      // Passed through UNVALIDATED against the declared level set. The static
+      // capability gate above this driver already refuses a level the provider
+      // does not publish; re-deciding it here would put a second admission rule
+      // behind the first, and the two would drift.
+      outputSpeed: params.outputSpeed,
     };
   }
 
@@ -3591,6 +4219,34 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     const bandExistedBefore = this.#routingBands.has(live.sessionId);
     const band = this.#ensureRoutingBand(live.sessionId);
     this.#sessionSlots.set(live.sessionId, { state: "live", session: live });
+    // The held command enumeration is discarded HERE, at the one point all three
+    // establishment paths converge on, and BEFORE the listeners are registered
+    // — a frame delivered re-entrantly during that registration must not find a
+    // predecessor's declaration.
+    //
+    // WHY ESTABLISHMENT AND NOT THE DISPOSAL PATHS. The property wanted is "a
+    // session that has just been registered has by definition not been read
+    // yet, so any declaration standing against its id belongs to a previous
+    // process". Stated here it is a property of establishment; inferred from the
+    // disposal call sites it is a coincidence of four of them, and the one
+    // replacement the read-side stamp below cannot catch is a RESUME: the
+    // I-005-5 identity gate refuses any resume whose announced id differs from
+    // the handle, so a successful resume announces the SAME `providerSessionId`
+    // its predecessor had and a record that outlived the predecessor by any
+    // route would compare EQUAL to the successor's stamp.
+    //
+    // HONEST REACHABILITY. No path reaches this line with a stale record today,
+    // and the mutation evidence says so: removing this clear breaks no test,
+    // because `#disposeHeldChannel` deletes on every close and a resume is only
+    // reachable from an EMPTY slot. It is retained as fail-closed defensive code
+    // on the same footing as `#soleLiveRunOn`'s two-run arm — the redundancy is
+    // deliberate and recorded rather than passed off as a repair.
+    //
+    // Deliberately NOT restored by the rollback arm below: a failed adoption has
+    // already disposed the channel the record was read from, and a live read
+    // that survives its process is the stale registry this design exists to
+    // avoid.
+    this.#handshakeBySession.delete(live.sessionId);
     try {
       this.#registerLiveSessionHooks(band, live);
     } catch (error) {

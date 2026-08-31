@@ -113,6 +113,8 @@ const CODEX_ACCEPTED_METHOD_SAMPLE: readonly string[] = Object.freeze([
   "turn/steer",
   "thread/goal/set",
   "thread/goal/clear",
+  "thread/compact/start",
+  "skills/list",
 ]);
 
 /**

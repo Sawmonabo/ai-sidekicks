@@ -29,6 +29,7 @@
 //     error rather than a message-substring test.
 
 import {
+  DRIVER_PROVIDER_COMMAND_ENTRIES_MAX,
   DriverResumeResultSchema,
   type CallbackToolResult,
   type ExecutionPosture,
@@ -54,8 +55,11 @@ import {
   composeClaudeCallbackMcpServer,
   composeClaudeProviderToolName,
   composeClaudeSandboxSettings,
+  CLAUDE_COMPACTION_WAIT_MS,
+  type ClaudeHandshakeDeclaration,
   type ClaudeSessionLifecycleDependencies,
 } from "../lifecycle.js";
+import type { CompactionWaitScheduler } from "../../../compaction-wait.js";
 import {
   buildCreateSessionParams,
   FakeClaudeSessionChannel,
@@ -3386,5 +3390,1114 @@ describe("ClaudeSessionLifecycle rewind supersede (T3.18)", () => {
     });
 
     expect(harness.textNeutralizationFailures).toStrictEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Console parity — `Spec-005 §Desktop Console Parity Surfaces` (T3.26)
+// ---------------------------------------------------------------------------
+
+/**
+ * A hand-fired stand-in for the declared compaction bound.
+ *
+ * Records rather than merely honours: a test that only fired timers could not
+ * tell a wait that was never armed from one that was armed and cancelled, and
+ * the binding-loss leg's whole claim is that it settles WITHOUT the timer ever
+ * running.
+ */
+interface ManualCompactionScheduler {
+  readonly schedule: CompactionWaitScheduler;
+  fireAll(): void;
+  armedCount(): number;
+  armedDelays(): number[];
+  cancelledCount(): number;
+}
+
+function makeManualCompactionScheduler(): ManualCompactionScheduler {
+  const armed: Array<{ readonly callback: () => void; readonly delayMs: number }> = [];
+  let cancelledCount = 0;
+  return {
+    schedule: (callback, delayMs) => {
+      armed.push({ callback, delayMs });
+      return (): void => {
+        cancelledCount += 1;
+      };
+    },
+    fireAll: () => {
+      for (const entry of [...armed]) {
+        entry.callback();
+      }
+    },
+    armedCount: () => armed.length,
+    armedDelays: () => armed.map((entry) => entry.delayMs),
+    cancelledCount: () => cancelledCount,
+  };
+}
+
+// The measured shape of a live `system/init` frame, first-party against the
+// pinned build: `slash_commands` and `skills` carry BARE names, and
+// `terminal_slash_commands` is a separate member holding the two names that run
+// only in the provider's own terminal UI.
+function buildHandshake(
+  overrides: Partial<ClaudeHandshakeDeclaration> = {},
+): ClaudeHandshakeDeclaration {
+  return {
+    slashCommands: ["compact", "autocompact", "clear"],
+    skills: ["pdf-processing"],
+    terminalSlashCommands: ["doctor", "color"],
+    fastModeState: "off",
+    fastModeDisabledReason: "sdk_opt_in_required",
+    ...overrides,
+  };
+}
+
+// The daemon resolves a run onto a session; the driver never invents one. Every
+// console-parity test that needs a LIVE TURN arms this first.
+function armRunDispatch(harness: LifecycleHarness, runId: RunId): void {
+  harness.runDispatchResolver.dispatchByRunId.set(runId, {
+    sessionId: TEST_SESSION_ID,
+    openingText: "keep going",
+  });
+}
+
+async function drainMicrotasks(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", () => {
+  it("refuses `command_absent` and SENDS NOTHING when the provider does not enumerate the command", async () => {
+    // Guard one, standing alone. The dispatched frame is tripwire-exempt, so a
+    // driver that discovered the command's absence AFTER writing would have put
+    // provider-interpreted text on the wire with nothing watching it.
+    const scheduler = makeManualCompactionScheduler();
+    const harness = buildHarness({ compactionWaitScheduler: scheduler.schedule });
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    const channel = harness.transport.spawnedChannels[0];
+    channel?.emitStreamFrame("system/init", {
+      handshake: buildHandshake({ slashCommands: ["clear", "cost"] }),
+    });
+
+    const result = await harness.lifecycle.compactContext({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+    });
+
+    expect(result).toStrictEqual({ status: "refused", reason: "command_absent" });
+    expect(channel?.sentWireTexts).toStrictEqual([]);
+    expect(channel?.outboundCallCount).toBe(0);
+    // Nothing was armed either: an armed wait would burn the declared bound for
+    // a dispatch that never happened.
+    expect(scheduler.armedCount()).toBe(0);
+  });
+
+  it("refuses `command_absent` before the handshake has been observed at all", async () => {
+    // The fail-closed reading of "not yet known". The driver cannot prove the
+    // command exists, so it does not send one.
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+
+    const result = await harness.lifecycle.compactContext({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+    });
+
+    expect(result).toStrictEqual({ status: "refused", reason: "command_absent" });
+    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual([]);
+  });
+
+  it("refuses `command_absent` when the held enumeration was read under a DIFFERENT provider process", async () => {
+    // A rewind forks a new provider process behind the same canonical session
+    // id, and the fork publishes its own handshake. Answering from the dead
+    // process's enumeration would dispatch a command the live binding may not
+    // have, so the refusal — not the palette — is the contract here.
+    //
+    // Two mechanisms produce it and the test does not pretend to separate them:
+    // `#registerLiveSession` clears the record when it adopts the fork, and the
+    // read-side stamp would refuse the predecessor's record if it survived.
+    // Mutating either alone leaves this green; the assertion is on the outcome.
+    let issuedProviderSessionIds = 0;
+    const harness = buildHarness({
+      mintProviderSessionId: (): string => {
+        issuedProviderSessionIds += 1;
+        return `provider-session-${issuedProviderSessionIds}`;
+      },
+    });
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
+      handshake: buildHandshake(),
+    });
+    // The fork announces its own id by default, so the held stamp no longer
+    // matches the live session.
+    await harness.lifecycle.rollbackTo({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+      position: 4,
+    });
+
+    const result = await harness.lifecycle.compactContext({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+    });
+
+    expect(result).toStrictEqual({ status: "refused", reason: "command_absent" });
+    expect(harness.transport.spawnedChannels[1]?.sentWireTexts).toStrictEqual([]);
+  });
+
+  it("refuses a handshake a RETIRED channel publishes after its successor is already live", async () => {
+    // Disposal races in-flight frames: a predecessor channel can deliver a
+    // `system/init` the provider had already written AFTER its successor is
+    // live. The end state asserted here is that such a frame installs NOTHING —
+    // no palette entry, no dispatchable name — so a read is never answered from
+    // a connection the caller is not talking to.
+    //
+    // What actually produces that end state is named honestly rather than
+    // guessed at: `#isChannelCurrentlyBound` refuses the frame upstream, before
+    // the declaration tap runs, so the record is never written in the first
+    // place; the read-side stamp would refuse it a second time if it were. The
+    // test pins the OUTCOME, which is the part this leg depends on, and does not
+    // claim to discriminate which of the two guards produced it — mutating
+    // either one alone leaves this green.
+    let issuedProviderSessionIds = 0;
+    const harness = buildHarness({
+      mintProviderSessionId: (): string => {
+        issuedProviderSessionIds += 1;
+        return `provider-session-${issuedProviderSessionIds}`;
+      },
+    });
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    await harness.lifecycle.rollbackTo({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+      position: 4,
+    });
+
+    // The RETIRED channel speaks last. It is stamped with its own id, which the
+    // live session's id no longer equals.
+    harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
+      handshake: buildHandshake(),
+    });
+
+    await expect(
+      harness.lifecycle.compactContext({
+        sessionId: TEST_SESSION_ID,
+        bindingId: TEST_BINDING_ID,
+      }),
+    ).resolves.toStrictEqual({ status: "refused", reason: "command_absent" });
+    expect(harness.transport.spawnedChannels[1]?.sentWireTexts).toStrictEqual([]);
+    expect(
+      (
+        await harness.lifecycle.listProviderCommands({
+          sessionId: TEST_SESSION_ID,
+          bindingId: TEST_BINDING_ID,
+        })
+      ).bindings[0]?.entries,
+    ).toStrictEqual([]);
+  });
+
+  it("sends a tripwire-exempt `driver_command` frame and does NOT settle until the typed evidence arrives", async () => {
+    // Guard two, standing alone. The command frame is never answered, so a
+    // driver settling on the write would report a compaction that may never
+    // happen.
+    const scheduler = makeManualCompactionScheduler();
+    const harness = buildHarness({ compactionWaitScheduler: scheduler.schedule });
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    const channel = harness.transport.spawnedChannels[0];
+    channel?.emitStreamFrame("system/init", { handshake: buildHandshake() });
+
+    let settled: unknown = undefined;
+    const pending = harness.lifecycle
+      .compactContext({ sessionId: TEST_SESSION_ID, bindingId: TEST_BINDING_ID })
+      .then((result) => {
+        settled = result;
+      });
+    await drainMicrotasks();
+
+    // The bytes are on the wire, composed with the slash the enumeration omits.
+    expect(channel?.sentWireTexts).toStrictEqual(["/compact"]);
+    // Tripwire-exempt, which is what makes the pre-dispatch guard load-bearing.
+    expect(channel?.sentTextFrames[0]?.tripwireExempt).toBe(true);
+    // And the wait is armed at the DECLARED bound.
+    expect(scheduler.armedDelays()).toStrictEqual([CLAUDE_COMPACTION_WAIT_MS]);
+    // Still unsettled: the provider accepted the frame and said nothing.
+    expect(settled).toBeUndefined();
+
+    channel?.emitStreamFrame("system/compact_boundary", {
+      compactionBoundary: { boundaryPosition: 41 },
+    });
+    await pending;
+    expect(settled).toStrictEqual({ status: "applied", boundaryPosition: 41 });
+  });
+
+  it("does not block a subsequent run — the command frame is never registered with the tripwire", async () => {
+    // `startRun`'s session-serialization guard refuses a run while the scope
+    // holds a pending frame, so registering the compaction frame would make one
+    // compaction block every later run on the session.
+    const scheduler = makeManualCompactionScheduler();
+    const harness = buildHarness({ compactionWaitScheduler: scheduler.schedule });
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    const channel = harness.transport.spawnedChannels[0];
+    channel?.emitStreamFrame("system/init", { handshake: buildHandshake() });
+    armRunDispatch(harness, TEST_RUN_ID);
+    void harness.lifecycle.compactContext({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+    });
+    await drainMicrotasks();
+
+    await expect(harness.lifecycle.startRun(buildStartRunParams())).resolves.toBeUndefined();
+  });
+
+  it("carries `boundaryPosition: null` when the provider's frame names no position", async () => {
+    const scheduler = makeManualCompactionScheduler();
+    const harness = buildHarness({ compactionWaitScheduler: scheduler.schedule });
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    const channel = harness.transport.spawnedChannels[0];
+    channel?.emitStreamFrame("system/init", { handshake: buildHandshake() });
+
+    const pending = harness.lifecycle.compactContext({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+    });
+    await drainMicrotasks();
+    channel?.emitStreamFrame("system/compact_boundary", {
+      compactionBoundary: { boundaryPosition: null },
+    });
+
+    // A POSITIVE statement that the frame named none, not an absence of evidence
+    // about whether the compaction happened.
+    await expect(pending).resolves.toStrictEqual({ status: "applied", boundaryPosition: null });
+  });
+
+  it("emits NO diagnostic on the applied path", async () => {
+    const scheduler = makeManualCompactionScheduler();
+    const harness = buildHarness({ compactionWaitScheduler: scheduler.schedule });
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    const channel = harness.transport.spawnedChannels[0];
+    channel?.emitStreamFrame("system/init", { handshake: buildHandshake() });
+    const pending = harness.lifecycle.compactContext({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+    });
+    await drainMicrotasks();
+    channel?.emitStreamFrame("system/compact_boundary", {
+      compactionBoundary: { boundaryPosition: 7 },
+    });
+    await pending;
+
+    expect(harness.diagnostics.recentRecordsOfKind("compaction_wait_terminal")).toStrictEqual([]);
+  });
+
+  it("settles `wait_expired` on the bound AND still hands a LATE boundary frame off to the routing band", async () => {
+    // BOTH halves in one test, because the claim is a conjunction: bounding the
+    // OPERATION never bounds the BOUNDARY'S RECORD. A late compaction frame
+    // still travels its ordinary route and still normalizes.
+    const scheduler = makeManualCompactionScheduler();
+    const observedRoutes: string[] = [];
+    const harness = buildHarness({
+      compactionWaitScheduler: scheduler.schedule,
+      onReleasedFrameRoute: undefined,
+    });
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    const channel = harness.transport.spawnedChannels[0];
+    channel?.emitStreamFrame("system/init", { handshake: buildHandshake() });
+
+    const pending = harness.lifecycle.compactContext({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+    });
+    await drainMicrotasks();
+    scheduler.fireAll();
+
+    await expect(pending).resolves.toStrictEqual({ status: "failed", reason: "wait_expired" });
+    const records = harness.diagnostics.recentRecordsOfKind("compaction_wait_terminal");
+    expect(records).toHaveLength(1);
+    expect(records[0]?.details).toStrictEqual({
+      sessionId: TEST_SESSION_ID,
+      terminal: "wait_expired",
+    });
+
+    // THE SECOND HALF. The boundary arrives after the operation gave up and is
+    // still routed — the tap is beside the hand-off, never in place of it.
+    const lateRoute = channel?.emitStreamFrame("system/compact_boundary", {
+      compactionBoundary: { boundaryPosition: 88 },
+    });
+    observedRoutes.push(lateRoute?.decision ?? "none");
+    expect(observedRoutes).toStrictEqual(["project"]);
+    // And it settles nothing, because nothing is waiting: no second diagnostic.
+    expect(harness.diagnostics.recentRecordsOfKind("compaction_wait_terminal")).toHaveLength(1);
+  });
+
+  it("settles `binding_lost` IMMEDIATELY when the session closes mid-wait, without the bound elapsing", async () => {
+    // Driven through the real disposal path with a timer that is NEVER fired: a
+    // binding lost at t=0 must settle at t=0, which a poller could not do.
+    const scheduler = makeManualCompactionScheduler();
+    const harness = buildHarness({ compactionWaitScheduler: scheduler.schedule });
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    const channel = harness.transport.spawnedChannels[0];
+    channel?.emitStreamFrame("system/init", { handshake: buildHandshake() });
+
+    const pending = harness.lifecycle.compactContext({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+    });
+    await drainMicrotasks();
+    await harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID });
+
+    await expect(pending).resolves.toStrictEqual({ status: "failed", reason: "binding_lost" });
+    expect(scheduler.armedCount()).toBe(1);
+    expect(scheduler.cancelledCount()).toBe(1);
+    const records = harness.diagnostics.recentRecordsOfKind("compaction_wait_terminal");
+    expect(records).toHaveLength(1);
+    expect(records[0]?.details).toStrictEqual({
+      sessionId: TEST_SESSION_ID,
+      terminal: "binding_lost",
+    });
+  });
+
+  it("answers `provider_error` when the dispatch write fails, on either delivery — and WITHDRAWS its wait", async () => {
+    for (const delivery of ["unsent", "indeterminate"] as const) {
+      const scheduler = makeManualCompactionScheduler();
+      const harness = buildHarness({ compactionWaitScheduler: scheduler.schedule });
+      await harness.lifecycle.createSession(buildCreateSessionParams());
+      const channel = harness.transport.spawnedChannels[0];
+      channel?.emitStreamFrame("system/init", { handshake: buildHandshake() });
+      if (channel !== undefined) {
+        channel.sendUserTextFailure = new Error("stdin closed");
+        channel.sendUserTextDelivery = delivery;
+      }
+
+      await expect(
+        harness.lifecycle.compactContext({
+          sessionId: TEST_SESSION_ID,
+          bindingId: TEST_BINDING_ID,
+        }),
+      ).resolves.toStrictEqual({ status: "failed", reason: "provider_error" });
+
+      // The wait was ARMED before the write — that ordering is what closes the
+      // race with a provider fast enough to compact between them — and is
+      // WITHDRAWN when the write fails, rather than left to elapse. A
+      // registration left behind holds a timer for the whole declared bound
+      // after its caller has already returned.
+      expect(scheduler.armedCount()).toBe(1);
+      expect(scheduler.cancelledCount()).toBe(1);
+
+      // And the withdrawal is TOTAL, not merely a cancellation request: this
+      // double's canceller does not stop its timer, so firing the bound here
+      // exercises exactly the host whose clear races the fire. No terminal
+      // diagnostic appears, because no waiter remains to settle.
+      scheduler.fireAll();
+      await drainMicrotasks();
+      expect(harness.diagnostics.recentRecordsOfKind("compaction_wait_terminal")).toStrictEqual([]);
+    }
+  });
+
+  it("withdraws only its OWN wait — a concurrent caller still settles on the evidence", async () => {
+    // Settlement is per-key because one provider compaction is one compaction;
+    // withdrawal is per-waiter. A caller whose write failed must not settle a
+    // participant who asked independently and whose compaction is still running.
+    const scheduler = makeManualCompactionScheduler();
+    const harness = buildHarness({ compactionWaitScheduler: scheduler.schedule });
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    const channel = harness.transport.spawnedChannels[0];
+    channel?.emitStreamFrame("system/init", { handshake: buildHandshake() });
+
+    const surviving = harness.lifecycle.compactContext({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+    });
+    await drainMicrotasks();
+
+    // The SECOND caller's write is the one that fails, so the first is still
+    // waiting on evidence when the second withdraws.
+    if (channel !== undefined) {
+      channel.sendUserTextFailure = new Error("stdin closed");
+      channel.sendUserTextDelivery = "unsent";
+    }
+    await expect(
+      harness.lifecycle.compactContext({
+        sessionId: TEST_SESSION_ID,
+        bindingId: TEST_BINDING_ID,
+      }),
+    ).resolves.toStrictEqual({ status: "failed", reason: "provider_error" });
+
+    // Two waits armed, exactly one withdrawn. A withdrawal that took the whole
+    // key down would cancel both and settle the survivor on the other caller's
+    // write failure.
+    expect(scheduler.armedCount()).toBe(2);
+    expect(scheduler.cancelledCount()).toBe(1);
+
+    channel?.emitStreamFrame("system/compact_boundary", {
+      compactionBoundary: { boundaryPosition: 12 },
+    });
+    await expect(surviving).resolves.toStrictEqual({ status: "applied", boundaryPosition: 12 });
+  });
+
+  it("withdraws its wait when the armed span THROWS, and lets the throw propagate", async () => {
+    // The reported-failure arm is not the only exit from the armed span:
+    // composing the frame mints a correlation value through an injected
+    // dependency, so a minter that throws leaves the driver holding an armed
+    // registration whose caller has already unwound. Untreated, that is the
+    // identical orphan the reported arm withdraws — one timer for the whole
+    // declared bound, per failed dispatch.
+    const scheduler = makeManualCompactionScheduler();
+    let mintShouldThrow = false;
+    const harness = buildHarness({
+      compactionWaitScheduler: scheduler.schedule,
+      mintOutboundFrameCorrelationId: (): string => {
+        if (mintShouldThrow) {
+          throw new Error("correlation minting failed");
+        }
+        return "correlation-ok";
+      },
+    });
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    const channel = harness.transport.spawnedChannels[0];
+    channel?.emitStreamFrame("system/init", { handshake: buildHandshake() });
+
+    mintShouldThrow = true;
+    // PROPAGATES rather than converting: `failed` would claim something was
+    // sent, and the refusal arm is closed at `command_absent` / `not_permitted`.
+    await expect(
+      harness.lifecycle.compactContext({
+        sessionId: TEST_SESSION_ID,
+        bindingId: TEST_BINDING_ID,
+      }),
+    ).rejects.toThrow("correlation minting failed");
+
+    expect(scheduler.armedCount()).toBe(1);
+    expect(scheduler.cancelledCount()).toBe(1);
+
+    // TOTAL, exactly as on the reported arm: this double's canceller does not
+    // really stop its timer, so firing the bound exercises the host whose clear
+    // raced the fire. No terminal diagnostic appears, because no waiter remains.
+    scheduler.fireAll();
+    await drainMicrotasks();
+    expect(harness.diagnostics.recentRecordsOfKind("compaction_wait_terminal")).toStrictEqual([]);
+  });
+
+  it("throws rather than inventing a result arm when no live session holds the id", async () => {
+    // `failed` claims something was sent and the refusal arm is closed at
+    // `command_absent` / `not_permitted`; neither describes a missing session.
+    const harness = buildHarness();
+
+    await expect(
+      harness.lifecycle.compactContext({
+        sessionId: TEST_SESSION_ID,
+        bindingId: TEST_BINDING_ID,
+      }),
+    ).rejects.toBeInstanceOf(ClaudeSessionUnavailableError);
+  });
+
+  it("never borrows another session's enumeration to satisfy the presence guard", async () => {
+    // The routing guard on this leg, stated structurally: the held declaration
+    // answers only for the provider process it was read from, so a session whose
+    // own handshake never published `compact` refuses even while a sibling
+    // session's enumeration carries it.
+    const otherSessionId = "session-console-parity-peer" as SessionId;
+    const harness = buildHarness({
+      mintProviderSessionId: (() => {
+        let issued = 0;
+        return (): string => {
+          issued += 1;
+          return `provider-session-${issued}`;
+        };
+      })(),
+    });
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    await harness.lifecycle.createSession({
+      ...buildCreateSessionParams(),
+      sessionId: otherSessionId,
+    });
+    harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
+      handshake: buildHandshake(),
+    });
+    harness.transport.spawnedChannels[1]?.emitStreamFrame("system/init", {
+      handshake: buildHandshake({ slashCommands: ["clear"] }),
+    });
+
+    await expect(
+      harness.lifecycle.compactContext({
+        sessionId: otherSessionId,
+        bindingId: TEST_BINDING_ID,
+      }),
+    ).resolves.toStrictEqual({ status: "refused", reason: "command_absent" });
+    expect(harness.transport.spawnedChannels[1]?.sentWireTexts).toStrictEqual([]);
+  });
+
+  it("refuses when the command is published ONLY as terminal-only — the guard reads the invocable set alone", async () => {
+    // The negative that makes the three-set separation load-bearing rather than
+    // cosmetic, and the one test that joins the two legs. The provider publishes
+    // `terminal_slash_commands` precisely to say "these are not invocable over
+    // this transport". A guard built by merging the sets would find the name,
+    // dispatch a frame the provider cannot act on, and then wait out the whole
+    // declared bound for evidence that can never arrive — a refusal at t=0
+    // rewritten as a two-minute hang.
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    const channel = harness.transport.spawnedChannels[0];
+    channel?.emitStreamFrame("system/init", {
+      handshake: buildHandshake({
+        slashCommands: ["clear", "cost"],
+        skills: ["compact"],
+        terminalSlashCommands: ["compact", "doctor"],
+      }),
+    });
+
+    await expect(
+      harness.lifecycle.compactContext({
+        sessionId: TEST_SESSION_ID,
+        bindingId: TEST_BINDING_ID,
+      }),
+    ).resolves.toStrictEqual({ status: "refused", reason: "command_absent" });
+    expect(channel?.sentWireTexts).toStrictEqual([]);
+
+    // AND the same name is still ENUMERATED, under its honest scope: the guard
+    // narrows what may be dispatched, never what is reported.
+    const result = await harness.lifecycle.listProviderCommands({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+    });
+    expect(result.bindings[0]?.entries.filter((entry) => entry.name === "compact")).toStrictEqual([
+      {
+        name: "compact",
+        kind: "skill",
+        binding: { driverName: "claude", providerAccountId: null },
+      },
+      {
+        name: "compact",
+        kind: "command",
+        scope: "terminal",
+        binding: { driverName: "claude", providerAccountId: null },
+      },
+    ]);
+  });
+});
+
+describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake sets", () => {
+  it("carries commands, skills, and terminal-only commands, with names verbatim and no synthesized enablement", async () => {
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
+      handshake: buildHandshake(),
+    });
+
+    const result = await harness.lifecycle.listProviderCommands({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+    });
+
+    const group = result.bindings[0];
+    expect(result.bindings).toHaveLength(1);
+    expect(group?.complete).toBe(true);
+    expect(group?.entries.map((entry) => [entry.name, entry.kind, entry.scope])).toStrictEqual([
+      ["compact", "command", undefined],
+      ["autocompact", "command", undefined],
+      ["clear", "command", undefined],
+      ["pdf-processing", "skill", undefined],
+      // Carried, not merged and not dropped: the provider publishes them under
+      // a separate member because they are not invocable over this transport.
+      ["doctor", "command", "terminal"],
+      ["color", "command", "terminal"],
+    ]);
+    for (const entry of group?.entries ?? []) {
+      // KEY-PRESENCE, not `toBeUndefined()`: a synthesized `enabled: true` and
+      // an absent key are different claims, and only the second is honest here.
+      expect("enabled" in entry).toBe(false);
+      // The provider publishes no description on either member; forwarding `""`
+      // would fail the contract's own non-empty bound AND assert the provider
+      // published a blank one.
+      expect("description" in entry).toBe(false);
+      expect(entry.name.startsWith("/")).toBe(false);
+    }
+    // `scope` is present ONLY on the terminal arm — the two published sets stay
+    // distinguishable without inventing a third kind.
+    expect("scope" in (group?.entries[0] ?? {})).toBe(false);
+  });
+
+  it("emits exactly one entry per declared name across the three sets, deduping across none of them", async () => {
+    // The count assertion is the one a merge-or-dedup refactor cannot survive:
+    // the same name legitimately appears in two sets (a skill and a terminal
+    // command may share a word), and collapsing them would silently delete a
+    // published capability from the palette. Cardinality is asserted as the SUM
+    // rather than as a literal so the claim survives the fixture changing.
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    const declaration = buildHandshake({
+      slashCommands: ["compact", "clear", "shared-name"],
+      skills: ["pdf-processing", "shared-name"],
+      terminalSlashCommands: ["doctor", "shared-name"],
+    });
+    harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
+      handshake: declaration,
+    });
+
+    const entries = (
+      await harness.lifecycle.listProviderCommands({
+        sessionId: TEST_SESSION_ID,
+        bindingId: TEST_BINDING_ID,
+      })
+    ).bindings[0]?.entries;
+
+    expect(entries).toHaveLength(
+      declaration.slashCommands.length +
+        declaration.skills.length +
+        declaration.terminalSlashCommands.length,
+    );
+    const invocableEntries = entries?.slice(0, declaration.slashCommands.length) ?? [];
+    const skillEntries =
+      entries?.slice(
+        declaration.slashCommands.length,
+        declaration.slashCommands.length + declaration.skills.length,
+      ) ?? [];
+    const terminalEntries = entries?.slice(-declaration.terminalSlashCommands.length) ?? [];
+    expect(invocableEntries.map((entry) => entry.name)).toStrictEqual(declaration.slashCommands);
+    expect(skillEntries.map((entry) => entry.name)).toStrictEqual(declaration.skills);
+    expect(terminalEntries.map((entry) => entry.name)).toStrictEqual(
+      declaration.terminalSlashCommands,
+    );
+    for (const entry of invocableEntries) {
+      expect(entry.kind).toBe("command");
+      // KEY-ABSENCE on both published-as-invocable arms: under
+      // `exactOptionalPropertyTypes` a present `scope: undefined` type-checks
+      // and would read to any consumer as a scope the driver failed to decide,
+      // which is a different claim from "the provider published none".
+      expect("scope" in entry).toBe(false);
+    }
+    for (const entry of skillEntries) {
+      expect(entry.kind).toBe("skill");
+      expect("scope" in entry).toBe(false);
+    }
+    for (const entry of terminalEntries) {
+      expect(entry.kind).toBe("command");
+      expect(entry.scope).toBe("terminal");
+    }
+  });
+
+  it("enumerates EMPTY with `complete: true` before the handshake has been observed", async () => {
+    // `complete` is the contract's CAP marker and nothing else: no tail was
+    // dropped, which is true of an empty list. The read succeeds rather than
+    // refusing — the pre-first-turn palette read is an answerable question.
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+
+    const result = await harness.lifecycle.listProviderCommands({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+    });
+
+    expect(result.bindings).toStrictEqual([
+      {
+        runId: null,
+        binding: { driverName: "claude", providerAccountId: null },
+        entries: [],
+        complete: true,
+      },
+    ]);
+  });
+
+  it("throws when no live session holds the id", async () => {
+    const harness = buildHarness();
+
+    await expect(
+      harness.lifecycle.listProviderCommands({
+        sessionId: TEST_SESSION_ID,
+        bindingId: TEST_BINDING_ID,
+      }),
+    ).rejects.toBeInstanceOf(ClaudeSessionUnavailableError);
+  });
+
+  it("caps the REPLY while the held enumeration stays whole — a truncated command is still dispatchable", async () => {
+    // The property that makes the cap safe: it trims what a client is shown,
+    // never what the driver knows, so leg (a)'s presence check still finds a
+    // command this cap dropped from the palette.
+    const scheduler = makeManualCompactionScheduler();
+    const harness = buildHarness({ compactionWaitScheduler: scheduler.schedule });
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    const channel = harness.transport.spawnedChannels[0];
+    const filler = Array.from(
+      { length: DRIVER_PROVIDER_COMMAND_ENTRIES_MAX + 5 },
+      (_unused, index) => `filler-${index}`,
+    );
+    // `compact` sits PAST the cap, so a driver that capped its held knowledge
+    // would refuse the dispatch below.
+    channel?.emitStreamFrame("system/init", {
+      handshake: buildHandshake({
+        slashCommands: [...filler, "compact"],
+        skills: [],
+        terminalSlashCommands: [],
+      }),
+    });
+
+    const result = await harness.lifecycle.listProviderCommands({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+    });
+
+    const group = result.bindings[0];
+    expect(group?.complete).toBe(false);
+    expect(group?.entries).toHaveLength(DRIVER_PROVIDER_COMMAND_ENTRIES_MAX);
+    expect(group?.entries.map((entry) => entry.name)).not.toContain("compact");
+    // The retained window is the leading one — `declared.slice(0, MAX)` and not
+    // an arbitrary or reordered subset. Asserted against the fixture's own head
+    // so a future sort, filter, or tail-preferring cap is caught rather than
+    // absorbed by the length check above.
+    expect(group?.entries.map((entry) => entry.name)).toStrictEqual(
+      filler.slice(0, DRIVER_PROVIDER_COMMAND_ENTRIES_MAX),
+    );
+    const records = harness.diagnostics.recentRecordsOfKind("provider_command_entries_truncated");
+    expect(records).toHaveLength(1);
+    expect(records[0]?.details).toStrictEqual({
+      sessionId: TEST_SESSION_ID,
+      declaredEntryCount: filler.length + 1,
+      admittedEntryCount: DRIVER_PROVIDER_COMMAND_ENTRIES_MAX,
+    });
+
+    // AND the dispatch still works, which is the whole point.
+    const pending = harness.lifecycle.compactContext({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+    });
+    await drainMicrotasks();
+    expect(channel?.sentWireTexts).toStrictEqual(["/compact"]);
+    channel?.emitStreamFrame("system/compact_boundary", {
+      compactionBoundary: { boundaryPosition: 3 },
+    });
+    await expect(pending).resolves.toStrictEqual({ status: "applied", boundaryPosition: 3 });
+  });
+
+  it("emits NO truncation diagnostic for an enumeration that fits", async () => {
+    // Negative control: a diagnostic that fired on every read would say nothing.
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
+      handshake: buildHandshake(),
+    });
+
+    await harness.lifecycle.listProviderCommands({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+    });
+
+    expect(
+      harness.diagnostics.recentRecordsOfKind("provider_command_entries_truncated"),
+    ).toStrictEqual([]);
+  });
+
+  it("discards the held enumeration with the session rather than answering the next one from it", async () => {
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
+      handshake: buildHandshake(),
+    });
+    await harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID });
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+
+    const result = await harness.lifecycle.listProviderCommands({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+    });
+
+    expect(result.bindings[0]?.entries).toStrictEqual([]);
+  });
+
+  it("discards the held enumeration ACROSS A RESUME, whose provider session id is UNCHANGED", async () => {
+    // The replacement the read-side stamp cannot catch. Claude resumes BY
+    // SESSION ID, so the resumed process announces the same
+    // `providerSessionId` its predecessor had — a held declaration that
+    // survived the predecessor by any route would compare EQUAL to the
+    // successor's stamp and be answered from, which is a live read of a
+    // connection that no longer exists. The resume path therefore discards
+    // unconditionally at its head rather than trusting the disposal that
+    // preceded it.
+    //
+    // The resume's own success is asserted: a `resumeSession` beside a live or
+    // quarantined slot is REFUSED through the `failed` arm, and a test that
+    // skipped this check would read a refused resume's untouched palette as a
+    // successful resume's stale one and pass while proving nothing.
+    const harness = buildHarness({ mintProviderSessionId: () => "provider-session-stable" });
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
+      handshake: buildHandshake(),
+    });
+    expect(
+      (
+        await harness.lifecycle.listProviderCommands({
+          sessionId: TEST_SESSION_ID,
+          bindingId: TEST_BINDING_ID,
+        })
+      ).bindings[0]?.entries.length,
+    ).toBeGreaterThan(0);
+    await harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID });
+
+    const resumed = await harness.lifecycle.resumeSession({
+      sessionId: TEST_SESSION_ID,
+      resumeHandle: "provider-session-stable",
+    });
+
+    expect(resumed.status).toBe("resumed");
+    const afterResume = await harness.lifecycle.listProviderCommands({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+    });
+    expect(afterResume.bindings[0]?.entries).toStrictEqual([]);
+    expect(afterResume.bindings[0]?.complete).toBe(true);
+
+    // And the SUCCESSOR's own handshake is answered from, so this is a discard
+    // and not a permanent blinding of the session.
+    harness.transport.spawnedChannels.at(-1)?.emitStreamFrame("system/init", {
+      handshake: buildHandshake({
+        slashCommands: ["compact"],
+        skills: [],
+        terminalSlashCommands: [],
+      }),
+    });
+    expect(
+      (
+        await harness.lifecycle.listProviderCommands({
+          sessionId: TEST_SESSION_ID,
+          bindingId: TEST_BINDING_ID,
+        })
+      ).bindings[0]?.entries.map((entry) => entry.name),
+    ).toStrictEqual(["compact"]);
+  });
+
+  it("states `providerAccountId: null` for an accountless session, on the entry AND the group", async () => {
+    // STATED, never synthesized. The consuming routing check treats `null` as
+    // matching nothing, so a placeholder would make that check compare equal
+    // across two accountless bindings and look enforced while enforcing nothing.
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
+      handshake: buildHandshake(),
+    });
+
+    const result = await harness.lifecycle.listProviderCommands({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+    });
+
+    const group = result.bindings[0];
+    expect(group?.binding).toStrictEqual({ driverName: "claude", providerAccountId: null });
+    expect("providerAccountId" in (group?.binding ?? {})).toBe(true);
+    for (const entry of group?.entries ?? []) {
+      expect(entry.binding).toStrictEqual({ driverName: "claude", providerAccountId: null });
+    }
+  });
+
+  it("carries the bound account through as-is when the daemon supplies one", async () => {
+    // The contrast case that keeps the `null` above meaningful.
+    const harness = buildHarness({ readBoundProviderAccountId: () => "account-primary" });
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
+      handshake: buildHandshake(),
+    });
+
+    const result = await harness.lifecycle.listProviderCommands({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+    });
+
+    expect(result.bindings[0]?.binding).toStrictEqual({
+      driverName: "claude",
+      providerAccountId: "account-primary",
+    });
+  });
+
+  it("answers `runId: null` when NO run holds a live turn", async () => {
+    // The ordinary pre-first-turn palette read. It SUCCEEDS.
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
+      handshake: buildHandshake(),
+    });
+
+    const result = await harness.lifecycle.listProviderCommands({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+    });
+
+    expect(result.bindings[0]?.runId).toBeNull();
+    expect("runId" in (result.bindings[0] ?? {})).toBe(true);
+  });
+
+  it("answers with THAT run when exactly one holds a live turn", async () => {
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
+      handshake: buildHandshake(),
+    });
+    armRunDispatch(harness, TEST_RUN_ID);
+    await harness.lifecycle.startRun(buildStartRunParams());
+
+    const result = await harness.lifecycle.listProviderCommands({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+    });
+
+    expect(result.bindings[0]?.runId).toBe(TEST_RUN_ID);
+  });
+
+  it("answers `runId: null` again once that run's turn has settled", async () => {
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    const channel = harness.transport.spawnedChannels[0];
+    channel?.emitStreamFrame("system/init", { handshake: buildHandshake() });
+    armRunDispatch(harness, TEST_RUN_ID);
+    await harness.lifecycle.startRun(buildStartRunParams());
+    channel?.emitStreamFrame("result/success");
+
+    const result = await harness.lifecycle.listProviderCommands({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+    });
+
+    expect(result.bindings[0]?.runId).toBeNull();
+  });
+
+  it("never attributes ANOTHER session's live run to this binding", async () => {
+    // The filter half of the derivation. Two sessions each holding a live turn
+    // must each answer with their OWN run: a scan that forgot the session
+    // comparison would answer `null` for both, which reads as "no run is
+    // attributable" when in fact one is.
+    const peerSessionId = "session-console-parity-runs" as SessionId;
+    let issuedProviderSessionIds = 0;
+    const harness = buildHarness({
+      mintProviderSessionId: (): string => {
+        issuedProviderSessionIds += 1;
+        return `provider-session-${issuedProviderSessionIds}`;
+      },
+    });
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    await harness.lifecycle.createSession({
+      ...buildCreateSessionParams(),
+      sessionId: peerSessionId,
+    });
+    harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
+      handshake: buildHandshake(),
+    });
+    armRunDispatch(harness, TEST_RUN_ID);
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_SECOND_RUN_ID, {
+      sessionId: peerSessionId,
+      openingText: "the peer session's own turn",
+    });
+    await harness.lifecycle.startRun(buildStartRunParams());
+    await harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID });
+
+    const result = await harness.lifecycle.listProviderCommands({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+    });
+
+    expect(result.bindings[0]?.runId).toBe(TEST_RUN_ID);
+  });
+
+  it("cannot reach the two-live-runs arm at all — this driver serializes turns per session", async () => {
+    // The honest control for the `null`-on-two-runs arm. `startRun` refuses a
+    // second dispatch while the session's scope holds a pending frame, and a
+    // turn terminal retires every route on the session, so a Claude session
+    // holds AT MOST ONE live run. The arm is therefore fail-closed defensive
+    // code against state drift rather than a reachable branch — the same
+    // posture `#ruleTextNeutralizationTripwire`'s two-pending-run else-arm
+    // takes, and it is recorded here rather than left as an untested claim.
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    armRunDispatch(harness, TEST_RUN_ID);
+    armRunDispatch(harness, TEST_SECOND_RUN_ID);
+    await harness.lifecycle.startRun(buildStartRunParams());
+
+    await expect(
+      harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID }),
+    ).rejects.toBeInstanceOf(ClaudeSessionUnavailableError);
+    const result = await harness.lifecycle.listProviderCommands({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+    });
+    expect(result.bindings[0]?.runId).toBe(TEST_RUN_ID);
+  });
+});
+
+describe("ClaudeSessionLifecycle.observedOutputSpeedFor — absent until observed", () => {
+  it("has NO observation before the handshake arrives and one after", async () => {
+    // Neither establishment path may block for this or spend a synthetic turn to
+    // provoke it, so it is absent until the participant's own work produces the
+    // declaring exchange.
+    const harness = buildHarness();
+    const handle = await harness.lifecycle.createSession(buildCreateSessionParams());
+
+    expect(harness.lifecycle.observedOutputSpeedFor(TEST_SESSION_ID)).toBeUndefined();
+    // And it is on NEITHER establishment reply — a value there would have to be
+    // fabricated.
+    expect("outputSpeed" in handle).toBe(false);
+
+    harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
+      handshake: buildHandshake(),
+    });
+
+    expect(harness.lifecycle.observedOutputSpeedFor(TEST_SESSION_ID)).toStrictEqual({
+      declared: "off",
+      reason: "sdk_opt_in_required",
+    });
+  });
+
+  it("carries a REPORTED `cooldown` verbatim even though it is not a SETTABLE level", async () => {
+    // The settable-vs-reportable split. `outputSpeedLevels` is `["off", "on"]`;
+    // coercing an observed `cooldown` into that set would fabricate a state the
+    // provider is not in.
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
+      handshake: buildHandshake({ fastModeState: "cooldown", fastModeDisabledReason: null }),
+    });
+
+    const observed = harness.lifecycle.observedOutputSpeedFor(TEST_SESSION_ID);
+
+    expect(observed?.declared).toBe("cooldown");
+    // KEY-PRESENCE: an absent reason means the provider gave none, never that
+    // there was none.
+    expect("reason" in (observed ?? {})).toBe(false);
+  });
+
+  it("has no observation for a session that declares no fast-mode state at all", async () => {
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
+      handshake: buildHandshake({ fastModeState: null, fastModeDisabledReason: null }),
+    });
+
+    expect(harness.lifecycle.observedOutputSpeedFor(TEST_SESSION_ID)).toBeUndefined();
+  });
+
+  it("ignores a CHILD thread's handshake — a subagent's surface is not the session's", async () => {
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
+      subagentId: "child-1",
+      handshake: buildHandshake({ fastModeState: "on" }),
+    });
+
+    expect(harness.lifecycle.observedOutputSpeedFor(TEST_SESSION_ID)).toBeUndefined();
+  });
+
+  it("carries the requested output-speed level through to BOTH spawn paths", async () => {
+    // A spawn-bound leg: bound at create and omitted at resume would be silently
+    // shed at the first relaunch, which is the shedding `ClaudeSpawnBoundLegs`
+    // exists to make impossible.
+    const harness = buildHarness();
+
+    await harness.lifecycle.createSession({
+      ...buildCreateSessionParams(),
+      outputSpeed: "on",
+    });
+    await harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID });
+    await harness.lifecycle.resumeSession({
+      sessionId: TEST_SESSION_ID,
+      resumeHandle: TEST_PINNED_PROVIDER_SESSION_ID,
+      outputSpeed: "on",
+    });
+
+    expect(harness.transport.spawnRequests[0]?.outputSpeed).toBe("on");
+    expect(harness.transport.resumeRequests[0]?.outputSpeed).toBe("on");
   });
 });

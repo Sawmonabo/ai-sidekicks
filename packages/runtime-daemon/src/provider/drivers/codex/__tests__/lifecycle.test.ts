@@ -28,8 +28,10 @@ import {
   deriveMainChannelId,
   DRIVER_CAPABILITY_FLAGS,
   DRIVER_FAILURE_DETAIL_MAX_LEN,
+  DRIVER_PROVIDER_COMMAND_ENTRIES_MAX,
   type DriverCapabilities,
   type DriverCapabilityFlag,
+  type DriverCompactionResult,
   type DriverResumeResult,
   type PtyHost,
   type PtySignal,
@@ -106,11 +108,15 @@ import { CODEX_NEGOTIATION_GATED_METHODS } from "../event-normalizer.js";
 // reach them from a test would make them look like part of its contract.
 import {
   CALLER_DERIVED_TURN_POSTURE_FIELDS,
+  CODEX_ASK_OPTION_SET_MAX,
   CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL,
+  CODEX_COMPACTION_WAIT_MS,
   CODEX_MAX_OUTBOUND_FRAME_BYTES,
   CODEX_OUTBOUND_ANSWER_TOO_LARGE_REASON,
   UNREALIZED_TURN_POSTURE_MEMBERS,
   assertRealizedTurnPostureMembers,
+  readCodexAskOptionSet,
+  type CodexSessionServerRequest,
 } from "../lifecycle.js";
 
 // --------------------------------------------------------------------------
@@ -416,9 +422,13 @@ interface ScheduledTimeout {
 function makeManualScheduler(): {
   schedule: CodexScheduleTimeout;
   fireAll: () => void;
+  fireDelay: (delayMs: number) => number;
+  pendingDelays: () => readonly number[];
+  firedDelays: () => readonly number[];
   pendingCount: () => number;
 } {
   const scheduled: ScheduledTimeout[] = [];
+  const fired: number[] = [];
   const schedule: CodexScheduleTimeout = (callback, delayMs) => {
     const entry: ScheduledTimeout = { callback, delayMs, cancelled: false };
     scheduled.push(entry);
@@ -432,10 +442,45 @@ function makeManualScheduler(): {
       for (const entry of scheduled) {
         if (!entry.cancelled) {
           entry.cancelled = true;
+          fired.push(entry.delayMs);
           entry.callback();
         }
       }
     },
+    /**
+     * Fires ONLY the timers armed at one declared delay, and answers how many
+     * ran (T3.26).
+     *
+     * `fireAll` cannot serve an expiry assertion on a single deadline: a live
+     * session holds the transport's own request deadline too, so firing
+     * everything would reject the in-flight request and settle the operation on
+     * a transport failure — a test that passes for the wrong reason. Selecting
+     * by delay is what keeps "the compaction bound elapsed" the only thing that
+     * happened, and it is unambiguous because the compaction bound is
+     * deliberately not equal to any other deadline this driver arms.
+     */
+    fireDelay: (delayMs: number) => {
+      let firedHere = 0;
+      for (const entry of scheduled) {
+        if (!entry.cancelled && entry.delayMs === delayMs) {
+          entry.cancelled = true;
+          fired.push(entry.delayMs);
+          entry.callback();
+          firedHere += 1;
+        }
+      }
+      return firedHere;
+    },
+    pendingDelays: () =>
+      scheduled.filter((entry) => !entry.cancelled).map((entry) => entry.delayMs),
+    /**
+     * The delays that ACTUALLY ran, as distinct from the ones cancelled.
+     *
+     * The two are indistinguishable through `pendingCount` — a settled wait
+     * cancels its own timer, and so does an expired one — so an immediacy
+     * assertion ("this settled without any timer firing") needs its own record.
+     */
+    firedDelays: () => fired,
     pendingCount: () => scheduled.filter((entry) => !entry.cancelled).length,
   };
 }
@@ -656,6 +701,10 @@ interface ManagerHarnessOptions {
     sessionId: SessionId,
     threadId: string,
   ) => CumulativeAxisReadings | undefined;
+  /** Binds the session-scoped ask responder, so a routed ask can be observed. */
+  answerServerRequest?: CodexSessionServerRequestResponder;
+  /** Overrides the untyped spawn config, so an account-bearing leg can be built. */
+  config?: Record<string, unknown>;
 }
 
 /**
@@ -725,6 +774,9 @@ function createManagerHarness(options: ManagerHarnessOptions = {}): ManagerHarne
     ...(options.readPriorEmittedUsage === undefined
       ? {}
       : { readPriorEmittedUsage: options.readPriorEmittedUsage }),
+    ...(options.answerServerRequest === undefined
+      ? {}
+      : { answerServerRequest: options.answerServerRequest }),
     ...(options.onServerNotification === true
       ? {
           onServerNotification: (method: string, params: unknown): void => {
@@ -8076,5 +8128,956 @@ describe("CodexDriver callback-tool round trip (T3.15 leg 3)", () => {
     expect(roundTrip.driverDiagnosticRecords[0]?.details["turnId"]).toBe(
       "turn-that-already-retired",
     );
+  });
+});
+
+// Console-parity operations — T3.26 (`Spec-005 §Desktop Console Parity
+// Surfaces`, invariant I-005-13).
+// --------------------------------------------------------------------------
+//
+// Spec coverage under test:
+//   `Spec-005 §Desktop Console Parity Surfaces` — compaction settles on the
+//     provider's TYPED EVIDENCE and never on the request being accepted; the
+//     wait is bounded and twice-terminated; bounding the OPERATION never bounds
+//     the BOUNDARY'S RECORD; the command surface is a LIVE READ held as
+//     driver-session state and never a stored registry, whose entries carry the
+//     `(driverName, providerAccountId)` they were read under.
+
+describe("CodexLifecycleManager.compactContext (T3.26, native)", () => {
+  // A child thread of this session's own thread. Declared here rather than
+  // reused from the routing suite's block scope so this leg's child case cannot
+  // be silently repointed by an edit to a neighbouring describe.
+  const CHILD_THREAD_ID = "01a04202-0148-7ae2-8560-child0000002";
+
+  async function compactionHarness(): Promise<ManagerHarness> {
+    const harness = createManagerHarness({ onServerNotification: true });
+    harness.server.on("thread/compact/start", () => ({ result: {} }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    return harness;
+  }
+
+  function emitCompactionBoundary(
+    harness: ManagerHarness,
+    params: Record<string, unknown> = { threadId: THREAD_ID, turnId: TURN_ID },
+  ): void {
+    harness.server.emitFrame({ jsonrpc: "2.0", method: "thread/compacted", params });
+  }
+
+  it("dispatches `thread/compact/start` for the session's own thread and settles `applied` on the typed frame", async () => {
+    const harness = await compactionHarness();
+
+    const compaction = harness.manager.compactContext({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+    });
+    await drainMicrotasks();
+    // The trigger names the session's CURRENT thread, read off the record — not
+    // a value the caller supplied, which the params do not carry at all.
+    expect(harness.server.framesForMethod("thread/compact/start")).toHaveLength(1);
+    expect(harness.server.framesForMethod("thread/compact/start")[0]?.["params"]).toStrictEqual({
+      threadId: THREAD_ID,
+    });
+
+    // The provider's typed evidence. `ContextCompactedNotification` is
+    // `{ threadId, turnId }` at the pin and names NO position, so `null` here
+    // is the positive statement that the frame carried none — not a driver that
+    // forgot to read one.
+    emitCompactionBoundary(harness);
+
+    await expect(compaction).resolves.toStrictEqual({
+      status: "applied",
+      boundaryPosition: null,
+    });
+  });
+
+  it("carries a boundary position through verbatim when a frame names one", async () => {
+    const harness = await compactionHarness();
+
+    const compaction = harness.manager.compactContext({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+    });
+    await drainMicrotasks();
+    // A FORWARD-COMPATIBILITY vector, not a pinned one: no member of the
+    // pinned payload carries a position, so this pins the reader's behaviour
+    // for a pin that starts publishing one rather than asserting today's wire.
+    emitCompactionBoundary(harness, { threadId: THREAD_ID, turnId: TURN_ID, boundaryPosition: 7 });
+
+    await expect(compaction).resolves.toStrictEqual({ status: "applied", boundaryPosition: 7 });
+  });
+
+  it("does NOT settle `applied` on the empty acknowledgement alone", async () => {
+    const harness = await compactionHarness();
+
+    let observed: DriverCompactionResult | "still-waiting" = "still-waiting";
+    const compaction = harness.manager.compactContext({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+    });
+    void compaction.then((result) => {
+      observed = result;
+    });
+    await drainMicrotasks();
+
+    // `ThreadCompactStartResponse` is `Record<string, never>` — an empty
+    // acknowledgement the provider returns the moment it ACCEPTS the job. The
+    // request has resolved by now (the frame count proves the dispatch
+    // happened) and the operation is still open.
+    expect(harness.server.framesForMethod("thread/compact/start")).toHaveLength(1);
+    expect(observed).toBe("still-waiting");
+    // Non-vacuous: the operation is open because a WAIT is armed at the driver's
+    // own declared bound, not because the request hung.
+    expect(harness.scheduler.pendingDelays()).toContain(CODEX_COMPACTION_WAIT_MS);
+
+    emitCompactionBoundary(harness);
+    await expect(compaction).resolves.toMatchObject({ status: "applied" });
+  });
+
+  it("settles `wait_expired` when the declared bound elapses — and a LATE compaction frame still normalizes", async () => {
+    const harness = await compactionHarness();
+
+    const compaction = harness.manager.compactContext({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+    });
+    await drainMicrotasks();
+
+    // ONLY the compaction bound, never `fireAll`: a live session also holds the
+    // transport's own 60s request deadline, and firing that too would reject
+    // the in-flight request and settle `provider_error` — the same failed
+    // assertion for the wrong reason.
+    expect(harness.scheduler.fireDelay(CODEX_COMPACTION_WAIT_MS)).toBe(1);
+
+    await expect(compaction).resolves.toStrictEqual({
+      status: "failed",
+      reason: "wait_expired",
+    });
+    const terminals = harness.driverDiagnostics.recentRecordsOfKind("compaction_wait_terminal");
+    expect(terminals).toHaveLength(1);
+    expect(terminals[0]?.details["terminal"]).toBe("wait_expired");
+    expect(terminals[0]?.details["declaredBoundMs"]).toBe(CODEX_COMPACTION_WAIT_MS);
+
+    // THE SECOND HALF, asserted in the same test because it is the same claim:
+    // bounding the OPERATION never bounds the BOUNDARY'S RECORD. The frame that
+    // arrives after the wait expired settles nobody and still travels its
+    // ordinary route into the normalize band. A tap that had been written as a
+    // diversion would swallow it here.
+    const before = harness.notifications.length;
+    emitCompactionBoundary(harness);
+    await drainMicrotasks();
+    expect(harness.notifications.slice(before).map((entry) => entry.method)).toEqual([
+      "thread/compacted",
+    ]);
+  });
+
+  it("settles `binding_lost` the instant the binding goes, with no timer ever firing", async () => {
+    const harness = await compactionHarness();
+
+    const compaction = harness.manager.compactContext({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+    });
+    await drainMicrotasks();
+
+    await harness.manager.closeSession({ sessionId: SESSION_ID });
+
+    await expect(compaction).resolves.toStrictEqual({
+      status: "failed",
+      reason: "binding_lost",
+    });
+    // THE IMMEDIACY PROPERTY, and the whole reason the second terminal is a
+    // PUSH from the disposal path rather than a periodic liveness check: a
+    // binding lost at t=0 settles at t=0. A poller would pass every assertion
+    // above and fail this one, because it could only settle when a timer ran.
+    expect(harness.scheduler.firedDelays()).not.toContain(CODEX_COMPACTION_WAIT_MS);
+    const terminals = harness.driverDiagnostics.recentRecordsOfKind("compaction_wait_terminal");
+    expect(terminals).toHaveLength(1);
+    expect(terminals[0]?.details["terminal"]).toBe("binding_lost");
+  });
+
+  it("settles `provider_error` when the trigger itself is refused, and records no false terminal", async () => {
+    const harness = createManagerHarness({ onServerNotification: true });
+    harness.server.on("thread/compact/start", () => ({
+      error: { code: -32603, message: "compaction unavailable" },
+    }));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    await expect(
+      harness.manager.compactContext({ sessionId: SESSION_ID, bindingId: "binding-abc" }),
+    ).resolves.toStrictEqual({ status: "failed", reason: "provider_error" });
+    const terminals = harness.driverDiagnostics.recentRecordsOfKind("compaction_wait_terminal");
+    expect(terminals).toHaveLength(1);
+    expect(terminals[0]?.details["terminal"]).toBe("provider_error");
+
+    // THE ARMED WAIT IS WITHDRAWN, not left to time out. A thrown request means
+    // the transport failed, and `CODEX_COMPACTION_WAIT_MS` is longer than the
+    // transport deadline that produces such a throw — so a registration left
+    // behind here outlives its own caller by the difference. No compaction-bound
+    // timer survives this arm.
+    expect(harness.scheduler.pendingDelays()).not.toContain(CODEX_COMPACTION_WAIT_MS);
+
+    // Non-vacuous in the direction that matters: there is nothing left for the
+    // bound to fire, so a later elapse cannot revive a settled operation or emit
+    // a second terminal for one call.
+    expect(harness.scheduler.fireDelay(CODEX_COMPACTION_WAIT_MS)).toBe(0);
+    await drainMicrotasks();
+    expect(harness.driverDiagnostics.recentRecordsOfKind("compaction_wait_terminal")).toHaveLength(
+      1,
+    );
+  });
+
+  it("withdraws only its OWN wait — a concurrent caller still settles on the evidence", async () => {
+    // The property that makes the withdrawal safe, and the reason it is not a
+    // settlement. Settling is per-key because one provider compaction is one
+    // compaction; withdrawing is per-waiter. A caller whose own dispatch threw
+    // must therefore not settle a participant who asked independently and is
+    // still owed the truth about the compaction that IS running.
+    const harness = createManagerHarness({ onServerNotification: true });
+    let dispatchCount = 0;
+    harness.server.on("thread/compact/start", () => {
+      dispatchCount += 1;
+      return dispatchCount === 1
+        ? { result: {} }
+        : { error: { code: -32603, message: "compaction unavailable" } };
+    });
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    const surviving = harness.manager.compactContext({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+    });
+    await drainMicrotasks();
+
+    await expect(
+      harness.manager.compactContext({ sessionId: SESSION_ID, bindingId: "binding-abc" }),
+    ).resolves.toStrictEqual({ status: "failed", reason: "provider_error" });
+
+    // Exactly ONE compaction bound is still armed: the refused caller's is gone
+    // and the surviving caller's is untouched. Counted rather than merely
+    // contained, so a withdrawal that took the whole key down fails here.
+    expect(
+      harness.scheduler.pendingDelays().filter((delay) => delay === CODEX_COMPACTION_WAIT_MS),
+    ).toHaveLength(1);
+
+    emitCompactionBoundary(harness);
+    await expect(surviving).resolves.toStrictEqual({ status: "applied", boundaryPosition: null });
+  });
+
+  it("records NO terminal diagnostic on the applied path", async () => {
+    const harness = await compactionHarness();
+
+    const compaction = harness.manager.compactContext({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+    });
+    await drainMicrotasks();
+    emitCompactionBoundary(harness);
+    await compaction;
+
+    // The counter is a FAILURE counter. Emitting on the success path too would
+    // make it a request count and hide the ratio it exists to expose.
+    expect(harness.driverDiagnostics.recentRecordsOfKind("compaction_wait_terminal")).toEqual([]);
+  });
+
+  it("a registered CHILD thread's compaction never settles the participant's wait", async () => {
+    const harness = await compactionHarness();
+    // A provider-INTERNAL compaction child: the most adversarial case this leg
+    // has, because the child is itself a compaction, so the only thing
+    // separating its boundary frame from the participant's is whose thread it
+    // names.
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      method: "thread/started",
+      params: {
+        thread: {
+          id: CHILD_THREAD_ID,
+          parentThreadId: THREAD_ID,
+          threadSourceKind: "compaction",
+        },
+      },
+    });
+
+    const compaction = harness.manager.compactContext({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+    });
+    await drainMicrotasks();
+
+    emitCompactionBoundary(harness, { threadId: CHILD_THREAD_ID, turnId: "child-turn" });
+    await drainMicrotasks();
+
+    // The child's boundary frame routed `carve-out-usage` — a different arm
+    // from the two the tap is called from — so it reached neither the
+    // participant's wait nor the parent's timeline.
+    expect(harness.notifications).toStrictEqual([]);
+    expect(harness.scheduler.pendingDelays()).toContain(CODEX_COMPACTION_WAIT_MS);
+
+    // And the proof that it settled NOTHING: the wait still runs out its own
+    // declared bound. Were the tap comparing nothing, or were the routing
+    // classification to regress, this would already have resolved `applied`.
+    expect(harness.scheduler.fireDelay(CODEX_COMPACTION_WAIT_MS)).toBe(1);
+    await expect(compaction).resolves.toStrictEqual({
+      status: "failed",
+      reason: "wait_expired",
+    });
+  });
+});
+
+describe("CodexLifecycleManager.listProviderCommands (T3.26, live read)", () => {
+  interface SkillFixture {
+    name: string;
+    description?: unknown;
+    scope?: unknown;
+    enabled?: unknown;
+  }
+
+  function skillsListResult(skills: readonly SkillFixture[]): JsonRpcAnswer {
+    // The pinned reply is NESTED — `{ data: SkillsListEntry[] }` where each
+    // entry is `{ cwd, skills, errors }`, one group per scanned root — so the
+    // fixture reproduces that shape rather than a flat array the driver would
+    // never see.
+    return {
+      result: {
+        data: [{ cwd: SESSION_CWD, skills: [...skills], errors: [] }],
+      },
+    };
+  }
+
+  async function enumerationHarness(
+    skills: readonly SkillFixture[],
+    options: ManagerHarnessOptions = {},
+  ): Promise<ManagerHarness> {
+    const harness = createManagerHarness({ onServerNotification: true, ...options });
+    let current: readonly SkillFixture[] = skills;
+    harness.server.on("skills/list", () => skillsListResult(current));
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.manager.createSession({
+      sessionId: SESSION_ID,
+      config: options.config ?? SESSION_CONFIG,
+    });
+    Object.assign(harness, {
+      setSkills: (next: readonly SkillFixture[]) => {
+        current = next;
+      },
+    });
+    return harness;
+  }
+
+  it("returns disabled entries, carries `enabled` verbatim, and maps an empty description to an ABSENT key", async () => {
+    const harness = await enumerationHarness([
+      { name: "review", description: "Review a diff", scope: "repo", enabled: true },
+      { name: "retired", description: "Not offerable", scope: "user", enabled: false },
+      // `SkillMetadata.description` is a REQUIRED string at the pin, and a skill
+      // file may legitimately leave it blank.
+      { name: "blank", description: "", scope: "repo", enabled: true },
+      { name: "whitespace", description: "   ", scope: "repo", enabled: true },
+      // A provider that publishes no Boolean at all: absence must stay absence,
+      // never a synthesized `true`.
+      { name: "undeclared", description: "No enabled flag", scope: "system" },
+    ]);
+
+    const result = await harness.manager.listProviderCommands({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+    });
+    const entries = result.bindings[0]?.entries ?? [];
+
+    // THE DISABLED ENTRY IS RETURNED. The flag governs offerability, not
+    // presence — filtering it would leave a consumer unable to tell a disabled
+    // command from one that does not exist.
+    expect(entries.map((entry) => entry.name)).toEqual([
+      "review",
+      "retired",
+      "blank",
+      "whitespace",
+      "undeclared",
+    ]);
+    expect(entries.map((entry) => entry.enabled)).toEqual([true, false, true, true, undefined]);
+    // KEY-PRESENCE, not `toBeUndefined()`: under `exactOptionalPropertyTypes` a
+    // present-but-undefined key and an absent one are different values, and
+    // only the second is what "the provider declared nothing" means.
+    expect(Object.hasOwn(entries[4] as object, "enabled")).toBe(false);
+
+    // The empty and whitespace-only descriptions become ABSENT rather than
+    // refusing their entries: `wireFreeFormString` rejects both, so carrying
+    // them through would have dropped two real commands.
+    expect(Object.hasOwn(entries[2] as object, "description")).toBe(false);
+    expect(Object.hasOwn(entries[3] as object, "description")).toBe(false);
+    expect(entries[0]?.description).toBe("Review a diff");
+    expect(entries.every((entry) => entry.kind === "skill")).toBe(true);
+    expect(entries[0]?.scope).toBe("repo");
+  });
+
+  it("drops an entry whose NAME cannot be read, and only its name", async () => {
+    const harness = await enumerationHarness([
+      { name: "keeper", description: "fine", scope: "repo", enabled: true },
+      // A caption too long to carry costs the CAPTION, never the command: a
+      // command whose description was lost is still a command that exists.
+      { name: "long-caption", description: "x".repeat(20_000), scope: "repo", enabled: true },
+      // A scope this driver cannot bound likewise costs the scope only.
+      { name: "odd-scope", description: "fine", scope: 17, enabled: true },
+      // A nameless entry names nothing a consumer could show or route, so it is
+      // the ONE field whose failure drops the row.
+      { name: "" as unknown as string, description: "fine", scope: "repo", enabled: true },
+    ]);
+
+    const result = await harness.manager.listProviderCommands({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+    });
+    const entries = result.bindings[0]?.entries ?? [];
+
+    expect(entries.map((entry) => entry.name)).toEqual(["keeper", "long-caption", "odd-scope"]);
+    expect(Object.hasOwn(entries[1] as object, "description")).toBe(false);
+    expect(Object.hasOwn(entries[2] as object, "scope")).toBe(false);
+  });
+
+  it("caps the REPLY at the wire bound while the held enumeration stays whole", async () => {
+    const overCap = DRIVER_PROVIDER_COMMAND_ENTRIES_MAX + 3;
+    const harness = await enumerationHarness(
+      Array.from({ length: overCap }, (_unused, index) => ({
+        name: `skill-${index}`,
+        description: `entry ${index}`,
+        scope: "repo",
+        enabled: true,
+      })),
+    );
+
+    const first = await harness.manager.listProviderCommands({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+    });
+
+    expect(first.bindings[0]?.complete).toBe(false);
+    expect(first.bindings[0]?.entries).toHaveLength(DRIVER_PROVIDER_COMMAND_ENTRIES_MAX);
+    const truncations = harness.driverDiagnostics.recentRecordsOfKind(
+      "provider_command_entries_truncated",
+    );
+    expect(truncations).toHaveLength(1);
+    expect(truncations[0]?.details["heldCount"]).toBe(overCap);
+    expect(truncations[0]?.details["returnedCount"]).toBe(DRIVER_PROVIDER_COMMAND_ENTRIES_MAX);
+
+    // THE HELD LIST WAS NOT TRUNCATED. Read a second time: the provider is not
+    // asked again (one `skills/list` frame in total, so this reply came from the
+    // held state), and the diagnostic still reports the FULL held count. A cap
+    // applied to the held list instead of at composition would report the
+    // capped number here.
+    const second = await harness.manager.listProviderCommands({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+    });
+    expect(harness.server.framesForMethod("skills/list")).toHaveLength(1);
+    expect(second.bindings[0]?.complete).toBe(false);
+    expect(
+      harness.driverDiagnostics.recentRecordsOfKind("provider_command_entries_truncated"),
+    ).toHaveLength(2);
+    expect(
+      harness.driverDiagnostics.recentRecordsOfKind("provider_command_entries_truncated")[1]
+        ?.details["heldCount"],
+    ).toBe(overCap);
+
+    // NO PRESENCE-CHECK SUB-ASSERTION HERE, deliberately. The contract's
+    // "a truncated read can never manufacture a `command_absent` refusal" is
+    // about the EMULATED leg's pre-dispatch presence check; this leg is native
+    // and performs none — `DriverCompactionResult`'s `refused` arm is
+    // unreachable from `compactContext` above — so a presence-check assertion
+    // would test nothing on this driver. The held-count assertion above is the
+    // property that check would have rested on.
+  });
+
+  it("re-reads in FULL on `skills/changed`, never patching the held list", async () => {
+    const harness = (await enumerationHarness([
+      { name: "alpha", description: "first", scope: "repo", enabled: true },
+      { name: "beta", description: "second", scope: "repo", enabled: true },
+    ])) as ManagerHarness & { setSkills: (next: readonly SkillFixture[]) => void };
+
+    const first = await harness.manager.listProviderCommands({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+    });
+    expect(first.bindings[0]?.entries.map((entry) => entry.name)).toEqual(["alpha", "beta"]);
+
+    // A second read with no invalidation is served from held state.
+    await harness.manager.listProviderCommands({ sessionId: SESSION_ID, bindingId: "binding-abc" });
+    expect(harness.server.framesForMethod("skills/list")).toHaveLength(1);
+
+    // `beta` is deleted upstream and `gamma` appears. The provider's own
+    // invalidation cue carries an EMPTY payload — `SkillsChangedNotification`
+    // is `Record<string, never>` — so there is nothing to patch WITH.
+    harness.setSkills([
+      { name: "alpha", description: "first", scope: "repo", enabled: true },
+      { name: "gamma", description: "third", scope: "user", enabled: false },
+    ]);
+    harness.server.emitFrame({ jsonrpc: "2.0", method: "skills/changed", params: {} });
+    await drainMicrotasks();
+
+    const third = await harness.manager.listProviderCommands({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+    });
+    expect(harness.server.framesForMethod("skills/list")).toHaveLength(2);
+    // A PATCH would have left `beta` behind. A full re-read is the only way
+    // this list is exactly the provider's current one.
+    expect(third.bindings[0]?.entries.map((entry) => entry.name)).toEqual(["alpha", "gamma"]);
+  });
+
+  it("carries `providerAccountId: null` on an accountless session, key present", async () => {
+    const harness = await enumerationHarness([
+      { name: "review", description: "Review a diff", scope: "repo", enabled: true },
+    ]);
+
+    const result = await harness.manager.listProviderCommands({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+    });
+    const binding = result.bindings[0]?.binding;
+    const entryBinding = result.bindings[0]?.entries[0]?.binding;
+
+    // ABSENCE IS STATED, NEVER SYNTHESIZED. A session with no bound account is
+    // the ORDINARY case until the provider-account plane ships, and `""` / a
+    // placeholder / the driver name would all make two accountless bindings on
+    // DIFFERENT providers compare equal on the very half of the routing pair
+    // that is supposed to separate them.
+    expect(binding).toStrictEqual({ driverName: "codex", providerAccountId: null });
+    expect(entryBinding).toStrictEqual({ driverName: "codex", providerAccountId: null });
+    expect(Object.hasOwn(entryBinding as object, "providerAccountId")).toBe(true);
+    // The other half of the invariant — that a `null` account matches NOTHING
+    // rather than acting as a wildcard — is enforced by the daemon-side routing
+    // guard, which is not this driver's code; what is asserted here is the
+    // producer half that makes that guard possible at all.
+  });
+
+  it("passes a bound account through verbatim to every entry", async () => {
+    const harness = await enumerationHarness(
+      [{ name: "review", description: "Review a diff", scope: "repo", enabled: true }],
+      { config: { ...SESSION_CONFIG, providerAccountId: "account-7" } },
+    );
+
+    const result = await harness.manager.listProviderCommands({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+    });
+
+    expect(result.bindings[0]?.binding).toStrictEqual({
+      driverName: "codex",
+      providerAccountId: "account-7",
+    });
+    expect(result.bindings[0]?.entries[0]?.binding.providerAccountId).toBe("account-7");
+  });
+
+  it("resolves the group's run: none live, exactly one live, and two live", async () => {
+    const harness = await enumerationHarness([
+      { name: "review", description: "Review a diff", scope: "repo", enabled: true },
+    ]);
+
+    // ZERO RUNS — the ordinary pre-first-turn palette read. It SUCCEEDS with a
+    // stated `null`, because a binding that has not run anything yet still
+    // enumerates real entries.
+    const beforeAnyRun = await harness.manager.listProviderCommands({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+    });
+    expect(beforeAnyRun.bindings[0]?.runId).toBeNull();
+    expect(Object.hasOwn(beforeAnyRun.bindings[0] as object, "runId")).toBe(true);
+    expect(beforeAnyRun.bindings[0]?.entries).toHaveLength(1);
+
+    // EXACTLY ONE live run is attributable, so it is named.
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "go" },
+    });
+    const oneLive = await harness.manager.listProviderCommands({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+    });
+    expect(oneLive.bindings[0]?.runId).toBe(RUN_ID);
+
+    // TWO live runs on one binding: no single run is attributable, and picking
+    // one would be a coin flip presented as provenance.
+    harness.server.on("turn/start", () => ({ result: { turn: { id: "turn-02" } } }));
+    await harness.manager.startRun({
+      runId: SECOND_RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "also go" },
+    });
+    const twoLive = await harness.manager.listProviderCommands({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+    });
+    expect(twoLive.bindings[0]?.runId).toBeNull();
+  });
+
+  it("keeps the bound account across a resume, and refuses a present-but-empty one", async () => {
+    // The DRIVER harness rather than the manager one: the resume path is
+    // exercised through the same facade the existing I-005-5 resume tests use,
+    // and `listProviderCommands` is on the driver's own `Pick` since T3.26.
+    const harness = createHarness();
+    // REQUIRED here and nowhere else in this block: a resume holds the new
+    // connection and the superseded one at once, and the fake's listener
+    // registry is keyed by pty session id — shared ids make the resume's own
+    // subscribe register the new reader and the predecessor's later unsubscribe
+    // then DELETE it, leaving the live connection deaf and every later request
+    // unanswered. That is a fixture artifact of the double-spawn, not a driver
+    // behaviour.
+    harness.server.uniqueSpawnSessionIds = true;
+    harness.server.on("thread/start", () => threadStartResult());
+    harness.server.on("thread/resume", () => threadStartResult(1));
+    // Answered because the supersede path awaits it and this harness runs on a
+    // manual scheduler where the courtesy deadline would never fire.
+    harness.server.on("thread/unsubscribe", () => ({ result: {} }));
+    harness.server.on("skills/list", () => ({
+      result: {
+        data: [
+          {
+            cwd: SESSION_CWD,
+            skills: [
+              { name: "review", description: "Review a diff", scope: "repo", enabled: true },
+            ],
+            errors: [],
+          },
+        ],
+      },
+    }));
+    await harness.driver.createSession({
+      sessionId: SESSION_ID,
+      config: { ...SESSION_CONFIG, providerAccountId: "account-7" },
+    });
+
+    await harness.driver.listProviderCommands({ sessionId: SESSION_ID, bindingId: "binding-abc" });
+    expect(harness.server.framesForMethod("skills/list")).toHaveLength(1);
+
+    await harness.driver.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
+    const afterResume = await harness.driver.listProviderCommands({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+    });
+
+    // A resume RE-REALIZES the same credential home rather than re-deriving the
+    // account from the request, unlike the credential policy beside it: an
+    // account that silently moved mid-session would re-key the receipt's
+    // per-paying-account axis.
+    expect(afterResume.bindings[0]?.binding.providerAccountId).toBe("account-7");
+    // THE ENUMERATION, by contrast, does NOT survive: it was a live read from a
+    // process this resume replaced, and the `skills/changed` cue that would
+    // have invalidated it travels over a connection that no longer exists. So
+    // the post-resume read is a FRESH round trip, not the held list.
+    expect(harness.server.framesForMethod("skills/list")).toHaveLength(2);
+
+    // A present-but-EMPTY account is a daemon that meant to bind one and bound
+    // nothing, which is a different fact from a session that never had one —
+    // and only the second may enumerate under a `null`.
+    expect(() => parseCodexSessionConfig({ ...SESSION_CONFIG, providerAccountId: "" })).toThrow(
+      CodexDriverConfigError,
+    );
+  });
+
+  it("sends empty params, and discards the held enumeration with the session", async () => {
+    const harness = await enumerationHarness([
+      { name: "review", description: "Review a diff", scope: "repo", enabled: true },
+    ]);
+
+    await harness.manager.listProviderCommands({ sessionId: SESSION_ID, bindingId: "binding-abc" });
+    // `SkillsListParams` is `{ cwds?, forceReload? }` and an empty `cwds`
+    // defaults to the session's own working directory, which is this
+    // connection's spawn cwd. Restating it would narrow the read if a later
+    // build scans more roots by default.
+    expect(harness.server.framesForMethod("skills/list")[0]?.["params"]).toStrictEqual({});
+
+    await harness.manager.closeSession({ sessionId: SESSION_ID });
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.listProviderCommands({ sessionId: SESSION_ID, bindingId: "binding-abc" });
+
+    // A held list that survived its session would answer the NEXT session on
+    // this id with the previous one's skills.
+    expect(harness.server.framesForMethod("skills/list")).toHaveLength(2);
+  });
+});
+
+describe("readCodexAskOptionSet (T3.26, the input-ask choice set)", () => {
+  it("reads `item/tool/requestUserInput` options with value === label", () => {
+    // `ToolRequestUserInputOption` is `{ label, description }` at the pin and
+    // carries NO value member, so the label IS the answer token the provider
+    // expects back. Synthesizing an index or a hash would invent one it would
+    // not recognize.
+    const reading = readCodexAskOptionSet("item/tool/requestUserInput", {
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+      itemId: "item-1",
+      isBlocking: true,
+      questions: [
+        {
+          id: "q1",
+          header: "Pick a branch",
+          question: "Which branch?",
+          isOther: false,
+          isSecret: false,
+          options: [
+            { label: "main", description: "the default branch" },
+            { label: "develop", description: "the integration branch" },
+          ],
+        },
+      ],
+    });
+
+    expect(reading).toStrictEqual({
+      kind: "read",
+      options: [
+        { value: "main", label: "main" },
+        { value: "develop", label: "develop" },
+      ],
+    });
+  });
+
+  it("reads all three MCP single-select enum arms", () => {
+    const untitled = readCodexAskOptionSet("mcpServer/elicitation/request", {
+      threadId: THREAD_ID,
+      turnId: null,
+      serverName: "files",
+      mode: "form",
+      message: "choose",
+      requestedSchema: {
+        type: "object",
+        properties: { pick: { type: "string", enum: ["a", "b"] } },
+      },
+    });
+    expect(untitled).toStrictEqual({
+      kind: "read",
+      options: [
+        { value: "a", label: "a" },
+        { value: "b", label: "b" },
+      ],
+    });
+
+    // The ONE arm where value and label genuinely differ — which is why
+    // `ProviderAskOption` has two members rather than one.
+    const titled = readCodexAskOptionSet("mcpServer/elicitation/request", {
+      threadId: THREAD_ID,
+      turnId: null,
+      serverName: "files",
+      mode: "form",
+      message: "choose",
+      requestedSchema: {
+        type: "object",
+        properties: {
+          pick: {
+            type: "string",
+            oneOf: [
+              { const: "a", title: "Alpha" },
+              { const: "b", title: "Beta" },
+            ],
+          },
+        },
+      },
+    });
+    expect(titled).toStrictEqual({
+      kind: "read",
+      options: [
+        { value: "a", label: "Alpha" },
+        { value: "b", label: "Beta" },
+      ],
+    });
+
+    // The legacy arm pairs POSITIONALLY, and its names array is optional and
+    // may be short: an entry with no name opposite it falls back to its own
+    // value, because a missing caption is not a missing choice.
+    const legacy = readCodexAskOptionSet("mcpServer/elicitation/request", {
+      threadId: THREAD_ID,
+      turnId: null,
+      serverName: "files",
+      mode: "form",
+      message: "choose",
+      requestedSchema: {
+        type: "object",
+        properties: {
+          pick: { type: "string", enum: ["a", "b", "c"], enumNames: ["Alpha", "Beta"] },
+        },
+      },
+    });
+    expect(legacy).toStrictEqual({
+      kind: "read",
+      options: [
+        { value: "a", label: "Alpha" },
+        { value: "b", label: "Beta" },
+        { value: "c", label: "c" },
+      ],
+    });
+  });
+
+  it("reads absent for a method, mode, or shape that publishes no choice set", () => {
+    // The approval arms publish a decision vocabulary the DAEMON composes, not
+    // a set the provider offers.
+    expect(readCodexAskOptionSet("item/commandExecution/requestApproval", {})).toStrictEqual({
+      kind: "absent",
+    });
+    // `openai/form` carries an untyped `JsonValue` this driver will not guess
+    // at, and `url` carries no schema at all.
+    expect(
+      readCodexAskOptionSet("mcpServer/elicitation/request", {
+        mode: "openai/form",
+        requestedSchema: { properties: { pick: { enum: ["a"] } } },
+      }),
+    ).toStrictEqual({ kind: "absent" });
+    // The MULTI-SELECT arms are deliberately not read: their answer is an
+    // ARRAY, so offering their items would present a pick-one card for a
+    // pick-many question.
+    expect(
+      readCodexAskOptionSet("mcpServer/elicitation/request", {
+        mode: "form",
+        requestedSchema: {
+          type: "object",
+          properties: { pick: { type: "array", items: { type: "string", enum: ["a", "b"] } } },
+        },
+      }),
+    ).toStrictEqual({ kind: "absent" });
+  });
+
+  it("drops a multi-question ask rather than merging two sets into one", () => {
+    const reading = readCodexAskOptionSet("item/tool/requestUserInput", {
+      questions: [
+        { id: "q1", options: [{ label: "main", description: "" }] },
+        { id: "q2", options: [{ label: "yes", description: "" }] },
+      ],
+    });
+
+    // A flat list built from two questions answers NEITHER.
+    expect(reading).toMatchObject({ kind: "dropped", declaredCount: 2 });
+  });
+
+  it("drops an over-large set rather than truncating it", () => {
+    const reading = readCodexAskOptionSet("mcpServer/elicitation/request", {
+      mode: "form",
+      requestedSchema: {
+        type: "object",
+        properties: {
+          pick: {
+            type: "string",
+            enum: Array.from({ length: CODEX_ASK_OPTION_SET_MAX + 1 }, (_u, i) => `opt-${i}`),
+          },
+        },
+      },
+    });
+
+    expect(reading).toMatchObject({
+      kind: "dropped",
+      declaredCount: CODEX_ASK_OPTION_SET_MAX + 1,
+    });
+  });
+
+  it("drops the WHOLE set when one option is unreadable, never a partial one", () => {
+    const reading = readCodexAskOptionSet("mcpServer/elicitation/request", {
+      mode: "form",
+      requestedSchema: {
+        type: "object",
+        properties: { pick: { type: "string", enum: ["fine", "   "] } },
+      },
+    });
+
+    // A partial set silently removes a choice the provider offered, so the card
+    // would look complete and could not express the answer the provider is
+    // waiting for.
+    expect(reading).toMatchObject({ kind: "dropped", declaredCount: 2 });
+  });
+});
+
+describe("Codex ask normalization at the session seam (T3.26)", () => {
+  async function askHarness(
+    recorded: CodexSessionServerRequest[],
+  ): Promise<{ harness: ManagerHarness; ask: (method: string, params: unknown) => Promise<void> }> {
+    const harness = createManagerHarness({
+      onServerNotification: true,
+      answerServerRequest: {
+        answer: async (request): Promise<CodexServerRequestDecision> => {
+          recorded.push(request);
+          return await Promise.resolve({ decision: "refuse", reason: "test" });
+        },
+      },
+    });
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    let nextAskId = 4000;
+    const ask = async (method: string, params: unknown): Promise<void> => {
+      nextAskId += 1;
+      harness.server.onData(
+        "pty-session-1",
+        new TextEncoder().encode(
+          `${JSON.stringify({ jsonrpc: "2.0", id: nextAskId, method, params })}\r\n`,
+        ),
+      );
+      await drainMicrotasks();
+    };
+    return { harness, ask };
+  }
+
+  it("stamps a readable choice set onto the session-scoped ask", async () => {
+    const recorded: CodexSessionServerRequest[] = [];
+    const { ask } = await askHarness(recorded);
+
+    await ask("mcpServer/elicitation/request", {
+      threadId: THREAD_ID,
+      turnId: null,
+      serverName: "files",
+      mode: "form",
+      message: "choose",
+      requestedSchema: {
+        type: "object",
+        properties: {
+          pick: { type: "string", oneOf: [{ const: "a", title: "Alpha" }] },
+        },
+      },
+    });
+
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]?.options).toStrictEqual([{ value: "a", label: "Alpha" }]);
+    // The verbatim payload still travels beside it: this member is a derived
+    // projection and never a replacement for what the provider sent.
+    expect(recorded[0]?.params).toMatchObject({ serverName: "files" });
+  });
+
+  it("omits the key entirely when the ask publishes no choice set", async () => {
+    const recorded: CodexSessionServerRequest[] = [];
+    const { ask } = await askHarness(recorded);
+
+    await ask("item/commandExecution/requestApproval", { threadId: THREAD_ID });
+
+    expect(recorded).toHaveLength(1);
+    // KEY-PRESENCE: under `exactOptionalPropertyTypes` a present-but-undefined
+    // key is a different value from an absent one, and absent is what this
+    // member's contract describes.
+    expect(Object.hasOwn(recorded[0] as object, "options")).toBe(false);
+  });
+
+  it("drops an over-large choice set with a diagnostic while the ask STILL normalizes", async () => {
+    const recorded: CodexSessionServerRequest[] = [];
+    const { harness, ask } = await askHarness(recorded);
+
+    await ask("mcpServer/elicitation/request", {
+      threadId: THREAD_ID,
+      turnId: null,
+      serverName: "files",
+      mode: "form",
+      message: "choose",
+      requestedSchema: {
+        type: "object",
+        properties: {
+          pick: {
+            type: "string",
+            enum: Array.from({ length: CODEX_ASK_OPTION_SET_MAX + 1 }, (_u, i) => `opt-${i}`),
+          },
+        },
+      },
+    });
+
+    // THE ASK STILL REACHED THE DAEMON. Refusing to normalize an ask because
+    // its garnish did not parse would hang a turn over a decoration; the
+    // free-text arm is unconditional and still carries it.
+    expect(recorded).toHaveLength(1);
+    expect(Object.hasOwn(recorded[0] as object, "options")).toBe(false);
+    const drops = harness.driverDiagnostics.recentRecordsOfKind(
+      "interactive_request_option_set_dropped",
+    );
+    expect(drops).toHaveLength(1);
+    expect(drops[0]?.rawWireType).toBe("mcpServer/elicitation/request");
+    expect(drops[0]?.details["declaredOptionCount"]).toBe(CODEX_ASK_OPTION_SET_MAX + 1);
+    expect(drops[0]?.details["optionSetMax"]).toBe(CODEX_ASK_OPTION_SET_MAX);
   });
 });

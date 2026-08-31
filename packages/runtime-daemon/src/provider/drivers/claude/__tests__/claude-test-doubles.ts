@@ -229,13 +229,21 @@ export class FakeClaudeSessionChannel implements ClaudeSessionChannel {
       readonly subagentId?: string | null;
       readonly cumulativeUsage?: ClaudeInboundFrameObservation["cumulativeUsage"];
       readonly subagentLifecycle?: ClaudeInboundFrameObservation["subagentLifecycle"];
+      readonly handshake?: ClaudeInboundFrameObservation["handshake"];
+      readonly compactionBoundary?: ClaudeInboundFrameObservation["compactionBoundary"];
     },
   ): ThreadFrameRoute {
+    // Every optional part defaults to `null` rather than being omitted: the
+    // observation is a closed shape under `exactOptionalPropertyTypes`, so an
+    // omitted key would not compile, and a default of `null` keeps every
+    // existing call site meaning exactly what it meant before the shape grew.
     const observation: ClaudeInboundFrameObservation = {
       frameKind,
       subagentId: observationParts?.subagentId ?? null,
       cumulativeUsage: observationParts?.cumulativeUsage ?? null,
       subagentLifecycle: observationParts?.subagentLifecycle ?? null,
+      handshake: observationParts?.handshake ?? null,
+      compactionBoundary: observationParts?.compactionBoundary ?? null,
     };
     const route: ThreadFrameRoute = this.inboundFrameObserver?.(observation) ?? {
       decision: "project",

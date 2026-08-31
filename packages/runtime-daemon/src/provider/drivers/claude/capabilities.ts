@@ -198,7 +198,46 @@ export const CLAUDE_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, bool
     // only against legs whose driver declares this flag, so a wrong `true` here
     // admits unpriced work with no cap behind it.
     cost_cap: true,
+    // TRUE, and EMULATED: the provider publishes no compaction method, so this
+    // driver dispatches the provider's OWN compaction command as a
+    // `driver_command` frame — the one tripwire-exempt origin, admitted only
+    // against the two guards `Spec-005 §Required Behavior` requires of it
+    // (pre-dispatch presence in the provider's own enumeration, post-dispatch
+    // typed evidence). The flag answers "does the driver deliver it", and it
+    // does; the grade records that the delivery is not a native method.
+    context_compaction: true,
+    // TRUE: the session handshake enumerates the provider's own command and
+    // skill sets, so the enumeration is a read of what the provider published
+    // rather than anything this driver composes.
+    provider_commands: true,
+    // TRUE for Claude (and false for Codex): the handshake declares an
+    // accelerated-output state, and — when that state is not the requested one —
+    // a machine-readable reason. Declaring the flag does NOT promise the mode is
+    // available: what the provider actually declared is a separate binding-held
+    // observation, and the two are never rewritten into each other.
+    output_speed: true,
   });
+
+/**
+ * Claude's output-speed value vocabulary — the SETTABLE levels.
+ *
+ * `Spec-005 §Provider Parameter Vocabularies` requires a driver declaring
+ * `output_speed` to publish this set, and `Spec-005 §The output-speed axis`
+ * requires it to come from this table rather than from the provider: obtaining
+ * the provider's declared state costs a turn-bearing request, which is the very
+ * conjunct that makes the flag `static`, so a vocabulary sourced by reading
+ * would contradict its own detection source.
+ *
+ * SETTABLE is the operative word, and it is why this set is narrower than the
+ * states the provider can REPORT. The pinned build declares its state from a
+ * three-value vocabulary, but the third is a provider-entered condition after a
+ * rate limit rather than something a participant may ask for. A caller can
+ * therefore request only the two ends of the toggle, while
+ * `ProviderOutputSpeedState.declared` carries whatever the provider reported —
+ * VERBATIM, including a value absent from this list, because that is a real
+ * state under version skew and coercing it would fabricate a reading.
+ */
+export const CLAUDE_OUTPUT_SPEED_LEVELS: readonly string[] = Object.freeze(["off", "on"]);
 
 // --------------------------------------------------------------------------
 // Seams
@@ -346,6 +385,20 @@ export class ClaudeCapabilityReporter {
       tools: getClaudeToolMetadata(),
       cliVersion: { raw: cliVersion.raw, semver: cliVersion.semver },
       detectionSource: { ...detection.detectionSource },
+      // Present iff the flag is, and a FRESH array on every reply.
+      //
+      // The two mechanisms do different jobs and the split is worth stating,
+      // because attributing the protection to the copy alone would be wrong.
+      // The FREEZE is what makes corruption impossible: the module constant is
+      // shared, and a consumer that pushed onto it would rewrite every later
+      // reply process-wide — so a reply handing back the constant itself would
+      // instead throw a TypeError into a caller composing on a value it believes
+      // it owns. The COPY is what keeps the published member an ordinary mutable
+      // array, so a consumer may sort, filter, or extend its own copy without a
+      // surprising throw and without reaching any other reader.
+      ...(CLAUDE_CAPABILITY_FLAGS.output_speed
+        ? { outputSpeedLevels: [...CLAUDE_OUTPUT_SPEED_LEVELS] }
+        : {}),
     };
   }
 
