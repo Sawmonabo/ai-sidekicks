@@ -23,11 +23,13 @@ import {
   type ApplyInterventionParams,
   type ClearSessionGoalParams,
   type CloseSessionParams,
+  type CompactContextParams,
   type CreateSessionParams,
   type DriverAuthProbeResult,
   type DriverCapabilities,
   type DriverCapabilityFlag,
   type DriverCliVersionReport,
+  type DriverCompactionResult,
   type DriverGoalResult,
   type DriverInterventionResult,
   type DriverResumeResult,
@@ -37,6 +39,8 @@ import {
   type ExportTranscriptParams,
   type GetCapabilitiesResult,
   type InterruptRunParams,
+  type ListProviderCommandsParams,
+  type ProviderCommandListResult,
   type ProviderDriver,
   type ProviderModel,
   type ProviderMode,
@@ -173,6 +177,12 @@ class FakeProviderDriver implements ProviderDriver {
     throw new Error("not implemented in test");
   }
   replayTranscript(_params: ReplayTranscriptParams): Promise<DriverTranscriptReplayResult> {
+    throw new Error("not implemented in test");
+  }
+  compactContext(_params: CompactContextParams): Promise<DriverCompactionResult> {
+    throw new Error("not implemented in test");
+  }
+  listProviderCommands(_params: ListProviderCommandsParams): Promise<ProviderCommandListResult> {
     throw new Error("not implemented in test");
   }
 }

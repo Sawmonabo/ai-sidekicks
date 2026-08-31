@@ -38,6 +38,7 @@ import type {
   DeclareDriverCapabilitiesInput,
   DeclareDriverCapabilitiesResult,
 } from "../../../driver-capabilities-writer.js";
+import { DRIVER_OUTPUT_SPEED_LEVELS } from "../../../driver-output-speed.js";
 import {
   assertValidCapabilityFlags,
   assertValidContractVersion,
@@ -49,6 +50,7 @@ import {
   CLAUDE_CAPABILITY_FLAGS,
   CLAUDE_DECLARED_MODEL_CATALOG,
   CLAUDE_DRIVER_NAME,
+  CLAUDE_OUTPUT_SPEED_LEVELS,
   ClaudeCapabilityReporter,
   ClaudeModelCatalogUnreadableError,
   normalizeClaudeModelCatalog,
@@ -146,8 +148,24 @@ describe("Claude capability declaration — explicit and total (I-005-2)", () =>
       subagents: true,
       transcript_replay: false,
       cost_cap: true,
+      context_compaction: true,
+      provider_commands: true,
+      output_speed: true,
     };
     expect(CLAUDE_CAPABILITY_FLAGS).toStrictEqual(matrix);
+  });
+
+  it("publishes the SETTABLE output-speed levels, which are not the reportable ones", () => {
+    // The distinction is load-bearing and is exactly what this pins. The pinned
+    // provider REPORTS `on`, `cooldown`, and `off`; what a participant may
+    // REQUEST is `off` and `on`, because a cooldown is a state the provider
+    // enters on its own and no caller can ask for. `outputSpeedLevels` bounds
+    // the request side only — a driver that published `cooldown` here would be
+    // offering a level whose selection cannot be honoured, and one that narrowed
+    // an OBSERVED `cooldown` into this set would fabricate a state the provider
+    // is not in (see `ClaudeSessionLifecycle.observedOutputSpeedFor`).
+    expect([...CLAUDE_OUTPUT_SPEED_LEVELS]).toStrictEqual(["off", "on"]);
+    expect(CLAUDE_OUTPUT_SPEED_LEVELS).not.toContain("cooldown");
   });
 
   it("pins the three cells whose value is easy to get backwards", () => {
@@ -191,6 +209,23 @@ describe("Claude capability declaration — explicit and total (I-005-2)", () =>
     }).not.toThrow();
   });
 
+  it("pins the contract version the T3.26 growth moved it to, as a MINOR bump", () => {
+    // The version is change detection, so it must actually MOVE when the
+    // declared shape does — the writer compares whole snapshots, and a frozen
+    // token on a grown declaration is the failure mode this pins against. MINOR
+    // because the growth is additive: three flags joined the census and
+    // `outputSpeedLevels` joined the report, and nothing previously declared
+    // changed meaning.
+    expect(CLAUDE_CAPABILITY_CONTRACT_VERSION).toBe("1.1.0");
+  });
+
+  it("spells the shared vocabulary table rather than copying it", () => {
+    // IDENTITY, not equality. The durable cache's hydration path serves this
+    // same member with no driver in hand, so the values live in one table both
+    // paths read; a second literal here would drift silently.
+    expect(CLAUDE_OUTPUT_SPEED_LEVELS).toBe(DRIVER_OUTPUT_SPEED_LEVELS.claude);
+  });
+
   it("freezes the declared record, so a reader cannot rewrite it process-wide", () => {
     expect(Object.isFrozen(CLAUDE_CAPABILITY_FLAGS)).toBe(true);
   });
@@ -208,6 +243,33 @@ describe("getCapabilities() — the V1 result wrapper", () => {
     expect(result.capabilities.contractVersion).toBe(CLAUDE_CAPABILITY_CONTRACT_VERSION);
     expect(result.tools).toStrictEqual([...CLAUDE_TOOL_CATALOG]);
     expect(result.cliVersion).toStrictEqual(CLI_VERSION);
+    // PRESENT, and present because the flag is: `outputSpeedLevels` is the
+    // settable vocabulary that gate reads, and a declared `output_speed` with no
+    // published set would leave the gate admitting every string.
+    expect("outputSpeedLevels" in result).toBe(true);
+    expect(result.outputSpeedLevels).toStrictEqual(["off", "on"]);
+  });
+
+  it("publishes the speed vocabulary as a fresh MUTABLE copy, never the frozen constant", async () => {
+    // Earns the copy's own doctrine rather than asserting the value twice. Two
+    // separable claims, and neither implies the other:
+    //
+    //   1. the reply is MUTABLE — a consumer sorting or extending its own copy
+    //      must not hit a TypeError on a value it believes it owns, which is
+    //      exactly what handing back the frozen module constant would produce;
+    //   2. that mutation reaches NO other reader — the next reply and the module
+    //      constant are both unchanged.
+    const reporter = makeReporter();
+    const first: GetCapabilitiesResult = await reporter.getCapabilities();
+
+    expect(() => {
+      first.outputSpeedLevels?.push("turbo");
+    }).not.toThrow();
+
+    const second: GetCapabilitiesResult = await reporter.getCapabilities();
+    expect(second.outputSpeedLevels).toStrictEqual(["off", "on"]);
+    expect(CLAUDE_OUTPUT_SPEED_LEVELS).toStrictEqual(["off", "on"]);
+    expect(Object.isFrozen(CLAUDE_OUTPUT_SPEED_LEVELS)).toBe(true);
   });
 
   it("produces a wrapper the write seam's shape guard accepts", () => {

@@ -119,6 +119,7 @@ import type {
   DriverCapabilitiesWriter,
 } from "../../driver-capabilities-writer.js";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
+import { DRIVER_OUTPUT_SPEED_LEVELS } from "../../driver-output-speed.js";
 import type { SpawnedProviderVersionReading } from "../../version-gate.js";
 
 import { getCodexToolMetadata } from "./tools.js";
@@ -133,8 +134,14 @@ export const CODEX_DRIVER_NAME = "codex" as const;
  * negotiated version: nothing branches on its value. It moves when the shape
  * of what this driver advertises changes, which is what makes a cached
  * snapshot recognizably stale.
+ *
+ * `1.1.0` (T3.26): additive growth, hence a MINOR move. The declared flag set
+ * grew from fourteen to seventeen (`context_compaction`, `provider_commands`,
+ * `output_speed`). Nothing previously declared changed meaning, which is what
+ * keeps this off a major — and the `output_speed: false` this driver declares
+ * is a complete answer rather than a withdrawal.
  */
-export const CODEX_CAPABILITY_CONTRACT_VERSION: string = "1.0.0";
+export const CODEX_CAPABILITY_CONTRACT_VERSION: string = "1.1.0";
 
 /**
  * The Codex column of `Spec-005 §Per-Driver Capability Matrix`.
@@ -188,7 +195,38 @@ export const CODEX_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boole
     // on a capless leg rather than admitting an unbounded run
     // (`orchestration.budget_exhausted`, `reason: 'driver_capless'`).
     cost_cap: false,
+    // Participant-triggered compaction is a first-class client-request method
+    // (`thread/compact/start`), and the compaction it performs announces itself
+    // with the same typed frame an unsolicited compaction does — which is the
+    // evidence the operation settles on.
+    context_compaction: true,
+    // The provider publishes an enumerable skill surface (`skills/list`) and
+    // signals its own invalidation, so the enumeration is a live read this
+    // driver can take and re-take rather than a catalog it would have to cache.
+    provider_commands: true,
+    // FALSE: this provider publishes no accelerated-output axis at all — its
+    // generated method root contains no speed or fast-output member anywhere —
+    // so nothing is emulated onto it. A complete declaration, not a gap: the
+    // analog is the per-turn `model` / `effort` axis, which this driver DOES
+    // carry and declares through `model_mutation` above.
+    output_speed: false,
   });
+
+/**
+ * The Codex column of the output-speed value vocabulary.
+ *
+ * EMPTY, and that is the complete declaration the `false` flag above implies:
+ * `Spec-005 §The output-speed axis` makes an absent or empty vocabulary the
+ * signal that the axis is unsettable, so a caller carrying an `outputSpeed`
+ * refuses fail-closed rather than forwarding an unvalidated value to a provider
+ * that has no such surface.
+ *
+ * The VALUES live in `../../driver-output-speed.ts`, alongside the other
+ * driver's, because the durable capability cache's hydration path publishes this
+ * same member with no driver in hand. This is the driver-local spelling of that
+ * one table, never a second copy of it.
+ */
+export const CODEX_OUTPUT_SPEED_LEVELS: readonly string[] = DRIVER_OUTPUT_SPEED_LEVELS.codex;
 
 /**
  * Compose the Codex `getCapabilities()` report.
@@ -257,6 +295,15 @@ export function getCodexCapabilities(
     // frozen and shared, and a caller that mutates a reply must not rewrite the
     // next caller's provenance.
     detectionSource: { ...detection.detectionSource },
+    // Present iff the flag is, which on this driver it never is — so the member
+    // is omitted rather than served as an empty array. Omission and emptiness
+    // mean the same thing to `Spec-005 §The output-speed axis` (the axis is
+    // unsettable), and omitting is the honest encoding of a driver that
+    // publishes no such axis: an empty array would read as a vocabulary that
+    // happens to have no members today.
+    ...(CODEX_CAPABILITY_FLAGS.output_speed
+      ? { outputSpeedLevels: [...CODEX_OUTPUT_SPEED_LEVELS] }
+      : {}),
   };
 }
 
@@ -414,7 +461,16 @@ function freezeDeclaredModelArray(values: string[]): string[] {
   return values;
 }
 
-/** The two effort vocabularies the pinned build publishes, by model generation. */
+/**
+ * The two SHARED effort vocabularies, by model generation.
+ *
+ * The pinned build publishes THREE distinct lists across its eight models; the
+ * third belongs to exactly one row and is written inline there rather than
+ * named here, because a constant naming one model's list would read as a
+ * generation. The count is stated because it is the fact that makes the levels
+ * per-model rather than per-provider — a provider-wide list would be wrong for
+ * some model in the very same reply.
+ */
 const CODEX_EXTENDED_EFFORT_LEVELS: readonly string[] = Object.freeze([
   "low",
   "medium",

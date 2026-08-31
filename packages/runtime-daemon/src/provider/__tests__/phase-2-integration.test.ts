@@ -283,6 +283,14 @@ function makeMockDriver(capabilitiesResult: GetCapabilitiesResult): MockProvider
     replayTranscript(): Promise<never> {
       return Promise.reject(new Error("replayTranscript not exercised in this integration suite"));
     },
+    compactContext(): Promise<never> {
+      return Promise.reject(new Error("compactContext not exercised in this integration suite"));
+    },
+    listProviderCommands(): Promise<never> {
+      return Promise.reject(
+        new Error("listProviderCommands not exercised in this integration suite"),
+      );
+    },
   };
 }
 

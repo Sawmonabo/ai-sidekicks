@@ -21,7 +21,8 @@
 // Plan-009 (`migrations/0010-repo-workspaces.ts`); versions 11 and 12 by
 // Plan-005 (`migrations/0011-driver-capability-currency.ts`,
 // `migrations/0012-transcript-capability-backfill.ts`); version 13 by
-// Plan-006 (`migrations/0013-content-payload.ts`). Subsequent plans
+// Plan-006 (`migrations/0013-content-payload.ts`); version 14 by Plan-005
+// (`migrations/0014-console-parity-capability-flags.ts`). Subsequent plans
 // (015, 022...) — and Plan-006's own remaining migrations — register their
 // version as a further guarded block of the same shape and bump
 // `schema_version`.
@@ -97,6 +98,7 @@ import { REPO_WORKSPACES_MIGRATION_SQL } from "../migrations/0010-repo-workspace
 import { DRIVER_CAPABILITY_CURRENCY_MIGRATION_SQL } from "../migrations/0011-driver-capability-currency.js";
 import { TRANSCRIPT_CAPABILITY_BACKFILL_MIGRATION_SQL } from "../migrations/0012-transcript-capability-backfill.js";
 import { CONTENT_PAYLOAD_MIGRATION_SQL } from "../migrations/0013-content-payload.js";
+import { CONSOLE_PARITY_CAPABILITY_FLAGS_MIGRATION_SQL } from "../migrations/0014-console-parity-capability-flags.js";
 
 /**
  * Apply pragmas to an open Database handle. MUST be called on every
@@ -345,6 +347,36 @@ export function applyMigrations(db: DatabaseType): void {
     db.transaction(() => {
       if (!hasMigrationApplied(db, 13)) {
         db.exec(CONTENT_PAYLOAD_MIGRATION_SQL);
+      }
+    }).immediate();
+  }
+
+  if (!hasMigrationApplied(db, 14)) {
+    // Version 14 (Plan-005) — the console-parity capability flags: the
+    // `capability_flag` CHECK widened from fourteen values to SEVENTEEN through
+    // the same twelve-step table rebuild version 11 performed, plus a
+    // `supported = 0` backfill of the three added flags for every cached
+    // `driver_name`. Unlike version 12 this one CANNOT be a bare row insert:
+    // version 11 froze the CHECK at exactly fourteen literals and pre-admits
+    // none of the three, so the constraint has to move before any row can land.
+    //
+    // It follows version 13 by ORDINAL and not by dependency. That version is
+    // Plan-006's `session_events` work and touches neither this table nor this
+    // constraint, so the two are independent in the strong sense; what this one
+    // requires is version 11's table, and only version 11's.
+    //
+    // Atomicity carries the full version-11 weight rather than version 12's,
+    // because this ordinal rebuilds a table: a torn apply could leave
+    // `driver_capabilities_new` present with `driver_capabilities` dropped —
+    // every capability read failing as `no such table` — or land the widened
+    // CHECK without its backfill rows, leaving a cache whose row count differs
+    // from the declared union and so tripping the hydrator's exact-cardinality
+    // guard on the first read after boot. Like versions 9, 10, and 11 it cannot
+    // be re-applied by hand: the rebuild's CREATE would throw "table already
+    // exists".
+    db.transaction(() => {
+      if (!hasMigrationApplied(db, 14)) {
+        db.exec(CONSOLE_PARITY_CAPABILITY_FLAGS_MIGRATION_SQL);
       }
     }).immediate();
   }

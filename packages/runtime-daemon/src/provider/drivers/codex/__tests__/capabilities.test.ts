@@ -37,6 +37,7 @@ import type {
   DeclareDriverCapabilitiesResult,
 } from "../../../driver-capabilities-writer.js";
 import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
+import { DRIVER_OUTPUT_SPEED_LEVELS } from "../../../driver-output-speed.js";
 import { DriverCapabilityUnsupportedError, ProviderRegistry } from "../../../provider-registry.js";
 import {
   assertValidCapabilityFlags,
@@ -50,6 +51,7 @@ import {
   CODEX_CAPABILITY_FLAGS,
   CODEX_DECLARED_MODEL_CATALOG,
   CODEX_DRIVER_NAME,
+  CODEX_OUTPUT_SPEED_LEVELS,
   CodexModelCatalogUnreadableError,
   getCodexCapabilities,
   normalizeCodexModelCatalog,
@@ -77,6 +79,14 @@ const SPEC_CODEX_MATRIX: Record<DriverCapabilityFlag, boolean> = {
   subagents: true,
   transcript_replay: false,
   cost_cap: false,
+  // T3.26 console parity. `context_compaction` and `provider_commands` are
+  // NATIVE on this provider (`thread/compact/start` + `thread/compacted`, and
+  // `skills/list`), while `output_speed` is `false` because this CLI publishes
+  // no speed axis at all — a complete declaration rather than an unmeasured
+  // one, and the reason nothing is emulated onto it.
+  context_compaction: true,
+  provider_commands: true,
+  output_speed: false,
 };
 
 const CLI_VERSION_REPORT: DriverCliVersionReport = {
@@ -215,6 +225,41 @@ describe("Codex getCapabilities() wrapper (T3.3)", () => {
       assertValidCliVersionReport(CODEX_DRIVER_NAME, result.cliVersion);
     }).not.toThrow();
     expect(result.capabilities.contractVersion).toBe(CODEX_CAPABILITY_CONTRACT_VERSION);
+  });
+
+  it("pins the contract version the T3.26 growth moved it to, as a MINOR bump", () => {
+    // Change detection only works if the token actually MOVES when the declared
+    // shape does — the writer compares whole snapshots, and a frozen token on a
+    // grown declaration is the failure mode this pins against. MINOR because the
+    // growth is additive: three flags joined the census, and this driver's
+    // `output_speed: false` is a complete answer rather than a withdrawal.
+    expect(CODEX_CAPABILITY_CONTRACT_VERSION).toBe("1.1.0");
+  });
+
+  it("spells the shared vocabulary table rather than copying it", () => {
+    // IDENTITY, not equality — the durable cache's hydration path serves this
+    // same member with no driver in hand, so both paths read one table.
+    expect(CODEX_OUTPUT_SPEED_LEVELS).toBe(DRIVER_OUTPUT_SPEED_LEVELS.codex);
+  });
+
+  it("OMITS the speed vocabulary rather than publishing an empty one", () => {
+    // `Object.hasOwn` and not `toBeUndefined()`: under
+    // `exactOptionalPropertyTypes` the latter passes for a key that IS present
+    // carrying `undefined`, which is precisely the regression an edit to the
+    // conditional spread would introduce.
+    //
+    // The claim is worth a test of its own even though omission and emptiness
+    // mean the same thing to the axis's own reader (unsettable, in both cases):
+    // an empty array reads as a vocabulary that happens to have no members
+    // today, while omission is what a driver publishing no such axis at all
+    // should say — and only one of the two is what this driver ships.
+    const result: GetCapabilitiesResult = getCodexCapabilities(
+      CLI_VERSION_READING,
+      CODEX_DETECTION,
+    );
+
+    expect(CODEX_CAPABILITY_FLAGS.output_speed).toBe(false);
+    expect(Object.hasOwn(result, "outputSpeedLevels")).toBe(false);
   });
 
   it("carries the T3.4 tool census, and every row passes the write-seam schema", () => {

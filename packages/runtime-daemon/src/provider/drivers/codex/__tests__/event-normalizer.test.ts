@@ -345,6 +345,11 @@ const EXPECTED_NOT_EVENTED_METHODS: readonly CodexInboundFrameMethod[] = [
   "thread/environment/connected",
   "thread/environment/disconnected",
   "thread/settings/updated",
+  // T3.26. The skill-file watch signal: an empty-payload invalidation cue whose
+  // only consequence is daemon-side (the driver's held command enumeration is
+  // discarded so the next read is a full re-read), so it carries no session
+  // observation a timeline row could hold.
+  "skills/changed",
 ];
 
 /**
@@ -1066,12 +1071,14 @@ describe("Codex event normalizer — negotiation-gated methods are declared, not
 
   it("pins the transport split the declaration comment states", () => {
     // The comment on CODEX_NEGOTIATION_GATED_METHODS claims "1 of 10" requests
-    // and "11 of this census's 25" notifications. A prose count that no test
+    // and "11 of this census's 26" notifications. A prose count that no test
     // reads is a count that drifts -- this one was wrong (24) on first write
-    // and was caught by measuring rather than by re-reading.
+    // and was caught by measuring rather than by re-reading. It moved 25 -> 26
+    // at T3.26 with `skills/changed`, which is UNGATED, so the gated split
+    // below is unchanged by that addition.
     const rows = [...CODEX_FRAME_NORMALIZATION_BY_METHOD.values()];
     expect(rows.filter((row) => row.transport === "server-request")).toHaveLength(10);
-    expect(rows.filter((row) => row.transport === "server-notification")).toHaveLength(25);
+    expect(rows.filter((row) => row.transport === "server-notification")).toHaveLength(26);
 
     const gatedByTransport = CODEX_NEGOTIATION_GATED_METHODS.map(
       (method) => CODEX_FRAME_NORMALIZATION_BY_METHOD.get(method)?.transport,
@@ -1193,6 +1200,12 @@ describe("classifyCodexFrameFamilyForRouting (T3.11, NS-91)", () => {
       "account/chatgptAuthTokens/refresh",
       "model/safetyBuffering/updated",
       "project/changed",
+      // T3.26. Connection-scoped by its own pinned shape — its payload is the
+      // empty object, so it names no thread. Asserted explicitly because the
+      // alternative is not merely a different label: an unlisted method
+      // quarantines, which would emit a router diagnostic on every save of
+      // every watched skill file.
+      "skills/changed",
     ]) {
       expect(classifyCodexFrameFamilyForRouting(connectionScopedMethod)).toEqual({
         scope: "connection",

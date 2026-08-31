@@ -194,17 +194,17 @@ type DriverCapabilityFlag =
   | "context_compaction" // compacts the bound session's own provider-side context on participant request via compactContext (2026-08-29, Spec-005 §Participant-triggered context compaction)
   | "provider_commands" // enumerates the provider's native slash-commands and skills via listProviderCommands — a LIVE read, never a stored registry (2026-08-29, Spec-005 §The provider command and skill surface)
   | "output_speed"; // declares a participant-settable provider-side output-speed mode; Claude only, detectionSource STATIC because reading the declared state is not zero-turn (2026-08-29, Spec-005 §The output-speed axis)
-// Code-mirror gate (campaign B3/B6): the shipped executable union
-// (packages/contracts/src/provider-driver.ts) now exports THIRTEEN of these — every member above
-// except transcript_replay, context_compaction, provider_commands, and output_speed — and the shipped
-// assertValidCapabilityFlags rejects any snapshot whose key
-// count differs, so a driver MUST NOT declare any of those four against the shipped validator. Union +
-// validator + driver_capabilities migration backfill + conformance tests widened together as ONE change
-// via the campaign's Plan-005 bundle for the first six; Plan-005 T3.19 (2026-08-26) lands the fourteenth
-// by extending that same union rather than opening a second seam, and Plan-005 T3.26 (2026-08-29) lands
-// the fifteenth through seventeenth the same way. That last widening rebuilds an ALREADY-SHIPPED CHECK —
-// migration 0011 froze driver_capabilities.capability_flag at fourteen values — so it consumes a
-// next-ordinal table-rebuild migration rather than amending a CREATE, and adds no table and no column; cost_cap-gated admission code
+// Code-mirror gate (campaign B3/B6) DISCHARGED: the shipped executable union
+// (packages/contracts/src/provider-driver.ts) now exports ALL SEVENTEEN of these, so no member above is
+// declarable in doc only and the "MUST NOT declare" carve-out this note used to carry has no remaining
+// subject. The shipped assertValidCapabilityFlags still rejects
+// any snapshot whose key count differs, so union +
+// validator + driver_capabilities migration backfill + conformance tests widen together as ONE change or
+// not at all — the coupling that held on every wave: the campaign's Plan-005 bundle landed the first six,
+// Plan-005 T3.19 (2026-08-26) the fourteenth by extending that same union rather than opening a second
+// seam, and Plan-005 T3.26 (2026-08-29) the fifteenth through seventeenth the same way. That last
+// widening rebuilds an ALREADY-SHIPPED CHECK — migration 0011 froze
+// driver_capabilities.capability_flag at fourteen values — so it consumed the next-ordinal table-rebuild migration 0014 rather than amending a CREATE, adding no table and no column; cost_cap-gated admission code
 // (Plan-016 T2.3) dispatch-gates on that bundle (same named-bundle gate as the goal driver mirror).
 ```
 

@@ -145,6 +145,28 @@ export interface RuntimeBindingSpawnConfig {
   // binary the original spawn resolved rather than re-resolving against a PATH
   // that may have changed underneath it.
   readonly resolvedExecutablePath?: string | undefined;
+  // Owner: Plan-005 T3.26 — `Spec-005 §Desktop Console Parity Surfaces`: the
+  // FIFTH resume leg, and spawn-bound for the same reason the other four are.
+  // The accelerated-output axis is realized at process spawn on the one provider
+  // that publishes it, so a resume that dropped it would silently relaunch at the
+  // provider's default speed while every layer above still read the operator's
+  // accepted choice.
+  //
+  // WHAT IS STORED IS THE REQUEST, NEVER THE OBSERVATION. This member records the
+  // level the spawn was ASKED for, so a resume can re-realize it; the provider's
+  // own reported state is `ProviderOutputSpeedState`, which the driver holds
+  // against the live binding and DISCARDS with it. Persisting the observation
+  // here instead would make a mode that stopped being available read as accepted
+  // after a restart, and would put two records of one axis in the same row.
+  //
+  // Like `providerAccountId` above, MINTED NOW and VALUED LATER: this whole
+  // record has no in-tree producer yet — the write seam that assembles a
+  // `CreateRuntimeBindingInput` from a client's `CreateSessionParams` is T3.14's,
+  // and the driver-side consumer that turns the stored level back into a spawn
+  // argument is each driver's own create path. Minting the member with its resume
+  // disposition now is what makes that later seam a copy rather than a widening
+  // of this type AND its closed-key-set parser AND its disposition table.
+  readonly outputSpeed?: string | undefined;
 }
 
 /**
@@ -372,6 +394,7 @@ const SPAWN_CONFIG_MEMBER_CHECKS = {
   admittedCostCapCents: (value) => typeof value === "number",
   providerAccountId: (value) => typeof value === "string",
   resolvedExecutablePath: (value) => typeof value === "string",
+  outputSpeed: (value) => typeof value === "string",
 } satisfies Readonly<Record<keyof RuntimeBindingSpawnConfig, (value: unknown) => boolean>>;
 
 // --------------------------------------------------------------------------
@@ -409,7 +432,7 @@ export interface ResumeFunctionLegInjection {
  * member to the stored record without deciding whether a resumed leg re-realizes
  * it is a COMPILE error. Without this table the failure mode is silent — a new
  * spawn-bound surface lands, `spawn_config` faithfully stores it, and the resume
- * path keeps composing the four legs it was written against, so the resumed
+ * path keeps composing the legs it was written against, so the resumed
  * process sheds the new surface with nothing anywhere reporting it. That is the
  * exact class of loss CP-005-1 exists to prevent, and prose cannot enforce it.
  *
@@ -443,6 +466,12 @@ const SPAWN_CONFIG_RESUME_DISPOSITION = {
   admittedCostCapCents: "resume-leg",
   providerAccountId: "relaunch-input",
   resolvedExecutablePath: "relaunch-input",
+  // A RESUME LEG rather than a relaunch input, and the split is exactly the one
+  // the two `relaunch-input` members above sit on: those are consumed by the
+  // spawn RESOLUTION that precedes the driver call (which binary, which
+  // credential home), while this is a parameter the driver itself takes and
+  // hands to the provider.
+  outputSpeed: "resume-leg",
 } satisfies Readonly<Record<keyof RuntimeBindingSpawnConfig, "resume-leg" | "relaunch-input">>;
 
 /** The `spawn_config` members a resumed leg re-realizes through its params. */
@@ -514,6 +543,7 @@ export function composeResumeSessionParams(
     subagentPolicy: spawnConfig.subagentPolicy,
     outputSchema: spawnConfig.outputSchema,
     admittedCostCapCents: spawnConfig.admittedCostCapCents,
+    outputSpeed: spawnConfig.outputSpeed,
   } satisfies { [Key in ResumeLegSpawnConfigKey]: RuntimeBindingSpawnConfig[Key] };
   return {
     sessionId,

@@ -7,15 +7,19 @@
 // `ClaudeRunChannelLookup` — so the dispatcher can find the channel a run is
 // bound to without reaching into session state it must not mutate.
 //
-// WHY `Pick<ProviderDriver, ...>` AND NOT `implements ProviderDriver`. The
-// operations still absent from `ClaudeDriverOperations` below — `respondToRequest`,
-// `listModes`, `getCapabilities`, `exportTranscript`, `replayTranscript` — are
-// authored by sibling Phase-3
-// tasks (T3.8 capabilities/models/modes, T3.14 interactive requests + auth probe,
-// T3.15 the R8 parity operations); `listModels` joined the list with T3.12's
-// currency duty (C-8). The enumeration is re-derived from the type argument
-// rather than restated, so it cannot drift from what this class implements.
-// Declaring the full interface today would force
+// WHY `Pick<ProviderDriver, ...>` AND NOT `implements ProviderDriver`. This class
+// implements THIRTEEN of the contract's EIGHTEEN operations — both figures
+// counted from `ClaudeDriverOperations` below and from the `ProviderDriver`
+// members themselves rather than carried forward from an earlier revision, since
+// each side of that subtraction has moved twice this phase. The five still
+// absent — `respondToRequest`, `listModes`, `getCapabilities`,
+// `exportTranscript`, `replayTranscript` — are authored by sibling Phase-3 tasks
+// (T3.8 capabilities / modes, T3.14 interactive requests, T3.20–T3.22 the
+// canonical-transcript export and replay pipeline). `listModels` left that list
+// with T3.12's currency duty (C-8), and `compactContext` / `listProviderCommands`
+// with T3.26's console-parity surfaces. The enumeration is re-derived from the
+// type argument rather than restated, so it cannot drift from what this class
+// implements. Declaring the full interface today would force
 // throwing stubs into the driver, and a driver that answers a contract operation
 // by throwing is indistinguishable from one whose provider refused — the exact
 // conflation I-005-2 and I-005-4 exist to prevent. The `Pick` binds every
@@ -28,9 +32,13 @@ import type {
   ApplyInterventionParams,
   ClearSessionGoalParams,
   CloseSessionParams,
+  CompactContextParams,
   CreateSessionParams,
   DriverAuthProbeResult,
+  DriverCompactionResult,
   DriverGoalResult,
+  ListProviderCommandsParams,
+  ProviderCommandListResult,
   DriverInterventionResult,
   DriverResumeResult,
   DriverRollbackResult,
@@ -77,6 +85,7 @@ export {
   ClaudeSessionUnavailableError,
   ClaudeSubagentConcurrencyGate,
   CLAUDE_CALLBACK_MCP_SERVER_NAME,
+  CLAUDE_COMPACTION_WAIT_MS,
   CLAUDE_SUBAGENT_MAX_DEPTH_CEILING,
   composeClaudeCallbackMcpServer,
   composeClaudeProviderToolName,
@@ -87,6 +96,9 @@ export {
   type ClaudeControlRequest,
   type ClaudeControlRequestRefusedFields,
   type ClaudeControlResponse,
+  type ClaudeCompactionBoundaryObservation,
+  type ClaudeHandshakeDeclaration,
+  type ClaudeInboundFrameObservation,
   type ClaudeInterruptControlRequest,
   type ClaudeResumedSessionAttachment,
   type ClaudeRewoundSessionAttachment,
@@ -114,8 +126,8 @@ export {
   type ClaudeWithheldSubagentDefinition,
 } from "./lifecycle.js";
 
-// The operations PR-A owns, named once so the class declaration and any consumer
-// assertion read from the same list.
+// The operations this driver owns, named once so the class declaration, the
+// header count, and any consumer assertion read from the same list.
 export type ClaudeDriverOperations = Pick<
   ProviderDriver,
   | "createSession"
@@ -129,6 +141,8 @@ export type ClaudeDriverOperations = Pick<
   | "clearSessionGoal"
   | "probeAuth"
   | "listModels"
+  | "compactContext"
+  | "listProviderCommands"
 >;
 
 export type ClaudeDriverDependencies = ClaudeSessionLifecycleDependencies & {
@@ -219,5 +233,15 @@ export class ClaudeDriver implements ClaudeDriverOperations {
    */
   async listModels(): Promise<ProviderModel[]> {
     return await resolveClaudeModelCatalog(this.#modelCatalogExchange);
+  }
+
+  async compactContext(params: CompactContextParams): Promise<DriverCompactionResult> {
+    return await this.#lifecycle.compactContext(params);
+  }
+
+  async listProviderCommands(
+    params: ListProviderCommandsParams,
+  ): Promise<ProviderCommandListResult> {
+    return await this.#lifecycle.listProviderCommands(params);
   }
 }

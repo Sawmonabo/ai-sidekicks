@@ -333,6 +333,28 @@ export const CODEX_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = 
     rationale:
       "A spawn-time budget property. No client-request method names it, so the one zero-turn channel cannot decide it; the `false` is a complete declaration and Spec-016's unpriced-family escape consumes it fail-closed.",
   },
+  context_compaction: {
+    detectionSource: "probed",
+    probe: {
+      probeNames: ["thread/compact/start"],
+      decisiveness:
+        "The flag asserts that participant-triggered compaction exists on the wire, and this is precisely the method its consumer — the driver's `compactContext` leg — calls. Unlike the sibling `rollback` entry, acceptance leaves NO parameter-level fact unestablished: the method's whole parameter set is the thread identity the driver already holds, so a build that accepts the method accepts every argument this driver will ever send it.",
+    },
+  },
+  provider_commands: {
+    detectionSource: "probed",
+    probe: {
+      probeNames: ["skills/list"],
+      decisiveness:
+        "The flag asserts that the provider publishes an enumerable command and skill surface, and this is the method the driver's `listProviderCommands` leg reads it through. Every parameter it takes is OPTIONAL, so — as with the compaction entry above — method acceptance is decisive at the granularity the flag is consumed at rather than leaving a required argument unprobed.",
+    },
+  },
+  output_speed: {
+    detectionSource: "static",
+    failingConjuncts: ["decisive-at-consumption-granularity"],
+    rationale:
+      "FALSE on this driver, and a complete declaration rather than an unprobed gap. The failing conjunct here is DECISIVENESS and not zero-turn — deliberately a different conjunct from the sibling Claude entry: the one zero-turn channel this driver has enumerates client-request METHODS, and an accelerated-output mode is a handshake-declared STATE rather than a method, so that channel cannot decide it in either direction. This provider's own generated method root contains no speed or fast-output member anywhere, which is what makes the `false` a reading of the surface rather than an absence of one.",
+  },
 });
 
 /**
@@ -447,6 +469,24 @@ export const CLAUDE_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable =
     failingConjuncts: ["decisive-at-consumption-granularity"],
     rationale:
       "Delivered by the launch-time `--max-budget-usd` flag, which the control-request channel cannot interrogate.",
+  },
+  context_compaction: {
+    detectionSource: "static",
+    failingConjuncts: ["zero-turn"],
+    rationale:
+      "The compaction this driver's leg dispatches is the provider's OWN command, and the only evidence that command exists on this build is its presence in the session-handshake command enumeration — which the provider emits as part of a turn-bearing exchange. Reading it therefore costs a turn, so the one conjunct that fails is zero-turn rather than decisiveness: the enumeration WOULD decide the flag, and is simply not free to obtain.",
+  },
+  provider_commands: {
+    detectionSource: "static",
+    failingConjuncts: ["zero-turn"],
+    rationale:
+      "The enumeration IS the capability here, and it rides that same turn-bearing session handshake. Same failing conjunct as the compaction entry above and for the same reason: the reading is decisive and simply not free.",
+  },
+  output_speed: {
+    detectionSource: "static",
+    failingConjuncts: ["zero-turn"],
+    rationale:
+      "TRUE on this driver. The declared speed state arrives on the same turn-bearing session handshake, so obtaining it costs a user-message request — which is exactly the conjunct that keeps this entry static, and exactly why the axis's value set is declared from this driver's own table rather than read from the provider: a vocabulary obtained by reading would contradict its own detection source.",
   },
 });
 

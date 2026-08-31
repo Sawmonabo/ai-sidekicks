@@ -281,6 +281,16 @@ export type CodexInboundFrameMethod =
   | "thread/goal/cleared"
   | "account/rateLimits/updated"
   | "thread/compacted"
+  // The local skill-file watch signal. In the pinned generated
+  // `ServerNotification` root beside the arms above and carrying NO
+  // `#[experimental(...)]` marker, so it is delivered to this driver's
+  // `experimentalApi: false` connection rather than being dormant like the
+  // gated block below. Deliberately carries no `__fixtures__/` row: that
+  // golden vector transcribes only the subset
+  // `docs/reference/provider-wire/codex.md` names BY HAND, and it names this
+  // one nowhere — inventing a fixture row to match a schema arm is exactly the
+  // hand-transcription that file's header forbids.
+  | "skills/changed"
   | "item/autoApprovalReview/started"
   | "item/autoApprovalReview/completed"
   | "model/safetyBuffering/updated"
@@ -375,7 +385,7 @@ export type CodexInboundFrameMethod =
 export const CODEX_NEGOTIATION_GATED_METHODS: readonly CodexInboundFrameMethod[] = Object.freeze([
   // ServerRequest — 1 of 10 (the only EXPERIMENTAL-marked request arm).
   "item/tool/requestUserInput",
-  // ServerNotification — 11 of this census's 25.
+  // ServerNotification — 11 of this census's 26.
   "process/outputDelta",
   "process/exited",
   "turn/moderationMetadata",
@@ -865,6 +875,23 @@ const CODEX_FRAME_NORMALIZATION_RECORD = {
     eventType: "usage.context_compacted",
     normalizedKind: "compact_boundary",
   },
+  // The skill-file watch signal (T3.26). NOT EVENTED, and the reason is that
+  // it carries no observation at all: `SkillsChangedNotification` is
+  // `Record<string, never>` in the pinned generation — an empty object whose
+  // own doc comment says to "treat this as an invalidation signal and re-run
+  // `skills/list` ... when refreshed skill metadata is needed". A timeline row
+  // minted from it could say only that something under a watched path changed,
+  // which is a fact about the operator's filesystem rather than about the
+  // session, and the daemon already owns the only consequence it has: the
+  // driver's held enumeration is discarded so the next read is a FULL re-read
+  // rather than a patch. See `Spec-005 §Desktop Console Parity Surfaces`.
+  "skills/changed": {
+    disposition: "not-evented",
+    nativeMethod: "skills/changed",
+    transport: "server-notification",
+    reason:
+      "empty-payload invalidation signal for the provider's local skill-file watch; it carries no session observation to lose, and its only consequence — discarding the driver-held command enumeration so the next read re-reads in full — is daemon-side state the provider is telling the client to refresh",
+  },
   // Auto-approval review lifecycle — same delta row, same anti-bypass
   // reasoning, as `guardianWarning` above.
   "item/autoApprovalReview/started": {
@@ -1252,6 +1279,22 @@ export const CODEX_TURN_STARTED_METHOD = "turn/started" as const;
 export const CODEX_TURN_COMPLETED_METHOD = "turn/completed" as const;
 
 /**
+ * The two census methods the T3.26 console-parity band binds against by
+ * IDENTITY rather than by re-spelling (`Spec-005 §Desktop Console Parity
+ * Surfaces`).
+ *
+ * Both are members of the census union above, so unlike the router-band
+ * constants beside them these are not "absent from the table" markers — they
+ * exist so `lifecycle.ts` compares against the same symbol the mapping table
+ * and the family classifier use. A re-spelling in one place and not the other
+ * would silently stop settling compaction waits, or silently stop invalidating
+ * the held command enumeration, and neither failure has a loud symptom: the
+ * first looks like a slow provider and the second like a stale palette.
+ */
+export const CODEX_THREAD_COMPACTED_METHOD = "thread/compacted" as const;
+export const CODEX_SKILLS_CHANGED_METHOD = "skills/changed" as const;
+
+/**
  * The `ThreadSourceKind` arms that mark a provider-attributed SUBAGENT child
  * (spend rides the (`runId`, `provider`, `subagentId`) triple), versus the
  * provider-internal arm (`subAgentCompact` — a compaction thread) whose spend
@@ -1297,8 +1340,14 @@ export function deriveCodexChildThreadAnnouncement(threadStarted: {
 export function classifyCodexFrameFamilyForRouting(nativeMethod: string): ThreadFrameFamilyClass {
   switch (nativeMethod) {
     // Connection- and account-scoped: notices, account-plane quota, auth
-    // brokering, attestation, model-level capability signals — frames whose
-    // own shape carries no thread identity.
+    // brokering, attestation, model-level capability signals — and the
+    // skill-file watch cue, whose pinned payload is the empty object — frames
+    // whose own shape carries no thread identity.
+    //
+    // Listing `skills/changed` here rather than leaving it `unknown` is
+    // load-bearing: an unlisted method quarantines, and quarantining would emit
+    // a `thread_frame_quarantined` diagnostic on every save of every watched
+    // skill file.
     case "error":
     case "warning":
     case "configWarning":
@@ -1308,11 +1357,12 @@ export function classifyCodexFrameFamilyForRouting(nativeMethod: string): Thread
     case "account/chatgptAuthTokens/refresh":
     case "attestation/generate":
     case "model/safetyBuffering/updated":
+    case CODEX_SKILLS_CHANGED_METHOD:
       return { scope: "connection" };
     // Thread-scoped usage: the cumulative token reading the accountant
     // meters, and the thread-level compaction marker.
     case CODEX_THREAD_TOKEN_USAGE_METHOD:
-    case "thread/compacted":
+    case CODEX_THREAD_COMPACTED_METHOD:
       return { scope: "thread", capability: "usage" };
     // Thread-scoped lifecycle: the thread-start announcement (the router's
     // registration input) and the turn-boundary pair. `turn/completed` MUST be

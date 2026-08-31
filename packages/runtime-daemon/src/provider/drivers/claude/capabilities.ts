@@ -111,6 +111,7 @@ import type {
   DriverCapabilitiesWriter,
 } from "../../driver-capabilities-writer.js";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
+import { DRIVER_OUTPUT_SPEED_LEVELS } from "../../driver-output-speed.js";
 import type { SpawnedProviderVersionReading } from "../../version-gate.js";
 
 import { getClaudeToolMetadata } from "./tools.js";
@@ -132,10 +133,16 @@ export const CLAUDE_DRIVER_NAME = "claude" as const;
  * for the capability writer, NOT a negotiation surface (`Spec-005 §Capability
  * discovery`). It must be a canonical identifying semver
  * (`assertValidContractVersion`), and it is bumped when the DECLARED SHAPE
- * changes (a flag's value, a tool's class, the tool census) so a node that
- * already has a row re-reads rather than trusting its cache.
+ * changes — a flag's value, the FLAG CENSUS, a tool's class, the tool census,
+ * or a member joining the report — so a node that already has a row re-reads
+ * rather than trusting its cache.
+ *
+ * `1.1.0` (T3.26): additive growth, hence a MINOR move. The declared flag set
+ * grew from fourteen to seventeen (`context_compaction`, `provider_commands`,
+ * `output_speed`) and the report gained `outputSpeedLevels`. Nothing previously
+ * declared changed meaning, which is what keeps this off a major.
  */
-export const CLAUDE_CAPABILITY_CONTRACT_VERSION: string = "1.0.0";
+export const CLAUDE_CAPABILITY_CONTRACT_VERSION: string = "1.1.0";
 
 // --------------------------------------------------------------------------
 // The declaration (I-005-2)
@@ -198,7 +205,42 @@ export const CLAUDE_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, bool
     // only against legs whose driver declares this flag, so a wrong `true` here
     // admits unpriced work with no cap behind it.
     cost_cap: true,
+    // TRUE, and EMULATED: the provider publishes no compaction method, so this
+    // driver dispatches the provider's OWN compaction command as a
+    // `driver_command` frame — the one tripwire-exempt origin, admitted only
+    // against the two guards `Spec-005 §Required Behavior` requires of it
+    // (pre-dispatch presence in the provider's own enumeration, post-dispatch
+    // typed evidence). The flag answers "does the driver deliver it", and it
+    // does; the grade records that the delivery is not a native method.
+    context_compaction: true,
+    // TRUE: the session handshake enumerates the provider's own command and
+    // skill sets, so the enumeration is a read of what the provider published
+    // rather than anything this driver composes.
+    provider_commands: true,
+    // TRUE for Claude (and false for Codex): the handshake declares an
+    // accelerated-output state, and — when that state is not the requested one —
+    // a machine-readable reason. Declaring the flag does NOT promise the mode is
+    // available: what the provider actually declared is a separate binding-held
+    // observation, and the two are never rewritten into each other.
+    output_speed: true,
   });
+
+/**
+ * Claude's output-speed value vocabulary — the SETTABLE levels.
+ *
+ * `Spec-005 §Provider Parameter Vocabularies` requires a driver declaring
+ * `output_speed` to publish this set, and `Spec-005 §The output-speed axis`
+ * requires it to come from a static table rather than from the provider:
+ * obtaining the provider's declared state costs a turn-bearing request, which is
+ * the very conjunct that makes the flag `static`, so a vocabulary sourced by
+ * reading would contradict its own detection source.
+ *
+ * The VALUES live in `../../driver-output-speed.ts`, which also carries the
+ * settable-vs-reportable doctrine, because the durable capability cache's
+ * hydration path publishes this same member with no driver in hand. This is the
+ * driver-local spelling of that one table, never a second copy of it.
+ */
+export const CLAUDE_OUTPUT_SPEED_LEVELS: readonly string[] = DRIVER_OUTPUT_SPEED_LEVELS.claude;
 
 // --------------------------------------------------------------------------
 // Seams
@@ -346,6 +388,20 @@ export class ClaudeCapabilityReporter {
       tools: getClaudeToolMetadata(),
       cliVersion: { raw: cliVersion.raw, semver: cliVersion.semver },
       detectionSource: { ...detection.detectionSource },
+      // Present iff the flag is, and a FRESH array on every reply.
+      //
+      // The two mechanisms do different jobs and the split is worth stating,
+      // because attributing the protection to the copy alone would be wrong.
+      // The FREEZE is what makes corruption impossible: the module constant is
+      // shared, and a consumer that pushed onto it would rewrite every later
+      // reply process-wide — so a reply handing back the constant itself would
+      // instead throw a TypeError into a caller composing on a value it believes
+      // it owns. The COPY is what keeps the published member an ordinary mutable
+      // array, so a consumer may sort, filter, or extend its own copy without a
+      // surprising throw and without reaching any other reader.
+      ...(CLAUDE_CAPABILITY_FLAGS.output_speed
+        ? { outputSpeedLevels: [...CLAUDE_OUTPUT_SPEED_LEVELS] }
+        : {}),
     };
   }
 

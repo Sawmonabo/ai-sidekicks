@@ -10,6 +10,10 @@
 //     `clearSessionGoal`, the three R8 parity operations whose Codex mechanism
 //     is a request on the session's own connection (`thread/fork`,
 //     `thread/goal/set`, `thread/goal/clear`).
+//   * `CodexLifecycleManager` (T3.26) — `compactContext`,
+//     `listProviderCommands`, the two console-parity operations whose Codex
+//     mechanism is likewise a request on the session's own connection
+//     (`thread/compact/start`, `skills/list`).
 //
 // The three T3.15 operations are NOT capability-gated here, and that is
 // deliberate rather than an omission: I-005-2's static refusal is the
@@ -20,12 +24,17 @@
 // be answering a question the registry has already answered.
 //
 // `implements Pick<ProviderDriver, ...>` rather than a hand-written interface, so
-// each signature is checked against the canonical contract and drifts with it. The
-// operations still absent from the `Pick` below (`getCapabilities`, `listModes`,
-// `respondToRequest`, `exportTranscript`, `replayTranscript`) are authored by the
-// sibling Phase-3 tasks; this class is widened to the full `ProviderDriver` when
-// they land, which the `Pick` makes a purely additive edit. `listModels` joined
-// the `Pick` with T3.12's currency duty (C-8) — the enumeration above is
+// each signature is checked against the canonical contract and drifts with it.
+// The canonical surface is EIGHTEEN operations and the `Pick` below names
+// THIRTEEN of them — both counted from their own declarations rather than
+// carried forward, because each side of that subtraction moved twice this phase:
+// the earlier "14-op" figure in this comment predated `exportTranscript` /
+// `replayTranscript` (T3.19–T3.22) and `compactContext` / `listProviderCommands`
+// (T3.26), while `listModels` joined the `Pick` with T3.12's currency duty (C-8).
+// The five remaining (`respondToRequest`, `listModes`, `getCapabilities`,
+// `exportTranscript`, `replayTranscript`) are authored by the sibling Phase-3
+// tasks, and this class is widened to the full `ProviderDriver` when they land,
+// which the `Pick` makes a purely additive edit. The enumeration above is
 // re-derived from the type argument rather than restated, so it cannot drift
 // from what the class actually implements.
 //
@@ -48,23 +57,29 @@
 //
 // Spec coverage: `Spec-005 §Required Behavior` (the normalized driver contract);
 // `Spec-005 §Fallback Behavior` (resume-handle failure surfaces a recovery-needed
-// condition).
+// condition); `Spec-005 §Desktop Console Parity Surfaces` (the two T3.26
+// console-parity operations).
 //
-// Refs: Plan-005 §Phase 3 / T3.1 + T3.2, `Spec-005 §Required Behavior`,
-// `Spec-005 §Fallback Behavior`, invariants I-005-4 and I-005-5, ADR-011.
+// Refs: Plan-005 §Phase 3 / T3.1 + T3.2 + T3.26, `Spec-005 §Required Behavior`,
+// `Spec-005 §Fallback Behavior`, invariants I-005-4, I-005-5 and I-005-13,
+// ADR-011.
 
 import type {
   ApplyInterventionParams,
   ClearSessionGoalParams,
   CloseSessionParams,
+  CompactContextParams,
   CreateSessionParams,
   DriverAuthProbeResult,
+  DriverCompactionResult,
   DriverGoalResult,
   DriverInterventionResult,
   DriverResumeResult,
   DriverRollbackResult,
   DriverTransportConfig,
   InterruptRunParams,
+  ListProviderCommandsParams,
+  ProviderCommandListResult,
   ProviderDriver,
   ProviderModel,
   ProviderSessionHandle,
@@ -216,6 +231,8 @@ export class CodexDriver implements Pick<
   | "clearSessionGoal"
   | "probeAuth"
   | "listModels"
+  | "compactContext"
+  | "listProviderCommands"
 > {
   readonly #lifecycle: CodexLifecycleManager;
   readonly #interventions: CodexInterventionDispatcher;
@@ -306,6 +323,14 @@ export class CodexDriver implements Pick<
    */
   listModels(): Promise<ProviderModel[]> {
     return resolveCodexModelCatalog(this.#modelCatalogExchange);
+  }
+
+  compactContext(params: CompactContextParams): Promise<DriverCompactionResult> {
+    return this.#lifecycle.compactContext(params);
+  }
+
+  listProviderCommands(params: ListProviderCommandsParams): Promise<ProviderCommandListResult> {
+    return this.#lifecycle.listProviderCommands(params);
   }
 
   /** The transport this driver reaches its provider processes over. */

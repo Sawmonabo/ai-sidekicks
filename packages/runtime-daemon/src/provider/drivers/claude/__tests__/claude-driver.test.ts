@@ -95,12 +95,37 @@ describe("ClaudeDriver", () => {
     expect(typeof operations.interruptRun).toBe("function");
     expect(typeof operations.applyIntervention).toBe("function");
     expect(typeof operations.closeSession).toBe("function");
+    expect(typeof operations.compactContext).toBe("function");
+    expect(typeof operations.listProviderCommands).toBe("function");
     // One identity for the driver, not two: the refusals this band raises stamp
     // the same constant the capability registry keys its rows on, so a rename
     // cannot leave an error envelope pointing at a driver name that no longer
     // exists.
     const refusal = new ClaudeSessionUnavailableError("no_live_run", { runId: TEST_RUN_ID });
     expect(refusal.fields.driverId).toBe(CLAUDE_DRIVER_NAME);
+  });
+
+  it("delegates both console-parity operations through to the lifecycle band", async () => {
+    // The entry point owns no logic of its own, so what this pins is that the
+    // two new operations REACH the band rather than answering from the wrapper.
+    const harness = buildHarness();
+    await harness.driver.createSession(buildCreateSessionParams());
+
+    const commands = await harness.driver.listProviderCommands({
+      sessionId: TEST_SESSION_ID,
+      bindingId: "binding-console-parity",
+    });
+    const compaction = await harness.driver.compactContext({
+      sessionId: TEST_SESSION_ID,
+      bindingId: "binding-console-parity",
+    });
+
+    expect(commands.bindings).toHaveLength(1);
+    expect(commands.bindings[0]?.binding.driverName).toBe(CLAUDE_DRIVER_NAME);
+    // No handshake has been observed, so the presence guard refuses and nothing
+    // is written — the fail-closed reading of "not yet known".
+    expect(compaction).toStrictEqual({ status: "refused", reason: "command_absent" });
+    expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual([]);
   });
 
   it("drives a session from create through run start to close", async () => {
