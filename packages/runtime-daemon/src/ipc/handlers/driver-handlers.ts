@@ -1,14 +1,18 @@
 // The `driver.*` JSON-RPC handlers — Plan-005 Phase 4, T4.1.
 //
-// Seven client-facing methods, bound onto Plan-007's `MethodRegistry` and
-// dispatched into the IN-DAEMON `ProviderRegistry` (T2.3). That dispatch target
-// is the point rather than an implementation detail: I-005-1 holds driver
-// authority LOCAL even when the provider endpoint is remote, so every handler
-// here resolves a driver instance from the local registry and calls it in this
-// process. Nothing in this module can express "execute via the control plane",
-// which is how the invariant survives contact with a wire surface.
+// The SIX request/response verbs of the client-facing set, bound onto Plan-007's
+// `MethodRegistry` and dispatched into the IN-DAEMON `ProviderRegistry` (T2.3).
+// The seventh, `driver.subscribeEvents`, is registered by the sibling
+// `driver-subscribe.ts` — T4.4 moved that leg out of this module rather than
+// leaving a second copy behind, so this file no longer binds it and no longer
+// derives the driver event set. That dispatch target is the point rather than an
+// implementation detail: I-005-1 holds driver authority LOCAL even when the
+// provider endpoint is remote, so every handler here resolves a driver instance
+// from the local registry and calls it in this process. Nothing in this module
+// can express "execute via the control plane", which is how the invariant
+// survives contact with a wire surface.
 //
-// WHY SEVEN AND NOT ELEVEN. `ProviderDriver` carries eighteen operations. Four
+// WHY THE CLIENT-FACING SET IS SEVEN AND NOT ELEVEN. `ProviderDriver` carries eighteen operations. Four
 // of them — `createSession`, `resumeSession`, `startRun`, `closeSession` — are
 // daemon-internal by Plan-005 §Phase 4 decision #2 and are registered NOWHERE:
 // they establish, restore, start, or tear down a session-or-run domain object,
@@ -18,7 +22,12 @@
 // no `register` call here, so a client that guessed the method name gets
 // `method_not_found` from the registry substrate. T4.9's two console-parity
 // verbs (`driver.compactContext`, `driver.listProviderCommands`) extend THIS
-// module when they land; they are deliberately not a second handler file.
+// module when they land, taking the set bound here from six to eight: both are
+// request/response dispatches, which is the concern this file owns.
+// `driver-subscribe.ts` is not a counterexample to that rule but an application
+// of it — a subscription allocates per-connection state and owns an ordering
+// obligation none of these verbs carry, which is the seam T4.4 draws and the
+// same one `session-subscribe.ts` already sits on.
 //
 // THE THREE READS ARE NO-ARG AND REPLY PER DRIVER. `driver.listCapabilities`,
 // `driver.listModels`, and `driver.listModes` take an empty request — the
@@ -66,19 +75,18 @@
 //     request against the T4.2 SDK-seam schema before a handler body runs, and
 //     `safeParse`s the result before it reaches the wire.
 //   * I-007-8 — sanitized error mapping; see the translation note above.
-//   * I-007-9 — dotted-camelCase method names; all seven match the canonical
+//   * I-007-9 — dotted-camelCase method names; all six match the canonical
 //     regex.
-//   * I-007-10 — the subscribe-init response precedes the first notify frame.
-//     `driver.subscribeEvents` inherits the `session.subscribe` replay-buffer +
-//     `setImmediate` construction wholesale; see that file for the full
-//     derivation of why a `queueMicrotask` boundary is not sufficient.
+// I-007-10 (the subscribe-init response precedes the first notify frame) is not
+// listed: no method bound here opens a subscription. It moved to
+// `driver-subscribe.ts` with the handler that owes it.
 //
-// Mutating flags: `false` on the three reads and on `subscribeEvents` (opening a
-// subscription allocates per-connection IPC state but mutates no domain row);
-// `true` on `interruptRun`, `applyIntervention`, and `respondToRequest`, each of
-// which drives a live run. The flag gates the pre-handshake path, so a
-// version-mismatched connection keeps read-only access and loses exactly the
-// three verbs that change something.
+// Mutating flags: `false` on the three reads; `true` on `interruptRun`,
+// `applyIntervention`, and `respondToRequest`, each of which drives a live run.
+// The flag gates the pre-handshake path, so a version-mismatched connection
+// keeps read-only access and loses exactly the three verbs that change
+// something. `driver.subscribeEvents` is `false` for the same reason the reads
+// are, and carries that flag in its own module.
 //
 // Refs: Plan-005 §Phase 4 / T4.1, `Spec-005 §Capability discovery`,
 // `Spec-005 §Interfaces And Contracts`, invariants I-005-1 / I-005-2,
@@ -93,7 +101,6 @@ import type {
   DriverModeReport,
   DriverModelReport,
   DriverReadParams,
-  DriverSubscribeEventsParams,
   Handler,
   InterruptRunParams,
   ListCapabilitiesResult,
@@ -103,31 +110,18 @@ import type {
   ProviderDriver,
   RespondToRequestParams,
   RunId,
-  SessionEvent,
-  SessionEventType,
-  SubscribeAckResponse,
 } from "@ai-sidekicks/contracts";
 import {
   ApplyInterventionParamsSchema,
-  ARTIFACT_PUBLICATION_EVENT_TYPES,
-  ASSISTANT_OUTPUT_EVENT_TYPES,
   DriverAckResultSchema,
   DriverInterventionResultSchema,
   DriverReadParamsSchema,
-  DriverSubscribeEventsParamsSchema,
-  INTERACTIVE_REQUEST_EVENT_TYPES,
   InterruptRunParamsSchema,
   JsonRpcErrorCode,
   ListCapabilitiesResultSchema,
   ListModelsResultSchema,
   ListModesResultSchema,
   RespondToRequestParamsSchema,
-  RUN_LIFECYCLE_EVENT_TYPES,
-  RUNTIME_NODE_LIFECYCLE_EVENT_TYPES,
-  SessionEventSchema,
-  SubscribeAckResponseSchema,
-  TOOL_ACTIVITY_EVENT_TYPES,
-  USAGE_TELEMETRY_EVENT_TYPES,
 } from "@ai-sidekicks/contracts";
 
 import type { DriverCapabilityCache } from "../../provider/capability-cache.js";
@@ -137,7 +131,6 @@ import {
   type ProviderRegistry,
 } from "../../provider/provider-registry.js";
 import { DaemonDomainError } from "../domain-error.js";
-import type { StreamingPrimitive } from "../streaming-primitive.js";
 
 // --------------------------------------------------------------------------
 // Dependency contracts
@@ -184,61 +177,6 @@ export interface DriverDispatchDeps {
   readonly resolveDriverForRun: (runId: RunId) => string | undefined;
 }
 
-/** Dependencies for `driver.subscribeEvents`. */
-export interface DriverSubscribeEventsDeps {
-  /**
-   * The Phase-2 streaming primitive the orchestrator constructed, shared with
-   * every other streaming handler so the per-transport reverse-index that
-   * `cleanupTransport` walks stays unified.
-   */
-  readonly streamingPrimitive: StreamingPrimitive;
-  /**
-   * The upstream driver event source for one run. Returns an unsubscribe handle,
-   * which the handler registers via `sub.onCancel` so wire-cancel,
-   * transport-disconnect, and internal teardown all detach it.
-   *
-   * Domain-side setup failures (unknown run, no live binding) MUST throw
-   * SYNCHRONOUSLY — the handler's atomicity guard cancels the allocated
-   * subscription on a synchronous throw, and a rejection delivered later would
-   * orphan the streaming-primitive entry until transport cleanup.
-   */
-  readonly subscribeToDriverEvents: (
-    runId: RunId,
-    onEvent: (event: SessionEvent) => void,
-  ) => () => void;
-}
-
-// --------------------------------------------------------------------------
-// The driver event set
-// --------------------------------------------------------------------------
-
-// Plan-005 §Phase 4 decision #4 defines `DriverEvent` as the union of seven
-// EXISTING event-category types. The union type itself is Plan-006-owned, so
-// this module deliberately does not author the name — it derives the SET from
-// the per-category arrays that plan already exports, and keeps it module-local
-// and unexported.
-//
-// Derivation rather than a literal list, for the reason every derived set in
-// this codebase is derived: a category that grows a new event type joins this
-// filter automatically, where a hand-written list would silently start dropping
-// a driver event from the stream and look correct while doing it.
-//
-// The filter is what makes this a stream of DRIVER events rather than of
-// whatever the injected source happens to emit. Without it a source wired to a
-// session-wide event feed would push approvals, memberships, and audit rows onto
-// a subscription a client opened for one run's driver activity — and because
-// each of those parses cleanly against `SessionEventSchema`, nothing downstream
-// would notice.
-const DRIVER_EVENT_TYPES: ReadonlySet<SessionEventType> = new Set<SessionEventType>([
-  ...RUN_LIFECYCLE_EVENT_TYPES,
-  ...ASSISTANT_OUTPUT_EVENT_TYPES,
-  ...TOOL_ACTIVITY_EVENT_TYPES,
-  ...INTERACTIVE_REQUEST_EVENT_TYPES,
-  ...ARTIFACT_PUBLICATION_EVENT_TYPES,
-  ...USAGE_TELEMETRY_EVENT_TYPES,
-  ...RUNTIME_NODE_LIFECYCLE_EVENT_TYPES,
-]);
-
 // --------------------------------------------------------------------------
 // Error translation
 // --------------------------------------------------------------------------
@@ -262,7 +200,7 @@ const DRIVER_EVENT_TYPES: ReadonlySet<SessionEventType> = new Set<SessionEventTy
  * `fields` is spread into `detail` rather than aliased so the thrown error's own
  * object cannot be mutated by the mapper's sanitizer downstream.
  */
-function translateDriverError(thrown: unknown): never {
+export function translateDriverError(thrown: unknown): never {
   if (thrown instanceof DriverUnavailableError) {
     throw new DaemonDomainError(thrown.message, {
       code: thrown.code,
@@ -567,112 +505,5 @@ export function registerDriverRespondToRequest(
     DriverAckResultSchema,
     handler,
     { mutating: true },
-  );
-}
-
-/**
- * Bind `driver.subscribeEvents`.
- *
- * The wire response is the shared `SubscribeAckResponse` — the opaque
- * `subscriptionId` and nothing else — with events following as
- * `$/subscription/notify` frames. The ordering construction (buffer during the
- * synchronous replay window, flush on a `setImmediate` boundary) is inherited
- * from `session.subscribe` unchanged; that file carries the full derivation of
- * why a chained `queueMicrotask` cannot cross the dispatch response and
- * `setImmediate` can.
- *
- * The per-value schema is `SessionEventSchema` and the driver-category narrowing
- * is applied by this handler before `sub.next`, not by a narrower schema.
- * `DriverEvent` is Plan-006-owned and this module does not author it; filtering
- * at the boundary gets the same guarantee without minting a type this plan does
- * not own.
- */
-export function registerDriverSubscribeEvents(
-  registry: MethodRegistry,
-  deps: DriverSubscribeEventsDeps,
-): void {
-  const handler: Handler<DriverSubscribeEventsParams, SubscribeAckResponse> = async (
-    params,
-    ctx,
-  ) => {
-    if (ctx.transportId === undefined) {
-      // Per-connection streaming state needs a transport identity. A missing one
-      // is a bootstrap or direct-test-call fault rather than a client protocol
-      // violation, so a plain `Error` (mapped to `-32603`) is the honest
-      // reporting — the same posture `session.subscribe` takes.
-      throw new Error(
-        "driver.subscribeEvents: handler requires ctx.transportId (per-connection streaming state requires a transport identity)",
-      );
-    }
-
-    const sub = deps.streamingPrimitive.createSubscription<SessionEvent>(
-      ctx.transportId,
-      SessionEventSchema,
-    );
-
-    const replayBuffer: SessionEvent[] = [];
-    let replayDrained = false;
-    try {
-      const unsubscribe = deps.subscribeToDriverEvents(params.runId, (event) => {
-        // Filter BEFORE buffering, not at flush time: an event that must never
-        // reach this stream should not occupy the replay buffer either, and
-        // filtering in one place keeps the live-tail and replay paths from
-        // drifting apart.
-        if (!DRIVER_EVENT_TYPES.has(event.type)) {
-          return;
-        }
-        if (replayDrained) {
-          // Live-tail runs on a later turn, outside the reach of the try/catch
-          // around setup. An unguarded `StreamingValidationError` here escapes
-          // as an uncaught exception and can terminate the daemon; cancel this
-          // subscription and keep every other one on the transport alive.
-          // TRIPWIRE: replace `console.error` once a structured logger surfaces
-          // in the runtime-daemon.
-          try {
-            sub.next(event);
-          } catch (thrown) {
-            sub.cancel();
-            console.error(
-              `[driver.subscribeEvents] live-tail event validation/emission failed for subscriptionId=${sub.subscriptionId}; subscription canceled`,
-              thrown,
-            );
-          }
-        } else {
-          replayBuffer.push(event);
-        }
-      });
-      sub.onCancel(unsubscribe);
-    } catch (thrown) {
-      // Atomicity guard: without this the streaming-primitive entry would orphan
-      // in both of its maps until the transport closed.
-      sub.cancel();
-      translateDriverError(thrown);
-    }
-
-    setImmediate(() => {
-      replayDrained = true;
-      try {
-        for (const event of replayBuffer) {
-          sub.next(event);
-        }
-      } catch (thrown) {
-        sub.cancel();
-        console.error(
-          `[driver.subscribeEvents] replay event validation/emission failed for subscriptionId=${sub.subscriptionId}; subscription canceled`,
-          thrown,
-        );
-      }
-      replayBuffer.length = 0;
-    });
-
-    return { subscriptionId: sub.subscriptionId };
-  };
-
-  registry.register(
-    "driver.subscribeEvents",
-    DriverSubscribeEventsParamsSchema,
-    SubscribeAckResponseSchema,
-    handler,
-    { mutating: false },
   );
 }

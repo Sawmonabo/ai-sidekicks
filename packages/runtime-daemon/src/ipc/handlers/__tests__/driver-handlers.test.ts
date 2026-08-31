@@ -62,12 +62,14 @@ import {
   registerDriverListModels,
   registerDriverListModes,
   registerDriverRespondToRequest,
-  registerDriverSubscribeEvents,
   type DriverCatalogDeps,
   type DriverDispatchDeps,
   type DriverListCapabilitiesDeps,
-  type DriverSubscribeEventsDeps,
 } from "../driver-handlers.js";
+import {
+  registerDriverSubscribeEvents,
+  type DriverSubscribeEventsDeps,
+} from "../driver-subscribe.js";
 
 // ----------------------------------------------------------------------------
 // Fixtures
