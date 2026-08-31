@@ -84,6 +84,58 @@
 //     (`CapabilityProbeTransportError`). Attach refuses; the refresh cadence
 //     reports the leg and retries.
 //
+// -- A probe answers about a NAME, and only a NAME-LEVEL refusal withdraws --
+//
+// Both channels are read the same way, and the Codex side is where that is
+// delicate: the app-server answers `-32600` for a name its `ClientRequest`
+// enumeration does not carry AND for an accepted name whose payload does not
+// deserialize, so the code alone decides nothing. The discriminator is the
+// deserializer's own message
+// (`docs/reference/provider-wire/codex.md §Refusal shapes on the client-request channel`):
+// an unaccepted name answers an `unknown variant` message naming that variant
+// and enumerating the accepted set, while an ACCEPTED method handed this
+// probe's deliberately payload-free request answers a missing-field message and
+// a capability-gated one answers a plain-prose reason. Reading `-32600` alone
+// as a name refusal would withdraw `steer` and `session_goals` on every real
+// read, because both of their methods take a thread identity a probe never
+// composes.
+//
+// AMBIGUITY RESOLVES TOWARD `accepted`, and the direction is the point: because
+// resolution is withdraw-only, a wrong `accepted` leaves the declared matrix
+// exactly as the driver authored it, while a wrong `unknown-name` silently
+// disables a capability the build actually carries.
+//
+// -- One flag may name SEVERAL wire names, and they are conjunctive --
+//
+// A capability whose consumers call more than one name is not decided by
+// probing one of them. `session_goals` is the shipped case: the flag is
+// consumed as durable per-thread goal operations, which this daemon's Codex
+// driver delivers over `thread/goal/set` AND `thread/goal/clear`, so both are
+// probed and a name-level refusal on EITHER withdraws the flag. Probing a
+// subset would answer a coarser question than the flag is consumed at — the
+// very conjunct that decides admissibility. Dedup still holds ACROSS flags: a
+// name two flags share is dispatched once per read.
+//
+// -- A reading is bound to the BUILD it was read from --
+//
+// Every read request, every dispatch, and the reading itself carry
+// `boundExecutablePath`: the resolved, symlink-dereferenced path the T3.23
+// version handshake proved, threaded from that handshake's own product rather
+// than re-resolved here. A capability report is a statement about one build, so
+// "these capabilities and this version describe the same executable" is a
+// property the composition sites CHECK rather than assume — which is exactly
+// the case a second resolution could get wrong (a `PATH` change or an installer
+// swap between the handshake and the probes).
+//
+// -- A successful read that withdrew something is still news --
+//
+// A read that SUCCEEDS while withdrawing a flag is the operator-interesting
+// outcome: the surface answered, and the build turned out not to carry
+// something its matrix declares. The reading carries those withdrawals as
+// diagnostics, and the composition sites hand them to the driver diagnostic
+// band (`emitCapabilityDetectionDiagnostics`) so a node whose provider quietly
+// lost a capability is as visible as one whose refresh failed outright.
+//
 // -- What this module deliberately does NOT do --
 //
 // It mints no event type (a changed snapshot rides the shipped
@@ -137,15 +189,21 @@ export type FailingConjuncts = readonly [
   ...ProbeAdmissibilityConjunct[],
 ];
 
-/** One admissible probe: the wire name issued, and why its answer decides. */
+/** One admissible probe: the wire name(s) issued, and why the answer decides. */
 export interface CapabilityProbe {
   /**
-   * The wire name this probe issues — a control-request subtype on the Claude
-   * channel, a client-request method on the Codex one. It is the ONLY thing
+   * The wire names this probe issues — control-request subtypes on the Claude
+   * channel, client-request methods on the Codex one. They are the ONLY thing
    * sent; no payload is composed, which is why the classifier keys on the
    * dispatcher's own name-level refusal rather than on a handler's result.
+   *
+   * CONJUNCTIVE, and NON-EMPTY by construction. A flag whose consumers call
+   * several names is decided by all of them: every name must classify
+   * `accepted`, and a name-level refusal on any ONE withdraws the flag. The
+   * tuple type makes the empty list — a `probed` entry that probes nothing, and
+   * so can never withdraw — unrepresentable rather than merely checked.
    */
-  readonly probeName: string;
+  readonly probeNames: readonly [string, ...string[]];
   /** Why the answer is decisive at the granularity the flag is consumed at. */
   readonly decisiveness: string;
 }
@@ -196,7 +254,7 @@ export const CODEX_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = 
   steer: {
     detectionSource: "probed",
     probe: {
-      probeName: "turn/steer",
+      probeNames: ["turn/steer"],
       decisiveness:
         "The flag asserts native mid-turn steering exists on the wire, and `turn/steer` is precisely the method its consumers call. The method takes the turn identity the driver already holds, so acceptance leaves no parameter-level fact unestablished — the failure mode that makes the sibling `rollback` entry static.",
     },
@@ -246,9 +304,9 @@ export const CODEX_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = 
   session_goals: {
     detectionSource: "probed",
     probe: {
-      probeName: "thread/goal/set",
+      probeNames: ["thread/goal/set", "thread/goal/clear"],
       decisiveness:
-        "The flag asserts durable per-thread goal operations exist on the wire, and `thread/goal/set` is the method its consumers call. It takes the thread identity the driver already holds, so method acceptance is decisive at the consumed granularity.",
+        "The flag asserts durable per-thread goal operations exist on the wire, and these are the two methods its consumers call — the driver's `setSessionGoal` and `clearSessionGoal` legs. Both take the thread identity the driver already holds, so method acceptance is decisive at the consumed granularity; probing only the setter would leave a build that accepts goals it cannot clear reported as fully capable.",
     },
   },
   callback_tools: {
@@ -293,6 +351,17 @@ export const CODEX_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = 
  * them fail **zero-turn**. Entries whose mechanism is a launch-time CLI flag or
  * a stream-output shape are not addressable on the control channel at all and
  * fail **decisiveness**.
+ *
+ * NO ENTRY IS CURRENTLY `probed`, AND THAT IS A FINDING RATHER THAN AN
+ * OVERSIGHT. The one flag whose mechanism this channel could plausibly reach —
+ * `interactive_requests` — names subtypes the provider RAISES; the pinned
+ * build's inbound dispatcher refuses every one of them by name, exactly as it
+ * refuses the negative control
+ * (`docs/reference/provider-wire/claude.md §Direction: some censused subtypes are refused BY NAME on the inbound channel`),
+ * so the channel's answer is decisive in the wrong direction. The channel
+ * doctrine above is kept because it is what a future probeable subtype would be
+ * admitted under, and the negative control is deliberately still declared for
+ * this driver: it becomes live again the moment an entry here becomes `probed`.
  */
 export const CLAUDE_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = Object.freeze({
   resume: {
@@ -308,12 +377,10 @@ export const CLAUDE_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable =
       "FALSE on this driver: no mid-turn content-injection subtype exists, and the steer intervention degrades to queue-plus-interrupt as a REPORTED degradation. A probe cannot grant a flag anyway (resolution is withdraw-only), so the channel has nothing to decide here.",
   },
   interactive_requests: {
-    detectionSource: "probed",
-    probe: {
-      probeName: "can_use_tool",
-      decisiveness:
-        "The flag names the control-request registry itself — the tool-permission and clarification round trips this channel carries. `can_use_tool` is a censused member of that registry, so a build whose dispatcher answers the typed unsupported-subtype refusal for it does not have the registry the flag asserts, and any other answer means it does. The subtype is a QUESTION the provider asks rather than an operation it performs, so a dispatch mutates nothing even before the probe connection's own never-started session is considered.",
-    },
+    detectionSource: "static",
+    failingConjuncts: ["decisive-at-consumption-granularity"],
+    rationale:
+      "The flag is consumed as the round trips the PROVIDER raises — `can_use_tool`, `elicitation`, `request_user_dialog` — and the control-request census is a census of the registry, not of the inbound dispatcher's accepted set. A first-party probe of the pinned build answers the identical name-level refusal for all three as for the negative control, so probing them would withdraw the flag on every read of a build that fully carries it. The channel therefore cannot decide a capability delivered by frames flowing the other way, in either direction.",
   },
   mcp: {
     detectionSource: "static",
@@ -403,6 +470,13 @@ export const CAPABILITY_DETECTION_TABLES: Readonly<
  * reports every capability available. The Claude sentinel is the one the wire
  * reference's own first-party probes used, so a control answering here is a
  * change in the provider rather than in this daemon's choice of name.
+ *
+ * DECLARED PER DRIVER, DISPATCHED ONLY WHERE IT VALIDATES SOMETHING. The entry
+ * is total over the drivers so a table that becomes probeable is never left
+ * without a control; the read issues it only when that driver's table declares
+ * at least one probe. With no probes, no answer can withdraw anything, so a
+ * control failure would refuse a report every one of whose flags is `static` —
+ * costing an attach to validate a classification nothing performs.
  */
 export const CAPABILITY_PROBE_NEGATIVE_CONTROLS: Readonly<Record<FlooredDriverName, string>> =
   Object.freeze({
@@ -450,6 +524,17 @@ export interface CapabilityProbeRequest {
   readonly driverName: FlooredDriverName;
   readonly channel: CapabilityProbeChannel;
   readonly probeName: string;
+  /**
+   * The build this probe is a statement about: the resolved,
+   * symlink-dereferenced executable path the version handshake proved, carried
+   * through from that handshake's own reading rather than resolved again here.
+   *
+   * The seam's implementer dispatches against the connection it already holds
+   * and does not re-resolve from this value; it is carried so that every
+   * recorded request, and the reading composed from them, name the executable
+   * whose capabilities are being reported.
+   */
+  readonly boundExecutablePath: string;
 }
 
 /**
@@ -561,13 +646,34 @@ type ProbeAnswer = "accepted" | "unknown-name" | "unrecognized";
 const CLAUDE_UNSUPPORTED_SUBTYPE_PREFIX = "Unsupported control request subtype:";
 
 /**
- * JSON-RPC codes the Codex app-server answers for a name its connection does
- * not accept. `-32600` is the measured one at the pin (its message enumerates
- * the accepted set); `-32601` is the standard method-not-found spelling and is
- * classified the same way so a future build that adopts it is not read as
- * acceptance.
+ * The Codex app-server's generic invalid-request code. Measured at the pin, it
+ * answers BOTH a name the connection does not accept and an accepted name whose
+ * payload does not deserialize, so the code alone classifies nothing — see
+ * {@link classifyCodexProbeReply}.
  */
-const CODEX_UNKNOWN_METHOD_CODES: readonly number[] = Object.freeze([-32600, -32601]);
+const CODEX_INVALID_REQUEST_CODE = -32600;
+
+/**
+ * The standard JSON-RPC method-not-found code. The pinned build does not emit
+ * it for an unaccepted name, but it is unambiguous where it appears, so a
+ * future build that adopts the standard spelling is not read as acceptance.
+ */
+const CODEX_METHOD_NOT_FOUND_CODE = -32601;
+
+/**
+ * The deserializer's unknown-variant message: the variant it refused, then the
+ * enumeration of the ones it accepts.
+ *
+ * Anchored on the two literal fragments the pinned build emits rather than on
+ * the whole message, because the request-shape preamble in front of them
+ * (`Invalid request: `) is not part of what discriminates.
+ */
+const CODEX_UNKNOWN_VARIANT_PATTERN = /unknown variant `([^`]*)`, expected one of (.+)$/s;
+
+/** Every backtick-quoted name in an unknown-variant enumeration tail. */
+function parseEnumeratedWireNames(enumerationTail: string): readonly string[] {
+  return [...enumerationTail.matchAll(/`([^`]*)`/g)].map((match) => match[1] ?? "");
+}
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -605,14 +711,32 @@ export function classifyClaudeProbeReply(payload: unknown): ProbeAnswer {
 }
 
 /**
- * Classify one Codex JSON-RPC reply.
+ * Classify one Codex JSON-RPC reply about the name that was issued.
  *
- * A `result` means the method dispatched. An error that is NOT an
- * unknown-method code (a `-32602` invalid-params, say) means the method exists
- * and this probe's deliberately payload-free request was refused by its schema
- * — which is exactly the outcome that keeps the probe non-mutating.
+ * A `result` means the method dispatched. `-32601` is the standard
+ * method-not-found spelling and refuses the name outright. Every other code
+ * means the method exists and something else refused — a schema refusal of this
+ * probe's deliberately payload-free request is the ordinary case, and it is
+ * exactly the outcome that keeps the probe non-mutating.
+ *
+ * `-32600` IS THE WHOLE DIFFICULTY, because the pinned build answers it for
+ * both outcomes. It classifies `unknown-name` only when the message carries the
+ * deserializer's own unknown-variant enumeration, that message names THIS
+ * probe's name as the variant it refused, and this probe's name is absent from
+ * the accepted set it enumerates. A `-32600` whose message carries no
+ * enumeration (a capability-gated method, a missing-field refusal) classifies
+ * `accepted`, and so does one whose enumeration CONTAINS the probed name —
+ * which can only mean the refusal was about some other variant nested in the
+ * request, never about the method itself.
+ *
+ * Every ambiguous arm resolves toward `accepted` deliberately: resolution is
+ * withdraw-only, so a wrong `accepted` preserves the declared matrix while a
+ * wrong `unknown-name` silently disables a capability the build carries.
+ *
+ * `probeName` is the name this reply is an answer to. The classifier is
+ * exported for the suite, which drives it directly against measured payloads.
  */
-export function classifyCodexProbeReply(payload: unknown): ProbeAnswer {
+export function classifyCodexProbeReply(payload: unknown, probeName: string): ProbeAnswer {
   const envelope = asRecord(payload);
   if (envelope === undefined) {
     return "unrecognized";
@@ -628,15 +752,42 @@ export function classifyCodexProbeReply(payload: unknown): ProbeAnswer {
   if (typeof code !== "number") {
     return "unrecognized";
   }
-  return CODEX_UNKNOWN_METHOD_CODES.includes(code) ? "unknown-name" : "accepted";
+  if (code === CODEX_METHOD_NOT_FOUND_CODE) {
+    return "unknown-name";
+  }
+  if (code !== CODEX_INVALID_REQUEST_CODE) {
+    return "accepted";
+  }
+  const message = error["message"];
+  if (typeof message !== "string") {
+    return "accepted";
+  }
+  const unknownVariant = CODEX_UNKNOWN_VARIANT_PATTERN.exec(message);
+  const refusedVariant = unknownVariant?.[1];
+  const enumerationTail = unknownVariant?.[2];
+  if (refusedVariant === undefined || enumerationTail === undefined) {
+    return "accepted";
+  }
+  if (refusedVariant !== probeName) {
+    return "accepted";
+  }
+  return parseEnumeratedWireNames(enumerationTail).includes(probeName)
+    ? "accepted"
+    : "unknown-name";
 }
 
-const PROBE_REPLY_CLASSIFIERS: Readonly<
-  Record<FlooredDriverName, (payload: unknown) => ProbeAnswer>
-> = Object.freeze({
-  claude: classifyClaudeProbeReply,
-  codex: classifyCodexProbeReply,
-});
+/**
+ * Every classifier takes the name it is answering about, whether or not it
+ * needs it: the Claude channel's refusal is already name-level by construction,
+ * while the Codex one must compare the refused variant against what was issued.
+ */
+type ProbeReplyClassifier = (payload: unknown, probeName: string) => ProbeAnswer;
+
+const PROBE_REPLY_CLASSIFIERS: Readonly<Record<FlooredDriverName, ProbeReplyClassifier>> =
+  Object.freeze({
+    claude: classifyClaudeProbeReply,
+    codex: classifyCodexProbeReply,
+  });
 
 // --------------------------------------------------------------------------
 // Table self-check
@@ -652,12 +803,15 @@ export interface CapabilityDetectionTableViolation {
 /**
  * Walk a driver's table and report every entry that is not admissible.
  *
- * The type system already forbids a `probed` entry with no probe and a `static`
- * entry with no failing conjunct. This is the RUNTIME half, and it exists for
- * the two properties the type cannot express: a probe name must not be empty,
- * and it must not be a prohibited wire name. The suite drives this function
- * against a deliberately-malformed table so the checker is proven non-vacuous
- * rather than trusted because it returned nothing.
+ * The type system already forbids a `probed` entry with no probe, a `static`
+ * entry with no failing conjunct, and — through the non-empty tuple — a probe
+ * that names no wire name. This is the RUNTIME half, and it exists for the
+ * properties the type cannot express: EVERY name a probe declares must be
+ * non-empty and must not be a prohibited wire name. The empty list is checked
+ * here anyway, because the tuple type is only a compile-time guarantee and this
+ * function is reachable with a table that came from somewhere else. The suite
+ * drives it against deliberately-malformed tables so the checker is proven
+ * non-vacuous rather than trusted because it returned nothing.
  */
 export function findCapabilityDetectionTableViolations(
   driverName: FlooredDriverName,
@@ -681,20 +835,32 @@ export function findCapabilityDetectionTableViolations(
       }
       continue;
     }
-    const { probeName } = mechanism.probe;
-    if (probeName.trim() === "") {
+    const { probeNames } = mechanism.probe;
+    if (probeNames.length === 0) {
       violations.push({
         driverName,
         flag,
-        reason: "a `probed` entry must declare a non-empty probe wire name",
+        reason: "a `probed` entry must declare at least one probe wire name",
       });
     }
-    if (CAPABILITY_PROBE_PROHIBITED_WIRE_NAMES.includes(probeName)) {
-      violations.push({
-        driverName,
-        flag,
-        reason: `a probe may never issue the prohibited wire name '${probeName}'`,
-      });
+    // Every name is screened, not just the first: a conjunctive probe issues
+    // all of them, so a prohibited name anywhere in the list would reach the
+    // wire exactly as one in the first position would.
+    for (const probeName of probeNames) {
+      if (probeName.trim() === "") {
+        violations.push({
+          driverName,
+          flag,
+          reason: "a `probed` entry must declare a non-empty probe wire name",
+        });
+      }
+      if (CAPABILITY_PROBE_PROHIBITED_WIRE_NAMES.includes(probeName)) {
+        violations.push({
+          driverName,
+          flag,
+          reason: `a probe may never issue the prohibited wire name '${probeName}'`,
+        });
+      }
     }
     if (mechanism.probe.decisiveness.trim() === "") {
       violations.push({
@@ -715,6 +881,12 @@ export function findCapabilityDetectionTableViolations(
 export interface CapabilityProbeDiagnostic {
   readonly driverName: FlooredDriverName;
   readonly flag: DriverCapabilityFlag;
+  /**
+   * The name that decided it. For a conjunctive probe this is the FIRST name
+   * whose answer withdrew the flag, in the order the table declares — the
+   * remaining names are not dispatched, because the flag is already withdrawn
+   * and a probe issues nothing it does not need.
+   */
   readonly probeName: string;
   /**
    * `unknown-name` — the channel refused the name itself, so the build does not
@@ -735,14 +907,33 @@ export interface CapabilityProbeDiagnostic {
  */
 export interface CapabilityDetectionReading {
   readonly driverName: FlooredDriverName;
+  /**
+   * The build this reading describes, carried through from the read request —
+   * see {@link CapabilityDetectionReadRequest.boundExecutablePath}. A
+   * composition site that also holds a version reading compares the two and
+   * refuses a report assembled from two different executables.
+   */
+  readonly boundExecutablePath: string;
   readonly detectionSource: Readonly<Record<DriverCapabilityFlag, CapabilityDetectionSource>>;
   readonly withdrawnFlags: readonly DriverCapabilityFlag[];
   readonly diagnostics: readonly CapabilityProbeDiagnostic[];
 }
 
-/** What one detection read needs: the driver, and the transport to read over. */
+/** What one detection read needs: the driver, the build, and the transport. */
 export interface CapabilityDetectionReadRequest {
   readonly driverName: FlooredDriverName;
+  /**
+   * The resolved, symlink-dereferenced executable path the version handshake
+   * proved — `SpawnedProviderVersionReading.resolvedExecutablePath`, threaded
+   * from the same product that carried the version.
+   *
+   * REQUIRED, and never re-resolved by this module. A capability report is a
+   * statement about one build, and a resolver consulted a second time can
+   * legitimately answer differently (a `PATH` change, an installer swap); a
+   * report composed from a version read off one executable and probes issued
+   * against another would be wrong in a way nothing downstream could detect.
+   */
+  readonly boundExecutablePath: string;
   readonly exchange: CapabilityProbeExchange;
 }
 
@@ -756,6 +947,11 @@ export interface CapabilityDetectionReadRequest {
  * already known to be worthless. Failing before any capability probe is issued
  * also keeps the failure cheap and unambiguous.
  *
+ * IT RUNS ONLY WHERE IT VALIDATES SOMETHING. A driver whose table declares no
+ * probe dispatches nothing at all, control included: with no probe to
+ * misclassify, the control could only turn a report of entirely `static` flags
+ * into a refused attach.
+ *
  * @throws CapabilityProbeNegativeControlError when the control is answered.
  * @throws CapabilityProbeTransportError when the transport rejects.
  * @throws CapabilityProbeProhibitedNameError when a prohibited name would be issued.
@@ -763,7 +959,7 @@ export interface CapabilityDetectionReadRequest {
 export async function readCapabilityDetection(
   request: CapabilityDetectionReadRequest,
 ): Promise<CapabilityDetectionReading> {
-  const { driverName, exchange } = request;
+  const { driverName, boundExecutablePath, exchange } = request;
   const table = CAPABILITY_DETECTION_TABLES[driverName];
   const violations = findCapabilityDetectionTableViolations(driverName, table);
   if (violations.length > 0) {
@@ -775,10 +971,25 @@ export async function readCapabilityDetection(
     );
   }
 
-  const negativeControlName = CAPABILITY_PROBE_NEGATIVE_CONTROLS[driverName];
-  const negativeControlAnswer = await dispatchProbe(driverName, negativeControlName, exchange);
-  if (negativeControlAnswer !== "unknown-name") {
-    throw new CapabilityProbeNegativeControlError(driverName, negativeControlName);
+  const tableEntries = Object.entries(table) as [
+    DriverCapabilityFlag,
+    CapabilityDetectionMechanism,
+  ][];
+  const declaresProbe = tableEntries.some(
+    ([, mechanism]) => mechanism.detectionSource === "probed",
+  );
+
+  if (declaresProbe) {
+    const negativeControlName = CAPABILITY_PROBE_NEGATIVE_CONTROLS[driverName];
+    const negativeControlAnswer = await dispatchProbe(
+      driverName,
+      negativeControlName,
+      boundExecutablePath,
+      exchange,
+    );
+    if (negativeControlAnswer !== "unknown-name") {
+      throw new CapabilityProbeNegativeControlError(driverName, negativeControlName);
+    }
   }
 
   const detectionSource: Record<DriverCapabilityFlag, CapabilityDetectionSource> = {} as Record<
@@ -789,37 +1000,42 @@ export async function readCapabilityDetection(
   const diagnostics: CapabilityProbeDiagnostic[] = [];
 
   // Deterministic order, and one dispatch per DISTINCT probe name: two flags
-  // sharing a mechanism must not double-issue it, and a re-issued name would
-  // make the transport double's request count a poor proxy for what was probed.
+  // sharing a name must not double-issue it, and a re-issued name would make
+  // the transport double's request count a poor proxy for what was probed.
   const answersByProbeName = new Map<string, ProbeAnswer>();
-  for (const [flag, mechanism] of Object.entries(table) as [
-    DriverCapabilityFlag,
-    CapabilityDetectionMechanism,
-  ][]) {
+  for (const [flag, mechanism] of tableEntries) {
     detectionSource[flag] = mechanism.detectionSource;
     if (mechanism.detectionSource !== "probed") {
       continue;
     }
-    const { probeName } = mechanism.probe;
-    let answer = answersByProbeName.get(probeName);
-    if (answer === undefined) {
-      answer = await dispatchProbe(driverName, probeName, exchange);
-      answersByProbeName.set(probeName, answer);
+    // Conjunctive: every declared name must classify `accepted`, and the FIRST
+    // that does not settles the flag. The remaining names of that flag are not
+    // dispatched — the flag is already withdrawn, and a probe issues nothing it
+    // does not need. A name another flag also declares is still dispatched when
+    // that flag's turn comes.
+    for (const probeName of mechanism.probe.probeNames) {
+      let answer = answersByProbeName.get(probeName);
+      if (answer === undefined) {
+        answer = await dispatchProbe(driverName, probeName, boundExecutablePath, exchange);
+        answersByProbeName.set(probeName, answer);
+      }
+      if (answer === "accepted") {
+        continue;
+      }
+      withdrawnFlags.push(flag);
+      diagnostics.push({
+        driverName,
+        flag,
+        probeName,
+        disposition: answer === "unknown-name" ? "unknown-name" : "unrecognized-reply",
+      });
+      break;
     }
-    if (answer === "accepted") {
-      continue;
-    }
-    withdrawnFlags.push(flag);
-    diagnostics.push({
-      driverName,
-      flag,
-      probeName,
-      disposition: answer === "unknown-name" ? "unknown-name" : "unrecognized-reply",
-    });
   }
 
   return Object.freeze({
     driverName,
+    boundExecutablePath,
     detectionSource: Object.freeze(detectionSource),
     withdrawnFlags: Object.freeze(withdrawnFlags),
     diagnostics: Object.freeze(diagnostics),
@@ -829,6 +1045,7 @@ export async function readCapabilityDetection(
 async function dispatchProbe(
   driverName: FlooredDriverName,
   probeName: string,
+  boundExecutablePath: string,
   exchange: CapabilityProbeExchange,
 ): Promise<ProbeAnswer> {
   // Screened at the dispatch and not only at the table, so a caller that
@@ -840,11 +1057,12 @@ async function dispatchProbe(
       driverName,
       channel: CAPABILITY_PROBE_CHANNELS[driverName],
       probeName,
+      boundExecutablePath,
     });
   } catch (cause) {
     throw new CapabilityProbeTransportError(driverName, probeName, { cause });
   }
-  return PROBE_REPLY_CLASSIFIERS[driverName](payload);
+  return PROBE_REPLY_CLASSIFIERS[driverName](payload, probeName);
 }
 
 /**

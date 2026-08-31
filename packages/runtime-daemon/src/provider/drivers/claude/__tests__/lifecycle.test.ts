@@ -41,7 +41,7 @@ import type { RunId, SessionId } from "@ai-sidekicks/contracts";
 
 import type { SubagentLifecycleEmission, ThreadFrameRoute } from "../../../thread-frame-router.js";
 import type { MeteredUsageDelta } from "../../../usage-delta-accountant.js";
-import { buildProviderSpawnEnv } from "../../../spawn-env.js";
+import { buildProviderSpawnEnv, hostEnvNameMatchForPlatform } from "../../../spawn-env.js";
 import {
   ClaudeAuthenticationRequiredError,
   ClaudeControlRequestRefusedError,
@@ -1900,7 +1900,11 @@ describe("ClaudeSessionLifecycle mandated spawn environment", () => {
   // if the driver stops routing through it — and pinned against the literal
   // pairs beside it, so a builder that returned nothing could not make both
   // sides vacuously agree.
-  const MANDATED = buildProviderSpawnEnv({ driverName: "claude", baseEnv: [] });
+  const MANDATED = buildProviderSpawnEnv({
+    driverName: "claude",
+    baseEnv: [],
+    hostEnvNameMatch: hostEnvNameMatchForPlatform(process.platform),
+  });
 
   it("realizes this provider's documented opt-out, presence-style", () => {
     expect(MANDATED).toEqual([

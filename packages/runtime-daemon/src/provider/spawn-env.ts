@@ -24,6 +24,17 @@
  * ABSENT POLICY IS NOT A LOOSER POLICY. A request with no `credentialEnvPolicy`
  * strips nothing, which is correct: a `trusted` posture carries no policy at
  * all. It never widens the opt-out, which is unconditional on every path.
+ *
+ * NAME MATCHING IS THE HOST'S, NOT THE POLICY'S. Whether `path` and `PATH` are
+ * one variable is a property of the operating system this daemon is running on,
+ * so every fold below — the mandated map's keys, the deny set, and the base
+ * pruning — keys on the REQUEST's `hostEnvNameMatch`. The credential-policy
+ * artifact records the same fact for the host it was authored on, and a policy
+ * that disagrees with this host is a wiring fault: it is REFUSED rather than
+ * reconciled, because both reconciliations are wrong. Honouring the policy's
+ * value would let a case-sensitive artifact leave `path` in the child's
+ * environment on a case-insensitive host; honouring the host's value silently
+ * would apply a deny list under semantics its author never assumed.
  */
 
 import type { FlooredDriverName } from "./capability-refresh.js";
@@ -34,11 +45,27 @@ export type SpawnEnvPair = readonly [name: string, value: string];
 /**
  * How the host compares environment-variable names.
  *
- * Recorded on the credential-policy artifact rather than assumed, because the
- * answer is a property of the operating system: a case-insensitive host would
- * let `path` slip past a deny list that names `PATH`.
+ * A property of the operating system, never of a policy: a case-insensitive
+ * host would let `path` slip past a deny list that names `PATH`. The
+ * credential-policy artifact also records it, for the host it was authored on
+ * — see {@link ProviderSpawnEnvNameMatchMismatchError}.
  */
 export type SpawnEnvNameMatch = "case-sensitive" | "case-insensitive";
+
+/**
+ * The name-matching semantics of the platform this daemon is running on.
+ *
+ * Windows resolves environment-variable names case-insensitively; every
+ * platform this daemon targets otherwise compares them byte-for-byte. Exported
+ * so every spawn site derives the value from one place rather than restating a
+ * platform test, and takes the platform as an argument — rather than reading
+ * `process.platform` itself — so the Windows shape is reachable from a suite
+ * running anywhere, which is the neighbouring `resolveExecutableResolver`
+ * idiom.
+ */
+export function hostEnvNameMatchForPlatform(platform: NodeJS.Platform): SpawnEnvNameMatch {
+  return platform === "win32" ? "case-insensitive" : "case-sensitive";
+}
 
 /**
  * The credential policy AS RESOLVED by the daemon — the expansion of a posture's
@@ -88,6 +115,19 @@ export interface ProviderSpawnEnvRequest {
    * ambient inheritance has already lost the property the pruning protects.
    */
   readonly baseEnv: readonly SpawnEnvPair[];
+  /**
+   * How THIS host compares environment-variable names — normally
+   * {@link hostEnvNameMatchForPlatform} of the running platform.
+   *
+   * REQUIRED, and the single rule every fold here keys on. It was previously
+   * read off the credential policy, which meant a `trusted` posture (no policy
+   * at all) silently folded case-sensitively on Windows: a base
+   * `disable_updates=0` would survive beside the mandated `DISABLE_UPDATES=1`
+   * and the child would receive both, with the winner chosen by whatever
+   * finally execs the process — the exact outcome the REPLACE-NOT-APPEND rule
+   * exists to prevent.
+   */
+  readonly hostEnvNameMatch: SpawnEnvNameMatch;
   /** Absent under a `trusted` posture, which denies nothing. */
   readonly credentialEnvPolicy?: CredentialEnvPolicy | undefined;
   /**
@@ -135,6 +175,35 @@ export class ProviderSpawnEnvConflictError extends Error {
   }
 }
 
+/**
+ * The resolved credential policy claims different env-name semantics than the
+ * host this daemon is running on.
+ *
+ * A daemon-internal WIRING fault, never reachable from session input: the
+ * policy artifact and the platform test describe the same host, so a
+ * disagreement means the policy was resolved for a different one. Thrown rather
+ * than reconciled because neither reconciliation is defensible — see the module
+ * header — and silence here would produce a child environment whose deny list
+ * was applied under semantics its author did not assume.
+ *
+ * Module-local, like {@link ProviderSpawnEnvConflictError}: there is no wire
+ * surface a caller could reach this through, so it carries no registered error
+ * code and mints nothing.
+ */
+export class ProviderSpawnEnvNameMatchMismatchError extends Error {
+  readonly hostEnvNameMatch: SpawnEnvNameMatch;
+  readonly policyEnvNameMatch: SpawnEnvNameMatch;
+
+  constructor(hostEnvNameMatch: SpawnEnvNameMatch, policyEnvNameMatch: SpawnEnvNameMatch) {
+    super(
+      `credential policy declares '${policyEnvNameMatch}' environment-name matching but this host uses '${hostEnvNameMatch}'; refusing to compose a child environment under semantics the policy was not authored for`,
+    );
+    this.name = "ProviderSpawnEnvNameMatchMismatchError";
+    this.hostEnvNameMatch = hostEnvNameMatch;
+    this.policyEnvNameMatch = policyEnvNameMatch;
+  }
+}
+
 function toMatchKey(name: string, match: SpawnEnvNameMatch): string {
   return match === "case-insensitive" ? name.toUpperCase() : name;
 }
@@ -159,9 +228,18 @@ function toMatchKey(name: string, match: SpawnEnvNameMatch): string {
  * exact array sees a stable, explainable shape.
  *
  * @throws {ProviderSpawnEnvConflictError} when two mandated pairs claim one name.
+ * @throws {ProviderSpawnEnvNameMatchMismatchError} when a supplied credential
+ *   policy declares different env-name semantics than the host.
  */
 export function buildProviderSpawnEnv(request: ProviderSpawnEnvRequest): readonly SpawnEnvPair[] {
-  const nameMatch = request.credentialEnvPolicy?.envNameMatch ?? "case-sensitive";
+  // FIRST, before any folding: a policy authored for another host's semantics
+  // is refused rather than partially applied. Checking after a fold would mean
+  // the refusal came from a builder that had already keyed a map the wrong way.
+  const nameMatch = request.hostEnvNameMatch;
+  const policyNameMatch = request.credentialEnvPolicy?.envNameMatch;
+  if (policyNameMatch !== undefined && policyNameMatch !== nameMatch) {
+    throw new ProviderSpawnEnvNameMatchMismatchError(nameMatch, policyNameMatch);
+  }
 
   // Exactly one pair per name reaches the child, and a second claim on a name is
   // refused rather than merged — the value of a mandated variable is decided in

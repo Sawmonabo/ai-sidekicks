@@ -101,11 +101,15 @@ import {
   type CapabilityDetectionReading,
   type CapabilityProbeExchange,
 } from "../../capability-probe.js";
-import { assertCliVersionMeetsFloor } from "../../capability-refresh.js";
+import {
+  assertCliVersionMeetsFloor,
+  emitCapabilityDetectionDiagnostics,
+} from "../../capability-refresh.js";
 import type {
   DeclareDriverCapabilitiesResult,
   DriverCapabilitiesWriter,
 } from "../../driver-capabilities-writer.js";
+import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import type { SpawnedProviderVersionReading } from "../../version-gate.js";
 
 import { getClaudeToolMetadata } from "./tools.js";
@@ -230,6 +234,18 @@ export interface ClaudeCapabilityReporterDependencies {
    * declaration whose provenance claims a probe nobody ran.
    */
   readonly probe: CapabilityProbeExchange;
+  /**
+   * The daemon diagnostic channel the detection read reports withdrawals on.
+   *
+   * REQUIRED for the same reason the refresh scheduler's emitter is: a flag a
+   * build silently stopped carrying is exactly the class of condition the
+   * closed-kind-plus-counter pairing exists to keep metered, and an optional
+   * emitter would let a whole node's withdrawals go uncounted. Constructor-bound
+   * because `getCapabilities()` takes no arguments, and reported from THERE
+   * rather than from the refresh entry point so attach and refresh meter the
+   * same fact through the same counter.
+   */
+  readonly diagnostics: DriverDiagnosticsEmitter;
 }
 
 /**
@@ -268,10 +284,12 @@ export interface ClaudeCapabilityDeclarationTarget {
 export class ClaudeCapabilityReporter {
   readonly #readSpawnedVersion: () => Promise<SpawnedProviderVersionReading>;
   readonly #probe: CapabilityProbeExchange;
+  readonly #diagnostics: DriverDiagnosticsEmitter;
 
   constructor(dependencies: ClaudeCapabilityReporterDependencies) {
     this.#readSpawnedVersion = dependencies.readSpawnedVersion;
     this.#probe = dependencies.probe;
+    this.#diagnostics = dependencies.diagnostics;
   }
 
   /**
@@ -310,8 +328,14 @@ export class ClaudeCapabilityReporter {
     // is what makes that ordering structural.
     const detection: CapabilityDetectionReading = await readCapabilityDetection({
       driverName: CLAUDE_DRIVER_NAME,
+      // Bound to the executable the version handshake resolved, taken from that
+      // same reading rather than resolved again — so the version and the flags
+      // are provably about one build even if a `PATH` change or an installer
+      // swap lands between the two reads.
+      boundExecutablePath: reading.resolvedExecutablePath,
       exchange: this.#probe,
     });
+    emitCapabilityDetectionDiagnostics(this.#diagnostics, detection);
     const capabilities: DriverCapabilities = {
       flags: applyCapabilityDetection(CLAUDE_CAPABILITY_FLAGS, detection),
       contractVersion: CLAUDE_CAPABILITY_CONTRACT_VERSION,

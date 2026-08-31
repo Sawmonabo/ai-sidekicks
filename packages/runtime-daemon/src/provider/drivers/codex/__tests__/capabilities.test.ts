@@ -36,6 +36,7 @@ import type {
   DeclareDriverCapabilitiesInput,
   DeclareDriverCapabilitiesResult,
 } from "../../../driver-capabilities-writer.js";
+import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
 import { DriverCapabilityUnsupportedError, ProviderRegistry } from "../../../provider-registry.js";
 import {
   assertValidCapabilityFlags,
@@ -106,8 +107,16 @@ const CLI_VERSION_READING: SpawnedProviderVersionReading = codexReading();
 // happy path for the pre-existing assertions below; the probe table, the
 // classifier, the negative control, and the withdrawal paths are exercised in
 // `provider/__tests__/capability-probe.test.ts`.
-const CODEX_DETECTION: CapabilityDetectionReading = fullyProbedDetectionReading("codex");
+const CODEX_DETECTION: CapabilityDetectionReading = fullyProbedDetectionReading(
+  "codex",
+  CLI_VERSION_READING.resolvedExecutablePath,
+);
 const CODEX_PROBE = new RecordingCapabilityProbeTransport("codex");
+
+/** The diagnostic band, muted: this suite asserts declarations, not records. */
+function silentDiagnostics(): DriverDiagnosticsEmitter {
+  return new DriverDiagnosticsEmitter({ logSink: { record: () => undefined } });
+}
 
 // Type-level half of I-005-2: the declared key set is EXACTLY the canonical
 // flag union. A missing flag or a stray one fails to compile — the assignment
@@ -251,6 +260,7 @@ describe("Codex capability refresh seam (T3.3, CP-005-5)", () => {
       nodeId: "node-1",
       reading: CLI_VERSION_READING,
       probe: CODEX_PROBE.exchange,
+      diagnostics: silentDiagnostics(),
     });
 
     expect(sink.calls).toHaveLength(1);
@@ -277,6 +287,7 @@ describe("Codex capability refresh seam (T3.3, CP-005-5)", () => {
       nodeId: "node-2",
       reading: CLI_VERSION_READING,
       probe: CODEX_PROBE.exchange,
+      diagnostics: silentDiagnostics(),
       actor: "participant-7",
     });
     expect(sink.calls[0]?.actor).toBe("participant-7");
@@ -293,6 +304,7 @@ describe("Codex capability refresh seam (T3.3, CP-005-5)", () => {
       nodeId: "node-4",
       reading: CLI_VERSION_READING,
       probe: CODEX_PROBE.exchange,
+      diagnostics: silentDiagnostics(),
       actor: null,
     });
     const call = sink.calls[0];
@@ -311,6 +323,7 @@ describe("Codex capability refresh seam (T3.3, CP-005-5)", () => {
       nodeId: "node-3",
       reading: CLI_VERSION_READING,
       probe: CODEX_PROBE.exchange,
+      diagnostics: silentDiagnostics(),
     });
     expect(emission.emitted).toBe("noop");
     expect(sink.calls).toHaveLength(1);
@@ -370,6 +383,7 @@ describe("Codex CLI-version floor (T3.12, P0-2)", () => {
         nodeId: "node-floor",
         reading: codexReading({ raw: "codex-cli 0.140.0", semver: "0.140.0" }),
         probe: CODEX_PROBE.exchange,
+        diagnostics: silentDiagnostics(),
       }),
     ).rejects.toBeInstanceOf(DriverCliVersionBelowFloorError);
     // Fail-closed means the writer never saw the below-floor declaration.
@@ -441,6 +455,7 @@ describe("Codex composition is bound to the spawned build (T3.23, I-005-10)", ()
         nodeId: "node-foreign",
         reading: foreign,
         probe: CODEX_PROBE.exchange,
+        diagnostics: silentDiagnostics(),
       }),
     ).rejects.toThrow(/driver 'claude'/);
     expect(sink.calls).toHaveLength(0);

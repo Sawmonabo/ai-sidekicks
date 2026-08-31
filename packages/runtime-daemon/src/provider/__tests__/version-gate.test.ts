@@ -42,6 +42,7 @@ import type {
   DeclareDriverCapabilitiesInput,
   DeclareDriverCapabilitiesResult,
 } from "../driver-capabilities-writer.js";
+import { DriverDiagnosticsEmitter } from "../driver-diagnostics.js";
 import {
   withSpawnedVersionCarriers,
   type CreateRuntimeBindingInput,
@@ -492,6 +493,7 @@ describe("the ratified floor gate at the spawn (T3.23, I-005-10)", () => {
       nodeId: "node-attach",
       reading,
       probe: probe.exchange,
+      diagnostics: new DriverDiagnosticsEmitter({ logSink: { record: () => undefined } }),
     });
   }
 

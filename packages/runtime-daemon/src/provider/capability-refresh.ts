@@ -83,7 +83,7 @@ import semver from "semver";
 
 import type { DriverAuthProbeResult, DriverCliVersionReport } from "@ai-sidekicks/contracts";
 
-import { isCapabilityProbeError } from "./capability-probe.js";
+import { type CapabilityDetectionReading, isCapabilityProbeError } from "./capability-probe.js";
 import type { DeclareDriverCapabilitiesResult } from "./driver-capabilities-writer.js";
 import { type DriverDiagnosticKind, type DriverDiagnosticsEmitter } from "./driver-diagnostics.js";
 import { CLI_VERSION_RAW_MAX_LEN } from "./provider-output-validation.js";
@@ -324,9 +324,11 @@ export interface CapabilityRefreshDiagnostic {
    * this value marks the refresh failures the probe surface caused (its negative
    * control answered, its transport rejected, a prohibited wire name was
    * reached) so an operator can tell "the probe channel is broken" from "the
-   * declaration could not be written". Both land on the same diagnostic kind:
-   * distinguishing them is a `details` concern, and a new kind here would move a
-   * closed census this task does not own.
+   * declaration could not be written". Both land on the same diagnostic kind
+   * because both are the SAME condition — a refresh that produced no
+   * declaration — and distinguishing why is a `details` concern. A successful
+   * read that merely withdrew a flag is a different condition and does get its
+   * own kind; see {@link emitCapabilityDetectionDiagnostics}.
    */
   readonly leg: "capability-refresh" | "auth-probe" | "capability-probe";
   /** The typed error's registered code, where the failure carried one. */
@@ -341,11 +343,10 @@ export interface CapabilityRefreshDiagnostic {
  *
  * Keyed by the closed leg union so a leg added without a kind is a compile
  * error. `capability-probe` maps onto the EXISTING `capability_refresh_failed`
- * kind deliberately: the probe read is part of the refresh leg, and
- * `DriverDiagnosticKind` is a closed union paired one-for-one with an
- * OpenTelemetry counter name, so minting a kind here would move a census this
- * task does not own. The leg still reaches the operator — it rides `details`
- * on the record and is a first-class member of the richer callback shape.
+ * kind deliberately, and the reason is that it is not a different CONDITION:
+ * every leg in this map names a refresh that produced no declaration, and which
+ * seam failed rides `details` on the record and is a first-class member of the
+ * richer callback shape.
  */
 const CAPABILITY_REFRESH_DIAGNOSTIC_KINDS: Readonly<
   Record<CapabilityRefreshDiagnostic["leg"], DriverDiagnosticKind>
@@ -354,6 +355,54 @@ const CAPABILITY_REFRESH_DIAGNOSTIC_KINDS: Readonly<
   "capability-probe": "capability_refresh_failed",
   "auth-probe": "auth_probe_failed",
 });
+
+/**
+ * Report every flag a SUCCESSFUL detection read withdrew.
+ *
+ * WHY A NEW KIND RATHER THAN `capability_refresh_failed`. The map above reuses
+ * that kind because its legs are one condition wearing three names. This is a
+ * genuinely different condition — the read worked, the declaration was written,
+ * and the node can now do LESS than its matrix says — so folding it onto a
+ * `*_failed` kind would make a counter mean two things and leave an operator
+ * unable to distinguish a broken probe channel from a build that lost a
+ * feature. Minting it is admissible here because `DriverDiagnosticKind` and
+ * `DRIVER_DIAGNOSTIC_COUNTER_NAMES` are a MODULE-LOCAL pairing (only
+ * `driver.reorder_buffer.overflow` is pinned by a governance document, and it
+ * is unmoved), so growing both sides together is an in-module extension and not
+ * a census this task does not own. The counter name follows the band's existing
+ * `driver.<band>.<condition>` shape exactly.
+ *
+ * Called by each driver's own detection-read wrapper, so ATTACH and REFRESH
+ * report identically: a capability withdrawn the first time a build is read is
+ * the same operator-visible fact as one withdrawn on the tenth refresh.
+ *
+ * Emits nothing for an all-accepted read. Silence here means the build carries
+ * every surface its matrix declares.
+ */
+export function emitCapabilityDetectionDiagnostics(
+  diagnostics: DriverDiagnosticsEmitter,
+  reading: CapabilityDetectionReading,
+): void {
+  for (const withdrawal of reading.diagnostics) {
+    diagnostics.emit({
+      provider: withdrawal.driverName,
+      kind: "capability_flag_withdrawn",
+      // The probe name IS the wire name this record is about — the one frame
+      // that caused it — which is exactly what this field carries elsewhere.
+      rawWireType: withdrawal.probeName,
+      dispositionReason:
+        withdrawal.disposition === "unknown-name"
+          ? "probe channel refused the wire name itself, so this build does not carry the surface the flag declares; flag withdrawn from the declaration"
+          : "probe answer could not be classified, and an unclassifiable answer is never read as availability; flag withdrawn fail-closed",
+      details: {
+        flag: withdrawal.flag,
+        probeName: withdrawal.probeName,
+        disposition: withdrawal.disposition,
+        boundExecutablePath: reading.boundExecutablePath,
+      },
+    });
+  }
+}
 
 export interface CapabilityRefreshSchedulerDependencies {
   /**

@@ -25,6 +25,15 @@
 //     capabilities available" — §the negative control.
 //   * "a driver whose one probe refuses keeps every other flag and the session"
 //     — §withdrawal is per capability.
+//   * the classifier reads the MESSAGE and not only the code on the Codex
+//     channel — §classification, driven against the measured verbatim shapes the
+//     pinned build emits for all three `-32600` cases.
+//   * a flag whose consumers call several wire names withdraws on a refusal of
+//     ANY of them — §conjunctive probes.
+//   * a reading is bound to the executable the version handshake proved, and a
+//     composition site refuses two readings that disagree — §build binding.
+//   * a withdrawal reaches the driver diagnostic band, and an all-accepted read
+//     emits nothing — §withdrawal diagnostics.
 //   * "a flag moving `true` → `false` across two polls emits exactly one
 //     `runtime_node.capability_updated` and an unchanged poll emits none" —
 //     §change-detected emission, over the REAL `DriverCapabilitiesWriter` and a
@@ -58,9 +67,12 @@ import {
   claudeContextualRefusalReply,
   claudeSuccessReply,
   claudeUnsupportedSubtypeReply,
+  codexCapabilityGatedReply,
   codexInvalidParamsReply,
+  codexMissingFieldReply,
   codexResultReply,
   codexUnknownMethodReply,
+  codexUnknownVariantReply,
 } from "../__fixtures__/capability-probe-doubles.js";
 import {
   CAPABILITY_DETECTION_TABLES,
@@ -86,6 +98,11 @@ import {
 import type { FlooredDriverName } from "../capability-refresh.js";
 import { DriverCliVersionBelowFloorError } from "../capability-refresh.js";
 import { DriverCapabilitiesWriter } from "../driver-capabilities-writer.js";
+import {
+  DRIVER_DIAGNOSTIC_COUNTER_NAMES,
+  DriverDiagnosticsEmitter,
+  InMemoryDriverDiagnosticCounterSink,
+} from "../driver-diagnostics.js";
 import {
   CLAUDE_CAPABILITY_FLAGS,
   CLAUDE_DRIVER_NAME,
@@ -140,9 +157,33 @@ function probedFlagsOf(table: DriverCapabilityDetectionTable): DriverCapabilityF
   );
 }
 
+const VERSION_READINGS: Readonly<Record<FlooredDriverName, SpawnedProviderVersionReading>> = {
+  claude: CLAUDE_VERSION_READING,
+  codex: CODEX_VERSION_READING,
+};
+
+/** The build a driver's detection read is bound to, from its version reading. */
+function boundPathFor(driverName: FlooredDriverName): string {
+  return VERSION_READINGS[driverName].resolvedExecutablePath;
+}
+
 /**
- * The flag each driver's withdrawal assertions run through, NAMED rather than
- * taken positionally off `probedFlagsOf(...)`.
+ * The drivers whose table declares at least one probe, DERIVED from the tables
+ * rather than listed.
+ *
+ * Deriving it is what keeps the suite honest across a demotion or a promotion:
+ * a driver that stops probing drops out of every probe-behaviour block instead
+ * of failing them for the wrong reason, and a driver that starts probing joins
+ * them. Which drivers are currently in the set is pinned by its own test below,
+ * so the membership is never allowed to change silently.
+ */
+const PROBING_DRIVERS: readonly FlooredDriverName[] = DRIVERS.filter(
+  (driverName) => probedFlagsOf(CAPABILITY_DETECTION_TABLES[driverName]).length > 0,
+);
+
+/**
+ * The flag a probing driver's withdrawal assertions run through, NAMED rather
+ * than taken positionally off `probedFlagsOf(...)`.
  *
  * A positional pick silently changes which capability is covered the moment a
  * table grows a probed entry ahead of it — the assertions would keep passing
@@ -150,17 +191,58 @@ function probedFlagsOf(table: DriverCapabilityDetectionTable): DriverCapabilityF
  * asserted below, so a canary that stops being probed fails loudly instead of
  * degrading.
  */
-const WITHDRAWAL_CANARY_FLAG: Readonly<Record<FlooredDriverName, DriverCapabilityFlag>> = {
-  claude: "interactive_requests",
+const WITHDRAWAL_CANARY_FLAG: Readonly<Partial<Record<FlooredDriverName, DriverCapabilityFlag>>> = {
   codex: "steer",
 };
 
-function probeNameFor(table: DriverCapabilityDetectionTable, flag: DriverCapabilityFlag): string {
+function withdrawalCanaryFor(driverName: FlooredDriverName): DriverCapabilityFlag {
+  const canary = WITHDRAWAL_CANARY_FLAG[driverName];
+  if (canary === undefined) {
+    throw new Error(`test fixture error: driver '${driverName}' declares no withdrawal canary`);
+  }
+  return canary;
+}
+
+function probeNamesFor(
+  table: DriverCapabilityDetectionTable,
+  flag: DriverCapabilityFlag,
+): readonly string[] {
   const mechanism = table[flag];
   if (mechanism.detectionSource !== "probed") {
     throw new Error(`test fixture error: '${flag}' is not a probed entry`);
   }
-  return mechanism.probe.probeName;
+  return mechanism.probe.probeNames;
+}
+
+/** The first name of a probed flag — the one a single-name assertion means. */
+function firstProbeNameFor(
+  table: DriverCapabilityDetectionTable,
+  flag: DriverCapabilityFlag,
+): string {
+  const [firstName] = probeNamesFor(table, flag);
+  if (firstName === undefined) {
+    throw new Error(`test fixture error: '${flag}' declares no probe names`);
+  }
+  return firstName;
+}
+
+/**
+ * An emitter over a silent log sink and a counting metrics sink.
+ *
+ * Both halves are asserted, because the record and the counter are the two
+ * things the closed-kind pairing exists to keep in step: a record emitted under
+ * a kind with no counter would be invisible to an operator watching metrics.
+ */
+function recordingDiagnostics(): {
+  readonly emitter: DriverDiagnosticsEmitter;
+  readonly counters: InMemoryDriverDiagnosticCounterSink;
+} {
+  const counters = new InMemoryDriverDiagnosticCounterSink();
+  const emitter = new DriverDiagnosticsEmitter({
+    logSink: { record: () => undefined },
+    counterSink: counters,
+  });
+  return { emitter, counters };
 }
 
 // --------------------------------------------------------------------------
@@ -206,20 +288,58 @@ describe("the declared detection-mechanism table", () => {
 
   it.each(DRIVERS)("declares a real probe on EVERY probed entry of '%s'", (driverName) => {
     const table = CAPABILITY_DETECTION_TABLES[driverName];
-    const probedFlags = probedFlagsOf(table);
-    // Each driver must actually probe something: a table with no probed entry
-    // would satisfy every structural rule above while quietly abandoning the
-    // reading-of-the-installed-build requirement.
-    expect(probedFlags.length).toBeGreaterThan(0);
-    for (const flag of probedFlags) {
+    for (const flag of probedFlagsOf(table)) {
       const mechanism = table[flag];
       expect(mechanism.detectionSource).toBe("probed");
       if (mechanism.detectionSource !== "probed") {
         return;
       }
-      expect(mechanism.probe.probeName.trim().length).toBeGreaterThan(0);
+      // EVERY name, not just the first: a conjunctive probe issues them all.
+      expect(mechanism.probe.probeNames.length).toBeGreaterThan(0);
+      for (const probeName of mechanism.probe.probeNames) {
+        expect(probeName.trim().length).toBeGreaterThan(0);
+      }
       expect(mechanism.probe.decisiveness.trim().length).toBeGreaterThan(0);
     }
+  });
+
+  it("pins WHICH drivers probe — and the corpus still reads a real build", () => {
+    // Claude's one candidate entry is `static` on a MEASURED gap (below), so
+    // this driver dispatches nothing. Pinned rather than left implicit: a table
+    // edit that promotes or demotes an entry must re-derive the probe-behaviour
+    // blocks below rather than silently make them vacuous.
+    expect([...PROBING_DRIVERS]).toStrictEqual(["codex"]);
+    // …and the reading-of-the-installed-build requirement is still discharged
+    // somewhere, which a corpus of entirely `static` tables would not be.
+    expect(PROBING_DRIVERS.length).toBeGreaterThan(0);
+  });
+
+  it("declares Claude `interactive_requests` static on the MEASURED direction gap", () => {
+    // The subtypes the flag is consumed as are ones the provider RAISES. The
+    // pinned build's inbound dispatcher refuses all three by name, exactly as it
+    // refuses the negative control, so a probe here would withdraw the flag on
+    // every read of a build that fully carries it.
+    const mechanism = CLAUDE_CAPABILITY_DETECTION_TABLE.interactive_requests;
+    expect(mechanism.detectionSource).toBe("static");
+    if (mechanism.detectionSource !== "static") {
+      return;
+    }
+    expect(mechanism.failingConjuncts).toStrictEqual(["decisive-at-consumption-granularity"]);
+    expect(mechanism.rationale).toMatch(/can_use_tool/);
+    expect(mechanism.rationale).toMatch(/negative control/);
+    // The matrix still DECLARES the capability: the demotion is about how the
+    // value is arrived at, never about what the driver can do.
+    expect(CLAUDE_CAPABILITY_FLAGS.interactive_requests).toBe(true);
+  });
+
+  it("declares Codex `session_goals` as a CONJUNCTIVE probe over both goal methods", () => {
+    // The flag is consumed as durable goal operations, which this driver
+    // delivers over a setter AND a clearer. Probing only the setter would report
+    // a build that accepts goals it cannot clear as fully capable.
+    expect(probeNamesFor(CODEX_CAPABILITY_DETECTION_TABLE, "session_goals")).toStrictEqual([
+      "thread/goal/set",
+      "thread/goal/clear",
+    ]);
   });
 
   it.each(DRIVERS)("passes its own admissibility screen for '%s'", (driverName) => {
@@ -234,7 +354,7 @@ describe("the declared detection-mechanism table", () => {
     // everything, and "no violations" would be evidence of nothing.
     const malformed: DriverCapabilityDetectionTable = {
       ...CODEX_CAPABILITY_DETECTION_TABLE,
-      steer: { detectionSource: "probed", probe: { probeName: "  ", decisiveness: "" } },
+      steer: { detectionSource: "probed", probe: { probeNames: ["  "], decisiveness: "" } },
       rollback: {
         detectionSource: "static",
         failingConjuncts: [] as unknown as readonly [ProbeAdmissibilityConjunct],
@@ -242,7 +362,19 @@ describe("the declared detection-mechanism table", () => {
       },
       mcp: {
         detectionSource: "probed",
-        probe: { probeName: "mcp_set_servers", decisiveness: "x" },
+        // The prohibited name is NOT first: a screen that checked only the
+        // leading name would pass this table and let the name reach the wire.
+        probe: { probeNames: ["thread/goal/set", "mcp_set_servers"], decisiveness: "x" },
+      },
+      // A `probed` entry the TYPE forbids — the tuple makes it unspellable — but
+      // which this checker is still reachable with, because a table can arrive
+      // from somewhere the compiler did not see.
+      session_goals: {
+        detectionSource: "probed",
+        probe: {
+          probeNames: [] as unknown as readonly [string, ...string[]],
+          decisiveness: "x",
+        },
       },
     };
     const violations = findCapabilityDetectionTableViolations("codex", malformed);
@@ -256,6 +388,7 @@ describe("the declared detection-mechanism table", () => {
     expect(reasonsFor("rollback")).toMatch(/failing admissibility conjunct/);
     expect(reasonsFor("rollback")).toMatch(/must carry a rationale/);
     expect(reasonsFor("mcp")).toMatch(/prohibited wire name 'mcp_set_servers'/);
+    expect(reasonsFor("session_goals")).toMatch(/at least one probe wire name/);
     // …and the SHIPPED tables are clean against the same checker, so the two
     // results together are evidence rather than a checker that never fires.
     expect(
@@ -276,13 +409,16 @@ describe("the declared detection-mechanism table", () => {
     }
   });
 
-  it.each(DRIVERS)("declares its withdrawal canary flag as a PROBED entry ('%s')", (driverName) => {
-    // Pins the pairing the withdrawal assertions below depend on. Without this,
-    // a table edit could leave those tests exercising a flag nobody chose.
-    const canary = WITHDRAWAL_CANARY_FLAG[driverName];
-    expect(probedFlagsOf(CAPABILITY_DETECTION_TABLES[driverName])).toContain(canary);
-    expect(MATRIX_FLAGS[driverName][canary]).toBe(true);
-  });
+  it.each(PROBING_DRIVERS)(
+    "declares its withdrawal canary flag as a PROBED entry ('%s')",
+    (driverName) => {
+      // Pins the pairing the withdrawal assertions below depend on. Without this,
+      // a table edit could leave those tests exercising a flag nobody chose.
+      const canary = withdrawalCanaryFor(driverName);
+      expect(probedFlagsOf(CAPABILITY_DETECTION_TABLES[driverName])).toContain(canary);
+      expect(MATRIX_FLAGS[driverName][canary]).toBe(true);
+    },
+  );
 
   it("declares Codex `rollback` non-probeable on the GRANULARITY conjunct", () => {
     const mechanism = CODEX_CAPABILITY_DETECTION_TABLE.rollback;
@@ -307,26 +443,49 @@ describe("zero billed turns, asserted at the provider transport", () => {
     "issues ONLY declared probe names plus the control for '%s'",
     async (driverName) => {
       const transport = new RecordingCapabilityProbeTransport(driverName);
-      await readCapabilityDetection({ driverName, exchange: transport.exchange });
+      await readCapabilityDetection({
+        driverName,
+        boundExecutablePath: boundPathFor(driverName),
+        exchange: transport.exchange,
+      });
 
       const table = CAPABILITY_DETECTION_TABLES[driverName];
       const permitted = new Set<string>([
         CAPABILITY_PROBE_NEGATIVE_CONTROLS[driverName],
-        ...probedFlagsOf(table).map((flag) => probeNameFor(table, flag)),
+        ...probedFlagsOf(table).flatMap((flag) => [...probeNamesFor(table, flag)]),
       ]);
-      expect(transport.issuedProbeNames.length).toBeGreaterThan(0);
       for (const issued of transport.issuedProbeNames) {
         expect(permitted.has(issued)).toBe(true);
       }
     },
   );
 
-  it.each(DRIVERS)(
+  it.each(PROBING_DRIVERS)(
+    "issues at least the control and one probe for '%s'",
+    async (driverName) => {
+      // The non-vacuity half of the assertion above: a transport that recorded
+      // nothing would satisfy "only permitted names" trivially.
+      const transport = new RecordingCapabilityProbeTransport(driverName);
+      await readCapabilityDetection({
+        driverName,
+        boundExecutablePath: boundPathFor(driverName),
+        exchange: transport.exchange,
+      });
+      expect(transport.issuedProbeNames.length).toBeGreaterThan(1);
+    },
+  );
+
+  it.each(PROBING_DRIVERS)(
     "issues no turn-bearing request for '%s' — structurally and in fact",
     async (driverName) => {
       const transport = new RecordingCapabilityProbeTransport(driverName);
-      await readCapabilityDetection({ driverName, exchange: transport.exchange });
+      await readCapabilityDetection({
+        driverName,
+        boundExecutablePath: boundPathFor(driverName),
+        exchange: transport.exchange,
+      });
 
+      expect(transport.requests.length).toBeGreaterThan(0);
       for (const request of transport.requests) {
         // In fact: no name that STARTS a thread or a turn is ever issued. (A
         // probe may legitimately name a `turn/*` method — `turn/steer` acts on an
@@ -335,17 +494,28 @@ describe("zero billed turns, asserted at the provider transport", () => {
         expect(CAPABILITY_PROBE_PROHIBITED_WIRE_NAMES).not.toContain(request.probeName);
         // Structurally: the request shape carries no message, prompt, content, or
         // params member at all, so a user message cannot be expressed on this
-        // seam even by a caller that wanted to.
-        expect(Object.keys(request).sort()).toStrictEqual(["channel", "driverName", "probeName"]);
+        // seam even by a caller that wanted to. It carries the BUILD, which is
+        // the one thing a capability answer is about.
+        expect(Object.keys(request).sort()).toStrictEqual([
+          "boundExecutablePath",
+          "channel",
+          "driverName",
+          "probeName",
+        ]);
         expect(request.channel).toBe(CAPABILITY_PROBE_CHANNELS[driverName]);
         expect(request.driverName).toBe(driverName);
+        expect(request.boundExecutablePath).toBe(boundPathFor(driverName));
       }
     },
   );
 
   it.each(DRIVERS)("never issues `mcp_set_servers` for '%s'", async (driverName) => {
     const transport = new RecordingCapabilityProbeTransport(driverName);
-    await readCapabilityDetection({ driverName, exchange: transport.exchange });
+    await readCapabilityDetection({
+      driverName,
+      boundExecutablePath: boundPathFor(driverName),
+      exchange: transport.exchange,
+    });
     expect(transport.issuedProbeNames).not.toContain("mcp_set_servers");
     // And the prohibition is a property of the daemon, not of this run: the
     // name is refused wherever it reaches the dispatcher.
@@ -365,23 +535,30 @@ describe("zero billed turns, asserted at the provider transport", () => {
       nodeId: "node-probe",
       reading: CODEX_VERSION_READING,
       probe: transport.exchange,
+      diagnostics: recordingDiagnostics().emitter,
     });
     expect(transport.requests.length).toBeGreaterThan(0);
     expect(transport.issuedProbeNames).not.toContain("turn/start");
     expect(transport.issuedProbeNames).not.toContain("thread/start");
   });
 
-  it("an ATTACH that probes issues no turn-start and no user message (Claude)", async () => {
+  it("an ATTACH on a probe-less driver dispatches NOTHING at all (Claude)", async () => {
+    // The strongest form of the zero-turn claim for this driver: with every
+    // entry `static`, the read issues no capability probe and no negative
+    // control either — there is no answer a control could protect.
     const transport = new RecordingCapabilityProbeTransport("claude");
     const reporter = new ClaudeCapabilityReporter({
       readSpawnedVersion: () => Promise.resolve(CLAUDE_VERSION_READING),
       probe: transport.exchange,
+      diagnostics: recordingDiagnostics().emitter,
     });
-    await reporter.getCapabilities();
-    expect(transport.requests.length).toBeGreaterThan(0);
-    for (const request of transport.requests) {
-      expect(request.channel).toBe("control_request");
-    }
+    const result = await reporter.getCapabilities();
+    expect(transport.requests).toStrictEqual([]);
+    // …and the report is still complete: a driver that probes nothing still
+    // declares every flag, from its matrix.
+    expect(Object.keys(result.detectionSource ?? {}).sort()).toStrictEqual(
+      [...DRIVER_CAPABILITY_FLAGS].sort(),
+    );
   });
 });
 
@@ -390,35 +567,50 @@ describe("zero billed turns, asserted at the provider transport", () => {
 // --------------------------------------------------------------------------
 
 describe("the capability-probe negative control", () => {
-  it.each(DRIVERS)("is issued FIRST for '%s', before any capability probe", async (driverName) => {
-    const transport = new RecordingCapabilityProbeTransport(driverName);
-    await readCapabilityDetection({ driverName, exchange: transport.exchange });
-    expect(transport.issuedProbeNames[0]).toBe(CAPABILITY_PROBE_NEGATIVE_CONTROLS[driverName]);
-  });
+  it.each(PROBING_DRIVERS)(
+    "is issued FIRST for '%s', before any capability probe",
+    async (driverName) => {
+      const transport = new RecordingCapabilityProbeTransport(driverName);
+      await readCapabilityDetection({
+        driverName,
+        boundExecutablePath: boundPathFor(driverName),
+        exchange: transport.exchange,
+      });
+      expect(transport.issuedProbeNames[0]).toBe(CAPABILITY_PROBE_NEGATIVE_CONTROLS[driverName]);
+    },
+  );
 
-  it.each(DRIVERS)("fails the whole read when it SUCCEEDS on '%s'", async (driverName) => {
+  it.each(PROBING_DRIVERS)("fails the whole read when it SUCCEEDS on '%s'", async (driverName) => {
     const control = CAPABILITY_PROBE_NEGATIVE_CONTROLS[driverName];
     const transport = new RecordingCapabilityProbeTransport(driverName, {
       replies: { [control]: driverName === "claude" ? claudeSuccessReply() : codexResultReply() },
     });
     await expect(
-      readCapabilityDetection({ driverName, exchange: transport.exchange }),
+      readCapabilityDetection({
+        driverName,
+        boundExecutablePath: boundPathFor(driverName),
+        exchange: transport.exchange,
+      }),
     ).rejects.toBeInstanceOf(CapabilityProbeNegativeControlError);
     // And it fails BEFORE reporting anything: no capability probe was issued at
     // all, so there is no reading to be tempted into using.
     expect(transport.issuedProbeNames).toStrictEqual([control]);
   });
 
-  it("fails the read when the control draws a non-name-level refusal (Claude)", async () => {
-    // The dispatcher answering a CONTEXTUAL error for a name that cannot exist
-    // means it is not doing name-level lookup — so its refusals cannot be
-    // trusted to discriminate a missing subtype either.
-    const control = CAPABILITY_PROBE_NEGATIVE_CONTROLS.claude;
-    const transport = new RecordingCapabilityProbeTransport("claude", {
-      replies: { [control]: claudeContextualRefusalReply(control) },
+  it("fails the read when the control draws a non-name-level refusal", async () => {
+    // A dispatcher answering a CONTEXTUAL error for a name that cannot exist is
+    // not doing name-level lookup — so its refusals cannot be trusted to
+    // discriminate a missing name either.
+    const control = CAPABILITY_PROBE_NEGATIVE_CONTROLS.codex;
+    const transport = new RecordingCapabilityProbeTransport("codex", {
+      replies: { [control]: codexCapabilityGatedReply(control) },
     });
     await expect(
-      readCapabilityDetection({ driverName: "claude", exchange: transport.exchange }),
+      readCapabilityDetection({
+        driverName: "codex",
+        boundExecutablePath: boundPathFor("codex"),
+        exchange: transport.exchange,
+      }),
     ).rejects.toBeInstanceOf(CapabilityProbeNegativeControlError);
   });
 
@@ -428,8 +620,35 @@ describe("the capability-probe negative control", () => {
       replies: { [control]: "not a json-rpc frame" },
     });
     await expect(
-      readCapabilityDetection({ driverName: "codex", exchange: transport.exchange }),
+      readCapabilityDetection({
+        driverName: "codex",
+        boundExecutablePath: boundPathFor("codex"),
+        exchange: transport.exchange,
+      }),
     ).rejects.toBeInstanceOf(CapabilityProbeNegativeControlError);
+  });
+
+  it("is NOT dispatched by a driver whose table declares no probe", async () => {
+    // The control is declared for every driver and issued only where it
+    // validates something. The reply here would FAIL the read if it were
+    // issued, so a passing read is evidence the dispatch never happened rather
+    // than evidence the answer was ignored.
+    const control = CAPABILITY_PROBE_NEGATIVE_CONTROLS.claude;
+    const transport = new RecordingCapabilityProbeTransport("claude", {
+      replies: { [control]: claudeSuccessReply() },
+    });
+    const reading = await readCapabilityDetection({
+      driverName: "claude",
+      boundExecutablePath: boundPathFor("claude"),
+      exchange: transport.exchange,
+    });
+    expect(transport.issuedProbeNames).toStrictEqual([]);
+    expect(reading.withdrawnFlags).toStrictEqual([]);
+    // The declaration is still total over the drivers, so a table that becomes
+    // probeable is never left without a control to dispatch.
+    expect(Object.keys(CAPABILITY_PROBE_NEGATIVE_CONTROLS).sort()).toStrictEqual(
+      [...DRIVERS].sort(),
+    );
   });
 });
 
@@ -454,19 +673,60 @@ describe("capability-probe reply classification", () => {
   });
 
   it("classifies the Codex JSON-RPC arms", () => {
-    expect(classifyCodexProbeReply(codexResultReply())).toBe("accepted");
-    // `-32602` is the reply a deliberately payload-free probe draws from an
+    expect(classifyCodexProbeReply(codexResultReply(), "turn/steer")).toBe("accepted");
+    // `-32602` is one reply a deliberately payload-free probe can draw from an
     // ACCEPTED method — the schema refused the empty request, which is exactly
     // what keeps the probe non-mutating. Classifying it as absence would
     // withdraw every probed flag on every build.
-    expect(classifyCodexProbeReply(codexInvalidParamsReply())).toBe("accepted");
-    expect(classifyCodexProbeReply(codexUnknownMethodReply("zzq/x"))).toBe("unknown-name");
-    expect(classifyCodexProbeReply({ error: { code: -32601, message: "Method not found" } })).toBe(
+    expect(classifyCodexProbeReply(codexInvalidParamsReply(), "turn/steer")).toBe("accepted");
+    expect(classifyCodexProbeReply(codexUnknownMethodReply("zzq/x"), "zzq/x")).toBe("unknown-name");
+    expect(
+      classifyCodexProbeReply({ error: { code: -32601, message: "Method not found" } }, "zzq/x"),
+    ).toBe("unknown-name");
+    expect(classifyCodexProbeReply({ error: { code: "-32600" } }, "zzq/x")).toBe("unrecognized");
+    expect(classifyCodexProbeReply({}, "zzq/x")).toBe("unrecognized");
+    expect(classifyCodexProbeReply(undefined, "zzq/x")).toBe("unrecognized");
+  });
+
+  it("reads the MESSAGE and not only the code on the Codex `-32600` arm", () => {
+    // The measured build answers `-32600` for BOTH an unaccepted name and an
+    // accepted name whose payload does not deserialize, so a classifier keyed on
+    // the code alone withdraws every probed flag on every real read. These are
+    // the three measured shapes, verbatim.
+    expect(classifyCodexProbeReply(codexMissingFieldReply(), "turn/steer")).toBe("accepted");
+    expect(
+      classifyCodexProbeReply(
+        codexCapabilityGatedReply("server/diagnostics"),
+        "server/diagnostics",
+      ),
+    ).toBe("accepted");
+    expect(classifyCodexProbeReply(codexUnknownMethodReply("turn/steer"), "turn/steer")).toBe(
       "unknown-name",
     );
-    expect(classifyCodexProbeReply({ error: { code: "-32600" } })).toBe("unrecognized");
-    expect(classifyCodexProbeReply({})).toBe("unrecognized");
-    expect(classifyCodexProbeReply(undefined)).toBe("unrecognized");
+  });
+
+  it("resolves every ambiguous Codex `-32600` toward ACCEPTED", () => {
+    // Resolution is withdraw-only, so a wrong `accepted` preserves the declared
+    // matrix while a wrong `unknown-name` silently disables a live capability.
+    // An enumeration about a variant NESTED inside an accepted request…
+    expect(
+      classifyCodexProbeReply(
+        codexUnknownVariantReply("on-failure", ["untrusted", "on-request", "granular", "never"]),
+        "turn/steer",
+      ),
+    ).toBe("accepted");
+    // …an enumeration that CONTAINS the probed name, which can only mean the
+    // refusal was about something else…
+    expect(
+      classifyCodexProbeReply(
+        codexUnknownVariantReply("turn/steer", ["turn/steer", "thread/start"]),
+        "turn/steer",
+      ),
+    ).toBe("accepted");
+    // …and a `-32600` whose message is not a string at all.
+    expect(classifyCodexProbeReply({ error: { code: -32600, message: 7 } }, "turn/steer")).toBe(
+      "accepted",
+    );
   });
 });
 
@@ -475,12 +735,12 @@ describe("capability-probe reply classification", () => {
 // --------------------------------------------------------------------------
 
 describe("capability withdrawal is per capability", () => {
-  it.each(DRIVERS)(
+  it.each(PROBING_DRIVERS)(
     "withdraws ONLY the refusing flag on '%s', keeping the rest",
     async (driverName) => {
       const table = CAPABILITY_DETECTION_TABLES[driverName];
-      const refusedFlag = WITHDRAWAL_CANARY_FLAG[driverName];
-      const refusedName = probeNameFor(table, refusedFlag);
+      const refusedFlag = withdrawalCanaryFor(driverName);
+      const refusedName = firstProbeNameFor(table, refusedFlag);
       const transport = new RecordingCapabilityProbeTransport(driverName, {
         replies: {
           [refusedName]:
@@ -490,7 +750,11 @@ describe("capability withdrawal is per capability", () => {
         },
       });
 
-      const reading = await readCapabilityDetection({ driverName, exchange: transport.exchange });
+      const reading = await readCapabilityDetection({
+        driverName,
+        boundExecutablePath: boundPathFor(driverName),
+        exchange: transport.exchange,
+      });
       expect(reading.withdrawnFlags).toStrictEqual([refusedFlag]);
       expect(reading.diagnostics).toStrictEqual([
         { driverName, flag: refusedFlag, probeName: refusedName, disposition: "unknown-name" },
@@ -514,13 +778,14 @@ describe("capability withdrawal is per capability", () => {
   );
 
   it("withdraws fail-closed on an answer it cannot classify, with a diagnostic", async () => {
-    const flag = WITHDRAWAL_CANARY_FLAG.codex;
-    const probeName = probeNameFor(CODEX_CAPABILITY_DETECTION_TABLE, flag);
+    const flag = withdrawalCanaryFor("codex");
+    const probeName = firstProbeNameFor(CODEX_CAPABILITY_DETECTION_TABLE, flag);
     const transport = new RecordingCapabilityProbeTransport("codex", {
       replies: { [probeName]: { unexpected: true } },
     });
     const reading = await readCapabilityDetection({
       driverName: "codex",
+      boundExecutablePath: boundPathFor("codex"),
       exchange: transport.exchange,
     });
     expect(reading.withdrawnFlags).toStrictEqual([flag]);
@@ -536,6 +801,7 @@ describe("capability withdrawal is per capability", () => {
     const transport = new RecordingCapabilityProbeTransport("codex");
     const reading = await readCapabilityDetection({
       driverName: "codex",
+      boundExecutablePath: boundPathFor("codex"),
       exchange: transport.exchange,
     });
     expect(reading.withdrawnFlags).toStrictEqual([]);
@@ -548,15 +814,16 @@ describe("capability withdrawal is per capability", () => {
   });
 
   it("fails the whole read when the transport rejects", async () => {
-    const probeName = probeNameFor(
-      CLAUDE_CAPABILITY_DETECTION_TABLE,
-      WITHDRAWAL_CANARY_FLAG.claude,
+    const probeName = firstProbeNameFor(
+      CODEX_CAPABILITY_DETECTION_TABLE,
+      withdrawalCanaryFor("codex"),
     );
-    const transport = new RecordingCapabilityProbeTransport("claude", {
+    const transport = new RecordingCapabilityProbeTransport("codex", {
       rejections: { [probeName]: new Error("pipe closed") },
     });
     const rejection: unknown = await readCapabilityDetection({
-      driverName: "claude",
+      driverName: "codex",
+      boundExecutablePath: boundPathFor("codex"),
       exchange: transport.exchange,
     }).catch((error: unknown) => error);
     expect(rejection).toBeInstanceOf(CapabilityProbeTransportError);
@@ -574,6 +841,7 @@ describe("detectionSource on the capability report", () => {
     const reporter = new ClaudeCapabilityReporter({
       readSpawnedVersion: () => Promise.resolve(CLAUDE_VERSION_READING),
       probe: new RecordingCapabilityProbeTransport("claude").exchange,
+      diagnostics: recordingDiagnostics().emitter,
     });
     const result: GetCapabilitiesResult = await reporter.getCapabilities();
     expect(result.detectionSource).toBeDefined();
@@ -591,6 +859,7 @@ describe("detectionSource on the capability report", () => {
     const detection = await readCodexCapabilityDetection(
       CODEX_VERSION_READING,
       new RecordingCapabilityProbeTransport("codex").exchange,
+      recordingDiagnostics().emitter,
     );
     const result = getCodexCapabilities(CODEX_VERSION_READING, detection);
     expect(Object.keys(result.detectionSource ?? {}).sort()).toStrictEqual(
@@ -611,6 +880,7 @@ describe("detectionSource on the capability report", () => {
           report: { raw: "2.1.100", semver: "2.1.100" },
         }),
       probe: transport.exchange,
+      diagnostics: recordingDiagnostics().emitter,
     });
     await expect(reporter.getCapabilities()).rejects.toBeInstanceOf(
       DriverCliVersionBelowFloorError,
@@ -619,41 +889,242 @@ describe("detectionSource on the capability report", () => {
   });
 
   it("returns a REPORT when one probe refuses — the session survives the withdrawal", async () => {
-    // End-to-end through the reporter: a refusing probe is a per-capability
-    // outcome, not a failure of the read. The declaration still lands, with
-    // exactly one flag withdrawn and its provenance still reading `probed`.
-    const refusedFlag = WITHDRAWAL_CANARY_FLAG.claude;
-    const refusedName = probeNameFor(CLAUDE_CAPABILITY_DETECTION_TABLE, refusedFlag);
-    expect(CLAUDE_CAPABILITY_FLAGS[refusedFlag]).toBe(true);
-    const reporter = new ClaudeCapabilityReporter({
-      readSpawnedVersion: () => Promise.resolve(CLAUDE_VERSION_READING),
-      probe: new RecordingCapabilityProbeTransport("claude", {
-        replies: { [refusedName]: claudeUnsupportedSubtypeReply(refusedName) },
+    // End-to-end through the driver's own composition: a refusing probe is a
+    // per-capability outcome, not a failure of the read. The declaration still
+    // lands, with exactly one flag withdrawn and its provenance still `probed`.
+    const refusedFlag = withdrawalCanaryFor("codex");
+    const refusedName = firstProbeNameFor(CODEX_CAPABILITY_DETECTION_TABLE, refusedFlag);
+    expect(CODEX_CAPABILITY_FLAGS[refusedFlag]).toBe(true);
+    const detection = await readCodexCapabilityDetection(
+      CODEX_VERSION_READING,
+      new RecordingCapabilityProbeTransport("codex", {
+        replies: { [refusedName]: codexUnknownMethodReply(refusedName) },
       }).exchange,
-    });
+      recordingDiagnostics().emitter,
+    );
 
-    const result = await reporter.getCapabilities();
+    const result = getCodexCapabilities(CODEX_VERSION_READING, detection);
     expect(result.capabilities.flags[refusedFlag]).toBe(false);
     expect(result.detectionSource?.[refusedFlag]).toBe("probed");
     for (const flag of DRIVER_CAPABILITY_FLAGS) {
       if (flag === refusedFlag) {
         continue;
       }
-      expect(result.capabilities.flags[flag]).toBe(CLAUDE_CAPABILITY_FLAGS[flag]);
+      expect(result.capabilities.flags[flag]).toBe(CODEX_CAPABILITY_FLAGS[flag]);
     }
     // …and the frozen module constant is untouched: a withdrawal on one reading
     // must not poison every later declaration in the process.
-    expect(CLAUDE_CAPABILITY_FLAGS[refusedFlag]).toBe(true);
+    expect(CODEX_CAPABILITY_FLAGS[refusedFlag]).toBe(true);
   });
 
   it("refuses a detection reading taken from another driver's build", async () => {
     const claudeDetection = await readCapabilityDetection({
       driverName: "claude",
+      boundExecutablePath: boundPathFor("claude"),
       exchange: new RecordingCapabilityProbeTransport("claude").exchange,
     });
     expect(() => getCodexCapabilities(CODEX_VERSION_READING, claudeDetection)).toThrow(
       /detection reading taken from driver 'claude'/,
     );
+  });
+});
+
+// --------------------------------------------------------------------------
+// §conjunctive probes
+// --------------------------------------------------------------------------
+
+describe("a flag whose consumers call several wire names", () => {
+  const GOAL_NAMES = ["thread/goal/set", "thread/goal/clear"] as const;
+
+  it("dispatches EVERY declared name once when all of them answer", async () => {
+    const transport = new RecordingCapabilityProbeTransport("codex");
+    const reading = await readCapabilityDetection({
+      driverName: "codex",
+      boundExecutablePath: boundPathFor("codex"),
+      exchange: transport.exchange,
+    });
+    for (const goalName of GOAL_NAMES) {
+      expect(transport.issuedProbeNames.filter((issued) => issued === goalName)).toStrictEqual([
+        goalName,
+      ]);
+    }
+    expect(reading.withdrawnFlags).toStrictEqual([]);
+    // And nothing is issued twice across the whole read: two flags sharing a
+    // name must not double-issue it.
+    expect(new Set(transport.issuedProbeNames).size).toBe(transport.issuedProbeNames.length);
+  });
+
+  it.each(GOAL_NAMES)("withdraws the flag when '%s' alone is refused", async (refusedName) => {
+    // The conjunction is the assertion: refusing EITHER name withdraws, so a
+    // build that accepts goals it cannot clear is not reported as capable.
+    const transport = new RecordingCapabilityProbeTransport("codex", {
+      replies: { [refusedName]: codexUnknownMethodReply(refusedName) },
+    });
+    const reading = await readCapabilityDetection({
+      driverName: "codex",
+      boundExecutablePath: boundPathFor("codex"),
+      exchange: transport.exchange,
+    });
+    expect(reading.withdrawnFlags).toStrictEqual(["session_goals"]);
+    expect(reading.diagnostics).toStrictEqual([
+      {
+        driverName: "codex",
+        flag: "session_goals",
+        probeName: refusedName,
+        disposition: "unknown-name",
+      },
+    ]);
+    const resolved = applyCapabilityDetection(CODEX_CAPABILITY_FLAGS, reading);
+    expect(resolved.session_goals).toBe(false);
+    expect(resolved.steer).toBe(CODEX_CAPABILITY_FLAGS.steer);
+  });
+
+  it("stops at the FIRST refusing name — the rest are not dispatched", async () => {
+    const transport = new RecordingCapabilityProbeTransport("codex", {
+      replies: { "thread/goal/set": codexUnknownMethodReply("thread/goal/set") },
+    });
+    await readCapabilityDetection({
+      driverName: "codex",
+      boundExecutablePath: boundPathFor("codex"),
+      exchange: transport.exchange,
+    });
+    expect(transport.issuedProbeNames).toContain("thread/goal/set");
+    expect(transport.issuedProbeNames).not.toContain("thread/goal/clear");
+  });
+});
+
+// --------------------------------------------------------------------------
+// §build binding
+// --------------------------------------------------------------------------
+
+describe("a detection reading is bound to the build it was read from", () => {
+  it("carries the path onto the reading and onto every dispatch", async () => {
+    const transport = new RecordingCapabilityProbeTransport("codex");
+    const reading = await readCapabilityDetection({
+      driverName: "codex",
+      boundExecutablePath: CODEX_VERSION_READING.resolvedExecutablePath,
+      exchange: transport.exchange,
+    });
+    expect(reading.boundExecutablePath).toBe(CODEX_VERSION_READING.resolvedExecutablePath);
+    expect(transport.requests.length).toBeGreaterThan(0);
+    for (const request of transport.requests) {
+      expect(request.boundExecutablePath).toBe(reading.boundExecutablePath);
+    }
+  });
+
+  it("binds the driver's own read to the executable the version handshake proved", async () => {
+    // Threaded from the version reading rather than resolved a second time: a
+    // resolver consulted again can legitimately answer differently.
+    const detection = await readCodexCapabilityDetection(
+      CODEX_VERSION_READING,
+      new RecordingCapabilityProbeTransport("codex").exchange,
+      recordingDiagnostics().emitter,
+    );
+    expect(detection.boundExecutablePath).toBe(CODEX_VERSION_READING.resolvedExecutablePath);
+  });
+
+  it("REFUSES a report composed from two different executables", async () => {
+    // The failure this binding exists to catch: a `PATH` change or an installer
+    // swap between the version read and the probes would otherwise compose one
+    // build's flags onto another build's version, undetectably.
+    const detection = await readCapabilityDetection({
+      driverName: "codex",
+      boundExecutablePath: "/usr/local/bin/codex-replaced-mid-refresh",
+      exchange: new RecordingCapabilityProbeTransport("codex").exchange,
+    });
+    expect(() => getCodexCapabilities(CODEX_VERSION_READING, detection)).toThrow(
+      /bound to a different executable/,
+    );
+  });
+});
+
+// --------------------------------------------------------------------------
+// §withdrawal diagnostics
+// --------------------------------------------------------------------------
+
+describe("a successful read that withdrew a flag reaches the diagnostic band", () => {
+  it("emits exactly one record and one counter increment per withdrawal", async () => {
+    const refusedName = firstProbeNameFor(
+      CODEX_CAPABILITY_DETECTION_TABLE,
+      withdrawalCanaryFor("codex"),
+    );
+    const { emitter, counters } = recordingDiagnostics();
+    await readCodexCapabilityDetection(
+      CODEX_VERSION_READING,
+      new RecordingCapabilityProbeTransport("codex", {
+        replies: { [refusedName]: codexUnknownMethodReply(refusedName) },
+      }).exchange,
+      emitter,
+    );
+
+    const records = emitter.recentRecordsOfKind("capability_flag_withdrawn");
+    expect(records).toHaveLength(1);
+    expect(records[0]?.provider).toBe("codex");
+    expect(records[0]?.rawWireType).toBe(refusedName);
+    expect(records[0]?.details).toStrictEqual({
+      flag: withdrawalCanaryFor("codex"),
+      probeName: refusedName,
+      disposition: "unknown-name",
+      boundExecutablePath: CODEX_VERSION_READING.resolvedExecutablePath,
+    });
+    // The counter half: a record under a kind whose counter never fired would be
+    // invisible to an operator watching metrics.
+    expect(counters.totalFor(DRIVER_DIAGNOSTIC_COUNTER_NAMES.capability_flag_withdrawn)).toBe(1);
+  });
+
+  it("emits NOTHING when every probe answered", async () => {
+    const { emitter, counters } = recordingDiagnostics();
+    await readCodexCapabilityDetection(
+      CODEX_VERSION_READING,
+      new RecordingCapabilityProbeTransport("codex").exchange,
+      emitter,
+    );
+    expect(emitter.emittedRecordCount()).toBe(0);
+    expect(counters.totalFor(DRIVER_DIAGNOSTIC_COUNTER_NAMES.capability_flag_withdrawn)).toBe(0);
+  });
+
+  it("reports through the SCHEDULER-facing refresh entry too", async () => {
+    // The wiring that matters operationally: the cadence drives this entry, so a
+    // withdrawal found on the tenth refresh must be as visible as one found at
+    // attach.
+    const refusedName = firstProbeNameFor(
+      CODEX_CAPABILITY_DETECTION_TABLE,
+      withdrawalCanaryFor("codex"),
+    );
+    const { emitter } = recordingDiagnostics();
+    await refreshCodexCapabilities(
+      {
+        declare: () => Promise.resolve({ emitted: "declared" as const, cliVersionRefreshed: true }),
+      },
+      {
+        sessionId: "session-diag",
+        nodeId: "node-diag",
+        reading: CODEX_VERSION_READING,
+        probe: new RecordingCapabilityProbeTransport("codex", {
+          replies: { [refusedName]: codexUnknownMethodReply(refusedName) },
+        }).exchange,
+        diagnostics: emitter,
+      },
+    );
+    expect(emitter.recentRecordsOfKind("capability_flag_withdrawn")).toHaveLength(1);
+  });
+
+  it("distinguishes an unclassifiable answer from a name refusal", async () => {
+    const refusedName = firstProbeNameFor(
+      CODEX_CAPABILITY_DETECTION_TABLE,
+      withdrawalCanaryFor("codex"),
+    );
+    const { emitter } = recordingDiagnostics();
+    await readCodexCapabilityDetection(
+      CODEX_VERSION_READING,
+      new RecordingCapabilityProbeTransport("codex", {
+        replies: { [refusedName]: { unexpected: true } },
+      }).exchange,
+      emitter,
+    );
+    const records = emitter.recentRecordsOfKind("capability_flag_withdrawn");
+    expect(records[0]?.details["disposition"]).toBe("unrecognized-reply");
+    expect(records[0]?.dispositionReason).toMatch(/could not be classified/);
   });
 });
 
@@ -723,13 +1194,14 @@ describe("the cadence re-probe and its change-detected emission", () => {
       nodeId: POLL_NODE_ID,
       reading: CODEX_VERSION_READING,
       probe: transport.exchange,
+      diagnostics: recordingDiagnostics().emitter,
     });
   }
 
   it("emits exactly ONE capability_updated when a flag moves true → false across two polls", async () => {
     const writer = makeWriter();
-    const probedFlag = WITHDRAWAL_CANARY_FLAG.codex;
-    const probeName = probeNameFor(CODEX_CAPABILITY_DETECTION_TABLE, probedFlag);
+    const probedFlag = withdrawalCanaryFor("codex");
+    const probeName = firstProbeNameFor(CODEX_CAPABILITY_DETECTION_TABLE, probedFlag);
     expect(CODEX_CAPABILITY_FLAGS[probedFlag]).toBe(true);
 
     // Poll 1 — the build carries the surface.

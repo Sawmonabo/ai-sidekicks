@@ -6,16 +6,22 @@
 // transport, rather than each one hand-rolling reply shapes that could drift
 // apart from the wire references.
 //
-// The default replies are the REALISTIC ones, deliberately:
+// The default replies are the MEASURED ones, deliberately — every Codex shape
+// below is a verbatim message from a first-party probe of the pinned build
+// (codex-cli 0.150.1, 2026-08-30), not a plausible-looking reconstruction:
 //
 //   * the negative control answers each channel's own name-level refusal — the
-//     Claude dispatcher's verbatim `Unsupported control request subtype:` prefix
-//     and the Codex app-server's `-32600` unknown-method reply;
+//     Claude dispatcher's verbatim `Unsupported control request subtype:`
+//     prefix, and the Codex deserializer's `unknown variant` enumeration under
+//     the generic `-32600`;
 //   * every other name answers the reply a PAYLOAD-FREE probe actually draws.
-//     On Codex that is `-32602 Invalid params` — the method exists and its
-//     schema refused the empty request, which is exactly the outcome that keeps
-//     the probe non-mutating. A suite whose default was a bare `result` would
-//     never exercise that arm.
+//     On Codex that is ALSO a `-32600`, carrying a missing-field message: the
+//     method exists and its schema refused the empty request, which is exactly
+//     the outcome that keeps the probe non-mutating. Those two shapes sharing
+//     one error code is the whole reason the classifier reads the message, so a
+//     fixture whose accepted-method default used a distinguishable code
+//     (`-32602`) would let a broken classifier pass. That code is kept below as
+//     a SECOND accepted shape rather than as the default.
 //
 // Refs: Plan-005 T3.24, `docs/reference/provider-wire/claude.md`,
 // `docs/reference/provider-wire/codex.md`.
@@ -69,19 +75,85 @@ export function claudeContextualRefusalReply(subtype: string): unknown {
   };
 }
 
-/** The Codex app-server's `-32600` reply, whose message enumerates the accepted set. */
-export function codexUnknownMethodReply(method: string): unknown {
+/**
+ * The Codex deserializer's unknown-variant reply, in its measured verbatim
+ * shape: the variant it refused, then the enumeration of the ones it accepts.
+ *
+ * The primitive rather than the method-level helper, because the same shape
+ * appears for variants nested INSIDE an accepted request — which is precisely
+ * the case that must not be read as a missing method.
+ */
+export function codexUnknownVariantReply(
+  variant: string,
+  acceptedVariants: readonly string[],
+): unknown {
+  const enumeration = acceptedVariants.map((accepted) => `\`${accepted}\``).join(", ");
   return {
     jsonrpc: "2.0",
     id: 1,
     error: {
       code: -32600,
-      message: `unknown method '${method}'; accepted: initialize, thread/start, turn/start, turn/steer, thread/goal/set`,
+      message: `Invalid request: unknown variant \`${variant}\`, expected one of ${enumeration}`,
     },
   };
 }
 
-/** The reply a payload-free probe of an ACCEPTED Codex method draws. */
+/**
+ * A sample of the accepted client-request methods the pinned build enumerates.
+ *
+ * A SAMPLE and not the census: the real enumeration is the deserializer's whole
+ * `ClientRequest` variant list, and nothing here depends on its length — only
+ * on whether a given name is in it.
+ */
+const CODEX_ACCEPTED_METHOD_SAMPLE: readonly string[] = Object.freeze([
+  "initialize",
+  "server/diagnostics",
+  "thread/start",
+  "turn/start",
+  "turn/steer",
+  "thread/goal/set",
+  "thread/goal/clear",
+]);
+
+/**
+ * The reply a name the connection does not accept draws.
+ *
+ * The refused name is filtered OUT of the enumeration, because that is what the
+ * real build does: an enumeration that listed the very variant it refused would
+ * be self-contradictory, and the classifier reads such a reply as acceptance.
+ */
+export function codexUnknownMethodReply(method: string): unknown {
+  return codexUnknownVariantReply(
+    method,
+    CODEX_ACCEPTED_METHOD_SAMPLE.filter((accepted) => accepted !== method),
+  );
+}
+
+/**
+ * The reply a payload-free probe of an ACCEPTED Codex method draws: the same
+ * `-32600` code, carrying the deserializer's missing-field message.
+ */
+export function codexMissingFieldReply(field = "threadId"): unknown {
+  return {
+    jsonrpc: "2.0",
+    id: 1,
+    error: { code: -32600, message: `Invalid request: missing field \`${field}\`` },
+  };
+}
+
+/**
+ * The measured reply an ACCEPTED but capability-gated method draws: `-32600`
+ * with a plain-prose reason and no enumeration at all.
+ */
+export function codexCapabilityGatedReply(method: string): unknown {
+  return {
+    jsonrpc: "2.0",
+    id: 1,
+    error: { code: -32600, message: `${method} requires experimentalApi capability` },
+  };
+}
+
+/** A second accepted-method shape: an explicit invalid-params refusal. */
 export function codexInvalidParamsReply(): unknown {
   return { jsonrpc: "2.0", id: 1, error: { code: -32602, message: "Invalid params" } };
 }
@@ -96,7 +168,7 @@ function defaultReply(driverName: FlooredDriverName, probeName: string): unknown
   if (driverName === "claude") {
     return isNegativeControl ? claudeUnsupportedSubtypeReply(probeName) : claudeSuccessReply();
   }
-  return isNegativeControl ? codexUnknownMethodReply(probeName) : codexInvalidParamsReply();
+  return isNegativeControl ? codexUnknownMethodReply(probeName) : codexMissingFieldReply();
 }
 
 /** Per-name overrides: a raw reply, or a thrown rejection. */
@@ -151,9 +223,15 @@ export class RecordingCapabilityProbeTransport {
  * DERIVED from the real tables rather than transcribed, so a table edit moves
  * this helper with it and a suite that only needs "some valid reading" cannot
  * quietly assert a stale shape.
+ *
+ * `boundExecutablePath` is REQUIRED and not defaulted: a composition site
+ * compares it against its version reading's own resolved path, so a helper that
+ * invented one would hand every suite a reading that passes that check by
+ * accident.
  */
 export function fullyProbedDetectionReading(
   driverName: FlooredDriverName,
+  boundExecutablePath: string,
 ): CapabilityDetectionReading {
   const detectionSource: Record<DriverCapabilityFlag, CapabilityDetectionSource> = {} as Record<
     DriverCapabilityFlag,
@@ -165,7 +243,7 @@ export function fullyProbedDetectionReading(
   ][]) {
     detectionSource[flag] = mechanism.detectionSource;
   }
-  return { driverName, detectionSource, withdrawnFlags: [], diagnostics: [] };
+  return { driverName, boundExecutablePath, detectionSource, withdrawnFlags: [], diagnostics: [] };
 }
 
 /** The channel a driver's probes ride — re-exported so suites need one import. */

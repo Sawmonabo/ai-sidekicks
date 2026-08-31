@@ -12,9 +12,12 @@
  *   * The opt-out COMPOSES with the credential-policy deny strip: a denied name
  *     stays stripped after the builder runs, and the opt-out survives a policy
  *     that names it.
- *   * The strip honours the policy's recorded name-match mode. The negative
- *     control is the same input under the other mode: if both modes agreed, the
- *     mode would not be doing anything.
+ *   * Every fold — the mandated map, the deny set, and the base pruning —
+ *     honours THIS HOST's name-match mode, which is a property of the operating
+ *     system and not of a policy. The negative control is the same input under
+ *     the other mode: if both modes agreed, the mode would not be doing
+ *     anything. A supplied policy that disagrees with the host is REFUSED,
+ *     because both ways of reconciling it are wrong.
  *   * The per-connection mandated pairs are strip-exempt, because the Codex
  *     exact-build-path pin is what stands in for that provider's absent
  *     environment opt-out — a deny list that could remove it would defeat the
@@ -31,7 +34,9 @@ import { DRIVER_CLI_VERSION_FLOORS, type FlooredDriverName } from "../capability
 import {
   PROVIDER_AUTO_UPDATE_OPT_OUT_ENV,
   ProviderSpawnEnvConflictError,
+  ProviderSpawnEnvNameMatchMismatchError,
   buildProviderSpawnEnv,
+  hostEnvNameMatchForPlatform,
   type CredentialEnvPolicy,
   type SpawnEnvPair,
 } from "../spawn-env.js";
@@ -67,7 +72,14 @@ describe("provider spawn environment — auto-update suppression", () => {
     // for one driver and not another.
     const realized = new Map<FlooredDriverName, readonly SpawnEnvPair[]>();
     for (const driverName of ALL_DRIVERS) {
-      realized.set(driverName, buildProviderSpawnEnv({ driverName, baseEnv: CURATED_BASE }));
+      realized.set(
+        driverName,
+        buildProviderSpawnEnv({
+          driverName,
+          baseEnv: CURATED_BASE,
+          hostEnvNameMatch: "case-sensitive",
+        }),
+      );
     }
 
     expect([...realized.keys()].sort()).toStrictEqual([...ALL_DRIVERS].sort());
@@ -88,6 +100,7 @@ describe("provider spawn environment — auto-update suppression", () => {
     const built = buildProviderSpawnEnv({
       driverName: "claude",
       baseEnv: [...CURATED_BASE, ["DISABLE_AUTOUPDATER", "0"]],
+      hostEnvNameMatch: "case-sensitive",
     });
 
     // Duplicate names resolve at the discretion of whatever execs the process,
@@ -107,9 +120,13 @@ describe("provider spawn environment — auto-update suppression", () => {
     // The declared-absence arm. codex-cli documents no environment opt-out, so
     // the builder must add NOTHING for it — an invented variable would be
     // indistinguishable in the child from an enforced one.
-    expect(buildProviderSpawnEnv({ driverName: "codex", baseEnv: CURATED_BASE })).toEqual(
-      CURATED_BASE,
-    );
+    expect(
+      buildProviderSpawnEnv({
+        driverName: "codex",
+        baseEnv: CURATED_BASE,
+        hostEnvNameMatch: "case-sensitive",
+      }),
+    ).toEqual(CURATED_BASE);
   });
 });
 
@@ -123,6 +140,7 @@ describe("provider spawn environment — credential-policy deny strip", () => {
     const built = buildProviderSpawnEnv({
       driverName: "codex",
       baseEnv: [...CURATED_BASE, ["ANTHROPIC_API_KEY", "sk-live"]],
+      hostEnvNameMatch: "case-sensitive",
       credentialEnvPolicy: DENY_SECRET,
     });
 
@@ -136,6 +154,7 @@ describe("provider spawn environment — credential-policy deny strip", () => {
     const built = buildProviderSpawnEnv({
       driverName: "claude",
       baseEnv: [...CURATED_BASE, ["ANTHROPIC_API_KEY", "sk-live"]],
+      hostEnvNameMatch: "case-sensitive",
       credentialEnvPolicy: {
         denyEnvVars: ["ANTHROPIC_API_KEY", "DISABLE_AUTOUPDATER", "DISABLE_UPDATES"],
         envNameMatch: "case-sensitive",
@@ -153,6 +172,7 @@ describe("provider spawn environment — credential-policy deny strip", () => {
     const built = buildProviderSpawnEnv({
       driverName: "codex",
       baseEnv: [...CURATED_BASE, ["ANTHROPIC_API_KEY", "sk-live"]],
+      hostEnvNameMatch: "case-sensitive",
     });
 
     expect(valueOf(built, "ANTHROPIC_API_KEY")).toBe("sk-live");
@@ -162,6 +182,7 @@ describe("provider spawn environment — credential-policy deny strip", () => {
     const built = buildProviderSpawnEnv({
       driverName: "codex",
       baseEnv: [...CURATED_BASE, ["Anthropic_Api_Key", "sk-live"]],
+      hostEnvNameMatch: "case-insensitive",
       credentialEnvPolicy: {
         denyEnvVars: ["ANTHROPIC_API_KEY"],
         envNameMatch: "case-insensitive",
@@ -178,6 +199,7 @@ describe("provider spawn environment — credential-policy deny strip", () => {
     const built = buildProviderSpawnEnv({
       driverName: "codex",
       baseEnv: [...CURATED_BASE, ["Anthropic_Api_Key", "sk-live"]],
+      hostEnvNameMatch: "case-sensitive",
       credentialEnvPolicy: {
         denyEnvVars: ["ANTHROPIC_API_KEY"],
         envNameMatch: "case-sensitive",
@@ -191,13 +213,33 @@ describe("provider spawn environment — credential-policy deny strip", () => {
     // The mirror of the strip's mode-awareness: on a case-insensitive host,
     // appending `DISABLE_UPDATES` beside an inherited `disable_updates=0` would
     // hand the outcome to the process launcher.
+    //
+    // NO POLICY IS SUPPLIED, deliberately — this is the `trusted`-posture shape
+    // on Windows, and it is the case a builder that read its matching mode off
+    // the policy got wrong: with nothing to read, it folded case-sensitively and
+    // the child received both entries.
     const built = buildProviderSpawnEnv({
       driverName: "claude",
       baseEnv: [["disable_updates", "0"]],
-      credentialEnvPolicy: { denyEnvVars: [], envNameMatch: "case-insensitive" },
+      hostEnvNameMatch: "case-insensitive",
     });
 
     expect(namesOf(built)).not.toContain("disable_updates");
+    expect(occurrencesOf(built, "DISABLE_UPDATES")).toBe(1);
+    expect(valueOf(built, "DISABLE_UPDATES")).toBe("1");
+  });
+
+  it("NEGATIVE CONTROL — the same base survives on a case-sensitive host", () => {
+    // Without this arm the assertion above would pass equally for a builder that
+    // upper-cased every base name. On a POSIX host the two names are genuinely
+    // different variables and both belong in the child.
+    const built = buildProviderSpawnEnv({
+      driverName: "claude",
+      baseEnv: [["disable_updates", "0"]],
+      hostEnvNameMatch: "case-sensitive",
+    });
+
+    expect(valueOf(built, "disable_updates")).toBe("0");
     expect(valueOf(built, "DISABLE_UPDATES")).toBe("1");
   });
 });
@@ -213,6 +255,7 @@ describe("provider spawn environment — per-connection mandated pairs", () => {
     const built = buildProviderSpawnEnv({
       driverName: "codex",
       baseEnv: CURATED_BASE,
+      hostEnvNameMatch: "case-sensitive",
       credentialEnvPolicy: { denyEnvVars: [CODEX_BIN], envNameMatch: "case-sensitive" },
       additionalMandatedPairs: [[CODEX_BIN, "/opt/codex/bin/codex"]],
     });
@@ -224,6 +267,7 @@ describe("provider spawn environment — per-connection mandated pairs", () => {
     const built = buildProviderSpawnEnv({
       driverName: "claude",
       baseEnv: CURATED_BASE,
+      hostEnvNameMatch: "case-sensitive",
       additionalMandatedPairs: [["EXTRA", "value"]],
     });
 
@@ -261,6 +305,7 @@ describe("provider spawn environment — per-connection mandated pairs", () => {
       buildProviderSpawnEnv({
         driverName: "claude",
         baseEnv: CURATED_BASE,
+        hostEnvNameMatch: "case-sensitive",
         additionalMandatedPairs: pairs,
       }),
     ).toThrow(ProviderSpawnEnvConflictError);
@@ -273,7 +318,7 @@ describe("provider spawn environment — per-connection mandated pairs", () => {
       buildProviderSpawnEnv({
         driverName: "claude",
         baseEnv: CURATED_BASE,
-        credentialEnvPolicy: { denyEnvVars: [], envNameMatch: "case-insensitive" },
+        hostEnvNameMatch: "case-insensitive",
         additionalMandatedPairs: [["disable_updates", "0"]],
       }),
     ).toThrow(ProviderSpawnEnvConflictError);
@@ -286,7 +331,7 @@ describe("provider spawn environment — per-connection mandated pairs", () => {
     const built = buildProviderSpawnEnv({
       driverName: "claude",
       baseEnv: CURATED_BASE,
-      credentialEnvPolicy: { denyEnvVars: [], envNameMatch: "case-sensitive" },
+      hostEnvNameMatch: "case-sensitive",
       additionalMandatedPairs: [["disable_updates", "0"]],
     });
 
@@ -300,10 +345,72 @@ describe("provider spawn environment — per-connection mandated pairs", () => {
       buildProviderSpawnEnv({
         driverName: "claude",
         baseEnv: CURATED_BASE,
+        hostEnvNameMatch: "case-sensitive",
         additionalMandatedPairs: [["DISABLE_AUTOUPDATER", "0"]],
       });
     } catch (error) {
       expect((error as ProviderSpawnEnvConflictError).conflictingName).toBe("DISABLE_AUTOUPDATER");
+    }
+  });
+});
+
+describe("provider spawn environment — host name-matching semantics", () => {
+  it("derives the host's mode from the platform, and only Windows is case-insensitive", () => {
+    expect(hostEnvNameMatchForPlatform("win32")).toBe("case-insensitive");
+    for (const platform of ["darwin", "linux", "freebsd"] as const) {
+      expect(hostEnvNameMatchForPlatform(platform)).toBe("case-sensitive");
+    }
+  });
+
+  it.each([
+    { host: "case-sensitive", policy: "case-insensitive" },
+    { host: "case-insensitive", policy: "case-sensitive" },
+  ] as const)("REFUSES a policy declaring $policy matching on a $host host", ({ host, policy }) => {
+    // A policy authored for another host's semantics is a wiring fault, and
+    // both reconciliations are wrong: honouring the policy would let a
+    // case-sensitive artifact leave `path` in a child on a case-insensitive
+    // host, and silently honouring the host would apply a deny list under
+    // semantics its author never assumed.
+    expect.assertions(3);
+    try {
+      buildProviderSpawnEnv({
+        driverName: "claude",
+        baseEnv: CURATED_BASE,
+        hostEnvNameMatch: host,
+        credentialEnvPolicy: { denyEnvVars: ["ANTHROPIC_API_KEY"], envNameMatch: policy },
+      });
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProviderSpawnEnvNameMatchMismatchError);
+      // Both values ride the error as structured members, so an operator
+      // reading the failure knows which side to correct.
+      expect((error as ProviderSpawnEnvNameMatchMismatchError).hostEnvNameMatch).toBe(host);
+      expect((error as ProviderSpawnEnvNameMatchMismatchError).policyEnvNameMatch).toBe(policy);
+    }
+  });
+
+  it("refuses BEFORE composing anything — no partially-folded environment escapes", () => {
+    // Asserted as a throw rather than as a return value on purpose: there is no
+    // environment to inspect, which is the property. A builder that folded first
+    // and checked afterwards would already have keyed its mandated map wrongly.
+    expect(() =>
+      buildProviderSpawnEnv({
+        driverName: "claude",
+        baseEnv: [["disable_updates", "0"]],
+        hostEnvNameMatch: "case-insensitive",
+        credentialEnvPolicy: { denyEnvVars: [], envNameMatch: "case-sensitive" },
+      }),
+    ).toThrow(ProviderSpawnEnvNameMatchMismatchError);
+  });
+
+  it("accepts a policy that AGREES with the host, under either mode", () => {
+    for (const mode of ["case-sensitive", "case-insensitive"] as const) {
+      const built = buildProviderSpawnEnv({
+        driverName: "claude",
+        baseEnv: CURATED_BASE,
+        hostEnvNameMatch: mode,
+        credentialEnvPolicy: { denyEnvVars: ["ANTHROPIC_API_KEY"], envNameMatch: mode },
+      });
+      expect(valueOf(built, "DISABLE_UPDATES")).toBe("1");
     }
   });
 });

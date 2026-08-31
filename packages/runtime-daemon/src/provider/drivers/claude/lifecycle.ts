@@ -102,7 +102,11 @@ import {
   type CumulativeAxisReadings,
   type MeteredUsageDelta,
 } from "../../usage-delta-accountant.js";
-import { buildProviderSpawnEnv, type SpawnEnvPair } from "../../spawn-env.js";
+import {
+  buildProviderSpawnEnv,
+  hostEnvNameMatchForPlatform,
+  type SpawnEnvPair,
+} from "../../spawn-env.js";
 
 import {
   OutboundFrameTripwire,
@@ -671,6 +675,14 @@ export interface ClaudeSessionTransport {
    * them, and a base carrying one of their names is REPLACED rather than
    * appended beside — a duplicate name resolves at the discretion of whatever
    * finally execs the process.
+   *
+   * Both that strip and that replacement compare NAMES under THIS HOST's
+   * semantics — case-insensitively on Windows and byte-for-byte elsewhere,
+   * which `hostEnvNameMatchForPlatform` is the one definition of — and never
+   * under whatever a policy artifact happens to declare. A resolved policy that
+   * disagrees with the host is a wiring fault the shared builder REFUSES rather
+   * than applies, so a transport that folded under the policy's value would be
+   * reintroducing exactly the case the builder rejects.
    *
    * AUTH-FAILURE OBLIGATION, shared with `resumeSession` below (P3-3): a
    * DETERMINATE logged-out failure throws `ClaudeAuthenticationRequiredError`,
@@ -3252,7 +3264,14 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       // through the `credentialPolicyRef` the transport resolves. So the builder
       // is asked for exactly what this side owns — the mandated pairs — and the
       // transport composes them over the base it built.
-      mandatedEnvironment: buildProviderSpawnEnv({ driverName: "claude", baseEnv: [] }),
+      mandatedEnvironment: buildProviderSpawnEnv({
+        driverName: "claude",
+        baseEnv: [],
+        // The host's own semantics, not a policy's: this side holds no policy,
+        // and the transport applies these pairs by comparing names under the
+        // same rule the builder folded them under.
+        hostEnvNameMatch: hostEnvNameMatchForPlatform(process.platform),
+      }),
     };
   }
 

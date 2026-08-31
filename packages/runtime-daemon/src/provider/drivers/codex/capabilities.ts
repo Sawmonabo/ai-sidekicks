@@ -108,12 +108,16 @@ import {
   type CapabilityDetectionReading,
   type CapabilityProbeExchange,
 } from "../../capability-probe.js";
-import { assertCliVersionMeetsFloor } from "../../capability-refresh.js";
+import {
+  assertCliVersionMeetsFloor,
+  emitCapabilityDetectionDiagnostics,
+} from "../../capability-refresh.js";
 import type {
   DeclareDriverCapabilitiesInput,
   DeclareDriverCapabilitiesResult,
   DriverCapabilitiesWriter,
 } from "../../driver-capabilities-writer.js";
+import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import type { SpawnedProviderVersionReading } from "../../version-gate.js";
 
 import { getCodexToolMetadata } from "./tools.js";
@@ -226,6 +230,17 @@ export function getCodexCapabilities(
       `getCodexCapabilities: refusing a detection reading taken from driver '${detection.driverName}'`,
     );
   }
+  // The version and the flags must describe ONE executable. Both readings carry
+  // the path the version handshake resolved, so this is a comparison rather than
+  // a re-resolution — and it catches the case a re-resolution would create: a
+  // `PATH` change or an installer swap between the two reads, which would
+  // otherwise compose probed flags for one build onto the version of another
+  // with nothing downstream able to tell.
+  if (detection.boundExecutablePath !== reading.resolvedExecutablePath) {
+    throw new Error(
+      "getCodexCapabilities: refusing a detection reading bound to a different executable than the version reading",
+    );
+  }
   const cliVersion: DriverCliVersionReport = reading.report;
   assertCliVersionMeetsFloor(CODEX_DRIVER_NAME, cliVersion);
   return {
@@ -250,10 +265,19 @@ export function getCodexCapabilities(
  * FIRST: `Spec-005` refuses every use of a below-floor build beyond the version
  * handshake itself, and a probe is such a use. A build this daemon has already
  * refused is therefore never asked what it can do.
+ *
+ * The read is BOUND to the executable the version handshake resolved, taken
+ * from that same reading rather than resolved again, so the composition step
+ * can check that the version and the flags describe one build.
+ *
+ * Withdrawals are reported here rather than at the refresh entry point, so
+ * every path that takes a detection reading — attach and refresh alike — meters
+ * the same fact through the same counter.
  */
 export async function readCodexCapabilityDetection(
   reading: SpawnedProviderVersionReading,
   exchange: CapabilityProbeExchange,
+  diagnostics: DriverDiagnosticsEmitter,
 ): Promise<CapabilityDetectionReading> {
   if (reading.driverName !== CODEX_DRIVER_NAME) {
     throw new Error(
@@ -261,7 +285,13 @@ export async function readCodexCapabilityDetection(
     );
   }
   assertCliVersionMeetsFloor(CODEX_DRIVER_NAME, reading.report);
-  return readCapabilityDetection({ driverName: CODEX_DRIVER_NAME, exchange });
+  const detection = await readCapabilityDetection({
+    driverName: CODEX_DRIVER_NAME,
+    boundExecutablePath: reading.resolvedExecutablePath,
+    exchange,
+  });
+  emitCapabilityDetectionDiagnostics(diagnostics, detection);
+  return detection;
 }
 
 /**
@@ -291,6 +321,14 @@ export interface CodexCapabilityRefreshInput {
    * provenance for a build that has since been replaced.
    */
   readonly probe: CapabilityProbeExchange;
+  /**
+   * The daemon diagnostic channel the detection read reports withdrawals on.
+   * REQUIRED for the same reason the refresh scheduler's emitter is: a flag a
+   * build silently stopped carrying is exactly the class of condition the
+   * closed-kind-plus-counter pairing exists to keep metered, and an optional
+   * emitter would let a whole node's withdrawals go uncounted.
+   */
+  readonly diagnostics: DriverDiagnosticsEmitter;
   /** EventEnvelope actor; omitted means the system actor. */
   readonly actor?: string | null;
 }
@@ -308,7 +346,11 @@ export async function refreshCodexCapabilities(
   sink: DriverCapabilityDeclarationSink,
   input: CodexCapabilityRefreshInput,
 ): Promise<DeclareDriverCapabilitiesResult> {
-  const detection = await readCodexCapabilityDetection(input.reading, input.probe);
+  const detection = await readCodexCapabilityDetection(
+    input.reading,
+    input.probe,
+    input.diagnostics,
+  );
   const declareInput: DeclareDriverCapabilitiesInput = {
     sessionId: input.sessionId,
     nodeId: input.nodeId,

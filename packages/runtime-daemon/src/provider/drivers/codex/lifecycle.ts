@@ -187,6 +187,7 @@ import {
 } from "../../usage-delta-accountant.js";
 import {
   buildProviderSpawnEnv,
+  hostEnvNameMatchForPlatform,
   type CredentialEnvPolicy,
   type SpawnEnvNameMatch,
 } from "../../spawn-env.js";
@@ -2453,9 +2454,14 @@ export class CodexAppServerConnection {
       // remove it: it is the exact-build-path pin that stands in for this
       // provider's absent environment opt-out, and a strippable pin would leave
       // the child running whatever the launcher resolves to.
+      // Name matching is THIS host's, derived from the running platform rather
+      // than read off the policy: whether the base's `path` and a denied `PATH`
+      // are one variable is an operating-system fact, and a `trusted` posture
+      // carries no policy to read it from at all.
       env: buildProviderSpawnEnv({
         driverName: "codex",
         baseEnv: config.env,
+        hostEnvNameMatch: hostEnvNameMatchForPlatform(process.platform),
         credentialEnvPolicy: config.credentialEnvPolicy,
         additionalMandatedPairs: [[CODEX_APP_SERVER_BIN_ENV_VAR, this.#executablePath]],
       }).map((pair) => [pair[0], pair[1]] as [string, string]),
