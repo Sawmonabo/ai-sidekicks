@@ -80,12 +80,14 @@
 // EXTEND this driver in a sibling PR-B task and are NOT implemented here; the
 // CLI-version floor and the refresh cadence landed with T3.12 (the floor
 // enforced below, the cadence in `../../capability-refresh.js`). `transcript_replay`
-// is answered `false` below, and that is a SCOPE BOUNDARY rather than a verdict:
-// this provider's injection surface is real, but the replay leg that drives it —
-// and the post-replay assertion that is the only admissible evidence it worked —
-// is authored by a later task in this phase, and a flag declared ahead of the
-// code it gates is a promise no caller can keep. The `supported = 0` row
-// backfilled at migration 0012 matches this declaration until both flip together.
+// is answered `true` below as of T3.20, which is what closes the scope boundary
+// this header carried while the flag waited on its reader: the replay leg that
+// drives this provider's injection surface — and the post-replay assertion that
+// is the only admissible evidence it worked — now ship in `./lifecycle.ts`, so
+// the flag and the code it gates flip together, which is the condition the
+// boundary named. The `supported = 0` row backfilled at migration 0012 no longer
+// matches this declaration, and the contract-version move below is what makes a
+// node holding that row re-read rather than serve it.
 //
 // Spec coverage: `Spec-005 §Required Behavior` (drivers declare capability
 // flags; the runtime treats undeclared capabilities as unsupported),
@@ -140,8 +142,16 @@ export const CODEX_DRIVER_NAME = "codex" as const;
  * `output_speed`). Nothing previously declared changed meaning, which is what
  * keeps this off a major — and the `output_speed: false` this driver declares
  * is a complete answer rather than a withdrawal.
+ *
+ * `2.0.0` (T3.20): a MAJOR move, and the first one. The flag census did not
+ * grow; `transcript_replay` changed VALUE, `false` to `true`, which is precisely
+ * the "previously declared changed meaning" the `1.1.0` note names as what a
+ * major is for. It is also the move that has to be seen: migration `0012`
+ * backfilled this flag's row `supported = 0`, so a node holding that cached row
+ * would keep serving `false` — routing every reconstitution to the memo floor on
+ * a driver that now replays natively — until the token it compares moves.
  */
-export const CODEX_CAPABILITY_CONTRACT_VERSION: string = "1.1.0";
+export const CODEX_CAPABILITY_CONTRACT_VERSION: string = "2.0.0";
 
 /**
  * The Codex column of `Spec-005 §Per-Driver Capability Matrix`.
@@ -188,8 +198,16 @@ export const CODEX_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boole
     callback_tools: true,
     // Peer agents can be spawned, messaged, and closed from within a turn.
     subagents: true,
-    // FALSE pending the replay leg — see the scope boundary in the header.
-    transcript_replay: false,
+    // TRUE, and NATIVE: `thread/inject_items` appends Responses-API items to the
+    // thread's model-visible history, and it is documented and non-experimental
+    // at the pin. The flag answers "does the driver deliver a replay", and the
+    // T3.20 leg in `./lifecycle.ts` does — seeding frame by frame, then reading
+    // the reconstituted session back and refusing on anything short of an answer
+    // consistent with the transcript's tail. The injection surface being untyped
+    // at the wire (`Array<JsonValue>`) is exactly why that assertion exists; it
+    // is not a reason to withhold the flag, because a `false` here would route
+    // every reconstitution to the memo floor on a provider that can do better.
+    transcript_replay: true,
     // FALSE: no native spawn-time hard budget cap. Consumed fail-closed by
     // Spec-016's native-cap unpriced-family escape, which refuses reservation
     // on a capless leg rather than admitting an unbounded run

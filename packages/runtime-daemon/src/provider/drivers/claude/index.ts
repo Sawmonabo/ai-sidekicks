@@ -8,16 +8,17 @@
 // bound to without reaching into session state it must not mutate.
 //
 // WHY `Pick<ProviderDriver, ...>` AND NOT `implements ProviderDriver`. This class
-// implements THIRTEEN of the contract's EIGHTEEN operations — both figures
+// implements FOURTEEN of the contract's EIGHTEEN operations — both figures
 // counted from `ClaudeDriverOperations` below and from the `ProviderDriver`
 // members themselves rather than carried forward from an earlier revision, since
-// each side of that subtraction has moved twice this phase. The five still
+// each side of that subtraction has moved three times this phase. The four still
 // absent — `respondToRequest`, `listModes`, `getCapabilities`,
-// `exportTranscript`, `replayTranscript` — are authored by sibling Phase-3 tasks
-// (T3.8 capabilities / modes, T3.14 interactive requests, T3.20–T3.22 the
-// canonical-transcript export and replay pipeline). `listModels` left that list
-// with T3.12's currency duty (C-8), and `compactContext` / `listProviderCommands`
-// with T3.26's console-parity surfaces. The enumeration is re-derived from the
+// `exportTranscript` — are authored by sibling Phase-3 tasks
+// (T3.8 capabilities / modes, T3.14 interactive requests, T3.19 the
+// canonical-transcript export). `listModels` left that list
+// with T3.12's currency duty (C-8), `compactContext` / `listProviderCommands`
+// with T3.26's console-parity surfaces, and `replayTranscript` with T3.20's
+// replay leg and post-replay assertion. The enumeration is re-derived from the
 // type argument rather than restated, so it cannot drift from what this class
 // implements. Declaring the full interface today would force
 // throwing stubs into the driver, and a driver that answers a contract operation
@@ -43,7 +44,9 @@ import type {
   DriverResumeResult,
   DriverRollbackResult,
   InterruptRunParams,
+  DriverTranscriptReplayResult,
   ProviderDriver,
+  ReplayTranscriptParams,
   ProviderModel,
   ProviderOutputSpeedState,
   ProviderSessionHandle,
@@ -145,6 +148,7 @@ export type ClaudeDriverOperations = Pick<
   | "listModels"
   | "compactContext"
   | "listProviderCommands"
+  | "replayTranscript"
 >;
 
 export type ClaudeDriverDependencies = ClaudeSessionLifecycleDependencies & {
@@ -245,6 +249,19 @@ export class ClaudeDriver implements ClaudeDriverOperations {
     params: ListProviderCommandsParams,
   ): Promise<ProviderCommandListResult> {
     return await this.#lifecycle.listProviderCommands(params);
+  }
+
+  /**
+   * Reconstitutes the canonical transcript into a fresh provider session (T3.20).
+   *
+   * Refuses on every build published at this pin, and that is the declared
+   * answer rather than a stub: `Spec-005`'s Claude `transcript_replay` cell is
+   * probe-valued, the probe finds no seeding surface, and reconstitution settles
+   * on the memo floor reported `degraded`. See the lifecycle method for why the
+   * whole leg ships behind that probe rather than as an unconditional throw.
+   */
+  async replayTranscript(params: ReplayTranscriptParams): Promise<DriverTranscriptReplayResult> {
+    return await this.#lifecycle.replayTranscript(params);
   }
 
   /**

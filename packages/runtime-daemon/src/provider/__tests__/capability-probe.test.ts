@@ -793,11 +793,16 @@ describe("capability withdrawal is per capability", () => {
   });
 
   it("is WITHDRAW-ONLY: a probe never grants a flag the driver declares false", async () => {
-    // Codex `transcript_replay` is `false` as a scope boundary — the replay leg
-    // is a later task's. Every probe answering `accepted` must leave it `false`,
+    // Codex `cost_cap` is `false` because the provider publishes no spawn-time
+    // hard budget cap. Every probe answering `accepted` must leave it `false`,
     // because a flag declared ahead of the code that reads it is a promise no
     // caller can keep.
-    expect(CODEX_CAPABILITY_FLAGS.transcript_replay).toBe(false);
+    //
+    // The vehicle was `transcript_replay` until T3.20, whose replay leg and
+    // post-replay assertion made that flag `true` on this driver. The rule under
+    // test did not move — only the flag that still exemplifies it, which must be
+    // one this driver declares `false`.
+    expect(CODEX_CAPABILITY_FLAGS.cost_cap).toBe(false);
     const transport = new RecordingCapabilityProbeTransport("codex");
     const reading = await readCapabilityDetection({
       driverName: "codex",
@@ -806,7 +811,7 @@ describe("capability withdrawal is per capability", () => {
     });
     expect(reading.withdrawnFlags).toStrictEqual([]);
     const resolved = applyCapabilityDetection(CODEX_CAPABILITY_FLAGS, reading);
-    expect(resolved.transcript_replay).toBe(false);
+    expect(resolved.cost_cap).toBe(false);
     // …and the resolution is a FRESH record: the frozen module constant is
     // shared process-wide and must not be the object a caller mutates.
     expect(resolved).not.toBe(CODEX_CAPABILITY_FLAGS);

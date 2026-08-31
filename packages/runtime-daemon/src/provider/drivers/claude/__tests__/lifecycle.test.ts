@@ -33,6 +33,7 @@ import {
   DRIVER_PROVIDER_COMMAND_ENTRIES_MAX,
   DRIVER_PROVIDER_COMMAND_NAME_MAX_LEN,
   DriverResumeResultSchema,
+  DriverTranscriptReplayResultSchema,
   type CallbackToolResult,
   type ExecutionPosture,
   type SubagentPolicy,
@@ -46,10 +47,22 @@ import type { SubagentLifecycleEmission, ThreadFrameRoute } from "../../../threa
 import type { MeteredUsageDelta } from "../../../usage-delta-accountant.js";
 import { buildProviderSpawnEnv, hostEnvNameMatchForPlatform } from "../../../spawn-env.js";
 import {
+  MemoDeliveryCoordinator,
+  TranscriptReconstitutionRouter,
+  memoSettlementAsReplayResult,
+  type NativeReplayDisposition,
+} from "../../../transcript/memo-projection.js";
+import {
+  PostReplayAssertionFailedError,
+  ReplayTargetAbandonedError,
+} from "../../../transcript/replay-assertion.js";
+import type { ClaudeTranscriptSeedingSurface } from "../capabilities.js";
+import {
   ClaudeAuthenticationRequiredError,
   ClaudeControlRequestRefusedError,
   ClaudeSessionLifecycle,
   ClaudeSessionUnavailableError,
+  ClaudeTranscriptReplayUnsupportedError,
   ClaudeSubagentConcurrencyGate,
   CLAUDE_CALLBACK_MCP_SERVER_NAME,
   CLAUDE_CALLBACK_TOOL_TRANSPORT_UNAVAILABLE_DETAIL,
@@ -4622,5 +4635,369 @@ describe("ClaudeSessionLifecycle.observedOutputSpeedFor — absent until observe
 
     expect(harness.transport.spawnRequests[0]?.outputSpeed).toBe("on");
     expect(harness.transport.resumeRequests[0]?.outputSpeed).toBe("on");
+  });
+});
+
+describe("ClaudeSessionLifecycle.replayTranscript (T3.20)", () => {
+  // Plan-005 T3.20 / invariant I-005-8. `Spec-005`'s Claude `transcript_replay`
+  // cell is the matrix's only probe-valued one, so the leg ships behind that
+  // probe: refusing on every build published at this pin, and driving the
+  // surface the probe carries on any build that does publish one.
+
+  const TARGET = { providerSessionId: "claude-session-77", resumeHandle: "claude-session-77" };
+
+  function frame(position: number, role: "participant" | "assistant", text: string): unknown {
+    return { position, role, segments: [{ kind: "text", position, text }] };
+  }
+
+  const TRANSCRIPT: readonly unknown[] = [
+    frame(1, "participant", "summarize the fold"),
+    frame(2, "assistant", "identity map, strip, repair, render"),
+    frame(3, "participant", "and the order?"),
+    frame(4, "assistant", "the order is the contract"),
+  ];
+
+  const SEEDED_BODIES: readonly string[] = [
+    "summarize the fold",
+    "identity map, strip, repair, render",
+    "and the order?",
+    "the order is the contract",
+  ];
+
+  interface SeedingDouble {
+    readonly surface: ClaudeTranscriptSeedingSurface;
+    readonly seededPositions: number[];
+    readonly reads: number;
+  }
+
+  /**
+   * A seeding surface whose target starts empty, accumulates what it is given,
+   * and answers reads with whatever it was told to answer with.
+   */
+  function seedingDouble(options: {
+    readonly answers: readonly string[];
+    readonly priorTurns?: readonly string[];
+    readonly refuseAtPosition?: number;
+    readonly ambiguousAtPosition?: number;
+    readonly unreadable?: boolean;
+  }): SeedingDouble {
+    const seededPositions: number[] = [];
+    const record = { reads: 0 };
+    let seeding = false;
+    const surface: ClaudeTranscriptSeedingSurface = {
+      seedFrame: (_targetProviderSessionId, seedFrameInput) => {
+        seeding = true;
+        if (seedFrameInput.position === options.refuseAtPosition) {
+          return Promise.resolve({ delivery: "refused" as const, reason: "unsupported shape" });
+        }
+        if (seedFrameInput.position === options.ambiguousAtPosition) {
+          // Applied-or-not, unknowably: the acknowledgment was lost.
+          seededPositions.push(seedFrameInput.position);
+          return Promise.resolve({ delivery: "ambiguous" as const, reason: "acknowledgment lost" });
+        }
+        seededPositions.push(seedFrameInput.position);
+        return Promise.resolve({ delivery: "applied" as const });
+      },
+      readBack: () => {
+        record.reads += 1;
+        if (options.unreadable === true) {
+          return Promise.resolve({ kind: "unreadable" as const, reason: "target gone" });
+        }
+        return Promise.resolve({
+          kind: "turns" as const,
+          turns: seeding ? [...options.answers] : [...(options.priorTurns ?? [])],
+        });
+      },
+    };
+    return {
+      surface,
+      seededPositions,
+      get reads(): number {
+        return record.reads;
+      },
+    };
+  }
+
+  function harnessWithSurface(double: SeedingDouble | null): LifecycleHarness {
+    return buildHarness({
+      transcriptReplaySurfaceReader: () =>
+        Promise.resolve(
+          double === null
+            ? { supported: false, reason: "this build publishes no seeding surface" }
+            : { supported: true, surface: double.surface },
+        ),
+    });
+  }
+
+  // THE PIN'S ANSWER. No published build carries a prior-turn seeding surface,
+  // so the probe refuses, the flag declares `false`, and the caller settles on
+  // the memo floor reported `degraded`. A refusal, not a fault.
+  it("refuses when the probe finds no seeding surface, leaving the target untouched", async () => {
+    const harness = harnessWithSurface(null);
+    await expect(
+      harness.lifecycle.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
+    ).rejects.toBeInstanceOf(ClaudeTranscriptReplayUnsupportedError);
+
+    // NOT abandoned: nothing was written, so the caller may hand this very
+    // session to the memo floor rather than establishing a second one.
+    await expect(
+      harness.lifecycle.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
+    ).rejects.toBeInstanceOf(ClaudeTranscriptReplayUnsupportedError);
+  });
+
+  it("refuses with no surface reader bound at all", async () => {
+    const harness = buildHarness();
+    await expect(
+      harness.lifecycle.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
+    ).rejects.toBeInstanceOf(ClaudeTranscriptReplayUnsupportedError);
+  });
+
+  it("seeds and CONFIRMS against the target's own answer when a surface exists", async () => {
+    const double = seedingDouble({ answers: SEEDED_BODIES });
+    const result = await harnessWithSurface(double).lifecycle.replayTranscript({
+      target: TARGET,
+      frames: [...TRANSCRIPT],
+    });
+    expect(result).toStrictEqual({ status: "applied", declaredLosses: [] });
+    // Round-tripped through the WIRE envelope rather than compared structurally:
+    // the `applied` arm carries a refinement of its own — it may not declare
+    // `conversation_history_summarized` — that no shape comparison can see.
+    expect(DriverTranscriptReplayResultSchema.parse(result)).toStrictEqual(result);
+    expect(double.seededPositions).toStrictEqual([1, 2, 3, 4]);
+    // Two reads: the pre-seed freshness read and the post-replay assertion's.
+    expect(double.reads).toBe(2);
+  });
+
+  // A replay target is SINGLE-USE on both legs, and it is stated in one place
+  // rather than left to the two freshness gates' shapes. This leg's pre-seed read
+  // would in fact catch a second replay — but it would name it `target-not-fresh`,
+  // which reads as "the caller handed us a used session" rather than "this daemon
+  // already replayed into this one", and it would spend a round trip to learn
+  // what the ledger already knows.
+  it("burns a CONFIRMED target, so replaying the same handle twice is impossible", async () => {
+    const double = seedingDouble({ answers: SEEDED_BODIES });
+    const harness = harnessWithSurface(double);
+
+    await harness.lifecycle.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] });
+    expect(double.seededPositions).toStrictEqual([1, 2, 3, 4]);
+    const readsAfterFirstReplay = double.reads;
+
+    await expect(
+      harness.lifecycle.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
+    ).rejects.toBeInstanceOf(ReplayTargetAbandonedError);
+    // Refused ahead of BOTH the seeding and the freshness read — the ledger is
+    // consulted before the surface is touched at all.
+    expect(double.seededPositions).toStrictEqual([1, 2, 3, 4]);
+    expect(double.reads).toBe(readsAfterFirstReplay);
+  });
+
+  // THE MANDATORY CASE, on this leg's own transport: a surface that accepts
+  // every frame and whose target then answers empty.
+  it("REFUSES a surface that accepts every frame and answers with zero turns", async () => {
+    const double = seedingDouble({ answers: [] });
+    await expect(
+      harnessWithSurface(double).lifecycle.replayTranscript({
+        target: TARGET,
+        frames: [...TRANSCRIPT],
+      }),
+    ).rejects.toBeInstanceOf(PostReplayAssertionFailedError);
+    expect(double.seededPositions).toStrictEqual([1, 2, 3, 4]);
+  });
+
+  // No turn ledger exists on this driver, so freshness costs a read — and it is
+  // worth it: the assertion tolerates a target answering with MORE turns than
+  // were seeded, so a target that arrived carrying a prior conversation would
+  // otherwise pass on a matching tail.
+  it("reads the target BEFORE seeding and refuses one that already holds turns", async () => {
+    const double = seedingDouble({
+      answers: SEEDED_BODIES,
+      priorTurns: ["a conversation that was already here"],
+    });
+    await expect(
+      harnessWithSurface(double).lifecycle.replayTranscript({
+        target: TARGET,
+        frames: [...TRANSCRIPT],
+      }),
+    ).rejects.toThrow(/must be fresh/);
+    expect(double.seededPositions).toStrictEqual([]);
+  });
+
+  // NS-89's replay-target lifecycle, asserted ACROSS BOTH TARGETS: the abandoned
+  // one holds native frames and never receives a memo, the replacement holds the
+  // memo and never receives native frames, and no surviving session holds both —
+  // which is the property that keeps a participant from reading the same
+  // exchanges twice, once truncated.
+  it("abandons a target refused mid-seeding; the memo lands in a FRESH target", async () => {
+    const double = seedingDouble({ answers: SEEDED_BODIES, refuseAtPosition: 3 });
+    const harness = harnessWithSurface(double);
+    await expect(
+      harness.lifecycle.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
+    ).rejects.toThrow(/abandoned and must not be reused/);
+    // A PREFIX landed, which is what makes reuse unsafe rather than untidy.
+    expect(double.seededPositions).toStrictEqual([1, 2]);
+
+    await expect(
+      harness.lifecycle.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
+    ).rejects.toBeInstanceOf(ReplayTargetAbandonedError);
+    expect(double.seededPositions).toStrictEqual([1, 2]);
+
+    const memoTurnsBySession = new Map<string, string[]>();
+    const coordinator = new MemoDeliveryCoordinator({
+      readTurnsForMarkerReconciliation: (providerSessionId) =>
+        Promise.resolve([...(memoTurnsBySession.get(providerSessionId) ?? [])]),
+      sendMemoTurn: (outboundFrame) => {
+        const turns = memoTurnsBySession.get(outboundFrame.targetProviderSessionId) ?? [];
+        turns.push(outboundFrame.frame.wireText);
+        memoTurnsBySession.set(outboundFrame.targetProviderSessionId, turns);
+        return Promise.resolve();
+      },
+    });
+    const replacementProviderSessionId = "claude-session-78";
+    const settlement = await new TranscriptReconstitutionRouter(coordinator).route(
+      { outcome: "refused" },
+      {
+        projection: {
+          sessionId: "22222222-2222-4222-8222-222222222222" as SessionId,
+          runId: "33333333-3333-4333-8333-333333333333" as RunId,
+          builtAtPosition: 4,
+          turns: [
+            {
+              position: 1,
+              role: "participant",
+              segments: [{ kind: "text", position: 1, text: "summarize the fold" }],
+            },
+          ],
+        },
+        target: coordinator.establishTarget({
+          providerSessionId: replacementProviderSessionId,
+        }),
+        budget: {
+          targetContextWindowTokens: 200_000,
+          budgetFraction: 0.1,
+          protectedTailToolExchangeCount: 1,
+        },
+      },
+    );
+    expect(settlement.route).toBe("memo");
+
+    // The abandoned target holds native frames and NO memo…
+    expect(memoTurnsBySession.get(TARGET.providerSessionId)).toBeUndefined();
+    // …and the replacement holds the memo and NO native frames.
+    expect(memoTurnsBySession.get(replacementProviderSessionId)).toHaveLength(1);
+    expect(double.seededPositions).toStrictEqual([1, 2]);
+  });
+
+  it("abandons a target whose delivery was AMBIGUOUS, rather than retrying it", async () => {
+    const double = seedingDouble({ answers: SEEDED_BODIES, ambiguousAtPosition: 2 });
+    const harness = harnessWithSurface(double);
+    await expect(
+      harness.lifecycle.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
+    ).rejects.toThrow(/abandoned and must not be reused/);
+
+    // A retry would duplicate frame 2 in a conversation a participant reads, and
+    // nothing downstream could tell the duplicate from a repeated turn.
+    await expect(
+      harness.lifecycle.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
+    ).rejects.toBeInstanceOf(ReplayTargetAbandonedError);
+    expect(double.seededPositions).toStrictEqual([1, 2]);
+  });
+
+  it("abandons a target that cannot be read, never assuming the seed took", async () => {
+    const double = seedingDouble({ answers: SEEDED_BODIES, unreadable: true });
+    const harness = harnessWithSurface(double);
+    await expect(
+      harness.lifecycle.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
+    ).rejects.toThrow(/freshness is unknown/);
+    await expect(
+      harness.lifecycle.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
+    ).rejects.toBeInstanceOf(ReplayTargetAbandonedError);
+  });
+
+  it("refuses a segment kind it cannot represent, rather than skipping it", async () => {
+    const double = seedingDouble({ answers: SEEDED_BODIES });
+    await expect(
+      harnessWithSurface(double).lifecycle.replayTranscript({
+        target: TARGET,
+        frames: [
+          frame(1, "participant", "kept"),
+          { position: 2, role: "assistant", segments: [{ kind: "hologram", position: 2 }] },
+        ],
+      }),
+    ).rejects.toThrow(/unsupported segment kind/);
+    // Parsed before anything is written, so the target stays pristine.
+    expect(double.seededPositions).toStrictEqual([]);
+  });
+
+  it("refuses an empty transcript rather than confirming a replay of nothing", async () => {
+    const double = seedingDouble({ answers: SEEDED_BODIES });
+    await expect(
+      harnessWithSurface(double).lifecycle.replayTranscript({ target: TARGET, frames: [] }),
+    ).rejects.toThrow(/nothing to reconstitute/);
+  });
+
+  // The other half of the `transcript_replay: false` contract: the refusal is a
+  // ROUTE, not a dead end. A driver that declares the flag `false` settles
+  // reconstitution on the memo projection and the caller reports `degraded`,
+  // which is the outcome `Spec-005 §Fallback Behavior` names — so this composes
+  // the driver's own refusal into the disposition the router consumes and drives
+  // the real memo floor with it.
+  it("routes a `transcript_replay: false` refusal to the memo floor, reported degraded", async () => {
+    const harness = harnessWithSurface(null);
+    let disposition: NativeReplayDisposition = {
+      outcome: "applied",
+      declaredLosses: [],
+    };
+    try {
+      await harness.lifecycle.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] });
+    } catch (error: unknown) {
+      expect(error).toBeInstanceOf(ClaudeTranscriptReplayUnsupportedError);
+      disposition = { outcome: "unavailable" };
+    }
+    expect(disposition).toStrictEqual({ outcome: "unavailable" });
+
+    const deliveredTurns: string[] = [];
+    const coordinator = new MemoDeliveryCoordinator({
+      readTurnsForMarkerReconciliation: () => Promise.resolve([...deliveredTurns]),
+      sendMemoTurn: (outboundFrame) => {
+        deliveredTurns.push(outboundFrame.frame.wireText);
+        return Promise.resolve();
+      },
+    });
+    const settlement = await new TranscriptReconstitutionRouter(coordinator).route(disposition, {
+      projection: {
+        sessionId: "22222222-2222-4222-8222-222222222222" as SessionId,
+        runId: "33333333-3333-4333-8333-333333333333" as RunId,
+        builtAtPosition: 4,
+        turns: [
+          {
+            position: 1,
+            role: "participant",
+            segments: [{ kind: "text", position: 1, text: "summarize the fold" }],
+          },
+          {
+            position: 2,
+            role: "assistant",
+            segments: [{ kind: "text", position: 2, text: "identity map, strip, repair, render" }],
+          },
+        ],
+      },
+      target: coordinator.establishTarget({ providerSessionId: TARGET.providerSessionId }),
+      budget: {
+        targetContextWindowTokens: 200_000,
+        budgetFraction: 0.1,
+        protectedTailToolExchangeCount: 1,
+      },
+    });
+
+    expect(settlement.route).toBe("memo");
+    if (settlement.route !== "memo") {
+      throw new Error("unreachable");
+    }
+    const reported = memoSettlementAsReplayResult(settlement.memo);
+    expect(reported.status).toBe("degraded");
+    // The schema requires it on a `degraded` result, and it is what tells a
+    // participant the conversation they are looking at was summarized.
+    expect(reported.declaredLosses).toContain("conversation_history_summarized");
+    expect(deliveredTurns).toHaveLength(1);
   });
 });
