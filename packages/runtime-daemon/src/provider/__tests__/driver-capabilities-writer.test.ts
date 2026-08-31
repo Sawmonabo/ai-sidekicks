@@ -56,6 +56,7 @@ import {
   DriverCapabilitiesWriter,
   type DriverCapabilityHydrationResult,
 } from "../driver-capabilities-writer.js";
+import { DRIVER_OUTPUT_SPEED_LEVELS } from "../driver-output-speed.js";
 import {
   CLI_VERSION_RAW_MAX_LEN,
   CLI_VERSION_SEMVER_MAX_LEN,
@@ -1833,6 +1834,82 @@ describe("DriverCapabilitiesWriter — hydrate (cold-start cache read)", () => {
     // regression collapsing them into one reason must go red HERE as well as on
     // the NULL-pair arm below.
     expect(writer.hydrate("never-seen")).toEqual({ hit: false, reason: "never_written" });
+  });
+
+  it("serves `outputSpeedLevels` on the CACHE path for a driver whose cached flag declares the axis", async () => {
+    // The contract requires this member whenever `flags.output_speed` is true
+    // "on either read path". The cache stores flag VALUES and no vocabulary, so
+    // a hydrate that only replayed columns would hand back `output_speed: true`
+    // with nothing for a client to render — well-formed and contract-invalid.
+    const { writer } = makeWriter();
+    await writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult({
+        capabilities: {
+          flags: makeFlags({ output_speed: true }),
+          contractVersion: CONTRACT_VERSION,
+        },
+      }),
+    });
+
+    const hydrated: GetCapabilitiesResult = expectHydrationHit(writer.hydrate(DRIVER_NAME));
+
+    expect(hydrated.capabilities.flags.output_speed).toBe(true);
+    expect(Object.hasOwn(hydrated, "outputSpeedLevels")).toBe(true);
+    // EQUAL TO THE STATIC VOCABULARY, sourced from the same table the live
+    // declaration reads — asserted against the table rather than against a
+    // literal, so the two paths cannot drift apart without this going red.
+    expect(hydrated.outputSpeedLevels).toStrictEqual([...DRIVER_OUTPUT_SPEED_LEVELS.claude]);
+    // A MUTABLE copy, never the frozen shared array: a consumer that sorts or
+    // extends its own reply must not hit a TypeError, and its mutation must not
+    // reach the next hydrate.
+    hydrated.outputSpeedLevels?.push("turbo");
+    expect(expectHydrationHit(writer.hydrate(DRIVER_NAME)).outputSpeedLevels).toStrictEqual([
+      ...DRIVER_OUTPUT_SPEED_LEVELS.claude,
+    ]);
+  });
+
+  it("omits `outputSpeedLevels` entirely when the cached flag does not declare the axis", async () => {
+    // Absence and emptiness mean the same thing to the axis contract, and this
+    // pins the honest encoding: a driver with no speed axis hydrates with the
+    // member ABSENT rather than present-and-empty. `Object.hasOwn` rather than a
+    // value check, because `exactOptionalPropertyTypes` makes present-undefined
+    // a different shape from absent.
+    const { writer } = makeWriter();
+    await writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: DRIVER_NAME,
+      result: makeResult(),
+    });
+
+    const hydrated: GetCapabilitiesResult = expectHydrationHit(writer.hydrate(DRIVER_NAME));
+
+    expect(hydrated.capabilities.flags.output_speed).toBe(false);
+    expect(Object.hasOwn(hydrated, "outputSpeedLevels")).toBe(false);
+  });
+
+  it("REFUSES to hydrate a cached `output_speed` for a driver that declares no vocabulary", async () => {
+    // A wiring fault rather than provider misbehaviour: either a driver was
+    // registered without a vocabulary entry, or the row was written out-of-band.
+    // Loud is the same discipline the row-set-invariant guard takes — the quiet
+    // alternative publishes a report that violates its own required-when rule.
+    const { writer } = makeWriter();
+    await writer.declare({
+      sessionId: SESSION_ID,
+      nodeId: NODE_ID,
+      driverName: "gemini",
+      result: makeResult({
+        capabilities: {
+          flags: makeFlags({ output_speed: true }),
+          contractVersion: CONTRACT_VERSION,
+        },
+      }),
+    });
+
+    expect(() => writer.hydrate("gemini")).toThrow(/no output-speed vocabulary is declared/);
   });
 
   // FIX 4 regression: hydrate routes its three-SELECT `#snapshot` read through the

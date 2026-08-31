@@ -64,6 +64,8 @@ import {
   DriverGoalResultSchema,
   DriverResumeResultSchema,
   DriverRollbackResultSchema,
+  ProviderCommandEntrySchema,
+  ProviderOutputSpeedStateSchema,
   type CallbackToolInvocation,
   type CallbackToolResult,
   type ClearSessionGoalParams,
@@ -3229,6 +3231,31 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       // timer for the whole of `CLAUDE_COMPACTION_WAIT_MS` after its caller
       // returned.
       wait.abandon();
+      // DIAGNOSED, on the same rule the two wait terminals below follow: every
+      // non-applied compaction leaves an operator-findable record, and this arm
+      // is the one that previously did not. The `status`/`reason` pair collapses
+      // both deliveries onto `provider_error` because neither can claim a
+      // compaction happened, so the delivery classification would be lost
+      // entirely if it did not ride the diagnostic — and the two are genuinely
+      // different operationally: `unsent` is a write this driver knows never
+      // reached the provider, while `indeterminate` may have been applied with
+      // the acknowledgement lost.
+      //
+      // The compose-throw guard above deliberately emits NOTHING and is not an
+      // oversight of the same class: it RETHROWS, so its cause reaches the
+      // caller intact. This arm is the one that converts a failure into a
+      // generic reason, which is exactly what makes the record necessary.
+      this.#diagnostics.emit({
+        provider: "claude",
+        kind: "compaction_wait_terminal",
+        rawWireType: null,
+        dispositionReason: sanitizeFailureDetail(describeFailure(attempt.cause)),
+        details: {
+          sessionId: params.sessionId,
+          terminal: "provider_error",
+          delivery: attempt.delivery,
+        },
+      });
       return { status: "failed", reason: "provider_error" };
     }
 
@@ -3306,7 +3333,9 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     };
     const held = this.#heldHandshakeFor(params.sessionId, live.providerSessionId);
     const declared =
-      held === undefined ? [] : this.#composeProviderCommandEntries(held.declaration, binding);
+      held === undefined
+        ? []
+        : this.#composeProviderCommandEntries(params.sessionId, held.declaration, binding);
     const admitted = declared.slice(0, DRIVER_PROVIDER_COMMAND_ENTRIES_MAX);
     if (admitted.length < declared.length) {
       this.#diagnostics.emit({
@@ -3351,6 +3380,22 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
    * `outputSpeedLevels` is `off` and `on` — a participant may not REQUEST a
    * cooldown, but the provider may certainly REPORT one. Coercing a reported
    * level into the settable set would fabricate a state the provider is not in.
+   *
+   * VERBATIM IS NOT UNBOUNDED, and the two are easy to conflate. The handshake's
+   * state and disabled-reason are provider output that reaches a client, so the
+   * composed reading is PARSED through the contract's own strict shape here at
+   * the return. That check ranges over LENGTH, emptiness, and NUL — never over
+   * the value's membership in any vocabulary, which is what keeps `cooldown` and
+   * any level a later build invents passing through untouched.
+   *
+   * A REJECTED READING IS ABSENT, not degraded and not raw. The absent answer
+   * already has a meaning every reader handles — the binding has no observation
+   * — and it is the only fail-closed one available: this shape carries no arm
+   * for "the provider said something unusable", and inventing a placeholder
+   * `declared` would put a state the provider is not in on a client's screen.
+   * The diagnostic is what keeps the difference between "not yet declared" and
+   * "declared unusably" visible to an operator, since the return cannot carry
+   * it.
    */
   observedOutputSpeedFor(sessionId: SessionId): ProviderOutputSpeedState | undefined {
     const live = this.#findLiveSession(sessionId);
@@ -3366,12 +3411,31 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
       return undefined;
     }
     const reason = held.declaration.fastModeDisabledReason;
-    return {
+    const parsed = ProviderOutputSpeedStateSchema.safeParse({
       declared,
       // Present only where the provider supplied one: an absent reason means the
       // provider gave none, never that there was none.
       ...(reason === null ? {} : { reason }),
-    };
+    });
+    if (parsed.success) {
+      return parsed.data;
+    }
+    this.#diagnostics.emit({
+      provider: "claude",
+      kind: "output_speed_state_rejected",
+      rawWireType: null,
+      dispositionReason:
+        "the provider declared an output-speed state the contract's own bounds refuse; this binding reads as having no observation until it declares another",
+      details: {
+        sessionId,
+        // The FAILING FIELD and the offending LENGTHS — never the values, which
+        // are the untrusted strings the parse just refused.
+        rejectedField: parsed.error.issues[0]?.path.join(".") ?? "",
+        declaredLength: declared.length,
+        reasonLength: reason === null ? null : reason.length,
+      },
+    });
+    return undefined;
   }
 
   // A held declaration answers only for the provider process it was read from.
@@ -3399,22 +3463,66 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
   // Composed at READ time from the raw declaration rather than at observation
   // time, so the held state stays exactly what the provider said and the cap,
   // the composition, and the binding stamp all live in one place.
+  //
+  // EVERY COMPOSED ENTRY IS PARSED, and that is what makes the held declaration
+  // safe to hold raw. The three name sets are provider output — a skill name is
+  // read out of an operator-writable local file's front matter — so an empty,
+  // whitespace-only, NUL-bearing, or over-long name reaches this composition
+  // intact. Bounding at the read seam rather than at observation is the same
+  // ordering the sibling driver takes: the held state stays exactly what the
+  // provider said, and the contract's own entry schema is the single bounding
+  // point, so a field this driver forgot to bound is refused by the shape rather
+  // than admitted by an omission.
+  //
+  // A REJECTED ENTRY IS DROPPED, NEVER SILENTLY AND NEVER FATALLY. Dropping is
+  // per-entry so one unusable name cannot empty a participant's palette; the
+  // diagnostic is what keeps the drop findable, which is the half the sibling
+  // driver's module-level composer cannot supply — it holds no emitter, and its
+  // silence is recorded in its own doc rather than mirrored here.
   #composeProviderCommandEntries(
+    sessionId: SessionId,
     declaration: ClaudeHandshakeDeclaration,
     binding: { driverName: string; providerAccountId: string | null },
   ): ProviderCommandEntry[] {
     const entries: ProviderCommandEntry[] = [];
+    const admit = (candidate: ProviderCommandEntry): void => {
+      const parsed = ProviderCommandEntrySchema.safeParse(candidate);
+      if (parsed.success) {
+        entries.push(parsed.data);
+        return;
+      }
+      this.#diagnostics.emit({
+        provider: "claude",
+        kind: "provider_command_entry_rejected",
+        rawWireType: null,
+        dispositionReason:
+          "the provider published a command or skill entry the contract's own bounds refuse; it is dropped from this reply and its siblings are unaffected",
+        details: {
+          sessionId,
+          entryKind: candidate.kind,
+          // The terminal-only reach, so a rejected entry stays attributable to
+          // the published set it came from without carrying the name itself.
+          entryScope: candidate.scope ?? null,
+          // The FAILING FIELD and the offending LENGTH — never the value. The
+          // value is exactly the untrusted, possibly NUL-bearing, possibly
+          // enormous string the parse just refused, and a diagnostic is not the
+          // place to re-admit what a bound rejected.
+          rejectedField: parsed.error.issues[0]?.path.join(".") ?? "",
+          nameLength: candidate.name.length,
+        },
+      });
+    };
     for (const name of declaration.slashCommands) {
-      entries.push({ name, kind: "command", binding });
+      admit({ name, kind: "command", binding });
     }
     for (const name of declaration.skills) {
-      entries.push({ name, kind: "skill", binding });
+      admit({ name, kind: "skill", binding });
     }
     for (const name of declaration.terminalSlashCommands) {
       // `command` in KIND — it is one — with the terminal-only reach recorded on
       // `scope`, which is the axis that exists for exactly this. The two
       // published sets stay distinguishable without inventing a third kind.
-      entries.push({ name, kind: "command", scope: "terminal", binding });
+      admit({ name, kind: "command", scope: "terminal", binding });
     }
     return entries;
   }

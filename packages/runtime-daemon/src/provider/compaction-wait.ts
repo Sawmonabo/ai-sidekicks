@@ -141,7 +141,20 @@ export interface ArmedCompactionWait {
 
 /**
  * The pending compactions of one driver, keyed by whatever that driver uses to
- * address a live binding (both shipped drivers use their session id).
+ * address a live binding.
+ *
+ * THE KEY IS THE DRIVER'S, AND THE TWO SHIPPED LEGS COMPOSE IT DIFFERENTLY — for
+ * a reason that is about their bindings rather than about taste. A key must
+ * name the binding a wait was DISPATCHED under, so that every path which
+ * replaces that binding can release exactly the waits it stranded. On the Claude
+ * leg the session id is already that: a rewind installs its successor and
+ * releases in the same act, and a resume beside a live holder is refused
+ * outright, so no identity moves underneath a wait. On the Codex leg it is not:
+ * a successful `rollbackTo` re-points the record at a forked thread and a
+ * superseding `resumeSession` installs a new record on the same session id, so
+ * that driver composes `(sessionId, threadId)` and releases the predecessor's
+ * key at both swaps. A registry that assumed the session id would have made the
+ * twice-terminated guarantee false on one of its two callers.
  *
  * Holds no provider state and performs no I/O: it is the correlation between a
  * dispatched compaction and the frame that proves it landed, and nothing else.

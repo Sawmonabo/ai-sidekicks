@@ -44,6 +44,7 @@ import {
   type ExecutionPosture,
   type CallbackToolInvocation,
   type CallbackToolResult,
+  type ProviderCommandEntry,
   type SessionCallbackTool,
 } from "@ai-sidekicks/contracts";
 
@@ -8363,6 +8364,175 @@ describe("CodexLifecycleManager.compactContext (T3.26, native)", () => {
     await expect(surviving).resolves.toStrictEqual({ status: "applied", boundaryPosition: null });
   });
 
+  // ----------------------------------------------------------------------
+  // The wait is keyed by the BINDING it was dispatched under, not by the
+  // session. This driver's thread identity moves WITHIN a live session — a
+  // successful `rollbackTo` forks a replacement and a superseding
+  // `resumeSession` installs a new record on the same session id — so a
+  // session-keyed wait would outlive the binding it was armed against and lose
+  // the second of its two terminals.
+  // ----------------------------------------------------------------------
+
+  const FORKED_THREAD_ID = "01a04202-0148-7ae2-8560-forked000001";
+
+  async function rewindableCompactionHarness(): Promise<ManagerHarness> {
+    const harness = createManagerHarness({ onServerNotification: true });
+    harness.server.on("thread/compact/start", () => ({ result: {} }));
+    // Seeded through a resume rather than by running turns: a resumed thread
+    // carries the turn ledger a rewind indexes, without making these
+    // assertions depend on the turn-dispatch band.
+    harness.server.on("thread/resume", () => threadStartResult(2));
+    await harness.manager.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
+    return harness;
+  }
+
+  it("settles a pending wait `binding_lost` the instant a rollback forks its thread away", async () => {
+    const harness = await rewindableCompactionHarness();
+    harness.server.on("thread/fork", () => ({
+      result: {
+        thread: {
+          id: FORKED_THREAD_ID,
+          sessionId: "session-tree-1",
+          turns: [{ id: "turn-0" }],
+        },
+      },
+    }));
+
+    const compaction = harness.manager.compactContext({
+      sessionId: SESSION_ID,
+      bindingId: "binding-predecessor",
+    });
+    await drainMicrotasks();
+
+    await expect(
+      harness.manager.rollbackTo({
+        sessionId: SESSION_ID,
+        bindingId: "binding-predecessor",
+        position: 1,
+      }),
+    ).resolves.toMatchObject({ status: "applied" });
+
+    // IMMEDIATELY, and on the honest terminal. The binding this caller
+    // dispatched into is gone, so `binding_lost` is what it is owed — never
+    // `wait_expired` a full declared bound later, and never `applied` on some
+    // compaction the SUCCESSOR thread performs.
+    await expect(compaction).resolves.toStrictEqual({
+      status: "failed",
+      reason: "binding_lost",
+    });
+    expect(harness.scheduler.firedDelays()).not.toContain(CODEX_COMPACTION_WAIT_MS);
+  });
+
+  it("a SUCCESSOR thread's compaction released by the rewind's own registration settles no PREDECESSOR wait", async () => {
+    // THE CASE THE KEY EXISTS FOR, and the one the two releases alone do not
+    // cover. `#bindSessionThread` registers the forked thread and FLUSHES the
+    // router's pending-registration hold through the ordinary delivery path in
+    // the same synchronous run — strictly BEFORE the rewind releases the
+    // predecessor's waits. So a `thread/compacted` naming the successor that
+    // arrived while it was still unannounced reaches the settlement tap while a
+    // predecessor wait is still armed. Keyed by session alone that frame settles
+    // it `applied`: a compaction this caller never asked for, on a thread it was
+    // never bound to, reported as its own.
+    const harness = await rewindableCompactionHarness();
+    harness.server.on("thread/fork", () => ({
+      result: {
+        thread: {
+          id: FORKED_THREAD_ID,
+          sessionId: "session-tree-1",
+          turns: [{ id: "turn-0" }],
+        },
+      },
+    }));
+
+    const compaction = harness.manager.compactContext({
+      sessionId: SESSION_ID,
+      bindingId: "binding-predecessor",
+    });
+    await drainMicrotasks();
+
+    // Held, not routed: the successor thread is not registered yet, so the
+    // router parks this frame rather than projecting or quarantining it.
+    emitCompactionBoundary(harness, { threadId: FORKED_THREAD_ID, turnId: TURN_ID });
+    await drainMicrotasks();
+    expect(harness.scheduler.pendingDelays()).toContain(CODEX_COMPACTION_WAIT_MS);
+
+    await expect(
+      harness.manager.rollbackTo({
+        sessionId: SESSION_ID,
+        bindingId: "binding-predecessor",
+        position: 1,
+      }),
+    ).resolves.toMatchObject({ status: "applied" });
+
+    // `binding_lost` and emphatically not `applied`: the flushed frame belongs
+    // to the successor's key and settles nobody, and the release that follows
+    // it tells this caller the truth about the binding it dispatched into.
+    await expect(compaction).resolves.toStrictEqual({
+      status: "failed",
+      reason: "binding_lost",
+    });
+  });
+
+  it("a compaction on the REWOUND session settles on the successor thread's own frame", async () => {
+    // The other half of the same claim, and what keeps the first from passing
+    // by simply breaking compaction after a rewind: the key MOVED with the
+    // record rather than being torn down. Also the stale-evidence guard — the
+    // pre-fork thread's frame settles nothing here.
+    const harness = await rewindableCompactionHarness();
+    harness.server.on("thread/fork", () => ({
+      result: {
+        thread: {
+          id: FORKED_THREAD_ID,
+          sessionId: "session-tree-1",
+          turns: [{ id: "turn-0" }],
+        },
+      },
+    }));
+    await harness.manager.rollbackTo({
+      sessionId: SESSION_ID,
+      bindingId: "binding-predecessor",
+      position: 1,
+    });
+
+    const compaction = harness.manager.compactContext({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+    });
+    await drainMicrotasks();
+    expect(harness.server.framesForMethod("thread/compact/start")[0]?.["params"]).toStrictEqual({
+      threadId: FORKED_THREAD_ID,
+    });
+
+    // The RETIRED thread's frame first: it names a thread this session no
+    // longer registers, so it settles nobody.
+    emitCompactionBoundary(harness, { threadId: THREAD_ID, turnId: TURN_ID });
+    await drainMicrotasks();
+    expect(harness.scheduler.pendingDelays()).toContain(CODEX_COMPACTION_WAIT_MS);
+
+    emitCompactionBoundary(harness, { threadId: FORKED_THREAD_ID, turnId: TURN_ID });
+    await expect(compaction).resolves.toStrictEqual({ status: "applied", boundaryPosition: null });
+  });
+
+  it("settles a pending wait `binding_lost` when a resume supersedes the binding it was armed on", async () => {
+    const harness = await rewindableCompactionHarness();
+
+    const compaction = harness.manager.compactContext({
+      sessionId: SESSION_ID,
+      bindingId: "binding-predecessor",
+    });
+    await drainMicrotasks();
+
+    // A resume beside a live leg SUPERSEDES it: the process the wait was
+    // dispatched into is replaced, so its evidence can never arrive.
+    await harness.manager.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
+
+    await expect(compaction).resolves.toStrictEqual({
+      status: "failed",
+      reason: "binding_lost",
+    });
+    expect(harness.scheduler.firedDelays()).not.toContain(CODEX_COMPACTION_WAIT_MS);
+  });
+
   it("records NO terminal diagnostic on the applied path", async () => {
     const harness = await compactionHarness();
 
@@ -8619,6 +8789,108 @@ describe("CodexLifecycleManager.listProviderCommands (T3.26, live read)", () => 
     // A PATCH would have left `beta` behind. A full re-read is the only way
     // this list is exactly the provider's current one.
     expect(third.bindings[0]?.entries.map((entry) => entry.name)).toEqual(["alpha", "gamma"]);
+  });
+
+  it("does NOT cache a reading taken across an invalidation that landed mid-flight", async () => {
+    // The RACE the epoch closes. `skills/changed` can arrive while a
+    // `skills/list` is still in flight, and discarding a list that is not there
+    // yet discards nothing — the continuation then stores a reading taken
+    // BEFORE the change and serves it until the next invalidation, which for an
+    // idle skill tree is forever.
+    const harness = (await enumerationHarness([
+      { name: "alpha", description: "first", scope: "repo", enabled: true },
+    ])) as ManagerHarness & { setSkills: (next: readonly SkillFixture[]) => void };
+    // The invalidation rides the SAME read chunk as the reply, which is what
+    // makes it land between the dispatch and the response continuation: the
+    // notification is processed synchronously in that drain, while the
+    // continuation is a microtask behind it. Split across two emissions the
+    // microtask would drain in between and the interleave would not happen.
+    let invalidateOnNextRead = true;
+    harness.server.on("skills/list", () => {
+      const answer = skillsListResult(
+        invalidateOnNextRead
+          ? [{ name: "alpha", description: "first", scope: "repo", enabled: true }]
+          : [{ name: "gamma", description: "third", scope: "user", enabled: true }],
+      );
+      if (!invalidateOnNextRead) {
+        return answer;
+      }
+      invalidateOnNextRead = false;
+      return {
+        ...answer,
+        trailingFrames: [{ jsonrpc: "2.0", method: "skills/changed", params: {} }],
+      };
+    });
+
+    // The racing read still ANSWERS ITS OWN CALLER — the reading is a correct
+    // answer to a question asked before the change, and refusing it would fail
+    // a palette open for a skill-file save.
+    const racing = await harness.manager.listProviderCommands({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+    });
+    expect(racing.bindings[0]?.entries.map((entry) => entry.name)).toEqual(["alpha"]);
+    expect(harness.server.framesForMethod("skills/list")).toHaveLength(1);
+
+    // And it was cached for NOBODY: the next ask re-reads in full and sees the
+    // post-change list. Without the epoch this returns the stale `alpha`
+    // forever, with no further invalidation coming.
+    const next = await harness.manager.listProviderCommands({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+    });
+    expect(harness.server.framesForMethod("skills/list")).toHaveLength(2);
+    expect(next.bindings[0]?.entries.map((entry) => entry.name)).toEqual(["gamma"]);
+
+    // NON-VACUOUS in the other direction: ordinary caching is untouched, so a
+    // guard that simply stopped caching would fail here.
+    await harness.manager.listProviderCommands({ sessionId: SESSION_ID, bindingId: "binding-abc" });
+    expect(harness.server.framesForMethod("skills/list")).toHaveLength(2);
+  });
+
+  it("hands back DEEP-FROZEN entries, so one consumer cannot poison a later reply", async () => {
+    // The held enumeration is retained driver-session state and every reply
+    // shares the same entry objects — the caller copies the ARRAY and nothing
+    // more. A consumer that rewrote an entry's `name`, or its nested `binding`,
+    // would corrupt the routing provenance of every later palette read on this
+    // session. `Object.freeze` on the entry alone is SHALLOW, which is why the
+    // binding is asserted separately.
+    const harness = await enumerationHarness([
+      { name: "review", description: "Review a diff", scope: "repo", enabled: true },
+    ]);
+
+    const first = await harness.manager.listProviderCommands({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+    });
+    const entry = first.bindings[0]?.entries[0];
+
+    expect(Object.isFrozen(entry)).toBe(true);
+    expect(Object.isFrozen(entry?.binding)).toBe(true);
+    // The suite is an ES module, so an assignment to a frozen object THROWS
+    // rather than failing silently — the mutation cannot even be attempted
+    // quietly.
+    expect(() => {
+      (entry as ProviderCommandEntry).name = "hijacked";
+    }).toThrow(TypeError);
+    expect(() => {
+      (entry as ProviderCommandEntry).binding.providerAccountId = "someone-else";
+    }).toThrow(TypeError);
+
+    // The freeze is shared, not per-reply: the next read hands back the same
+    // uncorrupted graph.
+    const second = await harness.manager.listProviderCommands({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+    });
+    expect(second.bindings[0]?.entries[0]?.name).toBe("review");
+    expect(second.bindings[0]?.entries[0]?.binding).toStrictEqual({
+      driverName: "codex",
+      providerAccountId: null,
+    });
+    // The ARRAY is still the caller's own: the cap slice and the copy make it
+    // ordinary and mutable, so a consumer may sort or filter its own reply.
+    expect(() => second.bindings[0]?.entries.push(entry as ProviderCommandEntry)).not.toThrow();
   });
 
   it("carries `providerAccountId: null` on an accountless session, key present", async () => {
@@ -8942,6 +9214,67 @@ describe("readCodexAskOptionSet (T3.26, the input-ask choice set)", () => {
 
     // A flat list built from two questions answers NEITHER.
     expect(reading).toMatchObject({ kind: "dropped", declaredCount: 2 });
+  });
+
+  it("drops a MIXED-FIELD form: one single-select beside any sibling answers the form for neither", () => {
+    // ELIGIBILITY IS THE TOTAL FORM SHAPE, not the enum count. A form's answer
+    // is one OBJECT keyed by property name and `ProviderAskOption` carries no
+    // property identity, so a flat set can stand in for the whole answer only
+    // where the form has exactly ONE property. Counting only the ENUM-BEARING
+    // properties made this shape — the commonest real elicitation there is —
+    // look answerable, and every pick would have produced an answer missing a
+    // field the provider is still waiting for.
+    const requiredSibling = readCodexAskOptionSet("mcpServer/elicitation/request", {
+      mode: "form",
+      requestedSchema: {
+        type: "object",
+        required: ["pick", "reason"],
+        properties: {
+          pick: { type: "string", enum: ["a", "b"] },
+          reason: { type: "string" },
+        },
+      },
+    });
+    // The FORM's property count, which is the number that explains the drop.
+    expect(requiredSibling).toMatchObject({ kind: "dropped", declaredCount: 2 });
+
+    // REQUIREDNESS IS DELIBERATELY NOT CONSULTED. An optional sibling is
+    // equally unanswerable by a value with no field name on it, so refining on
+    // `required` would reopen the same defect for exactly this case.
+    const optionalSibling = readCodexAskOptionSet("mcpServer/elicitation/request", {
+      mode: "form",
+      requestedSchema: {
+        type: "object",
+        required: ["pick"],
+        properties: {
+          pick: { type: "string", enum: ["a", "b"] },
+          note: { type: "string" },
+        },
+      },
+    });
+    expect(optionalSibling).toMatchObject({ kind: "dropped", declaredCount: 2 });
+  });
+
+  it("still reads a SOLE-property single-select — the eligible shape stays eligible", () => {
+    // The negative control that keeps the drop above from passing by refusing
+    // everything: a form whose one property is the single-select projects its
+    // choices exactly as before.
+    expect(
+      readCodexAskOptionSet("mcpServer/elicitation/request", {
+        mode: "form",
+        requestedSchema: {
+          type: "object",
+          required: ["pick"],
+          properties: { pick: { type: "string", enum: ["a", "b"] } },
+        },
+      }),
+    ).toStrictEqual({
+      kind: "read",
+      options: [
+        { value: "a", label: "a" },
+        { value: "b", label: "b" },
+      ],
+    });
   });
 
   it("drops an over-large set rather than truncating it", () => {

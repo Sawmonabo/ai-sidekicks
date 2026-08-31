@@ -29,7 +29,9 @@
 //     error rather than a message-substring test.
 
 import {
+  DRIVER_OUTPUT_SPEED_REASON_MAX_LEN,
   DRIVER_PROVIDER_COMMAND_ENTRIES_MAX,
+  DRIVER_PROVIDER_COMMAND_NAME_MAX_LEN,
   DriverResumeResultSchema,
   type CallbackToolResult,
   type ExecutionPosture,
@@ -3783,13 +3785,28 @@ describe("ClaudeSessionLifecycle.compactContext — the two substitute guards", 
       expect(scheduler.armedCount()).toBe(1);
       expect(scheduler.cancelledCount()).toBe(1);
 
+      // DIAGNOSED, with the delivery classification the result cannot carry.
+      // `unsent` and `indeterminate` both answer `provider_error` — neither can
+      // claim a compaction happened — so this record is the only place the
+      // difference between "never reached the provider" and "may have applied
+      // with the acknowledgement lost" survives.
+      const written = harness.diagnostics.recentRecordsOfKind("compaction_wait_terminal");
+      expect(written).toHaveLength(1);
+      expect(written[0]?.details).toStrictEqual({
+        sessionId: TEST_SESSION_ID,
+        terminal: "provider_error",
+        delivery,
+      });
+      expect(written[0]?.dispositionReason).toBe("Error: stdin closed");
+
       // And the withdrawal is TOTAL, not merely a cancellation request: this
       // double's canceller does not stop its timer, so firing the bound here
-      // exercises exactly the host whose clear races the fire. No terminal
-      // diagnostic appears, because no waiter remains to settle.
+      // exercises exactly the host whose clear races the fire. No SECOND record
+      // appears, because no waiter remains to settle — the write-failure record
+      // above stands alone.
       scheduler.fireAll();
       await drainMicrotasks();
-      expect(harness.diagnostics.recentRecordsOfKind("compaction_wait_terminal")).toStrictEqual([]);
+      expect(harness.diagnostics.recentRecordsOfKind("compaction_wait_terminal")).toHaveLength(1);
     }
   });
 
@@ -4014,6 +4031,79 @@ describe("ClaudeSessionLifecycle.listProviderCommands — the three handshake se
     // `scope` is present ONLY on the terminal arm — the two published sets stay
     // distinguishable without inventing a third kind.
     expect("scope" in (group?.entries[0] ?? {})).toBe(false);
+  });
+
+  it("DROPS an entry whose provider-published name the contract refuses, keeping every sibling", async () => {
+    // A skill name is read out of an operator-writable local file's front
+    // matter, so the three handshake sets carry provider output verbatim into
+    // this composition. Each refusal shape is exercised on a DIFFERENT set, so a
+    // guard applied to only one of the three cannot pass this.
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
+      handshake: buildHandshake({
+        slashCommands: ["clear", `leak\u0000canary`],
+        skills: ["pdf-processing", "   "],
+        terminalSlashCommands: ["doctor", "x".repeat(DRIVER_PROVIDER_COMMAND_NAME_MAX_LEN + 1), ""],
+      }),
+    });
+
+    const result = await harness.lifecycle.listProviderCommands({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+    });
+
+    // The SURVIVORS are the whole point: one unusable name must not empty a
+    // participant's palette, so the drop is per-entry rather than per-set.
+    expect(result.bindings[0]?.entries.map((entry) => entry.name)).toStrictEqual([
+      "clear",
+      "pdf-processing",
+      "doctor",
+    ]);
+    // `complete` is the CAP marker and nothing else — no tail was dropped by the
+    // cap here, and a refused entry must not be reported as a truncation.
+    expect(result.bindings[0]?.complete).toBe(true);
+
+    const rejected = harness.diagnostics.recentRecordsOfKind("provider_command_entry_rejected");
+    expect(rejected).toHaveLength(4);
+    // The failing FIELD and the offending LENGTH, never the value — the value is
+    // exactly the untrusted string the bound just refused.
+    expect(rejected.map((record) => record.details["rejectedField"])).toStrictEqual([
+      "name",
+      "name",
+      "name",
+      "name",
+    ]);
+    expect(rejected[0]?.details["nameLength"]).toBe("leak\u0000canary".length);
+    expect(rejected[0]?.details["entryKind"]).toBe("command");
+    expect(rejected[0]?.details["entryScope"]).toBeNull();
+    expect(rejected[1]?.details["entryKind"]).toBe("skill");
+    expect(rejected[2]?.details["entryScope"]).toBe("terminal");
+    expect(rejected[2]?.details["nameLength"]).toBe(DRIVER_PROVIDER_COMMAND_NAME_MAX_LEN + 1);
+    for (const record of rejected) {
+      // Nothing in the record echoes the refused name back.
+      expect(JSON.stringify(record)).not.toContain("canary");
+    }
+  });
+
+  it("emits NO rejection diagnostic for a handshake whose every name is in bounds", async () => {
+    // The negative control that makes the drop test above non-vacuous: a guard
+    // that refused everything would satisfy the survivors assertion only by
+    // accident, and would go red here.
+    const harness = buildHarness();
+    await harness.lifecycle.createSession(buildCreateSessionParams());
+    harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
+      handshake: buildHandshake(),
+    });
+
+    await harness.lifecycle.listProviderCommands({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+    });
+
+    expect(
+      harness.diagnostics.recentRecordsOfKind("provider_command_entry_rejected"),
+    ).toStrictEqual([]);
   });
 
   it("emits exactly one entry per declared name across the three sets, deduping across none of them", async () => {
@@ -4457,6 +4547,39 @@ describe("ClaudeSessionLifecycle.observedOutputSpeedFor — absent until observe
     // KEY-PRESENCE: an absent reason means the provider gave none, never that
     // there was none.
     expect("reason" in (observed ?? {})).toBe(false);
+  });
+
+  it("has NO observation and DIAGNOSES a declared state the contract's bounds refuse", async () => {
+    // The handshake's state and reason are provider output that reaches a
+    // client, so `verbatim` bounds LENGTH, emptiness, and NUL — never vocabulary
+    // membership. A rejected reading takes the absent answer because that is the
+    // only fail-closed one this shape carries: inventing a placeholder
+    // `declared` would put a state the provider is not in on a screen.
+    for (const [label, declaration, rejectedField] of [
+      ["NUL-bearing state", { fastModeState: `on\u0000x` }, "declared"],
+      ["whitespace-only state", { fastModeState: "   " }, "declared"],
+      [
+        "over-long reason",
+        {
+          fastModeState: "off",
+          fastModeDisabledReason: "r".repeat(DRIVER_OUTPUT_SPEED_REASON_MAX_LEN + 1),
+        },
+        "reason",
+      ],
+    ] as const) {
+      const harness = buildHarness();
+      await harness.lifecycle.createSession(buildCreateSessionParams());
+      harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
+        handshake: buildHandshake(declaration),
+      });
+
+      expect(harness.lifecycle.observedOutputSpeedFor(TEST_SESSION_ID), label).toBeUndefined();
+      const rejected = harness.diagnostics.recentRecordsOfKind("output_speed_state_rejected");
+      expect(rejected, label).toHaveLength(1);
+      expect(rejected[0]?.details["rejectedField"], label).toBe(rejectedField);
+      // The refused values never ride the record.
+      expect(JSON.stringify(rejected[0]), label).not.toContain("rrrr");
+    }
   });
 
   it("has no observation for a session that declares no fast-mode state at all", async () => {

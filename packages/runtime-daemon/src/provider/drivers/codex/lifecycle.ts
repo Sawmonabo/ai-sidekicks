@@ -1046,6 +1046,19 @@ function readCodexRequestUserInputOptionSet(params: unknown): CodexAskOptionSetR
  * set would present a pick-one card for a pick-many question. They read absent
  * and the free-text arm carries them; a card that can express multi-select is
  * the amendment that would add them.
+ *
+ * ELIGIBILITY IS THE TOTAL FORM SHAPE, NOT THE ENUM COUNT. A form's answer is
+ * one OBJECT keyed by property name, and `ProviderAskOption` carries a value and
+ * a label and NO property identity — so a flat choice set can stand in for the
+ * whole answer only where the form has exactly ONE property. A form pairing a
+ * single-select with any sibling property would otherwise project a choice set
+ * that, whichever entry the participant picked, produces an answer missing a
+ * field the form requires: the card would look complete and the provider would
+ * still be waiting. Counting only the ENUM-BEARING properties is what made that
+ * shape look eligible, and the sibling's REQUIREDNESS is deliberately not
+ * consulted either — an optional text sibling is equally unanswerable by a value
+ * with no field name on it, so refining on `required` would reopen the same
+ * defect for the optional case.
  */
 function readCodexElicitationOptionSet(params: unknown): CodexAskOptionSetReading {
   if (!isPlainObject(params) || params["mode"] !== "form") {
@@ -1065,12 +1078,18 @@ function readCodexElicitationOptionSet(params: unknown): CodexAskOptionSetReadin
   if (declaredSets.length === 0) {
     return ABSENT_ASK_OPTION_SET;
   }
-  if (declaredSets.length > 1) {
+  // The FORM's property count, which is the number that explains the drop —
+  // never the enum-bearing subset, which is exactly the count whose smallness
+  // made a mixed-field form look answerable. It subsumes the several-enums case
+  // rather than sitting beside it: two enum-bearing properties are two
+  // properties, so no separate arm is reachable below.
+  const propertyNames = Object.keys(properties);
+  if (propertyNames.length > 1) {
     return {
       kind: "dropped",
       reason:
-        "the elicitation form declares more than one single-select property and a single flat choice set would answer none of them",
-      declaredCount: declaredSets.length,
+        "the elicitation form declares more than one property and a flat choice set carries no property identity, so no answer built from it could satisfy the form",
+      declaredCount: propertyNames.length,
     };
   }
   const candidates = declaredSets[0] ?? [];
@@ -1448,17 +1467,27 @@ function readCodexCompactionBoundaryPosition(params: unknown): number | null {
  * included. A `null` is the stated absence of a bound account — never `""`,
  * never a placeholder, and never a wildcard: an entry read under a null account
  * authorizes dispatch onto no other binding.
+ *
+ * EVERY ENTRY IS DEEP-FROZEN before it leaves this function, on the T3.12
+ * declared-catalog doctrine. The composed list is RETAINED as driver-session
+ * state and every later reply shares the same entry objects — the caller copies
+ * the ARRAY and nothing more — so a consumer that rewrote an entry's `name` or
+ * its nested `binding` would corrupt the routing provenance of every subsequent
+ * palette read on that session. FREEZE-AND-SHARE rather than clone-per-read for
+ * the same reason that doctrine gives: the hazard is a shared mutable graph, and
+ * the freeze removes it at the one place the graph is built, while a clone on
+ * every read would pay for it forever and still leave the retained copy exposed.
  */
 function readCodexProviderCommandEntries(
   response: unknown,
   providerAccountId: string | null,
 ): readonly ProviderCommandEntry[] {
   if (!isPlainObject(response)) {
-    return [];
+    return CODEX_EMPTY_PROVIDER_COMMAND_ENTRIES;
   }
   const groups = response["data"];
   if (!Array.isArray(groups)) {
-    return [];
+    return CODEX_EMPTY_PROVIDER_COMMAND_ENTRIES;
   }
   const entries: ProviderCommandEntry[] = [];
   for (const group of groups) {
@@ -1472,11 +1501,41 @@ function readCodexProviderCommandEntries(
     for (const skill of skills) {
       const entry = readCodexProviderCommandEntry(skill, providerAccountId);
       if (entry !== null) {
-        entries.push(entry);
+        entries.push(deepFreezeProviderCommandEntry(entry));
       }
     }
   }
-  return entries;
+  return Object.freeze(entries);
+}
+
+/**
+ * The shared empty reading, frozen once.
+ *
+ * A fresh `[]` per unreadable reply would be mutable, and the two absent arms
+ * would then be the only paths on this leg whose result a consumer could push
+ * onto — the shape a reader must not have to reason about.
+ */
+const CODEX_EMPTY_PROVIDER_COMMAND_ENTRIES: readonly ProviderCommandEntry[] = Object.freeze([]);
+
+/**
+ * Freeze one composed entry AND its nested binding, without widening its type.
+ *
+ * `Object.freeze(entry)` alone is SHALLOW: it stops `entry.binding = {…}` and
+ * does nothing about `entry.binding.providerAccountId = "someone-else"`, which
+ * is precisely the mutation that would repoint a retained entry's routing
+ * provenance at another account. The nested object is therefore frozen first —
+ * the `freezeDeclaredModelArray` doctrine in this driver's `capabilities.ts`,
+ * applied to an object rather than an array.
+ *
+ * The declared type is returned unchanged rather than deep-`Readonly`: making
+ * the contract type deep-readonly would ripple through every driver that builds
+ * an entry and every consumer that composes a group, to close a hazard that
+ * exists only for the RETAINED graph. The freeze is a runtime property, pinned
+ * by a mutation-attempt test rather than by the type.
+ */
+function deepFreezeProviderCommandEntry(entry: ProviderCommandEntry): ProviderCommandEntry {
+  Object.freeze(entry.binding);
+  return Object.freeze(entry);
 }
 
 const codexProviderCommandDescriptionSchema = wireFreeFormString(
@@ -4860,6 +4919,34 @@ const CODEX_THREAD_FRAME_ROUTER_CONFIG: ThreadFrameRouterConfig = Object.freeze(
 });
 
 /**
+ * The compaction-wait key for one Codex binding — session AND thread identity.
+ *
+ * KEYING ON THE SESSION ALONE WAS THE DEFECT. This driver's thread identity
+ * MOVES within one live session: a successful `rollbackTo` forks a replacement
+ * thread and re-points the record at it, and a superseding `resumeSession`
+ * installs a whole new record on the same session id. A wait armed against the
+ * predecessor and keyed only by session would survive both — settling `applied`
+ * on a `thread/compacted` from the REPLACEMENT thread (a compaction the caller
+ * never asked for, on a binding it is no longer talking to), or waiting out the
+ * full declared bound for evidence that can no longer arrive when the honest
+ * terminal is `binding_lost` at the moment of the swap.
+ *
+ * `Spec-005` makes the wait bounded and TWICE-terminated — the declared bound
+ * and the binding ceasing to be live — and a wait that outlives its binding has
+ * lost the second terminal. Keying by the identity the wait was DISPATCHED
+ * under is what restores it: every path that moves the identity releases the
+ * key it moved away from, and a frame from the new thread composes a different
+ * key and settles nobody.
+ *
+ * NUL-JOINED because both halves are opaque provider- or daemon-minted strings
+ * and a plain separator could appear inside one; a NUL cannot, since every
+ * bounded string on this leg rejects it.
+ */
+function codexCompactionWaitKey(sessionId: SessionId, threadId: string): string {
+  return `${sessionId}\u0000${threadId}`;
+}
+
+/**
  * Read the thread identity a Codex frame carries.
  *
  * TOTAL and NON-THROWING: this runs inside the transport's `#ingest` drain, so
@@ -5046,6 +5133,20 @@ export class CodexLifecycleManager {
   // rather than a patch, and discarded with the session so a new session never
   // answers with the previous one's skills.
   readonly #providerCommandEnumerations = new Map<SessionId, readonly ProviderCommandEntry[]>();
+  // T3.26. The invalidation EPOCH each held enumeration was read under — the
+  // half that makes the invalidation race-free. `skills/changed` can land while
+  // a `skills/list` is in flight, and discarding a list that is not there yet
+  // discards nothing: the continuation would then store a reading taken BEFORE
+  // the change and hold it until the next invalidation, which for an idle
+  // skill tree is forever. A reader captures the epoch beside its cache miss
+  // and stores only if the epoch it captured is still current.
+  //
+  // OPAQUE TOKENS RATHER THAN A COUNTER, because a counter needs a starting
+  // value and a session id can be reused: a fresh session whose counter reset
+  // to the value an in-flight read captured under its predecessor would admit
+  // exactly the stale store this exists to reject. A symbol is equal to nothing
+  // but itself.
+  readonly #providerCommandEnumerationEpochs = new Map<SessionId, symbol>();
   readonly #sessionIdByRunId = new Map<RunId, SessionId>();
   /**
    * Session ids with a lifecycle transition in flight, mapped to its kind and a
@@ -5505,7 +5606,7 @@ export class CodexLifecycleManager {
       // exists — so carrying it forward would answer the new process's palette
       // with the old process's reading and have no mechanism that could ever
       // correct it. The next ask re-reads in full.
-      this.#providerCommandEnumerations.delete(params.sessionId);
+      this.#discardProviderCommandEnumeration(params.sessionId);
       // Released for the same reason the create path releases it: a resume is a
       // fresh spawn, so the condemned binding is gone.
       this.#providerBindingQuarantine.releaseSession(params.sessionId);
@@ -5541,6 +5642,22 @@ export class CodexLifecycleManager {
       // exactly where any future work on those runs belongs, and refusing them
       // would take their interrupt and intervention controls away for nothing.
       this.#failSupersededDeliveries(existing, params.sessionId);
+      // T3.26, and the same act for the same reason. A compaction wait armed
+      // against the SUPERSEDED leg is bound to a process this resume has just
+      // replaced, so its evidence can never arrive and `binding_lost` is the
+      // terminal it is owed — immediately, rather than after the full declared
+      // bound elapses on a binding that stopped existing here. Keyed on the
+      // SUPERSEDED record's own thread, which is the identity those waits were
+      // dispatched under; in the ordinary same-thread resume it coincides with
+      // the successor's, and settling is still right, because every wait armed
+      // under it belongs to the process this resume just replaced — no wait can
+      // yet exist against the replacement, whose installation and this release
+      // are one synchronous run.
+      if (existing !== undefined) {
+        this.#pendingCompactions.releaseBinding(
+          codexCompactionWaitKey(params.sessionId, existing.threadId),
+        );
+      }
       // The replacement record starts with an empty turn map, so every route
       // that pointed at the superseded leg is now dead. Swept here rather than
       // at teardown: `closeSession` reads the LIVE record, which no longer knows
@@ -5830,8 +5947,10 @@ export class CodexLifecycleManager {
         // waiting on the REPLACEMENT binding, which is live. One call covers
         // the quarantine path too — `#disposeQuarantinedSession` delegates
         // here rather than tearing down a second way.
-        this.#pendingCompactions.releaseBinding(record.sessionId);
-        this.#providerCommandEnumerations.delete(record.sessionId);
+        this.#pendingCompactions.releaseBinding(
+          codexCompactionWaitKey(record.sessionId, record.threadId),
+        );
+        this.#discardProviderCommandEnumeration(record.sessionId);
         // Whatever the ruling left behind is now pure occupancy. Reclaimed at
         // the moment that becomes provably true, rather than left for the
         // tripwire's own pass when some later write would be refused.
@@ -6201,6 +6320,18 @@ export class CodexLifecycleManager {
     // present-but-unregistered at the router after that same registration, so
     // none of them reach the accountant to find its registers gone.
     this.usageAccountantFor(params.sessionId).releaseThread(preForkThreadId);
+    // T3.26. The compaction waits armed on the PREDECESSOR settle `binding_lost`
+    // at the moment the swap becomes true, on the same rule and in the same
+    // synchronous act as the accountant retirement above. The binding those
+    // callers dispatched into no longer exists, and their honest terminal is
+    // that it is gone — not `wait_expired` a full declared bound later, and
+    // certainly not `applied` on some compaction the successor thread performs.
+    // Released here rather than before the fork for the same reason the
+    // accountant is: a refused fork must leave every one of them still waiting
+    // on the binding they are genuinely still bound to.
+    this.#pendingCompactions.releaseBinding(
+      codexCompactionWaitKey(params.sessionId, preForkThreadId),
+    );
     const forkedTurnIds = readThreadTurnIds(forkedThread.turns);
     // ONE report for BOTH disagreements, reported before either arm adopts,
     // because they are the same disagreement: an absent or unreadable turn list
@@ -6312,7 +6443,14 @@ export class CodexLifecycleManager {
    */
   async compactContext(params: CompactContextParams): Promise<DriverCompactionResult> {
     const record = this.#requireSession(params.sessionId);
-    const wait = this.#pendingCompactions.arm(params.sessionId, CODEX_COMPACTION_WAIT_MS);
+    // The record is read and the wait is armed in ONE synchronous run with no
+    // `await` between them, and `#requireSession` refuses while the slot is
+    // establishing — so the thread this key names is the record's CURRENT one
+    // and cannot have moved between the read and the arm.
+    const wait = this.#pendingCompactions.arm(
+      codexCompactionWaitKey(params.sessionId, record.threadId),
+      CODEX_COMPACTION_WAIT_MS,
+    );
     try {
       await record.connection.request(CODEX_THREAD_COMPACT_START_METHOD, {
         threadId: record.threadId,
@@ -6424,7 +6562,21 @@ export class CodexLifecycleManager {
     };
   }
 
-  /** The held enumeration for one session, read from the provider if absent. */
+  /**
+   * The held enumeration for one session, read from the provider if absent.
+   *
+   * THE EPOCH IS CAPTURED SYNCHRONOUSLY BESIDE THE MISS, before the request is
+   * dispatched, and re-checked before the reading is stored. An invalidation
+   * landing inside that window — `skills/changed`, a resume, a disposal, a
+   * teardown — moves the epoch, and this reading is then returned to ITS OWN
+   * caller and cached for nobody: it is a correct answer to a question asked
+   * before the change, and a wrong thing to hand the next caller. The next ask
+   * re-reads in full, which is what the invalidation was asking for.
+   *
+   * The re-check reads the map DIRECTLY rather than through the mint-if-absent
+   * capture, so a session torn down mid-flight is not resurrected by one epoch
+   * entry the teardown has already swept.
+   */
   async #heldProviderCommandsFor(
     sessionId: SessionId,
     record: CodexSessionRecord,
@@ -6434,10 +6586,48 @@ export class CodexLifecycleManager {
     if (held !== undefined) {
       return held;
     }
+    const readEpoch = this.#providerCommandEnumerationEpochFor(sessionId);
     const response = await record.connection.request(CODEX_SKILLS_LIST_METHOD, {});
     const entries = readCodexProviderCommandEntries(response, providerAccountId);
-    this.#providerCommandEnumerations.set(sessionId, entries);
+    if (this.#providerCommandEnumerationEpochs.get(sessionId) === readEpoch) {
+      this.#providerCommandEnumerations.set(sessionId, entries);
+    }
     return entries;
+  }
+
+  /**
+   * The current epoch for one session, minted on first ask.
+   *
+   * Minting lazily rather than at establishment is what keeps the two maps
+   * swept by the same call: an epoch exists only for a session that has read an
+   * enumeration, and {@link CodexSessionManager.#discardProviderCommandEnumeration}
+   * is the sole discard site, clearing both wherever either would have been
+   * cleared.
+   */
+  #providerCommandEnumerationEpochFor(sessionId: SessionId): symbol {
+    const current = this.#providerCommandEnumerationEpochs.get(sessionId);
+    if (current !== undefined) {
+      return current;
+    }
+    const minted = Symbol("codex-provider-command-enumeration");
+    this.#providerCommandEnumerationEpochs.set(sessionId, minted);
+    return minted;
+  }
+
+  /**
+   * Discard one session's held enumeration AND its epoch, together.
+   *
+   * ONE CALL FOR EVERY DISCARD SITE — the `skills/changed` cue, a resume, a
+   * disposal, a close, a teardown — because the two maps only work as a pair:
+   * clearing the list while leaving the epoch would let an in-flight read store
+   * a pre-invalidation reading, and clearing the epoch while leaving the list
+   * would serve one. Dropping the epoch is exactly what fails the in-flight
+   * re-check, since a deleted key reads `undefined` and no captured token is
+   * ever `undefined`.
+   */
+  #discardProviderCommandEnumeration(sessionId: SessionId): void {
+    this.#providerCommandEnumerations.delete(sessionId);
+    this.#providerCommandEnumerationEpochs.delete(sessionId);
   }
 
   /**
@@ -6471,7 +6661,7 @@ export class CodexLifecycleManager {
       this.#terminalEmissionGates.delete(params.sessionId);
       this.#frameRouters.delete(params.sessionId);
       this.#usageAccountants.delete(params.sessionId);
-      this.#providerCommandEnumerations.delete(params.sessionId);
+      this.#discardProviderCommandEnumeration(params.sessionId);
       return;
     }
     await this.#claimSessionSlot(params.sessionId, "closing", async () => {
@@ -6485,7 +6675,7 @@ export class CodexLifecycleManager {
     this.#terminalEmissionGates.delete(params.sessionId);
     this.#frameRouters.delete(params.sessionId);
     this.#usageAccountants.delete(params.sessionId);
-    this.#providerCommandEnumerations.delete(params.sessionId);
+    this.#discardProviderCommandEnumeration(params.sessionId);
   }
 
   /**
@@ -6803,22 +6993,34 @@ export class CodexLifecycleManager {
    * routing decision is what guarantees it rather than a second check here.
    * `thread/compacted` classifies as thread-scoped usage, so a frame on a
    * registered child thread routes `carve-out-usage` — a different arm from the
-   * two this method is called from. Re-comparing the frame's `threadId` against
-   * the record's would be a SECOND source of truth for whose stream a frame
-   * came from, which is precisely what the routing band exists to be the only
-   * answer to, and the two would disagree exactly at a rewind, where the
-   * session's own thread identity has just moved.
+   * two this method is called from.
+   *
+   * SETTLEMENT KEYS ON THE FRAME'S OWN THREAD IDENTITY, and that is NOT a second
+   * source of truth for whose stream the frame came from — it is a READ of the
+   * one the routing band already produced. A `project` decision on a
+   * thread-scoped family IS the router's assertion that this frame's `threadId`
+   * is present and is the session's registered thread; using that identity is
+   * consuming the decision rather than re-deciding it, and it is exactly what a
+   * comparison against the RECORD would get wrong at a rewind, where the
+   * record's identity has already moved to the successor while a wait armed
+   * under the predecessor is still registered.
+   *
+   * An absent identity therefore settles nothing. It is unreachable beneath the
+   * `rawWireType` guard above — a thread-scoped frame with a null identity never
+   * reaches a `project` decision — and returning fail-closed is the right
+   * disposition for the state anyway: a frame that did not say whose stream it
+   * came from cannot be evidence for a wait armed on a particular one.
    *
    * A compaction nobody asked for settles nothing and is deliberately silent:
    * the registry treats an unarmed key as an ordinary no-op, because there is
    * nothing wrong with a provider-initiated compaction.
    */
   #observeCompactionBoundary(sessionId: SessionId, frame: CodexRoutableFrame): void {
-    if (frame.rawWireType !== CODEX_THREAD_COMPACTED_METHOD) {
+    if (frame.rawWireType !== CODEX_THREAD_COMPACTED_METHOD || frame.threadId === null) {
       return;
     }
     this.#pendingCompactions.observeBoundary(
-      sessionId,
+      codexCompactionWaitKey(sessionId, frame.threadId),
       readCodexCompactionBoundaryPosition(frame.params),
     );
   }
@@ -6976,10 +7178,10 @@ export class CodexLifecycleManager {
       // fake-timer test while settling at the next tick. In the `finally` for
       // the same reason the record delete is — a teardown that threw must still
       // release the callers waiting on a binding that is gone either way.
-      this.#pendingCompactions.releaseBinding(sessionId);
+      this.#pendingCompactions.releaseBinding(codexCompactionWaitKey(sessionId, record.threadId));
       // The held enumeration dies with the session that read it. A survivor
       // would answer the NEXT session on this id with the previous one's skills.
-      this.#providerCommandEnumerations.delete(sessionId);
+      this.#discardProviderCommandEnumeration(sessionId);
       // AFTER the record delete, not beside the route sweep at the top. The
       // record survives every await above, so a turn terminating mid-teardown is
       // still ingested and still ruled — and dropping its frame early would turn
@@ -7888,7 +8090,7 @@ export class CodexLifecycleManager {
     // stale palette caused by a dropped invalidation is silent, which is
     // exactly the failure that must not depend on a downstream decision.
     if (method === CODEX_SKILLS_CHANGED_METHOD) {
-      this.#providerCommandEnumerations.delete(sessionId);
+      this.#discardProviderCommandEnumeration(sessionId);
     }
     // T3.18, in-flight half. Evidence accrues across the turn because this
     // provider's terminal notification does not always carry the item list —

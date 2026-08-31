@@ -37,6 +37,7 @@ import type {
   DeclareDriverCapabilitiesResult,
 } from "../../../driver-capabilities-writer.js";
 import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
+import { DRIVER_OUTPUT_SPEED_LEVELS } from "../../../driver-output-speed.js";
 import { DriverCapabilityUnsupportedError, ProviderRegistry } from "../../../provider-registry.js";
 import {
   assertValidCapabilityFlags,
@@ -50,6 +51,7 @@ import {
   CODEX_CAPABILITY_FLAGS,
   CODEX_DECLARED_MODEL_CATALOG,
   CODEX_DRIVER_NAME,
+  CODEX_OUTPUT_SPEED_LEVELS,
   CodexModelCatalogUnreadableError,
   getCodexCapabilities,
   normalizeCodexModelCatalog,
@@ -223,6 +225,21 @@ describe("Codex getCapabilities() wrapper (T3.3)", () => {
       assertValidCliVersionReport(CODEX_DRIVER_NAME, result.cliVersion);
     }).not.toThrow();
     expect(result.capabilities.contractVersion).toBe(CODEX_CAPABILITY_CONTRACT_VERSION);
+  });
+
+  it("pins the contract version the T3.26 growth moved it to, as a MINOR bump", () => {
+    // Change detection only works if the token actually MOVES when the declared
+    // shape does — the writer compares whole snapshots, and a frozen token on a
+    // grown declaration is the failure mode this pins against. MINOR because the
+    // growth is additive: three flags joined the census, and this driver's
+    // `output_speed: false` is a complete answer rather than a withdrawal.
+    expect(CODEX_CAPABILITY_CONTRACT_VERSION).toBe("1.1.0");
+  });
+
+  it("spells the shared vocabulary table rather than copying it", () => {
+    // IDENTITY, not equality — the durable cache's hydration path serves this
+    // same member with no driver in hand, so both paths read one table.
+    expect(CODEX_OUTPUT_SPEED_LEVELS).toBe(DRIVER_OUTPUT_SPEED_LEVELS.codex);
   });
 
   it("OMITS the speed vocabulary rather than publishing an empty one", () => {

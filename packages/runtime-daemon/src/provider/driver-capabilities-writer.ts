@@ -219,6 +219,7 @@ import type { Database, Statement, Transaction } from "better-sqlite3";
 
 import { withSessionAppendLock } from "../events/session-append-lock.js";
 import type { RuntimeNodeEventEmitter } from "../node/node-event-emitter.js";
+import { declaredOutputSpeedLevelsFor } from "./driver-output-speed.js";
 import {
   assertValidCapabilityFlags,
   assertValidCliVersionReport,
@@ -1051,6 +1052,15 @@ export class DriverCapabilitiesWriter {
    * on `GetCapabilitiesResult` at all (T3.24 owns that member), and its absence
    * is specified to read as CACHE RECONSTRUCTION rather than unknown provenance
    * (`Spec-005 §Interfaces And Contracts`), which is exactly what this return is.
+   *
+   * `outputSpeedLevels` (T3.26) does the OPPOSITE, and the asymmetry is the
+   * contract's own: that member is required whenever the reconstructed
+   * `flags.output_speed` is `true`, "on either read path". Omitting it here
+   * would hand back a report that is contract-invalid while looking well-formed
+   * — `output_speed: true` with nothing for a client to render. It is served
+   * from the static per-driver table rather than from a cache column because it
+   * is a constant OF THE DRIVER and always re-derivable, while `detectionSource`
+   * is a fact about one reading and cannot be. See `./driver-output-speed.ts`.
    */
   hydrate(driverName: string): DriverCapabilityHydrationResult {
     // Route the composite read through a DEFERRED read transaction so the
@@ -1080,6 +1090,14 @@ export class DriverCapabilitiesWriter {
         // `GetCapabilitiesResult.tools` ingress field is mutable.
         tools: [...cached.snapshot.tools],
         cliVersion: cached.storedCliVersion,
+        // Present iff the RECONSTRUCTED flag says so — read off the cached
+        // snapshot rather than off the live driver table, so a row written
+        // before this driver declared the axis hydrates without the member
+        // exactly as it was written. A fresh copy for the same reason the live
+        // declaration hands one out: the table's arrays are frozen and shared.
+        ...(cached.snapshot.flags.output_speed
+          ? { outputSpeedLevels: [...declaredOutputSpeedLevelsFor(driverName)] }
+          : {}),
       },
     };
   }

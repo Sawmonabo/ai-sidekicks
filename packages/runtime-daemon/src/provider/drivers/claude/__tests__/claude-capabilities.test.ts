@@ -38,6 +38,7 @@ import type {
   DeclareDriverCapabilitiesInput,
   DeclareDriverCapabilitiesResult,
 } from "../../../driver-capabilities-writer.js";
+import { DRIVER_OUTPUT_SPEED_LEVELS } from "../../../driver-output-speed.js";
 import {
   assertValidCapabilityFlags,
   assertValidContractVersion,
@@ -206,6 +207,23 @@ describe("Claude capability declaration — explicit and total (I-005-2)", () =>
     expect(() => {
       assertValidContractVersion(CLAUDE_CAPABILITY_CONTRACT_VERSION);
     }).not.toThrow();
+  });
+
+  it("pins the contract version the T3.26 growth moved it to, as a MINOR bump", () => {
+    // The version is change detection, so it must actually MOVE when the
+    // declared shape does — the writer compares whole snapshots, and a frozen
+    // token on a grown declaration is the failure mode this pins against. MINOR
+    // because the growth is additive: three flags joined the census and
+    // `outputSpeedLevels` joined the report, and nothing previously declared
+    // changed meaning.
+    expect(CLAUDE_CAPABILITY_CONTRACT_VERSION).toBe("1.1.0");
+  });
+
+  it("spells the shared vocabulary table rather than copying it", () => {
+    // IDENTITY, not equality. The durable cache's hydration path serves this
+    // same member with no driver in hand, so the values live in one table both
+    // paths read; a second literal here would drift silently.
+    expect(CLAUDE_OUTPUT_SPEED_LEVELS).toBe(DRIVER_OUTPUT_SPEED_LEVELS.claude);
   });
 
   it("freezes the declared record, so a reader cannot rewrite it process-wide", () => {

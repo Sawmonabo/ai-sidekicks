@@ -111,6 +111,7 @@ import type {
   DriverCapabilitiesWriter,
 } from "../../driver-capabilities-writer.js";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
+import { DRIVER_OUTPUT_SPEED_LEVELS } from "../../driver-output-speed.js";
 import type { SpawnedProviderVersionReading } from "../../version-gate.js";
 
 import { getClaudeToolMetadata } from "./tools.js";
@@ -132,10 +133,16 @@ export const CLAUDE_DRIVER_NAME = "claude" as const;
  * for the capability writer, NOT a negotiation surface (`Spec-005 §Capability
  * discovery`). It must be a canonical identifying semver
  * (`assertValidContractVersion`), and it is bumped when the DECLARED SHAPE
- * changes (a flag's value, a tool's class, the tool census) so a node that
- * already has a row re-reads rather than trusting its cache.
+ * changes — a flag's value, the FLAG CENSUS, a tool's class, the tool census,
+ * or a member joining the report — so a node that already has a row re-reads
+ * rather than trusting its cache.
+ *
+ * `1.1.0` (T3.26): additive growth, hence a MINOR move. The declared flag set
+ * grew from fourteen to seventeen (`context_compaction`, `provider_commands`,
+ * `output_speed`) and the report gained `outputSpeedLevels`. Nothing previously
+ * declared changed meaning, which is what keeps this off a major.
  */
-export const CLAUDE_CAPABILITY_CONTRACT_VERSION: string = "1.0.0";
+export const CLAUDE_CAPABILITY_CONTRACT_VERSION: string = "1.1.0";
 
 // --------------------------------------------------------------------------
 // The declaration (I-005-2)
@@ -223,21 +230,17 @@ export const CLAUDE_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, bool
  *
  * `Spec-005 §Provider Parameter Vocabularies` requires a driver declaring
  * `output_speed` to publish this set, and `Spec-005 §The output-speed axis`
- * requires it to come from this table rather than from the provider: obtaining
- * the provider's declared state costs a turn-bearing request, which is the very
- * conjunct that makes the flag `static`, so a vocabulary sourced by reading
- * would contradict its own detection source.
+ * requires it to come from a static table rather than from the provider:
+ * obtaining the provider's declared state costs a turn-bearing request, which is
+ * the very conjunct that makes the flag `static`, so a vocabulary sourced by
+ * reading would contradict its own detection source.
  *
- * SETTABLE is the operative word, and it is why this set is narrower than the
- * states the provider can REPORT. The pinned build declares its state from a
- * three-value vocabulary, but the third is a provider-entered condition after a
- * rate limit rather than something a participant may ask for. A caller can
- * therefore request only the two ends of the toggle, while
- * `ProviderOutputSpeedState.declared` carries whatever the provider reported —
- * VERBATIM, including a value absent from this list, because that is a real
- * state under version skew and coercing it would fabricate a reading.
+ * The VALUES live in `../../driver-output-speed.ts`, which also carries the
+ * settable-vs-reportable doctrine, because the durable capability cache's
+ * hydration path publishes this same member with no driver in hand. This is the
+ * driver-local spelling of that one table, never a second copy of it.
  */
-export const CLAUDE_OUTPUT_SPEED_LEVELS: readonly string[] = Object.freeze(["off", "on"]);
+export const CLAUDE_OUTPUT_SPEED_LEVELS: readonly string[] = DRIVER_OUTPUT_SPEED_LEVELS.claude;
 
 // --------------------------------------------------------------------------
 // Seams

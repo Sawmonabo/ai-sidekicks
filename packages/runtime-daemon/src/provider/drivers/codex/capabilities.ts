@@ -119,6 +119,7 @@ import type {
   DriverCapabilitiesWriter,
 } from "../../driver-capabilities-writer.js";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
+import { DRIVER_OUTPUT_SPEED_LEVELS } from "../../driver-output-speed.js";
 import type { SpawnedProviderVersionReading } from "../../version-gate.js";
 
 import { getCodexToolMetadata } from "./tools.js";
@@ -133,8 +134,14 @@ export const CODEX_DRIVER_NAME = "codex" as const;
  * negotiated version: nothing branches on its value. It moves when the shape
  * of what this driver advertises changes, which is what makes a cached
  * snapshot recognizably stale.
+ *
+ * `1.1.0` (T3.26): additive growth, hence a MINOR move. The declared flag set
+ * grew from fourteen to seventeen (`context_compaction`, `provider_commands`,
+ * `output_speed`). Nothing previously declared changed meaning, which is what
+ * keeps this off a major — and the `output_speed: false` this driver declares
+ * is a complete answer rather than a withdrawal.
  */
-export const CODEX_CAPABILITY_CONTRACT_VERSION: string = "1.0.0";
+export const CODEX_CAPABILITY_CONTRACT_VERSION: string = "1.1.0";
 
 /**
  * The Codex column of `Spec-005 §Per-Driver Capability Matrix`.
@@ -213,8 +220,13 @@ export const CODEX_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boole
  * signal that the axis is unsettable, so a caller carrying an `outputSpeed`
  * refuses fail-closed rather than forwarding an unvalidated value to a provider
  * that has no such surface.
+ *
+ * The VALUES live in `../../driver-output-speed.ts`, alongside the other
+ * driver's, because the durable capability cache's hydration path publishes this
+ * same member with no driver in hand. This is the driver-local spelling of that
+ * one table, never a second copy of it.
  */
-export const CODEX_OUTPUT_SPEED_LEVELS: readonly string[] = Object.freeze([]);
+export const CODEX_OUTPUT_SPEED_LEVELS: readonly string[] = DRIVER_OUTPUT_SPEED_LEVELS.codex;
 
 /**
  * Compose the Codex `getCapabilities()` report.

@@ -222,6 +222,8 @@ export type DriverDiagnosticKind =
   | "text_neutralization_trip_report_failed"
   | "compaction_wait_terminal"
   | "provider_command_entries_truncated"
+  | "provider_command_entry_rejected"
+  | "output_speed_state_rejected"
   | "interactive_request_option_set_dropped";
 
 /**
@@ -284,6 +286,8 @@ export const DRIVER_DIAGNOSTIC_COUNTER_NAMES: Readonly<Record<DriverDiagnosticKi
     text_neutralization_trip_report_failed: "driver.text_neutralization.trip_report_failed",
     compaction_wait_terminal: "driver.compaction.wait_terminal",
     provider_command_entries_truncated: "driver.provider_commands.entries_truncated",
+    provider_command_entry_rejected: "driver.provider_commands.entry_rejected",
+    output_speed_state_rejected: "driver.output_speed.state_rejected",
     interactive_request_option_set_dropped: "driver.interactive_request.option_set_dropped",
   });
 
