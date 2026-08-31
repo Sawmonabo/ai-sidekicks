@@ -23,11 +23,15 @@
 //     and a blob REPLAYED under a superseded key version must both refuse,
 //     because the alternative is a silent key substitution that surfaces only as
 //     an ordinary unreadable body while every integrity check stays green.
-//   * `CODEC_REFUSAL_MATRIX` — every arm of the codec's fixed pre-encrypt
-//     refusal order, each row naming the ordinal and the guard block that must
-//     answer. The order is observable (the first guard to fire is the only one
-//     a caller ever sees), so an arm that stopped firing or started firing
-//     ahead of a sibling changes which message matches and fails.
+//   * `CODEC_REFUSAL_MATRIX` — every arm of the codec's fixed refusal order,
+//     each row naming the ordinal and the guard block that must answer. The
+//     order is observable (the first guard to fire is the only one a caller
+//     ever sees), so an arm that stopped firing or started firing ahead of a
+//     sibling changes which message matches and fails. Ordinals 1–8 are
+//     pre-encrypt and every one of them carries the no-nonce-spent claim;
+//     ordinal 9 — the composed-variant parse — is documented as firing BEHIND
+//     the seal, and each row states the encrypt count it must observe rather
+//     than inheriting a blanket zero that would be false evidence.
 //
 // A matrix declared and never executed is a comment. All three are executed row
 // by row, and all three carry a completeness assertion so adding a reason, a
@@ -35,6 +39,16 @@
 // shipping uncovered. The refusal matrix goes one step further and reads the
 // codec's own published order back out of the source: a numbered list a reader
 // trusts is exactly the kind of contract that drifts silently.
+//
+// The file's LAST arm is not a matrix and is not about this module alone: it
+// pins the codec's refused-category set against the contracts registration of
+// the two PII indirection members, deriving both halves rather than restating
+// either. It lives here rather than beside the per-variant ratchet in
+// `packages/contracts/src/__tests__/event-source-epoch.test.ts` because it is
+// the only place both packages are already in scope — that ratchet is
+// variant-granular but single-package, this arm is category-granular but
+// cross-package, and neither subsumes the other. Its own header says why the
+// direction it covers is the silent one.
 //
 // ---------------------------------------------------------------------------
 // NEGATIVE CONTROLS
@@ -68,6 +82,9 @@ import {
   CONTENT_PAYLOAD_PLAINTEXT_MAX,
   CONTENT_TRUNCATED_PAYLOAD_KEY,
   EventEnvelopeVersionSchema,
+  SESSION_EVENT_CATEGORY_BY_TYPE,
+  SESSION_EVENT_TYPES,
+  SessionEventSchema,
   SessionIdSchema,
   type SessionId,
 } from "@ai-sidekicks/contracts";
@@ -208,7 +225,11 @@ function makeContentOnlyInput(overrides?: {
     category: "assistant_output",
     type: "assistant.message",
     actor: "agent-1",
-    payload: overrides?.payload ?? { runId: "run-1", contentType: "text/markdown" },
+    payload: overrides?.payload ?? {
+      sessionId: SESSION,
+      runId: "run-1",
+      contentType: "text/markdown",
+    },
     version: ENVELOPE_VERSION,
     content: {
       body: overrides?.body ?? "the assistant said this",
@@ -229,7 +250,7 @@ function makePiiCarryingInput(overrides?: {
     category: "assistant_output",
     type: "assistant.message",
     actor: "agent-1",
-    payload: overrides?.payload ?? { runId: "run-1" },
+    payload: overrides?.payload ?? { sessionId: SESSION, runId: "run-1" },
     version: ENVELOPE_VERSION,
     piiParticipantId: PARTICIPANT,
     piiPayload: { quoted: "something a person typed" },
@@ -439,11 +460,49 @@ interface CodecRefusalCase {
   readonly message: RegExp;
   readonly prevHash?: Uint8Array;
   readonly signingKey?: Ed25519PrivateKey;
+  /**
+   * How many times the injected encryptor must have run when this arm fires —
+   * ZERO for every arm the codec documents as answerable from the input alone,
+   * and the field exists because refusal 9 is not one of them.
+   *
+   * Stated per arm rather than assumed, because a bare `toBe(0)` is FALSE
+   * EVIDENCE of pre-encrypt ordering on any content-only row: the injected
+   * encryptor is never called for one whatever happens, so the zero says
+   * nothing about when the guard fired. The arms that pin the ordering are the
+   * ones carrying a participant partition — where the encrypt step WOULD have
+   * run — and refusal 9's PII arm asserts `1` for exactly that reason.
+   */
+  readonly expectedEncryptCalls?: number;
 }
 
 /** An otherwise-valid content row, defective only in the named way. */
 function contentRowWith(overrides: Record<string, unknown>): RawEventInput {
   return { ...makeContentOnlyInput(), ...overrides } as unknown as RawEventInput;
+}
+
+/**
+ * The `type` / `category` / `payload` trio a body-bearing row of `eventType`
+ * must carry to satisfy that type's own registered `SessionEventSchema` variant.
+ *
+ * The trio is what refusal 9 judges, so it cannot be reduced to a type string:
+ * the tool variants REQUIRE `toolName` while the assistant ones declare no such
+ * member, so `.strict()` rejects it there along with anything else it does not
+ * name. A loop that supplied one payload for all five would be asserting that
+ * the codec seals rows half of which their own schema rejects — which is exactly
+ * the defect refusal 9 exists to stop.
+ */
+function bodyBearingRowFor(eventType: string): Record<string, unknown> {
+  return eventType.startsWith("assistant.")
+    ? {
+        type: eventType,
+        category: "assistant_output",
+        payload: { sessionId: SESSION, runId: "run-1", contentType: "text/markdown" },
+      }
+    : {
+        type: eventType,
+        category: "tool_activity",
+        payload: { sessionId: SESSION, runId: "run-1", toolName: "read_file" },
+      };
 }
 
 const CODEC_REFUSAL_MATRIX: readonly CodecRefusalCase[] = [
@@ -467,7 +526,7 @@ const CODEC_REFUSAL_MATRIX: readonly CodecRefusalCase[] = [
         category: "assistant_output",
         type: "assistant.message",
         actor: null,
-        payload: { runId: "run-1" },
+        payload: { sessionId: SESSION, runId: "run-1" },
         version: ENVELOPE_VERSION,
       }) as unknown as RawEventInput,
     message: /neither a PII partition nor a content partition/,
@@ -498,7 +557,11 @@ const CODEC_REFUSAL_MATRIX: readonly CodecRefusalCase[] = [
     build: () =>
       ({
         ...makePiiCarryingInput({
-          payload: { runId: "run-1", [PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]: "planted" },
+          payload: {
+            sessionId: SESSION,
+            runId: "run-1",
+            [PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]: "planted",
+          },
         }),
       }) as RawEventInput,
     message: new RegExp(PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY),
@@ -509,7 +572,11 @@ const CODEC_REFUSAL_MATRIX: readonly CodecRefusalCase[] = [
     arm: "reserved PII stamp",
     build: () =>
       makePiiCarryingInput({
-        payload: { runId: "run-1", [PII_PARTICIPANT_ID_PAYLOAD_KEY]: "planted" },
+        payload: {
+          sessionId: SESSION,
+          runId: "run-1",
+          [PII_PARTICIPANT_ID_PAYLOAD_KEY]: "planted",
+        },
       }) as RawEventInput,
     message: new RegExp(PII_PARTICIPANT_ID_PAYLOAD_KEY),
   },
@@ -519,7 +586,11 @@ const CODEC_REFUSAL_MATRIX: readonly CodecRefusalCase[] = [
     arm: "reserved content members",
     build: () =>
       makeContentOnlyInput({
-        payload: { runId: "run-1", [CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY]: "planted" },
+        payload: {
+          sessionId: SESSION,
+          runId: "run-1",
+          [CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY]: "planted",
+        },
       }),
     message: new RegExp(CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY),
   },
@@ -528,7 +599,9 @@ const CODEC_REFUSAL_MATRIX: readonly CodecRefusalCase[] = [
     ordinal: 2,
     arm: "reserved content members",
     build: () =>
-      makeContentOnlyInput({ payload: { runId: "run-1", [CONTENT_LENGTH_PAYLOAD_KEY]: 4 } }),
+      makeContentOnlyInput({
+        payload: { sessionId: SESSION, runId: "run-1", [CONTENT_LENGTH_PAYLOAD_KEY]: 4 },
+      }),
     message: new RegExp(CONTENT_LENGTH_PAYLOAD_KEY),
   },
   {
@@ -536,7 +609,9 @@ const CODEC_REFUSAL_MATRIX: readonly CodecRefusalCase[] = [
     ordinal: 2,
     arm: "reserved content members",
     build: () =>
-      makeContentOnlyInput({ payload: { runId: "run-1", [CONTENT_TRUNCATED_PAYLOAD_KEY]: true } }),
+      makeContentOnlyInput({
+        payload: { sessionId: SESSION, runId: "run-1", [CONTENT_TRUNCATED_PAYLOAD_KEY]: true },
+      }),
     message: new RegExp(CONTENT_TRUNCATED_PAYLOAD_KEY),
   },
   {
@@ -604,6 +679,65 @@ const CODEC_REFUSAL_MATRIX: readonly CodecRefusalCase[] = [
         content: { body: "prose with a lone \ud800 half", contentKey: CONTENT_KEY },
       }),
     message: /well-formed UTF-16/,
+  },
+  {
+    // Refusal 1's fourth arm reads `type` and nothing else, so a body on one of
+    // the five under the WRONG category clears it and reaches the embed step.
+    // The variant's `category` is a literal, so the row it would have signed is
+    // rejected by its own schema on the way back out.
+    name: "a body-bearing type under a category its variant does not declare",
+    ordinal: 9,
+    arm: "composed-variant parse",
+    build: () => contentRowWith({ category: "tool_activity" }),
+    message: /category \(invalid_value\)/,
+  },
+  {
+    name: "a payload missing a member its registered variant requires",
+    ordinal: 9,
+    arm: "composed-variant parse",
+    build: () => makeContentOnlyInput({ payload: { runId: "run-1" } }),
+    message: /payload\.sessionId \(invalid_type\)/,
+  },
+  {
+    // The tool trio's own required member, which the assistant pair does not
+    // have: one payload shape for all five would seal rows half of which their
+    // own schema rejects.
+    name: "a tool row with no tool name",
+    ordinal: 9,
+    arm: "composed-variant parse",
+    build: () =>
+      contentRowWith({
+        type: "tool.result",
+        category: "tool_activity",
+        payload: { sessionId: SESSION, runId: "run-1" },
+      }),
+    message: /payload\.toolName \(invalid_type\)/,
+  },
+  {
+    // The `unrecognized_keys` arm, and the one code whose rendering carries
+    // member NAMES — the only way the message can say WHICH member the strict
+    // layer does not know.
+    name: "a payload carrying a member no variant declares",
+    ordinal: 9,
+    arm: "composed-variant parse",
+    build: () =>
+      makeContentOnlyInput({
+        payload: { sessionId: SESSION, runId: "run-1", improvisedMember: "not in any variant" },
+      }),
+    message: /payload \(unrecognized_keys: improvisedMember\)/,
+  },
+  {
+    // THE PII ROUTE, and the arm that pins refusal 9's placement. This row
+    // carries a participant partition on a registered type, so the encrypt step
+    // has already run when the parse refuses — `expectedEncryptCalls: 1` is the
+    // assertion, and a `0` here would mean the guard had been hoisted ahead of
+    // the seal and was judging a reconstruction rather than the signed form.
+    name: "a participant row whose payload its registered variant rejects",
+    ordinal: 9,
+    arm: "composed-variant parse",
+    build: () => makePiiCarryingInput({ payload: { runId: "run-1" } }),
+    message: /payload\.sessionId \(invalid_type\)/,
+    expectedEncryptCalls: 1,
   },
 ];
 
@@ -675,7 +809,7 @@ describe("content partition routing and key-failure enumeration", () => {
     // list moving with it fails here — and an ordinal the list publishes with no
     // arm below it fails too.
     const documented = documentedRefusalOrdinals();
-    expect(documented).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(documented).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
 
     const coveredOrdinals = [...new Set(CODEC_REFUSAL_MATRIX.map((arm) => arm.ordinal))].sort(
       (left, right) => left - right,
@@ -700,11 +834,16 @@ describe("content partition routing and key-failure enumeration", () => {
       [6, 1],
       [7, 1],
       [8, 3],
+      // Refusal 9 answers through ONE guard block over every shape the strict
+      // layer can reject — a category mismatch, a missing member, an
+      // unrecognized one — because the block delegates the judgement to the
+      // registered variant rather than enumerating defects of its own.
+      [9, 1],
     ]);
   });
 
   for (const refusal of CODEC_REFUSAL_MATRIX) {
-    it(`refuses ${refusal.name} before spending a nonce`, async () => {
+    it(`refuses ${refusal.name}`, async () => {
       const encryptor = new DeterministicPiiEncryptor();
       await expect(
         writeEventWithPii(
@@ -714,10 +853,13 @@ describe("content partition routing and key-failure enumeration", () => {
           refusal.signingKey ?? DAEMON_PRIVATE_KEY,
         ),
       ).rejects.toThrow(refusal.message);
-      // Every arm here is documented as answerable from the input alone, which
-      // is what makes the ordering claim worth stating: the refusal costs no
-      // AEAD nonce on either partition.
-      expect(encryptor.encryptCallCount).toBe(0);
+      // Arms 1–8 are documented as answerable from the input alone, which is
+      // what makes the ordering claim worth stating: the refusal costs no AEAD
+      // nonce on either partition. Refusal 9 is documented as the one that
+      // fires BEHIND the encrypt, and its PII arm asserts the `1` that proves
+      // it — see `expectedEncryptCalls` for why a blanket zero would be false
+      // evidence on a content-only row.
+      expect(encryptor.encryptCallCount).toBe(refusal.expectedEncryptCalls ?? 0);
     });
   }
 
@@ -1015,7 +1157,10 @@ describe("codec refusals over the content partition", () => {
     // without the reserved member is sealed, so the arm above is refusing the
     // member rather than the shape.
     await expect(
-      seal(makeContentOnlyInput({ payload: { runId: "run-1" } }), new DeterministicPiiEncryptor()),
+      seal(
+        makeContentOnlyInput({ payload: { sessionId: SESSION, runId: "run-1" } }),
+        new DeterministicPiiEncryptor(),
+      ),
     ).resolves.toBeDefined();
   });
 
@@ -1024,7 +1169,9 @@ describe("codec refusals over the content partition", () => {
     // the producer knows the media type of what it emitted and the codec never
     // could. This is the boundary of the refusal above.
     const result = await seal(
-      makeContentOnlyInput({ payload: { runId: "run-1", contentType: "text/markdown" } }),
+      makeContentOnlyInput({
+        payload: { sessionId: SESSION, runId: "run-1", contentType: "text/markdown" },
+      }),
       new DeterministicPiiEncryptor(),
     );
     expect((result.envelope.payload as Record<string, unknown>)["contentType"]).toBe(
@@ -1073,11 +1220,8 @@ describe("codec refusals over the content partition", () => {
     ]);
 
     for (const bodyBearingType of bodyBearingTypes) {
-      const category = bodyBearingType.startsWith("assistant.")
-        ? "assistant_output"
-        : "tool_activity";
       const result = await seal(
-        contentRowWith({ type: bodyBearingType, category }),
+        contentRowWith(bodyBearingRowFor(bodyBearingType)),
         new DeterministicPiiEncryptor(),
       );
       expect(result.contentPayload).toBeInstanceOf(Uint8Array);
@@ -1146,6 +1290,89 @@ describe("codec refusals over the content partition", () => {
         seal(makeContentOnlyInput({ body: illFormedBody }), new DeterministicPiiEncryptor()),
       ).rejects.toThrow(/well-formed UTF-16/);
     }
+  });
+
+  it("signs a row whose type the strict layer registers no variant for", async () => {
+    // THE TOLERANT-CARRIER NEGATIVE CONTROL, and the boundary of refusal 9's
+    // dispatch. `packages/contracts/src/event.ts` requires a reader to persist
+    // an envelope whose `type` it cannot interpret rather than reject it, so a
+    // guard that parsed every row would make this codec the one place the
+    // carrier is not tolerated. This payload would satisfy no registered
+    // variant — it declares a member none of them knows — and the row seals
+    // anyway, because no variant claims to interpret `participant.exported`.
+    const result = await seal(
+      {
+        ...makePiiCarryingInput(),
+        type: "participant.exported",
+        category: "participant_lifecycle",
+        payload: { improvisedMember: "a higher-MINOR producer's member" },
+      } as unknown as RawEventInput,
+      new DeterministicPiiEncryptor(),
+    );
+
+    expect(result.piiPayload).toBeInstanceOf(Uint8Array);
+    // The perturbation back: the identical payload on a REGISTERED type is
+    // refused, so the seal above is a fact about the dispatch rather than about
+    // the guard having quietly stopped firing.
+    await expect(
+      seal(
+        makePiiCarryingInput({ payload: { improvisedMember: "a higher-MINOR producer's member" } }),
+        new DeterministicPiiEncryptor(),
+      ),
+    ).rejects.toThrow(/registered SessionEventSchema variant rejects/);
+  });
+
+  it("parses the composed row VERBATIM — nothing is projected away before the guard", async () => {
+    // THE CLAIM THE SEAM RESTS ON. An earlier revision of this guard cut the
+    // two participant bindings out of its parse subject, because no registered
+    // variant declared them and every payload schema is `.strict()`, so a
+    // verbatim parse would have refused every participant row ever written.
+    // `packages/contracts/src/event.ts` now registers both as schema-optional
+    // members on every variant whose category may carry a PII partition, which
+    // is what `Spec-006 §Canonical Serialization Rules` requires of such a row —
+    // so the cut is gone and the guard judges the signed row exactly as a reader
+    // will get it back.
+    //
+    // Asserted on the SUCCESS path, in three legs, because a regression here
+    // would be silent: a guard that quietly went back to projecting would still
+    // refuse the defects the arms above cover.
+    const result = await seal(
+      makePiiCarryingInput({ withContent: true }),
+      new DeterministicPiiEncryptor(),
+    );
+
+    // (1) Both bindings are on the row that was signed — the owner stamp the
+    // shred selector reads, and the digest the verifier compares.
+    const payload = result.envelope.payload as Record<string, unknown>;
+    expect(payload[PII_PARTICIPANT_ID_PAYLOAD_KEY]).toBe(PARTICIPANT);
+    expect(typeof payload[PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]).toBe("string");
+
+    // (2) The signature covers that row: canonical bytes re-derived from the
+    // returned envelope still verify.
+    expect(
+      verifyRow(canonicalizeEvent(result.envelope), result.signedRow, DAEMON_PUBLIC_KEY),
+    ).toEqual({ valid: true });
+
+    // (3) And the same object — with the content trio embedded beside the PII
+    // pair, nothing removed — parses through the strict layer. This is the leg
+    // the excision made impossible, and it is what makes "parse what you sign"
+    // literally true on this route rather than true of a projection of it.
+    const parsed = SessionEventSchema.safeParse(result.envelope);
+    expect(parsed.success).toBe(true);
+  });
+
+  it("reports the composed-variant refusal after every input-answerable one, so no message moves", async () => {
+    // Refusal 9 is LAST, and an input defective in both an earlier way and the
+    // schema way must report the earlier one — which is what it reported before
+    // the parse existed. The content key width is refusal 8.
+    const doublyDefective = contentRowWith({
+      payload: { runId: "run-1" },
+      content: { body: "prose", contentKey: new Uint8Array(16) },
+    });
+
+    await expect(seal(doublyDefective, new DeterministicPiiEncryptor())).rejects.toThrow(
+      /content\.contentKey/,
+    );
   });
 
   it("reports the well-formedness refusal after the key-width one, so no message moves", async () => {
@@ -1486,7 +1713,7 @@ describe("appending a row that carries machine-authored prose", () => {
       category: "assistant_output",
       type: "assistant.message",
       actor: "agent-1",
-      payload: { runId: "run-1", contentType: "text/markdown" },
+      payload: { sessionId: SESSION, runId: "run-1", contentType: "text/markdown" },
       version: ENVELOPE_VERSION,
     };
   }
@@ -1630,5 +1857,199 @@ describe("appending a row that carries machine-authored prose", () => {
       );
       expect(verification).toEqual({ valid: true });
     }
+  });
+});
+
+// ----------------------------------------------------------------------------
+// THE SEAM BETWEEN THIS MODULE AND THE CONTRACTS REGISTRATION
+// ----------------------------------------------------------------------------
+//
+// Two layers now hold the same rule about which rows may carry the PII
+// indirection pair, and each spells it in its own vocabulary:
+//
+//   * the codec, per CATEGORY, at `PII_REFUSED_CATEGORY_NAMES` and the switch
+//     that reads it — the refusal that keeps a `pii_payload` off a row
+//     `Plan-006 §Audit Integrity Invariant` says is never compacted and never
+//     crypto-shredded;
+//   * `packages/contracts/src/event.ts`, per registered VARIANT, as the
+//     presence or absence of the two optional members in that variant's payload
+//     shape.
+//
+// One direction of drift is loud on its own: a category the contracts layer
+// stops admitting is refused by the composed-variant parse (refusal 9) on every
+// such row, immediately and with the member named. The OTHER direction is
+// silent. If `PII_REFUSED_CATEGORY_NAMES` ever narrows — a name dropped in a
+// refactor, a category added to `EventCategorySchema` and forgotten here — the
+// codec starts sealing rows whose variants do not register the pair, and the
+// failure surfaces only AFTER the AES seal, on a row class the corpus says
+// never carries participant text at all. The per-variant ratchet in
+// `packages/contracts/src/__tests__/event-source-epoch.test.ts` cannot see
+// that: it knows only what its own file spells.
+//
+// So this arm asserts the EQUIVALENCE, and DERIVES both halves rather than
+// re-spelling either. The codec half is behavioural — hand `writeEventWithPii`
+// a row in each category and observe whether the category guard answers. The
+// contracts half is a parse probe read against a control. Neither half restates
+// the list, so there is no third copy to drift.
+// ----------------------------------------------------------------------------
+
+/**
+ * What a registered strict variant does with the two PII indirection members,
+ * decided by probing rather than by restating a list.
+ *
+ * `inconclusive` is a real third answer, not a failure. `audit_integrity_failed`
+ * is a DISCRIMINATED UNION on `failureMode`, so a probe payload that carries no
+ * discriminator stops at the union and never reaches any arm's strict check —
+ * the probe learns nothing about that arm's keys either way. Reporting that
+ * honestly is what keeps the aggregate below from silently recording a union
+ * variant as admitting the pair, which is what a two-valued verdict did on the
+ * first run of this arm.
+ *
+ * An inconclusive verdict is not a coverage hole. The contracts ratchet reads
+ * that same variant ARM-EXACTLY (it resolves a union payload to its option
+ * list and aggregates key presence across every arm), so the variant is pinned
+ * there; what this arm adds is the CATEGORY-level agreement with the codec,
+ * and `audit_integrity` is decided here by its two non-union siblings. The
+ * `undecided` assertion below is what guarantees that substitution exists.
+ */
+type PiiIndirectionVariantVerdict = "admits" | "refuses" | "inconclusive";
+
+function probeVariant(
+  eventType: string,
+  category: string,
+  payload: unknown,
+): ReturnType<typeof SessionEventSchema.safeParse> {
+  return SessionEventSchema.safeParse({
+    id: nextEventId(),
+    sessionId: SESSION,
+    sequence: 0,
+    occurredAt: "2026-08-30T12:00:00.000Z",
+    category,
+    type: eventType,
+    actor: null,
+    payload,
+    version: ENVELOPE_VERSION,
+  });
+}
+
+/**
+ * Read a variant's verdict off two parses: the pair alone, and the empty
+ * payload as its control.
+ *
+ * Both probes fail for almost every variant — one fixture payload cannot
+ * satisfy 30 shapes — so the verdict is never "did it parse". It is what the
+ * PAIR added relative to the control:
+ *
+ *   * an `unrecognized_keys` issue NAMING either member is the strict layer
+ *     saying it does not know them — `refuses`;
+ *   * no such issue, on a control that reached the payload's own members, is
+ *     the strict layer taking them without comment — `admits`;
+ *   * no such issue, on a control that never got past a union discriminator, is
+ *     the probe learning nothing — `inconclusive`.
+ */
+function readPiiIndirectionVerdict(
+  eventType: string,
+  category: string,
+): PiiIndirectionVariantVerdict {
+  const withPair = probeVariant(eventType, category, {
+    [PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]: "0".repeat(64),
+    [PII_PARTICIPANT_ID_PAYLOAD_KEY]: PARTICIPANT,
+  });
+  if (withPair.success) {
+    return "admits";
+  }
+  const namesPair = withPair.error.issues.some(
+    (issue) =>
+      issue.code === "unrecognized_keys" &&
+      issue.keys.some(
+        (key) =>
+          key === PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY || key === PII_PARTICIPANT_ID_PAYLOAD_KEY,
+      ),
+  );
+  if (namesPair) {
+    return "refuses";
+  }
+  const control = probeVariant(eventType, category, {});
+  if (!control.success && control.error.issues.every((issue) => issue.code === "invalid_union")) {
+    return "inconclusive";
+  }
+  return "admits";
+}
+
+/**
+ * Whether the codec's CATEGORY guard answers for a row in `category`.
+ *
+ * The input is a PII-carrying row with no content partition, so refusal arm 4
+ * cannot fire and arm 1's category test is reached first — it is the first arm
+ * of the first refusal. An admitted category throws too, but from refusal 9
+ * (the composed-variant parse, since one fixture payload cannot satisfy 30
+ * variants), which is why the discriminator is the message and not the throw.
+ *
+ * The cast is the point of the arm: it hands the codec categories its own
+ * `PiiEligibleCategory` input type forbids, which is exactly the runtime input
+ * the guard exists to answer.
+ */
+async function codecRefusesCategory(eventType: string, category: string): Promise<boolean> {
+  const row = {
+    ...makePiiCarryingInput(),
+    category,
+    type: eventType,
+  } as unknown as RawEventInput;
+  try {
+    await seal(row, new DeterministicPiiEncryptor());
+    return false;
+  } catch (error) {
+    return error instanceof Error && /refuses category/.test(error.message);
+  }
+}
+
+describe("the codec's refused categories and the contracts registration agree", () => {
+  it("refuses exactly the categories whose registered variants refuse the PII pair", async () => {
+    const codecRefused = new Set<string>();
+    const contractsRefused = new Set<string>();
+    const contractsAdmitted = new Set<string>();
+    const categoriesSeen = new Set<string>();
+
+    for (const eventType of SESSION_EVENT_TYPES) {
+      const category = SESSION_EVENT_CATEGORY_BY_TYPE.get(eventType);
+      expect(category, `no category registered for ${eventType}`).toBeDefined();
+      if (category === undefined) {
+        continue;
+      }
+      categoriesSeen.add(category);
+
+      const verdict = readPiiIndirectionVerdict(eventType, category);
+      if (verdict === "refuses") {
+        contractsRefused.add(category);
+      } else if (verdict === "admits") {
+        contractsAdmitted.add(category);
+      }
+
+      if (await codecRefusesCategory(eventType, category)) {
+        codecRefused.add(category);
+      }
+    }
+
+    // Every category must be DECIDED by at least one of its types. A category
+    // whose every registered variant went inconclusive would drop out of both
+    // sides of the equivalence below and pass by absence — the exact vacuity
+    // this arm exists to rule out.
+    const undecided = [...categoriesSeen].filter(
+      (category) => !contractsRefused.has(category) && !contractsAdmitted.has(category),
+    );
+    expect(undecided).toEqual([]);
+
+    // Non-vacuity in BOTH directions. An equivalence between two empty sets, or
+    // between two sets that happen to be everything, would pass while proving
+    // nothing.
+    expect(contractsRefused.size).toBeGreaterThan(0);
+    expect(contractsAdmitted.size).toBeGreaterThan(0);
+
+    // The rule is per-category, so a category cannot land on both sides. If one
+    // did, the equivalence below would be comparing sets that do not partition
+    // and the failure it reported would name the wrong defect.
+    expect([...contractsRefused].filter((category) => contractsAdmitted.has(category))).toEqual([]);
+
+    expect([...codecRefused].sort()).toEqual([...contractsRefused].sort());
   });
 });

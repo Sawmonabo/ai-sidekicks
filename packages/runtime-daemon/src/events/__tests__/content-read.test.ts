@@ -153,7 +153,11 @@ async function sealedRow(
       category: "assistant_output",
       type: "assistant.message",
       actor: "agent-1",
-      payload: { runId: "run-1", ...extraPayload },
+      // `sessionId` and `runId` are not decoration: `assistant.message` has a
+      // registered `SessionEventSchema` variant, and the codec parses the
+      // COMPOSED row against it before signing. A fixture missing either would
+      // be minting exactly the unparseable row that guard exists to refuse.
+      payload: { sessionId: SESSION, runId: "run-1", ...extraPayload },
       version: ENVELOPE_VERSION,
       content: { body, contentKey: resolved.key },
     },

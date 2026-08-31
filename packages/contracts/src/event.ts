@@ -959,6 +959,175 @@ export function withEpochStamp<
 }
 
 // --------------------------------------------------------------------------
+// The PII indirection descriptor (`Spec-006 §Canonical Serialization Rules`).
+// --------------------------------------------------------------------------
+
+/**
+ * The payload key carrying the BLAKE3 digest of the stored
+ * `session_events.pii_payload` ciphertext — the commitment that binds the
+ * sealed participant partition to the row's signature without carrying the
+ * plaintext into the signed bytes.
+ *
+ * SNAKE_CASE beside camelCase neighbours, deliberately: `Spec-006 §Canonical
+ * Serialization Rules` spells both members of this pair that way, and rows
+ * have been signed under these exact literals since the sealing codec shipped.
+ * A spelling "cleanup" here would not tidy anything — it would break signature
+ * verification on every existing PII row.
+ *
+ * Declared HERE rather than in the daemon codec that embeds it, on the
+ * {@link CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY} / {@link
+ * SOURCE_EPOCH_PAYLOAD_KEY} convention: the strict layer below now REGISTERS
+ * the member, which makes this package a consumer of the literal and the
+ * lowest tier holding one. `runtime-daemon`'s `events/pii-indirection.ts`
+ * re-exports both names, so the codec, the append service, the `0007`
+ * migration, and the verifier keep their import path and no second spelling
+ * comes into existence.
+ *
+ * The wire ENCODING is deliberately not pinned by the shape below — the same
+ * restraint {@link CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY} takes. Spec-006 says
+ * "BLAKE3 over the ciphertext bytes" and fixes no spelling; the sealing codec
+ * writes lowercase hex and owns that as a one-way door, and pinning it here
+ * would be a narrowing nothing could relax (`ADR-018 §Decision` #8).
+ */
+export const PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY = "pii_ciphertext_digest" as const;
+
+/**
+ * The payload key carrying the participant whose content key sealed the
+ * `pii_payload` ciphertext — the owner stamp `Spec-006 §Canonical
+ * Serialization Rules` requires BESIDE the digest, so the signature binds the
+ * row's PII owner as well as its bytes. Once a `Spec-022 §Shred Fan-Out`
+ * Path 1 key destruction makes the retained ciphertext permanently
+ * un-attributable, this stamp is the sole surviving evidence of whose data the
+ * row held.
+ */
+export const PII_PARTICIPANT_ID_PAYLOAD_KEY = "pii_participant_id" as const;
+
+/**
+ * The two codec-owned indirection members a row carrying a participant PII
+ * partition embeds in its payload. Both are OPTIONAL: the pair is present
+ * exactly when `session_events.pii_payload` is non-NULL, which the vast
+ * majority of rows of every registered type never are.
+ *
+ * Declared as a TYPE ALIAS rather than an interface for the same load-bearing
+ * reason {@link MachineContentDescriptor} is — see the note on that
+ * declaration.
+ *
+ * NO PAIRING REFINEMENT, matching {@link MachineContentDescriptor}'s three
+ * members rather than {@link withEpochStamp}'s two. The both-or-neither
+ * binding between digest and stamp is already adjudicated — and adjudicated
+ * where it can actually be checked — by the read-side `pii_owner_stamp_unbound`
+ * verification mode `Spec-006 §Canonical Serialization Rules` names for exactly
+ * this purpose: it holds the signed claim against the durable
+ * `session_events.pii_participant_id` column, a comparison no parse-time check
+ * can make because the column is not in the parsed object. Encoding the pairing
+ * here as well would make this schema a second source of truth for a binding
+ * the corpus has already assigned.
+ *
+ * The member names are spelled LITERALLY here while the schema factory below
+ * composes them from the exported constants, and the asymmetry is deliberate.
+ * The runtime keys are what the codec writes by, so composing them from the
+ * constants is what keeps a rename from silently making every registered
+ * variant reject every PII row. A type alias is a compile-time mirror with no
+ * such coupling, so it takes {@link MachineContentDescriptor}'s plain-key form
+ * and stays comparable to it side by side. Both spellings are held to the
+ * runtime one by the round-trip assertions in
+ * __tests__/event-source-epoch.test.ts, which read the members off this type
+ * BY the constants.
+ */
+export type PiiIndirectionDescriptor = {
+  /** BLAKE3 over the STORED `pii_payload` ciphertext bytes. */
+  pii_ciphertext_digest?: string | undefined;
+  /** The participant whose content key sealed that ciphertext. */
+  pii_participant_id?: string | undefined;
+};
+
+// The shared shape factory — `buildMachineContentDescriptorShape()`'s principle
+// applied to the sibling partition. Every payload shape that may legally carry
+// the pair spreads THIS, so the members cannot drift across the twenty-four
+// variants that admit them.
+//
+// COMPUTED keys rather than repeated literals, so the two exported constants
+// above are the single source of the strings that the schema, the codec, the
+// migration, and the verifier all index this payload by.
+//
+// `pii_participant_id` is a BOUNDED FREE-FORM STRING and deliberately NOT
+// `ParticipantIdSchema`. That schema is `brandedUuidIdSchema`, so it would
+// refuse every stamp that is not a canonical UUID — while the codec that embeds
+// this member types the value as a plain `string` on a documented narrowing
+// (`pii-indirection.ts`: "nothing on this path mints that brand, and its schema
+// requires a UUID this module has no standing to demand of an injected key
+// holder"). A strict layer that refused rows the append path legally signs
+// would refuse them AFTER the seal — the exact defect class this registration
+// exists to close, reintroduced from the other side.
+const buildPiiIndirectionDescriptorShape = () => ({
+  [PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]: wireFreeFormString(
+    EVENT_FIELD_MAX_LEN,
+    "pii partition pii_ciphertext_digest",
+  ).optional(),
+  [PII_PARTICIPANT_ID_PAYLOAD_KEY]: wireFreeFormString(
+    EVENT_FIELD_MAX_LEN,
+    "pii partition pii_participant_id",
+  ).optional(),
+});
+
+// Minimal structural view of the ZodObject surface {@link
+// withPiiIndirectionMembers} reads. Same affordance the wrap-admission ratchet
+// takes over this union's branches: the imported payload schemas are annotated
+// `z.ZodType<T>` for `isolatedDeclarations`, which erases the ZodObject surface
+// that `.extend()` and the catchall live on, so composition has to re-widen it.
+type ExtendableStrictObjectView = {
+  readonly def: { readonly catchall?: { readonly def: { readonly type: string } } | undefined };
+  readonly extend: (shape: Record<string, unknown>) => unknown;
+};
+
+/**
+ * Compose {@link buildPiiIndirectionDescriptorShape} onto a payload schema this
+ * file does not DECLARE.
+ *
+ * WHY A WRAPPER HERE AND A PLAIN SPREAD EVERYWHERE ELSE. The eight payload
+ * schemas authored in this file take the spread directly, at their shape
+ * factories. The seven imported from `repo.ts` / `worktree.ts` /
+ * `runtime-node.ts` must not: those exports are PRODUCER-INPUT surfaces, parsed
+ * with `.parse()` at the emission boundary by `workspace-event-emitter.ts`,
+ * `node-event-emitter.ts`, and `schema-migration-emitter.ts`, whose PARSED
+ * OUTPUT is what gets persisted. Widening them at their declarations would let
+ * an emitter hand-embed a reserved key and pass its own strict parse — weakening
+ * a shipped seam to fix an interpretation-layer gap. So the widening lands on
+ * a DERIVED const used at both the standalone `*EventSchema` export and the
+ * union branch, which keeps the no-drift property those families already claim
+ * while the input schema they are built from stays exactly as shipped.
+ *
+ * BOTH REFUSALS ARE LOUD AND FIRE AT MODULE LOAD. A payload whose ZodObject
+ * surface cannot be read would otherwise compose into a silent no-op, and a
+ * non-strict one would compose into a schema that STRIPS unknown keys — parse
+ * output diverging from the hashed canonical bytes, which is the failure the
+ * epoch helper's own strictness pin exists to prevent.
+ */
+function withPiiIndirectionMembers<TPayload extends Record<string, unknown>>(
+  payloadSchema: z.ZodType<TPayload>,
+  schemaName: string,
+): z.ZodType<TPayload & PiiIndirectionDescriptor> {
+  const objectView = payloadSchema as unknown as Partial<ExtendableStrictObjectView>;
+  if (typeof objectView.extend !== "function") {
+    throw new Error(
+      `withPiiIndirectionMembers: ${schemaName} exposes no ZodObject \`.extend()\`, so the ` +
+        `PII indirection members cannot be composed onto it. Composing nothing would leave the ` +
+        `variant rejecting the very rows the sealing codec signs.`,
+    );
+  }
+  if (objectView.def?.catchall?.def.type !== "never") {
+    throw new Error(
+      `withPiiIndirectionMembers: ${schemaName} is not \`.strict()\`. Composition inherits ` +
+        `strictness, so wrapping a loose payload would silently strip unknown keys away from ` +
+        `the canonical bytes the row was signed over.`,
+    );
+  }
+  return (objectView as ExtendableStrictObjectView).extend(
+    buildPiiIndirectionDescriptorShape(),
+  ) as z.ZodType<TPayload & PiiIndirectionDescriptor>;
+}
+
+// --------------------------------------------------------------------------
 // Per-variant payload schemas — extracted as named consts to deduplicate
 // between the standalone `*EventSchema` exports and the discriminated-union
 // branch schemas. Same principle as `buildCommonShape()`.
@@ -969,6 +1138,7 @@ const sessionCreatedPayloadSchema = z
     sessionId: SessionIdSchema,
     config: z.record(z.string(), z.unknown()),
     metadata: z.record(z.string(), z.unknown()),
+    ...buildPiiIndirectionDescriptorShape(),
   })
   .strict();
 
@@ -983,6 +1153,7 @@ const membershipCreatedPayloadSchema = z
     // for the rationale (length cap + whitespace + NUL guards; Plan-018
     // owns the canonical handle grammar).
     identityHandle: IdentityHandleSchema,
+    ...buildPiiIndirectionDescriptorShape(),
   })
   .strict();
 
@@ -995,6 +1166,7 @@ const channelCreatedPayloadSchema = z
     // whitespace + NUL rejection) — channel names are user-visible UI
     // labels, same trust-boundary stance as `identityHandle`.
     name: wireFreeFormString(CHANNEL_NAME_MAX_LEN, "channel.created.name").optional(),
+    ...buildPiiIndirectionDescriptorShape(),
   })
   .strict();
 
@@ -1019,7 +1191,7 @@ const channelCreatedPayloadSchema = z
 export interface SessionCreatedEvent extends EventEnvelope {
   type: "session.created";
   category: "session_lifecycle";
-  payload: {
+  payload: PiiIndirectionDescriptor & {
     sessionId: SessionId;
     config: Record<string, unknown>;
     metadata: Record<string, unknown>;
@@ -1041,7 +1213,7 @@ export const SessionCreatedEventSchema: z.ZodType<SessionCreatedEvent> = z
 export interface MembershipCreatedEvent extends EventEnvelope {
   type: "membership.created";
   category: "membership_change";
-  payload: {
+  payload: PiiIndirectionDescriptor & {
     membershipId: MembershipId;
     participantId: ParticipantId;
     role: MembershipRole;
@@ -1064,7 +1236,7 @@ export const MembershipCreatedEventSchema: z.ZodType<MembershipCreatedEvent> = z
 export interface ChannelCreatedEvent extends EventEnvelope {
   type: "channel.created";
   category: "session_lifecycle";
-  payload: {
+  payload: PiiIndirectionDescriptor & {
     channelId: ChannelId;
     name?: string | undefined;
   };
@@ -1107,20 +1279,39 @@ export const ChannelCreatedEventSchema: z.ZodType<ChannelCreatedEvent> = z
 // `sourcePosition` pair would be unattributable and the WRAP ADMISSION note
 // above excludes them. __tests__/event-source-epoch.test.ts walks the live
 // union and fails a non-admitting branch that lands wrapped.
+//
+// PII INDIRECTION MEMBERS, composed onto a DERIVED const. All six ADMIT the
+// pair: they are neither `audit_integrity` nor `event_maintenance`, so the
+// sealing codec will seal a row of one of these types on request, and a strict
+// layer that then rejected the composed row would refuse it AFTER the encrypt
+// — the parse-what-you-sign gap this registration closes. The composition wraps
+// a derived const rather than widening the imported
+// `RepoWorkspaceLifecyclePayloadSchema` itself, because that export is a
+// producer-INPUT surface parsed at the emission boundary; see
+// {@link withPiiIndirectionMembers}. The derived const is used at BOTH the
+// standalone `*EventSchema` exports below and the union branches, so the
+// family's no-drift property is preserved rather than traded away.
+type RepoWorkspaceLifecycleVariantPayload = RepoWorkspaceLifecyclePayload &
+  PiiIndirectionDescriptor;
+const repoWorkspaceLifecycleVariantPayloadSchema: z.ZodType<RepoWorkspaceLifecycleVariantPayload> =
+  withPiiIndirectionMembers(
+    RepoWorkspaceLifecyclePayloadSchema,
+    "RepoWorkspaceLifecyclePayloadSchema",
+  );
 
 // Emitted when `repo.attach` admits a local path as a durable repo mount
 // (`Spec-009 §Required Behavior`).
 export interface RepoAttachedEvent extends EventEnvelope {
   type: "repo.attached";
   category: "session_lifecycle";
-  payload: RepoWorkspaceLifecyclePayload;
+  payload: RepoWorkspaceLifecycleVariantPayload;
 }
 export const RepoAttachedEventSchema: z.ZodType<RepoAttachedEvent> = z
   .object({
     ...buildCommonShape(),
     type: z.literal("repo.attached"),
     category: z.literal("session_lifecycle"),
-    payload: RepoWorkspaceLifecyclePayloadSchema,
+    payload: repoWorkspaceLifecycleVariantPayloadSchema,
   })
   .strict();
 
@@ -1129,14 +1320,14 @@ export const RepoAttachedEventSchema: z.ZodType<RepoAttachedEvent> = z
 export interface RepoDetachedEvent extends EventEnvelope {
   type: "repo.detached";
   category: "session_lifecycle";
-  payload: RepoWorkspaceLifecyclePayload;
+  payload: RepoWorkspaceLifecycleVariantPayload;
 }
 export const RepoDetachedEventSchema: z.ZodType<RepoDetachedEvent> = z
   .object({
     ...buildCommonShape(),
     type: z.literal("repo.detached"),
     category: z.literal("session_lifecycle"),
-    payload: RepoWorkspaceLifecyclePayloadSchema,
+    payload: repoWorkspaceLifecycleVariantPayloadSchema,
   })
   .strict();
 
@@ -1145,14 +1336,14 @@ export const RepoDetachedEventSchema: z.ZodType<RepoDetachedEvent> = z
 export interface WorkspaceProvisioningEvent extends EventEnvelope {
   type: "workspace.provisioning";
   category: "session_lifecycle";
-  payload: RepoWorkspaceLifecyclePayload;
+  payload: RepoWorkspaceLifecycleVariantPayload;
 }
 export const WorkspaceProvisioningEventSchema: z.ZodType<WorkspaceProvisioningEvent> = z
   .object({
     ...buildCommonShape(),
     type: z.literal("workspace.provisioning"),
     category: z.literal("session_lifecycle"),
-    payload: RepoWorkspaceLifecyclePayloadSchema,
+    payload: repoWorkspaceLifecycleVariantPayloadSchema,
   })
   .strict();
 
@@ -1161,14 +1352,14 @@ export const WorkspaceProvisioningEventSchema: z.ZodType<WorkspaceProvisioningEv
 export interface WorkspaceReadyEvent extends EventEnvelope {
   type: "workspace.ready";
   category: "session_lifecycle";
-  payload: RepoWorkspaceLifecyclePayload;
+  payload: RepoWorkspaceLifecycleVariantPayload;
 }
 export const WorkspaceReadyEventSchema: z.ZodType<WorkspaceReadyEvent> = z
   .object({
     ...buildCommonShape(),
     type: z.literal("workspace.ready"),
     category: z.literal("session_lifecycle"),
-    payload: RepoWorkspaceLifecyclePayloadSchema,
+    payload: repoWorkspaceLifecycleVariantPayloadSchema,
   })
   .strict();
 
@@ -1179,14 +1370,14 @@ export const WorkspaceReadyEventSchema: z.ZodType<WorkspaceReadyEvent> = z
 export interface WorkspaceStaleEvent extends EventEnvelope {
   type: "workspace.stale";
   category: "session_lifecycle";
-  payload: RepoWorkspaceLifecyclePayload;
+  payload: RepoWorkspaceLifecycleVariantPayload;
 }
 export const WorkspaceStaleEventSchema: z.ZodType<WorkspaceStaleEvent> = z
   .object({
     ...buildCommonShape(),
     type: z.literal("workspace.stale"),
     category: z.literal("session_lifecycle"),
-    payload: RepoWorkspaceLifecyclePayloadSchema,
+    payload: repoWorkspaceLifecycleVariantPayloadSchema,
   })
   .strict();
 
@@ -1195,14 +1386,14 @@ export const WorkspaceStaleEventSchema: z.ZodType<WorkspaceStaleEvent> = z
 export interface WorkspaceArchivedEvent extends EventEnvelope {
   type: "workspace.archived";
   category: "session_lifecycle";
-  payload: RepoWorkspaceLifecyclePayload;
+  payload: RepoWorkspaceLifecycleVariantPayload;
 }
 export const WorkspaceArchivedEventSchema: z.ZodType<WorkspaceArchivedEvent> = z
   .object({
     ...buildCommonShape(),
     type: z.literal("workspace.archived"),
     category: z.literal("session_lifecycle"),
-    payload: RepoWorkspaceLifecyclePayloadSchema,
+    payload: repoWorkspaceLifecycleVariantPayloadSchema,
   })
   .strict();
 
@@ -1239,20 +1430,28 @@ export const WorkspaceArchivedEventSchema: z.ZodType<WorkspaceArchivedEvent> = z
 // NO EPOCH STAMP. `session_lifecycle`, not run-scoped — the same WRAP
 // ADMISSION exclusion as the six above; __tests__/event-source-epoch.test.ts
 // walks the live union and fails a non-admitting branch that lands wrapped.
+//
+// PII INDIRECTION MEMBERS, on the derived-const pattern the six above take —
+// `session_lifecycle` admits the pair, and `WorktreeLifecyclePayloadSchema` is
+// the same kind of producer-input surface, so the widening lands on a const
+// derived from it and used at both registration sites.
+type WorktreeLifecycleVariantPayload = WorktreeLifecyclePayload & PiiIndirectionDescriptor;
+const worktreeLifecycleVariantPayloadSchema: z.ZodType<WorktreeLifecycleVariantPayload> =
+  withPiiIndirectionMembers(WorktreeLifecyclePayloadSchema, "WorktreeLifecyclePayloadSchema");
 
 // Emitted transactionally with worktree row creation (Plan-010 D-010-12;
 // `Spec-010 §State And Data Implications`).
 export interface WorktreeCreatedEvent extends EventEnvelope {
   type: "worktree.created";
   category: "session_lifecycle";
-  payload: WorktreeLifecyclePayload;
+  payload: WorktreeLifecycleVariantPayload;
 }
 export const WorktreeCreatedEventSchema: z.ZodType<WorktreeCreatedEvent> = z
   .object({
     ...buildCommonShape(),
     type: z.literal("worktree.created"),
     category: z.literal("session_lifecycle"),
-    payload: WorktreeLifecyclePayloadSchema,
+    payload: worktreeLifecycleVariantPayloadSchema,
   })
   .strict();
 
@@ -1261,14 +1460,14 @@ export const WorktreeCreatedEventSchema: z.ZodType<WorktreeCreatedEvent> = z
 export interface WorktreeReadyEvent extends EventEnvelope {
   type: "worktree.ready";
   category: "session_lifecycle";
-  payload: WorktreeLifecyclePayload;
+  payload: WorktreeLifecycleVariantPayload;
 }
 export const WorktreeReadyEventSchema: z.ZodType<WorktreeReadyEvent> = z
   .object({
     ...buildCommonShape(),
     type: z.literal("worktree.ready"),
     category: z.literal("session_lifecycle"),
-    payload: WorktreeLifecyclePayloadSchema,
+    payload: worktreeLifecycleVariantPayloadSchema,
   })
   .strict();
 
@@ -1277,14 +1476,14 @@ export const WorktreeReadyEventSchema: z.ZodType<WorktreeReadyEvent> = z
 export interface WorktreeDirtyEvent extends EventEnvelope {
   type: "worktree.dirty";
   category: "session_lifecycle";
-  payload: WorktreeLifecyclePayload;
+  payload: WorktreeLifecycleVariantPayload;
 }
 export const WorktreeDirtyEventSchema: z.ZodType<WorktreeDirtyEvent> = z
   .object({
     ...buildCommonShape(),
     type: z.literal("worktree.dirty"),
     category: z.literal("session_lifecycle"),
-    payload: WorktreeLifecyclePayloadSchema,
+    payload: worktreeLifecycleVariantPayloadSchema,
   })
   .strict();
 
@@ -1293,14 +1492,14 @@ export const WorktreeDirtyEventSchema: z.ZodType<WorktreeDirtyEvent> = z
 export interface WorktreeMergedEvent extends EventEnvelope {
   type: "worktree.merged";
   category: "session_lifecycle";
-  payload: WorktreeLifecyclePayload;
+  payload: WorktreeLifecycleVariantPayload;
 }
 export const WorktreeMergedEventSchema: z.ZodType<WorktreeMergedEvent> = z
   .object({
     ...buildCommonShape(),
     type: z.literal("worktree.merged"),
     category: z.literal("session_lifecycle"),
-    payload: WorktreeLifecyclePayloadSchema,
+    payload: worktreeLifecycleVariantPayloadSchema,
   })
   .strict();
 
@@ -1310,14 +1509,14 @@ export const WorktreeMergedEventSchema: z.ZodType<WorktreeMergedEvent> = z
 export interface WorktreeRetiredEvent extends EventEnvelope {
   type: "worktree.retired";
   category: "session_lifecycle";
-  payload: WorktreeLifecyclePayload;
+  payload: WorktreeLifecycleVariantPayload;
 }
 export const WorktreeRetiredEventSchema: z.ZodType<WorktreeRetiredEvent> = z
   .object({
     ...buildCommonShape(),
     type: z.literal("worktree.retired"),
     category: z.literal("session_lifecycle"),
-    payload: WorktreeLifecyclePayloadSchema,
+    payload: worktreeLifecycleVariantPayloadSchema,
   })
   .strict();
 
@@ -2120,20 +2319,53 @@ export const EventShreddedEventSchema: z.ZodType<EventShreddedEvent> = z
 // would be unattributable and the WRAP ADMISSION note above excludes them.
 // __tests__/event-source-epoch.test.ts walks the live union and fails a
 // non-admitting branch that lands wrapped.
+//
+// PII INDIRECTION MEMBERS, on the derived-const pattern the repo/worktree
+// families take. `runtime_node_lifecycle` is neither refused category, so all
+// five ADMIT the pair; the five imported `*PayloadSchema` exports are
+// producer-input surfaces `node-event-emitter.ts` parses against and stay
+// exactly as shipped, with the widening on consts derived from them and used
+// at both the standalone exports and the union branches.
+type RuntimeNodeRegisteredVariantPayload = RuntimeNodeRegisteredPayload & PiiIndirectionDescriptor;
+const runtimeNodeRegisteredVariantPayloadSchema: z.ZodType<RuntimeNodeRegisteredVariantPayload> =
+  withPiiIndirectionMembers(
+    RuntimeNodeRegisteredPayloadSchema,
+    "RuntimeNodeRegisteredPayloadSchema",
+  );
+type RuntimeNodeOnlineVariantPayload = RuntimeNodeOnlinePayload & PiiIndirectionDescriptor;
+const runtimeNodeOnlineVariantPayloadSchema: z.ZodType<RuntimeNodeOnlineVariantPayload> =
+  withPiiIndirectionMembers(RuntimeNodeOnlinePayloadSchema, "RuntimeNodeOnlinePayloadSchema");
+type RuntimeNodeOfflineVariantPayload = RuntimeNodeOfflinePayload & PiiIndirectionDescriptor;
+const runtimeNodeOfflineVariantPayloadSchema: z.ZodType<RuntimeNodeOfflineVariantPayload> =
+  withPiiIndirectionMembers(RuntimeNodeOfflinePayloadSchema, "RuntimeNodeOfflinePayloadSchema");
+type RuntimeNodeCapabilityDeclaredVariantPayload = RuntimeNodeCapabilityDeclaredPayload &
+  PiiIndirectionDescriptor;
+const runtimeNodeCapabilityDeclaredVariantPayloadSchema: z.ZodType<RuntimeNodeCapabilityDeclaredVariantPayload> =
+  withPiiIndirectionMembers(
+    RuntimeNodeCapabilityDeclaredPayloadSchema,
+    "RuntimeNodeCapabilityDeclaredPayloadSchema",
+  );
+type RuntimeNodeCapabilityUpdatedVariantPayload = RuntimeNodeCapabilityUpdatedPayload &
+  PiiIndirectionDescriptor;
+const runtimeNodeCapabilityUpdatedVariantPayloadSchema: z.ZodType<RuntimeNodeCapabilityUpdatedVariantPayload> =
+  withPiiIndirectionMembers(
+    RuntimeNodeCapabilityUpdatedPayloadSchema,
+    "RuntimeNodeCapabilityUpdatedPayloadSchema",
+  );
 
 // Emitted by the T2.1 node-registry when a node is accepted into the roster
 // (`Spec-003 §Required Behavior`, attach admission).
 export interface RuntimeNodeRegisteredEvent extends EventEnvelope {
   type: "runtime_node.registered";
   category: "runtime_node_lifecycle";
-  payload: RuntimeNodeRegisteredPayload;
+  payload: RuntimeNodeRegisteredVariantPayload;
 }
 export const RuntimeNodeRegisteredEventSchema: z.ZodType<RuntimeNodeRegisteredEvent> = z
   .object({
     ...buildCommonShape(),
     type: z.literal("runtime_node.registered"),
     category: z.literal("runtime_node_lifecycle"),
-    payload: RuntimeNodeRegisteredPayloadSchema,
+    payload: runtimeNodeRegisteredVariantPayloadSchema,
   })
   .strict();
 
@@ -2142,14 +2374,14 @@ export const RuntimeNodeRegisteredEventSchema: z.ZodType<RuntimeNodeRegisteredEv
 export interface RuntimeNodeOnlineEvent extends EventEnvelope {
   type: "runtime_node.online";
   category: "runtime_node_lifecycle";
-  payload: RuntimeNodeOnlinePayload;
+  payload: RuntimeNodeOnlineVariantPayload;
 }
 export const RuntimeNodeOnlineEventSchema: z.ZodType<RuntimeNodeOnlineEvent> = z
   .object({
     ...buildCommonShape(),
     type: z.literal("runtime_node.online"),
     category: z.literal("runtime_node_lifecycle"),
-    payload: RuntimeNodeOnlinePayloadSchema,
+    payload: runtimeNodeOnlineVariantPayloadSchema,
   })
   .strict();
 
@@ -2159,14 +2391,14 @@ export const RuntimeNodeOnlineEventSchema: z.ZodType<RuntimeNodeOnlineEvent> = z
 export interface RuntimeNodeOfflineEvent extends EventEnvelope {
   type: "runtime_node.offline";
   category: "runtime_node_lifecycle";
-  payload: RuntimeNodeOfflinePayload;
+  payload: RuntimeNodeOfflineVariantPayload;
 }
 export const RuntimeNodeOfflineEventSchema: z.ZodType<RuntimeNodeOfflineEvent> = z
   .object({
     ...buildCommonShape(),
     type: z.literal("runtime_node.offline"),
     category: z.literal("runtime_node_lifecycle"),
-    payload: RuntimeNodeOfflinePayloadSchema,
+    payload: runtimeNodeOfflineVariantPayloadSchema,
   })
   .strict();
 
@@ -2180,7 +2412,7 @@ export const RuntimeNodeOfflineEventSchema: z.ZodType<RuntimeNodeOfflineEvent> =
 export interface RuntimeNodeCapabilityDeclaredEvent extends EventEnvelope {
   type: "runtime_node.capability_declared";
   category: "runtime_node_lifecycle";
-  payload: RuntimeNodeCapabilityDeclaredPayload;
+  payload: RuntimeNodeCapabilityDeclaredVariantPayload;
 }
 export const RuntimeNodeCapabilityDeclaredEventSchema: z.ZodType<RuntimeNodeCapabilityDeclaredEvent> =
   z
@@ -2188,7 +2420,7 @@ export const RuntimeNodeCapabilityDeclaredEventSchema: z.ZodType<RuntimeNodeCapa
       ...buildCommonShape(),
       type: z.literal("runtime_node.capability_declared"),
       category: z.literal("runtime_node_lifecycle"),
-      payload: RuntimeNodeCapabilityDeclaredPayloadSchema,
+      payload: runtimeNodeCapabilityDeclaredVariantPayloadSchema,
     })
     .strict();
 
@@ -2198,7 +2430,7 @@ export const RuntimeNodeCapabilityDeclaredEventSchema: z.ZodType<RuntimeNodeCapa
 export interface RuntimeNodeCapabilityUpdatedEvent extends EventEnvelope {
   type: "runtime_node.capability_updated";
   category: "runtime_node_lifecycle";
-  payload: RuntimeNodeCapabilityUpdatedPayload;
+  payload: RuntimeNodeCapabilityUpdatedVariantPayload;
 }
 export const RuntimeNodeCapabilityUpdatedEventSchema: z.ZodType<RuntimeNodeCapabilityUpdatedEvent> =
   z
@@ -2206,7 +2438,7 @@ export const RuntimeNodeCapabilityUpdatedEventSchema: z.ZodType<RuntimeNodeCapab
       ...buildCommonShape(),
       type: z.literal("runtime_node.capability_updated"),
       category: z.literal("runtime_node_lifecycle"),
-      payload: RuntimeNodeCapabilityUpdatedPayloadSchema,
+      payload: runtimeNodeCapabilityUpdatedVariantPayloadSchema,
     })
     .strict();
 
@@ -2327,32 +2559,34 @@ export type MachineContentDescriptor = {
 };
 
 /** `assistant.message` / `assistant.thinking_update` payload shape. */
-export type AssistantOutputPayload = MachineContentDescriptor & {
-  sessionId: SessionId;
-  runId: string;
-  channelId?: ChannelId | undefined;
-  /** Media type of the body, set by the PRODUCER and not by the codec. */
-  contentType?: string | undefined;
-  sourceEpoch?: SourceEpoch | undefined;
-  sourcePosition?: SourcePosition | undefined;
-};
+export type AssistantOutputPayload = MachineContentDescriptor &
+  PiiIndirectionDescriptor & {
+    sessionId: SessionId;
+    runId: string;
+    channelId?: ChannelId | undefined;
+    /** Media type of the body, set by the PRODUCER and not by the codec. */
+    contentType?: string | undefined;
+    sourceEpoch?: SourceEpoch | undefined;
+    sourcePosition?: SourcePosition | undefined;
+  };
 
 /** `tool.invoked` / `tool.result` / `tool.error` payload shape. */
-export type ToolActivityPayload = MachineContentDescriptor & {
-  sessionId: SessionId;
-  runId: string;
-  /**
-   * REQUIRED. A tool row with no tool name is unattributable — every consumer
-   * of `Spec-006 §Tool Activity (tool_activity)` keys on it — and unlike the descriptive
-   * members it is never something the codec could supply.
-   */
-  toolName: string;
-  toolCallId?: string | undefined;
-  channelId?: ChannelId | undefined;
-  durationMs?: number | undefined;
-  sourceEpoch?: SourceEpoch | undefined;
-  sourcePosition?: SourcePosition | undefined;
-};
+export type ToolActivityPayload = MachineContentDescriptor &
+  PiiIndirectionDescriptor & {
+    sessionId: SessionId;
+    runId: string;
+    /**
+     * REQUIRED. A tool row with no tool name is unattributable — every consumer
+     * of `Spec-006 §Tool Activity (tool_activity)` keys on it — and unlike the descriptive
+     * members it is never something the codec could supply.
+     */
+    toolName: string;
+    toolCallId?: string | undefined;
+    channelId?: ChannelId | undefined;
+    durationMs?: number | undefined;
+    sourceEpoch?: SourceEpoch | undefined;
+    sourcePosition?: SourcePosition | undefined;
+  };
 
 // Shared shape factories, the `buildCommonShape()` principle applied one level
 // down: the five payload schemas below and the five union branches share these
@@ -2384,6 +2618,7 @@ const buildAssistantOutputPayloadShape = () => ({
     "assistant output payload contentType",
   ).optional(),
   ...buildMachineContentDescriptorShape(),
+  ...buildPiiIndirectionDescriptorShape(),
 });
 
 const buildToolActivityPayloadShape = () => ({
@@ -2397,6 +2632,7 @@ const buildToolActivityPayloadShape = () => ({
   channelId: ChannelIdSchema.optional(),
   durationMs: z.number().int().nonnegative().optional(),
   ...buildMachineContentDescriptorShape(),
+  ...buildPiiIndirectionDescriptorShape(),
 });
 
 const assistantMessagePayloadSchema = withEpochStamp(
@@ -2626,17 +2862,17 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
     })
     .strict(),
   // The six Plan-009 repo/workspace arms (CP-009-4). Each shares the single
-  // family payload schema imported from repo.ts, so these branch schemas and
-  // the `*EventSchema` exports above cannot drift on payload shape — the same
-  // single-sourcing the local `*PayloadSchema` consts give the three Plan-001
-  // arms. None is wrapped with `withEpochStamp`; see the no-epoch-stamp note
+  // `repoWorkspaceLifecycleVariantPayloadSchema` derived above from repo.ts's
+  // family schema, so these branch schemas and the `*EventSchema` exports above
+  // cannot drift on payload shape — the same single-sourcing the local
+  // `*PayloadSchema` consts give the three Plan-001 arms. None is wrapped with `withEpochStamp`; see the no-epoch-stamp note
   // on their declarations above.
   z
     .object({
       ...buildCommonShape(),
       type: z.literal("repo.attached"),
       category: z.literal("session_lifecycle"),
-      payload: RepoWorkspaceLifecyclePayloadSchema,
+      payload: repoWorkspaceLifecycleVariantPayloadSchema,
     })
     .strict(),
   z
@@ -2644,7 +2880,7 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
       ...buildCommonShape(),
       type: z.literal("repo.detached"),
       category: z.literal("session_lifecycle"),
-      payload: RepoWorkspaceLifecyclePayloadSchema,
+      payload: repoWorkspaceLifecycleVariantPayloadSchema,
     })
     .strict(),
   z
@@ -2652,7 +2888,7 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
       ...buildCommonShape(),
       type: z.literal("workspace.provisioning"),
       category: z.literal("session_lifecycle"),
-      payload: RepoWorkspaceLifecyclePayloadSchema,
+      payload: repoWorkspaceLifecycleVariantPayloadSchema,
     })
     .strict(),
   z
@@ -2660,7 +2896,7 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
       ...buildCommonShape(),
       type: z.literal("workspace.ready"),
       category: z.literal("session_lifecycle"),
-      payload: RepoWorkspaceLifecyclePayloadSchema,
+      payload: repoWorkspaceLifecycleVariantPayloadSchema,
     })
     .strict(),
   z
@@ -2668,7 +2904,7 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
       ...buildCommonShape(),
       type: z.literal("workspace.stale"),
       category: z.literal("session_lifecycle"),
-      payload: RepoWorkspaceLifecyclePayloadSchema,
+      payload: repoWorkspaceLifecycleVariantPayloadSchema,
     })
     .strict(),
   z
@@ -2676,13 +2912,14 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
       ...buildCommonShape(),
       type: z.literal("workspace.archived"),
       category: z.literal("session_lifecycle"),
-      payload: RepoWorkspaceLifecyclePayloadSchema,
+      payload: repoWorkspaceLifecycleVariantPayloadSchema,
     })
     .strict(),
   // The five Plan-010 worktree arms (CP-010-5). Each shares
-  // `WorktreeLifecyclePayloadSchema` imported from worktree.ts — the family
-  // factory instantiated over `WorktreeStateSchema` — so these branch schemas
-  // and the `*EventSchema` exports above cannot drift on payload shape. No
+  // `worktreeLifecycleVariantPayloadSchema`, derived above from worktree.ts's
+  // `WorktreeLifecyclePayloadSchema` — the family factory instantiated over
+  // `WorktreeStateSchema` — so these branch schemas and the `*EventSchema`
+  // exports above cannot drift on payload shape. No
   // `worktree.failed` arm exists (Plan-010 D-010-11), and none is wrapped
   // with `withEpochStamp` (`session_lifecycle`, not run-scoped; see the
   // no-epoch-stamp note on their declarations above).
@@ -2691,7 +2928,7 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
       ...buildCommonShape(),
       type: z.literal("worktree.created"),
       category: z.literal("session_lifecycle"),
-      payload: WorktreeLifecyclePayloadSchema,
+      payload: worktreeLifecycleVariantPayloadSchema,
     })
     .strict(),
   z
@@ -2699,7 +2936,7 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
       ...buildCommonShape(),
       type: z.literal("worktree.ready"),
       category: z.literal("session_lifecycle"),
-      payload: WorktreeLifecyclePayloadSchema,
+      payload: worktreeLifecycleVariantPayloadSchema,
     })
     .strict(),
   z
@@ -2707,7 +2944,7 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
       ...buildCommonShape(),
       type: z.literal("worktree.dirty"),
       category: z.literal("session_lifecycle"),
-      payload: WorktreeLifecyclePayloadSchema,
+      payload: worktreeLifecycleVariantPayloadSchema,
     })
     .strict(),
   z
@@ -2715,7 +2952,7 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
       ...buildCommonShape(),
       type: z.literal("worktree.merged"),
       category: z.literal("session_lifecycle"),
-      payload: WorktreeLifecyclePayloadSchema,
+      payload: worktreeLifecycleVariantPayloadSchema,
     })
     .strict(),
   z
@@ -2723,7 +2960,7 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
       ...buildCommonShape(),
       type: z.literal("worktree.retired"),
       category: z.literal("session_lifecycle"),
-      payload: WorktreeLifecyclePayloadSchema,
+      payload: worktreeLifecycleVariantPayloadSchema,
     })
     .strict(),
   // The six Plan-006 `audit_integrity` / `event_maintenance` arms (T1.11).
@@ -2735,6 +2972,16 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
   // outer `type` dispatch is indifferent to. None is wrapped with
   // `withEpochStamp` (daemon-scope, not run-scoped; see the no-epoch-stamp
   // note on their declarations above).
+  //
+  // THE ONLY SIX BRANCHES THAT REFUSE THE PII INDIRECTION MEMBERS, and the
+  // refusal is a positive statement rather than an omission: `Plan-006 §Audit
+  // Integrity Invariant` holds these two categories' `pii_payload` NULL by
+  // construction — they are never compacted and never crypto-shredded — and the
+  // sealing codec refuses them by name before it encrypts anything. A variant
+  // that admitted the pair here would declare legal a row the append path will
+  // not produce. __tests__/event-source-epoch.test.ts walks the live union and
+  // fails either direction: an admitting branch missing the pair, or one of
+  // these six carrying it.
   z
     .object({
       ...buildCommonShape(),
@@ -2784,8 +3031,9 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
     })
     .strict(),
   // The five Plan-003 `runtime_node.*` arms (T1.12 — CP-003-1 leg (a)). Each
-  // shares the `*PayloadSchema` imported from runtime-node.ts, so these branch
-  // schemas and the `*EventSchema` exports above cannot drift on payload shape.
+  // shares the `*VariantPayloadSchema` derived above from runtime-node.ts's
+  // export, so these branch schemas and the `*EventSchema` exports above cannot
+  // drift on payload shape.
   // No `runtime_node.degraded` / `runtime_node.revoked` arm exists (V1.1-gated,
   // ADR-017 §Server-Derived Runtime-Node Lifecycle Events), the two capability
   // arms carry T1.4's canonical-first tolerant unions exactly as shipped, and
@@ -2796,7 +3044,7 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
       ...buildCommonShape(),
       type: z.literal("runtime_node.registered"),
       category: z.literal("runtime_node_lifecycle"),
-      payload: RuntimeNodeRegisteredPayloadSchema,
+      payload: runtimeNodeRegisteredVariantPayloadSchema,
     })
     .strict(),
   z
@@ -2804,7 +3052,7 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
       ...buildCommonShape(),
       type: z.literal("runtime_node.online"),
       category: z.literal("runtime_node_lifecycle"),
-      payload: RuntimeNodeOnlinePayloadSchema,
+      payload: runtimeNodeOnlineVariantPayloadSchema,
     })
     .strict(),
   z
@@ -2812,7 +3060,7 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
       ...buildCommonShape(),
       type: z.literal("runtime_node.offline"),
       category: z.literal("runtime_node_lifecycle"),
-      payload: RuntimeNodeOfflinePayloadSchema,
+      payload: runtimeNodeOfflineVariantPayloadSchema,
     })
     .strict(),
   z
@@ -2820,7 +3068,7 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
       ...buildCommonShape(),
       type: z.literal("runtime_node.capability_declared"),
       category: z.literal("runtime_node_lifecycle"),
-      payload: RuntimeNodeCapabilityDeclaredPayloadSchema,
+      payload: runtimeNodeCapabilityDeclaredVariantPayloadSchema,
     })
     .strict(),
   z
@@ -2828,7 +3076,7 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
       ...buildCommonShape(),
       type: z.literal("runtime_node.capability_updated"),
       category: z.literal("runtime_node_lifecycle"),
-      payload: RuntimeNodeCapabilityUpdatedPayloadSchema,
+      payload: runtimeNodeCapabilityUpdatedVariantPayloadSchema,
     })
     .strict(),
   z

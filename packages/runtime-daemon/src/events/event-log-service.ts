@@ -123,6 +123,7 @@ import { DaemonDomainError } from "../ipc/domain-error.js";
 import { canonicalizeEvent, normalizeOccurredAt, type CanonicalBytes } from "./canonicalizer.js";
 import { NeverHaltedIngestHaltSource, type IngestHaltSource } from "./ingest-halt-source.js";
 import {
+  assertRegisteredVariantParses,
   PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY,
   PII_PARTICIPANT_ID_PAYLOAD_KEY,
   writeEventWithPii,
@@ -705,6 +706,39 @@ export class EventLogService {
     // common content-bearing row took this branch and never reached the codec —
     // the column could exist and nothing would ever write to it.
     if (input.pii === undefined && input.content === undefined) {
+      // PARSE WHAT WILL BE SIGNED, on the branch that seals nothing. The defect
+      // is a property of the ROW, not of which column was written: a registered
+      // type under the wrong category, or with a `payload` its own variant
+      // refuses, canonicalizes and signs exactly as happily here as it does
+      // through the codec, and comes back out unreadable as anything but a
+      // stub. The SAME function the sealing branch calls at its refusal 9 —
+      // imported, never copied, because two implementations would be two
+      // answers to "which rows may be signed" and would diverge on the first
+      // variant that lands.
+      //
+      // The TOLERANT-CARRIER SKIP rides along inside it rather than being
+      // restated here: a `type` with no registered payload variant is waved
+      // through, because `packages/contracts/src/event.ts` is explicit that a
+      // reader "MUST persist an envelope whose `type` it cannot interpret as a
+      // version stub — never drop or reject it" (`ADR-018 §Decision` #5/#9),
+      // while the STRICT layer is "the interpretation surface, where unknown
+      // types and category/type mismatches fail loud at parse time". Refusing
+      // an unregistered census type here would reject exactly the envelopes the
+      // stub path exists to preserve.
+      //
+      // AFTER `#assertNoReservedPiiKeys`, which ran back in `append` before
+      // this method was reached, and the order is load-bearing now that the
+      // strict layer REGISTERS both reserved keys as optional members: a
+      // caller-embedded `pii_participant_id` parses cleanly here, so the typed
+      // `daemon.pii_split_bypass` refusal — which names the field path and the
+      // remedy — is the one that must see it first. This guard catches what
+      // that one cannot express.
+      assertRegisteredVariantParses(storable, {
+        name: "EventLogService.append",
+        timing:
+          "Refused before canonicalization, on a path that seals nothing: the payload the caller supplied is the payload that would be signed.",
+      });
+
       const canonical: CanonicalBytes = canonicalizeEvent(storable);
       // The `EVENT_CANONICAL_BYTES_MAX` serviceability ceiling (`Spec-006
       // §Canonical Serialization Rules`, 2026-08-11 amendment): a row whose

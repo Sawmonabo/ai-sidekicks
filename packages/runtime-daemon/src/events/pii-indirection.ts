@@ -143,6 +143,10 @@ import {
   CONTENT_LENGTH_PAYLOAD_KEY,
   CONTENT_PAYLOAD_PLAINTEXT_MAX,
   CONTENT_TRUNCATED_PAYLOAD_KEY,
+  PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY,
+  PII_PARTICIPANT_ID_PAYLOAD_KEY,
+  SESSION_EVENT_TYPES,
+  SessionEventSchema,
 } from "@ai-sidekicks/contracts";
 import { blake3 } from "@noble/hashes/blake3.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
@@ -152,73 +156,56 @@ import { canonicalizeEvent, canonicalizeJson, normalizeOccurredAt } from "./cano
 import type { Ed25519PrivateKey, SignedRow } from "./signer.js";
 import { signRow } from "./signer.js";
 
-/**
- * The `payload` member name carrying the BLAKE3 digest of the ciphertext.
- *
- * `Spec-006 §Canonical Serialization Rules` names this key verbatim and in
- * snake_case, so it is spelled exactly as the spec does rather than folded to
- * the surrounding camelCase: it is a WIRE name that lands inside the signed
- * canonical bytes, and every independent verifier reads it by that spelling.
- *
- * Exported because two downstream tasks assert on it rather than re-typing the
- * literal: T3.1's append path refuses any `append()` whose `payload` carries a
- * PII-tagged field WITHOUT this key, and T2.5's post-shred property suite reads
- * it back out of the canonical bytes. Declared `as const` — the idiom contracts
- * uses for `SOURCE_EPOCH_PAYLOAD_KEY`, its sibling payload-key registration — so
- * the type stays the literal rather than widening to `string`, which is what
- * keeps the computed-key write below exactly typed.
- */
-export const PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY = "pii_ciphertext_digest" as const;
-
-/**
- * The `payload` member name carrying the PII OWNER STAMP — the participant whose
- * content key sealed this row's ciphertext, and whose `participant_keys` DELETE
- * crypto-shreds it.
- *
- * Snake_case on exactly {@link PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY}'s terms: this
- * is a WIRE name landing inside the signed canonical bytes, so it is spelled the
- * way the STAMP COLUMN T3.1 adds will be spelled rather than folded to the
- * surrounding camelCase. One name on both sides is what lets a verifier make the
- * comparison {@link isPiiOwnerStampBound} defines without a mapping table — the
- * camelCase `piiParticipantId` names the same value on this module's own TYPES,
- * which never reach the wire.
- *
- * NOT REDUNDANT WITH `actor`, WHICH IS THE FIRST THING A READER WILL ASK, since
- * `actor` is already a canonical member and already carries participant ids.
- * They answer different questions. `actor` names WHO EMITTED the row —
- * `0001-initial.ts` documents that column as "participant_id or agent_id or NULL
- * for system". This stamp names WHOSE CONTENT KEY SEALED the ciphertext. The two
- * coincide often and diverge exactly where the divergence is expensive: an
- * agent-emitted row (`actor` = an `agent_id`) or a system-emitted one (`actor`
- * NULL) can still carry a participant's PII, and on those rows `actor` cannot
- * answer the question `Spec-022 §Shred Fan-Out`'s scope selector asks. That is
- * why the stamp is a separate value, and it is also what keeps the disclosure
- * argument below honest: same KIND of datum as `actor`, different FACT.
- *
- * WHY THE MEMBER EXISTS, given T3.1 will also persist the value as a column: a
- * column alone is signed by nothing. `Spec-022 §Shred Fan-Out` Path 1 destroys
- * the per-participant key and overwrites no column, so after a shred the
- * ciphertext can never again be attributed to an owner by decryption and this
- * stamp is the only surviving evidence of whose data the row held. A tampered
- * stamp does not stop the key DELETE from erasing the data — that operation is
- * global to the participant — but it corrupts the SCOPE SELECTOR, which
- * falsifies the `affectedSessionIds[]` / `piiPayloadsCleared` an `event.shredded`
- * event records as compliance evidence, on a row `Spec-006 §Event Maintenance
- * (event_maintenance)` retains indefinitely and never shreds.
- *
- * MINTED NOW BECAUSE NOW IS FREE. This member changes the canonical form, which
- * is a one-way door once rows exist — and none do. Plan-001's shipped
- * `SessionService.append` hardcodes `pii_payload = NULL`, T3.1 has not landed,
- * and the stamp column does not exist yet, so nothing has ever been signed
- * without this member and there is no migration and no backfill to weigh. The
- * same decision after T3.1 ships would be a stored-data problem.
- *
- * Exported for the same reason its sibling is: the read side asserts on it
- * rather than re-typing the literal. Declared `as const` so the type stays the
- * literal, which is what keeps the computed-key write in
- * {@link embedCiphertextDigest} exactly typed.
- */
-export const PII_PARTICIPANT_ID_PAYLOAD_KEY = "pii_participant_id" as const;
+// --------------------------------------------------------------------------
+// The two PII payload-member names — DECLARED IN CONTRACTS, re-exported here.
+// --------------------------------------------------------------------------
+//
+// Both keys used to be declared in this module, because this module was their
+// only reader. They moved to `packages/contracts/src/event.ts` when the strict
+// layer REGISTERED them as optional members on every payload variant that may
+// carry a PII partition: a literal a lower-tier package indexes a schema by
+// belongs in that package, which is the `CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY`
+// / `SOURCE_EPOCH_PAYLOAD_KEY` convention stated on those declarations. The
+// re-export keeps every consumer in this package — the append service, the
+// `0007` migration, the verifier, and the post-shred suites — importing from
+// where they always did, so exactly one spelling of each string exists.
+//
+// WHAT MOVED WITH THEM, and what stayed. The wire-contract reasoning is on the
+// contracts declarations: why both are snake_case (`Spec-006 §Canonical
+// Serialization Rules` names them verbatim, they land inside the SIGNED
+// canonical bytes, and every independent verifier reads them by that spelling —
+// a fold to the surrounding camelCase would not tidy anything, it would break
+// verification on every existing PII row), and why the digest's ENCODING is
+// deliberately unpinned. What stays here is the reasoning that is about this
+// codec:
+//
+//   * THE OWNER STAMP IS NOT REDUNDANT WITH `actor`, which is the first thing a
+//     reader will ask, since `actor` is already a canonical member and already
+//     carries participant ids. They answer different questions. `actor` names
+//     WHO EMITTED the row — `0001-initial.ts` documents that column as
+//     "participant_id or agent_id or NULL for system". The stamp names WHOSE
+//     CONTENT KEY SEALED the ciphertext. The two coincide often and diverge
+//     exactly where the divergence is expensive: an agent-emitted row (`actor` =
+//     an `agent_id`) or a system-emitted one (`actor` NULL) can still carry a
+//     participant's PII, and on those rows `actor` cannot answer the question
+//     `Spec-022 §Shred Fan-Out`'s scope selector asks. Same KIND of datum as
+//     `actor`, different FACT — which is what keeps the disclosure argument
+//     honest.
+//   * WHY THE MEMBER EXISTS AT ALL, given T3.1 also persists the value as a
+//     column: a column alone is signed by nothing. `Spec-022 §Shred Fan-Out`
+//     Path 1 destroys the per-participant key and overwrites no column, so after
+//     a shred the ciphertext can never again be attributed to an owner by
+//     decryption and this stamp is the only surviving evidence of whose data the
+//     row held. A tampered stamp does not stop the key DELETE from erasing the
+//     data — that operation is global to the participant — but it corrupts the
+//     SCOPE SELECTOR, falsifying the `affectedSessionIds[]` / `piiPayloadsCleared`
+//     an `event.shredded` event records as compliance evidence, on a row
+//     `Spec-006 §Event Maintenance (event_maintenance)` retains indefinitely and
+//     never shreds.
+//   * BOTH ARE `as const`, so each type stays its literal rather than widening
+//     to `string` — which is what keeps the computed-key writes in
+//     {@link embedCiphertextDigest} exactly typed.
+export { PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY, PII_PARTICIPANT_ID_PAYLOAD_KEY };
 
 // --------------------------------------------------------------------------
 // Brands.
@@ -410,6 +397,29 @@ export const BODY_BEARING_EVENT_TYPES: Readonly<Record<BodyBearingEventType, tru
   "tool.result": true,
   "tool.error": true,
 };
+
+/**
+ * The event types with a registered `SessionEventSchema` payload variant, as a
+ * set — the dispatch refusal 9 runs on.
+ *
+ * DERIVED from the contracts package's own `SESSION_EVENT_TYPES` roster rather
+ * than restated here, exactly as both driver normalizers derive their emission
+ * readiness from it. That roster is annotated `readonly SessionEvent["type"][]`,
+ * which binds its membership to the live union at COMPILE time, and contracts'
+ * own non-vacuity guard asserts set-equality between the roster and the union's
+ * branches — so this set widens by itself the moment a plan registers a variant,
+ * and no mirror of the registered set exists in this module to drift.
+ *
+ * Typed `ReadonlySet<string>` rather than `ReadonlySet<SessionEventType>`
+ * because the value tested against it is `EventEnvelope.type`, a bounded
+ * free-form `string`: the tolerant carrier a higher-MINOR producer relies on.
+ * Narrowing the set's parameter would force a cast at the one call site and make
+ * the membership test read as a question about a census literal, which is
+ * exactly what it is not.
+ */
+const REGISTERED_STRICT_VARIANT_EVENT_TYPES: ReadonlySet<string> = new Set<string>(
+  SESSION_EVENT_TYPES,
+);
 
 /** What the PII encrypt stage produces, carried to the embed stage. */
 interface SealedPiiPartition {
@@ -1212,6 +1222,22 @@ const PII_REFUSED_CATEGORY_NAMES: readonly PiiRefusedCategory[] = [
  *      the guard's own note carries the rest. The well-formedness arm is
  *      APPENDED LAST WITHIN 8, behind the key-width check, so no input that drew
  *      either sibling's message draws a different one now.
+ *   9. A COMPOSED ENVELOPE ITS OWN REGISTERED VARIANT REJECTS — a category that
+ *      does not match its `type`, or a `payload` the type's registered schema
+ *      refuses. THE ONE ENTRY IN THIS LIST THAT FIRES BEHIND THE ENCRYPT, and it
+ *      is in the list anyway because the list is the observable refusal ORDER
+ *      and this refusal is observable: it is simply last. It cannot be hoisted —
+ *      its subject is the envelope AFTER the embed step, which does not exist
+ *      until the seal has run — so it is also the third member of the
+ *      behind-the-encrypt set below. {@link assertRegisteredVariantParses}
+ *      carries the whole argument: why it parses the composed form rather than
+ *      the input, why a type with no registered variant is skipped, and why the
+ *      subject needs nothing projected away. That function is SHARED with
+ *      `EventLogService.append`'s plain branch, which reaches the same guard
+ *      from its own position. Placed after 8, in the only
+ *      position it could occupy, so it reorders nothing: an input defective at
+ *      1–8 draws the message it drew before, and only inputs that were
+ *      previously ADMITTED can reach it at all.
  *
  * 3, 5, AND 6 ARE EARLY COPIES, NEVER REPLACEMENTS.
  * `assertRepresentableSequence`, `signRow`'s guard, and `ed25519.sign`'s
@@ -1237,13 +1263,13 @@ const PII_REFUSED_CATEGORY_NAMES: readonly PiiRefusedCategory[] = [
  * column and the claim would agree. Bound is not well-shaped, and nothing after
  * this guard asks the second question. The guard's own note carries the rest.
  *
- * TWO CLASSES REMAIN BEHIND THE ENCRYPT, AND NEITHER MOVES HONESTLY. THE
- * CONTENT PARTITION ADDS NO THIRD: {@link sealContentPartition} refuses nothing
- * of its own, because 8 has already checked both values it consumes — including
- * the well-formedness {@link applyPlaintextBound} names as its precondition —
- * and the
- * bound TRUNCATES rather than refusing, so a body over the ceiling is a stored
- * row with `contentTruncated` set and never a rejected append. The two:
+ * THREE CLASSES REMAIN BEHIND THE ENCRYPT, AND NONE MOVES HONESTLY. THE CONTENT
+ * PARTITION'S SEAL ADDS NONE OF THEM: {@link sealContentPartition} refuses
+ * nothing of its own, because 8 has already checked both values it consumes —
+ * including the well-formedness {@link applyPlaintextBound} names as its
+ * precondition — and the bound TRUNCATES rather than refusing, so a body over
+ * the ceiling is a stored row with `contentTruncated` set and never a rejected
+ * append. The three:
  *
  *   - THE ENCRYPTOR-RESULT SHAPE GUARD judges a value that does not exist until
  *     the encryptor has run.
@@ -1272,6 +1298,17 @@ const PII_REFUSED_CATEGORY_NAMES: readonly PiiRefusedCategory[] = [
  *     this class: it fires only for a TOP-LEVEL value with no JSON
  *     representation, and `canonicalizeEvent` always hands it an object, so it
  *     is reachable only through the `piiPayload` call at 4 — above the encrypt.
+ *   - REFUSAL 9's COMPOSED-VARIANT PARSE, whose subject — the embedded envelope
+ *     — does not exist until the seal has run. It is the one member of this set
+ *     that is answerable from the input IN PRINCIPLE and is still placed here on
+ *     purpose: reconstructing the subject early would mean substituting a
+ *     placeholder for each digest, which is the same
+ *     pre-check-that-disagrees-with-its-guard hazard the depth-offset argument
+ *     above refuses for the nesting ceiling, and on a value the strict layer is
+ *     free to start constraining without telling this module. The cost is named
+ *     rather than hidden — a row refused at 9 has already spent its AEAD nonces
+ *     on both partitions — and what it buys is a guard that judges exactly the
+ *     members the signature is about to cover.
  *
  * NOT IDEMPOTENT — see the module header. Re-running after a partial failure
  * mints a second, unrelated ciphertext and a second, unrelated signature.
@@ -1769,6 +1806,20 @@ export async function writeEventWithPii(
     piiPartition,
     contentPartition,
   );
+
+  // --- Refusal 9: PARSE WHAT WILL BE SIGNED ---------------------------------
+  //
+  // Between the embed and the canonicalization, which is the ONLY window in
+  // which the subject exists: this codec's members are in place with their real
+  // values, and no byte has been serialized or signed yet. Hoisting it ahead of
+  // the encrypt would mean judging a reconstruction rather than the row, which
+  // {@link assertRegisteredVariantParses} argues against at length. The plain
+  // append branch calls the SAME function from its own position.
+  assertRegisteredVariantParses(envelope, {
+    name: "writeEventWithPii",
+    timing:
+      "Refused after the seal and before the signature, which is the only window in which the signed form exists to be checked.",
+  });
 
   // --- Steps 5 + 6: CANONICALIZE, then SIGN ---------------------------------
   const canonical: CanonicalBytes = canonicalizeDigestBearingEvent(envelope);
@@ -2279,6 +2330,209 @@ export function isPiiOwnerStampBound(
     return false;
   }
   return storedPiiParticipantId === claimedStamp;
+}
+
+/**
+ * One issue from the strict layer's own parse result.
+ *
+ * Read off `safeParse`'s return type rather than imported from `zod`: the shape
+ * is whatever the version contracts compiles against produces, so a Zod major
+ * that renames an issue member breaks {@link describeStrictLayerIssues} at
+ * `pnpm typecheck` instead of at the one throw a caller was relying on. This
+ * module imports no validator and gains none here.
+ */
+type StrictLayerParseIssue = Extract<
+  ReturnType<typeof SessionEventSchema.safeParse>,
+  { success: false }
+>["error"]["issues"][number];
+
+/**
+ * How many parse issues a refusal message renders before eliding the rest.
+ *
+ * A defective payload can raise one issue per member, and a throw message is
+ * read by a person: the first few name the defect and the tail is noise. The
+ * elided COUNT is still reported, so the message never implies the list was
+ * complete when it was not.
+ */
+const STRICT_LAYER_ISSUES_RENDERED_MAX = 5;
+
+/**
+ * Renders refusal 9's parse issues as PATHS AND CODES, never as values.
+ *
+ * The withholding is the point, and it is this module's standing rule rather
+ * than a new one: {@link describeByteShape} reports a length or a `typeof` and
+ * never a byte, {@link describeParticipantIdShape} reports a type and a
+ * character count, and `EventLogService`'s reserved-key refusal reports a KEY
+ * PATH and never the value under it. A payload member is the one place on this
+ * path a participant's or a model's words can sit, so Zod's own `message` —
+ * which quotes received values for several issue codes — is deliberately not
+ * forwarded. A path plus a code is what a caller acts on; the value is what a
+ * log must not keep.
+ *
+ * `unrecognized_keys` is the one code that carries something more, and what it
+ * carries is member NAMES: the same class of datum as the path itself, and the
+ * only way the message can say WHICH member the strict layer does not know.
+ * Narrowing on the literal code is what types `issue.keys` — the reason the
+ * issue union is read off the parse result rather than flattened to a
+ * hand-written shape.
+ */
+function describeStrictLayerIssues(issues: readonly StrictLayerParseIssue[]): string {
+  const rendered: string[] = issues
+    .slice(0, STRICT_LAYER_ISSUES_RENDERED_MAX)
+    .map((issue: StrictLayerParseIssue) => {
+      const memberPath =
+        issue.path.length === 0
+          ? "<envelope>"
+          : issue.path.map((segment) => String(segment)).join(".");
+      return issue.code === "unrecognized_keys"
+        ? `${memberPath} (${issue.code}: ${issue.keys.join(", ")})`
+        : `${memberPath} (${issue.code})`;
+    });
+  const elidedCount = issues.length - rendered.length;
+  return elidedCount === 0
+    ? rendered.join("; ")
+    : `${rendered.join("; ")}; and ${String(elidedCount)} further issue(s)`;
+}
+
+/**
+ * Which seam is refusing, and where in its own order the refusal lands.
+ *
+ * Carried as data rather than inferred, because the two callers reach the guard
+ * at genuinely different points and a message that guessed would be wrong on one
+ * of them: the sealing path refuses BEHIND the encrypt, the plain path refuses
+ * before anything. A reader who greps the thrown text has to land on the seam
+ * that actually threw.
+ */
+export interface StrictLayerParseSeam {
+  /** The function a reader would grep for, spelled as it is declared. */
+  readonly name: string;
+  /** One sentence placing the refusal in that seam's own order. */
+  readonly timing: string;
+}
+
+/**
+ * PARSE WHAT WILL BE SIGNED — the last thing that happens to any row before it
+ * is canonicalized, on either of the daemon's two write paths.
+ *
+ * THE ONE DEFINITION OF THIS SEAM. It is refusal 9 of {@link writeEventWithPii}
+ * and the pre-canonicalization guard of `EventLogService.append`'s plain branch,
+ * and those are two CALLERS of one function rather than two implementations: a
+ * copy would be a second answer to "which rows may be signed", and the two
+ * answers would diverge on the first variant that lands. It lives in this module
+ * because the Encrypt-Then-Digest-Then-Sign ordering argument that fixes WHERE
+ * it may run lives here; it is named for what it does rather than for this
+ * module's partition, because the plain path seals nothing.
+ *
+ * The two callers differ only in WHEN their subject comes into existence. On the
+ * sealing path it does not exist until the embed step has run, which is why this
+ * is the one refusal in that function's numbered order that fires behind the
+ * encrypt. On the plain path the caller's own payload IS the subject, so the
+ * guard runs before anything at all.
+ *
+ * WHAT IT ANSWERS THAT NOTHING ELSE DOES. Refusal 1's fourth arm reads
+ * `input.type` and nothing else, so it stops a body on a type that declares no
+ * place for one and stops nothing else. A caller may still hand this codec a
+ * body on `assistant.message` under the WRONG category, or with a `payload` that
+ * type's own registered schema refuses — a missing `sessionId`, a `tool.result`
+ * with no `toolName`, a member no variant declares. The embed step then projects
+ * `contentCiphertextDigest` and `contentLength` into that payload, the
+ * canonicalizer serializes it, and the signature vouches for the result: a
+ * signed, chained row that fails its own schema on the way back out and can
+ * never be read as anything but a stub. That is the identical harm arm four
+ * names, reached through a defect arm four cannot see.
+ *
+ * PARSE WHAT YOU SIGN — which is why the sealing caller runs it where it does.
+ * Its subject is the exact object {@link canonicalizeDigestBearingEvent} is
+ * about to serialize, with this codec's members already embedded and their real
+ * values in place. Composing an equivalent subject before the encrypt would mean
+ * substituting a placeholder for each digest, and {@link writeEventWithPii}'s
+ * refusal-order note has already settled what this module thinks of a pre-check
+ * that can disagree with the guard it stands in for: refusing late and saying so
+ * beats a cheap check that is wrong at the boundary. That path's order is
+ * therefore ENCRYPT → DIGEST → EMBED → *parse* → CANONICALIZE → SIGN, the
+ * Encrypt-Then-Digest-Then-Sign recipe with one step inserted where its subject
+ * first exists. The plain path has no such constraint and runs it immediately
+ * before `canonicalizeEvent`, which is the same position — last, over the object
+ * about to be serialized — reached by a shorter route.
+ *
+ * ONE PARSE PER APPEND OF A REGISTERED TYPE, and by construction never in a hot
+ * loop: an append runs once per row under the per-session append lock, and a row
+ * that reaches this line is about to pay for an Ed25519 signature — and, on the
+ * sealing path, has already paid for an AES-256-GCM seal. A schema parse is not
+ * the cost on either path. Acceptable by construction, not by measurement.
+ *
+ * ONE SEAM, EVERY ROW THE APPEND PATH SIGNS. The pii-only route reaches it on the
+ * same terms as the content-only and both-partition ones, and the partitionless
+ * plain branch on the same terms as all three, because the defect is a property
+ * of the ROW rather than of which column was written: a row on a registered type
+ * whose payload its own variant rejects is signed and unparseable whether it
+ * carries a sealed partition or nothing at all. No shipped doctrine exempts any
+ * of them — `packages/contracts/src/event.ts` scopes the DISPATCH (below) and
+ * says nothing about partitions — and scoping the guard to the partition that
+ * happened to prompt it would make its reach an accident of which finding was
+ * filed.
+ *
+ * WHAT THAT CLAIM DOES NOT COVER, named rather than glossed. It covers the
+ * APPEND path, both branches of it. It does not cover the compactor, which
+ * replaces a row's `payload` with the audit-stub projection and re-signs it
+ * through its own canonicalize-and-sign under an `UPDATE` — a projection that is
+ * deliberately NOT its type's registered variant shape, so parsing it here would
+ * refuse every compacted row. That row's integrity is held by the stub's own
+ * bound projection and by `stub_scalar_mismatch` instead, and the boundary is
+ * stated so a later reader does not take the heading for a property of every
+ * signature the daemon produces.
+ *
+ * ONE DELIBERATE NARROWING, forced by a fact rather than chosen:
+ *
+ *   - A TYPE WITH NO REGISTERED VARIANT IS SKIPPED. `packages/contracts/src/event.ts`
+ *     is explicit that a reader "MUST persist an envelope whose `type` it cannot
+ *     interpret as a version stub — never drop or reject it", and that the
+ *     STRICT layer is "the interpretation surface, where unknown types and
+ *     category/type mismatches fail loud at parse time". A codec that refused
+ *     every unregistered type would reject exactly the envelopes the stub path
+ *     exists to preserve, and would make this module the one place in the daemon
+ *     where the tolerant carrier is not tolerated. The dispatch scopes the guard
+ *     to the types the strict layer actually claims to interpret, and it widens
+ *     by itself as variants land. The CONTENT route needs no dispatch of its own
+ *     — the body-bearing types are registered by construction, since
+ *     {@link BODY_BEARING_EVENT_TYPES} is derived from the same union — so the
+ *     dispatch exists to carry the PII route.
+ *
+ * WHAT THE GUARD THEREFORE CLAIMS, stated so it cannot be over-read: not "no
+ * unparseable row is ever signed", which the narrowing makes false, but "no row
+ * is signed that fails the strict layer on grounds the strict layer actually
+ * expresses".
+ *
+ * THE SUBJECT IS THE ENVELOPE ITSELF, member-for-member and value-for-value,
+ * with nothing projected away. That is a property of the CONTRACTS layer rather
+ * than of this function: `packages/contracts/src/event.ts` registers
+ * {@link PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY} and
+ * {@link PII_PARTICIPANT_ID_PAYLOAD_KEY} as schema-optional members on every
+ * payload variant whose category may carry a PII partition, which is what
+ * `Spec-006 §Canonical Serialization Rules` requires of any row whose
+ * `pii_payload` is non-NULL. An earlier revision of this guard excised the pair
+ * before parsing, because no variant declared them and every payload schema is
+ * `.strict()`, so a verbatim parse would have refused 100% of the PII route. The
+ * registration removed the reason rather than the symptom: there is now nothing
+ * to excise, and the guard judges the signed row exactly as it will be read
+ * back.
+ */
+export function assertRegisteredVariantParses(
+  envelope: EventEnvelope,
+  seam: StrictLayerParseSeam,
+): void {
+  if (!REGISTERED_STRICT_VARIANT_EVENT_TYPES.has(envelope.type)) {
+    return;
+  }
+
+  const parsed = SessionEventSchema.safeParse(envelope);
+  if (parsed.success) {
+    return;
+  }
+
+  throw new Error(
+    `${seam.name} refuses to sign an event of type ${JSON.stringify(envelope.type)} that its own registered SessionEventSchema variant rejects: ${describeStrictLayerIssues(parsed.error.issues)}. Signing it would chain a row that fails the strict layer on the way back out — permanently unreadable as anything but a stub (Spec-006 §Canonical Serialization Rules). ${seam.timing}`,
+  );
 }
 
 /**
