@@ -934,6 +934,13 @@ describe("non-absolute input is refused before resolution (I-009-2)", () => {
       (error: unknown) => ({ resolved: false as const, value: error }),
     );
     expect(settled.resolved).toBe(false);
+    // The reason assertion is what keeps this test's mutation power now that
+    // the input is fixture-relative: with the gate removed, `nested/deep`
+    // is unresolvable against the live process cwd and the call would still
+    // reject — as `path_not_found`. Pinning `not_absolute` means a bypassed
+    // gate flips this test red instead of passing by coincidence.
+    expect(settled.value).toBeInstanceOf(RepoRootResolutionError);
+    expect((settled.value as RepoRootResolutionError).reason).toBe("not_absolute");
     // Negative control — completed against a daemon-side base directory, the
     // SAME input resolves, so the refusal above is a real refusal and not an
     // artifact of the input being unresolvable anywhere. The base is the
@@ -946,7 +953,6 @@ describe("non-absolute input is refused before resolution (I-009-2)", () => {
       resolvePath(fixtures.repositoryRoot, relativeInput),
     );
     expect(baseCompletedRoot).toEqual({ canonicalRoot: fixtures.repositoryRoot, vcsType: "git" });
-    expect(settled.value).toBeInstanceOf(RepoRootResolutionError);
     expect(JSON.stringify(settled.value)).not.toContain(baseCompletedRoot.canonicalRoot);
   });
 
