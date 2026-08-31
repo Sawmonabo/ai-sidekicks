@@ -137,7 +137,7 @@
 // `Spec-022 §Ordering And Atomicity`.
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 
-import type { EventCategory, EventEnvelope } from "@ai-sidekicks/contracts";
+import type { EventCategory, EventEnvelope, SessionEvent } from "@ai-sidekicks/contracts";
 import {
   CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY,
   CONTENT_LENGTH_PAYLOAD_KEY,
@@ -353,6 +353,64 @@ const CODEC_OWNED_CONTENT_PAYLOAD_KEYS: readonly string[] = [
   CONTENT_TRUNCATED_PAYLOAD_KEY,
 ];
 
+/**
+ * Every `SessionEvent` variant whose registered payload declares the codec's
+ * content-digest member — DERIVED from the contracts union rather than listed.
+ *
+ * The derivation is the point. A hand-written list of five type strings is a
+ * second registration of a decision contracts already made, free to drift the
+ * moment a sixth body-bearing variant lands, and drifting silently in the one
+ * direction that matters: a variant whose payload declares
+ * `contentCiphertextDigest` but which this module refuses would have its prose
+ * dropped at the append path with a message about the wrong thing. Reading the
+ * union instead means the closed set cannot disagree with the schemas.
+ *
+ * The conditional distributes over the union because `Variant` is a naked type
+ * parameter, so each arm is tested on its own and the result is the union of the
+ * `type` literals that pass. `keyof` includes OPTIONAL members, which is what
+ * makes the test work at all — every member of `MachineContentDescriptor` is
+ * optional, since a body-bearing row that carried no body is still a valid row.
+ */
+type EventTypeCarryingContentDigest<Variant> = Variant extends {
+  type: infer VariantType;
+  payload: infer VariantPayload;
+}
+  ? typeof CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY extends keyof VariantPayload
+    ? VariantType
+    : never
+  : never;
+
+/**
+ * The five event types that may carry a machine-authored content partition.
+ *
+ * Exported so the test suite asserts against the registration-derived set
+ * itself rather than against a re-typed copy of it — a re-typed copy being the
+ * second source of truth this whole derivation exists to avoid.
+ */
+export type BodyBearingEventType = EventTypeCarryingContentDigest<SessionEvent>;
+
+/**
+ * The runtime half of the same closed set, and a BIDIRECTIONAL drift guard.
+ *
+ * The `Readonly<Record<BodyBearingEventType, true>>` annotation fails the build
+ * in both directions rather than only one: a variant that GAINS a content
+ * descriptor in contracts leaves a required key missing here, and a key here
+ * that names no such variant is an excess property on the literal. So a future
+ * variant growth is a `pnpm typecheck` failure at the moment it lands, not a
+ * silent divergence discovered by whoever first tries to seal a body under it.
+ *
+ * An object rather than a `Set` or an array, so the annotation can do that work:
+ * `readonly BodyBearingEventType[]` would catch a WRONG member and never a
+ * MISSING one, which is the direction that loses prose.
+ */
+export const BODY_BEARING_EVENT_TYPES: Readonly<Record<BodyBearingEventType, true>> = {
+  "assistant.message": true,
+  "assistant.thinking_update": true,
+  "tool.invoked": true,
+  "tool.result": true,
+  "tool.error": true,
+};
+
 /** What the PII encrypt stage produces, carried to the embed stage. */
 interface SealedPiiPartition {
   readonly ciphertext: PiiPayloadCiphertext;
@@ -374,21 +432,92 @@ function buildContentSealAad(sessionId: string, eventId: string): Uint8Array {
 }
 
 /**
+ * The UTF-8 width of one code point, from its scalar value alone.
+ *
+ * Total over every UTF-16 unit value, INCLUDING an unpaired surrogate, which is
+ * deliberate rather than incidental: the walk below must not be able to throw or
+ * to return a wrong length on an input the caller has not yet refused. Three
+ * bytes is also the honest answer for that case — `TextEncoder` substitutes
+ * U+FFFD, which encodes to exactly three — so the reported length stays true
+ * even on a body refusal 8 is about to reject.
+ */
+function utf8ByteWidth(codePoint: number): number {
+  if (codePoint <= 0x7f) return 1;
+  if (codePoint <= 0x7ff) return 2;
+  if (codePoint <= 0xffff) return 3;
+  return 4;
+}
+
+/**
+ * The UTF-16 index of the first unpaired surrogate in `value`, or `-1` when the
+ * string is well-formed — the predicate behind refusal 8's third arm.
+ *
+ * WHAT IT STANDS IN FOR, AND WHY IT IS NOT THAT. ECMAScript's own answer is
+ * `String.prototype.isWellFormed()`, which is ES2024; this workspace pins
+ * `lib: ["es2023"]` in `tsconfig.node22.json`, so the method exists at runtime
+ * under Node 22 and is absent from the type surface. The alternatives were
+ * widening every package's ambient lib for one call site or casting past the
+ * type system on the exact value the guard exists to distrust. A twelve-line
+ * total scan is neither, and it buys the refusal message an INDEX, which the
+ * standard predicate does not report.
+ *
+ * The scan is deliberately the same shape as {@link applyPlaintextBound}'s: one
+ * pass over UTF-16 units, no allocation, and a high surrogate consumes its
+ * trailing unit only when that unit is a low surrogate. Anything else — a low
+ * surrogate reached first, a high surrogate at the end of the string, a high
+ * surrogate followed by a non-surrogate — is the unpaired case.
+ */
+function findUnpairedSurrogateIndex(value: string): number {
+  for (let unitIndex = 0; unitIndex < value.length; unitIndex += 1) {
+    const unit = value.charCodeAt(unitIndex);
+    if (unit < 0xd800 || unit > 0xdfff) {
+      continue;
+    }
+    if (unit > 0xdbff) {
+      return unitIndex;
+    }
+    const trailingUnit = unitIndex + 1 < value.length ? value.charCodeAt(unitIndex + 1) : -1;
+    if (trailingUnit < 0xdc00 || trailingUnit > 0xdfff) {
+      return unitIndex;
+    }
+    unitIndex += 1;
+  }
+  return -1;
+}
+
+/**
  * Applies the plaintext bound, cutting at a UTF-8 CODEPOINT boundary.
  *
- * The bound is a BYTE budget over a 256 KiB body, so the body is encoded ONCE
- * and the cut is found by walking back over continuation bytes (`10xxxxxx`) from
- * the budget index. The compactor's sibling idiom cuts by code POINTS via
- * `Array.from` because its budget is expressed in canonical bytes of a re-
- * serialized object and its subject is a short summary; re-encoding per codepoint
- * here would allocate across a quarter-megabyte body to answer a question one
- * backward scan of at most three bytes already answers.
+ * ENCODES A BOUNDED PREFIX AND NEVER THE WHOLE BODY. `EventContentInput.body`
+ * is an arbitrarily large caller-supplied string — a tool result is routinely a
+ * file dump, which is the reason the ceiling exists at all — so encoding first
+ * and cutting afterwards would materialize the entire encoding before learning
+ * it must be thrown away, allocating without bound on exactly the input the
+ * bound exists to contain. Instead the walk below computes the PRE-truncation
+ * byte length in O(1) space, summing per-code-point UTF-8 widths, and only then
+ * encodes at most {@link CONTENT_PAYLOAD_PLAINTEXT_MAX} bytes' worth of prefix.
+ *
+ * THE CUT IS BYTE-IDENTICAL TO THE ENCODE-THEN-WALK-BACK RULE IT REPLACES, and
+ * that equivalence is what lets the truncation arms stay unmodified: both
+ * produce the LONGEST WHOLE-CODE-POINT PREFIX whose UTF-8 length is at most the
+ * budget. The walk simply refuses the first code point that would cross the
+ * budget instead of encoding past it and stepping back over continuation bytes.
+ * A body whose encoding lands exactly on the budget is NOT truncated, under both
+ * rules.
  *
  * Cutting mid-codepoint is what the walk exists to prevent, and the consequence
  * is not cosmetic: a lone surrogate or a truncated multi-byte sequence would
  * either fail the RFC 8785 §3.2.2.2 well-formed-strings guard downstream or
  * decode to a replacement character on read, silently corrupting the last
  * character of every truncated body.
+ *
+ * REFUSAL 8'S WELL-FORMEDNESS ARM IS THIS FUNCTION'S PRECONDITION, and moving
+ * that guard would silently change what this reports. {@link utf8ByteWidth}
+ * answers for an unpaired surrogate rather than throwing, so the length stays
+ * true either way — but the SURROGATE-PAIR step below advances two UTF-16 units
+ * only for a well-formed pair, and a caller that admitted ill-formed text would
+ * be sealing bytes `TextEncoder` had already replaced with U+FFFD while the
+ * signature vouched for them as the prose that went in.
  *
  * `contentLength` reports the PRE-truncation length, so the size of what was
  * dropped stays recoverable from the audit log.
@@ -398,21 +527,40 @@ function applyPlaintextBound(body: string): {
   readonly contentLength: number;
   readonly truncated: boolean;
 } {
-  const encoded = new TextEncoder().encode(body);
-  if (encoded.length <= CONTENT_PAYLOAD_PLAINTEXT_MAX) {
-    return { bytes: encoded, contentLength: encoded.length, truncated: false };
+  // `boundedUnitCount` is the UTF-16 length of the longest prefix that fits, and
+  // `-1` means "nothing has crossed the budget yet" — which at the end of the
+  // walk is exactly the untruncated case, including the body that lands on the
+  // budget to the byte.
+  let contentLength = 0;
+  let boundedUnitCount = -1;
+  for (let unitIndex = 0; unitIndex < body.length; ) {
+    const unit = body.charCodeAt(unitIndex);
+    let unitWidth = 1;
+    let codePoint = unit;
+    if (unit >= 0xd800 && unit <= 0xdbff && unitIndex + 1 < body.length) {
+      const trailingUnit = body.charCodeAt(unitIndex + 1);
+      if (trailingUnit >= 0xdc00 && trailingUnit <= 0xdfff) {
+        codePoint = (unit - 0xd800) * 0x400 + (trailingUnit - 0xdc00) + 0x10000;
+        unitWidth = 2;
+      }
+    }
+    const byteWidth = utf8ByteWidth(codePoint);
+    if (boundedUnitCount < 0 && contentLength + byteWidth > CONTENT_PAYLOAD_PLAINTEXT_MAX) {
+      boundedUnitCount = unitIndex;
+    }
+    contentLength += byteWidth;
+    unitIndex += unitWidth;
   }
-  // `cut` indexes the FIRST byte that would be dropped. While that byte is a
-  // continuation byte the cut sits inside a codepoint, so walk left. A lead or
-  // ASCII byte at `cut` means the boundary is clean. At most three steps: the
-  // longest UTF-8 sequence is four bytes.
-  let cut = CONTENT_PAYLOAD_PLAINTEXT_MAX;
-  while (cut > 0 && (encoded[cut]! & 0xc0) === 0x80) {
-    cut -= 1;
+
+  if (boundedUnitCount < 0) {
+    return { bytes: new TextEncoder().encode(body), contentLength, truncated: false };
   }
+  // `slice` copies at most the budget's worth of characters, and the encode
+  // below therefore allocates at most the budget's worth of bytes — the whole
+  // point of finding the cut before encoding rather than after.
   return {
-    bytes: encoded.subarray(0, cut),
-    contentLength: encoded.length,
+    bytes: new TextEncoder().encode(body.slice(0, boundedUnitCount)),
+    contentLength,
     truncated: true,
   };
 }
@@ -971,15 +1119,26 @@ const PII_REFUSED_CATEGORY_NAMES: readonly PiiRefusedCategory[] = [
  * one the caller sees — so it is fixed here rather than left to the reading
  * order of the body:
  *
- *   1. A STRUCTURAL DEFECT IN THE INPUT'S PARTITIONING, in THREE arms, in this
+ *   1. A STRUCTURAL DEFECT IN THE INPUT'S PARTITIONING, in FOUR arms, in this
  *      order: a refused category (I-006-3-01 layer 2), then an input carrying
  *      NEITHER partition, then a HALF-PRESENT PII partition
- *      (`piiParticipantId` with no `piiPayload`). Arms two and three were added
+ *      (`piiParticipantId` with no `piiPayload`), then a CONTENT partition on an
+ *      event type outside the body-bearing five
+ *      ({@link BODY_BEARING_EVENT_TYPES}). Arms two and three were added
  *      with the content partition and neither reorders anything that could
  *      reach the shipped code: before a second partition existed, "neither" was
  *      unreachable and the half-present shape threw much later and about the
  *      wrong thing, inside `canonicalizeJson(undefined)`. Each arm's own note
  *      carries why it refuses rather than degrades.
+ *
+ *      ARM FOUR IS PLACED LAST OF THE FOUR so neither sibling's message moves
+ *      for an input that drew one. It DOES reorder an input that was already
+ *      being refused — a content partition on an unregistered type that ALSO
+ *      pre-seeds a reserved member drew refusal 2 before and draws this now —
+ *      which is the reserved-stamp arm's precedent, named rather than denied and
+ *      benign for the same reason: the input is invalid either way and both
+ *      answers are refusals before the nonce. Every input carrying content on
+ *      one of the five answers exactly as it did.
  *   2. A `payload` that already claims a RESERVED member, in THREE arms over
  *      FIVE members: `pii_ciphertext_digest` first, then `pii_participant_id`,
  *      then one arm over the three content members
@@ -1042,13 +1201,17 @@ const PII_REFUSED_CATEGORY_NAMES: readonly PiiRefusedCategory[] = [
  *      that drew a refusal without this guard draws the identical refusal with
  *      it, since 1–6 are answerable from members it does not read.
  *   8. A malformed CONTENT partition — a non-string `content.body`, then a
- *      `content.contentKey` that is not 32 bytes. Placed LAST, on the same
+ *      `content.contentKey` that is not 32 bytes, then a `content.body` that is
+ *      not WELL-FORMED UTF-16. Placed LAST, on the same
  *      no-reordering ground: nothing at 1–7 reads `content`, so every input
  *      that could reach the code before this partition existed answers exactly
- *      as it did. Both members are silent when wrong — `TextEncoder` stringifies
- *      a non-string rather than refusing, and a wrong-width key reaches
- *      `createCipheriv` only after the PII nonce is already spent — and the
- *      guard's own note carries the rest.
+ *      as it did. All three are silent when wrong — `TextEncoder` stringifies
+ *      a non-string rather than refusing, a wrong-width key reaches
+ *      `createCipheriv` only after the PII nonce is already spent, and an
+ *      unpaired surrogate is SUBSTITUTED with U+FFFD rather than rejected — and
+ *      the guard's own note carries the rest. The well-formedness arm is
+ *      APPENDED LAST WITHIN 8, behind the key-width check, so no input that drew
+ *      either sibling's message draws a different one now.
  *
  * 3, 5, AND 6 ARE EARLY COPIES, NEVER REPLACEMENTS.
  * `assertRepresentableSequence`, `signRow`'s guard, and `ed25519.sign`'s
@@ -1061,7 +1224,13 @@ const PII_REFUSED_CATEGORY_NAMES: readonly PiiRefusedCategory[] = [
  * covering either. Each is the first and last word on its own value's SHAPE, so
  * there is no downstream authority to be an early copy OF and no drift for a
  * late guard to catch. What follows argues 7; 8's own note argues 8, on the
- * same ground and for two values instead of one. That is an argument for the guard rather than against it, and the
+ * same ground and for three checks over two values instead of one check over
+ * one. 8's WELL-FORMEDNESS arm is the sharpest case of that: the read side's
+ * `TextDecoder` runs `fatal: true`, which would catch invalid UTF-8 — and
+ * `TextEncoder` never emits any, because it substitutes U+FFFD for an unpaired
+ * surrogate rather than producing a malformed sequence. So the ill-formed body
+ * round-trips green forever, and nothing but this guard ever sees
+ * it. That is an argument for the guard rather than against it, and the
  * argument got STRONGER when the stamp joined the canonical bytes: a malformed
  * stamp reaching the embed step is signed, so the signature vouches for it and
  * {@link isPiiOwnerStampBound} reports the row BOUND — correctly, since the
@@ -1070,7 +1239,9 @@ const PII_REFUSED_CATEGORY_NAMES: readonly PiiRefusedCategory[] = [
  *
  * TWO CLASSES REMAIN BEHIND THE ENCRYPT, AND NEITHER MOVES HONESTLY. THE
  * CONTENT PARTITION ADDS NO THIRD: {@link sealContentPartition} refuses nothing
- * of its own, because 8 has already checked both values it consumes and the
+ * of its own, because 8 has already checked both values it consumes — including
+ * the well-formedness {@link applyPlaintextBound} names as its precondition —
+ * and the
  * bound TRUNCATES rather than refusing, so a body over the ceiling is a stored
  * row with `contentTruncated` set and never a rejected append. The two:
  *
@@ -1195,6 +1366,40 @@ export async function writeEventWithPii(
   if (input.piiParticipantId !== undefined && input.piiPayload === undefined) {
     throw new Error(
       "writeEventWithPii refuses an event carrying piiParticipantId with no piiPayload: the two are halves of one partition, and admitting the pair would route the row as content-only and drop the participant half silently — sealed nowhere and invisible to the shred selector. Pass both, or neither.",
+    );
+  }
+
+  // REFUSAL 1's FOURTH ARM — a CONTENT partition on an event type that declares
+  // no place to record one.
+  //
+  // The closed set is `BODY_BEARING_EVENT_TYPES`, derived from the contracts
+  // union rather than listed here, so this guard cannot disagree with the
+  // schemas it enforces. Its own note carries that argument.
+  //
+  // IN THE CODEC RATHER THAN AT THE APPEND PATH, deliberately, and that is the
+  // whole value of the arm. `EventLogService.append` is one caller; this module
+  // is the SOLE WRITE PATH for `content_payload` (I-006-2-02), so a check that
+  // lived above it would be bypassed by the next caller to reach the codec
+  // directly — and the append path already routes `options.content` straight
+  // through. One guard on the write path is worth more than a guard on each
+  // caller, because the second kind is only ever as complete as the last review.
+  //
+  // WHY REFUSE RATHER THAN SEAL ANYWAY. The embed step projects
+  // `contentCiphertextDigest`, `contentLength`, and `contentTruncated` into
+  // `payload`, which lands them inside the signed canonical bytes. On a type
+  // whose registered payload schema is `.strict()` and declares none of the
+  // three, the row this codec produced would then fail its OWN schema on the way
+  // back out — a signed, chained, permanently unparseable row. Refusing costs a
+  // rejected append; admitting costs a row nothing can ever read back.
+  //
+  // Layer 2 again in kind: `type` is a `string` on the envelope (the tolerant
+  // carrier a higher-MINOR producer relies on), so this is a runtime question
+  // that no narrowing here could answer. `Object.hasOwn` rather than a property
+  // read, so a `type` of `"constructor"` or `"__proto__"` cannot borrow a
+  // prototype member and pass.
+  if (input.content !== undefined && !Object.hasOwn(BODY_BEARING_EVENT_TYPES, input.type)) {
+    throw new Error(
+      `writeEventWithPii refuses a content partition on event type ${JSON.stringify(input.type)}: machine-authored prose is sealed only for ${Object.keys(BODY_BEARING_EVENT_TYPES).join(", ")}, the types whose registered payload declares the codec's content members (Spec-006 §Canonical Serialization Rules). Any other type would be signed carrying members its own schema rejects. Append this event through the plain append path instead.`,
     );
   }
 
@@ -1437,6 +1642,33 @@ export async function writeEventWithPii(
     ) {
       throw new Error(
         `writeEventWithPii requires a ${CONTENT_SEAL_KEY_BYTES}-byte Uint8Array content.contentKey — the session content key from session-content-key-store.ts, already unwrapped; received ${describeByteShape(contentInput.contentKey)}. Refused before the encrypt step so a rejected append costs no AES-256-GCM nonce on either partition.`,
+      );
+    }
+    // REFUSAL 8's THIRD ARM — an ill-formed body, appended LAST within 8 so no
+    // input that drew either sibling's message draws a different one now.
+    //
+    // `TextEncoder` does not refuse an unpaired surrogate; it SUBSTITUTES
+    // U+FFFD. So a body containing one would be sealed, digested, and signed as
+    // three bytes of replacement character standing where the producer's text
+    // was, and every layer above would read a clean row: the AEAD tag
+    // authenticates, the digest matches the ciphertext, the signature verifies,
+    // and the read side's `fatal: true` decoder is satisfied because the stored
+    // UTF-8 IS valid — the corruption happened on the way in. The signature
+    // would vouch for text nobody wrote.
+    //
+    // The canonical payload path already treats ill-formed strings this way:
+    // T2.1's `canonicalizeJson` runs the RFC 8785 §3.2.2.2 well-formedness guard
+    // and refuses rather than substituting. This arm holds the CONTENT partition
+    // to the same rule, which is what keeps one row's two text partitions
+    // answering the same way about the same defect.
+    //
+    // AN AUTHORITY, NOT AN EARLY COPY, on refusal 7's terms: `content.body`
+    // never enters `payload`, so `canonicalizeEvent`'s well-formedness guard
+    // never sees it and there is no downstream check to be a copy of.
+    const unpairedSurrogateIndex = findUnpairedSurrogateIndex(contentInput.body);
+    if (unpairedSurrogateIndex >= 0) {
+      throw new Error(
+        `writeEventWithPii requires content.body to be well-formed UTF-16; it carries an unpaired surrogate at UTF-16 index ${String(unpairedSurrogateIndex)}. TextEncoder substitutes U+FFFD rather than refusing, so the row would carry a signed, digested commitment to a replacement character in place of the producer's text, and every later check would pass. Refused before the encrypt step so a rejected append costs no AES-256-GCM nonce on either partition.`,
       );
     }
   }
@@ -1847,14 +2079,13 @@ function isColumnDigestBound(
  * covers — there is nothing left to bind, which is why this home costs one
  * column and not two.
  *
- * PROVENANCE-DISPATCHED, exactly as the fourteenth and fifteenth modes are.
- * `content_payload` is never relayed and never backfilled: peer history carries
- * the origin daemon's canonical bytes, and this column is excluded from them, so
- * a receiving daemon holds the signed digest with the ciphertext absent. The
- * caller therefore COMPARES on origin rows (`received_from_node_id IS NULL`) and
- * takes the REQUIRE-ABSENT arm on received rows — where a non-NULL column is
- * reported unbound rather than compared, because a carried origin claim is
- * precisely what a planted local value would be made to match.
+ * THE ORIGIN-ROW ARM, AND ONLY THAT ARM. The sixteenth mode is
+ * PROVENANCE-DISPATCHED, exactly as the fourteenth and fifteenth are, and the
+ * dispatch itself lives one function down in
+ * {@link isContentCiphertextDigestBoundUnderProvenance} rather than here — this
+ * is the four-state compare, which is what the origin arm runs, and factoring
+ * the two apart is what keeps a caller from reaching the compare without
+ * deciding provenance first.
  *
  * DELIBERATELY UNWIRED, on the I-006-2-10 precedent its two PII siblings follow:
  * this module exports the pure predicate and the verifier task emits the verdict.
@@ -1880,6 +2111,64 @@ export function isContentCiphertextDigestBound(
     signedPayload,
     CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY,
   );
+}
+
+/**
+ * THE SIXTEENTH VERIFICATION MODE'S WHOLE DECISION — the content-digest binding
+ * with its `received_from_node_id` provenance dispatch applied
+ * (`content_ciphertext_digest_unbound`, I-006-3-07).
+ *
+ * THE DISPATCH EXISTS BECAUSE ONE ROW SHAPE MEANS TWO OPPOSITE THINGS.
+ * `content_payload` is node-local: it is excluded from the canonical bytes and
+ * so never crosses a machine boundary, while the signed
+ * `contentCiphertextDigest` inside those bytes does. A signed digest with the
+ * column empty is therefore EVIDENCE DESTRUCTION on a row this daemon authored
+ * and the ORDINARY, CORRECT shape of a row carried from a peer. No predicate
+ * over two arguments can tell those apart, which is why this one takes three.
+ *
+ * ORIGIN ROWS COMPARE. `received_from_node_id IS NULL` is the origin marker, so
+ * the null-ish arm runs {@link isContentCiphertextDigestBound}'s four-state
+ * compare unchanged and the mode keeps every verdict it had.
+ *
+ * RECEIVED ROWS REQUIRE THE COLUMN ABSENT — a stricter arm, not a softer one.
+ * The digest a received row carries is the ORIGIN daemon's claim about bytes
+ * that never travelled, so any local ciphertext under it is precisely what a
+ * planted value would be made to match: comparing would report BOUND for an
+ * attacker's row and would be the one fail-open in this file. Absent is the only
+ * shape a received row may hold.
+ *
+ * THE UNRECOGNIZED MARKER TAKES THE RECEIVED ARM, and the asymmetry is
+ * deliberate rather than a default falling out of `==`. Both misroutes report
+ * UNBOUND — an origin row judged received fails every body-bearing row, a
+ * received row judged origin fails every one carrying a claim — so neither is a
+ * fail-OPEN in itself. The one genuine fail-open is the planted-ciphertext case
+ * above, and it lives only on the origin arm. So exactly NULL and `undefined`
+ * mean origin, and every other value, of every shape, means received.
+ *
+ * TOTAL AND NEVER-THROWING, on the I-006-2-10 ground the whole family shares: a
+ * verifier consumes this inside a range walk, where one throw would abort the
+ * walk and silence audit of the entire remaining tail. All three parameters are
+ * `unknown` because all three arrive from SQLite — and the third arrives from a
+ * column no migration in this package has created yet, which is exactly the
+ * shape `isPiiOwnerStampBound` documents for the stamp column T3.1 adds.
+ *
+ * STILL UNWIRED TO A VERDICT. Like its siblings this reports a boolean and names
+ * no `failureMode`; `integrity-verifier.ts` is T4.1's file and does not exist.
+ * `content-read.ts` consumes this predicate for the READ projection's
+ * `digest_unbound` reason, which is a projection of the same fact and not the
+ * audit verdict.
+ */
+export function isContentCiphertextDigestBoundUnderProvenance(
+  storedContentPayload: unknown,
+  signedPayload: unknown,
+  receivedFromNodeId: unknown,
+): boolean {
+  // `== null` is the deliberate loose form the sibling predicates use: SQLite's
+  // NULL and an absent property in one test, and nothing else.
+  if (receivedFromNodeId == null) {
+    return isContentCiphertextDigestBound(storedContentPayload, signedPayload);
+  }
+  return storedContentPayload == null;
 }
 
 /**

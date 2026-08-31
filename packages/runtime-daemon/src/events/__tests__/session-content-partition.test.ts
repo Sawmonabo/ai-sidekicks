@@ -77,6 +77,7 @@ import { canonicalizeEvent } from "../canonicalizer.js";
 import { EventLogService, type UnsequencedEventEnvelope } from "../event-log-service.js";
 import { IngestHaltRegistry } from "../ingest-halt-source.js";
 import {
+  BODY_BEARING_EVENT_TYPES,
   PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY,
   PII_PARTICIPANT_ID_PAYLOAD_KEY,
   openContentPayload,
@@ -145,11 +146,25 @@ class ScriptedMasterKeySource implements DaemonMasterKeySource {
   key: Uint8Array = MASTER_KEY;
   failure: Error | undefined;
   readCallCount = 0;
+  /**
+   * Runs INSIDE one read, after the key has been captured and before the promise
+   * resolves — the arranged interleaving seam for the mint/rotation race.
+   *
+   * The capture-then-hook order is the whole point rather than an
+   * implementation detail: it models a source that obtained the master key
+   * BEFORE a rotation and resolves with it AFTER, which is precisely the
+   * sequence that lets a first mint wrap under a destroyed master. A hook that
+   * ran before the capture would simply hand back the new key and reproduce
+   * nothing.
+   */
+  beforeRead: (() => void) | undefined;
 
   read(): Promise<Uint8Array> {
     this.readCallCount += 1;
+    const capturedKey = this.key;
+    this.beforeRead?.();
     if (this.failure !== undefined) return Promise.reject(this.failure);
-    return Promise.resolve(this.key);
+    return Promise.resolve(capturedKey);
   }
 }
 
@@ -465,6 +480,18 @@ const CODEC_REFUSAL_MATRIX: readonly CodecRefusalCase[] = [
     message: /piiParticipantId with no piiPayload/,
   },
   {
+    // The closed set is derived from the contracts union, so this arm is what
+    // stops a body being sealed onto a type whose `.strict()` payload schema
+    // declares none of the three members the embed step projects — a row that
+    // would be signed, chained, and then rejected by its own schema on the way
+    // back out.
+    name: "a content partition on a type that declares no content members",
+    ordinal: 1,
+    arm: "content on an unregistered type",
+    build: () => contentRowWith({ type: "session.created", category: "session_lifecycle" }),
+    message: /content partition on event type "session\.created"/,
+  },
+  {
     name: "a payload that pre-seeds the participant ciphertext digest",
     ordinal: 2,
     arm: "reserved PII digest",
@@ -563,6 +590,21 @@ const CODEC_REFUSAL_MATRIX: readonly CodecRefusalCase[] = [
     build: () => contentRowWith({ content: { body: "prose", contentKey: new Uint8Array(16) } }),
     message: /content\.contentKey/,
   },
+  {
+    // `TextEncoder` substitutes U+FFFD for an unpaired surrogate rather than
+    // refusing, so without this arm the row would carry a signed, digested
+    // commitment to a replacement character standing where the producer's text
+    // was — and the read side's `fatal: true` decoder would pass it, because the
+    // stored UTF-8 is perfectly valid. The corruption happens on the way in.
+    name: "a body carrying an unpaired surrogate",
+    ordinal: 8,
+    arm: "content body well-formedness",
+    build: () =>
+      contentRowWith({
+        content: { body: "prose with a lone \ud800 half", contentKey: CONTENT_KEY },
+      }),
+    message: /well-formed UTF-16/,
+  },
 ];
 
 /**
@@ -650,14 +692,14 @@ describe("content partition routing and key-failure enumeration", () => {
       armsByOrdinal.set(refusal.ordinal, arms);
     }
     expect([...armsByOrdinal].map(([ordinal, arms]) => [ordinal, arms.size])).toEqual([
-      [1, 3],
+      [1, 4],
       [2, 3],
       [3, 1],
       [4, 1],
       [5, 1],
       [6, 1],
       [7, 1],
-      [8, 2],
+      [8, 3],
     ]);
   });
 
@@ -890,6 +932,76 @@ describe("the plaintext bound", () => {
     expect(opened).toBe(`${filler}${EM_DASH}`);
     expect(new TextEncoder().encode(opened).length).toBe(CONTENT_PAYLOAD_PLAINTEXT_MAX);
   });
+
+  it("never asks the encoder to materialize more than the bound", async () => {
+    // THE ALLOCATION CLAIM, ASSERTED AT THE SEAM RATHER THAN ON THE HEAP.
+    // `applyPlaintextBound` computes the pre-truncation byte length by walking
+    // code points, so the only string it ever hands `TextEncoder` is the bounded
+    // prefix. A body eight times the budget is therefore encoded ONCE, at the
+    // budget — an encode-then-cut implementation would materialize all of it
+    // before learning it must be thrown away, which is unbounded allocation on
+    // exactly the input the bound exists to contain.
+    const body = "a".repeat(CONTENT_PAYLOAD_PLAINTEXT_MAX * 8);
+    const originalEncode = TextEncoder.prototype.encode;
+    let widestEncodedBytes = 0;
+    // Installed immediately before the sealing call and removed immediately
+    // after, so no other arm's encoding pollutes the measurement.
+    TextEncoder.prototype.encode = function recordingEncode(
+      this: TextEncoder,
+      input?: string,
+    ): Uint8Array<ArrayBuffer> {
+      const encoded = originalEncode.call(this, input);
+      widestEncodedBytes = Math.max(widestEncodedBytes, encoded.length);
+      return encoded;
+    };
+    let result: PiiEventWriteResult;
+    try {
+      result = await seal(makeContentOnlyInput({ body }), new DeterministicPiiEncryptor());
+    } finally {
+      TextEncoder.prototype.encode = originalEncode;
+    }
+
+    expect(widestEncodedBytes).toBeLessThanOrEqual(CONTENT_PAYLOAD_PLAINTEXT_MAX);
+    // The negative control the assertion above needs: the bound still did its
+    // job over the whole body, so this is a claim about HOW the length was
+    // computed rather than about the walk having been skipped.
+    const payload = result.envelope.payload as Record<string, unknown>;
+    expect(payload[CONTENT_LENGTH_PAYLOAD_KEY]).toBe(CONTENT_PAYLOAD_PLAINTEXT_MAX * 8);
+    expect(payload[CONTENT_TRUNCATED_PAYLOAD_KEY]).toBe(true);
+  });
+
+  it("counts astral code points at four bytes without encoding the body", async () => {
+    // The walk's own arithmetic, over the width it is easiest to get wrong: a
+    // surrogate PAIR is one code point of four UTF-8 bytes, not two units of
+    // three. A per-unit sum would report six and truncate a body that fits.
+    const seedling = "\u{1F331}";
+    const body = seedling.repeat(1_000);
+    const result = await seal(makeContentOnlyInput({ body }), new DeterministicPiiEncryptor());
+    const payload = result.envelope.payload as Record<string, unknown>;
+
+    expect(payload[CONTENT_LENGTH_PAYLOAD_KEY]).toBe(4_000);
+    expect(Object.hasOwn(payload, CONTENT_TRUNCATED_PAYLOAD_KEY)).toBe(false);
+    expect(
+      openContentPayload(result.contentPayload!, CONTENT_KEY, SESSION, result.envelope.id),
+    ).toBe(body);
+  });
+
+  it("cuts an astral codepoint whole when the bound lands inside it", async () => {
+    // The four-byte sibling of the em-dash arm: three filler bytes short of the
+    // budget, then a code point that needs four. The whole code point is
+    // dropped, and a fatal decoder proves nothing half of it survived.
+    const seedling = "\u{1F331}";
+    const filler = "a".repeat(CONTENT_PAYLOAD_PLAINTEXT_MAX - 3);
+    const body = `${filler}${seedling}`;
+    const result = await seal(makeContentOnlyInput({ body }), new DeterministicPiiEncryptor());
+    const payload = result.envelope.payload as Record<string, unknown>;
+
+    expect(payload[CONTENT_LENGTH_PAYLOAD_KEY]).toBe(CONTENT_PAYLOAD_PLAINTEXT_MAX + 1);
+    expect(payload[CONTENT_TRUNCATED_PAYLOAD_KEY]).toBe(true);
+    expect(
+      openContentPayload(result.contentPayload!, CONTENT_KEY, SESSION, result.envelope.id),
+    ).toBe(filler);
+  });
 });
 
 describe("codec refusals over the content partition", () => {
@@ -940,6 +1052,111 @@ describe("codec refusals over the content partition", () => {
     } as unknown as RawEventInput;
     await expect(seal(doublyDefective, new DeterministicPiiEncryptor())).rejects.toThrow(
       /not a safe integer/,
+    );
+  });
+
+  it("seals a body on every event type the contracts union registers as body-bearing", async () => {
+    // THE CLOSED SET IS READ, NOT RE-TYPED. `BODY_BEARING_EVENT_TYPES` is derived
+    // in the codec from the `SessionEvent` union, so this loop drives whatever
+    // that derivation yields; re-listing the five here would be the second
+    // source of truth the derivation exists to prevent.
+    const bodyBearingTypes = Object.keys(BODY_BEARING_EVENT_TYPES);
+    // The count IS the claim, and it is what makes the loop non-vacuous: a
+    // derivation that collapsed to `never` would satisfy its own type annotation
+    // and drive nothing at all.
+    expect(bodyBearingTypes).toEqual([
+      "assistant.message",
+      "assistant.thinking_update",
+      "tool.invoked",
+      "tool.result",
+      "tool.error",
+    ]);
+
+    for (const bodyBearingType of bodyBearingTypes) {
+      const category = bodyBearingType.startsWith("assistant.")
+        ? "assistant_output"
+        : "tool_activity";
+      const result = await seal(
+        contentRowWith({ type: bodyBearingType, category }),
+        new DeterministicPiiEncryptor(),
+      );
+      expect(result.contentPayload).toBeInstanceOf(Uint8Array);
+    }
+  });
+
+  it("refuses a content partition on an unregistered type before spending the participant nonce", async () => {
+    // The refusal matrix drives this arm on a content-ONLY row, where the
+    // encryptor is never called whatever happens. Pairing it with a PII
+    // partition is what makes `encryptCallCount` a real assertion: the encrypt
+    // step WOULD run for this input if the guard did not fire first.
+    const encryptor = new DeterministicPiiEncryptor();
+    const misroutedRow = {
+      ...makePiiCarryingInput({ withContent: true }),
+      type: "session.created",
+      category: "session_lifecycle",
+    } as unknown as RawEventInput;
+
+    await expect(seal(misroutedRow, encryptor)).rejects.toThrow(/content partition on event type/);
+    expect(encryptor.encryptCallCount).toBe(0);
+
+    // The perturbation back: the identical row on a registered type seals both
+    // partitions and DOES spend the nonce, so the count above is a fact about
+    // the guard rather than about the fixture.
+    const admitted = await seal(makePiiCarryingInput({ withContent: true }), encryptor);
+    expect(admitted.contentPayload).toBeInstanceOf(Uint8Array);
+    expect(encryptor.encryptCallCount).toBe(1);
+  });
+
+  it("refuses an ill-formed body before spending the participant nonce", async () => {
+    const encryptor = new DeterministicPiiEncryptor();
+    const illFormedRow = {
+      ...makePiiCarryingInput({ withContent: true }),
+      content: { body: "a lone \ud800 half", contentKey: CONTENT_KEY },
+    } as unknown as RawEventInput;
+
+    await expect(seal(illFormedRow, encryptor)).rejects.toThrow(/well-formed UTF-16/);
+    expect(encryptor.encryptCallCount).toBe(0);
+  });
+
+  it("admits a well-formed surrogate pair and refuses every unpaired shape", async () => {
+    // The positive control first, so the refusals below are one perturbation
+    // away from a working seal rather than away from nothing. A pair is ordinary
+    // text and must round-trip byte-for-byte.
+    const paired = "an emoji \u{1F331} in ordinary prose";
+    const result = await seal(
+      makeContentOnlyInput({ body: paired }),
+      new DeterministicPiiEncryptor(),
+    );
+    expect(
+      openContentPayload(result.contentPayload!, CONTENT_KEY, SESSION, result.envelope.id),
+    ).toBe(paired);
+
+    // Every way a surrogate can be unpaired: a lead alone, a trail alone, a lead
+    // followed by ordinary text, a trail reached before any lead, and a lead in
+    // the final position with nothing after it.
+    const illFormedBodies: readonly string[] = [
+      "\ud800",
+      "\udc00",
+      "lead \ud83c then text",
+      "text then trail \udfff more",
+      "a body ending on a lead \ud83c",
+    ];
+    for (const illFormedBody of illFormedBodies) {
+      await expect(
+        seal(makeContentOnlyInput({ body: illFormedBody }), new DeterministicPiiEncryptor()),
+      ).rejects.toThrow(/well-formed UTF-16/);
+    }
+  });
+
+  it("reports the well-formedness refusal after the key-width one, so no message moves", async () => {
+    // The well-formedness arm is appended LAST within refusal 8. An input
+    // defective in both ways must still report the key width, which is what it
+    // reported before this arm existed.
+    const doublyDefective = contentRowWith({
+      content: { body: "a lone \ud800 half", contentKey: new Uint8Array(16) },
+    });
+    await expect(seal(doublyDefective, new DeterministicPiiEncryptor())).rejects.toThrow(
+      /content\.contentKey/,
     );
   });
 });
@@ -1109,6 +1326,105 @@ describe("session content key custody", () => {
     expect(() => store.rewrapAll(MASTER_KEY, ROTATED_MASTER_KEY)).toThrow(
       SessionContentKeyUnavailableError,
     );
+  });
+
+  // --------------------------------------------------------------------------
+  // The mint / rotate-on-shred race
+  // --------------------------------------------------------------------------
+  //
+  // The worst failure this store has, and the one no other arm can reach: a
+  // FIRST mint reads master `M`, loses the CPU at its own `await`, and wakes to
+  // find rotate-on-shred installed `M'` and destroyed `M`. Rotation's own
+  // `BEGIN EXCLUSIVE` cannot help — there is no row yet, because the row is
+  // still in the minter's hand. The blob lands wrapped under a key that no
+  // longer exists, the append succeeds, and every later read of that session's
+  // bodies is permanently undecryptable while every integrity check stays green.
+  //
+  // `ScriptedMasterKeySource.beforeRead` arranges exactly that interleaving.
+
+  it("never persists a key wrapped under a master that rotation destroyed", async () => {
+    const { store, masterKeySource } = buildKeyStore();
+    // A row rotation will genuinely re-wrap, so the arm exercises a real
+    // rotation rather than an epoch bump over an empty table.
+    const otherBefore = await store.resolveForWrite(OTHER_SESSION);
+    expect(masterKeySource.readCallCount).toBe(1);
+
+    masterKeySource.beforeRead = () => {
+      // One-shot: the retry must find a settled world, or the arm would be
+      // testing the retry ceiling instead of the fence.
+      masterKeySource.beforeRead = undefined;
+      store.rewrapAll(MASTER_KEY, ROTATED_MASTER_KEY);
+      masterKeySource.key = ROTATED_MASTER_KEY;
+    };
+
+    const minted = await store.resolveForWrite(SESSION);
+
+    // Two reads for this mint: the one that lost the race, and the retry.
+    expect(masterKeySource.readCallCount).toBe(3);
+
+    // THE ASSERTION THAT MATTERS. `resolveForWrite` returns a usable key either
+    // way — it opens the row with the master it just wrapped under, destroyed or
+    // not — so the failure is only visible on a LATER read, which is exactly how
+    // it would reach production.
+    const reread = await store.read(SESSION);
+    expect(reread.key).toEqual(minted.key);
+    // The row rotation did move is still readable too, so one operation did not
+    // cost the other.
+    expect((await store.read(OTHER_SESSION)).key).toEqual(otherBefore.key);
+    // And the minted row is at the fresh master's version rather than carrying a
+    // stale envelope forward.
+    expect(
+      database
+        .prepare(`SELECT key_version FROM session_content_keys WHERE session_id = ?`)
+        .get(SESSION),
+    ).toEqual({ key_version: 1 });
+  });
+
+  it("fences a concurrent mint even when the rotation itself fails", async () => {
+    // The fence is bumped at `rewrapAll`'s ENTRY, ahead of its own width guard.
+    // Over-signalling costs a racing mint one spurious retry; under-signalling
+    // costs a session its bodies, so the ordering is one-directional on purpose.
+    const { store, masterKeySource } = buildKeyStore();
+    masterKeySource.beforeRead = () => {
+      masterKeySource.beforeRead = undefined;
+      expect(() => store.rewrapAll(new Uint8Array(16), ROTATED_MASTER_KEY)).toThrow(
+        SessionContentKeyUnavailableError,
+      );
+    };
+
+    await store.resolveForWrite(SESSION);
+    expect(masterKeySource.readCallCount).toBe(2);
+  });
+
+  it("refuses rather than wrapping under a master that keeps being superseded", async () => {
+    // The retry is BOUNDED, and this is why: a source that rotated on every read
+    // would spin an append forever behind an unbounded loop. The refusal reuses
+    // `master_key_unavailable` rather than minting a fourth reason the read path
+    // could never produce.
+    const { store, masterKeySource } = buildKeyStore();
+    masterKeySource.beforeRead = () => {
+      store.rewrapAll(masterKeySource.key, ROTATED_MASTER_KEY);
+    };
+
+    await expect(store.resolveForWrite(SESSION)).rejects.toMatchObject({
+      name: "SessionContentKeyUnavailableError",
+      reason: "master_key_unavailable",
+    });
+    expect(masterKeySource.readCallCount).toBe(3);
+    // Nothing was committed on any attempt: the fence throws inside the write
+    // transaction, so every candidate rolled back with it.
+    expect(database.prepare(`SELECT COUNT(*) AS total FROM session_content_keys`).get()).toEqual({
+      total: 0,
+    });
+  });
+
+  it("costs an uncontended mint no extra master-key read", async () => {
+    // The negative control for all three arms above: with no rotation in flight
+    // the fence never fires, so a first mint reads the master exactly once and
+    // the retry loop is invisible.
+    const { store, masterKeySource } = buildKeyStore();
+    await store.resolveForWrite(SESSION);
+    expect(masterKeySource.readCallCount).toBe(1);
   });
 });
 

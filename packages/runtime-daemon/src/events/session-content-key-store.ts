@@ -65,6 +65,53 @@
 // the only thing that could read them. The caller resolves both keys first and
 // hands them in.
 //
+// ----------------------------------------------------------------------------
+// The mint must not lose a race with rotate-on-shred
+// ----------------------------------------------------------------------------
+//
+// Those two surfaces meet at exactly one hazard, and it is the worst failure
+// this module has: a FIRST MINT that reads master `M`, loses the CPU at its own
+// `await`, and wakes to find rotate-on-shred has installed `M'` and destroyed
+// `M`. The INSERT then lands a blob wrapped under a key that no longer exists.
+// Nothing refuses it — the append succeeds, the row is signed and chained, and
+// every read of that session's bodies is permanently undecryptable. Rotation's
+// own `BEGIN EXCLUSIVE` does not help: it sees no row for this session, because
+// the row is still in the minter's hand.
+//
+// THE FENCE IS AN EPOCH, NOT A LOCK, and adding no second lock is the point —
+// `Spec-022 §Ordering And Atomicity` fixes one lock order and a mint that took a
+// lock of its own would be a second one. The store counts rotations in memory;
+// `resolveForWrite` SAMPLES the count BEFORE it reads the master key and the
+// mint transaction RE-CHECKS it, synchronously, in the same better-sqlite3
+// transaction that runs the INSERT. A mismatch throws, which rolls that
+// transaction back, and the mint retries against the new master.
+//
+// SAMPLED BEFORE THE READ, NEVER AFTER IT, and the direction is the whole
+// correctness argument. `DaemonMasterKeySource.read()` may resolve with material
+// it captured before a rotation that has since completed; a sample taken after
+// the read would record the POST-rotation count beside PRE-rotation bytes and
+// see no mismatch. Sampling first cannot miss a rotation that overlapped the
+// read at all.
+//
+// THE RE-CHECK IS AIRTIGHT IN-PROCESS BECAUSE BOTH SIDES ARE SYNCHRONOUS.
+// `rewrapAll` runs to completion without yielding and the mint transaction runs
+// to completion without yielding, so the only point at which they can interleave
+// is the `await` the sample brackets. The epoch is bumped at `rewrapAll`'s ENTRY
+// rather than its exit, so a rotation that throws part-way still leaves the
+// count moved: the cost is a spurious retry, and the alternative cost is a
+// missed one.
+//
+// WHAT IT DOES NOT COVER, stated rather than implied: a SECOND daemon process on
+// the same database file. The epoch is per-instance, so cross-process serial-
+// ization rests on SQLite's own write locking and on rotate-on-shred holding
+// `BEGIN EXCLUSIVE`. V1 runs one daemon per machine against its local store.
+//
+// NO NEW FAILURE REASON IS MINTED. Exhausting the retries reports
+// `master_key_unavailable` — the master this mint could reach is not one it may
+// wrap under — rather than a fourth member of a closed union that the READ path
+// would then have to carry an arm for and could never produce, since `read`
+// mints nothing.
+//
 // NO PLAINTEXT KEY CACHE. Every `resolve` unwraps afresh. A cache would save
 // one 32-byte AEAD open per content-bearing append — the master key is already
 // the caller's to cache — and would buy that with long-lived plaintext key
@@ -88,6 +135,25 @@ export const SESSION_CONTENT_WRAP_NONCE_BYTES = 24;
 
 /** Byte length of the Poly1305 tag every wrapped blob ends with. */
 const WRAP_TAG_BYTES = 16;
+
+/**
+ * How many PASSES a first mint may make — one initial attempt plus two retries
+ * after losing a race with rotate-on-shred — before it gives up.
+ *
+ * TOTAL PASSES, NOT RETRIES ON TOP OF ONE, which is worth spelling out because
+ * the two readings differ by a master-key read and the exhaustion arm asserts
+ * the exact count. Three passes means at most three
+ * {@link DaemonMasterKeySource.read} calls for one mint.
+ *
+ * BOUNDED RATHER THAN UNBOUNDED, because a retry loop that cannot end is a
+ * livelock hiding behind a correctness fix: a master-key source that rotated on
+ * every read would spin an append forever instead of failing it. Three is chosen
+ * for what it must survive — one rotation overlapping one mint, which costs one
+ * retry — leaving a second retry spare, since a session's first content-bearing
+ * append and an erasure request colliding twice in a row is not a workload, it
+ * is a defect worth reporting.
+ */
+const MINT_ROTATION_PASS_LIMIT = 3;
 
 /**
  * The domain-separation string inside the wrap AAD. Distinct from the
@@ -132,7 +198,12 @@ export interface DaemonMasterKeySource {
  * rather than a projection.
  */
 export type SessionContentKeyUnavailableReason =
-  /** The master key could not be read, or is not the right width. */
+  /**
+   * The master key could not be read, is not the right width, or kept being
+   * superseded by rotate-on-shred while a first mint was wrapping under it — see
+   * the module header for why that third case reports here rather than as a
+   * fourth member of this union.
+   */
   | "master_key_unavailable"
   /** No row for this session — nothing was ever sealed under it. */
   | "wrapped_key_missing"
@@ -149,6 +220,30 @@ export class SessionContentKeyUnavailableError extends Error {
     this.name = "SessionContentKeyUnavailableError";
     this.reason = reason;
     this.sessionId = sessionId;
+  }
+}
+
+/**
+ * Thrown INSIDE the mint transaction when the master key was rotated while this
+ * mint was wrapping under it — never seen by a caller.
+ *
+ * A dedicated class rather than a flag on the return value, because the throw is
+ * doing two jobs at once: it rolls the better-sqlite3 transaction back (so the
+ * doomed blob is never committed) AND it signals the retry. A returned sentinel
+ * would commit the row and then ask the caller to notice.
+ *
+ * Module-private and deliberately NOT a {@link SessionContentKeyUnavailableError}
+ * — it is an internal control signal, and one that escaped as a reported failure
+ * would name a cause the caller can neither act on nor distinguish from a real
+ * one. {@link SessionContentKeyStore.resolveForWrite} catches exactly this type
+ * and lets every other throw through untouched.
+ */
+class MasterKeyRotatedDuringMintError extends Error {
+  constructor(sessionId: string) {
+    super(
+      `the daemon master key was rotated while minting the session content key for session ${sessionId}`,
+    );
+    this.name = "MasterKeyRotatedDuringMintError";
   }
 }
 
@@ -332,7 +427,20 @@ export class SessionContentKeyStore implements SessionContentKeySource, SessionC
     sessionId: string,
     blob: Uint8Array,
     createdAt: string,
+    epochAtMasterKeyRead: number,
   ) => WrappedKeyRow;
+
+  /**
+   * How many times {@link rewrapAll} has been entered on this instance — the
+   * fence the module header describes, and the ONLY mutable state on this class.
+   *
+   * A monotonic counter rather than a "rotating" boolean: a boolean set and
+   * cleared around the rotation would read false again by the time a mint
+   * checked it, which is precisely the window the fence closes. What the mint
+   * needs to know is not "is a rotation running" but "did one happen since I
+   * read the master", and only a counter answers that.
+   */
+  #rotationEpoch = 0;
 
   constructor(deps: SessionContentKeyStoreDeps) {
     this.#masterKeySource = deps.masterKeySource;
@@ -369,12 +477,33 @@ export class SessionContentKeyStore implements SessionContentKeySource, SessionC
     // winner's key rather than seal under a key no reader will ever find. The
     // `ON CONFLICT DO NOTHING` makes the losing INSERT a no-op and the
     // re-SELECT inside the same transaction returns the row that stands.
+    //
+    // THE ROTATION FENCE IS RE-CHECKED HERE, AND HERE IS THE ONLY PLACE IT CAN
+    // BE. This body is synchronous, so nothing can interleave between the
+    // comparison and the INSERT — the check and the write are one indivisible
+    // step against every other task in this process. Checking BEFORE the INSERT
+    // rather than after keeps the doomed blob out of the statement entirely; the
+    // throw would roll it back either way, but a write that never happened is a
+    // narrower claim than a write that was undone.
     this.#mintTransaction = database.transaction(
-      (sessionId: string, blob: Uint8Array, createdAt: string): WrappedKeyRow => {
+      (
+        sessionId: string,
+        blob: Uint8Array,
+        createdAt: string,
+        epochAtMasterKeyRead: number,
+      ): WrappedKeyRow => {
+        if (this.#rotationEpoch !== epochAtMasterKeyRead) {
+          throw new MasterKeyRotatedDuringMintError(sessionId);
+        }
         this.#insertStmt.run(sessionId, blob, createdAt);
         return this.#selectStmt.get(sessionId) as WrappedKeyRow;
       },
-    ).immediate as (sessionId: string, blob: Uint8Array, createdAt: string) => WrappedKeyRow;
+    ).immediate as (
+      sessionId: string,
+      blob: Uint8Array,
+      createdAt: string,
+      epochAtMasterKeyRead: number,
+    ) => WrappedKeyRow;
   }
 
   /**
@@ -401,28 +530,57 @@ export class SessionContentKeyStore implements SessionContentKeySource, SessionC
    *
    * The write path's entry point. Called on a session's first content-bearing
    * append, which is why a session that never runs an agent stores no key.
+   *
+   * THE LOOP IS THE ROTATION FENCE, not a retry-on-flaky-IO. Each pass samples
+   * the rotation epoch BEFORE reading the master key and hands that sample to
+   * the mint transaction, which re-checks it under the write transaction and
+   * throws — rolling back — if rotate-on-shred moved the master in between. See
+   * the module header for why sampling before the read is the only order that
+   * cannot miss a rotation. The whole body repeats, existing-row check included,
+   * because a competing mint may have won the row while this one was retrying.
    */
   async resolveForWrite(sessionId: SessionId): Promise<ResolvedSessionContentKey> {
-    const existing = this.#selectStmt.get(sessionId) as WrappedKeyRow | undefined;
-    if (existing !== undefined) {
-      return this.#openRow(sessionId, existing);
+    for (let passNumber = 1; passNumber <= MINT_ROTATION_PASS_LIMIT; passNumber += 1) {
+      const existing = this.#selectStmt.get(sessionId) as WrappedKeyRow | undefined;
+      if (existing !== undefined) {
+        return this.#openRow(sessionId, existing);
+      }
+
+      // Sampled ahead of the `await`, which is the one point at which
+      // `rewrapAll` can run: a sample taken after the read could record a
+      // post-rotation count beside pre-rotation bytes.
+      const epochAtMasterKeyRead = this.#rotationEpoch;
+
+      // Wrapping needs the master key and therefore an `await`, which no
+      // better-sqlite3 transaction may span — so the candidate is prepared out
+      // here and the transaction below decides whether it is the row that stands.
+      const masterKey = await this.#readMasterKey(sessionId);
+      const candidate = new Uint8Array(randomBytes(SESSION_CONTENT_KEY_BYTES));
+      const blob = wrapSessionContentKey(masterKey, sessionId, 1, candidate);
+      let stored: WrappedKeyRow;
+      try {
+        stored = this.#mintTransaction(sessionId, blob, this.#now(), epochAtMasterKeyRead);
+      } catch (error) {
+        if (error instanceof MasterKeyRotatedDuringMintError) {
+          continue;
+        }
+        throw error;
+      }
+      if (stored === undefined) {
+        throw new SessionContentKeyUnavailableError(
+          "wrapped_key_missing",
+          sessionId,
+          "the mint transaction left no row",
+        );
+      }
+      return this.#openRow(sessionId, stored, masterKey);
     }
 
-    // Wrapping needs the master key and therefore an `await`, which no
-    // better-sqlite3 transaction may span — so the candidate is prepared out
-    // here and the transaction below decides whether it is the row that stands.
-    const masterKey = await this.#readMasterKey(sessionId);
-    const candidate = new Uint8Array(randomBytes(SESSION_CONTENT_KEY_BYTES));
-    const blob = wrapSessionContentKey(masterKey, sessionId, 1, candidate);
-    const stored = this.#mintTransaction(sessionId, blob, this.#now());
-    if (stored === undefined) {
-      throw new SessionContentKeyUnavailableError(
-        "wrapped_key_missing",
-        sessionId,
-        "the mint transaction left no row",
-      );
-    }
-    return this.#openRow(sessionId, stored, masterKey);
+    throw new SessionContentKeyUnavailableError(
+      "master_key_unavailable",
+      sessionId,
+      `the daemon master key was rotated during each of ${String(MINT_ROTATION_PASS_LIMIT)} mint passes for this session's content key; refusing rather than wrapping under a superseded master`,
+    );
   }
 
   /**
@@ -444,9 +602,19 @@ export class SessionContentKeyStore implements SessionContentKeySource, SessionC
    * master, and the all-or-nothing guarantee that rotation advertises holds
    * across both tables rather than only across one.
    *
+   * BUMPS THE ROTATION FENCE ON ENTRY, ahead of every other statement here
+   * including the width guard. That ordering is deliberate and one-directional:
+   * a bump for a rotation that then throws costs a concurrent first mint one
+   * spurious retry, while a bump deferred until after the re-wraps would leave
+   * the window this fence exists to close open for exactly the duration of the
+   * work. Over-signalling is free; under-signalling loses a session's bodies.
+   * Bumped even when the table is empty — the master moved regardless, and a
+   * mint that read the old one is already in flight.
+   *
    * @returns the number of rows re-wrapped.
    */
   rewrapAll(previousMasterKey: Uint8Array, nextMasterKey: Uint8Array): number {
+    this.#rotationEpoch += 1;
     if (
       previousMasterKey.length !== SESSION_CONTENT_KEY_BYTES ||
       nextMasterKey.length !== SESSION_CONTENT_KEY_BYTES

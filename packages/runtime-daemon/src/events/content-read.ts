@@ -40,24 +40,39 @@
  * here would put a false transcript downstream of a working one.
  *
  * ---------------------------------------------------------------------------
- * PROVENANCE — WHY NO RECEIVED-ROW ARM IS WIRED HERE
+ * PROVENANCE — WHAT IS WIRED AND WHAT IS STILL OWED
  * ---------------------------------------------------------------------------
  *
  * `content_payload` is node-local: it is excluded from the canonical bytes and
  * so never crosses a machine boundary, while the signed
  * `contentCiphertextDigest` inside those bytes does. A row received from a peer
- * therefore holds the claim with no ciphertext under it — which the digest check
- * below reads as `digest_unbound`, the report for tampering.
+ * therefore holds the claim with no ciphertext under it — the exact shape that
+ * on a row THIS daemon authored means the column was emptied after signing.
  *
- * That is the correct report TODAY and would be the wrong one for a received
- * row, and the difference is not papered over here: no receive path exists in
- * this daemon (`received_from_node_id` is registered in the corpus and appears
- * in no shipped code), so every row this module can be handed is
- * origin-authored. The swap that wires peer history and distributes session
- * content keys must add the provenance dispatch — origin rows compare, received
- * rows take a reason of their own — BEFORE routing a received row through here.
- * Softening the digest arm instead would trade a tamper report for silence on
- * every row, which is the one direction that cannot be undone by a later fix.
+ * THE DISPATCH IS WIRED. The binding step below runs
+ * `isContentCiphertextDigestBoundUnderProvenance`, which compares on origin rows
+ * (`received_from_node_id IS NULL`) and requires the column ABSENT on received
+ * ones; {@link StoredEventContentRow.receivedFromNodeId} is where the caller
+ * supplies the marker. It is a REQUIRED member rather than an optional one on
+ * purpose: a caller that has not decided provenance must say so explicitly by
+ * passing `null`, not by leaving a field off and inheriting an arm.
+ *
+ * NO COLUMN BACKS IT YET, and that is stated rather than implied.
+ * `received_from_node_id` is registered in the corpus and created by no
+ * migration in this package, so every caller today passes `null` and every row
+ * this module can be handed is origin-authored. The dispatch ships ahead of the
+ * column because the alternative — wiring peer history and THEN adding the
+ * dispatch — is the ordering in which received rows are reported as tampered
+ * first and corrected afterwards.
+ *
+ * ONE THING IS STILL OWED. A received row whose column is absent passes the
+ * binding check and then lands on `absent`, which is true (there is no body
+ * here) but does not say WHY there is none. The swap that wires peer history and
+ * distributes session content keys owes that row a reason of its own; minting
+ * one now would add a member to a closed wire union ahead of any producer that
+ * could emit it. Softening the digest arm instead would trade a tamper report
+ * for silence on every row, which is the one direction that cannot be undone by
+ * a later fix.
  */
 
 import type {
@@ -69,7 +84,10 @@ import type {
 } from "@ai-sidekicks/contracts";
 import { CONTENT_LENGTH_PAYLOAD_KEY, CONTENT_TRUNCATED_PAYLOAD_KEY } from "@ai-sidekicks/contracts";
 
-import { isContentCiphertextDigestBound, openContentPayload } from "./pii-indirection.js";
+import {
+  isContentCiphertextDigestBoundUnderProvenance,
+  openContentPayload,
+} from "./pii-indirection.js";
 import {
   SessionContentKeyUnavailableError,
   type ResolvedSessionContentKey,
@@ -92,6 +110,18 @@ export interface StoredEventContentRow {
   readonly contentPayload: unknown;
   /** `session_events.retention_class`, verbatim. Non-NULL means compacted. */
   readonly retentionClass: unknown;
+  /**
+   * `session_events.received_from_node_id`, verbatim — NULL on a row this daemon
+   * authored, the peer's node id on one carried in.
+   *
+   * REQUIRED, AND `unknown` LIKE ITS SIBLINGS. Required because it selects which
+   * arm of the digest binding runs, and a caller that has not decided provenance
+   * must say `null` rather than leave the field off and inherit an arm it never
+   * chose. `unknown` because it arrives from SQLite like the two above it — and,
+   * unlike them, from a column no migration in this package has created yet, so
+   * every caller today passes `null` and means it.
+   */
+  readonly receivedFromNodeId: unknown;
 }
 
 /** Constructor dependencies for {@link SessionContentReader}. */
@@ -199,12 +229,16 @@ export class SessionContentReader {
    *    defect in the compactor. The disagreement is not a contradiction: step 2
    *    answers about BYTES and step 1 answers about an act this daemon
    *    RECORDED, and the recorded act is the better report.
-   * 2. THE DIGEST BINDING, before any decrypt is attempted. It is the only step
-   *    that can distinguish TAMPERING from LOSS, and it decides all four of its
-   *    states — including the two a decrypt attempt would misreport: bytes with
-   *    no signed digest (nothing vouches for them) would "open" fine under a
-   *    key that opens anything sealed for this session, and a NULL column under
-   *    a signed digest (cleared after signing) would report as `absent`.
+   * 2. THE DIGEST BINDING, before any decrypt is attempted, and PROVENANCE-
+   *    DISPATCHED. It is the only step that can distinguish TAMPERING from LOSS,
+   *    and on an origin row it decides all four of its states — including the two
+   *    a decrypt attempt would misreport: bytes with no signed digest (nothing
+   *    vouches for them) would "open" fine under a key that opens anything
+   *    sealed for this session, and a NULL column under a signed digest (cleared
+   *    after signing) would report as `absent`. On a RECEIVED row the arm is the
+   *    stricter one — the column must be absent, because a carried origin claim
+   *    is exactly what a planted local ciphertext would be made to match. See
+   *    the header for what that arm still owes.
    * 3. ABSENT. Reachable only with the digest check already green, which at a
    *    NULL column means the payload carries no digest either — the ordinary
    *    body-less row.
@@ -218,7 +252,13 @@ export class SessionContentReader {
     if (row.retentionClass != null) {
       return unavailable("compacted");
     }
-    if (!isContentCiphertextDigestBound(row.contentPayload, row.envelope.payload)) {
+    if (
+      !isContentCiphertextDigestBoundUnderProvenance(
+        row.contentPayload,
+        row.envelope.payload,
+        row.receivedFromNodeId,
+      )
+    ) {
       return unavailable("digest_unbound");
     }
     // Bound with a null column means no digest was signed either — see step 3.

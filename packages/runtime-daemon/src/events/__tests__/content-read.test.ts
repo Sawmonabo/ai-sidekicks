@@ -47,7 +47,11 @@ import {
 
 import { openDatabase } from "../../session/migration-runner.js";
 import { SessionContentReader, type StoredEventContentRow } from "../content-read.js";
-import { isContentCiphertextDigestBound, writeEventWithPii } from "../pii-indirection.js";
+import {
+  isContentCiphertextDigestBound,
+  isContentCiphertextDigestBoundUnderProvenance,
+  writeEventWithPii,
+} from "../pii-indirection.js";
 import {
   SESSION_CONTENT_KEY_BYTES,
   SessionContentKeyStore,
@@ -168,7 +172,12 @@ async function sealedRow(
     );
   }
   return {
-    row: { envelope: written.envelope, contentPayload: ciphertext, retentionClass: null },
+    row: {
+      envelope: written.envelope,
+      contentPayload: ciphertext,
+      retentionClass: null,
+      receivedFromNodeId: null,
+    },
     ciphertext,
   };
 }
@@ -279,6 +288,133 @@ describe("content ciphertext digest binding", () => {
     expect(isContentCiphertextDigestBound(CIPHERTEXT, payload)).toBe(true);
     expect(isContentCiphertextDigestBound(new Uint8Array([7, 7]), payload)).toBe(false);
   });
+
+  // --------------------------------------------------------------------------
+  // The provenance dispatch — the sixteenth mode's whole decision
+  // --------------------------------------------------------------------------
+  //
+  // One row shape means two opposite things: a signed digest over an empty
+  // column is evidence destruction on a row this daemon authored and the
+  // ORDINARY shape of a row carried from a peer, because `content_payload` is
+  // node-local while the digest inside the canonical bytes travels. The matrix
+  // below is the whole decision table, crossed over both arms, so an arm that
+  // stopped dispatching fails here rather than in a report nobody reads.
+
+  interface ProvenanceCase {
+    readonly name: string;
+    readonly storedColumn: unknown;
+    readonly signedPayload: unknown;
+    readonly receivedFromNodeId: unknown;
+    readonly bound: boolean;
+  }
+
+  const CLAIMING_PAYLOAD = { [CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY]: DIGEST };
+  const CLAIMLESS_PAYLOAD = { runId: "run-1" };
+
+  const PROVENANCE_MATRIX: readonly ProvenanceCase[] = [
+    {
+      name: "an origin row whose bytes match its claim",
+      storedColumn: CIPHERTEXT,
+      signedPayload: CLAIMING_PAYLOAD,
+      receivedFromNodeId: null,
+      bound: true,
+    },
+    {
+      name: "an origin row whose claim outlived its column",
+      storedColumn: null,
+      signedPayload: CLAIMING_PAYLOAD,
+      receivedFromNodeId: null,
+      bound: false,
+    },
+    {
+      name: "an origin row with neither column nor claim",
+      storedColumn: null,
+      signedPayload: CLAIMLESS_PAYLOAD,
+      receivedFromNodeId: null,
+      bound: true,
+    },
+    {
+      name: "a received row carrying the claim with no column",
+      storedColumn: null,
+      signedPayload: CLAIMING_PAYLOAD,
+      receivedFromNodeId: "node-7",
+      bound: true,
+    },
+    {
+      name: "a received row with neither column nor claim",
+      storedColumn: null,
+      signedPayload: CLAIMLESS_PAYLOAD,
+      receivedFromNodeId: "node-7",
+      bound: true,
+    },
+    {
+      name: "a received row whose local bytes match the carried claim",
+      storedColumn: CIPHERTEXT,
+      signedPayload: CLAIMING_PAYLOAD,
+      receivedFromNodeId: "node-7",
+      bound: false,
+    },
+    {
+      name: "a received row holding bytes under no claim at all",
+      storedColumn: CIPHERTEXT,
+      signedPayload: CLAIMLESS_PAYLOAD,
+      receivedFromNodeId: "node-7",
+      bound: false,
+    },
+    {
+      name: "a marker of an unrecognized shape, which takes the stricter arm",
+      storedColumn: CIPHERTEXT,
+      signedPayload: CLAIMING_PAYLOAD,
+      receivedFromNodeId: 42,
+      bound: false,
+    },
+    {
+      name: "an absent marker, which is the same absence as NULL",
+      storedColumn: CIPHERTEXT,
+      signedPayload: CLAIMING_PAYLOAD,
+      receivedFromNodeId: undefined,
+      bound: true,
+    },
+  ];
+
+  for (const provenanceCase of PROVENANCE_MATRIX) {
+    it(`dispatches ${provenanceCase.name} to ${provenanceCase.bound ? "bound" : "unbound"}`, () => {
+      expect(
+        isContentCiphertextDigestBoundUnderProvenance(
+          provenanceCase.storedColumn,
+          provenanceCase.signedPayload,
+          provenanceCase.receivedFromNodeId,
+        ),
+      ).toBe(provenanceCase.bound);
+    });
+  }
+
+  it("runs the four-state compare unchanged on the origin arm", () => {
+    // The origin arm is not a re-implementation — it IS the sibling predicate,
+    // so every row of the binding matrix above must answer identically through
+    // both entry points. A second copy of the four-state compare is exactly the
+    // drift this factoring exists to prevent.
+    for (const bindingCase of BINDING_MATRIX) {
+      expect(
+        isContentCiphertextDigestBoundUnderProvenance(
+          bindingCase.storedColumn,
+          bindingCase.signedPayload,
+          null,
+        ),
+      ).toBe(isContentCiphertextDigestBound(bindingCase.storedColumn, bindingCase.signedPayload));
+    }
+  });
+
+  it("never throws on the dispatching arm either", () => {
+    const hostile: readonly unknown[] = [undefined, null, 0, "", [], {}, Symbol("x"), 1n];
+    for (const storedColumn of hostile) {
+      for (const marker of hostile) {
+        expect(() =>
+          isContentCiphertextDigestBoundUnderProvenance(storedColumn, CLAIMING_PAYLOAD, marker),
+        ).not.toThrow();
+      }
+    }
+  });
 });
 
 // ----------------------------------------------------------------------------
@@ -299,6 +435,7 @@ describe("hydrating machine-authored prose", () => {
       envelope: makeEnvelope({ runId: "run-1" }),
       contentPayload: null,
       retentionClass: null,
+      receivedFromNodeId: null,
     });
     if (absent.content.status === "unavailable") produced.add(absent.content.reason);
 
@@ -307,6 +444,7 @@ describe("hydrating machine-authored prose", () => {
       envelope: makeEnvelope({ runId: "run-1" }),
       contentPayload: null,
       retentionClass: "audit_stub",
+      receivedFromNodeId: null,
     });
     if (compacted.content.status === "unavailable") produced.add(compacted.content.reason);
 
@@ -390,23 +528,89 @@ describe("hydrating machine-authored prose", () => {
       envelope: makeEnvelope({ runId: "run-1", contentType: "text/markdown" }),
       contentPayload: null,
       retentionClass: null,
+      receivedFromNodeId: null,
     });
     expectUnavailable(hydrated, "absent");
   });
 
+  it("reports an injected ciphertext under no signed claim as tampering", async () => {
+    // The fourth binding state, driven through the real entry point rather than
+    // through the predicate alone: bytes appeared in a column whose row never
+    // claimed a body. They would "open" perfectly well — the session key opens
+    // anything sealed for this session — so a decrypt-first reader would hand
+    // back prose nothing ever signed.
+    const { reader, store } = buildReader();
+    const { ciphertext: foreign } = await sealedRow(store, "prose the model never wrote");
+
+    expectUnavailable(
+      await reader.hydrate({
+        envelope: makeEnvelope({ runId: "run-1" }),
+        contentPayload: foreign,
+        retentionClass: null,
+        receivedFromNodeId: null,
+      }),
+      "digest_unbound",
+    );
+  });
+
   it("passes a clean row carried from a peer with the column absent", async () => {
     // The relay shape: the column is node-local and excluded from the canonical
-    // bytes, so a peer's history carries the signed payload with no ciphertext
-    // under it. A row with neither the column nor a signed digest reads as an
-    // ordinary body-less row rather than as tampering, which is what keeps the
-    // digest arm honest for the rows that DO carry a claim.
-    const { reader } = buildReader();
-    const hydrated = await reader.hydrate({
-      envelope: makeEnvelope({ runId: "run-1", receivedFromNodeId: "node-7" }),
-      contentPayload: null,
-      retentionClass: null,
-    });
-    expectUnavailable(hydrated, "absent");
+    // bytes, so a peer's history carries the signed DIGEST with no ciphertext
+    // under it. On an origin row that shape is evidence destruction; on a
+    // received one it is the only shape there is. The marker is what tells them
+    // apart, and it rides the ROW rather than the payload — `payload` is signed
+    // canonical bytes, and provenance is a local fact about where this daemon
+    // got the row.
+    const { reader, store } = buildReader();
+    const { row } = await sealedRow(store, "prose the peer's daemon sealed");
+
+    // The negative control first: the identical payload with the column cleared
+    // is `digest_unbound` when the row is origin-authored.
+    expectUnavailable(await reader.hydrate({ ...row, contentPayload: null }), "digest_unbound");
+    // And passes the binding on a received row, landing on the ordinary
+    // body-less reason rather than on a tamper report.
+    expectUnavailable(
+      await reader.hydrate({ ...row, contentPayload: null, receivedFromNodeId: "node-7" }),
+      "absent",
+    );
+  });
+
+  it("refuses a local ciphertext planted under a peer's carried digest", async () => {
+    // THE ONE FAIL-OPEN THE DISPATCH EXISTS TO CLOSE. A received row's digest is
+    // the ORIGIN daemon's claim about bytes that never travelled, so it is
+    // exactly the claim an attacker with local write access would seal a body to
+    // match. Comparing on a received row would report that row BOUND and hand
+    // the planted prose back as authentic transcript.
+    const { reader, store } = buildReader();
+    const { row } = await sealedRow(store, "prose the peer's daemon sealed");
+
+    // The row is internally consistent — this is its own real ciphertext under
+    // its own real digest — and it still must not be admitted as received.
+    expect((await reader.hydrate(row)).content.status).toBe("available");
+    expectUnavailable(
+      await reader.hydrate({ ...row, receivedFromNodeId: "node-7" }),
+      "digest_unbound",
+    );
+  });
+
+  it("takes the received arm for any marker shape that is not NULL", async () => {
+    // Both misroutes report unbound, so neither direction is a fail-open in
+    // itself — but the planted-ciphertext case above lives only on the ORIGIN
+    // arm, so an unrecognized marker must land on the stricter one.
+    const { reader, store } = buildReader();
+    const { row } = await sealedRow(store, "the original prose");
+
+    for (const hostileMarker of [42, {}, [], "", true] as readonly unknown[]) {
+      expectUnavailable(
+        await reader.hydrate({ ...row, receivedFromNodeId: hostileMarker }),
+        "digest_unbound",
+      );
+    }
+    // `undefined` joins NULL on the origin arm — an absent property and a SQLite
+    // NULL are the same absence, and the predicate's `== null` says so.
+    expect((await reader.hydrate({ ...row, receivedFromNodeId: undefined })).content.status).toBe(
+      "available",
+    );
   });
 
   it("reports a column that is neither bytes nor NULL as unbound rather than skipping it", async () => {
@@ -430,6 +634,7 @@ describe("hydrating machine-authored prose", () => {
         envelope: makeEnvelope({ contentLength: 4_000, contentTruncated: true }),
         contentPayload: null,
         retentionClass: "audit_stub",
+        receivedFromNodeId: null,
       }),
       "compacted",
     );
