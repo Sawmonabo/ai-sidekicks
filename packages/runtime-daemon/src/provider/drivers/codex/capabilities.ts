@@ -167,9 +167,11 @@ export const CODEX_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boole
     structured_output: true,
     // Rewind is delivered by forking a thread at an inclusive turn boundary.
     // Non-probeable at the parameter level, so it resolves from the matrix;
-    // an invocation against a build lacking the boundary field refuses as
-    // `driver.capability_unsupported` rather than rewinding to the wrong
-    // position (Plan-005 T3.24).
+    // a build that REFUSES the boundary field is classified at the
+    // `rollbackTo` fork dispatch as `driver.capability_unsupported` rather
+    // than surfacing as an opaque provider fault (Plan-005 T3.24). A build
+    // that IGNORES it instead forks the whole thread and is answered by that
+    // leg's turn-ledger check, which is a diagnostic and not a refusal.
     rollback: true,
     // Durable per-thread goal set/clear operations exist on the wire.
     session_goals: true,

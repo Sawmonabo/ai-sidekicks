@@ -145,6 +145,7 @@ import {
   type CloseSessionParams,
   type CreateSessionParams,
   type DriverAuthProbeResult,
+  type DriverCapabilityFlag,
   type DriverGoalResult,
   type DriverResumeResult,
   type DriverRollbackResult,
@@ -219,6 +220,12 @@ import {
   type TurnEvidenceClassification,
 } from "../outbound-frame.js";
 import type { CodexSteerAcknowledgement, CodexSteerRunRequest } from "./intervention.js";
+// RUNTIME import, and acyclic: `capabilities.ts` imports the probe, refresh, and
+// writer modules and `./tools.js`, none of which reaches back into this module.
+// The driver id is taken from its one declaration rather than restated as a
+// literal, so a rename cannot leave a refusal naming a driver that no longer
+// exists under that key.
+import { CODEX_DRIVER_NAME } from "./capabilities.js";
 
 // --------------------------------------------------------------------------
 // Transport constants
@@ -1113,6 +1120,12 @@ export class CodexRequestTimeoutError extends Error {
  * numeric code, message, and `data` member are preserved so that leg has
  * something to classify.
  *
+ * `providerMessage` is retained BESIDE the composed `message` rather than left
+ * to be re-extracted from it. A classifier reading `message` would be matching
+ * against a sentence this module composed — method name and quoting included —
+ * so what it actually tests is this class's formatting rather than the
+ * provider's answer. The verbatim member is the one the wire produced.
+ *
  * `providerErrorData` is carried VERBATIM and is deliberately typed `unknown`:
  * the JSON-RPC `error.data` member is where the pinned provider puts its
  * structured refusal detail (steer, revert, and thread-usage refusals all
@@ -1125,6 +1138,7 @@ export class CodexRequestTimeoutError extends Error {
 export class CodexProviderRequestError extends Error {
   readonly providerErrorCode: number;
   readonly method: string;
+  readonly providerMessage: string;
   readonly providerErrorData: unknown;
 
   constructor(
@@ -1137,8 +1151,140 @@ export class CodexProviderRequestError extends Error {
     this.name = "CodexProviderRequestError";
     this.providerErrorCode = providerErrorCode;
     this.method = method;
+    this.providerMessage = providerMessage;
     this.providerErrorData = providerErrorData;
   }
+}
+
+/**
+ * The `ThreadForkParams` member that carries the rewind boundary.
+ *
+ * Declared once because the classification below compares against what the
+ * provider's deserializer prints, and a second spelling of this name here would
+ * be a second answer to the question of which field a rewind depends on.
+ */
+const CODEX_REWIND_BOUNDARY_FIELD = "lastTurnId";
+
+/**
+ * The refusal spellings that INDICT A NAMED FIELD, as opposed to a method.
+ *
+ * Measured, not guessed. `docs/reference/provider-wire/codex.md` §Refusal shapes
+ * on the client-request channel records, at the `0.150.1` pin and verbatim from
+ * a binary probe, that an accepted method sent without its required parameter
+ * answers ``Invalid request: missing field `threadId` `` — and records that this
+ * was measured on `thread/fork` ITSELF, not inferred from a sibling method. The
+ * `unknown field` spelling is the same deserializer's answer when a field is
+ * present but not declared on the params type, which is the shape a RENAMED
+ * boundary member produces. It is not separately measured at this pin and is
+ * admitted anyway: the indictment it carries is unambiguous, and excluding it
+ * would let exactly the rename case the T3.24 rationale names fall through to a
+ * generic provider error.
+ *
+ * `unknown variant` is deliberately NOT here, and that exclusion is the point of
+ * matching a phrase AND a backticked field name rather than a phrase alone. The
+ * same reference records that `unknown variant` names either the method string
+ * that was sent or an enum VALUE nested inside an accepted request, and warns in
+ * its own words that "a parser that only looks for the phrase reads a rejected
+ * parameter as a missing method". `lastTurnId` is a string-typed field and never
+ * a variant name, so a build that has no `thread/fork` at all — the condition
+ * the version floor and the capability matrix govern — refuses with the method
+ * named, not this field, and stays the generic provider error it is.
+ */
+const CODEX_FIELD_LEVEL_REFUSAL_PHRASES: readonly string[] = ["missing field", "unknown field"];
+
+/**
+ * Does this provider message indict the rewind boundary member specifically?
+ *
+ * CONSERVATIVE BY CONSTRUCTION. Both conjuncts are load-bearing: the phrase says
+ * the deserializer refused a FIELD, and the backticked name says WHICH. A
+ * refusal that indicts any other field, or that names no field at all, is a
+ * generic provider failure and is left as one — the classification below only
+ * ever narrows a refusal that provably names this member.
+ */
+function refusalIndictsRewindBoundaryField(providerMessage: string): boolean {
+  return CODEX_FIELD_LEVEL_REFUSAL_PHRASES.some((phrase) =>
+    providerMessage.includes(`${phrase} \`${CODEX_REWIND_BOUNDARY_FIELD}\``),
+  );
+}
+
+/** Structured throw-site detail for {@link CodexRewindBoundaryUnsupportedError}. */
+export interface CodexRewindBoundaryUnsupportedFields {
+  readonly driverId: string;
+  readonly flag: DriverCapabilityFlag;
+  readonly providerError: string;
+}
+
+/**
+ * The running build accepts `thread/fork` but refuses its boundary member.
+ *
+ * The DYNAMIC twin of the registry's static gate, and the condition
+ * `Spec-005 §Per-Driver Capability Matrix` detection reasoning for this leg
+ * names outright: the Codex `rollback` flag resolves `static` from the matrix
+ * because the method enumeration establishes that `thread/fork` is accepted and
+ * not that `ThreadForkParams.lastTurnId` exists, and `lastTurnId` is verified at
+ * the `0.150.1` pin rather than at the `0.141.0` admission floor. A build in
+ * that gap passes the static gate and then refuses at the parameter, so the
+ * refusal has to be classified where the invocation happens.
+ *
+ * Rides the REGISTERED `driver.capability_unsupported` (400,
+ * `docs/architecture/contracts/error-contracts.md` §Driver, closed at seven) and
+ * mints no code — "registry membership is not availability" is the same rule the
+ * Claude leg's `ClaudeControlRequestRefusedError` states for its own control
+ * refusals, and this is that rule on the Codex rewind path.
+ *
+ * A LOCAL class rather than the registry's `DriverCapabilityUnsupportedError`,
+ * on that same precedent: the registry class is the realization of I-005-2 at
+ * the DECLARATION gate and carries `{ driverId, flag }` with nowhere to put the
+ * wire evidence, while the evidence is the whole basis on which this refusal
+ * claims to be a capability answer at all. The canonical message is deliberately
+ * reused verbatim — a caller cannot tell which of the two gates refused, and
+ * should not need to, because both say the same thing about the same flag.
+ *
+ * Leak-safe: `providerError` is normalized through
+ * {@link normalizeProviderFailureDetail} rather than carried raw, so a blank,
+ * NUL-bearing, or enormous provider message cannot ride out on a field.
+ */
+export class CodexRewindBoundaryUnsupportedError extends Error {
+  readonly code = "driver.capability_unsupported" as const;
+  readonly fields: CodexRewindBoundaryUnsupportedFields;
+
+  constructor(providerError: string) {
+    super("Requested capability is not supported by the driver");
+    this.name = "CodexRewindBoundaryUnsupportedError";
+    this.fields = {
+      driverId: CODEX_DRIVER_NAME,
+      flag: "rollback",
+      providerError: normalizeProviderFailureDetail(providerError),
+    };
+  }
+}
+
+/**
+ * Narrows a `thread/fork` failure to the capability refusal, or leaves it alone.
+ *
+ * TOTAL AND NON-SWALLOWING: every value it does not recognize is returned
+ * unchanged for the caller to rethrow, so this can only ever re-label a failure
+ * and never absorb one. The `method` conjunct is kept even though the single
+ * call site already scopes the catch to `thread/fork` — the classification is
+ * about a member of THAT method's params type, and a future caller that reuses
+ * this helper on another request must not inherit the claim by accident.
+ *
+ * Not folded into a `degraded` result: `DriverRollbackResult` closes at
+ * `applied` and `degraded`, a new `fallbackAction` value would be a wire growth
+ * this round does not carry, and the promise this delivers — `Plan-005` T3.24 —
+ * is a refusal AT INVOCATION rather than a fallback the caller is asked to
+ * absorb. A degraded answer would tell the daemon to try something else; this
+ * one tells it the capability is not there.
+ */
+function classifyRewindForkFailure(cause: unknown): unknown {
+  if (
+    cause instanceof CodexProviderRequestError &&
+    cause.method === "thread/fork" &&
+    refusalIndictsRewindBoundaryField(cause.providerMessage)
+  ) {
+    return new CodexRewindBoundaryUnsupportedError(cause.providerMessage);
+  }
+  return cause;
 }
 
 /**
@@ -1453,11 +1599,14 @@ export interface CodexSessionConfig {
    * why `#composeThreadEstablishmentLegs` forwards none. Absent under a
    * `trusted` posture, which denies nothing.
    *
-   * SCOPED TO THE SPAWN IT ACCOMPANIES. A create's policy is the create
-   * request's own; a resume re-derives its policy from the posture being resumed
-   * through {@link CodexLifecycleOptions.resolveCredentialEnvPolicy} rather than
-   * carrying a recorded one forward. What a session was launched under is not a
-   * statement about what a later relaunch is authorized for.
+   * SCOPED TO THE SPAWN IT ACCOMPANIES, and POSTURE-DERIVED on BOTH spawn
+   * paths. A create and a resume alike re-derive it from the posture the request
+   * states, through {@link CodexLifecycleOptions.resolveCredentialEnvPolicy} and
+   * the single {@link CodexLifecycleManager} helper both call, rather than
+   * carrying a declared or recorded one forward. Only a request that states no
+   * posture at all falls back to what its own context declared. What a session
+   * was launched under is not a statement about what a later relaunch is
+   * authorized for.
    */
   credentialEnvPolicy?: CredentialEnvPolicy | undefined;
 }
@@ -3293,7 +3442,10 @@ interface CodexSessionRecord {
    * Its `credentialEnvPolicy` is deliberately NOT reused: a resume re-derives
    * that from the posture it is being resumed under, so a posture change
    * between create and resume reaches the child rather than being masked by the
-   * record. See `#composeResumeSpawnConfig`.
+   * record. What it holds is the create's own RESOLVED answer and not the raw
+   * config bag, which is why the one arm that does inherit it — a resume that
+   * states no posture — inherits the policy the child actually ran under.
+   * See `#composeCreateSpawnConfig` and `#composeResumeSpawnConfig`.
    */
   readonly spawnConfig: CodexSessionConfig;
   /**
@@ -3668,10 +3820,11 @@ function isAmbiguousTurnStartOutcome(cause: unknown): boolean {
  * Resolves the credential policy for the posture a RESUME is being established
  * under.
  *
- * Injected, asynchronous, and called PER RESUME — never at construction and
- * never cached — so a posture that changed between create and resume governs
- * the child that resume spawns, rather than whichever policy happened to be in
- * force when the session was first created.
+ * Injected, asynchronous, and called PER SPAWN THAT STATES A POSTURE — on a
+ * create exactly as on a resume, never at construction and never cached — so
+ * the posture the request carries governs the child that request spawns, rather
+ * than whichever policy happened to be in force when the session was first
+ * created or was declared beside the posture in an untyped config bag.
  *
  * Handed the whole posture rather than the `credentialPolicyRef` inside it: this
  * driver reads no credential axis and expands no reference, which is the same
@@ -3681,7 +3834,7 @@ function isAmbiguousTurnStartOutcome(cause: unknown): boolean {
  * there is nothing for a resolver to resolve.
  *
  * Answering `undefined` for a posture that carries a reference is a WIRING
- * FAULT, not a licence to strip nothing: the resume refuses rather than
+ * FAULT, not a licence to strip nothing: the spawn refuses rather than
  * launching the child unfiltered.
  */
 export type CodexCredentialEnvPolicyResolver = (
@@ -3708,11 +3861,15 @@ export interface CodexLifecycleOptions extends CodexConnectionOptions {
    * policy channels and conflating them is exactly how a stale policy reaches a
    * child:
    *
-   *   * `createSession` takes the create request's OWN policy out of
-   *     `params.config`, an untyped bag validated through
+   *   * a CREATE that states a posture takes
+   *     {@link CodexCredentialEnvPolicyResolver}'s answer for THAT posture, so
+   *     this member's policy is not what such a create spawns under either. A
+   *     create that states NO posture falls back to its own `params.config`
+   *     policy, an untyped bag validated through
    *     {@link parseCodexSessionConfig} — which is what makes a malformed
    *     `credentialEnvPolicy` a refusal rather than a strip that silently
-   *     removes nothing;
+   *     removes nothing, and which is parsed on EVERY create whether or not a
+   *     posture then supersedes its answer;
    *   * a RESUME that states a posture takes
    *     {@link CodexCredentialEnvPolicyResolver}'s answer for THAT posture, so
    *     this member's policy is never what such a resume spawns under. A resume
@@ -3735,7 +3892,8 @@ export interface CodexLifecycleOptions extends CodexConnectionOptions {
    */
   readonly resumeSpawnConfig: CodexSessionConfig;
   /**
-   * Answers a resume's credential policy from the posture BEING RESUMED.
+   * Answers a spawn's credential policy from the posture that spawn STATES —
+   * the create request's and the resume request's alike.
    *
    * REQUIRED, on the same reasoning as `onTextNeutralizationFailure` and
    * `diagnostics` below. An optional arm would let a construction site that
@@ -4141,7 +4299,12 @@ export class CodexLifecycleManager {
   }
 
   async #establishCreatedSession(params: CreateSessionParams): Promise<ProviderSessionHandle> {
-    const config = parseCodexSessionConfig(params.config);
+    // Composed — and therefore REFUSED — before the connection object exists, so
+    // a posture this manager cannot resolve costs no process. The resume path
+    // composes inside its own `try` because I-005-5 owes it a typed `failed`
+    // result; `createSession` has no result type to refuse into, so its refusal
+    // is the same typed `CodexDriverConfigError` its config parse already raises.
+    const config = await this.#composeCreateSpawnConfig(params);
     const connection = new CodexAppServerConnection(this.#connectionOptionsFor(params.sessionId));
     try {
       // Inside the guard: `open()` tears its own process down on the paths it
@@ -4231,6 +4394,41 @@ export class CodexLifecycleManager {
   }
 
   /**
+   * Builds the spawn context a create launches under.
+   *
+   * TWO SOURCES, split exactly as `#composeResumeSpawnConfig` splits them. The
+   * PROCESS CONTEXT — `cwd` and `env` — is the create request's own, parsed
+   * fail-closed out of its untyped `params.config`. The CREDENTIAL POLICY is
+   * posture-derived, and that binding is what this method exists for: the bag
+   * and the posture are two channels making one claim, and before they were
+   * joined a `CreateSessionParams` carrying a sandboxed posture whose bag simply
+   * omitted `credentialEnvPolicy` opened its child with nothing stripped — the
+   * silence read as "deny nothing" even though the posture required a policy.
+   *
+   * The parse runs on EVERY create, whether or not the posture then supersedes
+   * its answer, because a malformed policy must stay a refusal rather than
+   * becoming dead input the posture happens to overwrite.
+   *
+   * Constructed member-by-member rather than spread-then-override for the reason
+   * the resume path states: a spread carries the bag's `credentialEnvPolicy`
+   * through whenever the posture resolves to none, which is precisely the
+   * unwanted-policy path this binding closes.
+   */
+  async #composeCreateSpawnConfig(params: CreateSessionParams): Promise<CodexSessionConfig> {
+    const declared = parseCodexSessionConfig(params.config);
+    const credentialEnvPolicy = await this.#resolveCredentialEnvPolicyForPosture(
+      declared.credentialEnvPolicy,
+      params.executionPosture,
+      "CreateSessionParams.executionPosture.credentialPolicyRef",
+    );
+    return {
+      cwd: declared.cwd,
+      env: declared.env,
+      ...(credentialEnvPolicy === undefined ? {} : { credentialEnvPolicy }),
+    };
+  }
+
+  /**
    * Builds the spawn context a resume relaunches under.
    *
    * TWO SOURCES, deliberately split, because they answer different questions.
@@ -4255,9 +4453,10 @@ export class CodexLifecycleManager {
     params: ResumeSessionParams,
   ): Promise<CodexSessionConfig> {
     const processContext = existing?.spawnConfig ?? this.#options.resumeSpawnConfig;
-    const credentialEnvPolicy = await this.#resolveResumeCredentialEnvPolicy(
-      processContext,
+    const credentialEnvPolicy = await this.#resolveCredentialEnvPolicyForPosture(
+      processContext.credentialEnvPolicy,
       params.executionPosture,
+      "ResumeSessionParams.executionPosture.credentialPolicyRef",
     );
     return {
       cwd: processContext.cwd,
@@ -4267,32 +4466,50 @@ export class CodexLifecycleManager {
   }
 
   /**
-   * Answers which credential policy a resume's child is filtered by.
+   * Answers which credential policy a spawned child is filtered by.
+   *
+   * ONE RULE, TWO CALLERS — the create composer and the resume composer both
+   * reach it, and that sharing is the contract rather than a convenience. A
+   * sibling copy on the create path is how the two spawn paths came apart in the
+   * first place: a resume that re-derived and a create that read only its config
+   * bag disagreed about the same session, and the disagreement was invisible
+   * because each path was locally consistent. A future third spawn path inherits
+   * the rule by calling this, or it is a fourth answer to a settled question.
    *
    * THREE ARMS, each derived from what `ExecutionPosture` can actually say
    * rather than from a convention:
    *
-   *   * NO POSTURE STATED. The resume declares nothing, so there is no posture
-   *     to derive from and the base context's own policy stands. Inheriting is
-   *     the conservative arm — the alternative, resolving to nothing, would WIDEN
-   *     an unfiltered child out of a caller's silence.
+   *   * NO POSTURE STATED. The request declares nothing, so there is no posture
+   *     to derive from and the policy its own context declared stands — the
+   *     resume's base process context, the create's parsed config bag.
+   *     Inheriting is the conservative arm; the alternative, resolving to
+   *     nothing, would WIDEN an unfiltered child out of a caller's silence.
    *   * `trusted`. The arm types `credentialPolicyRef?: never`, so the posture is
-   *     a positive statement that nothing is denied. The base's policy is
-   *     dropped rather than carried, which is the whole point of re-deriving:
-   *     the posture a resume states is the authority, not the session's history.
+   *     a positive statement that nothing is denied, and a policy sitting beside
+   *     it in the context is a wiring inconsistency rather than a stricter grant
+   *     the posture made. Dropped rather than honoured, on BOTH paths, for the
+   *     symmetry this helper exists to hold: honouring it on create while the
+   *     resume drops it would rebuild the very asymmetry being closed, mirror
+   *     imaged — one session stripping on create and not on relaunch. The
+   *     posture a request states is the authority; neither the session's history
+   *     nor an untyped bag beside it is.
    *   * SANDBOXED. Both remaining arms REQUIRE `credentialPolicyRef`, so a
    *     resolution is owed and an absent one is a wiring fault. Refused rather
    *     than degraded to "deny nothing", which would spawn the child holding
    *     exactly the credentials the reference exists to withhold — the same
    *     fail-closed rule {@link parseCodexSessionConfig} applies to a malformed
-   *     policy on the create path.
+   *     policy in a config bag.
+   *
+   * `postureRefusalField` is the caller's own parameter path, passed rather than
+   * fixed here so the refusal names the request the operator actually sent.
    */
-  async #resolveResumeCredentialEnvPolicy(
-    processContext: CodexSessionConfig,
+  async #resolveCredentialEnvPolicyForPosture(
+    declaredPolicy: CredentialEnvPolicy | undefined,
     posture: ExecutionPosture | undefined,
+    postureRefusalField: string,
   ): Promise<CredentialEnvPolicy | undefined> {
     if (posture === undefined) {
-      return processContext.credentialEnvPolicy;
+      return declaredPolicy;
     }
     if (posture.mode === "trusted") {
       return undefined;
@@ -4300,8 +4517,8 @@ export class CodexLifecycleManager {
     const resolved = await this.#options.resolveCredentialEnvPolicy(posture);
     if (resolved === undefined) {
       throw new CodexDriverConfigError(
-        `The execution posture "${posture.mode}" carries a credential policy reference that resolved to no policy, so the resumed child cannot be filtered.`,
-        "ResumeSessionParams.executionPosture.credentialPolicyRef",
+        `The execution posture "${posture.mode}" carries a credential policy reference that resolved to no policy, so the spawned child cannot be filtered.`,
+        postureRefusalField,
       );
     }
     return resolved;
@@ -4891,6 +5108,12 @@ export class CodexLifecycleManager {
    * a position naming no recorded turn. Both are answers about THIS request,
    * not transport faults, and `degraded` is the vocabulary the contract reserves
    * for a driver that was invoked and could not apply.
+   *
+   * REFUSES, rather than degrading, when the running build accepts `thread/fork`
+   * and rejects its boundary member: that is not a request this driver could not
+   * apply, it is a capability the build does not have, and the distinction is
+   * what the `rollback` flag's `static` detection source leaves to invocation
+   * time. See {@link CodexRewindBoundaryUnsupportedError}.
    */
   async rollbackTo(params: RollbackToParams): Promise<DriverRollbackResult> {
     // HOISTED OUT OF THE CLAIM below, and it has to be: that claim is taken in
@@ -4961,17 +5184,38 @@ export class CodexLifecycleManager {
     // the thread this fork descends from and the thread its usage base is keyed
     // to are provably the same value rather than two reads of a mutable field.
     const preForkThreadId = record.threadId;
-    const response = await record.connection.request("thread/fork", {
-      threadId: preForkThreadId,
-      lastTurnId: boundaryTurnId,
-      // A fork mints a NEW thread, so it is a thread establishment and takes the
-      // same re-realization rule a resume does: `ThreadForkParams` carries the
-      // override members verbatim, and a fork that omitted them would leave the
-      // rewound session governed by whatever the new thread inherited rather
-      // than by the posture and caps its caller declared.
-      ...this.#composeThreadEstablishmentLegs(record.executionPosture, record.subagentPolicy),
-      approvalsReviewer: "user",
-    });
+    // SCOPED TO THE REQUEST AND NOTHING ELSE. The guard wraps the dispatch alone
+    // so that only the provider's own reply is classified: `readThread` below
+    // throws a transport error for a malformed RESULT, which is a different
+    // failure entirely and must not be re-labelled a missing capability. Nothing
+    // is caught here that is not rethrown — see `classifyRewindForkFailure`.
+    let response: unknown;
+    try {
+      response = await record.connection.request("thread/fork", {
+        threadId: preForkThreadId,
+        lastTurnId: boundaryTurnId,
+        // A fork mints a NEW thread, so it is a thread establishment and takes the
+        // same re-realization rule a resume does: `ThreadForkParams` carries the
+        // override members verbatim, and a fork that omitted them would leave the
+        // rewound session governed by whatever the new thread inherited rather
+        // than by the posture and caps its caller declared.
+        ...this.#composeThreadEstablishmentLegs(record.executionPosture, record.subagentPolicy),
+        approvalsReviewer: "user",
+      });
+    } catch (cause) {
+      // THE CLASSIFICATION SITE the `rollback` detection rationale names. An
+      // above-floor build that accepts `thread/fork` but does not declare
+      // `ThreadForkParams.lastTurnId` refuses HERE, and refuses as the registered
+      // `driver.capability_unsupported` rather than as an opaque provider fault
+      // the caller would have to read a serde message to understand. Every other
+      // fork failure is rethrown exactly as it arrived.
+      //
+      // Thrown rather than returned: nothing has mutated yet — the record still
+      // names the pre-fork thread and the router and accountant are untouched —
+      // and the slot claim releases this body's hold in its own `finally`, so a
+      // later rewind on this session is attemptable with nothing to unwind.
+      throw classifyRewindForkFailure(cause);
+    }
     const forkedThread = readThread(response, "thread/fork");
     this.#assertPostureRealized(record.executionPosture, response);
     // THE FORK CHECK. A fork that answers with the thread it was HANDED did not
