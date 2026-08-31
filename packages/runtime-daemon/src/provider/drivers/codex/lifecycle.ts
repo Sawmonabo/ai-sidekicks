@@ -206,6 +206,14 @@ import {
   type SpawnEnvNameMatch,
 } from "../../spawn-env.js";
 import {
+  AmbiguousDeliveryReconciler,
+  classifyProviderRequestFailure,
+  PermanentStructuralRefusalError,
+  type ParticipantTurnReadbackReader,
+  type ProviderRefusalShape,
+  type ProviderRequestFailureObservation,
+} from "../../transcript/failure-mapping.js";
+import {
   assertReplayReconstituted,
   PostReplayAssertionFailedError,
   ReplayTargetLedger,
@@ -4914,34 +4922,137 @@ interface CodexSessionTransition {
  */
 type CodexSessionTransitionKind = Exclude<CodexSessionSlotState, "live">;
 
+// --------------------------------------------------------------------------
+// What a failed `turn/start` means — the AMBIGUOUS class and its exemption
+// --------------------------------------------------------------------------
+//
+// The asymmetry is the argument, not the enumeration. At this seam the driver
+// cannot distinguish "the provider never saw it" from "the provider accepted it
+// and the answer was lost": over-killing costs one re-establish, while
+// under-killing leaves a turn executing tools with no route to interrupt it, no
+// id to address it by, and a session the daemon will happily reuse — so a retry
+// doubles the work against a turn nobody can see. The class is therefore WIDE and
+// closed from the OTHER end: a clean JSON-RPC error response is the single
+// exemption, because a provider answering "no" is proof it processed the request
+// and started nothing. A deadline, a transport death, and a response carrying an
+// unusable turn id all leave the same question open and are treated the same way.
+//
+// `#assertWritable`'s already-closed refusal lands in the ambiguous class too,
+// deliberately: the teardown it triggers is idempotent, so paying for it twice
+// costs nothing, and exempting it would key the exemption on a call-site proxy
+// rather than on the semantic question the classifier asks.
+//
+// ADR-029 is what makes the wide class affordable: the daemon's canonical
+// transcript is authoritative and every provider session is a replay target, so
+// ambiguity about provider-side turn state is never worth carrying. Teardown and
+// replay is the designed recovery — deliberately NOT a `turn/started`
+// reconciliation, which would keep alive a turn the daemon has just reported as
+// having failed to start, and owe interrupt machinery for it.
+//
+// T3.22 narrows what the class DOES, not what it contains. The positional
+// reconcile wired into `startRun` is not the `turn/started` reconciliation ruled
+// out above: it adopts nothing, keeps nothing alive, and owes no interrupt
+// machinery. It reads a turn COUNT to decide whether a re-dispatch would
+// duplicate a turn, and on every arm the run still fails. Where the leg binds no
+// participant-turn reader — the default — the count is unobtainable and the
+// settlement is the teardown-and-replay described above, unchanged.
+//
+// The boolean predicate that used to state this partition is gone rather than
+// kept beside its successor: `observeCodexTurnStartFailure` draws the SAME line
+// and the classifier routes off it, so a second boolean saying the same thing
+// would be a second answer to the question of what "ambiguous" means here.
+
 /**
- * True when a `turn/start` outcome leaves provider-side turn state AMBIGUOUS.
+ * The provider's TYPED refusal detail, reduced to the shape the classifier rules
+ * on (T3.22).
  *
- * The asymmetry is the argument, not the enumeration. At this seam the driver
- * cannot distinguish "the provider never saw it" from "the provider accepted it
- * and the answer was lost": over-killing costs one re-establish, while
- * under-killing leaves a turn executing tools with no route to interrupt it, no
- * id to address it by, and a session the daemon will happily reuse — so a retry
- * doubles the work against a turn nobody can see. The class is therefore WIDE and
- * closed from the OTHER end: a clean JSON-RPC error response is the single
- * exemption, because a provider answering "no" is proof it processed the request
- * and started nothing. A deadline, a transport death, and a response carrying an
- * unusable turn id all leave the same question open and are treated the same way.
+ * `CodexErrorInfo` is this provider's typed refusal VOCABULARY —
+ * `contextWindowExceeded`, `usageLimitExceeded`, `badRequest`,
+ * `threadRollbackFailed`, and the rest. Where the pin publishes that vocabulary
+ * is on the `TurnError` a failed turn carries, and the reference records it
+ * there (`docs/reference/provider-wire/codex.md`, the `turn/start` section's
+ * turn-evidence discriminants). That carrier is a NOTIFICATION rather than a
+ * request rejection, and the reference pins no shape at all for the JSON-RPC
+ * `error.data` member this function reads — so the vocabulary is cited for what
+ * it is, and is deliberately not stretched into a pin of where this member
+ * arrives. What licenses the read is this driver's own contract instead:
+ * `CodexProviderRequestError` documents `error.data` as where the pin puts its
+ * structured refusal detail, keeps the member verbatim for exactly that reason,
+ * and hands the narrowing to this leg by name. `event-normalizer.ts` already
+ * treats the same enum as this provider's typed failure vocabulary and its prose
+ * as unreadable, and this reader holds that line: `providerMessage` is never
+ * inspected.
  *
- * `#assertWritable`'s already-closed refusal lands in the ambiguous class too,
- * deliberately: the teardown it triggers is idempotent, so paying for it twice
- * costs nothing, and exempting it would key the exemption on a call-site proxy
- * rather than on the semantic question the classifier asks.
+ * NOT reading the message is what forces the shape of this function. The pin's
+ * `-32600` family puts its discriminator in the deserializer's prose — three
+ * distinct refusals share the code, and only the sentence tells them apart — so
+ * a numeric-code reading cannot reach the structural class and a prose reading
+ * is prohibited outright by `Spec-005 §Pitfalls To Avoid`. The typed member is
+ * therefore the only admissible evidence, and where a rejection carries none the
+ * refusal lands on the non-escalating declined arm. Against a pin that never
+ * populates `error.data.codexErrorInfo` on this path the permanent arm is
+ * therefore DECLARED AND DORMANT — unchanged behaviour, re-arming the moment a
+ * rejection does carry the member — rather than an escalation inferred from an
+ * absence.
  *
- * ADR-029 is what makes the wide class affordable: the daemon's canonical
- * transcript is authoritative and every provider session is a replay target, so
- * ambiguity about provider-side turn state is never worth carrying. Teardown and
- * replay is the designed recovery — deliberately NOT a `turn/started`
- * reconciliation, which would keep alive a turn the daemon has just reported as
- * having failed to start, and owe interrupt machinery for it.
+ * `badRequest` is the single member mapped to the structural class, and the
+ * mapping is about what a `turn/start` actually varies. Its parameters are fixed
+ * by this driver; what changes between one turn and the next is the THREAD's
+ * accumulated history plus the participant's input. A provider that typed the
+ * request itself as bad is therefore refusing the conversation state, and will
+ * refuse it identically on every later request against the same thread — the
+ * definition of the permanent class. Every other member names a condition that
+ * is not the history and must not condemn a binding: `contextWindowExceeded` and
+ * `usageLimitExceeded` are ceilings, `serverOverloaded` and `internalServerError`
+ * are the provider's own health, `unauthorized` is a credential, and
+ * `threadRollbackFailed` is a different operation entirely.
  */
-function isAmbiguousTurnStartOutcome(cause: unknown): boolean {
-  return !(cause instanceof CodexProviderRequestError);
+function readCodexProviderRefusalShape(
+  providerErrorData: unknown,
+): ProviderRefusalShape | undefined {
+  if (
+    typeof providerErrorData !== "object" ||
+    providerErrorData === null ||
+    Array.isArray(providerErrorData)
+  ) {
+    return undefined;
+  }
+  const codexErrorInfo = (providerErrorData as Record<string, unknown>)["codexErrorInfo"];
+  // The object-shaped arms of the enum are deliberately not narrowed further.
+  // They exist at the pin, none of them is the structural class, and a reader
+  // that unwrapped them would be narrowing arms it has no rule for.
+  if (typeof codexErrorInfo !== "string") {
+    return undefined;
+  }
+  return codexErrorInfo === CODEX_STRUCTURAL_REFUSAL_ERROR_INFO
+    ? "history-structurally-invalid"
+    : "request-otherwise-refused";
+}
+
+/** The one `CodexErrorInfo` member that indicts the thread's own history. */
+const CODEX_STRUCTURAL_REFUSAL_ERROR_INFO = "badRequest";
+
+/**
+ * One failed `turn/start`, normalized for the shared classifier (T3.22).
+ *
+ * The delivery mapping is deliberately the SAME partition the band comment above
+ * draws, and not the finer one the request seam's own `CodexRequestDelivery`
+ * could supply. That seam can separate a
+ * provably-unsent write from an indeterminate one, but this leg's ambiguous
+ * class is documented as WIDE on purpose — `#assertWritable`'s already-closed
+ * refusal is named there as a deliberate member, on the grounds that exempting
+ * it would key the exemption on a call-site proxy rather than on the semantic
+ * question. Producing `unsent` here would re-open exactly that exemption, so the
+ * classifier is handed `indeterminate` for everything the provider did not
+ * answer, and this leg's transient arm is reached through the reconcile instead.
+ */
+function observeCodexTurnStartFailure(cause: unknown): ProviderRequestFailureObservation {
+  return cause instanceof CodexProviderRequestError
+    ? {
+        delivery: "consumed-and-refused",
+        refusalShape: readCodexProviderRefusalShape(cause.providerErrorData),
+      }
+    : { delivery: "indeterminate" };
 }
 
 /**
@@ -5142,6 +5253,28 @@ export interface CodexLifecycleOptions extends CodexConnectionOptions {
    * this is a composition-root edit, not a driver edit.
    */
   readonly transcriptReplayReadback?: ReplayTargetReadbackReader | undefined;
+  /**
+   * Reads how many PARTICIPANT-ORIGINATED turns a thread holds, for T3.22's
+   * positional reconcile of an ambiguous `turn/start`.
+   *
+   * A sibling of `transcriptReplayReadback` rather than a reuse of it, because
+   * the two ask for different units: that reader answers with turn BODIES, which
+   * interleave the assistant turns the daemon's acknowledged set does not hold,
+   * so counting it would compare a provider-side total against a participant-side
+   * one. The count this reader answers with is compared directly against
+   * `CodexSessionRecord.turnBoundaries`, which is appended once per ACCEPTED
+   * `turn/start` and seeded on resume from the thread's own turn list — so both
+   * sides count the same unit by construction.
+   *
+   * UNBOUND AT THIS PIN, and unbound is a settlement rather than a hole. The
+   * ambiguity then reports `unrecoverable`, which is the arm
+   * `Spec-005 §Fallback Behavior` specifies: nothing is re-sent and the turn
+   * fails visibly — which is exactly the teardown-and-replay this leg already
+   * performs, so the default composition behaves identically to the shipped one.
+   * A composition root that can answer the count binds it and gets the narrower
+   * settlements; binding it is a composition-root edit, not a driver edit.
+   */
+  readonly participantTurnReadback?: ParticipantTurnReadbackReader | undefined;
 }
 
 /**
@@ -5364,6 +5497,33 @@ export class CodexLifecycleManager {
    * burned target does so through the `ProviderSessionHandle` it still holds.
    */
   readonly #replayTargets: ReplayTargetLedger = new ReplayTargetLedger();
+  /**
+   * Settles an ambiguous `turn/start` positionally before anything else touches
+   * the thread (T3.22).
+   *
+   * Constructed unconditionally rather than lazily beside a bound reader, so the
+   * routing has one shape: an unbound reconciler answers `unrecoverable`, which
+   * is a specified settlement, and a nullable field would put an
+   * `if (reconciler !== undefined)` in the one path whose whole job is to be
+   * exhaustive over the settlements.
+   *
+   * The serialization it provides buys one thing exactly: it orders two
+   * RECONCILES against one thread, and keeps a single reconcile's read and
+   * ruling atomic against each other. That much is load-bearing rather than a
+   * precaution — `startRun`'s own frame-scoping comment records that nothing
+   * serializes two starts for one run, so the read and the disposal decision
+   * that follows it would otherwise sit open across an `await` a second
+   * reconcile can run inside.
+   *
+   * It does NOT order a concurrent SUCCESSFUL start, which takes no lock here
+   * and can append a turn boundary between the acknowledged count and the
+   * provider read. That residual is recorded rather than guarded because it is
+   * one-sided: an extra accepted turn can only inflate the read, and an inflated
+   * read can only settle `delivered` — dispose the session, fail the run
+   * visibly, re-send nothing. It cannot produce `cleared-for-retry`, which is
+   * the only settlement a re-dispatch follows.
+   */
+  readonly #ambiguousDeliveryReconciler: AmbiguousDeliveryReconciler;
   // The P1-1 producer half. One gate per session, latched at the top of
   // `closeSession`; the terminal-emission boundary in `event-normalizer.ts` is
   // the CONSUMER that stamps the flag on the terminal payload, because that is
@@ -5436,6 +5596,9 @@ export class CodexLifecycleManager {
     // without waiting out a real declared bound.
     this.#pendingCompactions = new PendingCompactionRegistry(
       options.scheduleTimeout ?? defaultScheduleTimeout,
+    );
+    this.#ambiguousDeliveryReconciler = new AmbiguousDeliveryReconciler(
+      options.participantTurnReadback,
     );
     this.#outboundTextFrameWriter = new OutboundTextFrameWriter({
       mechanismGrade: options.textNeutralityMechanismGrade ?? "emulated",
@@ -6023,9 +6186,45 @@ export class CodexLifecycleManager {
       // the record, so session resolution refuses this binding by ABSENCE and
       // the only route back is a fresh spawn.
       this.#outboundFrameTripwire.forgetFrame(openingFrame);
-      if (isAmbiguousTurnStartOutcome(cause)) {
+      // T3.22. Classified BEFORE anything is torn down, because two of the four
+      // dispositions decide whether a teardown is owed at all, and one of them
+      // needs the connection alive to read the thread back. The routing is
+      // exhaustive over the shared classifier's union rather than over this
+      // leg's own error classes, so the two drivers cannot drift apart on what a
+      // refusal means.
+      const disposition = classifyProviderRequestFailure(
+        observeCodexTurnStartFailure(cause),
+      ).disposition;
+      if (disposition === "permanent-structural-refusal") {
+        // The session is CONDEMNED, not merely torn down. Its thread holds a
+        // history the provider has typed as unacceptable, so every later request
+        // against it draws the same refusal — a fresh spawn under this id is the
+        // only route back, and the caller's answer is a reconstitution rather
+        // than a retry. The quarantine pair is entered in the order the
+        // neutralization path uses it: SESSION first, so a caller reacting
+        // synchronously to this failure cannot reach the condemned binding by
+        // resolving the session, then RUN.
+        this.#providerBindingQuarantine.disposeSession(record.sessionId);
+        this.#providerBindingQuarantine.disposeRun(params.runId, record.sessionId);
         await this.#disposeAmbiguousSession(record);
+        throw new PermanentStructuralRefusalError({
+          providerSessionId: record.threadId,
+          runId: params.runId,
+          cause,
+        });
       }
+      if (disposition === "reconcile-ambiguous-delivery") {
+        await this.#settleAmbiguousTurnStart(record);
+      }
+      // `fail-consumed-and-declined` reaches here having disposed nothing, which
+      // is the shipped behaviour for a provider that answered "no": the answer is
+      // proof it processed the request and started nothing, so the session stays
+      // usable and a refusal costs no re-establish. The union's fourth arm,
+      // `retry-definitely-unsent`, is unreachable on this leg BY CONSTRUCTION —
+      // `observeCodexTurnStartFailure` never reports `unsent`, because this leg's
+      // ambiguous class is deliberately wide — and if that observation is ever
+      // narrowed, the arm needs a branch here rather than this fall-through,
+      // which would report a provably-unsent start as a failure without retrying.
       throw cause;
     } finally {
       record.inFlightTurnStarts -= 1;
@@ -6130,6 +6329,61 @@ export class CodexLifecycleManager {
       composeTextNeutralizationRunFailure(decision),
     );
     this.#disposeQuarantinedSession(record);
+  }
+
+  /**
+   * Settles an ambiguous `turn/start` by reading the thread's participant-turn
+   * count back, and disposes unless the read proved nothing landed (T3.22).
+   *
+   * POSITIONAL, never content-based. An ordinary turn carries no identity marker
+   * and a participant may legitimately send the same words twice, so matching
+   * text would settle a repeated question as a duplicate. `turnBoundaries` is the
+   * daemon's side of the comparison and is exact for it: one entry is appended
+   * per ACCEPTED `turn/start` and the ledger is seeded on resume from the
+   * thread's own turn list, so the two sides count the same unit. The ambiguous
+   * start is not in it — nothing was appended, because nothing was acknowledged —
+   * which is what makes "the target holds more than this" mean "the ambiguous
+   * turn landed".
+   *
+   * The read and the disposal decision run inside one per-thread critical
+   * section, which is what "before any further send on that session" buys
+   * against a second RECONCILE: this leg serializes nothing else across the two,
+   * so without it one reconcile's ruling could be moved under it by another's.
+   * A concurrent SUCCESSFUL start is outside that section by construction —
+   * `#ambiguousDeliveryReconciler` records why the skew it can introduce only
+   * ever biases the settlement toward `delivered`, the arm that re-sends nothing.
+   *
+   * The run FAILS on all three arms — the caller re-throws the original cause —
+   * and the arms differ only in what happens to the session:
+   *
+   *   * `delivered` — the turn landed but its id was lost with the answer, so it
+   *     is unaddressable. Disposed, because a live turn with no route to
+   *     interrupt it is exactly the state this driver refuses to carry. What the
+   *     read bought is the certainty that the caller cannot re-dispatch onto this
+   *     session and duplicate the turn's spend.
+   *   * `cleared-for-retry` — the thread provably does not hold the turn, so the
+   *     session is left LIVE and a re-dispatch costs nothing and duplicates
+   *     nothing. This is the transient arm on this leg, and it is caller-driven
+   *     rather than a ladder here: `startRun` is re-enterable, and re-sending
+   *     inside the catch would have to re-register an opening frame the tripwire
+   *     has just been told to forget.
+   *   * `unrecoverable` — the target could not be read. Disposed, which is the
+   *     shipped teardown-and-replay: nothing is re-sent, and nothing is assumed
+   *     delivered.
+   */
+  async #settleAmbiguousTurnStart(record: CodexSessionRecord): Promise<void> {
+    await this.#ambiguousDeliveryReconciler.reconcileThenAct(
+      {
+        targetProviderSessionId: record.threadId,
+        acknowledgedParticipantSends: record.turnBoundaries.length,
+      },
+      async (settlement) => {
+        if (settlement.settlement === "cleared-for-retry") {
+          return;
+        }
+        await this.#disposeAmbiguousSession(record);
+      },
+    );
   }
 
   /** The `turn/start` request itself, split out so `startRun` reads as its policy. */
