@@ -1947,6 +1947,72 @@ describe("ClaudeSessionLifecycle mandated spawn environment", () => {
 
     expect(harness.transport.rewindRequests[0]?.mandatedEnvironment).toEqual(MANDATED);
   });
+
+  it("carries it on the auth probe, which starts a child of its own", async () => {
+    // The fourth spawn path, and the one whose seam could not receive the pairs
+    // at all until the probe took a request. It is also the path where losing
+    // them costs most: a probe runs on a cadence and its child is short-lived,
+    // so an unsuppressed probe can update the installation underneath the very
+    // version and capability readings the next admission is decided against.
+    const harness = buildHarness();
+
+    const result = await harness.lifecycle.probeAuth();
+
+    expect(harness.transport.probeAuthRequests[0]?.mandatedEnvironment).toEqual(MANDATED);
+    // The double REFUSES a child started without them, so a passing probe is
+    // itself evidence — an `indeterminate` here would mean the guard fired.
+    expect(result.status).toBe("authenticated");
+  });
+
+  it("hands a resume the policy ref of the posture BEING RESUMED", async () => {
+    // The Claude analogue of the codex resume fix, and a ROUTING assertion
+    // rather than a strip assertion: the deny strip belongs to the transport
+    // under the P0-4 obligation, so what this band owes is handing that
+    // transport the ref of the posture the resume states. Both paths build
+    // their legs from `params` through the one shared builder, which is why
+    // there is no stale-policy path here to close — this pins that.
+    const harness = buildHarness();
+
+    await harness.lifecycle.resumeSession({
+      sessionId: TEST_SESSION_ID,
+      resumeHandle: "provider-session-earlier",
+      executionPosture: SANDBOXED_POSTURE,
+    });
+
+    expect(harness.transport.resumeRequests[0]?.sandboxSettings?.credentialPolicyRef).toBe(
+      SANDBOXED_POSTURE.credentialPolicyRef,
+    );
+  });
+
+  it("hands a `trusted` resume no policy ref at all", async () => {
+    // The other direction, which a "still carries a ref" assertion cannot
+    // catch. `trusted` types `credentialPolicyRef?: never`, so settings
+    // carrying one would hand the transport a policy to enforce that the
+    // posture does not declare.
+    const harness = buildHarness();
+
+    await harness.lifecycle.resumeSession({
+      sessionId: TEST_SESSION_ID,
+      resumeHandle: "provider-session-earlier",
+      executionPosture: TRUSTED_POSTURE,
+    });
+
+    expect(
+      harness.transport.resumeRequests[0]?.sandboxSettings?.credentialPolicyRef,
+    ).toBeUndefined();
+  });
+
+  it("cannot start a probe child without them — the guard, driven directly", async () => {
+    // The negative control. Without it the arm above proves only that some
+    // pairs were recorded, not that the transport double would object to their
+    // absence, and a guard that never refuses makes every arm in this suite
+    // vacuous.
+    const harness = buildHarness();
+
+    await expect(harness.transport.probeAuth({ mandatedEnvironment: [] })).rejects.toThrow(
+      /without the mandated DISABLE_AUTOUPDATER=1/,
+    );
+  });
 });
 
 describe("ClaudeSessionLifecycle callback-tool registry (T3.15 leg 3, Claude arm)", () => {

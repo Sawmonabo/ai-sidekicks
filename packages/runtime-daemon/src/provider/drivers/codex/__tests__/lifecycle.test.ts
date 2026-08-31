@@ -51,6 +51,7 @@ import {
 } from "../../outbound-frame.js";
 import type { SubagentLifecycleEmission } from "../../../thread-frame-router.js";
 import type { CumulativeAxisReadings, MeteredUsageDelta } from "../../../usage-delta-accountant.js";
+import { hostEnvNameMatchForPlatform } from "../../../spawn-env.js";
 import {
   CodexAppServerConnection,
   CodexDriver,
@@ -78,6 +79,7 @@ import {
   resolveCodexTransportSelection,
   type CodexPtySessionListeners,
   type CodexPtySessionSubscriber,
+  type CodexCredentialEnvPolicyResolver,
   type CodexScheduleTimeout,
   type CodexSessionConfig,
   type CodexTransportDiagnostic,
@@ -458,6 +460,22 @@ const RESUME_SPAWN_CONFIG: CodexSessionConfig = {
   env: [["HOME", "/home/agent"]],
 };
 
+/**
+ * The daemon's stand-in policy resolver: a well-formed policy denying nothing.
+ *
+ * Deliberately a real policy rather than `undefined`. A sandboxed posture OWES a
+ * resolution, and answering `undefined` is the wiring fault the driver refuses —
+ * so a harness default of `undefined` would make every posture-bearing resume in
+ * this file fail for a reason none of them are about. Its `envNameMatch` is the
+ * HOST's, because the shared builder refuses a policy that declares a different
+ * one.
+ */
+const resolveNoDeniedCredentialNames: CodexCredentialEnvPolicyResolver = () =>
+  Promise.resolve({
+    denyEnvVars: [],
+    envNameMatch: hostEnvNameMatchForPlatform(process.platform),
+  });
+
 interface Harness {
   server: FakeCodexAppServer;
   driver: CodexDriver;
@@ -497,6 +515,7 @@ function createHarness(
     steer?: boolean;
     subscribeToPtySession?: CodexPtySessionSubscriber;
     resumeSpawnConfig?: CodexSessionConfig;
+    resolveCredentialEnvPolicy?: CodexCredentialEnvPolicyResolver;
   } = {},
 ): Harness {
   const server = new FakeCodexAppServer();
@@ -529,6 +548,8 @@ function createHarness(
     scheduleTimeout: scheduler.schedule,
     executablePath: EXECUTABLE_PATH,
     resumeSpawnConfig: options.resumeSpawnConfig ?? RESUME_SPAWN_CONFIG,
+    resolveCredentialEnvPolicy:
+      options.resolveCredentialEnvPolicy ?? resolveNoDeniedCredentialNames,
     newBindingId: () => "binding-abc",
     readCapabilities: () => makeCapabilities(options.steer ?? true),
   });
@@ -592,6 +613,8 @@ interface ManagerHarnessOptions {
   throwOnFirstNotification?: boolean;
   /** Overrides the spawn context every manager-owned spawn is composed from. */
   resumeSpawnConfig?: CodexSessionConfig;
+  /** Overrides the daemon's per-resume credential-policy resolution. */
+  resolveCredentialEnvPolicy?: CodexCredentialEnvPolicyResolver;
   /** Supplies the daemon's prior-emitted cumulative sums for a resume base. */
   readPriorEmittedUsage?: (
     sessionId: SessionId,
@@ -651,6 +674,8 @@ function createManagerHarness(options: ManagerHarnessOptions = {}): ManagerHarne
     scheduleTimeout: scheduler.schedule,
     executablePath: EXECUTABLE_PATH,
     resumeSpawnConfig: options.resumeSpawnConfig ?? RESUME_SPAWN_CONFIG,
+    resolveCredentialEnvPolicy:
+      options.resolveCredentialEnvPolicy ?? resolveNoDeniedCredentialNames,
     newBindingId: options.newBindingId ?? ((): string => "binding-abc"),
     onMeteredUsage: (sessionId, delta) => meteredUsage.push({ sessionId, delta }),
     onSubagentLifecycle: (sessionId, emission) => subagentLifecycle.push({ sessionId, emission }),
@@ -1242,6 +1267,7 @@ describe("CodexDriver resumeSession (I-005-5, Spec-005 §Fallback Behavior)", ()
       scheduleTimeout: scheduler.schedule,
       executablePath: EXECUTABLE_PATH,
       resumeSpawnConfig: RESUME_SPAWN_CONFIG,
+      resolveCredentialEnvPolicy: resolveNoDeniedCredentialNames,
       newBindingId: () => "binding-abc",
       readCapabilities: () => makeCapabilities(true),
     });
@@ -1645,6 +1671,7 @@ describe("CodexDriver session ownership (Spec-005 §Required Behavior)", () => {
       scheduleTimeout: scheduler.schedule,
       executablePath: EXECUTABLE_PATH,
       resumeSpawnConfig: RESUME_SPAWN_CONFIG,
+      resolveCredentialEnvPolicy: resolveNoDeniedCredentialNames,
       newBindingId: () => "binding-abc",
     });
 
@@ -2105,6 +2132,144 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
       ["HOME", "/home/agent"],
       [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
     ]);
+  });
+
+  // The two postures a resume can be established under, kept as a PAIR because
+  // the property under test is symmetric: a session's posture can change between
+  // the create that established it and the resume that relaunches it, and the
+  // child has to follow the current one in BOTH directions.
+  const SANDBOXED_RESUME_POSTURE: ExecutionPosture = {
+    mode: "workspace-sandboxed",
+    credentialPolicyRef: "policy://resume",
+    networkAccess: "none",
+    writableRoots: [SESSION_CWD],
+  };
+  const TRUSTED_RESUME_POSTURE: ExecutionPosture = {
+    mode: "trusted",
+    networkAccess: "full",
+    writableRoots: [SESSION_CWD],
+  };
+
+  it("strips under the RESUMED posture's policy though the create-time posture had none", async () => {
+    // The create leg carries no policy at all, so the session's own recorded
+    // spawn config denies nothing. A resume that reused that record would
+    // relaunch the child holding the credential the current posture withholds.
+    const harness = createHarness({
+      resolveCredentialEnvPolicy: () => Promise.resolve(DENY_POLICY),
+    });
+    harness.server.on("thread/start", () => threadStartResult());
+    await harness.driver.createSession({
+      sessionId: SESSION_ID,
+      config: {
+        cwd: SESSION_CWD,
+        env: [
+          ["HOME", "/home/agent"],
+          [DENIED_ENV_VAR, "sk-live"],
+        ],
+      },
+    });
+    harness.server.on("thread/resume", () => threadStartResult(1));
+
+    await harness.driver.resumeSession({
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+      executionPosture: SANDBOXED_RESUME_POSTURE,
+    });
+
+    // The SECOND spawn is the resume's; the first is the create it supersedes.
+    // Byte-exact, so a strip that also dropped or reordered the process context
+    // it inherited would not pass.
+    expect(harness.server.spawnRequests[1]?.env).toEqual([
+      ["HOME", "/home/agent"],
+      [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
+    ]);
+  });
+
+  it("strips nothing under a `trusted` resumed posture though the create-time posture had a policy", async () => {
+    const harness = createHarness();
+    harness.server.on("thread/start", () => threadStartResult());
+    await harness.driver.createSession({
+      sessionId: SESSION_ID,
+      config: {
+        cwd: SESSION_CWD,
+        env: [
+          ["HOME", "/home/agent"],
+          [DENIED_ENV_VAR, "sk-live"],
+        ],
+        credentialEnvPolicy: DENY_POLICY,
+      },
+    });
+    harness.server.on("thread/resume", () => threadStartResult(1));
+
+    await harness.driver.resumeSession({
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+      executionPosture: TRUSTED_RESUME_POSTURE,
+    });
+
+    // The denied name SURVIVES, and that direction is the one a "still strips
+    // things" assertion cannot catch. `trusted` types `credentialPolicyRef?:
+    // never`, so the posture is a positive statement that nothing is denied —
+    // carrying the create's policy forward would keep withholding a credential
+    // the session is no longer sandboxed against.
+    expect(harness.server.spawnRequests[1]?.env).toEqual([
+      ["HOME", "/home/agent"],
+      [DENIED_ENV_VAR, "sk-live"],
+      [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
+    ]);
+  });
+
+  it("honours the resumed posture on a COLD resume, which has no record to reuse", async () => {
+    // The daemon-restart case, and the one the manager-wide config cannot serve:
+    // `resumeSpawnConfig` is a single construction-time object, so it can carry
+    // at most one policy for every session on the node — here, none at all.
+    const harness = createHarness({
+      resumeSpawnConfig: {
+        cwd: "/work/resume",
+        env: [
+          ["HOME", "/home/agent"],
+          [DENIED_ENV_VAR, "sk-live"],
+        ],
+      },
+      resolveCredentialEnvPolicy: () => Promise.resolve(DENY_POLICY),
+    });
+    harness.server.on("thread/resume", () => threadStartResult(1));
+
+    await harness.driver.resumeSession({
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+      executionPosture: SANDBOXED_RESUME_POSTURE,
+    });
+
+    expect(harness.server.spawnRequests[0]?.env).toEqual([
+      ["HOME", "/home/agent"],
+      [CODEX_APP_SERVER_BIN_ENV_VAR, EXECUTABLE_PATH],
+    ]);
+  });
+
+  it("refuses a posture that resolves to no policy, and refuses it as a RESULT", async () => {
+    // Two properties in one arm because they are one guarantee. A posture whose
+    // mode is not `trusted` REQUIRES `credentialPolicyRef`, so an unresolved
+    // policy is a wiring fault — degrading it to "deny nothing" would launch the
+    // child holding exactly the credentials the reference exists to withhold.
+    // And I-005-5 requires the refusal to ARRIVE as the typed `failed` result: a
+    // rejection escaping `resumeSession` would be a second failure channel the
+    // recovery leg has no rule for.
+    const harness = createHarness({
+      resolveCredentialEnvPolicy: () => Promise.resolve(undefined),
+    });
+    harness.server.on("thread/resume", () => threadStartResult(1));
+
+    const result = await harness.driver.resumeSession({
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+      executionPosture: SANDBOXED_RESUME_POSTURE,
+    });
+
+    expect(result.status).toBe("failed");
+    // Nothing was spawned at all: the refusal lands before `open()`, so no child
+    // ever held the environment the policy was supposed to filter.
+    expect(harness.server.spawnRequests).toEqual([]);
   });
 
   it("strips it on the auth probe's child, the third spawn path", async () => {
@@ -5693,6 +5858,7 @@ describe("CodexDriver transport construction (T3.15 leg 6)", () => {
       scheduleTimeout: makeManualScheduler().schedule,
       executablePath: EXECUTABLE_PATH,
       resumeSpawnConfig: RESUME_SPAWN_CONFIG,
+      resolveCredentialEnvPolicy: resolveNoDeniedCredentialNames,
       newBindingId: () => "binding-abc",
       readCapabilities: () => makeCapabilities(true),
     };
@@ -5818,6 +5984,7 @@ async function routedAskHarness(
     scheduleTimeout: scheduler.schedule,
     executablePath: EXECUTABLE_PATH,
     resumeSpawnConfig: RESUME_SPAWN_CONFIG,
+    resolveCredentialEnvPolicy: resolveNoDeniedCredentialNames,
     newBindingId: () => "binding-abc",
     readCapabilities: () => makeCapabilities(true),
     ...(responder === undefined ? {} : { answerServerRequest: responder }),

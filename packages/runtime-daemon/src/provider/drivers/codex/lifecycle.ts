@@ -1452,6 +1452,12 @@ export interface CodexSessionConfig {
    * driver reads no credential axis and expands no reference, which is exactly
    * why `#composeThreadEstablishmentLegs` forwards none. Absent under a
    * `trusted` posture, which denies nothing.
+   *
+   * SCOPED TO THE SPAWN IT ACCOMPANIES. A create's policy is the create
+   * request's own; a resume re-derives its policy from the posture being resumed
+   * through {@link CodexLifecycleOptions.resolveCredentialEnvPolicy} rather than
+   * carrying a recorded one forward. What a session was launched under is not a
+   * statement about what a later relaunch is authorized for.
    */
   credentialEnvPolicy?: CredentialEnvPolicy | undefined;
 }
@@ -3278,6 +3284,17 @@ interface CodexSessionRecord {
    * still held.
    */
   readonly subagentPolicy: SubagentPolicy | undefined;
+  /**
+   * The context this leg's process was launched in, reused as the PROCESS
+   * CONTEXT of a resume that supersedes it — `cwd` and `env`, which say where
+   * the binary runs and how it finds its credential home, and which a live
+   * record answers better than the manager-wide default.
+   *
+   * Its `credentialEnvPolicy` is deliberately NOT reused: a resume re-derives
+   * that from the posture it is being resumed under, so a posture change
+   * between create and resume reaches the child rather than being masked by the
+   * record. See `#composeResumeSpawnConfig`.
+   */
   readonly spawnConfig: CodexSessionConfig;
   /**
    * Every live turn on this session, keyed by TURN id, newest last.
@@ -3647,11 +3664,36 @@ function isAmbiguousTurnStartOutcome(cause: unknown): boolean {
   return !(cause instanceof CodexProviderRequestError);
 }
 
+/**
+ * Resolves the credential policy for the posture a RESUME is being established
+ * under.
+ *
+ * Injected, asynchronous, and called PER RESUME — never at construction and
+ * never cached — so a posture that changed between create and resume governs
+ * the child that resume spawns, rather than whichever policy happened to be in
+ * force when the session was first created.
+ *
+ * Handed the whole posture rather than the `credentialPolicyRef` inside it: this
+ * driver reads no credential axis and expands no reference, which is the same
+ * reason `#composeThreadEstablishmentLegs` forwards none. Called ONLY for a
+ * posture whose `mode` is not `trusted`, and that is a fact of the type rather
+ * than a convention — the trusted arm declares `credentialPolicyRef?: never`, so
+ * there is nothing for a resolver to resolve.
+ *
+ * Answering `undefined` for a posture that carries a reference is a WIRING
+ * FAULT, not a licence to strip nothing: the resume refuses rather than
+ * launching the child unfiltered.
+ */
+export type CodexCredentialEnvPolicyResolver = (
+  posture: ExecutionPosture,
+) => Promise<CredentialEnvPolicy | undefined>;
+
 /** Construction inputs for the lifecycle manager. */
 export interface CodexLifecycleOptions extends CodexConnectionOptions {
   /**
    * Spawn context for a RESUME when this process holds no record of the session
-   * (the daemon-restart case, which is the ordinary one).
+   * (the daemon-restart case, which is the ordinary one), and for the auth
+   * probe, which holds no session at all.
    *
    * `ResumeSessionParams` carries neither `cwd` nor `env`, yet a spawn needs
    * both — and an empty environment is not a safe default: the provider locates
@@ -3662,20 +3704,47 @@ export interface CodexLifecycleOptions extends CodexConnectionOptions {
    * thread's. Required, never defaulted, so nothing is silently inherited from
    * the daemon process (this module reads `process.env` nowhere).
    *
-   * PROVENANCE, because it differs from the create path and the difference is
-   * load-bearing. `createSession` receives `params.config` as an untyped bag off
-   * the wire and validates it through {@link parseCodexSessionConfig}, which is
-   * what makes a malformed `credentialEnvPolicy` a refusal rather than a strip
-   * that silently removes nothing. This value is CONSTRUCTION-TIME and typed:
-   * the composition root supplies an already-resolved `CodexSessionConfig`, so
-   * it is validated by the type system rather than at a parse boundary. A future
-   * construction root that sources this from untyped input — configuration file,
-   * IPC payload, restored record — must pass it through
-   * {@link parseCodexSessionConfig} first; assigning an unvalidated bag here
-   * would put the deny strip's fail-closed behaviour back at risk on exactly the
-   * resume and probe paths that have no other parse.
+   * WHAT ITS `credentialEnvPolicy` GOVERNS, stated because this driver has three
+   * policy channels and conflating them is exactly how a stale policy reaches a
+   * child:
+   *
+   *   * `createSession` takes the create request's OWN policy out of
+   *     `params.config`, an untyped bag validated through
+   *     {@link parseCodexSessionConfig} — which is what makes a malformed
+   *     `credentialEnvPolicy` a refusal rather than a strip that silently
+   *     removes nothing;
+   *   * a RESUME that states a posture takes
+   *     {@link CodexCredentialEnvPolicyResolver}'s answer for THAT posture, so
+   *     this member's policy is never what such a resume spawns under. A resume
+   *     that states NO posture inherits its base context's own policy, where
+   *     inheriting is the conservative answer and widening would be the
+   *     fail-open one — and this member is that base context only on a COLD
+   *     resume; a LIVE one inherits from the record's own `spawnConfig`;
+   *   * the AUTH PROBE spawns under this member's policy directly. The probe is
+   *     posture-less by construction — it claims no session and answers a
+   *     node-level question — so this is the only policy it can have.
+   *
+   * PROVENANCE. This value is CONSTRUCTION-TIME and typed: the composition root
+   * supplies an already-resolved `CodexSessionConfig`, so it is validated by the
+   * type system rather than at a parse boundary. A future construction root that
+   * sources it from untyped input — configuration file, IPC payload, restored
+   * record — must pass it through {@link parseCodexSessionConfig} first;
+   * assigning an unvalidated bag here would put the deny strip's fail-closed
+   * behaviour back at risk on the probe path, which is the one spawn path whose
+   * policy still comes from here and which has no other parse.
    */
   readonly resumeSpawnConfig: CodexSessionConfig;
+  /**
+   * Answers a resume's credential policy from the posture BEING RESUMED.
+   *
+   * REQUIRED, on the same reasoning as `onTextNeutralizationFailure` and
+   * `diagnostics` below. An optional arm would let a construction site that
+   * simply never bound it fall back to a manager-wide policy that cannot
+   * represent a per-session one — and a session whose posture tightened between
+   * create and resume would relaunch under the looser policy with nothing
+   * anywhere reporting it.
+   */
+  readonly resolveCredentialEnvPolicy: CodexCredentialEnvPolicyResolver;
   /** Mints `DriverResumeResult.bindingId`; supply the store's minter in the daemon. */
   readonly newBindingId?: (() => string) | undefined;
   /**
@@ -4161,14 +4230,97 @@ export class CodexLifecycleManager {
     );
   }
 
+  /**
+   * Builds the spawn context a resume relaunches under.
+   *
+   * TWO SOURCES, deliberately split, because they answer different questions.
+   * The PROCESS CONTEXT — `cwd` and `env` — is not posture-derived: it says
+   * where the provider binary runs and how it finds its credential home, and a
+   * live record's own context is the better answer than the manager-wide
+   * default because it is the context this session was actually established in.
+   * The CREDENTIAL POLICY is entirely posture-derived, and inheriting it is the
+   * bug this split exists to close: a session created under a `trusted` posture
+   * and resumed under a sandboxed one would otherwise relaunch with the
+   * unfiltered environment it was created with, and the reverse — sandboxed
+   * create, `trusted` resume — would keep stripping names the current posture
+   * denies nothing about.
+   *
+   * Constructed member-by-member rather than spread-then-override for the same
+   * reason: a spread carries the base's `credentialEnvPolicy` through whenever
+   * the posture resolves to none, which is precisely the stale-policy path.
+   * Nothing here is inherited that was not named here.
+   */
+  async #composeResumeSpawnConfig(
+    existing: CodexSessionRecord | undefined,
+    params: ResumeSessionParams,
+  ): Promise<CodexSessionConfig> {
+    const processContext = existing?.spawnConfig ?? this.#options.resumeSpawnConfig;
+    const credentialEnvPolicy = await this.#resolveResumeCredentialEnvPolicy(
+      processContext,
+      params.executionPosture,
+    );
+    return {
+      cwd: processContext.cwd,
+      env: processContext.env,
+      ...(credentialEnvPolicy === undefined ? {} : { credentialEnvPolicy }),
+    };
+  }
+
+  /**
+   * Answers which credential policy a resume's child is filtered by.
+   *
+   * THREE ARMS, each derived from what `ExecutionPosture` can actually say
+   * rather than from a convention:
+   *
+   *   * NO POSTURE STATED. The resume declares nothing, so there is no posture
+   *     to derive from and the base context's own policy stands. Inheriting is
+   *     the conservative arm — the alternative, resolving to nothing, would WIDEN
+   *     an unfiltered child out of a caller's silence.
+   *   * `trusted`. The arm types `credentialPolicyRef?: never`, so the posture is
+   *     a positive statement that nothing is denied. The base's policy is
+   *     dropped rather than carried, which is the whole point of re-deriving:
+   *     the posture a resume states is the authority, not the session's history.
+   *   * SANDBOXED. Both remaining arms REQUIRE `credentialPolicyRef`, so a
+   *     resolution is owed and an absent one is a wiring fault. Refused rather
+   *     than degraded to "deny nothing", which would spawn the child holding
+   *     exactly the credentials the reference exists to withhold — the same
+   *     fail-closed rule {@link parseCodexSessionConfig} applies to a malformed
+   *     policy on the create path.
+   */
+  async #resolveResumeCredentialEnvPolicy(
+    processContext: CodexSessionConfig,
+    posture: ExecutionPosture | undefined,
+  ): Promise<CredentialEnvPolicy | undefined> {
+    if (posture === undefined) {
+      return processContext.credentialEnvPolicy;
+    }
+    if (posture.mode === "trusted") {
+      return undefined;
+    }
+    const resolved = await this.#options.resolveCredentialEnvPolicy(posture);
+    if (resolved === undefined) {
+      throw new CodexDriverConfigError(
+        `The execution posture "${posture.mode}" carries a credential policy reference that resolved to no policy, so the resumed child cannot be filtered.`,
+        "ResumeSessionParams.executionPosture.credentialPolicyRef",
+      );
+    }
+    return resolved;
+  }
+
   async #establishResumedSession(params: ResumeSessionParams): Promise<DriverResumeResult> {
     // Read INSIDE the claimed establishment, never at the call site: the claim
     // chains behind any predecessor, so this read must happen after that
     // predecessor has installed its record for the supersede to see it.
     const existing = this.#sessions.get(params.sessionId);
-    const spawnConfig = existing?.spawnConfig ?? this.#options.resumeSpawnConfig;
     const connection = new CodexAppServerConnection(this.#connectionOptionsFor(params.sessionId));
     try {
+      // Composed INSIDE the `try`, and the placement is load-bearing rather than
+      // tidy: the composition RESOLVES a posture's policy and refuses a posture
+      // it cannot resolve, so raising it at the call site above would let that
+      // refusal escape `resumeSession` as an exception. I-005-5 requires every
+      // resume failure to arrive as the typed `failed` result, and this catch is
+      // what makes it one.
+      const spawnConfig = await this.#composeResumeSpawnConfig(existing, params);
       await connection.open(spawnConfig);
       const response = await connection.request("thread/resume", {
         threadId: params.resumeHandle,

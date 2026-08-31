@@ -110,6 +110,7 @@ export {
   resolveCodexTransportSelection,
   type CodexBearerCredentialResolver,
   type CodexConnectionOptions,
+  type CodexCredentialEnvPolicyResolver,
   type CodexDiagnosticSink,
   type CodexLifecycleOptions,
   type CodexPtySessionListeners,
