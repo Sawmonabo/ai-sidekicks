@@ -2594,17 +2594,29 @@ export interface CodexSessionConfig {
    *     against whatever the node resolves as that provider's default — that is
    *     the silent re-bill T3.17 exists to prevent.
    *   * RESUME. `ResumeSessionParams.providerAccountId` — composed by the daemon
-   *     from the durable record, never re-resolved — is AUTHORITATIVE. The live
-   *     session record's own spawn config answers where the request states none,
-   *     and the manager-wide `resumeSpawnConfig` only where no record survives.
+   *     from the durable record, never re-resolved — is AUTHORITATIVE over the
+   *     live record as to which CLAIM wins, and the record answers where the
+   *     request states none. It is authoritative over NOTHING as to what is
+   *     bound: a resume relaunches under a credential environment it is HANDED,
+   *     the live record's when one survives and the manager-wide
+   *     `resumeSpawnConfig`'s when none does, and the account that environment
+   *     was CONSTRUCTED for is the account reported.
    *   * DISAGREEMENT REFUSES. Where the typed member and this session's own
    *     recorded value BOTH name an account and the two differ, the spawn is
    *     refused rather than resolved. Two resolvers disagreeing about a billing
    *     identity is a wiring fault, and letting either win silently would bill a
-   *     run to an account it may never have been admitted against. The node-wide
-   *     `resumeSpawnConfig` is deliberately NOT a party to that rule: it makes no
-   *     claim about THIS session, so a typed member differing from it is the
-   *     ordinary mid-session-default-change case and wins outright.
+   *     run to an account it may never have been admitted against.
+   *
+   * ACCOUNT IDENTITY AND CREDENTIAL ENVIRONMENT MUST NEVER DIVERGE. Stated
+   * without reference to an arm, because it holds on every resume path: a typed
+   * member naming an account the handed environment was not built for is
+   * REFUSED, whether that environment came from the live record or from the
+   * node-wide default, and whether the environment's own account is a different
+   * one or none at all — an ambient environment is nobody's in particular, so
+   * absence is a mismatch and not a wildcard. A mis-bill this driver ANNOUNCES
+   * is recoverable; one it reports correctly while the child authenticates as
+   * somebody else is not, because nothing upstream has any signal left to
+   * reconcile against.
    *
    * ABSENCE IS STATED, NEVER SYNTHESIZED. It reaches an enumerated command
    * entry as a literal `null` — never `""`, never a placeholder, and never the
@@ -3100,9 +3112,17 @@ export function parseCodexSessionConfig(config: unknown): CodexSessionConfig {
  * the recorded one would re-introduce the very silent re-bill T3.17 closed. A
  * refusal is the only answer that cannot move a run's spend without saying so.
  * The manager-wide `resumeSpawnConfig` is deliberately never passed here — it is
- * a NODE-LEVEL DEFAULT that makes no claim about any particular session, so a
- * typed member differing from it is the ordinary mid-session-default-change case
- * and must win outright rather than refuse.
+ * a NODE-LEVEL DEFAULT that makes no claim about any particular session, so it
+ * is not a claim this rule can weigh at all.
+ *
+ * THIS HELPER ANSWERS WHICH CLAIM WINS, AND ONLY THAT. Whether the winning claim
+ * is one the available credential environment can actually honour is a separate
+ * question with a separate answer, and the resume composer's environment-binding
+ * gate is where it is asked — on BOTH its arms, since a typed member may name an
+ * account the node-wide default's environment was not built for just as easily as
+ * one the live record's was not. Fusing the two would make this helper's
+ * precedence rule depend on which spawn path called it, which is exactly the
+ * per-path divergence it exists to prevent.
  *
  * A PRESENT-BUT-EMPTY `requested` REFUSES, for the reason
  * {@link parseCodexSessionConfig} refuses an empty bag member: an empty string
@@ -5940,10 +5960,12 @@ export class CodexLifecycleManager {
    * create, `trusted` resume — would keep stripping names the current posture
    * denies nothing about. The PROVIDER ACCOUNT is neither: it is the identity
    * the daemon ADMITTED this run against, so the request's own typed member
-   * governs and everything else is fallback — see
-   * {@link resolveBoundProviderAccountId} for the precedence and for why a
-   * disagreement with the live record refuses while one with the node-wide
-   * default does not.
+   * governs which CLAIM wins — see {@link resolveBoundProviderAccountId} for
+   * that precedence. It does not govern what is REPORTED: the account bound is
+   * always the one the process context's credential environment was constructed
+   * for, and a typed member naming any other refuses. Identity and environment
+   * can reach this composer from two different requests, and the one thing they
+   * may never do is diverge.
    *
    * Constructed member-by-member rather than spread-then-override for the same
    * reason: a spread carries the base's `credentialEnvPolicy` through whenever
@@ -5967,25 +5989,65 @@ export class CodexLifecycleManager {
     // re-realizes the same one. A resume that silently moved to a different
     // account would re-key the receipt's per-paying-account axis mid-session.
     //
-    // THE RECORD IS THE ONLY COMPETING CLAIM, and splitting it back out of
-    // `processContext` is the whole point: `existing.spawnConfig` is what THIS
-    // session's live process is actually running under, so a typed member that
-    // contradicts it is two resolvers disagreeing and refuses. The manager-wide
-    // `resumeSpawnConfig` is a node-level default that says nothing about this
-    // session, so it is consulted only on a COLD resume and only where the
-    // request named no account — which is exactly the case T3.17 was written
-    // for: a daemon restart whose durable record names the admitted account
-    // while the node's default has since moved on.
+    // THE RECORD IS THE ONLY COMPETING CLAIM AT THIS CALL, and splitting it back
+    // out of `processContext` is the whole point: `existing.spawnConfig` is what
+    // THIS session's live process is actually running under, so a typed member
+    // that contradicts it is two resolvers disagreeing and refuses. What this
+    // call CANNOT answer is whether the winning claim is one the available
+    // credential environment can honour — that is the gate below.
     const requestedAccountId = resolveBoundProviderAccountId({
       requested: params.providerAccountId,
       requestedField: "ResumeSessionParams.providerAccountId",
       recorded: existing?.spawnConfig.providerAccountId,
       recordedField: "the live session record's own spawn config",
     });
-    const providerAccountId =
-      existing === undefined
-        ? (requestedAccountId ?? this.#options.resumeSpawnConfig.providerAccountId)
-        : requestedAccountId;
+    // THE MEMBER REPORTED IS THE ACCOUNT WHOSE CREDENTIAL ENVIRONMENT THIS SPAWN
+    // ACTUALLY RUNS UNDER. That is the whole invariant, and it is read off
+    // `processContext` rather than reassembled because `processContext` IS the
+    // config supplying `cwd` and `env` below: on a warm resume the live record's,
+    // on a cold one the node-wide default's. Its own account member is therefore
+    // definitionally the account the environment was CONSTRUCTED for, and no
+    // second expression can drift from it.
+    //
+    // WHY A MISMATCH REFUSES INSTEAD OF PREFERRING THE TYPED MEMBER. This driver
+    // never locates credentials — the daemon hands it a constructed environment
+    // and it spawns with it — so it cannot build any other account's. Taking the
+    // typed member here would move the METADATA alone: the routing binding would
+    // report the admitted account while the child authenticated, and billed, as
+    // whoever the environment belongs to. That is the silent re-bill T3.17 closed
+    // wearing a correct-looking binding, which is worse than the loud form
+    // precisely because nothing upstream is left with a signal to reconcile
+    // against.
+    //
+    // AN UNBOUND ENVIRONMENT ACCOUNT IS A MISMATCH, NOT A WILDCARD, on BOTH arms.
+    // An environment built for no bound account is an ambient one; it does not
+    // become the requested account's environment by virtue of naming no other.
+    // Reading absence as agreement is the tempting shortcut and the one that
+    // reopens the hole, since every resume could then claim any account it liked.
+    //
+    // ONE GATE RATHER THAN TWO, because the two arms differ only in WHERE the
+    // environment came from and not in what makes a mismatch wrong. The cold arm
+    // reaches it whenever the request names an account the node default's
+    // environment was not built for; the warm arm reaches it only where the live
+    // record bound NO account while the request names one — a record and a
+    // durable record disagreeing about one session — because a warm record that
+    // names a DIFFERENT account has already refused inside the resolver above.
+    const environmentAccountId = processContext.providerAccountId;
+    if (requestedAccountId !== undefined && requestedAccountId !== environmentAccountId) {
+      const environmentSource =
+        existing === undefined
+          ? `no live session record survives, so the only environment available is the node-wide default's, constructed for ${environmentAccountId ?? "no bound account"}`
+          : `the live session record this resume relaunches from was established for ${environmentAccountId ?? "no bound account"}, so its environment is not that account's`;
+      throw new CodexDriverConfigError(
+        `ResumeSessionParams.providerAccountId names provider account ${requestedAccountId}, but ${environmentSource}; this driver is handed a constructed credential environment and cannot build another account's, so the relaunch is refused rather than spawned against an environment that bills elsewhere.`,
+        "ResumeSessionParams.providerAccountId",
+      );
+    }
+    // Named from the ENVIRONMENT rather than from the request even though the
+    // gate has just proven them equal wherever the request named one: binding the
+    // environment's account is what keeps the invariant true by construction
+    // rather than by an argument a later edit could quietly invalidate.
+    const providerAccountId = environmentAccountId;
     return {
       cwd: processContext.cwd,
       env: processContext.env,

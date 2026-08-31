@@ -2838,18 +2838,11 @@ describe("CodexDriver provider-account precedence at the spawn seam", () => {
     expect(harness.server.spawnRequests).toEqual([]);
   });
 
-  it("binds a COLD resume to the typed member over a DIFFERENT node-wide default", async () => {
-    // THE DAEMON-RESTART CASE, and the one the manager-wide config cannot serve.
-    // `resumeSpawnConfig` is a single construction-time object — at most one
-    // account for every session on the node — so a default that moved while this
-    // node held no record would re-bill a live run mid-flight. The typed member,
-    // composed by the daemon from the durable `runtime_bindings.spawn_config`
-    // record, names the account the run was ADMITTED against and wins OUTRIGHT:
-    // the node-wide default makes no claim about this session, so a difference
-    // from it is the ordinary mid-session-default-change case rather than a
-    // disagreement, and it must not refuse.
+  it("binds a COLD resume when the typed member and the node-wide default AGREE", async () => {
+    // The cold arm's ONLY admitting case, asserted so the refusals below cannot
+    // be satisfied by an arm that simply refuses every typed member.
     const harness = accountHarness({
-      resumeSpawnConfig: { ...RESUME_SPAWN_CONFIG, providerAccountId: NODE_DEFAULT_ACCOUNT_ID },
+      resumeSpawnConfig: { ...RESUME_SPAWN_CONFIG, providerAccountId: ADMITTED_ACCOUNT_ID },
     });
 
     const result = await harness.driver.resumeSession({
@@ -2860,6 +2853,62 @@ describe("CodexDriver provider-account precedence at the spawn seam", () => {
 
     expect(result.status).toBe("resumed");
     expect(await boundAccountId(harness)).toBe(ADMITTED_ACCOUNT_ID);
+  });
+
+  it("REFUSES a COLD resume that names an account the available environment was not built for", async () => {
+    // WHY THIS CANNOT BE HONOURED, which is a stronger reason than a precedence
+    // rule. With no record to relaunch from, `cwd` and `env` come from the
+    // node-wide `resumeSpawnConfig` — and that `env` is the CONSTRUCTED
+    // credential environment the daemon built for the DEFAULT account. This
+    // driver never locates credentials, so it cannot build the admitted
+    // account's environment; taking the typed member here would move the
+    // METADATA only, leaving the routing binding reporting one account while the
+    // child authenticated, and billed, as another. That is the round-1 re-bill
+    // wearing a correct-looking binding, so this arm refuses instead.
+    const harness = accountHarness({
+      resumeSpawnConfig: { ...RESUME_SPAWN_CONFIG, providerAccountId: NODE_DEFAULT_ACCOUNT_ID },
+    });
+
+    const result = await harness.driver.resumeSession({
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+      providerAccountId: ADMITTED_ACCOUNT_ID,
+    });
+
+    // I-005-5: the refusal ARRIVES as the typed result, never as a rejection.
+    expect(result.status).toBe("failed");
+    // Both accounts are named, so an operator can see which side is wrong rather
+    // than only that two values differed.
+    const detail = result.status === "failed" ? result.providerFailureDetail : "";
+    expect(detail).toContain(ADMITTED_ACCOUNT_ID);
+    expect(detail).toContain(NODE_DEFAULT_ACCOUNT_ID);
+    // Nothing ran: the composition refuses before `open()`, so no child ever
+    // authenticated under the wrong credential home.
+    expect(harness.server.spawnRequests).toEqual([]);
+  });
+
+  it("REFUSES a COLD resume that names an account while the node-wide default is UNBOUND", async () => {
+    // AN AMBIENT ENVIRONMENT IS NOBODY'S IN PARTICULAR. A default carrying no
+    // account is not a wildcard that happens to match every request — it is an
+    // environment built for no bound account, which is precisely NOT the
+    // admitted account's. Treating absence as agreement is the tempting reading
+    // and the one that reopens the hole: it would let every cold resume claim
+    // any account it liked, on the strength of the default naming no other.
+    const harness = accountHarness();
+
+    const result = await harness.driver.resumeSession({
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+      providerAccountId: ADMITTED_ACCOUNT_ID,
+    });
+
+    expect(result.status).toBe("failed");
+    const detail = result.status === "failed" ? result.providerFailureDetail : "";
+    expect(detail).toContain(ADMITTED_ACCOUNT_ID);
+    // The unbound side is stated in words, because there is no id to print and a
+    // refusal that named only one account would read as a truncation.
+    expect(detail).toContain("no bound account");
+    expect(harness.server.spawnRequests).toEqual([]);
   });
 
   it("falls back to the node-wide default on a cold resume that names no account", async () => {
@@ -2919,6 +2968,97 @@ describe("CodexDriver provider-account precedence at the spawn seam", () => {
     expect(harness.server.spawnRequests).toHaveLength(spawnsAfterCreate);
     // And a failed resume changes NOTHING — the predecessor is still live and
     // still bound to the account it was admitted against.
+    expect(await boundAccountId(harness)).toBe(ADMITTED_ACCOUNT_ID);
+  });
+
+  it("REFUSES a WARM resume that names an account while the live record bound NONE", async () => {
+    // THE SAME DIVERGENCE CLASS AS THE COLD ARM, reached from the other side. A
+    // warm resume relaunches under the LIVE RECORD's environment, and a record
+    // whose create bound no account carries an ambient one. Honouring the typed
+    // member here would report the admitted account off a binding whose child
+    // authenticates as whoever that ambient environment belongs to — metadata
+    // and credentials divergent, which is the shape the gate exists to refuse
+    // regardless of which arm supplied the environment.
+    //
+    // AND IT IS A WIRING FAULT, NOT A CALLER MISTAKE, which is why it fails
+    // closed rather than degrading: `ResumeSessionParams.providerAccountId` is
+    // composed from the durable record and never re-resolved, so a typed member
+    // naming an account while the live record names none is two records
+    // disagreeing about one session.
+    const harness = accountHarness({
+      resumeSpawnConfig: { ...RESUME_SPAWN_CONFIG, providerAccountId: NODE_DEFAULT_ACCOUNT_ID },
+    });
+    // A create that binds no account through EITHER channel.
+    await harness.driver.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    const spawnsAfterCreate = harness.server.spawnRequests.length;
+
+    const result = await harness.driver.resumeSession({
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+      providerAccountId: ADMITTED_ACCOUNT_ID,
+    });
+
+    expect(result.status).toBe("failed");
+    const detail = result.status === "failed" ? result.providerFailureDetail : "";
+    expect(detail).toContain(ADMITTED_ACCOUNT_ID);
+    // The unbound side is stated in words, because there is no id to print.
+    expect(detail).toContain("no bound account");
+    // WHICH ARM REFUSED IS ASSERTED, not assumed: the message names the live
+    // record as the environment's source, and a node-wide default carrying a
+    // DIFFERENT account sits beside it precisely so a cold-arm refusal here
+    // would name that account instead and fail this pair.
+    expect(detail).toContain("live session record");
+    expect(detail).not.toContain(NODE_DEFAULT_ACCOUNT_ID);
+    // No second child was spawned, and the predecessor is untouched — still
+    // live, and still accountless rather than retroactively bound.
+    expect(harness.server.spawnRequests).toHaveLength(spawnsAfterCreate);
+    expect(await boundAccountId(harness)).toBeNull();
+  });
+
+  it("keeps a WARM resume of an accountless session accountless, never adopting the node default", async () => {
+    // THE ENVIRONMENT'S ACCOUNT IS THE PROCESS CONTEXT'S OWN, NOT A FALLBACK
+    // CHAIN. A warm resume relaunches under the live record's `cwd` and `env`,
+    // so the account that environment was constructed for is the RECORD's — and
+    // an unbound record's is nothing. Reading it as "the record's, or else the
+    // node default's" would report an account whose credentials this child never
+    // holds: the same divergence the refusals above close, arrived at through a
+    // fallback rather than through a request. Asserted with a node default that
+    // DOES carry an account, because that is the only arrangement in which the
+    // two readings differ at all.
+    const harness = accountHarness({
+      resumeSpawnConfig: { ...RESUME_SPAWN_CONFIG, providerAccountId: NODE_DEFAULT_ACCOUNT_ID },
+    });
+    await harness.driver.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+
+    const result = await harness.driver.resumeSession({
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+    });
+
+    expect(result.status).toBe("resumed");
+    expect(await boundAccountId(harness)).toBeNull();
+  });
+
+  it("binds a WARM resume when the typed member matches the live record's account", async () => {
+    // The warm arm's positive control, and the node-wide default carries a
+    // DIFFERENT account so an arm that simply reported the default would fail
+    // here rather than pass by coincidence.
+    const harness = accountHarness({
+      resumeSpawnConfig: { ...RESUME_SPAWN_CONFIG, providerAccountId: NODE_DEFAULT_ACCOUNT_ID },
+    });
+    await harness.driver.createSession({
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+      providerAccountId: ADMITTED_ACCOUNT_ID,
+    });
+
+    const result = await harness.driver.resumeSession({
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+      providerAccountId: ADMITTED_ACCOUNT_ID,
+    });
+
+    expect(result.status).toBe("resumed");
     expect(await boundAccountId(harness)).toBe(ADMITTED_ACCOUNT_ID);
   });
 });
