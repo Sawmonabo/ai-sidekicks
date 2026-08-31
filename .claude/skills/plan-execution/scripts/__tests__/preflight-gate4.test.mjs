@@ -3783,7 +3783,11 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // Spec-006 / Spec-008 / Spec-022 are specs, which carry no marker blocks.
     // The `none` arm holds because no none-arm row is added, removed, or
     // reworded. The legacy compact-inline channel is untouched.
-    bold: { resolved: 994, noneArm: 161, parentResolved: 0 },
+    // 994/161 -> 995/161 (2026-08-31, NS-95 effort-vocabulary amendment —
+    // PR #389): Plan-005's T3.15 `Verifies invariant:` row gains I-005-14
+    // (the outbound-answer refuse-never-truncate bound) — one more bold
+    // resolved reference; the legacy channel is unchanged.
+    bold: { resolved: 995, noneArm: 161, parentResolved: 0 },
     legacy: { resolved: 64, noneArm: 3, parentResolved: 1 },
   });
 });
