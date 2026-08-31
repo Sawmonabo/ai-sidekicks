@@ -174,6 +174,11 @@ function keyFailureReason(
  * a session purge or a master-key rotation would then have to invalidate. A
  * cache whose invalidation is someone else's problem is how a rotated-away key
  * keeps opening bodies.
+ *
+ * ONCE PER SESSION COVERS FAILED RESOLUTIONS TOO. A read that rejects is
+ * retained for the rest of the batch and every remaining row of that session
+ * settles on its classified reason, rather than each row re-attempting the unseal
+ * — see the note at the retention in `#classify`.
  */
 export class SessionContentReader {
   readonly #keyReader: SessionContentKeyReader;
@@ -275,13 +280,35 @@ export class SessionContentReader {
       if (pending === undefined) {
         pending = this.#keyReader.read(sessionId);
         // Memoized BEFORE the await so two rows of one session never race two
-        // reads; a rejected promise is dropped below so a transient failure is
-        // not cached for the life of the batch.
+        // reads.
         keys.set(sessionId, pending);
       }
       resolved = await pending;
     } catch (error) {
-      keys.delete(sessionId);
+      // THE REJECTION IS RETAINED FOR THE LIFETIME OF THIS MAP — deliberately,
+      // and reversing what an earlier draft did here. That draft deleted the
+      // entry so "a transient failure is not cached for the life of the batch",
+      // which sounds prudent and is the wrong trade at this seam: it made a
+      // failed read RETRY on every subsequent row of the same session. A batch
+      // of 200 rows from one session whose key cannot be unsealed then performed
+      // 200 unwrap attempts — or, when the master key sits behind a hardware
+      // ceremony, prompted the operator 200 times — while `hydrateAll` documents
+      // "resolving each distinct session's key at most once". Retention is what
+      // makes that sentence true rather than aspirational.
+      //
+      // Retrying is not lost, it is RE-SCOPED to the caller: `hydrate` builds a
+      // fresh map per row and `hydrateAll` a fresh map per call, so the next
+      // invocation re-reads. The batch is the correct retention unit — inside
+      // one batch nothing about the daemon's key state can have changed that a
+      // second attempt would discover, and every row lands on the same
+      // classified reason instead of a mix that depends on read ordering.
+      //
+      // NO UNHANDLED REJECTION IS POSSIBLE, by construction rather than by
+      // reasoning about timing: the only writer of this map is the block above,
+      // which attaches this very `catch` to the promise in the same synchronous
+      // run as it creates and stores it. A retained rejected promise has
+      // therefore already been handled once before any later row can observe it,
+      // and each later row awaits it inside its own copy of this `try`.
       return unavailable(
         error instanceof SessionContentKeyUnavailableError
           ? keyFailureReason(error)

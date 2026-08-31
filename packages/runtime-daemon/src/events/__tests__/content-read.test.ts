@@ -696,7 +696,46 @@ describe("hydrating machine-authored prose", () => {
     expect(readCallCount).toBe(1);
   });
 
-  it("does not cache a failed key resolution across a batch", async () => {
+  it("resolves one session's key once even when the read FAILS", async () => {
+    // THE FAILED READ IS RETAINED FOR THE BATCH. An earlier draft dropped it, so
+    // every subsequent row of the same session retried — N unwrap attempts for
+    // one broken key, or N operator prompts when the master sits behind a
+    // hardware ceremony, while `hydrateAll` documents "resolving each distinct
+    // session's key at most once". The contract has to hold on the failure path
+    // or it is not a contract.
+    const { store, masterKeySource } = buildReader();
+    let readCallCount = 0;
+    const countingReader: SessionContentKeyReader = {
+      read: async (sessionId: SessionId) => {
+        readCallCount += 1;
+        return store.read(sessionId);
+      },
+    };
+    const reader = new SessionContentReader({ keyReader: countingReader });
+
+    const rows: StoredEventContentRow[] = [];
+    for (let index = 0; index < 5; index += 1) {
+      rows.push((await sealedRow(store, `turn ${String(index)}`)).row);
+    }
+
+    masterKeySource.failure = new Error("keystore is locked");
+    readCallCount = 0;
+    const hydrated = await reader.hydrateAll(rows);
+
+    expect(readCallCount).toBe(1);
+    // And EVERY row settles on the same classified reason — not a mix that
+    // depends on which row happened to be first.
+    expect(hydrated).toHaveLength(5);
+    for (const entry of hydrated) {
+      expectUnavailable(entry, "master_key_unavailable");
+    }
+  });
+
+  it("retries on a FRESH call, so retention is scoped to the batch and not the reader", async () => {
+    // Retrying is not lost, it is re-scoped to the caller: `hydrateAll` builds a
+    // fresh map per call and `hydrate` one per row. This is what keeps the
+    // retention honest — a reader that cached across calls would need
+    // invalidation the class deliberately refuses to own.
     const { store, masterKeySource } = buildReader();
     let readCallCount = 0;
     const countingReader: SessionContentKeyReader = {
@@ -713,13 +752,28 @@ describe("hydrating machine-authored prose", () => {
     const failed = await reader.hydrateAll([first]);
     expectUnavailable(failed[0]!, "master_key_unavailable");
 
-    // A transient failure must not be cached for the life of the batch, so the
-    // second row resolves again rather than inheriting the rejection.
     masterKeySource.failure = undefined;
     readCallCount = 0;
     const recovered = await reader.hydrateAll([first, second]);
     expect(recovered.map((entry) => entry.content.status)).toEqual(["available", "available"]);
     expect(readCallCount).toBe(1);
+  });
+
+  it("keeps a per-row `hydrate` call independent of any earlier failure", async () => {
+    // `hydrate` makes its own map per row, so the single-row entry point is
+    // unaffected by the batch retention in either direction.
+    const { store, masterKeySource } = buildReader();
+    const { row } = await sealedRow(store, "the original prose");
+    const reader = new SessionContentReader({ keyReader: store });
+
+    masterKeySource.failure = new Error("keystore is locked");
+    expectUnavailable(await reader.hydrate(row), "master_key_unavailable");
+
+    masterKeySource.failure = undefined;
+    expect((await reader.hydrate(row)).content).toMatchObject({
+      status: "available",
+      body: "the original prose",
+    });
   });
 
   it("never fabricates an empty body on any unavailable path", async () => {

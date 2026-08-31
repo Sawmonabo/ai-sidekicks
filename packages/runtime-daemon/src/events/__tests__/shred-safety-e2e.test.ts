@@ -67,6 +67,7 @@ import {
   type PiiEncryptor,
 } from "../pii-indirection.js";
 import { __resetSessionAppendLocksForTest } from "../session-append-lock.js";
+import { SessionContentKeyStore } from "../session-content-key-store.js";
 import {
   GENESIS_PREV_HASH,
   verifyRow,
@@ -447,6 +448,14 @@ function buildCompactor(thresholds: {
       nodeId: NODE,
       signingKeySource: keySource,
       now: () => new Date(PASS_INSTANT),
+    }),
+    // The REAL store, over the REAL table — this file's `satisfies` convention
+    // applied to the lifecycle seam. Nothing here seals a `content_payload`, so
+    // every sweep is a legitimate no-op; what it proves is that the shipped store
+    // survives being driven by the shipped pass end to end.
+    contentKeyDisposer: new SessionContentKeyStore({
+      database,
+      masterKeySource: { read: async (): Promise<Uint8Array> => new Uint8Array(32).fill(11) },
     }),
     now: () => new Date(PASS_INSTANT),
     ...thresholds,

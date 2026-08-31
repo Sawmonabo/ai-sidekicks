@@ -156,6 +156,7 @@ import { NeverHaltedIngestHaltSource } from "./ingest-halt-source.js";
 import type { IngestHaltSource } from "./ingest-halt-source.js";
 import type { AnchorRangeRequest } from "./merkle-anchor-service.js";
 import { isWithinSessionAppendLockHold, withSessionAppendLock } from "./session-append-lock.js";
+import type { SessionContentKeyDisposer } from "./session-content-key-store.js";
 import type { Ed25519PrivateKey } from "./signer.js";
 import type { DaemonSigningKeySource } from "./signing-key-source.js";
 
@@ -565,6 +566,19 @@ export interface CompactorDeps {
   /** The anchor-before-compaction force-fire seam. */
   readonly anchorSource: CompactionAnchorSource;
   /**
+   * Retires a session's wrapped content DEK once this pass has cleared the last
+   * body it sealed.
+   *
+   * REQUIRED, with no default. Every other optional dep here degrades to a
+   * defensible stance when unwired — `haltSource` fails open to "compact
+   * everything", `now` to the wall clock. This one has no such stance: a no-op
+   * default would leave a composition root silently accumulating dead wrapped
+   * keys and re-wrapping them on every rotate-on-shred, with nothing at the
+   * wiring site to say so. Requiring it costs each caller one line and makes the
+   * omission a compile error instead of a slow leak.
+   */
+  readonly contentKeyDisposer: SessionContentKeyDisposer;
+  /**
    * The ingest-halt read seam. A halted session is skipped by the pass — see the
    * file header on why stub-signing counts as attestation.
    *
@@ -729,6 +743,7 @@ export class Compactor {
   readonly #signingKeySource: DaemonSigningKeySource;
   readonly #eventLog: CompactionEventLog;
   readonly #anchorSource: CompactionAnchorSource;
+  readonly #contentKeyDisposer: SessionContentKeyDisposer;
   readonly #haltSource: IngestHaltSource;
   readonly #rollbackAttributionSource: RollbackAttributionSource;
   readonly #now: () => Date;
@@ -757,6 +772,7 @@ export class Compactor {
     this.#signingKeySource = deps.signingKeySource;
     this.#eventLog = deps.eventLog;
     this.#anchorSource = deps.anchorSource;
+    this.#contentKeyDisposer = deps.contentKeyDisposer;
     this.#haltSource = deps.haltSource ?? new NeverHaltedIngestHaltSource();
     this.#rollbackAttributionSource =
       deps.rollbackAttributionSource ?? VACUOUS_CURRENT_ROLLBACK_ATTRIBUTION_SOURCE;
@@ -1257,6 +1273,49 @@ export class Compactor {
         const emissionFailure = `event.compacted emission failed after ${String(rowsStubbed)} rows were stubbed: ${describeError(error)}`;
         refusedReason =
           refusedReason === undefined ? emissionFailure : `${refusedReason}; ${emissionFailure}`;
+      }
+    }
+
+    // CONTENT-KEY SWEEP. The stub UPDATE above is the only `content_payload =
+    // NULL` writer in the tree, which makes this pass the only thing that can
+    // retire the last body a session's wrapped DEK ever sealed — so the key's
+    // death belongs here. `deleteIfUnreferenced` re-checks the predicate under
+    // its own exclusion and is a no-op when any sealed body survives, so this
+    // says "a body may have gone" and lets the store decide, rather than
+    // computing a liveness answer here that would be stale by the time it ran.
+    //
+    // GATED ON `rowsStubbed > 0` for cost, not correctness: a pass that stubbed
+    // nothing cleared nothing, and the call would be a guaranteed no-op query
+    // per idle session per tick.
+    //
+    // AFTER THE EMISSION, and outside every row hold. `event.compacted` is an
+    // `event_maintenance` row whose `content_payload` is NULL by construction,
+    // so it cannot change the predicate's answer either way — the ordering is
+    // chosen so the sweep observes a settled session rather than one mid-record.
+    //
+    // ITS OWN try/catch, in the emission's exact idiom and for the same reason:
+    // the rows are already stubbed and the pass genuinely succeeded, so a failed
+    // cleanup must be REPORTED without being allowed to abort the tick or to
+    // erase the mid-loop cause when there was one. Nothing is lost by a failure
+    // — the predicate is idempotent and the next pass that stubs a row retries.
+    //
+    // ONE CONSEQUENCE WORTH STATING, because it is not obvious from here: a
+    // `refusedReason` moves this session out of `sessionsCompacted` and into
+    // `sessionsRefused` in the tick summary, so a failed sweep reports a session
+    // whose rows DID stub as a refusal. That is the counter's stated rule ("a
+    // session that stubbed rows and then refused is a refusal") applied to a
+    // post-condition this pass genuinely owns — the session is left settled, its
+    // record emitted and its dead key retired — and it is the same treatment the
+    // emission failure above already gets. The alternative, a silent success
+    // with the leaked key unreported, is strictly worse; `rowsStubbed` still
+    // counts the rows, so no work is erased by the reclassification.
+    if (rowsStubbed > 0) {
+      try {
+        await this.#contentKeyDisposer.deleteIfUnreferenced(summary.sessionId);
+      } catch (error) {
+        const sweepFailure = `session content-key sweep failed after ${String(rowsStubbed)} rows were stubbed: ${describeError(error)}`;
+        refusedReason =
+          refusedReason === undefined ? sweepFailure : `${refusedReason}; ${sweepFailure}`;
       }
     }
 

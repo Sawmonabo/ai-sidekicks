@@ -760,6 +760,18 @@ function documentedRefusalOrdinals(): readonly number[] {
   );
 }
 
+/**
+ * One macrotask turn. Used by the append-race arm to give an UNGUARDED delete
+ * every chance to commit before the arm asserts that it did not — a microtask
+ * flush would not, since the lock's queue and the delete both settle on the
+ * microtask queue.
+ */
+async function macrotask(): Promise<void> {
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, 0);
+  });
+}
+
 function buildKeyStore(): {
   readonly store: SessionContentKeyStore;
   readonly masterKeySource: ScriptedMasterKeySource;
@@ -1689,6 +1701,7 @@ describe("appending a row that carries machine-authored prose", () => {
   function buildAppendFixture(options?: { readonly withoutKeySource?: boolean }): {
     readonly service: EventLogService;
     readonly store: SessionContentKeyStore;
+    readonly masterKeySource: ScriptedMasterKeySource;
   } {
     const masterKeySource = new ScriptedMasterKeySource();
     const store = new SessionContentKeyStore({ database, masterKeySource });
@@ -1702,7 +1715,7 @@ describe("appending a row that carries machine-authored prose", () => {
       piiEncryptor: new DeterministicPiiEncryptor(),
       ...(options?.withoutKeySource === true ? {} : { contentKeySource: store }),
     });
-    return { service, store };
+    return { service, store, masterKeySource };
   }
 
   function makeAssistantEnvelope(): UnsequencedEventEnvelope {
@@ -1857,6 +1870,215 @@ describe("appending a row that carries machine-authored prose", () => {
       );
       expect(verification).toEqual({ valid: true });
     }
+  });
+
+  // --------------------------------------------------------------------------
+  // The wrapped DEK's LIFECYCLE — `SessionContentKeyStore.deleteIfUnreferenced`
+  // --------------------------------------------------------------------------
+  //
+  // Before this, `session_content_keys` had select, insert and re-wrap and no
+  // deletion path at all: a wrapped DEK outlived every body it sealed, and
+  // `rewrapAll` re-wrapped it on every rotate-on-shred forever. These arms pin
+  // the predicate (retained ciphertext, not signed digest), the death, the
+  // rotation's shrinking working set, and the append race the delete must lose.
+  //
+  // Bodies are cleared here with a direct `content_payload = NULL` UPDATE rather
+  // than by driving a real `Compactor`. That is the exact mutation the stub
+  // UPDATE performs and it is what the predicate reads; the compactor's own
+  // obligation — that it CALLS this after clearing — is pinned separately in
+  // `compactor.test.ts`, where the seam is recorded. Splitting them keeps each
+  // arm about one thing.
+  describe("retiring the wrapped session key", () => {
+    function clearBody(eventId: string): void {
+      database
+        .prepare(`UPDATE session_events SET content_payload = NULL WHERE id = ?`)
+        .run(eventId);
+    }
+
+    function keyRowCount(sessionId: string): number {
+      const row = database
+        .prepare(`SELECT COUNT(*) AS n FROM session_content_keys WHERE session_id = ?`)
+        .get(sessionId) as { readonly n: number };
+      return row.n;
+    }
+
+    function makeAssistantEnvelopeFor(sessionId: SessionId): UnsequencedEventEnvelope {
+      return {
+        ...makeAssistantEnvelope(),
+        sessionId,
+        payload: { sessionId, runId: "run-1", contentType: "text/markdown" },
+      };
+    }
+
+    it("keeps the key while any sealed body survives", async () => {
+      const { service, store } = buildAppendFixture();
+      const first = makeAssistantEnvelope();
+      const second = makeAssistantEnvelope();
+      await service.append(first, { content: { body: "first body" } });
+      await service.append(second, { content: { body: "second body" } });
+
+      clearBody(first.id);
+
+      expect(await store.deleteIfUnreferenced(SESSION)).toBe(false);
+      expect(keyRowCount(SESSION)).toBe(1);
+
+      // And the survivor still opens — the point of keeping it.
+      const resolved = await store.read(SESSION);
+      const row = readStoredRow(second.id);
+      expect(openContentPayload(row.content_payload!, resolved.key, SESSION, second.id)).toBe(
+        "second body",
+      );
+    });
+
+    it("retires the key when the last sealed body is cleared", async () => {
+      const { service, store } = buildAppendFixture();
+      const only = makeAssistantEnvelope();
+      await service.append(only, { content: { body: "the only body" } });
+      expect(keyRowCount(SESSION)).toBe(1);
+
+      clearBody(only.id);
+
+      expect(await store.deleteIfUnreferenced(SESSION)).toBe(true);
+      expect(keyRowCount(SESSION)).toBe(0);
+      await expect(store.read(SESSION)).rejects.toMatchObject({ reason: "wrapped_key_missing" });
+    });
+
+    it("is a silent no-op for a session that never held a key", async () => {
+      const { store } = buildAppendFixture();
+
+      // Idempotence is what lets every future clearing path call this
+      // unconditionally after a pass instead of reasoning about whether the last
+      // body just went.
+      expect(await store.deleteIfUnreferenced(SESSION)).toBe(false);
+      expect(await store.deleteIfUnreferenced(SESSION)).toBe(false);
+      expect(keyRowCount(SESSION)).toBe(0);
+    });
+
+    it("does not count a body-less row as a reason to keep the key", async () => {
+      const { service, store } = buildAppendFixture();
+      const withBody = makeAssistantEnvelope();
+      await service.append(withBody, { content: { body: "a body" } });
+      // A plain append on the same session: no `content_payload`, so it is not a
+      // dependant of this key and must not hold it alive.
+      await service.append({
+        ...makeAssistantEnvelope(),
+        category: "session_lifecycle",
+        type: "session.updated",
+        payload: { sessionId: SESSION },
+      });
+
+      clearBody(withBody.id);
+
+      expect(await store.deleteIfUnreferenced(SESSION)).toBe(true);
+      expect(keyRowCount(SESSION)).toBe(0);
+    });
+
+    it("shrinks rewrapAll's working set to the sessions that still hold bodies", async () => {
+      const { service, store } = buildAppendFixture();
+      const doomed = makeAssistantEnvelope();
+      const survivor = makeAssistantEnvelopeFor(OTHER_SESSION);
+      await service.append(doomed, { content: { body: "will be compacted" } });
+      await service.append(survivor, { content: { body: "will survive" } });
+      expect(store.rewrapAll(MASTER_KEY, ROTATED_MASTER_KEY)).toBe(2);
+
+      clearBody(doomed.id);
+      expect(await store.deleteIfUnreferenced(SESSION)).toBe(true);
+
+      // ONE row re-wrapped, not two: the dead session is no longer visited, which
+      // is the cost this lifecycle exists to stop paying on every erasure.
+      expect(store.rewrapAll(ROTATED_MASTER_KEY, MASTER_KEY)).toBe(1);
+      expect(keyRowCount(OTHER_SESSION)).toBe(1);
+    });
+
+    it("cannot delete the key out from under an in-flight append", async () => {
+      // THE RACE THE APPEND LOCK EXISTS FOR HERE. An append resolves the key and
+      // only LATER inserts the sealed row. Between those two moments the session
+      // legitimately has a key row and zero non-NULL `content_payload` rows —
+      // exactly the state the predicate deletes on. A sweep admitted into that
+      // window destroys the key the in-flight append is sealing under, and the
+      // body it goes on to write can never be opened again. Note what makes this
+      // unrecoverable rather than merely annoying: the append already SELECTed
+      // the wrapped blob, so it seals correctly and reports success; only the
+      // row that could unwrap it is gone.
+      //
+      // THE WINDOW IS HELD OPEN DELIBERATELY. The master-key read is gated, and
+      // it sits inside `#openRow` — after the wrapped row has been selected and
+      // before the append's INSERT — so the arrangement is the hazard itself
+      // rather than a proxy for it. The sweep is STARTED FROM THE TEST'S OWN
+      // CONTEXT, outside the append's hold, so the lock's owner-scoped
+      // reentrancy cannot hand it the hold for free.
+      class GatedMasterKeySource extends ScriptedMasterKeySource {
+        gate: Promise<void> | undefined;
+
+        override async read(): Promise<Uint8Array> {
+          const key = await super.read();
+          if (this.gate !== undefined) {
+            await this.gate;
+          }
+          return key;
+        }
+      }
+
+      const masterKeySource = new GatedMasterKeySource();
+      const store = new SessionContentKeyStore({ database, masterKeySource });
+      const service = new EventLogService({
+        db: database,
+        signingKeySource: {
+          create: () => Promise.resolve({ publicKey: DAEMON_PUBLIC_KEY }),
+          read: () => Promise.resolve(DAEMON_PRIVATE_KEY),
+        },
+        haltSource: new IngestHaltRegistry(),
+        piiEncryptor: new DeterministicPiiEncryptor(),
+        contentKeySource: store,
+      });
+
+      const first = makeAssistantEnvelope();
+      await service.append(first, { content: { body: "first body" } });
+      clearBody(first.id);
+      expect(keyRowCount(SESSION)).toBe(1);
+
+      let reachedKeyRead!: () => void;
+      const insideAppendHold = new Promise<void>((resolve) => {
+        reachedKeyRead = resolve;
+      });
+      let openTheGate!: () => void;
+      masterKeySource.gate = new Promise<void>((resolve) => {
+        openTheGate = resolve;
+      });
+      masterKeySource.beforeRead = () => {
+        reachedKeyRead();
+      };
+
+      const second = makeAssistantEnvelope();
+      const appendPromise = service.append(second, { content: { body: "second body" } });
+      await insideAppendHold;
+
+      let sweptEarly = false;
+      const sweep = store.deleteIfUnreferenced(SESSION);
+      void sweep.then(() => {
+        sweptEarly = true;
+      });
+      // Several macrotask turns while the append is provably parked inside its
+      // hold: ample for an unguarded delete to have committed.
+      await macrotask();
+      await macrotask();
+      await macrotask();
+      expect(sweptEarly).toBe(false);
+      expect(keyRowCount(SESSION)).toBe(1);
+
+      openTheGate();
+      await appendPromise;
+
+      // The sweep now sees the inserted row and declines — the key survives, and
+      // so does the body it seals.
+      expect(await sweep).toBe(false);
+      expect(keyRowCount(SESSION)).toBe(1);
+      const resolved = await store.read(SESSION);
+      const row = readStoredRow(second.id);
+      expect(openContentPayload(row.content_payload!, resolved.key, SESSION, second.id)).toBe(
+        "second body",
+      );
+    });
   });
 });
 

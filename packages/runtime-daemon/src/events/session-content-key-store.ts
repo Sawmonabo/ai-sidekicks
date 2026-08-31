@@ -127,6 +127,8 @@ import type { SessionId } from "@ai-sidekicks/contracts";
 import { xchacha20poly1305 } from "@noble/ciphers/chacha.js";
 import type { Database as DatabaseType, Statement } from "better-sqlite3";
 
+import { withSessionAppendLock } from "./session-append-lock.js";
+
 /** Byte length of the AES-256 session content key this store mints. */
 export const SESSION_CONTENT_KEY_BYTES = 32;
 
@@ -410,19 +412,38 @@ export interface SessionContentKeyReader {
 }
 
 /**
+ * The LIFECYCLE half of the same seam — the third narrow view of the store, and
+ * split from the other two for the same reason they are split from each other.
+ *
+ * A clearing path (compaction today; a session purge or a widened erasure sweep
+ * later) needs to retire a wrapped DEK and needs NOTHING else the store can do.
+ * Handing it {@link SessionContentKeySource} would give a compaction pass the
+ * ability to MINT a key for a session it is in the middle of emptying, and
+ * handing it {@link SessionContentKeyReader} would give it the plaintext key for
+ * bodies it is destroying rather than reading. Neither is a capability any
+ * clearing path has a use for, and both are ones a bug could reach for.
+ */
+export interface SessionContentKeyDisposer {
+  deleteIfUnreferenced(sessionId: SessionId): Promise<boolean>;
+}
+
+/**
  * The sole reader and minter of `session_content_keys`.
  *
  * Every statement is prepared in the constructor, so a handle that never ran
  * migration 13 fails LOUD at construction rather than at the first append
  * against a live database — the convention the compactor states.
  */
-export class SessionContentKeyStore implements SessionContentKeySource, SessionContentKeyReader {
+export class SessionContentKeyStore
+  implements SessionContentKeySource, SessionContentKeyReader, SessionContentKeyDisposer
+{
   readonly #masterKeySource: DaemonMasterKeySource;
   readonly #now: () => string;
   readonly #selectStmt: Statement;
   readonly #selectAllStmt: Statement;
   readonly #insertStmt: Statement;
   readonly #rewrapStmt: Statement;
+  readonly #deleteIfUnreferencedTransaction: (sessionId: string) => boolean;
   readonly #mintTransaction: (
     sessionId: string,
     blob: Uint8Array,
@@ -469,6 +490,33 @@ export class SessionContentKeyStore implements SessionContentKeySource, SessionC
           SET encrypted_key_blob = ?, key_version = ?, rotated_at = ?
         WHERE session_id = ? AND key_version = ?`,
     );
+
+    // The LIFECYCLE pair. Prepared here with the rest so a handle that never ran
+    // migration 13 still fails at construction rather than at the first sweep.
+    const liveContentStmt = database.prepare(
+      `SELECT 1 AS live
+         FROM session_events
+        WHERE session_id = ? AND content_payload IS NOT NULL
+        LIMIT 1`,
+    );
+    const deleteStmt = database.prepare(`DELETE FROM session_content_keys WHERE session_id = ?`);
+
+    // CHECK AND DELETE ARE ONE TRANSACTION, and `.immediate()` — the mint's own
+    // primitive. Two separate statements would leave the predicate's answer
+    // stale by the time the DELETE ran: another connection could install a
+    // sealed row in between and the key that opens it would be gone. `IMMEDIATE`
+    // takes the write lock at BEGIN, so no other writer can commit inside the
+    // window, and the DELETE is decided on a state no one else can have moved.
+    //
+    // This is the DURABLE half of the exclusion. The other half is the caller's
+    // append lock — see {@link SessionContentKeyStore.deleteIfUnreferenced} for
+    // why the transaction alone is not sufficient and what residual remains.
+    this.#deleteIfUnreferencedTransaction = database.transaction((sessionId: string): boolean => {
+      if (liveContentStmt.get(sessionId) !== undefined) {
+        return false;
+      }
+      return deleteStmt.run(sessionId).changes > 0;
+    }).immediate as (sessionId: string) => boolean;
 
     // The mint is a double-checked insert under `.immediate()` — the same
     // primitive the migration runner uses, and for the same reason. Two
@@ -659,6 +707,79 @@ export class SessionContentKeyStore implements SessionContentKeySource, SessionC
       rewrapped += 1;
     }
     return rewrapped;
+  }
+
+  /**
+   * Delete this session's wrapped DEK IFF no retained ciphertext still depends
+   * on it. Returns whether a row was actually removed.
+   *
+   * WHY THE TABLE NEEDS A DEATH AT ALL. Before this, `session_content_keys` had
+   * select, insert and re-wrap and no deletion path whatsoever, so a wrapped DEK
+   * outlived every body it ever sealed — permanently. Two costs follow, and the
+   * second is the one that matters. The first is ordinary: rows accumulate for
+   * the life of the node. The second is that {@link rewrapAll} walks EVERY row
+   * on every rotate-on-shred, so each unrelated participant's erasure paid to
+   * unwrap and re-wrap the keys of long-since-compacted sessions, and each of
+   * those re-wraps is another chance for one unopenable historical blob to throw
+   * and roll back a rotation that had nothing to do with it. Keys that die with
+   * their content keep the rotation's work proportional to the live corpus.
+   *
+   * THE PREDICATE IS "ANY RETAINED CIPHERTEXT", NOT "ANY SIGNED DIGEST". The
+   * question asked is `content_payload IS NOT NULL`, over this session's rows.
+   * Three shapes are correctly excluded by it:
+   *   * A COMPACTED row. The stub replaced the payload and cleared the column
+   *     together, so nothing of the body survives to be opened.
+   *   * A RECEIVED row from a peer. Its signed `contentCiphertextDigest` is
+   *     bound under provenance with the column ABSENT by design — the body was
+   *     never sealed under THIS node's key, so this key's death costs it
+   *     nothing.
+   *   * An origin row that carries a digest with a NULL column. No path in this
+   *     branch produces one: the codec writes the column and the digest in one
+   *     act, `EventLogService.append`'s step (2) refuses a pre-seeded digest on
+   *     the plain path, and compaction clears both. If one ever existed it would
+   *     already read `digest_unbound` on every read — a defect this sweep would
+   *     find, not cause.
+   *
+   * RACE SAFETY IS TWO LAYERS, and one of them is not optional. The transaction
+   * is `IMMEDIATE`, which makes the check and the delete indivisible against any
+   * other DATABASE writer. That alone does NOT close the real window, because
+   * the hazard spans two transactions rather than living inside one: an append
+   * mints the key (transaction A) and only later inserts the sealed row
+   * (transaction B), and a sweep landing between them sees zero non-NULL
+   * `content_payload` rows, deletes a key that is about to be used, and leaves a
+   * body no reader can ever open. What closes it is the SECOND layer — this
+   * method takes {@link withSessionAppendLock} for the session, and
+   * `EventLogService.append` holds that same lock across BOTH the mint and the
+   * insert. The mint-to-insert interval is therefore inside one hold and this
+   * sweep cannot be scheduled within it.
+   *
+   * HONEST LIMIT, in the same terms `session-append-lock.ts` states its own: the
+   * append lock is PROCESS-LOCAL. It orders this sweep against appends in one
+   * daemon process and does not order it against a second process on the same
+   * file. The durable backstop for that residual is loud rather than silent —
+   * the sweep's own `IMMEDIATE` transaction keeps the check and delete atomic,
+   * and a row whose key was removed by a concurrent process reads back as the
+   * classified `wrapped_key_missing`, never as a wrong plaintext. Nothing here
+   * should be read as a distributed lock.
+   *
+   * REENTRANT BY THE LOCK'S OWN CONTRACT: a caller already inside a hold on this
+   * session — the compactor's per-row path is one — reuses it rather than
+   * deadlocking.
+   *
+   * CALLERS. Every path in this branch that clears `content_payload` must run
+   * this after clearing. Today there is exactly ONE: `compactor.ts`'s stub
+   * UPDATE, which is the only `content_payload = NULL` writer in the tree (there
+   * is no `DELETE FROM session_events` anywhere, and no purge or shred sweep has
+   * shipped yet). FUTURE CONSUMERS — a session purge, and `Spec-022`'s erasure
+   * sweep if it is ever widened past `pii_payload` to clear content columns —
+   * must call this too; it is idempotent and safe to call when nothing was
+   * cleared, so the cheap discipline is to call it after any clearing pass
+   * rather than to reason about whether the last body just went.
+   */
+  async deleteIfUnreferenced(sessionId: SessionId): Promise<boolean> {
+    return withSessionAppendLock(sessionId, async () =>
+      this.#deleteIfUnreferencedTransaction(sessionId),
+    );
   }
 
   async #readMasterKey(sessionId: string): Promise<Uint8Array> {

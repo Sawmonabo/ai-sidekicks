@@ -341,6 +341,105 @@ const CODEC_OWNED_CONTENT_PAYLOAD_KEYS: readonly string[] = [
 ];
 
 /**
+ * Thrown when a producer pre-seeds a payload with a member the sealing codec
+ * alone determines. Carries the offending KEY, never the value.
+ *
+ * A named subclass rather than a bare `Error` so the two consumers below can be
+ * told apart from an incidental throw by a test or a caller, while
+ * `instanceof Error` and the message text stay exactly what they were.
+ */
+export class CodecOwnedContentKeyError extends Error {
+  readonly seededKey: string;
+
+  constructor(refuser: string, seededKey: string) {
+    super(
+      `${refuser} refuses an event whose payload already carries ${seededKey}: this codec is the only producer of ${CODEC_OWNED_CONTENT_PAYLOAD_KEYS.join(", ")} (Spec-006 §Canonical Serialization Rules), each determined at the seal step from the body it actually sealed. Pass the prose as content.body; contentType is the producer's member and is unaffected.`,
+    );
+    this.name = "CodecOwnedContentKeyError";
+    this.seededKey = seededKey;
+  }
+}
+
+/**
+ * Refuse a payload that pre-seeds any of the three members the sealing codec
+ * owns — ONE definition, consumed at BOTH ends of the sole durable append path.
+ *
+ * WHAT "BOTH" MEANS, counted rather than asserted. `EventLogService.append` is
+ * the only durable writer into `session_events`, and it reaches the table by two
+ * BRANCHES: a plain append that signs the caller's payload as given, and a
+ * sealing append that routes through this codec. The guard is called once at the
+ * top of that path — ahead of the branch choice — and once inside the codec, so
+ * neither branch can be entered with a forged claim and the codec still refuses
+ * for a caller that invokes it directly.
+ *
+ * THE ONE OTHER `INSERT INTO session_events` IN THE TREE IS EXEMPT, and the
+ * reason is not a judgement call: `SessionService.append` writes zero-filled
+ * `prev_hash` / `row_hash` / `daemon_signature` placeholders, throws unless the
+ * service was constructed with the identity-checked
+ * `UnsignedPlaceholderAppendToken` (so it is unreachable from a production
+ * composition root), and does not name `content_payload` in its INSERT at all.
+ * The defect this guard exists to prevent is a SIGNED forged claim; that path
+ * signs nothing, and integrity verification already refuses everything it writes
+ * fail-closed as `signature_placeholder`.
+ *
+ * WHY IT IS SHARED RATHER THAN CODEC-SCOPED. An earlier draft of this module
+ * argued the opposite in prose: that the guard belonged to the codec alone,
+ * because "a planted content digest is an integrity claim the read-side binding
+ * check is built to catch and report." Codex round 3 on PR #386 refuted that,
+ * and the refutation is accepted here. The read-side check DETECTS; it does not
+ * PREVENT. Its detection is terminal: `isContentCiphertextDigestBound` compares
+ * the signed digest against the stored column, so a row signed with a forged
+ * digest and a NULL `content_payload` is classified `digest_unbound` on every
+ * read, forever. The signature is over the forged claim, so nothing can repair
+ * the row without breaking the chain. Detecting a permanent defect at read time
+ * is not a substitute for refusing to mint it at write time.
+ *
+ * The concrete hole it left: a caller that omits `options.content` but seeds
+ * `contentCiphertextDigest` (or `contentLength`, or `contentTruncated`) takes
+ * `EventLogService.append`'s PLAIN branch, never reaches this codec, and — since
+ * the round-2 strict variants now admit these members by schema — parses,
+ * canonicalizes, and signs. The append path is therefore the guard's second
+ * consumer, ahead of its plain-vs-codec branch choice.
+ *
+ * TOLERANT CARRIERS ARE GUARDED TOO — decided explicitly, not by omission. An
+ * unregistered census type still travels `ADR-018 §Decision`'s accept-and-stub
+ * envelope path, and that tolerance is deliberately preserved for what it is
+ * about: a reader "MUST persist an envelope whose `type` it cannot interpret as
+ * a version stub — never drop or reject it". It is about TYPES, never about
+ * admitting reserved codec-owned MEMBERS. The discriminator is mechanical:
+ * {@link isContentCiphertextDigestBound} performs no type check whatsoever, so a
+ * forged digest on an unregistered type mints exactly the same permanent
+ * `digest_unbound` row as one on a registered type. Guarding only registered
+ * types would leave the identical defect reachable through the one arm that
+ * cannot be schema-checked. So this guard runs on EVERY payload, and it refuses
+ * a member rather than a type — no envelope is dropped for being uninterpretable.
+ *
+ * WHY AN INTERNAL ERROR AND NOT A WIRE CODE. `daemon.pii_split_bypass` is
+ * registered in `docs/architecture/contracts/error-contracts.md` narrowly — it
+ * refuses "a write whose `payload` carries a PII-tagged field with no
+ * `pii_ciphertext_digest`" — and its `DaemonPiiSplitBypassDetailsSchema` is
+ * `.strict()` on `fieldPath` alone. Reusing that code for a content-key refusal
+ * would make a registered contract describe something it does not describe. This
+ * branch mints no wire error code, so the refusal lands as an internal typed
+ * error — the same disposition {@link assertRegisteredVariantParses} already
+ * takes on this same append path for the same class of caller-supplied defect.
+ *
+ * The key is echoed; no payload VALUE ever reaches the message. The keys are
+ * module constants, so no caller content can be carried out by this throw.
+ */
+export function assertNoCodecOwnedContentKeys(
+  payload: Record<string, unknown>,
+  refuser: string,
+): void {
+  const seededContentKey = CODEC_OWNED_CONTENT_PAYLOAD_KEYS.find((key) =>
+    Object.hasOwn(payload, key),
+  );
+  if (seededContentKey !== undefined) {
+    throw new CodecOwnedContentKeyError(refuser, seededContentKey);
+  }
+}
+
+/**
  * Every `SessionEvent` variant whose registered payload declares the codec's
  * content-digest member — DERIVED from the contracts union rather than listed.
  *
@@ -1494,19 +1593,19 @@ export async function writeEventWithPii(
   // Refused rather than overwritten, on the sibling arms' logic: silently
   // replacing a pre-seeded value hides a codec re-run that cannot reproduce its
   // own output, and silently trusting one signs a producer's claim about work it
-  // did not do. The guard is scoped to THIS module rather than added to T3.1's
-  // append-path reserved-key assertion, and the asymmetry is principled — a
-  // bypassed PII split persists plaintext PII irreversibly, while a planted
-  // content digest is an integrity claim the read-side binding check is built to
-  // catch and report.
-  const seededContentKey = CODEC_OWNED_CONTENT_PAYLOAD_KEYS.find((key) =>
-    Object.hasOwn(input.payload, key),
-  );
-  if (seededContentKey !== undefined) {
-    throw new Error(
-      `writeEventWithPii refuses an event whose payload already carries ${seededContentKey}: this codec is the only producer of ${CODEC_OWNED_CONTENT_PAYLOAD_KEYS.join(", ")} (Spec-006 §Canonical Serialization Rules), each determined at the seal step from the body it actually sealed. Pass the prose as content.body; contentType is the producer's member and is unaffected.`,
-    );
-  }
+  // did not do.
+  //
+  // DELEGATED, not inlined. This arm and `EventLogService.append`'s step (2) are
+  // the same refusal at the two ends of the sole durable append path — step (2)
+  // ahead of its plain-vs-codec branch choice, this one for a caller that
+  // invokes the codec directly — and
+  // {@link assertNoCodecOwnedContentKeys} is its one definition — see that
+  // function for why the guard is NOT codec-scoped (an earlier draft of this
+  // comment argued that it should be, and was wrong), why tolerant carriers are
+  // guarded identically, and why the throw is internal rather than wire-typed.
+  // The `refuser` argument reproduces this arm's message verbatim, so the
+  // refusal order the codec's tests pin does not move.
+  assertNoCodecOwnedContentKeys(input.payload, "writeEventWithPii");
 
   // REFUSAL 3 of the order documented above — T2.1's
   // `assertRepresentableSequence`, hoisted ahead of the encrypt. `sequence`

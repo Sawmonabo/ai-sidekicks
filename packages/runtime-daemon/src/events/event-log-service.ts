@@ -123,6 +123,7 @@ import { DaemonDomainError } from "../ipc/domain-error.js";
 import { canonicalizeEvent, normalizeOccurredAt, type CanonicalBytes } from "./canonicalizer.js";
 import { NeverHaltedIngestHaltSource, type IngestHaltSource } from "./ingest-halt-source.js";
 import {
+  assertNoCodecOwnedContentKeys,
   assertRegisteredVariantParses,
   PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY,
   PII_PARTICIPANT_ID_PAYLOAD_KEY,
@@ -480,9 +481,21 @@ export class EventLogService {
    *      no partial row is produced.
    *   2. `daemon.pii_split_bypass` (400) — the payload carries a reserved PII
    *      key the T2.4 codec alone may write.
-   * Both are typed `DaemonDomainError`s carrying schema-PARSED details, so
-   * `mapJsonRpcError` renders `data.type` beside `data.fields` with no mapper
-   * change.
+   *   3. `CodecOwnedContentKeyError` — the payload pre-seeds one of the
+   *      three content members the T2.4 codec alone determines
+   *      (`contentCiphertextDigest`, `contentLength`, `contentTruncated`).
+   *      Evaluated in the same structural step as 2 and before the
+   *      plain-vs-codec branch choice, so a forged content claim cannot be
+   *      signed on either branch.
+   *   4. {@link assertRegisteredVariantParses} — a REGISTERED strict variant
+   *      whose payload does not parse. Raised inside `#signEvent`'s plain
+   *      branch, after the chain head is read and before canonicalization.
+   * The first two are typed `DaemonDomainError`s carrying schema-PARSED details,
+   * so `mapJsonRpcError` renders `data.type` beside `data.fields` with no mapper
+   * change. The last two are INTERNAL typed errors, not wire codes: neither has
+   * a row in `docs/architecture/contracts/error-contracts.md`, and reusing
+   * `daemon.pii_split_bypass` for either would make a registered contract
+   * describe a refusal it does not describe.
    */
   async append(
     envelope: UnsequencedEventEnvelope,
@@ -518,8 +531,25 @@ export class EventLogService {
         );
       }
 
-      // (2) PII SPLIT-BYPASS GUARD — structural, before any work is spent.
+      // (2) RESERVED-KEY GUARDS — structural, before any work is spent, and
+      // BEFORE the plain-vs-codec branch choice `#signEvent` makes below. Both
+      // refuse a payload that pre-seeds a member only the T2.4 codec may write;
+      // they are split because only one of the two is a registered wire code.
       this.#assertNoReservedPiiKeys(envelope.payload);
+      // The CONTENT trio. Shared with the codec's own refusal-2 third arm — one
+      // definition, two call sites at the two ends of this one durable append
+      // path, never a copy. Placed here rather than in
+      // `#signEvent`'s plain branch because the branch choice is made from
+      // `options.content`, not from the payload: a caller that omits
+      // `options.content` and seeds `contentCiphertextDigest` takes the PLAIN
+      // branch, where nothing is sealed and the payload the caller supplied is
+      // the payload that gets signed — minting a permanently `digest_unbound`
+      // row, or false length/truncation metadata, under this daemon's signature.
+      // Guarding ahead of the choice means neither branch can be entered with a
+      // forged claim. Runs for tolerant carriers too, deliberately — see the
+      // guard's own note for that decision and for why it throws an internal
+      // typed error rather than a `DaemonDomainError`.
+      assertNoCodecOwnedContentKeys(envelope.payload, "EventLogService.append");
 
       // (3) `event.shredded` EMISSION-SEAM PARSE. Before the write, so a
       // malformed shred payload is refused rather than persisted, and the
@@ -627,6 +657,16 @@ export class EventLogService {
 
   /**
    * Refuse a payload carrying either reserved PII key.
+   *
+   * SCOPE. This method covers the PII pair ONLY. The three codec-owned CONTENT
+   * members are refused by its sibling `assertNoCodecOwnedContentKeys`, called
+   * immediately after it in step (2) — a separate call rather than two more
+   * branches here, because the two refusals differ in kind: this one is the
+   * registered wire code `daemon.pii_split_bypass`, whose `error-contracts.md`
+   * row and `.strict()` detail schema describe the PII split and nothing else,
+   * while the content refusal is an internal typed error that this branch mints
+   * no wire code for. Folding them together would force one of the two to
+   * misreport itself.
    *
    * BOTH keys are CODEC-OWNED. `writeEventWithPii` is the only thing that may
    * embed `pii_ciphertext_digest` or `pii_participant_id` into a payload, and

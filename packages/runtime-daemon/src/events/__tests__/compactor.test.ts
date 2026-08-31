@@ -64,6 +64,7 @@ import {
   type RollbackAttributionSource,
 } from "../compactor.js";
 import type { IngestHaltSource } from "../ingest-halt-source.js";
+import type { SessionContentKeyDisposer } from "../session-content-key-store.js";
 import { MerkleAnchorService } from "../merkle-anchor-service.js";
 import { __resetSessionAppendLocksForTest, withSessionAppendLock } from "../session-append-lock.js";
 import type { Ed25519PrivateKey, Ed25519PublicKey } from "../signer.js";
@@ -292,8 +293,34 @@ function anchorRows(): ReadonlyArray<{ start_sequence: number; end_sequence: num
     .all() as ReadonlyArray<{ start_sequence: number; end_sequence: number }>;
 }
 
+/**
+ * Records the post-clearing content-key sweep.
+ *
+ * A recorder rather than the real {@link SessionContentKeyStore}: every fixture
+ * in this file seeds rows directly and none of them seals a `content_payload`,
+ * so a real store would have no key row to retire and every arm would pass
+ * whether the compactor called it or not. What is under test here is the
+ * WIRING — that a pass which cleared bodies asks for the sweep exactly once,
+ * that an idle pass does not, and that a failing sweep is reported rather than
+ * swallowed. The store's own predicate and race safety are pinned against a real
+ * table in `session-content-partition.test.ts`.
+ */
+class RecordingContentKeyDisposer implements SessionContentKeyDisposer {
+  readonly sweptSessions: string[] = [];
+  failure: Error | undefined;
+
+  async deleteIfUnreferenced(sessionId: SessionId): Promise<boolean> {
+    this.sweptSessions.push(sessionId);
+    if (this.failure !== undefined) {
+      throw this.failure;
+    }
+    return true;
+  }
+}
+
 interface BuildOptions {
   readonly anchorSource?: CompactionAnchorSource;
+  readonly contentKeyDisposer?: SessionContentKeyDisposer;
   readonly eventLog?: CompactionEventLog;
   readonly signingKeySource?: DaemonSigningKeySource;
   readonly haltSource?: IngestHaltSource;
@@ -310,6 +337,7 @@ function buildCompactor(options?: BuildOptions): Compactor {
     signingKeySource: options?.signingKeySource ?? keySource,
     eventLog: options?.eventLog ?? new RecordingEventLog(),
     anchorSource: options?.anchorSource ?? new RecordingAnchorSource(),
+    contentKeyDisposer: options?.contentKeyDisposer ?? new RecordingContentKeyDisposer(),
     now: () => new Date(PASS_INSTANT),
     // Left UNSET by default rather than passed as a never-halting stub: the
     // production default is itself `NeverHaltedIngestHaltSource`, and letting the
@@ -1020,7 +1048,7 @@ describe("Compactor — the stub-projection canonical-bytes bound (Spec-006 §Co
       `(1 fields, ${String(JSON.stringify({ text: "hi" }).length)} bytes)`;
     expect(projection.summary).toBeDefined();
     expect(projection.summary?.length).toBeLessThan(untruncatedSummary.length);
-    expect(untruncatedSummary.startsWith(projection.summary ?? " ")).toBe(true);
+    expect(untruncatedSummary.startsWith(projection.summary ?? "\u0000")).toBe(true);
   });
 
   it("refuses to stub — and leaves the row live — when the projection stays oversized with the summary emptied", async () => {
@@ -1741,5 +1769,107 @@ describe("Compactor — the sealed machine-authored body", () => {
     expect(readRow(row.id).content_payload).toBeNull();
     expect(stubProjection(row.id).contentLength).toBeUndefined();
     expect(stubProjection(row.id).contentTruncated).toBeUndefined();
+  });
+});
+
+// ----------------------------------------------------------------------------
+// The post-clearing content-key sweep — the compactor's half of the
+// `session_content_keys` lifecycle
+// ----------------------------------------------------------------------------
+//
+// The stub UPDATE is the only `content_payload = NULL` writer in the tree, so
+// this pass is the only thing that can retire the last body a session's wrapped
+// DEK ever sealed. These arms pin the WIRING — the store's predicate and its
+// race safety live in `session-content-partition.test.ts`, against a real table.
+
+describe("Compactor — content-key sweep", () => {
+  it("sweeps once per session whose rows it actually stubbed", async () => {
+    const disposer = new RecordingContentKeyDisposer();
+    seed({
+      category: "assistant_output",
+      type: "assistant.message",
+      payload: { contentType: "text/markdown" },
+      contentPayload: new Uint8Array(64).fill(4),
+    });
+    seed({
+      category: "assistant_output",
+      type: "assistant.message",
+      payload: { contentType: "text/markdown" },
+      contentPayload: new Uint8Array(64).fill(5),
+    });
+    seed({ category: "session_lifecycle", type: "session.updated", payload: { note: "newest" } });
+
+    const result = await buildCompactor({
+      eventCountThreshold: 1,
+      contentKeyDisposer: disposer,
+    }).tick();
+
+    expect(result.rowsStubbed).toBeGreaterThan(0);
+    // ONCE for the session, not once per stubbed row: the key is per session,
+    // and a per-row sweep would run the predicate N times to answer one question.
+    expect(disposer.sweptSessions).toEqual([SESSION]);
+  });
+
+  it("does not sweep a session whose pass stubbed nothing", async () => {
+    const disposer = new RecordingContentKeyDisposer();
+    // One row, and the count threshold above it: the trigger never fires, so
+    // nothing is cleared and there is nothing for the sweep to find.
+    seed({ category: "session_lifecycle", type: "session.updated", payload: { note: "only" } });
+
+    const result = await buildCompactor({
+      eventCountThreshold: 50_000,
+      contentKeyDisposer: disposer,
+    }).tick();
+
+    expect(result.rowsStubbed).toBe(0);
+    expect(disposer.sweptSessions).toEqual([]);
+  });
+
+  it("reports a failing sweep without losing the rows it already stubbed", async () => {
+    // The sweep is cleanup, not integrity: the rows ARE stubbed and the pass
+    // genuinely succeeded, so a failure must be reported and must not be allowed
+    // to abort the tick or to erase the outcome's counts.
+    const disposer = new RecordingContentKeyDisposer();
+    disposer.failure = new Error("content-key table is locked");
+    seed({
+      category: "assistant_output",
+      type: "assistant.message",
+      payload: { contentType: "text/markdown" },
+      contentPayload: new Uint8Array(32).fill(6),
+    });
+    seed({ category: "session_lifecycle", type: "session.updated", payload: { note: "newest" } });
+
+    const result = await buildCompactor({
+      eventCountThreshold: 1,
+      contentKeyDisposer: disposer,
+    }).tick();
+
+    expect(result.rowsStubbed).toBe(1);
+    expect(result.outcomes[0]?.refusedReason).toContain("content-key sweep failed");
+    expect(result.outcomes[0]?.refusedReason).toContain("content-key table is locked");
+  });
+
+  it("sweeps each stubbing session separately", async () => {
+    const disposer = new RecordingContentKeyDisposer();
+    for (const sessionId of [SESSION, SECOND_SESSION]) {
+      nextSequence = 0;
+      seed({
+        sessionId,
+        category: "assistant_output",
+        type: "assistant.message",
+        payload: { contentType: "text/markdown" },
+        contentPayload: new Uint8Array(32).fill(7),
+      });
+      seed({
+        sessionId,
+        category: "session_lifecycle",
+        type: "session.updated",
+        payload: { note: "newest" },
+      });
+    }
+
+    await buildCompactor({ eventCountThreshold: 1, contentKeyDisposer: disposer }).tick();
+
+    expect([...disposer.sweptSessions].sort()).toEqual([SESSION, SECOND_SESSION].sort());
   });
 });
