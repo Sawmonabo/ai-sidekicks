@@ -1406,6 +1406,86 @@ shipped:
     notes: |
       Phase-3 task T3.22 shipped as one daemon PR - the permanent-vs-transient refusal classifier, wired at both drivers' request-dispatch seams so classification precedes reconstitution. New transcript/failure-mapping.ts: classifyProviderRequestFailure over a total four-arm disposition union, PermanentStructuralRefusalError (deliberately NOT a RecoveryCondition member and not convertible - recovery re-establishes the session, which reproduces the refusal; this failure owes a reconstitution, T3.20's replay), AmbiguousDeliveryReconciler (per-target critical section, reconcile-before-act, strictly-greater comparison over participant-originated turn counts), and the bounded definitely-unsent retry ladder. The permanent arm is reached only on a positive typed provider claim (Codex codexErrorInfo, badRequest the sole structural mapping; an absent shape lands on the declined arm - fail-closed means declining to escalate a binding-condemning disposition). The positional reconcile reads through a role-aware ParticipantTurnReadbackReader - deliberately a sibling port of the two shipped body-answering readbacks (same provider question with the role dimension the count needs; widening either shipped port would force roles on consumers that do not read them); an unbound reader answers unreadable, the specified first-class arm. A replay-interior refusal settles on the memo floor with exactly one reconstitution; the abandoned-target lifecycle stays T3.20's. Twenty-four of the phase's twenty-four declared tasks are shipped at this entry - Phase 3 classifies FULLY SHIPPED under declared-subset-of-shipped, and the two { plan: 005, phase: 3, status: merged } gates repo-wide (Plan-005 Phase 3B and Plan-005 Phase 5, both local self-gates) now read that precondition MET; Phase 5 additionally gates on Plan-004 Phase 1 and stays held there.
       verifies_invariant = the T3.22 audit marker {I-005-9}: the permanently-refusing provider is called exactly once (call-count assertion through the dispatch path, never the classifier imported directly), a genuinely transient fault still retries, the applied-but-unacknowledged arm produces zero duplicate turns, and the unreadable-target arm fails visibly with zero re-sends. Per-driver reality recorded rather than papered over: Claude's one-way stdin surface cannot type a dispatch refusal (its permanent arm is dormant at that seam; structural refusals there arrive on the inbound api-retry path), and Claude holds no acknowledged-turn ledger, so its ambiguous outcome settles on the unreadable-target arm; the Codex permanent arm is declared-and-dormant if the pin does not populate error.data.codexErrorInfo on rejections - the provenance stated honestly in-code, a live binary probe of a turn/start rejection named as what would settle it. No consumer yet branches on PermanentStructuralRefusalError (the caller-side reconstitution leg is the switch machinery's, unshipped). Review: codex rate_limited (non-ack terminal) with CI green.
+  - phase: 4
+    task: [T4.1, T4.2, T4.5]
+    pr: 395
+    sha: dcb34944
+    merged_at: 2026-08-31
+    files:
+      - packages/contracts/src/__tests__/provider-driver.test.ts
+      - packages/contracts/src/provider-driver.ts
+      - packages/runtime-daemon/src/ipc/handlers/__tests__/driver-handlers.test.ts
+      - packages/runtime-daemon/src/ipc/handlers/driver-handlers.ts
+      - packages/runtime-daemon/src/ipc/handlers/index.ts
+      - packages/runtime-daemon/src/provider/__tests__/capability-cache.test.ts
+      - packages/runtime-daemon/src/provider/capability-cache.ts
+    verifies_invariant: [I-005-2]
+    spec_coverage:
+      [
+        "Spec-005 §Interfaces And Contracts (the in-daemon `ProviderDriver` interface is the ten ratified ops plus the four B10 parity/auth ops per T1.8 — fourteen-op at this task, sixteen once T3.19 lands the transcript pair, eighteen once T3.26 lands the console-parity pair (2026-08-29); the client `driver.*` namespace exposes the 8 non-lifecycle verbs + `subscribeEvents` per §Phase 4 decision #2)",
+        "Spec-005 §Required Behavior (applyIntervention degraded envelope)",
+        "Spec-005 §Required Behavior (undeclared = unsupported)",
+      ]
+    notes: |
+      Phase-4 tasks T4.1 + T4.2 + T4.5 shipped as one daemon PR - the driver.* server side. New ipc/handlers/driver-handlers.ts: the seven pre-T4.9 client-facing verbs served over the registry's in-daemon ProviderDriver bindings, every refusal translated at the boundary through mapJsonRpcError (an untranslated DriverUnavailableError reaches the client as a bare -32603 indistinguishable from a daemon crash), the unimplemented-operation refusal a live path at this landing (two of the seven verbs are implemented by neither shipped driver), and the subscription event filter held as a guarantee rather than a convenience - a non-driver event parses cleanly against SessionEventSchema, so only this filter keeps it off a driver subscription. New provider/capability-cache.ts: DriverCapabilityCache, the read-side projection serving driver.listCapabilities from memory (never the driver - getCapabilities is a session handshake on both pinned surfaces), invalidated on re-declaration, with outputSpeedLevels re-derived on every read and never stored. T4.2's SDK-seam Zod schemas and wire envelopes land in contracts/provider-driver.ts. Three of the phase's nine declared tasks (T4.1-T4.9) are merged at this entry, so Phase 4 classifies partially_shipped and the one { plan: 005, phase: 4, status: merged } entry repo-wide (Plan-012 Phase 1, established by grep) stays held.
+      verifies_invariant = the T4.5 audit marker {I-005-2}: the cache suite proves the reply is served from cache and never invents a flag - an undeclared capability stays unsupported at the read seam - a genuine verifying layer under the multi-layer convention (the invariant's canonical Invariants Test is T4.6's SDK suite, landing with PR #396). T4.1's declared I-005-1 and T4.2's declared I-005-4 are deliberately absent: the wave adds enforcement-site citations for I-005-1 (driver authority stays in-daemon at the handler seam) but no new verifying test - the canonical daemon-locality integration test stands at PR #159 (T2.5) - and I-005-4's canonical Invariants Test is T4.6's degraded-fallback suite, likewise PR #396's (the PR #369 omission precedent). Review: codex code review completed with inline findings folded in-diff; CI green on the squash head.
+  - phase: 4
+    task: [T4.3, T4.4, T4.6, T4.7]
+    pr: 396
+    sha: 0c7bfa22
+    merged_at: 2026-08-31
+    files:
+      - packages/client-sdk/src/__tests__/providerClient.recovery.test.ts
+      - packages/client-sdk/src/__tests__/providerClient.test.ts
+      - packages/client-sdk/src/index.ts
+      - packages/client-sdk/src/providerClient.ts
+      - packages/contracts/src/__tests__/driver-event.test.ts
+      - packages/contracts/src/driver-event.ts
+      - packages/contracts/src/index.ts
+      - packages/runtime-daemon/src/ipc/handlers/__tests__/driver-handlers.test.ts
+      - packages/runtime-daemon/src/ipc/handlers/driver-handlers.ts
+      - packages/runtime-daemon/src/ipc/handlers/driver-subscribe.ts
+      - packages/runtime-daemon/src/ipc/handlers/index.ts
+      - packages/runtime-daemon/src/provider/__tests__/provider-registry.test.ts
+    verifies_invariant: [I-005-2, I-005-4, I-005-5]
+    spec_coverage:
+      [
+        "Spec-005 §Required Behavior (driver authority local — SDK factory is daemon-only)",
+        "Spec-005 §Required Behavior (the in-daemon driver interface is the ten ratified ops + the four B10 parity/auth ops per T1.8 — fourteen-op at this task, sixteen once T3.19 lands the transcript pair; the SDK exposes the 6 non-lifecycle client verbs + `subscribeEvents` per §Phase 4 decision #2, not the 4 lifecycle ops)",
+        "Spec-005 §Required Behavior (drivers emit normalized runtime events)",
+        "Spec-005 §Required Behavior (degraded envelope)",
+        "Spec-005 AC2 (`Spec-005 §Acceptance Criteria` — unsupported capability gated)",
+        "Spec-005 §Fallback Behavior (resume-handle failure → recovery-needed condition)",
+        "Spec-005 AC3 (`Spec-005 §Acceptance Criteria` — explicit recovery-needed condition rather than silent session replacement)",
+      ]
+    notes: |
+      Phase-4 tasks T4.3 + T4.4 + T4.6 + T4.7 shipped as one client-sdk PR - the driver.* client side. New client-sdk/providerClient.ts: createDaemonProviderClient over Plan-007's JsonRpcClient transport, plus the driver.subscribeEvents subscription surface with its daemon-side handler in the new ipc/handlers/driver-subscribe.ts; T4.6's degraded-fallback suite and T4.7's recovery-needed contract tests land as the phase's client-facing gates. Two review-round folds recorded rather than papered over: (a) the single-home DriverEvent derivation relocated into the new Plan-005-owned contracts leaf packages/contracts/src/driver-event.ts - a dependency-free downstream leaf over Plan-006's categories on the event-core.ts cycle-breaking precedent, after a probe importing a category array into provider-driver.ts failed 9 of 22 contracts suites at load (the three-edge eager cycle provider-driver.ts -> event.ts -> event-core.ts -> provider-driver.ts); and (b) the T4.6 gate-suite re-scope - the fabricated gate-then-dispatch caller was removed and the caller-ordering proof recorded as T4.9's through the registered SDK client, so the suite asserts the shipped surface rather than a simulated one. Seven of the phase's nine declared tasks are merged across this entry and PR #395 (T4.8 and T4.9 remain), so Phase 4 stays partially_shipped and the one { plan: 005, phase: 4, status: merged } entry repo-wide (Plan-012 Phase 1, established by grep) stays held.
+      verifies_invariant = the union of the wave's canonically verifying suites {I-005-2, I-005-4, I-005-5}: T4.6's SDK suite is the canonical Invariants Test for I-005-2 (invocation against an undeclared flag rejected with driver.capability_unsupported - the client-facing half) and for I-005-4 (the Zod-validated degraded result shape, never a throw), and T4.7's recovery suite is I-005-5's (the typed recovery-needed return from a simulated Codex resume failure, a mock-spy proving no createSession() call is issued - no silent session replacement). T4.3/T4.4's declared I-005-1 is deliberately absent on the same ground as PR #395: the factory is daemon-only by construction, but the shipment adds no new I-005-1-verifying test - the canonical daemon-locality integration test stands at PR #159 (T2.5). Review: codex code review completed with the two folds above taken in-diff; CI green on the squash head.
+  - phase: 3
+    task: [T3.16, T3.17]
+    pr: 397
+    sha: fb4f0beb
+    merged_at: 2026-08-31
+    files:
+      - packages/contracts/src/__tests__/provider-driver.test.ts
+      - packages/contracts/src/provider-driver.ts
+      - packages/runtime-daemon/src/provider/__tests__/runtime-binding-store.test.ts
+      - packages/runtime-daemon/src/provider/__tests__/spawn-env.test.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/__tests__/event-normalizer.test.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/__tests__/lifecycle.test.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/event-normalizer.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/lifecycle.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/__tests__/event-normalizer.test.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/__tests__/lifecycle.test.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/event-normalizer.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/lifecycle.ts
+      - packages/runtime-daemon/src/provider/runtime-binding-store.ts
+    verifies_invariant: [I-005-6]
+    spec_coverage:
+      ["Spec-005 §Fallback Behavior", "Spec-005 §Non-Goals", "Spec-005 §Interfaces And Contracts"]
+    notes: |
+      Phase-3B tasks T3.16 + T3.17 shipped as one contracts+daemon PR - recorded under phase 3 because the manifest schema keys phases as integers and the 3B supplement continues the Phase-3 task series (the same encoding the repo-wide Gate-5 entries use for supplement phases, the Plan-006 PR #386 precedent). T3.16, the typed provider usage-limit signal: ProviderUsageLimitCause / ProviderUsageLimitResetProvenance / ProviderUsageLimitResetBoundary / ProviderUsageLimitSignal in contracts as a sibling axis beside RecoveryCondition (never a RecoveryCondition member), emitted by both bands' normalizer legs from named structured provider events only. T3.17, provider-account identity threading: the additive-optional providerAccountId on CreateSessionParams / ResumeSessionParams, opaque to the driver, server-resolved and server-stamped, persisted through the existing runtime_bindings.spawn_config carrier and read back at resume rather than re-resolved. Four review-round folds recorded: the typed-account precedence resolver resolveBoundProviderAccountId (empty-string refuses, record/param disagreement refuses); the ladder-gated Claude usage-limit leg (the signal emits only on the final retry attempt, never on an attempt the ladder will still absorb); the unified account-environment binding gate on both codex resume arms (the reported member must equal the account the environment was constructed for, read off processContext - cold refusal is the fail-closed arm of I-029-3 consumed per CP-005-9, per-account environment construction remaining Plan-029's); and the Claude-band capture-and-reconcile (LiveClaudeSession.admittedProviderAccountId captured at establishment, the enumeration stamp folding record-primary with the injected registry reader as cross-check, conflict refusing, empty-string refusing as provider_account_unusable, rewind forks inheriting the predecessor's account; resume reconciliation is unreachable in that band - the slot machine refuses any resume against a surviving record). The 3B supplement's own declared set {T3.16, T3.17} - not Phase 3 proper's, which closed FULLY SHIPPED at PR #393 - closes at this single entry, so the one { external_plan_phase_merged, plan: 5, phase: 3B } entry repo-wide (Plan-029 Phase 3, established by grep) now resolves MET by task-set membership; Plan-029 Phase 3 additionally gates on { plan: 29, phase: 2, status: merged } and stays held there, Plan-029's manifest shipping nothing yet.
+      verifies_invariant = the T3.16 audit marker {I-005-6}, canonically verified here for the first time: each band's normalizer suite emits the signal from its named structured event (the Claude reset boundary marked runtime-derived, the Codex boundary provider-stated) and drives the seeded discriminating control the invariant names - a prose message plus an exit code that a text-matching implementation would classify as a usage limit, required to produce no signal - with an unparseable or unrecognized shape yielding no signal rather than a default-caused one. T3.17 declares Verifies: none - the fail-closed binding rule is Plan-029's I-029-3 and the reserved-variable rule is its I-029-4, consumed here per CP-005-9 rather than restated as Plan-005 invariants. Review: codex code review completed with the four folds above taken in-diff; CI green on the squash head.
 ```
 
 ### Notes

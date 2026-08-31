@@ -791,13 +791,15 @@ interface RuntimeNodeSigningKeyRosterResponse {
 // `ProviderOutputSpeedState`) below —
 // are runtime-bounded (length + non-whitespace + NUL-rejection) via the package's `wireFreeFormString`
 // helper — Zod constraints not expressible in these TS interface shapes.
-// SHIPPED SUBSET vs CANONICAL SET (2026-08-29). `packages/contracts/src/provider-driver.ts` realizes
-// the TWELVE pre-amendment strings and names that count in its own comments, which is correct for the
-// surface it ships: the five added here belong to shapes no task has landed yet. The catch-up has a
-// named owner rather than being left to drift — Plan-005 T3.26 (the `ProviderCommandEntry` and
-// `ProviderOutputSpeedState` producers) and T4.9 (their SDK-seam schemas) both EXTEND that file, and
-// they carry the re-derivation of its count claim to seventeen with them. Until then the file's
-// "twelve" reads as the shipped subset of this enumeration, never as a competing census of it.
+// SHIPPED SUBSET vs CANONICAL SET (2026-08-29; discharged 2026-08-31). `packages/contracts/src/provider-driver.ts`
+// realized the TWELVE pre-amendment strings when this note was written; Plan-005 T3.26 (PR #388,
+// merged 2026-08-31) landed the `ProviderCommandEntry` and `ProviderOutputSpeedState` producers and
+// carried the file's own count claim to SEVENTEEN, so the file now realizes this enumeration in
+// full — the "twelve" its comments still name counts the twelve provider-boundary LENGTH CAPS
+// (twelve caps cover seventeen fields because four are reused across surfaces), a different census
+// that never competed with this one. The owed leg still open at this annotation (2026-08-31) is
+// T4.9's SDK-seam schemas for the two console-parity verbs, under the same named-owner discipline:
+// T4.9 EXTENDs that file.
 interface ProviderDriver {
   createSession(params: CreateSessionParams): Promise<ProviderSessionHandle>;
   resumeSession(params: ResumeSessionParams): Promise<DriverResumeResult>;
@@ -1118,6 +1120,17 @@ interface CreateSessionParams {
   callbackTools?: SessionCallbackTool[]; // daemon-curated callback-tool registry exposed into the session (Codex function-form dynamicTools; Claude daemon-hosted ephemeral MCP server via --mcp-config); gated on the callback_tools flag
   subagentPolicy?: SubagentPolicy; // provider-native in-session subagent policy pass-through under the single-supervisor invariant (Spec-016 semantics land via campaign B6); gated on the subagents flag
   outputSchema?: Record<string, unknown>; // normalized JSON Schema constraining schema-constrained final output (Spec-005 §Per-Driver Capability Matrix structured_output, campaign B10); gated on the structured_output flag. The Claude leg binds it per session at spawn (--json-schema); the Codex leg realizes it per turn via StartRunParams.outputSchema (turn/start.outputSchema). Named consumers: Spec-024 dispatch results, Plan-016 orchestration reads
+  // Provider-account identity at spawn (2026-08-18 amendment, Plan-005 T3.17; landed 2026-08-31,
+  // PR #397). OPAQUE TO THE DRIVER — never parsed, never used to locate credential material: the
+  // driver receives the already-constructed spawn environment, and pinning the account's credential
+  // home into it (and denying the ambient names a bound leg must not read) are obligations on the
+  // spawn path — Plan-029's fail-closed binding, consumed per CP-005-9 — not properties this member
+  // carries. SERVER-RESOLVED AND SERVER-STAMPED: a client-supplied value is an input to resolution,
+  // never the recorded outcome; what lands here, and what is durably recorded, is the value the
+  // daemon resolved. Spawn-bound because a run's paying account is bound for the run's LIFETIME —
+  // `ResumeSessionParams` re-realizes it below from the durable record rather than re-resolving the
+  // current default. Omitting it is the unchanged pre-amendment path.
+  providerAccountId?: string;
   onCallbackToolCall?: (invocation: CallbackToolInvocation) => Promise<CallbackToolResult>; // daemon-injected callback-tool dispatcher (campaign B10); the driver invokes it on a provider callback-tool request and answers the provider with the result. Gated on the callback_tools flag; the daemon-side host routes through Plan-012's Cedar pipeline (CP-005-7 / B13 T2.8). See CallbackToolInvocation below
   onMcpServerStatus?: McpServerStatusProducer; // daemon-injected MCP server-status sink (campaign B10); the driver emits the per-session MCP server-status census (init) + status-change updates through it as typed McpServerStatusEmission values — the closure is pre-bound to the leg identity (sessionId + bindingId) at spawn and stamps them into the consumer-facing McpServerStatusUpdate (Codex round 5). Producer-only at Plan-005 — the consumer is Plan-028's status normalizer (§Plan-028 — MCP Governance Contract Surfaces below; Spec-028, registered 2026-07-22 B18). See McpServerStatusEmission below
 }
@@ -1133,7 +1146,8 @@ interface ResumeSessionParams {
   // Resume is a FRESH process spawn (the C-12 posture-relaunch precedent), so every spawn-bound
   // surface CreateSessionParams binds must re-realize here or the resumed leg silently sheds it —
   // a posture-less resume relaunches UNSANDBOXED, a schema-less one unconstrained (campaign B10,
-  // Codex rounds 3–4). The five DATA legs below are reconstructed by the daemon from the durable
+  // Codex rounds 3–4). The six DATA legs below (re-derived from five by counting
+  // when T3.17 added `providerAccountId`) are reconstructed by the daemon from the durable
   // runtime_bindings.spawn_config record (written at every spawn; Plan-005 T1.7) — never from the
   // original client request, which recovery does not have; the two FUNCTION legs are re-injected
   // fresh at every spawn (functions are never stored in spawn_config).
@@ -1142,12 +1156,22 @@ interface ResumeSessionParams {
   // reconstructed leg for exactly the reason posture is: a speed-less resume relaunches at the
   // provider's default while `agents.output_speed` still records the operator's accepted choice,
   // which is the silent-shedding failure this list exists to prevent. What the relaunched process
-  // declares comes back on `DriverResumeResult`'s `resumed` arm, so a mode that stops being
-  // available across a restart surfaces as an observation rather than as a stale request.
+  // declares is observed as binding-held `ProviderOutputSpeedState` (the 2026-08-29 round-3
+  // correction recorded on `ProviderSessionHandle` below), never returned on `DriverResumeResult`,
+  // so a mode that stops being available across a restart surfaces as an observation rather than
+  // as a stale request.
   outputSpeed?: string;
   callbackTools?: SessionCallbackTool[];
   subagentPolicy?: SubagentPolicy;
   outputSchema?: Record<string, unknown>; // the Claude leg re-binds per session at spawn (--json-schema); the Codex leg realizes per turn via StartRunParams.outputSchema
+  // The SIXTH reconstructed data leg (T3.17) — the one whose silent shedding is a BILLING fault
+  // rather than a capability one: a resume that re-resolved "whichever account is default now"
+  // would move a live run's spend onto an account it was never admitted against, mid-run, with the
+  // receipt's per-paying-account key still claiming the original. Read back from the durable
+  // `runtime_bindings.spawn_config` record written at the original spawn — never re-resolved, and
+  // never taken from a client request recovery does not hold. Same opacity rule as on
+  // `CreateSessionParams` above.
+  providerAccountId?: string;
   onCallbackToolCall?: (invocation: CallbackToolInvocation) => Promise<CallbackToolResult>; // re-injected dispatcher — an omitted rebind would strand provider callback-tool requests unanswered on the resumed leg
   onMcpServerStatus?: McpServerStatusProducer; // re-injected census sink, pre-bound to the resumed leg's identity — the resumed leg re-emits its init census through it
 }
@@ -1345,6 +1369,44 @@ type RecoverySpanClassification =
   | "idempotent_write"
   | "irreversible"
   | "unclassifiable";
+
+// Typed provider usage-limit signal (2026-08-18 amendment, Plan-005 T3.16; landed 2026-08-31,
+// PR #397). A SIBLING AXIS beside `RecoveryCondition` above, never a member of it — that axis
+// names why a run needs an operator; this one names a provider-stated allowance state, minted here
+// and scoped per-account by Plan-029 keying on `(accountId, credentialGeneration)` (CP-005-8 ⇄
+// CP-029-2). Recognition is TYPED-ONLY (I-005-6): each driver leg keys on a structured provider
+// event it can name — never message prose, an exit code, or a bare HTTP status — and an
+// unrecognized shape emits NOTHING, an absence that reads "not known to be limited", never "known
+// not to be limited". Deliberately nominal at the driver seam rather than Zod-schema'd: `cause`
+// and `provenance` are closed literals the driver SELECTS and `resetsAt` is a timestamp the
+// driver COMPOSES, so no member is provider-verbatim and a schema over them would validate the
+// driver against itself (the provider-verbatim shapes above are schema'd for exactly the opposite
+// reason).
+
+// The closed cause set — ONE member today, and the arity is a finding rather than a placeholder:
+// the deliberately-excluded neighbor arms (Codex workspace/member credit depletion and the Codex
+// spend-control ceiling, Claude billing faults) are account-plane or payment facts rather than
+// plan-allowance exhaustion, each named in the contracts file rather than absorbed here.
+type ProviderUsageLimitCause = "plan-allowance-exhausted";
+
+// Whether the reset instant is the provider's own statement or the runtime's derivation, so a
+// consumer can tell the two apart: the Codex leg stamps provider-stated off the published
+// rate-limit shapes; the Claude leg's retry-window arithmetic stamps runtime-derived.
+type ProviderUsageLimitResetProvenance = "provider-stated" | "runtime-derived";
+
+interface ProviderUsageLimitResetBoundary {
+  resetsAt: string; // RFC 3339 UTC — the encoding `PhaseState.autoResumeAt` already consumes
+  provenance: ProviderUsageLimitResetProvenance;
+}
+
+// The signal itself. The BOUNDARY IS OPTIONAL AND THE CAUSE IS NOT: a limit can be recognized
+// with no reset instant to report, but never without a cause — and carrying `resetsAt` and
+// `provenance` inside one shape makes "an instant with no provenance" and "a provenance stamp
+// with no instant" both inexpressible.
+interface ProviderUsageLimitSignal {
+  cause: ProviderUsageLimitCause;
+  resetBoundary?: ProviderUsageLimitResetBoundary;
+}
 
 interface RespondToRequestParams {
   runId: RunId;
@@ -4702,7 +4764,7 @@ type DeclaredLossKind =
   | "context_truncated" // the memo budget evicted older exchanges (whole exchanges only, never halves)
   | "tool_call_history_repaired" // an unpaired call took a synthetic error result rather than being dropped
   | "conversation_history_summarized" // the memo floor: verbatim exchanges replaced by a bounded prose rendering
-  | "turn_content_unavailable" // a logged turn's body could not be read when the fold ran; the turn is carried with its structural position and an empty body rather than being dropped, because an empty body alone reads as "the author said nothing" and a dropped turn reads as "the turn never happened" and both are false. The only member produced at pipeline step 1 (Fold), which is daemon-side and upstream of the driver: it reaches AgentProviderSwitchOutcome.declaredLosses through the canonical projection, never through DriverTranscriptExportResult, whose own comment scopes that member to steps 3 and 4
+  | "turn_content_unavailable" // a logged turn's body could not be read when the fold ran; the turn is carried with its structural position and an empty body rather than being dropped, because an empty body alone reads as "the author said nothing" and a dropped turn reads as "the turn never happened" and both are false. The first of the two members produced at pipeline step 1 (Fold), which is daemon-side and upstream of the driver: it reaches AgentProviderSwitchOutcome.declaredLosses through the canonical projection, never through DriverTranscriptExportResult, whose own comment scopes that member to steps 3 and 4
   | "turn_content_truncated"; // a logged turn's body exceeded CONTENT_PAYLOAD_PLAINTEXT_MAX at append and is stored as a codepoint-boundary prefix in session_events.content_payload; the fold carries the prefix and names the loss rather than replaying a silently shortened turn. The second member produced at pipeline step 1 (Fold), reaching AgentProviderSwitchOutcome.declaredLosses through the canonical projection like its sibling above and never through DriverTranscriptExportResult. Deliberately NOT folded into "context_truncated", whose scope is the memo budget evicting whole exchanges and never halves, and NOT reported as "turn_content_unavailable", which would overstate a turn that is available as a prefix (Spec-006 §Assistant Output, the 2026-08-30 machine-authored prose amendment)
 interface AgentListRequest {
   sessionId: SessionId;
