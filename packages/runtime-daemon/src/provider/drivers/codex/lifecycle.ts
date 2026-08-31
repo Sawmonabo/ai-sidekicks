@@ -6019,6 +6019,19 @@ export class CodexLifecycleManager {
     // precisely because nothing upstream is left with a signal to reconcile
     // against.
     //
+    // REFUSAL IS THE FAIL-CLOSED FLOOR, NOT THE RECOVERY STORY. The rebind a
+    // restarted daemon actually wants — relaunching under an environment
+    // CONSTRUCTED for the durable admitted account — happens above this seam:
+    // account resolution and credential-home construction are the account
+    // plane's (Plan-029, consumed one-way per CP-005-9), and a daemon that
+    // supplies this manager a resume spawn config built for the recorded
+    // account passes this gate untouched, requested and environment account
+    // then being equal by construction. Until an environment for that account
+    // exists on this node, the refusal below is the fail-closed arm of the
+    // I-029-3 rule that obligation consumes, surfaced as a typed failed
+    // DriverResumeResult (I-005-5) — it leaves re-admission open and
+    // forecloses only the spawn that bills elsewhere.
+    //
     // AN UNBOUND ENVIRONMENT ACCOUNT IS A MISMATCH, NOT A WILDCARD, on BOTH arms.
     // An environment built for no bound account is an ambient one; it does not
     // become the requested account's environment by virtue of naming no other.
