@@ -63,13 +63,14 @@ const PLAN_001_TABLES: ReadonlyArray<string> = [
 
 // The full set of tables present after ALL migrations have applied
 // (Plan-001 version-1 tables + Plan-003 version-2 tables + Plan-005
-// version-3 tables + Plan-010 version-4 tables + the two Plan-006 tables —
-// version-5 `daemon_signing_keys` and version-8 `pending_anchor_uploads` —
-// plus the two Plan-009 version-10 tables `repo_mounts` and `workspaces`).
+// version-3 tables + Plan-010 version-4 tables + the three Plan-006 tables —
+// version-5 `daemon_signing_keys`, version-8 `pending_anchor_uploads`, and
+// version-13 `session_content_keys` — plus the two Plan-009 version-10 tables
+// `repo_mounts` and `workspaces`).
 // Version 11 (Plan-005) moves this census by ZERO: it rebuilds
 // `driver_capabilities` in place to widen a column CHECK, and the transient
 // `driver_capabilities_new` is renamed over the original within the same
-// script — a leftover transient would show up here as a nineteenth table.
+// script — a leftover transient would show up here as a twentieth table.
 // Alphabetical by SQLite's `ORDER BY name` — BINARY collation, so
 // `_` (0x5F) sorts before every lowercase letter and
 // `run_execution_contexts` precedes `runtime_bindings`, while `workspaces`
@@ -92,6 +93,7 @@ const ALL_EXPECTED_TABLES: ReadonlyArray<string> = [
   "run_execution_contexts",
   "runtime_bindings",
   "schema_version",
+  "session_content_keys",
   "session_events",
   "session_snapshots",
   "workspaces",
@@ -135,18 +137,18 @@ describe("0001-initial migration shape", () => {
     const rows = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
       .all() as ReadonlyArray<{ name: string }>;
-    // After version-11 (Plan-005, which adds no table) the DB holds the full
-    // eighteen-table set:
+    // After version-13 the DB holds the full nineteen-table set:
     // the four Plan-001 tables, the two Plan-003 tables (node_capabilities,
     // node_trust_state), the four Plan-005 tables (runtime_bindings,
     // driver_capabilities, driver_tools, driver_contract_meta), the four
     // Plan-010 tables (worktrees, ephemeral_clones, branch_contexts,
     // run_execution_contexts), the two Plan-006 tables
     // (daemon_signing_keys at v5, pending_anchor_uploads at v8), and the two
-    // Plan-009 tables (repo_mounts, workspaces at v10). Version 11 rebuilds
-    // driver_capabilities rather than adding anything, so this list is also
-    // the assertion that its transient `driver_capabilities_new` did not
-    // survive the rename.
+    // Plan-009 tables (repo_mounts, workspaces at v10), and the third Plan-006
+    // table (session_content_keys at v13). Versions 11 and 12 rebuild and
+    // backfill driver_capabilities rather than adding anything, so this list is
+    // also the assertion that version 11's transient `driver_capabilities_new`
+    // did not survive the rename.
     expect(rows.map((r) => r.name)).toEqual(ALL_EXPECTED_TABLES);
   });
 
@@ -193,21 +195,21 @@ describe("0001-initial migration shape", () => {
     expect(byName.get("monotonic_ns")?.notnull).toBe(1);
   });
 
-  it("anchors schema_version rows at versions [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]", () => {
+  it("anchors schema_version rows at versions [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]", () => {
     // The `ORDER BY version` is load-bearing: without it the row order is
     // insertion-order luck and the assertion would silently stop pinning
     // which versions landed.
     const versionRows = db
       .prepare("SELECT version FROM schema_version ORDER BY version")
       .all() as ReadonlyArray<{ version: number }>;
-    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
   });
 
   it("is idempotent when applyMigrations runs twice", () => {
     // Second invocation must be a no-op (the migration runner short-
     // circuits via hasMigrationApplied per version). Re-running must not
     // throw, must not double-insert any schema_version anchor row, must
-    // not duplicate tables. Twelve DISTINCT versions [1..12] is not
+    // not duplicate tables. Thirteen DISTINCT versions [1..13] is not
     // duplication.
     //
     // Version 7 makes this arm strictly load-bearing rather than a
@@ -226,12 +228,16 @@ describe("0001-initial migration shape", () => {
     // `ON CONFLICT ... DO NOTHING`, so it is idempotent even without the guard
     // — which is exactly why it is included here rather than trusted: the
     // schema_version anchor row it appends is NOT idempotent on its own.
+    // Version 13 restores version 7's stakes and adds version 8's at once: it
+    // is an `ALTER TABLE ... ADD COLUMN` AND a `CREATE TABLE`, neither spelled
+    // with an `IF NOT EXISTS`, so a guard regression throws on whichever it
+    // reaches first rather than quietly re-running.
     applyMigrations(db);
     const versionRows = db
       .prepare("SELECT version FROM schema_version ORDER BY version")
       .all() as ReadonlyArray<{ version: number }>;
-    expect(versionRows).toHaveLength(12);
-    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    expect(versionRows).toHaveLength(13);
+    expect(versionRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
   });
 });
 
@@ -2489,11 +2495,24 @@ describe("0009-retention-class-and-stub-signature migration shape", () => {
     expect(byName.get("retention_class")?.dflt_value).toBeNull();
     expect(byName.get("stub_signature")?.dflt_value).toBeNull();
 
-    // Appended by ALTER TABLE, so they are the LAST two columns in CID order.
-    expect(columns.slice(-2).map((column) => column.name)).toEqual([
+    // Appended by ALTER TABLE, so they are ADJACENT and in DDL order — and the
+    // assertion is written that way rather than as `slice(-2)`, which stopped
+    // being true the moment migration 13 appended `content_payload` behind
+    // them. What version 9 owns is that ITS pair sits together in the order its
+    // DDL declares, after every column that predates it; a tail pin instead
+    // fails whenever any LATER migration adds a column, which is pinning
+    // someone else's schema.
+    const columnNames: readonly string[] = columns.map((column) => column.name);
+    const retentionIndex: number = columnNames.indexOf("retention_class");
+    expect(retentionIndex).toBeGreaterThan(-1);
+    expect(columnNames.slice(retentionIndex, retentionIndex + 2)).toEqual([
       "retention_class",
       "stub_signature",
     ]);
+    // And the columns BEHIND the pair are exactly what later migrations
+    // appended — a real pin on migration order, not a restatement of the line
+    // above. A newly appended column belongs on this list in the same PR.
+    expect(columnNames.slice(retentionIndex + 2)).toEqual(["content_payload"]);
   });
 
   it("accepts NULL and 'audit_stub' for retention_class but REJECTS any third value", () => {
@@ -3364,6 +3383,130 @@ describe("0012-transcript-capability-backfill migration shape", () => {
     expect(versionRows).toHaveLength(1);
     expect(versionRows[0]?.description).toBe(
       "Transcript capability backfill (transcript_replay supported = 0 row per cached driver_name)",
+    );
+  });
+});
+
+describe("0013-content-payload migration shape", () => {
+  let db: DatabaseType;
+
+  beforeEach(() => {
+    db = new Database(":memory:");
+    applyPragmas(db);
+    applyMigrations(db);
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  interface ColumnInfo {
+    readonly name: string;
+    readonly type: string;
+    readonly notnull: 0 | 1;
+    readonly dflt_value: string | null;
+    readonly pk: 0 | 1;
+  }
+
+  function columnsOf(table: string): ReadonlyArray<ColumnInfo> {
+    return db.pragma(`table_info(${table})`) as ReadonlyArray<ColumnInfo>;
+  }
+
+  it("adds the sealed body column to session_events as a nullable BLOB", () => {
+    const column = columnsOf("session_events").find((entry) => entry.name === "content_payload");
+    expect(column).toEqual({
+      cid: expect.any(Number) as unknown as number,
+      name: "content_payload",
+      type: "BLOB",
+      // Nullable and undefaulted, both load-bearing: most rows carry no prose,
+      // and compaction sets the column back to NULL on the rows that did.
+      notnull: 0,
+      dflt_value: null,
+      pk: 0,
+    });
+  });
+
+  it("creates the wrapped key table with the custody shape it mirrors", () => {
+    expect(
+      columnsOf("session_content_keys").map((entry) => ({
+        name: entry.name,
+        type: entry.type,
+        notnull: entry.notnull,
+        dflt_value: entry.dflt_value,
+        pk: entry.pk,
+      })),
+    ).toEqual([
+      // One row per SESSION — the body is session work product co-owned by every
+      // member, so there is no participant to key on.
+      { name: "session_id", type: "TEXT", notnull: 1, dflt_value: null, pk: 1 },
+      { name: "encrypted_key_blob", type: "BLOB", notnull: 1, dflt_value: null, pk: 0 },
+      // Half of the wrap's associated data, which is what forecloses replaying a
+      // superseded envelope after a rotation bumps it.
+      { name: "key_version", type: "INTEGER", notnull: 1, dflt_value: "1", pk: 0 },
+      { name: "created_at", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
+      // NULL until the first rotation moves the envelope.
+      { name: "rotated_at", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
+    ]);
+  });
+
+  it("holds at most one wrapped key per session", () => {
+    const insert = db.prepare(
+      `INSERT INTO session_content_keys (session_id, encrypted_key_blob, created_at)
+       VALUES (?, ?, ?)`,
+    );
+    insert.run("session-a", Buffer.alloc(64, 1), "2026-08-30T00:00:00.000Z");
+
+    // The positive control: a DIFFERENT session inserts fine, so the refusal
+    // below is the primary key and not a broken statement.
+    expect(() => {
+      insert.run("session-b", Buffer.alloc(64, 2), "2026-08-30T00:00:00.000Z");
+    }).not.toThrow();
+    expect(() => {
+      insert.run("session-a", Buffer.alloc(64, 3), "2026-08-30T00:00:00.000Z");
+    }).toThrow(/UNIQUE constraint failed/);
+  });
+
+  it("refuses a key row with no wrapped blob and defaults its version to one", () => {
+    expect(() => {
+      db.prepare(
+        `INSERT INTO session_content_keys (session_id, encrypted_key_blob, created_at)
+         VALUES (?, ?, ?)`,
+      ).run("session-c", null, "2026-08-30T00:00:00.000Z");
+    }).toThrow(/NOT NULL constraint failed/);
+
+    db.prepare(
+      `INSERT INTO session_content_keys (session_id, encrypted_key_blob, created_at)
+       VALUES (?, ?, ?)`,
+    ).run("session-c", Buffer.alloc(64, 4), "2026-08-30T00:00:00.000Z");
+    expect(
+      db
+        .prepare("SELECT key_version, rotated_at FROM session_content_keys WHERE session_id = ?")
+        .get("session-c"),
+    ).toEqual({ key_version: 1, rotated_at: null });
+  });
+
+  it("is idempotent across a second migration pass", () => {
+    // Neither statement in this migration carries an existence guard — SQLite has
+    // no `ADD COLUMN IF NOT EXISTS`, and the CREATE is deliberately unguarded —
+    // so the runner's version check is the ONLY thing making a re-run a no-op.
+    applyMigrations(db);
+    applyMigrations(db);
+
+    expect(
+      db.prepare("SELECT COUNT(*) AS total FROM schema_version WHERE version = 13").get(),
+    ).toEqual({ total: 1 });
+    expect(
+      columnsOf("session_events").filter((entry) => entry.name === "content_payload"),
+    ).toHaveLength(1);
+  });
+
+  it("anchors the version-13 schema_version row with its content-home description", () => {
+    const versionRows = db
+      .prepare("SELECT description FROM schema_version WHERE version = 13")
+      .all() as ReadonlyArray<{ description: string }>;
+    expect(versionRows).toHaveLength(1);
+    expect(versionRows[0]?.description).toBe(
+      "Machine-authored content column + wrapped session content keys (session_events.content_payload, session_content_keys)",
     );
   });
 });

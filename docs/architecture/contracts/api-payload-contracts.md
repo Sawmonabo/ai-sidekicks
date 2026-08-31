@@ -1894,7 +1894,12 @@ type VerifierFailureMode =
   | "occurred_at_not_canonical"
   | "pii_ciphertext_digest_unbound"
   | "pii_owner_stamp_unbound"
-  | "signing_key_slot_conflict"; // registrar-emitted; the sixteenth mode
+  | "content_ciphertext_digest_unbound"
+  | "signing_key_slot_conflict"; // registrar-emitted; the sixteenth mode BY MINT
+// ORDER, which is how Spec-006 §Audit Integrity names it; the union's own
+// positional count moved to seventeen on 2026-08-30, when
+// content_ciphertext_digest_unbound landed as the SIXTEENTH member of the
+// verifier arm — two closed sets, each counted on its own terms.
 // failurePath names the verification GUARANTEE that failed, not the column the
 // defect occupies — which is why the three signature-survives-but-binding-broke
 // modes all pair with "signature".
@@ -1902,7 +1907,7 @@ type VerifierFailureMode =
 // Architecture §Verification Rules and the schema enforces the pairing at parse:
 // hash_mismatch → "inclusion"; anchor_mismatch → "consistency"; and
 // signature_mismatch / signature_placeholder / occurred_at_not_canonical /
-// pii_ciphertext_digest_unbound / pii_owner_stamp_unbound /
+// pii_ciphertext_digest_unbound / pii_owner_stamp_unbound / content_ciphertext_digest_unbound /
 // stub_signature_invalid / stub_scalar_mismatch → "signature". The other SIX
 // (inclusion_proof_failed, consistency_proof_failed, log_file_missing,
 // log_file_moved, anchor_missing_for_compacted_range, anchor_signature_invalid)

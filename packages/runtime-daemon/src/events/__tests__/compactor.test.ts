@@ -64,6 +64,7 @@ import {
   type RollbackAttributionSource,
 } from "../compactor.js";
 import type { IngestHaltSource } from "../ingest-halt-source.js";
+import type { SessionContentKeyDisposer } from "../session-content-key-store.js";
 import { MerkleAnchorService } from "../merkle-anchor-service.js";
 import { __resetSessionAppendLocksForTest, withSessionAppendLock } from "../session-append-lock.js";
 import type { Ed25519PrivateKey, Ed25519PublicKey } from "../signer.js";
@@ -137,6 +138,7 @@ interface EventCompactedPayloadShape {
   readonly eventsAfter?: number;
   readonly fromSeq?: number;
   readonly toSeq?: number;
+  readonly bytesReclaimed?: number;
 }
 
 interface RecordedEnvelope {
@@ -191,6 +193,8 @@ interface SeedOptions {
   readonly actor?: string | null;
   readonly sessionId?: unknown;
   readonly sequence?: number;
+  /** The sealed machine-authored body, when this row carries one. */
+  readonly contentPayload?: Uint8Array;
 }
 
 function seed(options: SeedOptions): { readonly id: string; readonly sequence: number } {
@@ -201,8 +205,8 @@ function seed(options: SeedOptions): { readonly id: string; readonly sequence: n
       `INSERT INTO session_events
          (id, session_id, sequence, occurred_at, monotonic_ns, category, type, actor, payload,
           pii_payload, correlation_id, causation_id, version, prev_hash, row_hash,
-          daemon_signature, pii_participant_id)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          daemon_signature, pii_participant_id, content_payload)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     )
     .run(
       id,
@@ -222,6 +226,7 @@ function seed(options: SeedOptions): { readonly id: string; readonly sequence: n
       Buffer.alloc(32, sequence + 1),
       Buffer.alloc(64, 9),
       "participant-abc",
+      options.contentPayload === undefined ? null : Buffer.from(options.contentPayload),
     );
   return { id, sequence };
 }
@@ -236,6 +241,7 @@ interface StoredEventRow {
   readonly causation_id: string | null;
   readonly pii_payload: Uint8Array | null;
   readonly pii_participant_id: string | null;
+  readonly content_payload: Uint8Array | null;
   readonly prev_hash: Uint8Array;
   readonly row_hash: Uint8Array;
   readonly daemon_signature: Uint8Array;
@@ -265,6 +271,9 @@ interface StoredStubProjection {
   readonly sourceEpoch?: number;
   readonly sourcePosition?: number;
   readonly originPosition?: number;
+  readonly contentLength?: number;
+  readonly contentTruncated?: boolean;
+  readonly contentCiphertextDigest?: string;
   readonly extra?: unknown;
 }
 
@@ -284,8 +293,34 @@ function anchorRows(): ReadonlyArray<{ start_sequence: number; end_sequence: num
     .all() as ReadonlyArray<{ start_sequence: number; end_sequence: number }>;
 }
 
+/**
+ * Records the post-clearing content-key sweep.
+ *
+ * A recorder rather than the real {@link SessionContentKeyStore}: every fixture
+ * in this file seeds rows directly and none of them seals a `content_payload`,
+ * so a real store would have no key row to retire and every arm would pass
+ * whether the compactor called it or not. What is under test here is the
+ * WIRING — that a pass which cleared bodies asks for the sweep exactly once,
+ * that an idle pass does not, and that a failing sweep is reported rather than
+ * swallowed. The store's own predicate and race safety are pinned against a real
+ * table in `session-content-partition.test.ts`.
+ */
+class RecordingContentKeyDisposer implements SessionContentKeyDisposer {
+  readonly sweptSessions: string[] = [];
+  failure: Error | undefined;
+
+  async deleteIfUnreferenced(sessionId: SessionId): Promise<boolean> {
+    this.sweptSessions.push(sessionId);
+    if (this.failure !== undefined) {
+      throw this.failure;
+    }
+    return true;
+  }
+}
+
 interface BuildOptions {
   readonly anchorSource?: CompactionAnchorSource;
+  readonly contentKeyDisposer?: SessionContentKeyDisposer;
   readonly eventLog?: CompactionEventLog;
   readonly signingKeySource?: DaemonSigningKeySource;
   readonly haltSource?: IngestHaltSource;
@@ -302,6 +337,7 @@ function buildCompactor(options?: BuildOptions): Compactor {
     signingKeySource: options?.signingKeySource ?? keySource,
     eventLog: options?.eventLog ?? new RecordingEventLog(),
     anchorSource: options?.anchorSource ?? new RecordingAnchorSource(),
+    contentKeyDisposer: options?.contentKeyDisposer ?? new RecordingContentKeyDisposer(),
     now: () => new Date(PASS_INSTANT),
     // Left UNSET by default rather than passed as a never-halting stub: the
     // production default is itself `NeverHaltedIngestHaltSource`, and letting the
@@ -1012,7 +1048,7 @@ describe("Compactor — the stub-projection canonical-bytes bound (Spec-006 §Co
       `(1 fields, ${String(JSON.stringify({ text: "hi" }).length)} bytes)`;
     expect(projection.summary).toBeDefined();
     expect(projection.summary?.length).toBeLessThan(untruncatedSummary.length);
-    expect(untruncatedSummary.startsWith(projection.summary ?? " ")).toBe(true);
+    expect(untruncatedSummary.startsWith(projection.summary ?? "\u0000")).toBe(true);
   });
 
   it("refuses to stub — and leaves the row live — when the projection stays oversized with the summary emptied", async () => {
@@ -1556,5 +1592,284 @@ describe("Compactor — a tick entered from inside an append-lock hold does noth
     const result = await straggler;
     expect(result.rowsStubbed).toBe(1);
     expect(readRow(candidate.id).retention_class).toBe(AUDIT_STUB_RETENTION_CLASS);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// The machine-authored content column through compaction
+// ----------------------------------------------------------------------------
+
+describe("Compactor — the sealed machine-authored body", () => {
+  /** A stand-in for the sealed column: opaque bytes of a known width. */
+  function sealedBody(byteLength: number): Uint8Array {
+    return new Uint8Array(byteLength).fill(0xa7);
+  }
+
+  /** What `seed` puts in `pii_payload` on every row, which the reclaim sum counts. */
+  const SEEDED_PII_BYTES = 3;
+
+  it("destroys the body and drops its binding claim from the stub", async () => {
+    const row = seed({
+      category: "assistant_output",
+      type: "assistant.message",
+      payload: {
+        runId: "run-1",
+        contentType: "text/markdown",
+        contentLength: 4_096,
+        contentCiphertextDigest: "a".repeat(64),
+      },
+      contentPayload: sealedBody(2_048),
+    });
+    // The count trigger always spares the NEWEST row, so a second row is what
+    // makes the first one a candidate at all.
+    seed({
+      category: "assistant_output",
+      type: "assistant.message",
+      payload: { runId: "run-1" },
+    });
+    // The precondition, asserted rather than assumed: the seeded row really does
+    // hold a body before the pass runs.
+    expect(readRow(row.id).content_payload).toBeInstanceOf(Uint8Array);
+
+    await buildCompactor({ eventCountThreshold: 1 }).tick();
+
+    const after = readRow(row.id);
+    expect(after.retention_class).toBe("audit_stub");
+    expect(after.content_payload).toBeNull();
+    // The digest committed to bytes this pass destroyed, so preserving it would
+    // leave every compacted body-bearing row asserting a binding to ciphertext
+    // that no longer exists.
+    expect(stubProjection(row.id).contentCiphertextDigest).toBeUndefined();
+  });
+
+  it("keeps the body's shape so a compacted row still says one was there", async () => {
+    const complete = seed({
+      category: "assistant_output",
+      type: "assistant.message",
+      payload: { runId: "run-1", contentLength: 4_096, contentCiphertextDigest: "a".repeat(64) },
+      contentPayload: sealedBody(1_024),
+    });
+    const truncated = seed({
+      category: "tool_activity",
+      type: "tool.result",
+      payload: {
+        runId: "run-1",
+        toolName: "read_file",
+        contentLength: 900_000,
+        contentTruncated: true,
+        contentCiphertextDigest: "b".repeat(64),
+      },
+      contentPayload: sealedBody(1_024),
+    });
+    seed({ category: "session_lifecycle", type: "session.updated", payload: { note: "newest" } });
+
+    await buildCompactor({ eventCountThreshold: 1 }).tick();
+
+    expect(stubProjection(complete.id).contentLength).toBe(4_096);
+    expect(stubProjection(complete.id).contentTruncated).toBeUndefined();
+    // The pre-truncation length survives, which is what keeps the size of what
+    // was dropped recoverable from the audit log after the body is gone.
+    expect(stubProjection(truncated.id).contentLength).toBe(900_000);
+    expect(stubProjection(truncated.id).contentTruncated).toBe(true);
+  });
+
+  it("counts the sealed body toward the storage trigger", async () => {
+    // The arithmetic this arm exists to pin: both rows' PAYLOAD columns are tiny
+    // and their BODIES are not, so a byte accounting that summed only `payload`
+    // would leave a content-heavy session miles under the threshold and never
+    // fire — the failure mode being a session that grows without bound because
+    // the bytes that grew it are invisible to the count.
+    const oldest = seed({
+      category: "assistant_output",
+      type: "assistant.message",
+      payload: { runId: "run-1", contentLength: 4_000 },
+      contentPayload: sealedBody(4_000),
+    });
+    const survivor = seed({
+      category: "assistant_output",
+      type: "assistant.message",
+      payload: { runId: "run-1", contentLength: 4_000 },
+      contentPayload: sealedBody(4_000),
+    });
+
+    // The negative control: with the bodies removed the same two rows are far
+    // under this threshold and no storage pass fires at all.
+    const payloadOnlyBytes =
+      readRow(oldest.id).payload.length + readRow(survivor.id).payload.length;
+    expect(payloadOnlyBytes).toBeLessThan(1_000);
+
+    const result = await buildCompactor({ storageThresholdBytes: 5_000 }).tick();
+
+    expect(result.outcomes[0]?.reason).toBe("storage_threshold");
+    expect(result.rowsStubbed).toBe(1);
+    expect(readRow(oldest.id).content_payload).toBeNull();
+    expect(readRow(survivor.id).content_payload).toBeInstanceOf(Uint8Array);
+  });
+
+  it("does not fire the storage trigger on the same rows without their bodies", async () => {
+    // The other half of the control above, run as its own arm so the claim is
+    // that the BODIES moved the trigger rather than that the threshold happened
+    // to be low.
+    seed({
+      category: "assistant_output",
+      type: "assistant.message",
+      payload: { runId: "run-1", contentLength: 4_000 },
+    });
+    seed({
+      category: "assistant_output",
+      type: "assistant.message",
+      payload: { runId: "run-1", contentLength: 4_000 },
+    });
+
+    const result = await buildCompactor({ storageThresholdBytes: 5_000 }).tick();
+
+    expect(result.rowsStubbed).toBe(0);
+  });
+
+  it("counts the destroyed body in the reclaim figure it permanently records", async () => {
+    // `event.compacted` is itself never compacted and never shredded, so its
+    // reclaim figure is a permanent claim about what this pass destroyed.
+    // Omitting the body would understate it by the body's whole width.
+    const eventLog = new RecordingEventLog();
+    const bodyBearing = seed({
+      category: "assistant_output",
+      type: "assistant.message",
+      payload: { runId: "run-1", contentLength: 4_000 },
+      contentPayload: sealedBody(4_000),
+    });
+    const payloadBytesBefore = Buffer.byteLength(readRow(bodyBearing.id).payload, "utf8");
+    // The newest row is spared by the count trigger; this one makes the row
+    // above a candidate.
+    seed({
+      category: "assistant_output",
+      type: "assistant.message",
+      payload: { runId: "run-1" },
+    });
+
+    await buildCompactor({ eventCountThreshold: 1, eventLog }).tick();
+
+    // Asserted EXACTLY rather than as a floor, so the arithmetic is pinned in
+    // both directions: dropping the body's term would report a figure ~4,000
+    // lower, and double-counting it would report one ~4,000 higher.
+    const stubBytes = Buffer.byteLength(readRow(bodyBearing.id).payload, "utf8");
+    const reclaimed = eventLog.appended[0]?.payload.bytesReclaimed;
+    expect(reclaimed).toBe(payloadBytesBefore + SEEDED_PII_BYTES + 4_000 - stubBytes);
+  });
+
+  it("leaves the column NULL on a row that never carried a body", async () => {
+    const row = seed({
+      category: "session_lifecycle",
+      type: "session.updated",
+      payload: { note: "no body here" },
+    });
+    seed({ category: "session_lifecycle", type: "session.updated", payload: { note: "newest" } });
+
+    await buildCompactor({ eventCountThreshold: 1 }).tick();
+
+    expect(readRow(row.id).content_payload).toBeNull();
+    expect(stubProjection(row.id).contentLength).toBeUndefined();
+    expect(stubProjection(row.id).contentTruncated).toBeUndefined();
+  });
+});
+
+// ----------------------------------------------------------------------------
+// The post-clearing content-key sweep — the compactor's half of the
+// `session_content_keys` lifecycle
+// ----------------------------------------------------------------------------
+//
+// The stub UPDATE is the only `content_payload = NULL` writer in the tree, so
+// this pass is the only thing that can retire the last body a session's wrapped
+// DEK ever sealed. These arms pin the WIRING — the store's predicate and its
+// race safety live in `session-content-partition.test.ts`, against a real table.
+
+describe("Compactor — content-key sweep", () => {
+  it("sweeps once per session whose rows it actually stubbed", async () => {
+    const disposer = new RecordingContentKeyDisposer();
+    seed({
+      category: "assistant_output",
+      type: "assistant.message",
+      payload: { contentType: "text/markdown" },
+      contentPayload: new Uint8Array(64).fill(4),
+    });
+    seed({
+      category: "assistant_output",
+      type: "assistant.message",
+      payload: { contentType: "text/markdown" },
+      contentPayload: new Uint8Array(64).fill(5),
+    });
+    seed({ category: "session_lifecycle", type: "session.updated", payload: { note: "newest" } });
+
+    const result = await buildCompactor({
+      eventCountThreshold: 1,
+      contentKeyDisposer: disposer,
+    }).tick();
+
+    expect(result.rowsStubbed).toBeGreaterThan(0);
+    // ONCE for the session, not once per stubbed row: the key is per session,
+    // and a per-row sweep would run the predicate N times to answer one question.
+    expect(disposer.sweptSessions).toEqual([SESSION]);
+  });
+
+  it("does not sweep a session whose pass stubbed nothing", async () => {
+    const disposer = new RecordingContentKeyDisposer();
+    // One row, and the count threshold above it: the trigger never fires, so
+    // nothing is cleared and there is nothing for the sweep to find.
+    seed({ category: "session_lifecycle", type: "session.updated", payload: { note: "only" } });
+
+    const result = await buildCompactor({
+      eventCountThreshold: 50_000,
+      contentKeyDisposer: disposer,
+    }).tick();
+
+    expect(result.rowsStubbed).toBe(0);
+    expect(disposer.sweptSessions).toEqual([]);
+  });
+
+  it("reports a failing sweep without losing the rows it already stubbed", async () => {
+    // The sweep is cleanup, not integrity: the rows ARE stubbed and the pass
+    // genuinely succeeded, so a failure must be reported and must not be allowed
+    // to abort the tick or to erase the outcome's counts.
+    const disposer = new RecordingContentKeyDisposer();
+    disposer.failure = new Error("content-key table is locked");
+    seed({
+      category: "assistant_output",
+      type: "assistant.message",
+      payload: { contentType: "text/markdown" },
+      contentPayload: new Uint8Array(32).fill(6),
+    });
+    seed({ category: "session_lifecycle", type: "session.updated", payload: { note: "newest" } });
+
+    const result = await buildCompactor({
+      eventCountThreshold: 1,
+      contentKeyDisposer: disposer,
+    }).tick();
+
+    expect(result.rowsStubbed).toBe(1);
+    expect(result.outcomes[0]?.refusedReason).toContain("content-key sweep failed");
+    expect(result.outcomes[0]?.refusedReason).toContain("content-key table is locked");
+  });
+
+  it("sweeps each stubbing session separately", async () => {
+    const disposer = new RecordingContentKeyDisposer();
+    for (const sessionId of [SESSION, SECOND_SESSION]) {
+      nextSequence = 0;
+      seed({
+        sessionId,
+        category: "assistant_output",
+        type: "assistant.message",
+        payload: { contentType: "text/markdown" },
+        contentPayload: new Uint8Array(32).fill(7),
+      });
+      seed({
+        sessionId,
+        category: "session_lifecycle",
+        type: "session.updated",
+        payload: { note: "newest" },
+      });
+    }
+
+    await buildCompactor({ eventCountThreshold: 1, contentKeyDisposer: disposer }).tick();
+
+    expect([...disposer.sweptSessions].sort()).toEqual([SESSION, SECOND_SESSION].sort());
   });
 });

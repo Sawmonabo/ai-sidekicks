@@ -52,6 +52,9 @@ import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY,
+  CONTENT_LENGTH_PAYLOAD_KEY,
+  CONTENT_TRUNCATED_PAYLOAD_KEY,
   DAEMON_EVENT_CANONICAL_BYTES_EXCEEDED_CODE,
   DAEMON_INGEST_HALTED_CODE,
   DAEMON_PII_SPLIT_BYPASS_CODE,
@@ -75,12 +78,14 @@ import {
 } from "../event-log-service.js";
 import { IngestHaltRegistry, NeverHaltedIngestHaltSource } from "../ingest-halt-source.js";
 import {
+  CodecOwnedContentKeyError,
   PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY,
   PII_PARTICIPANT_ID_PAYLOAD_KEY,
   type PiiEncryptionRequest,
   type PiiEncryptor,
 } from "../pii-indirection.js";
 import { __resetSessionAppendLocksForTest, withSessionAppendLock } from "../session-append-lock.js";
+import type { SessionContentKeySource } from "../session-content-key-store.js";
 import {
   GENESIS_PREV_HASH,
   verifyRow,
@@ -216,7 +221,24 @@ interface ServiceFixture {
   readonly haltRegistry: IngestHaltRegistry;
 }
 
-function buildService(options?: { readonly withoutEncryptor?: boolean }): ServiceFixture {
+/**
+ * A content-key seam that always answers, so the SEALING branch of `#signEvent`
+ * is genuinely reachable in this file.
+ *
+ * Deliberately not the real {@link SessionContentKeyStore}: the arm that uses it
+ * asserts WHERE a guard runs, and a store would drag the wrap format, the master
+ * key and the mint race into a placement test. `session-content-partition.test.ts`
+ * owns the real store against a real table.
+ */
+const ALWAYS_RESOLVING_CONTENT_KEY_SOURCE: SessionContentKeySource = {
+  resolveForWrite: (sessionId) =>
+    Promise.resolve({ sessionId, key: new Uint8Array(32).fill(9), keyVersion: 1 }),
+};
+
+function buildService(options?: {
+  readonly withoutEncryptor?: boolean;
+  readonly withContentKeySource?: boolean;
+}): ServiceFixture {
   const keySource = new ParkableSigningKeySource();
   const encryptor = new DeterministicPiiEncryptor();
   const haltRegistry = new IngestHaltRegistry();
@@ -225,6 +247,9 @@ function buildService(options?: { readonly withoutEncryptor?: boolean }): Servic
     signingKeySource: keySource,
     haltSource: haltRegistry,
     ...(options?.withoutEncryptor === true ? {} : { piiEncryptor: encryptor }),
+    ...(options?.withContentKeySource === true
+      ? { contentKeySource: ALWAYS_RESOLVING_CONTENT_KEY_SOURCE }
+      : {}),
   });
   return { service, keySource, encryptor, haltRegistry };
 }
@@ -520,7 +545,15 @@ describe("EventLogService — PII indirection (Spec-006 §Canonical Serializatio
     const { service, encryptor } = buildService();
 
     const receipt = await service.append(
-      makeEnvelope({ category: "assistant_output", type: "assistant.message", payload: {} }),
+      // A real `assistant.message` payload rather than `{}`: that type has a
+      // registered `SessionEventSchema` variant, and the codec parses the
+      // COMPOSED row against it before signing. An empty payload would be
+      // refused for the two members the variant requires.
+      makeEnvelope({
+        category: "assistant_output",
+        type: "assistant.message",
+        payload: { sessionId: SESSION, runId: "run-1" },
+      }),
       { pii: { participantId: PARTICIPANT, piiPayload: { text: "secret prose" } } },
     );
 
@@ -737,9 +770,14 @@ describe("EventLogService — daemon.event_canonical_bytes_exceeded (Spec-006 §
     // the discriminating fixture: a service that measured the caller's
     // payload instead of the signed form would admit both.
     const { service, encryptor } = buildService();
+    // A census type with NO registered `SessionEventSchema` variant, so this
+    // arm measures the byte ceiling and nothing else. `assistant.message` would
+    // draw the codec's composed-variant refusal first — its variant is strict
+    // and declares no `filler` — and this fixture's whole point is a payload
+    // padded to an exact canonical width, which no registered variant admits.
     const atCeiling = envelopeOfCanonicalSize(EVENT_CANONICAL_BYTES_MAX, 0, {
-      category: "assistant_output",
-      type: "assistant.message",
+      category: "tool_activity",
+      type: "tool.replayed",
     });
 
     const mapped = await mappedRefusalOf(
@@ -780,6 +818,323 @@ describe("EventLogService — daemon.event_canonical_bytes_exceeded (Spec-006 §
     // filler must appear nowhere: an error envelope echoing a 32 KiB payload
     // would defeat the ceiling at the exact moment it fired.
     expect(JSON.stringify(mapped)).not.toContain("xxxxxxxx");
+  });
+});
+
+// ----------------------------------------------------------------------------
+// PARSE WHAT WILL BE SIGNED, on the branch that seals nothing — the plain-append
+// half of the shared `assertRegisteredVariantParses` seam
+// ----------------------------------------------------------------------------
+
+describe("EventLogService — the plain branch parses what it signs", () => {
+  /** A `session.created` payload its own registered variant accepts. */
+  const validSessionCreatedPayload = { sessionId: SESSION, config: {}, metadata: {} };
+
+  it("refuses a REGISTERED type whose payload its own variant rejects", async () => {
+    const { service } = buildService();
+
+    await expect(
+      service.append(
+        makeEnvelope({ type: "session.created", payload: { note: "not the registered shape" } }),
+      ),
+    ).rejects.toThrow(
+      /EventLogService\.append refuses to sign an event of type "session\.created"/,
+    );
+  });
+
+  it("names the offending members, so the caller can fix the payload", async () => {
+    const { service } = buildService();
+
+    await expect(
+      service.append(
+        makeEnvelope({ type: "session.created", payload: { note: "not the registered shape" } }),
+      ),
+    ).rejects.toThrow(/payload\.sessionId \(invalid_type\)/);
+  });
+
+  it("refuses BEFORE signing — no row, no burnt sequence", async () => {
+    // The positional claim, asserted rather than narrated: a refusal that
+    // happened after the INSERT would leave the row behind, and one that
+    // happened after sequencing would push the next append to 1.
+    const { service } = buildService();
+
+    await expect(
+      service.append(makeEnvelope({ type: "session.created", payload: { note: "x" } })),
+    ).rejects.toThrow();
+
+    expect(readRawRows(SESSION)).toHaveLength(0);
+    const readmitted = await service.append(
+      makeEnvelope({ type: "session.created", payload: validSessionCreatedPayload }),
+    );
+    expect(readmitted.sequence).toBe(0);
+  });
+
+  it("admits the same REGISTERED type once its payload matches (positive control)", async () => {
+    // Without this the refusals above could come from an unsatisfiable rule
+    // rather than from the defect.
+    const { service } = buildService();
+
+    const receipt = await service.append(
+      makeEnvelope({ type: "session.created", payload: validSessionCreatedPayload }),
+    );
+
+    expect(receipt.sequence).toBe(0);
+    expect(readRawRows(SESSION)).toHaveLength(1);
+  });
+
+  it("still signs an UNREGISTERED census type carrying an ad-hoc payload", async () => {
+    // THE TOLERANT-CARRIER CONTROL ON THIS PATH. `session.updated` is a census
+    // member with no registered payload variant, and `ADR-018 §Decision` #5/#9
+    // requires a reader to "persist an envelope whose `type` it cannot
+    // interpret as a version stub — never drop or reject it". A guard that
+    // refused here would reject exactly the envelopes the stub path exists to
+    // preserve.
+    const { service } = buildService();
+
+    const receipt = await service.append(
+      makeEnvelope({ type: "session.updated", payload: { anything: "at all", n: 7 } }),
+    );
+
+    expect(receipt.sequence).toBe(0);
+    expect(readRawRows(SESSION)).toHaveLength(1);
+  });
+
+  it("leaves the reserved-key refusal FIRST on a registered type (ordering pin)", async () => {
+    // The strict layer now REGISTERS both reserved keys as optional members, so
+    // this payload parses cleanly and the new guard has nothing to say about
+    // it. `#assertNoReservedPiiKeys` is therefore the sole refusal for a
+    // caller-embedded owner stamp on this path — and it is the one that names
+    // the field path and the remedy. Were the two ever reordered, or the
+    // reserved-key guard dropped on the assumption the parse now covers it,
+    // this pin fails.
+    const { service } = buildService();
+
+    const mapped = await mappedRefusalOf(
+      service.append(
+        makeEnvelope({
+          type: "session.created",
+          payload: { ...validSessionCreatedPayload, [PII_PARTICIPANT_ID_PAYLOAD_KEY]: PARTICIPANT },
+        }),
+      ),
+    );
+
+    expect(mapped.error.data?.type).toBe(DAEMON_PII_SPLIT_BYPASS_CODE);
+    expect(JSON.stringify(mapped)).not.toContain("SessionEventSchema");
+  });
+});
+
+// ----------------------------------------------------------------------------
+// The codec-owned CONTENT trio on the plain path
+// ----------------------------------------------------------------------------
+//
+// The plain-vs-codec branch is chosen from `options.content`, NOT from the
+// payload. A caller that omits `options.content` and seeds
+// `contentCiphertextDigest` therefore takes the plain branch, where nothing is
+// sealed and the payload the caller supplied is the payload that gets signed —
+// minting a row whose signed digest names ciphertext the column does not hold.
+// That row reads `digest_unbound` on every read FOREVER: the signature is over
+// the forged claim, so nothing can repair it without breaking the chain. The
+// read-side binding check detects it and cannot prevent it, which is why the
+// refusal is at the write.
+
+describe("EventLogService — codec-owned content keys are refused before the branch", () => {
+  const validSessionCreatedPayload = { sessionId: SESSION, config: {}, metadata: {} };
+
+  const forgeableMembers: ReadonlyArray<readonly [string, unknown]> = [
+    [CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY, "a".repeat(64)],
+    [CONTENT_LENGTH_PAYLOAD_KEY, 4096],
+    [CONTENT_TRUNCATED_PAYLOAD_KEY, true],
+  ];
+
+  it.each(forgeableMembers)("refuses a payload pre-seeding %s", async (key, value) => {
+    // ALL THREE, not just the digest: `contentLength` and `contentTruncated` are
+    // the row's own account of how much prose there was and whether the bound
+    // fired, and a signed lie about either is read back as truth by
+    // `SessionContentReader`, which echoes them from the SIGNED payload rather
+    // than recomputing them.
+    const { service } = buildService();
+
+    await expect(
+      service.append(
+        makeEnvelope({
+          type: "assistant.message",
+          category: "assistant_output",
+          payload: {
+            sessionId: SESSION,
+            runId: "run-1",
+            contentType: "text/markdown",
+            [key]: value,
+          },
+        }),
+      ),
+    ).rejects.toThrow(
+      new RegExp(`EventLogService\\.append refuses an event whose payload already carries ${key}`),
+    );
+  });
+
+  it("refuses the SEALING path too — the guard precedes the branch choice", async () => {
+    // THE PLACEMENT PIN, and the only arm in this file that can fail if the
+    // guard is moved. Every other arm omits `options.content` and therefore
+    // takes the PLAIN branch, where a guard sitting inside that branch would be
+    // indistinguishable from one sitting above it.
+    //
+    // Here the sealing branch is live — `options.content` present, a content key
+    // source wired — so a plain-branch-only guard would let this reach the
+    // codec, whose refusal-2 third arm would still refuse it, but AS
+    // `writeEventWithPii`. The refuser name is what separates "refused before
+    // the branch" from "refused after it", so this asserts on the name rather
+    // than on the mere fact of a refusal.
+    const { service } = buildService({ withContentKeySource: true });
+
+    const refusal: unknown = await service
+      .append(
+        makeEnvelope({
+          type: "assistant.message",
+          category: "assistant_output",
+          payload: {
+            sessionId: SESSION,
+            runId: "run-1",
+            contentType: "text/markdown",
+            [CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY]: "e".repeat(64),
+          },
+        }),
+        { content: { body: "the body this caller genuinely wanted sealed" } },
+      )
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+    // `instanceof` here and nowhere else in this describe. The other arms match
+    // on message text because what they pin is the WORDING a caller reads; this
+    // one pins the discriminable TYPE, which is the whole reason the class is
+    // exported rather than being a bare `Error`.
+    expect(refusal).toBeInstanceOf(CodecOwnedContentKeyError);
+    const refused = refusal as CodecOwnedContentKeyError;
+    expect(refused.message).toContain("EventLogService.append refuses");
+    expect(refused.message).not.toContain("writeEventWithPii");
+    expect(refused.seededKey).toBe(CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY);
+    expect(readRawRows(SESSION)).toHaveLength(0);
+  });
+
+  it("refuses before signing — no row, no burnt sequence", async () => {
+    const { service } = buildService();
+
+    await expect(
+      service.append(
+        makeEnvelope({
+          type: "assistant.message",
+          category: "assistant_output",
+          payload: {
+            sessionId: SESSION,
+            runId: "run-1",
+            contentType: "text/markdown",
+            [CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY]: "b".repeat(64),
+          },
+        }),
+      ),
+    ).rejects.toThrow();
+
+    expect(readRawRows(SESSION)).toHaveLength(0);
+    const readmitted = await service.append(
+      makeEnvelope({ type: "session.created", payload: validSessionCreatedPayload }),
+    );
+    expect(readmitted.sequence).toBe(0);
+  });
+
+  it("refuses a TOLERANT CARRIER pre-seeding the digest, and says so", async () => {
+    // THE DECIDED ARM. `session.updated` is a census member with no registered
+    // strict variant, so `ADR-018 §Decision` #5/#9's accept-and-stub tolerance
+    // applies to its TYPE — and this guard does not touch types. The binding
+    // verifier performs no type check whatsoever, so a forged digest here mints
+    // exactly the same permanent `digest_unbound` row as one on a registered
+    // type. Refusing a reserved MEMBER is not rejecting an uninterpretable
+    // envelope.
+    const { service } = buildService();
+
+    await expect(
+      service.append(
+        makeEnvelope({
+          type: "session.updated",
+          payload: { note: "ad hoc", [CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY]: "c".repeat(64) },
+        }),
+      ),
+    ).rejects.toThrow(/already carries contentCiphertextDigest/);
+
+    expect(readRawRows(SESSION)).toHaveLength(0);
+  });
+
+  it("still admits a tolerant carrier that seeds none of them (positive control)", async () => {
+    // Without this the arm above could be refusing the TYPE rather than the
+    // member — which is exactly the ADR-018 violation the decision avoided.
+    const { service } = buildService();
+
+    const receipt = await service.append(
+      makeEnvelope({ type: "session.updated", payload: { anything: "at all", n: 7 } }),
+    );
+
+    expect(receipt.sequence).toBe(0);
+    expect(readRawRows(SESSION)).toHaveLength(1);
+  });
+
+  it("leaves `contentType` alone — it is the producer's member", async () => {
+    // The trio is exactly the three the codec DETERMINES. `contentType` is
+    // knowable only to the producer, so a guard that swept it would refuse every
+    // legitimate body-bearing append.
+    const { service } = buildService();
+
+    const receipt = await service.append(
+      makeEnvelope({
+        type: "assistant.message",
+        category: "assistant_output",
+        payload: { sessionId: SESSION, runId: "run-1", contentType: "text/markdown" },
+      }),
+    );
+
+    expect(receipt.sequence).toBe(0);
+  });
+
+  it("refuses as an INTERNAL error, never as `daemon.pii_split_bypass`", async () => {
+    // The registered code refuses "a write whose `payload` carries a PII-tagged
+    // field with no `pii_ciphertext_digest`" and its detail schema is `.strict()`
+    // on `fieldPath` alone. Borrowing it for a content-key refusal would make a
+    // registered contract describe something it does not describe — so this
+    // branch mints no wire code and the refusal stays internal.
+    const { service } = buildService();
+
+    const mapped = await mappedRefusalOf(
+      service.append(
+        makeEnvelope({
+          type: "session.updated",
+          payload: { note: "x", [CONTENT_TRUNCATED_PAYLOAD_KEY]: true },
+        }),
+      ),
+    );
+
+    expect(mapped.error.data?.type).not.toBe(DAEMON_PII_SPLIT_BYPASS_CODE);
+  });
+
+  it("keeps the PII refusal first when a payload seeds both (ordering pin)", async () => {
+    // Both guards run in step (2), PII first. The order is observable and this
+    // pins it: the PII refusal is the typed wire code with a `fieldPath` and a
+    // remedy, and demoting it behind an internal error would degrade what a
+    // caller embedding an owner stamp is told.
+    const { service } = buildService();
+
+    const mapped = await mappedRefusalOf(
+      service.append(
+        makeEnvelope({
+          type: "session.updated",
+          payload: {
+            note: "x",
+            [PII_PARTICIPANT_ID_PAYLOAD_KEY]: PARTICIPANT,
+            [CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY]: "d".repeat(64),
+          },
+        }),
+      ),
+    );
+
+    expect(mapped.error.data?.type).toBe(DAEMON_PII_SPLIT_BYPASS_CODE);
   });
 });
 
@@ -934,7 +1289,20 @@ describe("EventLogService — ingest-halt gate (I-006-4-03)", () => {
           sessionId: DAEMON_SCOPE_SENTINEL_SESSION_ID,
           category: "audit_integrity",
           type: "key_reuse_detected",
-          payload: { detectedBy: "observer" },
+          // A payload its own registered variant accepts — two pairwise-distinct
+          // observed identities, which is the condition the alarm reports. The
+          // append path parses what it signs, so an ad-hoc shape would be
+          // refused here before the halt carve-out could be exercised at all.
+          payload: {
+            offendingKeyFingerprint: "b3:2f6c1d",
+            observedIdentities: [
+              { sessionId: SESSION, nodeId: "node-key-reuse-observer" },
+              { sessionId: OTHER_SESSION, nodeId: "node-key-reuse-observer" },
+            ],
+            firstSeenAt: "2026-08-30T00:00:00.000Z",
+            rotationInvariantViolated: "refuse_on_rotation",
+            detectorNodeId: "node-key-reuse-observer",
+          },
         }),
       ),
     ).resolves.toMatchObject({ sequence: 0 });

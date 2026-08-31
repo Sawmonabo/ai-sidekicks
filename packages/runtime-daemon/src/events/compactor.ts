@@ -121,6 +121,8 @@
 // `migrations/0009-retention-class-and-stub-signature.ts`.
 
 import {
+  CONTENT_LENGTH_PAYLOAD_KEY,
+  CONTENT_TRUNCATED_PAYLOAD_KEY,
   DAEMON_SCOPE_SENTINEL_SESSION_ID,
   EVENT_CANONICAL_BYTES_MAX,
   EventCategorySchema,
@@ -154,6 +156,7 @@ import { NeverHaltedIngestHaltSource } from "./ingest-halt-source.js";
 import type { IngestHaltSource } from "./ingest-halt-source.js";
 import type { AnchorRangeRequest } from "./merkle-anchor-service.js";
 import { isWithinSessionAppendLockHold, withSessionAppendLock } from "./session-append-lock.js";
+import type { SessionContentKeyDisposer } from "./session-content-key-store.js";
 import type { Ed25519PrivateKey } from "./signer.js";
 import type { DaemonSigningKeySource } from "./signing-key-source.js";
 
@@ -239,6 +242,15 @@ const RUN_ID_PAYLOAD_KEY = "runId" as const;
  *     from.
  *   * `sourceEpoch` + `sourcePosition` — the cross-cutting epoch stamp, kept so
  *     a compacted stale-epoch row stays attributed to its source epoch.
+ *   * `contentLength` + `contentTruncated` — the machine-authored body's SHAPE.
+ *     The body itself lived in the sealed `content_payload` column and is NULLed
+ *     by the same UPDATE, so these two are all that survives to say a body was
+ *     there and how much of it the writer kept. `contentCiphertextDigest` is
+ *     DELIBERATELY absent from this list and given no stub field of its own: it
+ *     commits to ciphertext this UPDATE destroys, so preserving it would leave
+ *     every compacted body-bearing row asserting a binding to bytes that no
+ *     longer exist — the failure the 2026-07-27 owner-stamp amendment fixed
+ *     retroactively for `pii_participant_id`, stated here at mint time instead.
  *
  * Enforcement, not narration, for the first pair: `trg_run_terminal_key_update`
  * fires on this module's `UPDATE OF payload` and ABORTs a stub that dropped,
@@ -252,6 +264,8 @@ const PRESERVED_PAYLOAD_KEYS: readonly string[] = [
   "targetPosition",
   SOURCE_EPOCH_PAYLOAD_KEY,
   SOURCE_POSITION_PAYLOAD_KEY,
+  CONTENT_LENGTH_PAYLOAD_KEY,
+  CONTENT_TRUNCATED_PAYLOAD_KEY,
 ];
 
 // The `event.compacted` envelope's category/type/version. Minted THROUGH the
@@ -552,6 +566,19 @@ export interface CompactorDeps {
   /** The anchor-before-compaction force-fire seam. */
   readonly anchorSource: CompactionAnchorSource;
   /**
+   * Retires a session's wrapped content DEK once this pass has cleared the last
+   * body it sealed.
+   *
+   * REQUIRED, with no default. Every other optional dep here degrades to a
+   * defensible stance when unwired — `haltSource` fails open to "compact
+   * everything", `now` to the wall clock. This one has no such stance: a no-op
+   * default would leave a composition root silently accumulating dead wrapped
+   * keys and re-wrapping them on every rotate-on-shred, with nothing at the
+   * wiring site to say so. Requiring it costs each caller one line and makes the
+   * omission a compile error instead of a slow leak.
+   */
+  readonly contentKeyDisposer: SessionContentKeyDisposer;
+  /**
    * The ingest-halt read seam. A halted session is skipped by the pass — see the
    * file header on why stub-signing counts as attestation.
    *
@@ -607,6 +634,7 @@ interface CandidateRow {
   readonly actor: unknown;
   readonly payload: unknown;
   readonly pii_bytes: unknown;
+  readonly content_bytes: unknown;
 }
 
 // One session's live-row census, read once at the top of its pass.
@@ -715,6 +743,7 @@ export class Compactor {
   readonly #signingKeySource: DaemonSigningKeySource;
   readonly #eventLog: CompactionEventLog;
   readonly #anchorSource: CompactionAnchorSource;
+  readonly #contentKeyDisposer: SessionContentKeyDisposer;
   readonly #haltSource: IngestHaltSource;
   readonly #rollbackAttributionSource: RollbackAttributionSource;
   readonly #now: () => Date;
@@ -743,6 +772,7 @@ export class Compactor {
     this.#signingKeySource = deps.signingKeySource;
     this.#eventLog = deps.eventLog;
     this.#anchorSource = deps.anchorSource;
+    this.#contentKeyDisposer = deps.contentKeyDisposer;
     this.#haltSource = deps.haltSource ?? new NeverHaltedIngestHaltSource();
     this.#rollbackAttributionSource =
       deps.rollbackAttributionSource ?? VACUOUS_CURRENT_ROLLBACK_ATTRIBUTION_SOURCE;
@@ -778,7 +808,11 @@ export class Compactor {
       `SELECT session_id AS session_id,
               COUNT(*) AS live_count,
               MIN(sequence) AS min_sequence,
-              SUM(LENGTH(CAST(payload AS BLOB)) + COALESCE(LENGTH(pii_payload), 0)) AS live_bytes
+              SUM(
+                LENGTH(CAST(payload AS BLOB))
+                  + COALESCE(LENGTH(pii_payload), 0)
+                  + COALESCE(LENGTH(content_payload), 0)
+              ) AS live_bytes
          FROM session_events
         WHERE ${liveCompactableWhere}
         GROUP BY session_id
@@ -869,8 +903,11 @@ export class Compactor {
       `SELECT MIN(sequence) AS cutoff
          FROM (
            SELECT sequence,
-                  SUM(LENGTH(CAST(payload AS BLOB)) + COALESCE(LENGTH(pii_payload), 0))
-                    OVER (ORDER BY sequence ROWS UNBOUNDED PRECEDING) AS cumulative_bytes
+                  SUM(
+                    LENGTH(CAST(payload AS BLOB))
+                      + COALESCE(LENGTH(pii_payload), 0)
+                      + COALESCE(LENGTH(content_payload), 0)
+                  ) OVER (ORDER BY sequence ROWS UNBOUNDED PRECEDING) AS cumulative_bytes
              FROM session_events
             WHERE session_id = ?
               AND ${liveCompactableWhere}
@@ -905,6 +942,21 @@ export class Compactor {
         ORDER BY sequence`,
     );
 
+    // `pii_bytes` and `content_bytes` are the ONLY per-candidate figures here
+    // that no threshold consults. Traced: both reach `originalBytes` and nothing
+    // else, `originalBytes` reaches `bytesReclaimed` and nothing else, and
+    // `bytesReclaimed` is a REPORTED total — it lands on the `event.compacted`
+    // payload and the pass result, and is read by no trigger, no cutoff, and no
+    // candidate-selection predicate. The two aggregate statements above are
+    // where the sealed columns' bytes have to be counted for a threshold to see
+    // them, and they now count both.
+    //
+    // `content_bytes` is nonetheless summed into the reclaim figure rather than
+    // dropped as decorative: `event.compacted` is itself a never-compacted,
+    // never-shredded row, so its `bytesReclaimed` is a permanent claim about
+    // what this pass destroyed. Omitting the body would understate that claim by
+    // up to `CONTENT_PAYLOAD_PLAINTEXT_MAX` per row for exactly the rows whose
+    // compaction reclaimed the most.
     this.#candidateRowStmt = deps.db.prepare(
       `SELECT id AS id,
               sequence AS sequence,
@@ -913,7 +965,8 @@ export class Compactor {
               type AS type,
               actor AS actor,
               payload AS payload,
-              COALESCE(LENGTH(pii_payload), 0) AS pii_bytes
+              COALESCE(LENGTH(pii_payload), 0) AS pii_bytes,
+              COALESCE(LENGTH(content_payload), 0) AS content_bytes
          FROM session_events
         WHERE session_id = ?
           AND sequence = ?
@@ -928,7 +981,13 @@ export class Compactor {
     // the stub projection carries no PII owner, so a surviving stamp would name
     // a participant for a row whose ciphertext is gone and I-006-2-12's
     // read-side check would report `pii_owner_stamp_unbound` on every compacted
-    // row. NOT in the SET list, and load-bearing that they are not:
+    // row. `content_payload` joins the same NULLed set: the machine-authored
+    // body is destroyed here exactly as the PII ciphertext is, and its digest is
+    // dropped from the stub rather than preserved (see PRESERVED_PAYLOAD_KEYS),
+    // so a compacted row asserts no binding to bytes this statement removed.
+    // There is no `content_owner_stamp` counterpart to NULL — the content
+    // partition is session-scoped, and `session_id` is already canonical and
+    // signed. NOT in the SET list, and load-bearing that they are not:
     // `prev_hash`, `row_hash`, `daemon_signature`, `participant_signature`,
     // `monotonic_ns`, `version` (I-006-3-03 freezes the chain commitment) and
     // `category` / `type` (naming them would trip the de-scope leg of
@@ -943,6 +1002,7 @@ export class Compactor {
               causation_id = NULL,
               pii_payload = NULL,
               pii_participant_id = NULL,
+              content_payload = NULL,
               retention_class = ?,
               stub_signature = ?
         WHERE id = ?
@@ -1213,6 +1273,49 @@ export class Compactor {
         const emissionFailure = `event.compacted emission failed after ${String(rowsStubbed)} rows were stubbed: ${describeError(error)}`;
         refusedReason =
           refusedReason === undefined ? emissionFailure : `${refusedReason}; ${emissionFailure}`;
+      }
+    }
+
+    // CONTENT-KEY SWEEP. The stub UPDATE above is the only `content_payload =
+    // NULL` writer in the tree, which makes this pass the only thing that can
+    // retire the last body a session's wrapped DEK ever sealed — so the key's
+    // death belongs here. `deleteIfUnreferenced` re-checks the predicate under
+    // its own exclusion and is a no-op when any sealed body survives, so this
+    // says "a body may have gone" and lets the store decide, rather than
+    // computing a liveness answer here that would be stale by the time it ran.
+    //
+    // GATED ON `rowsStubbed > 0` for cost, not correctness: a pass that stubbed
+    // nothing cleared nothing, and the call would be a guaranteed no-op query
+    // per idle session per tick.
+    //
+    // AFTER THE EMISSION, and outside every row hold. `event.compacted` is an
+    // `event_maintenance` row whose `content_payload` is NULL by construction,
+    // so it cannot change the predicate's answer either way — the ordering is
+    // chosen so the sweep observes a settled session rather than one mid-record.
+    //
+    // ITS OWN try/catch, in the emission's exact idiom and for the same reason:
+    // the rows are already stubbed and the pass genuinely succeeded, so a failed
+    // cleanup must be REPORTED without being allowed to abort the tick or to
+    // erase the mid-loop cause when there was one. Nothing is lost by a failure
+    // — the predicate is idempotent and the next pass that stubs a row retries.
+    //
+    // ONE CONSEQUENCE WORTH STATING, because it is not obvious from here: a
+    // `refusedReason` moves this session out of `sessionsCompacted` and into
+    // `sessionsRefused` in the tick summary, so a failed sweep reports a session
+    // whose rows DID stub as a refusal. That is the counter's stated rule ("a
+    // session that stubbed rows and then refused is a refusal") applied to a
+    // post-condition this pass genuinely owns — the session is left settled, its
+    // record emitted and its dead key retired — and it is the same treatment the
+    // emission failure above already gets. The alternative, a silent success
+    // with the leaked key unreported, is strictly worse; `rowsStubbed` still
+    // counts the rows, so no work is erased by the reclassification.
+    if (rowsStubbed > 0) {
+      try {
+        await this.#contentKeyDisposer.deleteIfUnreferenced(summary.sessionId);
+      } catch (error) {
+        const sweepFailure = `session content-key sweep failed after ${String(rowsStubbed)} rows were stubbed: ${describeError(error)}`;
+        refusedReason =
+          refusedReason === undefined ? sweepFailure : `${refusedReason}; ${sweepFailure}`;
       }
     }
 
@@ -1499,7 +1602,9 @@ export class Compactor {
       }
 
       const originalBytes: number =
-        storedPayloadByteLength + readNumber(row.pii_bytes, "pii byte length");
+        storedPayloadByteLength +
+        readNumber(row.pii_bytes, "pii byte length") +
+        readNumber(row.content_bytes, "content byte length");
       const stubBytes: number = canonicalStubBytes.length;
       return {
         stubbed: true,

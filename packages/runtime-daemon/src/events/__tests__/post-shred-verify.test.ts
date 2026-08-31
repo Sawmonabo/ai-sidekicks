@@ -560,9 +560,31 @@ function participantContentKeyFixtureBlob(participantId: string): Uint8Array {
  * inside the SIGNED PAYLOAD in this phase (leg 1 asserts it), which is a
  * different claim from a stored column and does not substitute for one.
  */
+/**
+ * Narrows a codec result to the PII partition every arm in this file writes.
+ *
+ * `piiPayload` and `piiParticipantId` became OPTIONAL on that result when the
+ * codec gained the machine-content arm, which carries neither. Asserting here
+ * rather than sprinkling non-null assertions keeps the narrowing a CHECKED fact:
+ * a codec that ever stopped returning a partition for a PII-carrying input fails
+ * with this sentence rather than with an `undefined` several assertions later.
+ */
+function piiPartitionOf(result: PiiEventWriteResult): {
+  readonly ciphertext: Uint8Array;
+  readonly participantId: string;
+} {
+  if (result.piiPayload === undefined || result.piiParticipantId === undefined) {
+    throw new Error(
+      "the codec returned no PII partition for an input that carries one — every arm in this file writes a PII-carrying row",
+    );
+  }
+  return { ciphertext: result.piiPayload, participantId: result.piiParticipantId };
+}
+
 function insertSignedPiiRow(database: DatabaseType, result: PiiEventWriteResult): void {
-  const { envelope, piiPayload, signedRow } = result;
-  provisionParticipantContentKey(database, result.piiParticipantId);
+  const { envelope, signedRow } = result;
+  const { ciphertext: piiPayload, participantId } = piiPartitionOf(result);
+  provisionParticipantContentKey(database, participantId);
   database
     .prepare(
       `INSERT INTO session_events (
@@ -884,7 +906,7 @@ describe("Plan-006 T2.5 leg 1 — canonical bytes carry pii_ciphertext_digest an
 
     // Recomputed here from the ciphertext the codec RETURNED, so the assertion
     // cannot be satisfied by a digest over anything else.
-    const expectedDigest: string = bytesToHex(blake3(result.piiPayload));
+    const expectedDigest: string = bytesToHex(blake3(piiPartitionOf(result).ciphertext));
     expect(result.envelope.payload[PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]).toBe(expectedDigest);
     expect(expectedDigest).toMatch(/^[0-9a-f]{64}$/);
 
@@ -920,7 +942,7 @@ describe("Plan-006 T2.5 leg 1 — canonical bytes carry pii_ciphertext_digest an
     // Nor the ciphertext, in the encoding it would most plausibly take.
     // Ciphertext in the signed bytes would hand an attacker a
     // length-and-structure oracle over data the shred rendered unreadable.
-    expect(canonicalText).not.toContain(bytesToHex(result.piiPayload));
+    expect(canonicalText).not.toContain(bytesToHex(piiPartitionOf(result).ciphertext));
     expect(canonicalText).not.toContain("piiPayload");
     expect(canonicalText).not.toContain("pii_payload");
 
@@ -1056,7 +1078,7 @@ describe("Plan-006 T2.5 leg 1 — canonical bytes carry pii_ciphertext_digest an
     // THE INVARIANT: the ciphertext the caller holds still hashes to the digest
     // the signature commits to. This is the assertion that fails if the copy is
     // ever reverted to an alias.
-    expect(bytesToHex(blake3(result.piiPayload))).toBe(digestAtSigning);
+    expect(bytesToHex(blake3(piiPartitionOf(result).ciphertext))).toBe(digestAtSigning);
 
     // The structural reason it holds, pinned separately — the assertion above
     // would keep passing under an alias in any test that happened not to mutate,
@@ -1100,7 +1122,7 @@ describe("Plan-006 T2.5 leg 2 — the audit surface is invariant across a Path-1
     const storedBeforeShred: StoredSessionEventRow = readStoredRow(database);
     expect(storedBeforeShred.pii_payload).not.toBeNull();
     expect(Uint8Array.from(storedBeforeShred.pii_payload ?? [])).toEqual(
-      Uint8Array.from(writeResult.piiPayload),
+      Uint8Array.from(piiPartitionOf(writeResult).ciphertext),
     );
     expect(hasParticipantContentKey(database, FIXTURE_PARTICIPANT_ID)).toBe(true);
     expect(isStoredCiphertextDigestBound(database)).toBe(true);
@@ -1120,13 +1142,17 @@ describe("Plan-006 T2.5 leg 2 — the audit surface is invariant across a Path-1
     // signature commits to a digest of these bytes, so bytes that survived are
     // bytes the signature still describes.
     expect(readStoredCiphertext(database)).toEqual(ciphertextBeforeShred);
-    expect(readStoredCiphertext(database)).toEqual(Uint8Array.from(writeResult.piiPayload));
+    expect(readStoredCiphertext(database)).toEqual(
+      Uint8Array.from(piiPartitionOf(writeResult).ciphertext),
+    );
     // ...the ciphertext never appeared inside the signed payload...
-    expect(storedAfterShred.payload).not.toContain(bytesToHex(writeResult.piiPayload));
+    expect(storedAfterShred.payload).not.toContain(
+      bytesToHex(piiPartitionOf(writeResult).ciphertext),
+    );
     // ...the digest standing in for it is there, inside `payload`...
     const survivingPayload = JSON.parse(storedAfterShred.payload) as Record<string, unknown>;
     expect(survivingPayload[PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]).toBe(
-      bytesToHex(blake3(writeResult.piiPayload)),
+      bytesToHex(blake3(piiPartitionOf(writeResult).ciphertext)),
     );
     // ...no plaintext is anywhere in the row...
     expect(storedAfterShred.payload).not.toContain(PII_PLAINTEXT_SENTINEL);

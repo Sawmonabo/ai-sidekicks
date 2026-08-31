@@ -67,6 +67,7 @@ import {
   type PiiEncryptor,
 } from "../pii-indirection.js";
 import { __resetSessionAppendLocksForTest } from "../session-append-lock.js";
+import { SessionContentKeyStore } from "../session-content-key-store.js";
 import {
   GENESIS_PREV_HASH,
   verifyRow,
@@ -403,7 +404,12 @@ interface LifecycleResult {
 }
 
 async function appendPiiEvent(index: number, participantId: string, text: string): Promise<void> {
-  const { clear, pii } = splitPii({ index, channel: "main", text });
+  // The clear half is a REAL `assistant.message` payload rather than fixture
+  // bookkeeping: that type has a registered `SessionEventSchema` variant, and
+  // the sealing codec parses the composed row against it before signing. A
+  // `{ index, channel }` payload would be refused — correctly, since the row it
+  // signed could never be read back as an `assistant.message` again.
+  const { clear, pii } = splitPii({ sessionId: SESSION, runId: `run-${String(index)}`, text });
   const envelope: UnsequencedEventEnvelope = {
     id: `evt-${String(index).padStart(4, "0")}`,
     sessionId: SESSION,
@@ -443,6 +449,14 @@ function buildCompactor(thresholds: {
       signingKeySource: keySource,
       now: () => new Date(PASS_INSTANT),
     }),
+    // The REAL store, over the REAL table — this file's `satisfies` convention
+    // applied to the lifecycle seam. Nothing here seals a `content_payload`, so
+    // every sweep is a legitimate no-op; what it proves is that the shipped store
+    // survives being driven by the shipped pass end to end.
+    contentKeyDisposer: new SessionContentKeyStore({
+      database,
+      masterKeySource: { read: async (): Promise<Uint8Array> => new Uint8Array(32).fill(11) },
+    }),
     now: () => new Date(PASS_INSTANT),
     ...thresholds,
   });
@@ -461,7 +475,11 @@ async function runLifecycle(): Promise<LifecycleResult> {
     category: "session_lifecycle",
     type: "session.created",
     actor: null,
-    payload: { title: "shred-safety end-to-end" },
+    // A payload its own registered `session.created` variant accepts. The
+    // append path parses what it is about to sign, so a fixture composing an
+    // ad-hoc shape here is refused before signing — which is that guard
+    // working, not an obstacle to it.
+    payload: { sessionId: SESSION, config: {}, metadata: { title: "shred-safety end-to-end" } },
     version: ENVELOPE_VERSION,
   });
 

@@ -123,14 +123,19 @@ import { DaemonDomainError } from "../ipc/domain-error.js";
 import { canonicalizeEvent, normalizeOccurredAt, type CanonicalBytes } from "./canonicalizer.js";
 import { NeverHaltedIngestHaltSource, type IngestHaltSource } from "./ingest-halt-source.js";
 import {
+  assertNoCodecOwnedContentKeys,
+  assertRegisteredVariantParses,
   PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY,
   PII_PARTICIPANT_ID_PAYLOAD_KEY,
   writeEventWithPii,
+  type EventContentInput,
   type PiiEligibleCategory,
   type PiiEncryptor,
   type PiiEventWriteResult,
+  type RawEventInput,
 } from "./pii-indirection.js";
 import { withSessionAppendLock } from "./session-append-lock.js";
+import type { SessionContentKeySource } from "./session-content-key-store.js";
 import { GENESIS_PREV_HASH, signRow, type Ed25519PrivateKey, type SignedRow } from "./signer.js";
 import type { DaemonSigningKeySource } from "./signing-key-source.js";
 
@@ -178,6 +183,41 @@ export interface EventLogAppendPii {
   readonly piiPayload: Record<string, unknown>;
 }
 
+/**
+ * The machine-authored content partition — assistant or tool prose destined for
+ * `session_events.content_payload`.
+ *
+ * A BODY AND NOTHING ELSE. The sealing key is resolved by this service through
+ * the injected {@link SessionContentKeySource}, never supplied by a producer:
+ * handing every emitter a live session content key would put key material on
+ * every call path that emits an assistant message, for no gain.
+ *
+ * `contentLength`, `contentTruncated`, and `contentCiphertextDigest` are NOT
+ * here either — the sealing codec mints all three from the body it actually
+ * sealed, and a producer that supplies one is refused.
+ */
+export interface EventLogAppendContent {
+  /** The prose. Over-bound bodies are truncated at a codepoint boundary. */
+  readonly body: string;
+}
+
+/**
+ * The encryptor handed to the codec on a content-only row, where no participant
+ * partition exists and the injected {@link PiiEncryptor} may legitimately be
+ * absent. Calling it is a routing defect, so it answers by name rather than by
+ * `TypeError`.
+ */
+const UNWIRED_PII_ENCRYPTOR: PiiEncryptor = {
+  encrypt: () =>
+    Promise.reject(
+      new Error(
+        "EventLogService routed a PII partition to the sealing codec with no PiiEncryptor wired. " +
+          "The append path refuses that combination before the codec runs, so reaching this is an " +
+          "append-path routing defect.",
+      ),
+    ),
+};
+
 /** Options for one {@link EventLogService.append}. */
 export interface EventLogAppendOptions {
   /**
@@ -213,6 +253,34 @@ export interface EventLogAppendOptions {
    * partition in the clear.
    */
   readonly pii?: EventLogAppendPii;
+
+  /**
+   * The machine-authored content partition, when this row carries one. Routes
+   * through the SAME codec as `pii` — a row carrying both runs the
+   * encrypt-then-digest-then-sign order once over both partitions.
+   *
+   * Requires a `contentKeySource` on the service; an append that carries content
+   * with no key source wired fails LOUD rather than silently dropping the prose
+   * or writing it into the hashed, signed `payload` column.
+   *
+   * ADMITTED ONLY ON THE FIVE BODY-BEARING EVENT TYPES, and enforced by the
+   * CODEC rather than by this type. `BODY_BEARING_EVENT_TYPES` in
+   * `pii-indirection.ts` derives that closed set from the contracts union, and
+   * `writeEventWithPii` refuses any other type before spending a nonce.
+   *
+   * NOT EXPRESSIBLE HERE, which is worth saying rather than leaving as an
+   * apparent omission. Two shapes were available and both are worse. Restating
+   * the five types on this surface would be a second registration of a decision
+   * contracts already made — the exact drift the derivation exists to prevent.
+   * Threading a generic from `envelope.type` through `append` would type-check
+   * only for a caller whose `type` is a literal, and
+   * {@link UnsequencedEventEnvelope} declares it `string` ON PURPOSE: the
+   * envelope is a tolerant carrier that must accept a higher-MINOR type this
+   * daemon does not know. A narrowing here would refuse those envelopes at the
+   * one surface built to admit them. The sole write path is where the closed set
+   * belongs, and it is where it lives.
+   */
+  readonly content?: EventLogAppendContent;
 
   /**
    * `monotonic_ns` for the row — within-daemon ordering only, never the replay
@@ -264,6 +332,17 @@ export interface EventLogServiceDeps {
    * degrade.
    */
   readonly piiEncryptor?: PiiEncryptor;
+  /**
+   * Session content-key source (Plan-006 T3.6). Optional for the same reason as
+   * `piiEncryptor` and with the same failure posture: most tests append no
+   * machine-authored prose, and omitting it makes a content-carrying append
+   * throw rather than silently drop the body.
+   *
+   * The NARROW half of the store deliberately — `resolveForWrite` and nothing
+   * else, so the append path cannot reach the rotation primitive that belongs to
+   * Plan-022's erasure orchestrator.
+   */
+  readonly contentKeySource?: SessionContentKeySource;
   /** `monotonic_ns` default source. Defaults to `process.hrtime.bigint()`. */
   readonly monotonicNow?: () => bigint;
 }
@@ -300,6 +379,7 @@ export class EventLogService {
   readonly #signingKeySource: DaemonSigningKeySource;
   readonly #haltSource: IngestHaltSource;
   readonly #piiEncryptor: PiiEncryptor | undefined;
+  readonly #contentKeySource: SessionContentKeySource | undefined;
   readonly #monotonicNow: () => bigint;
   #shredCallback: ShredCallback | undefined;
 
@@ -307,6 +387,7 @@ export class EventLogService {
     this.#signingKeySource = deps.signingKeySource;
     this.#haltSource = deps.haltSource ?? new NeverHaltedIngestHaltSource();
     this.#piiEncryptor = deps.piiEncryptor;
+    this.#contentKeySource = deps.contentKeySource;
     this.#monotonicNow = deps.monotonicNow ?? (() => process.hrtime.bigint());
 
     this.#insertStmt = deps.db.prepare(
@@ -315,13 +396,13 @@ export class EventLogService {
          category, type, actor, payload, pii_payload,
          correlation_id, causation_id, version,
          prev_hash, row_hash, daemon_signature, participant_signature,
-         pii_participant_id
+         pii_participant_id, content_payload
        ) VALUES (
          @id, @session_id, @sequence, @occurred_at, @monotonic_ns,
          @category, @type, @actor, @payload, @pii_payload,
          @correlation_id, @causation_id, @version,
          @prev_hash, @row_hash, @daemon_signature, NULL,
-         @pii_participant_id
+         @pii_participant_id, @content_payload
        )`,
     );
 
@@ -400,9 +481,21 @@ export class EventLogService {
    *      no partial row is produced.
    *   2. `daemon.pii_split_bypass` (400) — the payload carries a reserved PII
    *      key the T2.4 codec alone may write.
-   * Both are typed `DaemonDomainError`s carrying schema-PARSED details, so
-   * `mapJsonRpcError` renders `data.type` beside `data.fields` with no mapper
-   * change.
+   *   3. `CodecOwnedContentKeyError` — the payload pre-seeds one of the
+   *      three content members the T2.4 codec alone determines
+   *      (`contentCiphertextDigest`, `contentLength`, `contentTruncated`).
+   *      Evaluated in the same structural step as 2 and before the
+   *      plain-vs-codec branch choice, so a forged content claim cannot be
+   *      signed on either branch.
+   *   4. {@link assertRegisteredVariantParses} — a REGISTERED strict variant
+   *      whose payload does not parse. Raised inside `#signEvent`'s plain
+   *      branch, after the chain head is read and before canonicalization.
+   * The first two are typed `DaemonDomainError`s carrying schema-PARSED details,
+   * so `mapJsonRpcError` renders `data.type` beside `data.fields` with no mapper
+   * change. The last two are INTERNAL typed errors, not wire codes: neither has
+   * a row in `docs/architecture/contracts/error-contracts.md`, and reusing
+   * `daemon.pii_split_bypass` for either would make a registered contract
+   * describe a refusal it does not describe.
    */
   async append(
     envelope: UnsequencedEventEnvelope,
@@ -438,8 +531,25 @@ export class EventLogService {
         );
       }
 
-      // (2) PII SPLIT-BYPASS GUARD — structural, before any work is spent.
+      // (2) RESERVED-KEY GUARDS — structural, before any work is spent, and
+      // BEFORE the plain-vs-codec branch choice `#signEvent` makes below. Both
+      // refuse a payload that pre-seeds a member only the T2.4 codec may write;
+      // they are split because only one of the two is a registered wire code.
       this.#assertNoReservedPiiKeys(envelope.payload);
+      // The CONTENT trio. Shared with the codec's own refusal-2 third arm — one
+      // definition, two call sites at the two ends of this one durable append
+      // path, never a copy. Placed here rather than in
+      // `#signEvent`'s plain branch because the branch choice is made from
+      // `options.content`, not from the payload: a caller that omits
+      // `options.content` and seeds `contentCiphertextDigest` takes the PLAIN
+      // branch, where nothing is sealed and the payload the caller supplied is
+      // the payload that gets signed — minting a permanently `digest_unbound`
+      // row, or false length/truncation metadata, under this daemon's signature.
+      // Guarding ahead of the choice means neither branch can be entered with a
+      // forged claim. Runs for tolerant carriers too, deliberately — see the
+      // guard's own note for that decision and for why it throws an internal
+      // typed error rather than a `DaemonDomainError`.
+      assertNoCodecOwnedContentKeys(envelope.payload, "EventLogService.append");
 
       // (3) `event.shredded` EMISSION-SEAM PARSE. Before the write, so a
       // malformed shred payload is refused rather than persisted, and the
@@ -494,6 +604,7 @@ export class EventLogService {
         prevHash,
         daemonSigningKey,
         ...(options?.pii !== undefined ? { pii: options.pii } : {}),
+        ...(options?.content !== undefined ? { content: options.content } : {}),
       });
 
       // (7) PERSIST — the prelude and the row, atomically. Everything bound
@@ -520,6 +631,7 @@ export class EventLogService {
           row_hash: Buffer.from(signed.signedRow.rowHash),
           daemon_signature: Buffer.from(signed.signedRow.daemonSignature),
           pii_participant_id: signed.piiParticipantId ?? null,
+          content_payload: signed.contentPayload ?? null,
         },
         options?.transactionalPrelude,
       );
@@ -545,6 +657,16 @@ export class EventLogService {
 
   /**
    * Refuse a payload carrying either reserved PII key.
+   *
+   * SCOPE. This method covers the PII pair ONLY. The three codec-owned CONTENT
+   * members are refused by its sibling `assertNoCodecOwnedContentKeys`, called
+   * immediately after it in step (2) — a separate call rather than two more
+   * branches here, because the two refusals differ in kind: this one is the
+   * registered wire code `daemon.pii_split_bypass`, whose `error-contracts.md`
+   * row and `.strict()` detail schema describe the PII split and nothing else,
+   * while the content refusal is an internal typed error that this branch mints
+   * no wire code for. Folding them together would force one of the two to
+   * misreport itself.
    *
    * BOTH keys are CODEC-OWNED. `writeEventWithPii` is the only thing that may
    * embed `pii_ciphertext_digest` or `pii_participant_id` into a payload, and
@@ -617,7 +739,46 @@ export class EventLogService {
       actor: input.actor,
     };
 
-    if (input.pii === undefined) {
+    // THE PLAIN BRANCH IS "NEITHER PARTITION", not "no PII". Phase 3B widened
+    // this predicate rather than adding a third branch, and the widening is the
+    // structural point of the change: `assistant.*` and `tool.*` rows carry
+    // machine prose and usually no participant PII at all, so before it the
+    // common content-bearing row took this branch and never reached the codec —
+    // the column could exist and nothing would ever write to it.
+    if (input.pii === undefined && input.content === undefined) {
+      // PARSE WHAT WILL BE SIGNED, on the branch that seals nothing. The defect
+      // is a property of the ROW, not of which column was written: a registered
+      // type under the wrong category, or with a `payload` its own variant
+      // refuses, canonicalizes and signs exactly as happily here as it does
+      // through the codec, and comes back out unreadable as anything but a
+      // stub. The SAME function the sealing branch calls at its refusal 9 —
+      // imported, never copied, because two implementations would be two
+      // answers to "which rows may be signed" and would diverge on the first
+      // variant that lands.
+      //
+      // The TOLERANT-CARRIER SKIP rides along inside it rather than being
+      // restated here: a `type` with no registered payload variant is waved
+      // through, because `packages/contracts/src/event.ts` is explicit that a
+      // reader "MUST persist an envelope whose `type` it cannot interpret as a
+      // version stub — never drop or reject it" (`ADR-018 §Decision` #5/#9),
+      // while the STRICT layer is "the interpretation surface, where unknown
+      // types and category/type mismatches fail loud at parse time". Refusing
+      // an unregistered census type here would reject exactly the envelopes the
+      // stub path exists to preserve.
+      //
+      // AFTER `#assertNoReservedPiiKeys`, which ran back in `append` before
+      // this method was reached, and the order is load-bearing now that the
+      // strict layer REGISTERS both reserved keys as optional members: a
+      // caller-embedded `pii_participant_id` parses cleanly here, so the typed
+      // `daemon.pii_split_bypass` refusal — which names the field path and the
+      // remedy — is the one that must see it first. This guard catches what
+      // that one cannot express.
+      assertRegisteredVariantParses(storable, {
+        name: "EventLogService.append",
+        timing:
+          "Refused before canonicalization, on a path that seals nothing: the payload the caller supplied is the payload that would be signed.",
+      });
+
       const canonical: CanonicalBytes = canonicalizeEvent(storable);
       // The `EVENT_CANONICAL_BYTES_MAX` serviceability ceiling (`Spec-006
       // §Canonical Serialization Rules`, 2026-08-11 amendment): a row whose
@@ -637,10 +798,11 @@ export class EventLogService {
         signedRow: signRow(canonical, input.prevHash, input.daemonSigningKey),
         piiPayload: undefined,
         piiParticipantId: undefined,
+        contentPayload: undefined,
       };
     }
 
-    if (this.#piiEncryptor === undefined) {
+    if (input.pii !== undefined && this.#piiEncryptor === undefined) {
       // FAIL LOUD. The alternative — dropping the partition, or writing it into
       // the plain payload — would either lose participant data silently or
       // persist it unencrypted in a hashed, signed, un-shreddable column. A
@@ -654,6 +816,36 @@ export class EventLogService {
       );
     }
 
+    if (input.content !== undefined && this.#contentKeySource === undefined) {
+      // FAIL LOUD, on the encryptor guard's logic applied to the other
+      // partition. The alternatives are dropping the prose — which makes the
+      // canonical transcript unauthoritative for exactly the turns it exists to
+      // hold — or writing it into `payload`, which is hashed, signed, and never
+      // shredded. A plain Error rather than a typed refusal: this is a wiring
+      // defect (CP-006-15's key source was never injected), not a request a
+      // caller can correct.
+      throw new Error(
+        "EventLogService.append received a content partition but no SessionContentKeySource " +
+          "is wired. Refusing rather than dropping machine-authored prose or persisting it in " +
+          "the signed payload column. Construct the service with `contentKeySource`.",
+      );
+    }
+
+    // The session content key, resolved BEFORE the codec runs because resolving
+    // it can block on a human (the daemon master key's custody ladder wipes its
+    // in-memory copy on an idle timer). The codec takes MATERIAL, so the await
+    // happens out here rather than inside the module that owns the
+    // canonicalization order. Minted lazily on this session's first
+    // content-bearing append, which is why a session that never runs an agent
+    // stores no key.
+    const contentPartition: EventContentInput | undefined =
+      input.content === undefined || this.#contentKeySource === undefined
+        ? undefined
+        : {
+            body: input.content.body,
+            contentKey: (await this.#contentKeySource.resolveForWrite(storable.sessionId)).key,
+          };
+
     // T2.4's codec owns steps 1-6 of the encrypt-then-digest-then-sign order;
     // step 7 (the INSERT) is this service's, which is why the codec is invoked
     // here rather than by the caller: it needs the `prevHash` only the append
@@ -661,24 +853,62 @@ export class EventLogService {
     // codec re-checks it at runtime (I-006-3-01 layer 2) — the two refused
     // categories throw there rather than being silently admitted, so a wrong
     // category is a loud failure and not an unchecked assumption.
-    const written: PiiEventWriteResult = await writeEventWithPii(
-      {
-        id: storable.id,
-        sessionId: storable.sessionId,
-        sequence: storable.sequence,
-        occurredAt: storable.occurredAt,
-        type: storable.type,
-        actor: input.actor,
-        payload: storable.payload,
-        version: storable.version,
-        ...(storable.correlationId !== undefined ? { correlationId: storable.correlationId } : {}),
-        ...(storable.causationId !== undefined ? { causationId: storable.causationId } : {}),
-        category: storable.category as PiiEligibleCategory,
+    const codecCommonFields = {
+      id: storable.id,
+      sessionId: storable.sessionId,
+      sequence: storable.sequence,
+      occurredAt: storable.occurredAt,
+      type: storable.type,
+      actor: input.actor,
+      payload: storable.payload,
+      version: storable.version,
+      ...(storable.correlationId !== undefined ? { correlationId: storable.correlationId } : {}),
+      ...(storable.causationId !== undefined ? { causationId: storable.causationId } : {}),
+      category: storable.category as PiiEligibleCategory,
+    };
+
+    // The arm is chosen rather than assembled from optional spreads, because the
+    // codec's input is a discriminated union and the discriminant is which
+    // partition is present. Building one object with both members conditionally
+    // spread would type-check as the PII arm on a content-only row and hand the
+    // codec a value neither arm describes.
+    let codecInput: RawEventInput;
+    if (input.pii === undefined) {
+      // A CHECKED narrowing rather than a cast, though the value is non-null by
+      // construction: the plain branch above returned unless at least one
+      // partition is present, this arm is the no-PII one, and the guard above
+      // threw if the key source were missing. Asserting that with `as` would
+      // make the compiler agree without anything re-checking it, and the failure
+      // it would hide is the one this whole branch exists to prevent — prose
+      // reaching the codec as `undefined` and the row landing with no body.
+      if (contentPartition === undefined) {
+        throw new Error(
+          "EventLogService.append reached the sealing codec with neither partition resolved: " +
+            "the plain branch admits a row with no PII and no content, so this is an append-path " +
+            "routing defect rather than a caller error.",
+        );
+      }
+      codecInput = { ...codecCommonFields, content: contentPartition };
+    } else {
+      codecInput = {
+        ...codecCommonFields,
         piiParticipantId: input.pii.participantId,
         piiPayload: input.pii.piiPayload,
-      },
+        ...(contentPartition !== undefined ? { content: contentPartition } : {}),
+      };
+    }
+
+    const written: PiiEventWriteResult = await writeEventWithPii(
+      codecInput,
       input.prevHash,
-      this.#piiEncryptor,
+      // A REFUSING STUB rather than `undefined` behind a cast. A content-only row
+      // never calls the encryptor — the codec skips the PII stage when no
+      // partition is present — and the guard above already refuses a PII
+      // partition with no encryptor wired, so this argument is unreachable as a
+      // call. If that ever stopped being true, the cast would surface as a
+      // `TypeError` on `undefined.encrypt` from inside the codec; the stub
+      // surfaces the same defect by name, at the boundary that owns it.
+      this.#piiEncryptor ?? UNWIRED_PII_ENCRYPTOR,
       input.daemonSigningKey,
     );
 
@@ -693,13 +923,17 @@ export class EventLogService {
       throw eventCanonicalBytesExceeded(written.canonicalByteLength, storable.id);
     }
 
-    // PERSIST THESE FOUR AS A UNIT — the codec's caller obligation. Every value
-    // below comes from `written`; none is re-derived from the input.
+    // PERSIST THESE AS A UNIT — the codec's caller obligation. Every value below
+    // comes from `written`; none is re-derived from the input, and neither
+    // ciphertext is re-sealed (both digests inside the signed payload commit to
+    // exactly these arrays).
     return {
       envelope: written.envelope,
       signedRow: written.signedRow,
-      piiPayload: Buffer.from(written.piiPayload),
+      piiPayload: written.piiPayload === undefined ? undefined : Buffer.from(written.piiPayload),
       piiParticipantId: written.piiParticipantId,
+      contentPayload:
+        written.contentPayload === undefined ? undefined : Buffer.from(written.contentPayload),
     };
   }
 }
@@ -784,6 +1018,7 @@ interface InsertBindings {
   readonly row_hash: Buffer;
   readonly daemon_signature: Buffer;
   readonly pii_participant_id: string | null;
+  readonly content_payload: Buffer | null;
 }
 
 interface SignEventInput {
@@ -794,14 +1029,16 @@ interface SignEventInput {
   readonly prevHash: Uint8Array;
   readonly daemonSigningKey: Ed25519PrivateKey;
   readonly pii?: EventLogAppendPii;
+  readonly content?: EventLogAppendContent;
 }
 
-/** The four persistables, whichever path produced them. */
+/** The persistables, whichever path produced them. */
 interface SignedEventRow {
   readonly envelope: EventEnvelope;
   readonly signedRow: SignedRow;
   readonly piiPayload: Buffer | undefined;
   readonly piiParticipantId: string | undefined;
+  readonly contentPayload: Buffer | undefined;
 }
 
 /**
