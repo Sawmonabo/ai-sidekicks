@@ -29,6 +29,7 @@
   },
   "dependencies": {
     "@ai-sidekicks/contracts": "workspace:*",
+    "@noble/ciphers": "^2",
     "@noble/curves": "^2",
     "@noble/hashes": "^2",
     "better-sqlite3": "^12.9.0",

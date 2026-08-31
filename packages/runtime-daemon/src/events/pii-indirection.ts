@@ -135,7 +135,15 @@
 // `Plan-006 §Audit Integrity Invariant`, `Spec-006 §Canonical Serialization Rules`,
 // `Spec-022 §PII Payload Column Pattern`, `Spec-022 §Signature Safety Under Shred`,
 // `Spec-022 §Ordering And Atomicity`.
+import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+
 import type { EventCategory, EventEnvelope } from "@ai-sidekicks/contracts";
+import {
+  CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY,
+  CONTENT_LENGTH_PAYLOAD_KEY,
+  CONTENT_PAYLOAD_PLAINTEXT_MAX,
+  CONTENT_TRUNCATED_PAYLOAD_KEY,
+} from "@ai-sidekicks/contracts";
 import { blake3 } from "@noble/hashes/blake3.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 
@@ -259,6 +267,241 @@ export type PiiPayloadCiphertext = Uint8Array & { readonly __brand: "PiiPayloadC
 export type EventWithPiiDigest = EventEnvelope & { readonly __brand: "EventWithPiiDigest" };
 
 // --------------------------------------------------------------------------
+// The machine-authored content partition (Plan-006 T3.6).
+// --------------------------------------------------------------------------
+//
+// The second partition this module seals, and the reason it is HERE rather than
+// in a module of its own: this is where the Encrypt-Then-Digest-Then-Sign order
+// lives, and a second sealing module would be a second place for that order to
+// drift. `Plan-006 §Content Payload Column (Machine-Authored Prose)` states the rule as a sole-write-path
+// obligation — callers MUST NOT produce `content_payload` bytes anywhere else.
+//
+// The two partitions divide one row's text BY AUTHORSHIP: `pii_payload` holds
+// participant-authored text under that participant's own key and is a
+// crypto-shred path; `content_payload` holds machine-authored session work
+// product under a SESSION-scoped key and is deliberately not a per-participant
+// erasure path. A row may carry both, one, or neither — and a row carrying both
+// runs the order ONCE over both partitions, so I-006-2-06's one-canonicalization
+// -per-row rule is not weakened by a second ciphertext.
+
+/**
+ * The sealed machine-authored body, exactly as `session_events.content_payload`
+ * will hold it: `iv || ciphertext || tag`, AES-256-GCM under the session content
+ * key with AAD `session_id || event_id`.
+ *
+ * Branded on the {@link PiiPayloadCiphertext} precedent and for the identical
+ * reason: the brand exists only downstream of the seal, so nothing can reach the
+ * embed step — or the caller's INSERT — with bytes this module did not produce.
+ */
+export type ContentPayloadCiphertext = Uint8Array & {
+  readonly __brand: "ContentPayloadCiphertext";
+};
+
+/** AES-256-GCM initialization-vector width — 96 bits, the NIST SP 800-38D size. */
+const CONTENT_SEAL_IV_BYTES = 12;
+
+/** AES-256-GCM authentication-tag width. */
+const CONTENT_SEAL_TAG_BYTES = 16;
+
+/** Width of the session content key this module seals under. */
+const CONTENT_SEAL_KEY_BYTES = 32;
+
+/**
+ * The machine-authored body to seal, and the key to seal it under.
+ *
+ * THE KEY ARRIVES AS MATERIAL, NOT AS A LOOKUP. Resolving it means reading
+ * `session_content_keys` and unwrapping under the daemon master key, which can
+ * block on a human; the caller does that once, ahead of this call, and hands the
+ * bytes in. Taking a store here would put a database handle and a custody ladder
+ * into the module that owns the canonicalization order, for no gain — the same
+ * boundary reasoning that keeps {@link PiiEncryptor} an injected interface.
+ */
+export interface EventContentInput {
+  /**
+   * The machine-authored prose — an assistant message body, a reasoning-update
+   * body, or a tool call's arguments / result / error body.
+   *
+   * MAY EXCEED {@link CONTENT_PAYLOAD_PLAINTEXT_MAX}. An over-bound body is
+   * truncated at a codepoint boundary rather than refused: refusing the append
+   * would drop the turn, which is a worse and less honest outcome than storing a
+   * prefix that says it is one.
+   */
+  readonly body: string;
+  /** The 32-byte session content key, already unwrapped. */
+  readonly contentKey: Uint8Array;
+}
+
+/** What the seal stage produces, carried to the embed stage. */
+interface SealedContentPartition {
+  readonly ciphertext: ContentPayloadCiphertext;
+  /** PRE-truncation UTF-8 byte length of {@link EventContentInput.body}. */
+  readonly contentLength: number;
+  readonly truncated: boolean;
+}
+
+/**
+ * The three `payload` members the SEALING CODEC owns and no producer may supply
+ * — each determined at the seal step from the body actually sealed.
+ *
+ * `contentType` is deliberately absent: the producer knows the media type of
+ * what it emitted, and this codec never could. The split is what makes the
+ * refusal arm checkable by name rather than by judgement.
+ */
+const CODEC_OWNED_CONTENT_PAYLOAD_KEYS: readonly string[] = [
+  CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY,
+  CONTENT_LENGTH_PAYLOAD_KEY,
+  CONTENT_TRUNCATED_PAYLOAD_KEY,
+];
+
+/** What the PII encrypt stage produces, carried to the embed stage. */
+interface SealedPiiPartition {
+  readonly ciphertext: PiiPayloadCiphertext;
+  readonly participantId: string;
+}
+
+/**
+ * The AEAD associated data both partitions bind, `session_id || event_id`.
+ *
+ * Record-binding, exactly as `Spec-022 §PII Payload Column Pattern` fixes it for
+ * the participant partition: a ciphertext sealed under this cannot be replayed
+ * onto another row or another session. Unambiguous under the id grammars in play
+ * — `session_id` is fixed-width UUID form (or the reserved daemon-scope
+ * sentinel) and `event_id` follows it — so no length prefix is needed to keep
+ * two distinct pairs from colliding.
+ */
+function buildContentSealAad(sessionId: string, eventId: string): Uint8Array {
+  return new TextEncoder().encode(`${sessionId}${eventId}`);
+}
+
+/**
+ * Applies the plaintext bound, cutting at a UTF-8 CODEPOINT boundary.
+ *
+ * The bound is a BYTE budget over a 256 KiB body, so the body is encoded ONCE
+ * and the cut is found by walking back over continuation bytes (`10xxxxxx`) from
+ * the budget index. The compactor's sibling idiom cuts by code POINTS via
+ * `Array.from` because its budget is expressed in canonical bytes of a re-
+ * serialized object and its subject is a short summary; re-encoding per codepoint
+ * here would allocate across a quarter-megabyte body to answer a question one
+ * backward scan of at most three bytes already answers.
+ *
+ * Cutting mid-codepoint is what the walk exists to prevent, and the consequence
+ * is not cosmetic: a lone surrogate or a truncated multi-byte sequence would
+ * either fail the RFC 8785 §3.2.2.2 well-formed-strings guard downstream or
+ * decode to a replacement character on read, silently corrupting the last
+ * character of every truncated body.
+ *
+ * `contentLength` reports the PRE-truncation length, so the size of what was
+ * dropped stays recoverable from the audit log.
+ */
+function applyPlaintextBound(body: string): {
+  readonly bytes: Uint8Array;
+  readonly contentLength: number;
+  readonly truncated: boolean;
+} {
+  const encoded = new TextEncoder().encode(body);
+  if (encoded.length <= CONTENT_PAYLOAD_PLAINTEXT_MAX) {
+    return { bytes: encoded, contentLength: encoded.length, truncated: false };
+  }
+  // `cut` indexes the FIRST byte that would be dropped. While that byte is a
+  // continuation byte the cut sits inside a codepoint, so walk left. A lead or
+  // ASCII byte at `cut` means the boundary is clean. At most three steps: the
+  // longest UTF-8 sequence is four bytes.
+  let cut = CONTENT_PAYLOAD_PLAINTEXT_MAX;
+  while (cut > 0 && (encoded[cut]! & 0xc0) === 0x80) {
+    cut -= 1;
+  }
+  return {
+    bytes: encoded.subarray(0, cut),
+    contentLength: encoded.length,
+    truncated: true,
+  };
+}
+
+/**
+ * Seals the bounded plaintext under the session content key.
+ *
+ * Local rather than injected, unlike {@link PiiEncryptor}: the session content
+ * key has no per-participant custody question behind it — the key store hands
+ * over 32 bytes — and the wire format is fixed by
+ * `docs/architecture/schemas/local-sqlite-schema.md §Session Events (Plan-001, extended by Plans 006, 008, 015)` rather than
+ * left to an implementor. Housing it here is what makes "one place the
+ * write-path order lives" true for both partitions.
+ */
+function sealContentPartition(
+  content: EventContentInput,
+  sessionId: string,
+  eventId: string,
+): SealedContentPartition {
+  const bounded = applyPlaintextBound(content.body);
+  const iv = new Uint8Array(randomBytes(CONTENT_SEAL_IV_BYTES));
+  const cipher = createCipheriv("aes-256-gcm", content.contentKey, iv);
+  cipher.setAAD(buildContentSealAad(sessionId, eventId));
+  const body = Buffer.concat([cipher.update(bounded.bytes), cipher.final()]);
+  const tag = cipher.getAuthTag();
+
+  const sealed = new Uint8Array(iv.length + body.length + tag.length);
+  sealed.set(iv, 0);
+  sealed.set(body, iv.length);
+  sealed.set(tag, iv.length + body.length);
+  return {
+    ciphertext: sealed as ContentPayloadCiphertext,
+    contentLength: bounded.contentLength,
+    truncated: bounded.truncated,
+  };
+}
+
+/**
+ * Opens a stored `content_payload` — the read-side counterpart of
+ * {@link sealContentPartition}, housed beside it so the envelope format has one
+ * home rather than two.
+ *
+ * THROWS on any failure, and the caller is expected to classify rather than
+ * propagate: `content-read.ts` maps every throw here onto the closed
+ * `HydratedContentUnavailableReason` union. A wrong key, a tampered tag, a
+ * truncated blob, and a body that is not valid UTF-8 are deliberately not
+ * distinguished in the thrown message beyond what is safe to say — the AEAD
+ * itself does not distinguish the first three, and guessing between them would
+ * put a cause in the record that nothing established.
+ *
+ * NEVER RETURNS A PARTIAL BODY. `decipher.final()` is what verifies the tag, so
+ * skipping it — or reading `update()`'s output alone — would hand back
+ * unauthenticated plaintext, which is the classic GCM misuse.
+ */
+export function openContentPayload(
+  storedContentPayload: Uint8Array,
+  contentKey: Uint8Array,
+  sessionId: string,
+  eventId: string,
+): string {
+  const floor = CONTENT_SEAL_IV_BYTES + CONTENT_SEAL_TAG_BYTES;
+  if (storedContentPayload.length < floor) {
+    throw new Error(
+      `stored content_payload is ${String(storedContentPayload.length)} bytes, under the ${String(floor)}-byte iv+tag floor`,
+    );
+  }
+  if (contentKey.length !== CONTENT_SEAL_KEY_BYTES) {
+    throw new Error(
+      `session content key is ${String(contentKey.length)} bytes, expected ${String(CONTENT_SEAL_KEY_BYTES)}`,
+    );
+  }
+  const iv = storedContentPayload.subarray(0, CONTENT_SEAL_IV_BYTES);
+  const tag = storedContentPayload.subarray(storedContentPayload.length - CONTENT_SEAL_TAG_BYTES);
+  const body = storedContentPayload.subarray(
+    CONTENT_SEAL_IV_BYTES,
+    storedContentPayload.length - CONTENT_SEAL_TAG_BYTES,
+  );
+  const decipher = createDecipheriv("aes-256-gcm", contentKey, iv);
+  decipher.setAAD(buildContentSealAad(sessionId, eventId));
+  decipher.setAuthTag(tag);
+  const plaintext = Buffer.concat([decipher.update(body), decipher.final()]);
+  // `fatal: true` so an invalid sequence throws instead of decoding to U+FFFD.
+  // The seal cuts at a codepoint boundary, so invalid UTF-8 out of an
+  // authenticated open means the plaintext that went IN was already malformed —
+  // worth a refusal rather than a silently mangled body.
+  return new TextDecoder("utf-8", { fatal: true }).decode(plaintext);
+}
+
+// --------------------------------------------------------------------------
 // CP-006-1 — the injected encryptor boundary.
 // --------------------------------------------------------------------------
 
@@ -370,6 +613,34 @@ export interface PiiCarryingEventInput extends RawEventCommonFields {
   readonly category: PiiEligibleCategory;
   readonly piiParticipantId: string;
   readonly piiPayload: Record<string, unknown>;
+  /**
+   * OPTIONAL here, because a row may carry both partitions. An
+   * `assistant.message` that quotes a participant carries machine prose in
+   * `content_payload` and the quoted participant text in `pii_payload`, and the
+   * order runs ONCE over both.
+   */
+  readonly content?: EventContentInput;
+}
+
+/**
+ * An event carrying MACHINE-authored prose and no participant PII — the common
+ * case for `assistant.*` and `tool.*` rows, and the arm without which those rows
+ * would have no path through this codec at all.
+ *
+ * `content` is REQUIRED on this arm for the reason `piiPayload` is required on
+ * its sibling: an input carrying neither partition has no business in a codec
+ * whose entire job is sealing one. The plain append path handles every event
+ * whose `pii_payload` AND `content_payload` both stay NULL.
+ *
+ * `piiPayload?: never` is what makes `input.piiPayload !== undefined` a real
+ * narrowing after the category switch below, so the write path can branch on the
+ * presence of a partition rather than on a flag it would have to keep in sync.
+ */
+export interface ContentOnlyEventInput extends RawEventCommonFields {
+  readonly category: PiiEligibleCategory;
+  readonly piiParticipantId?: never;
+  readonly piiPayload?: never;
+  readonly content: EventContentInput;
 }
 
 /**
@@ -395,6 +666,15 @@ export interface PiiRefusedEventInput extends RawEventCommonFields {
   readonly category: PiiRefusedCategory;
   readonly piiParticipantId?: never;
   readonly piiPayload?: never;
+  /**
+   * `content?: never` IS the unconstructibility mechanism I-006-3-05 names, and
+   * it is the same one I-006-2-07 already uses for the PII partition. A
+   * destroyable body on a never-compacted, never-shredded row would be a body no
+   * mechanism in this plan may ever destroy — so an object literal in either
+   * category that attaches one fails to type-check, and the runtime category
+   * guard below refuses the value a cast could still build.
+   */
+  readonly content?: never;
 }
 
 /**
@@ -404,7 +684,14 @@ export interface PiiRefusedEventInput extends RawEventCommonFields {
  * string literals, so a category rename or removal in the wire contract surfaces
  * here as a type error instead of a silently unreachable branch.
  */
-export type RawEventInput = PiiCarryingEventInput | PiiRefusedEventInput;
+export type RawEventInput = PiiCarryingEventInput | ContentOnlyEventInput | PiiRefusedEventInput;
+
+/**
+ * The two arms that survive the category switch — the input this codec actually
+ * seals. Module-local: callers construct a {@link RawEventInput}, and narrowing
+ * to this is the write path's own business.
+ */
+type SealableEventInput = PiiCarryingEventInput | ContentOnlyEventInput;
 
 /**
  * Everything the caller needs to persist one PII-carrying row, frozen at the
@@ -516,9 +803,26 @@ export interface PiiEventWriteResult {
    * contracts-side branded `ParticipantId`: nothing on this path mints that
    * brand, and its schema requires a UUID this module has no standing to demand
    * of an injected key holder.
+   *
+   * `undefined` ON A CONTENT-ONLY ROW, which is the shape change Phase 3B makes
+   * to this result. The member is declared `string | undefined` rather than
+   * optional so it stays in every caller's destructuring surface: T3.1 writes it
+   * into a column on every append, and a member that could be silently omitted
+   * is one an INSERT could silently stop binding.
    */
-  readonly piiParticipantId: string;
-  readonly piiPayload: PiiPayloadCiphertext;
+  readonly piiParticipantId: string | undefined;
+  readonly piiPayload: PiiPayloadCiphertext | undefined;
+  /**
+   * The sealed machine-authored body for `session_events.content_payload`, or
+   * `undefined` on a row that carries none.
+   *
+   * Under the SAME caller obligation as `piiPayload`: persist these bytes, not a
+   * re-seal. The digest inside the signed `payload` commits to exactly this
+   * array, and AES-256-GCM takes a fresh random IV per write, so a second seal
+   * would mint an unrelated ciphertext whose digest no verifier can reconcile
+   * with the row it is holding.
+   */
+  readonly contentPayload: ContentPayloadCiphertext | undefined;
   readonly signedRow: SignedRow;
   /**
    * Byte length of the RFC 8785 canonical form `signedRow` covers — measured
@@ -616,22 +920,37 @@ const PII_REFUSED_CATEGORY_NAMES: readonly PiiRefusedCategory[] = [
 ];
 
 /**
- * Runs `Plan-006 §Encrypt-Then-Digest-Then-Sign Order` steps 2–6 for one
- * PII-carrying event and returns everything T3.1 needs for step 7. Step 1 — the
+ * Runs `Plan-006 §Encrypt-Then-Digest-Then-Sign Order` steps 2–6 for one event
+ * carrying a participant PII partition, a machine-authored content partition,
+ * or BOTH, and returns everything T3.1 needs for step 7. Step 1 — the
  * PII / non-PII split — belongs to the EMITTER and has already happened by the
  * time this function is called; see {@link PiiCarryingEventInput}.
+ *
+ * ONE RECIPE OVER BOTH PARTITIONS, never two runs of it. A row carrying both is
+ * canonicalized once and signed once (I-006-2-06), with both digests embedded in
+ * the same step — which is why the stages below name each partition rather than
+ * splitting into two numbered lists.
  *
  * Stages, numbered as that recipe numbers them, in the only order the types
  * permit:
  *
  *   2. ENCRYPT — the injected {@link PiiEncryptor} seals the `piiPayload`
  *      partition under the participant's key. The result is branded
- *      {@link PiiPayloadCiphertext} here and nowhere else.
+ *      {@link PiiPayloadCiphertext} here and nowhere else. The content
+ *      partition is BOUNDED and then sealed in the same stage by
+ *      {@link sealContentPartition} — AES-256-GCM under the session content key
+ *      the caller resolved, branded {@link ContentPayloadCiphertext} there and
+ *      nowhere else — and it runs AFTER the PII encrypt so a row carrying both
+ *      spends its nonces in a fixed order.
  *   3. DIGEST — `BLAKE3(ciphertext)` over exactly the bytes that will occupy the
- *      `pii_payload` column, lowercase hex.
- *   4. EMBED — the digest becomes a `payload` member, which is what puts it
+ *      `pii_payload` column, lowercase hex, and the same over exactly the bytes
+ *      that will occupy `content_payload`.
+ *   4. EMBED — each digest becomes a `payload` member, which is what puts it
  *      INSIDE the canonical form (`Spec-006 §Canonical Serialization Rules`
- *      excludes `pii_payload` itself and requires the digest in its place).
+ *      excludes both columns themselves and requires the digest in their
+ *      place). The content partition embeds two further members the seal step
+ *      determines — `contentLength`, and `contentTruncated` only when the bound
+ *      fired.
  *   5. CANONICALIZE — T2.1, over the digest-bearing envelope.
  *   6. SIGN — T2.2, over those canonical bytes: `row_hash` and
  *      `daemon_signature` in one call, one canonicalization per row
@@ -652,13 +971,26 @@ const PII_REFUSED_CATEGORY_NAMES: readonly PiiRefusedCategory[] = [
  * one the caller sees — so it is fixed here rather than left to the reading
  * order of the body:
  *
- *   1. A refused category (I-006-3-01 layer 2).
- *   2. A `payload` that already claims either RESERVED member —
- *      `pii_ciphertext_digest` first, then `pii_participant_id`. The embed step
- *      projects both and nothing else produces either, so a pre-seeded one is a
- *      value the signature would vouch for with nothing behind it. The order
- *      inside the pair is fixed so the digest arm keeps the message it shipped
- *      with and a payload carrying both reports the digest.
+ *   1. A STRUCTURAL DEFECT IN THE INPUT'S PARTITIONING, in THREE arms, in this
+ *      order: a refused category (I-006-3-01 layer 2), then an input carrying
+ *      NEITHER partition, then a HALF-PRESENT PII partition
+ *      (`piiParticipantId` with no `piiPayload`). Arms two and three were added
+ *      with the content partition and neither reorders anything that could
+ *      reach the shipped code: before a second partition existed, "neither" was
+ *      unreachable and the half-present shape threw much later and about the
+ *      wrong thing, inside `canonicalizeJson(undefined)`. Each arm's own note
+ *      carries why it refuses rather than degrades.
+ *   2. A `payload` that already claims a RESERVED member, in THREE arms over
+ *      FIVE members: `pii_ciphertext_digest` first, then `pii_participant_id`,
+ *      then one arm over the three content members
+ *      ({@link CODEC_OWNED_CONTENT_PAYLOAD_KEYS}). The embed step projects all
+ *      five and nothing else produces any of them, so a pre-seeded one is a
+ *      value the signature would vouch for with nothing behind it. The order is
+ *      fixed so the digest arm keeps the message it shipped with, a payload
+ *      carrying both PII members reports the digest, and no input that drew
+ *      either PII arm's message before the content arm existed draws a
+ *      different one now. `contentType` is deliberately NOT reserved — the
+ *      producer knows the media type and this codec never could.
  *
  *      THE STAMP ARM IS NEW and touches exactly two classes of input, both of
  *      which carry a member no legitimate producer emits. (a) Pre-seeded stamp,
@@ -706,9 +1038,17 @@ const PII_REFUSED_CATEGORY_NAMES: readonly PiiRefusedCategory[] = [
  *      nearest thing to a downstream guard and it is not one: `canonicalizeJson`
  *      would throw on a `NaN` stamp but emits `null` for a `null` one and a bare
  *      number for `0`, so it refuses a few malformed stamps and signs the rest.
- *      Placed last so it reorders nothing that shipped before it: any input that
- *      drew a refusal without this guard draws the identical refusal with it,
- *      since 1–6 are answerable from members it does not read.
+ *      Placed after 6 so it reorders nothing that shipped before it: any input
+ *      that drew a refusal without this guard draws the identical refusal with
+ *      it, since 1–6 are answerable from members it does not read.
+ *   8. A malformed CONTENT partition — a non-string `content.body`, then a
+ *      `content.contentKey` that is not 32 bytes. Placed LAST, on the same
+ *      no-reordering ground: nothing at 1–7 reads `content`, so every input
+ *      that could reach the code before this partition existed answers exactly
+ *      as it did. Both members are silent when wrong — `TextEncoder` stringifies
+ *      a non-string rather than refusing, and a wrong-width key reaches
+ *      `createCipheriv` only after the PII nonce is already spent — and the
+ *      guard's own note carries the rest.
  *
  * 3, 5, AND 6 ARE EARLY COPIES, NEVER REPLACEMENTS.
  * `assertRepresentableSequence`, `signRow`'s guard, and `ed25519.sign`'s
@@ -717,17 +1057,22 @@ const PII_REFUSED_CATEGORY_NAMES: readonly PiiRefusedCategory[] = [
  * to the guards they front; 6 is deliberately narrower, and its own note says
  * both why and in which direction.
  *
- * 7 IS NOT IN THAT SET, and the sentence above must not be read as covering it.
- * It is the first and last word on its own value's SHAPE, so there is no
- * downstream authority to be an early copy OF and no drift for a late guard to
- * catch. That is an argument for the guard rather than against it, and the
+ * 7 AND 8 ARE NOT IN THAT SET, and the sentence above must not be read as
+ * covering either. Each is the first and last word on its own value's SHAPE, so
+ * there is no downstream authority to be an early copy OF and no drift for a
+ * late guard to catch. What follows argues 7; 8's own note argues 8, on the
+ * same ground and for two values instead of one. That is an argument for the guard rather than against it, and the
  * argument got STRONGER when the stamp joined the canonical bytes: a malformed
  * stamp reaching the embed step is signed, so the signature vouches for it and
  * {@link isPiiOwnerStampBound} reports the row BOUND — correctly, since the
  * column and the claim would agree. Bound is not well-shaped, and nothing after
  * this guard asks the second question. The guard's own note carries the rest.
  *
- * TWO CLASSES REMAIN BEHIND THE ENCRYPT, AND NEITHER MOVES HONESTLY:
+ * TWO CLASSES REMAIN BEHIND THE ENCRYPT, AND NEITHER MOVES HONESTLY. THE
+ * CONTENT PARTITION ADDS NO THIRD: {@link sealContentPartition} refuses nothing
+ * of its own, because 8 has already checked both values it consumes and the
+ * bound TRUNCATES rather than refusing, so a body over the ceiling is a stored
+ * row with `contentTruncated` set and never a rejected append. The two:
  *
  *   - THE ENCRYPTOR-RESULT SHAPE GUARD judges a value that does not exist until
  *     the encryptor has run.
@@ -804,9 +1149,62 @@ export async function writeEventWithPii(
     case "audit_integrity":
     case "event_maintenance":
       throw new Error(
-        `writeEventWithPii refuses category ${JSON.stringify(input.category)}: ${PII_REFUSED_CATEGORY_NAMES.join(" and ")} events are never compacted and never crypto-shredded per Plan-006 §Audit Integrity Invariant, so their pii_payload is NULL by construction. Append this event through the plain append path instead.`,
+        `writeEventWithPii refuses category ${JSON.stringify(input.category)}: ${PII_REFUSED_CATEGORY_NAMES.join(" and ")} events are never compacted and never crypto-shredded per Plan-006 §Audit Integrity Invariant, so their pii_payload and content_payload are NULL by construction. Append this event through the plain append path instead.`,
       );
   }
+
+  // REFUSAL 1's SECOND ARM — an input carrying NEITHER partition.
+  //
+  // Unreachable through the type system: the PII arm requires `piiPayload` and
+  // the content arm requires `content`, so no well-typed value lands here. It is
+  // guarded anyway on layer 2's own logic — a value that crossed a serialization
+  // boundary is a value TypeScript never checked — and it reorders nothing,
+  // because no input that could reach the shipped code lacked a partition.
+  //
+  // Refusing rather than degrading to a plain signed row is the point: this
+  // codec's entire job is sealing a partition, and a caller that reached it with
+  // nothing to seal has routed the append to the wrong path. Signing it here
+  // would hide that, and would put a second producer of ordinary rows behind an
+  // entry point documented as the sole PII and content write path.
+  if (input.piiPayload === undefined && input.content === undefined) {
+    throw new Error(
+      "writeEventWithPii refuses an event carrying neither a PII partition nor a content partition: this codec is the write path for pii_payload and content_payload, and a row with neither belongs on the plain append path. Pass piiPayload, content, or both.",
+    );
+  }
+
+  // REFUSAL 1's THIRD ARM — a HALF-PRESENT PII partition.
+  //
+  // The narrowing below discriminates on `piiPayload` alone, so a value
+  // carrying `piiParticipantId` with no `piiPayload` reads as the content-only
+  // arm and its participant half is DROPPED — sealed nowhere, stamped nowhere,
+  // and reported nowhere. That is the one failure this module refuses to have:
+  // every other guard here exists so participant PII is never lost or persisted
+  // outside the split, and a silent drop is both at once.
+  //
+  // Unreachable through the type system in either direction — the PII arm
+  // requires `piiPayload` and the content arm types `piiParticipantId` as
+  // `never` — so this is layer 2 again: a value that crossed a serialization
+  // boundary is a value TypeScript never checked.
+  //
+  // PLACED IMMEDIATELY AFTER THE NEITHER-PARTITION ARM, which keeps its message
+  // for the input that carries neither, and BEFORE the narrowing so no later
+  // site has to re-ask. It reorders nothing that could previously reach the
+  // shipped code: before the content partition existed this shape reached
+  // `canonicalizeJson(undefined)` and threw there, much later and about the
+  // wrong thing.
+  if (input.piiParticipantId !== undefined && input.piiPayload === undefined) {
+    throw new Error(
+      "writeEventWithPii refuses an event carrying piiParticipantId with no piiPayload: the two are halves of one partition, and admitting the pair would route the row as content-only and drop the participant half silently — sealed nowhere and invisible to the shred selector. Pass both, or neither.",
+    );
+  }
+
+  // The narrowed PII half, captured once. `piiPayload` is typed `never` on the
+  // content-only arm, so this ternary is ordinary discriminated-union narrowing
+  // rather than a cast — and capturing it here keeps every later PII site from
+  // re-deriving the same narrowing under a slightly different condition.
+  const piiCarrying: PiiCarryingEventInput | undefined =
+    input.piiPayload === undefined ? undefined : input;
+  const contentInput: EventContentInput | undefined = input.content;
 
   // REFUSAL 2 of the order documented above, in TWO ARMS over the two reserved
   // payload members the embed step projects. Both are refused rather than
@@ -836,6 +1234,35 @@ export async function writeEventWithPii(
   if (Object.hasOwn(input.payload, PII_PARTICIPANT_ID_PAYLOAD_KEY)) {
     throw new Error(
       `writeEventWithPii refuses an event whose payload already carries ${PII_PARTICIPANT_ID_PAYLOAD_KEY}: this codec is the only producer of that member — it projects the PII owner stamp from input.piiParticipantId so the signature binds it, and a caller-supplied value would be signed in place of the stamp T3.1 writes into the column. Pass the owner as piiParticipantId, not as a payload member.`,
+    );
+  }
+
+  // The CONTENT arm — refusal 2's third, added by Phase 3B and placed LAST of
+  // the three so neither PII arm's message moves for any input that drew one.
+  //
+  // One arm over THREE members rather than three arms, because they answer for
+  // the same thing: what this codec sealed. The digest is a claim about bytes,
+  // `contentLength` a claim about how many there were before the bound was
+  // applied, and `contentTruncated` a claim about whether the bound fired — all
+  // three determined at the seal step, none of them knowable to a producer, and
+  // all three inside the signed canonical bytes. `contentType` is deliberately
+  // NOT in this set: the producer knows the media type of what it emitted and
+  // this codec never could.
+  //
+  // Refused rather than overwritten, on the sibling arms' logic: silently
+  // replacing a pre-seeded value hides a codec re-run that cannot reproduce its
+  // own output, and silently trusting one signs a producer's claim about work it
+  // did not do. The guard is scoped to THIS module rather than added to T3.1's
+  // append-path reserved-key assertion, and the asymmetry is principled — a
+  // bypassed PII split persists plaintext PII irreversibly, while a planted
+  // content digest is an integrity claim the read-side binding check is built to
+  // catch and report.
+  const seededContentKey = CODEC_OWNED_CONTENT_PAYLOAD_KEYS.find((key) =>
+    Object.hasOwn(input.payload, key),
+  );
+  if (seededContentKey !== undefined) {
+    throw new Error(
+      `writeEventWithPii refuses an event whose payload already carries ${seededContentKey}: this codec is the only producer of ${CODEC_OWNED_CONTENT_PAYLOAD_KEYS.join(", ")} (Spec-006 §Canonical Serialization Rules), each determined at the seal step from the body it actually sealed. Pass the prose as content.body; contentType is the producer's member and is unaffected.`,
     );
   }
 
@@ -872,7 +1299,8 @@ export async function writeEventWithPii(
   // `canonicalizeJson` returns `CanonicalBytes`; the annotation widens it back to
   // plain bytes deliberately. These are the PII PLAINTEXT bytes, not the row's
   // canonical bytes, and the brand must not suggest otherwise.
-  const piiPlaintext: Uint8Array = canonicalizeJson(input.piiPayload);
+  const piiPlaintext: Uint8Array | undefined =
+    piiCarrying === undefined ? undefined : canonicalizeJson(piiCarrying.piiPayload);
 
   // REFUSAL 5 of the order documented above — T2.2's `prevHash` guard, hoisted
   // to just ahead of the encrypt. A wrong-width link hashes happily and
@@ -969,79 +1397,145 @@ export async function writeEventWithPii(
   // holder while satisfying every `string` in the pipeline. Reachable only
   // through a cast or an untyped boundary, like refusal 6 —
   // `PiiCarryingEventInput` declares the member a required `string`.
-  if (typeof input.piiParticipantId !== "string" || input.piiParticipantId.length === 0) {
+  if (
+    piiCarrying !== undefined &&
+    (typeof piiCarrying.piiParticipantId !== "string" || piiCarrying.piiParticipantId.length === 0)
+  ) {
     throw new Error(
-      `writeEventWithPii requires a non-empty piiParticipantId: it names the participant whose content key seals this row and whose participant_keys DELETE crypto-shreds it, and it is the stamp the Spec-022 §Shred Fan-Out Path 1 selector matches on and the value projected into the signed canonical bytes as ${PII_PARTICIPANT_ID_PAYLOAD_KEY}; received ${describeParticipantIdShape(input.piiParticipantId)}. Refused before the encrypt step so a rejected append costs no AES-256-GCM nonce; unlike the guards above it, nothing downstream re-checks this value's shape.`,
+      `writeEventWithPii requires a non-empty piiParticipantId: it names the participant whose content key seals this row and whose participant_keys DELETE crypto-shreds it, and it is the stamp the Spec-022 §Shred Fan-Out Path 1 selector matches on and the value projected into the signed canonical bytes as ${PII_PARTICIPANT_ID_PAYLOAD_KEY}; received ${describeParticipantIdShape(piiCarrying.piiParticipantId)}. Refused before the encrypt step so a rejected append costs no AES-256-GCM nonce; unlike the guards above it, nothing downstream re-checks this value's shape.`,
     );
   }
 
-  const encryptorResult: Uint8Array = await encryptor.encrypt({
-    participantId: input.piiParticipantId,
-    eventId: input.id,
-    plaintext: piiPlaintext,
-  });
-
-  // The declared `Uint8Array` is a claim about a value that crossed the CP-006-1
-  // injection boundary — an implementation this module does not own, does not
-  // import, and (per CP-006-1) may briefly be a stub. That is at least as
-  // untrusted as the SQLite boundary both sibling modules guard, and the failure
-  // is silent in a costly way: a non-byte result would be digested as whatever
-  // BLAKE3 coerces it to and then persisted into a `BLOB` column, producing a row
-  // whose digest commits to bytes that are not the stored ciphertext. Empty is
-  // refused too — no AEAD emits a zero-length output, so it means the
-  // implementation returned nothing while claiming success. Width is NOT checked:
-  // this interface does not fix an AEAD, so its ciphertext has no width this
-  // module is entitled to assert.
-  if (!(encryptorResult instanceof Uint8Array) || encryptorResult.length === 0) {
-    throw new Error(
-      `PiiEncryptor.encrypt must return non-empty Uint8Array ciphertext for the session_events.pii_payload column per Spec-022 §PII Payload Column Pattern; received ${describeByteShape(encryptorResult)}. That is an injection bug at the CP-006-1 boundary, not a tampered row.`,
-    );
+  // REFUSAL 8 of the order documented above — the content partition's own shape
+  // guard, and the second on this path that is an AUTHORITY rather than an early
+  // copy. Placed LAST so it reorders nothing: any input that drew a refusal at
+  // 1–7 draws the identical one, since none of those reads `content`.
+  //
+  // Both members break the row silently if they are wrong. A non-string `body`
+  // reaches `TextEncoder.encode`, which stringifies rather than refusing — `null`
+  // becomes the four bytes of "null" and an object becomes "[object Object]" —
+  // so a defect would be sealed, digested, and signed as though it were prose,
+  // and would read back later as a body the assistant never wrote. A wrong-width
+  // key is worse: `createCipheriv` throws for most widths, but the throw would
+  // land after the PII nonce is already spent, on a codec the module header
+  // documents as `manual_reconcile_only`.
+  //
+  // Nothing downstream judges either value. `createCipheriv` checks the key
+  // width and not the body's type, and no read-side check can recover a body
+  // that was malformed before it was sealed — the digest will agree, the
+  // signature will verify, and the row will be a healthy-looking commitment to
+  // "[object Object]".
+  if (contentInput !== undefined) {
+    if (typeof contentInput.body !== "string") {
+      throw new Error(
+        `writeEventWithPii requires content.body to be a string — it is the machine-authored prose sealed into session_events.content_payload; received ${describeParticipantIdShape(contentInput.body)}. TextEncoder would stringify a non-string rather than refuse it, so the row would carry a signed commitment to a coerced value; nothing downstream re-checks this shape.`,
+      );
+    }
+    if (
+      !(contentInput.contentKey instanceof Uint8Array) ||
+      contentInput.contentKey.length !== CONTENT_SEAL_KEY_BYTES
+    ) {
+      throw new Error(
+        `writeEventWithPii requires a ${CONTENT_SEAL_KEY_BYTES}-byte Uint8Array content.contentKey — the session content key from session-content-key-store.ts, already unwrapped; received ${describeByteShape(contentInput.contentKey)}. Refused before the encrypt step so a rejected append costs no AES-256-GCM nonce on either partition.`,
+      );
+    }
   }
 
-  // The ONE site where `PiiPayloadCiphertext` enters the type system
-  // (I-006-2-02) — and it brands an OWNED COPY, not the encryptor's own array.
+  // --- Step 2: ENCRYPT (PII partition) --------------------------------------
+  // Skipped entirely on a content-only row: there is no participant partition to
+  // seal, and the injected encryptor is never called for one.
+  let piiPartition: SealedPiiPartition | undefined;
+  if (piiCarrying !== undefined && piiPlaintext !== undefined) {
+    const encryptorResult: Uint8Array = await encryptor.encrypt({
+      participantId: piiCarrying.piiParticipantId,
+      eventId: input.id,
+      plaintext: piiPlaintext,
+    });
+
+    // The declared `Uint8Array` is a claim about a value that crossed the CP-006-1
+    // injection boundary — an implementation this module does not own, does not
+    // import, and (per CP-006-1) may briefly be a stub. That is at least as
+    // untrusted as the SQLite boundary both sibling modules guard, and the failure
+    // is silent in a costly way: a non-byte result would be digested as whatever
+    // BLAKE3 coerces it to and then persisted into a `BLOB` column, producing a row
+    // whose digest commits to bytes that are not the stored ciphertext. Empty is
+    // refused too — no AEAD emits a zero-length output, so it means the
+    // implementation returned nothing while claiming success. Width is NOT checked:
+    // this interface does not fix an AEAD, so its ciphertext has no width this
+    // module is entitled to assert.
+    if (!(encryptorResult instanceof Uint8Array) || encryptorResult.length === 0) {
+      throw new Error(
+        `PiiEncryptor.encrypt must return non-empty Uint8Array ciphertext for the session_events.pii_payload column per Spec-022 §PII Payload Column Pattern; received ${describeByteShape(encryptorResult)}. That is an injection bug at the CP-006-1 boundary, not a tampered row.`,
+      );
+    }
+
+    // The ONE site where `PiiPayloadCiphertext` enters the type system
+    // (I-006-2-02) — and it brands an OWNED COPY, not the encryptor's own array.
+    //
+    // `PiiEncryptor` is an injection boundary (CP-006-1): it fixes a return TYPE
+    // and says nothing about the LIFETIME of the buffer behind it, so a conforming
+    // implementation may hand back a reusable scratch array and overwrite it on
+    // its next call. Nothing here can forbid that — Plan-022 owns the
+    // implementation, sits a tier above, and never consults this file. The row it
+    // would produce is the nastiest kind: the digest below commits to the bytes as
+    // of NOW and the signature commits to that digest, so a later encrypt writing
+    // through the same array leaves the caller persisting different bytes into
+    // `pii_payload` — an honest row that fails verification forever, with the
+    // defect in a module no verifier will ever look at. Copying costs one
+    // allocation of the ciphertext's width per PII append; no width is named here
+    // because the interface fixes no AEAD.
+    //
+    // `new Uint8Array(...)` and deliberately NOT `.slice()`, exactly as
+    // `signer.ts` copies `prevHash`: `Buffer.prototype.slice` returns a VIEW onto
+    // the same memory, so it would copy nothing while reading as though it had.
+    //
+    // AFTER THE SHAPE GUARD, NEVER BEFORE IT. This constructor admits far more
+    // than the guard does and COERCES where the guard refuses, differently
+    // depending on the value: `new Uint8Array(null)` and `new Uint8Array("abc")`
+    // allocate zero bytes, `new Uint8Array("3")` allocates three zero bytes — a
+    // non-empty all-zero ciphertext that a length check waves straight through —
+    // and a long numeric-looking string is read as a LENGTH, which is why the hex
+    // string this suite injects at the shape guard raises `RangeError: Array
+    // buffer allocation failed` rather than producing anything at all. Copying
+    // first would trade one refusal that names the CP-006-1 boundary and routes to
+    // the encryptor's author for one of those, so the guard runs first and this
+    // line only ever copies bytes it has already been told are bytes.
+    //
+    // CLOSES THE ENCRYPTOR-SIDE ALIAS ONLY. A caller that writes into the array on
+    // this result before its INSERT commits reproduces the same disagreement from
+    // the other side, and no copy taken here can prevent it; that one is the
+    // obligation {@link PiiEventWriteResult} states, on the same footing as the
+    // one `signer.ts` states for `SignedRow.prevHash`.
+    const piiPayload: PiiPayloadCiphertext = new Uint8Array(
+      encryptorResult,
+    ) as PiiPayloadCiphertext;
+    piiPartition = { ciphertext: piiPayload, participantId: piiCarrying.piiParticipantId };
+  }
+
+  // --- Step 2 (content partition): BOUND, then SEAL -------------------------
   //
-  // `PiiEncryptor` is an injection boundary (CP-006-1): it fixes a return TYPE
-  // and says nothing about the LIFETIME of the buffer behind it, so a conforming
-  // implementation may hand back a reusable scratch array and overwrite it on
-  // its next call. Nothing here can forbid that — Plan-022 owns the
-  // implementation, sits a tier above, and never consults this file. The row it
-  // would produce is the nastiest kind: the digest below commits to the bytes as
-  // of NOW and the signature commits to that digest, so a later encrypt writing
-  // through the same array leaves the caller persisting different bytes into
-  // `pii_payload` — an honest row that fails verification forever, with the
-  // defect in a module no verifier will ever look at. Copying costs one
-  // allocation of the ciphertext's width per PII append; no width is named here
-  // because the interface fixes no AEAD.
+  // TRUNCATE BEFORE SEALING, never after. The digest commits to the STORED
+  // ciphertext, so a body shortened after the seal would leave a commitment to
+  // bytes the column does not hold; and `contentLength` reports the
+  // pre-truncation figure precisely because the plaintext is measured before the
+  // cut. Sealing a full body and storing a prefix of the ciphertext would not
+  // even decrypt.
   //
-  // `new Uint8Array(...)` and deliberately NOT `.slice()`, exactly as
-  // `signer.ts` copies `prevHash`: `Buffer.prototype.slice` returns a VIEW onto
-  // the same memory, so it would copy nothing while reading as though it had.
-  //
-  // AFTER THE SHAPE GUARD, NEVER BEFORE IT. This constructor admits far more
-  // than the guard does and COERCES where the guard refuses, differently
-  // depending on the value: `new Uint8Array(null)` and `new Uint8Array("abc")`
-  // allocate zero bytes, `new Uint8Array("3")` allocates three zero bytes — a
-  // non-empty all-zero ciphertext that a length check waves straight through —
-  // and a long numeric-looking string is read as a LENGTH, which is why the hex
-  // string this suite injects at the shape guard raises `RangeError: Array
-  // buffer allocation failed` rather than producing anything at all. Copying
-  // first would trade one refusal that names the CP-006-1 boundary and routes to
-  // the encryptor's author for one of those, so the guard runs first and this
-  // line only ever copies bytes it has already been told are bytes.
-  //
-  // CLOSES THE ENCRYPTOR-SIDE ALIAS ONLY. A caller that writes into the array on
-  // this result before its INSERT commits reproduces the same disagreement from
-  // the other side, and no copy taken here can prevent it; that one is the
-  // obligation {@link PiiEventWriteResult} states, on the same footing as the
-  // one `signer.ts` states for `SignedRow.prevHash`.
-  const piiPayload: PiiPayloadCiphertext = new Uint8Array(encryptorResult) as PiiPayloadCiphertext;
+  // AFTER the PII encrypt so a row carrying both partitions spends its nonces in
+  // a fixed order, and after every refusal so neither is spent on a defect.
+  const contentPartition: SealedContentPartition | undefined =
+    contentInput === undefined
+      ? undefined
+      : sealContentPartition(contentInput, input.sessionId, input.id);
 
   // --- Steps 3 + 4: DIGEST, then EMBED --------------------------------------
+  // ONE embed over BOTH partitions, which is what keeps I-006-2-06's
+  // one-canonicalization-per-row rule true for a row that carries both.
   const envelope: EventWithPiiDigest = embedCiphertextDigest(
     input,
     normalizedOccurredAt,
-    piiPayload,
+    piiPartition,
+    contentPartition,
   );
 
   // --- Steps 5 + 6: CANONICALIZE, then SIGN ---------------------------------
@@ -1058,9 +1552,10 @@ export async function writeEventWithPii(
   // to close.
   return {
     canonicalByteLength: canonical.length,
+    contentPayload: contentPartition?.ciphertext,
     envelope,
-    piiParticipantId: input.piiParticipantId,
-    piiPayload,
+    piiParticipantId: piiPartition?.participantId,
+    piiPayload: piiPartition?.ciphertext,
     signedRow,
   };
 }
@@ -1103,9 +1598,10 @@ export async function writeEventWithPii(
  * the member has to survive JSON.
  */
 function embedCiphertextDigest(
-  input: PiiCarryingEventInput,
+  input: SealableEventInput,
   normalizedOccurredAt: string,
-  piiPayload: PiiPayloadCiphertext,
+  piiPartition: SealedPiiPartition | undefined,
+  contentPartition: SealedContentPartition | undefined,
 ): EventWithPiiDigest {
   // The two PII bindings, added to a SHALLOW copy of the caller's payload.
   //
@@ -1134,11 +1630,35 @@ function embedCiphertextDigest(
   // answer the question `Spec-022 §Shred Fan-Out`'s scope selector asks. Both
   // halves are load-bearing — "no new class of disclosure" is what makes the
   // projection safe, and this is what makes it necessary.
-  const payloadWithPiiBindings: Record<string, unknown> = {
-    ...input.payload,
-    [PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]: bytesToHex(blake3(piiPayload)),
-    [PII_PARTICIPANT_ID_PAYLOAD_KEY]: input.piiParticipantId,
-  };
+  const payloadWithPiiBindings: Record<string, unknown> = { ...input.payload };
+  if (piiPartition !== undefined) {
+    payloadWithPiiBindings[PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY] = bytesToHex(
+      blake3(piiPartition.ciphertext),
+    );
+    payloadWithPiiBindings[PII_PARTICIPANT_ID_PAYLOAD_KEY] = piiPartition.participantId;
+  }
+
+  // THE CONTENT PARTITION EMBEDS ONE BINDING AND TWO DESCRIPTIONS, and the
+  // asymmetry with the PII pair above is the substance rather than an oversight.
+  // There is no content owner stamp because there is nothing left to bind: the
+  // sealing key is SESSION-scoped and `session_id` is already a canonical signed
+  // member, which is why this column costs one column and not two and why no
+  // `content_owner_stamp_unbound` check pairs with `pii_owner_stamp_unbound`.
+  //
+  // `contentTruncated` is written ONLY when the bound fired. Absence is the
+  // completeness signal, so writing `false` on a complete row would put bytes
+  // into the canonical serialization that every complete row before this change
+  // did not have — and JCS orders and emits every present member, so the omission
+  // is the difference between two byte strings rather than a cosmetic choice.
+  if (contentPartition !== undefined) {
+    payloadWithPiiBindings[CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY] = bytesToHex(
+      blake3(contentPartition.ciphertext),
+    );
+    payloadWithPiiBindings[CONTENT_LENGTH_PAYLOAD_KEY] = contentPartition.contentLength;
+    if (contentPartition.truncated) {
+      payloadWithPiiBindings[CONTENT_TRUNCATED_PAYLOAD_KEY] = true;
+    }
+  }
 
   // Envelope members projected one at a time, never spread from `input`:
   // `input` carries `piiPayload`, which is not an envelope member and must never
@@ -1251,24 +1771,115 @@ export function isCiphertextDigestBound(
   storedPiiPayload: unknown,
   signedPayload: unknown,
 ): boolean {
+  return isColumnDigestBound(storedPiiPayload, signedPayload, PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY);
+}
+
+/**
+ * The COLUMN-AND-KEY-PARAMETERIZED core both ciphertext-digest checks run
+ * (Plan-006 T3.8).
+ *
+ * Factored out rather than copied, and the difference matters more than it
+ * usually would: the four-state compare below IS the check, so a second copy for
+ * the content column would be a second implementation of one verifier rule, free
+ * to drift in exactly the direction that turns a tamper report into a loss
+ * report. There is one implementation and two thin bindings.
+ *
+ * The four states, for either column:
+ *
+ * | stored column | signed claim | verdict                                     |
+ * | ------------- | ------------ | ------------------------------------------- |
+ * | bytes         | present      | compare — the ordinary sealed row           |
+ * | NULL          | absent       | bound: this row carried no such partition   |
+ * | bytes         | absent       | UNBOUND — ciphertext nothing vouches for    |
+ * | NULL          | present      | UNBOUND — the column was cleared after signing |
+ *
+ * Fail-closed on a shape it cannot digest: a non-`Uint8Array`, non-NULL column
+ * value is reported UNBOUND rather than skipped, because a verifier that cannot
+ * confirm the binding has not confirmed it.
+ *
+ * TOTAL AND NEVER-THROWING, on the I-006-2-10 ground its callers document: a
+ * verifier consumes it inside a range walk, where one throw would abort the walk
+ * and silence audit of the entire remaining tail.
+ */
+function isColumnDigestBound(
+  storedColumn: unknown,
+  signedPayload: unknown,
+  digestPayloadKey: string,
+): boolean {
   const signedDigest =
     typeof signedPayload === "object" && signedPayload !== null
-      ? (signedPayload as Record<string, unknown>)[PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]
+      ? (signedPayload as Record<string, unknown>)[digestPayloadKey]
       : undefined;
   const claimedDigest = typeof signedDigest === "string" ? signedDigest : undefined;
 
   // `== null` is the deliberate loose form: it catches SQLite's NULL and an
   // absent property in one test, and nothing else.
-  if (storedPiiPayload == null) {
+  if (storedColumn == null) {
     return claimedDigest === undefined;
   }
   if (claimedDigest === undefined) {
     return false;
   }
-  if (!(storedPiiPayload instanceof Uint8Array)) {
+  if (!(storedColumn instanceof Uint8Array)) {
     return false;
   }
-  return bytesToHex(blake3(storedPiiPayload)) === claimedDigest;
+  return bytesToHex(blake3(storedColumn)) === claimedDigest;
+}
+
+/**
+ * The MACHINE-AUTHORED half of the same question — does the stored
+ * `content_payload` still digest to what the row's signature committed to?
+ * (I-006-3-07, the sixteenth verification mode
+ * `content_ciphertext_digest_unbound`.)
+ *
+ * WHY IT NEEDS ASKING AT ALL, when a body that will not decrypt already reports
+ * itself unavailable. Without this check a ciphertext REPLACED after signing
+ * leaves the row's signature green and surfaces only as an unreadable body — so
+ * at-rest tampering would be silently reclassified as ordinary transcript loss,
+ * and the canonical-transcript fold's `'turn_content_unavailable'` would absorb
+ * a security event. That would make the loss vocabulary unsound: a report that
+ * can mean either "the key is gone" or "someone edited the column" means neither.
+ *
+ * NO OWNER-STAMP SIBLING PAIRS WITH THIS ONE, deliberately. The PII pair needs
+ * two checks because the participant whose key sealed the bytes is recoverable
+ * from nothing else once the key is destroyed. The content partition's owner is
+ * the SESSION, and `session_id` is a canonical member the signature already
+ * covers — there is nothing left to bind, which is why this home costs one
+ * column and not two.
+ *
+ * PROVENANCE-DISPATCHED, exactly as the fourteenth and fifteenth modes are.
+ * `content_payload` is never relayed and never backfilled: peer history carries
+ * the origin daemon's canonical bytes, and this column is excluded from them, so
+ * a receiving daemon holds the signed digest with the ciphertext absent. The
+ * caller therefore COMPARES on origin rows (`received_from_node_id IS NULL`) and
+ * takes the REQUIRE-ABSENT arm on received rows — where a non-NULL column is
+ * reported unbound rather than compared, because a carried origin claim is
+ * precisely what a planted local value would be made to match.
+ *
+ * DELIBERATELY UNWIRED, on the I-006-2-10 precedent its two PII siblings follow:
+ * this module exports the pure predicate and the verifier task emits the verdict.
+ * Emitting one from here would be Phase-3 code deciding a Phase-4 question, and
+ * `verifyRow` is handed canonical bytes and the three integrity columns, so it
+ * could not see this column even if the layering allowed it. This is a
+ * POSTcondition of a green signature verdict — the claim lives inside the signed
+ * payload, so it is worth trusting only once Ed25519 verification has passed.
+ *
+ * THE COMPACTED ROW NEEDS NO CARVE-OUT, unlike the owner stamp's open
+ * disposition. Compaction clears BOTH sides at once — `content_payload` goes
+ * NULL and `payload` is replaced by a stub projection that carries no digest —
+ * so a compacted row lands in the second state and reads bound. That is stated
+ * at mint time rather than left to a later amendment, which is the lesson the
+ * corpus paid for once already with `pii_participant_id`.
+ */
+export function isContentCiphertextDigestBound(
+  storedContentPayload: unknown,
+  signedPayload: unknown,
+): boolean {
+  return isColumnDigestBound(
+    storedContentPayload,
+    signedPayload,
+    CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY,
+  );
 }
 
 /**

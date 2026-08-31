@@ -489,11 +489,13 @@ const REGISTERED_PAYLOAD_VARIANT_EVENT_TYPES: ReadonlySet<SessionEventType> = ne
  *
  * Pure and total over `SessionEventType`. Exported because it is the single
  * place the boundary rule is decided, and because both answers must be
- * exercised by a test — at the current tree state EVERY Codex target is
- * `payload-variant-pending` (none of the 11 appears in the 25-member
- * registered roster), so a test that only ever normalized Codex frames would
- * leave the `envelope-constructible` answer unproven. The test reaches it by
- * calling this resolver directly with a registered literal.
+ * exercised by a test. Re-derived when the durable content home registered the
+ * five body-bearing payload variants: 3 of the 11 Codex targets
+ * (`assistant.message`, `tool.invoked`, `tool.result`) now appear in the
+ * 30-member registered roster and answer `envelope-constructible`; the other 8
+ * stay `payload-variant-pending`. Both answers are therefore reachable through
+ * ordinary Codex frames, and the tests additionally call this resolver directly
+ * so neither arm depends on the census staying mixed.
  */
 export function resolveCodexEmissionReadiness(eventType: SessionEventType): CodexEmissionReadiness {
   return REGISTERED_PAYLOAD_VARIANT_EVENT_TYPES.has(eventType)

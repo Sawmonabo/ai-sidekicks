@@ -232,6 +232,9 @@ importers:
       '@ai-sidekicks/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@noble/ciphers':
+        specifier: ^2
+        version: 2.2.0
       '@noble/curves':
         specifier: ^2
         version: 2.2.0

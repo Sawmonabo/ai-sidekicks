@@ -42,8 +42,9 @@
 // (20 categories). Payload variants remain intentionally a strict subset, and
 // each is owned by its EMITTING plan: sixteen reach `SessionEventSchema` from
 // another plan's file through the cross-plan union-registration seam (CP-009-4
-// / CP-010-5 / CP-003-1, the CP-012-2 / CP-016-3 class), six are authored in
-// this file because Plan-006 emits them and owns it (T1.11), and the three
+// / CP-010-5 / CP-003-1, the CP-012-2 / CP-016-3 class), eleven are authored
+// in this file because Plan-006 emits them and owns it (six at T1.11, five at
+// T3.6), and the three
 // Plan-001 originals below (`session.created`, `membership.created`,
 // `channel.created`) have been authored here since PR #2. In all three cases
 // census membership is type registration, not payload support.
@@ -730,8 +731,13 @@ export const EventEnvelopeSchema: z.ZodType<EventEnvelope> = z
 // construction. `run_lifecycle` branches never admit it either — a
 // lifecycle straggler is ABSORBED, never late-appended.
 //
-// The wrap set is still EMPTY BY CONSTRUCTION — now on two grounds, not one.
-// `SessionEventSchema` carries the three Plan-001 variants
+// The wrap set IS NO LONGER EMPTY (Plan-006 T3.6, 2026-08-30). It holds
+// exactly the five body-bearing variants registered below —
+// `assistant.message`, `assistant.thinking_update`, `tool.invoked`,
+// `tool.result`, `tool.error` — which are the first payloads in this union to
+// carry `runId` and therefore the first to meet the admission rule. Every
+// other branch stays unwrapped, and the reasoning that keeps them so is
+// unchanged: `SessionEventSchema` carries the three Plan-001 variants
 // (`session.created`, `membership.created`, `channel.created`), the six
 // Plan-009 `repo.*` / `workspace.*` variants (CP-009-4), the five Plan-010
 // `worktree.*` variants (CP-010-5), the six Plan-006 `audit_integrity` /
@@ -741,9 +747,9 @@ export const EventEnvelopeSchema: z.ZodType<EventEnvelope> = z
 // at process scope across every hosted session
 // (`Spec-006 §Daemon-Scope Event Binding And Node-Scope Anchoring`); the five
 // T1.12 registrants are NODE-scoped attachment-lifecycle rows, keyed on
-// `nodeId` and bound to the session of the attachment they describe. No group
-// is run-scoped — no payload among the twenty-five carries `runId` — so no
-// branch here composes the helper yet. Later registrants of the five families
+// `nodeId` and bound to the session of the attachment they describe. None of
+// those twenty-five is run-scoped — none of their payloads carries `runId` —
+// so none composes the helper. Later registrants of the five families
 // arriving through the union-registration seam (the CP-009-4 / CP-010-5 /
 // CP-012-2 / CP-016-3 class) inherit the admission requirement from
 // `Spec-006 §Event Type Enumeration` — a strict payload schema that skipped
@@ -1335,7 +1341,7 @@ export const WorktreeRetiredEventSchema: z.ZodType<WorktreeRetiredEvent> = z
 // (`event.shredded`; Plan-022's Path 1 orchestrator invokes it after the
 // `participant_keys` DELETE commits, so Plan-022 is the TRIGGER and T3.1 the
 // parse site), T3.2 (`event.compacted`), T3.4 (`schema.migrated`), T4.1
-// (`audit_integrity_verified`, plus the fifteen-mode verifier arm of
+// (`audit_integrity_verified`, plus the sixteen-mode verifier arm of
 // `audit_integrity_failed` it derives via `.exclude()`), T4.2
 // (`key_reuse_detected`), and T4.10 (that same variant's
 // `signing_key_slot_conflict` registrar arm).
@@ -1393,7 +1399,7 @@ const payloadSequenceSchema = z
  * Length ceiling for the `audit_integrity_failed` payload's `detail` — the
  * operator-facing failure description (the refused registration's
  * `(session_id, node_id)` pair on the registrar arm, the verifier's finding on
- * the fifteen verifier failure modes).
+ * the sixteen verifier failure modes).
  *
  * 512 is the package's short human-reason class (`RuntimeNodeDetachReason`,
  * `InviteRevokeReason`), not the 8192 error-detail class: `detail` is a
@@ -1411,14 +1417,14 @@ export const AUDIT_INTEGRITY_DETAIL_MAX_LEN = 512;
 export const SCHEMA_MIGRATION_DESCRIPTION_MAX_LEN = 512;
 
 /**
- * The sixteen `audit_integrity_failed` failure modes of
- * `Spec-006 §Audit Integrity (audit_integrity)` — fifteen read-side verifier
+ * The seventeen `audit_integrity_failed` failure modes of
+ * `Spec-006 §Audit Integrity (audit_integrity)` — sixteen read-side verifier
  * verdicts plus the daemon-side registrar's `signing_key_slot_conflict`
  * (2026-08-01 amendment).
  *
- * Named for the verifier because fifteen of sixteen are its verdicts and
+ * Named for the verifier because sixteen of seventeen are its verdicts and
  * because the plan (T4.1) names the schema `VerifierFailureModeSchema`; the
- * sixteenth is emitted by the registrar's conflict handler, which is exactly
+ * seventeenth is emitted by the registrar's conflict handler, which is exactly
  * why the payload below is DISCRIMINATED on this field rather than flat.
  */
 export type VerifierFailureMode =
@@ -1437,6 +1443,7 @@ export type VerifierFailureMode =
   | "occurred_at_not_canonical"
   | "pii_ciphertext_digest_unbound"
   | "pii_owner_stamp_unbound"
+  | "content_ciphertext_digest_unbound"
   | "signing_key_slot_conflict";
 
 // Exported ENUM-typed rather than as `z.ZodType<VerifierFailureMode>`, and the
@@ -1460,8 +1467,8 @@ export type VerifierFailureMode =
 // narrower annotation is the conservative default. The asymmetry is the
 // consumer requirement, not a style drift.
 //
-// The verifier arm derives its fifteen-mode discriminator from THIS exported
-// symbol, so the sixteen-mode vocabulary is single-sourced AND this file
+// The verifier arm derives its sixteen-mode discriminator from THIS exported
+// symbol, so the seventeen-mode vocabulary is single-sourced AND this file
 // exercises exactly the surface T4.1 will. The compile-time binding to the
 // type union stays the `Exclude<VerifierFailureMode, "signing_key_slot_conflict">`
 // on the payload type alias, which is a real check rather than a comment.
@@ -1481,6 +1488,7 @@ export const VerifierFailureModeSchema: z.ZodEnum<{ [K in VerifierFailureMode]: 
   "occurred_at_not_canonical",
   "pii_ciphertext_digest_unbound",
   "pii_owner_stamp_unbound",
+  "content_ciphertext_digest_unbound",
   "signing_key_slot_conflict",
 ]);
 
@@ -1488,11 +1496,12 @@ export const VerifierFailureModeSchema: z.ZodEnum<{ [K in VerifierFailureMode]: 
  * The verification GUARANTEE that failed, per
  * `Spec-006 §Audit Integrity (audit_integrity)` — not the column the defect
  * occupies. `inclusion` is the chain path, `consistency` the anchor path, and
- * `signature` the signature-binding path (which is why the three
+ * `signature` the signature-binding path (which is why the four
  * signature-survives-but-binding-broke modes —
  * `occurred_at_not_canonical`, `pii_ciphertext_digest_unbound`,
- * `pii_owner_stamp_unbound` — all pair with it). No fourth value is minted:
- * each of the three routes to one tamper-response owner.
+ * `pii_owner_stamp_unbound`, `content_ciphertext_digest_unbound` — all pair
+ * with it). No fourth PATH value is minted: each of the three routes to one
+ * tamper-response owner.
  */
 export type VerifierFailurePath = "inclusion" | "consistency" | "signature";
 export const VerifierFailurePathSchema: z.ZodType<VerifierFailurePath> = z.enum([
@@ -1573,7 +1582,7 @@ export const AuditIntegrityVerifiedPayloadSchema: z.ZodType<AuditIntegrityVerifi
 // The two arms of the payload below. Module-local: a consumer that needs one
 // of them narrows through `Extract<AuditIntegrityFailedPayload, …>` on the
 // `failureMode` discriminator, so exporting them would add surface no caller
-// needs. The verifier arm's mode set is bound to the sixteen-mode vocabulary
+// needs. The verifier arm's mode set is bound to the seventeen-mode vocabulary
 // by `Exclude<…>` rather than re-typed, so the two cannot drift.
 type AuditIntegrityFailedVerifierPayload = {
   sessionId: SessionId;
@@ -1584,10 +1593,10 @@ type AuditIntegrityFailedVerifierPayload = {
   observedRootHash: string;
   fromSeq: number;
   toSeq: number;
-  // The `failureMode` × `failurePath` PRODUCT, deliberately — nine of the
-  // fifteen pairings are fixed by authority and enforced at parse (see the
+  // The `failureMode` × `failurePath` PRODUCT, deliberately — ten of the
+  // sixteen pairings are fixed by authority and enforced at parse (see the
   // arm schema's mode/path check), but the TYPE stays the product the spec
-  // cell describes. A distributive-narrowed annotation (a fifteen-member
+  // cell describes. A distributive-narrowed annotation (a sixteen-member
   // union pairing each mode with its own path) cannot be satisfied by the
   // object schema's inference without a cast, and buying compile-time
   // narrowing with an `as unknown as` bridge on a signed-payload schema is a
@@ -1615,15 +1624,15 @@ type AuditIntegrityFailedRegistrarPayload = {
  * (`Spec-006 §Audit Integrity (audit_integrity)`, 2026-08-01 amendment).
  *
  * The Merkle triple (`treeSize`, `expectedRootHash`, `observedRootHash`)
- * describes a VERIFIED RANGE. The fifteen read-side verifier modes walked one
+ * describes a VERIFIED RANGE. The sixteen read-side verifier modes walked one
  * and REQUIRE it; the registrar's `signing_key_slot_conflict` walked none, so
- * a flat sixteen-mode object would force its emitter to fabricate roots for a
+ * a flat seventeen-mode object would force its emitter to fabricate roots for a
  * tree it never touched. One event type, one wire schema, two arms: the
  * verifier can never silently omit its roots and the registrar can never
  * invent them. The verified RANGE splits the same way and for the same reason
  * — `fromSeq` / `toSeq` are required on the verifier arm (the dedupe key
  * `Plan-006 §Invariants` I-006-4-01 specifies) and absent from the registrar's,
- * which walked no range — and the verifier arm additionally enforces the nine
+ * which walked no range — and the verifier arm additionally enforces the ten
  * authority-fixed `failureMode` → `failurePath` pairings at parse. `anchorId`
  * splits the same way once more (2026-08-03): optional on the verifier arm,
  * whose range an anchor can cover, and EXCLUDED from the registrar's, which
@@ -1634,16 +1643,16 @@ export type AuditIntegrityFailedPayload =
   | AuditIntegrityFailedVerifierPayload
   | AuditIntegrityFailedRegistrarPayload;
 
-// Of the FIFTEEN verifier modes, the NINE `failureMode` → `failurePath`
+// Of the SIXTEEN verifier modes, the TEN `failureMode` → `failurePath`
 // pairings the corpus FIXES and the SIX it deliberately leaves free (`null`);
-// the registrar's sixteenth is carried at the end for totality only, its own
+// the registrar's seventeenth is carried at the end for totality only, its own
 // arm pinning it. Authority, rule by rule, from
 // `Security Architecture §Verification Rules`: rule 1 pins `hash_mismatch` →
 // `inclusion`; rule 2 pins `signature_mismatch`, `signature_placeholder`,
-// `occurred_at_not_canonical`, `pii_ciphertext_digest_unbound` and
-// `pii_owner_stamp_unbound` → `signature`; rule 3 pins `anchor_mismatch` →
-// `consistency`; rule 4 pins `stub_signature_invalid` and
-// `stub_scalar_mismatch` → `signature`.
+// `occurred_at_not_canonical`, `pii_ciphertext_digest_unbound`,
+// `pii_owner_stamp_unbound` and `content_ciphertext_digest_unbound` →
+// `signature`; rule 3 pins `anchor_mismatch` → `consistency`; rule 4 pins
+// `stub_signature_invalid` and `stub_scalar_mismatch` → `signature`.
 // `Spec-006 §Audit Integrity (audit_integrity)` independently ratifies the
 // placeholder / `occurred_at` / PII trio ("ratified 2026-07-26 so
 // implementations mirror this assignment rather than infer one") — a mandate
@@ -1659,7 +1668,7 @@ export type AuditIntegrityFailedPayload =
 // The map is TOTAL over the wire enum (`null` is a value, not an omission), so
 // `satisfies` breaks loudly in both directions: a mode added to the vocabulary
 // leaves a missing key, a mode renamed or retired leaves an excess one.
-// Totality over all SIXTEEN rather than the verifier's fifteen is deliberate on
+// Totality over all SEVENTEEN rather than the verifier's sixteen is deliberate on
 // two counts: the lookup below is then index-safe however `.exclude()` infers
 // its narrowed key type, and the registrar's own pin is a fact worth recording
 // beside its siblings. Its arm pins the identical value with `z.literal`, so
@@ -1680,7 +1689,8 @@ const VERIFIER_FAILURE_PATH_BY_MODE = {
   occurred_at_not_canonical: "signature",
   pii_ciphertext_digest_unbound: "signature",
   pii_owner_stamp_unbound: "signature",
-  // The registrar's sixteenth mode — pinned by `Spec-006 §Audit Integrity
+  content_ciphertext_digest_unbound: "signature",
+  // The registrar's seventeenth mode — pinned by `Spec-006 §Audit Integrity
   // (audit_integrity)` ("It pairs with `failurePath: 'signature'`") and by its
   // own arm's `z.literal` below; present here only to keep the map total.
   signing_key_slot_conflict: "signature",
@@ -1713,7 +1723,7 @@ const auditIntegrityFailedVerifierArmSchema = z
     // would be a new invariant with no authority behind it.
     fromSeq: payloadSequenceSchema,
     toSeq: payloadSequenceSchema,
-    // Derived from the EXPORTED sixteen-mode schema so the two arms cannot
+    // Derived from the EXPORTED seventeen-mode schema so the two arms cannot
     // drift apart — and so this file exercises the exact `.exclude()` call
     // `Plan-006 §Invariants` T4.1 documents for its own consumer derivation.
     failureMode: VerifierFailureModeSchema.exclude(["signing_key_slot_conflict"]),
@@ -1724,8 +1734,8 @@ const auditIntegrityFailedVerifierArmSchema = z
     detail: wireFreeFormString(AUDIT_INTEGRITY_DETAIL_MAX_LEN, "audit_integrity_failed.detail"),
   })
   .strict()
-  // The nine fixed pairings, enforced rather than narrated. The enum pair
-  // alone admits all 45 combinations, so a `signature_placeholder` row could
+  // The ten fixed pairings, enforced rather than narrated. The enum pair
+  // alone admits all 48 combinations, so a `signature_placeholder` row could
   // claim `failurePath: 'inclusion'` and parse green — routing a never-signed
   // row to the chain-tamper responder on a row that is never compacted and
   // never shredded, so the misrouting is permanent. The six unfixed modes keep
@@ -2201,6 +2211,348 @@ export const RuntimeNodeCapabilityUpdatedEventSchema: z.ZodType<RuntimeNodeCapab
     .strict();
 
 // --------------------------------------------------------------------------
+// Machine-authored content payload — the five body-bearing variants
+// (Plan-006 T3.6).
+// --------------------------------------------------------------------------
+//
+// `assistant.message`, `assistant.thinking_update`, `tool.invoked`,
+// `tool.result`, and `tool.error` are the types whose rows carry the prose the
+// MACHINE side of a session produced. Until this registration the union
+// carried no assistant and no tool variant at all, so both shipped provider
+// normalizers resolved every one of these types as payload-variant-pending and
+// refused envelope construction: the column that holds the body could be
+// created, sealed, and cleared, but never written to.
+//
+// NO BODY MEMBER, DELIBERATELY. Each payload below declares the DESCRIPTIVE
+// members only. The body itself lives in `session_events.content_payload`,
+// sealed under the session-scoped content key and excluded from the canonical
+// bytes exactly as `pii_payload` is; what rides inside `payload` — and
+// therefore inside the signed bytes — is the digest that commits to those
+// sealed bytes. A reader that wants the prose pairs the verified event with
+// the opened body ({@link HydratedSessionEvent} below). Splicing the body INTO
+// `payload` is prohibited rather than merely discouraged: these schemas are
+// `.strict()`, so a spliced member either fails validation outright or makes
+// an already-verified payload differ from the bytes its signature covers.
+//
+// TWO FAMILIES, NOT ONE SCHEMA. The assistant pair carries `contentType` (the
+// body's media type) and no tool identity; the tool trio carries a REQUIRED
+// `toolName` beside the optional `toolCallId` / `durationMs` and no
+// `contentType`. Collapsing them into one shape would admit a `toolName` on an
+// assistant row and a `contentType` on a tool row, neither of which
+// `Spec-006 §Assistant Output (assistant_output)` or `§Tool Activity` defines.
+//
+// MEMBER OWNERSHIP SPLITS AT THE SEALING CODEC, and the split is what makes
+// the refusal arm below checkable. `contentType` is the PRODUCER's to set — it
+// knows the media type of what it emitted. The three members of
+// {@link MachineContentDescriptor} are the CODEC's and no one else's: they are
+// facts about what it sealed, determined after the plaintext bound was
+// applied. A producer that pre-carries any of the three is refused at the
+// write path rather than trusted.
+//
+// WRAPPED, BECAUSE RUN-SCOPED. All five sit in the `assistant_output` /
+// `tool_activity` families and all five carry `runId`, so the WRAP ADMISSION
+// rule above requires the epoch-stamp pair on every one of them. These are the
+// first branches in this union to take it.
+
+/**
+ * The payload key carrying the BLAKE3 digest of the stored
+ * `session_events.content_payload` ciphertext — the commitment that binds the
+ * sealed body to the row's signature without carrying the body into the signed
+ * bytes (`Spec-006 §Canonical Serialization Rules`).
+ *
+ * Exported so producers, the compactor, the verifier, and the hydrated read
+ * path never duplicate the literal — the `SOURCE_EPOCH_PAYLOAD_KEY`
+ * convention, for the same reason: three modules index this payload by runtime
+ * string.
+ *
+ * The wire ENCODING of the digest is deliberately not pinned by the schema
+ * below. The sealing codec spells it lowercase hex and owns that as a one-way
+ * door, but no corpus authority fixes this member's spelling, and pinning one
+ * here would be a narrowing nothing could relax (`ADR-018 §Decision` #8) — the
+ * same restraint the `rootHash` note above takes.
+ */
+export const CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY = "contentCiphertextDigest" as const;
+
+/**
+ * The payload key carrying the body's PRE-TRUNCATION UTF-8 byte length. Kept
+ * at the pre-truncation figure precisely so a truncated row still reports how
+ * much was dropped; survives compaction in the audit stub, where it is the
+ * whole remaining record of the destroyed body's size.
+ */
+export const CONTENT_LENGTH_PAYLOAD_KEY = "contentLength" as const;
+
+/**
+ * The payload key marking a body stored as a prefix. Present ONLY as `true`
+ * and OMITTED when the stored body is complete — never written as `false`.
+ * Absence is the completeness signal, and an omitted key keeps the canonical
+ * JCS bytes of a complete row byte-identical to what they would be if the
+ * bound had never existed.
+ */
+export const CONTENT_TRUNCATED_PAYLOAD_KEY = "contentTruncated" as const;
+
+/**
+ * The per-row plaintext ceiling for `session_events.content_payload` — 262144
+ * bytes (256 KiB) of UTF-8, per
+ * `docs/architecture/schemas/local-sqlite-schema.md §Session Events (Plan-001, extended by Plans 006, 008, 015)`.
+ *
+ * Unlike `pii_payload`, whose size is bounded in practice by human typing, this
+ * column admits machine-scale text: a tool result is routinely a file dump or a
+ * command's whole stdout. An over-bound body is TRUNCATED at a codepoint
+ * boundary — never refused and never dropped — because refusing the append
+ * would lose the turn entirely and dropping it would misreport that the turn
+ * never happened.
+ */
+export const CONTENT_PAYLOAD_PLAINTEXT_MAX: number = 262_144;
+
+/**
+ * The three codec-owned descriptive members every body-bearing payload
+ * carries. Each is OPTIONAL on the wire: a row of one of these five types that
+ * carries no body at all (an `assistant.message` whose body the driver could
+ * not read, a `tool.invoked` with no arguments) is a valid row, and requiring
+ * the members would force its producer to fabricate a length and a digest for
+ * bytes that do not exist.
+ */
+// Declared as TYPE ALIASES rather than interfaces, and the difference is
+// load-bearing rather than stylistic: `EventEnvelope.payload` is
+// `Record<string, unknown>`, and TypeScript grants an implicit index signature
+// to object-literal types and their intersections but never to an interface —
+// so an interface payload cannot satisfy the envelope it extends.
+export type MachineContentDescriptor = {
+  /** Pre-truncation UTF-8 byte length of the body that was sealed. */
+  contentLength?: number | undefined;
+  /** Present as `true` only when the stored body is a prefix; never `false`. */
+  contentTruncated?: true | undefined;
+  /** BLAKE3 over the STORED ciphertext bytes. */
+  contentCiphertextDigest?: string | undefined;
+};
+
+/** `assistant.message` / `assistant.thinking_update` payload shape. */
+export type AssistantOutputPayload = MachineContentDescriptor & {
+  sessionId: SessionId;
+  runId: string;
+  channelId?: ChannelId | undefined;
+  /** Media type of the body, set by the PRODUCER and not by the codec. */
+  contentType?: string | undefined;
+  sourceEpoch?: SourceEpoch | undefined;
+  sourcePosition?: SourcePosition | undefined;
+};
+
+/** `tool.invoked` / `tool.result` / `tool.error` payload shape. */
+export type ToolActivityPayload = MachineContentDescriptor & {
+  sessionId: SessionId;
+  runId: string;
+  /**
+   * REQUIRED. A tool row with no tool name is unattributable — every consumer
+   * of `Spec-006 §Tool Activity (tool_activity)` keys on it — and unlike the descriptive
+   * members it is never something the codec could supply.
+   */
+  toolName: string;
+  toolCallId?: string | undefined;
+  channelId?: ChannelId | undefined;
+  durationMs?: number | undefined;
+  sourceEpoch?: SourceEpoch | undefined;
+  sourcePosition?: SourcePosition | undefined;
+};
+
+// Shared shape factories, the `buildCommonShape()` principle applied one level
+// down: the five payload schemas below and the five union branches share these
+// two, so a member cannot drift between the assistant pair or across the tool
+// trio.
+const buildMachineContentDescriptorShape = () => ({
+  contentLength: z.number().int().nonnegative().optional(),
+  // `z.literal(true)` rather than `z.boolean()`: the omit-never-false rule is
+  // a wire contract (a `false` on the wire would canonicalize into bytes a
+  // complete row must not have), so it is enforced at parse rather than
+  // narrated.
+  contentTruncated: z.literal(true).optional(),
+  contentCiphertextDigest: wireFreeFormString(
+    EVENT_FIELD_MAX_LEN,
+    "content payload contentCiphertextDigest",
+  ).optional(),
+});
+
+const buildAssistantOutputPayloadShape = () => ({
+  sessionId: SessionIdSchema,
+  // No `RunIdSchema` exists in this package — `RunId` is branded in the
+  // daemon's own driver contract, and importing it here would close a module
+  // cycle. The bounded free-form guard is the same one `EventEnvelope.id`
+  // takes for an identifier this file does not own.
+  runId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "assistant output payload runId"),
+  channelId: ChannelIdSchema.optional(),
+  contentType: wireFreeFormString(
+    EVENT_FIELD_MAX_LEN,
+    "assistant output payload contentType",
+  ).optional(),
+  ...buildMachineContentDescriptorShape(),
+});
+
+const buildToolActivityPayloadShape = () => ({
+  sessionId: SessionIdSchema,
+  runId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "tool activity payload runId"),
+  toolName: wireFreeFormString(EVENT_FIELD_MAX_LEN, "tool activity payload toolName"),
+  toolCallId: wireFreeFormString(
+    EVENT_FIELD_MAX_LEN,
+    "tool activity payload toolCallId",
+  ).optional(),
+  channelId: ChannelIdSchema.optional(),
+  durationMs: z.number().int().nonnegative().optional(),
+  ...buildMachineContentDescriptorShape(),
+});
+
+const assistantMessagePayloadSchema = withEpochStamp(
+  z.object(buildAssistantOutputPayloadShape()).strict(),
+);
+const assistantThinkingUpdatePayloadSchema = withEpochStamp(
+  z.object(buildAssistantOutputPayloadShape()).strict(),
+);
+const toolInvokedPayloadSchema = withEpochStamp(z.object(buildToolActivityPayloadShape()).strict());
+const toolResultPayloadSchema = withEpochStamp(z.object(buildToolActivityPayloadShape()).strict());
+const toolErrorPayloadSchema = withEpochStamp(z.object(buildToolActivityPayloadShape()).strict());
+
+export interface AssistantMessageEvent extends EventEnvelope {
+  type: "assistant.message";
+  category: "assistant_output";
+  payload: AssistantOutputPayload;
+}
+export const AssistantMessageEventSchema: z.ZodType<AssistantMessageEvent> = z
+  .object({
+    ...buildCommonShape(),
+    type: z.literal("assistant.message"),
+    category: z.literal("assistant_output"),
+    payload: assistantMessagePayloadSchema,
+  })
+  .strict();
+
+export interface AssistantThinkingUpdateEvent extends EventEnvelope {
+  type: "assistant.thinking_update";
+  category: "assistant_output";
+  payload: AssistantOutputPayload;
+}
+export const AssistantThinkingUpdateEventSchema: z.ZodType<AssistantThinkingUpdateEvent> = z
+  .object({
+    ...buildCommonShape(),
+    type: z.literal("assistant.thinking_update"),
+    category: z.literal("assistant_output"),
+    payload: assistantThinkingUpdatePayloadSchema,
+  })
+  .strict();
+
+export interface ToolInvokedEvent extends EventEnvelope {
+  type: "tool.invoked";
+  category: "tool_activity";
+  payload: ToolActivityPayload;
+}
+export const ToolInvokedEventSchema: z.ZodType<ToolInvokedEvent> = z
+  .object({
+    ...buildCommonShape(),
+    type: z.literal("tool.invoked"),
+    category: z.literal("tool_activity"),
+    payload: toolInvokedPayloadSchema,
+  })
+  .strict();
+
+export interface ToolResultEvent extends EventEnvelope {
+  type: "tool.result";
+  category: "tool_activity";
+  payload: ToolActivityPayload;
+}
+export const ToolResultEventSchema: z.ZodType<ToolResultEvent> = z
+  .object({
+    ...buildCommonShape(),
+    type: z.literal("tool.result"),
+    category: z.literal("tool_activity"),
+    payload: toolResultPayloadSchema,
+  })
+  .strict();
+
+export interface ToolErrorEvent extends EventEnvelope {
+  type: "tool.error";
+  category: "tool_activity";
+  payload: ToolActivityPayload;
+}
+export const ToolErrorEventSchema: z.ZodType<ToolErrorEvent> = z
+  .object({
+    ...buildCommonShape(),
+    type: z.literal("tool.error"),
+    category: z.literal("tool_activity"),
+    payload: toolErrorPayloadSchema,
+  })
+  .strict();
+
+// --------------------------------------------------------------------------
+// HydratedSessionEvent — the read projection that pairs a verified row with
+// its opened body (Plan-006 T3.6 / T3.8).
+// --------------------------------------------------------------------------
+//
+// The whole point of the type is that `event` and `content` are SEPARATE
+// members. The body is never merged into `event.payload`: the five payload
+// schemas above are strict and declare no body member, so a merge would either
+// add an undeclared member that fails validation or make an already-verified
+// payload differ byte-for-byte from what its signature covers.
+//
+// `event` is typed as the tolerant {@link EventEnvelope} rather than the strict
+// {@link SessionEvent} union deliberately: a stored row is rebuilt through the
+// envelope carrier, and narrowing to the strict union is a separate step the
+// caller chooses. Typing the projection on the union would force every reader
+// to re-parse a row before it could ask whether the body opened.
+
+/**
+ * Why a body is not available — a CLOSED set, because the read path exists to
+ * replace "the key is missing, therefore assume loss" with a reason a caller
+ * can act on. `absent` and `compacted` in particular are distinguishable only
+ * from the row's retention class, which is why the reader takes it as input.
+ *
+ * The distinction between the tamper reasons and the loss reasons is the
+ * substance: `digest_unbound` means the stored ciphertext does not match what
+ * the signature commits to, and reporting that as ordinary loss would make the
+ * transcript-fold loss vocabulary unsound.
+ */
+export type HydratedContentUnavailableReason =
+  /** The row never carried a body: live row, NULL column, no signed digest. */
+  | "absent"
+  /** The row was compacted; the body was destroyed with its payload. */
+  | "compacted"
+  /** The daemon master key could not be obtained, so no wrapped key opens. */
+  | "master_key_unavailable"
+  /** The session has a sealed body but no wrapped key row to open it with. */
+  | "wrapped_key_missing"
+  /** The stored ciphertext is not bound to the signed digest — tamper, not loss. */
+  | "digest_unbound"
+  /**
+   * Sealed material refused to open. Covers the session key's own envelope
+   * (wrong master, a blob moved between rows, a replay under a superseded key
+   * version) as well as the body ciphertext failing its AEAD tag or decoding to
+   * invalid UTF-8 — the AEAD refuses these identically, and guessing between
+   * them here would put a cause in the record that nothing established.
+   */
+  | "decrypt_failed";
+
+/** The closed two-arm content union of a {@link HydratedSessionEvent}. */
+export type HydratedSessionEventContent =
+  | {
+      readonly status: "available";
+      /** The opened body — a PREFIX when `contentTruncated` is `true`. */
+      readonly body: string;
+      /** Echoed from the signed payload, never recomputed from `body`. */
+      readonly contentLength?: number | undefined;
+      readonly contentTruncated?: true | undefined;
+    }
+  | {
+      readonly status: "unavailable";
+      readonly reason: HydratedContentUnavailableReason;
+    };
+
+/**
+ * A verified event paired with its machine-authored body — never a mutated
+ * event.
+ */
+export interface HydratedSessionEvent {
+  /** Byte-identical to the row the signature covers. */
+  readonly event: EventEnvelope;
+  readonly content: HydratedSessionEventContent;
+}
+
+// --------------------------------------------------------------------------
 // SessionEvent — discriminated union over `type`.
 // --------------------------------------------------------------------------
 //
@@ -2242,7 +2594,12 @@ export type SessionEvent =
   | RuntimeNodeOnlineEvent
   | RuntimeNodeOfflineEvent
   | RuntimeNodeCapabilityDeclaredEvent
-  | RuntimeNodeCapabilityUpdatedEvent;
+  | RuntimeNodeCapabilityUpdatedEvent
+  | AssistantMessageEvent
+  | AssistantThinkingUpdateEvent
+  | ToolInvokedEvent
+  | ToolResultEvent
+  | ToolErrorEvent;
 export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion("type", [
   z
     .object({
@@ -2472,6 +2829,46 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
       type: z.literal("runtime_node.capability_updated"),
       category: z.literal("runtime_node_lifecycle"),
       payload: RuntimeNodeCapabilityUpdatedPayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...buildCommonShape(),
+      type: z.literal("assistant.message"),
+      category: z.literal("assistant_output"),
+      payload: assistantMessagePayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...buildCommonShape(),
+      type: z.literal("assistant.thinking_update"),
+      category: z.literal("assistant_output"),
+      payload: assistantThinkingUpdatePayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...buildCommonShape(),
+      type: z.literal("tool.invoked"),
+      category: z.literal("tool_activity"),
+      payload: toolInvokedPayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...buildCommonShape(),
+      type: z.literal("tool.result"),
+      category: z.literal("tool_activity"),
+      payload: toolResultPayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...buildCommonShape(),
+      type: z.literal("tool.error"),
+      category: z.literal("tool_activity"),
+      payload: toolErrorPayloadSchema,
     })
     .strict(),
 ]);
@@ -2735,11 +3132,12 @@ export type SessionEventType =
 // union's branches, so a forgotten entry fails there rather than silently
 // under-reporting the registered surface.
 //
-// Membership today (25): the three Plan-001 variants, the six Plan-009
+// Membership today (30): the three Plan-001 variants, the six Plan-009
 // repo/workspace variants (CP-009-4), the five Plan-010 worktree variants
 // (CP-010-5), the six Plan-006 audit-integrity / event-maintenance variants
-// (T1.11), and the five Plan-003 runtime-node variants (T1.12 — CP-003-1
-// leg (a)). Order mirrors the declaration order of the union arms above.
+// (T1.11), the five Plan-003 runtime-node variants (T1.12 — CP-003-1
+// leg (a)), and the five Plan-006 body-bearing assistant / tool variants
+// (T3.6). Order mirrors the declaration order of the union arms above.
 export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = [
   "session.created",
   "membership.created",
@@ -2766,6 +3164,11 @@ export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = [
   "runtime_node.offline",
   "runtime_node.capability_declared",
   "runtime_node.capability_updated",
+  "assistant.message",
+  "assistant.thinking_update",
+  "tool.invoked",
+  "tool.result",
+  "tool.error",
 ] as const;
 
 // --------------------------------------------------------------------------

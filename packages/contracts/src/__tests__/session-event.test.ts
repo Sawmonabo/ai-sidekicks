@@ -125,6 +125,10 @@ import {
   type EventEnvelope,
   type SessionEvent,
   type SessionEventType,
+  CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY,
+  CONTENT_LENGTH_PAYLOAD_KEY,
+  CONTENT_PAYLOAD_PLAINTEXT_MAX,
+  CONTENT_TRUNCATED_PAYLOAD_KEY,
 } from "../event.js";
 import {
   DRIVER_CAPABILITY_FLAGS,
@@ -206,16 +210,17 @@ const buildChannelCreated = () => ({
 });
 
 describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
-  it("registers exactly the payload-variant roster (Plan-001 three + Plan-009 six + Plan-010 five + Plan-006 six + Plan-003 five)", () => {
-    // The SCHEMA-registered subset (25), not the 156-type census. It grew by
+  it("registers exactly the payload-variant roster (Plan-001 three + Plan-009 six + Plan-010 five + Plan-006 six + Plan-003 five + Plan-006 five)", () => {
+    // The SCHEMA-registered subset (30), not the 156-type census. It grew by
     // the six Plan-009 repo/workspace variants (CP-009-4), the five Plan-010
     // worktree variants (CP-010-5), the six Plan-006 audit-integrity /
-    // event-maintenance variants (T1.11), and the five Plan-003
-    // `runtime_node.*` variants (T1.12 — CP-003-1 leg (a)); each group's
+    // event-maintenance variants (T1.11), the five Plan-003
+    // `runtime_node.*` variants (T1.12 — CP-003-1 leg (a)), and the five
+    // Plan-006 body-bearing assistant / tool variants (T3.6); each group's
     // round-trip and payload coverage lives in the suite that owns its
     // contract (repo.test.ts / worktree.test.ts / runtime-node.test.ts for the
-    // payload shapes, and the T1.11 + T1.12 suites at the end of this file,
-    // Plan-006 owning this module and the union registration).
+    // payload shapes, and the T1.11 + T1.12 + T3.6 suites at the end of this
+    // file, Plan-006 owning this module and the union registration).
     expect(SESSION_EVENT_TYPES).toEqual([
       "session.created",
       "membership.created",
@@ -242,6 +247,11 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
       "runtime_node.offline",
       "runtime_node.capability_declared",
       "runtime_node.capability_updated",
+      "assistant.message",
+      "assistant.thinking_update",
+      "tool.invoked",
+      "tool.result",
+      "tool.error",
     ]);
   });
 
@@ -841,8 +851,9 @@ describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry (T1.
     // Plan-009 repo/workspace variants (CP-009-4), the five Plan-010
     // worktree variants (CP-010-5), the six Plan-006 audit-integrity /
     // event-maintenance variants (T1.11, emitted by the plan that owns
-    // event.ts), and the five Plan-003 `runtime_node.*` variants (T1.12 —
-    // CP-003-1 leg (a), the payload shapes authored in runtime-node.ts) —
+    // event.ts), the five Plan-003 `runtime_node.*` variants (T1.12 —
+    // CP-003-1 leg (a), the payload shapes authored in runtime-node.ts), and
+    // the five Plan-006 body-bearing assistant / tool variants (T3.6) —
     // whose type strings were all already census-registered by T1.2 before
     // their payloads landed. The loop below is the bind that matters: every
     // registered variant must be a census member, so a variant registered
@@ -873,6 +884,11 @@ describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry (T1.
       "runtime_node.offline",
       "runtime_node.capability_declared",
       "runtime_node.capability_updated",
+      "assistant.message",
+      "assistant.thinking_update",
+      "tool.invoked",
+      "tool.result",
+      "tool.error",
     ]);
     for (const registered of SESSION_EVENT_TYPES) {
       expect(SESSION_EVENT_CATEGORY_BY_TYPE.has(registered)).toBe(true);
@@ -1679,7 +1695,7 @@ const REGISTRAR_FAILURE_MODE = "signing_key_slot_conflict";
 // to discover it at ITS boundary. Contrast the `EventCategorySchema` pin above,
 // which still needs the cast idiom because no consumer derives from its enum
 // surface. Exact membership is pinned once, against a hand-transcribed list, in
-// the vocabulary test below — the tables here only DRIVE, so a seventeenth mode
+// the vocabulary test below — the tables here only DRIVE, so an eighteenth mode
 // joins the per-mode coverage automatically instead of being silently skipped.
 const VERIFIER_FAILURE_MODE_OPTIONS = VerifierFailureModeSchema.options;
 
@@ -1694,8 +1710,8 @@ const VERIFIER_FAILURE_MODES = VERIFIER_FAILURE_MODE_OPTIONS.filter(
 // Each verifier mode beside a `failurePath` the corpus ADMITS for it,
 // transcribed by hand from `Security Architecture §Verification Rules` rather
 // than imported from event.ts's own map — two independent spellings are what
-// make the pin worth anything. The first three and the last six rows are the
-// NINE authority-FIXED pairings (rule 1 → `inclusion`, rule 3 → `consistency`,
+// make the pin worth anything. The first three and the last seven rows are the
+// TEN authority-FIXED pairings (rule 1 → `inclusion`, rule 3 → `consistency`,
 // rules 2 + 4 → `signature`); the middle six modes have no corpus-fixed path,
 // so their entry here is one lawful choice among three and the latitude itself
 // is asserted separately below. Set membership is pinned against
@@ -1717,6 +1733,7 @@ const VERIFIER_MODE_PATH_PAIRS = [
   ["occurred_at_not_canonical", "signature"],
   ["pii_ciphertext_digest_unbound", "signature"],
   ["pii_owner_stamp_unbound", "signature"],
+  ["content_ciphertext_digest_unbound", "signature"],
 ] as const;
 
 const PLAN_006_VARIANTS = [
@@ -1802,14 +1819,14 @@ describe("audit_integrity + event_maintenance payload variants (T1.11)", () => {
     },
   );
 
-  it("registers EXACTLY the sixteen failure modes and the three failure paths", () => {
+  it("registers EXACTLY the seventeen failure modes and the three failure paths", () => {
     // The exported vocabulary T4.1 and T4.10 consume, transcribed from
     // `Spec-006 §Audit Integrity (audit_integrity)` in the enum's own order.
-    // Sixteen, not fifteen: the registrar's `signing_key_slot_conflict` is a
+    // Seventeen, not sixteen: the registrar's `signing_key_slot_conflict` is a
     // member of the enum even though it routes to the other payload arm.
     //
-    // Set equality, not just acceptance — acceptance alone passes a
-    // seventeenth mode, a dropped one, and a renamed one alike, and every
+    // Set equality, not just acceptance — acceptance alone passes an
+    // eighteenth mode, a dropped one, and a renamed one alike, and every
     // per-mode table below is DERIVED from `.options`, so this is the single
     // place where enum drift can be caught rather than absorbed.
     const expectedModes = [
@@ -1828,15 +1845,16 @@ describe("audit_integrity + event_maintenance payload variants (T1.11)", () => {
       "occurred_at_not_canonical",
       "pii_ciphertext_digest_unbound",
       "pii_owner_stamp_unbound",
+      "content_ciphertext_digest_unbound",
       REGISTRAR_FAILURE_MODE,
     ];
-    expect(VERIFIER_FAILURE_MODE_OPTIONS).toHaveLength(16);
+    expect(VERIFIER_FAILURE_MODE_OPTIONS).toHaveLength(17);
     expect([...VERIFIER_FAILURE_MODE_OPTIONS].sort()).toEqual([...expectedModes].sort());
-    // The derivation the arm split rests on: fifteen read-side modes, the
+    // The derivation the arm split rests on: sixteen read-side modes, the
     // registrar's excluded.
-    expect(VERIFIER_FAILURE_MODES).toHaveLength(15);
+    expect(VERIFIER_FAILURE_MODES).toHaveLength(16);
     expect(VERIFIER_FAILURE_MODES).not.toContain(REGISTRAR_FAILURE_MODE);
-    // The mode/path table below must cover exactly those fifteen — a mode
+    // The mode/path table below must cover exactly those sixteen — a mode
     // added, renamed, or retired must not leave a row unexercised.
     expect(VERIFIER_MODE_PATH_PAIRS.map(([mode]) => mode).sort()).toEqual(
       [...VERIFIER_FAILURE_MODES].sort(),
@@ -1866,12 +1884,12 @@ describe("audit_integrity + event_maintenance payload variants (T1.11)", () => {
     // only where an importer wrote it — so the break was invisible to the file
     // that shipped the symbol.
     const verifierOnly = VerifierFailureModeSchema.exclude([REGISTRAR_FAILURE_MODE]);
-    expect(verifierOnly.options).toHaveLength(15);
+    expect(verifierOnly.options).toHaveLength(16);
     expect([...verifierOnly.options].sort()).toEqual([...VERIFIER_FAILURE_MODES].sort());
     for (const mode of VERIFIER_FAILURE_MODES) {
       expect(verifierOnly.safeParse(mode).success).toBe(true);
     }
-    // The sixteenth is refused by the derived schema and accepted by its
+    // The seventeenth is refused by the derived schema and accepted by its
     // parent — the derivation subtracts exactly one member.
     expect(verifierOnly.safeParse(REGISTRAR_FAILURE_MODE).success).toBe(false);
     expect(VerifierFailureModeSchema.safeParse(REGISTRAR_FAILURE_MODE).success).toBe(true);
@@ -2947,5 +2965,188 @@ describe("event-core.ts leaf keeps the contracts module graph acyclic (T1.12)", 
     expect(new Set(specifiers)).toEqual(new Set(["zod", "./provider-driver.js", "./session.js"]));
     // Named explicitly: this is the edge whose absence the hoist exists for.
     expect(specifiers).not.toContain("./event.js");
+  });
+});
+
+// --------------------------------------------------------------------------
+// Plan-006 T3.6 — the five body-bearing assistant / tool payload variants.
+// --------------------------------------------------------------------------
+//
+// These are the variants whose absence made `session_events.content_payload`
+// unwritable: both shipped provider normalizers derive emission readiness from
+// `SESSION_EVENT_TYPES`, so an unregistered target forbids envelope
+// construction outright. Coverage below is about the SHAPE contract — no body
+// member, the two families kept distinct, and the codec-owned members
+// admissible but never required.
+
+const RUN_ID = "990e8400-e29b-41d4-a716-446655440004";
+
+const buildAssistantMessage = () => ({
+  id: "evt-3601",
+  sessionId: SESSION_ID,
+  sequence: 40,
+  occurredAt: "2026-01-22T19:15:01.000Z",
+  category: "assistant_output" as const,
+  type: "assistant.message" as const,
+  actor: null,
+  version: VERSION,
+  payload: {
+    sessionId: SESSION_ID,
+    runId: RUN_ID,
+    channelId: CHANNEL_ID,
+    contentType: "text/markdown",
+    contentLength: 4096,
+    contentCiphertextDigest: "a".repeat(64),
+  },
+});
+
+const buildAssistantThinkingUpdate = () => ({
+  id: "evt-3602",
+  sessionId: SESSION_ID,
+  sequence: 41,
+  occurredAt: "2026-01-22T19:15:02.000Z",
+  category: "assistant_output" as const,
+  type: "assistant.thinking_update" as const,
+  actor: null,
+  version: VERSION,
+  payload: {
+    sessionId: SESSION_ID,
+    runId: RUN_ID,
+    contentLength: 128,
+    contentCiphertextDigest: "b".repeat(64),
+  },
+});
+
+const buildToolRow = (type: "tool.invoked" | "tool.result" | "tool.error", sequence: number) => ({
+  id: `evt-36${String(sequence)}`,
+  sessionId: SESSION_ID,
+  sequence,
+  occurredAt: "2026-01-22T19:15:03.000Z",
+  category: "tool_activity" as const,
+  type,
+  actor: null,
+  version: VERSION,
+  payload: {
+    sessionId: SESSION_ID,
+    runId: RUN_ID,
+    toolName: "Bash",
+    toolCallId: "call-0001",
+    durationMs: 1200,
+    contentLength: 262_145,
+    contentTruncated: true as const,
+    contentCiphertextDigest: "c".repeat(64),
+  },
+});
+
+const BODY_BEARING_VARIANTS = [
+  ["assistant.message", buildAssistantMessage],
+  ["assistant.thinking_update", buildAssistantThinkingUpdate],
+  ["tool.invoked", () => buildToolRow("tool.invoked", 42)],
+  ["tool.result", () => buildToolRow("tool.result", 43)],
+  ["tool.error", () => buildToolRow("tool.error", 44)],
+] as const;
+
+describe("SessionEventSchema — body-bearing assistant / tool variants", () => {
+  it.each(BODY_BEARING_VARIANTS)("round-trips %s through JSON without loss", (_type, build) => {
+    const event = build();
+    const parsed = SessionEventSchema.safeParse(JSON.parse(JSON.stringify(event)));
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data).toEqual(event);
+  });
+
+  it.each(BODY_BEARING_VARIANTS)(
+    "%s carries the descriptive members but NEVER a body member",
+    (_type, build) => {
+      const event = build();
+      // The whole point of the column: the prose is not in the payload, so no
+      // amount of schema growth here may quietly reintroduce it.
+      for (const bodyKey of ["body", "content", "text", "result", "arguments"]) {
+        const smuggled = { ...event, payload: { ...event.payload, [bodyKey]: "the prose" } };
+        expect(SessionEventSchema.safeParse(smuggled).success).toBe(false);
+      }
+    },
+  );
+
+  it.each(BODY_BEARING_VARIANTS)(
+    "%s accepts a row carrying no descriptive member at all",
+    (_type, build) => {
+      const event = build();
+      const bare: Record<string, unknown> = { ...event.payload };
+      delete bare[CONTENT_LENGTH_PAYLOAD_KEY];
+      delete bare[CONTENT_TRUNCATED_PAYLOAD_KEY];
+      delete bare[CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY];
+      // A row whose type admits prose but that carried none is valid; requiring
+      // the members would force a producer to fabricate a digest for bytes that
+      // do not exist.
+      expect(SessionEventSchema.safeParse({ ...event, payload: bare }).success).toBe(true);
+    },
+  );
+
+  it.each(BODY_BEARING_VARIANTS)("%s rejects contentTruncated: false", (_type, build) => {
+    const event = build();
+    // Absence is the completeness signal. A `false` on the wire would put bytes
+    // into the canonical serialization that a complete row must not have.
+    const withFalse = { ...event, payload: { ...event.payload, contentTruncated: false } };
+    expect(SessionEventSchema.safeParse(withFalse).success).toBe(false);
+  });
+
+  it.each(BODY_BEARING_VARIANTS)("%s rejects a negative contentLength", (_type, build) => {
+    const event = build();
+    const negative = { ...event, payload: { ...event.payload, contentLength: -1 } };
+    expect(SessionEventSchema.safeParse(negative).success).toBe(false);
+  });
+
+  it("keeps the assistant and tool families distinct rather than one schema", () => {
+    const assistant = buildAssistantMessage();
+    const tool = buildToolRow("tool.result", 45);
+    // A `toolName` on an assistant row and a `contentType` on a tool row are
+    // both members the governing spec sections decline to define.
+    expect(
+      SessionEventSchema.safeParse({
+        ...assistant,
+        payload: { ...assistant.payload, toolName: "Bash" },
+      }).success,
+    ).toBe(false);
+    expect(
+      SessionEventSchema.safeParse({
+        ...tool,
+        payload: { ...tool.payload, contentType: "text/plain" },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("requires toolName on every tool row", () => {
+    for (const type of ["tool.invoked", "tool.result", "tool.error"] as const) {
+      const event = buildToolRow(type, 46);
+      const { toolName: _dropped, ...withoutToolName } = event.payload;
+      expect(SessionEventSchema.safeParse({ ...event, payload: withoutToolName }).success).toBe(
+        false,
+      );
+    }
+  });
+
+  it.each(BODY_BEARING_VARIANTS)("%s admits the run-scoped epoch stamp pair", (_type, build) => {
+    const event = build();
+    const stamped = {
+      ...event,
+      payload: { ...event.payload, sourceEpoch: 2, sourcePosition: 7 },
+    };
+    expect(SessionEventSchema.safeParse(stamped).success).toBe(true);
+    // Half a stamp is unattributable and is refused at parse.
+    const halfStamped = { ...event, payload: { ...event.payload, sourceEpoch: 2 } };
+    expect(SessionEventSchema.safeParse(halfStamped).success).toBe(false);
+  });
+
+  it("pins the plaintext bound at 256 KiB", () => {
+    // The figure the sealing codec enforces; pinned here because three modules
+    // read it and a silent change would move a durable truncation boundary.
+    expect(CONTENT_PAYLOAD_PLAINTEXT_MAX).toBe(262_144);
+    expect(CONTENT_PAYLOAD_PLAINTEXT_MAX).toBe(256 * 1024);
+  });
+
+  it("exports the three codec-owned payload keys under their wire spellings", () => {
+    expect(CONTENT_CIPHERTEXT_DIGEST_PAYLOAD_KEY).toBe("contentCiphertextDigest");
+    expect(CONTENT_LENGTH_PAYLOAD_KEY).toBe("contentLength");
+    expect(CONTENT_TRUNCATED_PAYLOAD_KEY).toBe("contentTruncated");
   });
 });

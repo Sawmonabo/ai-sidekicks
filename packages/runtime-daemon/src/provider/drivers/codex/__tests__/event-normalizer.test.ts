@@ -763,28 +763,30 @@ describe("Codex event normalizer — purity and determinism", () => {
 // to the one constituent before the excess-property check and reports TS2353.
 // Hard-coding the WRONG value at the derivation site fails two tests below.
 //
-// The one case these tests cannot distinguish: hard-coding, at the derivation
-// site and behind an explicit `as` cast, the value that is currently correct
-// for every row. That produces byte-identical output today because all 11
-// Codex targets are pending. It is not, however, undetectable forever — the
-// row-level assertion compares each stamp to the resolver's live answer, so
-// the deception breaks the instant any Codex target gains a registered
-// payload variant. The ratchet test at the end of this block is what makes
-// that moment loud instead of silent. Stated here rather than left as an
-// implied claim of total coverage.
+// The one case these tests could not originally distinguish: hard-coding, at
+// the derivation site and behind an explicit `as` cast, the value that was then
+// correct for every row. That produced byte-identical output while all 11 Codex
+// targets were pending. THAT WINDOW IS NOW CLOSED — the census is MIXED: three
+// targets carry registered payload variants and eight do not, so a single
+// hard-coded value disagrees with the resolver on one side or the other and the
+// row-level assertion fails. The ratchet test at the end of this block pins the
+// exact partition, so the next registration is loud rather than silent.
 
 describe("Codex event normalizer — emission readiness is derived, not stated", () => {
   it("resolves a registered payload-variant target as envelope-constructible", () => {
-    // Reached by calling the resolver directly rather than through a row: at
-    // the current tree state NO Codex target is registered, so this arm is
-    // otherwise unprovable. `session.created` is in the roster today.
+    // Called directly rather than reached through a row, and deliberately kept
+    // that way now that Codex targets ARE registered: a non-Codex literal keeps
+    // this arm provable no matter how the census moves.
     expect(SESSION_EVENT_TYPES).toContain("session.created");
     expect(resolveCodexEmissionReadiness("session.created")).toBe("envelope-constructible");
   });
 
   it("resolves an unregistered target as payload-variant-pending", () => {
-    expect(SESSION_EVENT_TYPES).not.toContain("tool.invoked");
-    expect(resolveCodexEmissionReadiness("tool.invoked")).toBe("payload-variant-pending");
+    // `tool.invoked` stood here until the durable content home registered it.
+    // `run.failed` is the replacement and is a Codex target, so this arm is now
+    // proven over the driver's own census rather than beside it.
+    expect(SESSION_EVENT_TYPES).not.toContain("run.failed");
+    expect(resolveCodexEmissionReadiness("run.failed")).toBe("payload-variant-pending");
   });
 
   it("agrees with the live contracts roster for every registered type", () => {
@@ -830,17 +832,54 @@ describe("Codex event normalizer — emission readiness is derived, not stated",
     }
   });
 
-  it("records that no Codex target is envelope-constructible at this tree state", () => {
-    // A ratchet, not an aspiration. Plan-006 registers payload variants
-    // independently of this driver; when the first Codex target lands one,
-    // this fails and whoever landed it re-derives the claim in the report
-    // rather than discovering the drift later. Failure here is GOOD NEWS.
-    const constructibleTargets = [...CODEX_FRAME_NORMALIZATION_BY_METHOD.values()]
-      .filter((normalization) => normalization.disposition === "normalized")
-      .filter((normalization) => normalization.emissionReadiness === "envelope-constructible")
-      .map((normalization) => normalization.eventType);
+  it("pins which Codex targets are envelope-constructible at this tree state", () => {
+    // A ratchet, not an aspiration, and RE-DERIVED rather than relaxed: this
+    // read `toEqual([])` while no Codex target had a registered payload
+    // variant, and the durable home for machine-authored prose registered
+    // three of them. Payload variants are registered independently of this
+    // driver, so when the next one lands this fails and whoever landed it
+    // re-derives the partition here. Failure is GOOD NEWS.
+    //
+    // WHAT THIS DOES NOT MEAN. A constructible target is not a live emission.
+    // `resolveCodexFrameEmissionRoute` — the only thing that turns readiness
+    // into an `emit` route — has no production caller in this tree: the driver
+    // core does not consume it yet, and no payload builder for these types
+    // exists anywhere. So these three moved from "forbidden" to "permitted",
+    // and nothing began emitting.
+    const normalized = [...CODEX_FRAME_NORMALIZATION_BY_METHOD.values()].filter(
+      (normalization) => normalization.disposition === "normalized",
+    );
+    const distinctTargets = (readiness: string): readonly string[] =>
+      [
+        ...new Set(
+          normalized
+            .filter((normalization) => normalization.emissionReadiness === readiness)
+            .map((normalization) => normalization.eventType),
+        ),
+      ].sort();
 
-    expect(constructibleTargets).toEqual([]);
+    expect(distinctTargets("envelope-constructible")).toEqual([
+      "assistant.message",
+      "tool.invoked",
+      "tool.result",
+    ]);
+    expect(distinctTargets("payload-variant-pending")).toEqual([
+      "driver_ask.requested",
+      "moderation.review_flagged",
+      "run.failed",
+      "session.goal_cleared",
+      "session.goal_updated",
+      "session.notice",
+      "usage.context_compacted",
+      "usage.rate_limit_update",
+    ]);
+    // The two partitions together are the whole census — so a target cannot
+    // leave the table unnoticed by being dropped from one list and never added
+    // to the other.
+    expect(
+      [...distinctTargets("envelope-constructible"), ...distinctTargets("payload-variant-pending")]
+        .length,
+    ).toBe(new Set(normalized.map((normalization) => normalization.eventType)).size);
   });
 
   it("keeps the stamp identity-stable across repeated resolution", () => {

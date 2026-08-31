@@ -121,6 +121,8 @@
 // `migrations/0009-retention-class-and-stub-signature.ts`.
 
 import {
+  CONTENT_LENGTH_PAYLOAD_KEY,
+  CONTENT_TRUNCATED_PAYLOAD_KEY,
   DAEMON_SCOPE_SENTINEL_SESSION_ID,
   EVENT_CANONICAL_BYTES_MAX,
   EventCategorySchema,
@@ -239,6 +241,15 @@ const RUN_ID_PAYLOAD_KEY = "runId" as const;
  *     from.
  *   * `sourceEpoch` + `sourcePosition` — the cross-cutting epoch stamp, kept so
  *     a compacted stale-epoch row stays attributed to its source epoch.
+ *   * `contentLength` + `contentTruncated` — the machine-authored body's SHAPE.
+ *     The body itself lived in the sealed `content_payload` column and is NULLed
+ *     by the same UPDATE, so these two are all that survives to say a body was
+ *     there and how much of it the writer kept. `contentCiphertextDigest` is
+ *     DELIBERATELY absent from this list and given no stub field of its own: it
+ *     commits to ciphertext this UPDATE destroys, so preserving it would leave
+ *     every compacted body-bearing row asserting a binding to bytes that no
+ *     longer exist — the failure the 2026-07-27 owner-stamp amendment fixed
+ *     retroactively for `pii_participant_id`, stated here at mint time instead.
  *
  * Enforcement, not narration, for the first pair: `trg_run_terminal_key_update`
  * fires on this module's `UPDATE OF payload` and ABORTs a stub that dropped,
@@ -252,6 +263,8 @@ const PRESERVED_PAYLOAD_KEYS: readonly string[] = [
   "targetPosition",
   SOURCE_EPOCH_PAYLOAD_KEY,
   SOURCE_POSITION_PAYLOAD_KEY,
+  CONTENT_LENGTH_PAYLOAD_KEY,
+  CONTENT_TRUNCATED_PAYLOAD_KEY,
 ];
 
 // The `event.compacted` envelope's category/type/version. Minted THROUGH the
@@ -607,6 +620,7 @@ interface CandidateRow {
   readonly actor: unknown;
   readonly payload: unknown;
   readonly pii_bytes: unknown;
+  readonly content_bytes: unknown;
 }
 
 // One session's live-row census, read once at the top of its pass.
@@ -778,7 +792,11 @@ export class Compactor {
       `SELECT session_id AS session_id,
               COUNT(*) AS live_count,
               MIN(sequence) AS min_sequence,
-              SUM(LENGTH(CAST(payload AS BLOB)) + COALESCE(LENGTH(pii_payload), 0)) AS live_bytes
+              SUM(
+                LENGTH(CAST(payload AS BLOB))
+                  + COALESCE(LENGTH(pii_payload), 0)
+                  + COALESCE(LENGTH(content_payload), 0)
+              ) AS live_bytes
          FROM session_events
         WHERE ${liveCompactableWhere}
         GROUP BY session_id
@@ -869,8 +887,11 @@ export class Compactor {
       `SELECT MIN(sequence) AS cutoff
          FROM (
            SELECT sequence,
-                  SUM(LENGTH(CAST(payload AS BLOB)) + COALESCE(LENGTH(pii_payload), 0))
-                    OVER (ORDER BY sequence ROWS UNBOUNDED PRECEDING) AS cumulative_bytes
+                  SUM(
+                    LENGTH(CAST(payload AS BLOB))
+                      + COALESCE(LENGTH(pii_payload), 0)
+                      + COALESCE(LENGTH(content_payload), 0)
+                  ) OVER (ORDER BY sequence ROWS UNBOUNDED PRECEDING) AS cumulative_bytes
              FROM session_events
             WHERE session_id = ?
               AND ${liveCompactableWhere}
@@ -905,6 +926,21 @@ export class Compactor {
         ORDER BY sequence`,
     );
 
+    // `pii_bytes` and `content_bytes` are the ONLY per-candidate figures here
+    // that no threshold consults. Traced: both reach `originalBytes` and nothing
+    // else, `originalBytes` reaches `bytesReclaimed` and nothing else, and
+    // `bytesReclaimed` is a REPORTED total — it lands on the `event.compacted`
+    // payload and the pass result, and is read by no trigger, no cutoff, and no
+    // candidate-selection predicate. The two aggregate statements above are
+    // where the sealed columns' bytes have to be counted for a threshold to see
+    // them, and they now count both.
+    //
+    // `content_bytes` is nonetheless summed into the reclaim figure rather than
+    // dropped as decorative: `event.compacted` is itself a never-compacted,
+    // never-shredded row, so its `bytesReclaimed` is a permanent claim about
+    // what this pass destroyed. Omitting the body would understate that claim by
+    // up to `CONTENT_PAYLOAD_PLAINTEXT_MAX` per row for exactly the rows whose
+    // compaction reclaimed the most.
     this.#candidateRowStmt = deps.db.prepare(
       `SELECT id AS id,
               sequence AS sequence,
@@ -913,7 +949,8 @@ export class Compactor {
               type AS type,
               actor AS actor,
               payload AS payload,
-              COALESCE(LENGTH(pii_payload), 0) AS pii_bytes
+              COALESCE(LENGTH(pii_payload), 0) AS pii_bytes,
+              COALESCE(LENGTH(content_payload), 0) AS content_bytes
          FROM session_events
         WHERE session_id = ?
           AND sequence = ?
@@ -928,7 +965,13 @@ export class Compactor {
     // the stub projection carries no PII owner, so a surviving stamp would name
     // a participant for a row whose ciphertext is gone and I-006-2-12's
     // read-side check would report `pii_owner_stamp_unbound` on every compacted
-    // row. NOT in the SET list, and load-bearing that they are not:
+    // row. `content_payload` joins the same NULLed set: the machine-authored
+    // body is destroyed here exactly as the PII ciphertext is, and its digest is
+    // dropped from the stub rather than preserved (see PRESERVED_PAYLOAD_KEYS),
+    // so a compacted row asserts no binding to bytes this statement removed.
+    // There is no `content_owner_stamp` counterpart to NULL — the content
+    // partition is session-scoped, and `session_id` is already canonical and
+    // signed. NOT in the SET list, and load-bearing that they are not:
     // `prev_hash`, `row_hash`, `daemon_signature`, `participant_signature`,
     // `monotonic_ns`, `version` (I-006-3-03 freezes the chain commitment) and
     // `category` / `type` (naming them would trip the de-scope leg of
@@ -943,6 +986,7 @@ export class Compactor {
               causation_id = NULL,
               pii_payload = NULL,
               pii_participant_id = NULL,
+              content_payload = NULL,
               retention_class = ?,
               stub_signature = ?
         WHERE id = ?
@@ -1499,7 +1543,9 @@ export class Compactor {
       }
 
       const originalBytes: number =
-        storedPayloadByteLength + readNumber(row.pii_bytes, "pii byte length");
+        storedPayloadByteLength +
+        readNumber(row.pii_bytes, "pii byte length") +
+        readNumber(row.content_bytes, "content byte length");
       const stubBytes: number = canonicalStubBytes.length;
       return {
         stubbed: true,

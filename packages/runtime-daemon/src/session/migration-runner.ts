@@ -20,7 +20,8 @@
 // `migrations/0009-retention-class-and-stub-signature.ts`); version 10 by
 // Plan-009 (`migrations/0010-repo-workspaces.ts`); versions 11 and 12 by
 // Plan-005 (`migrations/0011-driver-capability-currency.ts`,
-// `migrations/0012-transcript-capability-backfill.ts`). Subsequent plans
+// `migrations/0012-transcript-capability-backfill.ts`); version 13 by
+// Plan-006 (`migrations/0013-content-payload.ts`). Subsequent plans
 // (015, 022...) — and Plan-006's own remaining migrations — register their
 // version as a further guarded block of the same shape and bump
 // `schema_version`.
@@ -95,6 +96,7 @@ import { RETENTION_CLASS_AND_STUB_SIGNATURE_MIGRATION_SQL } from "../migrations/
 import { REPO_WORKSPACES_MIGRATION_SQL } from "../migrations/0010-repo-workspaces.js";
 import { DRIVER_CAPABILITY_CURRENCY_MIGRATION_SQL } from "../migrations/0011-driver-capability-currency.js";
 import { TRANSCRIPT_CAPABILITY_BACKFILL_MIGRATION_SQL } from "../migrations/0012-transcript-capability-backfill.js";
+import { CONTENT_PAYLOAD_MIGRATION_SQL } from "../migrations/0013-content-payload.js";
 
 /**
  * Apply pragmas to an open Database handle. MUST be called on every
@@ -325,6 +327,24 @@ export function applyMigrations(db: DatabaseType): void {
     db.transaction(() => {
       if (!hasMigrationApplied(db, 12)) {
         db.exec(TRANSCRIPT_CAPABILITY_BACKFILL_MIGRATION_SQL);
+      }
+    }).immediate();
+  }
+
+  if (!hasMigrationApplied(db, 13)) {
+    // Version 13 (Plan-006) — the durable encrypted home for machine-authored
+    // prose: `session_events.content_payload` plus the `session_content_keys`
+    // table that holds each session's wrapped sealing key. Order-independent of
+    // every earlier version in the strong sense — the column is additive and
+    // unreferenced by any existing index, trigger, or CHECK, and the table
+    // stands alone with no FK in either direction. Atomicity is what makes the
+    // two statements one version rather than two: a column with no key table
+    // is a column nothing can write to, and a key table with no column is a key
+    // for nothing, so a crash between them would leave a half-usable schema
+    // gated on a version marker that never arrived.
+    db.transaction(() => {
+      if (!hasMigrationApplied(db, 13)) {
+        db.exec(CONTENT_PAYLOAD_MIGRATION_SQL);
       }
     }).immediate();
   }
