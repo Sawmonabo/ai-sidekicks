@@ -2291,9 +2291,23 @@ export interface ClaudeSessionLifecycleDependencies {
    * when none was bound.
    *
    * Optional because the driver cannot rebuild it: the account registry is the
-   * daemon's and neither `CreateSessionParams` nor `ResumeSessionParams` carries
-   * an account id, so this band has no second source to fall back on — the same
-   * reason `readPriorEmittedUsage` is injected rather than derived.
+   * daemon's, and the only place this band needs the identity is the
+   * enumeration's routing binding, which is a READ — the same reason
+   * `readPriorEmittedUsage` is injected rather than derived.
+   *
+   * T3.17 ADDED A SECOND SOURCE, AND THIS PORT DELIBERATELY DOES NOT TAKE IT.
+   * `CreateSessionParams` / `ResumeSessionParams` now carry a typed
+   * `providerAccountId` — the account the daemon ADMITTED the run against — and
+   * the Codex band reconciles it with its own untyped config bag at the spawn
+   * seam, refusing where the two disagree. Nothing equivalent happens here:
+   * neither `#buildSpawnBinding` nor `#buildSpawnBoundLegs` carries the account,
+   * so re-pointing this port at the typed member would be a second,
+   * unadjudicated implementation of that precedence rule rather than an
+   * inheritance of it. The asymmetry is stated rather than papered over — until
+   * a swap adjudicates it, a Claude leg's routing binding reads the daemon's
+   * registry while a Codex leg's reads its own composed spawn config, and a
+   * caller that supplies only the typed member reads `null` here: safe, because
+   * a `null` matches nothing (below), but silent about why.
    *
    * TWO FACTS COINCIDE HERE AND THE CONFLATION IS DELIBERATE. An unbound reader
    * means "this driver could not ask"; a `null` answer means "no account is

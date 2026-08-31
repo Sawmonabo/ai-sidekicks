@@ -2577,21 +2577,34 @@ export interface CodexSessionConfig {
    * daemon bound one (T3.26).
    *
    * OPTIONAL BECAUSE THE ACCOUNT PLANE IS NOT SHIPPED. A session with no bound
-   * account is the ORDINARY case rather than an edge one, so this driver reads
-   * the identity out of the same untyped config bag it reads `cwd` and `env`
-   * from and reports its absence honestly.
+   * account is the ORDINARY case rather than an edge one, so an absent member is
+   * a fact this driver reports honestly rather than a gap it fills.
    *
-   * T3.17 HAS LANDED, AND THIS READ IS STILL THE CONFIG BAG. That task made the
-   * identity a typed member of `CreateSessionParams` / `ResumeSessionParams` and
-   * a resume leg of the durable `runtime_bindings.spawn_config` record, so the
-   * daemon can now hand a relaunch the account its run was ADMITTED against. It
-   * did NOT re-point this read: `#composeResumeSpawnConfig` still inherits the
-   * account from the live record and falls back to the manager-wide
-   * `resumeSpawnConfig` when no record survives, which is the one path where the
-   * typed member would say something the fallback cannot. Until the write seam
-   * populates both — or this read moves to the typed member — a caller must set
-   * the config-bag member, and the typed one is not yet a second source of truth
-   * because nothing here reads it.
+   * TWO CHANNELS CAN NAME THIS ACCOUNT, AND THE TYPED ONE WINS (T3.17). That
+   * task made the identity a typed member of `CreateSessionParams` /
+   * `ResumeSessionParams` and a resume leg of the durable
+   * `runtime_bindings.spawn_config` record, so the daemon hands a create — and a
+   * relaunch — the account its run was ADMITTED against.
+   * {@link resolveBoundProviderAccountId} is the ONE rule both spawn composers
+   * apply to reconcile that member with what this untyped bag declares:
+   *
+   *   * CREATE. `CreateSessionParams.providerAccountId` is AUTHORITATIVE. This
+   *     bag member is the legacy channel, consulted only where the typed one is
+   *     absent. A caller following the typed contract must never silently spawn
+   *     against whatever the node resolves as that provider's default — that is
+   *     the silent re-bill T3.17 exists to prevent.
+   *   * RESUME. `ResumeSessionParams.providerAccountId` — composed by the daemon
+   *     from the durable record, never re-resolved — is AUTHORITATIVE. The live
+   *     session record's own spawn config answers where the request states none,
+   *     and the manager-wide `resumeSpawnConfig` only where no record survives.
+   *   * DISAGREEMENT REFUSES. Where the typed member and this session's own
+   *     recorded value BOTH name an account and the two differ, the spawn is
+   *     refused rather than resolved. Two resolvers disagreeing about a billing
+   *     identity is a wiring fault, and letting either win silently would bill a
+   *     run to an account it may never have been admitted against. The node-wide
+   *     `resumeSpawnConfig` is deliberately NOT a party to that rule: it makes no
+   *     claim about THIS session, so a typed member differing from it is the
+   *     ordinary mid-session-default-change case and wins outright.
    *
    * ABSENCE IS STATED, NEVER SYNTHESIZED. It reaches an enumerated command
    * entry as a literal `null` — never `""`, never a placeholder, and never the
@@ -3062,6 +3075,72 @@ export function parseCodexSessionConfig(config: unknown): CodexSessionConfig {
     ...(providerAccountId === undefined ? {} : { providerAccountId }),
     ...parseCredentialEnvPolicy(source["credentialEnvPolicy"]),
   };
+}
+
+/**
+ * The two channels that can name a spawn's provider account, reconciled (T3.17).
+ *
+ * ONE RULE, TWO CALLERS, on exactly the ground the credential-policy resolver
+ * (`#resolveCredentialEnvPolicyForPosture`) states: a create composer and a
+ * resume composer that each decided this locally would be locally consistent and
+ * mutually contradictory, and the contradiction would be invisible because
+ * neither path can see the other. A future third spawn path inherits the rule by
+ * calling this, or it is a third answer to a settled question.
+ *
+ * `requested` IS AUTHORITATIVE, because it is the typed member the daemon
+ * resolved and durably recorded — the account the run was ADMITTED against. The
+ * `recorded` value is the other channel's claim about the SAME session: the
+ * untyped config bag on a create, the live session record's own spawn config on
+ * a resume. It answers only where the typed member is absent.
+ *
+ * A DISAGREEMENT REFUSES rather than resolving. When both channels name an
+ * account and the two differ, two resolvers disagree about which account this
+ * spawn bills, and neither may silently win: picking the typed one would
+ * override a record of what the process is actually running under, and picking
+ * the recorded one would re-introduce the very silent re-bill T3.17 closed. A
+ * refusal is the only answer that cannot move a run's spend without saying so.
+ * The manager-wide `resumeSpawnConfig` is deliberately never passed here — it is
+ * a NODE-LEVEL DEFAULT that makes no claim about any particular session, so a
+ * typed member differing from it is the ordinary mid-session-default-change case
+ * and must win outright rather than refuse.
+ *
+ * A PRESENT-BUT-EMPTY `requested` REFUSES, for the reason
+ * {@link parseCodexSessionConfig} refuses an empty bag member: an empty string
+ * is a daemon that meant to bind an account and bound nothing, which is a
+ * different fact from a session that never had one, and only the second may
+ * enumerate under a `null` account. Enforced here as well as there because this
+ * member reaches the composer without passing that parse.
+ *
+ * MODULE-PRIVATE, like `parseCredentialEnvPolicy` beside it and unlike
+ * `parseCodexSessionConfig`: it is reached only through the two spawn composers,
+ * and exporting it would put a rule the driver applies internally onto the
+ * driver's public surface, where a caller could apply a different one first.
+ * Its behaviour is asserted through `createSession` / `resumeSession`, which is
+ * where the fail-open it closes actually lived.
+ */
+function resolveBoundProviderAccountId(claims: {
+  readonly requested: string | undefined;
+  readonly requestedField: string;
+  readonly recorded: string | undefined;
+  readonly recordedField: string;
+}): string | undefined {
+  const { requested, requestedField, recorded, recordedField } = claims;
+  if (requested !== undefined && requested.length === 0) {
+    throw new CodexDriverConfigError(
+      `${requestedField} must be a non-empty string when present.`,
+      requestedField,
+    );
+  }
+  if (requested === undefined) {
+    return recorded;
+  }
+  if (recorded === undefined || recorded === requested) {
+    return requested;
+  }
+  throw new CodexDriverConfigError(
+    `${requestedField} names provider account ${requested} while ${recordedField} names ${recorded}; a spawn is billed to one account and neither resolver may silently win.`,
+    requestedField,
+  );
 }
 
 const ENV_NAME_MATCH_MODES: readonly SpawnEnvNameMatch[] = ["case-sensitive", "case-insensitive"];
@@ -5795,7 +5874,7 @@ export class CodexLifecycleManager {
   /**
    * Builds the spawn context a create launches under.
    *
-   * TWO SOURCES, split exactly as `#composeResumeSpawnConfig` splits them. The
+   * THREE SOURCES, split exactly as `#composeResumeSpawnConfig` splits them. The
    * PROCESS CONTEXT — `cwd` and `env` — is the create request's own, parsed
    * fail-closed out of its untyped `params.config`. The CREDENTIAL POLICY is
    * posture-derived, and that binding is what this method exists for: the bag
@@ -5803,6 +5882,9 @@ export class CodexLifecycleManager {
    * joined a `CreateSessionParams` carrying a sandboxed posture whose bag simply
    * omitted `credentialEnvPolicy` opened its child with nothing stripped — the
    * silence read as "deny nothing" even though the posture required a policy.
+   * The PROVIDER ACCOUNT is a third channel pair on the same shape — the typed
+   * `params.providerAccountId` beside the bag's legacy member — reconciled by
+   * {@link resolveBoundProviderAccountId} rather than read from the bag alone.
    *
    * The parse runs on EVERY create, whether or not the posture then supersedes
    * its answer, because a malformed policy must stay a refusal rather than
@@ -5820,18 +5902,25 @@ export class CodexLifecycleManager {
       params.executionPosture,
       "CreateSessionParams.executionPosture.credentialPolicyRef",
     );
+    // T3.26 / T3.17. A property of THIS spawn — which credential home the child
+    // was pinned to — and the enumeration reads it back off the record. TWO
+    // channels can name it and the TYPED one governs: reading only the untyped
+    // bag would let a caller following the typed contract spawn against the
+    // node's default with nothing reporting the substitution, which is the
+    // silent re-bill T3.17 exists to close.
+    const providerAccountId = resolveBoundProviderAccountId({
+      requested: params.providerAccountId,
+      requestedField: "CreateSessionParams.providerAccountId",
+      recorded: declared.providerAccountId,
+      recordedField: "CreateSessionParams.config.providerAccountId",
+    });
     return {
       cwd: declared.cwd,
       env: declared.env,
-      // T3.26. Carried from the create's own config bag, because it is a
-      // property of THIS spawn — which credential home the child was pinned to
-      // — and the enumeration reads it back off the record. Rebuilt explicitly
-      // like every other member rather than spread, so a member added to the
-      // read-shape is a deliberate decision here and not an accident of a
-      // spread.
-      ...(declared.providerAccountId === undefined
-        ? {}
-        : { providerAccountId: declared.providerAccountId }),
+      // Rebuilt explicitly like every other member rather than spread, so a
+      // member added to the read-shape is a deliberate decision here and not an
+      // accident of a spread.
+      ...(providerAccountId === undefined ? {} : { providerAccountId }),
       ...(credentialEnvPolicy === undefined ? {} : { credentialEnvPolicy }),
     };
   }
@@ -5839,7 +5928,7 @@ export class CodexLifecycleManager {
   /**
    * Builds the spawn context a resume relaunches under.
    *
-   * TWO SOURCES, deliberately split, because they answer different questions.
+   * THREE SOURCES, deliberately split, because they answer different questions.
    * The PROCESS CONTEXT — `cwd` and `env` — is not posture-derived: it says
    * where the provider binary runs and how it finds its credential home, and a
    * live record's own context is the better answer than the manager-wide
@@ -5849,7 +5938,12 @@ export class CodexLifecycleManager {
    * and resumed under a sandboxed one would otherwise relaunch with the
    * unfiltered environment it was created with, and the reverse — sandboxed
    * create, `trusted` resume — would keep stripping names the current posture
-   * denies nothing about.
+   * denies nothing about. The PROVIDER ACCOUNT is neither: it is the identity
+   * the daemon ADMITTED this run against, so the request's own typed member
+   * governs and everything else is fallback — see
+   * {@link resolveBoundProviderAccountId} for the precedence and for why a
+   * disagreement with the live record refuses while one with the node-wide
+   * default does not.
    *
    * Constructed member-by-member rather than spread-then-override for the same
    * reason: a spread carries the base's `credentialEnvPolicy` through whenever
@@ -5866,18 +5960,36 @@ export class CodexLifecycleManager {
       params.executionPosture,
       "ResumeSessionParams.executionPosture.credentialPolicyRef",
     );
+    // T3.26 / T3.17, and RE-REALIZED rather than re-derived, unlike the
+    // credential policy beside it. The policy is re-derived from the posture the
+    // resume states because a posture change must reach the child; the account
+    // is the credential home this leg is pinned to for its lifetime, so a resume
+    // re-realizes the same one. A resume that silently moved to a different
+    // account would re-key the receipt's per-paying-account axis mid-session.
+    //
+    // THE RECORD IS THE ONLY COMPETING CLAIM, and splitting it back out of
+    // `processContext` is the whole point: `existing.spawnConfig` is what THIS
+    // session's live process is actually running under, so a typed member that
+    // contradicts it is two resolvers disagreeing and refuses. The manager-wide
+    // `resumeSpawnConfig` is a node-level default that says nothing about this
+    // session, so it is consulted only on a COLD resume and only where the
+    // request named no account — which is exactly the case T3.17 was written
+    // for: a daemon restart whose durable record names the admitted account
+    // while the node's default has since moved on.
+    const requestedAccountId = resolveBoundProviderAccountId({
+      requested: params.providerAccountId,
+      requestedField: "ResumeSessionParams.providerAccountId",
+      recorded: existing?.spawnConfig.providerAccountId,
+      recordedField: "the live session record's own spawn config",
+    });
+    const providerAccountId =
+      existing === undefined
+        ? (requestedAccountId ?? this.#options.resumeSpawnConfig.providerAccountId)
+        : requestedAccountId;
     return {
       cwd: processContext.cwd,
       env: processContext.env,
-      // T3.26, and INHERITED rather than re-declared, unlike the credential
-      // policy beside it. The policy is re-derived from the posture the resume
-      // states because a posture change must reach the child; the account is
-      // the credential home this leg is pinned to for its lifetime, so a resume
-      // re-realizes the same one. A resume that silently moved to a different
-      // account would re-key the receipt's per-paying-account axis mid-session.
-      ...(processContext.providerAccountId === undefined
-        ? {}
-        : { providerAccountId: processContext.providerAccountId }),
+      ...(providerAccountId === undefined ? {} : { providerAccountId }),
       ...(credentialEnvPolicy === undefined ? {} : { credentialEnvPolicy }),
     };
   }

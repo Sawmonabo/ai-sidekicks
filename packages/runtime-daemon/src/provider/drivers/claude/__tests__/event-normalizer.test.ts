@@ -993,11 +993,17 @@ describe("ClaudeTerminalEmissionGate (T3.14 P1-1, P1-2-driver)", () => {
 /** A fixed observation clock, so the derived boundary is asserted, not approximated. */
 const RETRY_OBSERVED_AT_EPOCH_MS = Date.parse("2026-08-31T12:00:00.000Z");
 
+// The default names the ladder's FINAL announced attempt, and that value is
+// LOAD-BEARING rather than arbitrary. Every negative control below asserts
+// `null` for a reason about the typed `error` member; a mid-ladder default would
+// let the attempt gate satisfy all of them, and the block would keep passing
+// while it silently stopped testing what it claims. The reference pins this
+// frame's member NAMES and no example values, so nothing transcribed moves here.
 function apiRetryFrame(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     type: "system",
     subtype: "api_retry",
-    attempt: 2,
+    attempt: 10,
     max_retries: 10,
     retry_delay_ms: 60000,
     error_status: 429,
@@ -1005,6 +1011,12 @@ function apiRetryFrame(overrides: Record<string, unknown> = {}): Record<string, 
     ...overrides,
   };
 }
+
+/** The whole signal a recognized, exhausted-ladder frame composes at the fixed clock. */
+const EXHAUSTED_LADDER_SIGNAL = {
+  cause: "plan-allowance-exhausted",
+  resetBoundary: { resetsAt: "2026-08-31T12:01:00.000Z", provenance: "runtime-derived" },
+} as const;
 
 describe("classifyClaudeUsageLimitSignal — typed-only recognition on the retry frame", () => {
   it("names the frame discriminants by identity rather than by repeated literals", () => {
@@ -1038,38 +1050,74 @@ describe("classifyClaudeUsageLimitSignal — typed-only recognition on the retry
     expect(first).toEqual(second);
   });
 
-  it("fires on ANY attempt — the ladder position is the consumer's concern, not this leg's", () => {
-    // Decided on purpose rather than by omission: the frame carries `attempt`
-    // and `max_retries` and this classifier reads neither, because it reports an
-    // observed refusal and not a decision to stop waiting. Suppressing the first
-    // attempts would leave the run with no recognized reason for the whole
-    // ladder. Asserted across the ladder's ends so a later attempt gate fails.
-    for (const [attempt, maxRetries] of [
-      [1, 10],
-      [2, 10],
-      [10, 10],
-    ]) {
+  it("fires ONLY on the ladder's final announced attempt, never mid-ladder", () => {
+    // `Spec-017 §Provider-limit pacing and durable resumption (SA-40)` parks the
+    // phase IMMEDIATELY on any recognized signal and arms a schedule only for a
+    // provider-reported boundary — and this leg's boundary is runtime-derived.
+    // So a signal off `attempt: 1, max_retries: 10`, where the provider is still
+    // retrying internally, is an UNSCHEDULED park of work that was about to
+    // complete. Asserted across the ladder rather than at one point, so a gate
+    // that merely moved the threshold would fail here.
+    for (const attempt of [1, 2, 9]) {
       expect(
         classifyClaudeUsageLimitSignal(
-          apiRetryFrame({ attempt, max_retries: maxRetries }),
+          apiRetryFrame({ attempt, max_retries: 10 }),
           RETRY_OBSERVED_AT_EPOCH_MS,
         ),
-      ).toEqual({
-        cause: "plan-allowance-exhausted",
-        resetBoundary: { resetsAt: "2026-08-31T12:01:00.000Z", provenance: "runtime-derived" },
-      });
+      ).toBeNull();
     }
-    // And an absent pair is not a recognition input either — the frame is
-    // recognized on its typed members alone.
+    // The final announced retry — the point the provider has committed to
+    // failing the request on the next refusal — and anything past it, because a
+    // ladder that overran its own announced ceiling has certainly reached it.
+    for (const attempt of [10, 11]) {
+      expect(
+        classifyClaudeUsageLimitSignal(
+          apiRetryFrame({ attempt, max_retries: 10 }),
+          RETRY_OBSERVED_AT_EPOCH_MS,
+        ),
+      ).toEqual(EXHAUSTED_LADDER_SIGNAL);
+    }
+  });
+
+  it("takes the null path when the ladder members are absent, malformed, or announce no ladder", () => {
+    // FAIL-CLOSED on this axis's own rule: silence means "not known to be
+    // limited", never "known not to be limited". The run continues and an
+    // eventual failure takes the ordinary failure path, which is the recoverable
+    // direction — the opposite of parking a run against a boundary composed from
+    // members the frame did not state.
+
+    // A frame carrying NEITHER member. Written out rather than built from the
+    // fixture, because the property under test is the absence of keys the
+    // fixture always supplies — the pair is no longer merely unread, so a frame
+    // that omits it is not recognized at all.
     expect(
       classifyClaudeUsageLimitSignal(
         { type: "system", subtype: "api_retry", retry_delay_ms: 60000, error: "rate_limit" },
         RETRY_OBSERVED_AT_EPOCH_MS,
       ),
-    ).toEqual({
-      cause: "plan-allowance-exhausted",
-      resetBoundary: { resetsAt: "2026-08-31T12:01:00.000Z", provenance: "runtime-derived" },
-    });
+    ).toBeNull();
+
+    const unusableLadders: readonly Record<string, unknown>[] = [
+      { attempt: undefined, max_retries: 10 },
+      { attempt: 10, max_retries: undefined },
+      // The string form a JSON producer can emit for a number: `"10" >= "10"` is
+      // true, so a comparison written without the numeric guard would emit here.
+      { attempt: "10", max_retries: "10" },
+      { attempt: "10", max_retries: 10 },
+      { attempt: 10, max_retries: null },
+      { attempt: Number.NaN, max_retries: 10 },
+      { attempt: 10, max_retries: [10] },
+      // `max_retries: 0` announces NO ladder at all. A bare finite check would
+      // let `0 >= 0` emit a signal off a frame stating there was nothing to
+      // exhaust — the one value the positive-number guard is load-bearing at.
+      { attempt: 0, max_retries: 0 },
+      { attempt: -1, max_retries: -1 },
+    ];
+    for (const ladder of unusableLadders) {
+      expect(
+        classifyClaudeUsageLimitSignal(apiRetryFrame(ladder), RETRY_OBSERVED_AT_EPOCH_MS),
+      ).toBeNull();
+    }
   });
 
   it("returns the CAUSE ALONE when the frame carries no usable delay", () => {

@@ -2689,6 +2689,241 @@ describe("CodexDriver credential-policy strip at the spawn seam", () => {
 });
 
 // --------------------------------------------------------------------------
+// Provider-account precedence at the spawn seam (T3.17)
+// --------------------------------------------------------------------------
+
+describe("CodexDriver provider-account precedence at the spawn seam", () => {
+  const ADMITTED_ACCOUNT_ID = "account-admitted";
+  const NODE_DEFAULT_ACCOUNT_ID = "account-node-default";
+
+  /**
+   * The account the session's spawn config actually carries, read back off the
+   * record through the one surface that publishes it.
+   *
+   * `listProviderCommands` is the observable rather than a reach-in: it composes
+   * every entry's routing binding from `record.spawnConfig.providerAccountId`,
+   * which is precisely the value the composers under test produce. A private
+   * field read would assert the same number without proving it reaches the
+   * consumer that routes on it.
+   */
+  async function boundAccountId(harness: Harness): Promise<string | null> {
+    const result = await harness.driver.listProviderCommands({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+    });
+    return result.bindings[0]?.binding.providerAccountId ?? null;
+  }
+
+  function accountHarness(options: { resumeSpawnConfig?: CodexSessionConfig } = {}): Harness {
+    const harness = createHarness(
+      options.resumeSpawnConfig === undefined
+        ? {}
+        : { resumeSpawnConfig: options.resumeSpawnConfig },
+    );
+    // REQUIRED wherever a resume runs: the resume holds the new connection and
+    // the superseded one at once, and the fake's listener registry is keyed by
+    // pty session id — shared ids let the predecessor's later unsubscribe delete
+    // the live reader. A fixture artifact of the double-spawn, not a behaviour.
+    harness.server.uniqueSpawnSessionIds = true;
+    harness.server.on("thread/start", () => threadStartResult());
+    harness.server.on("thread/resume", () => threadStartResult(1));
+    harness.server.on("thread/unsubscribe", () => ({ result: {} }));
+    harness.server.on("skills/list", () => ({
+      result: {
+        data: [
+          {
+            cwd: SESSION_CWD,
+            skills: [
+              { name: "review", description: "Review a diff", scope: "repo", enabled: true },
+            ],
+            errors: [],
+          },
+        ],
+      },
+    }));
+    return harness;
+  }
+
+  it("binds a create to the TYPED member when the config bag names none", async () => {
+    // THE FAIL-OPEN THIS CLOSES. Before T3.17 was wired in, the create seam read
+    // only the untyped bag — so a caller following the typed contract spawned
+    // against whatever the node resolves as that provider's default, with the
+    // receipt's per-paying-account key still claiming the admitted one. Nothing
+    // reported the substitution, which is what made it a silent re-bill rather
+    // than a visible failure.
+    const harness = accountHarness();
+
+    await harness.driver.createSession({
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+      providerAccountId: ADMITTED_ACCOUNT_ID,
+    });
+
+    expect(await boundAccountId(harness)).toBe(ADMITTED_ACCOUNT_ID);
+  });
+
+  it("keeps the legacy config-bag channel working when the typed member is absent", async () => {
+    // The account plane is not shipped, so the bag is still how in-tree callers
+    // name an account. Making the typed member authoritative must not retire the
+    // fallback — an unchanged caller keeps its unchanged behaviour.
+    const harness = accountHarness();
+
+    await harness.driver.createSession({
+      sessionId: SESSION_ID,
+      config: { ...SESSION_CONFIG, providerAccountId: ADMITTED_ACCOUNT_ID },
+    });
+
+    expect(await boundAccountId(harness)).toBe(ADMITTED_ACCOUNT_ID);
+  });
+
+  it("binds a create when both channels agree", async () => {
+    const harness = accountHarness();
+
+    await harness.driver.createSession({
+      sessionId: SESSION_ID,
+      config: { ...SESSION_CONFIG, providerAccountId: ADMITTED_ACCOUNT_ID },
+      providerAccountId: ADMITTED_ACCOUNT_ID,
+    });
+
+    expect(await boundAccountId(harness)).toBe(ADMITTED_ACCOUNT_ID);
+  });
+
+  it("REFUSES a create whose two channels name different accounts, before anything spawns", async () => {
+    // Neither resolver may silently win. Picking the typed one would override a
+    // caller that explicitly declared an account; picking the bag would
+    // re-introduce the very silent re-bill T3.17 closed. A refusal is the only
+    // answer that cannot move a run's spend without saying so.
+    const harness = accountHarness();
+
+    const refused = await harness.driver
+      .createSession({
+        sessionId: SESSION_ID,
+        config: { ...SESSION_CONFIG, providerAccountId: NODE_DEFAULT_ACCOUNT_ID },
+        providerAccountId: ADMITTED_ACCOUNT_ID,
+      })
+      .then(
+        () => undefined,
+        (cause: unknown) => cause,
+      );
+
+    expect(refused).toBeInstanceOf(CodexDriverConfigError);
+    // The field names the TYPED member's own parameter path, so an operator is
+    // pointed at the authoritative channel rather than at the legacy one.
+    expect((refused as CodexDriverConfigError).field).toBe("CreateSessionParams.providerAccountId");
+    // Both account ids are named, because a refusal that reported only that two
+    // values disagreed would leave the operator unable to tell which resolver is
+    // wrong.
+    expect((refused as CodexDriverConfigError).message).toContain(ADMITTED_ACCOUNT_ID);
+    expect((refused as CodexDriverConfigError).message).toContain(NODE_DEFAULT_ACCOUNT_ID);
+    // Nothing was spawned at all: the composition runs before the connection
+    // object exists, so no child ever ran under an unsettled billing identity.
+    expect(harness.server.spawnRequests).toEqual([]);
+  });
+
+  it("REFUSES a present-but-empty typed member, exactly as the bag parse does", async () => {
+    // An empty string is a daemon that meant to bind an account and bound
+    // nothing, which is a different fact from a session that never had one — and
+    // only the second may enumerate under a `null` account. Enforced on the typed
+    // channel too, because it reaches the composer without passing the bag parse.
+    const harness = accountHarness();
+
+    const refused = await harness.driver
+      .createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG, providerAccountId: "" })
+      .then(
+        () => undefined,
+        (cause: unknown) => cause,
+      );
+
+    expect(refused).toBeInstanceOf(CodexDriverConfigError);
+    expect(harness.server.spawnRequests).toEqual([]);
+  });
+
+  it("binds a COLD resume to the typed member over a DIFFERENT node-wide default", async () => {
+    // THE DAEMON-RESTART CASE, and the one the manager-wide config cannot serve.
+    // `resumeSpawnConfig` is a single construction-time object — at most one
+    // account for every session on the node — so a default that moved while this
+    // node held no record would re-bill a live run mid-flight. The typed member,
+    // composed by the daemon from the durable `runtime_bindings.spawn_config`
+    // record, names the account the run was ADMITTED against and wins OUTRIGHT:
+    // the node-wide default makes no claim about this session, so a difference
+    // from it is the ordinary mid-session-default-change case rather than a
+    // disagreement, and it must not refuse.
+    const harness = accountHarness({
+      resumeSpawnConfig: { ...RESUME_SPAWN_CONFIG, providerAccountId: NODE_DEFAULT_ACCOUNT_ID },
+    });
+
+    const result = await harness.driver.resumeSession({
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+      providerAccountId: ADMITTED_ACCOUNT_ID,
+    });
+
+    expect(result.status).toBe("resumed");
+    expect(await boundAccountId(harness)).toBe(ADMITTED_ACCOUNT_ID);
+  });
+
+  it("falls back to the node-wide default on a cold resume that names no account", async () => {
+    // The unchanged legacy path, asserted so the precedence above cannot be
+    // satisfied by a composer that simply stopped reading the fallback.
+    const harness = accountHarness({
+      resumeSpawnConfig: { ...RESUME_SPAWN_CONFIG, providerAccountId: NODE_DEFAULT_ACCOUNT_ID },
+    });
+
+    await harness.driver.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
+
+    expect(await boundAccountId(harness)).toBe(NODE_DEFAULT_ACCOUNT_ID);
+  });
+
+  it("re-realizes the live record's account on a resume that names none", async () => {
+    // A resume re-realizes the credential home this leg is pinned to for its
+    // lifetime, unlike the credential policy beside it: an account that silently
+    // moved mid-session would re-key the receipt's per-paying-account axis.
+    const harness = accountHarness({
+      resumeSpawnConfig: { ...RESUME_SPAWN_CONFIG, providerAccountId: NODE_DEFAULT_ACCOUNT_ID },
+    });
+    await harness.driver.createSession({
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+      providerAccountId: ADMITTED_ACCOUNT_ID,
+    });
+
+    await harness.driver.resumeSession({ sessionId: SESSION_ID, resumeHandle: THREAD_ID });
+
+    // The RECORD's account, not the node-wide default sitting beside it.
+    expect(await boundAccountId(harness)).toBe(ADMITTED_ACCOUNT_ID);
+  });
+
+  it("REFUSES a resume whose typed member contradicts the live record, as a RESULT", async () => {
+    // The live record is what THIS session's process is actually running under,
+    // so a typed member naming a different account is two resolvers disagreeing
+    // about one session's billing identity — unlike the node-wide default, which
+    // claims nothing about this session. And I-005-5 requires the refusal to
+    // ARRIVE as the typed `failed` result: a rejection escaping `resumeSession`
+    // would be a second failure channel the recovery leg has no rule for.
+    const harness = accountHarness();
+    await harness.driver.createSession({
+      sessionId: SESSION_ID,
+      config: SESSION_CONFIG,
+      providerAccountId: ADMITTED_ACCOUNT_ID,
+    });
+    const spawnsAfterCreate = harness.server.spawnRequests.length;
+
+    const result = await harness.driver.resumeSession({
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+      providerAccountId: NODE_DEFAULT_ACCOUNT_ID,
+    });
+
+    expect(result.status).toBe("failed");
+    // No second child was spawned: the refusal lands before `open()`.
+    expect(harness.server.spawnRequests).toHaveLength(spawnsAfterCreate);
+    // And a failed resume changes NOTHING — the predecessor is still live and
+    // still bound to the account it was admitted against.
+    expect(await boundAccountId(harness)).toBe(ADMITTED_ACCOUNT_ID);
+  });
+});
+
+// --------------------------------------------------------------------------
 // The mutually-exclusive posture pair on `turn/start`
 // --------------------------------------------------------------------------
 
