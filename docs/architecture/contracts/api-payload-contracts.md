@@ -1402,7 +1402,7 @@ interface ProviderModel {
   id: string;
   name: string;
   capabilities: string[];
-  effortLevels?: string[]; // per-model reasoning-effort vocabulary (provider vocabularies differ: Claude low..max; Codex minimal..xhigh — Spec-005 §Provider Parameter Vocabularies, campaign B3); absent = the model exposes no effort selection
+  effortLevels?: string[]; // per-model reasoning-effort vocabulary, copied verbatim from the provider's own catalog read — the lists differ per model WITHIN one provider, so there is no provider-wide list (Spec-005 §Provider Parameter Vocabularies, corrected 2026-08-30); absent = the model exposes no effort selection
 }
 
 interface ProviderMode {
