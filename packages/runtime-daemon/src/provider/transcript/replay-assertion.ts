@@ -384,10 +384,22 @@ export class ReplayTargetAbandonedError extends Error {
  * turns than were seeded, which is tolerated, and its tail still matches).
  * Retiring on success makes that reachable only by establishing a new target.
  *
- * Deliberately in-memory and NOT durable. A restart loses the record, and that is
- * correct rather than a gap: a target is reachable only through a handle a
- * caller holds, and a daemon that restarted holds none — the sessions this
- * ledger names are unreferenceable by the time it is empty again.
+ * Deliberately in-memory and NOT durable, and the restart story is layered
+ * rather than assumed. A restart loses the record, but a burned target does not
+ * thereby become seedable: a replay dispatch resolves only LIVE session
+ * records, so a stale handle refuses outright, and turning it live again takes
+ * a resume — an act the one specified caller never performs against a used
+ * target, because a durable pending switch re-arms into a NEW application that
+ * establishes a FRESH target (a partially-seeded or consumed one is never
+ * reused across attempts). The resume path additionally rebuilds the record's
+ * turn ledger from the provider's own turn list, so the entrance freshness
+ * gate re-arms wherever the provider reports the seeded conversation as turns
+ * — though whether the injection surface's items register as turns there is
+ * unmeasured at this pin, which is why the caller contract above, not the
+ * resume rebuild, is the load-bearing layer. Making this ledger durable would
+ * buy enforcement only against a caller already violating that contract, at
+ * the price of a table for entries that are unreferenceable in every conforming
+ * execution.
  *
  * DELIBERATELY UNCAPPED, and cheaply so: one short string per replay target this
  * process ever established, which is one per reconstitution rather than one per
