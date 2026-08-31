@@ -987,6 +987,20 @@ export function readCodexAskOptionSet(method: string, params: unknown): CodexAsk
  * provider would not recognize. The sibling `description` is deliberately not
  * carried: `ProviderAskOption` has two members and folding a third field into
  * either would put explanatory prose where an answer or a caption goes.
+ *
+ * ELIGIBILITY IS THE TOTAL ASK SHAPE, NOT THE OPTION-BEARING COUNT — the same
+ * rule {@link readCodexElicitationOptionSet} states for a form's properties,
+ * and it holds here for the same reason. This ask's answer covers EVERY
+ * question it declares, and `ProviderAskOption` carries a value and a label and
+ * NO question identity, so a flat choice set can stand in for the whole answer
+ * only where the ask declares exactly ONE question. An ask pairing a single
+ * option-bearing question with a free-text sibling would otherwise project a
+ * choice set that, whichever entry the participant picked, answers only one of
+ * the questions asked: the card would look complete and the provider would
+ * still be waiting. Counting only the OPTION-BEARING questions is exactly what
+ * made that shape look eligible, so the count that decides is the ask's own
+ * question count — which subsumes the several-option-bearing-questions case
+ * rather than sitting beside it.
  */
 function readCodexRequestUserInputOptionSet(params: unknown): CodexAskOptionSetReading {
   if (!isPlainObject(params)) {
@@ -1005,12 +1019,15 @@ function readCodexRequestUserInputOptionSet(params: unknown): CodexAskOptionSetR
   if (optionBearing.length === 0) {
     return ABSENT_ASK_OPTION_SET;
   }
-  if (optionBearing.length > 1) {
+  // The ASK's question count, which is the number that explains the drop —
+  // never the option-bearing subset, which is exactly the count whose smallness
+  // made a mixed-question ask look answerable.
+  if (questions.length > 1) {
     return {
       kind: "dropped",
       reason:
-        "the ask declares more than one option-bearing question and a single flat choice set would answer none of them",
-      declaredCount: optionBearing.length,
+        "the ask declares more than one question and a single flat choice set carries no question identity, so no answer built from it could satisfy the ask",
+      declaredCount: questions.length,
     };
   }
   const declared = optionBearing[0]?.["options"];
@@ -1297,6 +1314,27 @@ function readRoutedAskTurnId(params: unknown): CodexRoutedAskTurnIdReading {
 }
 
 /**
+ * The refusal text one unattributable routed ask is answered with.
+ *
+ * Composed from the BOUNDED reading rather than the raw params: this string is
+ * read back by the provider and lands in an operator's log, so an unbounded
+ * provider-supplied turn id would size both. The method is one of this driver's
+ * own routed descriptors and is safe to name verbatim.
+ */
+function composeRoutedAskRefusalReason(
+  method: string,
+  turnIdReading: CodexRoutedAskTurnIdReading,
+): string {
+  if (turnIdReading.recordedTurnId === null) {
+    return `The provider's "${method}" request named no turn, and this method's params require one, so the daemon cannot say which run raised it; refusing rather than attributing it to a run that did not.`;
+  }
+  if (turnIdReading.resolvableTurnId === null) {
+    return `The provider's "${method}" request named a turn id past the length this daemon reads, so it cannot be resolved to a run; refusing rather than matching a truncated prefix against a live turn.`;
+  }
+  return `The provider's "${method}" request named turn "${turnIdReading.resolvableTurnId}", which this daemon holds no live route for; refusing rather than attributing it to a run that did not raise it.`;
+}
+
+/**
  * How one routed ask was attributed to a run before the responder saw it.
  *
  * A closed union rather than a nullable run id, because the three outcomes are
@@ -1449,19 +1487,35 @@ function readCodexCompactionBoundaryPosition(params: unknown): number | null {
  *     disabled command from one that does not exist. `enabled` is carried
  *     VERBATIM from the provider's Boolean and is absent — never a synthesized
  *     `true` — if the provider published no Boolean at all.
- *   • An EMPTY OR WHITESPACE-ONLY `description` becomes ABSENT rather than
- *     being carried through. `SkillMetadata.description` is a REQUIRED string
- *     at the pin and a skill file may legitimately leave it blank, while the
- *     normalized member is bounded by `wireFreeFormString`, which rejects
- *     empty and whitespace-only. Carrying it would refuse the entry; absence
- *     is the honest statement that the provider described nothing.
- *   • An UNREADABLE `description` or `scope` — over-length, NUL-bearing, wrong
- *     type — likewise becomes ABSENT and NEVER drops the entry. A command whose
- *     caption could not be carried is still a command that exists, and hiding
- *     it would be a worse loss than losing its caption.
+ *   • AN UNDECLARED FIELD AND A REJECTED ONE ARE DIFFERENT READINGS, and
+ *     collapsing them is what this reader must not do. Absence on this contract
+ *     is a POSITIVE CLAIM — `description` absent means the provider published
+ *     none, `scope` absent means it stated none, never that either is unknown —
+ *     so silently erasing a declaration the bounds refused would publish a claim
+ *     the provider never made, and a scoped skill would read as an unscoped one.
+ *   • UNDECLARED, per field and per what the pin publishes. An absent key or an
+ *     explicit `null` is undeclared for both. For `description` an EMPTY or
+ *     WHITESPACE-ONLY string is undeclared too: `SkillMetadata.description` is a
+ *     REQUIRED string at the pin, so a skill file that leaves it blank has no
+ *     other way to say "none". For `scope` a blank string is NOT undeclared —
+ *     the pin publishes `scope` only where one is declared, so a provider with
+ *     no scope omits the member, and a present-but-blank one is malformed rather
+ *     than a stated absence.
+ *   • A REJECTED `description` or `scope` — over-length, NUL-bearing, wrong type,
+ *     or (for `scope`) blank — becomes absent AND IS RECORDED. The entry is still
+ *     returned: a command whose caption could not be carried is still a command
+ *     that exists, and hiding it would be a worse loss than losing its caption.
+ *     What changes is that the erasure is no longer silent.
  *   • An UNREADABLE `name` DOES drop the entry, and it is the only field that
  *     does. The name is what identifies the command; an entry without one names
- *     nothing a consumer could show, route, or reason about.
+ *     nothing a consumer could show, route, or reason about. The drop is
+ *     recorded on the same channel.
+ *
+ * THE RECORDS ARE RETURNED, NOT EMITTED. This function is PURE — the doctrine
+ * `readCodexAskOptionSet` states one band over: a reader that emitted would need
+ * the manager's emitter and its session id, and would stop being testable against
+ * a payload alone. It reports what it could not read and the seam that holds both
+ * decides what that is worth.
  *
  * `providerAccountId` is passed through as the session bound it, `null`
  * included. A `null` is the stated absence of a bound account — never `""`,
@@ -1481,15 +1535,16 @@ function readCodexCompactionBoundaryPosition(params: unknown): number | null {
 function readCodexProviderCommandEntries(
   response: unknown,
   providerAccountId: string | null,
-): readonly ProviderCommandEntry[] {
+): CodexProviderCommandReading {
   if (!isPlainObject(response)) {
-    return CODEX_EMPTY_PROVIDER_COMMAND_ENTRIES;
+    return CODEX_EMPTY_PROVIDER_COMMAND_READING;
   }
   const groups = response["data"];
   if (!Array.isArray(groups)) {
-    return CODEX_EMPTY_PROVIDER_COMMAND_ENTRIES;
+    return CODEX_EMPTY_PROVIDER_COMMAND_READING;
   }
   const entries: ProviderCommandEntry[] = [];
+  const rejections: CodexProviderCommandRejection[] = [];
   for (const group of groups) {
     if (!isPlainObject(group)) {
       continue;
@@ -1499,13 +1554,38 @@ function readCodexProviderCommandEntries(
       continue;
     }
     for (const skill of skills) {
-      const entry = readCodexProviderCommandEntry(skill, providerAccountId);
-      if (entry !== null) {
-        entries.push(deepFreezeProviderCommandEntry(entry));
+      const reading = readCodexProviderCommandEntry(skill, providerAccountId);
+      if (reading.entry !== null) {
+        entries.push(deepFreezeProviderCommandEntry(reading.entry));
       }
+      rejections.push(...reading.rejections);
     }
   }
-  return Object.freeze(entries);
+  return { entries: Object.freeze(entries), rejections: Object.freeze(rejections) };
+}
+
+/**
+ * One field of one published entry that the contract's bounds refused.
+ *
+ * `dropped` says what the refusal COST: the entry itself for a name, only the
+ * field for a caption or a scope. The value never rides along — it is the
+ * untrusted, possibly NUL-bearing, possibly enormous string a bound just
+ * rejected, and a record is not the place to re-admit it. Its LENGTH does,
+ * because that is what tells an operator which bound was the one that fired.
+ */
+interface CodexProviderCommandRejection {
+  readonly rejectedField: "name" | "description" | "scope";
+  readonly dropped: boolean;
+  /** `null` where the provider published no string at all for the name. */
+  readonly nameLength: number | null;
+  /** `null` where the refused value was not a string. */
+  readonly rejectedValueLength: number | null;
+}
+
+/** One `skills/list` reply's entries, and every field reading it refused. */
+interface CodexProviderCommandReading {
+  readonly entries: readonly ProviderCommandEntry[];
+  readonly rejections: readonly CodexProviderCommandRejection[];
 }
 
 /**
@@ -1515,7 +1595,10 @@ function readCodexProviderCommandEntries(
  * would then be the only paths on this leg whose result a consumer could push
  * onto — the shape a reader must not have to reason about.
  */
-const CODEX_EMPTY_PROVIDER_COMMAND_ENTRIES: readonly ProviderCommandEntry[] = Object.freeze([]);
+const CODEX_EMPTY_PROVIDER_COMMAND_READING: CodexProviderCommandReading = Object.freeze({
+  entries: Object.freeze([]),
+  rejections: Object.freeze([]),
+});
 
 /**
  * Freeze one composed entry AND its nested binding, without widening its type.
@@ -1547,17 +1630,90 @@ const codexProviderCommandScopeSchema = wireFreeFormString(
   "ProviderCommandEntry.scope",
 );
 
-/** One `SkillMetadata`, normalized — or `null` where it names no command. */
+/**
+ * One optional field of a published entry, read three ways.
+ *
+ * The third arm is the one this shape exists for: without it a rejected value
+ * and an undeclared one are the same `undefined`, and the contract reads that
+ * `undefined` as a positive claim the provider never made.
+ */
+type CodexProviderCommandFieldReading =
+  | { readonly kind: "read"; readonly value: string }
+  | { readonly kind: "undeclared" }
+  | { readonly kind: "rejected"; readonly valueLength: number | null };
+
+/**
+ * Read one optional entry field against its bound.
+ *
+ * `blankIsUndeclared` is per-field rather than universal, because the two pinned
+ * members differ in whether a blank string can be a statement at all — see the
+ * per-field bullets on {@link readCodexProviderCommandEntries}.
+ */
+function readCodexProviderCommandField(
+  raw: unknown,
+  // Typed from the sibling const rather than as `z.ZodString`: this module
+  // imports no zod, and naming the schema it is actually called with keeps the
+  // bound and its reader from drifting apart.
+  schema: typeof codexProviderCommandDescriptionSchema,
+  blankIsUndeclared: boolean,
+): CodexProviderCommandFieldReading {
+  if (raw === undefined || raw === null) {
+    return { kind: "undeclared" };
+  }
+  if (blankIsUndeclared && typeof raw === "string" && raw.trim().length === 0) {
+    return { kind: "undeclared" };
+  }
+  const parsed = schema.safeParse(raw);
+  if (parsed.success) {
+    return { kind: "read", value: parsed.data };
+  }
+  return { kind: "rejected", valueLength: typeof raw === "string" ? raw.length : null };
+}
+
+/** One `SkillMetadata`, normalized, with every field reading it refused. */
 function readCodexProviderCommandEntry(
   skill: unknown,
   providerAccountId: string | null,
-): ProviderCommandEntry | null {
+): {
+  readonly entry: ProviderCommandEntry | null;
+  readonly rejections: CodexProviderCommandRejection[];
+} {
   if (!isPlainObject(skill)) {
-    return null;
+    // Not an entry at all rather than an entry with an unreadable field: there
+    // is no name to attribute a record to, and reporting a length for a value
+    // that is not even an object would say nothing an operator could act on.
+    return { entry: null, rejections: [] };
   }
-  const description = codexProviderCommandDescriptionSchema.safeParse(skill["description"]);
-  const scope = codexProviderCommandScopeSchema.safeParse(skill["scope"]);
+  const rawName = skill["name"];
+  const nameLength = typeof rawName === "string" ? rawName.length : null;
+  const description = readCodexProviderCommandField(
+    skill["description"],
+    codexProviderCommandDescriptionSchema,
+    true,
+  );
+  const scope = readCodexProviderCommandField(
+    skill["scope"],
+    codexProviderCommandScopeSchema,
+    false,
+  );
   const enabled = skill["enabled"];
+  const rejections: CodexProviderCommandRejection[] = [];
+  if (description.kind === "rejected") {
+    rejections.push({
+      rejectedField: "description",
+      dropped: false,
+      nameLength,
+      rejectedValueLength: description.valueLength,
+    });
+  }
+  if (scope.kind === "rejected") {
+    rejections.push({
+      rejectedField: "scope",
+      dropped: false,
+      nameLength,
+      rejectedValueLength: scope.valueLength,
+    });
+  }
   // Composed and then parsed ONCE, rather than field-by-field asserted: the
   // contract's own entry schema is the single bounding point, so a field this
   // driver forgot to bound is refused by the shape rather than admitted by an
@@ -1565,10 +1721,10 @@ function readCodexProviderCommandEntry(
   // absence is a decision recorded here rather than a whole-entry refusal
   // decided by the parse.
   const candidate = {
-    name: skill["name"],
+    name: rawName,
     kind: "skill" as const,
-    ...(description.success ? { description: description.data } : {}),
-    ...(scope.success ? { scope: scope.data } : {}),
+    ...(description.kind === "read" ? { description: description.value } : {}),
+    ...(scope.kind === "read" ? { scope: scope.value } : {}),
     ...(typeof enabled === "boolean" ? { enabled } : {}),
     // `driverName` is the module's own identity rather than a parameter: the
     // half of the routing pair that says WHICH PROVIDER produced an entry is a
@@ -1577,7 +1733,17 @@ function readCodexProviderCommandEntry(
     binding: { driverName: CODEX_DRIVER_NAME, providerAccountId },
   };
   const parsed = ProviderCommandEntrySchema.safeParse(candidate);
-  return parsed.success ? parsed.data : null;
+  if (parsed.success) {
+    return { entry: parsed.data, rejections };
+  }
+  // Only the name can still fail here: both captions were pre-narrowed to a
+  // value the schema admits or to absence. Reported as the DROP it is, and the
+  // field-level records are discarded with the entry they described — a caption
+  // record for a row nobody will see is noise.
+  return {
+    entry: null,
+    rejections: [{ rejectedField: "name", dropped: true, nameLength, rejectedValueLength: null }],
+  };
 }
 
 /**
@@ -2120,21 +2286,31 @@ export type CodexTransportDiagnostic =
   | { kind: "callback-tools-withheld"; withheldToolCount: number; reason: string }
   | { kind: "server-request-responder-failed"; method: string; detail: string }
   /**
-   * A routed ask named a `turnId` this daemon holds no live route for, or
-   * carried none at all on a shape whose pinned params REQUIRE one.
+   * A routed ask NAMED a turn this daemon holds no live route for.
    *
-   * `disposition` is what the ask kind decided. A `callback-tool` invocation is
-   * `refused`: its params type carries a required non-nullable `turnId`, so an
-   * unresolvable one means the daemon cannot say which run's tool registry and
-   * approval seam should adjudicate it, and attributing it to whichever run
-   * happens to be sole-active would run another run's tool. An `approval` is
-   * `attributed-by-sole-active-run`: refusing there would DECLINE a legitimate
-   * approval over a bookkeeping gap, and two of the routed approval shapes
-   * publish no `turnId` member at all, so the fallback is the normal path for
-   * them rather than a degradation.
+   * EVERY RECORD ON THIS ARM IS A REFUSAL, whatever the ask kind, and the
+   * uniformity is the decision: a request that names a turn is making a claim
+   * about which run raised it, and when that claim cannot be resolved the
+   * daemon has one true answer — it does not know. The sole-active fallback
+   * would substitute a DIFFERENT run's identity and authorization context for
+   * the one the provider named, and an approval decided under that substitution
+   * is evaluated, persisted, and projected against a run that never asked for
+   * it. That is a worse outcome than a declined approval, which the participant
+   * sees and can retry.
    *
-   * `turnId` is bounded at the reader (`readRoutedAskTurnId`) and is `null`
-   * when the ask named none or named one past that bound.
+   * THE FALLBACK IS NOT DELETED — it is scoped to the shapes it was always for.
+   * Neither `ExecCommandApprovalParams` nor `ApplyPatchApprovalParams` publishes
+   * a `turnId` member at all, and `McpServerElicitationRequestParams` publishes
+   * a nullable one whose own generated comment records that elicitation identity
+   * is not turn-scoped. Those asks name no turn, make no claim to contradict,
+   * and reach no record here: for them the heuristic IS the attribution.
+   *
+   * `disposition` is retained as the record's own statement of the outcome even
+   * though it now holds one value, so a later second disposition is an addition
+   * rather than a field that has to be reintroduced.
+   *
+   * `turnId` is bounded at the reader (`readRoutedAskTurnId`) and carries the
+   * BOUNDED PREFIX when the ask named one past that bound.
    */
   | {
       kind: "routed-ask-turn-unresolved";
@@ -2147,7 +2323,7 @@ export type CodexTransportDiagnostic =
        * too long to be one.
        */
       turnIdTruncated: boolean;
-      disposition: "refused" | "attributed-by-sole-active-run";
+      disposition: "refused";
     }
   /**
    * The composed answer to a routed ask exceeded
@@ -4669,6 +4845,35 @@ function newestActiveTurnForRun(record: CodexSessionRecord, runId: RunId): strin
   return newest;
 }
 
+/**
+ * The run whose turn is currently active on ONE session record, or `null`.
+ *
+ * Record-scoped rather than session-id-scoped, and the distinction is the whole
+ * reason it is a function rather than a loop inside its caller: a resume
+ * installs a FRESH record for the same session id, so re-resolving by id after
+ * an await answers about whichever record is installed NOW, which may not be the
+ * one the answer being stamped came from. A caller that already holds the record
+ * it read through passes that record and gets an attribution that cannot name a
+ * successor's run.
+ *
+ * Answered only when every live turn on the record belongs to ONE run — the
+ * reasoning is stated in full on {@link CodexSessionManager.#activeRunIdFor},
+ * which is this function under a session id.
+ */
+function soleActiveRunIdIn(record: CodexSessionRecord): RunId | null {
+  let soleActiveRunId: RunId | null = null;
+  for (const runId of record.runIdByActiveTurnId.values()) {
+    if (soleActiveRunId === null) {
+      soleActiveRunId = runId;
+      continue;
+    }
+    if (soleActiveRunId !== runId) {
+      return null;
+    }
+  }
+  return soleActiveRunId;
+}
+
 /** A session slot held for the duration of one in-flight lifecycle transition. */
 interface CodexSessionTransition {
   readonly kind: CodexSessionTransitionKind;
@@ -6527,6 +6732,15 @@ export class CodexLifecycleManager {
    * is attributable and picking one would be a coin flip presented as
    * provenance. The key is always present; absence is stated, never
    * synthesized.
+   *
+   * AND IT IS RESOLVED FROM THE RECORD THIS READ WENT THROUGH. Every member of
+   * the reply — the account id, the entries, the run — describes ONE provider
+   * process, and a session's record is replaced wholesale by a successful
+   * resume. Resolving the run half by session id after the read's await would
+   * therefore let a resume that landed mid-flight stamp its own run onto a
+   * predecessor's enumeration: the epoch check stops that reading from being
+   * cached but still returns it to its own caller, which is correct, so the
+   * provenance stamped on it must be the predecessor's too.
    */
   async listProviderCommands(
     params: ListProviderCommandsParams,
@@ -6553,7 +6767,18 @@ export class CodexLifecycleManager {
     return {
       bindings: [
         {
-          runId: this.#activeRunIdFor(params.sessionId),
+          // THE RECORD THIS READ WENT THROUGH, never a fresh lookup by session
+          // id. A successful `resumeSession` landing while the `skills/list`
+          // request above is in flight installs a NEW record for the same
+          // session: the epoch check already stops the predecessor's reading
+          // from being cached, but an id-keyed re-resolution here would still
+          // stamp the SUCCESSOR's active run onto an enumeration read from the
+          // predecessor's process — a provenance claim that is simply false,
+          // and the one thing this key exists to state. Reading the record
+          // directly makes the pair `{ runId, providerAccountId }` describe one
+          // process, and a predecessor whose routes the resume already retired
+          // answers `null`, which is the honest absence this shape defines.
+          runId: soleActiveRunIdIn(record),
           binding: { driverName: CODEX_DRIVER_NAME, providerAccountId },
           entries,
           complete,
@@ -6576,6 +6801,12 @@ export class CodexLifecycleManager {
    * The re-check reads the map DIRECTLY rather than through the mint-if-absent
    * capture, so a session torn down mid-flight is not resurrected by one epoch
    * entry the teardown has already swept.
+   *
+   * THE REFUSED FIELD READINGS ARE REPORTED HERE, at the READ rather than at
+   * every palette open. The enumeration is read once and held, so emitting from
+   * the reply the caller happened to be served would turn one provider fault
+   * into a record per palette open — and re-emitting for a list this session
+   * already reported would say the provider published it again.
    */
   async #heldProviderCommandsFor(
     sessionId: SessionId,
@@ -6588,11 +6819,55 @@ export class CodexLifecycleManager {
     }
     const readEpoch = this.#providerCommandEnumerationEpochFor(sessionId);
     const response = await record.connection.request(CODEX_SKILLS_LIST_METHOD, {});
-    const entries = readCodexProviderCommandEntries(response, providerAccountId);
-    if (this.#providerCommandEnumerationEpochs.get(sessionId) === readEpoch) {
-      this.#providerCommandEnumerations.set(sessionId, entries);
+    const reading = readCodexProviderCommandEntries(response, providerAccountId);
+    for (const rejection of reading.rejections) {
+      this.#reportProviderCommandEntryRejected(sessionId, rejection);
     }
-    return entries;
+    if (this.#providerCommandEnumerationEpochs.get(sessionId) === readEpoch) {
+      this.#providerCommandEnumerations.set(sessionId, reading.entries);
+    }
+    return reading.entries;
+  }
+
+  /**
+   * Record one published entry field the contract's bounds refused.
+   *
+   * WHAT THIS EXISTS TO PREVENT is a silent erasure reading as a statement.
+   * `ProviderCommandEntry` says absence POSITIVELY — no description published,
+   * no scope stated — so a field dropped because it was over-length or
+   * NUL-bearing would otherwise reach a consumer as a claim the provider never
+   * made, and a scoped skill would be published as an unscoped one.
+   *
+   * `dropped` is the difference between the two costs, and both keep the
+   * censused kind: a name that could not be read costs the whole entry, and a
+   * caption or scope costs only itself. The VALUE is never carried — it is
+   * exactly the untrusted string a bound just rejected — while the lengths are,
+   * because they say which bound fired.
+   *
+   * This is the record the sibling Claude driver's composer already emits for
+   * its own rejected entries; the two drivers now report the same condition on
+   * the same kind rather than one of them recording nothing.
+   */
+  #reportProviderCommandEntryRejected(
+    sessionId: SessionId,
+    rejection: CodexProviderCommandRejection,
+  ): void {
+    this.#options.diagnostics.emit({
+      provider: CODEX_DRIVER_NAME,
+      kind: "provider_command_entry_rejected",
+      rawWireType: CODEX_SKILLS_LIST_METHOD,
+      dispositionReason: rejection.dropped
+        ? "the provider published a command or skill entry the contract's own bounds refuse; it is dropped from this reply and its siblings are unaffected"
+        : "the provider declared a command or skill field the contract's own bounds refuse; the entry is kept and the field reads ABSENT, which on this contract means the provider declared none",
+      details: {
+        sessionId,
+        entryKind: "skill",
+        rejectedField: rejection.rejectedField,
+        dropped: rejection.dropped,
+        nameLength: rejection.nameLength,
+        rejectedValueLength: rejection.rejectedValueLength,
+      },
+    });
   }
 
   /**
@@ -7930,23 +8205,37 @@ export class CodexLifecycleManager {
    * hold live turns on one session, and the only one that stays correct for a
    * request the provider delays past the end of an earlier run.
    *
-   * THE TWO DISPOSITIONS FOR AN UNRESOLVABLE TURN DIFFER BY ASK KIND, because
-   * the consequences do:
+   * AN ASK THAT NAMES A TURN AND CANNOT BE RESOLVED IS REFUSED — every kind,
+   * not only `callback-tool`. Naming a turn is a CLAIM about which run raised
+   * the ask, and the sole-active fallback answers a claim it cannot verify by
+   * substituting a different run: a provider request delayed past its own turn's
+   * retirement would then be evaluated, persisted, and projected under a NEWER
+   * run's identity and authorization context. For an approval that is strictly
+   * worse than declining it — a decline is visible to the participant and
+   * retryable, while an approval decided against the wrong run is neither, and
+   * the authorization it was granted under is not the one the caller asked for.
    *
-   *   `callback-tool` — REFUSED, fail-closed and recorded. `DynamicToolCallParams`
-   *   carries a required non-nullable `turnId` at the pin, so an absent or
-   *   unresolvable one is not a shape this daemon can attribute. Falling back
-   *   to the sole-active run here would dispatch one run's tool call against
-   *   another run's registry and approval seam.
+   * THE ELIGIBILITY IS THE PRESENCE OF A TURN CLAIM, NOT THE ASK KIND, and the
+   * over-long case is inside it rather than beside it: a `turnId` past the
+   * reader's bound is a turn NAMED and not resolvable, so it refuses too. A
+   * truncated prefix could match a shorter live turn, which is the one way this
+   * seam could attribute an ask to a run by coincidence.
    *
-   *   `approval` — FALLS BACK to the sole-active heuristic below, recorded.
-   *   Refusing would DECLINE a real approval over a bookkeeping gap, and the
-   *   fallback is not a degradation for the legacy pair at all: neither
-   *   `ExecCommandApprovalParams` nor `ApplyPatchApprovalParams` publishes a
-   *   `turnId` member, and `McpServerElicitationRequestParams` publishes a
-   *   nullable one whose own generated comment records that elicitation
-   *   identity is not turn-scoped. For those shapes the heuristic IS the
-   *   attribution, which is why it is retained rather than deleted.
+   * `callback-tool` REFUSES EVEN WITH NO TURN NAMED, and that is the one place
+   * the ask kind still decides anything. `DynamicToolCallParams` carries a
+   * required non-nullable `turnId` at the pin, so an absent one is not a shape
+   * this daemon can attribute at all — the missing member is itself the fault —
+   * and falling back would dispatch one run's tool call against another run's
+   * registry and approval seam.
+   *
+   * THE FALLBACK IS RETAINED FOR THE SHAPES THAT CARRY NO TURN IDENTITY AT ALL,
+   * which is what it was always for: neither `ExecCommandApprovalParams` nor
+   * `ApplyPatchApprovalParams` publishes a `turnId` member, and
+   * `McpServerElicitationRequestParams` publishes a nullable one whose own
+   * generated comment records that elicitation identity is not turn-scoped.
+   * Those asks contradict nothing, so the heuristic IS their attribution and
+   * refusing them would decline real approvals over the pinned protocol working
+   * as designed.
    */
   #attributeRoutedAsk(
     sessionId: SessionId,
@@ -7960,47 +8249,53 @@ export class CodexLifecycleManager {
         return { outcome: "attributed", runId: routedRunId };
       }
     }
-    if (request.askKind !== "callback-tool") {
-      if (turnIdReading.recordedTurnId !== null) {
-        // Only recorded when a turn WAS named: a shape that publishes no
-        // `turnId` reaching the fallback is the pinned protocol working, and a
-        // diagnostic per legacy approval would be noise, not signal.
-        this.#reportRoutedAskTurnUnresolved(
-          sessionId,
-          request.method,
-          turnIdReading,
-          "attributed-by-sole-active-run",
-        );
-      }
+    if (turnIdReading.recordedTurnId === null && request.askKind !== "callback-tool") {
+      // NO TURN CLAIM ON THE WIRE, on a shape whose params do not require one.
+      // A legacy approval publishing no `turnId` — or the elicitation shape
+      // publishing its nullable one as `null` — reaching the fallback is the
+      // pinned protocol working, so it is neither refused nor recorded: a
+      // diagnostic per legacy approval would be noise, not signal.
       return { outcome: "unattributed", runId: this.#activeRunIdFor(sessionId) };
     }
-    this.#reportRoutedAskTurnUnresolved(sessionId, request.method, turnIdReading, "refused");
+    this.#reportRoutedAskTurnUnresolved(sessionId, request.method, turnIdReading, request.askKind);
     return {
       outcome: "refused",
       // The reason is read BACK by the provider, so it carries the bounded
-      // rendering and never the raw field.
-      reason:
-        resolvableTurnId === null
-          ? "The callback-tool invocation named no resolvable turn, so the daemon cannot say which run's tool registry adjudicates it; refusing rather than guessing a run."
-          : `The callback-tool invocation named turn "${resolvableTurnId}", which this daemon holds no live route for; refusing rather than adjudicating it against another run's registry.`,
+      // rendering and never the raw field. It names the METHOD rather than a
+      // fixed ask kind, because both kinds reach this arm now and a refusal
+      // that misnamed the request would send an operator to the wrong band.
+      //
+      // THREE CAUSES, NAMED SEPARATELY, because they have three different
+      // fixes: a shape that carried no turn at all where its params require
+      // one, a turn named past the reader's bound, and a turn named that this
+      // daemon holds no live route for.
+      reason: composeRoutedAskRefusalReason(request.method, turnIdReading),
     };
   }
 
   /**
-   * Record one unresolvable routed-ask turn on BOTH sinks for the refusal arm.
+   * Record one refused routed ask that named an unresolvable turn.
    *
-   * The duplication follows the withheld-registry precedent in this file: the
-   * transport-local arm is this driver's own structured record, and the
-   * censused kind is the one the daemon's counters name. A refused callback
-   * invocation that appeared only on the local arm would be invisible to every
-   * operator surface reading the counters. The fallback arm takes the local arm
-   * only — nothing was refused, so counting it as a refusal would overstate.
+   * THE TRANSPORT-LOCAL ARM TAKES EVERY REFUSAL; THE CENSUSED KIND TAKES ONLY
+   * THE CALLBACK-TOOL ONES, and the asymmetry is about what the counter MEANS
+   * rather than about which refusal matters. `callback_tool_invocation_refused`
+   * counts callback-tool invocations refused before adjudication — its counter
+   * is named `driver.callback_tool.invocation_refused` — so routing an approval
+   * refusal through it would not widen the operator's view, it would corrupt a
+   * count another surface reads. The censused vocabulary carries no kind for a
+   * refused interactive request, and minting one here would put a counter ahead
+   * of every surface that reads it.
+   *
+   * The approval refusal is therefore recorded on the transport arm alone,
+   * where it names its own method — a real narrowing of operator visibility,
+   * stated here rather than hidden, and the reason a censused kind for it is
+   * the natural next growth if a counter surface ever needs one.
    */
   #reportRoutedAskTurnUnresolved(
     sessionId: SessionId,
     method: string,
     turnIdReading: CodexRoutedAskTurnIdReading,
-    disposition: "refused" | "attributed-by-sole-active-run",
+    askKind: "callback-tool" | "approval",
   ): void {
     const turnId = turnIdReading.recordedTurnId;
     const turnIdTruncated = turnIdReading.recordedTurnIdTruncated;
@@ -8009,9 +8304,9 @@ export class CodexLifecycleManager {
       method,
       turnId,
       turnIdTruncated,
-      disposition,
+      disposition: "refused",
     });
-    if (disposition !== "refused") {
+    if (askKind !== "callback-tool") {
       return;
     }
     this.#options.diagnostics.emit({
@@ -8029,10 +8324,15 @@ export class CodexLifecycleManager {
   /**
    * The run whose turn is currently active on a session, or `null`.
    *
+   * The session-id-keyed form of {@link soleActiveRunIdIn}: it resolves the
+   * record and folds it. A caller that ALREADY holds the record an answer came
+   * from calls that function directly, because re-resolving by id after an
+   * await can answer about a successor record a resume installed.
+   *
    * Answered only when every live turn on the session belongs to ONE run. This
-   * is the FALLBACK arm of `#attributeRoutedAsk`, reached only by an ask whose
-   * shape carries no usable `turnId` — never by a callback-tool invocation,
-   * which refuses instead. With turns from TWO runs live there is nothing left
+   * is the FALLBACK arm of `#attributeRoutedAsk`, reached only by an ask that
+   * names NO turn at all — never by one whose named turn failed to resolve,
+   * whatever its kind, which refuses instead. With turns from TWO runs live there is nothing left
    * to disambiguate them with, and picking either would attribute the ask, and
    * its `driver_ask.requested` projection, to a run that may not have raised
    * it. But the count that decides is of RUNS, not turns:
@@ -8054,17 +8354,7 @@ export class CodexLifecycleManager {
     if (record === undefined) {
       return null;
     }
-    let soleActiveRunId: RunId | null = null;
-    for (const runId of record.runIdByActiveTurnId.values()) {
-      if (soleActiveRunId === null) {
-        soleActiveRunId = runId;
-        continue;
-      }
-      if (soleActiveRunId !== runId) {
-        return null;
-      }
-    }
-    return soleActiveRunId;
+    return soleActiveRunIdIn(record);
   }
 
   /**

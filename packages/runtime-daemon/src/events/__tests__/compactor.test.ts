@@ -64,7 +64,10 @@ import {
   type RollbackAttributionSource,
 } from "../compactor.js";
 import type { IngestHaltSource } from "../ingest-halt-source.js";
-import type { SessionContentKeyDisposer } from "../session-content-key-store.js";
+import type {
+  SessionContentKeyDisposer,
+  SessionContentKeySweepResult,
+} from "../session-content-key-store.js";
 import { MerkleAnchorService } from "../merkle-anchor-service.js";
 import { __resetSessionAppendLocksForTest, withSessionAppendLock } from "../session-append-lock.js";
 import type { Ed25519PrivateKey, Ed25519PublicKey } from "../signer.js";
@@ -308,6 +311,11 @@ function anchorRows(): ReadonlyArray<{ start_sequence: number; end_sequence: num
 class RecordingContentKeyDisposer implements SessionContentKeyDisposer {
   readonly sweptSessions: string[] = [];
   failure: Error | undefined;
+  /** Pass-level reconciliation calls, counted separately from the prompt path. */
+  reconciliationSweeps = 0;
+  reconciliationFailure: Error | undefined;
+  reconciliationReclaims = 0;
+  reconciliationSkips = 0;
 
   async deleteIfUnreferenced(sessionId: SessionId): Promise<boolean> {
     this.sweptSessions.push(sessionId);
@@ -315,6 +323,14 @@ class RecordingContentKeyDisposer implements SessionContentKeyDisposer {
       throw this.failure;
     }
     return true;
+  }
+
+  async sweepUnreferenced(): Promise<SessionContentKeySweepResult> {
+    this.reconciliationSweeps += 1;
+    if (this.reconciliationFailure !== undefined) {
+      throw this.reconciliationFailure;
+    }
+    return { reclaimed: this.reconciliationReclaims, skipped: this.reconciliationSkips };
   }
 }
 
@@ -1847,6 +1863,140 @@ describe("Compactor — content-key sweep", () => {
     expect(result.rowsStubbed).toBe(1);
     expect(result.outcomes[0]?.refusedReason).toContain("content-key sweep failed");
     expect(result.outcomes[0]?.refusedReason).toContain("content-key table is locked");
+  });
+
+  // --------------------------------------------------------------------------
+  // THE PASS-LEVEL RECONCILIATION, which is a different obligation
+  // --------------------------------------------------------------------------
+  //
+  // Every arm above is about the PROMPT path: the per-session disposal this
+  // pass owes for rows it just stubbed. That obligation is derived from work
+  // the pass did, so it does not survive the pass — if the call throws, or the
+  // process exits between the last stub and the call, the key is stranded and
+  // no later pass ever looks again, because there is nothing left to stub.
+  //
+  // These arms are about the reconciliation that closes that hole: it asks the
+  // DURABLE question instead — which wrapped keys exist with no live content
+  // row — so the obligation is re-derivable on every tick from state the
+  // database remembers, and it also collects the orphan class the prompt path
+  // structurally cannot see (a key minted by an append that then aborted, on a
+  // session that may never compact at all).
+  it("reconciles on every tick, including one that stubbed nothing", async () => {
+    // THE ARM THE PROMPT PATH CANNOT SATISFY. Nothing was stubbed, so no
+    // per-session disposal is owed and `sweptSessions` is empty — and the
+    // reconciliation still runs, because its question is about the table rather
+    // than about this pass's work.
+    const disposer = new RecordingContentKeyDisposer();
+    disposer.reconciliationReclaims = 2;
+    seed({ category: "session_lifecycle", type: "session.updated", payload: { note: "only" } });
+
+    const result = await buildCompactor({
+      eventCountThreshold: 50_000,
+      contentKeyDisposer: disposer,
+    }).tick();
+
+    expect(result.rowsStubbed).toBe(0);
+    expect(disposer.sweptSessions).toEqual([]);
+    expect(disposer.reconciliationSweeps).toBe(1);
+    // Surfaced on the pass result rather than folded into an outcome: the sweep
+    // spans the table, so attributing its reclaims to whichever session happened
+    // to run would be a fabricated association.
+    expect(result.contentKeysReclaimed).toBe(2);
+  });
+
+  it("collects the arrear a failed prompt disposal left behind", async () => {
+    // The two halves meeting: the per-session disposal throws — which is
+    // exactly the single-attempt failure that used to strand the key forever —
+    // and the same tick's reconciliation reclaims it anyway.
+    const disposer = new RecordingContentKeyDisposer();
+    disposer.failure = new Error("content-key table is locked");
+    disposer.reconciliationReclaims = 1;
+    seed({
+      category: "assistant_output",
+      type: "assistant.message",
+      payload: { contentType: "text/markdown" },
+      contentPayload: new Uint8Array(32).fill(9),
+    });
+    seed({ category: "session_lifecycle", type: "session.updated", payload: { note: "newest" } });
+
+    const result = await buildCompactor({
+      eventCountThreshold: 1,
+      contentKeyDisposer: disposer,
+    }).tick();
+
+    expect(result.outcomes[0]?.refusedReason).toContain("content-key sweep failed");
+    expect(result.contentKeysReclaimed).toBe(1);
+  });
+
+  it("reports a failing reconciliation without aborting the tick or blaming a session", async () => {
+    const disposer = new RecordingContentKeyDisposer();
+    disposer.reconciliationFailure = new Error("reconciliation query failed");
+    seed({
+      category: "assistant_output",
+      type: "assistant.message",
+      payload: { contentType: "text/markdown" },
+      contentPayload: new Uint8Array(32).fill(8),
+    });
+    seed({ category: "session_lifecycle", type: "session.updated", payload: { note: "newest" } });
+
+    const result = await buildCompactor({
+      eventCountThreshold: 1,
+      contentKeyDisposer: disposer,
+    }).tick();
+
+    // The pass genuinely succeeded and its counts stand.
+    expect(result.rowsStubbed).toBe(1);
+    expect(result.contentKeysReclaimed).toBe(0);
+    expect(result.contentKeySweepFailure).toContain("reconciliation query failed");
+    // NOT attributed to a session: the session compacted fine, and the sweep has
+    // no session to blame.
+    expect(result.outcomes[0]?.refusedReason).toBeUndefined();
+  });
+
+  it("distinguishes a sweep that found nothing from one that reclaimed nothing", async () => {
+    // The two readings a bare reclaim count collapses. A sweep whose candidates
+    // all threw ran, raised no failure of its own, and reclaimed zero — exactly
+    // what a healthy idle pass reports — so without the skip count the pass
+    // result cannot tell an operator that reclamation has stopped.
+    const idle = new RecordingContentKeyDisposer();
+    seed({ category: "session_lifecycle", type: "session.updated", payload: { note: "only" } });
+    const idleResult = await buildCompactor({
+      eventCountThreshold: 50_000,
+      contentKeyDisposer: idle,
+    }).tick();
+
+    const stuck = new RecordingContentKeyDisposer();
+    stuck.reconciliationSkips = 3;
+    const stuckResult = await buildCompactor({
+      eventCountThreshold: 50_000,
+      contentKeyDisposer: stuck,
+    }).tick();
+
+    expect(idleResult.contentKeysReclaimed).toBe(0);
+    expect(idleResult.contentKeysSkipped).toBe(0);
+    expect(stuckResult.contentKeysReclaimed).toBe(0);
+    expect(stuckResult.contentKeysSkipped).toBe(3);
+    // Neither is a sweep FAILURE: the sweep ran both times. The two states are
+    // separable only because they are counted separately.
+    expect(idleResult.contentKeySweepFailure).toBeUndefined();
+    expect(stuckResult.contentKeySweepFailure).toBeUndefined();
+  });
+
+  it("leaves the failure member absent when the reconciliation succeeds", async () => {
+    // The negative control for the arm above. `exactOptionalPropertyTypes` makes
+    // present-but-undefined a different value from absent, and absent is what
+    // "the sweep did not fail" means — a member that were always present would
+    // make the assertion above pass on any tick.
+    const disposer = new RecordingContentKeyDisposer();
+    seed({ category: "session_lifecycle", type: "session.updated", payload: { note: "only" } });
+
+    const result = await buildCompactor({
+      eventCountThreshold: 50_000,
+      contentKeyDisposer: disposer,
+    }).tick();
+
+    expect(Object.hasOwn(result, "contentKeySweepFailure")).toBe(false);
+    expect(result.contentKeysReclaimed).toBe(0);
   });
 
   it("sweeps each stubbing session separately", async () => {

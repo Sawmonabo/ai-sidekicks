@@ -45,9 +45,11 @@ import type {
   InterruptRunParams,
   ProviderDriver,
   ProviderModel,
+  ProviderOutputSpeedState,
   ProviderSessionHandle,
   ResumeSessionParams,
   RollbackToParams,
+  SessionId,
   SetSessionGoalParams,
   StartRunParams,
 } from "@ai-sidekicks/contracts";
@@ -243,5 +245,29 @@ export class ClaudeDriver implements ClaudeDriverOperations {
     params: ListProviderCommandsParams,
   ): Promise<ProviderCommandListResult> {
     return await this.#lifecycle.listProviderCommands(params);
+  }
+
+  /**
+   * The output-speed state this session's binding HELD from the provider's own
+   * handshake, or `undefined` where the binding holds none (T3.26).
+   *
+   * BESIDE the contract operations, not among them: it is deliberately absent
+   * from `ClaudeDriverOperations`, so the thirteen-of-eighteen count in this
+   * file's header still reads from that `Pick` and does not move. Widening
+   * `ProviderDriver` for it would mint an eighteenth-plus operation on a
+   * censused surface for a read only one of the two drivers can answer — the
+   * sibling provider publishes no speed axis at all — and a contract operation
+   * the other driver must stub is exactly the throwing-stub conflation the
+   * header rejects.
+   *
+   * It exists as a public method because the alternative is that the state has
+   * NO reader: `#lifecycle` is private, this class is what `ProviderRegistry`
+   * hands a caller, and a held observation reachable only from the band's own
+   * tests is a read-back the driver promises and cannot serve. Delegation only
+   * — the band owns the parse, the diagnostic, and the fail-closed absent
+   * answer, and this composition root adds no second reading of any of them.
+   */
+  observedOutputSpeedFor(sessionId: SessionId): ProviderOutputSpeedState | undefined {
+    return this.#lifecycle.observedOutputSpeedFor(sessionId);
   }
 }

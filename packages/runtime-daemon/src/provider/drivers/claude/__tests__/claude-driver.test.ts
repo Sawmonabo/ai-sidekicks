@@ -20,6 +20,7 @@ import {
   CLAUDE_STEER_FALLBACK_ACTION,
   composeClaudeProviderToolName,
   type ClaudeDriverOperations,
+  type ClaudeHandshakeDeclaration,
 } from "../index.js";
 import {
   bindCallbackToolsForSpawn,
@@ -126,6 +127,50 @@ describe("ClaudeDriver", () => {
     // is written — the fail-closed reading of "not yet known".
     expect(compaction).toStrictEqual({ status: "refused", reason: "command_absent" });
     expect(harness.transport.spawnedChannels[0]?.sentWireTexts).toStrictEqual([]);
+  });
+
+  it("serves the binding-held output-speed observation through the EXTERNALLY reachable driver", async () => {
+    // The read-back T3.26 promises has exactly one reader — the lifecycle band's
+    // `observedOutputSpeedFor` — and the band is a PRIVATE field of this class.
+    // What a `ProviderRegistry` caller holds is the driver, so without this
+    // accessor the held state is reachable only from the band's own tests.
+    const harness = buildHarness();
+    await harness.driver.createSession(buildCreateSessionParams());
+
+    // Absent before the handshake: neither establishment path may block for it
+    // or spend a turn to provoke it.
+    expect(harness.driver.observedOutputSpeedFor(TEST_SESSION_ID)).toBeUndefined();
+
+    harness.transport.spawnedChannels[0]?.emitStreamFrame("system/init", {
+      handshake: {
+        slashCommands: ["compact"],
+        skills: [],
+        terminalSlashCommands: [],
+        fastModeState: "off",
+        fastModeDisabledReason: "sdk_opt_in_required",
+      } satisfies ClaudeHandshakeDeclaration,
+    });
+
+    expect(harness.driver.observedOutputSpeedFor(TEST_SESSION_ID)).toStrictEqual({
+      declared: "off",
+      reason: "sdk_opt_in_required",
+    });
+  });
+
+  it("keeps the output-speed read OFF the contract operation surface", () => {
+    // The negative control for the accessor above: it is deliberately NOT a
+    // `ProviderDriver` operation, so this file's thirteen-of-eighteen count is
+    // still read from the `Pick` and does not move. A `ProviderDriver` widened
+    // for it would force a throwing stub onto the sibling driver, which
+    // publishes no speed axis at all.
+    const operations: ClaudeDriverOperations = buildHarness().driver;
+
+    expect("observedOutputSpeedFor" in operations).toBe(true);
+    expect((operations as Record<string, unknown>)["observedOutputSpeedFor"]).toBeInstanceOf(
+      Function,
+    );
+    // @ts-expect-error `observedOutputSpeedFor` is not among the picked operations.
+    void operations.observedOutputSpeedFor;
   });
 
   it("drives a session from create through run start to close", async () => {

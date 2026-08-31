@@ -36,6 +36,7 @@ import {
   type CallbackToolActivityRecord,
   type CallbackToolApprovalOutcome,
   type CallbackToolApprovalRequest,
+  type CallbackToolSpawnBinding,
   type RoutedProviderAsk,
   type RoutedProviderAskResponder,
 } from "../callback-tool-host.js";
@@ -864,6 +865,48 @@ describe("composeCallbackToolContentItems — per-arm required members (codex ro
     expect((contentItems[0] as { text: string }).text).toContain("type");
   });
 
+  it("REBUILDS an admitted item, dropping siblings the provider's union does not declare", () => {
+    // The second silent-loss arm: a well-formed item may carry executor-supplied
+    // siblings, and the provider frame is serialized DOWNSTREAM of this function
+    // and outside its try. One `BigInt` sibling threw at the write and left the
+    // callback ask unanswered — the provider waiting forever on a tool that had
+    // already run. The rebuild makes the result serializable BY CONSTRUCTION.
+    const contentItems = composeCallbackToolContentItems([
+      { type: "inputText", text: "found 2 matches", metadata: 1n },
+      { type: "inputImage", imageUrl: "https://example.invalid/a.png", cache: { hit: true } },
+    ]);
+
+    expect(contentItems).toStrictEqual([
+      { type: "inputText", text: "found 2 matches" },
+      { type: "inputImage", imageUrl: "https://example.invalid/a.png" },
+    ]);
+    // The guarantee, asserted as the operation that used to throw.
+    expect(() => JSON.stringify(contentItems)).not.toThrow();
+  });
+
+  it("REBUILDS an item whose sibling is a cycle rather than answering with an unwritable frame", () => {
+    const cyclic: Record<string, unknown> = { type: "inputText", text: "alpha" };
+    cyclic["self"] = cyclic;
+
+    const contentItems = composeCallbackToolContentItems([cyclic]);
+
+    // Every ITEM survives — the loss is confined to members the pinned union
+    // does not declare, which the provider would have ignored or rejected.
+    expect(contentItems).toStrictEqual([{ type: "inputText", text: "alpha" }]);
+    expect(() => JSON.stringify(contentItems)).not.toThrow();
+  });
+
+  it("returns a rebuilt array a caller cannot mutate back into the executor's value", () => {
+    // The rebuild is also what keeps the executor's own objects out of the
+    // frame: mutating the returned item must not reach back into the output.
+    const composed = [{ type: "inputText", text: "alpha" }];
+
+    const contentItems = composeCallbackToolContentItems(composed);
+
+    expect(contentItems[0]).not.toBe(composed[0]);
+    expect(contentItems[0]).toStrictEqual(composed[0]);
+  });
+
   it("treats an empty required member as absent, because both read as no answer", () => {
     // `imageUrl: ""` is the same invisible answer a missing `imageUrl` is; a
     // length check is what keeps the two from being classified differently.
@@ -1004,6 +1047,144 @@ describe("CallbackToolHost — the registry is scoped to the spawn that installe
     expect(harness.executedInvocations.map((invocation) => invocation.toolName)).toStrictEqual([
       replacementTool.name,
     ]);
+  });
+});
+
+describe("CallbackToolHost — a failed replacement spawn rolls its registry back", () => {
+  // THE ARM `release()` CANNOT COVER. Step 1 installs before step 2 spawns, so a
+  // resume whose spawn then FAILS has already superseded a predecessor that the
+  // Codex resume path deliberately leaves alive. Releasing the failed
+  // replacement deletes only the replacement, and the surviving process's
+  // closure then dispatches against a registry that is simply absent — every
+  // later tool call from a healthy session refused, permanently.
+  function bindSpawn(
+    harness: ReturnType<typeof buildHarness>,
+    requestedTools: readonly SessionCallbackTool[],
+  ): CallbackToolSpawnBinding {
+    return bindCallbackToolsForSpawn(harness.host, {
+      sessionId: TEST_SESSION_ID,
+      requestedTools,
+      providerRegistrationAvailable: true,
+      providerRegistrationUnavailableDetail: "unused",
+    });
+  }
+
+  it("restores the predecessor's registry, so the surviving process keeps dispatching", async () => {
+    const harness = buildHarness();
+    const liveBinding = bindSpawn(harness, [SEARCH_TOOL]);
+    const failedReplacement = bindSpawn(harness, [{ ...SEARCH_TOOL, name: "read_workspace" }]);
+
+    failedReplacement.rollback();
+
+    // The predecessor's OWN token addresses the restored registry again — the
+    // property that matters, since its closure holds that token and nothing
+    // else.
+    await expect(liveBinding.onCallbackToolCall(makeInvocation())).resolves.toStrictEqual({
+      status: "completed",
+      output: { hits: 0 },
+    });
+    // The restore is a registry replacement like any other and is RECORDED as
+    // one, so an operator's model does not go stale at the supersede it undoes.
+    expect(harness.emittedDiagnostics.map((record) => record.kind)).toStrictEqual([
+      "callback_tool_registry_superseded",
+      "callback_tool_registry_superseded",
+    ]);
+    expect(harness.emittedDiagnostics[1]?.dispositionReason).toContain("rolled");
+    expect(harness.emittedDiagnostics[1]?.details["installedInstallation"]).toBe(
+      harness.emittedDiagnostics[0]?.details["supersededInstallation"],
+    );
+  });
+
+  it("is NOT interchangeable with release — the negative control for the arm above", async () => {
+    // Same failure, wrong call. This is the defect verbatim: the predecessor is
+    // alive and its every later callback is refused for an absent registry.
+    const harness = buildHarness();
+    const liveBinding = bindSpawn(harness, [SEARCH_TOOL]);
+    const failedReplacement = bindSpawn(harness, [{ ...SEARCH_TOOL, name: "read_workspace" }]);
+
+    failedReplacement.release();
+
+    await expect(liveBinding.onCallbackToolCall(makeInvocation())).resolves.toStrictEqual({
+      status: "failed",
+      error: "invocation names a session with no registered callback-tool registry",
+    });
+  });
+
+  it("degenerates to a release where the failed spawn displaced nothing", async () => {
+    // What makes `rollback` safe to call unconditionally on a failed spawn: a
+    // first spawn has no predecessor, and the correct end state is an empty one.
+    const harness = buildHarness();
+    const onlyBinding = bindSpawn(harness, [SEARCH_TOOL]);
+
+    onlyBinding.rollback();
+
+    await expect(onlyBinding.onCallbackToolCall(makeInvocation())).resolves.toStrictEqual({
+      status: "failed",
+      error: "invocation names a session with no registered callback-tool registry",
+    });
+    // Nothing was superseded, so no REGISTRY record is emitted either — the one
+    // diagnostic here is the refused dispatch the assertion above provoked.
+    expect(
+      harness.emittedDiagnostics
+        .map((record) => record.kind)
+        .filter((kind) => kind.startsWith("callback_tool_registry_")),
+    ).toStrictEqual([]);
+  });
+
+  it("ignores a rollback whose installation a THIRD spawn already superseded", async () => {
+    // Undoing here would tear down a live registry to restore a dead one. Same
+    // condition as a late release, so it takes the same recorded kind.
+    const harness = buildHarness();
+    bindSpawn(harness, [SEARCH_TOOL]);
+    const middleBinding = bindSpawn(harness, [SEARCH_TOOL]);
+    const liveBinding = bindSpawn(harness, [SEARCH_TOOL]);
+
+    middleBinding.rollback();
+
+    await expect(liveBinding.onCallbackToolCall(makeInvocation())).resolves.toStrictEqual({
+      status: "completed",
+      output: { hits: 0 },
+    });
+    expect(harness.emittedDiagnostics.map((record) => record.kind)).toStrictEqual([
+      "callback_tool_registry_superseded",
+      "callback_tool_registry_superseded",
+      "callback_tool_registry_release_ignored",
+    ]);
+  });
+
+  it("restores exactly ONE installation back, never a chain", async () => {
+    // Depth one is a correctness bound before it is a memory bound: an
+    // installation two supersedes back was displaced by a spawn that SUCCEEDED,
+    // so restoring it would revive a registry whose process is gone.
+    const harness = buildHarness();
+    const oldestBinding = bindSpawn(harness, [SEARCH_TOOL]);
+    const middleBinding = bindSpawn(harness, [SEARCH_TOOL]);
+    const failedReplacement = bindSpawn(harness, [SEARCH_TOOL]);
+
+    failedReplacement.rollback();
+
+    await expect(middleBinding.onCallbackToolCall(makeInvocation())).resolves.toStrictEqual({
+      status: "completed",
+      output: { hits: 0 },
+    });
+    const oldestResult = await oldestBinding.onCallbackToolCall(makeInvocation());
+    expect(oldestResult.status).toBe("failed");
+    expect(harness.activityRecords.at(-1)?.disposition).toBe("failed-superseded-binding");
+  });
+
+  it("is idempotent: a second rollback finds a token it no longer owns", async () => {
+    const harness = buildHarness();
+    const liveBinding = bindSpawn(harness, [SEARCH_TOOL]);
+    const failedReplacement = bindSpawn(harness, [SEARCH_TOOL]);
+
+    failedReplacement.rollback();
+    failedReplacement.rollback();
+
+    await expect(liveBinding.onCallbackToolCall(makeInvocation())).resolves.toStrictEqual({
+      status: "completed",
+      output: { hits: 0 },
+    });
+    expect(harness.emittedDiagnostics.at(-1)?.kind).toBe("callback_tool_registry_release_ignored");
   });
 });
 

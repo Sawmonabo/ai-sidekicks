@@ -192,6 +192,8 @@ class FakeCodexAppServer implements PtyHost {
 
   readonly #listeners = new Map<string, CodexPtySessionListeners>();
   readonly #handlers = new Map<string, MethodHandler>();
+  readonly #heldMethods = new Set<string>();
+  readonly #heldEmissions = new Map<string, () => void>();
   readonly #encoder = new TextEncoder();
   #spawnSequence = 0;
   #spawnGate: Promise<void> | null = null;
@@ -252,6 +254,33 @@ class FakeCodexAppServer implements PtyHost {
 
   framesForMethod(method: string): Array<Record<string, unknown>> {
     return this.writtenFrames().filter((frame) => frame["method"] === method);
+  }
+
+  /**
+   * Suspends ONE method's answer until the returned release is called.
+   *
+   * The handler still runs at write time, so the frame is recorded and any
+   * handler side effect happens exactly when it otherwise would — what is held
+   * is the emission. That is the only way to leave a request in flight ACROSS
+   * another whole lifecycle transition: `parkNextWrite` never records the frame
+   * and so never answers it at all, and a handler cannot suspend itself because
+   * it is called synchronously from inside `write`.
+   *
+   * THE RELEASE EMITS IN ITS OWN TICK, not on a microtask like the ordinary
+   * path. That is what lets a test place a response INSIDE a synchronous block
+   * of driver code — reached through a sink the driver calls from within one —
+   * and a microtask emission could not: it would drain only after that block had
+   * run to completion, which for the teardown windows this exists to probe is
+   * exactly one instruction too late.
+   */
+  holdAnswers(method: string): () => void {
+    this.#heldMethods.add(method);
+    return () => {
+      this.#heldMethods.delete(method);
+      const emit = this.#heldEmissions.get(method);
+      this.#heldEmissions.delete(method);
+      emit?.();
+    };
   }
 
   /**
@@ -395,7 +424,7 @@ class FakeCodexAppServer implements PtyHost {
       return;
     }
     const answer = handler(record["params"]);
-    queueMicrotask(() => {
+    const emit = (): void => {
       const frames: Array<Record<string, unknown>> = [
         {
           jsonrpc: "2.0",
@@ -410,7 +439,12 @@ class FakeCodexAppServer implements PtyHost {
       // than one live connection, broadcasting would deliver a response to a
       // peer whose independent id counter happens to have the same value.
       this.#listeners.get(sessionId)?.onData(this.#encoder.encode(payload));
-    });
+    };
+    if (this.#heldMethods.has(method)) {
+      this.#heldEmissions.set(method, emit);
+      return;
+    }
+    queueMicrotask(emit);
   }
 }
 
@@ -679,6 +713,14 @@ interface ManagerHarnessOptions {
   /** Overrides the binding-id minter, so a hostile mint can be driven. */
   newBindingId?: () => string;
   /**
+   * Called SYNCHRONOUSLY with every transport diagnostic, after it is recorded.
+   *
+   * A probe rather than a recorder: several driver-internal blocks report a
+   * diagnostic partway through work that is otherwise atomic, and this is the
+   * only seam from which a test can act inside one of those blocks.
+   */
+  onTransportDiagnostic?: (diagnostic: CodexTransportDiagnostic) => void;
+  /**
    * Throws from the FIRST diagnostic and records every one after it.
    *
    * Throwing from all of them would make "the drain survived" unobservable
@@ -756,6 +798,7 @@ function createManagerHarness(options: ManagerHarnessOptions = {}): ManagerHarne
         throw new Error("diagnostic sink failed");
       }
       diagnostics.push(diagnostic);
+      options.onTransportDiagnostic?.(diagnostic);
     },
     scheduleTimeout: scheduler.schedule,
     executablePath: EXECUTABLE_PATH,
@@ -6536,12 +6579,15 @@ describe("CodexAppServerConnection routed server requests (T3.15 R3)", () => {
     expect(answer["result"]).toStrictEqual({ decision: "decline" });
   });
 
-  it("attributes an approval whose named turn is unresolvable to the sole active run", async () => {
-    // NOT a refusal. Refusing here would DECLINE a legitimate approval over a
-    // bookkeeping gap, and two of the routed approval shapes publish no
-    // `turnId` member at all, so the fallback is their normal path.
+  it("REFUSES an approval whose named turn is unresolvable, never attributing it to another run", async () => {
+    // A request that NAMES a turn makes a claim about which run raised it. The
+    // sole-active fallback answered that claim by substituting a DIFFERENT run,
+    // so a delayed approval from a retired turn was evaluated, persisted, and
+    // projected under a newer run's identity and authorization context. A
+    // decline is visible to the participant and retryable; an approval decided
+    // against the wrong run is neither.
     const attributedRuns: Array<string | null> = [];
-    const { harness, askProvider } = await routedAskHarness({
+    const { harness, askProvider, driverDiagnosticRecords } = await routedAskHarness({
       answer: async (request): Promise<CodexServerRequestDecision> => {
         attributedRuns.push(request.runId);
         return await Promise.resolve({ decision: "allow" });
@@ -6558,10 +6604,11 @@ describe("CodexAppServerConnection routed server requests (T3.15 R3)", () => {
       turnId: "turn-that-already-retired",
     });
 
-    expect(answer["result"]).toStrictEqual({ decision: "accept" });
-    expect(attributedRuns).toStrictEqual([RUN_ID]);
-    // Recorded on the transport-local arm only: nothing was refused, so
-    // counting it as a refusal would overstate.
+    // The method's OWN refusal vocabulary, never a protocol error.
+    expect(answer["result"]).toStrictEqual({ decision: "decline" });
+    // The responder was never reached: refused ahead of adjudication rather
+    // than adjudicated against a run that did not raise it.
+    expect(attributedRuns).toStrictEqual([]);
     expect(
       harness.diagnostics.filter((diagnostic) => diagnostic.kind === "routed-ask-turn-unresolved"),
     ).toStrictEqual([
@@ -6570,15 +6617,87 @@ describe("CodexAppServerConnection routed server requests (T3.15 R3)", () => {
         method: "item/commandExecution/requestApproval",
         turnId: "turn-that-already-retired",
         turnIdTruncated: false,
-        disposition: "attributed-by-sole-active-run",
+        disposition: "refused",
+      },
+    ]);
+    // The CENSUSED kind stays callback-tool-scoped. Routing an approval refusal
+    // through `callback_tool_invocation_refused` would not widen an operator's
+    // view; it would corrupt a count whose name says what it counts.
+    expect(driverDiagnosticRecords).toStrictEqual([]);
+  });
+
+  it("REFUSES an approval whose named turn is past the reader's bound", async () => {
+    // The over-long case is INSIDE the rule rather than beside it: a turn named
+    // past the bound is a turn named and not resolvable. Resolving a truncated
+    // prefix is the one way this seam could match a run by coincidence.
+    const attributedRuns: Array<string | null> = [];
+    const { harness, askProvider } = await routedAskHarness({
+      answer: async (request): Promise<CodexServerRequestDecision> => {
+        attributedRuns.push(request.runId);
+        return await Promise.resolve({ decision: "allow" });
+      },
+    });
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.driver.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "search the workspace" },
+    });
+
+    const answer = await askProvider("item/commandExecution/requestApproval", {
+      turnId: "t".repeat(4096),
+    });
+
+    expect(answer["result"]).toStrictEqual({ decision: "decline" });
+    expect(attributedRuns).toStrictEqual([]);
+    expect(
+      harness.diagnostics.filter((diagnostic) => diagnostic.kind === "routed-ask-turn-unresolved"),
+    ).toStrictEqual([
+      {
+        kind: "routed-ask-turn-unresolved",
+        method: "item/commandExecution/requestApproval",
+        turnId: "t".repeat(256),
+        turnIdTruncated: true,
+        disposition: "refused",
       },
     ]);
   });
 
-  it("records nothing for a legacy approval that publishes no turn id at all", async () => {
-    // `ExecCommandApprovalParams` carries no `turnId` member at the pin, so the
-    // fallback IS the pinned protocol working. A diagnostic per legacy approval
-    // would be noise rather than signal.
+  it("still attributes an approval whose named turn IS live — the eligible shape stays eligible", async () => {
+    // The negative control that keeps the refusal above from passing by
+    // refusing everything: the ordinary approval, naming the turn it was raised
+    // in, still reaches the responder stamped with that turn's run.
+    const attributedRuns: Array<string | null> = [];
+    const { harness, askProvider } = await routedAskHarness({
+      answer: async (request): Promise<CodexServerRequestDecision> => {
+        attributedRuns.push(request.runId);
+        return await Promise.resolve({ decision: "allow" });
+      },
+    });
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.driver.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "search the workspace" },
+    });
+
+    const answer = await askProvider("item/commandExecution/requestApproval", {
+      turnId: TURN_ID,
+    });
+
+    expect(answer["result"]).toStrictEqual({ decision: "accept" });
+    expect(attributedRuns).toStrictEqual([RUN_ID]);
+    expect(
+      harness.diagnostics.filter((diagnostic) => diagnostic.kind === "routed-ask-turn-unresolved"),
+    ).toStrictEqual([]);
+  });
+
+  it("records nothing and still ATTRIBUTES a legacy approval that publishes no turn id at all", async () => {
+    // The fallback is scoped, not deleted. `ExecCommandApprovalParams` carries
+    // no `turnId` member at the pin, so this ask makes no claim to contradict:
+    // the heuristic IS its attribution, refusing it would decline real
+    // approvals over the pinned protocol working as designed, and a diagnostic
+    // per legacy approval would be noise rather than signal.
     const { harness, askProvider } = await routedAskHarness({
       answer: async (): Promise<CodexServerRequestDecision> =>
         await Promise.resolve({ decision: "allow" }),
@@ -8678,7 +8797,7 @@ describe("CodexLifecycleManager.listProviderCommands (T3.26, live read)", () => 
     expect(entries[0]?.scope).toBe("repo");
   });
 
-  it("drops an entry whose NAME cannot be read, and only its name", async () => {
+  it("drops an entry whose NAME cannot be read, and only its name — every refusal RECORDED", async () => {
     const harness = await enumerationHarness([
       { name: "keeper", description: "fine", scope: "repo", enabled: true },
       // A caption too long to carry costs the CAPTION, never the command: a
@@ -8700,6 +8819,167 @@ describe("CodexLifecycleManager.listProviderCommands (T3.26, live read)", () => 
     expect(entries.map((entry) => entry.name)).toEqual(["keeper", "long-caption", "odd-scope"]);
     expect(Object.hasOwn(entries[1] as object, "description")).toBe(false);
     expect(Object.hasOwn(entries[2] as object, "scope")).toBe(false);
+
+    // AND NEITHER ERASURE IS SILENT. Absence on this contract is a POSITIVE
+    // claim — no description published, no scope stated — so a declaration the
+    // bounds refused, erased without a record, reaches a consumer as a claim
+    // the provider never made: `odd-scope` would read as an unscoped skill.
+    const rejected = harness.driverDiagnostics.recentRecordsOfKind(
+      "provider_command_entry_rejected",
+    );
+    expect(
+      rejected.map((record) => ({
+        field: record.details["rejectedField"],
+        dropped: record.details["dropped"],
+      })),
+    ).toEqual([
+      { field: "description", dropped: false },
+      { field: "scope", dropped: false },
+      { field: "name", dropped: true },
+    ]);
+    // The LENGTHS travel and the values never do — the value is exactly the
+    // untrusted string a bound just rejected.
+    expect(rejected[0]?.details["rejectedValueLength"]).toBe(20_000);
+    // Not a string, so no length to report — stated rather than synthesized.
+    expect(rejected[1]?.details["rejectedValueLength"]).toBeNull();
+    expect(rejected.every((record) => record.rawWireType === "skills/list")).toBe(true);
+  });
+
+  it("records NOTHING for metadata the provider genuinely declared none of", async () => {
+    // The negative control for the records above. Three shapes that are the
+    // provider stating "none" rather than publishing something unreadable — and
+    // a record for any of them would make the channel report the pinned
+    // protocol working as a fault.
+    const harness = await enumerationHarness([
+      // `SkillMetadata.description` is a REQUIRED string at the pin, so a skill
+      // file that leaves it blank has no other way to say "none".
+      { name: "blank-caption", description: "", scope: "repo" },
+      { name: "whitespace-caption", description: "   ", scope: "repo" },
+      // An absent key, and an explicit null, on both optional members.
+      { name: "no-metadata" },
+      { name: "null-metadata", description: null, scope: null },
+    ]);
+
+    const result = await harness.manager.listProviderCommands({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+    });
+    const entries = result.bindings[0]?.entries ?? [];
+
+    expect(entries.map((entry) => entry.name)).toEqual([
+      "blank-caption",
+      "whitespace-caption",
+      "no-metadata",
+      "null-metadata",
+    ]);
+    expect(entries.every((entry) => !Object.hasOwn(entry, "description"))).toBe(true);
+    expect(
+      harness.driverDiagnostics.recentRecordsOfKind("provider_command_entry_rejected"),
+    ).toStrictEqual([]);
+  });
+
+  it("records a BLANK scope, which the pin has no way of publishing as a stated absence", async () => {
+    // The asymmetry, and its reason. The pin publishes `scope` only where one is
+    // DECLARED, so a provider with no scope omits the member entirely — which
+    // makes a present-but-blank scope malformed rather than a stated absence,
+    // exactly the reading a blank description IS.
+    const harness = await enumerationHarness([{ name: "blank-scope", scope: "   " }]);
+
+    const result = await harness.manager.listProviderCommands({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+    });
+
+    expect(result.bindings[0]?.entries.map((entry) => entry.name)).toEqual(["blank-scope"]);
+    expect(
+      harness.driverDiagnostics
+        .recentRecordsOfKind("provider_command_entry_rejected")
+        .map((record) => record.details["rejectedField"]),
+    ).toEqual(["scope"]);
+  });
+
+  it("records the refusal ONCE per read, not once per palette open", async () => {
+    // The enumeration is read once and HELD, so emitting from whichever reply a
+    // caller was served would turn one provider fault into a record per palette
+    // open — and would say the provider published it again each time.
+    const harness = await enumerationHarness([
+      { name: "odd-scope", description: "fine", scope: 17 },
+    ]);
+
+    await harness.manager.listProviderCommands({ sessionId: SESSION_ID, bindingId: "binding-abc" });
+    await harness.manager.listProviderCommands({ sessionId: SESSION_ID, bindingId: "binding-abc" });
+
+    expect(harness.server.framesForMethod("skills/list")).toHaveLength(1);
+    expect(
+      harness.driverDiagnostics.recentRecordsOfKind("provider_command_entry_rejected"),
+    ).toHaveLength(1);
+  });
+
+  it("stamps the run from the record the read went through, never a successor's", async () => {
+    // THE WINDOW. `listProviderCommands` takes no session slot, so a successful
+    // `resumeSession` can install a REPLACEMENT record for the same session id
+    // while a `skills/list` reading is still being resolved. The epoch already
+    // stops that reading from being CACHED, and it is still correctly answered
+    // to its own caller — so the provenance stamped beside it must be the
+    // predecessor's too. Re-resolving the run by session id after the await
+    // reads whichever record is installed NOW, and the reply then claims a run
+    // that never saw this enumeration's process.
+    //
+    // The window is narrow by construction and this test drives it exactly: the
+    // resume installs its record and only afterwards releases the predecessor's
+    // connection, and releasing REJECTS every request still pending on it. So
+    // the reply must be delivered between those two acts, which is inside one
+    // synchronous block — reached here through the superseded-frame diagnostic
+    // the resume reports from within it.
+    let releaseEnumeration = (): void => {};
+    const harness = createManagerHarness({
+      onServerNotification: true,
+      onTransportDiagnostic: (diagnostic) => {
+        if (diagnostic.kind === "superseded-frames-failed") {
+          releaseEnumeration();
+        }
+      },
+    });
+    // Two connections are live inside the window, and the listener registry is
+    // keyed by pty session id: shared ids would make the successor's subscribe
+    // displace the predecessor's reader and the held answer would reach nobody.
+    harness.server.uniqueSpawnSessionIds = true;
+    harness.server.on("skills/list", () =>
+      skillsListResult([{ name: "review", description: "Review a diff", scope: "repo" }]),
+    );
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    harness.server.on("thread/resume", () => threadStartResult(1));
+    await harness.manager.createSession({ sessionId: SESSION_ID, config: SESSION_CONFIG });
+    await harness.manager.startRun({
+      runId: RUN_ID,
+      channelId: CHANNEL_ID,
+      agentConfig: { sessionId: SESSION_ID, input: "go" },
+    });
+    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(true);
+
+    releaseEnumeration = harness.server.holdAnswers("skills/list");
+    const enumeration = harness.manager.listProviderCommands({
+      sessionId: SESSION_ID,
+      bindingId: "binding-abc",
+    });
+    await drainMicrotasks();
+    expect(harness.server.framesForMethod("skills/list")).toHaveLength(1);
+
+    const resumed = await harness.manager.resumeSession({
+      sessionId: SESSION_ID,
+      resumeHandle: THREAD_ID,
+    });
+    expect(resumed.status).toBe("resumed");
+
+    const result = await enumeration;
+
+    // The successor's record carries an EMPTY turn map — no run has started on
+    // it — so an id-keyed re-resolution answers `null` and erases an
+    // attribution that was true of the process this list came from. Reading the
+    // record directly keeps the pair `{ runId, providerAccountId }` describing
+    // one process.
+    expect(result.bindings[0]?.runId).toBe(RUN_ID);
+    expect(result.bindings[0]?.entries.map((entry) => entry.name)).toEqual(["review"]);
   });
 
   it("caps the REPLY at the wire bound while the held enumeration stays whole", async () => {
@@ -9214,6 +9494,44 @@ describe("readCodexAskOptionSet (T3.26, the input-ask choice set)", () => {
 
     // A flat list built from two questions answers NEITHER.
     expect(reading).toMatchObject({ kind: "dropped", declaredCount: 2 });
+  });
+
+  it("drops a MIXED-QUESTION ask: one option-bearing question beside a free-text sibling", () => {
+    // ELIGIBILITY IS THE TOTAL ASK SHAPE, not the option-bearing count — the
+    // same rule the elicitation form states. This ask's answer covers EVERY
+    // question it declares and `ProviderAskOption` carries no question
+    // identity, so a flat set can stand in for the whole answer only where the
+    // ask declares exactly ONE question. Counting only the OPTION-BEARING
+    // questions made this shape look answerable, and every pick would have
+    // produced an answer missing a question the provider is still waiting on.
+    const freeTextSibling = readCodexAskOptionSet("item/tool/requestUserInput", {
+      questions: [
+        { id: "q1", question: "Which branch?", options: [{ label: "main", description: "" }] },
+        { id: "q2", question: "Why?" },
+      ],
+    });
+    // The ASK's question count, which is the number that explains the drop.
+    expect(freeTextSibling).toMatchObject({ kind: "dropped", declaredCount: 2 });
+
+    // An EMPTY option list on the sibling is the same shape: it publishes no
+    // choices, so it is a question the choice set cannot carry either.
+    const emptyOptionSibling = readCodexAskOptionSet("item/tool/requestUserInput", {
+      questions: [
+        { id: "q1", options: [{ label: "main", description: "" }] },
+        { id: "q2", options: [] },
+      ],
+    });
+    expect(emptyOptionSibling).toMatchObject({ kind: "dropped", declaredCount: 2 });
+  });
+
+  it("still reads a SOLE-question ask — the eligible shape stays eligible", () => {
+    // The negative control that keeps the drop above from passing by refusing
+    // everything: a one-question ask projects its choices exactly as before.
+    expect(
+      readCodexAskOptionSet("item/tool/requestUserInput", {
+        questions: [{ id: "q1", options: [{ label: "main", description: "" }] }],
+      }),
+    ).toStrictEqual({ kind: "read", options: [{ value: "main", label: "main" }] });
   });
 
   it("drops a MIXED-FIELD form: one single-select beside any sibling answers the form for neither", () => {

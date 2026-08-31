@@ -512,6 +512,43 @@ export interface CompactionPassResult {
   readonly rowsStubbed: number;
   readonly rowsDeferred: number;
   readonly bytesReclaimed: number;
+  /**
+   * Wrapped session-content DEKs the pass's reconciliation sweep retired.
+   *
+   * PASS-SCOPED RATHER THAN PER-SESSION, and deliberately not folded into any
+   * {@link outcomes} entry: the sweep asks a question about the whole database —
+   * which keys exist with no live content row — so a key it reclaims frequently
+   * belongs to a session this pass never examined, and attributing it to one
+   * that happened to run would be a fabricated association.
+   *
+   * Nonzero here without a matching stub in this pass is EXPECTED, not
+   * suspicious: it is precisely the arrear the sweep exists to collect — a key
+   * whose last body was cleared by an earlier pass whose prompt disposal did not
+   * complete, or one minted by an append that then aborted before sealing
+   * anything.
+   */
+  readonly contentKeysReclaimed: number;
+  /**
+   * Candidates the reconciliation sweep passed over because their own disposal
+   * failed.
+   *
+   * SEPARATE FROM {@link contentKeySweepFailure}, because the two describe
+   * different failures: that one is the sweep not running, this one is the sweep
+   * running and not reclaiming. Without it a pass in which every candidate threw
+   * reports `contentKeysReclaimed: 0` and no failure at all — the same reading an
+   * idle, healthy pass produces.
+   */
+  readonly contentKeysSkipped: number;
+  /**
+   * Present iff the reconciliation sweep itself failed.
+   *
+   * NOT a refusal and NOT attributed to a session. The sweep has no session to
+   * blame — it runs after the loop, over the whole table — and it destroys
+   * nothing a later pass needs, so a failure here neither aborts the tick nor
+   * reclassifies any outcome. It is surfaced because the alternative is a
+   * reclamation pass that silently stops reclaiming.
+   */
+  readonly contentKeySweepFailure?: string | undefined;
   /** One entry per session that fired a trigger or refused; never the no-ops. */
   readonly outcomes: readonly CompactionSessionOutcome[];
 }
@@ -1070,6 +1107,40 @@ export class Compactor {
       }
     }
 
+    // THE RECONCILIATION SWEEP, and it runs on EVERY pass rather than only when
+    // this pass stubbed something. The per-session disposal above is the prompt
+    // path and has exactly one attempt: if it throws, or the process exits
+    // between the last body being stubbed and the disposal completing, the key
+    // survives — and no later pass finds a row left to stub for that session, so
+    // `rowsStubbed` is zero forever after and the prompt path is never reached
+    // again. An obligation derived from work this pass just did cannot survive
+    // the pass that did it.
+    //
+    // The sweep asks the DURABLE question instead — which wrapped keys exist
+    // with no live `content_payload` row — so the obligation is re-derived from
+    // state the database remembers. That also collects the OTHER orphan class the
+    // prompt path structurally cannot see: a key minted by an append that then
+    // failed before it sealed anything, on a session that may never compact at
+    // all.
+    //
+    // AFTER THE LOOP, so it observes settled sessions and holds no session's
+    // append lock while examining the rest. `tick()` already refuses to run
+    // inside a hold, and the sweep takes one hold per session rather than one for
+    // the pass.
+    let contentKeysReclaimed = 0;
+    let contentKeysSkipped = 0;
+    let contentKeySweepFailure: string | undefined;
+    try {
+      const sweep = await this.#contentKeyDisposer.sweepUnreferenced();
+      contentKeysReclaimed = sweep.reclaimed;
+      contentKeysSkipped = sweep.skipped;
+    } catch (error) {
+      // Reported, never fatal and never attributed. There is no session to
+      // reclassify — the sweep spans the table — and nothing is lost by a
+      // failure: the next pass re-derives exactly the same candidates.
+      contentKeySweepFailure = `session content-key reconciliation sweep failed: ${describeError(error)}`;
+    }
+
     return {
       operationId,
       sessionsExamined: census.summaries.length,
@@ -1087,6 +1158,13 @@ export class Compactor {
       rowsStubbed: outcomes.reduce((total, outcome) => total + outcome.rowsStubbed, 0),
       rowsDeferred: outcomes.reduce((total, outcome) => total + outcome.rowsDeferred, 0),
       bytesReclaimed: outcomes.reduce((total, outcome) => total + outcome.bytesReclaimed, 0),
+      contentKeysReclaimed,
+      contentKeysSkipped,
+      // Conditionally spread rather than assigned `undefined`:
+      // `exactOptionalPropertyTypes` makes a present-but-undefined key a
+      // different value from an absent one, and absent is what "the sweep did
+      // not fail" means.
+      ...(contentKeySweepFailure === undefined ? {} : { contentKeySweepFailure }),
       outcomes,
     };
   }
@@ -1298,6 +1376,11 @@ export class Compactor {
     // cleanup must be REPORTED without being allowed to abort the tick or to
     // erase the mid-loop cause when there was one. Nothing is lost by a failure
     // — the predicate is idempotent and the next pass that stubs a row retries.
+    //
+    // THE PROMPT PATH, not the only one. A failure here is a DELAY rather than a
+    // permanent leak, because `#runPass` runs a reconciliation sweep at the end
+    // of every pass that re-derives the same obligation from durable state —
+    // which is what makes this call's single attempt acceptable.
     //
     // ONE CONSEQUENCE WORTH STATING, because it is not obvious from here: a
     // `refusedReason` moves this session out of `sessionsCompacted` and into
@@ -1863,6 +1946,11 @@ function emptyPassResult(operationId: string): CompactionPassResult {
     rowsStubbed: 0,
     rowsDeferred: 0,
     bytesReclaimed: 0,
+    // A guard-rejected tick did no work of any kind, the sweep included: it is
+    // rejected precisely because another pass is running or an append hold is
+    // open, and both are states the sweep must not run inside.
+    contentKeysReclaimed: 0,
+    contentKeysSkipped: 0,
     outcomes: [],
   };
 }
