@@ -81,9 +81,11 @@ const SPEC_CODEX_MATRIX: Record<DriverCapabilityFlag, boolean> = {
   cost_cap: false,
   // T3.26 console parity. `context_compaction` and `provider_commands` are
   // NATIVE on this provider (`thread/compact/start` + `thread/compacted`, and
-  // `skills/list`), while `output_speed` is `false` because this CLI publishes
-  // no speed axis at all — a complete declaration rather than an unmeasured
-  // one, and the reason nothing is emulated onto it.
+  // `skills/list`), while `output_speed` is `false` because this CLI declares
+  // neither conjunct that axis needs — no settable level vocabulary and no
+  // declared-state read — which is a complete declaration rather than an
+  // unmeasured one, and the reason nothing is emulated onto it. NOT because the
+  // wire is speed-silent: it carries a per-turn `serviceTier` override.
   context_compaction: true,
   provider_commands: true,
   output_speed: false,

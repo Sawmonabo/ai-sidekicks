@@ -162,7 +162,7 @@ describe("ClaudeDriver", () => {
     // `ProviderDriver` operation, so this file's thirteen-of-eighteen count is
     // still read from the `Pick` and does not move. A `ProviderDriver` widened
     // for it would force a throwing stub onto the sibling driver, which
-    // publishes no speed axis at all.
+    // declares no such axis.
     const operations: ClaudeDriverOperations = buildHarness().driver;
 
     expect("observedOutputSpeedFor" in operations).toBe(true);
