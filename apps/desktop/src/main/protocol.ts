@@ -96,6 +96,10 @@ export const RENDERER_CONTENT_SECURITY_POLICY: string =
 // rather than being sniffed — which is only meaningful paired with the
 // `nosniff` header below, since without it Chromium would content-sniff the
 // octet-stream body and could execute it.
+//
+// `.map` is deliberately ABSENT rather than mapped: source maps are refused
+// outright by the guard below, so giving them a content type would describe a
+// response this handler never produces.
 const CONTENT_TYPES: ReadonlyMap<string, string> = new Map([
   [".html", "text/html; charset=utf-8"],
   [".js", "text/javascript; charset=utf-8"],
@@ -107,8 +111,39 @@ const CONTENT_TYPES: ReadonlyMap<string, string> = new Map([
   [".webp", "image/webp"],
   [".woff2", "font/woff2"],
   [".wasm", "application/wasm"],
-  [".map", "application/json; charset=utf-8"],
 ]);
+
+/** The source-map suffix this handler refuses, matched case-insensitively. */
+const SOURCE_MAP_SUFFIX = ".map";
+
+/**
+ * Whether a request targets a source map, and therefore gets an unconditional
+ * empty-bodied 404.
+ *
+ * The build emits hidden source maps for the Sentry upload; they are not
+ * shipped, and Phase 5's `electron-builder` `files` filter excludes
+ * `out/**\/*.map` from the package. But a developer tree has them sitting
+ * beside the bundle, so "not packaged" is not the same as "not reachable" —
+ * without this the handler would happily serve the renderer's full original
+ * sources to anything that could reach the scheme. Refusing at the handler
+ * makes the guarantee hold in every tree rather than only in a packaged one.
+ *
+ * Checked on BOTH the raw and the decoded text so `/x%2Emap` cannot slip past
+ * a raw-only comparison, and answered UNCONDITIONALLY — before containment,
+ * before any filesystem call, and before content-type resolution — so no
+ * source map is ever read, let alone served, on any code path.
+ */
+function isSourceMapRequest(rawPath: string): boolean {
+  if (rawPath.toLowerCase().endsWith(SOURCE_MAP_SUFFIX)) {
+    return true;
+  }
+  try {
+    return decodeURIComponent(rawPath).toLowerCase().endsWith(SOURCE_MAP_SUFFIX);
+  } catch {
+    // A malformed escape is refused a few lines below anyway; it is not a map.
+    return false;
+  }
+}
 
 /** Content type served for any extension outside the closed map above. */
 export const FALLBACK_CONTENT_TYPE = "application/octet-stream";
@@ -198,6 +233,13 @@ export async function resolveRendererAsset(
   }
   if (rawPath === "") {
     // No path at all — a miss, not an escape, and no `index.html` fallback.
+    return NOT_FOUND;
+  }
+
+  // Source maps: refused before anything else looks at the path. 404 and not
+  // 403 deliberately — a source map that is present and a source map that is
+  // absent must be indistinguishable, and 403 would confirm the file is there.
+  if (isSourceMapRequest(rawPath)) {
     return NOT_FOUND;
   }
 
@@ -360,33 +402,44 @@ function emptyResponse(status: number): Response {
  * we want — this module adds no guard that would mask it.
  */
 export function installRendererProtocol(rendererRoot: string): void {
-  protocol.handle(RENDERER_SCHEME, async (request: Request): Promise<Response> => {
-    const resolution = await resolveRendererAsset(rendererRoot, request.url);
-    if (resolution.outcome === "forbidden") {
-      return emptyResponse(403);
-    }
-    if (resolution.outcome === "not-found") {
-      return emptyResponse(404);
-    }
+  protocol.handle(
+    RENDERER_SCHEME,
+    (request: Request): Promise<Response> => handleRendererRequest(rendererRoot, request.url),
+  );
+}
 
-    let fileResponse: Response;
-    try {
-      // Streams the body straight through; nothing is buffered in the main
-      // process. `net.fetch` over a `file:` URL is the pattern Electron's own
-      // `protocol.handle` documentation gives.
-      fileResponse = await net.fetch(pathToFileURL(resolution.absolutePath).toString());
-    } catch {
-      // The asset vanished between the realpath check and the read. Fail closed
-      // and stay silent about which path it was.
-      return emptyResponse(404);
-    }
-    if (!fileResponse.ok) {
-      return emptyResponse(404);
-    }
+/**
+ * Answers one request. Exported so the response policy — the status codes, the
+ * empty refusal bodies, and the locked headers — is asserted directly rather
+ * than inferred from `resolveRendererAsset`'s verdict, which carries no body
+ * and no header of its own.
+ */
+export async function handleRendererRequest(rendererRoot: string, url: string): Promise<Response> {
+  const resolution = await resolveRendererAsset(rendererRoot, url);
+  if (resolution.outcome === "forbidden") {
+    return emptyResponse(403);
+  }
+  if (resolution.outcome === "not-found") {
+    return emptyResponse(404);
+  }
 
-    return new Response(fileResponse.body, {
-      status: 200,
-      headers: { ...baseResponseHeaders(), "Content-Type": resolution.contentType },
-    });
+  let fileResponse: Response;
+  try {
+    // Streams the body straight through; nothing is buffered in the main
+    // process. `net.fetch` over a `file:` URL is the pattern Electron's own
+    // `protocol.handle` documentation gives.
+    fileResponse = await net.fetch(pathToFileURL(resolution.absolutePath).toString());
+  } catch {
+    // The asset vanished between the realpath check and the read. Fail closed
+    // and stay silent about which path it was.
+    return emptyResponse(404);
+  }
+  if (!fileResponse.ok) {
+    return emptyResponse(404);
+  }
+
+  return new Response(fileResponse.body, {
+    status: 200,
+    headers: { ...baseResponseHeaders(), "Content-Type": resolution.contentType },
   });
 }

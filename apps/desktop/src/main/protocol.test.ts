@@ -33,6 +33,7 @@ vi.mock("electron", () => ({
 
 import {
   FALLBACK_CONTENT_TYPE,
+  handleRendererRequest,
   RENDERER_CONTENT_SECURITY_POLICY,
   RENDERER_SCHEME,
   registerRendererScheme,
@@ -54,7 +55,16 @@ const MAPPED_CONTENT_TYPES: ReadonlyArray<readonly [string, string]> = [
   ["shot.webp", "image/webp"],
   ["plex.woff2", "font/woff2"],
   ["parser.wasm", "application/wasm"],
-  ["bundle.js.map", "application/json; charset=utf-8"],
+];
+
+// Planted beside the bundle exactly as a dev tree has them: present on disk,
+// and still refused. The fixture is what makes the 404 meaningful — a guard
+// that only passed because the file was missing would prove nothing.
+const SOURCE_MAP_FIXTURES: readonly string[] = [
+  "bundle.js.map",
+  "sheet.css.map",
+  "UPPER.MAP",
+  "assets/app.js.map",
 ];
 
 let sandboxRoot = "";
@@ -72,6 +82,9 @@ beforeAll(async () => {
   await writeFile(path.join(outsideRoot, "secret.txt"), "not yours", "utf8");
   for (const [fileName] of MAPPED_CONTENT_TYPES) {
     await writeFile(path.join(rendererRoot, fileName), "x", "utf8");
+  }
+  for (const fileName of SOURCE_MAP_FIXTURES) {
+    await writeFile(path.join(rendererRoot, fileName), '{"sources":["secret.ts"]}', "utf8");
   }
   await writeFile(path.join(rendererRoot, "LICENSE"), "x", "utf8");
   await writeFile(path.join(rendererRoot, "notes.txt"), "x", "utf8");
@@ -158,6 +171,60 @@ describe("resolveRendererAsset misses", () => {
   });
 });
 
+describe("source maps", () => {
+  // Each fixture EXISTS on disk (see the setup above), so a passing row is the
+  // guard refusing a readable file and not the filesystem answering for it.
+  it.each(SOURCE_MAP_FIXTURES.map((fileName) => [fileName] as const))(
+    "answers 'not found' for the planted %s",
+    async (fileName) => {
+      const resolution = await resolveRendererAsset(
+        rendererRoot,
+        `sidekicks-renderer://app/${fileName}`,
+      );
+      // Exact serialization: 404 with nothing else in the result, so the
+      // refusal cannot leak the path or the fact that the file is there.
+      expect(JSON.stringify(resolution)).toBe('{"outcome":"not-found"}');
+    },
+  );
+
+  it("answers 'not found' for a percent-encoded source-map extension", async () => {
+    const resolution = await resolveRendererAsset(
+      rendererRoot,
+      "sidekicks-renderer://app/bundle.js%2Emap",
+    );
+    expect(JSON.stringify(resolution)).toBe('{"outcome":"not-found"}');
+  });
+
+  it("answers 'not found' for a source map that is not on disk at all", async () => {
+    // The refusal must not be distinguishable from a miss, which is the whole
+    // reason it is 404 rather than 403.
+    const resolution = await resolveRendererAsset(
+      rendererRoot,
+      "sidekicks-renderer://app/never-written.js.map",
+    );
+    expect(JSON.stringify(resolution)).toBe('{"outcome":"not-found"}');
+  });
+
+  it("does not refuse a file whose name merely contains 'map'", async () => {
+    // Negative control: the guard is a suffix test, not a substring test, so
+    // `sitemap.json` and friends still resolve.
+    const resolution = await resolveRendererAsset(
+      rendererRoot,
+      "sidekicks-renderer://app/manifest.json",
+    );
+    expect(resolution.outcome).toBe("resolved");
+  });
+
+  it("serves an empty body for a refused source map over the handler", async () => {
+    const response = await handleRendererRequest(
+      rendererRoot,
+      "sidekicks-renderer://app/bundle.js.map",
+    );
+    expect(response.status).toBe(404);
+    expect(await response.text()).toBe("");
+  });
+});
+
 describe("resolveRendererAsset content types", () => {
   it.each(MAPPED_CONTENT_TYPES)("serves %s as %s", async (fileName, expectedContentType) => {
     const resolution = await resolveRendererAsset(
@@ -201,6 +268,30 @@ describe("resolveRendererAsset content types", () => {
 });
 
 describe("the locked response policy", () => {
+  // Asserted on the real Response objects, not on the resolver's verdict: a
+  // refusal that carried a body — even an error string — would echo something
+  // about the tree, and the CSP header must ride EVERY response including the
+  // refusals, because a refusal is still a document a renderer can be pointed at.
+  it("refuses an escape with an empty-bodied 403 carrying the locked headers", async () => {
+    const response = await handleRendererRequest(
+      rendererRoot,
+      "sidekicks-renderer://app/../outside/secret.txt",
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.text()).toBe("");
+    expect(response.headers.get("content-security-policy")).toBe(RENDERER_CONTENT_SECURITY_POLICY);
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+  });
+
+  it("answers a miss with an empty-bodied 404 carrying the locked headers", async () => {
+    const response = await handleRendererRequest(rendererRoot, "sidekicks-renderer://app/nope.js");
+
+    expect(response.status).toBe(404);
+    expect(await response.text()).toBe("");
+    expect(response.headers.get("content-security-policy")).toBe(RENDERER_CONTENT_SECURITY_POLICY);
+  });
+
   it("carries every Spec-023 §Security Hardening Baseline directive", () => {
     for (const directive of [
       "default-src 'self'",
