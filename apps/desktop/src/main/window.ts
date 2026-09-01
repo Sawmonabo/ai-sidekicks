@@ -74,14 +74,13 @@ import { z } from "zod";
 import { SessionIdSchema } from "@ai-sidekicks/contracts/session";
 
 import { RENDERER_INDEX_URL } from "./protocol.js";
+import { AUXILIARY_WINDOW_ROUTES } from "./routes.js";
 
-/**
- * The auxiliary windows `Spec-023 §Main Process Responsibilities` names — the
- * full-screen timeline and the detached agent console. A CLOSED set: the
- * console's pane-kind set is closed, and only these two panes may be moved into
- * a window of their own (`Spec-023 §Console Design (Meridian)` §The surface set).
- */
-export type AuxiliaryWindowRoute = "timeline" | "agent-console";
+// The closed route set and its type live in `./routes.ts`, beside the registry
+// recording which of them the renderer has implemented. Re-exported here so a
+// caller reaching for the window factory needs no second import for the type of
+// the thing it opens.
+export type { AuxiliaryWindowRoute } from "./routes.js";
 
 /**
  * What to open an auxiliary window on: the route, plus the pane context a
@@ -194,9 +193,6 @@ export function createMainWindow(): BrowserWindow {
 // corpus already exports.
 const AgentIdShapeSchema = z.string().uuid();
 
-/** The closed route set, as a runtime membership test for untrusted input. */
-const AUXILIARY_WINDOW_ROUTES: ReadonlySet<string> = new Set<string>(["timeline", "agent-console"]);
-
 /**
  * Validates a launch descriptor and renders it as a route fragment.
  *
@@ -212,7 +208,7 @@ const AUXILIARY_WINDOW_ROUTES: ReadonlySet<string> = new Set<string>(["timeline"
  */
 function resolveAuxiliaryRouteFragment(launch: AuxiliaryWindowLaunch): string {
   const route: string = launch.route;
-  if (!AUXILIARY_WINDOW_ROUTES.has(route)) {
+  if (!(AUXILIARY_WINDOW_ROUTES as readonly string[]).includes(route)) {
     throw new InvalidAuxiliaryWindowLaunchError("unknown route");
   }
 
