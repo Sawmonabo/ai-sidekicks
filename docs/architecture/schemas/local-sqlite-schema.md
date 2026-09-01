@@ -1977,7 +1977,7 @@ Node-local registry of saved sidekick configurations, for [Spec-030](../../specs
 ```sql
 -- Owner: Plan-030
 CREATE TABLE sidekick_definitions (
-  id                     TEXT PRIMARY KEY,  -- daemon-minted opaque immutable definitionId; stable across a rename (I-030-1)
+  id                     TEXT NOT NULL PRIMARY KEY,  -- daemon-minted opaque immutable definitionId; stable across a rename (I-030-1). `NOT NULL` declared explicitly: a TEXT PRIMARY KEY on a rowid table admits NULL (the documented SQLite quirk armored the same way on provider_accounts.account_id above — https://www.sqlite.org/quirks.html#primary_keys_can_sometimes_contain_nulls), and a NULL definitionId keys nothing: attach-by-reference could never resolve it and NULLs compare distinct, so two identity-less rows would both commit.
   name                   TEXT NOT NULL  -- mutable human label; NEVER an identity key on any wire request, stored reference, or audit row
                          CHECK(length(name) > 0 AND length(name) <= 128 AND instr(name, char(0)) = 0),
   name_folded            TEXT NOT NULL,  -- full-Unicode case fold of `name`, computed by the store on every write (I-030-7).

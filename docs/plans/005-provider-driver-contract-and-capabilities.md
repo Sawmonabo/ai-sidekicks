@@ -1486,6 +1486,62 @@ shipped:
     notes: |
       Phase-3B tasks T3.16 + T3.17 shipped as one contracts+daemon PR - recorded under phase 3 because the manifest schema keys phases as integers and the 3B supplement continues the Phase-3 task series (the same encoding the repo-wide Gate-5 entries use for supplement phases, the Plan-006 PR #386 precedent). T3.16, the typed provider usage-limit signal: ProviderUsageLimitCause / ProviderUsageLimitResetProvenance / ProviderUsageLimitResetBoundary / ProviderUsageLimitSignal in contracts as a sibling axis beside RecoveryCondition (never a RecoveryCondition member), emitted by both bands' normalizer legs from named structured provider events only. T3.17, provider-account identity threading: the additive-optional providerAccountId on CreateSessionParams / ResumeSessionParams, opaque to the driver, server-resolved and server-stamped, persisted through the existing runtime_bindings.spawn_config carrier and read back at resume rather than re-resolved. Four review-round folds recorded: the typed-account precedence resolver resolveBoundProviderAccountId (empty-string refuses, record/param disagreement refuses); the ladder-gated Claude usage-limit leg (the signal emits only on the final retry attempt, never on an attempt the ladder will still absorb); the unified account-environment binding gate on both codex resume arms (the reported member must equal the account the environment was constructed for, read off processContext - cold refusal is the fail-closed arm of I-029-3 consumed per CP-005-9, per-account environment construction remaining Plan-029's); and the Claude-band capture-and-reconcile (LiveClaudeSession.admittedProviderAccountId captured at establishment, the enumeration stamp folding record-primary with the injected registry reader as cross-check, conflict refusing, empty-string refusing as provider_account_unusable, rewind forks inheriting the predecessor's account; resume reconciliation is unreachable in that band - the slot machine refuses any resume against a surviving record). The 3B supplement's own declared set {T3.16, T3.17} - not Phase 3 proper's, which closed FULLY SHIPPED at PR #393 - closes at this single entry, so the one { external_plan_phase_merged, plan: 5, phase: 3B } entry repo-wide (Plan-029 Phase 3, established by grep) now resolves MET by task-set membership; Plan-029 Phase 3 additionally gates on { plan: 29, phase: 2, status: merged } and stays held there, Plan-029's manifest shipping nothing yet.
       verifies_invariant = the T3.16 audit marker {I-005-6}, canonically verified here for the first time: each band's normalizer suite emits the signal from its named structured event (the Claude reset boundary marked runtime-derived, the Codex boundary provider-stated) and drives the seeded discriminating control the invariant names - a prose message plus an exit code that a text-matching implementation would classify as a usage limit, required to produce no signal - with an unparseable or unrecognized shape yielding no signal rather than a default-caused one. T3.17 declares Verifies: none - the fail-closed binding rule is Plan-029's I-029-3 and the reserved-variable rule is its I-029-4, consumed here per CP-005-9 rather than restated as Plan-005 invariants. Review: codex code review completed with the four folds above taken in-diff; CI green on the squash head.
+  - phase: 4
+    task: [T4.8, T4.9]
+    pr: 401
+    sha: cbe42791
+    merged_at: 2026-09-01
+    files:
+      - packages/client-sdk/src/__tests__/providerClient.recovery.test.ts
+      - packages/client-sdk/src/__tests__/providerClient.test.ts
+      - packages/client-sdk/src/providerClient.ts
+      - packages/contracts/src/__tests__/provider-driver.test.ts
+      - packages/contracts/src/provider-driver.ts
+      - packages/runtime-daemon/src/ipc/handlers/__tests__/driver-handlers.test.ts
+      - packages/runtime-daemon/src/ipc/handlers/driver-handlers.ts
+      - packages/runtime-daemon/src/ipc/handlers/driver-subscribe.ts
+      - packages/runtime-daemon/src/ipc/handlers/index.ts
+    verifies_invariant: [I-005-2, I-005-4, I-005-13]
+    spec_coverage:
+      [
+        "Spec-005 §Interfaces And Contracts (the client-facing driver.* surface at nine verbs; the eighteen-op canonical interface)",
+        "Spec-005 §Fallback Behavior (RecoveryCondition at every carrying surface)",
+        "Spec-005 §Capability discovery (the client-facing set at nine)",
+        "Spec-005 §Desktop Console Parity Surfaces",
+      ]
+    notes: |
+      Phase-4 tasks T4.8 + T4.9 shipped as one contracts+daemon+client-sdk PR - the console-parity client verbs. T4.8, SDK/handler exposure of the R8 parity surface with the RecoveryCondition consume threaded through every carrying reply; T4.9, the client-facing driver.compactContext and driver.listProviderCommands verbs (daemon handlers + providerClient methods + Zod wire envelopes), taking the client-facing driver.* namespace to its registered nine - both refusing against an undeclared capability flag as driver.capability_unsupported (I-005-2's client half) and the command-enumeration routing invariant enforced at the daemon rather than trusted to the renderer (I-005-13). With this entry the Phase-4 declared set T4.1-T4.9 is fully shipped across PRs #395 / #396 / #401.
+      verifies_invariant = the union of the wave's canonically verifying suites {I-005-2, I-005-4, I-005-13}: the two new verbs' undeclared-flag refusal tests extend the I-005-2 client-facing band, both verbs parse the Zod-validated degraded envelope rather than throwing (I-005-4), and the driver-handlers suite asserts the (driverName, providerAccountId) routing invariant on the enumeration reply (I-005-13). Review: codex code review completed; CI green on the squash head.
+  - phase: 5
+    task: T5.1
+    pr: 405
+    sha: e467727d
+    merged_at: 2026-09-01
+    files:
+      - docs/architecture/contracts/api-payload-contracts.md
+      - docs/architecture/cross-plan-dependencies.md
+      - docs/architecture/schemas/local-sqlite-schema.md
+      - packages/runtime-daemon/src/migrations/0017-command-receipt-mcp-task-handle.ts
+      - packages/runtime-daemon/src/provider/__tests__/mcp-task-handle-recorder.test.ts
+      - packages/runtime-daemon/src/provider/driver-diagnostics.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/__tests__/claude-tools.test.ts
+      - packages/runtime-daemon/src/provider/drivers/claude/tools.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/__tests__/tools.test.ts
+      - packages/runtime-daemon/src/provider/drivers/codex/tools.ts
+      - packages/runtime-daemon/src/provider/mcp-task-handle-recorder.ts
+      - packages/runtime-daemon/src/session/__tests__/migration-shape.test.ts
+      - packages/runtime-daemon/src/session/__tests__/session-service.test.ts
+      - packages/runtime-daemon/src/session/migration-runner.ts
+    verifies_invariant: [I-005-3]
+    spec_coverage:
+      [
+        "Spec-005 §Tool Metadata (the durable-task-handle carve-out; the floor's trust rule untouched)",
+        "Spec-005 §Recovery Consequences (receipt recovery dispatched on idempotency_class)",
+        "Spec-015 §Idempotency Classes and Recovery Behavior",
+      ]
+    notes: |
+      Phase-5 task T5.1 shipped as one daemon PR, closing the phase (its declared set is this single task) and closing Plan-005's task DAG - every declared task across Phases 1-5 is now recorded shipped in this manifest. Migration 0017 lands command_receipts.mcp_task_id as an additive ALTER TABLE ADD COLUMN carrying the documented column-level CHECK (length > 0 AND <= 256 code points AND no NUL; the local-sqlite-schema.md line-47 rule - a single-column NULL-admitting column-level CHECK is ALTER-addable, table rebuild reserved for table-level CHECKs), ordered after Plan-004 Phase 1's command_receipts CREATE by the plan's machine gate. McpTaskHandleRecorder is the column's sole writer: first-wins conditional UPDATE (WHERE mcp_task_id IS NULL) with the zero-change ambiguity resolved by read-back into recorded / already-recorded / refused / storage-failed typed outcomes, never a throw into a driver turn; both drivers' T3.13 observation seams flip from the no-op sink to the live recorder. Two codex review rounds folded in-diff: round 1 - storage faults contained as a distinct storage-failed outcome + mcp_task_handle_write_failed diagnostic (SQLite code + constructor name, never message), lone-surrogate refusal (handle_not_well_formed - a lone surrogate has no UTF-8 encoding, so the stored row would carry a handle the receiver never issued), and a platform-neutral hazard proof after Linux CI showed the U+FFFD substitution width is encoder-dependent (one per surrogate on macOS, one per WTF-8 byte on Linux); round 2 - the validation scan redesigned to a single BOUNDED first-terminal-fact walk (at most 257 code points on hostile input, the refusal diagnostic reporting the bounded handleCodePointsScanned instead of an exact size) and the schema doc's transcoding claim grounded in RFC 3629 section 3 + the WHATWG Infra scalar-value-string conversion + the in-repo executable proof. One decline recorded with evidence: the round-1 ask to wire the recorder into a live dispatch path - no plan task owns the daemon-side MCP dispatch caller, tools/call appears nowhere in the corpus or code, and Spec-028's the-daemon-never-joins-the-MCP-wire posture contradicts the Spec-005/Spec-015 recovery-poll requirement; the module documents the contradiction as a governance decision owed above this task (escalated to the operator), and the recorder ships correct against either resolution.
+      verifies_invariant = {I-005-3}: the suite asserts the floor holds around the carve-out - a crash before the acceptance response is durably stored leaves mcp_task_id NULL and the receipt on the manual_reconcile_only halt, and a refused handle (empty / NUL / over-bound / not-well-formed) leaves the same NULL state rather than a truncated or substituted handle. Review: codex code review completed across the two rounds above; CI green on the squash head.
 ```
 
 ### Notes

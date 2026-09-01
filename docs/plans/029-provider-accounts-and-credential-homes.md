@@ -323,7 +323,7 @@ preconditions:
 
 - **T1.1 — Provider-account contracts.**
   - **Files:** `packages/contracts/src/provider-account.ts` (NEW).
-  - **Provides:** the `ProviderAccountId` brand; `ProviderName` (the two-member closed set); `BillingMode` (`subscription` \| `metered` \| `unknown`); `CredentialGeneration` (a positive integer); the `ProviderAccount` record shape; and the request/response pairs for register, remove, set-default, list, read, home-reset, and probe. Strict Zod schemas with unknown-key rejection. `accountId` and `credentialGeneration` are **response-only** projections — a register request carrying either does not parse, so a caller cannot assert an identity or a generation.
+  - **Provides:** the `ProviderAccountId` brand; `ProviderName` (the two-member closed set); `BillingMode` (`subscription` \| `metered` \| `unknown`); `CredentialGeneration` (a positive integer); the `ProviderAccount` record shape; and the request/response pairs for register, remove, set-default, list, read, home-reset, and probe. Strict Zod schemas with unknown-key rejection. `credentialGeneration` is a **response-only** projection, and `accountId` is **daemon-minted** — a register request carrying either does not parse, so a caller cannot assert an identity or a generation; `accountId` does appear on later account-scoped requests (read / probe / remove / set-default and the NS-83 sign-in and re-supply selectors) as the selector for an identity the daemon already minted, which asserts nothing.
   - **Consumes:** branded-id factory (Plan-001, shipped).
   - **Spec coverage:** Spec-029 §Interfaces And Contracts; Spec-029 §The account registry.
   - **Verifies invariant:** I-029-1.
@@ -573,7 +573,36 @@ A supplement phase rather than a task inside Phase 4, because its gate is a **wh
 
 ```yaml
 manifest_schema_version: 1
-shipped: []
+shipped:
+  - phase: 1
+    task: [T1.1, T1.2, T1.3, T1.4]
+    pr: 403
+    sha: 2a57ab28
+    merged_at: 2026-09-01
+    files:
+      - docs/architecture/contracts/api-payload-contracts.md
+      - docs/architecture/schemas/local-sqlite-schema.md
+      - packages/contracts/src/__tests__/provider-account.test.ts
+      - packages/contracts/src/index.ts
+      - packages/contracts/src/provider-account.ts
+      - packages/runtime-daemon/src/accounts/__tests__/provider-account-schema-conformance.test.ts
+      - packages/runtime-daemon/src/migrations/0016-provider-accounts.ts
+      - packages/runtime-daemon/src/session/__tests__/migration-shape.test.ts
+      - packages/runtime-daemon/src/session/__tests__/session-service.test.ts
+      - packages/runtime-daemon/src/session/migration-runner.ts
+    verifies_invariant: [I-029-1, I-029-2, I-029-5, I-029-8, I-029-11, I-029-13]
+    spec_coverage:
+      [
+        "Spec-029 §Interfaces And Contracts",
+        "Spec-029 §The account registry",
+        "Spec-029 §State And Data Implications",
+        "Spec-029 §Brokered interactive sign-in",
+        "Spec-029 §Non-interactive token registration",
+        "Spec-029 §Per-limit provider quota",
+      ]
+    notes: |
+      Phase-1 tasks T1.1-T1.4 shipped as one contracts+migration PR. provider-account.ts lands the ProviderAccountId brand, the two-member ProviderName closed set, BillingMode, CredentialGeneration, the ProviderAccount record shape, the register / remove / set-default / list / read / home-reset / probe request-response pairs, and the NS-83 sign-in, token, and quota-window contracts - strict Zod schemas with unknown-key rejection, credentialGeneration response-only everywhere and accountId daemon-minted (a register request carrying either does not parse). Migration 0016 lands provider_accounts with the quirk-armored TEXT NOT NULL PRIMARY KEY identity, the stored health-observation pair, and the NS-83 columns, registered in migration-runner as a guarded per-version block (no contiguity claim - 0015/0017 landed in parallel branches). T1.3's conformance suite asserts contract-to-DDL parity so the Zod shapes and the CREATE cannot drift apart silently. Review: codex code review completed with the round-1 folds taken in-diff; the branch was rebuilt over PR #402's parallel 0015 landing rather than hunk-merged; CI green on the squash head.
+      verifies_invariant = the contract/DDL-level set canonically enforced by this shipment: I-029-1 (accountId opaque, immutable, daemon-minted - asserted at parse), I-029-2 (the conformance suite is its canonical test), I-029-5 + I-029-8 (the migration's structural rules), I-029-11's wire-surface census half (exactly one credential-accepting input, zero credential-bearing outputs - counted over the shipped schemas), and I-029-13 (the (providerAccountId, limitId) key shape). Behavioral halves (spawn validation, brokering, the health observer) land with the Phase 2-3 daemon services and are recorded against those phases.
 ```
 
 ### Notes
