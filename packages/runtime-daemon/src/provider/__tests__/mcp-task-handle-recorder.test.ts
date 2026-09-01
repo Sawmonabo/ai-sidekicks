@@ -283,8 +283,12 @@ describe("McpTaskHandleRecorder (Plan-005 T5.1)", () => {
       expect(readBack).not.toBe(LONE_HIGH_SURROGATE);
       // U+FFFD REPLACEMENT CHARACTER — the lone surrogate has no UTF-8
       // encoding, so the row now holds a handle the receiver never issued and
-      // the CHECK passed it without complaint.
-      expect(readBack).toBe("task-\uFFFD-9");
+      // the CHECK passed it without complaint. HOW MANY replacement characters
+      // stand in for the surrogate is platform-dependent (one per surrogate on
+      // macOS, one per WTF-8 byte on the Linux CI runners), so the assertion
+      // pins the corruption — replacement characters present, the surrogate's
+      // frame intact around them — and deliberately not its exact width.
+      expect(readBack).toMatch(/^task-\uFFFD+-9$/);
     });
 
     it.each([
