@@ -1437,7 +1437,7 @@ describe("isCanonicalOccurredAt — the stored spelling, not just the instant", 
       "  2026-03-04T05:06:07.008Z  ",
       "2026-03-04T05:06:07.008Z\n",
       "2026-03-04T05:06:07.008Z2026-03-04T05:06:07.008Z",
-      " ",
+      "\u0000",
       "😀",
     ];
     for (const input of inputsThatMakeNormalizationThrow) {

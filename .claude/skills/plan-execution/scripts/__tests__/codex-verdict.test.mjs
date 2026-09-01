@@ -577,7 +577,11 @@ test("one anchor binds all three timestamp-bound legs at once", () => {
   const reactions = [botReaction(stale)];
   const comments = [
     { user: { login: BOT_REST_LOGIN }, body: "Didn't find any major issues", created_at: stale },
-    { user: { login: BOT_REST_LOGIN }, body: "You have hit your usage limits", created_at: stale },
+    {
+      user: { login: BOT_REST_LOGIN },
+      body: "You have reached your Codex usage limits for code reviews. Please try again later.",
+      created_at: stale,
+    },
   ];
   const legsAt = (anchorMs) => ({
     reaction: deriveReactionAck(reactions, anchorMs).reactionAcksHead,
@@ -1352,10 +1356,32 @@ test("a comment citing a DIFFERENT sha does not ack HEAD", () => {
 
 test("a fresh usage-limits comment is a terminal non-ack", () => {
   const result = deriveCommentSignals(
-    [comment({ body: "Codex has reached its usage limits for this period." })],
+    [
+      comment({
+        body: "You have reached your Codex usage limits for code reviews. Please try again later.",
+      }),
+    ],
     commentAnchors,
   );
   assert.equal(result.rateLimited, true);
+});
+
+test("a security-review usage-limits comment is NOT a rate-limit terminal", () => {
+  // The minimal pair of the test above — same freshness, same author, the other
+  // reviewer's quota. The bot runs two reviewers off separate quotas; observed
+  // on PRs #395 / #396 / #397 (2026-08-31), this exact body posted while the
+  // code review ran to Completed with findings. The bare /usage limits/ pattern
+  // matched it and parked the gate on rate_limited with those findings unread;
+  // only the code-review quota stops the review this gate polls for.
+  const result = deriveCommentSignals(
+    [
+      comment({
+        body: "You have reached your Codex usage limits for security reviews. Please try again later.",
+      }),
+    ],
+    commentAnchors,
+  );
+  assert.equal(result.rateLimited, false, "security-review quota must not terminate the poll");
 });
 
 test("a usage-limits comment from a PRIOR head does NOT pin the gate", () => {
@@ -1365,7 +1391,7 @@ test("a usage-limits comment from a PRIOR head does NOT pin the gate", () => {
   const result = deriveCommentSignals(
     [
       comment({
-        body: "Codex has reached its usage limits for this period.",
+        body: "You have reached your Codex usage limits for code reviews. Please try again later.",
         created_at: "2026-07-20T09:00:00Z",
       }),
       comment(),
@@ -1378,7 +1404,7 @@ test("a usage-limits comment from a PRIOR head does NOT pin the gate", () => {
 
 test("a usage-limits comment in the HEAD commit's own second still fires", () => {
   const result = deriveCommentSignals(
-    [comment({ body: "usage limits reached", created_at: HEAD_COMMITTED_AT })],
+    [comment({ body: "usage limits for code reviews reached", created_at: HEAD_COMMITTED_AT })],
     commentAnchors,
   );
   assert.equal(result.rateLimited, true);
@@ -2010,7 +2036,11 @@ test("clean verdicts and usage-limits notices are never findings", () => {
   const clean = deriveCommentSignals([comment()], commentAnchors);
   assert.equal(clean.commentReportsFindings, false);
   const rateLimited = deriveCommentSignals(
-    [comment({ body: "Codex has reached its usage limits for now." })],
+    [
+      comment({
+        body: "You have reached your Codex usage limits for code reviews. Please try again later.",
+      }),
+    ],
     commentAnchors,
   );
   assert.equal(rateLimited.commentReportsFindings, false);
@@ -2991,7 +3021,7 @@ test("END TO END: a usage-limits notice in the push-to-sighting gap still report
     comments: [
       {
         user: { login: BOT_REST_LOGIN },
-        body: "You have hit your usage limits",
+        body: "You have reached your Codex usage limits for code reviews. Please try again later.",
         created_at: "2026-07-27T16:36:25Z",
       },
     ],

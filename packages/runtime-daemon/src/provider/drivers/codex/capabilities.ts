@@ -222,9 +222,13 @@ export const CODEX_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boole
     // signals its own invalidation, so the enumeration is a live read this
     // driver can take and re-take rather than a catalog it would have to cache.
     provider_commands: true,
-    // FALSE: this provider publishes no accelerated-output axis at all — its
-    // generated method root contains no speed or fast-output member anywhere —
-    // so nothing is emulated onto it. A complete declaration, not a gap: the
+    // FALSE, and on the axis's own two conjuncts rather than on a method
+    // census: this provider declares no settable output-speed LEVEL VOCABULARY
+    // and no DECLARED-STATE read. It is not a speed-silent wire — it carries a
+    // per-turn `serviceTier` override and a per-model service-tier catalog —
+    // but which tiers exist is runtime catalog data with no declared list here
+    // and nothing reports a current tier back, so there is no axis to declare
+    // and nothing is emulated onto it. A complete declaration, not a gap: the
     // analog is the per-turn `model` / `effort` axis, which this driver DOES
     // carry and declares through `model_mutation` above.
     output_speed: false,
@@ -236,8 +240,8 @@ export const CODEX_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boole
  * EMPTY, and that is the complete declaration the `false` flag above implies:
  * `Spec-005 §The output-speed axis` makes an absent or empty vocabulary the
  * signal that the axis is unsettable, so a caller carrying an `outputSpeed`
- * refuses fail-closed rather than forwarding an unvalidated value to a provider
- * that has no such surface.
+ * refuses fail-closed rather than forwarding an unvalidated value against a
+ * vocabulary this provider declares nowhere.
  *
  * The VALUES live in `../../driver-output-speed.ts`, alongside the other
  * driver's, because the durable capability cache's hydration path publishes this
@@ -317,7 +321,7 @@ export function getCodexCapabilities(
     // is omitted rather than served as an empty array. Omission and emptiness
     // mean the same thing to `Spec-005 §The output-speed axis` (the axis is
     // unsettable), and omitting is the honest encoding of a driver that
-    // publishes no such axis: an empty array would read as a vocabulary that
+    // declares no such axis: an empty array would read as a vocabulary that
     // happens to have no members today.
     ...(CODEX_CAPABILITY_FLAGS.output_speed
       ? { outputSpeedLevels: [...CODEX_OUTPUT_SPEED_LEVELS] }
@@ -508,8 +512,9 @@ const CODEX_BASE_EFFORT_LEVELS: readonly string[] = Object.freeze([
  * GOLDEN VECTOR — the Codex model catalog this driver declares.
  *
  *   Source doc      : `docs/reference/provider-wire/codex.md`
- *   Section         : §Client requests (`model/list` on the default,
- *                     non-experimental generation)
+ *   Section         : §`model/list` — the model catalog and the per-model
+ *                     effort vocabulary (the default, non-experimental
+ *                     generation)
  *   Pin             : codex-cli 0.150.1
  *   Provenance      : Binary probe. One live `codex app-server` JSON-RPC
  *                     `model/list` request after `initialize` / `initialized`

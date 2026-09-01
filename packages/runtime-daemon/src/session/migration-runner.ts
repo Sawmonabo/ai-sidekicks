@@ -22,17 +22,15 @@
 // Plan-005 (`migrations/0011-driver-capability-currency.ts`,
 // `migrations/0012-transcript-capability-backfill.ts`); version 13 by
 // Plan-006 (`migrations/0013-content-payload.ts`); version 14 by Plan-005
-// (`migrations/0014-console-parity-capability-flags.ts`); version 16 by
-// Plan-029 (`migrations/0016-provider-accounts.ts`). VERSION 15 IS AN
-// INTENTIONAL HOLE at the time this line was written: it is claimed by a
-// concurrently-authored Plan-004 migration that had not landed, and the two
-// were authored in parallel rather than in sequence. The runner needs no
+// (`migrations/0014-console-parity-capability-flags.ts`); version 15 by
+// Plan-004 (`migrations/0015-queue-and-interventions.ts`); version 16 by
+// Plan-029 (`migrations/0016-provider-accounts.ts`). The runner needs no
 // contiguity — every version is an independently guarded block keyed on its own
 // `schema_version` row, and `hasMigrationApplied` asks about one version rather
-// than about a maximum — so a database that applies 16 without 15 is a correct
-// database, not a skipped upgrade. Subsequent plans — and Plan-006's own
-// remaining migrations — register their version as a further guarded block of
-// the same shape and bump `schema_version`.
+// than about a maximum — so the two were safely authored in parallel rather
+// than in sequence. Subsequent plans — and Plan-006's own remaining
+// migrations — register their version as a further guarded block of the same
+// shape and bump `schema_version`.
 //
 // Version ORDER is load-bearing between 6 and 7 only in the trivial sense that
 // both touch `session_events`; they are independent otherwise (6 adds an index
@@ -106,6 +104,7 @@ import { DRIVER_CAPABILITY_CURRENCY_MIGRATION_SQL } from "../migrations/0011-dri
 import { TRANSCRIPT_CAPABILITY_BACKFILL_MIGRATION_SQL } from "../migrations/0012-transcript-capability-backfill.js";
 import { CONTENT_PAYLOAD_MIGRATION_SQL } from "../migrations/0013-content-payload.js";
 import { CONSOLE_PARITY_CAPABILITY_FLAGS_MIGRATION_SQL } from "../migrations/0014-console-parity-capability-flags.js";
+import { QUEUE_AND_INTERVENTIONS_MIGRATION_SQL } from "../migrations/0015-queue-and-interventions.js";
 import { PROVIDER_ACCOUNTS_MIGRATION_SQL } from "../migrations/0016-provider-accounts.js";
 
 /**
@@ -389,6 +388,28 @@ export function applyMigrations(db: DatabaseType): void {
     }).immediate();
   }
 
+  if (!hasMigrationApplied(db, 15)) {
+    // Version 15 (Plan-004) — the queue, intervention, and command-receipt
+    // tables. Order-independent of every earlier version in the strong sense:
+    // it CREATEs three standalone tables, participates in no foreign key in
+    // either direction, and neither reads nor rebuilds a column any prior
+    // version added. It follows version 14 by ordinal alone.
+    //
+    // Atomicity is what makes three CREATEs one version rather than three.
+    // `queue_items` and `interventions` are the two halves of one admission
+    // transaction — an admitted queue item carries the id of the intervention
+    // that created it — so a torn apply could leave a schema in which that
+    // transaction cannot be written at all, gated on a version marker saying
+    // the queue is ready. `command_receipts` rides along as a forward-declared
+    // shell (CP-004-2) with no reader until Plan-015: a rollback boundary
+    // around a table nothing writes would buy nothing.
+    db.transaction(() => {
+      if (!hasMigrationApplied(db, 15)) {
+        db.exec(QUEUE_AND_INTERVENTIONS_MIGRATION_SQL);
+      }
+    }).immediate();
+  }
+
   if (!hasMigrationApplied(db, 16)) {
     // Version 16 (Plan-029) — the node-local provider-account registry
     // (`provider_accounts`, plus the two unique indexes that make a second
@@ -397,9 +418,9 @@ export function applyMigrations(db: DatabaseType): void {
     //
     // Order-independent of every earlier version in the strong sense: both
     // tables are new, neither is named by any earlier migration's `REFERENCES`
-    // clause, and no earlier table is read, rebuilt, or backfilled here. Version
-    // 15 is deliberately absent — see the ownership note in this file's header
-    // for why a hole is a correct state rather than a skipped upgrade.
+    // clause, and no earlier table is read, rebuilt, or backfilled here — it
+    // follows version 15 by ordinal alone, the two having been authored in
+    // parallel under the header's no-contiguity rule.
     //
     // Atomicity is what makes the two tables one version rather than two: the
     // child's `REFERENCES provider_accounts(account_id) ON DELETE CASCADE` is

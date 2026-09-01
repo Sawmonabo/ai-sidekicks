@@ -67,12 +67,14 @@ const PLAN_001_TABLES: ReadonlyArray<string> = [
 // version-3 tables + Plan-010 version-4 tables + the three Plan-006 tables —
 // version-5 `daemon_signing_keys`, version-8 `pending_anchor_uploads`, and
 // version-13 `session_content_keys` — plus the two Plan-009 version-10 tables
-// `repo_mounts` and `workspaces`, plus the two Plan-029 version-16 tables
-// `provider_accounts` and `provider_account_usage_windows`).
+// `repo_mounts` and `workspaces`, plus the three Plan-004 version-15 tables
+// `queue_items`, `interventions`, and the forward-declared `command_receipts`
+// shell, plus the two Plan-029 version-16 tables `provider_accounts` and
+// `provider_account_usage_windows`).
 // Version 11 (Plan-005) moves this census by ZERO: it rebuilds
 // `driver_capabilities` in place to widen a column CHECK, and the transient
 // `driver_capabilities_new` is renamed over the original within the same
-// script — a leftover transient would show up here as a twentieth table.
+// script — a leftover transient would show up here as an extra table.
 // Alphabetical by SQLite's `ORDER BY name` — BINARY collation, so
 // `_` (0x5F) sorts before every lowercase letter and
 // `run_execution_contexts` precedes `runtime_bindings`, while `workspaces`
@@ -81,20 +83,23 @@ const PLAN_001_TABLES: ReadonlyArray<string> = [
 // the two share the prefix `provider_account`, and the next byte is `_`
 // (0x5F) against `s` (0x73). Kept separate from `PLAN_001_TABLES` so the
 // snapshot loop's 0001-immutability guard is unaffected by the 0002 / 0003 /
-// 0004 / 0005 / 0008 / 0010 / 0016 additions.
+// 0004 / 0005 / 0008 / 0010 / 0015 / 0016 additions.
 const ALL_EXPECTED_TABLES: ReadonlyArray<string> = [
   "branch_contexts",
+  "command_receipts",
   "daemon_signing_keys",
   "driver_capabilities",
   "driver_contract_meta",
   "driver_tools",
   "ephemeral_clones",
+  "interventions",
   "node_capabilities",
   "node_trust_state",
   "participant_keys",
   "pending_anchor_uploads",
   "provider_account_usage_windows",
   "provider_accounts",
+  "queue_items",
   "repo_mounts",
   "run_execution_contexts",
   "runtime_bindings",
@@ -143,19 +148,20 @@ describe("0001-initial migration shape", () => {
     const rows = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
       .all() as ReadonlyArray<{ name: string }>;
-    // After version-16 the DB holds the full twenty-one-table set:
+    // After version-16 the DB holds the full twenty-four-table set:
     // the four Plan-001 tables, the two Plan-003 tables (node_capabilities,
     // node_trust_state), the four Plan-005 tables (runtime_bindings,
     // driver_capabilities, driver_tools, driver_contract_meta), the four
     // Plan-010 tables (worktrees, ephemeral_clones, branch_contexts,
     // run_execution_contexts), the two Plan-006 tables
-    // (daemon_signing_keys at v5, pending_anchor_uploads at v8), and the two
-    // Plan-009 tables (repo_mounts, workspaces at v10), and the third Plan-006
-    // table (session_content_keys at v13), and the two Plan-029 tables
-    // (provider_accounts, provider_account_usage_windows at v16). Versions 11
-    // and 12 rebuild and backfill driver_capabilities rather than adding
-    // anything, so this list is also the assertion that version 11's transient
-    // `driver_capabilities_new` did not survive the rename.
+    // (daemon_signing_keys at v5, pending_anchor_uploads at v8), the two
+    // Plan-009 tables (repo_mounts, workspaces at v10), the third Plan-006
+    // table (session_content_keys at v13), the three Plan-004 tables
+    // (queue_items, interventions, command_receipts at v15), and the two
+    // Plan-029 tables (provider_accounts, provider_account_usage_windows at
+    // v16). Versions 11 and 12 rebuild and backfill driver_capabilities rather
+    // than adding anything, so this list is also the assertion that version
+    // 11's transient `driver_capabilities_new` did not survive the rename.
     expect(rows.map((r) => r.name)).toEqual(ALL_EXPECTED_TABLES);
   });
 
@@ -202,21 +208,15 @@ describe("0001-initial migration shape", () => {
     expect(byName.get("monotonic_ns")?.notnull).toBe(1);
   });
 
-  it("anchors schema_version rows at versions [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16]", () => {
+  it("anchors schema_version rows at versions [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]", () => {
     // The `ORDER BY version` is load-bearing: without it the row order is
     // insertion-order luck and the assertion would silently stop pinning
     // which versions landed.
-    //
-    // The list is NOT CONTIGUOUS, and the gap is asserted rather than tolerated:
-    // version 15 is claimed by a concurrently-authored Plan-004 migration that
-    // had not landed when version 16 was written. Every guarded block keys on
-    // its own `schema_version` row, so a hole is a correct state; asserting the
-    // exact list is what keeps it from becoming a silently skipped upgrade.
     const versionRows = db
       .prepare("SELECT version FROM schema_version ORDER BY version")
       .all() as ReadonlyArray<{ version: number }>;
     expect(versionRows.map((r) => r.version)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
     ]);
   });
 
@@ -224,7 +224,7 @@ describe("0001-initial migration shape", () => {
     // Second invocation must be a no-op (the migration runner short-
     // circuits via hasMigrationApplied per version). Re-running must not
     // throw, must not double-insert any schema_version anchor row, must
-    // not duplicate tables. Fifteen DISTINCT versions [1..14, 16] is not
+    // not duplicate tables. Sixteen DISTINCT versions [1..16] is not
     // duplication.
     //
     // Version 7 makes this arm strictly load-bearing rather than a
@@ -251,18 +251,19 @@ describe("0001-initial migration shape", () => {
     // `driver_capabilities` again, so a guard regression throws "table already
     // exists" on its first statement, and its own backfill INSERT is the mild
     // half of a script whose first half is not.
-    // Version 16 restores version 8's and 10's stakes: two `CREATE TABLE`s and a
-    // `CREATE UNIQUE INDEX`, none spelled with an `IF NOT EXISTS`, so a guard
-    // regression throws on whichever it reaches first.
+    // Version 15 carries version 8's stakes three times over: three unguarded
+    // `CREATE TABLE`s, so a guard regression throws "table already exists" on
+    // the first of them rather than quietly re-running.
+    // Version 16 restores version 8's and 10's stakes: two `CREATE TABLE`s and
+    // two `CREATE UNIQUE INDEX`es, none spelled with an `IF NOT EXISTS`, so a
+    // guard regression throws on whichever it reaches first.
     applyMigrations(db);
     const versionRows = db
       .prepare("SELECT version FROM schema_version ORDER BY version")
       .all() as ReadonlyArray<{ version: number }>;
-    // FIFTEEN rows across a list that stops at 16 — the version-15 hole, see the
-    // anchor test above.
-    expect(versionRows).toHaveLength(15);
+    expect(versionRows).toHaveLength(16);
     expect(versionRows.map((r) => r.version)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
     ]);
   });
 });
@@ -3867,6 +3868,451 @@ describe("0014-console-parity-capability-flags migration shape", () => {
     expect(versionRows[0]?.description).toBe(
       "Console-parity capability flags (capability_flag CHECK widened to seventeen; " +
         "context_compaction / provider_commands / output_speed supported = 0 rows per cached driver_name)",
+    );
+  });
+});
+
+// Plan-004 T1.4 + T1.5 — version-15 migration-shape coverage.
+//
+// Three tables in one ordinal, and the block below pins WHY each is here:
+//
+//   * `queue_items` and `interventions` are the two halves of one admission
+//     transaction — the queue row carries the id of the intervention that
+//     created it — so they cannot be split across ordinals without admitting a
+//     schema in which that transaction is unwritable.
+//   * `command_receipts` is a forward-declared SHELL (CP-004-2). Its coverage
+//     is deliberately as much about the columns that are ABSENT as the five
+//     that are present: Plan-015, Plan-005, and Plan-028 EXTEND it through
+//     their own migrations, and a shell that quietly grew their columns would
+//     let this migration take ownership it does not have.
+//
+// Shape-checkable invariant cites:
+//   * I-004-4 — the mandatory fail-closed comparand. `expected_run_version` is
+//     NOT NULL, so an intervention row cannot persist without one.
+//   * I-004-22 / I-004-23 — the admitting-principal carrier. `origin` carries
+//     NO DEFAULT (an unstamped insert fails at the database rather than
+//     defaulting into the system arm) and the table-level CHECK is a
+//     BICONDITIONAL, so both failure directions are refused: a participant row
+//     without a principal, and a system row that smuggles one in.
+//
+// Every refusal assertion below is paired with a positive control, so a broken
+// statement can never read as a working constraint.
+describe("0015-queue-and-interventions migration shape", () => {
+  let db: DatabaseType;
+
+  beforeEach(() => {
+    db = new Database(":memory:");
+    applyPragmas(db);
+    applyMigrations(db);
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  interface ColumnInfo {
+    readonly name: string;
+    readonly type: string;
+    readonly notnull: 0 | 1;
+    readonly dflt_value: string | null;
+    readonly pk: 0 | 1;
+  }
+
+  function columnsOf(table: string): ReadonlyArray<ColumnInfo> {
+    return (db.pragma(`table_info(${table})`) as ReadonlyArray<ColumnInfo>).map((entry) => ({
+      name: entry.name,
+      type: entry.type,
+      notnull: entry.notnull,
+      dflt_value: entry.dflt_value,
+      pk: entry.pk,
+    }));
+  }
+
+  // Named indexes only. SQLite's implicit `sqlite_autoindex_*` entries back the
+  // PRIMARY KEY and UNIQUE constraints and are asserted through their BEHAVIOUR
+  // below, not through their generated names.
+  function namedIndexesOf(table: string): ReadonlyArray<string> {
+    return (
+      db
+        .prepare(
+          `SELECT name FROM sqlite_master
+            WHERE type = 'index' AND tbl_name = ? AND name NOT LIKE 'sqlite_autoindex%'
+            ORDER BY name`,
+        )
+        .all(table) as ReadonlyArray<{ name: string }>
+    ).map((row) => row.name);
+  }
+
+  // The column list is derived from the merged row rather than fixed, so an
+  // override always reaches the statement. A fixed list would silently DROP any
+  // column the base row omits — turning a negative assertion about, say, an
+  // unlisted `state` into a test of the column default instead.
+  function insertIntervention(overrides: Record<string, unknown> = {}): void {
+    const row: Record<string, unknown> = {
+      id: "intervention-a",
+      target_run_id: "run-a",
+      type: "steer",
+      expected_run_version: 3,
+      client_idempotency_key: "9f1a6f4e-0000-4000-8000-000000000001",
+      origin: "system",
+      admitting_principal_id: null,
+      created_at: "2026-08-31T00:00:00.000Z",
+      ...overrides,
+    };
+    const columns = Object.keys(row);
+    db.prepare(
+      `INSERT INTO interventions (${columns.join(", ")})
+       VALUES (${columns.map((column) => `@${column}`).join(", ")})`,
+    ).run(row);
+  }
+
+  it("pins the queue_items column shape", () => {
+    expect(columnsOf("queue_items")).toEqual([
+      { name: "id", type: "TEXT", notnull: 0, dflt_value: null, pk: 1 },
+      { name: "session_id", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
+      // Nullable for session-level items.
+      { name: "channel_id", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
+      { name: "state", type: "TEXT", notnull: 1, dflt_value: "'queued'", pk: 0 },
+      { name: "priority", type: "INTEGER", notnull: 1, dflt_value: "0", pk: 0 },
+      // Plaintext NON-PII members only; a participant-authored body encrypts
+      // into pii_payload instead.
+      { name: "payload", type: "TEXT", notnull: 1, dflt_value: "'{}'", pk: 0 },
+      { name: "pii_payload", type: "BLOB", notnull: 0, dflt_value: null, pk: 0 },
+      { name: "pii_participant_id", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
+      // NULL on every ordinary follow-up item; stamped solely by the
+      // edit-and-resend composite's admission in V1.
+      { name: "target_run_id", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
+      { name: "admitting_intervention_id", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
+      { name: "created_at", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
+      { name: "updated_at", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
+    ]);
+  });
+
+  it("pins the interventions column shape", () => {
+    expect(columnsOf("interventions")).toEqual([
+      { name: "id", type: "TEXT", notnull: 0, dflt_value: null, pk: 1 },
+      { name: "target_run_id", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
+      { name: "type", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
+      { name: "state", type: "TEXT", notnull: 1, dflt_value: "'requested'", pk: 0 },
+      { name: "payload", type: "TEXT", notnull: 1, dflt_value: "'{}'", pk: 0 },
+      // I-004-4: the mandatory fail-closed comparand cannot be absent.
+      { name: "expected_run_version", type: "INTEGER", notnull: 1, dflt_value: null, pk: 0 },
+      { name: "client_idempotency_key", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
+      { name: "pii_payload", type: "BLOB", notnull: 0, dflt_value: null, pk: 0 },
+      { name: "pii_participant_id", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
+      // NOT NULL and UNDEFAULTED together — that pairing is the fail-closed
+      // property, not the NOT NULL alone (I-004-22).
+      { name: "origin", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
+      { name: "admitting_principal_id", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
+      { name: "result", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
+      // The wire contract forbids `result` on `rejected`, so the machine-
+      // readable cause needs its own column to survive an idempotent replay.
+      { name: "rejection_reason", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
+      { name: "initiator_id", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
+      { name: "created_at", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
+      { name: "resolved_at", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
+    ]);
+  });
+
+  it("creates command_receipts as the five-column forward-declared shell", () => {
+    expect(columnsOf("command_receipts")).toEqual([
+      { name: "id", type: "TEXT", notnull: 0, dflt_value: null, pk: 1 },
+      { name: "command_id", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
+      { name: "run_id", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
+      { name: "status", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
+      { name: "created_at", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
+    ]);
+  });
+
+  it("leaves every later plan's command_receipts column to that plan's own migration", () => {
+    // The shell's real contract. Plan-015 owns the BL-051 two-phase columns,
+    // Plan-005 `mcp_task_id`, Plan-028 `mcp_binding_digest` — each through its
+    // own migration. A shell that quietly grew any of them would take ownership
+    // this plan does not have, and `idempotency_class` in particular is NOT NULL
+    // with no default, so creating it here would also silently pre-empt the
+    // table rebuild that EXTEND has to perform.
+    const present = new Set(columnsOf("command_receipts").map((entry) => entry.name));
+    for (const notYetOwned of [
+      "idempotency_class",
+      "dedupe_key",
+      "started_at",
+      "completed_at",
+      "mcp_task_id",
+      "mcp_binding_digest",
+    ]) {
+      expect(present.has(notYetOwned)).toBe(false);
+    }
+    // Positive control: the set is populated, so the six negatives above are
+    // real absences rather than an empty projection.
+    expect(present.has("command_id")).toBe(true);
+  });
+
+  it("creates the drain-selection indexes and none that reads a later plan's column", () => {
+    expect(namedIndexesOf("queue_items")).toEqual([
+      "idx_queue_items_channel",
+      "idx_queue_items_session_state",
+      "idx_queue_items_target_run",
+    ]);
+    expect(namedIndexesOf("interventions")).toEqual([
+      "idx_interventions_run",
+      "idx_interventions_state",
+    ]);
+    // `idx_command_receipts_run` reads only a shell column. The canonical
+    // block's other two indexes read Plan-015 / Plan-028 columns and belong to
+    // those EXTENDs.
+    expect(namedIndexesOf("command_receipts")).toEqual(["idx_command_receipts_run"]);
+  });
+
+  it("leaves both pii_participant_id stamps unindexed", () => {
+    // Matched between the two tables on purpose: the erasure/export selector is
+    // a maintenance scan, never a hot path, and an index read once per erasure
+    // would cost every write.
+    const indexedColumns = (table: string): ReadonlyArray<string> =>
+      namedIndexesOf(table).flatMap((indexName) =>
+        (db.pragma(`index_info(${indexName})`) as ReadonlyArray<{ name: string }>).map(
+          (entry) => entry.name,
+        ),
+      );
+    expect(indexedColumns("queue_items")).not.toContain("pii_participant_id");
+    expect(indexedColumns("interventions")).not.toContain("pii_participant_id");
+    // Positive control: the projection does see the columns that ARE indexed.
+    expect(indexedColumns("queue_items")).toContain("session_id");
+  });
+
+  it("applies the queue_items defaults and refuses an unlisted state", () => {
+    db.prepare(
+      `INSERT INTO queue_items (id, session_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?)`,
+    ).run("queue-a", "session-a", "2026-08-31T00:00:00.000Z", "2026-08-31T00:00:00.000Z");
+    expect(
+      db.prepare("SELECT state, priority, payload FROM queue_items WHERE id = ?").get("queue-a"),
+    ).toEqual({ state: "queued", priority: 0, payload: "{}" });
+
+    // Positive control first: every canonical state is admitted, so the refusal
+    // below is the CHECK and not a broken statement.
+    for (const state of ["queued", "admitted", "superseded", "canceled", "expired"]) {
+      expect(() => {
+        db.prepare(
+          `INSERT INTO queue_items (id, session_id, state, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?)`,
+        ).run(
+          `queue-${state}`,
+          "session-a",
+          state,
+          "2026-08-31T00:00:00.000Z",
+          "2026-08-31T00:00:00.000Z",
+        );
+      }).not.toThrow();
+    }
+    expect(() => {
+      db.prepare(
+        `INSERT INTO queue_items (id, session_id, state, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      ).run(
+        "queue-bogus",
+        "session-a",
+        "cancelled",
+        "2026-08-31T00:00:00.000Z",
+        "2026-08-31T00:00:00.000Z",
+      );
+    }).toThrow(/CHECK constraint failed/);
+  });
+
+  it("admits exactly the four intervention types and the six lifecycle states", () => {
+    for (const type of ["steer", "interrupt", "cancel", "rollback"]) {
+      expect(() => {
+        insertIntervention({ id: `type-${type}`, type, client_idempotency_key: `key-${type}` });
+      }).not.toThrow();
+    }
+    expect(() => {
+      insertIntervention({ id: "type-bogus", type: "rewind", client_idempotency_key: "key-bogus" });
+    }).toThrow(/CHECK constraint failed/);
+
+    for (const state of ["requested", "accepted", "applied", "rejected", "degraded", "expired"]) {
+      expect(() => {
+        insertIntervention({
+          id: `state-${state}`,
+          state,
+          client_idempotency_key: `state-key-${state}`,
+        });
+      }).not.toThrow();
+    }
+    expect(() => {
+      insertIntervention({
+        id: "state-bogus",
+        state: "applied_partially",
+        client_idempotency_key: "state-key-bogus",
+      });
+    }).toThrow(/CHECK constraint failed/);
+
+    // The default is `requested`, so a row that declares no state still lands in
+    // the pre-dispatch state rather than in whichever state the caller forgot.
+    db.prepare(
+      `INSERT INTO interventions
+         (id, target_run_id, type, expected_run_version, client_idempotency_key, origin, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      "state-default",
+      "run-a",
+      "steer",
+      1,
+      "state-key-default",
+      "system",
+      "2026-08-31T00:00:00.000Z",
+    );
+    expect(
+      db.prepare("SELECT state, payload FROM interventions WHERE id = ?").get("state-default"),
+    ).toEqual({ state: "requested", payload: "{}" });
+  });
+
+  it("requires the fail-closed comparand on every intervention row", () => {
+    // I-004-4. The positive control is the shared helper, which supplies one.
+    expect(() => {
+      insertIntervention({ id: "comparand-present", client_idempotency_key: "comparand-a" });
+    }).not.toThrow();
+    expect(() => {
+      insertIntervention({
+        id: "comparand-absent",
+        expected_run_version: null,
+        client_idempotency_key: "comparand-b",
+      });
+    }).toThrow(/NOT NULL constraint failed/);
+  });
+
+  it("fails an unstamped origin closed rather than defaulting it into the system arm", () => {
+    // I-004-22. The column is NOT NULL with NO DEFAULT, so an insert site that
+    // forgets to declare the admission path is refused at the database — a
+    // DEFAULT would have failed OPEN by silently electing `system`, the arm that
+    // needs no principal.
+    expect(() => {
+      db.prepare(
+        `INSERT INTO interventions
+           (id, target_run_id, type, expected_run_version, client_idempotency_key, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run("origin-absent", "run-a", "steer", 1, "origin-key-a", "2026-08-31T00:00:00.000Z");
+    }).toThrow(/NOT NULL constraint failed: interventions\.origin/);
+
+    expect(() => {
+      insertIntervention({
+        id: "origin-bogus",
+        origin: "daemon",
+        client_idempotency_key: "origin-key-b",
+      });
+    }).toThrow(/CHECK constraint failed/);
+  });
+
+  it("binds the admitting principal to the participant arm in both directions", () => {
+    // I-004-23, the biconditional. Both legal shapes first, so each refusal
+    // below is the CHECK rather than a malformed statement.
+    expect(() => {
+      insertIntervention({
+        id: "principal-participant",
+        origin: "participant",
+        admitting_principal_id: "participant-a",
+        client_idempotency_key: "principal-key-a",
+      });
+    }).not.toThrow();
+    expect(() => {
+      insertIntervention({
+        id: "principal-system",
+        origin: "system",
+        admitting_principal_id: null,
+        client_idempotency_key: "principal-key-b",
+      });
+    }).not.toThrow();
+
+    // A participant row can never persist without its verified identity...
+    expect(() => {
+      insertIntervention({
+        id: "principal-missing",
+        origin: "participant",
+        admitting_principal_id: null,
+        client_idempotency_key: "principal-key-c",
+      });
+    }).toThrow(/CHECK constraint failed/);
+    // ...and the system arm can never smuggle one in.
+    expect(() => {
+      insertIntervention({
+        id: "principal-smuggled",
+        origin: "system",
+        admitting_principal_id: "participant-a",
+        client_idempotency_key: "principal-key-d",
+      });
+    }).toThrow(/CHECK constraint failed/);
+  });
+
+  it("keys intervention dedupe on the run and the idempotency key together", () => {
+    insertIntervention({ id: "dedupe-a", target_run_id: "run-a", client_idempotency_key: "key-1" });
+    // The SAME key under a DIFFERENT run is a distinct intervention — the grain
+    // is the pair, not the key.
+    expect(() => {
+      insertIntervention({
+        id: "dedupe-b",
+        target_run_id: "run-b",
+        client_idempotency_key: "key-1",
+      });
+    }).not.toThrow();
+    expect(() => {
+      insertIntervention({
+        id: "dedupe-c",
+        target_run_id: "run-a",
+        client_idempotency_key: "key-1",
+      });
+    }).toThrow(/UNIQUE constraint failed/);
+  });
+
+  it("keys command receipts on the client-supplied command id alone", () => {
+    const insert = db.prepare(
+      `INSERT INTO command_receipts (id, command_id, run_id, status, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    );
+    insert.run("receipt-a", "command-1", "run-a", "accepted", "2026-08-31T00:00:00.000Z");
+    // Distinct grain from the interventions pair above: a different run does NOT
+    // make the same command id a distinct receipt.
+    expect(() => {
+      insert.run("receipt-b", "command-1", "run-b", "accepted", "2026-08-31T00:00:00.000Z");
+    }).toThrow(/UNIQUE constraint failed/);
+    expect(() => {
+      insert.run("receipt-c", "command-2", "run-b", "accepted", "2026-08-31T00:00:00.000Z");
+    }).not.toThrow();
+
+    for (const status of ["accepted", "rejected", "completed", "failed"]) {
+      expect(() => {
+        insert.run(
+          `receipt-${status}`,
+          `command-${status}`,
+          null,
+          status,
+          "2026-08-31T00:00:00.000Z",
+        );
+      }).not.toThrow();
+    }
+    expect(() => {
+      insert.run("receipt-bogus", "command-bogus", null, "pending", "2026-08-31T00:00:00.000Z");
+    }).toThrow(/CHECK constraint failed/);
+  });
+
+  it("is idempotent across a second migration pass", () => {
+    // None of the three CREATEs carries an existence guard, so the runner's
+    // version check is the ONLY thing making a re-run a no-op.
+    applyMigrations(db);
+    applyMigrations(db);
+
+    expect(
+      db.prepare("SELECT COUNT(*) AS total FROM schema_version WHERE version = 15").get(),
+    ).toEqual({ total: 1 });
+    expect(columnsOf("queue_items")).toHaveLength(12);
+    expect(columnsOf("interventions")).toHaveLength(16);
+    expect(columnsOf("command_receipts")).toHaveLength(5);
+  });
+
+  it("anchors the version-15 schema_version row with its queue-and-intervention description", () => {
+    const versionRows = db
+      .prepare("SELECT description FROM schema_version WHERE version = 15")
+      .all() as ReadonlyArray<{ description: string }>;
+    expect(versionRows).toHaveLength(1);
+    expect(versionRows[0]?.description).toBe(
+      "Queue and intervention tables (queue_items, interventions, command_receipts forward-declared shell)",
     );
   });
 });

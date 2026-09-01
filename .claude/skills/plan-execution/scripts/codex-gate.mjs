@@ -13,7 +13,7 @@
  *   1. findings     — review object whose .commit_id is HEAD, with open threads
  *   2. clean        — +1 reaction on the PR issue, at or after the ack anchor
  *   3. clean        — "Didn't find any major issues" comment, same freshness bind
- *   4. rate-limited — fresh bot comment matching /usage limits/ (NON-ack; stop polling)
+ *   4. rate-limited — fresh bot comment matching /usage limits for code reviews/ (NON-ack; stop polling)
  *
  * The ack anchor is the latest of three floors: this gate's own first sighting of
  * the sha as this PR's HEAD (lib/observation-baseline.mjs), the earliest check
@@ -628,7 +628,9 @@ for (const check of advisoryFailedChecks) {
   );
 }
 if (rateLimited) {
-  lines.push("  !! Codex reports usage limits reached — NON-ack terminal, stop polling");
+  lines.push(
+    "  !! Codex reports code-review usage limits reached — NON-ack terminal, stop polling",
+  );
 }
 if (verdict === "no_ack_yet") {
   lines.push(

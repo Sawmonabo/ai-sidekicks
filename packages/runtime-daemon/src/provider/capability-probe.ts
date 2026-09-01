@@ -353,7 +353,7 @@ export const CODEX_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = 
     detectionSource: "static",
     failingConjuncts: ["decisive-at-consumption-granularity"],
     rationale:
-      "FALSE on this driver, and a complete declaration rather than an unprobed gap. The failing conjunct here is DECISIVENESS and not zero-turn — deliberately a different conjunct from the sibling Claude entry: the one zero-turn channel this driver has enumerates client-request METHODS, and an accelerated-output mode is a handshake-declared STATE rather than a method, so that channel cannot decide it in either direction. This provider's own generated method root contains no speed or fast-output member anywhere, which is what makes the `false` a reading of the surface rather than an absence of one.",
+      "FALSE on this driver, and a complete declaration rather than an unprobed gap. The failing conjunct here is DECISIVENESS and not zero-turn — deliberately a different conjunct from the sibling Claude entry. This driver DOES have a zero-turn channel bearing on the axis: the model catalog read, which carries a per-model service-tier list. It still cannot decide the flag, because a service tier is three free-form strings and reading one of them as an output-SPEED tier is a semantic judgment rather than a decidable read. The `false` rests on the two conjuncts the axis itself requires — no statically declarable level vocabulary and no declared-state read — and deliberately NOT on a census of the method root, which bounds availability from below and not above.",
   },
 });
 

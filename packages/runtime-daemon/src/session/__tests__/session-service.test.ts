@@ -379,11 +379,7 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
       { version: 12 },
       { version: 13 },
       { version: 14 },
-      // Version 15 is deliberately absent: it is claimed by a concurrently-
-      // authored migration that had not landed when version 16 was written.
-      // Every guarded block keys on its own `schema_version` row, so a hole
-      // is a correct state; asserting the exact list is what keeps it from
-      // becoming a silently skipped upgrade.
+      { version: 15 },
       { version: 16 },
     ]);
   });
@@ -411,7 +407,7 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
       { version: 12 },
       { version: 13 },
       { version: 14 },
-      // See the version-15 hole note on the first assertion above.
+      { version: 15 },
       { version: 16 },
     ]);
   });
@@ -454,7 +450,7 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
         { version: 12 },
         { version: 13 },
         { version: 14 },
-        // See the version-15 hole note on the first assertion above.
+        { version: 15 },
         { version: 16 },
       ]);
     } finally {
@@ -741,28 +737,29 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
     ).toBeLessThanOrEqual(FAILURE_THRESHOLD);
 
     // Belt-and-braces verification: every trial's database file must
-    // contain exactly the eleven expected schema_version rows [1..11]
+    // contain exactly the sixteen expected schema_version rows [1..16]
     // regardless of how many workers succeeded vs blocked. The
     // useDeferred:false worker calls PRODUCTION applyMigrations, so each
-    // trial exercises all eleven migration blocks.
+    // trial exercises all sixteen migration blocks.
     //
     // What this row-count assertion actually guarantees (claim no more):
     //   * it catches a broken or missing anchor INSERT for the newest
-    //     migration (a v11 migration that failed to write its
+    //     migration (a v16 migration that failed to write its
     //     schema_version row, or wrote the wrong version) — and likewise
-    //     for the v2..v10 anchors, and
+    //     for the v2..v15 anchors, and
     //   * it catches a within-handle double-apply that duplicated any
     //     anchor row, and
     //   * it is a strict strengthening over the old `[1]` assertion (the
-    //     assertion evolved [1] → [1, 2] → … → [1..5] → [1..9] → [1..11] as
-    //     each migration landed) — it cannot pass anything `[1]` would have
-    //     failed.
+    //     assertion evolved [1] → [1, 2] → … → [1..5] → [1..9] → [1..11] →
+    //     … → [1..16] as each migration landed) — it cannot pass anything
+    //     `[1]` would have failed.
     //
     // What it does NOT deterministically catch: a newest-migration-ONLY
-    // `.immediate()` drop (today, v11). Tracing the race, a DEFERRED loser
+    // `.immediate()` drop. The race below was traced for v11 and has NOT
+    // been re-traced for the newer ordinals. Tracing it, a DEFERRED loser
     // hits SQLITE_BUSY on the write-UPGRADE and bails BEFORE committing
     // its INSERT (so no duplicate row lands), and some worker always wins
-    // each BEGIN (so the row is never missing) — the [1..11] count is
+    // each BEGIN (so the row is never missing) — the row-count assertion is
     // therefore essentially immune to a v11-only `.immediate()` regression.
     // Deterministic detection of that class rides on the FAILURE_THRESHOLD
     // above (calibrated to v1's ~95% DEFERRED saturation) and is owned by
@@ -850,6 +847,45 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
     //     story) or a "duplicate column name" throw on the ALTERs (the v7
     //     story), both of which land in the worker-failure count above rather
     //     than here.
+    //   * v15 (`QUEUE_AND_INTERVENTIONS_MIGRATION_SQL`) — the three CREATE
+    //     TABLEs, their four indexes, and the version-15 INSERT are one script,
+    //     one `.exec()`. Holds. Re-derived rather than incremented: v15 creates
+    //     THREE tables where v10 created two, and its pair is linked by an
+    //     in-row reference (`queue_items.admitting_intervention_id` naming an
+    //     `interventions` row) that is deliberately NOT an FK, so SQLite would
+    //     raise nothing on a torn apply. The failure mode that adds is a loser
+    //     landing the anchor row with `queue_items` present and `interventions`
+    //     absent — a schema where every per-table shape assertion on the
+    //     surviving table passes while the admission transaction that writes
+    //     both rows cannot be written at all. It cannot happen for the same
+    //     single-`.exec()` reason: the whole script commits or none of it does.
+    //     A lost guard turns a re-apply into a hard "table already exists"
+    //     throw on the first CREATE (the v8 story), which lands in the
+    //     worker-failure count above rather than here.
+    //   * v16 (`PROVIDER_ACCOUNTS_MIGRATION_SQL`) — the two CREATE TABLEs,
+    //     their two CREATE UNIQUE INDEXes, and the version-16 INSERT are one
+    //     script, one `.exec()`. Holds. Re-derived rather than incremented,
+    //     and the re-derivation's finding is that v16 adds NO failure mode
+    //     that is new in kind: its shape is v10's — a parent/child pair and
+    //     unique indexes over columns the same script declares — so v10's two
+    //     modes are the two to check, restated on this pair. A loser landing
+    //     the anchor row with `provider_account_usage_windows` present and
+    //     `provider_accounts` absent: the child's FK does NOT catch that,
+    //     because SQLite resolves a parent at DML time rather than at CREATE
+    //     time, so the schema is accepted and the loss surfaces as `no such
+    //     table` on the first window write. And a loser landing both tables
+    //     without `provider_accounts_one_default_per_provider`, whose key
+    //     columns the same script declares — a schema that satisfies every
+    //     column assertion while silently admitting a second default account
+    //     per provider. Neither can happen, for the same single-`.exec()`
+    //     reason: the whole script commits or none of it does. The one thing
+    //     v16 does introduce is the corpus's first referential ACTION
+    //     (`ON DELETE CASCADE`; every earlier FK, v1/v4/v10, declares none),
+    //     and it is inert to this argument — a cascade fires on a parent DELETE
+    //     at DML time and can neither add nor remove a torn-apply mode. A lost
+    //     guard turns a re-apply into a hard "table already exists" throw on
+    //     the first CREATE (the v8 story), which lands in the worker-failure
+    //     count above rather than here.
     // A future migration that committed its anchor row separately from its
     // DDL would invalidate this paragraph rather than merely extend it —
     // re-derive it, do not increment it.
@@ -863,7 +899,7 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
           .all() as ReadonlyArray<{ version: number }>;
         expect(
           rows,
-          `trial ${trial.toString()} expected exactly the fifteen migration anchor rows [1..14, 16] (a broken/missing v16 INSERT — the newest migration — or a duplicated anchor row would fail here); got ${JSON.stringify(rows)}`,
+          `trial ${trial.toString()} expected exactly the sixteen migration anchor rows [1..16] (a broken/missing v16 INSERT — the newest migration — or a duplicated anchor row would fail here); got ${JSON.stringify(rows)}`,
         ).toEqual([
           { version: 1 },
           { version: 2 },
@@ -879,7 +915,7 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
           { version: 12 },
           { version: 13 },
           { version: 14 },
-          // See the version-15 hole note on the first assertion above.
+          { version: 15 },
           { version: 16 },
         ]);
       } finally {

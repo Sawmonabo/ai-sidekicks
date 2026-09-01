@@ -267,7 +267,21 @@ export function deriveCiStatus(checks) {
 export const BOT_REST_LOGIN = "chatgpt-codex-connector[bot]";
 export const BOT_GRAPHQL_LOGIN = "chatgpt-codex-connector";
 
-const RATE_LIMIT_PATTERN = /usage limits/i;
+/**
+ * The CODE-review quota only, deliberately narrower than a bare "usage limits".
+ *
+ * The bot runs two reviewers off separate quotas and reports both through the
+ * same comment surface. Observed on PRs #395 / #396 / #397 (2026-08-31): "You
+ * have reached your Codex usage limits for security reviews. Please try again
+ * later." posted beside a code review that ran to Completed with findings. The
+ * bare pattern matched it and parked the verdict on `rate_limited` while those
+ * findings sat unread. Only the code-review quota stops the review this gate
+ * polls for, so only that limit text may terminate the poll. The trade is
+ * fail-safe: a generic no-suffix limit body ("You have hit your usage limits")
+ * no longer matches, so if the bot still emits that form the gate polls to its
+ * timeout instead of terminating early — a slow miss, not a wrong terminal.
+ */
+const RATE_LIMIT_PATTERN = /usage limits for code reviews/i;
 
 /**
  * Ack shape (2) of `references/failure-modes.md` § Codex Verdict Gate, observed
@@ -972,7 +986,7 @@ function firingLegAgeMs(ageMs) {
  * @property {boolean} isOpen                  PR state is OPEN — not CLOSED, not MERGED.
  * @property {boolean} headUnchanged           HEAD re-read after every probe still matches the snapshot they used.
  * @property {boolean} pushAnchorKnown         A check suite dated the push, so the ack anchor is server-side.
- * @property {boolean} rateLimited             Bot usage-limits comment at or after the ack anchor.
+ * @property {boolean} rateLimited             Bot code-review usage-limits comment at or after the freshness anchor.
  * @property {boolean} reviewAcksHead          A bot review names the HEAD sha in its commit_id.
  * @property {boolean} reactionAcksHead        Bot +1 on the PR issue, at or after the ack anchor.
  * @property {boolean} commentAcksHead         Bot comment citing the HEAD sha, or a fresh clean verdict.
