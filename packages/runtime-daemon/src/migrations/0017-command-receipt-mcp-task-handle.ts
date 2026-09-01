@@ -73,9 +73,9 @@
 // anchor row committing in the SAME transaction as the ALTER is what keeps the
 // guard and the physical schema from ever disagreeing.
 //
-// Ordinal 17 rather than 16: version ordinals are allocated at branch time, and
-// 16 is held by a peer branch (the provider-account registry). A gap in the
-// applied-version sequence is expected and carries no meaning — the runner
+// Ordinal 17 rather than 16: ordinals are allocated at branch time, and 16 was
+// held by a peer branch (the provider-account registry) when this one was cut.
+// Whether that peer has merged yet carries no meaning here — the runner
 // dispatches on per-version guards, never on contiguity.
 //
 // Spec coverage: `Spec-005 §Tool Metadata` (the task-augmented call),

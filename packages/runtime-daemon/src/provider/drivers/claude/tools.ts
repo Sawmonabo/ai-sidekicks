@@ -286,6 +286,22 @@ export function classifyMcpDiscoveredTool(
 // --------------------------------------------------------------------------
 // Durable-task-handle seam (observation half)
 // --------------------------------------------------------------------------
+//
+// LIVE, BUT UNCALLED. `observeMcpTaskAcceptance` no longer discards: Plan-005
+// T5.1 replaced the no-op sink this seam was born with by the real writer in
+// `provider/mcp-task-handle-recorder.ts`, which stores the handle on the
+// dispatch's `command_receipts` row so Plan-015 T15.3 recovery can poll
+// `tasks/get` / `tasks/result` instead of halting.
+//
+// What is missing is the CALLER. Nothing in the daemon issues a task-augmented
+// MCP call, and no plan task owns one — T3.13 owns this observation half, T5.1
+// owns the write half, Plan-015 T15.3 owns the read, and the dispatch itself is
+// unassigned. `Spec-028 §Purpose` moreover holds that the provider CLIs are the
+// MCP clients and "the daemon never joins the MCP wire", which is in tension
+// with the `CreateTaskResult`-at-dispatch observation this seam performs; the
+// method string `tools/call` appears nowhere in the corpus or the code. Resolve
+// that before wiring a caller here — see the header of
+// `provider/mcp-task-handle-recorder.ts` for the full statement.
 
 /**
  * The identity of one task-augmented MCP dispatch. `(serverName, toolName)` is

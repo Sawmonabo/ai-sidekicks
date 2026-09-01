@@ -15,6 +15,10 @@
 // receipt on the `manual_reconcile_only` halt. No path truncates a handle, and
 // no path fails a turn.
 
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -41,6 +45,8 @@ import {
   McpTaskHandleRecorder,
   type McpTaskHandleObservationRecord,
 } from "../mcp-task-handle-recorder.js";
+import { INITIAL_MIGRATION_SQL } from "../../migrations/0001-initial.js";
+import { QUEUE_AND_INTERVENTIONS_MIGRATION_SQL } from "../../migrations/0015-queue-and-interventions.js";
 import { applyMigrations, applyPragmas } from "../../session/migration-runner.js";
 
 // Built rather than typed: a raw U+0000 in source is invisible in every editor
@@ -256,6 +262,54 @@ describe("McpTaskHandleRecorder (Plan-005 T5.1)", () => {
       expect(Object.values(details)).not.toContain(overlongHandle);
     });
   });
+
+  describe("well-formedness, which the column's CHECK cannot see", () => {
+    // A lone surrogate is the one defect that reaches the column looking valid.
+    // Escaped rather than typed: an unpaired surrogate renders as a replacement
+    // glyph in most editors, indistinguishable from the U+FFFD it would become.
+    const LONE_HIGH_SURROGATE = "task-\uD800-9";
+    const LONE_LOW_SURROGATE = "task-\uDC00-9";
+
+    it("proves the hazard is real before asserting the guard against it", () => {
+      // The negative control for this whole describe. Written STRAIGHT to the
+      // column, bypassing the recorder: if the round trip were lossless the
+      // refusals below would be guarding against nothing.
+      db.prepare("UPDATE command_receipts SET mcp_task_id = ? WHERE command_id = ?").run(
+        LONE_HIGH_SURROGATE,
+        COMMAND_ID,
+      );
+
+      const readBack = storedHandle(COMMAND_ID);
+      expect(readBack).not.toBe(LONE_HIGH_SURROGATE);
+      // U+FFFD REPLACEMENT CHARACTER — the lone surrogate has no UTF-8
+      // encoding, so the row now holds a handle the receiver never issued and
+      // the CHECK passed it without complaint.
+      expect(readBack).toBe("task-\uFFFD-9");
+    });
+
+    it.each([
+      ["a lone HIGH surrogate", LONE_HIGH_SURROGATE],
+      ["a lone LOW surrogate", LONE_LOW_SURROGATE],
+      ["a trailing unpaired high surrogate", "task-9\uD83D"],
+    ])("refuses %s and leaves the column NULL", (_label, handle) => {
+      expect(recorder.record(observation(handle))).toEqual({
+        status: "refused",
+        reason: "handle_not_well_formed",
+      });
+      expect(storedHandle(COMMAND_ID)).toBeNull();
+      expect(refusalCount()).toBe(1);
+      expect(loggedRecords[0]?.dispositionReason).toBe("handle_not_well_formed");
+    });
+
+    it("accepts a WELL-FORMED surrogate pair — the positive control", () => {
+      // Without this, the refusals above would pass against a guard that
+      // rejects every string containing any surrogate code unit at all, which
+      // would reject every emoji a receiver is entitled to put in a handle.
+      const astralHandle = "task-\u{1F600}-9";
+      expect(recorder.record(observation(astralHandle))).toEqual({ status: "recorded" });
+      expect(storedHandle(COMMAND_ID)).toBe(astralHandle);
+    });
+  });
 });
 
 describe("classifyMcpTaskIdRefusal", () => {
@@ -270,6 +324,16 @@ describe("classifyMcpTaskIdRefusal", () => {
       "handle_too_long",
     );
     expect(classifyMcpTaskIdRefusal(`a${NUL_CODE_UNIT}b`)).toBe("handle_contains_nul");
+  });
+
+  it("reports a long NOT-WELL-FORMED handle by its surrogate, not by its length", () => {
+    // The representation-before-size ordering, asserted rather than assumed.
+    // Both defects are present; naming the length would send an operator
+    // hunting for an over-long handle when the real fault is a handle whose
+    // stored bytes would not be the receiver's.
+    expect(classifyMcpTaskIdRefusal("\uD800".repeat(MCP_TASK_ID_MAX_LENGTH + 1))).toBe(
+      "handle_not_well_formed",
+    );
   });
 
   it("reports a long NUL-bearing handle by its NUL, which SQLite's length() cannot see", () => {
@@ -308,5 +372,185 @@ describe("the observation shapes the recorder and the two drivers each declare",
 
     expect(recordFromCodex).toEqual(recorderRecord);
     expect(recordFromClaude).toEqual(recorderRecord);
+  });
+});
+
+describe("storage-failure containment", () => {
+  // The seam's contract is that observing a handle cannot fail a turn, and a
+  // malformed handle is only half of what could go wrong. These cover the other
+  // half: the handle was storable and the DATABASE refused it. Every arm asserts
+  // the same two things — nothing propagates, and the failure is diagnosed
+  // rather than swallowed — because a silently dropped handle and a successfully
+  // written one leave the caller looking at the identical `void`.
+
+  let temporaryDirectory: string;
+  let loggedRecords: DriverDiagnosticRecord[];
+  let counterSink: InMemoryDriverDiagnosticCounterSink;
+
+  beforeEach(() => {
+    temporaryDirectory = mkdtempSync(join(tmpdir(), "mcp-task-handle-"));
+    loggedRecords = [];
+    counterSink = new InMemoryDriverDiagnosticCounterSink();
+  });
+
+  afterEach(() => {
+    rmSync(temporaryDirectory, { recursive: true, force: true });
+  });
+
+  function buildRecorder(database: DatabaseType): McpTaskHandleRecorder {
+    return new McpTaskHandleRecorder(database, {
+      provider: "claude",
+      diagnostics: new DriverDiagnosticsEmitter({
+        logSink: { record: (record) => loggedRecords.push(record) },
+        counterSink,
+      }),
+    });
+  }
+
+  function migratedFileDatabase(): string {
+    const databasePath = join(temporaryDirectory, "daemon.sqlite");
+    const writable = new Database(databasePath);
+    applyPragmas(writable);
+    applyMigrations(writable);
+    writable
+      .prepare(
+        `INSERT INTO command_receipts (id, command_id, run_id, status, created_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run("receipt-ro", COMMAND_ID, "run-1", "accepted", "2026-08-31T00:00:00.000Z");
+    writable.close();
+    return databasePath;
+  }
+
+  function failureCount(): number {
+    return counterSink.totalFor(DRIVER_DIAGNOSTIC_COUNTER_NAMES.mcp_task_handle_write_failed);
+  }
+
+  it("does not throw through asSink() when the database is READ-ONLY, and diagnoses it", () => {
+    const readOnlyDatabase = new Database(migratedFileDatabase(), { readonly: true });
+    // Constructed against the read-only handle deliberately: `prepare` succeeds
+    // on a readable schema, so the failure lands where it must — at the write,
+    // inside a turn — and not at wiring time.
+    const sink = buildRecorder(readOnlyDatabase).asSink();
+
+    expect(() => {
+      sink({
+        commandId: COMMAND_ID,
+        serverName: "filesystem",
+        toolName: "read_file",
+        mcpTaskId: "task-42",
+      });
+    }).not.toThrow();
+
+    expect(loggedRecords).toHaveLength(1);
+    expect(loggedRecords[0]?.kind).toBe("mcp_task_handle_write_failed");
+    expect(loggedRecords[0]?.provider).toBe("claude");
+    // The SQLite result code, which is the diagnosis. Asserted by prefix rather
+    // than equality because SQLite reports extended codes here
+    // (`SQLITE_READONLY_DBMOVED` and friends) and pinning one of them would
+    // make this a test of the platform's error taxonomy, not of containment.
+    expect(loggedRecords[0]?.dispositionReason).toMatch(/^SQLITE_READONLY/);
+    expect(failureCount()).toBe(1);
+
+    readOnlyDatabase.close();
+
+    // The conservative floor (I-005-3): the receipt stayed NULL, so the call
+    // stays on the `manual_reconcile_only` halt rather than pointing recovery
+    // at a handle that was never durably stored.
+    const verifier = new Database(join(temporaryDirectory, "daemon.sqlite"), { readonly: true });
+    expect(
+      verifier
+        .prepare("SELECT mcp_task_id FROM command_receipts WHERE command_id = ?")
+        .get(COMMAND_ID),
+    ).toEqual({ mcp_task_id: null });
+    verifier.close();
+  });
+
+  it("contains a NON-SqliteError too, and names it rather than hiding it", () => {
+    // A closed handle raises a plain `TypeError` from better-sqlite3, which
+    // stands in for the wider class this catch deliberately covers: a defect in
+    // this module must not fail a provider turn either. What keeps it from
+    // being indistinguishable from a sick database is `errorName`.
+    const database = new Database(":memory:");
+    applyPragmas(database);
+    applyMigrations(database);
+    const sink = buildRecorder(database).asSink();
+    database.close();
+
+    expect(() => {
+      sink({
+        commandId: COMMAND_ID,
+        serverName: "filesystem",
+        toolName: "read_file",
+        mcpTaskId: "task-42",
+      });
+    }).not.toThrow();
+
+    expect(loggedRecords[0]?.kind).toBe("mcp_task_handle_write_failed");
+    // No SQLite result code on a thrown value that never reached SQLite.
+    expect(loggedRecords[0]?.dispositionReason).toBe("unknown_storage_error");
+    expect(loggedRecords[0]?.details?.["errorName"]).toBe("TypeError");
+    expect(failureCount()).toBe(1);
+  });
+
+  it("reports the failure as a distinct outcome arm, never as a refusal", () => {
+    // The arms are separate so a caller — and an operator reading the counter —
+    // can tell "the peer sent us garbage" from "our database is read-only".
+    const readOnlyDatabase = new Database(migratedFileDatabase(), { readonly: true });
+    const outcome = buildRecorder(readOnlyDatabase).record({
+      commandId: COMMAND_ID,
+      serverName: "filesystem",
+      toolName: "read_file",
+      mcpTaskId: "task-42",
+    });
+    readOnlyDatabase.close();
+
+    expect(outcome.status).toBe("storage-failed");
+    expect(failureCount()).toBe(1);
+    expect(
+      counterSink.totalFor(DRIVER_DIAGNOSTIC_COUNTER_NAMES.mcp_task_handle_write_refused),
+    ).toBe(0);
+  });
+});
+
+describe("the pre-migration state", () => {
+  it("cannot even CONSTRUCT the write seam before the migration lands", () => {
+    // The obligation "assert the dormant pre-state — the Phase-3 seam writes no
+    // handle before this migration" (Plan-005 T5.1), in the only form that is
+    // still honest once the seam is live. Before this task there was a sink
+    // that discarded; asserting THAT today would assert a contract the corpus
+    // no longer has. What remains true, and is stronger, is that the write is
+    // not merely inert without the column but unreachable: the recorder
+    // prepares its statements in the CONSTRUCTOR, so a handle cannot be written
+    // to a database that never ran 0017 — it fails at wiring time, at the
+    // composition root, rather than once per turn inside a diagnostic nobody
+    // is watching. This is the `wireTurnSnapshotRetentionSweep` posture, and it
+    // is why the storage-failure containment above deliberately does not extend
+    // to construction.
+    const preMigrationDatabase = new Database(":memory:");
+    applyPragmas(preMigrationDatabase);
+    preMigrationDatabase.exec(INITIAL_MIGRATION_SQL);
+    preMigrationDatabase.exec(QUEUE_AND_INTERVENTIONS_MIGRATION_SQL);
+
+    // `command_receipts` exists at this point — the shell is version 15's — so
+    // the throw below is about the COLUMN and not about a missing table.
+    expect(
+      preMigrationDatabase
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+        .get("command_receipts"),
+    ).toEqual({ name: "command_receipts" });
+
+    expect(
+      () =>
+        new McpTaskHandleRecorder(preMigrationDatabase, {
+          provider: "codex",
+          diagnostics: new DriverDiagnosticsEmitter({
+            logSink: { record: () => undefined },
+            counterSink: new InMemoryDriverDiagnosticCounterSink(),
+          }),
+        }),
+    ).toThrow(/no such column: mcp_task_id/);
+
+    preMigrationDatabase.close();
   });
 });

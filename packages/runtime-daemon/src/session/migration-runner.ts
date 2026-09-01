@@ -33,13 +33,13 @@
 // register their version as a further guarded block of the same shape and bump
 // `schema_version`.
 //
-// The applied-version sequence is NOT contiguous and is not required to be.
-// Version ordinals are allocated when a branch is cut, so a branch that merges
-// later leaves its ordinal claimed and unapplied in the branches that merge
-// first — version 16 is one such, held by the provider-account registry. Every
-// dispatch below is a per-version guard reading `schema_version` directly; no
-// code path infers "already applied" from a neighbour's presence, so a gap costs
-// nothing and closing one is not a goal.
+// The applied-version sequence is not REQUIRED to be contiguous and no code
+// path may assume that it is. Ordinals are allocated when a branch is cut, so a
+// branch that merges later leaves its ordinal claimed and unapplied in the
+// branches that merge first. Every dispatch below is a per-version guard reading
+// `schema_version` directly; no code path infers "already applied" from a
+// neighbour's presence, so a gap costs nothing, closing one is not a goal, and
+// the sequence being gapless at any moment is a coincidence, not an invariant.
 //
 // Version ORDER is load-bearing between 6 and 7 only in the trivial sense that
 // both touch `session_events`; they are independent otherwise (6 adds an index
