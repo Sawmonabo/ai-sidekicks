@@ -53,10 +53,12 @@ export const DRIVER_OUTPUT_SPEED_LEVELS: Readonly<Record<FlooredDriverName, read
     // for.
     claude: Object.freeze(["off", "on"]),
     // EMPTY, and that is the complete declaration the `output_speed: false` flag
-    // implies: this provider publishes no accelerated-output axis at all, so
-    // `Spec-005 §The output-speed axis` makes an absent or empty vocabulary the
-    // signal that the axis is unsettable and a caller carrying an `outputSpeed`
-    // refuses fail-closed rather than forwarding an unvalidated value.
+    // implies: this provider declares no settable output-speed level vocabulary
+    // anywhere (its per-turn `serviceTier` override carries no enumerated level
+    // set and no declared-state read), so `Spec-005 §The output-speed axis`
+    // makes an absent or empty vocabulary the signal that the axis is
+    // unsettable and a caller carrying an `outputSpeed` refuses fail-closed
+    // rather than forwarding an unvalidated value.
     codex: Object.freeze([]),
   });
 

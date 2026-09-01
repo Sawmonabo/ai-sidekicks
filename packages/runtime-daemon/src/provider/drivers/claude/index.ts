@@ -273,9 +273,11 @@ export class ClaudeDriver implements ClaudeDriverOperations {
    * file's header still reads from that `Pick` and does not move. Widening
    * `ProviderDriver` for it would mint an eighteenth-plus operation on a
    * censused surface for a read only one of the two drivers can answer — the
-   * sibling provider publishes no speed axis at all — and a contract operation
-   * the other driver must stub is exactly the throwing-stub conflation the
-   * header rejects.
+   * sibling provider declares no such axis (corrected 2026-08-31: its wire is
+   * not speed-silent, carrying a per-turn service-tier parameter, but it
+   * supplies nothing this axis can declare or read back) — and a contract
+   * operation the other driver must stub is exactly the throwing-stub
+   * conflation the header rejects.
    *
    * It exists as a public method because the alternative is that the state has
    * NO reader: `#lifecycle` is private, this class is what `ProviderRegistry`

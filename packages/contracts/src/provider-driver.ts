@@ -584,8 +584,12 @@ export const DRIVER_CAPABILITY_FLAGS = [
   "provider_commands",
   // A participant-settable provider-side accelerated-output mode (T3.26). A
   // SINGLE-PROVIDER flag by construction: one pinned CLI declares such a state
-  // and the other publishes no speed axis at all, so the `false` cell is a
-  // complete declaration rather than an unprobed gap.
+  // and the other supplies neither conjunct this axis requires — no statically
+  // declarable level vocabulary and no declared-state read — so the `false`
+  // cell is a complete declaration rather than an unprobed gap. That sibling's
+  // wire is NOT speed-silent (corrected 2026-08-31): it carries a per-turn
+  // service-tier parameter. It is UNDECLARABLE on this axis, which is a
+  // different claim and the only one this flag makes.
   "output_speed",
 ] as const;
 

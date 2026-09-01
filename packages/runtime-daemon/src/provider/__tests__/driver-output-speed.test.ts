@@ -31,9 +31,9 @@ describe("DRIVER_OUTPUT_SPEED_LEVELS — the declared, settable vocabularies", (
   });
 
   it("pins the shipped values, including the deliberately EMPTY one", () => {
-    // The empty entry is a declaration, not an omission: codex publishes no
-    // accelerated-output axis at all, and an absent-or-empty vocabulary is what
-    // the axis contract reads as "unsettable".
+    // The empty entry is a declaration, not an omission: codex declares no
+    // settable output-speed level vocabulary, and an absent-or-empty vocabulary
+    // is what the axis contract reads as "unsettable".
     expect([...DRIVER_OUTPUT_SPEED_LEVELS.claude]).toStrictEqual(["off", "on"]);
     expect([...DRIVER_OUTPUT_SPEED_LEVELS.codex]).toStrictEqual([]);
   });
