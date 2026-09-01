@@ -24,13 +24,22 @@
 // Plan-006 (`migrations/0013-content-payload.ts`); version 14 by Plan-005
 // (`migrations/0014-console-parity-capability-flags.ts`); version 15 by
 // Plan-004 (`migrations/0015-queue-and-interventions.ts`); version 16 by
-// Plan-029 (`migrations/0016-provider-accounts.ts`). The runner needs no
-// contiguity — every version is an independently guarded block keyed on its own
-// `schema_version` row, and `hasMigrationApplied` asks about one version rather
-// than about a maximum — so the two were safely authored in parallel rather
-// than in sequence. Subsequent plans — and Plan-006's own remaining
-// migrations — register their version as a further guarded block of the same
-// shape and bump `schema_version`.
+// Plan-029 (`migrations/0016-provider-accounts.ts`); version 17 by
+// Plan-005 (`migrations/0017-command-receipt-mcp-task-handle.ts`). The runner
+// needs no contiguity — every version is an independently guarded block keyed
+// on its own `schema_version` row, and `hasMigrationApplied` asks about one
+// version rather than about a maximum — so parallel-authored ordinals merge
+// safely. Subsequent plans — and Plan-006's own remaining migrations —
+// register their version as a further guarded block of the same shape and bump
+// `schema_version`.
+//
+// The applied-version sequence is not REQUIRED to be contiguous and no code
+// path may assume that it is. Ordinals are allocated when a branch is cut, so a
+// branch that merges later leaves its ordinal claimed and unapplied in the
+// branches that merge first. Every dispatch below is a per-version guard reading
+// `schema_version` directly; no code path infers "already applied" from a
+// neighbour's presence, so a gap costs nothing, closing one is not a goal, and
+// the sequence being gapless at any moment is a coincidence, not an invariant.
 //
 // Version ORDER is load-bearing between 6 and 7 only in the trivial sense that
 // both touch `session_events`; they are independent otherwise (6 adds an index
@@ -106,6 +115,7 @@ import { CONTENT_PAYLOAD_MIGRATION_SQL } from "../migrations/0013-content-payloa
 import { CONSOLE_PARITY_CAPABILITY_FLAGS_MIGRATION_SQL } from "../migrations/0014-console-parity-capability-flags.js";
 import { QUEUE_AND_INTERVENTIONS_MIGRATION_SQL } from "../migrations/0015-queue-and-interventions.js";
 import { PROVIDER_ACCOUNTS_MIGRATION_SQL } from "../migrations/0016-provider-accounts.js";
+import { COMMAND_RECEIPT_MCP_TASK_HANDLE_MIGRATION_SQL } from "../migrations/0017-command-receipt-mcp-task-handle.js";
 
 /**
  * Apply pragmas to an open Database handle. MUST be called on every
@@ -432,6 +442,27 @@ export function applyMigrations(db: DatabaseType): void {
     db.transaction(() => {
       if (!hasMigrationApplied(db, 16)) {
         db.exec(PROVIDER_ACCOUNTS_MIGRATION_SQL);
+      }
+    }).immediate();
+  }
+
+  if (!hasMigrationApplied(db, 17)) {
+    // Version 17 (Plan-005) — the MCP Tasks durable recovery handle on
+    // `command_receipts`. Requires version 15 and nothing else: it appends one
+    // nullable column to the table version 15 CREATEs, reads no other table, and
+    // participates in no foreign key. Run against a database that never applied
+    // version 15 the ALTER would fail on a missing table, which is the correct
+    // and loud outcome — the ordering is a real dependency, not a convention.
+    //
+    // ADD COLUMN carries the bounding CHECK rather than a table rebuild: the
+    // constraint is column-level, references only this column, and admits NULL,
+    // so it is one of the shapes SQLite's ADD COLUMN accepts and every existing
+    // row satisfies it as the column is appended. Rebuilding a shipped table to
+    // add a nullable column would drop and re-create it — and with it every
+    // index and every column a sibling extender landed first — for no gain.
+    db.transaction(() => {
+      if (!hasMigrationApplied(db, 17)) {
+        db.exec(COMMAND_RECEIPT_MCP_TASK_HANDLE_MIGRATION_SQL);
       }
     }).immediate();
   }

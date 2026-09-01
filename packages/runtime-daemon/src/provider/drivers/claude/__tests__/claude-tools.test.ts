@@ -20,7 +20,6 @@ import {
   CLAUDE_TOOL_CATALOG,
   CLAUDE_TOOL_DECLARATIONS,
   DEFAULT_CLAUDE_TOOL_IDEMPOTENCY_CLASS,
-  DORMANT_MCP_TASK_HANDLE_SINK,
   MCP_DISCOVERED_TOOL_IDEMPOTENCY_CLASS,
   classifyMcpDiscoveredTool,
   closeToolIdempotencyClass,
@@ -248,7 +247,7 @@ describe("Claude MCP idempotency floor (T3.13 P2-7)", () => {
   });
 });
 
-describe("Claude dormant MCP task-handle seam (T3.13, T5.1 activates)", () => {
+describe("Claude durable MCP task-handle seam (T3.13 observation, T5.1 active)", () => {
   it("extracts the receiver-generated taskId from a CreateTaskResult acceptance", () => {
     expect(extractMcpTaskId({ task: { taskId: "task-123" } })).toBe("task-123");
   });
@@ -262,24 +261,30 @@ describe("Claude dormant MCP task-handle seam (T3.13, T5.1 activates)", () => {
     expect(extractMcpTaskId({ task: { taskId: 7 } })).toBeUndefined();
   });
 
-  it("calls the sink exactly once when a handle exists, never otherwise", () => {
+  it("hands the sink the dispatch identity with the handle, and nothing otherwise", () => {
+    // `commandId` reaches the sink verbatim: it is the `command_receipts` row
+    // the handle is written to, and the MCP identity pair names no row. The
+    // handle-less dispatch calls nothing, leaving the column NULL and the
+    // receipt on the manual_reconcile_only halt (I-005-3).
     const observations: McpTaskHandleObservation[] = [];
     const collectingSink = (observation: McpTaskHandleObservation): void => {
       observations.push(observation);
     };
-    observeMcpTaskAcceptance(collectingSink, "filesystem", "read_file", {
-      task: { taskId: "task-9" },
-    });
-    observeMcpTaskAcceptance(collectingSink, "filesystem", "read_file", { task: {} });
+    const dispatch = {
+      commandId: "command-7",
+      serverName: "filesystem",
+      toolName: "read_file",
+    } as const;
+    observeMcpTaskAcceptance(collectingSink, dispatch, { task: { taskId: "task-9" } });
+    observeMcpTaskAcceptance(collectingSink, dispatch, { task: {} });
     expect(observations).toEqual([
-      { serverName: "filesystem", toolName: "read_file", mcpTaskId: "task-9" },
+      {
+        commandId: "command-7",
+        serverName: "filesystem",
+        toolName: "read_file",
+        mcpTaskId: "task-9",
+      },
     ]);
-  });
-
-  it("ships a dormant sink that observes and discards", () => {
-    expect(
-      DORMANT_MCP_TASK_HANDLE_SINK({ serverName: "s", toolName: "t", mcpTaskId: "task-1" }),
-    ).toBeUndefined();
   });
 });
 

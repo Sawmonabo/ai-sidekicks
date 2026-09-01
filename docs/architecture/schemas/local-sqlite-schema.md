@@ -253,11 +253,26 @@ CREATE TABLE command_receipts (
   -- MCP Tasks taskId for a task-augmented MCP call (from the CreateTaskResult acceptance response).
   -- NULL until the receiver accepts — a crash before that leaves NULL and the call stays on the
   -- manual_reconcile_only halt. Spec-015 recovery reads this handle and polls tasks/get + tasks/result
-  -- instead of halting (Plan-005 T5.1, the gated Phase 5 — the T3.13 receipt-write seam ships dormant
-  -- until T5.1 lands this column after Plan-004 Phase 1's CREATE; cross-plan-dependencies.md §1
-  -- command_receipts EXTEND row). Bounded like every persisted provider-declared string (the
-  -- runtime_bindings defense-in-depth convention): the taskId is untrusted remote-peer output, so the
-  -- CHECK bounds the SQLite-expressible part and the T5.1 write seam mirrors the same 256 literal.
+  -- instead of halting. Landed by Plan-005 T5.1, which also activated the T3.13 receipt-write seam, in
+  -- packages/runtime-daemon/src/migrations/0017-command-receipt-mcp-task-handle.ts#COMMAND_RECEIPT_MCP_TASK_HANDLE_MIGRATION_SQL
+  -- (see also cross-plan-dependencies.md §1 command_receipts EXTEND row). Bounded like every persisted
+  -- provider-declared string (the runtime_bindings defense-in-depth convention): the taskId is untrusted
+  -- remote-peer output, so the CHECK bounds the SQLite-expressible part and the T5.1 write seam mirrors
+  -- the same 256 — in CODE POINTS, since length(X) returns "the number of Unicode code points (not bytes)
+  -- in input string X prior to the first U+0000 character"
+  -- (https://www.sqlite.org/lang_corefunc.html#length). Both halves bind: the first sets the unit, the
+  -- second is why the write seam tests for NUL BEFORE the length bound — a NUL-bearing handle measures
+  -- short and would otherwise be misreported as well-sized. The seam additionally refuses a handle that
+  -- is not well-formed Unicode, which the CHECK cannot see: UTF-8 prohibits encoding a lone surrogate
+  -- outright ("The definition of UTF-8 prohibits encoding character numbers between U+D800 and U+DFFF",
+  -- RFC 3629 §3, https://datatracker.ietf.org/doc/html/rfc3629#section-3), and the standard
+  -- JavaScript-to-bytes conversion substitutes U+FFFD for each unpaired surrogate rather than failing
+  -- ("To convert a JavaScript string into a scalar value string, replace any surrogates with U+FFFD",
+  -- WHATWG Infra Standard, https://infra.spec.whatwg.org/#javascript-string-convert) — one or more
+  -- U+FFFD per surrogate in practice, since the substitution width is the platform encoder's choice
+  -- (both observed widths are pinned by the executable hazard proof in
+  -- packages/runtime-daemon/src/provider/__tests__/mcp-task-handle-recorder.test.ts) — so the row
+  -- would store a handle the receiver never issued.
   mcp_task_id       TEXT                          -- NULL default; MCP Tasks durable recovery handle
                     CHECK (mcp_task_id IS NULL OR (length(mcp_task_id) > 0 AND length(mcp_task_id) <= 256 AND instr(mcp_task_id, char(0)) = 0)),
   -- Plan-028 EXTEND (additive nullable, own Plan-028 migration): the governed MCP binding this

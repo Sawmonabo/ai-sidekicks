@@ -34,6 +34,8 @@ import { RETENTION_CLASS_AND_STUB_SIGNATURE_MIGRATION_SQL } from "../../migratio
 import { REPO_WORKSPACES_MIGRATION_SQL } from "../../migrations/0010-repo-workspaces.js";
 import { DRIVER_CAPABILITY_CURRENCY_MIGRATION_SQL } from "../../migrations/0011-driver-capability-currency.js";
 import { TRANSCRIPT_CAPABILITY_BACKFILL_MIGRATION_SQL } from "../../migrations/0012-transcript-capability-backfill.js";
+import { QUEUE_AND_INTERVENTIONS_MIGRATION_SQL } from "../../migrations/0015-queue-and-interventions.js";
+import { COMMAND_RECEIPT_MCP_TASK_HANDLE_MIGRATION_SQL } from "../../migrations/0017-command-receipt-mcp-task-handle.js";
 import { applyMigrations, applyPragmas, openDatabase } from "../migration-runner.js";
 
 // Bound to exported identifiers so `Plan-010 §References` can anchor at the
@@ -208,7 +210,7 @@ describe("0001-initial migration shape", () => {
     expect(byName.get("monotonic_ns")?.notnull).toBe(1);
   });
 
-  it("anchors schema_version rows at versions [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]", () => {
+  it("anchors schema_version rows at versions [1..17]", () => {
     // The `ORDER BY version` is load-bearing: without it the row order is
     // insertion-order luck and the assertion would silently stop pinning
     // which versions landed.
@@ -216,7 +218,7 @@ describe("0001-initial migration shape", () => {
       .prepare("SELECT version FROM schema_version ORDER BY version")
       .all() as ReadonlyArray<{ version: number }>;
     expect(versionRows.map((r) => r.version)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
     ]);
   });
 
@@ -224,7 +226,7 @@ describe("0001-initial migration shape", () => {
     // Second invocation must be a no-op (the migration runner short-
     // circuits via hasMigrationApplied per version). Re-running must not
     // throw, must not double-insert any schema_version anchor row, must
-    // not duplicate tables. Sixteen DISTINCT versions [1..16] is not
+    // not duplicate tables. Seventeen DISTINCT versions [1..17] is not
     // duplication.
     //
     // Version 7 makes this arm strictly load-bearing rather than a
@@ -257,13 +259,16 @@ describe("0001-initial migration shape", () => {
     // Version 16 restores version 8's and 10's stakes: two `CREATE TABLE`s and
     // two `CREATE UNIQUE INDEX`es, none spelled with an `IF NOT EXISTS`, so a
     // guard regression throws on whichever it reaches first.
+    // Version 17 restores version 7's exact stakes: one `ALTER TABLE ... ADD
+    // COLUMN` with no `IF NOT EXISTS` available, so a guard regression is a
+    // hard "duplicate column name" throw rather than a silent re-run.
     applyMigrations(db);
     const versionRows = db
       .prepare("SELECT version FROM schema_version ORDER BY version")
       .all() as ReadonlyArray<{ version: number }>;
-    expect(versionRows).toHaveLength(16);
+    expect(versionRows).toHaveLength(17);
     expect(versionRows.map((r) => r.version)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
     ]);
   });
 });
@@ -4014,37 +4019,51 @@ describe("0015-queue-and-interventions migration shape", () => {
     ]);
   });
 
-  it("creates command_receipts as the five-column forward-declared shell", () => {
+  it("creates command_receipts as the five-column shell, plus the one EXTEND that has landed", () => {
+    // This suite applies the FULL migration chain, so the shape asserted here is
+    // cumulative: version 15's five-column shell followed by version 17's
+    // appended `mcp_task_id`. The append order is what an incremental EXTEND
+    // chain produces and is deliberately NOT the canonical doc block's column
+    // order — that block is a four-plan composite showing where each column
+    // belongs logically, which no sequence of ALTERs can reproduce. Nothing
+    // reads these positionally.
     expect(columnsOf("command_receipts")).toEqual([
       { name: "id", type: "TEXT", notnull: 0, dflt_value: null, pk: 1 },
       { name: "command_id", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
       { name: "run_id", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
       { name: "status", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
       { name: "created_at", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
+      { name: "mcp_task_id", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
     ]);
   });
 
-  it("leaves every later plan's command_receipts column to that plan's own migration", () => {
-    // The shell's real contract. Plan-015 owns the BL-051 two-phase columns,
-    // Plan-005 `mcp_task_id`, Plan-028 `mcp_binding_digest` — each through its
-    // own migration. A shell that quietly grew any of them would take ownership
-    // this plan does not have, and `idempotency_class` in particular is NOT NULL
-    // with no default, so creating it here would also silently pre-empt the
-    // table rebuild that EXTEND has to perform.
+  it("leaves every UNLANDED plan's command_receipts column to that plan's own migration", () => {
+    // The shell's real contract. Plan-015 owns the BL-051 two-phase columns and
+    // Plan-028 `mcp_binding_digest` — each through its own migration, neither
+    // shipped. A shell that quietly grew any of them would take ownership this
+    // plan does not have, and `idempotency_class` in particular is NOT NULL with
+    // no default, so creating it here would also silently pre-empt the table
+    // rebuild that EXTEND has to perform.
+    //
+    // `mcp_task_id` is deliberately NOT in this list any more: Plan-005 landed
+    // it through its own version-17 migration, which is the discipline this test
+    // enforces rather than an exception to it. It is asserted present below.
     const present = new Set(columnsOf("command_receipts").map((entry) => entry.name));
     for (const notYetOwned of [
       "idempotency_class",
       "dedupe_key",
       "started_at",
       "completed_at",
-      "mcp_task_id",
       "mcp_binding_digest",
     ]) {
       expect(present.has(notYetOwned)).toBe(false);
     }
-    // Positive control: the set is populated, so the six negatives above are
-    // real absences rather than an empty projection.
+    // Positive controls: the set is populated, so the five negatives above are
+    // real absences rather than an empty projection — and the one EXTEND that
+    // HAS landed is visible, so this test cannot pass by the whole table being
+    // missing.
     expect(present.has("command_id")).toBe(true);
+    expect(present.has("mcp_task_id")).toBe(true);
   });
 
   it("creates the drain-selection indexes and none that reads a later plan's column", () => {
@@ -4303,7 +4322,12 @@ describe("0015-queue-and-interventions migration shape", () => {
     ).toEqual({ total: 1 });
     expect(columnsOf("queue_items")).toHaveLength(12);
     expect(columnsOf("interventions")).toHaveLength(16);
-    expect(columnsOf("command_receipts")).toHaveLength(5);
+    // Six: version 15's five-column shell plus version 17's appended
+    // `mcp_task_id`. Counted after the second pass because `ADD COLUMN` has no
+    // `IF NOT EXISTS` — a re-run that reached the statement would throw
+    // "duplicate column name" rather than quietly producing a seventh column,
+    // so this count pins the guard for version 17 as well as version 15.
+    expect(columnsOf("command_receipts")).toHaveLength(6);
   });
 
   it("anchors the version-15 schema_version row with its queue-and-intervention description", () => {
@@ -4981,5 +5005,232 @@ describe("0016-provider-accounts migration shape", () => {
     expect(versionRows[0]?.description).toBe(
       "Provider-account registry + per-limit quota windows (provider_accounts, provider_account_usage_windows)",
     );
+  });
+});
+
+// Plan-005 T5.1 — version-17 migration shape.
+//
+// Pins the MCP Tasks durable recovery handle: its presence, its nullability, the
+// four states its CHECK admits or refuses, and the two properties that make it
+// an EXTEND rather than a rewrite — pre-existing rows survive it unchanged, and
+// version 15's index survives it too.
+//
+// Two DB shapes are used deliberately. Most assertions run against a STAGED
+// pre-state (version 1's tables plus version 15's, then this migration's script
+// applied by hand) because that is the only way to observe rows that existed
+// BEFORE the column did, which is the whole claim an additive migration makes.
+// The last arm runs the real `applyMigrations` chain instead, because a
+// well-formed SQL constant that the runner never dispatches would satisfy every
+// staged assertion and ship a column no daemon has.
+//
+// Every refusal assertion is paired with a positive control on the same
+// statement, so a CHECK that rejects EVERYTHING cannot read as a working bound.
+describe("0017-command-receipt-mcp-task-handle migration shape", () => {
+  // The literal is built rather than typed: a raw U+0000 in source is invisible
+  // in every editor and diff, and the conjunct it exercises is the one a reader
+  // is least able to verify by eye.
+  const NUL_CODE_UNIT = String.fromCharCode(0);
+
+  interface ReceiptColumn {
+    readonly name: string;
+    readonly type: string;
+    readonly notnull: 0 | 1;
+    readonly dflt_value: string | null;
+  }
+
+  function receiptColumns(db: DatabaseType): ReadonlyArray<ReceiptColumn> {
+    return (db.pragma("table_info(command_receipts)") as ReadonlyArray<ReceiptColumn>).map(
+      (entry) => ({
+        name: entry.name,
+        type: entry.type,
+        notnull: entry.notnull,
+        dflt_value: entry.dflt_value,
+      }),
+    );
+  }
+
+  function insertReceipt(db: DatabaseType, id: string): void {
+    db.prepare(
+      `INSERT INTO command_receipts (id, command_id, run_id, status, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      // The five-column shell version 15 actually ships — NOT the canonical doc
+      // block, whose NOT NULL `idempotency_class` belongs to an unlanded EXTEND
+      // and would make this insert reference a column that does not exist.
+    ).run(id, `command-${id}`, `run-${id}`, "accepted", "2026-08-31T00:00:00.000Z");
+  }
+
+  function stagedPreState(): DatabaseType {
+    const db = new Database(":memory:");
+    applyPragmas(db);
+    // Version 1 for `schema_version`, version 15 for `command_receipts`. Nothing
+    // between them is needed: version 15's three tables are standalone and
+    // participate in no foreign key, which is the property that lets this
+    // migration be staged at all.
+    db.exec(INITIAL_MIGRATION_SQL);
+    db.exec(QUEUE_AND_INTERVENTIONS_MIGRATION_SQL);
+    return db;
+  }
+
+  function storeHandle(db: DatabaseType, receiptId: string, handle: string | null): void {
+    db.prepare("UPDATE command_receipts SET mcp_task_id = ? WHERE id = ?").run(handle, receiptId);
+  }
+
+  it("adds mcp_task_id to a table that did not have it, as nullable TEXT with no default", () => {
+    const db = stagedPreState();
+    try {
+      const before = receiptColumns(db).map((entry) => entry.name);
+      expect(before).not.toContain("mcp_task_id");
+      // Positive control: the projection is populated, so the absence above is
+      // a real absence and not an empty PRAGMA result.
+      expect(before).toContain("command_id");
+
+      db.exec(COMMAND_RECEIPT_MCP_TASK_HANDLE_MIGRATION_SQL);
+
+      expect(receiptColumns(db)).toContainEqual({
+        name: "mcp_task_id",
+        type: "TEXT",
+        notnull: 0,
+        dflt_value: null,
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("preserves every pre-existing receipt row unchanged, with NULL in the new column", () => {
+    const db = stagedPreState();
+    try {
+      insertReceipt(db, "receipt-a");
+      insertReceipt(db, "receipt-b");
+      const before = db.prepare("SELECT * FROM command_receipts ORDER BY id").all();
+
+      db.exec(COMMAND_RECEIPT_MCP_TASK_HANDLE_MIGRATION_SQL);
+
+      const after = db.prepare("SELECT * FROM command_receipts ORDER BY id").all() as ReadonlyArray<
+        Record<string, unknown>
+      >;
+      // Every shell column byte-for-byte, and NULL — not empty string, not a
+      // sentinel — in the appended one. NULL is the meaningful zero state: it
+      // is what keeps a receipt on the manual_reconcile_only halt (I-005-3), so
+      // a migration that backfilled anything else would silently promote every
+      // historical receipt onto the polling recovery path.
+      expect(after.map(({ mcp_task_id: _handle, ...shell }) => shell)).toEqual(before);
+      expect(after.map((row) => row["mcp_task_id"])).toEqual([null, null]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("keeps version 15's index, proving the migration appends rather than rebuilds", () => {
+    const db = stagedPreState();
+    try {
+      db.exec(COMMAND_RECEIPT_MCP_TASK_HANDLE_MIGRATION_SQL);
+      const indexNames = (
+        db.pragma("index_list(command_receipts)") as ReadonlyArray<{ name: string }>
+      )
+        .map((entry) => entry.name)
+        .filter((name) => !name.startsWith("sqlite_autoindex_"))
+        .sort();
+      // A twelve-step table rebuild would DROP the table and have to re-CREATE
+      // this index by hand; an ALTER cannot lose it. That difference is exactly
+      // why this column is an append, so it is asserted rather than assumed.
+      expect(indexNames).toEqual(["idx_command_receipts_run"]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("anchors its own schema_version row at 17", () => {
+    const db = stagedPreState();
+    try {
+      db.exec(COMMAND_RECEIPT_MCP_TASK_HANDLE_MIGRATION_SQL);
+      const versionRows = db
+        .prepare("SELECT version, description FROM schema_version WHERE version = 17")
+        .all() as ReadonlyArray<{ version: number; description: string }>;
+      expect(versionRows).toHaveLength(1);
+      expect(versionRows[0]?.description).toBe(
+        "MCP Tasks durable recovery handle (command_receipts.mcp_task_id)",
+      );
+    } finally {
+      db.close();
+    }
+  });
+
+  it("admits NULL and a bound-length handle, and refuses every state the CHECK names", () => {
+    const db = stagedPreState();
+    try {
+      insertReceipt(db, "receipt-a");
+      db.exec(COMMAND_RECEIPT_MCP_TASK_HANDLE_MIGRATION_SQL);
+
+      // Admitted: NULL (the halt state) and a handle exactly at the bound.
+      expect(() => storeHandle(db, "receipt-a", null)).not.toThrow();
+      expect(() => storeHandle(db, "receipt-a", "a".repeat(256))).not.toThrow();
+      expect(
+        db.prepare("SELECT mcp_task_id FROM command_receipts WHERE id = ?").get("receipt-a"),
+      ).toEqual({ mcp_task_id: "a".repeat(256) });
+
+      // Refused, one conjunct at a time.
+      expect(() => storeHandle(db, "receipt-a", "")).toThrow(/CHECK constraint failed/);
+      expect(() => storeHandle(db, "receipt-a", "a".repeat(257))).toThrow(
+        /CHECK constraint failed/,
+      );
+      // The NUL conjunct is not redundant with the length one: SQLite's
+      // `length()` STOPS at an embedded NUL, so this 300-character value
+      // measures 5 and passes BOTH length tests. Only `instr(..., char(0))`
+      // sees it, which is why the CHECK carries all three.
+      expect(() => storeHandle(db, "receipt-a", `task-${NUL_CODE_UNIT}${"b".repeat(294)}`)).toThrow(
+        /CHECK constraint failed/,
+      );
+
+      // The stored value is untouched by the three refusals — a rejected write
+      // must not have partially landed.
+      expect(
+        db.prepare("SELECT mcp_task_id FROM command_receipts WHERE id = ?").get("receipt-a"),
+      ).toEqual({ mcp_task_id: "a".repeat(256) });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("measures the bound in CODE POINTS, which is what the write-seam guard must mirror", () => {
+    const db = stagedPreState();
+    try {
+      insertReceipt(db, "receipt-a");
+      db.exec(COMMAND_RECEIPT_MCP_TASK_HANDLE_MIGRATION_SQL);
+
+      // 256 astral characters: 256 to SQLite's `length()`, 512 to JavaScript's
+      // `String.prototype.length`. The column admits it, so a write-seam guard
+      // counting UTF-16 code units would refuse a handle the database accepts —
+      // the divergence `countCodePoints` in `provider/mcp-task-handle-recorder.ts`
+      // exists to close. Pinned here because it is a property of the COLUMN.
+      const astralHandle = "\u{1F600}".repeat(256);
+      expect(astralHandle.length).toBe(512);
+      expect(() => storeHandle(db, "receipt-a", astralHandle)).not.toThrow();
+      // And one past the bound is refused in the same unit, so the accept above
+      // is a bound being satisfied rather than a bound not being applied.
+      expect(() => storeHandle(db, "receipt-a", "\u{1F600}".repeat(257))).toThrow(
+        /CHECK constraint failed/,
+      );
+    } finally {
+      db.close();
+    }
+  });
+
+  it("reaches a real daemon database through the runner, CHECK included", () => {
+    // The staged arms above prove the SQL constant is correct. This one proves
+    // the runner DISPATCHES it: a migration registered nowhere would pass every
+    // assertion above and ship a column that no daemon database has.
+    const db = new Database(":memory:");
+    try {
+      applyPragmas(db);
+      applyMigrations(db);
+      insertReceipt(db, "receipt-a");
+
+      expect(receiptColumns(db).map((entry) => entry.name)).toContain("mcp_task_id");
+      expect(() => storeHandle(db, "receipt-a", "task-9")).not.toThrow();
+      expect(() => storeHandle(db, "receipt-a", "")).toThrow(/CHECK constraint failed/);
+    } finally {
+      db.close();
+    }
   });
 });

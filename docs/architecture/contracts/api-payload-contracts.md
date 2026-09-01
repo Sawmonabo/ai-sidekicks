@@ -1619,17 +1619,17 @@ interface DriverCapabilities {
 // Protocol).
 type IdempotencyClass = "idempotent" | "compensable" | "manual_reconcile_only";
 
-// Durable MCP Tasks recovery handle (campaign B10, Plan-005 T5.1 — the gated Phase 5; T3.13 authors
-// the receipt-write seam dormant, T5.1 lands the column + activates it after Plan-004 Phase 1's
-// `command_receipts` CREATE). A task-augmented MCP call under the experimental MCP 2025-11-25 Tasks
-// utility carries a receiver-generated `taskId` (from the `CreateTaskResult` acceptance response). It
-// is NOT a new RPC payload: the daemon persists it on the receipt as the additive nullable
-// `command_receipts.mcp_task_id` column (Plan-005 EXTENDs Plan-004's table per
+// Durable MCP Tasks recovery handle (campaign B10, Plan-005 T5.1 — LANDED: T3.13 authored the
+// receipt-write seam, and T5.1's own migration added the column and activated the seam on
+// Plan-004 Phase 1's `command_receipts` CREATE). A task-augmented MCP call under MCP 2025-11-25's
+// experimental Tasks utility carries a receiver-generated `taskId` (from the `CreateTaskResult`
+// acceptance response). It is NOT a new RPC payload: the daemon persists it on the receipt as the
+// additive nullable `command_receipts.mcp_task_id` column (Plan-005 EXTENDs Plan-004's table per
 // cross-plan-dependencies.md §1; DDL in local-sqlite-schema.md §Queue and Intervention Tables —
-// bounded ≤256 + non-empty + NUL-reject: the id is untrusted remote-peer output). That column is the
-// durable handle Spec-015 recovery reads to poll `tasks/get` + `tasks/result` instead of halting the
-// `manual_reconcile_only` floor; NULL until the receiver accepts — a crash before that leaves the
-// halt intact (Spec-005 §Recovery Consequences).
+// bounded ≤256 code points + non-empty + NUL-reject: the id is untrusted remote-peer output, and
+// the write seam mirrors it). That column is the durable handle Spec-015 recovery reads to poll
+// `tasks/get` + `tasks/result` instead of halting the `manual_reconcile_only` floor; NULL until the
+// receiver accepts — a crash before that leaves the halt intact (Spec-005 §Recovery Consequences).
 
 // INGRESS shape — what a provider driver DECLARES via `getCapabilities()`. `idempotency_class`
 // is OPTIONAL: a driver MAY omit it and an undeclared class is NOT a contract violation. Were the

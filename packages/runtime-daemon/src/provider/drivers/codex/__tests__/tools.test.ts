@@ -17,7 +17,6 @@ import {
   CODEX_TOOL_METADATA,
   CODEX_TOOL_NAMES,
   DEFAULT_CODEX_TOOL_IDEMPOTENCY_CLASS,
-  DORMANT_MCP_TASK_HANDLE_SINK,
   MCP_DISCOVERED_TOOL_IDEMPOTENCY_CLASS,
   classifyMcpDiscoveredTool,
   extractMcpTaskId,
@@ -191,7 +190,7 @@ describe("Codex MCP idempotency floor (T3.13 P2-7)", () => {
   });
 });
 
-describe("Codex dormant MCP task-handle seam (T3.13, T5.1 activates)", () => {
+describe("Codex durable MCP task-handle seam (T3.13 observation, T5.1 active)", () => {
   it("extracts the receiver-generated taskId from a CreateTaskResult acceptance", () => {
     expect(extractMcpTaskId({ task: { taskId: "task-123" } })).toBe("task-123");
   });
@@ -207,37 +206,37 @@ describe("Codex dormant MCP task-handle seam (T3.13, T5.1 activates)", () => {
     expect(extractMcpTaskId({ task: { taskId: 42 } })).toBeUndefined();
   });
 
-  it("calls the sink exactly once with the observation when a handle exists", () => {
+  it("hands the sink the dispatch identity alongside the handle", () => {
+    // `commandId` is what makes the observation writable — without it the sink
+    // has an MCP identity and no `command_receipts` row to address. It must
+    // reach the sink verbatim rather than being re-derived downstream.
     const observations: McpTaskHandleObservation[] = [];
     observeMcpTaskAcceptance(
       (observation) => observations.push(observation),
-      "filesystem",
-      "read_file",
+      { commandId: "command-7", serverName: "filesystem", toolName: "read_file" },
       { task: { taskId: "task-9" } },
     );
     expect(observations).toEqual([
-      { serverName: "filesystem", toolName: "read_file", mcpTaskId: "task-9" },
+      {
+        commandId: "command-7",
+        serverName: "filesystem",
+        toolName: "read_file",
+        mcpTaskId: "task-9",
+      },
     ]);
   });
 
   it("never calls the sink when the acceptance carries no handle", () => {
+    // A crash before the receiver's acceptance is durably stored reaches this
+    // path: no handle observed, so nothing is offered to the recorder and the
+    // receipt's column stays NULL — the manual_reconcile_only halt (I-005-3).
     const observations: McpTaskHandleObservation[] = [];
     observeMcpTaskAcceptance(
       (observation) => observations.push(observation),
-      "filesystem",
-      "read_file",
+      { commandId: "command-7", serverName: "filesystem", toolName: "read_file" },
       { task: {} },
     );
     expect(observations).toEqual([]);
-  });
-
-  it("ships a dormant sink that observes and discards", () => {
-    // Dormancy is the CONTRACT until T5.1 lands the mcp_task_id ALTER: the
-    // sink must be callable at the dispatch seam and must persist nothing.
-    // (There is no store to probe — the assertion is that the call is inert.)
-    expect(
-      DORMANT_MCP_TASK_HANDLE_SINK({ serverName: "s", toolName: "t", mcpTaskId: "task-1" }),
-    ).toBeUndefined();
   });
 });
 
