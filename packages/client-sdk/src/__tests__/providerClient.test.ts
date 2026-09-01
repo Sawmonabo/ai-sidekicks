@@ -56,11 +56,14 @@ import { describe, expect, it } from "vitest";
 
 import type {
   ApplyInterventionParams,
+  CompactContextRequest,
   JsonRpcNotification,
   JsonRpcRequest,
   JsonRpcResponseEnvelope,
+  ListProviderCommandsRequest,
   MembershipId,
   ParticipantId,
+  ProviderCommandListResult,
   RunId,
   SessionEvent,
   SessionId,
@@ -113,6 +116,8 @@ const METHOD_LIST_CAPABILITIES = "driver.listCapabilities";
 const METHOD_LIST_MODELS = "driver.listModels";
 const METHOD_LIST_MODES = "driver.listModes";
 const METHOD_SUBSCRIBE_EVENTS = "driver.subscribeEvents";
+const METHOD_COMPACT_CONTEXT = "driver.compactContext";
+const METHOD_LIST_PROVIDER_COMMANDS = "driver.listProviderCommands";
 
 /** A well-formed steer against the run whose bound driver declares no steer. */
 const STEER_AGAINST_NO_NATIVE_STEER_DRIVER: ApplyInterventionParams = {
@@ -464,7 +469,7 @@ describe("DriverClient — the ratified client-facing surface (Plan-005 §Phase 
     }
   });
 
-  it("exposes exactly the seven ratified methods and none of the four lifecycle operations", () => {
+  it("exposes exactly the nine ratified methods and none of the four lifecycle operations", () => {
     const { client } = buildDriverClient({});
 
     // The four lifecycle operations establish, restore, start, or tear down a
@@ -488,13 +493,36 @@ describe("DriverClient — the ratified client-facing surface (Plan-005 §Phase 
 
     expect(Object.keys(client).sort()).toStrictEqual([
       "applyIntervention",
+      "compactContext",
       "interruptRun",
       "listCapabilities",
       "listModels",
       "listModes",
+      "listProviderCommands",
       "respondToRequest",
       "subscribeEvents",
     ]);
+  });
+
+  it("exposes none of the four R8 parity operations either (T4.8's absence half)", () => {
+    // `rollbackTo`, `setSessionGoal`, `clearSessionGoal`, and `probeAuth` are
+    // daemon-internal by the same decision #2 principle: each already has its
+    // own client route (rollback via Plan-004's intervention path, goals via
+    // Plan-016's surface, auth probes via the account plane), so a second route
+    // here would fork one operation's authority across two doors.
+    const { client } = buildDriverClient({});
+    for (const parityOperation of [
+      "rollbackTo",
+      "setSessionGoal",
+      "clearSessionGoal",
+      "probeAuth",
+    ]) {
+      expect(parityOperation in client).toBe(false);
+    }
+
+    // @ts-expect-error — `rollbackTo` is deliberately not on `DriverClient`;
+    // this line failing to error would mean the parity narrowing regressed.
+    expect(client.rollbackTo).toBeUndefined();
   });
 
   it("rejects a subscribeEvents call whose runId is not a canonical id, synchronously and before the wire", () => {
@@ -651,5 +679,182 @@ describe("driver.subscribeEvents — the stream is narrowed to driver events", (
       METHOD_SUBSCRIBE_EVENTS,
       SUBSCRIPTION_CANCEL_METHOD,
     ]);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// T4.9 — the two console-parity verbs across the SDK seam
+// ----------------------------------------------------------------------------
+
+/** Low-entropy sentinel — see the header note on the secret scanner. */
+const TEST_AGENT_ID = "00000000-0000-4000-8000-000000000007";
+
+/** One binding's group exactly as the daemon merges it — reply fidelity is the property. */
+const COMMAND_GROUP: ProviderCommandListResult = {
+  bindings: [
+    {
+      runId: TEST_RUN_ID,
+      binding: { driverName: "claude", providerAccountId: null },
+      entries: [
+        {
+          name: "compact",
+          kind: "command",
+          binding: { driverName: "claude", providerAccountId: null },
+        },
+      ],
+      complete: true,
+    },
+  ],
+};
+
+describe("driver.compactContext / driver.listProviderCommands — the console-parity verbs (T4.9)", () => {
+  it("sends the session-addressed compaction request verbatim and resolves a refusal as DATA", async () => {
+    // `not_permitted` is the daemon-side adjudication's deny, and it arrives on
+    // the operation's OWN refused arm — a resolved value a caller branches on,
+    // exactly as `applyIntervention`'s degraded envelope does. A rejection here
+    // would mean the SDK had laundered an answered refusal into an error.
+    const refusedAnswer = { status: "refused", reason: "not_permitted" };
+    const { client, daemon } = buildDriverClient(
+      scriptResult(METHOD_COMPACT_CONTEXT, refusedAnswer),
+    );
+
+    const result = await client.compactContext({
+      sessionId: TEST_SESSION_ID,
+      runId: TEST_RUN_ID,
+    });
+
+    expect(result).toStrictEqual(refusedAnswer);
+    expect(daemon.sentEnvelopes.length).toBe(1);
+    expect(methodOf(daemon.sentEnvelopes[0])).toBe(METHOD_COMPACT_CONTEXT);
+    expect(paramsOf(daemon.sentEnvelopes[0])).toStrictEqual({
+      sessionId: TEST_SESSION_ID,
+      runId: TEST_RUN_ID,
+    });
+  });
+
+  it("refuses an applied arm missing its boundaryPosition at the seam — the discriminated union is the contract", async () => {
+    // `applied` REQUIRES `boundaryPosition` (nullable, never absent): a daemon
+    // reporting a compaction with no boundary key is reporting one it cannot
+    // prove, and the seam must refuse it rather than hand a caller an applied
+    // status with the evidence dropped.
+    const { client } = buildDriverClient(
+      scriptResult(METHOD_COMPACT_CONTEXT, { status: "applied" }),
+    );
+
+    let caught: unknown = null;
+    try {
+      await client.compactContext({ sessionId: TEST_SESSION_ID, runId: TEST_RUN_ID });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(JsonRpcSchemaError);
+    if (caught instanceof JsonRpcSchemaError) {
+      expect(caught.phase).toBe("result");
+    }
+  });
+
+  it("resolves the per-binding group list intact, each entry still carrying its routing pair", async () => {
+    const { client, daemon } = buildDriverClient(
+      scriptResult(METHOD_LIST_PROVIDER_COMMANDS, COMMAND_GROUP),
+    );
+
+    const result = await client.listProviderCommands({
+      sessionId: TEST_SESSION_ID,
+      agentId: TEST_AGENT_ID,
+    });
+
+    // The whole reply, compared as a whole: the `(driverName,
+    // providerAccountId)` pair on every entry is the routing invariant's
+    // carrier (I-005-13), and an SDK that stripped or flattened it would leave
+    // a renderer unable to keep a Claude-enumerated command off a Codex agent.
+    expect(result).toStrictEqual(COMMAND_GROUP);
+    expect(methodOf(daemon.sentEnvelopes[0])).toBe(METHOD_LIST_PROVIDER_COMMANDS);
+    expect(paramsOf(daemon.sentEnvelopes[0])).toStrictEqual({
+      sessionId: TEST_SESSION_ID,
+      agentId: TEST_AGENT_ID,
+    });
+  });
+
+  it("REFUSES a bindingId on either request BEFORE any wire write — no binding member exists on the wire", async () => {
+    // The cast is the realistic path: a runtime caller composing params from
+    // untyped input, believing it holds an addressing key the contract
+    // deliberately never published.
+    const { client, daemon } = buildDriverClient({
+      [METHOD_COMPACT_CONTEXT]: { result: { status: "applied", boundaryPosition: null } },
+      [METHOD_LIST_PROVIDER_COMMANDS]: { result: COMMAND_GROUP },
+    });
+
+    await expect(
+      client.compactContext({
+        sessionId: TEST_SESSION_ID,
+        runId: TEST_RUN_ID,
+        bindingId: "binding-1",
+      } as unknown as CompactContextRequest),
+    ).rejects.toBeInstanceOf(JsonRpcSchemaError);
+    await expect(
+      client.listProviderCommands({
+        sessionId: TEST_SESSION_ID,
+        agentId: TEST_AGENT_ID,
+        bindingId: "binding-1",
+      } as unknown as ListProviderCommandsRequest),
+    ).rejects.toBeInstanceOf(JsonRpcSchemaError);
+    expect(daemon.sentEnvelopes.length).toBe(0);
+  });
+
+  it("surfaces driver.capability_unsupported on both verbs as the typed remote refusal", async () => {
+    // The daemon's static gate refuses a declaring-false driver BEFORE any
+    // dispatch; on this side that refusal must stay a typed remote error — a
+    // compaction refusal that arrived as `{ status: 'refused' }` would claim
+    // the caller was adjudicated when the driver simply lacks the capability.
+    const capabilityRefusal = {
+      jsonRpcCode: JsonRpcErrorCode.InvalidRequest,
+      type: "driver.capability_unsupported",
+      message: "Requested capability is not supported by the driver",
+    };
+    const { client } = buildDriverClient({
+      [METHOD_COMPACT_CONTEXT]: { refusal: capabilityRefusal },
+      [METHOD_LIST_PROVIDER_COMMANDS]: { refusal: capabilityRefusal },
+    });
+
+    for (const call of [
+      () => client.compactContext({ sessionId: TEST_SESSION_ID, runId: TEST_RUN_ID }),
+      () => client.listProviderCommands({ sessionId: TEST_SESSION_ID, agentId: TEST_AGENT_ID }),
+    ]) {
+      let caught: unknown = null;
+      try {
+        await call();
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBeInstanceOf(JsonRpcRemoteError);
+      if (caught instanceof JsonRpcRemoteError) {
+        expect(caught.data?.type).toBe("driver.capability_unsupported");
+      }
+    }
+  });
+
+  it("surfaces the masked session refusal exactly as the daemon shaped it", async () => {
+    // The SDK must not decorate the mask: a non-member and an unknown session
+    // are byte-identical on the wire, and any client-side enrichment keyed on
+    // "which one was it" would have nothing to key on — which is the point.
+    const { client } = buildDriverClient(
+      scriptRefusal(METHOD_COMPACT_CONTEXT, {
+        jsonRpcCode: JsonRpcErrorCode.InvalidParams,
+        type: "session.not_found",
+        message: "Session does not exist or is not accessible",
+      }),
+    );
+
+    let caught: unknown = null;
+    try {
+      await client.compactContext({ sessionId: TEST_SESSION_ID, runId: TEST_RUN_ID });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(JsonRpcRemoteError);
+    if (caught instanceof JsonRpcRemoteError) {
+      expect(caught.data?.type).toBe("session.not_found");
+      expect(caught.message).toContain("Session does not exist or is not accessible");
+    }
   });
 });

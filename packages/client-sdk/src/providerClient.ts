@@ -13,7 +13,7 @@
 // process, which is the exact thing I-005-1 forbids — so the invariant survives
 // contact with this package by there being no such function to call.
 //
-// SEVEN METHODS, AND THE FOUR THAT ARE MISSING ARE THE CONTRACT. `ProviderDriver`
+// NINE METHODS, AND THE FOUR THAT ARE MISSING ARE THE CONTRACT. `ProviderDriver`
 // carries eighteen operations. Four of them — `createSession`, `resumeSession`,
 // `startRun`, `closeSession` — establish, restore, start, or tear down a
 // session-or-run domain object, which is orchestration's job (Plan-005 §Phase 4
@@ -27,9 +27,13 @@
 // route to session creation exists here at all.
 //
 // T4.9's two console-parity verbs (`driver.compactContext`,
-// `driver.listProviderCommands`) extend THIS interface and THIS factory when
-// they land, taking the client-facing set from seven to nine. They are
-// deliberately not a second client module.
+// `driver.listProviderCommands`) extend THIS interface and THIS factory — never
+// a second client module — taking the client-facing set from seven to nine.
+// Both are SESSION-addressed (a binding and an agent are only identified within
+// a session), the deliberate contrast to the globally-unique run id the three
+// run verbs carry, and neither request admits a binding member: the daemon
+// resolves the live binding itself, which is what keeps the routing invariant
+// (I-005-13) daemon-enforced rather than trusted to a renderer.
 //
 // ZOD AT THE SEAM, IN BOTH DIRECTIONS. Every request/response verb routes
 // through `JsonRpcClient.call`, which validates the request against its T4.2
@@ -63,7 +67,9 @@
 
 import type {
   ApplyInterventionParams,
+  CompactContextRequest,
   DriverAckResult,
+  DriverCompactionResult,
   DriverEvent,
   DriverInterventionResult,
   DriverReadParams,
@@ -72,11 +78,15 @@ import type {
   ListCapabilitiesResult,
   ListModelsResult,
   ListModesResult,
+  ListProviderCommandsRequest,
+  ProviderCommandListResult,
   RespondToRequestParams,
 } from "@ai-sidekicks/contracts";
 import {
   ApplyInterventionParamsSchema,
+  CompactContextRequestSchema,
   DriverAckResultSchema,
+  DriverCompactionResultSchema,
   DriverEventSchema,
   DriverInterventionResultSchema,
   DriverReadParamsSchema,
@@ -85,6 +95,8 @@ import {
   ListCapabilitiesResultSchema,
   ListModelsResultSchema,
   ListModesResultSchema,
+  ListProviderCommandsRequestSchema,
+  ProviderCommandListResultSchema,
   RespondToRequestParamsSchema,
 } from "@ai-sidekicks/contracts";
 
@@ -96,7 +108,7 @@ import type { LocalSubscriptionConsumer } from "./transport/types.js";
 // --------------------------------------------------------------------------
 
 /**
- * The seven client-facing `driver.*` JSON-RPC method names, in the canonical
+ * The nine client-facing `driver.*` JSON-RPC method names, in the canonical
  * dotted-camelCase long form ADR-009 + Plan-007 I-007-9 require.
  *
  * Authored as local string constants rather than imported symbols, matching
@@ -119,6 +131,8 @@ const DRIVER_METHOD_INTERRUPT_RUN = "driver.interruptRun";
 const DRIVER_METHOD_APPLY_INTERVENTION = "driver.applyIntervention";
 const DRIVER_METHOD_RESPOND_TO_REQUEST = "driver.respondToRequest";
 const DRIVER_METHOD_SUBSCRIBE_EVENTS = "driver.subscribeEvents";
+const DRIVER_METHOD_COMPACT_CONTEXT = "driver.compactContext";
+const DRIVER_METHOD_LIST_PROVIDER_COMMANDS = "driver.listProviderCommands";
 
 /**
  * The request value the three no-arg reads send.
@@ -135,9 +149,20 @@ const EMPTY_READ_PARAMS: DriverReadParams = Object.freeze({});
 // --------------------------------------------------------------------------
 
 /**
- * The client-facing driver surface: the six non-lifecycle verbs plus
- * `subscribeEvents` — the seven methods ratified at Plan-005 §Phase 4
- * decision #2.
+ * The client-facing driver surface: the eight request/response verbs plus
+ * `subscribeEvents` — the nine methods ratified at Plan-005 §Phase 4
+ * decision #2 (T4.9's two console-parity verbs joining T4.1's six under that
+ * decision's own governing principle: both operate on an already-existing
+ * session).
+ *
+ * `compactContext` is the second verb whose refusals are RESOLVED VALUES:
+ * `DriverCompactionResult` is a discriminated union, and its `refused` /
+ * `failed` arms — the daemon-side `not_permitted` adjudication included — are
+ * data a caller branches on, exactly as `applyIntervention`'s `degraded` arm
+ * is. Only the fixed-order address/liveness/capability refusals
+ * (`session.not_found`, `run.not_found` / `agent.not_found`,
+ * `driver.unavailable`, `driver.capability_unsupported`) arrive as
+ * `JsonRpcRemoteError`.
  *
  * `interruptRun` and `respondToRequest` resolve `DriverAckResult` (the empty
  * object). That is a genuine success value and not a sentinel: their driver-side
@@ -202,6 +227,24 @@ export interface DriverClient {
   listModes(): Promise<ListModesResult>;
 
   /**
+   * Trigger a participant-initiated context compaction on one run's live
+   * binding. Resolves the discriminated `DriverCompactionResult` — NEVER a bare
+   * acknowledgment, because both provider mechanisms answer before the work is
+   * done and only the typed compaction evidence settles `applied`. Callers MUST
+   * branch on `status`.
+   */
+  compactContext(params: CompactContextRequest): Promise<DriverCompactionResult>;
+
+  /**
+   * Read the provider command/skill enumeration across one agent's live
+   * bindings, grouped per binding with the `(driverName, providerAccountId)`
+   * routing pair on every entry. A live read — the daemon stores no command
+   * registry — and V1 is enumeration and discovery, not a dispatch channel: no
+   * member of the reply is a dispatch handle.
+   */
+  listProviderCommands(params: ListProviderCommandsRequest): Promise<ProviderCommandListResult>;
+
+  /**
    * Open a subscription to one run's driver event stream.
    *
    * Takes the run id despite T4.3's `Provides` line writing this method bare —
@@ -236,12 +279,13 @@ export interface DriverClient {
  * pipe, in-memory test double) and the `JsonRpcClient` construction — including
  * completing the `daemon.hello` handshake before the first MUTATING call. That
  * last point has teeth on this namespace specifically: the daemon marks
- * `interruptRun`, `applyIntervention`, and `respondToRequest` as mutating and
- * the four reads (`listCapabilities` / `listModels` / `listModes` /
- * `subscribeEvents`) as not, so a version-mismatched connection keeps the reads
- * and loses exactly the three verbs that drive a live run.
+ * `interruptRun`, `applyIntervention`, `respondToRequest`, and `compactContext`
+ * as mutating and the five reads (`listCapabilities` / `listModels` /
+ * `listModes` / `listProviderCommands` / `subscribeEvents`) as not, so a
+ * version-mismatched connection keeps the reads and loses exactly the four
+ * verbs that drive a live run.
  *
- * Each of the six request/response verbs threads its schema pair through
+ * Each of the eight request/response verbs threads its schema pair through
  * `client.call(method, params, ParamsSchema, ResultSchema)`, which owns the
  * bidirectional fail-fast. Nothing is unwrapped, re-shaped, or defaulted on the
  * way through: the daemon's reply IS the return value, so a `degraded`
@@ -296,6 +340,20 @@ export function createDaemonProviderClient(client: JsonRpcClient): DriverClient 
         DriverReadParamsSchema,
         ListModesResultSchema,
       ),
+    compactContext: (params) =>
+      client.call(
+        DRIVER_METHOD_COMPACT_CONTEXT,
+        params,
+        CompactContextRequestSchema,
+        DriverCompactionResultSchema,
+      ),
+    listProviderCommands: (params) =>
+      client.call(
+        DRIVER_METHOD_LIST_PROVIDER_COMMANDS,
+        params,
+        ListProviderCommandsRequestSchema,
+        ProviderCommandListResultSchema,
+      ),
     subscribeEvents: (params) => daemonSubscribeEvents(client, params),
   };
 }
@@ -339,7 +397,7 @@ export function createDaemonProviderClient(client: JsonRpcClient): DriverClient 
  *
  * The refusal is `JsonRpcSchemaError` on the `params` phase — the SAME typed
  * error `client.call` raises for a caller-side params failure — so a consumer
- * catches one error class across all seven methods rather than a
+ * catches one error class across all nine methods rather than a
  * subscription-specific twin. It throws synchronously, before any wire write and
  * before the server-side streaming entry is reserved, which is what keeps a
  * rejected request from orphaning daemon state.
