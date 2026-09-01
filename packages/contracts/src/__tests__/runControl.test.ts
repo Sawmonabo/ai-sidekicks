@@ -296,14 +296,20 @@ const guards = {
 } as const;
 
 describe("InterventionRequestPayload", () => {
-  // Driven against the IMPORTED Plan-005-owned union: if a member is added
-  // there without an arm here, this table stops compiling.
-  const arms: ReadonlyArray<[InterventionType, Record<string, unknown>]> = [
-    ["steer", { ...guards, type: "steer", content: "please use the async client" }],
-    ["interrupt", { ...guards, type: "interrupt", reason: "wrong branch" }],
-    ["cancel", { ...guards, type: "cancel" }],
-    ["rollback", { ...guards, type: "rollback", targetPosition: 12 }],
-  ];
+  // Driven against the IMPORTED Plan-005-owned union through an exhaustive
+  // keyed record: a member added there without an arm here is a missing
+  // property (TS2739), so the drift guard fails at compile time rather than
+  // silently shrinking coverage (an array of union members would still
+  // compile with an arm missing).
+  const armPayloads: Record<InterventionType, Record<string, unknown>> = {
+    steer: { ...guards, type: "steer", content: "please use the async client" },
+    interrupt: { ...guards, type: "interrupt", reason: "wrong branch" },
+    cancel: { ...guards, type: "cancel" },
+    rollback: { ...guards, type: "rollback", targetPosition: 12 },
+  };
+  const arms: ReadonlyArray<[InterventionType, Record<string, unknown>]> = (
+    Object.entries(armPayloads) as Array<[InterventionType, Record<string, unknown>]>
+  ).map(([armType, payload]) => [armType, payload]);
 
   it.each(arms)("round-trips the %s arm", (_type, payload) => {
     expect(InterventionRequestPayloadSchema.parse(payload)).toEqual(payload);

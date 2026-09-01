@@ -653,10 +653,15 @@ export type InterventionRequestResponse =
       interventionType: "rollback";
       state: "rejected";
       rejectionReason: string;
+      // The doc declares `result?: never` on this arm. Without it, structural
+      // assignability lets a producer-side variable carry a stray `result`
+      // that compiles and then fails the strict runtime parse.
+      result?: never;
     })
   | (InterventionResponseBase & {
       interventionType: "rollback";
       state: "requested" | "accepted" | "expired";
+      result?: never;
     })
   | (InterventionResponseBase & {
       interventionType: "steer" | "interrupt" | "cancel";
@@ -675,9 +680,10 @@ const interventionResponseBaseShape = {
   ).optional(),
 } as const;
 
-// The non-disposition states (`requested` / `accepted` / `expired`) declare no
-// `result` member at all; `.strict()` is what turns the doc's `result?: never`
-// into a parse refusal.
+// The non-disposition states (`requested` / `accepted` / `expired`) and the
+// `rejected` arm carry the doc's `result?: never` in the exported type (so a
+// stray `result` fails at compile time), while `.strict()` is what turns it
+// into a parse refusal at runtime.
 export const InterventionRequestResponseSchema: z.ZodType<InterventionRequestResponse> =
   z.discriminatedUnion("interventionType", [
     z.discriminatedUnion("state", [
