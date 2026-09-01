@@ -655,8 +655,8 @@ export class ClaudeCapabilityReporter {
  * GOLDEN VECTOR — the Claude model catalog this driver declares.
  *
  *   Source doc      : `docs/reference/provider-wire/claude.md`
- *   Section         : §Control requests (`list_models` answers
- *                     `{"subtype":"success", …}`)
+ *   Section         : §`list_models` and the per-model effort vocabulary
+ *                     (the control request answers `{"subtype":"success", …}`)
  *   Pin             : Claude Code 2.1.251
  *   Provenance      : Binary probe. One live `claude -p --input-format
  *                     stream-json` control request `{"subtype":"list_models"}`

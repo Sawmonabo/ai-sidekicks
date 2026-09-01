@@ -508,8 +508,9 @@ const CODEX_BASE_EFFORT_LEVELS: readonly string[] = Object.freeze([
  * GOLDEN VECTOR — the Codex model catalog this driver declares.
  *
  *   Source doc      : `docs/reference/provider-wire/codex.md`
- *   Section         : §Client requests (`model/list` on the default,
- *                     non-experimental generation)
+ *   Section         : §`model/list` — the model catalog and the per-model
+ *                     effort vocabulary (the default, non-experimental
+ *                     generation)
  *   Pin             : codex-cli 0.150.1
  *   Provenance      : Binary probe. One live `codex app-server` JSON-RPC
  *                     `model/list` request after `initialize` / `initialized`

@@ -86,7 +86,7 @@ Two further properties of that enumeration, and both matter to anyone parsing it
 
 ## Capability shapes
 
-Shapes relevant to the capabilities this project normalizes, pinned from the `0.150.1` generation. Every generated type reproduced below is **byte-identical at `0.149.1` and `0.150.1`** — the pin hop moved four notification arms and nothing else this section names. Field notation follows the generated TypeScript (`?` = optional, `| null` = nullable).
+Shapes relevant to the capabilities this project normalizes, pinned from the `0.150.1` generation. Every generated type reproduced below is **byte-identical at `0.149.1` and `0.150.1` with exactly one exception** — `SkillMetadata`, nested inside `SkillsListResponse`, which gained one optional field at this pin (measured 2026-08-31; see [`skills/*`](#skills--the-skill-surface)). Apart from that one field, the pin hop moved four notification arms and nothing else this section names. The identity claim was re-measured type by type against the `0.149.1` generation rather than carried. Field notation follows the generated TypeScript (`?` = optional, `| null` = nullable).
 
 ### `thread/rollback` — session time-travel (conversation leg)
 
@@ -166,6 +166,140 @@ This is worth measuring per transport rather than assuming per vendor: the other
 
 `turn/steer` is a first-class, non-experimental method at `0.150.1` (the steer capability is graduated always-on, its feature flag removed) — unchanged from the floor.
 
+### `model/list` — the model catalog and the per-model effort vocabulary
+
+Added 2026-08-31. **Generated schema**, **Verified** at `0.150.1` from the generation dated in [Version pin](#version-pin). Both types below are byte-identical in the default and `--experimental` generations, so nothing here is field-gated the way `TurnStartParams.permissions` is.
+
+```
+ModelListParams   = { cursor?: string | null, includeHidden?: boolean | null, limit?: uint32 | null }
+ModelListResponse = { data: Model[], nextCursor?: string | null }   // data required
+```
+
+**This read is paginated and must be driven as such.** The generated comments are verbatim: `cursor` is "Opaque pagination cursor returned by a previous call."; `nextCursor` is "Opaque cursor to pass to the next call to continue after the last item. If None, there are no more items to return."; `limit` is "Optional page size; defaults to a reasonable server-side value." A consumer that reads `data` and ignores `nextCursor` silently truncates the catalog at whatever the server's default page size happens to be. Contrast [`skills/*`](#skills--the-skill-surface) below, which carries no pagination member at all — the two sibling reads on this surface do not share a convention, so neither one's handling can be inferred from the other.
+
+`Model` requires eight fields — `id`, `model`, `displayName`, `description`, `hidden`, `isDefault`, `defaultReasoningEffort`, `supportedReasoningEfforts` — and carries the optional `serviceTiers`, `additionalSpeedTiers` (deprecated), `inputModalities` (default `["text", "image"]`), `defaultServiceTier`, `modelSpecialty`, `multiAgentVersion`, `supportsPersonality`, `upgrade` / `upgradeInfo`, and `availabilityNux`. Note that `id` and `model` are **both** present and **both** required, as separate strings; a consumer keying on one is not keying on the other. `includeHidden` exists because the catalog carries rows the default picker suppresses — its comment reads "When true, include models that are hidden from the default picker list."
+
+**The effort vocabulary is per-model, and the generated schema itself declines to close it.** This is the structural fact, and it is load-bearing in a way no list of values is:
+
+```
+supportedReasoningEfforts: ReasoningEffortOption[]
+ReasoningEffortOption = { reasoningEffort: ReasoningEffort, description: string }   // both required
+ReasoningEffort       = { "type": "string", "minLength": 1 }                        // a constrained string, NOT an enum
+```
+
+`ReasoningEffort` carries its own verbatim description — "A non-empty reasoning effort value advertised by the model." The generator emits a **non-empty string**, not a closed union, so the wire's own position is that the set of efforts is whatever each model advertises. No provider-wide effort list can be correct by construction, and a consumer that hardcodes one is asserting something the schema explicitly refuses to. `turn/start`'s `effort` override consumes this same type ("Override the reasoning effort for this turn and subsequent turns."), so the per-turn override is bounded by the per-model catalog rather than by any fixed vocabulary.
+
+**The values at this pin.** **Binary probe**, **Verified**, measured 2026-08-30 by one zero-turn `model/list` after `initialize` / `initialized` on a default connection (`nextCursor: null`; `hidden: false` on every row). `0.150.1` publishes **three distinct effort lists across eight models**, with **no `minimal` on any of them**:
+
+| Effort list | Models |
+| --- | --- |
+| `low \| medium \| high \| xhigh \| max \| ultra` | `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-daybreak-blue-latest` |
+| `low \| medium \| high \| xhigh \| max` | `gpt-5.6-luna` — the one row carrying `max` without `ultra` |
+| `low \| medium \| high \| xhigh` | `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex-spark` |
+
+That reading is **carried here, not reproduced by this pass**: it is the measurement recorded in [Spec-005](../../specs/005-provider-driver-contract-and-capabilities.md) §Provider Parameter Vocabularies, and mirrored as the shipped golden vector `CODEX_DECLARED_MODEL_CATALOG` in `packages/runtime-daemon/src/provider/drivers/codex/capabilities.ts` (**Cross-reference**). Both halves of the pre-2026-08-30 reading this project carried — a single provider-wide list, and `minimal` as its floor value — are contradicted by the pin, and the `gpt-5.6-luna` row shows the lists are not even nested, so they cannot be collapsed to a longest-wins union.
+
+**Across the floor span this type grew too, and one growth is a union widening rather than a plain field add** (measured 2026-08-31 against the `rust-v0.141.0` protocol schemas). `ModelListParams` is byte-identical at `0.141.0` and `0.150.1`, and `model/list` exists at the floor, so the read itself is unchanged. `ModelListResponse` is not: `Model` gained the optional `modelSpecialty` and `multiAgentVersion`, `ModelUpgradeInfo` gained the optional `retirementAt`, the `MultiAgentVersion` definition is new — all additive — **but `InputModality` gained a third variant, `audio`, beside `text` and `image`.** That last one is the same class as the `ReviewDecision` row in [Breaking type changes across the floor](#breaking-type-changes-across-the-floor): a floor-era exhaustive match over `InputModality` does not cover the pin. It carries its own row in that table, with the direction called out there — `InputModality` arrives **from** the provider, so the failure is a decode or match failure on receipt rather than a rejected request.
+
+A sibling read, `modelProvider/capabilities/read`, takes empty params and answers `{ imageGeneration: boolean, namespaceTools: boolean, webSearch: boolean }` (all required). It is a provider-wide feature triple and carries no speed, effort, or model axis.
+
+### Output speed — a documented negative on this surface
+
+Added 2026-08-31. **Generated schema**, **Verified** at `0.150.1`.
+
+**There is no output-speed axis on the Codex wire at this pin, and that is a reading of the surface rather than a gap in the reading.** Across all four default union roots — **185 method strings** in total — **zero** method names match `speed`, `fast`, `turbo`, or `accel`. There is no method that sets such an axis, no capability field declaring one, and no notification reporting one.
+
+The instrument is proven live by a positive control taken in the same pass: those same tokens **do** occur at field level in the same generation, in four places, none of which is a settable output-speed control.
+
+| Where | Shape | What it actually is |
+| --- | --- | --- |
+| `Model.additionalSpeedTiers` | `string[]`, default `[]` | Carries the verbatim comment "Deprecated: use `serviceTiers` instead." — a **service-tier** list, and a superseded one. |
+| `TurnStartParams.serviceTier` | `string \| null` | "Override the service tier for this turn and subsequent turns." — a routing/billing tier, not an output-rate control. |
+| `ThreadUsageBreakdownGroup.speed` | `string \| null` | A usage-**attribution** grouping key, sitting beside `model` and `reasoningEffort` on the `account/usage/read` response (the arm carrying `GetAccountTokenUsageParams`; there is no bare `getAccountTokenUsage` method). It reports; it does not set. |
+| `ModelSafetyBufferingUpdatedNotification.fasterModel` | `string \| null` | Names an alternative model on a safety-buffering notification. A model identity, not a speed setting. |
+
+A reader who greps this generation for `speed` finds three of those four and can reasonably conclude this section is wrong. It is not — the distinction that matters is **service tier versus output speed**. Codex publishes the former and does not publish the latter.
+
+This is the basis on which the shipped capability table declares the axis `false` for this driver as a **complete declaration rather than an unprobed gap**: `packages/runtime-daemon/src/provider/driver-output-speed.ts` maps `codex` to the empty level list, and `packages/runtime-daemon/src/provider/capability-probe.ts` records the axis with `detectionSource: "static"` for that reason (**Cross-reference**). The positive case for the same axis is the other provider's — see [claude.md](claude.md).
+
+**Scope note, because the two claims are not the same size.** The **method-level** claim above is exhaustive over the four default roots. It is *not* a claim that the token `speed` appears nowhere in the generation; the table shows it does. Widening the negative past the method root would falsify it.
+
+### `skills/*` — the skill surface
+
+Added 2026-08-31. **Generated schema**, **Verified** at `0.150.1`. Every shape in this section is **byte-identical in the default and `--experimental` generations**, so — unlike `TurnStartParams.permissions` — nothing in this family is field-gated, and presence in the default `ClientRequest` root does mean callable on a default connection.
+
+**This family is the one exception to the [Capability shapes](#capability-shapes) preamble's byte-identical-across-the-pin-hop claim, and the difference is additive.** Measured file by file against the `0.149.1` generation: `SkillsListParams`, `SkillsChangedNotification`, `SkillsConfigWriteParams` / `…Response`, `SkillsExtraRootsSetParams` / `…Response`, and `PluginSkillReadParams` / `…Response` are all byte-identical across the hop, but `SkillsListResponse` is **not** — its nested `SkillMetadata` gained one optional-nullable field at `0.150.1`, `pluginId`, whose verbatim comment is "Owning plugin ID, matching `PluginSummary.id`, when known." No definition was added or removed and **the required set did not move**, so a `0.149.1`-era consumer still decodes a `0.150.1` reply; it simply never sees the new field. Note that the axes are independent and each was measured separately: default-versus-`--experimental` at `0.150.1` (identical for every type here) is a different question from `0.149.1`-versus-`0.150.1` (identical for every type here **but** `SkillsListResponse`).
+
+**Across the full floor span the same family is additive-only** (measured 2026-08-31 against the `rust-v0.141.0` protocol schemas, whose four union roots carry the 85 / 66 / 10 / 1 arms [recorded for the floor](#version-pin)). All five method strings above already exist at `0.141.0`, `skills/changed` included, so nothing in this family was introduced across the span. Two shapes grew, both by optional fields only, with no definition and no required field added or removed: `SkillMetadata` gained `pluginId`, and `SkillInterface` gained `iconLargeUrl` and `iconSmallUrl`. A floor-era consumer therefore still decodes a pin-era reply — it simply sees fewer fields.
+
+Four client requests and one server notification, all present in the default roots:
+
+| Method | Direction | Gated |
+| --- | --- | --- |
+| `skills/list` | client → server | no |
+| `skills/config/write` | client → server | no |
+| `skills/extraRoots/set` | client → server | no |
+| `plugin/skill/read` | client → server | no |
+| `skills/changed` | server → client (notification) | **no** — it carries no `#[experimental(…)]` marker and is not among the 23 enumerated under [The experimental gate](#the-experimental-gate--a-runtime-filter-not-a-schema-filter), so a default connection does receive it |
+
+That last row is worth stating rather than assuming, because [the realtime family](#threadrealtime--realtime-voice-gated) is the cautionary case in the other direction: eleven notifications present in the default schema and delivered to nobody. `skills/changed` is the opposite outcome — present **and** delivered — and the two can only be told apart by reading the markers, never the schema.
+
+**`skills/list` — the read.**
+
+```
+SkillsListParams   = { cwds?: string[], forceReload?: boolean }
+SkillsListResponse = { data: SkillsListEntry[] }                                        // data required
+SkillsListEntry    = { cwd: string, skills: SkillMetadata[], errors: SkillErrorInfo[] } // all three required
+SkillErrorInfo     = { path: string, message: string }                                  // both required
+```
+
+Verbatim comments: `cwds` — "When empty, defaults to the current session working directory."; `forceReload` — "When true, bypass the skills cache and re-scan skills from disk."
+
+**The reply is grouped per scanned working directory, not flat.** There is one `SkillsListEntry` per `cwd`, each carrying its own `skills` and its own `errors` — so a consumer wanting a single list concatenates the groups, and a per-directory scan failure surfaces as a populated `errors` array on that one group rather than as a request-level refusal. A partially-failed scan is therefore a **success** on this wire.
+
+**There is no pagination on either side of this read** — no `cursor`, no `limit`, no `nextCursor` anywhere in the params or the response. The whole set arrives in one reply. That is the opposite convention from [`model/list`](#modellist--the-model-catalog-and-the-per-model-effort-vocabulary) above, and the difference is real rather than an omission in this reference.
+
+**`SkillMetadata` — the entry shape.**
+
+```
+SkillMetadata = {
+  name: string, description: string, path: AbsolutePathBuf,
+  enabled: boolean, scope: SkillScope,                       // ← exactly these five are required
+  shortDescription?: string | null, pluginId?: string | null,
+  dependencies?: SkillDependencies | null, interface?: SkillInterface | null
+}
+SkillScope = "user" | "repo" | "system" | "admin"
+```
+
+Three consequences of that required-set that a normalizing consumer depends on:
+
+- **`description` is required, not optional.** A skill whose front matter declares none therefore arrives as `""` rather than absent — the empty string is this provider's encoding of "no description", and a consumer treating absent-versus-empty as meaningful will never observe the absent case here.
+- **`scope` is required**, drawn from the closed four-value set above. This surface always declares a scope. The Claude handshake enumeration declares none at all, which is why a cross-provider normalized entry has to type the field optional even though Codex never omits it.
+- **`enabled` is required, and disabled skills are returned rather than filtered.** The reply is the full scanned set carrying a flag, not a pre-filtered list of active skills — so a consumer that wants only active skills filters client-side, and a consumer that counts entries is not counting available ones.
+
+`AbsolutePathBuf` carries its own verbatim description — "A path that is guaranteed to be absolute and normalized (though it is not guaranteed to be canonicalized or exist on the filesystem)." — so a `path` here is absolute but is **not** evidence the file exists.
+
+**`skills/changed` — the invalidation signal.** The notification type is an **empty object** carrying no payload whatsoever, and its entire generated description is verbatim:
+
+> Notification emitted when watched local skill files change.
+>
+> Treat this as an invalidation signal and re-run `skills/list` with the client's current parameters when refreshed skill metadata is needed.
+
+The wire therefore specifies its own refresh discipline: there is no delta, no changed-entry list, and no means of patching a held list. The only correct response is a **full re-read** with the same parameters the consumer used originally. A consumer holding skill state discards it wholesale on this frame.
+
+**The mutating siblings**, recorded for completeness — this project reads this family and does not currently drive these:
+
+```
+SkillsConfigWriteParams     = { enabled: boolean, name?: string | null, path?: AbsolutePathBuf | null }
+SkillsConfigWriteResponse   = { effectiveEnabled: boolean }
+SkillsExtraRootsSetParams   = { extraRoots: AbsolutePathBuf[] }
+SkillsExtraRootsSetResponse = {}                                                  // empty object
+PluginSkillReadParams       = { remoteMarketplaceName: string, remotePluginId: string, skillName: string }   // all required
+PluginSkillReadResponse     = { contents?: string | null }
+```
+
+`skills/config/write` takes **either** a name-based **or** a path-based selector — two separately-nullable fields whose verbatim comments are "Name-based selector." and "Path-based selector." — and answers with the resolved `effectiveEnabled` rather than echoing the request, so the write's outcome is read from the reply rather than assumed from the request.
+
 ### Server-requests — the callback / interactive / approval surface (Codex → daemon)
 
 `ServerRequest` carries 10 methods at `0.150.1` — **the same 10 as at `0.141.0`**, the one root that has not moved anywhere across the floor. This is the surface the daemon answers back on:
@@ -202,13 +336,14 @@ The realtime family is **gated on both directions of the wire at `0.150.1`**, an
 
 ## Breaking type changes across the floor
 
-No method string was removed between `0.141.0` and `0.150.1`, but four shapes changed in ways that break a client written against the floor. All four are **Verified** from the generations, with the fourth additionally **Binary probe**. All four were re-measured at this pin and none moved between `0.149.1` and `0.150.1` — the three generated types are byte-identical across that hop and the exit-code probe still answers the same way.
+No method string was removed between `0.141.0` and `0.150.1`, but five shapes changed in ways that break a client written against the floor. All five are **Verified** from the generations, with the exec-path row additionally **Binary probe**. The first four were identified at this pin's authoring and re-measured at it, and none moved between `0.149.1` and `0.150.1` — the three generated types are byte-identical across that hop and the exit-code probe still answers the same way; the `InputModality` row was measured 2026-08-31 against the `rust-v0.141.0` protocol schemas alongside the [`model/list`](#modellist--the-model-catalog-and-the-per-model-effort-vocabulary) section that reproduces the type, and is likewise byte-identical across the `0.149.1` → `0.150.1` hop.
 
 | Change | At `0.141.0` | At `0.150.1` | Consequence |
 | --- | --- | --- | --- |
 | `AskForApproval` lost a variant | `"untrusted" \| "on-request" \| "on-failure" \| { granular: … } \| "never"` | `"untrusted" \| "on-request" \| { granular: … } \| "never"` | **`"on-failure"` is gone.** Sending it against the pin is an invalid `approvalPolicy`. A driver that stores an approval posture as this literal has a persisted value the pin rejects. |
 | `ReviewDecision.denied` changed arity | bare string `"denied"` | `{ "denied": { rejection: string } }` | A denial now carries a required reason payload. Emitting the bare string is a decode failure at the pin. |
 | `ReviewDecision` gained variants | — | adds `approved_mcp_policy_amendment` (and retains the `approved_execpolicy_amendment` / `network_policy_amendment` object arms) | A floor-era exhaustive match over the union does not cover the pin. |
+| `InputModality` gained a variant | `"text" \| "image"` | adds `"audio"` | A floor-era exhaustive match over the union does not cover the pin. Direction differs from the client-sent rows above: this value arrives **from** the provider on `ModelListResponse`, so the failure is a decode or match failure on receipt, not a rejected request. |
 | `codex exec --full-auto` withdrawn | `codex exec --full-auto --help` exits **0** | the same invocation exits **2** with `error: unexpected argument '--full-auto' found` (re-probed at `0.150.1`) | An `exec`-path invocation built at the floor fails at the pin as a CLI-parse error, not as a protocol error — so it surfaces as a spawn failure rather than a typed refusal unless the driver classifies exit-2-with-`unexpected argument`. |
 
 These are exactly the class the [family README](README.md#versioning-and-pinning-policy)'s degrade-per-capability rule exists for: none of them is a reason to refuse a session, and each one is a reason to refuse or emulate one capability.
@@ -225,4 +360,7 @@ Captured-wire fixtures for the Codex event-normalizer are cited as text (they do
 - The `--full-auto` withdrawal row: **Binary probe**, **Verified** — exit-code probe of the floor and the pin.
 - [Refusal shapes on the client-request channel](#refusal-shapes-on-the-client-request-channel): **Binary probe** provenance, **Verified** at `0.150.1`, measured 2026-08-30 against a default (non-`experimentalApi`) connection. Every message is quoted as emitted; only the probed name is substituted. The nested-variant row was drawn by sending the withdrawn `AskForApproval` arm on an otherwise well-formed request. Credential posture was read-only: no `account/login/*` or `account/logout` method was sent and `~/.codex/auth.json` was unmodified across the pass.
 - [Command-shaped input is delivered verbatim on this transport](#command-shaped-input-is-delivered-verbatim-on-this-transport): **Binary probe** provenance, **Verified** at `0.150.1` for everything upstream of the model call, measured 2026-08-29 by a purpose-written stdio client driving the pinned binary's `app-server` through a full `initialize` → `initialized` → `thread/start` → `turn/start` sequence on a default connection, recording every inbound frame until the turn settled. Two prompts were sent: an unknown command name and the real `/status`. The section marks its own model-receipt leg **Documented**, not Verified, and names the environmental reason. Credential posture was read-only throughout: no `account/login/*` or `account/logout` method was sent, no auth verb was invoked, and `~/.codex/auth.json` was unmodified across the pass.
+- [`model/list` — the model catalog and the per-model effort vocabulary](#modellist--the-model-catalog-and-the-per-model-effort-vocabulary), [Output speed — a documented negative on this surface](#output-speed--a-documented-negative-on-this-surface), and [`skills/*` — the skill surface](#skills--the-skill-surface) (all added 2026-08-31): **Generated schema** provenance, **Verified** at `0.150.1`, read from the same 2026-08-28 generation the rest of this file is pinned to — nothing was regenerated for these sections, and the [Version pin](#version-pin) `Regenerated` date is unchanged. **Two independent identity axes were each checked shape by shape rather than assumed.** Default-versus-`--experimental` at `0.150.1`: `SkillsListParams`, `SkillsListResponse`, `SkillsChangedNotification`, `SkillsConfigWriteParams`, `SkillsExtraRootsSetParams`, `PluginSkillReadParams`, `ModelListParams`, and `ModelListResponse` are byte-identical, so no member of either family is field-gated. `0.149.1`-versus-`0.150.1`: the same set is byte-identical **except** `SkillsListResponse`, whose nested `SkillMetadata` gained the optional `pluginId` — which is why this pass narrowed the [Capability shapes](#capability-shapes) preamble's blanket identity claim instead of extending it over the new sections. A third axis, the **full floor span**, was measured against the `rust-v0.141.0` protocol schemas (verified as the floor by their 85 / 66 / 10 / 1 union-root arm counts): every method string in both families already exists at `0.141.0`, and the only shape changes are additive optional fields plus one union widening — `InputModality` gaining `audio` — which is recorded both in [`model/list`](#modellist--the-model-catalog-and-the-per-model-effort-vocabulary), where the type is reproduced, and as its own row in the [Breaking type changes](#breaking-type-changes-across-the-floor) table.
+- The output-speed negative: **Generated schema**, **Verified** at `0.150.1`, taken as a census over the method constants of all four default union roots (185 strings, 0 matching `speed`/`fast`/`turbo`/`accel`) with the field-level positive control run in the same pass, so the zero is a measurement rather than a failed search. The claim is scoped to the method roots and the section says so.
+- The per-model effort **values** (three lists, eight models): **Binary probe**, **Verified**, measured 2026-08-30 by a zero-turn `model/list`, and **carried into this file rather than re-measured by it** — the reading's home is [Spec-005](../../specs/005-provider-driver-contract-and-capabilities.md) §Provider Parameter Vocabularies, with the shipped `CODEX_DECLARED_MODEL_CATALOG` golden vector as the **Cross-reference** mirror. The per-model *structure* (`ReasoningEffort` being a non-empty string rather than an enum) is **Generated schema** / **Verified** and was read directly from the generation.
 - The evidence rules these pins follow (regeneration is canonical over prose docs; re-verify per version) are recorded campaign-wide in the capability-enhancements design §3.4 (`../../superpowers/specs/2026-07-01-capability-enhancements-design.md`).

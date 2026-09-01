@@ -117,6 +117,78 @@ It sits beside `subscription_type` ("Claude.ai subscription type ('pro', 'max', 
 
 This is the vendor's own statement of the per-capability degrade rule the [family README](README.md#versioning-and-pinning-policy) adopts: check each token for exactly the behavior used, ignore unknown ones, and expect the field itself to be missing on older builds. `still_queued`, `interrupt_cancel_queued_v1`, `queued_notification`, and `msg_lifecycle_v1` are all present as literals at the pin (**Binary probe**, **Verified**). Which release each token first appeared in is **Official docs** provenance and only **Documented** — a census of one build cannot date a token's arrival.
 
+#### `system/init` command and skill enumeration — a live read, never a stored registry
+
+Added 2026-08-31. **The grading split inside this section is load-bearing: two different legs of evidence back two different classes of claim, and they do not carry the same trust.** A reader citing from here must carry the split too.
+
+Beyond `capabilities`, the init handshake carries five members that together are this provider's command-and-skill surface:
+
+| Member | Shape as the shipped driver consumes it | Notes |
+| --- | --- | --- |
+| `slash_commands` | `string[]` | Interactively invocable command names, **without** a leading `/`. |
+| `skills` | `string[]` | The provider's skill surface — names only. |
+| `terminal_slash_commands` | `string[]` | A **separate** member, not merged with the above. |
+| `fast_mode_state` | nullable string | See [Output speed](#output-speed--fast_mode_state-is-this-providers-positive-case) below. |
+| `fast_mode_disabled_reason` | nullable string | Present only where the provider supplies one. |
+
+**Leg 1 — literal presence. Binary probe, Verified at `2.1.251`, censused 2026-08-31** by string census of the on-disk native build named in [Version pin](#version-pin), with a negative control (`zzq_not_a_real_literal`, **0** occurrences) taken in the same pass, so the zero-versus-nonzero distinction is a measurement rather than an assumption:
+
+| Literal | Matching string-lines |
+| --- | --- |
+| `slash_commands` | 12 — of which **3** are the `terminal_slash_commands` superstring, so **9** standalone |
+| `terminal_slash_commands` | 3 |
+| `fast_mode_state` | 8 |
+| `fast_mode_disabled_reason` | 5 |
+| `"skills":` (as an object key) | 4 — see the caveat below; the bare word `"skills"` matches 47 and is **not** the useful number |
+
+**The column counts matching lines of `strings -a` output, not occurrences** — a single extracted line holding a literal twice contributes one. In a single-file build whose bundle lines run to thousands of characters that distinction is real, so the figures are lower bounds on occurrences and exact as line counts.
+
+**The `skills` row is weaker evidence than its neighbours, and is marked so deliberately.** `fast_mode_state`, `fast_mode_disabled_reason`, and `terminal_slash_commands` are distinctive snake_case wire members — a hit is almost certainly the member. `skills` is an ordinary English word inside a 188 MB build that also ships skill-plugin machinery, tool descriptions, and prose; its bare-word count of 47 is dominated by matches that have nothing to do with the handshake. Narrowing to the object-key form `"skills":` gives **4**, which is the same arity as the other per-row members censused here (`supportsFastMode` 4, `supportedEffortLevels` 4). The looser number is reported rather than hidden, but it should not be read as four-way corroboration alongside the rows above it.
+
+As with the members named in the Carried census row, most of these occur **bare** rather than quoted — a quoted-only check finds `"slash_commands"` only inside the unrelated `"tengu_stacked_slash_commands"` — so the counts above are deliberately substring-inclusive and the one overlap is stated rather than silently netted out.
+
+**Leg 2 — the shapes, the vocabularies, and the invocability distinction. Cross-reference provenance, Derived trust.** Everything in the `Shape` and `Notes` columns comes from the shipped driver's `ClaudeHandshakeDeclaration` in `packages/runtime-daemon/src/provider/drivers/claude/lifecycle.ts`, which records these members as read from a live frame. **This pass observed no handshake frame.** No captured `system/init` fixture exists in the repository either — the files under the [driver fixtures](#driver-fixtures) path are the control-request census, the stream-surface census, and the turn-evidence transcripts, none of which carries a handshake. A string census proves a member name is *in the build*; it cannot prove the member is *emitted*, what type it carries, or what its values mean. Those claims are therefore **Derived**, and the [no-authless-probe gap](#gaps-recorded) applies to this family in full — the declaring handshake rides a turn-bearing exchange, so reaching a real one on this provider costs credentials and a billed turn.
+
+**Two structural facts, because this is where the surface differs from the Codex one.** Neither is a defect; they are why a cross-provider normalization cannot be symmetric:
+
+- **This enumeration publishes no scope and no enabled/disabled distinction.** There is no analogue of the Codex `SkillScope` (`user | repo | system | admin`) or of its required `enabled` boolean — see [`skills/*`](codex.md#skills--the-skill-surface). Names arrive as bare strings. A normalized cross-provider entry therefore has to type both axes optional even though Codex never omits either.
+- **`terminal_slash_commands` is published under its own member and is not the same set.** The provider itself separates them, and a consumer that unions the two members offers, over the programmatic surface, commands that are not invocable there. The dispatch guard is built from `slash_commands` alone; the three sets are carried separately rather than merged or dropped.
+
+**It is a live read held as driver-session state, never a stored registry.** The handshake is the only place these names arrive, they are scoped to the session that received them, and there is no separate enumeration RPC to re-read them from — so a consumer holds them for the life of the binding or establishes a new one. Nothing in the payload identifies its own origin, which is why a normalized entry has to carry the `(driverName, providerAccountId)` it was read under rather than deriving it later.
+
+#### Output speed — `fast_mode_state` is this provider's positive case
+
+Added 2026-08-31. Codex publishes no output-speed axis at all — a [documented negative](codex.md#output-speed--a-documented-negative-on-this-surface) measured over that provider's method roots. Claude publishes one. That makes this a **single-provider axis**, not a parity gap: one provider's `false` is a complete declaration rather than an unprobed hole.
+
+**Literal presence: Binary probe, Verified at `2.1.251`**, censused 2026-08-31 — counts in the census table above, plus `supportsFastMode` at 4 occurrences as a per-model axis on the catalog read.
+
+**The state vocabulary, and its deliberate asymmetry: Cross-reference, Derived.** Per the shipped normalizer in the same `lifecycle.ts`, the pinned provider **reports** three states — `on`, `cooldown`, `off` — while the **settable** vocabulary the driver publishes as `outputSpeedLevels` is two: `off` and `on`. A participant may not *request* a cooldown, but the provider may certainly *report* one. The two sets are different sizes on purpose, and a consumer that treats the reported vocabulary as the settable one constructs a request the provider has no way to honor. The shipped table is `packages/runtime-daemon/src/provider/driver-output-speed.ts`, which maps `claude` to `["off", "on"]` and `codex` to `[]` — the one place both sides of this axis are declared.
+
+**Detection is `static`, and the declared state is the truth.** The axis is not probed: reading it live costs a request, and a probe on this project must be zero-turn. So the **declared state** is taken as the fact, never the request's acceptance.
+
+**Verbatim is not unbounded, and a rejected reading is absent.** The declared value is carried verbatim, but it is parsed through a strict shape whose checks range over **length, emptiness, and NUL — never over membership in any vocabulary**. That is precisely what lets `cooldown`, and any level a later build invents, pass through untouched instead of being coerced into the settable set. A reading that fails those bounds becomes **absent — not degraded and not raw** — because the absent answer already has a meaning every reader handles, and inventing a placeholder would put a state the provider is not in on a participant's screen. The accompanying `output_speed_state_rejected` diagnostic carries the failing field and the offending **lengths only, never the values**, since those are the untrusted strings the parse just refused.
+
+`fast_mode_disabled_reason` is present only where the provider supplies one; its absence means the provider gave none, never that there was none.
+
+#### `list_models` and the per-model effort vocabulary
+
+Added 2026-08-31. The control request `{"subtype": "list_models"}` answers `{"subtype": "success", …}` on the control channel; the `list_models` literal is present 5 times at `2.1.251` (**Binary probe**, **Verified**, censused 2026-08-31).
+
+**The values below are Binary probe, Verified, measured 2026-08-30** by one live `claude -p --input-format stream-json` control request that is zero-turn (`num_turns` stays 0) — and they are **carried into this file rather than re-measured by it**. The reading's normative home is [Spec-005](../../specs/005-provider-driver-contract-and-capabilities.md) §Provider Parameter Vocabularies, mirrored as the shipped golden vector `CLAUDE_DECLARED_MODEL_CATALOG` in `packages/runtime-daemon/src/provider/drivers/claude/capabilities.ts` (**Cross-reference**).
+
+| Model | Effort levels |
+| --- | --- |
+| `claude-opus-5[1m]` | `low \| medium \| high \| xhigh \| max` |
+| `claude-fable-5` | `low \| medium \| high \| xhigh \| max` |
+| `claude-sonnet-5` | `low \| medium \| high \| xhigh \| max` |
+| `claude-haiku-4-5-20251001` | **none — this model exposes no effort surface at all** |
+
+**The absent row is the load-bearing one.** Three of four models publish the same five-value list; the fourth publishes no effort axis, and that absence is a declaration rather than a missing field. A provider-wide effort list is therefore wrong on this provider for the same structural reason it is wrong on Codex — the vocabulary is per-model and provider-published — though the two providers demonstrate it from opposite directions: Codex publishes three *different* lists, Claude publishes one list and one *absence*. See [`model/list`](codex.md#modellist--the-model-catalog-and-the-per-model-effort-vocabulary) for the Codex side, where the generated `ReasoningEffort` type is a non-empty string rather than an enum — the schema-level statement of the same rule.
+
+**The reply carries five entries for four models.** `default` and `opus[1m]` both resolve to `claude-opus-5[1m]`; `default` is a reserved pointer, collapsed by the driver's `normalizeClaudeModelCatalog`. A consumer counting reply entries is not counting models.
+
+The live read gates on two members **together** — an entry exposes effort only where `supportsEffort` is not `false` **and** `supportedEffortLevels` is a non-empty array — so a model can withhold the axis by either route. Both literals are present at the pin (`supportsEffort` 6, `supportedEffortLevels` 4). The per-model auxiliary axes `supportsAdaptiveThinking`, `supportsFastMode`, and `supportsAutoMode` (4 occurrences each) are published on the same rows and are deliberately **not** flattened into the effort axis; they are separate capabilities of the same model.
+
 ### Result and stream surface
 
 **Result census** (Binary probe, Verified at `2.1.245`). Result subtypes `success | error_max_turns | error_max_budget_usd | error_during_execution | error_max_structured_output_retries`; the `result` field is present only on `success`; trailing events (e.g. `prompt_suggestion`) can arrive **after** `result`, so the driver read-loop reads to EOF rather than breaking on `result`. The structured-output failure carries its own prose: `error_max_structured_output_retries` fires when "the cloud agent called StructuredOutput but no attempt produced a surviving valid output".
@@ -180,4 +252,6 @@ Captured-wire fixtures for the Claude event-normalizer are cited as text (they d
 - [Client-side command interception on the programmatic input surface](#client-side-command-interception-on-the-programmatic-input-surface): **Binary probe** provenance, **Verified** at `2.1.251`, measured 2026-08-29 by three live `claude -p --output-format stream-json` runs against the on-disk build — command-shaped body, the same body with one prepended newline, and ordinary prose — read side by side from the recorded streams. The section's own text marks which of its statements are the measurement and which are the reading of it; the one general claim the measurement does not support (that any whitespace prefix defeats interception on any build) is explicitly withheld.
 - [Control-request registry](#control-request-registry-binary-census), [Result and stream surface](#result-and-stream-surface), [Environment and update control](#environment-and-update-control), and all verbatim schema-description quotations: **Binary probe** provenance, **Verified** at `2.1.245` (the native single-file build described at that pin), censused 2026-08-25 by schema-constructor extraction, and **carried** to `2.1.251` — see the Carried census row in [Version pin](#version-pin) for exactly what the 2026-08-28 pass re-measured and what it did not. Vendor hedges are preserved verbatim; set-closure claims are marked **Derived** because a census cannot prove a set closed.
 - [Direction: some censused subtypes are refused BY NAME on the inbound channel](#direction-some-censused-subtypes-are-refused-by-name-on-the-inbound-channel): **Binary probe** provenance, **Verified** at `2.1.251`, measured 2026-08-30 over `-p --input-format stream-json` with one subtype per process and a negative control on every run. What is Verified is the classified answer each subtype drew on the INBOUND channel; the reading that the three refused names are the CLI's own outbound questions is **Derived** from the registry entries and the `--permission-prompt-tool` plumbing recorded above.
+- [`system/init` command and skill enumeration](#systeminit-command-and-skill-enumeration--a-live-read-never-a-stored-registry), [Output speed](#output-speed--fast_mode_state-is-this-providers-positive-case), and [`list_models` and the per-model effort vocabulary](#list_models-and-the-per-model-effort-vocabulary) (all added 2026-08-31): **two legs, two grades, and the sections say which is which.** Literal presence — every member name and its occurrence count — is **Binary probe**, **Verified** at `2.1.251`, censused 2026-08-31 by string census of the on-disk native build with a negative control in the same pass. The member shapes, the `on` / `cooldown` / `off` reported vocabulary, and the `slash_commands`-versus-`terminal_slash_commands` invocability distinction are **Cross-reference** provenance and **Derived** trust, read from the shipped `claude-driver` rather than from a frame: this pass observed no `system/init` handshake, no captured handshake fixture exists in-repo, and the [no-authless-probe gap](#gaps-recorded) applies to the family in full.
+- The per-model effort **values** on [`list_models`](#list_models-and-the-per-model-effort-vocabulary): **Binary probe**, **Verified**, measured 2026-08-30 by one zero-turn control request, and **carried** into this file rather than re-measured by it — the normative home is [Spec-005](../../specs/005-provider-driver-contract-and-capabilities.md) §Provider Parameter Vocabularies, with the shipped `CLAUDE_DECLARED_MODEL_CATALOG` golden vector as the **Cross-reference** mirror. The four-model reading includes one model publishing **no** effort surface, which is a declaration and not a gap in the measurement.
 - The design-census lineage these entries superseded is recorded in the capability-enhancements design §3.4 (`../../superpowers/specs/2026-07-01-capability-enhancements-design.md`).
