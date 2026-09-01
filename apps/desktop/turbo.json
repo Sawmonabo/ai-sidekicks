@@ -25,6 +25,12 @@
       "outputs": [],
       "cache": false
     },
+    "test:main-unit": {
+      "dependsOn": ["^build"],
+      "inputs": ["src/main/**", "build/**", "vitest.config.*", "tsconfig*.json", "package.json"],
+      "outputs": [],
+      "cache": false
+    },
     "test:coverage": {
       "dependsOn": ["^build"],
       "inputs": ["src/renderer/**", "vitest.config.*", "tsconfig*.json", "package.json"],

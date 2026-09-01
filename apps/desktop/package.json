@@ -15,8 +15,9 @@
     "lint": "eslint src test",
     "test:renderer": "vitest run --project=renderer",
     "test:coverage": "vitest run --project=renderer --coverage",
+    "test:main-unit": "vitest run --project=main-unit",
     "test:smoke": "vitest run --project=main",
-    "test": "turbo run test:renderer test:smoke --filter=@ai-sidekicks/desktop"
+    "test": "turbo run test:renderer test:main-unit test:smoke --filter=@ai-sidekicks/desktop"
   },
   "dependencies": {
     "@ai-sidekicks/client-sdk": "workspace:*",

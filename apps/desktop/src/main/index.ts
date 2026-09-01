@@ -1,18 +1,47 @@
 // Electron main-process entrypoint.
 //
 // Plan-023 Phase 1 (T-023p-1-3) substrate: single-instance lock + main window.
-// Tier 8 remainder layers Sentry init, daemon supervisor (`utilityProcess.fork`),
-// custom-protocol handler (`sidekicks://`), deep-link routing, auto-updater,
+// Plan-023 Phase 1B (T-023p-1B-1) adds the renderer scheme registration and the
+// bundle handler. Tier 8 remainder layers Sentry init, daemon supervisor
+// (`utilityProcess.fork`), the `sidekicks://` DEEP-LINK handler (a different
+// scheme from the renderer's — that one carries invite URLs), auto-updater,
 // crash reporter, and second-instance focus handling against this same surface.
 //
-// See `docs/plans/023-desktop-shell-and-renderer.md §Tier 1 Partial PR Sequence` (Phase 1, the main-entrypoint bullet).
+// Startup order is load-bearing and is asserted by `startup-order.test.ts`:
+//
+//   module top level ......... registerRendererScheme()      (before app.ready)
+//   inside whenReady() ....... installRendererProtocol(...)  (before any window)
+//                              createMainWindow()
+//
+// A scheme registered after ready is refused by Electron, and a window created
+// before the handler is installed would load against an unhandled scheme.
+// Plan-023 Phase 3's T-023r-3-4 COMPOSES this order behind the crash reporter
+// and the single-instance lock; it re-authors none of it.
+//
+// See `docs/plans/023-desktop-shell-and-renderer.md §Tier 1 Partial PR Sequence`
+// (Phase 1, the main-entrypoint bullet; Phase 1B, the `index.ts` bullet).
 
+import path from "node:path";
 import { queryObjects } from "node:v8";
 import { setTimeout as wait } from "node:timers/promises";
 
 import { app, BrowserWindow } from "electron";
+import { installRendererProtocol, registerRendererScheme } from "./protocol.js";
 import { createMainWindow } from "./window.js";
 import { registerSidecarLifecycle } from "./sidecar-lifecycle.js";
+
+// The `electron-vite` output layout puts the main bundle at `out/main/index.js`
+// and the renderer tree at `out/renderer/` (see `electron.vite.config.ts`
+// per-target `outDir`), so the renderer root is this module's sibling directory.
+const RENDERER_ROOT = path.join(import.meta.dirname, "../renderer");
+
+// Plan-023 I-023-11. This runs at module evaluation, which is strictly before
+// `app.ready` fires — Electron refuses `registerSchemesAsPrivileged` after ready,
+// and a scheme that is not `standard` has no origin and therefore no IndexedDB
+// and no `localStorage`, which is where the console persists layouts, drafts,
+// and pins (`Spec-023 §Console Design (Meridian)` §Persistence on the renderer
+// scheme).
+registerRendererScheme();
 
 // Compile-time-static flag. `electron-vite build --mode=smoke` substitutes
 // this with the literal `true`; the default `electron-vite build` substitutes
@@ -203,6 +232,10 @@ if (!gotTheLock) {
   app
     .whenReady()
     .then(() => {
+      // BEFORE any window: a `BrowserWindow` constructed ahead of the handler
+      // could begin a load against an unhandled scheme.
+      installRendererProtocol(RENDERER_ROOT);
+
       const browserWindow = createMainWindow();
       mainWindow = browserWindow;
       browserWindow.on("closed", () => {

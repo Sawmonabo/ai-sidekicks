@@ -53,6 +53,31 @@ export default defineConfig({
         },
       },
       {
+        // Plan-023 Phase 1B (T-023p-1B-3). Named `main-unit` because `main` is
+        // already taken by the smoke project above — these are the in-process
+        // units for `src/main/**`, which neither existing project reaches.
+        //
+        // Deliberately NOT hung off `build:smoke` in `turbo.json`: these are
+        // plain-TypeScript units that need no `electron-vite` bundle, and
+        // hanging them off the smoke build would re-impose the ~25-30 s cost the
+        // two-project posture exists to avoid.
+        define: {
+          // Mirrors the release substitution in `electron.vite.config.ts`, so
+          // `main/index.ts`'s probe branch is statically dead here exactly as it
+          // is in a release bundle. Without it the bare identifier is a
+          // ReferenceError the moment the ready continuation runs.
+          __SIDEKICKS_SMOKE_BUILD__: "false",
+        },
+        test: {
+          name: "main-unit",
+          environment: "node",
+          // Disjoint from `test/**/*.test.ts` (the smoke project) and from
+          // `src/renderer/**/__tests__/**` (the renderer project), so the
+          // posture's no-double-discovery property still holds.
+          include: ["src/main/**/*.test.ts", "build/**/*.test.ts"],
+        },
+      },
+      {
         // Resolve workspace *value* imports (e.g. `NotImplementedAtTier1Error`
         // from @ai-sidekicks/contracts in SessionBootstrap.test.tsx) to TS source,
         // not stale dist/, via the provider's `@ai-sidekicks/source` export
