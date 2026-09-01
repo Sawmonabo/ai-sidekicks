@@ -73,7 +73,8 @@
 //
 // Module-system shape (verified empirically at T-023p-1-7):
 //   • `out/main/index.js`     — ESM (matches package `"type": "module"`).
-//                              Electron 41 supports ESM main since v28.
+//                              Electron supports ESM main since v28, so
+//                              the 44.x pin carries it.
 //                              In SMOKE mode this bundle additionally
 //                              includes the probe body (the
 //                              `[SIDEKICKS_SMOKE_PROBE]` tag and the
@@ -99,7 +100,7 @@
 //                              file as CJS. Verified empirically: an ESM
 //                              preload fails to register with `"SyntaxError:
 //                              Cannot use import statement outside a module"`
-//                              on Electron 41.6.1.
+//                              on Electron 41.6.1, unchanged on 44.x.
 //   See `apps/desktop/electron.vite.config.ts` header for the decision log.
 
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";

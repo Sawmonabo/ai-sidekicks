@@ -1043,8 +1043,10 @@ describe("0004-worktree-lifecycle migration shape", () => {
     // its parent inherits exactly this failure class, and a caller that
     // discriminates FK failures by message would miss it.
     //
-    // Empirically discovered against the pinned toolchain (better-sqlite3
-    // 12.9.0 / SQLite 3.53.0): with the parent TABLE absent, SQLite refuses
+    // Empirically discovered against the then-pinned toolchain (better-sqlite3
+    // 12.9.0 / SQLite 3.53.0) and re-confirmed green on the moved pin
+    // (13.0.3 / SQLite 3.53.4, Plan-023 T-023p-1B-4): with the parent TABLE
+    // absent, SQLite refuses
     // the statement outright — `SQLITE_ERROR: no such table:
     // main.repo_mounts` — and never reaches constraint evaluation, so the
     // error class is NOT the `FOREIGN KEY constraint failed`
@@ -1790,8 +1792,10 @@ describe("0004-worktree-lifecycle migration shape", () => {
 // versions.
 //
 // Every value asserted below was read out of SQLite's own introspection
-// (`PRAGMA table_info` / `PRAGMA index_list`) against the pinned toolchain
-// (better-sqlite3 12.9.0 / SQLite 3.53.0) rather than reasoned from the DDL —
+// (`PRAGMA table_info` / `PRAGMA index_list`) against the then-pinned
+// toolchain (better-sqlite3 12.9.0 / SQLite 3.53.0), re-confirmed green on the
+// moved pin (13.0.3 / SQLite 3.53.4, Plan-023 T-023p-1B-4), rather than
+// reasoned from the DDL —
 // column ORDER especially, which no reading of the CREATE TABLE can certify.
 //
 // What this block does NOT re-assert, deliberately: the table-name census, the
@@ -2177,9 +2181,11 @@ describe("0006-run-lifecycle-terminal-backstop-index migration shape", () => {
 // the suite's convention requires — the same division the 0005 block states.
 //
 // Every value asserted below was read out of SQLite's own introspection
-// (`PRAGMA table_info` / `index_list` / `index_info`) against the pinned
-// toolchain (better-sqlite3 12.9.0 / SQLite 3.53.0) rather than reasoned from
-// the DDL — column ORDER and the two autoindex NAMES especially, which no
+// (`PRAGMA table_info` / `index_list` / `index_info`) against the then-pinned
+// toolchain (better-sqlite3 12.9.0 / SQLite 3.53.0), re-confirmed green on the
+// moved pin (13.0.3 / SQLite 3.53.4, Plan-023 T-023p-1B-4), rather than
+// reasoned from the DDL — column ORDER and the two autoindex NAMES especially,
+// which no
 // reading of the CREATE TABLE can certify.
 //
 // Spec coverage: `Spec-006 §Post-Compaction Integrity` — the covering-anchor

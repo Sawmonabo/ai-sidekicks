@@ -20,7 +20,9 @@
 //   defensive consistency with the canonical Electron community pattern,
 //   not the primary GC anchor — reverting it does NOT produce a failure
 //   in this test on Electron 41.6.1 (the empirical falsification recorded
-//   in ADR-024 §Antithesis).
+//   in ADR-024 §Antithesis). Re-run green on the 44.x pin at Plan-023
+//   T-023p-1B-4 — the version bump this test's own tripwire row names as
+//   its trigger.
 //
 //   The test therefore serves as a future-regression guard against:
 //     • A future Electron release shifting `self_ref_` lifetime semantics

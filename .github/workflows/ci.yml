@@ -37,7 +37,7 @@ env:
   DO_NOT_TRACK: 1
 
 jobs:
-  # Tier-1 (Node 22.12 — daemon + Electron renderer + shared packages per ADR-022
+  # Tier-1 (Node 22.14 — daemon + Electron renderer + shared packages per ADR-022
   # §Decision row 8). Runs the full repo-wide lint + format check + build +
   # typecheck + lint + test against the daemon-tier Node version.
   test-node22:
@@ -71,7 +71,7 @@ jobs:
         # macos-15-intel is the last x86_64 macOS runner (supported through Aug 2027).
         # PR #1 keeps the matrix small (one OS, one node tier) until later PRs widen it.
         os: [ubuntu-latest]
-        node: ["22.12"]
+        node: ["22.14"]
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -93,6 +93,68 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # ADR-022 §Decision Log 2026-09-01 / Spec-015 §Driver Pin: the daemon's
+      # `better-sqlite3` 13.0.3 must come from the tarball's bundled Node-API
+      # prebuild, never from a source compile. This asserts PROVENANCE in two
+      # conjuncts rather than absence in one:
+      #
+      #   (a) the binding the daemon actually resolves — the file `lib/binding.js`
+      #       selects, read back off `require.cache` after a real `new Database()`
+      #       so a prebuild that resolves but will not load also fails here —
+      #       lives under `prebuilds/<platform>-<arch>.node`; and
+      #   (b) the package's `build/Release/` holds no `.node`, the one location a
+      #       source build writes and, with `prebuild-install` gone from the 13.x
+      #       line, the only writer left.
+      #
+      # Why not grep the install log for `node-gyp`: `node-gyp` is invoked on
+      # every install and builds nothing when the host prebuild exists (both
+      # `binding.gyp` targets become `type: none`), so that grep fails green
+      # installs. Conjunct (b) alone was ambiguous on the 12.x line, which
+      # downloaded its prebuild INTO `build/Release/`; it is unambiguous on 13.x.
+      - name: Assert better-sqlite3 loads a bundled Node-API prebuild
+        shell: bash
+        run: |
+          cat > "${RUNNER_TEMP}/assert-better-sqlite3-prebuild.mjs" <<'NODE'
+          import { createRequire } from "node:module";
+          import { existsSync, readdirSync } from "node:fs";
+          import path from "node:path";
+
+          const daemonRequire = createRequire(
+            new URL("packages/runtime-daemon/package.json", `file://${process.cwd()}/`),
+          );
+
+          const DatabaseConstructor = daemonRequire("better-sqlite3");
+          new DatabaseConstructor(":memory:").close();
+
+          const loadedBindings = Object.keys(daemonRequire.cache).filter((entry) =>
+            entry.endsWith(".node"),
+          );
+          if (loadedBindings.length !== 1) {
+            throw new Error(
+              `expected exactly one loaded .node binding, saw ${JSON.stringify(loadedBindings)}`,
+            );
+          }
+          const [loadedBinding] = loadedBindings;
+          if (!/[/\\]prebuilds[/\\](darwin|linux|linuxmusl|win32)-(x64|arm64)\.node$/.test(loadedBinding)) {
+            throw new Error(`better-sqlite3 did not load a tarball prebuild: ${loadedBinding}`);
+          }
+
+          const packageRoot = path.dirname(daemonRequire.resolve("better-sqlite3/package.json"));
+          const releaseDirectory = path.join(packageRoot, "build", "Release");
+          const compiledArtifacts = existsSync(releaseDirectory)
+            ? readdirSync(releaseDirectory).filter((entry) => entry.endsWith(".node"))
+            : [];
+          if (compiledArtifacts.length > 0) {
+            throw new Error(
+              `build/Release holds compiled artifacts (a source build ran): ${JSON.stringify(compiledArtifacts)}`,
+            );
+          }
+
+          console.log(`loaded prebuild: ${loadedBinding}`);
+          console.log(`build/Release holds no .node: ${releaseDirectory}`);
+          NODE
+          node "${RUNNER_TEMP}/assert-better-sqlite3-prebuild.mjs"
+
       # Backs Turborepo's remote cache with the GitHub Actions cache (no
       # third-party service, no spend). SHA-pinned per ADR-023 §Axis 4.
       #
@@ -107,7 +169,7 @@ jobs:
       - name: Turborepo remote cache (GitHub Actions cache backend)
         uses: rharkor/caching-for-turbo@2238fae6eb9a9936f92356f54cb3660200d105e7 # v2.5.1
 
-      # Electron 41 on Ubuntu 24.04 GitHub Actions runners requires the
+      # Electron 44.x on Ubuntu 24.04 GitHub Actions runners requires the
       # SUID sandbox helper (`chrome-sandbox`) to be owned by root and have
       # mode 4755 for the renderer's Linux namespace sandbox to initialize.
       # pnpm install cannot run the Electron post-install step under root,
@@ -208,7 +270,7 @@ jobs:
       # no hardcoded list to drift as packages are added. This step validates the
       # Node 22 tier (floor < 24); the matching step in the Node 24 job validates
       # floor >= 24. minVersion (not the first numeric token) is used so reordered
-      # OR-ranges like "^24 || >=22.12.0" bucket by their true minimum (22), not a
+      # OR-ranges like "^24 || >=22.14.0" bucket by their true minimum (22), not a
       # higher leading clause. The split mirrors the build-filter partition above
       # (control-plane is carved to Node 24 for the same engines.node reason), so a
       # new library is validated on the tier it is built on. apps/* are
@@ -250,7 +312,8 @@ jobs:
       # trip it while a collapse to one file still does.
       #
       # The pattern stays in glob form, now resolved by the wrapper rather than by Node:
-      # on this repo's Node 22.12 floor `node --test <dir>` treats a bare directory arg as
+      # on Node 22.12 — this repo's floor when the behavior was measured, since moved to
+      # 22.14 — `node --test <dir>` treats a bare directory arg as
       # a module specifier and fails it as a test (`not ok 1 - <dir>`, ERR_TEST_FAILURE,
       # "Cannot find module") — measured on an empty dir, a dir holding a .test.mjs, and a
       # dir holding a non-test file alike. That form is loud, not silent; the silent shapes
@@ -402,7 +465,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: "22.12"
+          node-version: "22.14"
           # This job never installs dependencies; without this, setup-node@v5
           # sees `packageManager: pnpm` in package.json and fails looking for
           # a pnpm binary that is deliberately absent here.
@@ -446,10 +509,10 @@ jobs:
           version: 10.33.2
           run_install: false
 
-      - name: Setup Node.js 22.12
+      - name: Setup Node.js 22.14
         uses: actions/setup-node@v5
         with:
-          node-version: "22.12"
+          node-version: "22.14"
           cache: "pnpm"
 
       - name: Install dependencies
@@ -472,7 +535,7 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: "24"
-          # Dependencies are already installed under the 22.12 step above; this
+          # Dependencies are already installed under the 22.14 step above; this
           # step only swaps the runtime, so re-priming the pnpm store cache here
           # would be wasted work.
           package-manager-cache: false

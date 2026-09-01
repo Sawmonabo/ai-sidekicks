@@ -23,7 +23,7 @@ The product requires durable replay and recovery while keeping local execution p
 
 | Store | Responsibility |
 | --- | --- |
-| `Local SQLite Store` | Canonical node-local event log, command receipts, runtime bindings, queue state, run projections, and approval records needed for local recovery. V1 driver pin: `better-sqlite3` — `^12.9.0` as shipped, moving to **13.0.3** (Node-API) in the Electron-44 pin-move PR per [ADR-022 §Decision Log](../decisions/022-v1-toolchain-selection.md#decision-log) (2026-09-01) — on a single-writer worker thread (see [Spec-015 §Writer Concurrency](../specs/015-persistence-recovery-and-replay.md#writer-concurrency)). |
+| `Local SQLite Store` | Canonical node-local event log, command receipts, runtime bindings, queue state, run projections, and approval records needed for local recovery. V1 driver pin: `better-sqlite3` **13.0.3** exact (Node-API; moved from `^12.9.0` on 2026-09-01 with the Electron-44 pin move per [ADR-022 §Decision Log](../decisions/022-v1-toolchain-selection.md#decision-log) and [Spec-015 §Driver Pin](../specs/015-persistence-recovery-and-replay.md#driver-pin)) — on a single-writer worker thread (see [Spec-015 §Writer Concurrency](../specs/015-persistence-recovery-and-replay.md#writer-concurrency)). |
 | `Shared Postgres Store` | Shared session metadata, invites, memberships, presence history, session directory, and cross-node coordination records. |
 | `Artifact Storage` | Durable artifact payloads and manifests, split between `local-only` and shared-visible artifacts according to policy. |
 | `Projection Layer` | Read-optimized materializations derived from canonical event streams and shared coordination records. |

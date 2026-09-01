@@ -215,7 +215,7 @@ interface HandleScan {
  * The well-formedness half is computed HERE rather than by the standard
  * `String.prototype.isWellFormed()`, and that is a toolchain constraint rather
  * than a preference. The method exists on every Node this package supports
- * (`engines.node >= 22.12.0`; the method shipped in Node 20), but this repo
+ * (`engines.node >= 22.14.0`; the method shipped in Node 20), but this repo
  * pins `"lib": ["es2023"]` in `tsconfig.node22.json` and the method is ES2024 —
  * calling it fails to compile with `TS2550: Property 'isWellFormed' does not
  * exist ... Try changing the 'lib' compiler option to 'es2024' or later`.

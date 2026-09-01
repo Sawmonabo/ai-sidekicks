@@ -103,7 +103,7 @@ jobs:
 
       - name: Setup Node.js (24.x — Trusted Publishing requires npm CLI >= 11.5.1)
         # Per ADR-023 §Axis 3 resolution: release CI runs on Node 24 (control-plane
-        # tier per ADR-022 §Decision row 8); the daemon's engines.node: 22.12+ is
+        # tier per ADR-022 §Decision row 8); the daemon's engines.node: 22.14+ is
         # unchanged. The release-CI Node version is independent of engines.node for
         # the published package.
         uses: actions/setup-node@v5

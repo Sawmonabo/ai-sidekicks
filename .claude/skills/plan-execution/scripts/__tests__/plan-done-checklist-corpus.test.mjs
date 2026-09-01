@@ -35,7 +35,7 @@ import { fileURLToPath } from "node:url";
 //
 // Cross-extension import (`.mjs` importing `.ts`) is sound HERE and only here:
 // the test runner passes `--experimental-strip-types`. Bare `node` cannot load
-// it at all (ERR_UNKNOWN_FILE_EXTENSION on 22.12), which is why production
+// it at all (ERR_UNKNOWN_FILE_EXTENSION at the 22.14 floor), which is why production
 // `preflight.mjs` keeps its own tracker rather than importing this one.
 //
 // The container rules this file used to add on top of the tracker are now IN

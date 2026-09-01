@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  // Electron main-process target — Node-context, Electron 41 (Node 22 tier per
+  // Electron main-process target — Node-context, Electron 44.x (Node 22 tier per
   // ADR-016 / ADR-022). Inherits repo strict TS + isolatedDeclarations posture
   // via tsconfig.node22.json -> tsconfig.base.json.
   //

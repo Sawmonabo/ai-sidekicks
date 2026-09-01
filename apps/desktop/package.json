@@ -3,10 +3,10 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Desktop shell + renderer skeleton (Electron 41 / Node 22 tier per ADR-016/022).",
+  "description": "Desktop shell + renderer skeleton (Electron 44.x / Node 22 tier per ADR-016/022).",
   "license": "Apache-2.0",
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=22.14.0"
   },
   "scripts": {
     "build": "electron-vite build && node --experimental-strip-types build/assert-webprefs.ts",
@@ -31,7 +31,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitest/coverage-v8": "catalog:testing",
-    "electron": "^41.1.0",
+    "electron": "^44.1.0",
     "electron-vite": "^5.0.0",
     "happy-dom": "^19.0.0",
     "vitest": "catalog:testing"

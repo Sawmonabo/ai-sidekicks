@@ -51,7 +51,8 @@
 //
 // Why `.cjs` (not `.js`) for the preload filename:
 //   Electron's sandboxed preload runtime (`sandbox: true` below) ONLY
-//   supports CommonJS — verified empirically on Electron 41.6.1: an
+//   supports CommonJS — verified empirically on Electron 41.6.1 and still
+//   true on the 44.x pin (Plan-023 T-023p-1B-4): an
 //   ESM preload fails to register with `"SyntaxError: Cannot use import
 //   statement outside a module"`. The explicit `.cjs` extension overrides
 //   the package-level `"type": "module"` so Node loads the file as CJS

@@ -205,7 +205,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: "22.12"
+          node-version: "22.14"
           cache: "pnpm"
 
       - name: Install dependencies
@@ -329,7 +329,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: "22.12"
+          node-version: "22.14"
           # setup-node v5 auto-enables pnpm caching from package.json's
           # packageManager field; this job never installs dependencies (the
           # check is stdlib-only), so pnpm is absent and auto-cache would

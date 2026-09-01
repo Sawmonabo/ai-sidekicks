@@ -177,7 +177,7 @@ The lifecycle regression test we ship in `apps/desktop/test/lifecycle.gc.test.ts
 ### Related ADRs
 
 - `ADR-016` — Electron desktop shell (V1 desktop architecture; this ADR is a derived contract addition).
-- `ADR-022` — V1 toolchain selection (Node 22.12 tier; the runtime tier that V8 14.6.202.34-electron.0 ships against).
+- `ADR-022` — V1 toolchain selection (Node 22.14 tier, moved 2026-09-01 from 22.12 with the `better-sqlite3` 13.x Node-API-10 prebuild; V8 14.6.202.34-electron.0 is the Electron 41.6.1 engine this ADR's probe measured, and the probe was re-run green under the Electron 44.x pin at Plan-023 T-023p-1B-4).
 - `ADR-023` — V1 CI/CD and release automation (the CI surface that ensures the dead-code-elimination guarantee continues to hold: `release bundle excludes test-machinery markers`).
 
 ### Platform scope note
