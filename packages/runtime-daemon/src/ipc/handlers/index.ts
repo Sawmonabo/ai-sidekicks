@@ -16,6 +16,12 @@
 //     operations are deliberately absent from both: they are
 //     orchestration-owned and registered nowhere, so a client cannot reach them
 //     (Plan-005 §Phase 4 decision #2).
+//   * `timeline.*` (four read verbs) — Plan-013. Phase 1 (T1.4) ships the
+//     `registerTimelineMethod` BINDER only: it carries the canonical
+//     method-to-schema descriptor so a later phase cannot bind a name to the
+//     wrong shapes. The handlers themselves arrive with the daemon services
+//     they dispatch to, in Plan-013 Phases 2 and 3, so nothing calls the binder
+//     at bootstrap yet and no `timeline.*` method is on the wire.
 //
 // Each handler is registered separately (no aggregated `registerAll`)
 // so the bootstrap orchestrator retains explicit control over which
@@ -56,3 +62,5 @@ export {
   registerDriverSubscribeEvents,
   type DriverSubscribeEventsDeps,
 } from "./driver-subscribe.js";
+
+export { registerTimelineMethod } from "./timeline-methods.js";
