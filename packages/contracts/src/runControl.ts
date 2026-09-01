@@ -5,22 +5,29 @@
 // `docs/architecture/contracts/api-payload-contracts.md §Plan-004 — Queue Steer Pause Resume`
 // and `§Shared Enums` verbatim: adding, removing, or renaming a member is a
 // contract break and requires the doc edit first (Plan-004 T1.1, T1.2, T1.3,
-// T1.6, T1.7 all name that section as their byte-for-byte mirror source).
+// T1.6, T1.7 all name that section as their byte-for-byte mirror source, and
+// the three shapes no Phase-1 task names — `RunRolledBackEvent` plus the two
+// `run.subscribe*` request shapes — are homed here by that same section's
+// closing sentence, which places the canonical Zod schemas for the
+// request/response shapes of its own method registry in this file under
+// CP-004-3; the `driver_ask` interface sharing that fence is NOT one of them,
+// its payload schemas being Plan-012's).
 //
 // CANONICAL ORIGIN (Plan-004 CP-004-3). This module owns the branded
 // `QueueItemId` / `InterventionId`, the queue and intervention wire shapes,
-// `RunPauseRequest` / `RunResumeRequest` / `RunControlAck`, and the run-read
-// accessor contract. It also DECLARES four enums that the canonical doc lists
-// under §Shared Enums but that no TypeScript in this workspace had yet
-// exported: `RunState`, `RunFailureCategory`, `QueueItemState`, and
-// `InterventionState`. Plan-004 T1.1/T1.3 say "import ... do not redefine",
-// and there is nothing to import — a repo-wide search of `packages/` and
-// `apps/` finds no declaration of any of the four. Plan-004 is the
-// lowest-tier plan that must author a shape carrying them, so they are
-// declared here on the precedent `provider-driver.ts` already sets for
-// `RunId`: the canonical symbol is homed with its lowest-tier consumer and
-// imported upward (CP-005-6). A later plan MUST import from here, never
-// restate.
+// `RunPauseRequest` / `RunResumeRequest` / `RunControlAck`, the forward
+// `RunRolledBackEvent`, the two session-scoped `run.subscribe*` request
+// shapes, and the run-read accessor contract. It also DECLARES four enums
+// that the canonical doc lists under §Shared Enums but that no TypeScript in
+// this workspace had yet exported: `RunState`, `RunFailureCategory`,
+// `QueueItemState`, and `InterventionState`. Plan-004 T1.1/T1.3 say
+// "import ... do not redefine", and there is nothing to import — a repo-wide
+// search of `packages/` and `apps/` finds no declaration of any of the four.
+// Plan-004 is the lowest-tier plan that must author a shape carrying them,
+// so they are declared here on the precedent `provider-driver.ts` already
+// sets for `RunId`: the canonical symbol is homed with its lowest-tier
+// consumer and imported upward (CP-005-6). A later plan MUST import from
+// here, never restate.
 //
 // `InterventionType` is the counter-example and is deliberately NOT declared
 // here: it IS exported (Plan-005 owns it in `./provider-driver.js`), so this
@@ -911,6 +918,57 @@ export const RunStateChangeEventSchema: z.ZodType<RunStateChangeEvent> = z
   .strict();
 
 // --------------------------------------------------------------------------
+// CP-004-3 — RunRolledBackEvent
+// --------------------------------------------------------------------------
+//
+// The forward, NON-STATE rollback event. Registered in
+// `docs/architecture/contracts/api-payload-contracts.md §Plan-004 — Queue Steer Pause Resume` and homed
+// here under CP-004-3 rather than under a Phase-1 task, because no Phase-1
+// task names it: T3.12 produces the forward emission, and the shape rides
+// `run.subscribeState` alongside `RunStateChangeEvent`.
+//
+// Deliberately NO `previousState` / `currentState`: a rollback is not a state
+// transition, and fabricating one would corrupt the transition stream
+// consumers replay. It is non-terminal, so it has zero interaction with the
+// at-most-once terminal backstop. The two arms therefore share one stream
+// with no wire tag and stay unambiguous STRUCTURALLY, which is what
+// `.strict()` buys on both: a state-change object fails here for want of
+// `sessionId` / `targetPosition`, and this shape fails there for want of
+// `previousState` / `currentState` / `timestamp`.
+//
+// `sessionId` — which the sibling state-change shape does not carry — is
+// present because this same payload is the durable `run.rolled_back` row the
+// Plan-013 timeline consumes, where the boundary entry refines
+// `runId === payload.runId`, `sessionId === payload.sessionId`, and
+// `position === payload.targetPosition`, so outer attribution and payload
+// cannot disagree.
+
+export interface RunRolledBackEvent {
+  sessionId: SessionId;
+  runId: RunId;
+  // The POST-rollback progression value — the rollback application advanced
+  // it. The rewind records no transition of its own, so this event is what
+  // keeps a `run.subscribeState` subscriber from being blind to it.
+  runVersion: number;
+  channelId?: ChannelId | undefined;
+  // The turn-boundary rewind anchor the run LANDED at (normalized session
+  // position). Equal to the request's `targetPosition` on the confirmed path;
+  // a confirmed-floor mismatch degrade records the driver-confirmed landing
+  // position instead — the event never lies about where the run came to rest.
+  targetPosition: number;
+}
+
+export const RunRolledBackEventSchema: z.ZodType<RunRolledBackEvent> = z
+  .object({
+    sessionId: SessionIdSchema,
+    runId: RunIdSchema,
+    runVersion: runCounterSchema,
+    channelId: ChannelIdSchema.optional(),
+    targetPosition: runCounterSchema,
+  })
+  .strict();
+
+// --------------------------------------------------------------------------
 // T1.6 — Pause / resume triggers
 // --------------------------------------------------------------------------
 //
@@ -959,6 +1017,53 @@ export const RunControlAckSchema: z.ZodType<RunControlAck> = z
     runVersion: runCounterSchema,
   })
   .strict();
+
+// --------------------------------------------------------------------------
+// CP-004-3 — Subscription request shapes
+// --------------------------------------------------------------------------
+//
+// Both `run.subscribe*` requests carry `{sessionId}` and nothing else, and
+// both are homed here on the same CP-004-3 basis as `RunRolledBackEvent`
+// above: `docs/architecture/contracts/api-payload-contracts.md §Plan-004 — Queue Steer Pause Resume`
+// registers them, no Phase-1 task names them, and the Phase-4 client-SDK and
+// renderer tasks (T4.1 / T4.3 / T4.4) consume them — T4.3 naming the shipped
+// `subscribePresence → {sessionId}` shape as the precedent these two follow.
+//
+// SESSION-SCOPED BY DESIGN, not for want of a filter: the canonical event
+// stream is per-session and ADR-001 makes the session the authorization
+// unit, so a caller subscribes within a session it participates in and fans
+// out per run CLIENT-side via `RunStateChangeEvent.runId`. A `runId` member
+// would be a second, weaker scope over an authorization decision the session
+// already settles.
+//
+// NO replay-cursor member, unlike `SessionSubscribeRequest`: that shape
+// declares `afterCursor` / `lastEventId` because it is ALSO served over
+// tRPC's HTTP/SSE transport, whose fetch adapter injects a reconnect's
+// `Last-Event-ID` header into the input object BEFORE Zod validation, where
+// a strict shape lacking the member would throw on every resumption. The
+// `run.*` namespace is Plan-007 local-IPC JSON-RPC (CP-004-4) — the posture
+// `PresenceSubscribeRequest` records for itself — so the absence here is a
+// decision, and adding cursors is a doc edit first.
+//
+// Structurally identical today and DISTINCT types on purpose: the doc
+// registers two, and separate types let either surface gain a member later
+// with zero churn on the other.
+
+export interface RunStateSubscribeRequest {
+  sessionId: SessionId;
+}
+export const RunStateSubscribeRequestSchema: z.ZodType<
+  RunStateSubscribeRequest,
+  RunStateSubscribeRequest
+> = z.object({ sessionId: SessionIdSchema }).strict();
+
+export interface RunQueueSubscribeRequest {
+  sessionId: SessionId;
+}
+export const RunQueueSubscribeRequestSchema: z.ZodType<
+  RunQueueSubscribeRequest,
+  RunQueueSubscribeRequest
+> = z.object({ sessionId: SessionIdSchema }).strict();
 
 // --------------------------------------------------------------------------
 // T1.7 — Run-read accessor contract

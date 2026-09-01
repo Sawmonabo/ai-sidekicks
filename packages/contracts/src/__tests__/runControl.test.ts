@@ -1,7 +1,9 @@
-// Plan-004 T1.1–T1.3, T1.6, T1.7 — the `runControl.ts` contract surface:
-// queue items, the intervention request union, the state-split intervention
-// response, the run-state change event, the pause/resume triggers, and the
-// run-read accessor shape.
+// Plan-004 T1.1–T1.3, T1.6, T1.7 plus the three CP-004-3 shapes no Phase-1
+// task names — the `runControl.ts` contract surface: queue items, the
+// intervention request union, the state-split intervention response, the
+// run-state change event, the forward rolled-back event, the pause/resume
+// triggers, the two `run.subscribe*` request shapes, and the run-read
+// accessor shape.
 //
 // Backstops `Spec-004 §Interfaces And Contracts` and the invariants these
 // contracts carry:
@@ -34,6 +36,15 @@
 //     type (`agentId`, `linkType`, `effectiveRunConfig`) are pinned as
 //     REJECTED, so their absence is a recorded decision rather than a silent
 //     gap a producer could stumble into.
+//   • The two arms of the `run.subscribeState` stream are pinned AGAINST
+//     EACH OTHER: the stream carries no wire tag, so each schema is shown to
+//     reject the other's well-formed payload — the property that makes one
+//     untagged stream safe to parse.
+//   • The two `run.subscribe*` request shapes are pinned against the two
+//     members a copy of a neighbouring subscribe shape would bring with it: a
+//     `runId` filter (the subscription is session-scoped and fans out per run
+//     client-side) and a replay cursor (`run.*` is local-IPC JSON-RPC, so no
+//     `Last-Event-ID` is injected pre-validation).
 //   • The `index.ts` barrel re-exports every symbol this task provides — the
 //     barrel-gap regression Plan-001 GitHub PR-#30 round-1 caught.
 import { describe, expect, it } from "vitest";
@@ -58,10 +69,13 @@ import {
   RunControlAckSchema,
   RunFailureCategorySchema,
   RunPauseRequestSchema,
+  RunQueueSubscribeRequestSchema,
   RunReadSnapshotSchema,
   RunResumeRequestSchema,
+  RunRolledBackEventSchema,
   RunStateChangeEventSchema,
   RunStateSchema,
+  RunStateSubscribeRequestSchema,
   type InterventionState,
   type QueueItemState,
   type RunFailureCategory,
@@ -947,6 +961,85 @@ describe("RunStateChangeEvent", () => {
 });
 
 // --------------------------------------------------------------------------
+// CP-004-3 — RunRolledBackEvent
+// --------------------------------------------------------------------------
+
+const minimalRolledBack = {
+  sessionId: SESSION_ID,
+  runId: RUN_ID,
+  runVersion: 8,
+  targetPosition: 5,
+} as const;
+
+describe("RunRolledBackEvent", () => {
+  it("parses with and without the optional channel attribution", () => {
+    expect(RunRolledBackEventSchema.parse(minimalRolledBack)).toEqual(minimalRolledBack);
+    const channelScoped = { ...minimalRolledBack, channelId: CHANNEL_ID };
+    expect(RunRolledBackEventSchema.parse(channelScoped)).toEqual(channelScoped);
+  });
+
+  it.each(["sessionId", "runId", "runVersion", "targetPosition"])(
+    "refuses the event with no %s",
+    (member) => {
+      const incomplete: Record<string, unknown> = { ...minimalRolledBack };
+      delete incomplete[member];
+      expect(() => RunRolledBackEventSchema.parse(incomplete)).toThrow();
+    },
+  );
+
+  it("admits a rewind to position zero and refuses a fractional or negative counter", () => {
+    // Position 0 is the run's first boundary — a legitimate anchor, exactly as
+    // on the request side. Both counters carry the same integer floor: a float
+    // or a negative could never equal a recorded position or a stored run
+    // version, so it would report a landing the run never made.
+    expect(
+      RunRolledBackEventSchema.parse({ ...minimalRolledBack, targetPosition: 0 }).targetPosition,
+    ).toBe(0);
+    for (const targetPosition of [2.5, -1]) {
+      expect(() =>
+        RunRolledBackEventSchema.parse({ ...minimalRolledBack, targetPosition }),
+      ).toThrow();
+    }
+    for (const runVersion of [1.5, -1]) {
+      expect(() => RunRolledBackEventSchema.parse({ ...minimalRolledBack, runVersion })).toThrow();
+    }
+  });
+
+  it("refuses a non-UUID session, run, or channel id", () => {
+    expect(() =>
+      RunRolledBackEventSchema.parse({ ...minimalRolledBack, sessionId: "s-1" }),
+    ).toThrow();
+    expect(() => RunRolledBackEventSchema.parse({ ...minimalRolledBack, runId: "r-1" })).toThrow();
+    expect(() =>
+      RunRolledBackEventSchema.parse({ ...minimalRolledBack, channelId: "c-1" }),
+    ).toThrow();
+  });
+
+  it("refuses a fabricated state transition", () => {
+    // A rollback transitions no state. A producer pairing the rewind with a
+    // synthesized previous/current pair would corrupt the transition stream
+    // consumers replay, so the pair must fail parse rather than ride along.
+    expect(() =>
+      RunRolledBackEventSchema.parse({
+        ...minimalRolledBack,
+        previousState: "running",
+        currentState: "paused",
+      }),
+    ).toThrow();
+  });
+
+  it("is disjoint from the state-change arm it shares run.subscribeState with", () => {
+    // The stream carries no wire tag, so the two arms are told apart by shape
+    // alone — which holds only while each REFUSES the other. Positive controls
+    // first, so the two refusals are the crossing and not a malformed fixture.
+    expect(RunRolledBackEventSchema.parse(minimalRolledBack)).toEqual(minimalRolledBack);
+    expect(RunStateChangeEventSchema.parse(minimalRunStateChange)).toEqual(minimalRunStateChange);
+    expect(() => RunStateChangeEventSchema.parse(minimalRolledBack)).toThrow();
+    expect(() => RunRolledBackEventSchema.parse(minimalRunStateChange)).toThrow();
+  });
+});
+
+// --------------------------------------------------------------------------
 // T1.6 — Pause / resume triggers
 // --------------------------------------------------------------------------
 
@@ -981,6 +1074,43 @@ describe("run pause and resume", () => {
     expect(RunControlAckSchema.parse(ack)).toEqual(ack);
     expect(() => RunControlAckSchema.parse({ ...ack, currentState: "pausing" })).toThrow();
     expect(() => RunControlAckSchema.parse({ runId: RUN_ID, currentState: "paused" })).toThrow();
+  });
+});
+
+// --------------------------------------------------------------------------
+// CP-004-3 — Subscription request shapes
+// --------------------------------------------------------------------------
+
+describe("run-control subscription requests", () => {
+  const subscribeSchemas = [
+    ["RunStateSubscribeRequestSchema", RunStateSubscribeRequestSchema],
+    ["RunQueueSubscribeRequestSchema", RunQueueSubscribeRequestSchema],
+  ] as const;
+
+  it.each(subscribeSchemas)("%s round-trips its single member", (_name, schema) => {
+    expect(schema.parse({ sessionId: SESSION_ID })).toEqual({ sessionId: SESSION_ID });
+  });
+
+  it.each(subscribeSchemas)("%s refuses an absent or non-UUID session id", (_name, schema) => {
+    expect(() => schema.parse({})).toThrow();
+    expect(() => schema.parse({ sessionId: "s-1" })).toThrow();
+  });
+
+  it.each(subscribeSchemas)("%s refuses a run-scoped filter member", (_name, schema) => {
+    // The subscription is SESSION-scoped: the session is the authorization
+    // unit and a subscriber fans out per run client-side. A silently dropped
+    // `runId` would hand the caller every run of the session while reading as
+    // a filter it asked for and got.
+    expect(() => schema.parse({ sessionId: SESSION_ID, runId: RUN_ID })).toThrow();
+  });
+
+  it.each(subscribeSchemas)("%s refuses a replay-cursor member", (_name, schema) => {
+    // `SessionSubscribeRequest` declares `afterCursor` / `lastEventId` because
+    // its HTTP/SSE transport injects `Last-Event-ID` pre-validation. `run.*` is
+    // local-IPC JSON-RPC, so neither member has a producer here and the
+    // absence is a decision — copying the neighbouring shape must fail.
+    expect(() => schema.parse({ sessionId: SESSION_ID, afterCursor: "0" })).toThrow();
+    expect(() => schema.parse({ sessionId: SESSION_ID, lastEventId: "0" })).toThrow();
   });
 });
 
@@ -1036,9 +1166,12 @@ describe("index.ts re-exports the Plan-004 run-control contracts", () => {
     ["RollbackInterventionResultSchema", contracts.RollbackInterventionResultSchema],
     ["InterventionRequestResponseSchema", contracts.InterventionRequestResponseSchema],
     ["RunStateChangeEventSchema", contracts.RunStateChangeEventSchema],
+    ["RunRolledBackEventSchema", contracts.RunRolledBackEventSchema],
     ["RunPauseRequestSchema", contracts.RunPauseRequestSchema],
     ["RunResumeRequestSchema", contracts.RunResumeRequestSchema],
     ["RunControlAckSchema", contracts.RunControlAckSchema],
+    ["RunStateSubscribeRequestSchema", contracts.RunStateSubscribeRequestSchema],
+    ["RunQueueSubscribeRequestSchema", contracts.RunQueueSubscribeRequestSchema],
     ["RunReadSnapshotSchema", contracts.RunReadSnapshotSchema],
   ] as const)("re-exports %s with a callable .parse", (_name, schema) => {
     expect(schema).toBeDefined();
