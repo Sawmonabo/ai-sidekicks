@@ -117,24 +117,56 @@ export const TimelineReadRequestSchema: z.ZodType<TimelineReadRequest, TimelineR
   .strict();
 
 /**
- * One read window. `hasMore` is REQUIRED and separate from `nextCursor`'s
- * presence: a caller must be able to tell "the window ended and there is more"
- * from "the window ended and there is not" without inferring it from an
- * optional member's absence.
+ * One read window, discriminated on `hasMore`.
+ *
+ * `hasMore` is REQUIRED and separate from `nextCursor`'s presence: a caller
+ * must be able to tell "the window ended and there is more" from "the window
+ * ended and there is not" without inferring it from an optional member's
+ * absence.
+ *
+ * THE CURSOR IS REQUIRED ON THE CONTINUING ARM. `Spec-013 §Interfaces And
+ * Contracts` requires `TimelineRead` to "support bounded windows and
+ * cursor-based continuation". A response saying `hasMore: true` while carrying
+ * no cursor promises more and supplies no way to ask for it — the caller's only
+ * recoveries are to re-read the same window forever or to give up, and both
+ * lose timeline rows the session actually holds. A union rather than a
+ * refinement so the guarantee is a TYPE: a consumer that narrows on
+ * `hasMore === true` reaches a `nextCursor` that is present, with no non-null
+ * assertion and no optional chain.
+ *
+ * The terminal arm forbids the cursor rather than merely allowing its absence,
+ * because a cursor beside `hasMore: false` is two contradictory claims about
+ * the same window and the strict arm refuses to serialize both.
  */
-export interface TimelineReadResponse {
-  entries: TimelineRow[];
-  nextCursor?: EventCursor | undefined;
-  hasMore: boolean;
-}
+export type TimelineReadResponse =
+  | { entries: TimelineRow[]; hasMore: true; nextCursor: EventCursor }
+  | { entries: TimelineRow[]; hasMore: false };
 
-export const TimelineReadResponseSchema: z.ZodType<TimelineReadResponse> = z
-  .object({
-    entries: z.array(TimelineRowSchema),
-    nextCursor: EventCursorSchema.optional(),
-    hasMore: z.boolean(),
-  })
-  .strict();
+/**
+ * `entries` is capped at the same {@link TIMELINE_READ_LIMIT_MAX} the request's
+ * `limit` is, and deliberately shares the one constant: a response cap looser
+ * than the request cap would let a producer answer a bounded ask with an
+ * unbounded window, which is the bound the request cap exists to impose read
+ * from the other side.
+ */
+export const TimelineReadResponseSchema: z.ZodType<TimelineReadResponse> = z.discriminatedUnion(
+  "hasMore",
+  [
+    z
+      .object({
+        entries: z.array(TimelineRowSchema).max(TIMELINE_READ_LIMIT_MAX),
+        hasMore: z.literal(true),
+        nextCursor: EventCursorSchema,
+      })
+      .strict(),
+    z
+      .object({
+        entries: z.array(TimelineRowSchema).max(TIMELINE_READ_LIMIT_MAX),
+        hasMore: z.literal(false),
+      })
+      .strict(),
+  ],
+);
 
 // ---------------------------------------------------------------------------
 // TimelineSubscribe
@@ -269,7 +301,15 @@ export const ReasoningSurfaceReadResponseSchema: z.ZodType<ReasoningSurfaceReadR
     z
       .object({
         availability: z.literal("available"),
-        reasoningEntries: z.array(ReasoningEntrySchema).max(REASONING_SURFACE_ENTRIES_MAX),
+        // NON-EMPTY. An `available` arm carrying zero entries claims a
+        // reasoning surface exists and then shows nothing, which renders
+        // identically to `unavailable` while asserting the opposite — the
+        // collapse `Spec-013 §Acceptance Criteria`'s distinguish-the-cases
+        // requirement forbids, and which I-013-7 ("redaction never renders as
+        // absence") forbids in the redaction direction. A producer with no
+        // entries to serve has three honest arms to choose from and must pick
+        // one.
+        reasoningEntries: z.array(ReasoningEntrySchema).min(1).max(REASONING_SURFACE_ENTRIES_MAX),
       })
       .strict(),
     z.object({ availability: z.literal("unavailable") }).strict(),
@@ -323,6 +363,8 @@ export const ChildRunExpandResponseSchema: z.ZodType<ChildRunExpandResponse> = z
     runId: RunIdSchema,
     parentRunId: RunIdSchema,
     state: RunStateSchema,
-    entries: z.array(TimelineRowSchema),
+    // Same cap as the read window, same reason: this is a bounded window over a
+    // child run's rows, not an unbounded dump.
+    entries: z.array(TimelineRowSchema).max(TIMELINE_READ_LIMIT_MAX),
   })
   .strict();

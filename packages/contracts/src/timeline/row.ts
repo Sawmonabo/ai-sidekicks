@@ -252,13 +252,87 @@ export interface TimelineRollbackBoundary extends Omit<TimelineRowBase, "type" |
   payload: RunRolledBackEvent;
 }
 
+// ---------------------------------------------------------------------------
+// Cross-field rules shared by the arms
+// ---------------------------------------------------------------------------
+
+/**
+ * The rollback event type belongs to the boundary arm and nowhere else.
+ *
+ * Without this, a producer could emit `kind: "run"` carrying
+ * `type: "run.rolled_back"` and it would parse: the `run` arm's `type` is the
+ * base's free-form string. The row would then reach a consumer that narrows on
+ * `kind` — the narrowing this module exists to guarantee — as an ordinary run
+ * row, and the rewind cutoff it carries in its untyped `payload` would never be
+ * read. That is the exact failure I-013-5 forbids ("no consumer receives an
+ * untyped cutoff"), reached by the back door of the discriminator being right
+ * and the type being wrong.
+ *
+ * Refusing it here means the two fields cannot disagree in the one direction
+ * that loses data. The reverse direction is already closed: the boundary arm
+ * pins `type` to the literal, so it cannot carry anything else.
+ */
+const refuseBoundaryTypeOnNonBoundaryArm = (
+  row: { type: string },
+  issueContext: z.RefinementCtx,
+): void => {
+  if (row.type === TIMELINE_ROLLBACK_BOUNDARY_TYPE) {
+    issueContext.addIssue({
+      code: "custom",
+      path: ["type"],
+      message:
+        `the ${TIMELINE_ROLLBACK_BOUNDARY_TYPE} event type is carried only by the ` +
+        "rollback_boundary arm, whose payload is validated into the typed event; a row " +
+        "carrying it under any other kind would deliver the rewind cutoff untyped",
+    });
+  }
+};
+
+/**
+ * A superseded marker must actually supersede the row that carries it.
+ *
+ * `Spec-013 §Required Behavior` states the comparison exactly: the boundary
+ * entry instructs the client to mark "that run's already-delivered rows whose
+ * carried run position exceeds the carried rewind cutoff". EXCEEDS — so a row
+ * at the cutoff is the retained floor and is NOT superseded, and a row below it
+ * survives. A marker on either is a projection defect, and the marker is
+ * deliberately single-field (I-013-3) precisely so that the row's own position
+ * is the only thing it can be ranked against.
+ *
+ * Epoch is NOT compared here, and that is not an omission. I-013-3 keeps the
+ * marker single-field so identity is read from the containing row; the row's
+ * epoch selects WHICH cutoff applies upstream, in the projection, and there is
+ * no second epoch inside the marker for a row-local check to compare against.
+ * The in-row invariant is exactly this ordering.
+ */
+const requireMarkerToOutrankRow = (
+  row: { position: number; superseded?: SupersededMarker | undefined },
+  issueContext: z.RefinementCtx,
+): void => {
+  const marker: SupersededMarker | undefined = row.superseded;
+  if (marker === undefined) {
+    return;
+  }
+  if (row.position <= marker.targetPosition) {
+    issueContext.addIssue({
+      code: "custom",
+      path: ["superseded", "targetPosition"],
+      message:
+        `a superseded row must rank ABOVE the rewind cutoff: position ${String(row.position)} ` +
+        `does not exceed targetPosition ${String(marker.targetPosition)}, so this row is at or ` +
+        "below the retained floor and is not superseded by that cutoff",
+    });
+  }
+};
+
 const timelineGeneralArmSchema = z
   .object({
     ...buildTimelineRowCommonShape(),
     kind: z.literal("general"),
     payload: projectedPayloadSchema,
   })
-  .strict();
+  .strict()
+  .superRefine(refuseBoundaryTypeOnNonBoundaryArm);
 
 const runScopedTimelineArmSchema = z
   .object({
@@ -270,7 +344,11 @@ const runScopedTimelineArmSchema = z
     superseded: SupersededMarkerSchema.optional(),
     payload: projectedPayloadSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((runRow, issueContext) => {
+    refuseBoundaryTypeOnNonBoundaryArm(runRow, issueContext);
+    requireMarkerToOutrankRow(runRow, issueContext);
+  });
 
 const legacyStubTimelineArmSchema = z
   .object({
@@ -279,7 +357,8 @@ const legacyStubTimelineArmSchema = z
     runId: RunIdSchema,
     payload: projectedPayloadSchema,
   })
-  .strict();
+  .strict()
+  .superRefine(refuseBoundaryTypeOnNonBoundaryArm);
 
 const timelineRollbackBoundaryArmSchema = z
   .object({
@@ -333,6 +412,11 @@ const timelineRollbackBoundaryArmSchema = z
           "rollback_boundary row attribution disagrees with its payload: sessionId must equal payload.sessionId.",
       });
     }
+    // The boundary row can ITSELF be superseded, by a later rollback cutting
+    // below it — so the same ordering rule applies to its own marker. Its
+    // `position` is the confirmed rewind floor (pinned to the payload just
+    // below), and a later, lower cut ranks it above that cut.
+    requireMarkerToOutrankRow(boundaryRow, issueContext);
     if (boundaryRow.position !== rolledBackEvent.targetPosition) {
       issueContext.addIssue({
         code: "custom",

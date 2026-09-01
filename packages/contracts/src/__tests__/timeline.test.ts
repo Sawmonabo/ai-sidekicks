@@ -404,6 +404,53 @@ describe("TimelineRow arm selection (I-013-1)", () => {
     ).toBe(false);
   });
 
+  it("F53 — every non-boundary arm REFUSES the rollback event type", () => {
+    // `kind` and `type` cannot disagree in the direction that loses data. A row
+    // with kind "run" carrying type "run.rolled_back" would parse otherwise —
+    // the run arm's `type` is the base's free-form string — and would reach a
+    // consumer narrowing on `kind` as an ordinary run row, with the rewind
+    // cutoff sitting unread in its untyped payload. That is the untyped-cutoff
+    // delivery I-013-5 forbids, reached by the back door.
+    const armFixtures: readonly [string, Record<string, unknown>][] = [
+      ["run", runScopedRow],
+      ["legacy_stub", legacyStubRow],
+      ["general", generalRow],
+    ];
+    for (const [armName, fixture] of armFixtures) {
+      const result = TimelineRowSchema.safeParse({
+        ...fixture,
+        type: TIMELINE_ROLLBACK_BOUNDARY_TYPE,
+      });
+      expect(result.success, `${armName} must refuse the rollback event type`).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues.some((issue) => issue.path.join(".") === "type")).toBe(true);
+      }
+      // Positive control per arm: the SAME fixture with its own type parses, so
+      // the rejection is the literal and not the fixture.
+      expect(TimelineRowSchema.safeParse(fixture).success).toBe(true);
+    }
+    // And the boundary arm — the one legitimate home — still accepts it.
+    expect(TimelineRowSchema.safeParse(rollbackBoundaryRow).success).toBe(true);
+  });
+
+  it("F54 — a superseded marker must rank BELOW the row it marks", () => {
+    // `Spec-013 §Required Behavior`: the boundary marks rows "whose carried run
+    // position exceeds the carried rewind cutoff". Exceeds — so the cutoff row
+    // itself is the retained floor and is not superseded.
+    const at = { ...runScopedRow, position: 7, superseded: { targetPosition: 7 } };
+    const below = { ...runScopedRow, position: 6, superseded: { targetPosition: 7 } };
+    const above = { ...runScopedRow, position: 8, superseded: { targetPosition: 7 } };
+    expect(TimelineRowSchema.safeParse(at).success, "equal position is the floor").toBe(false);
+    expect(TimelineRowSchema.safeParse(below).success, "below the cut survives").toBe(false);
+    expect(TimelineRowSchema.safeParse(above).success, "above the cut is superseded").toBe(true);
+    const refused = TimelineRowSchema.safeParse(at);
+    if (!refused.success) {
+      expect(
+        refused.error.issues.some((issue) => issue.path.join(".") === "superseded.targetPosition"),
+      ).toBe(true);
+    }
+  });
+
   it("the exported `kind` census names exactly the union's arms", () => {
     expect([...TIMELINE_ROW_KINDS]).toStrictEqual([
       "rollback_boundary",
@@ -485,6 +532,25 @@ describe("TimelineRollbackBoundary (I-013-5)", () => {
 
   it("F11–F13 negative control — the agreeing row parses", () => {
     expect(TimelineRowSchema.safeParse(rollbackBoundaryRow).success).toBe(true);
+  });
+
+  it("F55 — the boundary row's OWN marker obeys the same ordering rule", () => {
+    // A boundary row ranks at its confirmed rewind floor and can itself be
+    // superseded by a later, lower cut — so the ordering rule applies to it
+    // too, against its own position rather than its payload's.
+    const boundaryPosition: number = rollbackBoundaryRow.position;
+    expect(
+      TimelineRowSchema.safeParse({
+        ...rollbackBoundaryRow,
+        superseded: { targetPosition: boundaryPosition },
+      }).success,
+    ).toBe(false);
+    expect(
+      TimelineRowSchema.safeParse({
+        ...rollbackBoundaryRow,
+        superseded: { targetPosition: boundaryPosition - 1 },
+      }).success,
+    ).toBe(true);
   });
 
   it("F14 — the boundary arm pins `type` to the rollback event type", () => {
@@ -694,10 +760,24 @@ describe("ReasoningSurfaceReadResponse availability (I-013-7)", () => {
     });
   });
 
-  it("`available` accepts an empty entry list — an empty surface is not an absent one", () => {
+  it("F49 — `available` REFUSES an empty entry list", () => {
+    // This assertion is the reverse of the one first shipped here, and the
+    // reversal is the finding. An `available` arm carrying zero entries claims
+    // a reasoning surface exists and then shows nothing: it renders identically
+    // to `unavailable` while asserting the opposite, which collapses two of the
+    // four states `Spec-013 §Acceptance Criteria` requires a client be able to
+    // tell apart. A producer with nothing to serve has three honest arms and
+    // must pick one.
+    expect(
+      ReasoningSurfaceReadResponseSchema.safeParse({
+        availability: "available",
+        reasoningEntries: [],
+      }).success,
+    ).toBe(false);
+    // Positive control on the same axis: one entry is enough.
     expectRoundTrip(ReasoningSurfaceReadResponseSchema, {
       availability: "available",
-      reasoningEntries: [],
+      reasoningEntries: [reasoningEntry],
     });
   });
 
@@ -838,6 +918,55 @@ describe("timeline read window and live stream", () => {
       hasMore: true,
     });
     expectRoundTrip(TimelineReadResponseSchema, { entries: [], hasMore: false });
+  });
+
+  it("F50 — `hasMore: true` REQUIRES `nextCursor`", () => {
+    // A window promising more rows and supplying no way to ask for them leaves
+    // the caller re-reading the same window or giving up, and both lose rows
+    // the session holds. `Spec-013 §Interfaces And Contracts` requires
+    // "cursor-based continuation"; this is that requirement made unskippable.
+    expect(TimelineReadResponseSchema.safeParse({ entries: [], hasMore: true }).success).toBe(
+      false,
+    );
+    // Positive control: the same window with its cursor parses.
+    expect(
+      TimelineReadResponseSchema.safeParse({ entries: [], hasMore: true, nextCursor: cursor })
+        .success,
+    ).toBe(true);
+  });
+
+  it("F51 — the terminal window REFUSES a cursor", () => {
+    // Two contradictory claims about one window. Refused rather than ignored,
+    // so a producer cannot ship a continuation token nobody will honour.
+    expect(
+      TimelineReadResponseSchema.safeParse({ entries: [], hasMore: false, nextCursor: cursor })
+        .success,
+    ).toBe(false);
+  });
+
+  it("F52 — the response entry list is bounded by the SAME cap as the request", () => {
+    // A response cap looser than the request cap would let a producer answer a
+    // bounded ask with an unbounded window — the request bound read from the
+    // other side. One shared constant, so the two cannot drift.
+    const overCap = Array.from({ length: TIMELINE_READ_LIMIT_MAX + 1 }, () => generalRow);
+    expect(TimelineReadResponseSchema.safeParse({ entries: overCap, hasMore: false }).success).toBe(
+      false,
+    );
+    // Boundary control: exactly at the cap parses, so the rejection is the cap
+    // and not the array.
+    const atCap = Array.from({ length: TIMELINE_READ_LIMIT_MAX }, () => generalRow);
+    expect(TimelineReadResponseSchema.safeParse({ entries: atCap, hasMore: false }).success).toBe(
+      true,
+    );
+    // The child-run expansion is the same bounded window over a child's rows.
+    expect(
+      ChildRunExpandResponseSchema.safeParse({
+        runId: RUN_ID,
+        parentRunId: PARENT_RUN_ID,
+        state: "completed",
+        entries: overCap,
+      }).success,
+    ).toBe(false);
   });
 
   it("F37/F38 — `limit` is a bounded window", () => {

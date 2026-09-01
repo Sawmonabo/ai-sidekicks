@@ -164,9 +164,10 @@ preconditions:
 
 #### Tasks
 
-- **T3.1** — Implement `packages/runtime-daemon/src/timeline/child-run-summary-service.ts` producing summary rows and expansion from Plan-016's durable child-run events and carrier (D-016-14).
+- **T3.1** — Implement `packages/runtime-daemon/src/timeline/child-run-summary-service.ts` producing summary rows and expansion from Plan-016's durable child-run events and carrier (D-016-14). Stamps each summary's `completeness`: `complete` where the child's rows were read in full, and the `incomplete` arm with a `cause` and `observedAt` where they were not — `detail_fetch_failed` when this daemon's own expansion read fails, `pending_backfill` while the producing node's rows have not arrived, `compacted` where they were compacted away — keeping `eventCount` the count actually held rather than an estimate, and never dropping the row.
   - **Spec coverage:** Spec-013 §Required Behavior
-  - **Verifies invariant:** none
+  - **Verifies invariant:** I-013-10
+  - **Tests:** a failed expansion read yields `incomplete` / `detail_fetch_failed` with the row still returned; an unreached producing node yields `incomplete` / `pending_backfill`; a compacted child yields `incomplete` / `compacted`; a full read yields `complete` and carries no cause; `eventCount` on an incomplete row equals the number of rows held, never a total inferred from the parent.
 - **T3.2** — Implement `packages/runtime-daemon/src/timeline/reasoning-surface-service.ts` — summary-first, policy-aware reads emitting T1.3's closed `availability` states (`available` / `unavailable` / `compacted` / `policy_redacted`, each with its mandated field set), storing durable summaries and policy markers separately from bounded detailed-reasoning diagnostic payloads.
   - **Spec coverage:** Spec-013 §Required Behavior
   - **Verifies invariant:** I-013-7, I-013-8
@@ -191,9 +192,10 @@ preconditions:
 
 #### Tasks
 
-- **T4.1** — Render live rows, replay-recovered rows, and summarized child runs in `apps/desktop/src/renderer/src/timeline/`, narrowing structurally on `row.kind` and never probing the free-form `type`.
+- **T4.1** — Render live rows, replay-recovered rows, and summarized child runs in `apps/desktop/src/renderer/src/timeline/`, narrowing structurally on `row.kind` and never probing the free-form `type`. Renders an incomplete child-run summary with its state visible and its cause named — never as a bare row whose low count reads as completed work, and never by hiding the row.
   - **Spec coverage:** Spec-013 §Required Behavior
-  - **Verifies invariant:** I-013-1
+  - **Verifies invariant:** I-013-1, I-013-10
+  - **Tests:** an `incomplete` summary renders the row plus an explicit incomplete affordance naming its cause; the same row with `complete` renders neither; a summary whose fetch failed is present in the rendered output rather than omitted; the rendered count is not presented as a total on the incomplete arm.
 - **T4.2** — Render the distinct superseded treatment for rolled-back turns — applied live via the boundary entry's idempotent already-delivered-rows rule and from the row marker on read/replay, never dropping rewound history and never marking a re-executed reused ordinal — with a compacted superseded row rendering as Plan-006's `<CompactedStubSegment>` (CP-006-8, consumed never re-implemented) composed with the superseded treatment. **Also exposes the participant `user.message` row's footer composition point and mounts Plan-004's edit-and-resend entry component there** (CP-004-15, 2026-08-18 placement amendment): this task supplies the mount and the row facts the component's predicate reads — run id, target position, the row's authorship, and the superseded marker computed at T2.2 — and renders whatever visibility state the component resolves. It **authors no part of that component and no eligibility logic**: the predicate is Plan-004's (its T4.8, verifying I-004-24), exactly as T4.4 mounts at Plan-023's composer-area point without editing Plan-023's shell subtree. Rows an in-flight composite would rewind take the same dim-not-remove treatment this task already implements for superseded rows — dimmed while pending, never removed or renumbered before the `run.rolled_back` boundary arrives (I-013-2), so the pending state reuses the marked-not-dropped machinery rather than introducing a second one.
   - **Files:** `apps/desktop/src/renderer/src/timeline/` (row rendering + the row-footer composition point). The mounted entry component lives in Plan-004's `run-controls/` subtree and is not edited here.
   - **Provides:** the row-footer composition point CP-004-15 names, and the row facts passed at the mount.

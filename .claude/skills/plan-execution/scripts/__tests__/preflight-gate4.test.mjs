@@ -3804,7 +3804,18 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // Spec-013, Spec-008, and api-payload-contracts.md carry no marker blocks,
     // and Plan-013's other task rows are untouched. The legacy compact-inline
     // channel is unchanged.
-    bold: { resolved: 1023, noneArm: 160, parentResolved: 0 },
+    // 1023/160 -> 1025/159 (2026-09-01, NS-98 Codex round-2 fold — PR #410):
+    // I-013-10 is assigned to its PRODUCER and its RENDERER, not only to the
+    // shape task that mints it. Plan-013's T3.1 (the child-run summary service
+    // that stamps the marker after a failed expansion and keeps `eventCount` a
+    // lower bound) moves OFF the none arm and names I-013-10, and T4.1 (the
+    // renderer that must show the incomplete state rather than let a low count
+    // read as completed work) gains I-013-10 beside its existing I-013-1 — two
+    // more bold resolved references, and one fewer none-arm from T3.1's move.
+    // T4.1 was already resolved, so its added id moves no none-arm. Nothing
+    // else in the fold touches a `Verifies invariant:` row; the legacy channel
+    // is unchanged.
+    bold: { resolved: 1025, noneArm: 159, parentResolved: 0 },
     legacy: { resolved: 64, noneArm: 3, parentResolved: 1 },
   });
 });

@@ -34,8 +34,14 @@
 // The same dance was run for claims 2, 3, and 4. Subsequent edits to the row
 // union re-trigger every check in CI typecheck.
 
+import type { EventCursor } from "./session.js";
 import type { RunRolledBackEvent } from "./runControl.js";
-import type { ChildRunCompleteness, ChildRunSummary, TimelineRow } from "./timeline/index.js";
+import type {
+  ChildRunCompleteness,
+  ChildRunSummary,
+  TimelineReadResponse,
+  TimelineRow,
+} from "./timeline/index.js";
 
 /**
  * Type-level constraint failure when `T` is non-never — TS2344 fires at the
@@ -124,6 +130,33 @@ type _BoundaryTypeIsPinned = AssertExtends<"run.rolled_back", RollbackBoundaryAr
 type _GeneralArmHasNoAttribution = AssertNever<
   Extract<keyof GeneralArm, "runId" | "position" | "epoch" | "superseded">
 >;
+
+// ---------------------------------------------------------------------------
+// The read window's continuation cursor is reachable without a guard (T1.3)
+// ---------------------------------------------------------------------------
+
+type ContinuingWindow = Extract<TimelineReadResponse, { hasMore: true }>;
+type TerminalWindow = Extract<TimelineReadResponse, { hasMore: false }>;
+
+/** On the continuing arm the cursor is REQUIRED, not optional. */
+type _ContinuingWindowRequiresCursor = AssertExtends<
+  RequiredKeys<ContinuingWindow>,
+  "entries" | "hasMore" | "nextCursor"
+>;
+
+/** On the terminal arm it is absent entirely, not merely optional. */
+type _TerminalWindowHasNoCursor = AssertNever<Extract<keyof TerminalWindow, "nextCursor">>;
+
+/**
+ * The consumer this shape exists for. A client paginating the timeline reaches
+ * `nextCursor` after narrowing on `hasMore` alone — no non-null assertion, no
+ * optional chain, and no runtime check for a member the contract already
+ * guarantees. Under the previous `nextCursor?:` shape this function could not
+ * be written without one of those three.
+ */
+export function nextPageCursorOf(window: TimelineReadResponse): EventCursor | null {
+  return window.hasMore ? window.nextCursor : null;
+}
 
 // ---------------------------------------------------------------------------
 // The incompleteness marker narrows the same way (T1.2, I-013-10)

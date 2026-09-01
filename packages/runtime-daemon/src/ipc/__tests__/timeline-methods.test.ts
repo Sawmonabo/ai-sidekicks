@@ -72,26 +72,22 @@ const childRunExpandResponse: ChildRunExpandResponse = {
  * registration and dispatch paths can be exercised end to end.
  */
 const registerAllTimelineMethods = (registry: MethodRegistryImpl): void => {
-  registerTimelineMethod(
-    registry,
-    TIMELINE_METHOD_DESCRIPTORS[TIMELINE_READ_METHOD],
-    async () => readResponse,
-  );
-  registerTimelineMethod(
-    registry,
-    TIMELINE_METHOD_DESCRIPTORS[TIMELINE_SUBSCRIBE_METHOD],
-    async () => subscribeResponse,
-  );
-  registerTimelineMethod(
-    registry,
-    TIMELINE_METHOD_DESCRIPTORS[TIMELINE_REASONING_SURFACE_READ_METHOD],
-    async () => reasoningResponse,
-  );
-  registerTimelineMethod(
-    registry,
-    TIMELINE_METHOD_DESCRIPTORS[TIMELINE_CHILD_RUN_EXPAND_METHOD],
-    async () => childRunExpandResponse,
-  );
+  registerTimelineMethod(registry, {
+    method: TIMELINE_READ_METHOD,
+    handler: async () => readResponse,
+  });
+  registerTimelineMethod(registry, {
+    method: TIMELINE_SUBSCRIBE_METHOD,
+    handler: async () => subscribeResponse,
+  });
+  registerTimelineMethod(registry, {
+    method: TIMELINE_REASONING_SURFACE_READ_METHOD,
+    handler: async () => reasoningResponse,
+  });
+  registerTimelineMethod(registry, {
+    method: TIMELINE_CHILD_RUN_EXPAND_METHOD,
+    handler: async () => childRunExpandResponse,
+  });
 };
 
 describe("timeline method-name registration (Plan-013 T1.4)", () => {
@@ -130,17 +126,15 @@ describe("timeline method-name registration (Plan-013 T1.4)", () => {
 
   it("I-007-6 — registering a timeline method twice throws at register-time", () => {
     const registry = new MethodRegistryImpl();
-    registerTimelineMethod(
-      registry,
-      TIMELINE_METHOD_DESCRIPTORS[TIMELINE_READ_METHOD],
-      async () => readResponse,
-    );
+    registerTimelineMethod(registry, {
+      method: TIMELINE_READ_METHOD,
+      handler: async () => readResponse,
+    });
     expect(() => {
-      registerTimelineMethod(
-        registry,
-        TIMELINE_METHOD_DESCRIPTORS[TIMELINE_READ_METHOD],
-        async () => readResponse,
-      );
+      registerTimelineMethod(registry, {
+        method: TIMELINE_READ_METHOD,
+        handler: async () => readResponse,
+      });
     }).toThrow(RegistryRegistrationError);
   });
 
@@ -149,7 +143,7 @@ describe("timeline method-name registration (Plan-013 T1.4)", () => {
     const handler = vi.fn<Handler<TimelineReadRequest, TimelineReadResponse>>(
       async () => readResponse,
     );
-    registerTimelineMethod(registry, TIMELINE_METHOD_DESCRIPTORS[TIMELINE_READ_METHOD], handler);
+    registerTimelineMethod(registry, { method: TIMELINE_READ_METHOD, handler });
 
     // Over the read window's own cap — the bounded-window rule, enforced by the
     // schema the descriptor carries rather than by the handler.
@@ -219,18 +213,17 @@ describe("timeline method-name registration (Plan-013 T1.4)", () => {
     // handler wired to the wrong operation is a programmer error surfaced at
     // dispatch, never a wrong shape on the wire.
     const registry = new MethodRegistryImpl();
-    registerTimelineMethod(
-      registry,
-      TIMELINE_METHOD_DESCRIPTORS[TIMELINE_READ_METHOD],
+    registerTimelineMethod(registry, {
+      method: TIMELINE_READ_METHOD,
       // The cast is the point: it stands in for a handler wired to the wrong
       // operation. Without it the mistake is a compile error — which is the
       // binder's first line of defence — so the runtime backstop can only be
       // exercised by defeating the type check deliberately.
-      (async () => reasoningResponse) as unknown as Handler<
+      handler: (async () => reasoningResponse) as unknown as Handler<
         TimelineReadRequest,
         TimelineReadResponse
       >,
-    );
+    });
     let caught: unknown = null;
     try {
       await registry.dispatch(TIMELINE_READ_METHOD, { sessionId: SESSION_ID }, dispatchContext);
@@ -241,5 +234,65 @@ describe("timeline method-name registration (Plan-013 T1.4)", () => {
     if (caught instanceof RegistryDispatchError) {
       expect(caught.registryCode).toBe("invalid_result");
     }
+  });
+
+  it("the registered schemas are the CANONICAL objects, by reference", () => {
+    // The binder resolves schemas from `TIMELINE_METHOD_DESCRIPTORS` instead of
+    // accepting them, so there is no schema argument to get wrong. This asserts
+    // the resolution actually happened: each registered pair must be the very
+    // object the canonical registry holds, not merely a structurally similar
+    // one. A deep-equality check would pass against a look-alike rebuilt from
+    // the wrong operation's parts; identity cannot.
+    //
+    // `MethodRegistry` exposes no schema introspection — only register /
+    // dispatch / has / isMutating — so this records what the binder PASSES
+    // rather than reaching into the real registry's internals or widening a
+    // Plan-007-owned interface to suit a test.
+    const recorded = new Map<string, { params: unknown; result: unknown }>();
+    const recordingRegistry = {
+      register: (method: string, paramsSchema: unknown, resultSchema: unknown): void => {
+        recorded.set(method, { params: paramsSchema, result: resultSchema });
+      },
+      dispatch: async (): Promise<unknown> => undefined,
+      has: (): boolean => false,
+      isMutating: (): boolean | undefined => undefined,
+    } as unknown as MethodRegistryImpl;
+
+    registerAllTimelineMethods(recordingRegistry);
+
+    expect(recorded.size).toBe(TIMELINE_METHOD_NAMES.length);
+    for (const method of TIMELINE_METHOD_NAMES) {
+      const canonical = TIMELINE_METHOD_DESCRIPTORS[method];
+      expect(recorded.get(method)?.params).toBe(canonical.requestSchema);
+      expect(recorded.get(method)?.result).toBe(canonical.responseSchema);
+    }
+  });
+
+  it("no two operations share a schema object — the identity check can discriminate", () => {
+    // Negative control for the test above. If any two operations happened to
+    // reuse one schema instance, an identity assertion could pass while the
+    // binder had paired a method with a sibling's schema. All four request
+    // schemas and all four response schemas must be pairwise distinct for the
+    // identity check to mean what it claims.
+    const requestSchemas = TIMELINE_METHOD_NAMES.map(
+      (method) => TIMELINE_METHOD_DESCRIPTORS[method].requestSchema,
+    );
+    const responseSchemas = TIMELINE_METHOD_NAMES.map(
+      (method) => TIMELINE_METHOD_DESCRIPTORS[method].responseSchema,
+    );
+    expect(new Set(requestSchemas).size).toBe(TIMELINE_METHOD_NAMES.length);
+    expect(new Set(responseSchemas).size).toBe(TIMELINE_METHOD_NAMES.length);
+  });
+
+  it("a handler bound to a sibling operation does not compile", () => {
+    const registry = new MethodRegistryImpl();
+    registerTimelineMethod(registry, {
+      method: TIMELINE_CHILD_RUN_EXPAND_METHOD,
+      // @ts-expect-error a reasoning-surface handler cannot bind to childRunExpand:
+      // the handler's types are derived from `method` through the contract map,
+      // so the forgery the old descriptor-taking form allowed is now unsayable.
+      handler: async () => reasoningResponse,
+    });
+    expect(registry.has(TIMELINE_CHILD_RUN_EXPAND_METHOD)).toBe(true);
   });
 });

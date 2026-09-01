@@ -157,6 +157,42 @@ export interface TimelineMethodDescriptorRegistry {
 }
 
 /**
+ * The request and response TYPES each method string is bound to — the type-level
+ * half of {@link TIMELINE_METHOD_DESCRIPTORS}, which carries the schemas.
+ *
+ * This exists so a registrar can be handed a method NAME and have its handler's
+ * parameter and return types follow from it, with no schema argument to supply
+ * and therefore none to supply wrongly. Keyed by the method string so
+ * `TimelineMethodContract[M]` resolves for a generic `M`.
+ */
+export interface TimelineMethodContract {
+  readonly [TIMELINE_READ_METHOD]: {
+    readonly request: TimelineReadRequest;
+    readonly response: TimelineReadResponse;
+  };
+  readonly [TIMELINE_SUBSCRIBE_METHOD]: {
+    readonly request: TimelineSubscribeRequest;
+    readonly response: TimelineSubscribeResponse;
+  };
+  readonly [TIMELINE_REASONING_SURFACE_READ_METHOD]: {
+    readonly request: ReasoningSurfaceReadRequest;
+    readonly response: ReasoningSurfaceReadResponse;
+  };
+  readonly [TIMELINE_CHILD_RUN_EXPAND_METHOD]: {
+    readonly request: ChildRunExpandRequest;
+    readonly response: ChildRunExpandResponse;
+  };
+}
+
+/** The request type bound to one `timeline.*` method string. */
+export type TimelineMethodRequest<MethodName extends TimelineMethodName> =
+  TimelineMethodContract[MethodName]["request"];
+
+/** The response type bound to one `timeline.*` method string. */
+export type TimelineMethodResponse<MethodName extends TimelineMethodName> =
+  TimelineMethodContract[MethodName]["response"];
+
+/**
  * The canonical method-to-schema binding for the `timeline.*` namespace —
  * the code-side mirror of the Timeline Method-Name Registry table.
  *

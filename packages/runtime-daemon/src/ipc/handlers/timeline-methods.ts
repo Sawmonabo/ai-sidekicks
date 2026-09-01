@@ -59,24 +59,52 @@
 // shipped: it would put a method on the wire that answers nothing, which a
 // client cannot distinguish from a method that answers wrongly.
 
+import { TIMELINE_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts";
 import type {
   Handler,
   MethodRegistry,
-  TimelineMethodBinding,
   TimelineMethodName,
+  TimelineMethodRequest,
+  TimelineMethodResponse,
 } from "@ai-sidekicks/contracts";
 
 /**
- * Bind one `timeline.*` method onto the supplied registry from its canonical
- * descriptor.
+ * What a caller supplies to bind one `timeline.*` method: the NAME, and a
+ * handler whose types follow from it.
  *
- * @param registry - the daemon's method registry (`MethodRegistryImpl`).
- * @param descriptor - a member of `TIMELINE_METHOD_DESCRIPTORS`. Supplies the
- *   method string, both schemas, and the `mutating` flag; the handler's types
- *   are inferred from it.
- * @param handler - the async handler. It is GUARANTEED a request that already
- *   passed `descriptor.requestSchema` (I-007-7), and its resolved value is
- *   validated against `descriptor.responseSchema` before it reaches the wire.
+ * There is deliberately no schema slot. The schemas are not an input.
+ */
+export interface TimelineMethodRegistration<MethodName extends TimelineMethodName> {
+  readonly method: MethodName;
+  /**
+   * The async handler. It is GUARANTEED a request that already passed the
+   * canonical request schema (I-007-7), and its resolved value is validated
+   * against the canonical response schema before it reaches the wire. Both
+   * types are derived from `method`, so a handler written against a sibling
+   * operation fails to compile.
+   */
+  readonly handler: Handler<TimelineMethodRequest<MethodName>, TimelineMethodResponse<MethodName>>;
+}
+
+/**
+ * Bind one `timeline.*` method onto the supplied registry, resolving its
+ * schemas from the canonical registry rather than accepting them.
+ *
+ * WHY THE SCHEMAS ARE NOT PARAMETERS. An earlier shape took the descriptor
+ * itself, which made the right binding easy and the wrong one still
+ * expressible: a caller could hand-build a descriptor literal pairing
+ * `timeline.childRunExpand` with the reasoning-surface schemas, and it would
+ * typecheck, boot, and answer the wrong shape on the wire. Making the binder
+ * take one descriptor closed the loose three-argument form; it did not close
+ * descriptor FORGERY.
+ *
+ * This form does. The only caller-supplied identity is the method name, and
+ * both schemas are looked up from the frozen `TIMELINE_METHOD_DESCRIPTORS`
+ * under that same name — so the name and the schemas cannot disagree, because
+ * there is no second place for the caller to state them. The handler's
+ * parameter and return types are derived from the same key through
+ * `TimelineMethodContract`, so a handler written against a sibling operation
+ * fails to compile rather than failing on the wire.
  *
  * @throws RegistryRegistrationError synchronously on a duplicate registration
  *   (I-007-6) or a name that fails the canonical format (I-007-9). All four
@@ -87,23 +115,26 @@ import type {
  * Mutating flag: every timeline operation is a read — three idempotent `query`
  * rows and one `subscription` — so all four register `mutating: false` and pass
  * the version-mismatch gate when `DaemonHelloAck.compatible === false`, per
- * `Spec-007 §Fallback Behavior`'s read-only-continues rule. The flag is taken
- * from the descriptor rather than passed in, so a caller cannot raise it.
+ * `Spec-007 §Fallback Behavior`'s read-only-continues rule. The flag comes from
+ * the canonical descriptor, so no caller can raise it.
  */
-export function registerTimelineMethod<
-  MethodName extends TimelineMethodName,
-  RequestType,
-  ResponseType,
->(
+export function registerTimelineMethod<MethodName extends TimelineMethodName>(
   registry: MethodRegistry,
-  descriptor: TimelineMethodBinding<MethodName, RequestType, ResponseType>,
-  handler: Handler<RequestType, ResponseType>,
+  registration: TimelineMethodRegistration<MethodName>,
 ): void {
+  const descriptor = TIMELINE_METHOD_DESCRIPTORS[registration.method];
+  // The one reconciliation point. `descriptor` is correctly typed per key, but
+  // TypeScript cannot correlate a generic indexed access across three argument
+  // positions at once, so it widens each to the four-way union. The cast asserts
+  // what the map's own type already guarantees — schemas and handler share the
+  // key `registration.method` — and it is confined to this single call, which is
+  // why the identity test asserts the REGISTERED schemas are the canonical
+  // objects by reference rather than trusting this line.
   registry.register(
     descriptor.method,
     descriptor.requestSchema,
     descriptor.responseSchema,
-    handler,
+    registration.handler as Handler<unknown, unknown>,
     { mutating: descriptor.mutating },
   );
 }
