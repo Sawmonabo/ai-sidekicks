@@ -241,15 +241,17 @@ export function getCodexToolMetadata(): NormalizedProviderToolMetadata[] {
 //      `ToolAnnotations` self-claims (readOnlyHint / idempotentHint). The
 //      only upgrade path is the operator-governed assignment surface
 //      (Spec-028 §Tool-Level Overrides) — which is Plan-028's, not here.
-//   2. The DORMANT durable-task-handle seam: where an MCP call is dispatched
+//   2. The durable-task-handle seam: where an MCP call is dispatched
 //      task-augmented (MCP 2025-11-25 Tasks utility), the receiver-generated
 //      `taskId` from the `CreateTaskResult` acceptance is the handle Spec-015
-//      recovery polls instead of halting. The COLUMN
-//      (`command_receipts.mcp_task_id`) does not exist yet — its ALTER is
-//      T5.1's, gated on Plan-004 Phase 1 substrate — so this seam is
-//      structured to observe the handle at dispatch but WRITES NOTHING: the
-//      shipped sink is a no-op, and T5.1 activates the seam by supplying the
-//      receipt-column writer. Pre-Phase-5 recovery stays on the
+//      recovery polls instead of halting. This module OBSERVES the handle at
+//      dispatch and does not store it; the storage half is
+//      `provider/mcp-task-handle-recorder.ts`, the sole writer of
+//      `command_receipts.mcp_task_id` (T5.1, on the column its own migration
+//      lands). The split is deliberate and survives activation: parsing an
+//      acceptance is provider-shaped, persisting a handle is not. A dispatch
+//      whose handle is absent, malformed, or refused by the recorder stores
+//      nothing, and recovery for that receipt stays on the
 //      `manual_reconcile_only` halt.
 //   3. The MCP server-status census normalizers: `mcpServerStatus/list` rows
 //      and `mcpServer/startupStatus/updated` notifications, normalized into
@@ -319,42 +321,44 @@ export function classifyMcpDiscoveredTool(
 }
 
 // --------------------------------------------------------------------------
-// Dormant durable-task-handle seam (T5.1 activates)
+// Durable-task-handle seam (observation half)
 // --------------------------------------------------------------------------
 
 /**
- * A task-augmented MCP dispatch whose acceptance carried a receiver-generated
- * `taskId`. Keyed by (server, tool) — the MCP identity namespace — plus the
- * handle itself. This is the value T5.1's receipt-column writer persists into
- * `command_receipts.mcp_task_id`; until then it goes nowhere.
+ * The identity of one task-augmented MCP dispatch, as the observation seam
+ * needs it.
+ *
+ * `(serverName, toolName)` is the MCP identity namespace and names no storable
+ * row; `commandId` is the client-supplied idempotency key on the dispatch's
+ * `command_receipts` row, and it is what makes the observation writable. Grouped
+ * into an object rather than trailing three positional strings — three
+ * same-typed parameters in a row is an argument-order bug waiting for a
+ * refactor.
  */
-export interface McpTaskHandleObservation {
+export interface McpTaskDispatchIdentity {
+  readonly commandId: string;
   readonly serverName: string;
   readonly toolName: string;
+}
+
+/**
+ * A task-augmented MCP dispatch whose acceptance carried a receiver-generated
+ * `taskId`: the dispatch's identity plus the handle itself. This is the value
+ * `McpTaskHandleRecorder` persists into `command_receipts.mcp_task_id`.
+ */
+export interface McpTaskHandleObservation extends McpTaskDispatchIdentity {
   readonly mcpTaskId: string;
 }
 
 /**
  * Where an observed task handle lands. The shipped binding is
- * {@link DORMANT_MCP_TASK_HANDLE_SINK}; T5.1 replaces it with the
- * `command_receipts.mcp_task_id` writer once the column's ALTER has shipped.
+ * `McpTaskHandleRecorder.asSink()` (`provider/mcp-task-handle-recorder.ts`).
+ *
+ * Returns `void` deliberately: the recorder bounds, stores, and diagnoses on
+ * its own, and a driver's dispatch path must not fail a turn because a recovery
+ * handle could not be stored.
  */
 export type McpTaskHandleSink = (observation: McpTaskHandleObservation) => void;
-
-/**
- * The DORMANT sink: observes and discards.
- *
- * Deliberately a named export rather than an inline `() => {}` at call sites,
- * so activation is a one-line substitution at the dispatch seam and the
- * dormancy is grep-able. Writing anything here before T5.1 would invent a
- * persistence surface the schema does not have.
- */
-export const DORMANT_MCP_TASK_HANDLE_SINK: McpTaskHandleSink = () => {
-  // Dormant by design (Plan-005 T3.13 phase split, Codex round 3): the
-  // `command_receipts.mcp_task_id` column does not exist until T5.1 lands its
-  // ALTER on Plan-004's `command_receipts` substrate. Recovery for an MCP
-  // receipt therefore stays on the `manual_reconcile_only` halt.
-};
 
 /**
  * Extract the receiver-generated `taskId` from a task-augmented dispatch's
@@ -390,15 +394,14 @@ export function extractMcpTaskId(acceptanceResult: unknown): string | undefined 
  */
 export function observeMcpTaskAcceptance(
   sink: McpTaskHandleSink,
-  serverName: string,
-  toolName: string,
+  dispatch: McpTaskDispatchIdentity,
   acceptanceResult: unknown,
 ): void {
   const mcpTaskId = extractMcpTaskId(acceptanceResult);
   if (mcpTaskId === undefined) {
     return;
   }
-  sink({ serverName, toolName, mcpTaskId });
+  sink({ ...dispatch, mcpTaskId });
 }
 
 // --------------------------------------------------------------------------

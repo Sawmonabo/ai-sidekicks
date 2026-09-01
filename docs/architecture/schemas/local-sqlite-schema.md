@@ -253,11 +253,11 @@ CREATE TABLE command_receipts (
   -- MCP Tasks taskId for a task-augmented MCP call (from the CreateTaskResult acceptance response).
   -- NULL until the receiver accepts — a crash before that leaves NULL and the call stays on the
   -- manual_reconcile_only halt. Spec-015 recovery reads this handle and polls tasks/get + tasks/result
-  -- instead of halting (Plan-005 T5.1, the gated Phase 5 — the T3.13 receipt-write seam ships dormant
-  -- until T5.1 lands this column after Plan-004 Phase 1's CREATE; cross-plan-dependencies.md §1
-  -- command_receipts EXTEND row). Bounded like every persisted provider-declared string (the
-  -- runtime_bindings defense-in-depth convention): the taskId is untrusted remote-peer output, so the
-  -- CHECK bounds the SQLite-expressible part and the T5.1 write seam mirrors the same 256 literal.
+  -- instead of halting (Plan-005 T5.1 — landed by 0017-command-receipt-mcp-task-handle.ts, which also
+  -- activated the T3.13 receipt-write seam; cross-plan-dependencies.md §1 command_receipts EXTEND
+  -- row). Bounded like every persisted provider-declared string (the runtime_bindings defense-in-depth
+  -- convention): the taskId is untrusted remote-peer output, so the CHECK bounds the SQLite-expressible
+  -- part and the T5.1 write seam mirrors the same 256 — in CODE POINTS, the unit length() counts.
   mcp_task_id       TEXT                          -- NULL default; MCP Tasks durable recovery handle
                     CHECK (mcp_task_id IS NULL OR (length(mcp_task_id) > 0 AND length(mcp_task_id) <= 256 AND instr(mcp_task_id, char(0)) = 0)),
   -- Plan-028 EXTEND (additive nullable, own Plan-028 migration): the governed MCP binding this

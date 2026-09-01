@@ -381,6 +381,7 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
       { version: 14 },
       { version: 15 },
       { version: 16 },
+      { version: 17 },
     ]);
   });
 
@@ -409,6 +410,7 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
       { version: 14 },
       { version: 15 },
       { version: 16 },
+      { version: 17 },
     ]);
   });
 
@@ -452,6 +454,7 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
         { version: 14 },
         { version: 15 },
         { version: 16 },
+        { version: 17 },
       ]);
     } finally {
       secondHandle.close();
@@ -737,21 +740,21 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
     ).toBeLessThanOrEqual(FAILURE_THRESHOLD);
 
     // Belt-and-braces verification: every trial's database file must
-    // contain exactly the sixteen expected schema_version rows [1..16]
+    // contain exactly the seventeen expected schema_version rows [1..17]
     // regardless of how many workers succeeded vs blocked. The
     // useDeferred:false worker calls PRODUCTION applyMigrations, so each
-    // trial exercises all sixteen migration blocks.
+    // trial exercises all seventeen migration blocks.
     //
     // What this row-count assertion actually guarantees (claim no more):
     //   * it catches a broken or missing anchor INSERT for the newest
-    //     migration (a v16 migration that failed to write its
+    //     migration (a v17 migration that failed to write its
     //     schema_version row, or wrote the wrong version) — and likewise
-    //     for the v2..v15 anchors, and
+    //     for the v2..v16 anchors, and
     //   * it catches a within-handle double-apply that duplicated any
     //     anchor row, and
     //   * it is a strict strengthening over the old `[1]` assertion (the
     //     assertion evolved [1] → [1, 2] → … → [1..5] → [1..9] → [1..11] →
-    //     … → [1..16] as each migration landed) — it cannot pass anything
+    //     … → [1..17] as each migration landed) — it cannot pass anything
     //     `[1]` would have failed.
     //
     // What it does NOT deterministically catch: a newest-migration-ONLY
@@ -899,7 +902,7 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
           .all() as ReadonlyArray<{ version: number }>;
         expect(
           rows,
-          `trial ${trial.toString()} expected exactly the sixteen migration anchor rows [1..16] (a broken/missing v16 INSERT — the newest migration — or a duplicated anchor row would fail here); got ${JSON.stringify(rows)}`,
+          `trial ${trial.toString()} expected exactly the seventeen migration anchor rows [1..17] (a broken/missing v17 INSERT — the newest migration — or a duplicated anchor row would fail here); got ${JSON.stringify(rows)}`,
         ).toEqual([
           { version: 1 },
           { version: 2 },
@@ -917,6 +920,7 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
           { version: 14 },
           { version: 15 },
           { version: 16 },
+          { version: 17 },
         ]);
       } finally {
         verifier.close();

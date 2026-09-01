@@ -191,6 +191,16 @@ export type DriverProviderName = "codex" | "claude";
  *     carrying an unbounded set would let provider-authored strings size a
  *     client render. What is lost is the choice set, and losing it silently is
  *     what this forbids.
+ *   - `mcp_task_handle_write_refused` — a task-augmented MCP dispatch produced
+ *     a receiver-generated handle that could not be stored on its receipt row:
+ *     the handle failed one of the column's bound conjuncts, the receipt row
+ *     was absent, or the row already carried a DIFFERENT handle. The
+ *     `dispositionReason` names which. Consequence-bearing rather than
+ *     cosmetic: an unstored handle leaves the receipt on the
+ *     `manual_reconcile_only` halt instead of the polling recovery path, so
+ *     this is the only place a lost recovery optimization is visible. The
+ *     handle itself is never carried — refusing an over-bound handle and then
+ *     logging it would defeat the refusal.
  */
 export type DriverDiagnosticKind =
   | "unmapped_wire_kind"
@@ -224,7 +234,8 @@ export type DriverDiagnosticKind =
   | "provider_command_entries_truncated"
   | "provider_command_entry_rejected"
   | "output_speed_state_rejected"
-  | "interactive_request_option_set_dropped";
+  | "interactive_request_option_set_dropped"
+  | "mcp_task_handle_write_refused";
 
 /**
  * One operator-visible daemon diagnostic.
@@ -289,6 +300,7 @@ export const DRIVER_DIAGNOSTIC_COUNTER_NAMES: Readonly<Record<DriverDiagnosticKi
     provider_command_entry_rejected: "driver.provider_commands.entry_rejected",
     output_speed_state_rejected: "driver.output_speed.state_rejected",
     interactive_request_option_set_dropped: "driver.interactive_request.option_set_dropped",
+    mcp_task_handle_write_refused: "driver.mcp_task_handle.write_refused",
   });
 
 // --------------------------------------------------------------------------
