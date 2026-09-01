@@ -3787,7 +3787,12 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // PR #389): Plan-005's T3.15 `Verifies invariant:` row gains I-005-14
     // (the outbound-answer refuse-never-truncate bound) — one more bold
     // resolved reference; the legacy channel is unchanged.
-    bold: { resolved: 995, noneArm: 161, parentResolved: 0 },
+    // 995/161 -> 1022/161 (2026-09-01, NS-97 console-design amendment —
+    // PR #409): Plan-023 gains the Tier-1 supplements Phase 1B (T-023p-1B-1..4)
+    // and Phase 1C (T-023p-1C-1..8), whose `Verifies invariant:` rows carry 27
+    // resolved references to I-023-2 and the four new I-023-11..14; no none-arm
+    // row is added and the legacy channel is untouched.
+    bold: { resolved: 1022, noneArm: 161, parentResolved: 0 },
     legacy: { resolved: 64, noneArm: 3, parentResolved: 1 },
   });
 });
