@@ -1422,7 +1422,7 @@ shipped:
     verifies_invariant: [I-005-2]
     spec_coverage:
       [
-        "Spec-005 §Interfaces And Contracts (the in-daemon `ProviderDriver` interface is the ten ratified ops plus the four B10 parity/auth ops per T1.8 — fourteen-op at this task, sixteen once T3.19 lands the transcript pair, eighteen once T3.26 lands the console-parity pair (2026-08-29); the client `driver.*` namespace exposes the 8 non-lifecycle verbs + `subscribeEvents` per §Phase 4 decision #2)",
+        "Spec-005 §Interfaces And Contracts (the in-daemon `ProviderDriver` interface is the ten ratified ops plus the four B10 parity/auth ops per T1.8 — fourteen-op at this task, sixteen once T3.19 lands the transcript pair, eighteen once T3.26 lands the console-parity pair (2026-08-29); the client `driver.*` namespace at this shipment is the 6 pre-T4.9 non-lifecycle verbs + `subscribeEvents` per §Phase 4 decision #2 — T4.9 (PR #401) adds `compactContext` + `listProviderCommands` for the nine-verb surface)",
         "Spec-005 §Required Behavior (applyIntervention degraded envelope)",
         "Spec-005 §Required Behavior (undeclared = unsupported)",
       ]
