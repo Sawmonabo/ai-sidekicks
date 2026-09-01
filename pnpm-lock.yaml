@@ -92,6 +92,9 @@ importers:
       react-dom:
         specifier: ^19
         version: 19.2.6(react@19.2.6)
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
     devDependencies:
       '@testing-library/dom':
         specifier: ^10.4.1
@@ -109,7 +112,7 @@ importers:
         specifier: catalog:testing
         version: 4.1.5(vitest@4.1.5)
       electron:
-        specifier: ^44.1.0
+        specifier: 44.1.0
         version: 44.1.0
       electron-vite:
         specifier: ^5.0.0
