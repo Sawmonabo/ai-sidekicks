@@ -50,14 +50,16 @@
 // module: a caller that could assert a generation could assert that a stale
 // quota reading or a superseded attention epoch is current.
 //
-// `accountId` is response-only EXCEPT on two selectors that name an account
-// rather than assert one: `ProviderAccountListRequest.accountId` scopes the
-// readiness derivation to a named account, and
-// `ProviderAccountRegisterRequest.accountId` is the token RE-SUPPLY selector.
-// Both are documented in the canonical wire section and in
-// `Spec-029 §Non-interactive token registration`; neither mints an identity,
-// because a supplied id that names no registered account is refused rather than
-// created.
+// `accountId` never mints an identity from a request. Every request that
+// carries it is a selector naming an account the daemon already minted — the
+// required selector on update / remove / set-default / home-reset / probe /
+// login, the optional read scope on `ProviderAccountListRequest.accountId`,
+// and the optional token RE-SUPPLY selector on
+// `ProviderAccountRegisterRequest.accountId` (the one CREATE-shaped verb, so
+// the only place a supplied id could be mistaken for an assertion — documented
+// in the canonical wire section and `Spec-029 §Non-interactive token
+// registration`). A supplied id that names no registered account is refused
+// rather than created.
 //
 // ----------------------------------------------------------------------------
 // Where tolerance lives, and where it must not

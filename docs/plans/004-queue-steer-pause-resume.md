@@ -607,7 +607,31 @@ preconditions:
 
 ```yaml
 manifest_schema_version: 1
-shipped: []
+shipped:
+  - phase: 1
+    task: [T1.1, T1.2, T1.3, T1.4, T1.5, T1.6, T1.7]
+    pr: 402
+    sha: 5cbe1614
+    merged_at: 2026-09-01
+    files:
+      - packages/contracts/src/__tests__/runControl.test.ts
+      - packages/contracts/src/index.ts
+      - packages/contracts/src/runControl.ts
+      - packages/runtime-daemon/src/migrations/0015-queue-and-interventions.ts
+      - packages/runtime-daemon/src/session/__tests__/migration-shape.test.ts
+      - packages/runtime-daemon/src/session/__tests__/session-service.test.ts
+      - packages/runtime-daemon/src/session/migration-runner.ts
+    verifies_invariant: [I-004-1, I-004-2, I-004-4, I-004-22, I-004-23]
+    spec_coverage:
+      [
+        "Spec-004 §Interfaces And Contracts (QueueItemCreate / QueueItemList / QueueItemCancel; InterventionRequest; InterventionResult 6-state + RunStateChange event)",
+        "Spec-004 §State And Data Implications (queue items durable storage + intervention audit records)",
+        "Spec-004 §Required Behavior (pause/resume as orchestration-layer triggers)",
+        "Spec-006 §Run Lifecycle (run_lifecycle)",
+      ]
+    notes: |
+      Phase-1 tasks T1.1-T1.7 shipped as one contracts+migration PR. runControl.ts lands the full Phase-1 contract surface: the QueueItem trio with the Tier-6 workspaceId run-binding field; the InterventionRequestPayload discriminated union including the rollback arm's replacementSend member (registered 2026-08-25, NS-75, so the arm carries no hold); InterventionRequestResponse with the state-split RollbackInterventionResult union (RollbackAppliedResult / RollbackDegradedResult, the class-scoped resendDisposition fragments, the required-and-nullable newestBoundaryPosition on boundary-diverged, rejectionReason required on the rollback rejected arm); RunPauseRequest / RunResumeRequest + RunControlAck; and the RunStateChangeEvent wire projection. Migration 0015 lands queue_items + interventions plus the T1.5 command_receipts forward-declared shell, registered in migration-runner as a guarded per-version block (no contiguity claim - 0016/0017 landed in parallel branches). One codex P1 declined with evidence and pinned in a doc-comment: RunStateChangeEvent is the run.subscribeState WIRE projection (previousState/currentState, no sessionId - the subscription scope carries it), a deliberately distinct shape from the durable Spec-006 run-lifecycle payload owned by Plan-006's SessionEventSchema; the subscription server projects durable to wire. A second round-1 ruling: filesystemPathSchema stays unbounded in length (min(1) + NUL-reject only) because Windows extended-length paths have no 260/4096 bound - byte bounds belong to the framework body-size limit.
+      verifies_invariant = the parse/DDL-level set canonically enforced by this shipment: I-004-1 (queue contracts parse + queue_items durable table), I-004-2 (the response union parses strictly per interventionType - a malformed rollback result fails validation), I-004-4 (the payload union's fail-closed parse), and the database halves of I-004-22 / I-004-23 (the interventions origin CHECK requiring the admitting principal exactly on the participant arm with no DEFAULT, so an unstamped insert fails closed; the queue_items participant-keyed PII envelope columns), all asserted by the migration-shape suite. The declared T1.4 / T1.6 / T1.7 contributions toward I-004-3 / I-004-6 / I-004-7 are behavioral and their canonical suites land with the Phase 2-3 daemon services, so they are recorded against those phases per the Plan-005 Phase-1 precedent. T1.5 declares Verifies: none (structural shell - CP-004-2). Review: codex code review completed with the round-1 folds taken in-diff; CI green on the squash head.
 ```
 
 ### Notes

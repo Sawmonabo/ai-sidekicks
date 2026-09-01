@@ -261,8 +261,11 @@ CREATE TABLE command_receipts (
   -- the same 256 — in CODE POINTS, since length(X) returns "the number of Unicode code points (not bytes)
   -- in input string X prior to the first U+0000 character"
   -- (https://www.sqlite.org/lang_corefunc.html#length). Both halves bind: the first sets the unit, the
-  -- second is why the write seam tests for NUL BEFORE the length bound — a NUL-bearing handle measures
-  -- short and would otherwise be misreported as well-sized. The seam additionally refuses a handle that
+  -- second is why the write seam's single bounded scan reports NUL over size whenever one walk sees
+  -- both within its 256-code-point bound — a NUL-bearing handle measures short to length(X) and would
+  -- otherwise be misreported as well-sized — while a NUL first reachable past that bound reports
+  -- too-long instead: the scan stops at the first terminal fact it meets and never walks more than
+  -- 257 code points of a hostile handle, so refusal cost is bounded. The seam additionally refuses a handle that
   -- is not well-formed Unicode, which the CHECK cannot see: UTF-8 prohibits encoding a lone surrogate
   -- outright ("The definition of UTF-8 prohibits encoding character numbers between U+D800 and U+DFFF",
   -- RFC 3629 §3, https://datatracker.ietf.org/doc/html/rfc3629#section-3), and the standard
@@ -1977,7 +1980,7 @@ Node-local registry of saved sidekick configurations, for [Spec-030](../../specs
 ```sql
 -- Owner: Plan-030
 CREATE TABLE sidekick_definitions (
-  id                     TEXT PRIMARY KEY,  -- daemon-minted opaque immutable definitionId; stable across a rename (I-030-1)
+  id                     TEXT NOT NULL PRIMARY KEY,  -- daemon-minted opaque immutable definitionId; stable across a rename (I-030-1). `NOT NULL` declared explicitly: a TEXT PRIMARY KEY on a rowid table admits NULL (the documented SQLite quirk armored the same way on provider_accounts.account_id above — https://www.sqlite.org/quirks.html#primary_keys_can_sometimes_contain_nulls), and a NULL definitionId keys nothing: attach-by-reference could never resolve it and NULLs compare distinct, so two identity-less rows would both commit.
   name                   TEXT NOT NULL  -- mutable human label; NEVER an identity key on any wire request, stored reference, or audit row
                          CHECK(length(name) > 0 AND length(name) <= 128 AND instr(name, char(0)) = 0),
   name_folded            TEXT NOT NULL,  -- full-Unicode case fold of `name`, computed by the store on every write (I-030-7).
