@@ -587,7 +587,7 @@ preconditions:
   - Files: `packages/contracts/src/provider-driver.ts` (EXTEND T4.2 — SDK-seam schemas); `packages/contracts/src/runControl.ts` (Plan-004-owned — the `RunStateChangeEvent` carrier, a one-time §Ownership Rule Housekeeping Exception touch recorded at §Cross-Plan Amendments, PR #407); `packages/contracts/src/__tests__/provider-driver.test.ts` + `packages/contracts/src/__tests__/runControl.test.ts` (vocabulary-closure suites). _(Erratum 2026-09-01, PR #407: the field originally named `driver-handlers.ts` (EXTEND T4.1) and `providerClient.ts` (EXTEND T4.3) and omitted `runControl.ts` — written when the exposure leg was expected to carry code. The exposure leg ships as no code by this task's own Parity-operation note — no new client-facing verb is minted, and `probeAuth` plus the widened capability read surface through the existing `driver.listCapabilities` cache shipped at T4.1/T4.3/T4.5 — while carrier (2) `RunStateChangeEvent` lives in `runControl.ts`, which P3-4's own four-carrier enumeration always implied. A Files-field alignment with content the task body already carried — the NS-89 erratum class.)_
   - **Spec coverage:** Spec-005 §Interfaces And Contracts (the client-facing `driver.*` surface); Spec-005 §Fallback Behavior (`RecoveryCondition` at every carrying surface)
   - **Verifies invariant:** I-005-4
-  - **P3-4 — `RecoveryCondition` consume (4 carrying surfaces).** The hoisted named `RecoveryCondition` type (`recovery-needed` / `reauth-required`, in [api-payload-contracts.md](../architecture/contracts/api-payload-contracts.md), campaign B3) is **referenced, never re-inlined**, at each of the four contract surfaces that actually carry it (mirroring the type's own canonical carrier enumeration in `api-payload-contracts.md`): (1) the `DriverResumeResult` `failed` variant (**REQUIRED** field — Plan-005 authors this surface at T1.6, and T1.8 re-types it from the shipped single-literal `recovery-needed` to the two-value union, so the carrier is contract-first before this consume); (2) the `RunStateChangeEvent` run-state-change payload (`recoveryCondition?` beside `runVersion` / `previousState` / `currentState`); (3) the `RecoveryStatusReadResponse` recovery-status read surface (`overall` + the per-session `sessions[]` array); and (4) `FailureDetailReadResponse`. `DriverAuthProbeResult` is **NOT** a carrier — its shape is `{ status, detail? }`; mid-run credential expiry maps to `RecoveryCondition: 'reauth-required'` at the carrying surfaces above (the resume `failed` variant / the recovery-status read), never on the probe result itself (the probe reports `unauthenticated`, not a recovery condition). The `reauth-required` widening consumes C-5's mid-run `authentication_failed`. T4.7 is the return-value **contract-test** leg that asserts the `DriverResumeResult.failed` carrier shape — not a recovery dispatcher (dispatch onto `run.failed` is Plan-015's, per CP-005-5).
+  - **P3-4 — `RecoveryCondition` consume (4 carrying surfaces).** The hoisted named `RecoveryCondition` type (`recovery-needed` / `reauth-required`, in [api-payload-contracts.md](../architecture/contracts/api-payload-contracts.md), campaign B3) is **referenced, never re-inlined**, at each of the four contract surfaces that actually carry it (mirroring the type's own canonical carrier enumeration in `api-payload-contracts.md`): (1) the `DriverResumeResult` `failed` variant (**REQUIRED** field — Plan-005 authors this surface at T1.6, and T1.8 re-types it from the shipped single-literal `recovery-needed` to the two-value union, so the carrier is contract-first before this consume); (2) the `RunStateChangeEvent` run-state-change payload (`recoveryCondition?` beside `runVersion` / `previousState` / `currentState`); (3) the `RecoveryStatusReadResponse` recovery-status read surface (`overall` + the per-session `sessions[]` array); and (4) `FailureDetailReadResponse`. `DriverAuthProbeResult` is **NOT** a carrier — its shape is `{ status, detail? }`; mid-run credential expiry maps to `RecoveryCondition: 'reauth-required'` at the carrying surfaces above (the resume `failed` variant / the recovery-status read), never on the probe result itself (the probe reports `unauthenticated`, not a recovery condition). The `reauth-required` widening consumes C-5's mid-run `authentication_failed`. T4.7 is the return-value **contract-test** leg that asserts the `DriverResumeResult.failed` carrier shape — not a recovery dispatcher (dispatch onto `run.failed` is Plan-015's, per CP-005-5). _(Scope note, 2026-09-01, PR #408: the four-carrier enumeration mirrors the type's canonical carrier list in api-payload-contracts.md, not this task's delivery scope. Carriers (1) and (2) are the surfaces this task edits; carriers (3) and (4) are import obligations of the plans that author those files — [cross-plan-dependencies.md §2](../architecture/cross-plan-dependencies.md#2-package-path-ownership-map)'s `packages/contracts/src/recovery/` row (Plan-015 creates the subdirectory at Tier 7, T15.4) and its `packages/contracts/src/health/` row, which records verbatim that `FailureDetailReadResponse` **imports** Plan-005's `RecoveryCondition` + `RecoverySpanClassification` rather than redeclaring them — "not a Plan-005 edit here." T4.8 therefore closes at carriers (1) + (2), delivering the hoisted exported parsers those later imports consume; nothing is scaffolded ahead of its reader.)_
   - **Parity-operation exposure.** No new client-facing `driver.*` verb is minted: the R8 parity operations are daemon-internal, invoked by orchestration on the in-daemon `ProviderRegistry` per §Phase 4 decision #2 (a verb that establishes or mutates session-or-run state stays orchestration-owned so `runtime_bindings` persistence + canonical event emission are never bypassed) — `rollbackTo` is reached through Plan-004's `rollback` intervention (campaign B9) and `setSessionGoal` / `clearSessionGoal` through Plan-016's goal service (campaign B15). `probeAuth` (required of every driver, not capability-gated) and the widened capability read are daemon-internal introspection surfaced through the existing `driver.listCapabilities` cache. The seven methods ratified in 2026-05-27 are unchanged **by that campaign**; the set later grew to nine on 2026-08-29 for two verbs with no existing client route at all (§Phase 4 decision #2), which is the distinction this note turns on rather than an exception to it.
   - Estimate: 1 PR
 
@@ -1523,40 +1523,56 @@ shipped:
     sha: 0dfd38f1
     merged_at: 2026-09-01
     files:
+      - docs/architecture/cross-plan-dependencies.md
+      - docs/plans/005-provider-driver-contract-and-capabilities.md
       - packages/contracts/src/__tests__/provider-driver.test.ts
       - packages/contracts/src/__tests__/runControl.test.ts
       - packages/contracts/src/provider-driver.ts
       - packages/contracts/src/runControl.ts
-    spec_coverage: ["Spec-005 §Fallback Behavior (RecoveryCondition at every carrying surface)"]
+    spec_coverage:
+      [
+        "Spec-005 §Interfaces And Contracts (the client-facing driver.* surface)",
+        "Spec-005 §Fallback Behavior (RecoveryCondition at every carrying surface)",
+      ]
     notes: |
       Phase 4 closes: T4.8 was the one outstanding Phase-4 task after the PR #401
       correction; with it shipped, T4.1-T4.9 are all recorded, and Phase 5 (the T5.1
       remainder) stays the plan's only open phase, still held on the escalated
       Spec-028 MCP-wire governance adjudication - this row closes a phase, not the
       plan. Shipped as the two-carrier consume the ownership map scopes to this plan:
-      RECOVERY_CONDITIONS / RecoveryConditionSchema and RECOVERY_SPAN_CLASSIFICATIONS /
-      RecoverySpanClassificationSchema hoisted in provider-driver.ts with the
-      RecoveryCondition / RecoverySpanClassification types derived from the as-const
-      arrays (the z.ZodType output annotation is covariant - a widening of either
-      union compiled clean, measured with a probe member - so single-sourcing replaces
-      annotation as the mirror guard); DriverResumeResult.failed repointed at the
-      hoisted parsers; and runControl.ts's RunStateChangeEvent carrier repointed off
-      its two module-private mirrors under the cross-plan-dependencies.md Ownership
-      Rule Housekeeping Exception (recorded at this plan's Cross-Plan Amendments,
-      mirrored in the map's Plan-004 entry). Carriers (3) and (4) -
-      RecoveryStatusReadResponse (Plan-015) and FailureDetailReadResponse (Plan-020) -
-      import the hoisted vocabularies when their owning plans author those surfaces;
-      neither directory exists yet and nothing was scaffolded ahead of its reader.
+      packages/contracts/src/provider-driver.ts#RECOVERY_CONDITIONS /
+      #RecoveryConditionSchema and #RECOVERY_SPAN_CLASSIFICATIONS /
+      #RecoverySpanClassificationSchema hoisted with the RecoveryCondition /
+      RecoverySpanClassification types derived from the as-const arrays (the
+      z.ZodType output annotation is covariant - a widening of either union
+      compiled clean, measured with a probe member; the measurement record is the
+      T4.8 comment block above #RECOVERY_CONDITIONS in that file - so
+      single-sourcing replaces annotation as the mirror guard);
+      #DriverResumeResultSchema's failed variant repointed at the hoisted parsers;
+      and packages/contracts/src/runControl.ts#RunStateChangeEventSchema repointed
+      off that file's two module-private mirrors under the Housekeeping Exception
+      at docs/architecture/cross-plan-dependencies.md#ownership-rule (recorded in
+      this plan's own Cross-Plan Amendments section, PR #407 entry, with the
+      (a)-(d) rationale; mirrored in the map's section-2 Plan-004 entry). Carriers
+      (3) and (4) - RecoveryStatusReadResponse (Plan-015) and
+      FailureDetailReadResponse (Plan-020) - are those plans' import obligations,
+      not this task's delivery scope: the map's packages/contracts/src/recovery/
+      row (Plan-015 creates at Tier 7, T15.4) and packages/contracts/src/health/
+      row (which records verbatim that FailureDetailReadResponse imports
+      Plan-005's RecoveryCondition + RecoverySpanClassification rather than
+      redeclaring them - "not a Plan-005 edit here") assign them there, and the
+      T4.8 task body carries the matching dated scope note (2026-09-01). Neither
+      directory exists yet and nothing was scaffolded ahead of its reader.
       verifies_invariant is omitted deliberately: T4.8's declared I-005-4 has its
-      canonical Invariants Test at T4.6 and I-005-5's is T4.7, both already recorded;
-      this PR's suites pin vocabulary closure and the carrier cross-products
-      (membership, cross-vocabulary + free-string refusal, REQUIRED-vs-OPTIONAL axis
-      asymmetry, barrel instance identity), with the widened-array negative control
-      proven before landing (3 test failures while tsc stayed exit 0). Codex round 1:
-      one P1 (cross-plan record location + traceable citations), fixed in-PR alongside
-      the T4.8 Files-field erratum (NS-89 class). Plan-012's plan_phase gate on
-      Plan-005 Phase 4 resolves met with its consumed surface (RunIdSchema, CP-012-3)
-      long shipped.
+      canonical Invariants Test at T4.6 and I-005-5's is T4.7, both already
+      recorded; this PR's suites pin vocabulary closure and the carrier
+      cross-products (membership, cross-vocabulary + free-string refusal,
+      REQUIRED-vs-OPTIONAL axis asymmetry, barrel instance identity), with the
+      widened-array negative control proven before landing (3 test failures while
+      tsc stayed exit 0). Codex round 1 on PR #407: one P1 (cross-plan record
+      location + traceable citations), fixed in-PR alongside the T4.8 Files-field
+      erratum (NS-89 class). Plan-012's plan_phase gate on Plan-005 Phase 4
+      resolves met with its consumed surface (RunIdSchema, CP-012-3) long shipped.
 ```
 
 ### Notes
