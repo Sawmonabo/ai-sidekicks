@@ -71,6 +71,10 @@ Phase 4 (SDK exposure):
 - `packages/client-sdk/src/providerClient.ts` — `createDaemonProviderClient(JsonRpcClient): DriverClient` factory
 - `packages/client-sdk/src/providerClient.test.ts` — SDK conformance + degraded-fallback unit tests
 
+### Touched but not owned
+
+- `packages/contracts/src/runControl.ts` (owned by [Plan-004](./004-queue-steer-pause-resume.md)) — T4.8 deletes that file's two module-private `recoveryConditionSchema` / `recoverySpanClassificationSchema` mirrors and imports this plan's hoisted exported parsers instead (`RecoveryConditionSchema` / `RecoverySpanClassificationSchema` from `provider-driver.ts`), so the `RunStateChangeEvent` carrier references the single-sourced vocabularies rather than restating their values. The file's own comment named its superseding condition — the mirrors existed only because no exported schema was available upstream. Zero behavior change (identical value sets, Housekeeping-Exception class); `ExecutionPosture` keeps its module-private parser there, since it carries no exported upstream schema and is not a T4.8 carrier surface. No other edit to the file.
+
 ## Data And Storage Changes
 
 Four SQLite tables ship in Phase 2 (Plan-005-owned per cross-plan-dependencies.md §1):

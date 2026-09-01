@@ -1060,7 +1060,37 @@ export const DriverInterventionResultSchema: z.ZodType<
 // Widening at the SCHEMA rather than at the consumer is what makes this
 // contract-first: T3.14's mid-run `reauth-required` route and T4.8's carrier
 // consume become expressible here instead of dead-lettering at parse.
-export type RecoveryCondition = "recovery-needed" | "reauth-required";
+//
+// T4.8 — ONE list, derived rather than restated, because the annotation the
+// carriers previously leaned on does not guard the direction this union
+// actually moves. `z.ZodType` is COVARIANT in its output, so a `z.enum`
+// narrower than the union still satisfies a `z.ZodType<RecoveryCondition>`
+// annotation. Measured on this workspace's toolchain: widening the union by a
+// third member left `tsc -b --force` at zero errors here AND in `runControl.ts`,
+// while narrowing it produced two TS2375s. Widening is the direction the corpus
+// took (`recovery-needed` -> `+ reauth-required`), and its failure mode is a new
+// condition dead-lettering at parse at whichever carrier was not updated with
+// it. Deriving the type from the values deletes the second list that made that
+// drift expressible.
+export const RECOVERY_CONDITIONS = ["recovery-needed", "reauth-required"] as const;
+
+export type RecoveryCondition = (typeof RECOVERY_CONDITIONS)[number];
+
+// Exported so every carrier REFERENCES this parser instead of restating its
+// values (`Plan-005 §Phase 4 — Client SDK exposure + degraded-fallback` T4.8 P3-4). Four surfaces carry the condition: the
+// `DriverResumeResult` `failed` variant below (REQUIRED), the
+// `RunStateChangeEvent` projection in `runControl.ts` (optional), and — when
+// their owning plans author them — Plan-015's `RecoveryStatusReadResponse` and
+// Plan-020's `FailureDetailReadResponse`, which
+// `cross-plan-dependencies.md §2 Package-Path Ownership Map` binds to IMPORT
+// this symbol rather than redeclare it.
+//
+// `z.ZodType` rather than the `z.ZodEnum<...>` form `VerifierFailureModeSchema`
+// carries: no consumer derives from the enum surface here, and the narrower
+// annotation is that symbol's own stated default. The value set is reachable
+// through `RECOVERY_CONDITIONS`, which is the single source either way.
+export const RecoveryConditionSchema: z.ZodType<RecoveryCondition, RecoveryCondition> =
+  z.enum(RECOVERY_CONDITIONS);
 
 // `RecoverySpanClassification` — the SIBLING classification of the halted span's
 // CONTENT. Orthogonal to `RecoveryCondition` above: that axis names WHY the run
@@ -1076,17 +1106,31 @@ export type RecoveryCondition = "recovery-needed" | "reauth-required";
 // makes tiered auto-resolution (auto-resolve `read_only` / `idempotent_write`,
 // always halt `irreversible`) a future POLICY flip rather than a schema change.
 //
-// A plain literal union, NOT a `const`-array-derived one like
-// `DRIVER_CAPABILITY_FLAGS`: that array exists because a migration CHECK list, a
-// write-seam cardinality guard, and test fixtures all read the values at
-// RUNTIME. This union has no runtime consumer — the `z.enum` below restates it
-// in lockstep, the same discipline `RecoveryCondition` already follows — so a
-// const array here would be a runtime symbol nothing reads.
-export type RecoverySpanClassification =
-  | "read_only"
-  | "idempotent_write"
-  | "irreversible"
-  | "unclassifiable";
+// `const`-array-derived, like `RECOVERY_CONDITIONS` above and
+// `DRIVER_CAPABILITY_FLAGS` below. This was a plain literal union until T4.8, on
+// the stated premise that it had no runtime consumer and a const array would be
+// a runtime symbol nothing reads. The premise no longer holds: the exported
+// parser below reads it, and so does every carrier referencing that parser. The
+// lockstep the premise rested on was never enforced in the widening direction
+// either — see `RECOVERY_CONDITIONS` for the measurement.
+export const RECOVERY_SPAN_CLASSIFICATIONS = [
+  "read_only",
+  "idempotent_write",
+  "irreversible",
+  "unclassifiable",
+] as const;
+
+export type RecoverySpanClassification = (typeof RECOVERY_SPAN_CLASSIFICATIONS)[number];
+
+// The sibling parser, exported on the same ground and referenced at the same
+// four carriers. `unclassifiable` is a MEMBER rather than an absence, so a
+// driver that cannot classify the span still parses; the fail-closed handling
+// rule — treat it exactly as `irreversible` — is the consumer's obligation and
+// not something a value set can enforce.
+export const RecoverySpanClassificationSchema: z.ZodType<
+  RecoverySpanClassification,
+  RecoverySpanClassification
+> = z.enum(RECOVERY_SPAN_CLASSIFICATIONS);
 //
 // Return shape of `ProviderDriver.resumeSession()`. Zod-validated because it
 // parses UNTRUSTED provider output. The discriminated union over `status` makes
@@ -1150,11 +1194,11 @@ export const DriverResumeResultSchema: z.ZodType<DriverResumeResult, DriverResum
     z
       .object({
         status: z.literal("failed"),
-        // T1.8 re-type: was `z.literal("recovery-needed")` at T1.6. Kept in
-        // lockstep with the `RecoveryCondition` union above — a `z.enum` over the
-        // same two values, so a driver reporting `reauth-required` parses here
-        // instead of being rejected as a protocol violation.
-        recoveryCondition: z.enum(["recovery-needed", "reauth-required"]),
+        // T1.8 re-type: was `z.literal("recovery-needed")` at T1.6. REFERENCES
+        // the hoisted parser (T4.8 P3-4) rather than restating its two values, so
+        // a condition added to `RECOVERY_CONDITIONS` reaches this carrier by
+        // construction instead of dead-lettering at parse right here.
+        recoveryCondition: RecoveryConditionSchema,
         // REQUIRED on this LIVE driver return — unlike the OPTIONAL form the
         // replay-visible carriers take, whose optionality exists only to admit
         // pre-amendment history. A resume failure is produced FRESH at resume
@@ -1162,14 +1206,9 @@ export const DriverResumeResultSchema: z.ZodType<DriverResumeResult, DriverResum
         // optionality to admit. A driver that cannot classify the span emits
         // `unclassifiable` (which the consumer must handle exactly as
         // `irreversible`), so OMISSION is a schema failure rather than a silent
-        // "unknown". Restated in lockstep with the `RecoverySpanClassification`
-        // union above, the same discipline as `recoveryCondition`.
-        recoverySpanClassification: z.enum([
-          "read_only",
-          "idempotent_write",
-          "irreversible",
-          "unclassifiable",
-        ]),
+        // "unknown". Referenced from the hoisted parser above, the same
+        // discipline as `recoveryCondition`.
+        recoverySpanClassification: RecoverySpanClassificationSchema,
         // The cap is generous (`DRIVER_FAILURE_DETAIL_MAX_LEN = 32768`) so a
         // legitimate verbose detail (wrapped upstream stack trace / nested-cause
         // chain) is not suppressed — `Spec-005 §Fallback Behavior` MANDATES this detail surface. A
