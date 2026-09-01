@@ -234,6 +234,7 @@ describe("provider-account contract <-> DDL conformance", () => {
       billing_mode: "billingMode",
       is_default: "isDefault",
       health_state: "healthState",
+      health_observed_at: "healthObservedAt",
       observed_auth_mode: "observedAuthMode",
       logged_in_at: "loggedInAt",
       observed_account_email: "observedAccountEmail",
@@ -246,8 +247,6 @@ describe("provider-account contract <-> DDL conformance", () => {
     const COLUMNS_WITH_NO_ACCOUNT_MEMBER: Readonly<Record<string, string>> = {
       credential_home_path:
         "the home reaches an operator only through the readiness remedy's sign-in arm; on every surface a session participant can reach, this names a column and nothing else",
-      health_observed_at:
-        "surfaced as the readiness entry's observation timestamp, beside the state it belongs to, rather than duplicated onto the account record",
       last_refresh_observed_at:
         "an input to the re-login estimate; the wire carries the estimate, not its inputs",
       removal_intent:
@@ -376,11 +375,17 @@ describe("provider-account contract <-> DDL conformance", () => {
       // stamp exists to carry.
       expect(stampColumn?.notnull).toBe(1);
       expect(stampColumn?.dflt_value).toBeNull();
-      // The stamp deliberately carries NO CHECK of its own: it mirrors an
-      // account's generation, which the parent table already floors, and the
-      // FK-backed relationship is what keeps it meaningful. Asserted rather
-      // than left silent so a later floor here is a deliberate addition.
-      expect(numericFloorOf(usageWindowsSql, "observed_credential_generation")).toBeNull();
+      // The stamp carries the SAME floor, read out of the live DDL and compared
+      // to the exported constant the wire parser enforces. Mirroring the parent's
+      // generation is not on its own enough: the FK constrains which account a
+      // reading belongs to and says nothing about the value stamped on it, so a
+      // writer could record a generation below the floor for an account whose own
+      // column could never hold one — a stamp naming a generation that never
+      // existed, matching no account state, rendering its reading permanently
+      // stale rather than refusing at write time.
+      expect(numericFloorOf(usageWindowsSql, "observed_credential_generation")).toBe(
+        CREDENTIAL_GENERATION_MIN,
+      );
     });
   });
 

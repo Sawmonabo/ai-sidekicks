@@ -3877,9 +3877,11 @@ describe("0014-console-parity-capability-flags migration shape", () => {
 // rather than merely discouraged, so the tests that matter here are the
 // refusals: a second default for one provider, two accounts sharing one
 // credential home, a half-populated stored health observation, and a
-// non-positive credential generation. All four are enforced by the database —
-// two unique indexes and two CHECKs — and each is exercised beside a positive
-// control, so a refusal can never pass because the statement was broken.
+// non-positive credential generation, a NULL account identity, and a
+// non-positive generation stamp on a stored quota reading. All six are enforced
+// by the database — two unique indexes, three CHECKs, and one NOT NULL — and each
+// is exercised beside a positive control, so a refusal can never pass because the
+// statement was broken.
 //
 // Shape-checkable spec/invariant cites:
 //   * I-029-2 — `credential_generation` starts at 1 and never resets. The DDL
@@ -3893,14 +3895,24 @@ describe("0014-console-parity-capability-flags migration shape", () => {
 //   * I-029-13 — quota readings key on `(account_id, limit_id)` with the window
 //     length an ATTRIBUTE, so one account can hold several limits that share a
 //     window length.
+//   * I-029-1 — the account identity is daemon-minted, opaque, and immutable. A
+//     NULL identity is none of those, and SQLite admits one in a `TEXT PRIMARY
+//     KEY` on a rowid table unless `NOT NULL` is declared.
 //
-// ENCODING DRIFT, settled doc-side in this same PR (2026-08-31). Two of those
-// four constraints — uniqueness on `credential_home_path` and the floor CHECK on
-// `credential_generation` — were named by the plan and by its T1.2 test row but
-// were absent from the canonical DDL this migration transcribes. The plan is the
-// ratified authority and the table has never shipped, so the canonical block was
-// corrected and this migration re-mirrored, rather than the assertions inverted
-// to match an encoding gap.
+// ENCODING DRIFT, settled doc-side in this same PR (2026-08-31). Four of those
+// six constraints were absent from the canonical DDL this migration transcribes.
+// Two were named by the plan and by its T1.2 test row and simply missing from the
+// encoding — uniqueness on `credential_home_path` and the floor CHECK on
+// `credential_generation`. Two more were found by the 2026-08-31 Codex round and
+// settled the same way rather than differently: `account_id` was declared
+// `TEXT PRIMARY KEY` with no `NOT NULL`, which on a rowid table admits NULL and
+// admits two NULLs as distinct, since the key is a unique index and NULLs compare
+// distinct inside one; and `observed_credential_generation` carried no floor at
+// all, though it is compared against the parent's generation and against the
+// wire's own floored `CredentialGenerationSchema`. The plan is the ratified
+// authority and neither table has ever shipped, so the canonical block was
+// corrected and this migration re-mirrored — one ordinal, no supersession —
+// rather than the assertions inverted to match an encoding gap.
 describe("0016-provider-accounts migration shape", () => {
   let db: DatabaseType;
 
@@ -3962,7 +3974,7 @@ describe("0016-provider-accounts migration shape", () => {
     ).toEqual([
       // Daemon-minted, opaque, immutable — never derived from credential
       // material, an email, or a filesystem path (I-029-1).
-      { name: "account_id", type: "TEXT", notnull: 0, dflt_value: null, pk: 1 },
+      { name: "account_id", type: "TEXT", notnull: 1, dflt_value: null, pk: 1 },
       { name: "provider", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
       { name: "display_label", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
       { name: "credential_home_path", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
@@ -4106,6 +4118,30 @@ describe("0016-provider-accounts migration shape", () => {
         .prepare("UPDATE provider_accounts SET credential_generation = 0 WHERE account_id = ?")
         .run("gen-floor"),
     ).toThrow(/CHECK constraint failed/);
+  });
+
+  it("refuses a NULL account identity (I-029-1)", () => {
+    // A `TEXT PRIMARY KEY` on a rowid table admits NULL unless NOT NULL is
+    // declared — a documented SQLite compatibility quirk — and because the key is
+    // a unique index in which NULLs compare distinct, TWO identity-less rows would
+    // both commit. Positive control first, so the refusal below cannot pass
+    // because the statement was broken.
+    expect(() => insertAccount({ account_id: "identity-present" })).not.toThrow();
+
+    expect(() =>
+      insertAccount({
+        account_id: null,
+        credential_home_path: "/var/lib/sidekicks/homes/identity-absent",
+      }),
+    ).toThrow(/NOT NULL constraint failed/);
+
+    // And the UPDATE path, which is how an identity would be erased rather than
+    // never written: `account_id` is immutable, and NULL is not an exception.
+    expect(() =>
+      db
+        .prepare("UPDATE provider_accounts SET account_id = NULL WHERE account_id = ?")
+        .run("identity-present"),
+    ).toThrow(/NOT NULL constraint failed/);
   });
 
   it("refuses a second default for one provider and admits one per provider (I-029-5)", () => {
@@ -4346,6 +4382,48 @@ describe("0016-provider-accounts migration shape", () => {
     expect(() =>
       insertWindow.run("no-such-account", "l1", 300, 1, "2026-08-31T00:00:00.000Z", 1, "probe"),
     ).toThrow(/FOREIGN KEY constraint failed/);
+  });
+
+  it("refuses a non-positive generation stamp on a stored quota reading", () => {
+    // The stamp is compared against the parent account's generation and against
+    // the wire's floored `CredentialGenerationSchema`, so it takes the same floor.
+    // The foreign key constrains which ACCOUNT a reading belongs to and says
+    // nothing about the VALUE stamped on it: without this CHECK a writer could
+    // record a generation for an account whose own column could never hold one,
+    // and the reading would render permanently stale instead of refusing here.
+    insertAccount({ account_id: "stamp-floor" });
+    const insertWindow = db.prepare(
+      `INSERT INTO provider_account_usage_windows
+         (account_id, limit_id, window_mins, used_percent, observed_at,
+          observed_credential_generation, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    );
+    // Positive controls first: the floor itself, and a generation well above it.
+    expect(() =>
+      insertWindow.run("stamp-floor", "l1", 300, 1, "2026-08-31T00:00:00.000Z", 1, "probe"),
+    ).not.toThrow();
+    expect(() =>
+      insertWindow.run("stamp-floor", "l2", 300, 1, "2026-08-31T00:00:00.000Z", 4096, "probe"),
+    ).not.toThrow();
+
+    expect(() =>
+      insertWindow.run("stamp-floor", "l3", 300, 1, "2026-08-31T00:00:00.000Z", 0, "probe"),
+    ).toThrow(/CHECK constraint failed/);
+    expect(() =>
+      insertWindow.run("stamp-floor", "l4", 300, 1, "2026-08-31T00:00:00.000Z", -1, "probe"),
+    ).toThrow(/CHECK constraint failed/);
+
+    // The UPDATE path too: a stored reading's stamp is rewritten whenever a newer
+    // observation replaces it, so the floor has to bind that write as well.
+    expect(() =>
+      db
+        .prepare(
+          `UPDATE provider_account_usage_windows
+             SET observed_credential_generation = 0
+           WHERE account_id = ? AND limit_id = ?`,
+        )
+        .run("stamp-floor", "l1"),
+    ).toThrow(/CHECK constraint failed/);
   });
 
   it("takes an account's readings with it when the account is deregistered", () => {

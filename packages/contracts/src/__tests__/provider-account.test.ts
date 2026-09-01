@@ -71,6 +71,7 @@ function validAccount(overrides: Record<string, unknown> = {}): Record<string, u
     billingMode: "subscription",
     isDefault: true,
     healthState: "authenticated",
+    healthObservedAt: TIMESTAMP,
     observedAuthMode: "oauth_subscription",
     loggedInAt: TIMESTAMP,
     expectedReloginAtEstimate: null,
@@ -206,6 +207,42 @@ describe("ProviderAccount record", () => {
     const withoutEstimate = validAccount();
     delete withoutEstimate["expectedReloginAtEstimate"];
     expect(ProviderAccountSchema.safeParse(withoutEstimate).success).toBe(false);
+  });
+
+  it("carries the stored observation as a PAIR, so a fresh indeterminate is not a never-observed one", () => {
+    // The defect this member closes: with `healthState` alone, an account that
+    // has never been observed and one whose probe genuinely could not decide are
+    // the same value on the wire, and every non-default account in a list reply
+    // carries a state with no age at all (readiness is derived per PROVIDER from
+    // the resolved account, so its `observedAt` covers one account per provider).
+    const neverObserved = validAccount({
+      healthState: "indeterminate",
+      healthObservedAt: null,
+    });
+    const probedAndUndecided = validAccount({
+      healthState: "indeterminate",
+      healthObservedAt: TIMESTAMP,
+    });
+    expect(ProviderAccountSchema.safeParse(neverObserved).success).toBe(true);
+    expect(ProviderAccountSchema.safeParse(probedAndUndecided).success).toBe(true);
+    expect(neverObserved["healthObservedAt"]).not.toEqual(probedAndUndecided["healthObservedAt"]);
+
+    // Required-shape and nullable, matching the DDL pair and the four members
+    // beside it: an omitted member would make "never observed" and "the producer
+    // forgot" the same wire value, which is the collapse this member undoes.
+    const withoutObservedAt = validAccount();
+    delete withoutObservedAt["healthObservedAt"];
+    expect(ProviderAccountSchema.safeParse(withoutObservedAt).success).toBe(false);
+
+    // The same offset-bearing RFC 3339 rule the module's other timestamps take.
+    expect(
+      ProviderAccountSchema.safeParse(validAccount({ healthObservedAt: "2026-08-31" })).success,
+    ).toBe(false);
+    expect(
+      ProviderAccountSchema.safeParse(
+        validAccount({ healthObservedAt: "2026-08-31T00:00:00+02:00" }),
+      ).success,
+    ).toBe(true);
   });
 
   it("rejects a whitespace-only or NUL-bearing display label", () => {
@@ -529,6 +566,51 @@ describe("request/response pairs", () => {
         accountId: "",
       }).success,
     ).toBe(false);
+
+    // NEITHER member is required on its own: an ordinary registration carries
+    // no token, and a token with no `accountId` is the ordinary token-mode
+    // registration of a NEW account. Only the combination is constrained, so
+    // both of these stay admissible.
+    expect(
+      ProviderAccountRegisterRequestSchema.safeParse({
+        provider: "claude",
+        displayLabel: "Personal",
+        billingMode: "subscription",
+      }).success,
+    ).toBe(true);
+    expect(
+      ProviderAccountRegisterRequestSchema.safeParse({
+        provider: "claude",
+        displayLabel: "Personal",
+        billingMode: "subscription",
+        nonInteractiveToken: "sk-example-token",
+      }).success,
+    ).toBe(true);
+
+    // ...but the selector alone is REFUSED. A re-supply with nothing to supply
+    // is neither a registration nor a replacement, and admitting it would leave
+    // the intent to be guessed by a handler — the cheap guess being a silent
+    // no-op reported as a successful registration.
+    const selectorAlone = ProviderAccountRegisterRequestSchema.safeParse({
+      provider: "claude",
+      displayLabel: "Personal",
+      billingMode: "subscription",
+      accountId: ACCOUNT_ID,
+    });
+    expect(selectorAlone.success).toBe(false);
+    if (selectorAlone.success) {
+      throw new Error("unreachable — the selector-alone request must not parse");
+    }
+    // Refused against the member the caller must ADD, not against the id, which
+    // is not the mistake.
+    expect(selectorAlone.error.issues.map((issue) => issue.path.join("."))).toContain(
+      "nonInteractiveToken",
+    );
+    expect(
+      selectorAlone.error.issues.some((issue) =>
+        issue.message.includes("must also carry nonInteractiveToken"),
+      ),
+    ).toBe(true);
   });
 
   it("refuses a partial success on the remove response", () => {
@@ -574,6 +656,39 @@ describe("request/response pairs", () => {
       ProviderAccountNotificationSchema.safeParse({ kind: "account_probed", accountId: ACCOUNT_ID })
         .success,
     ).toBe(false);
+  });
+
+  it("refuses a usage-window notification whose reading contradicts its routing key", () => {
+    // The outer `accountId` routes; `window.accountId` is part of the reading.
+    // Both are registered members and both are carried deliberately, so the
+    // constraint is EQUALITY rather than the removal of either: a consumer
+    // keying off the outer member would file this reading under an account it
+    // does not describe, and one keying off the inner member would ignore the
+    // routing the daemon performed.
+    const mismatched = ProviderAccountNotificationSchema.safeParse({
+      kind: "usage_window_updated",
+      accountId: ACCOUNT_ID,
+      window: validUsageWindow({ accountId: OTHER_ACCOUNT_ID }),
+    });
+    expect(mismatched.success).toBe(false);
+    if (mismatched.success) {
+      throw new Error("unreachable — a contradictory usage-window notification must not parse");
+    }
+    // Refused against the half that contradicts the envelope it arrived in.
+    expect(mismatched.error.issues.map((issue) => issue.path.join("."))).toContain(
+      "window.accountId",
+    );
+
+    // The negative control for the assertion above: the same notification with
+    // the two halves agreeing parses, so the refusal is the mismatch and not the
+    // shape.
+    expect(
+      ProviderAccountNotificationSchema.safeParse({
+        kind: "usage_window_updated",
+        accountId: OTHER_ACCOUNT_ID,
+        window: validUsageWindow({ accountId: OTHER_ACCOUNT_ID }),
+      }).success,
+    ).toBe(true);
   });
 });
 
@@ -702,6 +817,14 @@ describe("I-029-11 — one credential-accepting input, zero credential-bearing o
     expect(collectMemberNames(ProviderAccountListResponseSchema)).toContain("signInInvocation");
     // A member nested inside a DISCRIMINATED union arm — the notification shape.
     expect(collectMemberNames(ProviderAccountNotificationSchema)).toContain("failureReason");
+    // And a member reachable ONLY through an arm carrying a cross-field
+    // refinement. The two shapes in this module that refuse a contradictory
+    // combination do so with `.superRefine`, which returns the object schema
+    // itself rather than wrapping it; were that ever to change, the walker would
+    // stop at the wrapper and every count above would silently go vacuous for
+    // exactly those shapes. `usedPercent` lives inside `usage_window_updated`,
+    // the refined arm, so this assertion fails the moment that happens.
+    expect(collectMemberNames(ProviderAccountNotificationSchema)).toContain("usedPercent");
 
     // And the detector itself fires on each of the names it is meant to catch.
     for (const forbidden of [

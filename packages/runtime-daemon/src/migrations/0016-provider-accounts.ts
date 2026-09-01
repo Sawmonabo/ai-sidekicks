@@ -18,14 +18,18 @@
 // the doc's markdown backticks (this constant is a template literal, so an
 // unescaped backtick would end the string, and no migration in this directory
 // escapes one -- every shipped migration writes identifiers bare inside SQL
-// comments), then ignore this file's own scaffolding, which the doc has no
-// counterpart for: the `-- Owner: ... | Migration: ...` provenance line, the two
-// `-- ---` section banners, and the trailing `schema_version` INSERT. After
-// those, exactly one difference remains, and it is deliberate: the doc's
-// identity-column comment closes with three lines recording WHEN the three
-// observed-identity columns were added and which review found them missing.
-// That is corpus provenance rather than a constraint on the column, so the
-// comment here stops at "never carried on an error."
+// comments), then ignore the provenance and scaffolding lines on each side.
+// The `-- Owner:` line is scaffolding on BOTH sides and is filtered from both:
+// the doc opens each of its two fenced blocks with `-- Owner: Plan-029`, and
+// this file opens its single constant with the longer
+// `-- Owner: ... | Migration: ...` form. The rest is this file's alone, and the
+// doc has no counterpart for it: the two `-- ---` section banners and the
+// trailing `schema_version` INSERT. After those, exactly one difference
+// remains, and it is deliberate: the doc's identity-column comment closes with
+// three lines recording WHEN the three observed-identity columns were added and
+// which review found them missing. That is corpus provenance rather than a
+// constraint on the column, so the comment here stops at "never carried on an
+// error."
 //
 // ----------------------------------------------------------------------------
 // Why one ordinal for two tables and every column
@@ -56,7 +60,7 @@
 // ADR-028 D2 token lives in the ADR-021 ladder's store. There is therefore no
 // column here to leak, to log, or to shred.
 //
-// The four constraints that make an invariant unrepresentable rather than merely
+// The six constraints that make an invariant unrepresentable rather than merely
 // intended:
 //   * `provider_accounts_one_default_per_provider` — a PARTIAL unique index, so
 //     two concurrent set-default calls on one provider cannot both commit. In
@@ -78,6 +82,17 @@
 //     asserts. A zero or negative generation sorts BEFORE a freshly registered
 //     account, so a reading stamped with one would read as newer than the
 //     account it describes and invert the staleness comparison it exists for.
+//   * `account_id TEXT NOT NULL PRIMARY KEY` — NOT NULL declared rather than
+//     inherited. A `TEXT PRIMARY KEY` on a rowid table admits NULL, and the key
+//     is a unique index in which NULLs compare distinct, so two identity-less
+//     rows would both commit. A NULL identity keys nothing: the account-plane
+//     key is unmatchable, the child table's cascade never fires for it, and the
+//     credential home derived from it cannot be attributed back.
+//   * `CHECK(observed_credential_generation >= 1)` — the same floor on the quota
+//     row's stamp, which is compared against the parent's generation and against
+//     the wire's `CredentialGenerationSchema`. A stamp below 1 names a
+//     generation that never existed, so it matches no account state and renders
+//     its reading permanently stale instead of refusing at write time.
 //
 // Ordering against every earlier version is FREE: both tables are new, neither
 // is referenced by any earlier migration's `REFERENCES` clause, and no earlier
@@ -99,7 +114,7 @@ export const PROVIDER_ACCOUNTS_MIGRATION_SQL: string = `
 -- or shred.
 -- ---------------------------------------------------------------------------
 CREATE TABLE provider_accounts (
-  account_id            TEXT PRIMARY KEY,  -- daemon-minted opaque immutable identity; never derived from credential material (Spec-029 §Account identity and credential generation)
+  account_id            TEXT NOT NULL PRIMARY KEY,  -- daemon-minted opaque immutable identity; never derived from credential material (Spec-029 §Account identity and credential generation). NOT NULL is declared explicitly because a TEXT PRIMARY KEY on a rowid table admits NULL — a documented SQLite compatibility quirk, not a design choice — and the primary key is implemented as a unique index in which NULLs compare distinct, so two identity-less rows would both commit. A NULL identity keys nothing: (account_id, credential_generation) becomes unmatchable, the child table's ON DELETE CASCADE never fires for it, and the credential home derived from it cannot be attributed back. Declared here rather than relied upon from WITHOUT ROWID, which this table is not.
   provider              TEXT NOT NULL
                         CHECK(provider IN ('claude', 'codex')),  -- the same closed driver-id union the MCP governance tables use
   display_label         TEXT NOT NULL,  -- operator-chosen label for disambiguation in the UI; free text, treated as participant-adjacent PII (Spec-022 §PII Data Map)
@@ -175,7 +190,8 @@ CREATE TABLE provider_account_usage_windows (
                 CHECK(used_percent >= 0),  -- utilization at observed_at. NOT capped at 100: a provider may report over-consumption against a soft limit, and clamping would silently misreport it. The renderer clamps for display; the store records what was observed.
   resets_at     TEXT,  -- RFC 3339 UTC when this window resets, where the provider supplies it; NULL where it does not. NULL means unknown, never "now" and never "never".
   observed_at   TEXT NOT NULL,  -- RFC 3339 UTC of the reading. This is the ordering key: where two readings key alike the later observed_at is current, and source breaks only exact ties. Ordering by arrival or by a source preference would let a stale reading mask real consumption.
-  observed_credential_generation INTEGER NOT NULL,  -- the account's credential_generation when this reading was taken, mirroring the member the account-scoped quota event already carries. A credential-home rebuild does NOT delete these rows — a quota window describes the provider-side allowance, which keeps running while a home sits empty — so this stamp is what lets a consumer render a pre-rebuild reading as stale rather than as current (Spec-029 §Per-limit provider quota). Contrast the health pair on the parent row, which a generation bump invalidates outright, because that pair describes the home itself.
+  observed_credential_generation INTEGER NOT NULL
+                CHECK(observed_credential_generation >= 1),  -- the account's credential_generation when this reading was taken, mirroring the member the account-scoped quota event already carries. A credential-home rebuild does NOT delete these rows — a quota window describes the provider-side allowance, which keeps running while a home sits empty — so this stamp is what lets a consumer render a pre-rebuild reading as stale rather than as current (Spec-029 §Per-limit provider quota). Contrast the health pair on the parent row, which a generation bump invalidates outright, because that pair describes the home itself. The CHECK carries the same floor the parent row's credential_generation and the wire's CredentialGenerationSchema both enforce, so the stamp cannot be written outside the range of the values it claims to compare against: a stamp below 1 names a generation that never existed, matches no account state, and would render its reading permanently stale rather than legibly refusing at write time.
   source        TEXT NOT NULL
                 CHECK(source IN ('probe', 'run')),  -- which sanctioned source produced the reading: the deliberate probe verb, or the account-scoped quota event emitted from real traffic. The background health observer is NOT a source and no third value exists, because reading quota on one pinned provider leg traverses a path documented to refresh proactively — which Spec-029 §Credential-home health observation forbids the observer to do.
   PRIMARY KEY (account_id, limit_id)

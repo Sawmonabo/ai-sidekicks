@@ -358,6 +358,24 @@ export interface ProviderAccount {
   /** Exactly one per provider, enforced by a partial unique index (I-029-5). */
   isDefault: boolean;
   healthState: ProviderAccountHealthState;
+  /**
+   * The OTHER HALF of the stored observation pair — `health_observed_at`, which
+   * the table-level `CHECK ((health_state IS NULL) = (health_observed_at IS
+   * NULL))` holds set and cleared together with the reading it timestamps.
+   *
+   * `null` means no observation has ever been recorded for this account, which
+   * is the one thing `healthState` alone cannot say: a never-observed account
+   * and a probe that could not decide both project `indeterminate`, and only
+   * this member separates them.
+   *
+   * It rides the account record rather than only `ProviderReadiness.observedAt`
+   * because readiness is derived per PROVIDER from the resolved account, so
+   * every non-default account in a list reply — and every `account_changed`
+   * notification, which carries this shape — would otherwise carry a state with
+   * no age and no surface could apply a freshness test. Carried verbatim from
+   * the column; never re-derived, and never substituted from `updated_at`.
+   */
+  healthObservedAt: string | null;
   /** `null` until a health observation has named a mode. */
   observedAuthMode: ProviderAuthMode | null;
   /**
@@ -406,6 +424,7 @@ export const ProviderAccountSchema: z.ZodType<ProviderAccount, ProviderAccount> 
     ).optional(),
     isDefault: z.boolean(),
     healthState: ProviderAccountHealthStateSchema,
+    healthObservedAt: z.iso.datetime({ offset: true }).nullable(),
     // `.nullable()` and NOT `.optional()`: the canonical shape types these as
     // `T | null`, so the member is always present and its absence of an
     // observation is spelled explicitly. An optional member would make
@@ -710,6 +729,16 @@ export interface ProviderAccountRegisterRequest {
    * A supplied id that names no registered account is REFUSED, never created,
    * so this member cannot be used to assert an identity of the caller's
    * choosing (I-029-1).
+   *
+   * NEVER ADMITTED ALONE. A re-supply with nothing to supply is not a request
+   * this verb can serve: it is not a registration (an identity already exists)
+   * and not a replacement (no token accompanies it). Admitting it would leave
+   * the caller's intent to be guessed downstream, and the cheapest guess is the
+   * wrong one — a silent no-op reported as a successful registration. This
+   * member's presence therefore REQUIRES `nonInteractiveToken`, refused at the
+   * parse boundary rather than in a handler. The converse is deliberately
+   * unconstrained: a token with no `accountId` is the ordinary token-mode
+   * registration of a new account.
    */
   accountId?: ProviderAccountId | undefined;
   /**
@@ -756,7 +785,24 @@ export const ProviderAccountRegisterRequestSchema: z.ZodType<
       "ProviderAccountRegisterRequest.nonInteractiveToken",
     ).optional(),
   })
-  .strict();
+  .strict()
+  // `accountId` is the RE-SUPPLY selector, so it is meaningless without the
+  // value being re-supplied. The two members stay independently optional at the
+  // field level because either may legitimately be absent on its own; only the
+  // combination is constrained, which is a cross-field rule and therefore lives
+  // here rather than on either member. Refused against `nonInteractiveToken`:
+  // that is the member the caller must add, and the id it names is not the
+  // mistake.
+  .superRefine((request, ctx) => {
+    if (request.accountId !== undefined && request.nonInteractiveToken === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["nonInteractiveToken"],
+        message:
+          "accountId selects an account whose sealed token is to be replaced, so a request carrying it must also carry nonInteractiveToken; omit accountId to register a new account instead.",
+      });
+    }
+  });
 
 export interface ProviderAccountRegisterResponse {
   account: ProviderAccount;
@@ -1115,7 +1161,27 @@ export const ProviderAccountNotificationSchema: z.ZodType<ProviderAccountNotific
         accountId: ProviderAccountIdSchema,
         window: ProviderAccountUsageWindowSchema,
       })
-      .strict(),
+      .strict()
+      // The outer `accountId` is the ROUTING key; `window.accountId` is part of
+      // the reading. Both are carried deliberately — the list reply's
+      // `usageWindows` entries carry the same member, so a live update and a
+      // snapshot row key alike — and a notification whose reading names a
+      // different account than its envelope is not routable in either
+      // direction: a consumer keying off the outer member files the reading
+      // under an account it does not describe, and one keying off the inner
+      // member ignores the routing the daemon performed. Refused against
+      // `window.accountId`, the half that contradicts the envelope it arrived
+      // in.
+      .superRefine((notification, ctx) => {
+        if (notification.window.accountId !== notification.accountId) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["window", "accountId"],
+            message:
+              "usage_window_updated carries a reading for a different account than the notification routes to; window.accountId must equal the notification's accountId.",
+          });
+        }
+      }),
   ]);
 
 // --------------------------------------------------------------------------
