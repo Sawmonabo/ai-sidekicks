@@ -379,6 +379,7 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
       { version: 12 },
       { version: 13 },
       { version: 14 },
+      { version: 15 },
     ]);
   });
 
@@ -405,6 +406,7 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
       { version: 12 },
       { version: 13 },
       { version: 14 },
+      { version: 15 },
     ]);
   });
 
@@ -446,6 +448,7 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
         { version: 12 },
         { version: 13 },
         { version: 14 },
+        { version: 15 },
       ]);
     } finally {
       secondHandle.close();
@@ -840,6 +843,21 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
     //     story) or a "duplicate column name" throw on the ALTERs (the v7
     //     story), both of which land in the worker-failure count above rather
     //     than here.
+    //   * v15 (`QUEUE_AND_INTERVENTIONS_MIGRATION_SQL`) — the three CREATE
+    //     TABLEs, their four indexes, and the version-15 INSERT are one script,
+    //     one `.exec()`. Holds. Re-derived rather than incremented: v15 creates
+    //     THREE tables where v10 created two, and its pair is linked by an
+    //     in-row reference (`queue_items.admitting_intervention_id` naming an
+    //     `interventions` row) that is deliberately NOT an FK, so SQLite would
+    //     raise nothing on a torn apply. The failure mode that adds is a loser
+    //     landing the anchor row with `queue_items` present and `interventions`
+    //     absent — a schema where every per-table shape assertion on the
+    //     surviving table passes while the admission transaction that writes
+    //     both rows cannot be written at all. It cannot happen for the same
+    //     single-`.exec()` reason: the whole script commits or none of it does.
+    //     A lost guard turns a re-apply into a hard "table already exists"
+    //     throw on the first CREATE (the v8 story), which lands in the
+    //     worker-failure count above rather than here.
     // A future migration that committed its anchor row separately from its
     // DDL would invalidate this paragraph rather than merely extend it —
     // re-derive it, do not increment it.
@@ -853,7 +871,7 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
           .all() as ReadonlyArray<{ version: number }>;
         expect(
           rows,
-          `trial ${trial.toString()} expected exactly the fourteen migration anchor rows [1..14] (a broken/missing v14 INSERT — the newest migration — or a duplicated anchor row would fail here); got ${JSON.stringify(rows)}`,
+          `trial ${trial.toString()} expected exactly the fifteen migration anchor rows [1..15] (a broken/missing v15 INSERT — the newest migration — or a duplicated anchor row would fail here); got ${JSON.stringify(rows)}`,
         ).toEqual([
           { version: 1 },
           { version: 2 },
@@ -869,6 +887,7 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
           { version: 12 },
           { version: 13 },
           { version: 14 },
+          { version: 15 },
         ]);
       } finally {
         verifier.close();
