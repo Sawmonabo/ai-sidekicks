@@ -182,22 +182,22 @@ const runCounterSchema: z.ZodNumber = z.number().int().nonnegative();
 //
 // Deliberately NOT `wireFreeFormString`: that helper rejects whitespace-only
 // values, and a repository entry named with a single space is legal on POSIX,
-// so using it here would turn a real restore into a parse failure. The two
-// guards that CANNOT falsely refuse are applied instead — a length ceiling
-// above every platform's PATH_MAX, and NUL rejection (no filesystem admits a
-// NUL in a path component).
+// so using it here would turn a real restore into a parse failure. The only
+// guard that CANNOT falsely refuse is applied instead — NUL rejection (no
+// filesystem admits a NUL in a path component).
 //
-// Cardinality is deliberately UNBOUNDED wherever this composes into an array.
-// Spec-010 §Turn-Boundary Snapshots requires both restore enumerations to be
-// never-silent; capping the array count would make a large-but-legitimate
-// restore fail parse, which is the one outcome the never-silent mandate
-// forbids. Byte bounds belong to the framework layer's body-size limit, not to
-// a cap that can refuse a truthful result.
-const FILESYSTEM_PATH_MAX_LEN = 4096;
+// Both length and cardinality are deliberately UNBOUNDED. Spec-010
+// §Turn-Boundary Snapshots requires both restore enumerations to be
+// never-silent; a per-path length ceiling would make a valid
+// extended-length Windows path (\\?\ prefix — no 260/4096 bound) or a
+// deep POSIX tree fail parse, and an array-count cap would refuse a
+// large-but-legitimate restore — either way discarding the only report of
+// overwritten files or divergent gitlinks, which is the one outcome the
+// never-silent mandate forbids. Byte bounds belong to the framework layer's
+// body-size limit, not to a cap that can refuse a truthful result.
 const filesystemPathSchema: z.ZodString = z
   .string()
   .min(1)
-  .max(FILESYSTEM_PATH_MAX_LEN)
   .refine((value) => !value.includes("\0"), {
     message: "Filesystem path MUST NOT contain a NUL byte.",
   });
@@ -839,6 +839,16 @@ const recoverySpanClassificationSchema: z.ZodType<RecoverySpanClassification> = 
   "unclassifiable",
 ]);
 
+// The `run.subscribeState` WIRE projection (api-payload-contracts.md
+// §Plan-004 — Queue Steer Pause Resume), deliberately distinct from the
+// durable `run_lifecycle` payload of `Spec-006 §Run Lifecycle
+// (run_lifecycle)` (`{sessionId, runId, runVersion, previousState,
+// newState, channelId?, ...}` — Zod home: the `SessionEventSchema` variants
+// in `event.ts`, Plan-006). The subscription server projects the durable
+// row into this shape: `sessionId` is carried by the subscription scope
+// (`RunStateSubscribeRequest`), not repeated per event, and the canonical
+// wire member is `currentState`. The durable payload is NOT expected to
+// validate through this schema.
 export interface RunStateChangeEvent {
   runId: RunId;
   // Run-progression counter (D-004-1): the optimistic-concurrency comparand
