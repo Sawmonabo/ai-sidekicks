@@ -6018,6 +6018,19 @@ interface ProviderAccount {
   observedAccountOrgName?: string;
   isDefault: boolean; // exactly one per provider, enforced by a partial unique index (I-029-5)
   healthState: ProviderAccountHealthState;
+  // The OTHER HALF of the stored observation pair (`provider_accounts.health_observed_at`, whose
+  // table-level CHECK holds the two set and cleared together). Required-shape and nullable on the
+  // reading the four members below take: `null` means no observation has ever been recorded for this
+  // account. That is exactly the case a bare `healthState` cannot express — a never-observed account
+  // and a probe that genuinely could not decide both project `indeterminate`, and only the timestamp
+  // separates them: `null` for the first, a time for the second. It rides the ACCOUNT ROW rather than
+  // only `ProviderReadiness.observedAt` because readiness is derived per PROVIDER from the resolved
+  // account, so every non-default account in a list reply — and every `account_changed` notification,
+  // which carries this shape — would otherwise carry a state with no age at all and no surface could
+  // apply the freshness test the stored reading exists to support. Carried VERBATIM from the column,
+  // never re-derived and never defaulted to `updated_at`: a registry read still spawns no provider
+  // process, and a display-label edit must not read as a fresh authentication observation.
+  healthObservedAt: string | null;
   // The four members below land with the 2026-08-26 sign-in amendment. Each is nullable-by-absence
   // rather than defaulted: an unobserved fact is reported as unobserved, never as a value the
   // daemon has not seen. `ProviderAccount` has not shipped, so these are required-shape additions
@@ -6210,6 +6223,15 @@ interface ProviderAccountRegisterRequest {
   // keyed to the account the operator is trying to repair. A successful replacement bumps
   // `credentialGeneration` and re-runs the registration-time observation. The credential-accepting
   // input census is unmoved at exactly one: this adds a selector, not a second credential input.
+  //
+  // NEVER ADMITTED ALONE. `accountId` names a re-supply, and a re-supply with nothing to supply is
+  // not a request this verb can serve: it is not a registration (an identity already exists) and not
+  // a replacement (no token accompanies it), so admitting it would leave the caller's intent to be
+  // guessed by a handler — and the guess a strict parser makes cheap is the wrong one, since the only
+  // reading that touches nothing is a silent no-op reported as success. `accountId` present therefore
+  // REQUIRES `nonInteractiveToken` present, enforced at the parse boundary and refused against the
+  // absent member. The converse is deliberately unconstrained: a token with no `accountId` is the
+  // ordinary token-mode registration of a new account, which is the shape this verb was written for.
   accountId?: ProviderAccountId;
   // THE ONE CREDENTIAL-ACCEPTING INPUT ON THIS WIRE (ADR-028 D2; Spec-029 §Non-interactive token
   // registration). Optional: omitted is the ordinary registration, and the account authenticates
@@ -6387,6 +6409,14 @@ type ProviderAccountNotification =
       outcome: "succeeded" | "failed" | "cancelled";
       failureReason?: string;
     }
+  // The outer `accountId` is the ROUTING key and `window.accountId` is part of the reading itself.
+  // Both are carried deliberately — the list reply's `usageWindows` entries carry the same member, so
+  // a live update and a snapshot row key alike — and they MUST be EQUAL. A notification whose reading
+  // names a different account than its routing key is not a routable update in either direction: a
+  // consumer keying off the outer member files the reading under an account it does not describe, and
+  // one keying off the inner member ignores the routing the daemon performed. Enforced at the parse
+  // boundary rather than left to each consumer to re-check, and refused against `window.accountId`,
+  // which is the half that contradicts the envelope it arrived in.
   | {
       kind: "usage_window_updated";
       accountId: ProviderAccountId;

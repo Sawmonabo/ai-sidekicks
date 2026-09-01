@@ -23,10 +23,14 @@
 // `migrations/0012-transcript-capability-backfill.ts`); version 13 by
 // Plan-006 (`migrations/0013-content-payload.ts`); version 14 by Plan-005
 // (`migrations/0014-console-parity-capability-flags.ts`); version 15 by
-// Plan-004 (`migrations/0015-queue-and-interventions.ts`). Subsequent plans
-// (015, 022...) — and Plan-006's own remaining migrations — register their
-// version as a further guarded block of the same shape and bump
-// `schema_version`.
+// Plan-004 (`migrations/0015-queue-and-interventions.ts`); version 16 by
+// Plan-029 (`migrations/0016-provider-accounts.ts`). The runner needs no
+// contiguity — every version is an independently guarded block keyed on its own
+// `schema_version` row, and `hasMigrationApplied` asks about one version rather
+// than about a maximum — so the two were safely authored in parallel rather
+// than in sequence. Subsequent plans — and Plan-006's own remaining
+// migrations — register their version as a further guarded block of the same
+// shape and bump `schema_version`.
 //
 // Version ORDER is load-bearing between 6 and 7 only in the trivial sense that
 // both touch `session_events`; they are independent otherwise (6 adds an index
@@ -101,6 +105,7 @@ import { TRANSCRIPT_CAPABILITY_BACKFILL_MIGRATION_SQL } from "../migrations/0012
 import { CONTENT_PAYLOAD_MIGRATION_SQL } from "../migrations/0013-content-payload.js";
 import { CONSOLE_PARITY_CAPABILITY_FLAGS_MIGRATION_SQL } from "../migrations/0014-console-parity-capability-flags.js";
 import { QUEUE_AND_INTERVENTIONS_MIGRATION_SQL } from "../migrations/0015-queue-and-interventions.js";
+import { PROVIDER_ACCOUNTS_MIGRATION_SQL } from "../migrations/0016-provider-accounts.js";
 
 /**
  * Apply pragmas to an open Database handle. MUST be called on every
@@ -401,6 +406,32 @@ export function applyMigrations(db: DatabaseType): void {
     db.transaction(() => {
       if (!hasMigrationApplied(db, 15)) {
         db.exec(QUEUE_AND_INTERVENTIONS_MIGRATION_SQL);
+      }
+    }).immediate();
+  }
+
+  if (!hasMigrationApplied(db, 16)) {
+    // Version 16 (Plan-029) — the node-local provider-account registry
+    // (`provider_accounts`, plus the two unique indexes that make a second
+    // default per provider and a shared credential home unrepresentable) and its
+    // per-limit quota-window store (`provider_account_usage_windows`).
+    //
+    // Order-independent of every earlier version in the strong sense: both
+    // tables are new, neither is named by any earlier migration's `REFERENCES`
+    // clause, and no earlier table is read, rebuilt, or backfilled here — it
+    // follows version 15 by ordinal alone, the two having been authored in
+    // parallel under the header's no-contiguity rule.
+    //
+    // Atomicity is what makes the two tables one version rather than two: the
+    // child's `REFERENCES provider_accounts(account_id) ON DELETE CASCADE` is
+    // resolved by SQLite at DML time rather than at CREATE time, so a torn apply
+    // that landed the child alone would surface as `no such table` at the first
+    // window write instead of at migration time — gated on a version marker that
+    // never arrived. Like versions 9 through 14 it cannot be re-applied by hand:
+    // the CREATEs would throw "table already exists".
+    db.transaction(() => {
+      if (!hasMigrationApplied(db, 16)) {
+        db.exec(PROVIDER_ACCOUNTS_MIGRATION_SQL);
       }
     }).immediate();
   }

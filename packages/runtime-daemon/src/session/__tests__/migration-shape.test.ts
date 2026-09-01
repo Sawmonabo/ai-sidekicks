@@ -69,7 +69,8 @@ const PLAN_001_TABLES: ReadonlyArray<string> = [
 // version-13 `session_content_keys` — plus the two Plan-009 version-10 tables
 // `repo_mounts` and `workspaces`, plus the three Plan-004 version-15 tables
 // `queue_items`, `interventions`, and the forward-declared `command_receipts`
-// shell).
+// shell, plus the two Plan-029 version-16 tables `provider_accounts` and
+// `provider_account_usage_windows`).
 // Version 11 (Plan-005) moves this census by ZERO: it rebuilds
 // `driver_capabilities` in place to widen a column CHECK, and the transient
 // `driver_capabilities_new` is renamed over the original within the same
@@ -77,10 +78,12 @@ const PLAN_001_TABLES: ReadonlyArray<string> = [
 // Alphabetical by SQLite's `ORDER BY name` — BINARY collation, so
 // `_` (0x5F) sorts before every lowercase letter and
 // `run_execution_contexts` precedes `runtime_bindings`, while `workspaces`
-// precedes `worktrees` on the fifth byte (`s` 0x73 < `t` 0x74). Kept
-// separate from `PLAN_001_TABLES` so the snapshot loop's 0001-immutability
-// guard is unaffected by the 0002 / 0003 / 0004 / 0005 / 0008 / 0010 / 0015
-// additions.
+// precedes `worktrees` on the fifth byte (`s` 0x73 < `t` 0x74). The same
+// rule puts `provider_account_usage_windows` BEFORE `provider_accounts`:
+// the two share the prefix `provider_account`, and the next byte is `_`
+// (0x5F) against `s` (0x73). Kept separate from `PLAN_001_TABLES` so the
+// snapshot loop's 0001-immutability guard is unaffected by the 0002 / 0003 /
+// 0004 / 0005 / 0008 / 0010 / 0015 / 0016 additions.
 const ALL_EXPECTED_TABLES: ReadonlyArray<string> = [
   "branch_contexts",
   "command_receipts",
@@ -94,6 +97,8 @@ const ALL_EXPECTED_TABLES: ReadonlyArray<string> = [
   "node_trust_state",
   "participant_keys",
   "pending_anchor_uploads",
+  "provider_account_usage_windows",
+  "provider_accounts",
   "queue_items",
   "repo_mounts",
   "run_execution_contexts",
@@ -143,7 +148,7 @@ describe("0001-initial migration shape", () => {
     const rows = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
       .all() as ReadonlyArray<{ name: string }>;
-    // After version-15 the DB holds the full twenty-two-table set:
+    // After version-16 the DB holds the full twenty-four-table set:
     // the four Plan-001 tables, the two Plan-003 tables (node_capabilities,
     // node_trust_state), the four Plan-005 tables (runtime_bindings,
     // driver_capabilities, driver_tools, driver_contract_meta), the four
@@ -151,11 +156,12 @@ describe("0001-initial migration shape", () => {
     // run_execution_contexts), the two Plan-006 tables
     // (daemon_signing_keys at v5, pending_anchor_uploads at v8), the two
     // Plan-009 tables (repo_mounts, workspaces at v10), the third Plan-006
-    // table (session_content_keys at v13), and the three Plan-004 tables
-    // (queue_items, interventions, command_receipts at v15). Versions 11 and 12
-    // rebuild and backfill driver_capabilities rather than adding anything, so
-    // this list is also the assertion that version 11's transient
-    // `driver_capabilities_new` did not survive the rename.
+    // table (session_content_keys at v13), the three Plan-004 tables
+    // (queue_items, interventions, command_receipts at v15), and the two
+    // Plan-029 tables (provider_accounts, provider_account_usage_windows at
+    // v16). Versions 11 and 12 rebuild and backfill driver_capabilities rather
+    // than adding anything, so this list is also the assertion that version
+    // 11's transient `driver_capabilities_new` did not survive the rename.
     expect(rows.map((r) => r.name)).toEqual(ALL_EXPECTED_TABLES);
   });
 
@@ -202,7 +208,7 @@ describe("0001-initial migration shape", () => {
     expect(byName.get("monotonic_ns")?.notnull).toBe(1);
   });
 
-  it("anchors schema_version rows at versions [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]", () => {
+  it("anchors schema_version rows at versions [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]", () => {
     // The `ORDER BY version` is load-bearing: without it the row order is
     // insertion-order luck and the assertion would silently stop pinning
     // which versions landed.
@@ -210,7 +216,7 @@ describe("0001-initial migration shape", () => {
       .prepare("SELECT version FROM schema_version ORDER BY version")
       .all() as ReadonlyArray<{ version: number }>;
     expect(versionRows.map((r) => r.version)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
     ]);
   });
 
@@ -218,7 +224,7 @@ describe("0001-initial migration shape", () => {
     // Second invocation must be a no-op (the migration runner short-
     // circuits via hasMigrationApplied per version). Re-running must not
     // throw, must not double-insert any schema_version anchor row, must
-    // not duplicate tables. Fourteen DISTINCT versions [1..14] is not
+    // not duplicate tables. Sixteen DISTINCT versions [1..16] is not
     // duplication.
     //
     // Version 7 makes this arm strictly load-bearing rather than a
@@ -248,13 +254,16 @@ describe("0001-initial migration shape", () => {
     // Version 15 carries version 8's stakes three times over: three unguarded
     // `CREATE TABLE`s, so a guard regression throws "table already exists" on
     // the first of them rather than quietly re-running.
+    // Version 16 restores version 8's and 10's stakes: two `CREATE TABLE`s and
+    // two `CREATE UNIQUE INDEX`es, none spelled with an `IF NOT EXISTS`, so a
+    // guard regression throws on whichever it reaches first.
     applyMigrations(db);
     const versionRows = db
       .prepare("SELECT version FROM schema_version ORDER BY version")
       .all() as ReadonlyArray<{ version: number }>;
-    expect(versionRows).toHaveLength(15);
+    expect(versionRows).toHaveLength(16);
     expect(versionRows.map((r) => r.version)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
     ]);
   });
 });
@@ -4304,6 +4313,673 @@ describe("0015-queue-and-interventions migration shape", () => {
     expect(versionRows).toHaveLength(1);
     expect(versionRows[0]?.description).toBe(
       "Queue and intervention tables (queue_items, interventions, command_receipts forward-declared shell)",
+    );
+  });
+});
+
+// Plan-029 T1.2 + T1.4 — version-16 migration-shape coverage.
+//
+// The registry's whole design intent is that six states are UNREPRESENTABLE
+// rather than merely discouraged, so the tests that matter here are the
+// refusals: a second default for one provider, two accounts sharing one
+// credential home, a half-populated stored health observation, a non-integral
+// or non-positive credential generation, a NULL account identity, and a
+// non-integral or non-positive generation stamp on a stored quota reading.
+// All six are enforced by the database — two unique indexes, three CHECKs, and
+// one NOT NULL — and each is exercised beside a positive control, so a refusal
+// can never pass because the statement was broken. Two of the three CHECKs pin a
+// STORAGE CLASS as well as a floor, because `INTEGER` is an affinity: SQLite
+// converts a bound REAL only where the conversion is lossless, so `1.5` would
+// otherwise store as REAL and satisfy `>= 1`.
+//
+// Shape-checkable spec/invariant cites:
+//   * I-029-2 — `credential_generation` starts at 1 and never resets. The DDL
+//     carries both halves the schema can express: `DEFAULT 1` for the start and
+//     `CHECK(typeof(credential_generation) = 'integer' AND credential_generation
+//     >= 1)` for the floor and for the storage class a divisible counter would
+//     otherwise slip through.
+//   * I-029-8 — sharing a credential home is never a fallback. Two accounts
+//     naming one home would share its credentials, which a total unique index
+//     refuses; T1.2 names this invariant as one of the two it verifies.
+//   * I-029-5 — exactly one default per provider, enforced by the schema and
+//     not by application code.
+//   * I-029-13 — quota readings key on `(account_id, limit_id)` with the window
+//     length an ATTRIBUTE, so one account can hold several limits that share a
+//     window length.
+//   * I-029-1 — the account identity is daemon-minted, opaque, and immutable. A
+//     NULL identity is none of those, and SQLite admits one in a `TEXT PRIMARY
+//     KEY` on a rowid table unless `NOT NULL` is declared.
+//
+// ENCODING DRIFT, settled doc-side in this same PR (2026-08-31). Four of those
+// six constraints were absent from the canonical DDL this migration transcribes.
+// Two were named by the plan and by its T1.2 test row and simply missing from the
+// encoding — uniqueness on `credential_home_path` and the floor CHECK on
+// `credential_generation`. Two more were found by the 2026-08-31 Codex round and
+// settled the same way rather than differently: `account_id` was declared
+// `TEXT PRIMARY KEY` with no `NOT NULL`, which on a rowid table admits NULL and
+// admits two NULLs as distinct, since the key is a unique index and NULLs compare
+// distinct inside one; and `observed_credential_generation` carried no floor at
+// all, though it is compared against the parent's generation and against the
+// wire's own floored `CredentialGenerationSchema`. The plan is the ratified
+// authority and neither table has ever shipped, so the canonical block was
+// corrected and this migration re-mirrored — one ordinal, no supersession —
+// rather than the assertions inverted to match an encoding gap.
+describe("0016-provider-accounts migration shape", () => {
+  let db: DatabaseType;
+
+  beforeEach(() => {
+    db = new Database(":memory:");
+    applyPragmas(db);
+    applyMigrations(db);
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  interface ColumnInfo {
+    readonly name: string;
+    readonly type: string;
+    readonly notnull: 0 | 1;
+    readonly dflt_value: string | null;
+    readonly pk: number;
+  }
+
+  function columnsOf(table: string): ReadonlyArray<ColumnInfo> {
+    return db.pragma(`table_info(${table})`) as ReadonlyArray<ColumnInfo>;
+  }
+
+  function insertAccount(overrides: Partial<Record<string, unknown>> = {}): void {
+    const accountId = (overrides["account_id"] as string | undefined) ?? "account-1";
+    const row: Record<string, unknown> = {
+      account_id: accountId,
+      provider: "claude",
+      display_label: "Personal",
+      // Derived from the id rather than fixed: `credential_home_path` is a
+      // UNIQUE key, so a shared default would make every later refusal in a
+      // multi-row test ambiguous between the constraint it names and this one.
+      // A collision here is therefore only ever deliberate.
+      credential_home_path: `/var/lib/sidekicks/homes/${accountId}`,
+      billing_mode: "subscription",
+      is_default: 0,
+      created_at: "2026-08-31T00:00:00.000Z",
+      updated_at: "2026-08-31T00:00:00.000Z",
+      ...overrides,
+    };
+    const columnNames = Object.keys(row);
+    db.prepare(
+      `INSERT INTO provider_accounts (${columnNames.join(", ")})
+       VALUES (${columnNames.map((name) => `@${name}`).join(", ")})`,
+    ).run(row);
+  }
+
+  it("creates the registry with the canonical column shape", () => {
+    expect(
+      columnsOf("provider_accounts").map((entry) => ({
+        name: entry.name,
+        type: entry.type,
+        notnull: entry.notnull,
+        dflt_value: entry.dflt_value,
+        pk: entry.pk,
+      })),
+    ).toEqual([
+      // Daemon-minted, opaque, immutable — never derived from credential
+      // material, an email, or a filesystem path (I-029-1).
+      { name: "account_id", type: "TEXT", notnull: 1, dflt_value: null, pk: 1 },
+      { name: "provider", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
+      { name: "display_label", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
+      { name: "credential_home_path", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
+      // DEFAULT 1 is I-029-2's "starts at 1" expressed in the schema.
+      { name: "credential_generation", type: "INTEGER", notnull: 1, dflt_value: "1", pk: 0 },
+      { name: "billing_mode", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
+      { name: "is_default", type: "INTEGER", notnull: 1, dflt_value: "0", pk: 0 },
+      // The stored health PAIR: both nullable, and the table-level CHECK below
+      // is what keeps them set and cleared together.
+      { name: "health_state", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
+      { name: "health_observed_at", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
+      { name: "observed_auth_mode", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
+      { name: "last_refresh_observed_at", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
+      { name: "logged_in_at", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
+      // Provider-REPORTED identity, independently nullable — a provider may
+      // report any subset and an absent value stays absent.
+      { name: "observed_account_email", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
+      { name: "observed_account_org_id", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
+      { name: "observed_account_org_name", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
+      { name: "removal_intent", type: "INTEGER", notnull: 1, dflt_value: "0", pk: 0 },
+      // Default-ON: an account nobody observes is an account whose stored
+      // reading silently ages, so silence never silences the observer.
+      { name: "probe_enabled", type: "INTEGER", notnull: 1, dflt_value: "1", pk: 0 },
+      { name: "created_at", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
+      { name: "updated_at", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
+    ]);
+  });
+
+  it("carries no column that could hold credential material", () => {
+    // I-029-11's storage half, asserted by NAME rather than by reading the
+    // header: the registry stores the identity of an account, where its home
+    // lives, and how it bills — never a token, a refresh token, a cookie, or a
+    // keystore payload. A column added later whose name says otherwise fails
+    // here before it can fail in an incident.
+    const forbiddenSubstrings = ["token", "secret", "password", "credential_value", "api_key"];
+    const columnNames = [
+      ...columnsOf("provider_accounts").map((entry) => entry.name),
+      ...columnsOf("provider_account_usage_windows").map((entry) => entry.name),
+    ];
+    for (const columnName of columnNames) {
+      for (const forbidden of forbiddenSubstrings) {
+        expect(columnName).not.toContain(forbidden);
+      }
+    }
+    // Negative control: the checker is capable of failing. `credential_home_path`
+    // and `credential_generation` are the two `credential`-prefixed columns that
+    // legitimately exist, so `credential` itself is deliberately not a forbidden
+    // substring — and a hypothetical `credential_value` column would trip.
+    expect(forbiddenSubstrings.some((forbidden) => "credential_value".includes(forbidden))).toBe(
+      true,
+    );
+  });
+
+  it("registers the partial unique index that makes a second default unrepresentable", () => {
+    const indexRow = db
+      .prepare("SELECT name, sql FROM sqlite_master WHERE type='index' AND name = ?")
+      .get("provider_accounts_one_default_per_provider") as
+      | { name: string; sql: string }
+      | undefined;
+    expect(indexRow?.name).toBe("provider_accounts_one_default_per_provider");
+    // PARTIAL — the `WHERE is_default = 1` predicate is what admits many
+    // non-default rows per provider while admitting exactly one default.
+    expect(indexRow?.sql).toMatch(/ON provider_accounts\(provider\)/);
+    expect(indexRow?.sql).toMatch(/WHERE is_default = 1/);
+  });
+
+  it("registers the total unique index that makes a shared credential home unrepresentable", () => {
+    const indexRow = db
+      .prepare("SELECT name, sql FROM sqlite_master WHERE type='index' AND name = ?")
+      .get("provider_accounts_unique_credential_home") as { name: string; sql: string } | undefined;
+    expect(indexRow?.name).toBe("provider_accounts_unique_credential_home");
+    expect(indexRow?.sql).toMatch(/ON provider_accounts\(credential_home_path\)/);
+    // TOTAL, deliberately: this index carries no WHERE predicate and is not
+    // scoped to one provider. Two providers pointed at one home is the same
+    // collision, because the path is what the spawn environment carries either
+    // way — a partial or provider-scoped index would admit exactly that.
+    expect(indexRow?.sql).not.toMatch(/WHERE/);
+    expect(indexRow?.sql).not.toMatch(/provider_accounts\(provider/);
+  });
+
+  it("refuses a second account naming one credential home (I-029-8)", () => {
+    const sharedHome = "/var/lib/sidekicks/homes/shared";
+    insertAccount({ account_id: "home-owner", credential_home_path: sharedHome });
+
+    // Positive control: a DIFFERENT home for the same provider is admitted, so
+    // the refusal below is the path colliding and not the provider repeating.
+    expect(() =>
+      insertAccount({
+        account_id: "home-neighbour",
+        credential_home_path: "/var/lib/sidekicks/homes/neighbour",
+      }),
+    ).not.toThrow();
+
+    expect(() =>
+      insertAccount({ account_id: "home-squatter", credential_home_path: sharedHome }),
+    ).toThrow(/UNIQUE constraint failed/);
+
+    // And across providers, which is the arm a provider-scoped index would miss:
+    // one home holds one provider's credentials, so a codex account pointed at a
+    // claude account's home would run against credentials it never registered.
+    expect(() =>
+      insertAccount({
+        account_id: "cross-provider-squatter",
+        provider: "codex",
+        credential_home_path: sharedHome,
+      }),
+    ).toThrow(/UNIQUE constraint failed/);
+
+    // An UPDATE onto an occupied home is refused too — the rule binds every
+    // writer, not only the insert path. A re-home is a real operation, so the
+    // index has to hold on the path that performs it.
+    expect(() =>
+      db
+        .prepare("UPDATE provider_accounts SET credential_home_path = ? WHERE account_id = ?")
+        .run(sharedHome, "home-neighbour"),
+    ).toThrow(/UNIQUE constraint failed/);
+  });
+
+  it("refuses a non-positive credential generation (I-029-2)", () => {
+    // Positive controls first: the floor admits its own boundary and everything
+    // above it. Ordered ahead of the refusals so a committed row can never make
+    // a later refusal ambiguous.
+    expect(() =>
+      insertAccount({ account_id: "gen-floor", credential_generation: 1 }),
+    ).not.toThrow();
+    expect(() =>
+      insertAccount({ account_id: "gen-high", credential_generation: 97 }),
+    ).not.toThrow();
+
+    expect(() => insertAccount({ account_id: "gen-zero", credential_generation: 0 })).toThrow(
+      /CHECK constraint failed/,
+    );
+    expect(() => insertAccount({ account_id: "gen-negative", credential_generation: -1 })).toThrow(
+      /CHECK constraint failed/,
+    );
+
+    // The storage-class half, which the `INTEGER` declaration does NOT buy: the
+    // column type is an AFFINITY, so without the `typeof` conjunct `1.5` is
+    // stored as REAL, passes `>= 1`, and makes a counter that only ever moves up
+    // divisible — two bumps could land on `1.5` and `1.75` and order by fraction
+    // rather than by generation.
+    expect(() => insertAccount({ account_id: "gen-fraction", credential_generation: 1.5 })).toThrow(
+      /CHECK constraint failed/,
+    );
+    // And the non-regression controls that keep the conjunct NARROW. These go
+    // through SQL literals rather than bound parameters on purpose: JavaScript
+    // has one number type, so `2.0` and `2` are the same value and a bound
+    // parameter could not express an integral REAL at all. Written as a literal,
+    // SQLite parses `2.0` as REAL, INTEGER affinity converts it losslessly, and
+    // the row is admitted — so the conjunct refuses exactly the values that were
+    // never generations and breaks no legitimate write.
+    const generationOf = (accountId: string): unknown =>
+      db
+        .prepare(
+          "SELECT credential_generation AS value, typeof(credential_generation) AS storageClass" +
+            " FROM provider_accounts WHERE account_id = ?",
+        )
+        .get(accountId);
+    expect(() =>
+      db.exec(
+        "UPDATE provider_accounts SET credential_generation = 2.0 WHERE account_id = 'gen-high'",
+      ),
+    ).not.toThrow();
+    expect(generationOf("gen-high")).toEqual({ value: 2, storageClass: "integer" });
+    expect(() =>
+      db.exec(
+        "UPDATE provider_accounts SET credential_generation = '3' WHERE account_id = 'gen-high'",
+      ),
+    ).not.toThrow();
+    expect(generationOf("gen-high")).toEqual({ value: 3, storageClass: "integer" });
+    // While the fractional literal — the value affinity CANNOT convert — is
+    // refused on the same path.
+    expect(() =>
+      db.exec(
+        "UPDATE provider_accounts SET credential_generation = 2.5 WHERE account_id = 'gen-high'",
+      ),
+    ).toThrow(/CHECK constraint failed/);
+
+    // A generation only ever moves up, so the refusal has to bind the UPDATE
+    // path as well: a reset to 0 is the exact write I-029-2 forbids.
+    expect(() =>
+      db
+        .prepare("UPDATE provider_accounts SET credential_generation = 0 WHERE account_id = ?")
+        .run("gen-floor"),
+    ).toThrow(/CHECK constraint failed/);
+  });
+
+  it("refuses a NULL account identity (I-029-1)", () => {
+    // A `TEXT PRIMARY KEY` on a rowid table admits NULL unless NOT NULL is
+    // declared: the key is usually just a UNIQUE constraint, an historical
+    // oversight lets its column values be NULL, and the vendor's own stated
+    // workaround is exactly this per-column NOT NULL —
+    // https://www.sqlite.org/quirks.html#primary_keys_can_sometimes_contain_nulls
+    // (§5, accessed 2026-08-31). Because NULLs compare distinct in that index,
+    // TWO identity-less rows would both commit. Positive control first, so the refusal below cannot pass
+    // because the statement was broken.
+    expect(() => insertAccount({ account_id: "identity-present" })).not.toThrow();
+
+    expect(() =>
+      insertAccount({
+        account_id: null,
+        credential_home_path: "/var/lib/sidekicks/homes/identity-absent",
+      }),
+    ).toThrow(/NOT NULL constraint failed/);
+
+    // And the UPDATE path, which is how an identity would be erased rather than
+    // never written: `account_id` is immutable, and NULL is not an exception.
+    expect(() =>
+      db
+        .prepare("UPDATE provider_accounts SET account_id = NULL WHERE account_id = ?")
+        .run("identity-present"),
+    ).toThrow(/NOT NULL constraint failed/);
+  });
+
+  it("refuses a second default for one provider and admits one per provider (I-029-5)", () => {
+    insertAccount({ account_id: "claude-default", is_default: 1 });
+
+    // Positive control #1: a NON-default row for the same provider is admitted,
+    // so the index is partial rather than a plain unique on `provider`.
+    expect(() => {
+      insertAccount({
+        account_id: "claude-second",
+        is_default: 0,
+      });
+    }).not.toThrow();
+
+    // Positive control #2: the OTHER provider may hold its own default.
+    expect(() => {
+      insertAccount({
+        account_id: "codex-default",
+        provider: "codex",
+        is_default: 1,
+      });
+    }).not.toThrow();
+
+    expect(() => {
+      insertAccount({
+        account_id: "claude-rival-default",
+        is_default: 1,
+      });
+    }).toThrow(/UNIQUE constraint failed/);
+  });
+
+  it("refuses an unknown provider, billing mode, health state, auth mode, and boolean", () => {
+    // Each row names one CHECK. `provider` and `billing_mode` are the two closed
+    // sets the contract module mirrors; the rest guard the columns whose absent
+    // state is meaningful and must not be spelled as a stray value.
+    expect(() => insertAccount({ account_id: "bad-provider", provider: "gemini" })).toThrow(
+      /CHECK constraint failed/,
+    );
+    expect(() => insertAccount({ account_id: "bad-billing", billing_mode: "free" })).toThrow(
+      /CHECK constraint failed/,
+    );
+    expect(() =>
+      insertAccount({
+        account_id: "bad-health",
+        health_state: "probably_fine",
+        health_observed_at: "2026-08-31T00:00:00.000Z",
+      }),
+    ).toThrow(/CHECK constraint failed/);
+    expect(() =>
+      insertAccount({ account_id: "bad-auth-mode", observed_auth_mode: "magic_link" }),
+    ).toThrow(/CHECK constraint failed/);
+    expect(() => insertAccount({ account_id: "bad-default-flag", is_default: 2 })).toThrow(
+      /CHECK constraint failed/,
+    );
+    expect(() => insertAccount({ account_id: "bad-removal", removal_intent: 2 })).toThrow(
+      /CHECK constraint failed/,
+    );
+    expect(() => insertAccount({ account_id: "bad-probe", probe_enabled: -1 })).toThrow(
+      /CHECK constraint failed/,
+    );
+  });
+
+  it("holds the stored health observation as a pair that is set and cleared together", () => {
+    // Nullable: an account born before any probe carries neither half.
+    insertAccount({ account_id: "unobserved" });
+    expect(
+      db
+        .prepare(
+          "SELECT health_state, health_observed_at, credential_generation, probe_enabled, removal_intent FROM provider_accounts WHERE account_id = ?",
+        )
+        .get("unobserved"),
+    ).toEqual({
+      health_state: null,
+      health_observed_at: null,
+      // I-029-2: an account is born at generation 1 without the writer saying so.
+      credential_generation: 1,
+      probe_enabled: 1,
+      removal_intent: 0,
+    });
+
+    // Round-trips: both halves written together survive verbatim, and the
+    // timestamp is the observation's own rather than a regenerated one.
+    insertAccount({
+      account_id: "observed",
+      health_state: "reauth_required",
+      health_observed_at: "2026-08-30T12:34:56.789Z",
+    });
+    expect(
+      db
+        .prepare(
+          "SELECT health_state, health_observed_at FROM provider_accounts WHERE account_id = ?",
+        )
+        .get("observed"),
+    ).toEqual({
+      health_state: "reauth_required",
+      health_observed_at: "2026-08-30T12:34:56.789Z",
+    });
+
+    // Either half alone is refused by the table-level CHECK: a reading with no
+    // observation time cannot answer "when", and a time with no reading is a
+    // timestamp for nothing.
+    expect(() => insertAccount({ account_id: "half-a", health_state: "authenticated" })).toThrow(
+      /CHECK constraint failed/,
+    );
+    expect(() =>
+      insertAccount({ account_id: "half-b", health_observed_at: "2026-08-30T12:34:56.789Z" }),
+    ).toThrow(/CHECK constraint failed/);
+
+    // And an UPDATE that clears one half is refused too — the pair rule binds
+    // every writer, not only the insert path.
+    expect(() =>
+      db
+        .prepare("UPDATE provider_accounts SET health_observed_at = NULL WHERE account_id = ?")
+        .run("observed"),
+    ).toThrow(/CHECK constraint failed/);
+  });
+
+  it("creates the quota-window store keyed on (account_id, limit_id)", () => {
+    expect(
+      columnsOf("provider_account_usage_windows").map((entry) => ({
+        name: entry.name,
+        type: entry.type,
+        notnull: entry.notnull,
+        dflt_value: entry.dflt_value,
+        pk: entry.pk,
+      })),
+    ).toEqual([
+      // The composite PK's two members carry ordinals 1 and 2; every other
+      // column carries 0 — which is the assertion that `window_mins` is an
+      // ATTRIBUTE of the reading and not part of its identity (I-029-13).
+      { name: "account_id", type: "TEXT", notnull: 1, dflt_value: null, pk: 1 },
+      { name: "limit_id", type: "TEXT", notnull: 1, dflt_value: null, pk: 2 },
+      { name: "window_mins", type: "INTEGER", notnull: 1, dflt_value: null, pk: 0 },
+      { name: "label", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
+      { name: "used_percent", type: "REAL", notnull: 1, dflt_value: null, pk: 0 },
+      { name: "resets_at", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
+      { name: "observed_at", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
+      {
+        name: "observed_credential_generation",
+        type: "INTEGER",
+        notnull: 1,
+        dflt_value: null,
+        pk: 0,
+      },
+      { name: "source", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
+    ]);
+  });
+
+  it("admits several limits sharing one window length and refuses a duplicate limit", () => {
+    // The failure I-029-13 exists to prevent, exercised directly: the pinned
+    // Claude surface publishes three limit identifiers that share a
+    // 10080-minute window, so all three must coexist for one account.
+    insertAccount({ account_id: "quota-account" });
+    const insertWindow = db.prepare(
+      `INSERT INTO provider_account_usage_windows
+         (account_id, limit_id, window_mins, label, used_percent, resets_at, observed_at,
+          observed_credential_generation, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    for (const limitId of ["weekly_opus", "weekly_all", "weekly_code"]) {
+      insertWindow.run(
+        "quota-account",
+        limitId,
+        10080,
+        null,
+        12.5,
+        null,
+        "2026-08-31T00:00:00.000Z",
+        1,
+        "probe",
+      );
+    }
+    expect(
+      db
+        .prepare(
+          "SELECT COUNT(*) AS total FROM provider_account_usage_windows WHERE account_id = ? AND window_mins = 10080",
+        )
+        .get("quota-account"),
+    ).toEqual({ total: 3 });
+
+    expect(() =>
+      insertWindow.run(
+        "quota-account",
+        "weekly_opus",
+        // A DIFFERENT window length on the same limit id: still one reading,
+        // because the limit determines the length within a provider.
+        4320,
+        null,
+        99,
+        null,
+        "2026-08-31T01:00:00.000Z",
+        1,
+        "run",
+      ),
+    ).toThrow(/UNIQUE constraint failed/);
+
+    // The reserved single-window identifier is an ordinary value, not a special
+    // case: a provider publishing one window uses it and needs no other shape.
+    expect(() =>
+      insertWindow.run(
+        "quota-account",
+        "default",
+        300,
+        "5-hour",
+        0,
+        "2026-08-31T05:00:00.000Z",
+        "2026-08-31T00:00:00.000Z",
+        1,
+        "run",
+      ),
+    ).not.toThrow();
+  });
+
+  it("refuses an unsourced or negative quota reading and an orphan window", () => {
+    insertAccount({ account_id: "quota-guard" });
+    const insertWindow = db.prepare(
+      `INSERT INTO provider_account_usage_windows
+         (account_id, limit_id, window_mins, used_percent, observed_at,
+          observed_credential_generation, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    );
+    // `source` is closed at two values: the background health observer is not a
+    // source and no third value exists.
+    expect(() =>
+      insertWindow.run("quota-guard", "l1", 300, 1, "2026-08-31T00:00:00.000Z", 1, "observer"),
+    ).toThrow(/CHECK constraint failed/);
+    // Floor only. There is deliberately no ceiling — a provider may report
+    // over-consumption against a soft limit and clamping would misreport it.
+    expect(() =>
+      insertWindow.run("quota-guard", "l2", 300, -0.5, "2026-08-31T00:00:00.000Z", 1, "probe"),
+    ).toThrow(/CHECK constraint failed/);
+    expect(() =>
+      insertWindow.run("quota-guard", "l3", 300, 143.2, "2026-08-31T00:00:00.000Z", 1, "probe"),
+    ).not.toThrow();
+    // A window reading has no meaning without its account. `foreign_keys = ON`
+    // is applied by `applyPragmas`, so this is the runner's own configuration
+    // under test as much as the DDL's.
+    expect(() =>
+      insertWindow.run("no-such-account", "l1", 300, 1, "2026-08-31T00:00:00.000Z", 1, "probe"),
+    ).toThrow(/FOREIGN KEY constraint failed/);
+  });
+
+  it("refuses a non-positive generation stamp on a stored quota reading", () => {
+    // The stamp is compared against the parent account's generation and against
+    // the wire's floored `CredentialGenerationSchema`, so it takes the same floor.
+    // The foreign key constrains which ACCOUNT a reading belongs to and says
+    // nothing about the VALUE stamped on it: without this CHECK a writer could
+    // record a generation for an account whose own column could never hold one,
+    // and the reading would render permanently stale instead of refusing here.
+    insertAccount({ account_id: "stamp-floor" });
+    const insertWindow = db.prepare(
+      `INSERT INTO provider_account_usage_windows
+         (account_id, limit_id, window_mins, used_percent, observed_at,
+          observed_credential_generation, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    );
+    // Positive controls first: the floor itself, and a generation well above it.
+    expect(() =>
+      insertWindow.run("stamp-floor", "l1", 300, 1, "2026-08-31T00:00:00.000Z", 1, "probe"),
+    ).not.toThrow();
+    expect(() =>
+      insertWindow.run("stamp-floor", "l2", 300, 1, "2026-08-31T00:00:00.000Z", 4096, "probe"),
+    ).not.toThrow();
+
+    expect(() =>
+      insertWindow.run("stamp-floor", "l3", 300, 1, "2026-08-31T00:00:00.000Z", 0, "probe"),
+    ).toThrow(/CHECK constraint failed/);
+    expect(() =>
+      insertWindow.run("stamp-floor", "l4", 300, 1, "2026-08-31T00:00:00.000Z", -1, "probe"),
+    ).toThrow(/CHECK constraint failed/);
+    // The storage-class half. It matters more here than on the parent: the
+    // staleness comparison is BETWEEN this stamp and the parent's generation, so
+    // a fractional stamp compares against a whole-numbered generation and places
+    // the reading between two of them — neither current nor cleanly stale.
+    expect(() =>
+      insertWindow.run("stamp-floor", "l5", 300, 1, "2026-08-31T00:00:00.000Z", 1.5, "probe"),
+    ).toThrow(/CHECK constraint failed/);
+    // Non-regression control, through a SQL literal for the same reason as on
+    // the parent: an integral REAL still converts losslessly and is admitted.
+    expect(() =>
+      db.exec(
+        "UPDATE provider_account_usage_windows SET observed_credential_generation = 2.0" +
+          " WHERE account_id = 'stamp-floor' AND limit_id = 'l1'",
+      ),
+    ).not.toThrow();
+    expect(
+      db
+        .prepare(
+          "SELECT typeof(observed_credential_generation) AS storageClass" +
+            " FROM provider_account_usage_windows WHERE account_id = ? AND limit_id = ?",
+        )
+        .get("stamp-floor", "l1"),
+    ).toEqual({ storageClass: "integer" });
+
+    // The UPDATE path too: a stored reading's stamp is rewritten whenever a newer
+    // observation replaces it, so the floor has to bind that write as well.
+    expect(() =>
+      db
+        .prepare(
+          `UPDATE provider_account_usage_windows
+             SET observed_credential_generation = 0
+           WHERE account_id = ? AND limit_id = ?`,
+        )
+        .run("stamp-floor", "l1"),
+    ).toThrow(/CHECK constraint failed/);
+  });
+
+  it("takes an account's readings with it when the account is deregistered", () => {
+    insertAccount({ account_id: "cascade-account" });
+    db.prepare(
+      `INSERT INTO provider_account_usage_windows
+         (account_id, limit_id, window_mins, used_percent, observed_at,
+          observed_credential_generation, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run("cascade-account", "default", 300, 40, "2026-08-31T00:00:00.000Z", 1, "run");
+
+    db.prepare("DELETE FROM provider_accounts WHERE account_id = ?").run("cascade-account");
+    expect(
+      db.prepare("SELECT COUNT(*) AS total FROM provider_account_usage_windows").get(),
+    ).toEqual({ total: 0 });
+  });
+
+  it("is idempotent across a second migration pass", () => {
+    // Neither CREATE carries an existence guard, so the runner's version check
+    // is the ONLY thing making a re-run a no-op.
+    applyMigrations(db);
+    applyMigrations(db);
+
+    expect(
+      db.prepare("SELECT COUNT(*) AS total FROM schema_version WHERE version = 16").get(),
+    ).toEqual({ total: 1 });
+    expect(columnsOf("provider_accounts")).toHaveLength(19);
+    expect(columnsOf("provider_account_usage_windows")).toHaveLength(9);
+  });
+
+  it("anchors the version-16 schema_version row with its registry description", () => {
+    const versionRows = db
+      .prepare("SELECT description FROM schema_version WHERE version = 16")
+      .all() as ReadonlyArray<{ description: string }>;
+    expect(versionRows).toHaveLength(1);
+    expect(versionRows[0]?.description).toBe(
+      "Provider-account registry + per-limit quota windows (provider_accounts, provider_account_usage_windows)",
     );
   });
 });
