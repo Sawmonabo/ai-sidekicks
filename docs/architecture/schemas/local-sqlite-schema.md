@@ -263,8 +263,16 @@ CREATE TABLE command_receipts (
   -- (https://www.sqlite.org/lang_corefunc.html#length). Both halves bind: the first sets the unit, the
   -- second is why the write seam tests for NUL BEFORE the length bound — a NUL-bearing handle measures
   -- short and would otherwise be misreported as well-sized. The seam additionally refuses a handle that
-  -- is not well-formed Unicode, which the CHECK cannot see: a lone surrogate has no UTF-8 encoding and
-  -- becomes U+FFFD on the way in, so the row would store a handle the receiver never issued.
+  -- is not well-formed Unicode, which the CHECK cannot see: UTF-8 prohibits encoding a lone surrogate
+  -- outright ("The definition of UTF-8 prohibits encoding character numbers between U+D800 and U+DFFF",
+  -- RFC 3629 §3, https://datatracker.ietf.org/doc/html/rfc3629#section-3), and the standard
+  -- JavaScript-to-bytes conversion substitutes U+FFFD for each unpaired surrogate rather than failing
+  -- ("To convert a JavaScript string into a scalar value string, replace any surrogates with U+FFFD",
+  -- WHATWG Infra Standard, https://infra.spec.whatwg.org/#javascript-string-convert) — one or more
+  -- U+FFFD per surrogate in practice, since the substitution width is the platform encoder's choice
+  -- (both observed widths are pinned by the executable hazard proof in
+  -- packages/runtime-daemon/src/provider/__tests__/mcp-task-handle-recorder.test.ts) — so the row
+  -- would store a handle the receiver never issued.
   mcp_task_id       TEXT                          -- NULL default; MCP Tasks durable recovery handle
                     CHECK (mcp_task_id IS NULL OR (length(mcp_task_id) > 0 AND length(mcp_task_id) <= 256 AND instr(mcp_task_id, char(0)) = 0)),
   -- Plan-028 EXTEND (additive nullable, own Plan-028 migration): the governed MCP binding this

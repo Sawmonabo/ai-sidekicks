@@ -110,18 +110,13 @@ import type { DriverDiagnosticsEmitter, DriverProviderName } from "./driver-diag
  *
  * Both halves of that sentence are load-bearing here: the "code points" half
  * sets this unit, and the "prior to the first U+0000" half is why the NUL
- * conjunct is checked ahead of this bound in {@link classifyMcpTaskIdRefusal}.
+ * conjunct outranks this bound in {@link classifyMcpTaskIdRefusal} whenever
+ * one bounded walk sees both.
  *
  * Mirrors migration `0017-command-receipt-mcp-task-handle.ts` verbatim. If one
  * moves, both move.
  */
 export const MCP_TASK_ID_MAX_LENGTH: number = 256;
-
-// Written as an escape and named, never as a literal in a string body: a raw
-// U+0000 in source is invisible in every editor and diff, so a reader cannot
-// tell this guard from one that searches for the empty string — which matches
-// everything and would refuse every handle.
-const NUL_CODE_UNIT = "\u0000";
 
 /**
  * Why a handle was rejected before it reached the database, or why a well-formed
@@ -132,7 +127,8 @@ const NUL_CODE_UNIT = "\u0000";
  * violation. `handle_not_well_formed` has no CHECK counterpart and cannot have
  * one — by the time SQLite sees the value the damage is already done, because
  * the driver encodes it to UTF-8 on the way in and a lone surrogate has no
- * UTF-8 encoding, so it is replaced by U+FFFD before any constraint runs. The
+ * UTF-8 encoding, so it is replaced by one or more U+FFFD (how many is the
+ * platform encoder's choice) before any constraint runs. The
  * column would accept the replacement happily; the stored handle would simply
  * no longer be the receiver's, and polling `tasks/get` with it would name a
  * task that does not exist. The last two are storage-state outcomes the CHECK
@@ -176,28 +172,45 @@ export interface McpTaskHandleObservationRecord {
   readonly mcpTaskId: string;
 }
 
-/** What one pass of {@link scanHandle} learned about a candidate handle. */
+/** What one BOUNDED pass of {@link scanHandle} learned about a candidate handle. */
 interface HandleScan {
   /**
-   * The string's Unicode code points — the unit SQLite's `length()` reports for
-   * TEXT, and therefore the unit {@link MCP_TASK_ID_MAX_LENGTH} is in.
+   * How many Unicode code points the walk consumed before it settled — the
+   * unit SQLite's `length()` reports for TEXT, and therefore the unit
+   * {@link MCP_TASK_ID_MAX_LENGTH} is in. This is the handle's exact length
+   * only when the scan settled clean; a scan that stopped on a defect or at
+   * the bound reports where it stopped, never the true size, because
+   * measuring the rest of an already-refused untrusted string is exactly the
+   * work the bound exists to avoid.
    */
-  readonly codePointCount: number;
+  readonly scannedCodePoints: number;
+  /** Whether the walk hit U+0000 — the conjunct SQLite's `length()` cannot see past. */
+  readonly hasNul: boolean;
   /**
-   * Whether any UTF-16 surrogate appeared without its partner. Such a string is
-   * not well-formed Unicode and has no UTF-8 encoding, so encoding it on the
-   * way to SQLite silently substitutes U+FFFD.
+   * Whether the walk hit a UTF-16 surrogate without its partner. Such a string
+   * is not well-formed Unicode and has no UTF-8 encoding, so encoding it on
+   * the way to SQLite silently substitutes one or more U+FFFD.
    */
   readonly hasLoneSurrogate: boolean;
+  /** Whether the walk consumed more code points than the bound admits. */
+  readonly exceededBound: boolean;
 }
 
 /**
- * Measure and validate a candidate handle in ONE pass.
+ * Measure and validate a candidate handle in ONE BOUNDED pass.
  *
  * Written as an index walk rather than `[...value].length` on purpose: the
  * input is untrusted remote-peer output of unbounded size, and spreading it
  * would allocate one array element per code point before the bound that would
  * have rejected it is ever consulted. This allocates nothing.
+ *
+ * The walk stops at the FIRST terminal fact — a NUL, a lone surrogate, or the
+ * code point past {@link MCP_TASK_ID_MAX_LENGTH} — because each of those makes
+ * refusal inevitable on its own, and every code unit walked after that point is
+ * free work performed on behalf of a peer that has already disqualified
+ * itself. A buggy or hostile MCP server returning a multi-megabyte `taskId`
+ * therefore costs this daemon at most `MCP_TASK_ID_MAX_LENGTH + 1` code
+ * points of scanning, once, and never a full traversal.
  *
  * The well-formedness half is computed HERE rather than by the standard
  * `String.prototype.isWellFormed()`, and that is a toolchain constraint rather
@@ -213,57 +226,73 @@ interface HandleScan {
  * instead of two.
  */
 function scanHandle(value: string): HandleScan {
-  let codePointCount = 0;
+  let scannedCodePoints = 0;
+  let hasNul = false;
   let hasLoneSurrogate = false;
   let index = 0;
-  while (index < value.length) {
+  while (
+    index < value.length &&
+    !hasNul &&
+    !hasLoneSurrogate &&
+    scannedCodePoints <= MCP_TASK_ID_MAX_LENGTH
+  ) {
     const charCode = value.charCodeAt(index);
     const isHighSurrogate = charCode >= 0xd800 && charCode <= 0xdbff;
     const isLowSurrogate = charCode >= 0xdc00 && charCode <= 0xdfff;
-    if (isHighSurrogate && index + 1 < value.length) {
+    if (charCode === 0) {
+      // Compared as a code unit and never via a string literal: a raw U+0000
+      // in source is invisible in every editor and diff, and an accidental
+      // empty-string search would match everything.
+      hasNul = true;
+    } else if (isHighSurrogate && index + 1 < value.length) {
       const nextCharCode = value.charCodeAt(index + 1);
       const isPaired = nextCharCode >= 0xdc00 && nextCharCode <= 0xdfff;
-      // A well-formed surrogate PAIR is one code point and advances two code
+      // A well-formed surrogate PAIR is one code point spanning two code
       // units; an unpaired high surrogate is one code point on its own.
       if (isPaired) {
-        index += 2;
+        index += 1;
       } else {
         hasLoneSurrogate = true;
-        index += 1;
       }
-    } else {
-      // Reached by an unpaired trailing high surrogate, a low surrogate that no
-      // high surrogate introduced, and every ordinary code unit alike.
-      if (isHighSurrogate || isLowSurrogate) {
-        hasLoneSurrogate = true;
-      }
-      index += 1;
+    } else if (isHighSurrogate || isLowSurrogate) {
+      // An unpaired trailing high surrogate, or a low surrogate that no high
+      // surrogate introduced.
+      hasLoneSurrogate = true;
     }
-    codePointCount += 1;
+    index += 1;
+    scannedCodePoints += 1;
   }
-  return { codePointCount, hasLoneSurrogate };
+  return {
+    scannedCodePoints,
+    hasNul,
+    hasLoneSurrogate,
+    // Strictly-greater is exact: a 256-code-point handle exits the loop by
+    // index with the count AT the bound, while a longer one consumes the
+    // 257th code point before the loop guard sees the count and stops it.
+    exceededBound: scannedCodePoints > MCP_TASK_ID_MAX_LENGTH,
+  };
 }
 
 /**
  * Check a handle against the column's CHECK conjuncts. Returns `undefined` when
  * the handle is storable.
  *
- * The ordering is deliberate and diverges from the CHECK's own: both
- * REPRESENTATION defects are evaluated ahead of the SIZE bound. That changes
- * only which refusal a doubly-invalid handle reports, never whether it is
- * refused, and it follows one rule rather than two ad-hoc ones — a defect that
- * makes the STORED bytes differ from the receiver's handle is named before a
- * defect of the handle as given, because a size measured over a value that
- * would not survive storage intact is a measurement of the wrong string.
+ * The ordering is deliberate and diverges from the CHECK's own: the refusal
+ * names the FIRST terminal fact the bounded walk encountered — a NUL, a lone
+ * surrogate, or the bound itself, whichever the walk reached first. That is
+ * one rule rather than three ad-hoc ones, it changes only which refusal a
+ * multiply-invalid handle reports and never whether it is refused, and it is
+ * what lets the walk stop the moment refusal becomes inevitable instead of
+ * traversing the rest of an untrusted string to rank its defects.
  *
- * Each half of that rule is concrete. SQLite's `length()` stops at the first
- * U+0000, so a 300-code-point handle carrying a NUL at index 5 measures 5 and
- * a length-first classifier would call it well-sized when the real defect is
- * the NUL; `instr(..., char(0))` is what actually sees it, in the column and
- * here alike, which is also why those two CHECK conjuncts are not redundant.
- * A lone surrogate is worse still, because nothing downstream reports it: the
- * UTF-8 encoding substitutes U+FFFD, the CHECK passes, and the row stores a
- * handle the receiver never issued.
+ * The rule still surfaces the defects the CHECK cannot. SQLite's `length()`
+ * stops at the first U+0000, so a 300-code-point handle carrying a NUL at
+ * index 5 measures 5 there — the walk reaches that NUL long before the size
+ * bound and names it; `instr(..., char(0))` is what sees it in the column,
+ * which is also why those two CHECK conjuncts are not redundant. A lone
+ * surrogate is worse still, because nothing downstream reports it: the UTF-8
+ * encoding substitutes one or more U+FFFD, the CHECK passes, and the row
+ * stores a handle the receiver never issued.
  *
  * Exported so the bound is testable without a database, and so a caller that
  * wants to classify before dispatching can, but the recorder always re-runs it:
@@ -275,14 +304,14 @@ export function classifyMcpTaskIdRefusal(
   if (mcpTaskId.length === 0) {
     return "handle_empty";
   }
-  if (mcpTaskId.includes(NUL_CODE_UNIT)) {
+  const scan = scanHandle(mcpTaskId);
+  if (scan.hasNul) {
     return "handle_contains_nul";
   }
-  const scan = scanHandle(mcpTaskId);
   if (scan.hasLoneSurrogate) {
     return "handle_not_well_formed";
   }
-  if (scan.codePointCount > MCP_TASK_ID_MAX_LENGTH) {
+  if (scan.exceededBound) {
     return "handle_too_long";
   }
   return undefined;
@@ -411,14 +440,19 @@ export class McpTaskHandleRecorder {
         commandId: observation.commandId,
         serverName: observation.serverName,
         toolName: observation.toolName,
-        // The length and not the handle. An over-bound handle is unbounded
-        // remote-peer output, and the whole point of refusing it is to keep it
-        // out of durable surfaces — a log line is one. Reported in the same
-        // code-point unit the bound is stated in, so an operator comparing it
-        // against 256 is comparing like with like. Re-scanned rather than
-        // threaded down from the classifier: this is the rare path, the walk
-        // allocates nothing, and three of the six reasons never ran one.
-        handleLength: scanHandle(observation.mcpTaskId).codePointCount,
+        // A bounded measurement and not the handle. An over-bound handle is
+        // unbounded remote-peer output, and the whole point of refusing it is
+        // to keep it out of durable surfaces — a log line is one — while
+        // re-measuring it exactly would hand the refused peer the full
+        // traversal the bounded scan just declined. Reported in the same
+        // code-point unit the bound is stated in: the exact length for a
+        // clean-scanned handle (`receipt_absent` / `handle_conflict`), the
+        // stop position for a representation defect, and the cap
+        // `MCP_TASK_ID_MAX_LENGTH + 1` — read it as "at least 257" — for an
+        // over-bound one. Re-scanned rather than threaded down from the
+        // classifier: this is the rare path, the walk allocates nothing, and
+        // three of the six reasons never ran one.
+        handleCodePointsScanned: scanHandle(observation.mcpTaskId).scannedCodePoints,
       },
     });
     return { status: "refused", reason };

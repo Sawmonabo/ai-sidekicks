@@ -248,12 +248,15 @@ describe("McpTaskHandleRecorder (Plan-005 T5.1)", () => {
       expect(storedHandle(COMMAND_ID)).toBeNull();
     });
 
-    it("never carries the refused handle into the diagnostic, only its length", () => {
+    it("never carries the refused handle into the diagnostic, only a bounded measurement", () => {
       const overlongHandle = "a".repeat(MCP_TASK_ID_MAX_LENGTH + 44);
       recorder.record(observation(overlongHandle));
 
       const details = loggedRecords[0]?.details ?? {};
-      expect(details["handleLength"]).toBe(MCP_TASK_ID_MAX_LENGTH + 44);
+      // The cap, not the true length: measuring the refused handle exactly
+      // would hand the peer the full traversal the bounded scan declined, so
+      // the diagnostic reports MCP_TASK_ID_MAX_LENGTH + 1 — "at least 257".
+      expect(details["handleCodePointsScanned"]).toBe(MCP_TASK_ID_MAX_LENGTH + 1);
       expect(details["commandId"]).toBe(COMMAND_ID);
       expect(details["serverName"]).toBe("filesystem");
       expect(details["toolName"]).toBe("read_file");
@@ -348,6 +351,17 @@ describe("classifyMcpTaskIdRefusal", () => {
     const longNulBearingHandle = `task-${NUL_CODE_UNIT}${"b".repeat(294)}`;
     expect(longNulBearingHandle.length).toBeGreaterThan(MCP_TASK_ID_MAX_LENGTH);
     expect(classifyMcpTaskIdRefusal(longNulBearingHandle)).toBe("handle_contains_nul");
+  });
+
+  it("stops scanning once refusal is inevitable, so a hostile taskId cannot buy a full traversal", () => {
+    // A multi-megabyte handle from a buggy or hostile MCP server. A scan that
+    // traversed it whole would still refuse it, so the assertion here is about
+    // COST, made observable through the reported reason: the NUL sits past the
+    // size bound, and only a scan that stopped at the bound reports
+    // handle_too_long instead of walking two million code units to find the
+    // NUL that outranks it.
+    const hostileHandle = `${"a".repeat(2_000_000)}${NUL_CODE_UNIT}tail`;
+    expect(classifyMcpTaskIdRefusal(hostileHandle)).toBe("handle_too_long");
   });
 });
 
