@@ -11,12 +11,20 @@
 //
 //   module top level ......... registerRendererScheme()      (before app.ready)
 //   inside whenReady() ....... installRendererProtocol(...)  (before any window)
+//                              installApplicationMenu()
 //                              createMainWindow()
 //
 // A scheme registered after ready is refused by Electron, and a window created
 // before the handler is installed would load against an unhandled scheme.
 // Plan-023 Phase 3's T-023r-3-4 COMPOSES this order behind the crash reporter
-// and the single-instance lock; it re-authors none of it.
+// and the single-instance lock; it re-authors none of it. The crash reporter
+// takes the top-level slot immediately AFTER `registerRendererScheme()` — the
+// one named exception to its own crash-first rule (T-023r-3-2), because
+// Electron pins the registration ahead of ready and the call touches no
+// network, no file, and no crash-relevant state. `startup-order.test.ts`
+// therefore asserts the two ORDERINGS (scheme before the first `whenReady()`,
+// handler before the first `BrowserWindow`) and deliberately does NOT assert
+// that this module imports `protocol.ts` first, which Phase 3 would break.
 //
 // See `docs/plans/023-desktop-shell-and-renderer.md §Tier 1 Partial PR Sequence`
 // (Phase 1, the main-entrypoint bullet; Phase 1B, the `index.ts` bullet).
@@ -25,8 +33,9 @@ import path from "node:path";
 import { queryObjects } from "node:v8";
 import { setTimeout as wait } from "node:timers/promises";
 
-import { app, BrowserWindow } from "electron";
-import { installRendererProtocol, registerRendererScheme } from "./protocol.js";
+import { app, BrowserWindow, net } from "electron";
+import { installApplicationMenu } from "./menu.js";
+import { installRendererProtocol, registerRendererScheme, RENDERER_INDEX_URL } from "./protocol.js";
 import { createMainWindow } from "./window.js";
 import { registerSidecarLifecycle } from "./sidecar-lifecycle.js";
 
@@ -60,28 +69,31 @@ declare const __SIDEKICKS_SMOKE_BUILD__: boolean;
 // even at Tier 1, before the deep-link handler ships at Tier 8 remainder.
 const gotTheLock = app.requestSingleInstanceLock();
 
-// Plan-023 Phase 1 T-023p-1-7 smoke-probe affordance.
+// Plan-023 Phase 1 T-023p-1-7 smoke-probe affordance, moved onto the real
+// bundle at Phase 1B (T-023p-1B-2).
 //
 // When the bundle is built with `electron-vite build --mode=smoke` AND the
-// runtime env-var `SIDEKICKS_SMOKE_PROBE=1` is set, the main process boots
-// the window, loads `about:blank` into the renderer (so the preload script
-// actually executes and registers `window.sidekicks`), queries the
+// runtime env-var `SIDEKICKS_SMOKE_PROBE=1` is set, the main process boots the
+// window, waits for the REAL renderer bundle's `did-finish-load`, queries the
 // renderer for the Spec-023 §Security Hardening Baseline runtime invariants
 // (sidekicks defined; require / process / global all undefined — the full
-// `Spec-023 §Acceptance Criteria` set), prints a single-line JSON
-// probe to stdout tagged with `[SIDEKICKS_SMOKE_PROBE]`, and exits. The
-// smoke test at `apps/desktop/test/launch.smoke.test.ts` parses that line.
+// `Spec-023 §Acceptance Criteria` set) plus the Phase-1B origin properties
+// (`sidekicks-renderer:` scheme, `app` host, IndexedDB present, a
+// `localStorage` round-trip, and a mounted React tree), fetches the served
+// `index.html` from the main process to read back its CSP header, prints a
+// single-line JSON probe to stdout tagged with `[SIDEKICKS_SMOKE_PROBE]`, and
+// exits. The smoke test at `apps/desktop/test/launch.smoke.test.ts` parses that
+// line.
+//
+// The `about:blank` arm is RETIRED. It existed because the Tier-1
+// `createMainWindow()` deliberately loaded nothing, so the only way to make the
+// preload execute was to load a blank document — which proved a window existed
+// and nothing about the bundle. Now that the factory loads the bundle over the
+// renderer scheme, the probe proves the bundle is actually served. The
+// `__SIDEKICKS_SMOKE_BUILD__` define gates only the probe's ASSERTIONS; the load
+// itself is the production path.
 //
 // Why this branch lives in the main entrypoint instead of the test:
-//   • The Tier 1 `createMainWindow()` factory deliberately does NOT call
-//     `window.loadURL(...)` — the `sidekicks://` custom-protocol load is
-//     a Tier 8 remainder surface (see apps/desktop/src/main/window.ts TODO
-//     line ~93). But preload scripts only execute when the renderer process
-//     loads a document; an unloaded BrowserWindow never registers
-//     `window.sidekicks`. The smoke branch loads `about:blank` to trigger
-//     preload execution — this is the minimum content the renderer needs
-//     to bootstrap, and it stays scoped to smoke-mode only so it does NOT
-//     introduce a Tier-8-style protocol load into the default startup path.
 //   • External CDP / chrome-remote-interface attachment was rejected at
 //     Tier 1 (too heavyweight; new dep family). Renderer console.log
 //     parsing was rejected because the renderer source is renderer-untrusted
@@ -108,10 +120,12 @@ const gotTheLock = app.requestSingleInstanceLock();
 //   build (`pnpm --filter @ai-sidekicks/desktop build`), running:
 //     grep -c SIDEKICKS_SMOKE_PROBE out/main/index.js
 //     grep -c executeJavaScript     out/main/index.js
-//     grep -c "about:blank"         out/main/index.js
-//   all return 0. The probe code (the `[SIDEKICKS_SMOKE_PROBE]` tag, the
-//   `webContents.executeJavaScript(...)` call, and the `about:blank` URL
-//   string) is physically absent from the shipped bundle. The "no test
+//   both return 0, and `about:blank` is absent from BOTH bundles now that the
+//   arm is retired — the smoke test asserts that against the smoke bundle,
+//   which is the one where the probe body actually survives. The probe code
+//   (the `[SIDEKICKS_SMOKE_PROBE]` tag and the
+//   `webContents.executeJavaScript(...)` call) is physically absent from the
+//   shipped bundle. The "no test
 //   machinery in production binaries" property is not a verbatim Spec-023
 //   bullet but a derived invariant from `Spec-023 §Trust Stance` (renderer-
 //   untrusted) + §Pitfalls To Avoid ("`nodeIntegration:
@@ -193,6 +207,114 @@ async function runGcProbe(): Promise<void> {
   app.exit(0);
 }
 
+/**
+ * The smoke probe body (Plan-023 T-023p-1B-2), run once the REAL renderer
+ * bundle has finished loading.
+ *
+ * Two readings, both taken from the trusted side:
+ *
+ *   1. `executeJavaScript` against the renderer, asserting the
+ *      `Spec-023 §Security Hardening Baseline` runtime invariants (bridge
+ *      present; `require` / `process` / `global` all absent) AND the origin
+ *      properties Phase 1B's privileged scheme is what makes true — the
+ *      `sidekicks-renderer:` protocol, the `app` host, a live `indexedDB`, a
+ *      `localStorage` round-trip, and a mounted React tree. A scheme registered
+ *      without `standard: true` has no origin, so the storage readings would be
+ *      the first thing to fail (Plan-023 I-023-11).
+ *   2. `net.fetch` from the main process against the served `index.html`, to
+ *      read back the `Content-Security-Policy` header the handler attaches. The
+ *      header is the policy's ONLY carrier — the shipped `index.html` has no
+ *      meta tag — so a header that silently stopped being attached would
+ *      otherwise be invisible to every automated check.
+ *
+ * Both readings ride ONE stdout line so the test parses one JSON object.
+ *
+ * The renderer expression resolves a promise rather than reading `#root`
+ * synchronously: React 19's `createRoot().render()` schedules the initial mount
+ * through the Scheduler's `MessageChannel` task, which is not guaranteed to have
+ * flushed by `did-finish-load`. The wait is bounded and its timer is cleared on
+ * every exit path, so an unmounted tree fails the assertion instead of hanging
+ * the probe.
+ */
+async function runSmokeProbe(browserWindow: BrowserWindow, windowMs: number): Promise<void> {
+  const rendererReadings = `
+    (() => {
+      const readLocalStorage = () => {
+        try {
+          const probeKey = "__sidekicks_smoke_probe__";
+          window.localStorage.setItem(probeKey, "ok");
+          const readBack = window.localStorage.getItem(probeKey);
+          window.localStorage.removeItem(probeKey);
+          return readBack === "ok";
+        } catch {
+          return false;
+        }
+      };
+      const rootChildren = () =>
+        new Promise((resolve) => {
+          const deadline = Date.now() + 3000;
+          const poll = () => {
+            const rootElement = document.getElementById("root");
+            const childCount = rootElement === null ? 0 : rootElement.childElementCount;
+            if (childCount > 0 || Date.now() >= deadline) {
+              resolve(childCount);
+              return;
+            }
+            window.setTimeout(poll, 25);
+          };
+          poll();
+        });
+      return rootChildren().then((childCount) =>
+        JSON.stringify({
+          sidekicks: typeof window.sidekicks,
+          require: typeof window.require,
+          process: typeof window.process,
+          global: typeof window.global,
+          protocol: window.location.protocol,
+          host: window.location.host,
+          indexedDB: typeof window.indexedDB,
+          localStorageRoundTrip: readLocalStorage(),
+          rootChildren: childCount,
+        }),
+      );
+    })()
+  `;
+
+  let serialisedReadings: string;
+  try {
+    serialisedReadings = (await browserWindow.webContents.executeJavaScript(
+      rendererReadings,
+    )) as string;
+  } catch (error: unknown) {
+    console.error(`${SMOKE_PROBE_TAG} executeJavaScript failed:`, error);
+    app.exit(2);
+    return;
+  }
+
+  let contentSecurityPolicy: string | null;
+  try {
+    const indexResponse = await net.fetch(RENDERER_INDEX_URL);
+    contentSecurityPolicy = indexResponse.headers.get("content-security-policy");
+    // Release the streamed body rather than leaving the file handle open for
+    // the (short) remainder of the process's life.
+    await indexResponse.body?.cancel();
+  } catch (error: unknown) {
+    console.error(`${SMOKE_PROBE_TAG} index fetch failed:`, error);
+    app.exit(4);
+    return;
+  }
+
+  console.log(
+    `${SMOKE_PROBE_TAG} ${JSON.stringify({
+      ok: true,
+      windowMs,
+      probe: JSON.parse(serialisedReadings) as Record<string, unknown>,
+      contentSecurityPolicy,
+    })}`,
+  );
+  app.exit(0);
+}
+
 // Module-scope handle for the BrowserWindow. Defensive consistency
 // with the canonical Electron main-process retention pattern. Per
 // ADR-024 §Antithesis, the load-bearing reachability mechanism is
@@ -235,6 +357,7 @@ if (!gotTheLock) {
       // BEFORE any window: a `BrowserWindow` constructed ahead of the handler
       // could begin a load against an unhandled scheme.
       installRendererProtocol(RENDERER_ROOT);
+      installApplicationMenu();
 
       const browserWindow = createMainWindow();
       mainWindow = browserWindow;
@@ -249,49 +372,10 @@ if (!gotTheLock) {
       // bundle without explicit opt-in. Both must hold for the probe
       // to execute.
       if (__SIDEKICKS_SMOKE_BUILD__ && process.env["SIDEKICKS_SMOKE_PROBE"] === "1") {
-        const t0 = Date.now();
+        const probeStartedAt = Date.now();
         browserWindow.webContents.once("did-finish-load", () => {
-          const tWindow = Date.now() - t0;
-          // Probe the renderer for the Spec-023 §Security Hardening Baseline
-          // runtime invariants (sandbox: true + nodeIntegration: false +
-          // contextIsolation: true should produce: `sidekicks` typeof
-          // "object"; `require` / `process` / `global` all typeof
-          // "undefined" — the full `Spec-023 §Acceptance Criteria`
-          // set). `JSON.stringify` is `executeJavaScript`'s required
-          // serialization shape — `executeJavaScript` returns a thenable
-          // resolving to the expression's value, which we then println-tag
-          // on stdout.
-          browserWindow.webContents
-            .executeJavaScript(
-              `JSON.stringify({
-                sidekicks: typeof window.sidekicks,
-                require: typeof window.require,
-                process: typeof window.process,
-                global: typeof window.global,
-              })`,
-            )
-            .then((result: string) => {
-              console.log(
-                `${SMOKE_PROBE_TAG} ${JSON.stringify({
-                  ok: true,
-                  windowMs: tWindow,
-                  probe: JSON.parse(result) as Record<string, string>,
-                })}`,
-              );
-              app.exit(0);
-            })
-            .catch((err: unknown) => {
-              console.error(`${SMOKE_PROBE_TAG} executeJavaScript failed:`, err);
-              app.exit(2);
-            });
-        });
-        // `about:blank` is the minimum URL Electron's renderer will load
-        // without a registered protocol handler. It triggers preload-script
-        // execution (and the `did-finish-load` event) without depending on
-        // the Tier 8 `sidekicks://` handler.
-        browserWindow.loadURL("about:blank").catch((err: unknown) => {
-          console.error(`${SMOKE_PROBE_TAG} loadURL failed:`, err);
-          app.exit(3);
+          const windowMs = Date.now() - probeStartedAt;
+          void runSmokeProbe(browserWindow, windowMs);
         });
       } else if (__SIDEKICKS_SMOKE_BUILD__ && process.env["SIDEKICKS_GC_PROBE"] === "1") {
         // Register a probe-scoped `window-all-closed` listener. The
