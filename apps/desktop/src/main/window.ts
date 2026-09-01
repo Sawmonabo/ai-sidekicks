@@ -62,7 +62,16 @@ import { app, BrowserWindow } from "electron";
 import path from "node:path";
 import { z } from "zod";
 
-import { SessionIdSchema } from "@ai-sidekicks/contracts";
+// Deep import, deliberately. The contracts barrel re-exports 24 modules, none
+// of which Rollup can drop: every schema is a top-level factory call, which a
+// bundler must treat as potentially side-effectful. Importing the barrel for
+// one branded id put 233 kB of unreachable wire schemas into the main-process
+// bundle — a startup-path cost on the process `Spec-023 §Console Design
+// (Meridian)` holds to "light on the machine". The `./session` subpath is
+// declared in `packages/contracts/package.json` with the same three conditions
+// as the barrel, so source resolution under vitest and dist resolution in a
+// build both behave exactly as they do for `.`.
+import { SessionIdSchema } from "@ai-sidekicks/contracts/session";
 
 import { RENDERER_INDEX_URL } from "./protocol.js";
 

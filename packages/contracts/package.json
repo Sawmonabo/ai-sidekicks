@@ -12,6 +12,11 @@
       "@ai-sidekicks/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./session": {
+      "@ai-sidekicks/source": "./src/session.ts",
+      "types": "./dist/session.d.ts",
+      "import": "./dist/session.js"
     }
   },
   "main": "./dist/index.js",

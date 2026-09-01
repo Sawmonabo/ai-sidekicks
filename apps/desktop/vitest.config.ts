@@ -68,6 +68,21 @@ export default defineConfig({
           // ReferenceError the moment the ready continuation runs.
           __SIDEKICKS_SMOKE_BUILD__: "false",
         },
+        // `src/main/window.ts` imports `SessionIdSchema` from the contracts
+        // `./session` subpath as a VALUE, so this project must resolve the
+        // provider to TS source rather than a possibly-stale `dist/`. Node
+        // environment → the SSR resolver is the one that decides, but both are
+        // set for the same Vite-6 reason the renderer block below records.
+        // Conditions replace vitest's defaults, so `import` / `default` are
+        // re-listed.
+        resolve: {
+          conditions: ["@ai-sidekicks/source", "import", "default"],
+        },
+        ssr: {
+          resolve: {
+            conditions: ["@ai-sidekicks/source", "import", "default"],
+          },
+        },
         test: {
           name: "main-unit",
           environment: "node",
@@ -85,7 +100,9 @@ export default defineConfig({
         // `resolve.conditions`; per vitest-dev/vitest#8431 (Vite 6 can wrongly apply
         // node conditions in happy-dom resolution passes) we set `ssr.resolve.*` too.
         // Conditions replace vitest's defaults, so `import`/`default` are re-listed.
-        // (The node `main` project imports contracts type-only → erased → needs none.)
+        // (The node `main` smoke project imports contracts type-only → erased →
+        // needs none. The `main-unit` project above DOES need them — see its
+        // own block.)
         resolve: {
           conditions: ["@ai-sidekicks/source", "import", "default"],
         },
