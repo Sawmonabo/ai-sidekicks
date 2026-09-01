@@ -3855,7 +3855,14 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // place, which changes no `Verifies invariant:` row, and T1.1 already
     // named both. Spec-013 and cross-plan-dependencies.md carry no marker
     // blocks, and Plan-007 is not edited in this round at all.
-    bold: { resolved: 1035, noneArm: 158, parentResolved: 0 },
+    // 1035/158 -> 1038/158 (2026-09-01, NS-99 WebAuthn per-platform-strategy
+    // amendment): Plan-023's Phase 4 gains T-023r-4-5 (the Windows
+    // `webauthn.dll` binding) and T-023r-4-6 (the Linux `libfido2` binding),
+    // each with a `Verifies invariant:` row naming the new I-023-15, and the
+    // rewritten T-023r-4-3 row names I-023-15 beside the I-023-1 it already
+    // carried — three more bold resolved references. No none-arm row is added,
+    // removed, or reworded, and the legacy compact-inline channel is untouched.
+    bold: { resolved: 1038, noneArm: 158, parentResolved: 0 },
     legacy: { resolved: 64, noneArm: 3, parentResolved: 1 },
   });
 });
