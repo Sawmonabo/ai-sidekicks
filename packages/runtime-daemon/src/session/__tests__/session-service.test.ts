@@ -379,6 +379,12 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
       { version: 12 },
       { version: 13 },
       { version: 14 },
+      // Version 15 is deliberately absent: it is claimed by a concurrently-
+      // authored migration that had not landed when version 16 was written.
+      // Every guarded block keys on its own `schema_version` row, so a hole
+      // is a correct state; asserting the exact list is what keeps it from
+      // becoming a silently skipped upgrade.
+      { version: 16 },
     ]);
   });
 
@@ -405,6 +411,8 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
       { version: 12 },
       { version: 13 },
       { version: 14 },
+      // See the version-15 hole note on the first assertion above.
+      { version: 16 },
     ]);
   });
 
@@ -446,6 +454,8 @@ describe("SessionService — D4 (snapshot survives daemon restart)", () => {
         { version: 12 },
         { version: 13 },
         { version: 14 },
+        // See the version-15 hole note on the first assertion above.
+        { version: 16 },
       ]);
     } finally {
       secondHandle.close();
@@ -853,7 +863,7 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
           .all() as ReadonlyArray<{ version: number }>;
         expect(
           rows,
-          `trial ${trial.toString()} expected exactly the fourteen migration anchor rows [1..14] (a broken/missing v14 INSERT — the newest migration — or a duplicated anchor row would fail here); got ${JSON.stringify(rows)}`,
+          `trial ${trial.toString()} expected exactly the fifteen migration anchor rows [1..14, 16] (a broken/missing v16 INSERT — the newest migration — or a duplicated anchor row would fail here); got ${JSON.stringify(rows)}`,
         ).toEqual([
           { version: 1 },
           { version: 2 },
@@ -869,6 +879,8 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
           { version: 12 },
           { version: 13 },
           { version: 14 },
+          // See the version-15 hole note on the first assertion above.
+          { version: 16 },
         ]);
       } finally {
         verifier.close();

@@ -1864,7 +1864,8 @@ CREATE TABLE provider_accounts (
                         CHECK(provider IN ('claude', 'codex')),  -- the same closed driver-id union the MCP governance tables use
   display_label         TEXT NOT NULL,  -- operator-chosen label for disambiguation in the UI; free text, treated as participant-adjacent PII (Spec-022 §PII Data Map)
   credential_home_path  TEXT NOT NULL,  -- absolute path to this account's isolated credential home; the daemon constructs the spawn environment from it and never inherits ambient provider credentials (I-029-4)
-  credential_generation INTEGER NOT NULL DEFAULT 1,  -- monotonic, starts at 1; bumped at every credential-home lifecycle transition (I-029-2)
+  credential_generation INTEGER NOT NULL DEFAULT 1
+                        CHECK(credential_generation >= 1),  -- monotonic, starts at 1; bumped at every credential-home lifecycle transition (I-029-2). The CHECK makes the floor enforced rather than asserted: a zero or negative generation sorts BEFORE a freshly registered account, so a reading stamped with one would read as newer than the account it describes and invert the staleness comparison the stamp exists for.
   billing_mode          TEXT NOT NULL
                         CHECK(billing_mode IN ('subscription', 'metered', 'unknown')),  -- how this account is charged; `unknown` is the honest-absence arm, never a synonym for metered; drives cost labeling, never cost derivation (Spec-029 §Billing mode)
   is_default            INTEGER NOT NULL DEFAULT 0
@@ -1908,6 +1909,16 @@ CREATE TABLE provider_accounts (
 CREATE UNIQUE INDEX provider_accounts_one_default_per_provider
   ON provider_accounts(provider)
   WHERE is_default = 1;
+
+-- Exactly one account per credential home, across every provider (I-029-8). Two rows sharing a
+-- home share its credentials: the daemon builds each spawn environment from this path, so a
+-- duplicate reduces per-account isolation to a naming convention — one account's re-authentication
+-- rewrites the other's credentials in place, and spend keyed to two identities is drawn from one.
+-- Deliberately NOT scoped per provider: two providers pointed at one home is the same collision,
+-- and the path is what the spawn environment carries either way. The database refuses the second
+-- writer instead.
+CREATE UNIQUE INDEX provider_accounts_unique_credential_home
+  ON provider_accounts(credential_home_path);
 ```
 
 The newest quota reading per account and limit. A provider's quota standing is **not one window**: the pinned Claude surface publishes five limit identifiers, **three of which share a 10080-minute window**, so a key of `(account, window length)` cannot hold them — two of the three would overwrite the third and the survivor would depend on arrival order. The limit identifier is therefore the key and the window length is an attribute of the reading, not part of its identity. Holding the newest reading durably is what lets a client that connects after a reading was taken render quota standing without waiting for the next one.
