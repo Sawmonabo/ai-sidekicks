@@ -60,6 +60,9 @@
 
 import { app, BrowserWindow } from "electron";
 import path from "node:path";
+import { z } from "zod";
+
+import { SessionIdSchema } from "@ai-sidekicks/contracts";
 
 import { RENDERER_INDEX_URL } from "./protocol.js";
 
@@ -70,6 +73,41 @@ import { RENDERER_INDEX_URL } from "./protocol.js";
  * a window of their own (`Spec-023 §Console Design (Meridian)` §The surface set).
  */
 export type AuxiliaryWindowRoute = "timeline" | "agent-console";
+
+/**
+ * What to open an auxiliary window on: the route, plus the pane context a
+ * detach carries.
+ *
+ * Two shapes, not one optional bag, because the two routes do not take the same
+ * context: a detached agent console is meaningless without the agent it is a
+ * console FOR, so on that route an `agentId` is required the moment any context
+ * is present. The menu-bar path carries no context at all — it has no pane to
+ * read one from — and opens the bare route, leaving the choice to the auxiliary
+ * renderer's own context picker (Phase 1C).
+ */
+export type AuxiliaryWindowLaunch =
+  | { readonly route: "timeline"; readonly sessionId?: string }
+  | {
+      readonly route: "agent-console";
+      readonly sessionId?: string;
+      readonly agentId?: string;
+    };
+
+/**
+ * Refusal raised when a launch descriptor does not validate.
+ *
+ * A distinct class rather than a bare `Error` so a caller can tell a rejected
+ * descriptor from a window that failed to construct, and so the message can
+ * stay free of the offending value — an id that failed a shape check is
+ * untrusted input, and echoing it into a log is how untrusted input reaches a
+ * log reader.
+ */
+export class InvalidAuxiliaryWindowLaunchError extends Error {
+  public constructor(reason: string) {
+    super(`invalid auxiliary window launch: ${reason}`);
+    this.name = "InvalidAuxiliaryWindowLaunchError";
+  }
+}
 
 const PRELOAD_PATH = path.join(import.meta.dirname, "../preload/index.cjs");
 
@@ -135,6 +173,71 @@ export function createMainWindow(): BrowserWindow {
   return browserWindow;
 }
 
+// The two id validators.
+//
+// `SessionIdSchema` is the contracts package's own branded schema and is used
+// verbatim. `AgentId` has no canonical brand yet — its home is Plan-016's
+// unshipped `packages/contracts/src/orchestration.ts`, and minting a second
+// branded schema here would be the duplicate source of truth that contracts
+// file's existing branded-id doctrine forbids — so the agent id is UUID-shape
+// validated at the seam, the same treatment `provider-driver.ts` gives its own
+// `agentId` member for the same reason. Nothing here re-implements a check the
+// corpus already exports.
+const AgentIdShapeSchema = z.string().uuid();
+
+/** The closed route set, as a runtime membership test for untrusted input. */
+const AUXILIARY_WINDOW_ROUTES: ReadonlySet<string> = new Set<string>(["timeline", "agent-console"]);
+
+/**
+ * Validates a launch descriptor and renders it as a route fragment.
+ *
+ * Runs to completion BEFORE any window is constructed, so a malformed
+ * descriptor costs a throw and not a live `BrowserWindow` already pointed at a
+ * URL the renderer then has to defend itself against. Every id is checked by
+ * shape in the main process — the trusted side — rather than taken on the
+ * caller's word, because the fragment is the one part of the loaded URL a
+ * caller controls. The route is re-checked at runtime for the same reason: the
+ * compile-time union binds this package's own call sites, and the renderer-side
+ * detach on `Plan-023 §Console growth slate` will arrive over IPC, where a type
+ * is a claim and not a guarantee.
+ */
+function resolveAuxiliaryRouteFragment(launch: AuxiliaryWindowLaunch): string {
+  const route: string = launch.route;
+  if (!AUXILIARY_WINDOW_ROUTES.has(route)) {
+    throw new InvalidAuxiliaryWindowLaunchError("unknown route");
+  }
+
+  const { sessionId } = launch;
+  const agentId = launch.route === "agent-console" ? launch.agentId : undefined;
+
+  if (sessionId === undefined) {
+    // No context at all is the menu-bar shape. An agent id with no session to
+    // read it in is not a partial descriptor, it is an incoherent one.
+    if (agentId !== undefined) {
+      throw new InvalidAuxiliaryWindowLaunchError("agentId supplied without sessionId");
+    }
+    return `#/window/${route}`;
+  }
+
+  if (!SessionIdSchema.safeParse(sessionId).success) {
+    throw new InvalidAuxiliaryWindowLaunchError("sessionId is not a canonical UUID");
+  }
+
+  if (launch.route === "timeline") {
+    return `#/window/${route}/${sessionId}`;
+  }
+
+  // Context on the agent-console route is only meaningful with the agent: a
+  // console window is a console FOR something.
+  if (agentId === undefined) {
+    throw new InvalidAuxiliaryWindowLaunchError("agent-console context requires an agentId");
+  }
+  if (!AgentIdShapeSchema.safeParse(agentId).success) {
+    throw new InvalidAuxiliaryWindowLaunchError("agentId is not a canonical UUID");
+  }
+  return `#/window/${route}/${sessionId}/${agentId}`;
+}
+
 /**
  * An auxiliary window: the same locked factory, the same bundle, at a window
  * route (Plan-023 I-023-12).
@@ -144,8 +247,14 @@ export function createMainWindow(): BrowserWindow {
  * preload, it gets its own `contextBridge` instance and therefore its own
  * bridge; it subscribes to the daemon itself and shares no in-memory store with
  * any other window.
+ *
+ * Throws `InvalidAuxiliaryWindowLaunchError` on a malformed descriptor, before
+ * constructing anything.
  */
-export function createAuxiliaryWindow(route: AuxiliaryWindowRoute): BrowserWindow {
+export function createAuxiliaryWindow(launch: AuxiliaryWindowLaunch): BrowserWindow {
+  // Deliberately first: validation must not leave a window behind.
+  const routeFragment = resolveAuxiliaryRouteFragment(launch);
+
   const browserWindow = constructLockedWindow({ width: 1100, height: 760 });
 
   // A crashed auxiliary window is closed and disposed rather than left as an
@@ -159,14 +268,14 @@ export function createAuxiliaryWindow(route: AuxiliaryWindowRoute): BrowserWindo
   browserWindow.webContents.on("render-process-gone", (_event, details) => {
     console.error(
       `[ai-sidekicks/desktop] auxiliary window renderer gone ` +
-        `(route=${route}, reason=${details.reason}, exitCode=${String(details.exitCode)})`,
+        `(route=${launch.route}, reason=${details.reason}, exitCode=${String(details.exitCode)})`,
     );
     if (!browserWindow.isDestroyed()) {
       browserWindow.destroy();
     }
   });
 
-  loadDocument(browserWindow, resolveRendererDocumentUrl(`#/window/${route}`));
+  loadDocument(browserWindow, resolveRendererDocumentUrl(routeFragment));
 
   return browserWindow;
 }

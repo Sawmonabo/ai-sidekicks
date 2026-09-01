@@ -12,6 +12,13 @@
 // Copy follows `Spec-023 §Console Design (Meridian)` §Copy: sentence case, no
 // exclamation marks, no capability claimed that the code does not implement.
 //
+// Both entries open the BARE route — `createAuxiliaryWindow({ route })` with no
+// pane context. A menu bar has no pane to read a session or agent from, and
+// guessing one (the most recent session, say) would put a window on a subject
+// the user did not choose. The auxiliary renderer's own context picker is
+// Phase 1C's; until it lands, a bare window is an honest empty state and not a
+// wrong one.
+//
 // NOT here yet, and deliberately: the `Session` submenu entries
 // _Set up collaboration_ and _Set up providers_ that `Spec-026 §Trigger` and
 // `Spec-026 §Interfaces And Contracts` name. Plan-026's walkthrough host exports
@@ -51,14 +58,14 @@ function buildMenuTemplate(): MenuItemConstructorOptions[] {
         label: "Timeline",
         accelerator: "CmdOrCtrl+Shift+T",
         click: () => {
-          createAuxiliaryWindow("timeline");
+          createAuxiliaryWindow({ route: "timeline" });
         },
       },
       {
         label: "Agent console",
         accelerator: "CmdOrCtrl+Shift+A",
         click: () => {
-          createAuxiliaryWindow("agent-console");
+          createAuxiliaryWindow({ route: "agent-console" });
         },
       },
       { type: "separator" },

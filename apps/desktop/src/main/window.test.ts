@@ -18,6 +18,12 @@
 //      runtime half of "its own bridge instance and no shared store" — the
 //      preload path is per-window by construction, and this proves the
 //      factory does not hand back a cached window (Plan-023 I-023-12).
+//   4. A malformed launch descriptor is refused BEFORE any `BrowserWindow` is
+//      constructed. The pane context reaches the fragment of a URL the window
+//      then loads, so an unvalidated id is caller-controlled input inside a
+//      hardened window's document URL. "Refused" is asserted as zero
+//      constructions, not merely as a throw: a factory that validated after
+//      constructing would still throw and would still leave a live window.
 //
 // The `electron` module is mocked because a real `BrowserWindow` needs a
 // running Electron process; these are `main-unit` tests (node environment, the
@@ -214,8 +220,8 @@ describe("window factories", () => {
     it("routes both auxiliary routes to distinct window fragments", async () => {
       const { createAuxiliaryWindow } = await loadWindowModule();
 
-      const timelineWindow = createAuxiliaryWindow("timeline");
-      const agentConsoleWindow = createAuxiliaryWindow("agent-console");
+      const timelineWindow = createAuxiliaryWindow({ route: "timeline" });
+      const agentConsoleWindow = createAuxiliaryWindow({ route: "agent-console" });
 
       expect((timelineWindow as unknown as { loadedUrls: string[] }).loadedUrls).toEqual([
         "sidekicks-renderer://app/index.html#/window/timeline",
@@ -229,8 +235,8 @@ describe("window factories", () => {
       const { createMainWindow, createAuxiliaryWindow } = await loadWindowModule();
 
       createMainWindow();
-      createAuxiliaryWindow("timeline");
-      createAuxiliaryWindow("agent-console");
+      createAuxiliaryWindow({ route: "timeline" });
+      createAuxiliaryWindow({ route: "agent-console" });
 
       const [mainOptions, ...auxiliaryOptions] = electronMock.constructed.map(
         (browserWindow) => browserWindow.options,
@@ -261,8 +267,8 @@ describe("window factories", () => {
       const { createMainWindow, createAuxiliaryWindow } = await loadWindowModule();
 
       const mainBrowserWindow = createMainWindow();
-      const firstAuxiliary = createAuxiliaryWindow("timeline");
-      const secondAuxiliary = createAuxiliaryWindow("agent-console");
+      const firstAuxiliary = createAuxiliaryWindow({ route: "timeline" });
+      const secondAuxiliary = createAuxiliaryWindow({ route: "agent-console" });
 
       const identifiers = [mainBrowserWindow.id, firstAuxiliary.id, secondAuxiliary.id];
       expect(new Set(identifiers).size).toBe(3);
@@ -281,7 +287,7 @@ describe("window factories", () => {
       const { createAuxiliaryWindow } = await loadWindowModule();
       const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
 
-      const auxiliaryWindow = createAuxiliaryWindow("timeline");
+      const auxiliaryWindow = createAuxiliaryWindow({ route: "timeline" });
       const rendererGoneHandler = (
         auxiliaryWindow.webContents as unknown as {
           handlers: Map<string, (...args: unknown[]) => void>;
@@ -295,6 +301,121 @@ describe("window factories", () => {
       expect(consoleError).toHaveBeenCalledTimes(1);
       expect(consoleError.mock.calls[0]?.[0]).toContain("route=timeline");
       expect(consoleError.mock.calls[0]?.[0]).toContain("reason=crashed");
+    });
+
+    describe("the launch descriptor", () => {
+      // Canonical v4 UUIDs. `SessionIdSchema` is the contracts package's own
+      // branded schema, so these are the real wire shape and not a local
+      // approximation of it.
+      const SESSION_ID = "0f1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d";
+      const AGENT_ID = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
+
+      it("carries session context into the timeline fragment", async () => {
+        const { createAuxiliaryWindow } = await loadWindowModule();
+
+        const timelineWindow = createAuxiliaryWindow({
+          route: "timeline",
+          sessionId: SESSION_ID,
+        });
+
+        expect((timelineWindow as unknown as { loadedUrls: string[] }).loadedUrls).toEqual([
+          `sidekicks-renderer://app/index.html#/window/timeline/${SESSION_ID}`,
+        ]);
+      });
+
+      it("carries session and agent context into the agent-console fragment", async () => {
+        const { createAuxiliaryWindow } = await loadWindowModule();
+
+        const agentConsoleWindow = createAuxiliaryWindow({
+          route: "agent-console",
+          sessionId: SESSION_ID,
+          agentId: AGENT_ID,
+        });
+
+        expect((agentConsoleWindow as unknown as { loadedUrls: string[] }).loadedUrls).toEqual([
+          `sidekicks-renderer://app/index.html#/window/agent-console/${SESSION_ID}/${AGENT_ID}`,
+        ]);
+      });
+
+      // Every refusal arm asserts BOTH halves: the typed throw, and that the
+      // construction log is still empty. The second half is the one that
+      // matters — a throw after `new BrowserWindow(...)` would leave a live
+      // window loading an unvalidated URL and would still satisfy `toThrow`.
+      const REFUSED_DESCRIPTORS: ReadonlyArray<{
+        readonly label: string;
+        readonly launch: Parameters<WindowModule["createAuxiliaryWindow"]>[0];
+        readonly reason: string;
+      }> = [
+        {
+          label: "a session id that is not a UUID",
+          launch: { route: "timeline", sessionId: "not-a-uuid" },
+          reason: "sessionId is not a canonical UUID",
+        },
+        {
+          label: "a session id that is a UUID with a trailing path segment",
+          launch: {
+            route: "timeline",
+            sessionId: `${SESSION_ID}/../../etc/passwd`,
+          },
+          reason: "sessionId is not a canonical UUID",
+        },
+        {
+          label: "an empty session id",
+          launch: { route: "timeline", sessionId: "" },
+          reason: "sessionId is not a canonical UUID",
+        },
+        {
+          label: "agent-console context with no agent id",
+          launch: { route: "agent-console", sessionId: SESSION_ID },
+          reason: "agent-console context requires an agentId",
+        },
+        {
+          label: "an agent id that is not a UUID",
+          launch: {
+            route: "agent-console",
+            sessionId: SESSION_ID,
+            agentId: "console#injected",
+          },
+          reason: "agentId is not a canonical UUID",
+        },
+        {
+          label: "an agent id with no session to read it in",
+          launch: { route: "agent-console", agentId: AGENT_ID },
+          reason: "agentId supplied without sessionId",
+        },
+        {
+          label: "a route outside the closed set",
+          // Cast: the compile-time union already refuses this, and the runtime
+          // check exists for the renderer-initiated detach on the growth slate,
+          // which arrives over IPC where a type is a claim and not a guarantee.
+          launch: { route: "settings" } as unknown as Parameters<
+            WindowModule["createAuxiliaryWindow"]
+          >[0],
+          reason: "unknown route",
+        },
+      ];
+
+      for (const { label, launch, reason } of REFUSED_DESCRIPTORS) {
+        it(`refuses ${label} without constructing a window`, async () => {
+          const { createAuxiliaryWindow, InvalidAuxiliaryWindowLaunchError } =
+            await loadWindowModule();
+
+          expect(() => createAuxiliaryWindow(launch)).toThrow(InvalidAuxiliaryWindowLaunchError);
+          expect(() => createAuxiliaryWindow(launch)).toThrow(reason);
+          expect(electronMock.constructed).toHaveLength(0);
+        });
+      }
+
+      // The refusal message must not echo the value that failed the check: a
+      // rejected id is untrusted input, and a log line is a reader.
+      it("keeps the refused value out of the refusal message", async () => {
+        const { createAuxiliaryWindow } = await loadWindowModule();
+        const poisonedSessionId = "<script>alert(1)</script>";
+
+        expect(() =>
+          createAuxiliaryWindow({ route: "timeline", sessionId: poisonedSessionId }),
+        ).toThrow(/^invalid auxiliary window launch: sessionId is not a canonical UUID$/);
+      });
     });
 
     // The main window deliberately carries NO `render-process-gone` handler:
