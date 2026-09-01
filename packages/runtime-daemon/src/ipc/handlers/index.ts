@@ -43,6 +43,7 @@ export {
   registerDriverListProviderCommands,
   registerDriverRespondToRequest,
   type AgentBindingsResolution,
+  type ResolvedAgentBinding,
   type DriverCatalogDeps,
   type DriverCompactContextDeps,
   type DriverDispatchDeps,

@@ -232,22 +232,45 @@ export type RunBindingResolution =
   | { readonly kind: "bound"; readonly driverName: string; readonly bindingId: string };
 
 /**
+ * One live binding as the daemon resolution hands it to the fan-out.
+ *
+ * `providerAccountId` is the daemon's OWN record of the account the binding was
+ * admitted under (Spec-029 binds a run's account for the run's lifetime; the
+ * resolution reads its own registry, never the driver). It is here because it
+ * is the verification BASELINE for the driver-stamped routing pair on every
+ * returned group and entry — the NS-93 doctrine says the pair is "enforced at
+ * the daemon rather than trusted to the renderer", and a daemon that held only
+ * the driver name could verify half the pair while trusting the DRIVER for the
+ * other half. `null` is the positive statement that no account is bound
+ * (mirroring the contracts-side null-doctrine on `ProviderCommandEntry`);
+ * in the verification below `null === null` is agreement between two records
+ * of the SAME binding, not the cross-binding wildcard match that doctrine
+ * forbids on dispatch routing.
+ */
+export interface ResolvedAgentBinding {
+  readonly driverName: string;
+  readonly bindingId: string;
+  readonly providerAccountId: string | null;
+}
+
+/**
  * One agent's live-binding resolution, scoped to the addressed session.
  *
- * The `bound` arm is NON-EMPTY by contract: an agent whose binding list would
- * be empty IS the `no-live-binding` arm, so a handler never has to invent a
- * meaning for a bound-but-empty answer (it would parse as an empty group list,
- * which the result schema rejects as never-empty-on-success).
+ * The `bound` arm is STRUCTURALLY non-empty (a leading-element tuple): an agent
+ * whose binding list would be empty IS the `no-live-binding` arm, and encoding
+ * that in the type means an honest resolver cannot even express the
+ * bound-but-empty answer. The handler still guards the empty case at runtime —
+ * a resolver cast past this type would otherwise skip the documented
+ * `driver.unavailable` refusal, dispatch nothing, and let the result schema's
+ * never-empty-on-success rule convert the read into a `-32603` that reports a
+ * daemon bug where the contract's own refusal was owed.
  */
 export type AgentBindingsResolution =
   | { readonly kind: "unknown-agent" }
   | { readonly kind: "no-live-binding" }
   | {
       readonly kind: "bound";
-      readonly bindings: ReadonlyArray<{
-        readonly driverName: string;
-        readonly bindingId: string;
-      }>;
+      readonly bindings: readonly [ResolvedAgentBinding, ...ResolvedAgentBinding[]];
     };
 
 /** Dependencies for `driver.compactContext`. */
@@ -766,6 +789,55 @@ export function registerDriverCompactContext(
 }
 
 /**
+ * Verify the driver-stamped routing pair on one returned group against the
+ * daemon's own record of the binding the dispatch was addressed to.
+ *
+ * THE DAEMON VERIFIES, IT DOES NOT TRUST. The NS-93 doctrine makes the
+ * `(driverName, providerAccountId)` on every entry "a routing invariant
+ * enforced at the daemon rather than trusted to the renderer" — and a daemon
+ * that forwarded whatever pair the driver stamped would only have moved the
+ * trust one layer down. Every carrier the reply holds is compared: the group's
+ * own pair and each entry's pair (the two carriers the contract inlines by
+ * design, so a filtered entry keeps its routing key). The expected pair is the
+ * resolution's — daemon-owned registry state — never anything read back from
+ * the reply.
+ *
+ * A mismatch fails the WHOLE read as a plain `Error` (mapped `-32603`), the
+ * same class as the one-group structural check: a driver stamping some other
+ * binding's pair is violating its contract, not refusing a caller, and
+ * exposing the mis-stamped enumeration would hand a renderer entries whose
+ * routing key lies. The message carries only daemon-owned values (the expected
+ * pair, the carrier position) — never the stamped strings, which are exactly
+ * the values this check just established cannot be trusted.
+ */
+function verifyDriverStampedRoutingPair(
+  group: ProviderCommandBindingGroup,
+  expected: ResolvedAgentBinding,
+): void {
+  const pairMatches = (stamped: {
+    driverName: string;
+    providerAccountId: string | null;
+  }): boolean =>
+    stamped.driverName === expected.driverName &&
+    stamped.providerAccountId === expected.providerAccountId;
+
+  if (!pairMatches(group.binding)) {
+    throw new Error(
+      `driver.listProviderCommands: driver "${expected.driverName}" stamped its group ` +
+        `with a routing pair that is not the addressed binding's`,
+    );
+  }
+  for (const [entryIndex, entry] of group.entries.entries()) {
+    if (!pairMatches(entry.binding)) {
+      throw new Error(
+        `driver.listProviderCommands: driver "${expected.driverName}" stamped entry ` +
+          `${String(entryIndex)} with a routing pair that is not the addressed binding's`,
+      );
+    }
+  }
+}
+
+/**
  * Bind `driver.listProviderCommands`.
  *
  * Any active member reads: the enumeration carries offerability data, not an
@@ -782,13 +854,16 @@ export function registerDriverCompactContext(
  * CONCATENATION: each driver answers exactly one group for its one binding (a
  * different count is a driver contract violation and fails the read as an
  * internal error rather than being silently flattened or padded), and the
- * handler synthesizes nothing — `runId` attribution, entry order, truncation
- * marking, and the routing pair all arrive composed by the driver that owns
- * them. The routing invariant (I-005-13) holds in V1 by UNREPRESENTABILITY
- * rather than by a comparison: no wire request admits a binding member, so a
- * cross-binding dispatch cannot be expressed at all; the pair travels on every
- * entry so the daemon has something to compare on the day a dispatch route
- * lands.
+ * handler synthesizes nothing — `runId` attribution, entry order, and
+ * truncation marking arrive composed by the driver that owns them, and the
+ * routing pair on the group and on every entry is VERIFIED against the
+ * resolution's own record before the reply leaves the daemon
+ * (`verifyDriverStampedRoutingPair`). The routing invariant (I-005-13) holds
+ * twice over: on the DISPATCH side by unrepresentability — no wire request
+ * admits a binding member, so a cross-binding dispatch cannot be expressed at
+ * all — and on the READ side by that comparison, so a driver stamping some
+ * other binding's pair fails the read instead of publishing a lying routing
+ * key.
  */
 export function registerDriverListProviderCommands(
   registry: MethodRegistry,
@@ -808,30 +883,37 @@ export function registerDriverListProviderCommands(
     if (resolution.kind === "no-live-binding") {
       refuseNoLiveBinding();
     }
+    // The bound arm is structurally non-empty, so this guard is unreachable
+    // through the type — it exists for a resolver cast past it. Without it a
+    // bound-but-empty answer would skip the documented refusal, dispatch
+    // nothing, and fail result validation as a `-32603` daemon bug.
+    if (resolution.bindings.length === 0) {
+      refuseNoLiveBinding();
+    }
 
     return withDriverErrorTranslation(async () => {
       // Phase 1 — admit every binding SYNCHRONOUSLY, before any dispatch
       // starts. A gate failure inside a parallel fan-out would race dispatches
       // that were already in flight; gating in a plain loop first is what makes
       // "zero dispatches on a refusal" a property rather than a probability.
-      const admitted = resolution.bindings.map(({ driverName, bindingId }) => {
-        const driver = deps.providerRegistry.lookup(driverName);
+      const admitted = resolution.bindings.map((resolvedBinding) => {
+        const driver = deps.providerRegistry.lookup(resolvedBinding.driverName);
         if (driver === undefined) {
-          throw new DriverUnavailableError(driverName);
+          throw new DriverUnavailableError(resolvedBinding.driverName);
         }
-        deps.providerRegistry.checkCapability(driverName, "provider_commands");
-        requireDriverOperation(driver, driverName, "listProviderCommands");
-        return { driver, driverName, bindingId };
+        deps.providerRegistry.checkCapability(resolvedBinding.driverName, "provider_commands");
+        requireDriverOperation(driver, resolvedBinding.driverName, "listProviderCommands");
+        return { driver, resolvedBinding };
       });
 
       // Phase 2 — dispatch in parallel (the listModels precedent; each read is
       // a live provider round-trip) and concatenate in resolver order, which
       // `Promise.all` preserves.
       const groups: ProviderCommandBindingGroup[] = await Promise.all(
-        admitted.map(async ({ driver, driverName, bindingId }) => {
+        admitted.map(async ({ driver, resolvedBinding }) => {
           const reply = await driver.listProviderCommands({
             sessionId: params.sessionId,
-            bindingId,
+            bindingId: resolvedBinding.bindingId,
           });
           const [soleGroup] = reply.bindings;
           if (soleGroup === undefined || reply.bindings.length !== 1) {
@@ -840,11 +922,12 @@ export function registerDriverListProviderCommands(
             // and flattening extra groups or padding missing ones would forge
             // provenance the shared-envelope doctrine exists to protect.
             throw new Error(
-              `driver.listProviderCommands: driver "${driverName}" answered ` +
+              `driver.listProviderCommands: driver "${resolvedBinding.driverName}" answered ` +
                 `${String(reply.bindings.length)} groups for one binding (the driver ` +
                 `operation contract is exactly one)`,
             );
           }
+          verifyDriverStampedRoutingPair(soleGroup, resolvedBinding);
           return soleGroup;
         }),
       );

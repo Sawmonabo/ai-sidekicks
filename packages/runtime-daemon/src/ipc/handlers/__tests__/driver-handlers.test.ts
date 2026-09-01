@@ -169,6 +169,34 @@ function wireErrorData(thrown: unknown): { type?: string; fields?: Record<string
   };
 }
 
+/**
+ * Dispatch a method that MUST reject, and hand back the thrown value.
+ *
+ * The internal-error tests need this where the typed-code tests do not:
+ * `mapJsonRpcError` projects ANY input — `undefined` from a resolved dispatch
+ * included — onto a bare `-32603` envelope with no `data.type`, so the
+ * `.then(() => undefined).catch(...)` idiom fed into "type is undefined, code
+ * is InternalError" assertions passes IDENTICALLY when the guard under test is
+ * deleted and the dispatch quietly succeeds. Requiring rejection here is what
+ * makes those assertions falsifiable (proven by this file's negative
+ * controls). A typed-code assertion (`type === "driver.unavailable"`) already
+ * fails on a resolved dispatch, so those tests keep the plain idiom.
+ */
+async function dispatchExpectingRejection(
+  registry: MethodRegistryImpl,
+  method: string,
+  params: unknown,
+): Promise<unknown> {
+  const settlement = await registry.dispatch(method, params, NO_TRANSPORT).then(
+    () => ({ rejected: false as const }),
+    (error: unknown) => ({ rejected: true as const, thrown: error }),
+  );
+  if (!settlement.rejected) {
+    throw new Error(`${method} resolved where the test requires a rejection`);
+  }
+  return settlement.thrown;
+}
+
 function catalogDeps(drivers: Record<string, ProviderDriver>): DriverCatalogDeps {
   return {
     providerRegistry: {
@@ -289,7 +317,10 @@ function listProviderCommandsDeps(
     resolveSessionAccess: () => true,
     resolveAgentBindings: () => ({
       kind: "bound",
-      bindings: [{ driverName: "claude", bindingId: TEST_BINDING_ID }],
+      // `providerAccountId: null` matches the null the `commandGroup` fixture
+      // stamps — the daemon's record and the driver's stamp describe the same
+      // accountless binding, so the honest path verifies clean.
+      bindings: [{ driverName: "claude", bindingId: TEST_BINDING_ID, providerAccountId: null }],
     }),
     ...overrides,
   };
@@ -1206,8 +1237,8 @@ describe("driver.listProviderCommands", () => {
           resolveAgentBindings: () => ({
             kind: "bound",
             bindings: [
-              { driverName: "claude", bindingId: "binding-claude" },
-              { driverName: "codex", bindingId: "binding-codex" },
+              { driverName: "claude", bindingId: "binding-claude", providerAccountId: null },
+              { driverName: "codex", bindingId: "binding-codex", providerAccountId: null },
             ],
           }),
         },
@@ -1299,8 +1330,8 @@ describe("driver.listProviderCommands", () => {
           resolveAgentBindings: () => ({
             kind: "bound",
             bindings: [
-              { driverName: "claude", bindingId: "binding-claude" },
-              { driverName: "codex", bindingId: "binding-codex" },
+              { driverName: "claude", bindingId: "binding-claude", providerAccountId: null },
+              { driverName: "codex", bindingId: "binding-codex", providerAccountId: null },
             ],
           }),
         },
@@ -1409,13 +1440,141 @@ describe("driver.listProviderCommands", () => {
       }),
     );
 
+    const thrown = await dispatchExpectingRejection(
+      registry,
+      "driver.listProviderCommands",
+      request,
+    );
+
+    expect(wireErrorData(thrown).type).toBeUndefined();
+    expect(mapJsonRpcError(thrown, 1).error.code).toBe(JsonRpcErrorCode.InternalError);
+  });
+
+  it("fails the read when a driver stamps its GROUP with another binding's routing pair", async () => {
+    // The lying-driver case the NS-93 doctrine exists for: the daemon resolved
+    // the dispatch onto `claude`'s accountless binding, and the driver answered
+    // one well-formed group stamped as `codex`. Structure passes (one group);
+    // the PAIR comparison against the resolution's own record must refuse —
+    // internal error, same class as the group-count check, because a driver
+    // violating its stamp contract is not a caller refusal.
+    const registry = new MethodRegistryImpl();
+    registerDriverListProviderCommands(
+      registry,
+      listProviderCommandsDeps({
+        claude: driverDouble({
+          listProviderCommands: async () => ({ bindings: [commandGroup("codex")] }),
+        }),
+      }),
+    );
+
+    const thrown = await dispatchExpectingRejection(
+      registry,
+      "driver.listProviderCommands",
+      request,
+    );
+
+    expect(wireErrorData(thrown).type).toBeUndefined();
+    expect(mapJsonRpcError(thrown, 1).error.code).toBe(JsonRpcErrorCode.InternalError);
+  });
+
+  it("fails the read when ONE ENTRY carries another binding's routing pair inside an honest group", async () => {
+    // Entries inline their own routing key by contract, so each is a carrier
+    // the daemon must verify — a clean group-level stamp must not launder a
+    // mis-stamped entry through to a renderer that would route by it.
+    const registry = new MethodRegistryImpl();
+    const groupWithForeignEntry = commandGroup("claude");
+    registerDriverListProviderCommands(
+      registry,
+      listProviderCommandsDeps({
+        claude: driverDouble({
+          listProviderCommands: async () => ({
+            bindings: [
+              {
+                ...groupWithForeignEntry,
+                entries: [
+                  ...groupWithForeignEntry.entries,
+                  {
+                    name: "review",
+                    kind: "command",
+                    binding: { driverName: "codex", providerAccountId: null },
+                  },
+                ],
+              },
+            ],
+          }),
+        }),
+      }),
+    );
+
+    const thrown = await dispatchExpectingRejection(
+      registry,
+      "driver.listProviderCommands",
+      request,
+    );
+
+    expect(wireErrorData(thrown).type).toBeUndefined();
+    expect(mapJsonRpcError(thrown, 1).error.code).toBe(JsonRpcErrorCode.InternalError);
+  });
+
+  it("fails the read when the driver's stamped ACCOUNT differs on a shared driver name", async () => {
+    // The account half of the pair alone must refuse: same driver name, the
+    // stamp names an account the daemon's record says is not this binding's.
+    // This is the arm a name-only comparison would silently pass — the exact
+    // half-verification the resolution's `providerAccountId` member exists to
+    // close.
+    const registry = new MethodRegistryImpl();
+    const accountStampedGroup: ProviderCommandBindingGroup = {
+      ...commandGroup("claude"),
+      binding: { driverName: "claude", providerAccountId: "acct-somebody-else" },
+    };
+    registerDriverListProviderCommands(
+      registry,
+      listProviderCommandsDeps({
+        claude: driverDouble({
+          listProviderCommands: async () => ({ bindings: [accountStampedGroup] }),
+        }),
+      }),
+    );
+
+    const thrown = await dispatchExpectingRejection(
+      registry,
+      "driver.listProviderCommands",
+      request,
+    );
+
+    expect(wireErrorData(thrown).type).toBeUndefined();
+    expect(mapJsonRpcError(thrown, 1).error.code).toBe(JsonRpcErrorCode.InternalError);
+  });
+
+  it("refuses a bound-but-empty resolver answer as driver.unavailable with zero dispatches", async () => {
+    // The type forbids this shape (the bound arm is a non-empty tuple), so the
+    // resolver is cast past it — modeling an implementor bug. The runtime
+    // guard must land on the DOCUMENTED refusal, not on the result schema's
+    // `-32603` for an empty reply, and must dispatch nothing.
+    const registry = new MethodRegistryImpl();
+    const listProviderCommands = vi.fn();
+    registerDriverListProviderCommands(
+      registry,
+      listProviderCommandsDeps(
+        { claude: driverDouble({ listProviderCommands }) },
+        {
+          resolveAgentBindings: (() => ({
+            kind: "bound",
+            bindings: [],
+          })) as unknown as DriverListProviderCommandsDeps["resolveAgentBindings"],
+        },
+      ),
+    );
+
     const thrown = await registry
       .dispatch("driver.listProviderCommands", request, NO_TRANSPORT)
       .then(() => undefined)
       .catch((error: unknown) => error);
 
-    expect(wireErrorData(thrown).type).toBeUndefined();
-    expect(mapJsonRpcError(thrown, 1).error.code).toBe(JsonRpcErrorCode.InternalError);
+    const wireError = wireErrorData(thrown);
+    expect(wireError.type).toBe("driver.unavailable");
+    expect(Object.hasOwn(wireError, "fields")).toBe(false);
+    expect(listProviderCommands).not.toHaveBeenCalled();
   });
 
   it("REFUSES a request carrying a bindingId, before the handler runs (I-007-7)", async () => {
