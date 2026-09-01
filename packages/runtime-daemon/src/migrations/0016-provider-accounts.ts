@@ -22,14 +22,17 @@
 // The `-- Owner:` line is scaffolding on BOTH sides and is filtered from both:
 // the doc opens each of its two fenced blocks with `-- Owner: Plan-029`, and
 // this file opens its single constant with the longer
-// `-- Owner: ... | Migration: ...` form. The rest is this file's alone, and the
-// doc has no counterpart for it: the two `-- ---` section banners and the
-// trailing `schema_version` INSERT. After those, exactly one difference
-// remains, and it is deliberate: the doc's identity-column comment closes with
-// three lines recording WHEN the three observed-identity columns were added and
-// which review found them missing. That is corpus provenance rather than a
-// constraint on the column, so the comment here stops at "never carried on an
-// error."
+// `-- Owner: ... | Migration: ...` form. Blank lines are dropped on both sides.
+// The rest is this file's alone, and the doc has no counterpart for it, because
+// the doc says the same things in prose OUTSIDE its fences: the two per-table
+// banner BLOCKS — each a `-- ---` rule line, a few description lines, and a
+// closing `-- ---` rule line, so it is the whole block that is elided and not
+// only the rules — and the trailing `schema_version` INSERT. After those,
+// exactly one difference remains, and it is deliberate: the doc's
+// identity-column comment closes with three lines recording WHEN the three
+// observed-identity columns were added and which review found them missing.
+// That is corpus provenance rather than a constraint on the column, so the
+// comment here stops at "never carried on an error."
 //
 // ----------------------------------------------------------------------------
 // Why one ordinal for two tables and every column
@@ -78,21 +81,34 @@
 //     time cannot answer "when", and an observation time with no reading is a
 //     timestamp for nothing; either half-populated row would make the readiness
 //     projection serve an incoherent observation.
-//   * `CHECK(credential_generation >= 1)` — the floor the DEFAULT alone only
-//     asserts. A zero or negative generation sorts BEFORE a freshly registered
-//     account, so a reading stamped with one would read as newer than the
-//     account it describes and invert the staleness comparison it exists for.
+//   * `CHECK(typeof(credential_generation) = 'integer' AND credential_generation
+//     >= 1)` — the floor and the storage class the DEFAULT and the `INTEGER`
+//     declaration alone only assert. A zero or negative generation sorts BEFORE
+//     a freshly registered account, so a reading stamped with one would read as
+//     newer than the account it describes and invert the staleness comparison it
+//     exists for. The `typeof` half is not redundant: a SQLite column type is an
+//     AFFINITY, INTEGER affinity converts a bound REAL only where the conversion
+//     is lossless, and `1.5` therefore stores as REAL and passes `>= 1` — a
+//     divisible monotonic counter. `2.0` and `'3'` still convert and are still
+//     admitted, so this refuses exactly the values that were never generations.
 //   * `account_id TEXT NOT NULL PRIMARY KEY` — NOT NULL declared rather than
-//     inherited. A `TEXT PRIMARY KEY` on a rowid table admits NULL, and the key
-//     is a unique index in which NULLs compare distinct, so two identity-less
-//     rows would both commit. A NULL identity keys nothing: the account-plane
-//     key is unmatchable, the child table's cascade never fires for it, and the
-//     credential home derived from it cannot be attributed back.
-//   * `CHECK(observed_credential_generation >= 1)` — the same floor on the quota
-//     row's stamp, which is compared against the parent's generation and against
-//     the wire's `CredentialGenerationSchema`. A stamp below 1 names a
+//     inherited. A `TEXT PRIMARY KEY` on a rowid table admits NULL: the key is
+//     usually just a UNIQUE constraint, an historical oversight lets its column
+//     values be NULL, and the vendor's own stated workaround is exactly this
+//     per-column NOT NULL —
+//     https://www.sqlite.org/quirks.html#primary_keys_can_sometimes_contain_nulls
+//     (§5, accessed 2026-08-31). NULLs compare distinct in that index, so two
+//     identity-less rows would both commit. A NULL identity keys nothing: the
+//     account-plane key is unmatchable, the child table's cascade never fires for
+//     it, and the credential home derived from it cannot be attributed back.
+//   * `CHECK(typeof(observed_credential_generation) = 'integer' AND
+//     observed_credential_generation >= 1)` — the same floor and storage class on
+//     the quota row's stamp, which is compared against the parent's generation and
+//     against the wire's `CredentialGenerationSchema`. A stamp below 1 names a
 //     generation that never existed, so it matches no account state and renders
-//     its reading permanently stale instead of refusing at write time.
+//     its reading permanently stale instead of refusing at write time; a
+//     fractional one compares against a whole-numbered generation and places the
+//     reading between two of them.
 //
 // Ordering against every earlier version is FREE: both tables are new, neither
 // is referenced by any earlier migration's `REFERENCES` clause, and no earlier
@@ -114,13 +130,13 @@ export const PROVIDER_ACCOUNTS_MIGRATION_SQL: string = `
 -- or shred.
 -- ---------------------------------------------------------------------------
 CREATE TABLE provider_accounts (
-  account_id            TEXT NOT NULL PRIMARY KEY,  -- daemon-minted opaque immutable identity; never derived from credential material (Spec-029 §Account identity and credential generation). NOT NULL is declared explicitly because a TEXT PRIMARY KEY on a rowid table admits NULL — a documented SQLite compatibility quirk, not a design choice — and the primary key is implemented as a unique index in which NULLs compare distinct, so two identity-less rows would both commit. A NULL identity keys nothing: (account_id, credential_generation) becomes unmatchable, the child table's ON DELETE CASCADE never fires for it, and the credential home derived from it cannot be attributed back. Declared here rather than relied upon from WITHOUT ROWID, which this table is not.
+  account_id            TEXT NOT NULL PRIMARY KEY,  -- daemon-minted opaque immutable identity; never derived from credential material (Spec-029 §Account identity and credential generation). NOT NULL is declared explicitly because a TEXT PRIMARY KEY on a rowid table admits NULL, which is a documented SQLite compatibility quirk rather than a design choice: a PRIMARY KEY there is usually just a UNIQUE constraint, an historical oversight lets its column values be NULL, and the vendor's own stated workaround is a NOT NULL constraint on each PRIMARY KEY column — https://www.sqlite.org/quirks.html#primary_keys_can_sometimes_contain_nulls (§5, accessed 2026-08-31). NULLs compare distinct in that unique index, so two identity-less rows would both commit. A NULL identity keys nothing: (account_id, credential_generation) becomes unmatchable, the child table's ON DELETE CASCADE never fires for it, and the credential home derived from it cannot be attributed back. Neither documented exception applies here: this is not an INTEGER PRIMARY KEY rowid alias, and the table is not WITHOUT ROWID.
   provider              TEXT NOT NULL
                         CHECK(provider IN ('claude', 'codex')),  -- the same closed driver-id union the MCP governance tables use
   display_label         TEXT NOT NULL,  -- operator-chosen label for disambiguation in the UI; free text, treated as participant-adjacent PII (Spec-022 §PII Data Map)
   credential_home_path  TEXT NOT NULL,  -- absolute path to this account's isolated credential home; the daemon constructs the spawn environment from it and never inherits ambient provider credentials (I-029-4)
   credential_generation INTEGER NOT NULL DEFAULT 1
-                        CHECK(credential_generation >= 1),  -- monotonic, starts at 1; bumped at every credential-home lifecycle transition (I-029-2). The CHECK makes the floor enforced rather than asserted: a zero or negative generation sorts BEFORE a freshly registered account, so a reading stamped with one would read as newer than the account it describes and invert the staleness comparison the stamp exists for.
+                        CHECK(typeof(credential_generation) = 'integer' AND credential_generation >= 1),  -- monotonic, starts at 1; bumped at every credential-home lifecycle transition (I-029-2). The CHECK makes the floor enforced rather than asserted: a zero or negative generation sorts BEFORE a freshly registered account, so a reading stamped with one would read as newer than the account it describes and invert the staleness comparison the stamp exists for. The typeof conjunct is not redundant with the INTEGER declaration and is the second half of the same guarantee: a SQLite column type is an AFFINITY, and INTEGER affinity converts a bound REAL only where the conversion is lossless, so 1.5 is stored as REAL 1.5, satisfies >= 1, and makes a monotonic counter divisible — two bumps could then land on 1.5 and 1.75 and order by fraction rather than by generation. Lossless bindings are untouched: 2.0 and '3' both convert to integer and remain admitted, so the conjunct refuses exactly the values that were never generations.
   billing_mode          TEXT NOT NULL
                         CHECK(billing_mode IN ('subscription', 'metered', 'unknown')),  -- how this account is charged; unknown is the honest-absence arm, never a synonym for metered; drives cost labeling, never cost derivation (Spec-029 §Billing mode)
   is_default            INTEGER NOT NULL DEFAULT 0
@@ -191,7 +207,7 @@ CREATE TABLE provider_account_usage_windows (
   resets_at     TEXT,  -- RFC 3339 UTC when this window resets, where the provider supplies it; NULL where it does not. NULL means unknown, never "now" and never "never".
   observed_at   TEXT NOT NULL,  -- RFC 3339 UTC of the reading. This is the ordering key: where two readings key alike the later observed_at is current, and source breaks only exact ties. Ordering by arrival or by a source preference would let a stale reading mask real consumption.
   observed_credential_generation INTEGER NOT NULL
-                CHECK(observed_credential_generation >= 1),  -- the account's credential_generation when this reading was taken, mirroring the member the account-scoped quota event already carries. A credential-home rebuild does NOT delete these rows — a quota window describes the provider-side allowance, which keeps running while a home sits empty — so this stamp is what lets a consumer render a pre-rebuild reading as stale rather than as current (Spec-029 §Per-limit provider quota). Contrast the health pair on the parent row, which a generation bump invalidates outright, because that pair describes the home itself. The CHECK carries the same floor the parent row's credential_generation and the wire's CredentialGenerationSchema both enforce, so the stamp cannot be written outside the range of the values it claims to compare against: a stamp below 1 names a generation that never existed, matches no account state, and would render its reading permanently stale rather than legibly refusing at write time.
+                CHECK(typeof(observed_credential_generation) = 'integer' AND observed_credential_generation >= 1),  -- the account's credential_generation when this reading was taken, mirroring the member the account-scoped quota event already carries. A credential-home rebuild does NOT delete these rows — a quota window describes the provider-side allowance, which keeps running while a home sits empty — so this stamp is what lets a consumer render a pre-rebuild reading as stale rather than as current (Spec-029 §Per-limit provider quota). Contrast the health pair on the parent row, which a generation bump invalidates outright, because that pair describes the home itself. The CHECK carries the same floor the parent row's credential_generation and the wire's CredentialGenerationSchema both enforce, so the stamp cannot be written outside the range of the values it claims to compare against: a stamp below 1 names a generation that never existed, matches no account state, and would render its reading permanently stale rather than legibly refusing at write time. It carries the parent's typeof conjunct for the same reason and with the same force: the staleness comparison is between this stamp and the parent's generation, so a fractional stamp admitted by INTEGER affinity would compare against a whole-numbered generation and place the reading between two of them.
   source        TEXT NOT NULL
                 CHECK(source IN ('probe', 'run')),  -- which sanctioned source produced the reading: the deliberate probe verb, or the account-scoped quota event emitted from real traffic. The background health observer is NOT a source and no third value exists, because reading quota on one pinned provider leg traverses a path documented to refresh proactively — which Spec-029 §Credential-home health observation forbids the observer to do.
   PRIMARY KEY (account_id, limit_id)

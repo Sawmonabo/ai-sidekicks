@@ -105,9 +105,29 @@ function checkMembersOf(tableSql: string, columnName: string): readonly string[]
  * exists to exclude.
  */
 function numericFloorOf(tableSql: string, columnName: string): number | null {
-  const constraintPattern = new RegExp(String.raw`CHECK\(\s*${columnName}\s*>=\s*(-?\d+)\s*\)`);
+  // The optional prefix is the storage-class conjunct the generation columns
+  // carry: `CHECK(typeof(c) = 'integer' AND c >= 1)`. Spelled EXACTLY rather
+  // than as a wildcard, so the extractor stays discriminating — a column whose
+  // CHECK constrains something else entirely still reports no floor.
+  const constraintPattern = new RegExp(
+    String.raw`CHECK\(\s*(?:typeof\(${columnName}\)\s*=\s*'integer'\s+AND\s+)?${columnName}\s*>=\s*(-?\d+)\s*\)`,
+  );
   const match = constraintPattern.exec(withoutSqlLineComments(tableSql));
   return match?.[1] === undefined ? null : Number(match[1]);
+}
+
+/**
+ * Whether the column's CHECK pins its STORAGE CLASS as well as its floor.
+ *
+ * A SQLite column type is an affinity, not a constraint: INTEGER affinity
+ * converts a bound REAL only where the conversion is lossless, so `1.5` is
+ * stored as REAL and satisfies `>= 1`. On a monotonic counter that is a
+ * counter that divides.
+ */
+function checkPinsIntegerStorage(tableSql: string, columnName: string): boolean {
+  return new RegExp(String.raw`CHECK\(\s*typeof\(${columnName}\)\s*=\s*'integer'\s+AND\s`).test(
+    withoutSqlLineComments(tableSql),
+  );
 }
 
 /** Whether the column's CHECK explicitly admits NULL alongside its member list. */
@@ -351,9 +371,15 @@ describe("provider-account contract <-> DDL conformance", () => {
       expect(numericFloorOf(providerAccountsSql, "credential_generation")).toBe(
         CREDENTIAL_GENERATION_MIN,
       );
+      // And the floor is pinned to the INTEGER storage class, which the column
+      // declaration alone does not do: `INTEGER` is an affinity, so `1.5` stores
+      // as REAL and passes `>= 1`. Without this conjunct the wire's `.int()` and
+      // the database disagree, and the database is the one that persists.
+      expect(checkPinsIntegerStorage(providerAccountsSql, "credential_generation")).toBe(true);
       // Negative control: the extractor is discriminating. `window_mins` carries
       // no floor CHECK, so a helper that matched loosely would report one here.
       expect(numericFloorOf(usageWindowsSql, "window_mins")).toBeNull();
+      expect(checkPinsIntegerStorage(usageWindowsSql, "window_mins")).toBe(false);
 
       // The contract parser holds the rest of the floor: a zero or negative
       // generation would order BEFORE a freshly registered account and let a
@@ -386,6 +412,15 @@ describe("provider-account contract <-> DDL conformance", () => {
       expect(numericFloorOf(usageWindowsSql, "observed_credential_generation")).toBe(
         CREDENTIAL_GENERATION_MIN,
       );
+      // Same storage-class pin, and for a reason the parent's does not cover:
+      // the staleness comparison is BETWEEN this stamp and the parent's
+      // generation, so a fractional stamp admitted by INTEGER affinity would
+      // compare against a whole-numbered generation and place the reading
+      // between two of them — neither current nor cleanly stale.
+      expect(checkPinsIntegerStorage(usageWindowsSql, "observed_credential_generation")).toBe(true);
+      // The wire parser refuses the same value, so the two agree rather than
+      // one covering for the other.
+      expect(CredentialGenerationSchema.safeParse(1.5).success).toBe(false);
     });
   });
 

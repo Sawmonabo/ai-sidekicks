@@ -10,14 +10,20 @@
 //   3. The I-029-11 CENSUS. It DERIVES its subject set from
 //      `PROVIDER_ACCOUNT_WIRE_SHAPES` and cross-checks that registry against the
 //      module's own exports, so a shape added later is either censused or
-//      caught. It carries a negative control, because a checker that has never
-//      been shown to fail proves nothing about a clean result.
+//      caught. It closes with the fourth direction the schema registry cannot
+//      reach — the ERROR channel, whose `fields` is `Record<string, unknown>` —
+//      by censusing representative refusal envelopes both by member name and by
+//      value against the token fixture. Every part of it carries a negative
+//      control, because a checker that has never been shown to fail proves
+//      nothing about a clean result.
 //
 // Refs: Plan-029 T1.1, T1.4, I-029-1, I-029-2, I-029-11, I-029-13; ADR-028
 // (bounded non-interactive token custody).
 
 import { describe, expect, it } from "vitest";
 import type { z } from "zod";
+
+import type { JsonRpcErrorData } from "../jsonrpc.js";
 
 import * as providerAccountModule from "../provider-account.js";
 import {
@@ -61,6 +67,11 @@ import {
 const ACCOUNT_ID = "acct_01J8XYZ";
 const OTHER_ACCOUNT_ID = "acct_01J8ABC";
 const TIMESTAMP = "2026-08-31T00:00:00.000Z";
+/**
+ * The one credential value this plane accepts, named once so the error-envelope
+ * census below can scan for it BY VALUE and not only by member name.
+ */
+const TOKEN_FIXTURE = "sk-example-token";
 
 function validAccount(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -245,6 +256,42 @@ describe("ProviderAccount record", () => {
     ).toBe(true);
   });
 
+  it("refuses an observed health state carrying no observation time", () => {
+    // `healthObservedAt === null` means NO observation has ever been taken, so
+    // only `indeterminate` is reachable there. The other three arms are outcomes
+    // OF an observation: an `authenticated` account whose authentication has no
+    // age is a reading no probe could have produced, and a client rendering it
+    // would show a freshness the daemon never measured.
+    for (const observedOnlyState of ["authenticated", "reauth_required", "home_missing"] as const) {
+      const parsed = ProviderAccountSchema.safeParse(
+        validAccount({ healthState: observedOnlyState, healthObservedAt: null }),
+      );
+      expect(parsed.success, `\`${observedOnlyState}\` was admitted with a null observation`).toBe(
+        false,
+      );
+      // Pathed at the timestamp: the durable pair CHECK means a stored
+      // `authenticated` implies a stored observation time, so the member that
+      // went missing between the row and the wire is the timestamp.
+      expect(
+        parsed.success ? [] : parsed.error.issues.map((issue) => issue.path.join(".")),
+      ).toEqual(["healthObservedAt"]);
+    }
+    // The discriminating control: the rule is about the STATE, not about null
+    // being disallowed, and `indeterminate` keeps both readings.
+    expect(
+      ProviderAccountSchema.safeParse(
+        validAccount({ healthState: "indeterminate", healthObservedAt: null }),
+      ).success,
+    ).toBe(true);
+    for (const observedOnlyState of ["authenticated", "reauth_required", "home_missing"] as const) {
+      expect(
+        ProviderAccountSchema.safeParse(
+          validAccount({ healthState: observedOnlyState, healthObservedAt: TIMESTAMP }),
+        ).success,
+      ).toBe(true);
+    }
+  });
+
   it("rejects a whitespace-only or NUL-bearing display label", () => {
     expect(ProviderAccountSchema.safeParse(validAccount({ displayLabel: "" })).success).toBe(false);
     expect(ProviderAccountSchema.safeParse(validAccount({ displayLabel: "   " })).success).toBe(
@@ -352,6 +399,143 @@ describe("readiness and its remedy union", () => {
       true,
     );
   });
+
+  it("binds each readiness state to the one remedy its state calls for", () => {
+    // The mapping `Spec-029 §Node provider readiness and the sign-in handoff`
+    // states as "three different actions, not one". Before this refinement the
+    // union's discriminant was free of the state beside it, so a `no_account`
+    // entry could carry a `sign_in` remedy and disclose a credential-home path
+    // for a resolution that reached no account at all.
+    const signIn = {
+      kind: "sign_in",
+      accountId: ACCOUNT_ID,
+      signInInvocation: "claude setup-token",
+      credentialHomePath: "/var/lib/sidekicks/homes/acct",
+    };
+    const register = { kind: "register", provider: "claude" };
+    const chooseDefault = { kind: "choose_default", candidateAccountIds: [ACCOUNT_ID] };
+    // `resolvedAccountId` rides only the three states that resolved one, which
+    // is the shape a producer actually emits.
+    const legal: ReadonlyArray<readonly [string, unknown, boolean]> = [
+      ["reauth_required", signIn, true],
+      ["home_missing", signIn, true],
+      ["indeterminate", signIn, true],
+      ["no_account", register, false],
+      ["no_default", chooseDefault, false],
+    ];
+    for (const [state, remedy, resolved] of legal) {
+      expect(
+        ProviderReadinessSchema.safeParse({
+          provider: "claude",
+          state,
+          ...(resolved ? { resolvedAccountId: ACCOUNT_ID } : {}),
+          remedy,
+        }).success,
+        `\`${state}\` refused its own remedy`,
+      ).toBe(true);
+    }
+    // Every OTHER pairing is refused, so this is a census of the mapping and not
+    // five happy paths: the many-to-one `sign_in` arms are proved not to accept
+    // the two account-plane remedies, and neither account-plane state accepts
+    // the sign-in shape whose path names a home it never resolved. Every case
+    // here supplies `resolvedAccountId`, and the issue path is asserted, so a
+    // refusal is attributable to the KIND mismatch and never to the separate
+    // account-agreement rule below.
+    for (const [state, expected] of legal) {
+      for (const remedy of [signIn, register, chooseDefault]) {
+        if (remedy === expected) {
+          continue;
+        }
+        const parsed = ProviderReadinessSchema.safeParse({
+          provider: "claude",
+          state,
+          resolvedAccountId: ACCOUNT_ID,
+          remedy,
+        });
+        expect(parsed.success, `\`${state}\` admitted a remedy it does not call for`).toBe(false);
+        expect(
+          parsed.success ? [] : parsed.error.issues.map((issue) => issue.path.join(".")),
+        ).toEqual(["remedy.kind"]);
+      }
+    }
+  });
+
+  it("carries no remedy on the authenticated arm", () => {
+    // `authenticated` is the one state with nothing to do, so a remedy there is
+    // not redundant but wrong: it would put a sign-in invocation and a
+    // credential-home path on the entry whose account already needs neither.
+    expect(
+      ProviderReadinessSchema.safeParse({
+        provider: "claude",
+        state: "authenticated",
+        resolvedAccountId: ACCOUNT_ID,
+        observedAt: TIMESTAMP,
+      }).success,
+    ).toBe(true);
+    expect(
+      ProviderReadinessSchema.safeParse({
+        provider: "claude",
+        state: "authenticated",
+        resolvedAccountId: ACCOUNT_ID,
+        observedAt: TIMESTAMP,
+        remedy: {
+          kind: "sign_in",
+          accountId: ACCOUNT_ID,
+          signInInvocation: "claude setup-token",
+          credentialHomePath: "/var/lib/sidekicks/homes/acct",
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("keeps requiredness with the producer while checking presence", () => {
+    // The member stays `.optional()` on every arm: `Spec-029` settles it
+    // schema-optional and PRODUCER-obligated, and a strict parser cannot express
+    // per-arm requiredness without splitting the interface. What the parser now
+    // enforces is the other half — a remedy that IS present must be the right
+    // one. Absence still parses on a state that owes one.
+    expect(
+      ProviderReadinessSchema.safeParse({ provider: "codex", state: "no_account" }).success,
+    ).toBe(true);
+  });
+
+  it("binds the sign-in remedy's account to the entry that resolved it", () => {
+    const signInFor = (accountId: string): unknown => ({
+      kind: "sign_in",
+      accountId,
+      signInInvocation: "claude setup-token",
+      credentialHomePath: "/var/lib/sidekicks/homes/acct",
+    });
+    // A remedy naming a DIFFERENT account points the operator at one account's
+    // credential home to repair another's — the arbitrary cross-account election
+    // I-029-5 refuses, arriving as guidance instead of as a binding.
+    expect(
+      ProviderReadinessSchema.safeParse({
+        provider: "claude",
+        state: "reauth_required",
+        resolvedAccountId: ACCOUNT_ID,
+        remedy: signInFor(OTHER_ACCOUNT_ID),
+      }).success,
+    ).toBe(false);
+    // And an entry that resolved NO account cannot carry a home path at all:
+    // `resolvedAccountId` is present iff resolution reached exactly one account,
+    // so a sign-in remedy without one names a home belonging to no entry.
+    expect(
+      ProviderReadinessSchema.safeParse({
+        provider: "claude",
+        state: "reauth_required",
+        remedy: signInFor(ACCOUNT_ID),
+      }).success,
+    ).toBe(false);
+    expect(
+      ProviderReadinessSchema.safeParse({
+        provider: "claude",
+        state: "reauth_required",
+        resolvedAccountId: ACCOUNT_ID,
+        remedy: signInFor(ACCOUNT_ID),
+      }).success,
+    ).toBe(true);
+  });
 });
 
 describe("quota-window shape (I-029-13)", () => {
@@ -444,6 +628,25 @@ describe("request/response pairs", () => {
     ).toBe(true);
     expect(
       ProviderAccountSetDefaultResponseSchema.safeParse({ account: validAccount() }).success,
+    ).toBe(true);
+    // The verb's whole effect is on this member, and it has no partial success:
+    // `isDefault: false` on a SUCCESS reply would be a refusal wearing a success
+    // envelope, while every real refusal on this verb is a typed error
+    // (`provideraccount.unknown`, `permission_denied`, `default_conflict`). The
+    // sibling `ProviderAccountRemoveResponse.removed` makes the same argument
+    // with `z.literal(true)`; this one is a refinement because the account
+    // projection is shared and narrowing the type here would fork it.
+    expect(
+      ProviderAccountSetDefaultResponseSchema.safeParse({
+        account: validAccount({ isDefault: false }),
+      }).success,
+    ).toBe(false);
+    // And the shared projection is NOT narrowed by that pin: every other reply
+    // returning an account still admits a non-default one, which is the reading
+    // a list of accounts is made of.
+    expect(
+      ProviderAccountUpdateResponseSchema.safeParse({ account: validAccount({ isDefault: false }) })
+        .success,
     ).toBe(true);
 
     expect(
@@ -555,7 +758,7 @@ describe("request/response pairs", () => {
         displayLabel: "Personal",
         billingMode: "subscription",
         accountId: ACCOUNT_ID,
-        nonInteractiveToken: "sk-example-token",
+        nonInteractiveToken: TOKEN_FIXTURE,
       }).success,
     ).toBe(true);
     expect(
@@ -583,7 +786,7 @@ describe("request/response pairs", () => {
         provider: "claude",
         displayLabel: "Personal",
         billingMode: "subscription",
-        nonInteractiveToken: "sk-example-token",
+        nonInteractiveToken: TOKEN_FIXTURE,
       }).success,
     ).toBe(true);
 
@@ -755,6 +958,56 @@ function credentialShapedMembersOf(schema: z.ZodType<unknown>): readonly string[
   );
 }
 
+/**
+ * The same two questions the schema walker asks, asked of a plain JSON value —
+ * which is what an error envelope is. `JsonRpcErrorData.fields` is
+ * `Record<string, unknown>`, so there is no `def` to walk and no schema to
+ * census: the subject has to be the value itself.
+ *
+ * Both go to any DEPTH, because a mapper that spread a whole request object into
+ * `fields` would bury the member one level down, which is the accident most
+ * likely to happen and the one a top-level key check would miss.
+ */
+function credentialShapedKeysDeep(value: unknown): readonly string[] {
+  const found: string[] = [];
+  const visit = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      node.forEach(visit);
+      return;
+    }
+    if (node === null || typeof node !== "object") {
+      return;
+    }
+    for (const [key, nested] of Object.entries(node)) {
+      if (CREDENTIAL_SHAPED_MEMBER.test(key)) {
+        found.push(key);
+      }
+      visit(nested);
+    }
+  };
+  visit(value);
+  return found;
+}
+
+function stringValuesDeep(value: unknown): readonly string[] {
+  const found: string[] = [];
+  const visit = (node: unknown): void => {
+    if (typeof node === "string") {
+      found.push(node);
+      return;
+    }
+    if (Array.isArray(node)) {
+      node.forEach(visit);
+      return;
+    }
+    if (node !== null && typeof node === "object") {
+      Object.values(node).forEach(visit);
+    }
+  };
+  visit(value);
+  return found;
+}
+
 describe("I-029-11 — one credential-accepting input, zero credential-bearing outputs", () => {
   it("registers every request, response, and notification schema the module exports", () => {
     // The completeness check that keeps the census from going vacuous: a shape
@@ -817,13 +1070,27 @@ describe("I-029-11 — one credential-accepting input, zero credential-bearing o
     expect(collectMemberNames(ProviderAccountListResponseSchema)).toContain("signInInvocation");
     // A member nested inside a DISCRIMINATED union arm — the notification shape.
     expect(collectMemberNames(ProviderAccountNotificationSchema)).toContain("failureReason");
-    // And a member reachable ONLY through an arm carrying a cross-field
-    // refinement. The two shapes in this module that refuse a contradictory
-    // combination do so with `.superRefine`, which returns the object schema
-    // itself rather than wrapping it; were that ever to change, the walker would
-    // stop at the wrapper and every count above would silently go vacuous for
-    // exactly those shapes. `usedPercent` lives inside `usage_window_updated`,
-    // the refined arm, so this assertion fails the moment that happens.
+
+    // And a member reachable ONLY THROUGH a shape carrying a cross-field
+    // refinement. FIVE shapes in this module refuse a contradictory combination
+    // with `.superRefine`, which returns the object schema itself rather than
+    // wrapping it; were that ever to change, the walker would stop at the
+    // wrapper and every count above would silently go vacuous for exactly those
+    // shapes. Each of the five is covered, and this is the enumeration:
+    //   * `ProviderAccountRegisterRequestSchema` — covered by the
+    //     `accountId` assertion in the exactly-one-input test above.
+    //   * `ProviderAccountSchema` — reached THROUGH the refinement here, since
+    //     `displayLabel` lives on the refined account nested in the register
+    //     reply asserted at the top of this test.
+    //   * `ProviderReadinessSchema` — `signInInvocation` is reachable only
+    //     through the refined readiness entry inside the list reply, asserted
+    //     above.
+    //   * `ProviderAccountSetDefaultResponseSchema` — a refined shape wrapping
+    //     another refined shape, so it is the case that fails first if either
+    //     level ever starts wrapping.
+    //   * the `usage_window_updated` notification arm — `usedPercent` lives
+    //     inside it.
+    expect(collectMemberNames(ProviderAccountSetDefaultResponseSchema)).toContain("displayLabel");
     expect(collectMemberNames(ProviderAccountNotificationSchema)).toContain("usedPercent");
 
     // And the detector itself fires on each of the names it is meant to catch.
@@ -888,5 +1155,155 @@ describe("I-029-11 — one credential-accepting input, zero credential-bearing o
       collectMemberNames(wireShape.schema).includes("nonInteractiveToken"),
     ).map((wireShape) => wireShape.name);
     expect(carryingShapes).toEqual(["ProviderAccountRegisterRequest"]);
+  });
+
+  // --------------------------------------------------------------------------
+  // The fourth direction: the error channel
+  // --------------------------------------------------------------------------
+  //
+  // The census above walks requests, responses, and notifications, which is
+  // every SCHEMA this module declares — and a `provideraccount.*` refusal is not
+  // one of them. It travels as `JsonRpcErrorData`, whose `fields` is
+  // `Record<string, unknown>`: an untyped hole no schema census can close,
+  // because there is no schema to walk. A mapper that spread the register
+  // request into `fields` would therefore pass every count above unchanged while
+  // logging the token.
+  //
+  // What is censused instead is REPRESENTATIVE mapped envelopes: each code is
+  // transcribed from `docs/architecture/contracts/error-contracts.md`
+  // §"Provider Account", and each `fields` shape is composed to be consistent
+  // with that row's prose rather than copied from it, because the doc declares
+  // the permitted contents and does not exhibit an envelope. They are scanned
+  // two ways: by member NAME with the same detector the wire census uses, and
+  // by VALUE against the one token fixture this suite registers. The value scan
+  // is the one that matters for `provideraccount.token_class_refused`, whose
+  // normative rule is about the VALUE and not the name — "names which condition
+  // failed and never quotes, echoes, or excerpts the supplied value" — so a
+  // field innocently called `supplied` or `observed` carrying the token is
+  // caught here and would not be caught by any name-based rule.
+  //
+  // Two limits, stated rather than papered over. The fixture set is ENUMERATED
+  // BY HAND, so a code added to that doc without a fixture here is not caught;
+  // and the binding enforcement is the daemon's error mapper, a later phase —
+  // this pins the contract the mapper will be held to. Declaring the field names
+  // as an exported registry is deliberately NOT done yet: its only consumer
+  // would be this test, and a declaration minted ahead of its reader is the
+  // vacuity this whole block exists to prevent.
+  const PROVIDER_ACCOUNT_REFUSAL_ENVELOPES: ReadonlyArray<JsonRpcErrorData> = [
+    { type: "provideraccount.not_registered", fields: { provider: "claude" } },
+    { type: "provideraccount.no_default", fields: { provider: "claude" } },
+    { type: "provideraccount.unknown", fields: { providerAccountId: ACCOUNT_ID } },
+    {
+      type: "provideraccount.credential_home_unavailable",
+      fields: { providerAccountId: ACCOUNT_ID },
+    },
+    {
+      type: "provideraccount.not_authenticated",
+      fields: { providerAccountId: ACCOUNT_ID, healthState: "indeterminate" },
+    },
+    { type: "provideraccount.permission_denied", fields: { providerAccountId: ACCOUNT_ID } },
+    {
+      type: "provideraccount.default_conflict",
+      fields: { provider: "claude", providerAccountId: ACCOUNT_ID },
+    },
+    { type: "provideraccount.signin_unsupported", fields: { provider: "codex" } },
+    {
+      type: "provideraccount.signin_in_flight",
+      fields: { providerAccountId: ACCOUNT_ID, attemptId: "att_01J8" },
+    },
+    // The condition is NAMED; the value that failed it is not carried, quoted,
+    // or excerpted — the one row in that table whose text is a rule about the
+    // payload rather than a description of it.
+    {
+      type: "provideraccount.token_class_refused",
+      fields: { provider: "claude", failedCondition: "not_a_vendor_minted_non_interactive_token" },
+    },
+    { type: "provideraccount.credential_seal_refused", fields: { provider: "claude" } },
+    {
+      type: "provideraccount.provider_version_below_floor",
+      fields: { provider: "codex", observedVersion: "0.140.0", requiredVersion: "0.149.1" },
+    },
+  ];
+
+  it("carries no credential-shaped member on any provider-account refusal envelope", () => {
+    for (const envelope of PROVIDER_ACCOUNT_REFUSAL_ENVELOPES) {
+      expect(
+        credentialShapedKeysDeep(envelope.fields),
+        `\`${envelope.type}\` carries a credential-shaped member`,
+      ).toEqual([]);
+    }
+  });
+
+  it("never echoes the supplied token value back through the error channel", () => {
+    for (const envelope of PROVIDER_ACCOUNT_REFUSAL_ENVELOPES) {
+      for (const value of stringValuesDeep(envelope.fields)) {
+        expect(
+          value.includes(TOKEN_FIXTURE),
+          `\`${envelope.type}\` echoes the supplied token value`,
+        ).toBe(false);
+      }
+    }
+  });
+
+  it("catches a forced error that carries the token, by name and by value", () => {
+    // Without this, both counts above would be equally consistent with walkers
+    // that never descended and a fixture set that never contained a token.
+    //
+    // Case 1: the accident — the whole request spread into `fields`, so the
+    // member sits one level down under its own name.
+    const spreadRequest: JsonRpcErrorData = {
+      type: "provideraccount.token_class_refused",
+      fields: {
+        provider: "claude",
+        request: { accountId: ACCOUNT_ID, nonInteractiveToken: TOKEN_FIXTURE },
+      },
+    };
+    expect(credentialShapedKeysDeep(spreadRequest.fields)).toEqual(["nonInteractiveToken"]);
+
+    // Case 2: the accident NAME-based detection cannot catch — the refusal
+    // quoting what it refused, under a member whose name is innocent. This is
+    // exactly what the `token_class_refused` row forbids, and only the value
+    // scan sees it.
+    const quotedValue: JsonRpcErrorData = {
+      type: "provideraccount.token_class_refused",
+      fields: { provider: "claude", supplied: [`rejected: ${TOKEN_FIXTURE}`] },
+    };
+    expect(credentialShapedKeysDeep(quotedValue.fields)).toEqual([]);
+    expect(
+      stringValuesDeep(quotedValue.fields).some((value) => value.includes(TOKEN_FIXTURE)),
+    ).toBe(true);
+
+    // And the value scan does not fire on an envelope that merely mentions the
+    // member name in prose, which is legitimate: naming the input is not
+    // echoing it.
+    const namesTheMember: JsonRpcErrorData = {
+      type: "provideraccount.token_class_refused",
+      fields: { provider: "claude", failedCondition: "nonInteractiveToken must be vendor-minted" },
+    };
+    expect(
+      stringValuesDeep(namesTheMember.fields).some((value) => value.includes(TOKEN_FIXTURE)),
+    ).toBe(false);
+  });
+
+  it("covers every provider-account refusal code exactly once", () => {
+    const codes = PROVIDER_ACCOUNT_REFUSAL_ENVELOPES.map((envelope) => envelope.type);
+    // Transcribed from `error-contracts.md` §"Provider Account". The count is
+    // asserted so a row added there and mirrored here cannot be half-done, and
+    // uniqueness so a copy-paste cannot make the coverage look wider than it is.
+    expect(new Set(codes).size).toBe(codes.length);
+    expect(codes).toHaveLength(12);
+    for (const code of codes) {
+      expect(code.startsWith("provideraccount."), `\`${code}\` is not on this plane`).toBe(true);
+    }
+    // The one member this plane may never put in an envelope, checked against
+    // the same marking the wire census uses rather than a second literal.
+    for (const redactedMember of PROVIDER_ACCOUNT_REDACTED_WIRE_MEMBERS) {
+      for (const envelope of PROVIDER_ACCOUNT_REFUSAL_ENVELOPES) {
+        expect(
+          Object.keys(envelope.fields ?? {}),
+          `\`${envelope.type}\` carries the write-only member \`${redactedMember}\``,
+        ).not.toContain(redactedMember);
+      }
+    }
   });
 });

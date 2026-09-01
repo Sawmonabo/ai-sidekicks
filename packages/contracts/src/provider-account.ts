@@ -15,13 +15,32 @@
 //
 // Credential material crosses this surface on EXACTLY ONE input —
 // `ProviderAccountRegisterRequest.nonInteractiveToken` — and on NO output. No
-// response, notification, or error shape declared here carries a token-shaped
+// response and no notification shape declared here carries a token-shaped
 // member under any name. That claim is not prose: `PROVIDER_ACCOUNT_WIRE_SHAPES`
 // below enumerates every request, response, and notification shape in this
 // module, and the contract suite walks it to count credential-accepting inputs
 // (must be exactly one, named) and credential-bearing outputs (must be zero).
 // A shape added here without a registry entry is caught by the same suite's
 // completeness check, so the census cannot go vacuous by omission.
+//
+// THE ERROR CHANNEL IS THE FOURTH DIRECTION, and this module declares no shape
+// for it. A `provideraccount.*` refusal travels as `JsonRpcErrorData`, whose
+// `fields` is `Record<string, unknown>` — an untyped hole no schema census can
+// close, because there is no schema. The permitted contents are declared in
+// prose, per code, in `docs/architecture/contracts/error-contracts.md`
+// §"Provider Account"; the guarantee that matters most there is
+// `provideraccount.token_class_refused`, which "names which condition failed and
+// never quotes, echoes, or excerpts the supplied value". The contract suite
+// therefore censuses representative refusal envelopes — each code transcribed
+// from those rows, each `fields` shape composed to be consistent with that
+// row's prose — by member NAME at any depth and by VALUE against the token
+// fixture, so a mapper that echoed the input back fails a test rather than only
+// a reading of the docs. Two honest limits: the fixture set is enumerated by
+// hand, so a code added to that doc without a fixture is not caught here, and
+// the binding enforcement is the daemon's error mapper, which is a later phase.
+// Registering the field names as a typed contract belongs to the swap that
+// gives them a producer — a declaration whose only consumer is its own test is
+// minted ahead of its reader.
 //
 // ----------------------------------------------------------------------------
 // What is response-only, and what deliberately is not
@@ -434,7 +453,31 @@ export const ProviderAccountSchema: z.ZodType<ProviderAccount, ProviderAccount> 
     expectedReloginAtEstimate: z.iso.datetime({ offset: true }).nullable(),
     probeEnabled: z.boolean(),
   })
-  .strict();
+  .strict()
+  .superRefine((account, ctx) => {
+    // A NULL observation timestamp means NO observation has ever been taken —
+    // the durable pair moves together under
+    // `CHECK ((health_state IS NULL) = (health_observed_at IS NULL))`, and a NULL
+    // stored pair projects as `indeterminate`. So `indeterminate` is the ONLY arm
+    // reachable without a timestamp, and it is deliberately reachable with one
+    // too: "never probed" and "probed, and the probe could not decide" are
+    // different facts about the same account, and the timestamp is what tells
+    // them apart. The other three arms are OUTCOMES of an observation and cannot
+    // exist without the moment they were read at; admitting one with a null
+    // timestamp would let a client render an authenticated account whose
+    // authentication has no age, which is the reading `expectedReloginAtEstimate`
+    // and the staleness banner both depend on.
+    if (account.healthObservedAt === null && account.healthState !== "indeterminate") {
+      ctx.addIssue({
+        code: "custom",
+        // Pathed at the TIMESTAMP: the durable CHECK means a stored
+        // `authenticated` implies a stored observation time, so the member that
+        // went missing on the way to the wire is the timestamp, not the state.
+        path: ["healthObservedAt"],
+        message: `\`healthState: "${account.healthState}"\` is the outcome of an observation, so \`healthObservedAt\` cannot be null; only \`indeterminate\` is reachable unobserved`,
+      });
+    }
+  });
 
 // --------------------------------------------------------------------------
 // Readiness and its remedy union
@@ -545,12 +588,41 @@ export interface ProviderReadiness {
   /**
    * Schema-optional, PRODUCER-OBLIGATED: the daemon populates it on every
    * non-authenticated arm and omits it on `authenticated`. Optional at parse
-   * because the state alone does not make requiredness expressible to a strict
-   * parser without splitting this interface per arm; the obligation is the
-   * producer's and is tested per arm.
+   * because the state alone does not make REQUIREDNESS expressible to a strict
+   * parser without splitting this interface per arm; the obligation to supply
+   * one is the producer's and is tested per arm.
+   *
+   * What the parser does enforce is the other half: a remedy that IS present
+   * must be the one its state calls for, per `REMEDY_KIND_FOR_READINESS_STATE`
+   * below. Absence stays parseable; a WRONG remedy does not.
    */
   remedy?: ProviderRemedy | undefined;
 }
+
+/**
+ * The state -> remedy-kind mapping `Spec-029 §Node provider readiness and the
+ * sign-in handoff` states in prose: "three different actions, not one" — with
+ * nothing registered, register; with accounts registered and none default,
+ * choose a default; with exactly one account resolved but not authenticated,
+ * the provider's own first-party sign-in against THAT account's home. `null` is
+ * the fourth case and is not a fourth action: `authenticated` needs nothing
+ * done, so a remedy on it is not merely redundant but wrong — it would put a
+ * credential-home path and a sign-in invocation on the one entry whose account
+ * requires neither.
+ *
+ * A TOTAL record rather than a switch: adding a readiness arm without deciding
+ * its remedy is then a compile error here rather than a hole that parses.
+ */
+const REMEDY_KIND_FOR_READINESS_STATE: Readonly<
+  Record<ProviderReadinessState, ProviderRemedy["kind"] | null>
+> = {
+  authenticated: null,
+  reauth_required: "sign_in",
+  home_missing: "sign_in",
+  indeterminate: "sign_in",
+  no_account: "register",
+  no_default: "choose_default",
+};
 
 export const ProviderReadinessSchema: z.ZodType<ProviderReadiness, ProviderReadiness> = z
   .object({
@@ -560,7 +632,44 @@ export const ProviderReadinessSchema: z.ZodType<ProviderReadiness, ProviderReadi
     observedAt: z.iso.datetime({ offset: true }).optional(),
     remedy: ProviderRemedySchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((entry, ctx) => {
+    const { remedy } = entry;
+    if (remedy === undefined) {
+      // Requiredness stays the producer's obligation — see the member comment.
+      return;
+    }
+    const expectedKind = REMEDY_KIND_FOR_READINESS_STATE[entry.state];
+    if (remedy.kind !== expectedKind) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["remedy", "kind"],
+        message:
+          expectedKind === null
+            ? `\`state: "${entry.state}"\` needs no action, so it carries no remedy; \`${remedy.kind}\` would disclose a next step for an account that is already usable`
+            : `\`state: "${entry.state}"\` calls for the \`${expectedKind}\` remedy, not \`${remedy.kind}\``,
+      });
+      return;
+    }
+    // The `sign_in` arm is the arm where resolution reached exactly one account,
+    // and its `accountId` names the home its invocation authenticates INTO. If
+    // that id disagreed with the entry's own `resolvedAccountId` the operator
+    // would be pointed at one account's credential home to fix another's —
+    // exactly the arbitrary cross-account election I-029-5 exists to prevent,
+    // arriving as guidance instead of as a binding. Checked in both directions:
+    // a `sign_in` remedy on an entry that resolved NO account has a home path
+    // that belongs to no entry at all.
+    if (remedy.kind === "sign_in" && remedy.accountId !== entry.resolvedAccountId) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["remedy", "accountId"],
+        message:
+          entry.resolvedAccountId === undefined
+            ? "a `sign_in` remedy names a credential home, so its entry must carry the `resolvedAccountId` that home belongs to"
+            : "the `sign_in` remedy's `accountId` must be the entry's own `resolvedAccountId`",
+      });
+    }
+  });
 
 // --------------------------------------------------------------------------
 // ProviderAccountUsageWindow — the per-limit quota reading (I-029-13)
@@ -903,11 +1012,36 @@ export const ProviderAccountSetDefaultRequestSchema: z.ZodType<
 > = z.object({ accountId: ProviderAccountIdSchema }).strict();
 
 export interface ProviderAccountSetDefaultResponse {
+  /**
+   * The account AFTER the write, and `isDefault` on it is pinned `true` by the
+   * schema below. The pin is the same argument `ProviderAccountRemoveResponse`
+   * makes with `z.literal(true)`: this verb has no partial success, so an
+   * `isDefault: false` reply would be a refusal wearing a success envelope, and
+   * every refusal on this verb is a typed error instead
+   * (`provideraccount.unknown`, `permission_denied`, `default_conflict`).
+   *
+   * It is a runtime refinement rather than a narrowed TYPE because the account
+   * projection is shared: `ProviderAccount & { isDefault: true }` here would
+   * fork the shape every other reply returns, and a client would then hold two
+   * incompatible account types for one registry row.
+   */
   account: ProviderAccount;
 }
 
 export const ProviderAccountSetDefaultResponseSchema: z.ZodType<ProviderAccountSetDefaultResponse> =
-  z.object({ account: ProviderAccountSchema }).strict();
+  z
+    .object({ account: ProviderAccountSchema })
+    .strict()
+    .superRefine((response, ctx) => {
+      if (!response.account.isDefault) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["account", "isDefault"],
+          message:
+            "`providerAccount.setDefault` returns the account it made default, so `isDefault` cannot be false on a success reply",
+        });
+      }
+    });
 
 // --------------------------------------------------------------------------
 // providerAccount.resetCredentialHome

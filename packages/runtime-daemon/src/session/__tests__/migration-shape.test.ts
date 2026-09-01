@@ -3873,20 +3873,25 @@ describe("0014-console-parity-capability-flags migration shape", () => {
 
 // Plan-029 T1.2 + T1.4 — version-16 migration-shape coverage.
 //
-// The registry's whole design intent is that four states are UNREPRESENTABLE
+// The registry's whole design intent is that six states are UNREPRESENTABLE
 // rather than merely discouraged, so the tests that matter here are the
 // refusals: a second default for one provider, two accounts sharing one
-// credential home, a half-populated stored health observation, and a
-// non-positive credential generation, a NULL account identity, and a
-// non-positive generation stamp on a stored quota reading. All six are enforced
-// by the database — two unique indexes, three CHECKs, and one NOT NULL — and each
-// is exercised beside a positive control, so a refusal can never pass because the
-// statement was broken.
+// credential home, a half-populated stored health observation, a non-integral
+// or non-positive credential generation, a NULL account identity, and a
+// non-integral or non-positive generation stamp on a stored quota reading.
+// All six are enforced by the database — two unique indexes, three CHECKs, and
+// one NOT NULL — and each is exercised beside a positive control, so a refusal
+// can never pass because the statement was broken. Two of the three CHECKs pin a
+// STORAGE CLASS as well as a floor, because `INTEGER` is an affinity: SQLite
+// converts a bound REAL only where the conversion is lossless, so `1.5` would
+// otherwise store as REAL and satisfy `>= 1`.
 //
 // Shape-checkable spec/invariant cites:
 //   * I-029-2 — `credential_generation` starts at 1 and never resets. The DDL
 //     carries both halves the schema can express: `DEFAULT 1` for the start and
-//     `CHECK(credential_generation >= 1)` for the floor.
+//     `CHECK(typeof(credential_generation) = 'integer' AND credential_generation
+//     >= 1)` for the floor and for the storage class a divisible counter would
+//     otherwise slip through.
 //   * I-029-8 — sharing a credential home is never a fallback. Two accounts
 //     naming one home would share its credentials, which a total unique index
 //     refuses; T1.2 names this invariant as one of the two it verifies.
@@ -4111,6 +4116,48 @@ describe("0016-provider-accounts migration shape", () => {
       /CHECK constraint failed/,
     );
 
+    // The storage-class half, which the `INTEGER` declaration does NOT buy: the
+    // column type is an AFFINITY, so without the `typeof` conjunct `1.5` is
+    // stored as REAL, passes `>= 1`, and makes a counter that only ever moves up
+    // divisible — two bumps could land on `1.5` and `1.75` and order by fraction
+    // rather than by generation.
+    expect(() => insertAccount({ account_id: "gen-fraction", credential_generation: 1.5 })).toThrow(
+      /CHECK constraint failed/,
+    );
+    // And the non-regression controls that keep the conjunct NARROW. These go
+    // through SQL literals rather than bound parameters on purpose: JavaScript
+    // has one number type, so `2.0` and `2` are the same value and a bound
+    // parameter could not express an integral REAL at all. Written as a literal,
+    // SQLite parses `2.0` as REAL, INTEGER affinity converts it losslessly, and
+    // the row is admitted — so the conjunct refuses exactly the values that were
+    // never generations and breaks no legitimate write.
+    const generationOf = (accountId: string): unknown =>
+      db
+        .prepare(
+          "SELECT credential_generation AS value, typeof(credential_generation) AS storageClass" +
+            " FROM provider_accounts WHERE account_id = ?",
+        )
+        .get(accountId);
+    expect(() =>
+      db.exec(
+        "UPDATE provider_accounts SET credential_generation = 2.0 WHERE account_id = 'gen-high'",
+      ),
+    ).not.toThrow();
+    expect(generationOf("gen-high")).toEqual({ value: 2, storageClass: "integer" });
+    expect(() =>
+      db.exec(
+        "UPDATE provider_accounts SET credential_generation = '3' WHERE account_id = 'gen-high'",
+      ),
+    ).not.toThrow();
+    expect(generationOf("gen-high")).toEqual({ value: 3, storageClass: "integer" });
+    // While the fractional literal — the value affinity CANNOT convert — is
+    // refused on the same path.
+    expect(() =>
+      db.exec(
+        "UPDATE provider_accounts SET credential_generation = 2.5 WHERE account_id = 'gen-high'",
+      ),
+    ).toThrow(/CHECK constraint failed/);
+
     // A generation only ever moves up, so the refusal has to bind the UPDATE
     // path as well: a reset to 0 is the exact write I-029-2 forbids.
     expect(() =>
@@ -4122,9 +4169,12 @@ describe("0016-provider-accounts migration shape", () => {
 
   it("refuses a NULL account identity (I-029-1)", () => {
     // A `TEXT PRIMARY KEY` on a rowid table admits NULL unless NOT NULL is
-    // declared — a documented SQLite compatibility quirk — and because the key is
-    // a unique index in which NULLs compare distinct, TWO identity-less rows would
-    // both commit. Positive control first, so the refusal below cannot pass
+    // declared: the key is usually just a UNIQUE constraint, an historical
+    // oversight lets its column values be NULL, and the vendor's own stated
+    // workaround is exactly this per-column NOT NULL —
+    // https://www.sqlite.org/quirks.html#primary_keys_can_sometimes_contain_nulls
+    // (§5, accessed 2026-08-31). Because NULLs compare distinct in that index,
+    // TWO identity-less rows would both commit. Positive control first, so the refusal below cannot pass
     // because the statement was broken.
     expect(() => insertAccount({ account_id: "identity-present" })).not.toThrow();
 
@@ -4412,6 +4462,29 @@ describe("0016-provider-accounts migration shape", () => {
     expect(() =>
       insertWindow.run("stamp-floor", "l4", 300, 1, "2026-08-31T00:00:00.000Z", -1, "probe"),
     ).toThrow(/CHECK constraint failed/);
+    // The storage-class half. It matters more here than on the parent: the
+    // staleness comparison is BETWEEN this stamp and the parent's generation, so
+    // a fractional stamp compares against a whole-numbered generation and places
+    // the reading between two of them — neither current nor cleanly stale.
+    expect(() =>
+      insertWindow.run("stamp-floor", "l5", 300, 1, "2026-08-31T00:00:00.000Z", 1.5, "probe"),
+    ).toThrow(/CHECK constraint failed/);
+    // Non-regression control, through a SQL literal for the same reason as on
+    // the parent: an integral REAL still converts losslessly and is admitted.
+    expect(() =>
+      db.exec(
+        "UPDATE provider_account_usage_windows SET observed_credential_generation = 2.0" +
+          " WHERE account_id = 'stamp-floor' AND limit_id = 'l1'",
+      ),
+    ).not.toThrow();
+    expect(
+      db
+        .prepare(
+          "SELECT typeof(observed_credential_generation) AS storageClass" +
+            " FROM provider_account_usage_windows WHERE account_id = ? AND limit_id = ?",
+        )
+        .get("stamp-floor", "l1"),
+    ).toEqual({ storageClass: "integer" });
 
     // The UPDATE path too: a stored reading's stamp is rewritten whenever a newer
     // observation replaces it, so the floor has to bind that write as well.
