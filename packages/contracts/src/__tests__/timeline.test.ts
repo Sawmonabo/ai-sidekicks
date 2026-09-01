@@ -50,6 +50,20 @@
 //     F37  read `limit` above the cap ................ refuses (bounded window)
 //     F38  read `limit` of zero ...................... refuses
 //
+//   MUST FAIL — the incompleteness marker (§"completeness marker")
+//     F39  `completeness` absent ..................... refuses (required member)
+//     F40  incomplete arm without `cause` ............ refuses
+//     F41  incomplete arm without `observedAt` ....... refuses
+//     F42  cause outside the closed set .............. refuses
+//     F43  `state` outside the two arms .............. selects no arm
+//     F44  complete arm carrying `cause` ............. strict refuses
+//     F45  complete arm carrying `observedAt` ........ strict refuses
+//     F46  `observedAt` not an ISO-8601 instant ...... refuses
+//     F47  incomplete arm with an unknown extra key .. strict refuses
+//
+//   MUST FAIL — the reasoning-surface request (§"read window")
+//     F48  request carrying a principal member ....... strict refuses (no wire principal)
+//
 //   MUST PASS
 //     P1   general row, minimal
 //     P2   run row, full triple, unmarked (current)
@@ -63,6 +77,9 @@
 //     P10  childRunSummary carried on a general row and on a run row
 //     P11  each of the four availability states round-trips
 //     P12  ONE row schema parses a read-window row and a live-stream row
+//     P13  the `complete` arm round-trips
+//     P14  each of the three causes round-trips on the incomplete arm
+//     P15  an incomplete row still parses — the marker never removes the row
 //
 // Refs: Spec-013, Plan-013 (I-013-1, I-013-3, I-013-4, I-013-5, I-013-7,
 // I-013-8), ADR-018 (no legacy tolerant arm — the shape has no shipped parser
@@ -72,6 +89,8 @@ import { describe, expect, it } from "vitest";
 
 import type { RunRolledBackEvent } from "../runControl.js";
 import {
+  CHILD_RUN_INCOMPLETE_CAUSES,
+  ChildRunCompletenessSchema,
   ChildRunExpandRequestSchema,
   ChildRunExpandResponseSchema,
   ChildRunSummarySchema,
@@ -168,6 +187,14 @@ const childRunSummary = {
   state: "running",
   producingNodeId: NODE_ID,
   eventCount: 17,
+  completeness: { state: "complete" },
+} as const;
+
+/** The incomplete arm, spelled out once so the cause axis can vary against it. */
+const incompleteCompleteness = {
+  state: "incomplete",
+  cause: "detail_fetch_failed",
+  observedAt: "2026-09-01T12:00:00Z",
 } as const;
 
 /** Assert a value parses AND that the parse output round-trips unchanged. */
@@ -511,10 +538,11 @@ describe("ChildRunSummary (T1.2)", () => {
     );
   });
 
-  it("F36 — the five-member set is closed", () => {
-    // The `Spec-013 §Fallback Behavior` incompleteness marker is an unshaped
-    // Tier-8 audit residual owed a lead-owned amendment; until it lands, a
-    // producer inventing one is refused rather than silently stripped.
+  it("F36 — the six-member set is closed", () => {
+    // `completeness` is now a member (below), so this asserts the closure that
+    // survives it: a producer spelling the marker its OWN way — the shape a
+    // pre-marker producer would most plausibly reach for — is refused rather
+    // than silently stripped and then missing from every consumer downstream.
     expect(ChildRunSummarySchema.safeParse({ ...childRunSummary, incomplete: true }).success).toBe(
       false,
     );
@@ -527,6 +555,122 @@ describe("ChildRunSummary (T1.2)", () => {
     expect(ChildRunSummarySchema.safeParse({ ...childRunSummary, eventCount: 0 }).success).toBe(
       true,
     );
+  });
+});
+
+// ----------------------------------------------------------------------------
+// The incompleteness marker (T1.2, I-013-10)
+// ----------------------------------------------------------------------------
+
+describe("ChildRunSummary completeness marker (I-013-10)", () => {
+  const withCompleteness = (completeness: unknown): unknown => ({
+    ...childRunSummary,
+    completeness,
+  });
+
+  it("P13 — the complete arm round-trips and carries nothing else", () => {
+    expectRoundTrip(ChildRunCompletenessSchema, { state: "complete" });
+    expectRoundTrip(ChildRunSummarySchema, childRunSummary);
+  });
+
+  it("P14 — every cause in the closed set round-trips on the incomplete arm", () => {
+    for (const cause of CHILD_RUN_INCOMPLETE_CAUSES) {
+      expectRoundTrip(ChildRunCompletenessSchema, { ...incompleteCompleteness, cause });
+      expectRoundTrip(
+        ChildRunSummarySchema,
+        withCompleteness({ ...incompleteCompleteness, cause }),
+      );
+    }
+  });
+
+  it("P15 — an incomplete row keeps its summary visible; the count is a lower bound", () => {
+    // The point of the marker: the row still parses, so it still renders. A
+    // failed detail fetch never removes the row, which is the whole rule.
+    const parsed = ChildRunSummarySchema.parse(withCompleteness(incompleteCompleteness));
+    expect(parsed).toStrictEqual(withCompleteness(incompleteCompleteness));
+  });
+
+  it("F39 — `completeness` is required; an absent marker is not a third state", () => {
+    const { completeness: _dropped, ...withoutMarker } = childRunSummary;
+    expect(ChildRunSummarySchema.safeParse(withoutMarker).success).toBe(false);
+  });
+
+  it("F40 — the incomplete arm requires `cause`", () => {
+    const { cause: _dropped, ...withoutCause } = incompleteCompleteness;
+    expect(ChildRunCompletenessSchema.safeParse(withoutCause).success).toBe(false);
+    expect(ChildRunSummarySchema.safeParse(withCompleteness(withoutCause)).success).toBe(false);
+  });
+
+  it("F41 — the incomplete arm requires `observedAt`", () => {
+    const { observedAt: _dropped, ...withoutTime } = incompleteCompleteness;
+    expect(ChildRunCompletenessSchema.safeParse(withoutTime).success).toBe(false);
+  });
+
+  it("F42 — a cause outside the closed set is refused", () => {
+    expect(
+      ChildRunCompletenessSchema.safeParse({ ...incompleteCompleteness, cause: "node_offline" })
+        .success,
+    ).toBe(false);
+    // Negative control: the rejection is the vocabulary, not the fixture.
+    expect(
+      ChildRunCompletenessSchema.safeParse({ ...incompleteCompleteness, cause: "compacted" })
+        .success,
+    ).toBe(true);
+  });
+
+  it("F43 — a `state` outside the two arms selects no arm", () => {
+    const result = ChildRunCompletenessSchema.safeParse({ state: "partial" });
+    expect(result.success).toBe(false);
+    if (result.success) {
+      return;
+    }
+    // Discriminator failure, not a member failure — the union rejected the row
+    // before reading anything else, which is what keeps the arms independent.
+    expect(result.error.issues.some((issue) => issue.path.join(".") === "state")).toBe(true);
+  });
+
+  it("F44/F45 — the complete arm refuses a cause or an observation time", () => {
+    expect(
+      ChildRunCompletenessSchema.safeParse({ state: "complete", cause: "compacted" }).success,
+    ).toBe(false);
+    expect(
+      ChildRunCompletenessSchema.safeParse({
+        state: "complete",
+        observedAt: "2026-09-01T12:00:00Z",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("F46 — `observedAt` is an offset-bearing ISO-8601 instant, not a free string", () => {
+    expect(
+      ChildRunCompletenessSchema.safeParse({ ...incompleteCompleteness, observedAt: "yesterday" })
+        .success,
+    ).toBe(false);
+    expect(
+      ChildRunCompletenessSchema.safeParse({
+        ...incompleteCompleteness,
+        observedAt: "2026-09-01T12:00:00+02:00",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("F47 — the incomplete arm is closed too", () => {
+    expect(
+      ChildRunCompletenessSchema.safeParse({ ...incompleteCompleteness, retryAfter: 30 }).success,
+    ).toBe(false);
+  });
+
+  it("the exported cause census agrees with the schema's accepted set", () => {
+    // Guards the one drift the type system cannot: the census const and the
+    // `z.enum` list are two separate literal lists.
+    const accepts = (cause: string): boolean =>
+      ChildRunCompletenessSchema.safeParse({ ...incompleteCompleteness, cause }).success;
+    for (const cause of CHILD_RUN_INCOMPLETE_CAUSES) {
+      expect(accepts(cause)).toBe(true);
+    }
+    expect(CHILD_RUN_INCOMPLETE_CAUSES).toHaveLength(3);
+    // Negative control, so the loop above cannot pass vacuously.
+    expect(accepts("producer_unreachable")).toBe(false);
   });
 });
 
@@ -649,11 +793,26 @@ describe("ReasoningSurfaceReadResponse availability (I-013-7)", () => {
     ]);
   });
 
-  it("the request is run-scoped and closed", () => {
+  it("F48 — the request is run-scoped and carries no principal, in any spelling", () => {
     expectRoundTrip(ReasoningSurfaceReadRequestSchema, { runId: RUN_ID });
-    expect(
-      ReasoningSurfaceReadRequestSchema.safeParse({ runId: RUN_ID, principalId: "p-1" }).success,
-    ).toBe(false);
+    // The principal is resolved from the transport, never supplied by the
+    // caller. `.strict()` is what makes that a refusal rather than a silent
+    // strip — a stripped member would let a caller believe it had scoped the
+    // read to someone, which is exactly the second source of identity truth
+    // the authenticated-principal model forbids. Every plausible spelling is
+    // covered, because the failure mode is a producer guessing a name.
+    for (const member of [
+      "principalId",
+      "principal",
+      "actor",
+      "participantId",
+      "sub",
+      "callerId",
+    ]) {
+      expect(
+        ReasoningSurfaceReadRequestSchema.safeParse({ runId: RUN_ID, [member]: "p-1" }).success,
+      ).toBe(false);
+    }
   });
 });
 

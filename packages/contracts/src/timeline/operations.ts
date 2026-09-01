@@ -21,19 +21,35 @@
 // indistinguishable to a parser because there is only one parser.
 //
 // ----------------------------------------------------------------------------
-// The `ReasoningSurfaceReadRequest` principal is deliberately absent
+// The `ReasoningSurfaceReadRequest` principal: no wire member, by design
 // ----------------------------------------------------------------------------
 //
-// The Tier-8 plan-readiness audit (§6 node NS-20) recorded the request's
-// authorization principal as UNSHAPED in the canonical contract doc — one of
-// the residuals that restore explicitly did not clear, each requiring a
-// lead-owned amendment. The shape ships as documented, `{ runId }`, and adds
-// nothing: a principal member invented here would be a wire input ahead of the
-// amendment that decides whether the principal is caller-supplied at all. It is
-// not, on every other surface in this corpus — `api-payload-contracts.md
-// §Authenticated Principal And Authorization Model` makes the principal
-// daemon-resolved and transport-authenticated — so guessing wrong here would
-// mint exactly the second source of identity truth that model forbids.
+// SETTLED, not omitted. The Tier-8 plan-readiness audit (§6 node NS-20) left
+// this request's authorization principal recorded as unshaped; it is shaped
+// here as the decision that it carries none.
+//
+// The principal is resolved by the class rule in `api-payload-contracts.md
+// §Authenticated Principal And Authorization Model`: that section scopes every
+// endpoint to the authenticated caller implicitly, and its
+// informational-body-fields rule makes any participant-naming body field
+// routing and audit metadata Cedar does not read. So a principal member would
+// be inert at best, and at worst the second source of identity truth that rule
+// exists to forbid. The request is `{ runId }` and its schema is `.strict()`,
+// which makes the decision enforceable rather than merely stated: a caller
+// that sends one is REFUSED, not silently stripped.
+//
+// This is not a sixth instance of that section's numbered admitting-write list.
+// Instances (1)-(5) each name where a resolved principal is RETAINED on a
+// durable carrier; this read admits nothing and writes no row, so it has
+// nothing to retain and sits under the resolution rules instead.
+//
+// The transport carrier is `HandlerContext` (`../jsonrpc-registry.ts`), which
+// every registered handler receives beside its parsed params. It carries
+// `transportId` alone today and is documented as widening additively — so the
+// principal reaches a handler through that context when Plan-007 widens it,
+// and never through this request type. Phase 1 registers no handler, so there
+// is no reader to point at yet; what Phase 1 fixes is that there is no wire
+// member for a later reader to be tempted by.
 import { z } from "zod";
 
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "../jsonrpc-streaming.js";

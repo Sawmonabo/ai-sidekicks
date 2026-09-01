@@ -35,7 +35,7 @@
 // union re-trigger every check in CI typecheck.
 
 import type { RunRolledBackEvent } from "./runControl.js";
-import type { TimelineRow } from "./timeline/index.js";
+import type { ChildRunCompleteness, ChildRunSummary, TimelineRow } from "./timeline/index.js";
 
 /**
  * Type-level constraint failure when `T` is non-never — TS2344 fires at the
@@ -124,6 +124,49 @@ type _BoundaryTypeIsPinned = AssertExtends<"run.rolled_back", RollbackBoundaryAr
 type _GeneralArmHasNoAttribution = AssertNever<
   Extract<keyof GeneralArm, "runId" | "position" | "epoch" | "superseded">
 >;
+
+// ---------------------------------------------------------------------------
+// The incompleteness marker narrows the same way (T1.2, I-013-10)
+// ---------------------------------------------------------------------------
+
+type CompleteArm = Extract<ChildRunCompleteness, { state: "complete" }>;
+type IncompleteArm = Extract<ChildRunCompleteness, { state: "incomplete" }>;
+
+/** `cause` and `observedAt` are required — on the incomplete arm only. */
+type _IncompleteArmRequiresBoth = AssertExtends<
+  RequiredKeys<IncompleteArm>,
+  "state" | "cause" | "observedAt"
+>;
+
+/**
+ * And the complete arm carries NEITHER, structurally. This is the half a
+ * `cause?: ChildRunIncompleteCause` optional would have lost: with an
+ * optional, a `complete` row could still be handed a cause and typecheck.
+ */
+type _CompleteArmHasNoCause = AssertNever<Extract<keyof CompleteArm, "cause" | "observedAt">>;
+
+/**
+ * A consumer reaches the cause only after narrowing, so there is no arm on
+ * which `cause` is `undefined` to guard against.
+ */
+export function retryabilityOf(summary: ChildRunSummary): "n/a" | "retryable" | "terminal" {
+  if (summary.completeness.state === "complete") {
+    return "n/a";
+  }
+  switch (summary.completeness.cause) {
+    case "detail_fetch_failed":
+    case "pending_backfill":
+      return "retryable";
+    case "compacted":
+      // Terminal: no retry recovers a compacted row.
+      return "terminal";
+    default: {
+      // Exhaustiveness: a fourth cause added without a case here fails to compile.
+      const unreachable: never = summary.completeness.cause;
+      return unreachable;
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // The narrowing itself, exercised the way a renderer does it

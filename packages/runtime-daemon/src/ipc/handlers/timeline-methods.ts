@@ -29,6 +29,25 @@
 // to compile rather than failing on the wire.
 //
 // ----------------------------------------------------------------------------
+// Where the caller's principal comes from
+// ----------------------------------------------------------------------------
+//
+// NOT from the request. None of the four request types declares a principal
+// member, and each is `.strict()`, so a caller that supplies one is refused
+// rather than having it stripped — the settled contract recorded at
+// `api-payload-contracts.md` §"Authenticated Principal And Authorization
+// Model" and on the `ReasoningSurfaceReadRequest` block beneath §Plan-013.
+//
+// A handler receives the principal through `HandlerContext`, the second
+// parameter every `Handler<P, R>` takes (`@ai-sidekicks/contracts`,
+// `jsonrpc-registry.ts`). That type carries `transportId` alone today and is
+// documented there as widening ADDITIVELY, so the identity arrives on the
+// context when Plan-007 widens it — never on the params object, which is the
+// only thing a client controls. Phase 1 registers no handler, so there is no
+// reader to point at yet; what it fixes is that no wire member exists for a
+// later reader to be tempted by.
+//
+// ----------------------------------------------------------------------------
 // No handlers are registered here
 // ----------------------------------------------------------------------------
 //
