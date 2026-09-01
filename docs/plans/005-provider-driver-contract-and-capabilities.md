@@ -1517,6 +1517,46 @@ shipped:
     notes: |
       Phase-4 task T4.9 shipped as one contracts+daemon+client-sdk PR - the console-parity client verbs driver.compactContext and driver.listProviderCommands (daemon handlers + providerClient methods + Zod wire envelopes), taking the client-facing driver.* namespace to its registered nine, both refusing against an undeclared capability flag as driver.capability_unsupported (I-005-2's client half) and the command-enumeration routing invariant enforced at the daemon rather than trusted to the renderer (I-005-13). T4.9 only: the slice was briefed as T4.8 + T4.9, but the delivered diff carries no RecoveryCondition surface at all - repo-wide, RecoveryStatusReadResponse and FailureDetailReadResponse exist only in api-payload-contracts.md with no TypeScript schema, handler, or SDK carrier - so T4.8's four-carrier consume is NOT recorded shipped (caught by codex review of this manifest entry, 2026-09-01). Phase 4 stands at T4.1-T4.7 + T4.9 across PRs #395 / #396 / #401, with T4.8 the one outstanding declared task.
       verifies_invariant = the union of the wave's canonically verifying suites {I-005-2, I-005-4, I-005-13}: the two new verbs' undeclared-flag refusal tests extend the I-005-2 client-facing band, both verbs parse the Zod-validated degraded envelope rather than throwing (I-005-4), and the driver-handlers suite asserts the (driverName, providerAccountId) routing invariant on the enumeration reply (I-005-13). Review: codex code review completed; CI green on the squash head.
+  - phase: 4
+    task: T4.8
+    pr: 407
+    sha: 0dfd38f1
+    merged_at: 2026-09-01
+    files:
+      - packages/contracts/src/__tests__/provider-driver.test.ts
+      - packages/contracts/src/__tests__/runControl.test.ts
+      - packages/contracts/src/provider-driver.ts
+      - packages/contracts/src/runControl.ts
+    spec_coverage: ["Spec-005 §Fallback Behavior (RecoveryCondition at every carrying surface)"]
+    notes: |
+      Phase 4 closes: T4.8 was the one outstanding Phase-4 task after the PR #401
+      correction; with it shipped, T4.1-T4.9 are all recorded, and Phase 5 (the T5.1
+      remainder) stays the plan's only open phase, still held on the escalated
+      Spec-028 MCP-wire governance adjudication - this row closes a phase, not the
+      plan. Shipped as the two-carrier consume the ownership map scopes to this plan:
+      RECOVERY_CONDITIONS / RecoveryConditionSchema and RECOVERY_SPAN_CLASSIFICATIONS /
+      RecoverySpanClassificationSchema hoisted in provider-driver.ts with the
+      RecoveryCondition / RecoverySpanClassification types derived from the as-const
+      arrays (the z.ZodType output annotation is covariant - a widening of either
+      union compiled clean, measured with a probe member - so single-sourcing replaces
+      annotation as the mirror guard); DriverResumeResult.failed repointed at the
+      hoisted parsers; and runControl.ts's RunStateChangeEvent carrier repointed off
+      its two module-private mirrors under the cross-plan-dependencies.md Ownership
+      Rule Housekeeping Exception (recorded at this plan's Cross-Plan Amendments,
+      mirrored in the map's Plan-004 entry). Carriers (3) and (4) -
+      RecoveryStatusReadResponse (Plan-015) and FailureDetailReadResponse (Plan-020) -
+      import the hoisted vocabularies when their owning plans author those surfaces;
+      neither directory exists yet and nothing was scaffolded ahead of its reader.
+      verifies_invariant is omitted deliberately: T4.8's declared I-005-4 has its
+      canonical Invariants Test at T4.6 and I-005-5's is T4.7, both already recorded;
+      this PR's suites pin vocabulary closure and the carrier cross-products
+      (membership, cross-vocabulary + free-string refusal, REQUIRED-vs-OPTIONAL axis
+      asymmetry, barrel instance identity), with the widened-array negative control
+      proven before landing (3 test failures while tsc stayed exit 0). Codex round 1:
+      one P1 (cross-plan record location + traceable citations), fixed in-PR alongside
+      the T4.8 Files-field erratum (NS-89 class). Plan-012's plan_phase gate on
+      Plan-005 Phase 4 resolves met with its consumed surface (RunIdSchema, CP-012-3)
+      long shipped.
 ```
 
 ### Notes
