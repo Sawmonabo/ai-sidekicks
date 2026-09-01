@@ -3792,7 +3792,19 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // and Phase 1C (T-023p-1C-1..8), whose `Verifies invariant:` rows carry 27
     // resolved references to I-023-2 and the four new I-023-11..14; no none-arm
     // row is added and the legacy channel is untouched.
-    bold: { resolved: 1022, noneArm: 161, parentResolved: 0 },
+    // 1022/161 -> 1023/160 (2026-09-01, NS-98 child-run incompleteness marker —
+    // PR #410): Plan-013's T1.2 row moves OFF the none arm. It read `Verifies
+    // invariant: none` because the `Spec-013 §Fallback Behavior` incompleteness
+    // marker was an unshaped Tier-8 residual, so the task had no rule to verify;
+    // that residual is settled here and the row now names the newly-minted
+    // I-013-10 — one more bold resolved reference and one fewer bold none-arm,
+    // a single row moving between the two channels rather than a new task. The
+    // `-1` none-arm is therefore expected and is NOT a screen that stopped
+    // running. Nothing else in the diff touches a `Verifies invariant:` row —
+    // Spec-013, Spec-008, and api-payload-contracts.md carry no marker blocks,
+    // and Plan-013's other task rows are untouched. The legacy compact-inline
+    // channel is unchanged.
+    bold: { resolved: 1023, noneArm: 160, parentResolved: 0 },
     legacy: { resolved: 64, noneArm: 3, parentResolved: 1 },
   });
 });
