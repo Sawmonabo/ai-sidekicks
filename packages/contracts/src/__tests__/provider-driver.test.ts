@@ -86,6 +86,7 @@ import {
   DRIVER_FALLBACK_ACTION_MAX_LEN,
   DRIVER_MCP_SERVER_NAME_MAX_LEN,
   DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN,
+  DRIVER_PROVIDER_COMMAND_ENTRIES_MAX,
   DRIVER_TOOL_CALL_ID_MAX_LEN,
   DRIVER_TOOL_DESCRIPTION_MAX_LEN,
   DRIVER_TOOL_NAME_MAX_LEN,
@@ -116,7 +117,11 @@ import {
   DriverInterventionResultSchema,
   DriverResumeResultSchema,
   DriverRollbackResultSchema,
+  CompactContextRequestSchema,
   DriverCompactionResultSchema,
+  ListProviderCommandsRequestSchema,
+  ProviderCommandBindingGroupSchema,
+  ProviderCommandListResultSchema,
   DriverTranscriptExportResultSchema,
   DriverTranscriptReplayResultSchema,
   IdempotencyClassSchema,
@@ -3503,5 +3508,141 @@ describe("provider-account identity on CreateSessionParams / ResumeSessionParams
       providerAccountId: { accountId: "acct-01J8ZK", credentialHome: "/home/.codex" },
     };
     void structured;
+  });
+});
+
+// --------------------------------------------------------------------------
+// T4.9 — the two console-parity wire requests + the group-list reply schemas
+// --------------------------------------------------------------------------
+
+describe("CompactContextRequestSchema / ListProviderCommandsRequestSchema — session-addressed, and no binding member exists", () => {
+  const AGENT_UUID = "770e8400-e29b-41d4-a716-446655440002";
+  const compactRequest = { sessionId: SESSION_UUID, runId: RUN_UUID };
+  const listRequest = { sessionId: SESSION_UUID, agentId: AGENT_UUID };
+
+  it("accepts the canonical session-scoped pair on both requests", () => {
+    expect(CompactContextRequestSchema.parse(compactRequest)).toEqual(compactRequest);
+    expect(ListProviderCommandsRequestSchema.parse(listRequest)).toEqual(listRequest);
+  });
+
+  it("REFUSES a bindingId beside either pair — the wire admits NO binding member", () => {
+    // The canonical contract publishes no `bindingId` anywhere on the client
+    // surface, and `.strict()` is what turns that sentence into a refusal: a
+    // caller naming a binding believes it holds an addressing key the daemon
+    // deliberately never handed out, and a silently ignored key would leave it
+    // believing the dispatch was binding-routed.
+    expect(
+      CompactContextRequestSchema.safeParse({ ...compactRequest, bindingId: "binding-1" }).success,
+    ).toBe(false);
+    expect(
+      ListProviderCommandsRequestSchema.safeParse({ ...listRequest, bindingId: "binding-1" })
+        .success,
+    ).toBe(false);
+  });
+
+  it("REFUSES a non-UUID value in every addressing slot", () => {
+    // All three are untrusted caller-supplied strings; UUID-shape rejection is
+    // what stops a path or SQL fragment from reaching a store lookup (the
+    // `RunIdSchema` doctrine, applied to the whole address).
+    expect(
+      CompactContextRequestSchema.safeParse({ ...compactRequest, sessionId: "../../etc" }).success,
+    ).toBe(false);
+    expect(
+      CompactContextRequestSchema.safeParse({ ...compactRequest, runId: "run-1" }).success,
+    ).toBe(false);
+    expect(
+      ListProviderCommandsRequestSchema.safeParse({ ...listRequest, agentId: "agent-1" }).success,
+    ).toBe(false);
+  });
+
+  it("REFUSES a request missing either half of its pair", () => {
+    expect(CompactContextRequestSchema.safeParse({ sessionId: SESSION_UUID }).success).toBe(false);
+    expect(CompactContextRequestSchema.safeParse({ runId: RUN_UUID }).success).toBe(false);
+    expect(ListProviderCommandsRequestSchema.safeParse({ sessionId: SESSION_UUID }).success).toBe(
+      false,
+    );
+    expect(ListProviderCommandsRequestSchema.safeParse({ agentId: AGENT_UUID }).success).toBe(
+      false,
+    );
+  });
+});
+
+describe("ProviderCommandBindingGroupSchema / ProviderCommandListResultSchema — the reply's first schemas", () => {
+  const bindingPair = { driverName: "codex", providerAccountId: "account-1" };
+  const entry = { name: "compact", kind: "command", binding: bindingPair };
+  const group = { runId: RUN_UUID, binding: bindingPair, entries: [entry], complete: true };
+
+  it("parses the sole-live-run arm and the null-attribution arm alike", () => {
+    expect(ProviderCommandBindingGroupSchema.safeParse(group).success).toBe(true);
+    expect(ProviderCommandBindingGroupSchema.safeParse({ ...group, runId: null }).success).toBe(
+      true,
+    );
+  });
+
+  it("REFUSES an absent runId key — `.nullable()` is not `.optional()`", () => {
+    // The §1 provenance rule: absence would be indistinguishable from a
+    // producer that forgot to attribute the group, which is the exact ambiguity
+    // the nullable member exists to remove.
+    const { runId: _runId, ...withoutRunId } = group;
+    expect(ProviderCommandBindingGroupSchema.safeParse(withoutRunId).success).toBe(false);
+  });
+
+  it("mirrors the entry schema's binding-pair doctrine: null account parses, placeholder-shaped values refuse", () => {
+    expect(
+      ProviderCommandBindingGroupSchema.safeParse({
+        ...group,
+        binding: { driverName: "codex", providerAccountId: null },
+      }).success,
+    ).toBe(true);
+    expect(
+      ProviderCommandBindingGroupSchema.safeParse({
+        ...group,
+        binding: { driverName: "codex", providerAccountId: "" },
+      }).success,
+    ).toBe(false);
+    expect(
+      ProviderCommandBindingGroupSchema.safeParse({
+        ...group,
+        binding: { driverName: "codex" },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("bounds entries at the SAME 512 the provider boundary admits, not this seam's 256", () => {
+    // A smaller reply-side cap would turn a legitimate 300-command enumeration
+    // that §2 already admitted into a result-validation internal error; the
+    // shared constant is what keeps the two boundaries from disagreeing about
+    // one list.
+    const atCap = {
+      ...group,
+      entries: Array.from({ length: DRIVER_PROVIDER_COMMAND_ENTRIES_MAX }, () => entry),
+    };
+    expect(ProviderCommandBindingGroupSchema.safeParse(atCap).success).toBe(true);
+    const overCap = {
+      ...group,
+      entries: Array.from({ length: DRIVER_PROVIDER_COMMAND_ENTRIES_MAX + 1 }, () => entry),
+    };
+    expect(ProviderCommandBindingGroupSchema.safeParse(overCap).success).toBe(false);
+  });
+
+  it("REFUSES an unknown key on the group and on the reply envelope", () => {
+    expect(ProviderCommandBindingGroupSchema.safeParse({ ...group, truncatedAt: 12 }).success).toBe(
+      false,
+    );
+    expect(ProviderCommandListResultSchema.safeParse({ bindings: [group], total: 1 }).success).toBe(
+      false,
+    );
+  });
+
+  it("REFUSES the empty group list — a success reply is never empty", () => {
+    // The handler refuses an agent with no live binding as `driver.unavailable`
+    // BEFORE any dispatch, so zero groups on a resolved reply is a composition
+    // bug and `.min(1)` makes it parse as one.
+    expect(ProviderCommandListResultSchema.safeParse({ bindings: [] }).success).toBe(false);
+    expect(ProviderCommandListResultSchema.safeParse({ bindings: [group] }).success).toBe(true);
+    expect(
+      ProviderCommandListResultSchema.safeParse({ bindings: [group, { ...group, runId: null }] })
+        .success,
+    ).toBe(true);
   });
 });

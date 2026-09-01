@@ -12,7 +12,7 @@
 // registry reject a duplicate name at register time, so a daemon binding both
 // would have failed at bootstrap rather than at a test.
 //
-// WHY THE SPLIT IS WORTH A FILE. The six sibling verbs are stateless
+// WHY THE SPLIT IS WORTH A FILE. The eight sibling verbs are stateless
 // request/response dispatches into the in-daemon `ProviderRegistry`. This one
 // allocates PER-CONNECTION state (a streaming-primitive entry keyed by transport
 // id), owns a teardown path that has to survive wire-cancel, transport

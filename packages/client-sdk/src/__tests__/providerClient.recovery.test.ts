@@ -47,6 +47,7 @@ import type {
   JsonRpcRequest,
   JsonRpcResponseEnvelope,
   RunId,
+  SessionId,
 } from "@ai-sidekicks/contracts";
 import { DriverResumeResultSchema, JSONRPC_VERSION } from "@ai-sidekicks/contracts";
 
@@ -65,6 +66,8 @@ const PROTOCOL_VERSION = "2026-05-01";
 
 /** A low-entropy sentinel run id — no real identifier is involved. */
 const TEST_RUN_ID = "00000000-0000-4000-8000-000000000001" as RunId;
+const TEST_SESSION_ID = "00000000-0000-4000-8000-000000000004" as SessionId;
+const TEST_AGENT_ID = "00000000-0000-4000-8000-000000000005";
 
 /**
  * The result a Codex resume refusal produces: the provider declines to restore
@@ -266,13 +269,15 @@ describe("DriverClient — no client-facing route mints a replacement session (I
         clientIdempotencyKey: "00000000-0000-4000-8000-000000000003",
         payload: {},
       }),
+      client.compactContext({ sessionId: TEST_SESSION_ID, runId: TEST_RUN_ID }),
+      client.listProviderCommands({ sessionId: TEST_SESSION_ID, agentId: TEST_AGENT_ID }),
     ]);
     client.subscribeEvents({ runId: TEST_RUN_ID });
 
     // Every method was actually attempted — an empty or short list would make
     // the negative assertion below vacuously true.
-    expect(settled).toHaveLength(6);
-    expect(transport.sentMethods).toHaveLength(7);
+    expect(settled).toHaveLength(8);
+    expect(transport.sentMethods).toHaveLength(9);
 
     // A resume failure reaches a client as data on some other surface; whatever
     // it does with that data, minting a session is not among its options,
@@ -288,10 +293,12 @@ describe("DriverClient — no client-facing route mints a replacement session (I
     }
     expect([...transport.sentMethods].sort()).toStrictEqual([
       "driver.applyIntervention",
+      "driver.compactContext",
       "driver.interruptRun",
       "driver.listCapabilities",
       "driver.listModels",
       "driver.listModes",
+      "driver.listProviderCommands",
       "driver.respondToRequest",
       "driver.subscribeEvents",
     ]);

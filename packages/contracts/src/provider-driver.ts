@@ -1881,11 +1881,14 @@ export type DriverCompactionResult =
 // for the wrong one here would put a `.strict()` wire guard on the wrong trust
 // class. This result is DAEMON-CONSTRUCTED: the driver composes it from a
 // settlement the daemon's own wait computed, so there is no untrusted envelope to
-// parse and no dispatch path parses through this schema. What it exists for is to
-// make the two structural rules the canonical doc states MECHANICALLY CHECKABLE
+// parse. Two consumers read it. The conformance suite asserts against it so the
+// two structural rules the canonical doc states stay MECHANICALLY CHECKABLE
 // rather than narrated — `applied` without a `boundaryPosition` key does not
-// parse, and `capability_undeclared` is not a reason any arm admits — which is a
-// property the conformance suite asserts against, not a runtime boundary.
+// parse, and `capability_undeclared` is not a reason any arm admits. And since
+// T4.9 it is also `driver.compactContext`'s registered RESULT schema, which the
+// registry's I-007-7 result validation runs every reply through — guarding the
+// same daemon-composed trust class the roster reply schemas below guard (a
+// composition-bug catcher on the way out, never a provider trust boundary).
 //
 // The one genuinely untrusted number involved, the provider's own boundary
 // position, is read at the frame-normalize boundary where every other provider
@@ -2391,7 +2394,9 @@ export type DriverTransportConfig =
 // reader — the same mistake `Spec-005 §Capability discovery` forbids when it
 // requires a capability flag to be minted together with its consumer.
 //
-// The seven pairs below are exactly the seven names T4.1 registers:
+// The nine pairs below are exactly the nine names the daemon registers — T4.1's
+// six request/response verbs, T4.4's subscription leg, and T4.9's two
+// console-parity verbs:
 //   `driver.listCapabilities`  DriverReadParams        -> ListCapabilitiesResult
 //   `driver.listModels`        DriverReadParams        -> ListModelsResult
 //   `driver.listModes`         DriverReadParams        -> ListModesResult
@@ -2399,9 +2404,14 @@ export type DriverTransportConfig =
 //   `driver.applyIntervention` ApplyInterventionParams -> DriverInterventionResult
 //   `driver.respondToRequest`  RespondToRequestParams  -> DriverAckResult
 //   `driver.subscribeEvents`   DriverSubscribeEventsParams -> SubscribeAckResponse
-// T4.9's two console-parity verbs (`driver.compactContext`,
-// `driver.listProviderCommands`) take their wire pairs in this same section when
-// they land; their §1 param and result shapes already ship above.
+//   `driver.compactContext`    CompactContextRequest   -> DriverCompactionResult
+//   `driver.listProviderCommands` ListProviderCommandsRequest -> ProviderCommandListResult
+// The two T4.9 request schemas live at the end of this section. Their result
+// schemas are shared rather than minted twice: `DriverCompactionResultSchema`
+// ships beside its §1 union (where its comment records this second duty), and
+// `ProviderCommandListResultSchema` (below) parses its entries through §2's
+// `ProviderCommandEntrySchema`, because the entries ARE driver-normalized
+// provider output and a second entry schema here would drift from the first.
 //
 // WHY THE THREE READS TAKE NO PARAMETERS. Plan-005 §Phase 4 T4.3 ratifies the
 // consuming `DriverClient` interface with `listCapabilities()`, `listModels()`,
@@ -2838,3 +2848,132 @@ export const DriverSubscribeEventsParamsSchema: z.ZodType<
   DriverSubscribeEventsParams,
   DriverSubscribeEventsParams
 > = z.object({ runId: RunIdSchema }).strict();
+
+// --------------------------------------------------------------------------
+// T4.9 — the two console-parity wire requests (session-addressed)
+// --------------------------------------------------------------------------
+//
+// BOTH REQUESTS ARE SESSION-ADDRESSED AND NEITHER CARRIES A BINDING. The
+// canonical wire contract publishes no `bindingId` anywhere on the client
+// surface: a binding is daemon-internal state, and a request that could name
+// one would hand a caller the routing key the pair-comparison doctrine exists
+// to keep daemon-enforced. The `sessionId` is not redundant beside the second
+// key — it is the AUTHORIZATION SCOPE both verbs mask against first (a
+// non-member and an unknown session refuse byte-identically), and the run or
+// agent is only resolved within it. This is the deliberate contrast the
+// `InterruptRunParamsSchema` comment records against the globally-unique run
+// id's single-key shape.
+
+// The agent identifier member. `AgentId`'s canonical brand + schema home is
+// Plan-016's `packages/contracts/src/orchestration.ts` (api-payload-contracts.md
+// §Branded ID Types), which is UNSHIPPED at this task's landing — and minting
+// the brand here instead would be exactly the second
+// `z.string().uuid().brand(...)` source of truth the `RunIdSchema` doctrine at
+// the top of this file forbids, plus a barrel collision on the day Plan-016
+// exports the canonical symbol. So the member is typed `string` and
+// UUID-shape-validated at the seam (the `clientIdempotencyKey` precedent: an
+// unbranded caller-supplied UUID, validated where it crosses). `string` is
+// assignable FROM the future branded `AgentId` at every call site, so the
+// one-line narrowing of this member and its validator is owed to — and lands
+// compatibly with — the swap that ships orchestration.ts.
+
+// `driver.compactContext` — the participant-triggered compaction request.
+//
+// Run-addressed WITHIN the session: compaction drives one run's live binding,
+// and the daemon resolves that binding itself (refusing `run.not_found` /
+// `driver.unavailable` in the canonical fixed order). The reply is the §1
+// `DriverCompactionResult` union, never a bare acknowledgment — `refused` and
+// `failed` are DATA a caller branches on, because the daemon-side adjudication
+// (`not_permitted`) settles on the operation's own result rather than as a
+// JSON-RPC error.
+export interface CompactContextRequest {
+  sessionId: SessionId;
+  runId: RunId;
+}
+
+export const CompactContextRequestSchema: z.ZodType<CompactContextRequest, CompactContextRequest> =
+  z
+    .object({
+      sessionId: SessionIdSchema,
+      runId: RunIdSchema,
+    })
+    .strict();
+
+// `driver.listProviderCommands` — the command-surface enumeration request.
+//
+// Agent-addressed WITHIN the session: an agent can hold several live bindings
+// at once, and the daemon-side fan-out across them is what the reply's group
+// list exists to carry. `.strict()` is what makes "the wire admits NO binding
+// member" a refusal rather than a convention.
+export interface ListProviderCommandsRequest {
+  sessionId: SessionId;
+  agentId: string;
+}
+
+export const ListProviderCommandsRequestSchema: z.ZodType<
+  ListProviderCommandsRequest,
+  ListProviderCommandsRequest
+> = z
+  .object({
+    sessionId: SessionIdSchema,
+    agentId: z.string().uuid(),
+  })
+  .strict();
+
+// The reply-side schemas for the group list. The §1 types ship above with the
+// full provenance doctrine; these give them their first schemas because T4.9's
+// reply is the first surface on which they leave the daemon, and the registry's
+// I-007-7 result validation is the reader. Like the roster reply schemas, they
+// guard a DAEMON-COMPOSED reply — the job is catching a composition bug (a
+// dropped `runId` key, an unbounded merge) before it reaches a renderer.
+//
+// The binding pair is INLINED here as it is on `ProviderCommandEntrySchema`
+// rather than hoisted into a shared schema: the §1 types already inline the
+// pair twice by design (the entry carries its own routing key so a consumer
+// cannot lose it by filtering a held list), and the account arm's full
+// `null`-doctrine lives on that schema's own comment — one home, cross-referenced
+// rather than restated.
+export const ProviderCommandBindingGroupSchema: z.ZodType<
+  ProviderCommandBindingGroup,
+  ProviderCommandBindingGroup
+> = z
+  .object({
+    // `.nullable()` and NOT `.optional()`: the zero-live-runs and two-plus-
+    // live-runs arms both answer `null`, and an ABSENT key would be
+    // indistinguishable from a producer that forgot to attribute the group —
+    // the exact ambiguity the §1 comment's provenance rule removes.
+    runId: RunIdSchema.nullable(),
+    binding: z
+      .object({
+        driverName: z.string().min(1),
+        providerAccountId: z.string().min(1).nullable(),
+      })
+      .strict(),
+    // Bounded at the SAME 512 the provider boundary admits per group
+    // (`DRIVER_PROVIDER_COMMAND_ENTRIES_MAX`), deliberately NOT at this seam's
+    // 256 catalog cap: the entries were already admitted at 512 through §2's
+    // entry schema, and a smaller reply-side cap would turn a legitimate
+    // 300-command enumeration into a result-validation `-32603` after the
+    // provider boundary accepted it. Truncation-with-a-marker is the §1
+    // contract (`complete: false`), so the cap here only backstops a merge bug.
+    entries: z.array(ProviderCommandEntrySchema).max(DRIVER_PROVIDER_COMMAND_ENTRIES_MAX),
+    complete: z.boolean(),
+  })
+  .strict();
+
+// `.min(1)`: a success reply is NEVER the empty group list. The handler refuses
+// an agent holding no live binding as `driver.unavailable` before any dispatch,
+// so zero groups on a resolved reply is a composition bug and parses as one.
+// The group COUNT is deliberately uncapped, mirroring the uncapped `drivers`
+// arrays on the three roster replies: it is the daemon's own fan-out over the
+// agent's live bindings — bounded by run admission, not by anything a caller
+// sends — and a cap here would refuse an honest reply while defending against
+// nothing a caller controls.
+export const ProviderCommandListResultSchema: z.ZodType<
+  ProviderCommandListResult,
+  ProviderCommandListResult
+> = z
+  .object({
+    bindings: z.array(ProviderCommandBindingGroupSchema).min(1),
+  })
+  .strict();
