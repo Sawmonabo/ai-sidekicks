@@ -60,7 +60,7 @@ This spec covers in-app attention state, desktop notifications, invite notificat
 
 - If OS notifications are unavailable or denied, the system must still show in-app badges and attention summaries.
 - If notification delivery is delayed, the session attention projection must still reflect outstanding actionable items.
-- If a participant has muted a session or channel, critical approval-request attention may still surface while informational events remain muted.
+- If a participant has muted notifications globally, critical approval-request attention may still surface while informational events remain muted (per-session and per-channel mute is deferred per §Resolved Questions and V1 Scope Decisions; narrowed 2026-09-01 to match that section — the desktop console offers a global mute only).
 
 ## Interfaces And Contracts
 

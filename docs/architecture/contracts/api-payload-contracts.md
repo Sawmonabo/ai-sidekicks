@@ -4587,7 +4587,7 @@ interface AgentConfigUpdateRequest {
   // by count when the fifth axis landed). A multi-axis update takes the WIDEST of its axes' boundaries, so no axis
   // applies earlier than its own rule allows. `true` dispatches the EXISTING `interrupt`
   // intervention first and then switches — an entry point into a control the corpus already has,
-  // not a sixth run control, so Spec-004's V1 control set stays closed. The interrupt is
+  // not a new run control, so Spec-004's V1 control set stays closed. The interrupt is
   // authorized as Action::"intervene" on the target run, and a refused interrupt refuses the
   // switch rather than leaving the agent half-moved. This arm HOLDS THE REQUEST OPEN across the
   // boundary — which is what lets its response carry the settlement below — and still writes the
