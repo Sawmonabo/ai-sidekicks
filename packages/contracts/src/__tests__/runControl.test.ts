@@ -51,6 +51,7 @@ import { describe, expect, it } from "vitest";
 
 import * as contracts from "../index.js";
 import type { InterventionType } from "../provider-driver.js";
+import { RECOVERY_CONDITIONS, RECOVERY_SPAN_CLASSIFICATIONS } from "../provider-driver.js";
 import {
   InterventionRequestPayloadSchema,
   InterventionRequestResponseSchema,
@@ -830,6 +831,52 @@ describe("RunStateChangeEvent", () => {
       admittedModelFamily: "claude-opus",
     };
     expect(RunStateChangeEventSchema.parse(full)).toEqual(full);
+  });
+
+  it("carries every member of both Plan-005 recovery vocabularies", () => {
+    // Driven from the IMPORTED arrays, not from a list written out here, and
+    // for the same reason the `InterventionType` fan-out above is: this module
+    // is the second of the four surfaces `Plan-005 §Phase 4 — Client SDK exposure + degraded-fallback` T4.8 P3-4 binds to
+    // REFERENCE the hoisted vocabularies rather than restate them. It used to
+    // restate them, as two module-private `z.enum` mirrors, and the
+    // `z.ZodType<T>` annotations that were said to hold those mirrors in
+    // lockstep do not: `ZodType` is covariant in its output, so a mirror
+    // NARROWER than the imported union compiles clean. A member added upstream
+    // must reach this carrier, and if a mirror ever returns here it will not —
+    // this test goes red instead of the member dead-lettering at parse.
+    for (const recoveryCondition of RECOVERY_CONDITIONS) {
+      for (const recoverySpanClassification of RECOVERY_SPAN_CLASSIFICATIONS) {
+        const stateChange = {
+          ...minimalRunStateChange,
+          currentState: "failed",
+          failureCategory: "provider failure",
+          recoveryCondition,
+          recoverySpanClassification,
+        };
+        expect(RunStateChangeEventSchema.parse(stateChange)).toEqual(stateChange);
+      }
+    }
+  });
+
+  it("keeps both recovery members OPTIONAL on this replay-visible projection", () => {
+    // The asymmetry against the live `DriverResumeResult`, where both are
+    // REQUIRED: optionality here exists only to admit pre-amendment history,
+    // and importing the parsers did not quietly import their requiredness.
+    expect(RunStateChangeEventSchema.parse(minimalRunStateChange)).toEqual(minimalRunStateChange);
+  });
+
+  it("rejects an off-union value on either recovery member", () => {
+    // The negative control for the two loops above: referencing the hoisted
+    // parsers did not widen this carrier into accepting free strings.
+    for (const member of ["recoveryCondition", "recoverySpanClassification"] as const) {
+      expect(
+        RunStateChangeEventSchema.safeParse({
+          ...minimalRunStateChange,
+          currentState: "failed",
+          [member]: "retry-later",
+        }).success,
+      ).toBe(false);
+    }
   });
 
   it("closes intendedClose at the present-only discriminator", () => {

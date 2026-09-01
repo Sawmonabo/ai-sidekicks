@@ -53,6 +53,8 @@ import {
   DRIVER_WIRE_REASON_MAX_LEN,
   DRIVER_WIRE_STEER_ATTACHMENTS_MAX,
   DRIVER_WIRE_STEER_CONTENT_MAX_LEN,
+  RecoveryConditionSchema,
+  RecoverySpanClassificationSchema,
   RunIdSchema,
   type ExecutionPosture,
   type RecoveryCondition,
@@ -737,13 +739,21 @@ export const InterventionRequestResponseSchema: z.ZodType<InterventionRequestRes
 // --------------------------------------------------------------------------
 //
 // `ExecutionPosture`, `RecoveryCondition`, and `RecoverySpanClassification`
-// are Plan-005-owned types imported from `./provider-driver.js`. Neither of
-// the three carries an exported schema there — each is validated inline at its
-// one call site — so the parsers below are declared module-private for the
-// same reason: exporting them would claim a Plan-005 symbol name in this
-// package's barrel. The `z.ZodType<T>` annotations pin each parser to the
-// imported declaration, so a Plan-005 change to any of the three stops this
-// file compiling rather than letting the mirror drift.
+// are Plan-005-owned types imported from `./provider-driver.js`. TWO of the
+// three now carry exported parsers there (Plan-005 T4.8), and this file
+// imports them instead of mirroring their values: a carrier that restates a
+// hoisted vocabulary is the drift T4.8 exists to remove, and the symbol names
+// are claimed from Plan-005's own file rather than minted in this one.
+//
+// `ExecutionPosture` keeps its module-private parser below. It carries no
+// exported schema in `provider-driver.ts` and is not one of T4.8's carrier
+// surfaces, so exporting a parser for it HERE would claim a Plan-005 symbol
+// name in this package's barrel. Its `z.ZodType<ExecutionPosture>` annotation
+// pins the parser's output to the imported declaration, which fails the build
+// if that type NARROWS — but a WIDENING of it still compiles, because
+// `ZodType` is covariant in its output. The annotation is a partial guard, not
+// a mirror-drift guard, and that asymmetry is exactly why the two recovery
+// vocabularies are single-sourced upstream instead of annotated here.
 //
 // THREE MEMBERS OF THE CANONICAL SHAPE ARE DELIBERATELY OMITTED: `agentId`,
 // `linkType`, and `effectiveRunConfig`. All three are typed by Plan-016-owned
@@ -827,18 +837,6 @@ const executionPostureSchema: z.ZodType<ExecutionPosture> = z.union([
     .strict(),
 ]);
 
-const recoveryConditionSchema: z.ZodType<RecoveryCondition> = z.enum([
-  "recovery-needed",
-  "reauth-required",
-]);
-
-const recoverySpanClassificationSchema: z.ZodType<RecoverySpanClassification> = z.enum([
-  "read_only",
-  "idempotent_write",
-  "irreversible",
-  "unclassifiable",
-]);
-
 // The `run.subscribeState` WIRE projection (api-payload-contracts.md
 // §Plan-004 — Queue Steer Pause Resume), deliberately distinct from the
 // durable `run_lifecycle` payload of `Spec-006 §Run Lifecycle
@@ -902,8 +900,8 @@ export const RunStateChangeEventSchema: z.ZodType<RunStateChangeEvent> = z
     previousState: RunStateSchema,
     currentState: RunStateSchema,
     failureCategory: RunFailureCategorySchema.optional(),
-    recoveryCondition: recoveryConditionSchema.optional(),
-    recoverySpanClassification: recoverySpanClassificationSchema.optional(),
+    recoveryCondition: RecoveryConditionSchema.optional(),
+    recoverySpanClassification: RecoverySpanClassificationSchema.optional(),
     healthSignal: z.literal("stuck-suspected").optional(),
     providerFailureDetail: wireFreeFormString(
       DRIVER_FAILURE_DETAIL_MAX_LEN,

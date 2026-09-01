@@ -97,6 +97,8 @@ import {
   DRIVER_WIRE_STEER_ATTACHMENTS_MAX,
   DRIVER_WIRE_STEER_CONTENT_MAX_LEN,
   DRIVER_WIRE_TOKEN_MAX_LEN,
+  RECOVERY_CONDITIONS,
+  RECOVERY_SPAN_CLASSIFICATIONS,
   ApplyInterventionParamsSchema,
   CallbackToolInvocationSchema,
   DriverAckResultSchema,
@@ -110,6 +112,8 @@ import {
   ListModesResultSchema,
   ProviderModelSchema,
   ProviderModeSchema,
+  RecoveryConditionSchema,
+  RecoverySpanClassificationSchema,
   RespondToRequestParamsSchema,
   RunIdSchema,
   DriverAuthProbeResultSchema,
@@ -177,6 +181,7 @@ import {
   type SubagentPolicy,
 } from "../provider-driver.js";
 import { type ChannelId, type SessionId } from "../session.js";
+import * as contracts from "../index.js";
 
 // Real RFC 9562 UUIDs reused as branded-id runtime values (the brands are
 // TS-only; the runtime is a plain UUID string). Cast at the brand boundary the
@@ -2155,6 +2160,139 @@ describe("DriverResumeResultSchema — RecoverySpanClassification on the failed 
         providerFailureDetail: "provider credential expired",
       }).success,
     ).toBe(true);
+  });
+});
+
+// ===========================================================================
+// T4.8 — the hoisted recovery vocabularies: REFERENCED, never re-inlined.
+// ===========================================================================
+//
+// `Plan-005 §Phase 4 — Client SDK exposure + degraded-fallback` T4.8 P3-4 requires the hoisted `RecoveryCondition` to be
+// "referenced, never re-inlined" at every carrying surface. These tests are
+// written to go red if a carrier drifts back to restating the values, which is
+// the one shape of drift the type system does NOT catch: `z.ZodType` is
+// COVARIANT in its output, so a re-inlined `z.enum` narrower than the union
+// still satisfies a `z.ZodType<RecoveryCondition>` annotation. Measured on this
+// workspace before the hoist — widening the union by a third member left
+// `tsc -b --force` at zero errors, while narrowing it produced two TS2375s — so
+// the compile-time guard fired only in the direction the corpus never takes.
+// Widening is the direction it DID take (`recovery-needed` -> `+
+// reauth-required`), and its failure mode is a new condition dead-lettering at
+// parse at whichever carrier nobody updated.
+
+describe("Recovery vocabularies — T4.8 hoist", () => {
+  it("carries exactly the two canonical conditions", () => {
+    // Hand-spelled rather than read off the array under test: a list derived
+    // from the thing it checks would agree by construction and could never
+    // catch a member silently added. Removal is caught by the other half — an
+    // entry here that left the union would not compile.
+    const canonicalConditions: RecoveryCondition[] = ["recovery-needed", "reauth-required"];
+    expect([...RECOVERY_CONDITIONS]).toEqual(canonicalConditions);
+  });
+
+  it("carries exactly the four canonical span classifications", () => {
+    const canonicalClassifications: RecoverySpanClassification[] = [
+      "read_only",
+      "idempotent_write",
+      "irreversible",
+      "unclassifiable",
+    ];
+    expect([...RECOVERY_SPAN_CLASSIFICATIONS]).toEqual(canonicalClassifications);
+  });
+
+  it("admits every member of its own array at each exported parser", () => {
+    for (const recoveryCondition of RECOVERY_CONDITIONS) {
+      expect(RecoveryConditionSchema.parse(recoveryCondition)).toBe(recoveryCondition);
+    }
+    for (const spanClassification of RECOVERY_SPAN_CLASSIFICATIONS) {
+      expect(RecoverySpanClassificationSchema.parse(spanClassification)).toBe(spanClassification);
+    }
+  });
+
+  it("keeps each parser closed — against the sibling vocabulary and against free strings", () => {
+    // The negative control for the hoist: single-sourcing the values did not
+    // make either parser permissive, and the two axes stayed disjoint, so a
+    // consumer switching on one can never fall into the other's arm.
+    for (const spanClassification of RECOVERY_SPAN_CLASSIFICATIONS) {
+      expect(RecoveryConditionSchema.safeParse(spanClassification).success).toBe(false);
+    }
+    for (const recoveryCondition of RECOVERY_CONDITIONS) {
+      expect(RecoverySpanClassificationSchema.safeParse(recoveryCondition).success).toBe(false);
+    }
+    expect(RecoveryConditionSchema.safeParse("retry-later").success).toBe(false);
+    expect(RecoverySpanClassificationSchema.safeParse("").success).toBe(false);
+  });
+
+  it("reaches the live resume carrier for the FULL cross product of both arrays", () => {
+    // The drift tripwire, and the reason it is driven from the arrays instead
+    // of from a written-out list: a member added upstream must reach this
+    // carrier, so a re-inlined `z.enum` here would reject it and turn this red
+    // rather than dead-lettering the new member at parse in production.
+    for (const recoveryCondition of RECOVERY_CONDITIONS) {
+      for (const recoverySpanClassification of RECOVERY_SPAN_CLASSIFICATIONS) {
+        const parsed: DriverResumeResult = DriverResumeResultSchema.parse({
+          status: "failed",
+          recoveryCondition,
+          recoverySpanClassification,
+          providerFailureDetail: "provider session diverged mid-turn",
+        });
+        if (parsed.status !== "failed") {
+          throw new Error(`expected the failed variant, got status=${parsed.status}`);
+        }
+        expect(parsed.recoveryCondition).toBe(recoveryCondition);
+        expect(parsed.recoverySpanClassification).toBe(recoverySpanClassification);
+      }
+    }
+  });
+
+  it("still rejects an off-union member at the resume carrier, one axis at a time", () => {
+    // Both axes, each with the other held valid, so the sole defect is the one
+    // under test and the refusal cannot be attributed to the wrong field.
+    expect(
+      DriverResumeResultSchema.safeParse({
+        status: "failed",
+        recoveryCondition: "retry-later",
+        recoverySpanClassification: "unclassifiable",
+        providerFailureDetail: "provider credential expired",
+      }).success,
+    ).toBe(false);
+    expect(
+      DriverResumeResultSchema.safeParse({
+        status: "failed",
+        recoveryCondition: "recovery-needed",
+        recoverySpanClassification: "destructive",
+        providerFailureDetail: "provider credential expired",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("keeps both axes REQUIRED on the live resume return", () => {
+    // The hoist changed which parser validates the field, never whether the
+    // field must be there: a resume failure is produced fresh and never
+    // replayed, so there is no pre-amendment history for optionality to admit.
+    for (const omitted of ["recoveryCondition", "recoverySpanClassification"] as const) {
+      const failedResult: Record<string, unknown> = {
+        status: "failed",
+        recoveryCondition: "recovery-needed",
+        recoverySpanClassification: "unclassifiable",
+        providerFailureDetail: "provider closed the stream mid-tool-call",
+      };
+      delete failedResult[omitted];
+      expect(DriverResumeResultSchema.safeParse(failedResult).success).toBe(false);
+    }
+  });
+
+  it("reaches consumers through the `index.ts` barrel as the same instances", () => {
+    // All four symbols are newly public with this task. `index.ts` re-exports
+    // this module with `export *`, so a consumer outside the package sees them
+    // only through that line — importing via `../index.js` rather than
+    // `../provider-driver.js` is what exercises it. Identity is the
+    // load-bearing half: a shadow copy would satisfy a mere defined-ness check
+    // while drifting from the parser the daemon actually validates against.
+    expect(contracts.RecoveryConditionSchema).toBe(RecoveryConditionSchema);
+    expect(contracts.RecoverySpanClassificationSchema).toBe(RecoverySpanClassificationSchema);
+    expect(contracts.RECOVERY_CONDITIONS).toBe(RECOVERY_CONDITIONS);
+    expect(contracts.RECOVERY_SPAN_CLASSIFICATIONS).toBe(RECOVERY_SPAN_CLASSIFICATIONS);
   });
 });
 
