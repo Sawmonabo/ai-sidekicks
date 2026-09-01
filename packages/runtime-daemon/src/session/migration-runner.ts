@@ -22,7 +22,8 @@
 // Plan-005 (`migrations/0011-driver-capability-currency.ts`,
 // `migrations/0012-transcript-capability-backfill.ts`); version 13 by
 // Plan-006 (`migrations/0013-content-payload.ts`); version 14 by Plan-005
-// (`migrations/0014-console-parity-capability-flags.ts`). Subsequent plans
+// (`migrations/0014-console-parity-capability-flags.ts`); version 15 by
+// Plan-004 (`migrations/0015-queue-and-interventions.ts`). Subsequent plans
 // (015, 022...) — and Plan-006's own remaining migrations — register their
 // version as a further guarded block of the same shape and bump
 // `schema_version`.
@@ -99,6 +100,7 @@ import { DRIVER_CAPABILITY_CURRENCY_MIGRATION_SQL } from "../migrations/0011-dri
 import { TRANSCRIPT_CAPABILITY_BACKFILL_MIGRATION_SQL } from "../migrations/0012-transcript-capability-backfill.js";
 import { CONTENT_PAYLOAD_MIGRATION_SQL } from "../migrations/0013-content-payload.js";
 import { CONSOLE_PARITY_CAPABILITY_FLAGS_MIGRATION_SQL } from "../migrations/0014-console-parity-capability-flags.js";
+import { QUEUE_AND_INTERVENTIONS_MIGRATION_SQL } from "../migrations/0015-queue-and-interventions.js";
 
 /**
  * Apply pragmas to an open Database handle. MUST be called on every
@@ -377,6 +379,28 @@ export function applyMigrations(db: DatabaseType): void {
     db.transaction(() => {
       if (!hasMigrationApplied(db, 14)) {
         db.exec(CONSOLE_PARITY_CAPABILITY_FLAGS_MIGRATION_SQL);
+      }
+    }).immediate();
+  }
+
+  if (!hasMigrationApplied(db, 15)) {
+    // Version 15 (Plan-004) — the queue, intervention, and command-receipt
+    // tables. Order-independent of every earlier version in the strong sense:
+    // it CREATEs three standalone tables, participates in no foreign key in
+    // either direction, and neither reads nor rebuilds a column any prior
+    // version added. It follows version 14 by ordinal alone.
+    //
+    // Atomicity is what makes three CREATEs one version rather than three.
+    // `queue_items` and `interventions` are the two halves of one admission
+    // transaction — an admitted queue item carries the id of the intervention
+    // that created it — so a torn apply could leave a schema in which that
+    // transaction cannot be written at all, gated on a version marker saying
+    // the queue is ready. `command_receipts` rides along as a forward-declared
+    // shell (CP-004-2) with no reader until Plan-015: a rollback boundary
+    // around a table nothing writes would buy nothing.
+    db.transaction(() => {
+      if (!hasMigrationApplied(db, 15)) {
+        db.exec(QUEUE_AND_INTERVENTIONS_MIGRATION_SQL);
       }
     }).immediate();
   }
