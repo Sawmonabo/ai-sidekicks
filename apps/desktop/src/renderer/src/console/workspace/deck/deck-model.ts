@@ -213,16 +213,44 @@ export function sizesAreEqual(left: readonly DeckPane[], right: readonly DeckPan
   );
 }
 
-/** Rescale restored sizes so they sum to the total, whatever was on disk. */
+/**
+ * The narrowest a rescaled pane may become. One permille, so a pane on disk with a
+ * width of nearly nothing still comes back as a pane rather than as a zero-width
+ * column the panel group has no way to grab.
+ */
+const MINIMUM_NORMALISED_PERMILLE = 1;
+
+/**
+ * Rescale restored sizes so they sum to the total, whatever was on disk.
+ *
+ * ROUNDING ALONE DOES NOT SUM. Each pane's share is rounded independently, so three
+ * equal saved widths become `333 + 333 + 333 = 999` and the panel group is handed an
+ * incomplete layout — and these widths come from the explicitly untrusted persisted
+ * snapshot, so the case is reached rather than theoretical. The remainder is
+ * therefore settled after rounding, by the same pass `applyPaneSizePercentages`
+ * uses: the drift goes to the WIDEST pane first, narrowing stops at the floor, and a
+ * tie keeps the panes' own order because the sort is stable. Deterministic, so one
+ * snapshot restores to one arrangement every time.
+ *
+ * Reusing `settleToTotal` rather than adding a second remainder rule is the point:
+ * two rules for one job drift, and the sum is exactly the property that would stop
+ * holding when they did.
+ */
 export function normalise(panes: readonly DeckPane[]): readonly DeckPane[] {
   const total = panes.reduce((sum, pane) => sum + pane.sizePermille, 0);
   if (panes.length === 0 || total <= 0) {
     return distributeEvenly(panes);
   }
-  return panes.map((pane) => ({
-    ...pane,
-    sizePermille: Math.max(1, Math.round((pane.sizePermille / total) * DECK_TOTAL_PERMILLE)),
-  }));
+  return settleToTotal(
+    panes.map((pane) => ({
+      ...pane,
+      sizePermille: Math.max(
+        MINIMUM_NORMALISED_PERMILLE,
+        Math.round((pane.sizePermille / total) * DECK_TOTAL_PERMILLE),
+      ),
+    })),
+    MINIMUM_NORMALISED_PERMILLE,
+  );
 }
 
 /**
