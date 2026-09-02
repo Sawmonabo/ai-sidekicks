@@ -28,6 +28,18 @@
 // released and the scheduler is disposed, so a late push cannot re-arm a timer
 // behind a section that unmounted. The clock is injected rather than read off the
 // platform, so a test drives all of this on frozen time with no real timers.
+//
+// AND ONE ABOUT THE SUBSCRIPTION THAT CANNOT BE OPENED AT ALL. Rule 1 puts the
+// subscribe first, which means a `subscribe` that throws SYNCHRONOUSLY throws out of
+// `start()` — and `start()` is called from a mount effect, so the throw lands in
+// React's commit phase and takes the surface down instead of producing the model's
+// own `failed` state. That is not hypothetical: the installed Tier-1 preload bridge
+// implements every daemon method by throwing, so the presence roster's subscribe is
+// exactly this call under a live window. So `start()` catches it, releases whatever
+// partial subscription it may have taken, and settles the read as `failed` carrying
+// the thrower's own words — and requests no read, because a value fetched behind a
+// subscription that never opened could never be refreshed and would render as a
+// live surface that has quietly stopped listening.
 
 import { useCallback, useSyncExternalStore } from "react";
 
@@ -42,6 +54,19 @@ import {
   type ConsoleRefusal,
 } from "../core/index.js";
 import { RefreshScheduler, type RefreshReason } from "../store/index.js";
+
+/**
+ * The codes this module mints when a failure carried none of its own.
+ *
+ * Declared once and derived from, because both the read arm and the subscribe arm
+ * name one of them and a second spelling in either place is a rename waiting to go
+ * half-applied. A failure that arrives carrying a daemon code keeps that code —
+ * these two are the fallback, never a translation.
+ */
+export const PUSH_DRIVEN_READ_FAILURE_CODES = ["read-failed", "subscribe-failed"] as const;
+
+/** One such code. Derived, so the set is stated exactly once. */
+export type PushDrivenReadFailureCode = (typeof PUSH_DRIVEN_READ_FAILURE_CODES)[number];
 
 /** What a push-driven read has to show. Total; every arm renders something. */
 export type PushDrivenReadState<TValue> =
@@ -126,9 +151,21 @@ export class PushDrivenRead<TValue> {
       return;
     }
     this.#started = true;
-    this.#unsubscribe = this.#options.subscribe(() => {
-      this.refresh("terminal-event");
-    });
+    try {
+      this.#unsubscribe = this.#options.subscribe(() => {
+        this.refresh("terminal-event");
+      });
+    } catch (subscriptionFailure: unknown) {
+      // Released rather than merely dropped: a seam that registered the handler and
+      // then threw on its way out has left a live registration, and the handle it
+      // never returned is unreachable from anywhere else.
+      this.#releaseSubscription();
+      this.#settle({
+        kind: "failed",
+        refusal: consoleRefusalFrom(subscriptionFailure, this.#options.origin, "subscribe-failed"),
+      });
+      return;
+    }
     this.refresh("subscribe");
   }
 
@@ -147,8 +184,14 @@ export class PushDrivenRead<TValue> {
     }
     this.#disposed = true;
     this.#scheduler.dispose();
-    this.#unsubscribe?.();
+    this.#releaseSubscription();
+  }
+
+  /** Close whatever subscription is open, at most once. Safe with none. */
+  #releaseSubscription(): void {
+    const release = this.#unsubscribe;
     this.#unsubscribe = undefined;
+    release?.();
   }
 
   async #performRead(): Promise<void> {
@@ -188,8 +231,17 @@ export class PushDrivenRead<TValue> {
  * A free function rather than a private method because a MUTATION's rejection needs
  * exactly this translation and has no read to route through: a second copy of these
  * four lines is the duplicate refusal constructor `apps/desktop/AGENTS.md` forbids.
+ *
+ * `fallbackCode` names WHICH of this module's two failures produced it, for a
+ * rejection that carried no code of its own. The read failing and the subscription
+ * never opening are acted on differently — one is retried, the other means the
+ * surface will never hear again — and a single code would tell a reader neither.
  */
-export function consoleRefusalFrom(error: unknown, origin: string): ConsoleRefusal {
+export function consoleRefusalFrom(
+  error: unknown,
+  origin: string,
+  fallbackCode: PushDrivenReadFailureCode = "read-failed",
+): ConsoleRefusal {
   if (error instanceof ConsoleRefusalError) {
     return error.refusal;
   }
@@ -197,7 +249,7 @@ export function consoleRefusalFrom(error: unknown, origin: string): ConsoleRefus
     return error;
   }
   const detail = error instanceof Error ? error.message : String(error);
-  return refuse(origin, "read-failed", detail);
+  return refuse(origin, fallbackCode, detail);
 }
 
 /**
