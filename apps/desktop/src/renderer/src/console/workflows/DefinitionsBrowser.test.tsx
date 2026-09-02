@@ -31,12 +31,27 @@ function definition(overrides: Partial<WorkflowDefinitionRow> = {}): WorkflowDef
 }
 
 function renderBrowser(element: React.JSX.Element): HTMLElement {
-  const { container } = render(element);
-  const list = container.querySelector(".meridian-workflow__scopes");
+  const list = renderWholeBrowser(element).querySelector(".meridian-workflow__scopes");
   if (!(list instanceof HTMLElement)) {
     throw new Error("the browser rendered no scope list");
   }
   return list;
+}
+
+/**
+ * The whole browser, not just its scope list.
+ *
+ * The continuation region is a SIBLING of the groups rather than a member of one — the
+ * cursor pages the enumeration across every scope at once — so the cases about it read
+ * the container the two share.
+ */
+function renderWholeBrowser(element: React.JSX.Element): HTMLElement {
+  return render(element).container;
+}
+
+function continuationControl(container: HTMLElement): HTMLButtonElement | null {
+  const control = container.querySelector(".meridian-definitions-continuation button");
+  return control instanceof HTMLButtonElement ? control : null;
 }
 
 function groupFor(list: HTMLElement, scope: string): HTMLElement {
@@ -202,5 +217,64 @@ describe("the controls", () => {
     ]);
     expect(groupFor(list, "session").querySelector("button")).not.toBeNull();
     expect(groupFor(list, "shared").querySelector("button")).toBeNull();
+  });
+});
+
+describe("the continuation", () => {
+  const held = [definition({ id: "held-one", name: "Held one" })];
+
+  it("draws no control while its caller holds no cursor", () => {
+    // "Absent, not disabled", the same rule every other control here obeys: a browser
+    // whose caller has the last page offers no handle to a page that does not exist.
+    expect(continuationControl(renderWholeBrowser(<DefinitionsBrowser definitions={held} />))).toBe(
+      null,
+    );
+  });
+
+  it("draws the control once its caller supplies the ask, and hands the press back", () => {
+    // The negative control for the case above, which would otherwise pass over a
+    // browser that had no continuation region at all.
+    const continueReading = vi.fn();
+    const container = renderWholeBrowser(
+      <DefinitionsBrowser definitions={held} onContinueReading={continueReading} />,
+    );
+
+    const control = continuationControl(container);
+    expect(control?.textContent).toBe("Show more definitions");
+    control?.click();
+    expect(continueReading).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads as a wait rather than as a control while the next page is in flight", () => {
+    const container = renderWholeBrowser(
+      <DefinitionsBrowser definitions={held} isContinuing onContinueReading={() => undefined} />,
+    );
+
+    expect(container.querySelector(".meridian-nothing--not-loaded")).not.toBeNull();
+    expect(continuationControl(container)).toBe(null);
+    // The rows held stay on screen through the wait: they were served, and a page in
+    // flight says nothing about them.
+    expect(rowNames(groupFor(container, "session"))).toStrictEqual(["Held one"]);
+  });
+
+  it("renders a refused continuation beside the control, keeping the rows shown", () => {
+    const refused = refuse(
+      "workflows-test",
+      "workflow.definition_not_found",
+      "That page of the enumeration is gone.",
+    );
+    const container = renderWholeBrowser(
+      <DefinitionsBrowser
+        definitions={held}
+        continuationRefusal={refused}
+        onContinueReading={() => undefined}
+      />,
+    );
+
+    expect(container.textContent).toContain("workflow.definition_not_found");
+    expect(container.textContent).toContain(refused.detail);
+    // Beside, not instead of: the same ask is what a person retries.
+    expect(continuationControl(container)).not.toBe(null);
+    expect(rowNames(groupFor(container, "session"))).toStrictEqual(["Held one"]);
   });
 });

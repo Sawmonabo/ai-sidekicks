@@ -1,0 +1,22 @@
+/*
+ * The definitions list's continuation region.
+ *
+ * A sibling sheet imported by `DefinitionsBrowser.tsx` rather than a block appended
+ * to the family stylesheet, on `panes/workflow-run/phase-graph/phase-graph.css`'s
+ * precedent: the rules arrive with the component that renders them, so a browser can
+ * never be mounted without its own, and the family sheet stays what it is rather than
+ * growing a section per region.
+ *
+ * One rule, and it exists because the browser's parent is a stretching flex column:
+ * a bare button there would span the surface, which reads as a primary action rather
+ * than as the quiet handle to one more page. Column rather than row so the refusal
+ * sentence sits above the control it belongs to and neither is truncated at a narrow
+ * width; `flex-start` keeps the button at its own intrinsic size.
+ */
+
+.meridian-definitions-continuation {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  align-items: flex-start;
+}
