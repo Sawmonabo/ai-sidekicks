@@ -77,6 +77,17 @@ export interface DeckProps {
   readonly onOpenInWindow?: (pane: DeckPane) => void;
   /** What the layout restore refused, rendered rather than swallowed. */
   readonly restoreRefusals?: readonly ConsoleRefusal[];
+  /**
+   * Panes whose body is showing in a window of its own (§4.5).
+   *
+   * The slot stays and the projection is suppressed, so widths and order survive the
+   * window's whole life and the pane goes back where it was.
+   */
+  readonly detachedPaneIds?: readonly string[];
+  readonly onFocusDetachedWindow?: (paneId: string) => void;
+  readonly onReturnToDeck?: (paneId: string) => void;
+  /** Why the crashed-window signal is not being received, where it is not. */
+  readonly detachedSignalRefusal?: ConsoleRefusal;
   /** Where measured pane rects go, for a body that hosts a native view (§4.3). */
   readonly onPaneRects?: (rects: readonly TrackedRect[]) => void;
   /**
@@ -225,6 +236,7 @@ export function Deck(props: DeckProps): React.JSX.Element {
   }, [tracker]);
 
   const refusals = props.restoreRefusals ?? [];
+  const detachedPaneIds = props.detachedPaneIds ?? [];
   const defaultLayout = useMemo(() => toPaneSizePercentages(state.panes), [state.panes]);
 
   return (
@@ -282,9 +294,19 @@ export function Deck(props: DeckProps): React.JSX.Element {
                 }
                 onFocus={focusPane}
                 onClose={closePane}
+                isDetached={detachedPaneIds.includes(pane.paneId)}
                 {...(props.onOpenInWindow === undefined
                   ? {}
                   : { onOpenInWindow: props.onOpenInWindow })}
+                {...(props.onFocusDetachedWindow === undefined
+                  ? {}
+                  : { onFocusDetachedWindow: props.onFocusDetachedWindow })}
+                {...(props.onReturnToDeck === undefined
+                  ? {}
+                  : { onReturnToDeck: props.onReturnToDeck })}
+                {...(props.detachedSignalRefusal === undefined
+                  ? {}
+                  : { detachedSignalRefusal: props.detachedSignalRefusal })}
                 trackElement={trackElement}
                 untrackElement={untrackElement}
               />

@@ -147,3 +147,93 @@ describe("AuxiliaryHandoff — the pane comes back", () => {
     expect(handoff.noteWindowLost("pane-unknown", "gone")).toBeUndefined();
   });
 });
+
+describe("AuxiliaryHandoff — the crashed-window signal", () => {
+  /** A served pane-error stream that delivers exactly what the test lists. */
+  function streamingPort(paneErrors: readonly { paneId: string; reason: string }[]): GrowthPort {
+    return {
+      ...servingPort(),
+      windowSubscribePaneErrors: async () => ({
+        status: "served",
+        value: {
+          events: (async function* deliver() {
+            for (const paneError of paneErrors) {
+              await Promise.resolve();
+              yield paneError;
+            }
+          })(),
+          close: () => undefined,
+        },
+      }),
+    };
+  }
+
+  it("returns the pane to the deck when the signal names it", async () => {
+    // The only way a crashed window's pane comes back. Without a subscriber, the
+    // window dying left the pane in a window nobody could focus.
+    const handoff = new AuxiliaryHandoff({
+      growth: streamingPort([{ paneId: "pane-1", reason: "the window closed unexpectedly" }]),
+    });
+    await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
+    expect(handoff.detached()).toHaveLength(1);
+
+    await handoff.watchPaneErrors();
+
+    expect(handoff.detached()).toHaveLength(0);
+    expect(handoff.paneErrorRefusal).toBeUndefined();
+  });
+
+  it("negative control: a pane the signal did not name stays in its window", async () => {
+    // Without this, the case above would pass over a watcher that returned every
+    // detached pane the moment any error arrived.
+    const handoff = new AuxiliaryHandoff({
+      growth: streamingPort([{ paneId: "pane-other", reason: "the window closed unexpectedly" }]),
+    });
+    await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
+
+    await handoff.watchPaneErrors();
+
+    expect(handoff.detached()).toHaveLength(1);
+  });
+
+  it("keeps the refusal where the signal is not served, rather than reading it as calm", async () => {
+    const handoff = new AuxiliaryHandoff({
+      growth: {
+        ...createRefusingGrowthPort(),
+        windowDetachPane: async () => ({ status: "served", value: { windowId: "aux-1" } }),
+      },
+    });
+    await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
+
+    await handoff.watchPaneErrors();
+
+    expect(handoff.paneErrorRefusal?.code).toBe("wire-unregistered");
+    expect(handoff.detached()).toHaveLength(1);
+  });
+
+  it("says so when the signal itself ends in a failure", async () => {
+    const handoff = new AuxiliaryHandoff({
+      growth: {
+        ...servingPort(),
+        windowSubscribePaneErrors: async () => ({
+          status: "served",
+          value: {
+            // An iterable that throws on its first pull, which is what a channel
+            // dropping under an open subscription looks like from this side.
+            events: {
+              [Symbol.asyncIterator]: () => ({
+                next: () => Promise.reject(new Error("the channel dropped")),
+              }),
+            },
+            close: () => undefined,
+          },
+        }),
+      },
+    });
+    await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
+
+    await handoff.watchPaneErrors();
+
+    expect(handoff.paneErrorRefusal?.detail).toContain("the channel dropped");
+  });
+});

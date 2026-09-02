@@ -27,7 +27,18 @@
 // WHAT THE MAIN WINDOW KEEPS. The pane's SLOT, as a placeholder with a focus
 // control, and no projection: §4.5's "never keeps a duplicate projection alive in
 // the main window while the aux window shows it" is why `detached` records an id
-// and a window handle rather than a copy of anything.
+// and a window handle rather than a copy of anything. The deck keeps the pane at its
+// own width and position; only the body is suppressed, so the way back is a control
+// in the slot rather than a re-open that would land the pane somewhere else.
+//
+// AND A CRASHED WINDOW COMES BACK THROUGH A SIGNAL, NOT A GUESS. §4.5's "a crashed
+// aux window returns the pane to the deck" needs something to notice the crash, and
+// the growth registry carries exactly one: a window pane-error subscription whose
+// value is a pane id and a reason — the pair `noteWindowLost` already takes. It is
+// watched only while something is detached, because a subscription held over an
+// empty detached set can report nothing and its refusal would be a permanent notice
+// about a hazard the window does not currently have. A refused subscription is
+// rendered in the placeholder it belongs to: it does not mean "no crashes".
 
 import { Emitter, refuse, type ConsoleRefusal, type Unsubscribe } from "../core/index.js";
 import { type ConsoleBridge } from "../bridge/index.js";
@@ -99,13 +110,37 @@ export interface AuxiliaryHandoffRequest {
  */
 type ConsoleGrowthPort = ConsoleBridge["growth"];
 
+/**
+ * The served value of the pane-error subscription, taken off the port for the same
+ * reason `ConsoleGrowthPort` is: the bridge door exports the bridge and not the
+ * stream shape, and a second import for a type the open door already carries would
+ * be a second name for one wire fact.
+ */
+type PaneErrorSignal = Extract<
+  Awaited<ReturnType<ConsoleGrowthPort["windowSubscribePaneErrors"]>>,
+  { readonly status: "served" }
+>["value"];
+
 export class AuxiliaryHandoff {
   readonly #growth: ConsoleGrowthPort;
   readonly #detachedByPaneId = new Map<string, DetachedPane>();
   readonly #changes = new Emitter<readonly DetachedPane[]>("auxiliary hand-off change");
+  #paneErrorStream: PaneErrorSignal | undefined;
+  #paneErrorRefusal: AuxiliaryHandoffRefusal | undefined;
 
   public constructor(options: { readonly growth: ConsoleGrowthPort }) {
     this.#growth = options.growth;
+  }
+
+  /**
+   * Why the crashed-window signal is not being received, where it is not.
+   *
+   * Rendered in the placeholder rather than swallowed: a subscription this build
+   * cannot open is not the same fact as a window that has not crashed, and a slot
+   * that showed nothing would be claiming the second.
+   */
+  public get paneErrorRefusal(): AuxiliaryHandoffRefusal | undefined {
+    return this.#paneErrorRefusal;
   }
 
   /** Every pane currently shown in a window, in detach order. */
@@ -244,9 +279,61 @@ export class AuxiliaryHandoff {
     return { ...detached, lostReason: reason };
   }
 
+  /**
+   * Watch the pane-error signal, so a window that crashed returns its pane.
+   *
+   * Idempotent: a second call while a stream is open is a no-op, because the deck
+   * detaching a second pane must not open a second subscription to the same signal.
+   */
+  public async watchPaneErrors(): Promise<void> {
+    if (this.#paneErrorStream !== undefined) {
+      return;
+    }
+    const answer = await this.#growth.windowSubscribePaneErrors({});
+    if (answer.status === "unavailable") {
+      this.#paneErrorRefusal = refuseHandoff("wire-unregistered", answer.detail);
+      this.#publish();
+      return;
+    }
+    this.#paneErrorRefusal = undefined;
+    this.#paneErrorStream = answer.value;
+    await this.#drainPaneErrors(answer.value);
+  }
+
+  /** Close the signal. Called when the last pane comes back, and on teardown. */
+  public stopWatchingPaneErrors(): void {
+    this.#paneErrorStream?.close();
+    this.#paneErrorStream = undefined;
+    this.#paneErrorRefusal = undefined;
+  }
+
+  async #drainPaneErrors(stream: PaneErrorSignal): Promise<void> {
+    try {
+      for await (const paneError of stream.events) {
+        this.noteWindowLost(paneError.paneId, paneError.reason);
+      }
+    } catch (error) {
+      // A signal that ended in a failure is not a signal that reported no crashes,
+      // so the placeholder says so rather than the stream ending in silence.
+      this.#paneErrorRefusal = refuseHandoff(
+        "wire-unregistered",
+        `The signal that reports a lost window stopped: ${describeStreamFailure(error)}`,
+      );
+    }
+    if (this.#paneErrorStream === stream) {
+      this.#paneErrorStream = undefined;
+    }
+    this.#publish();
+  }
+
   #publish(): void {
     this.#changes.emit(this.detached());
   }
+}
+
+/** An unknown thrown value as one sentence, without inventing a shape for it. */
+function describeStreamFailure(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /**

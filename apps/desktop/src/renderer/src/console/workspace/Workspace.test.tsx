@@ -11,7 +11,7 @@ import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DECK_RESTORED_PANE_CAP } from "../core/index.js";
-import { createFixtureBridge } from "../bridge/index.js";
+import { createFixtureBridge, type ConsoleBridge, type GrowthPort } from "../bridge/index.js";
 import type { ConsoleScenario } from "../bridge/scenario.js";
 import { DraftStore, UiStateStore } from "../persistence/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
@@ -26,6 +26,7 @@ import {
 import { ACTOR_FOLLOW_ANNOUNCEMENTS } from "./actor-follow.js";
 import { Workspace } from "./Workspace.js";
 import { DeckLayout } from "./deck/deck-layout.js";
+import { usePaneControls } from "./deck/pane-controls.js";
 
 const SESSION_ID = "session-workspace";
 const DECK_LAYOUT_RECORD_KEY = "deck-layout";
@@ -41,6 +42,27 @@ const SCENARIO: ConsoleScenario = {
   replies: [],
 };
 
+/**
+ * A body that says which kind it is, and offers the host's own detach control.
+ *
+ * The control is read off `usePaneControls`, which is the seam a real pane header
+ * reads it from — so a case that presses it drives the workspace through the same
+ * path a person does, rather than through a callback the test invented.
+ */
+function TestPaneBody(props: { readonly kind: string }): React.JSX.Element {
+  const controls = usePaneControls();
+  return (
+    <p data-body={props.kind}>
+      {props.kind} body
+      {controls?.onOpenInWindow === undefined ? null : (
+        <button type="button" data-detach={props.kind} onClick={controls.onOpenInWindow}>
+          Open in a window
+        </button>
+      )}
+    </p>
+  );
+}
+
 /** A registry whose bodies say which kind they are, so a pane is identifiable. */
 function testRegistry(): ConsolePaneRegistry {
   const registry = new ConsolePaneRegistry();
@@ -49,7 +71,7 @@ function testRegistry(): ConsolePaneRegistry {
       kind,
       owner: "workspace-test",
       openInWindow: kind === "timeline",
-      render: () => <p data-body={kind}>{kind} body</p>,
+      render: () => <TestPaneBody kind={kind} />,
     });
   }
   return registry;
@@ -214,12 +236,13 @@ function workspaceFor(
   session: WorkspaceSession,
   uiStateStore: UiStateStore,
   isKeyed: boolean,
+  bridge: ConsoleBridge = createFixtureBridge({ scenario: SCENARIO }),
 ): React.JSX.Element {
   return (
     <LiveAnnouncerProvider>
       <Workspace
         {...(isKeyed ? { key: session.sessionId } : {})}
-        bridge={createFixtureBridge({ scenario: SCENARIO })}
+        bridge={bridge}
         frameStore={
           new FrameStore({ initialRoute: { kind: "workspace", sessionId: session.sessionId } })
         }
@@ -296,8 +319,8 @@ describe("Workspace — the saved arrangement", () => {
       expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(2);
     });
     expect(
-      [...container.querySelectorAll("[data-body]")].map((body) => body.textContent),
-    ).toStrictEqual(["timeline body", "runs body"]);
+      [...container.querySelectorAll("[data-body]")].map((body) => body.getAttribute("data-body")),
+    ).toStrictEqual(["timeline", "runs"]);
   });
 
   it("saves the arrangement it opened, so the fallback ledger survives a restart", async () => {
@@ -507,5 +530,139 @@ describe("Workspace — navigating between two sessions the shell already has op
       expect(record).not.toBeUndefined();
     });
     expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(2);
+  });
+});
+
+describe("Workspace — a pane moved into a window of its own", () => {
+  /** The fixture bridge, with the window operations this case needs served. */
+  function bridgeServingWindowWire(overrides: Partial<GrowthPort>): ConsoleBridge {
+    const base = createFixtureBridge({ scenario: SCENARIO });
+    return { ...base, growth: { ...base.growth, ...overrides } };
+  }
+
+  const detachingPort: Partial<GrowthPort> = {
+    windowDetachPane: async () => ({ status: "served", value: { windowId: "aux-1" } }),
+    windowCloseAuxiliary: async () => ({ status: "served", value: undefined }),
+  };
+
+  /** Press the detach control the pane body offers, the way a header does. */
+  function pressDetach(container: HTMLElement): void {
+    const control = container.querySelector<HTMLButtonElement>("[data-detach='timeline']");
+    expect(control).not.toBeNull();
+    act(() => {
+      control?.click();
+    });
+  }
+
+  function placeholderText(container: HTMLElement): string {
+    return container.querySelector(".meridian-deck__detached")?.textContent ?? "";
+  }
+
+  it("keeps the pane's slot and suppresses only its projection", async () => {
+    // The defect: a successful detach closed the pane, so the layout filtered it out
+    // and the window closing or crashing had no slot to return it to.
+    const store = memoryStore();
+    const session: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
+    const { container } = render(
+      workspaceFor(session, store, true, bridgeServingWindowWire(detachingPort)),
+    );
+    await waitFor(() => {
+      expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(1);
+    });
+
+    pressDetach(container);
+
+    await waitFor(() => {
+      expect(container.querySelector(".meridian-deck__detached")).not.toBeNull();
+    });
+    expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(1);
+    expect(container.querySelector("[data-body]")).toBeNull();
+    expect(placeholderText(container)).toContain("window of its own");
+  });
+
+  it("returns the projection to the same slot when the pane comes back", async () => {
+    const store = memoryStore();
+    const session: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
+    const { container } = render(
+      workspaceFor(session, store, true, bridgeServingWindowWire(detachingPort)),
+    );
+    await waitFor(() => {
+      expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(1);
+    });
+    pressDetach(container);
+    await waitFor(() => {
+      expect(container.querySelector(".meridian-deck__detached")).not.toBeNull();
+    });
+
+    const returnControl = [
+      ...container.querySelectorAll<HTMLButtonElement>(".meridian-deck__detached-control"),
+    ].find((button) => button.textContent === "Return it to the deck");
+    expect(returnControl).not.toBeUndefined();
+    act(() => {
+      returnControl?.click();
+    });
+
+    await waitFor(() => {
+      expect(container.querySelector("[data-body]")?.getAttribute("data-body")).toBe("timeline");
+    });
+    expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(1);
+  });
+
+  it("renders the refusal where the crashed-window signal is not served", async () => {
+    // A subscription this build cannot open is not the same fact as a window that has
+    // not crashed. The placeholder says which of the two it is.
+    const store = memoryStore();
+    const session: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
+    const { container } = render(
+      workspaceFor(session, store, true, bridgeServingWindowWire(detachingPort)),
+    );
+    await waitFor(() => {
+      expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(1);
+    });
+
+    pressDetach(container);
+
+    await waitFor(() => {
+      expect(placeholderText(container)).toContain("is not registered yet");
+    });
+    // The refusal renders in the slot it is about, carrying its own code.
+    expect(
+      container.querySelector(".meridian-deck__detached .meridian-refusal")?.textContent,
+    ).toContain("wire-unregistered");
+  });
+
+  it("negative control: a pane nobody detached renders its projection unchanged", async () => {
+    // Without this, every case above would pass over a deck that drew the placeholder
+    // for every pane it held.
+    const store = memoryStore();
+    const session: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
+    const { container } = render(
+      workspaceFor(session, store, true, bridgeServingWindowWire(detachingPort)),
+    );
+    await waitFor(() => {
+      expect(container.querySelector("[data-body]")?.getAttribute("data-body")).toBe("timeline");
+    });
+    expect(container.querySelector(".meridian-deck__detached")).toBeNull();
+  });
+
+  it("does not carry a detached pane into another session", async () => {
+    const store = memoryStore();
+    const session: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
+    const bridge = bridgeServingWindowWire(detachingPort);
+    const { container, rerender } = render(workspaceFor(session, store, true, bridge));
+    await waitFor(() => {
+      expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(1);
+    });
+    pressDetach(container);
+    await waitFor(() => {
+      expect(container.querySelector(".meridian-deck__detached")).not.toBeNull();
+    });
+
+    rerender(workspaceFor(otherSession(), store, true, bridge));
+
+    await waitFor(() => {
+      expect(container.querySelector("[data-body]")?.getAttribute("data-body")).toBe("timeline");
+    });
+    expect(container.querySelector(".meridian-deck__detached")).toBeNull();
   });
 });
