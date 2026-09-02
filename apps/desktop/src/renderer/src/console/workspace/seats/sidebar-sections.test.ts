@@ -1,10 +1,15 @@
-// One sidebar, four owners, and the order a person reads it in.
+// One sidebar, three owners, and the order a person reads it in.
 //
-// The sections are filled by the composer family (`runs`), the collaboration
-// family (`channels`, `agents`, `members`), and the repos family (`repos`,
-// `artifacts`). Three branches, one sidebar: the failure this file exists for is
-// two of them claiming one section, and the second failure is the render order
-// drifting to whichever module happened to evaluate first.
+// The sections are filled by the composer family (`goal`, `runs`, `approvals`),
+// the collaboration family (`channels`, `agents`, `members`), and the repos family
+// (`repos`, `artifacts`). Three branches, one sidebar: the failure this file exists
+// for is two of them claiming one section, and the second failure is the render
+// order drifting to whichever module happened to evaluate first.
+//
+// The third failure is the set itself being short. `SidebarSectionId`,
+// registration, and render order all derive from the tuple, so a section the tuple
+// omits cannot be registered by anyone — which is why the first case below compares
+// the whole tuple to the spec's own enumeration rather than counting it.
 
 import { describe, expect, it } from "vitest";
 
@@ -23,25 +28,54 @@ function descriptor(id: SidebarSectionDescriptor["id"], owner: string): SidebarS
   return { id, owner, render: () => owner };
 }
 
-describe("sidebar sections — the closed set", () => {
-  it("declares six sections, each exactly once", () => {
-    // The count is pinned because the set is deliberately SMALLER than the
-    // spec sentence's list of eight: `goal` and `approvals` have no Phase-1C
-    // owner and are not minted as seats nobody can fill. A seventh appearing
-    // here without that decision changing is what this case catches.
-    expect(SIDEBAR_SECTION_IDS.length).toBe(6);
+/**
+ * The sections `Spec-023 §Console Design (Meridian)` §The surface set enumerates,
+ * in its own order. The sentence, verbatim:
+ *
+ *   "The session sidebar shows the session's other work as independently loaded
+ *   sections — goal, channels, runs, agents, repos and worktrees, approvals,
+ *   artifacts, members — each a composition of its own read, opening panes …"
+ *
+ * `repos` is that sentence's "repos and worktrees" — one section, named for the
+ * entity kind its cards open panes for. Transcribed rather than read from the spec
+ * file for `pane-kinds.test.ts`'s reason: `node:fs` is banned in renderer programs
+ * and the corpus sits outside this package's Vite root, so the honest arrangement
+ * is a transcription a reviewer can diff against the quote above.
+ */
+const SPEC_SIDEBAR_SECTION_IDS: readonly string[] = [
+  "goal",
+  "channels",
+  "runs",
+  "agents",
+  "repos",
+  "approvals",
+  "artifacts",
+  "members",
+];
+
+describe("sidebar sections — the closed set Spec-023 §The surface set enumerates", () => {
+  it("carries the spec's sections in the spec's order, which is render order", () => {
+    // `toStrictEqual` is ORDERED, and the order is not cosmetic: it is what a
+    // person reads down the sidebar. A section the tuple omits is one no family
+    // can register, so this single comparison is both the membership check and
+    // the order check.
+    expect([...SIDEBAR_SECTION_IDS]).toStrictEqual([...SPEC_SIDEBAR_SECTION_IDS]);
+  });
+
+  it("declares each section exactly once", () => {
+    // `toStrictEqual` above would pass over a set that repeated a member if the
+    // transcription repeated it too, and a repeat is what a merge of two
+    // concurrent additions produces.
     expect(new Set(SIDEBAR_SECTION_IDS).size).toBe(SIDEBAR_SECTION_IDS.length);
   });
 
-  it("keeps render order in the declaration", () => {
-    expect([...SIDEBAR_SECTION_IDS]).toStrictEqual([
-      "channels",
-      "agents",
-      "runs",
-      "repos",
-      "artifacts",
-      "members",
-    ]);
+  it("negative control: the two sections a shorter substrate had no seat for", () => {
+    // Without this the comparison above would pass over a transcription edited to
+    // match a tuple that had dropped them — which is exactly how the substrate
+    // came to omit both while claiming to be closed over the spec's list. Named
+    // one by one, so removing either fails here rather than in a diff nobody reads.
+    expect(SIDEBAR_SECTION_IDS).toContain("goal");
+    expect(SIDEBAR_SECTION_IDS).toContain("approvals");
   });
 });
 
@@ -67,9 +101,10 @@ describe("sidebar sections — one owner per section", () => {
     // Registered back to front, so an implementation reporting insertion order
     // would answer differently — and the sidebar would render differently.
     registry.register(descriptor("members", "collaboration-family"));
+    registry.register(descriptor("approvals", "composer-family"));
     registry.register(descriptor("runs", "composer-family"));
-    registry.register(descriptor("channels", "collaboration-family"));
-    expect(registry.registeredSectionIds()).toStrictEqual(["channels", "runs", "members"]);
+    registry.register(descriptor("goal", "composer-family"));
+    expect(registry.registeredSectionIds()).toStrictEqual(["goal", "runs", "approvals", "members"]);
   });
 
   it("negative control: a fresh registry claims nothing on its own", () => {

@@ -28,7 +28,11 @@
 
 export {
   /** @consumedBy T-023p-1C-2 */
+  DETACHABLE_PANE_KINDS,
+  /** @consumedBy T-023p-1C-2 */
   PANE_KINDS,
+  /** @consumedBy T-023p-1C-2 */
+  isDetachablePaneKind,
   /** @consumedBy T-023p-1C-2 */
   isPaneKind,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */

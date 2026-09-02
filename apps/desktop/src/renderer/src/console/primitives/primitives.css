@@ -83,21 +83,39 @@
   background: var(--meridian-accent);
   color: var(--meridian-accent-ink);
   cursor: pointer;
-  transition: filter var(--meridian-motion-quick) var(--meridian-ease-settle);
+  transition:
+    background-color var(--meridian-motion-quick) var(--meridian-ease-settle),
+    border-color var(--meridian-motion-quick) var(--meridian-ease-settle),
+    filter var(--meridian-motion-quick) var(--meridian-ease-settle);
 }
 
 /*
- * Hover and press shift the whole face rather than swapping either colour, which
- * is what keeps the measured ink-on-fill ratio the ratio a person actually sees:
- * a `filter` scales foreground and background together, while a second background
- * token would need a second contrast pair to hold it to the floor.
+ * Hover LIFTS the face, and a filter is the right instrument for that one
+ * direction: the ink is dark in both schemes, so brightening the fill moves the
+ * pair apart — 4.73:1 to 5.26:1 in light, 7.41:1 to 8.32:1 in dark, both measured
+ * in `tokens/contrast.test.ts` against the same brightness this rule spends.
  */
 .meridian-accent-fill:hover {
   filter: brightness(1.06);
 }
 
+/*
+ * Press SETTLES the face, and that direction is a token rather than a filter.
+ * Scaling both rendered colours does not preserve their ratio — relative luminance
+ * carries a 0.05 offset a multiplication does not distribute over — so the
+ * `brightness(0.94)` this rule used to spend took the light scheme's measured
+ * ink-on-fill pair from 4.73:1 to 4.27:1, through rule 3's floor in the one state
+ * the treatment existed to keep legible. `accent-pressed` is measured on that pair
+ * like every other fill.
+ *
+ * The boundary takes the control's own ink, and it is carrying most of the press in
+ * the light scheme: the ink floor leaves that face about 6% of luminance to spend
+ * (see `tokens/palette.ts`), which is below what an eye resolves on its own. A ring
+ * in a colour already measured against this face costs no ratio to add.
+ */
 .meridian-accent-fill:active {
-  filter: brightness(0.94);
+  border-color: var(--meridian-accent-ink);
+  background: var(--meridian-accent-pressed);
 }
 
 /* ------------------------------------------------------------------- glyph */

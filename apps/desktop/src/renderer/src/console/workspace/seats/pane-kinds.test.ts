@@ -16,7 +16,14 @@
 
 import { describe, expect, it } from "vitest";
 
-import { PANE_KINDS, isPaneKind, type PaneKind } from "./pane-kinds.js";
+import { AUXILIARY_ROUTE_NAMES } from "../../../../../shared/auxiliary-routes.js";
+import {
+  DETACHABLE_PANE_KINDS,
+  PANE_KINDS,
+  isDetachablePaneKind,
+  isPaneKind,
+  type PaneKind,
+} from "./pane-kinds.js";
 
 /** The eleven kinds of the spec bullet quoted above, in its own order. */
 const SPEC_PANE_KINDS: readonly string[] = [
@@ -87,5 +94,44 @@ describe("pane kinds — the guard layout restore drops against", () => {
     }
     const narrowed: PaneKind = fromSnapshot;
     expect(narrowed).toBe("artifact");
+  });
+});
+
+describe("detachable pane kinds — the two auxiliary windows Spec-023 ships", () => {
+  // `Spec-023 §Console Design (Meridian)` §The surface set, verbatim: "`timeline`
+  // and `agent-console` panes can be moved into their own hardened `BrowserWindow`
+  // — the two windows §Main Process Responsibilities names".
+  const SPEC_DETACHABLE_KINDS: readonly string[] = ["timeline", "agent-console"];
+
+  it("carries exactly the spec's two kinds", () => {
+    expect([...DETACHABLE_PANE_KINDS]).toStrictEqual([...SPEC_DETACHABLE_KINDS]);
+  });
+
+  it("is the window model's own set rather than a second copy of it", () => {
+    // The identity is the assertion. Two arrays that happen to hold the same two
+    // strings are exactly the arrangement that drifts the day a third auxiliary
+    // window lands, and the drift is silent: the menu would open a window for a
+    // route the deck refuses to detach into.
+    expect(DETACHABLE_PANE_KINDS).toBe(AUXILIARY_ROUTE_NAMES);
+  });
+
+  it("admits both of them", () => {
+    for (const kind of DETACHABLE_PANE_KINDS) {
+      expect(isDetachablePaneKind(kind)).toBe(true);
+    }
+  });
+
+  it("negative control: refuses every other pane kind, `browser` included", () => {
+    // Without this the cases above would pass over a predicate that answered
+    // `true` for everything — which is the state the removed per-descriptor
+    // boolean left the deck in, since any family could set it. `browser` holds a
+    // main-process view and `terminal` a process lease, and neither can follow a
+    // detach until its owning plan says how.
+    const refused = PANE_KINDS.filter((kind) => !SPEC_DETACHABLE_KINDS.includes(kind));
+    expect(refused).toContain("browser");
+    expect(refused).toContain("terminal");
+    for (const kind of refused) {
+      expect(isDetachablePaneKind(kind)).toBe(false);
+    }
   });
 });

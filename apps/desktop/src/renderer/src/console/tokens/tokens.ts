@@ -180,6 +180,7 @@ export const NON_TEXT_FLOOR_TOKEN_NAMES: readonly string[] = [
   "amber-mark",
   "red-mark",
   "accent",
+  "accent-pressed",
   "focus-ring",
 ];
 
@@ -204,13 +205,21 @@ export const TINTED_GROUND_PAIRS: readonly (readonly [string, string])[] = [
  * them together would put `accent-ink` in a list named for grounds and invite the
  * next reader to paint it on `amber-ground`.
  *
+ * EVERY FACE THE CONTROL WEARS IS A ROW. A pressed control still carries a label,
+ * so `accent-pressed` is paired here exactly as the resting face is — the pressed
+ * state used to be a `filter` over the resting pair, which is precisely the shape
+ * this list cannot measure and the reason the floor was missed in it.
+ *
  * `accent-ink` is deliberately absent from `TEXT_FLOOR_TOKEN_NAMES`: that list is
  * measured against the four neutral grounds, and this ink is never painted on one.
  * A token measured where it is never used would be held to a floor that has
  * nothing to do with it — and would fail, since a dark ink on a dark ground is
  * exactly what it should be.
  */
-export const ACCENT_FILL_PAIRS: readonly (readonly [string, string])[] = [["accent-ink", "accent"]];
+export const ACCENT_FILL_PAIRS: readonly (readonly [string, string])[] = [
+  ["accent-ink", "accent"],
+  ["accent-ink", "accent-pressed"],
+];
 
 /** The WCAG 2.2 AA floor for body and UI text. */
 export const TEXT_CONTRAST_FLOOR = 4.5;
