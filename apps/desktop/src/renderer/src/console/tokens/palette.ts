@@ -143,6 +143,16 @@ export const MOTION_DURATIONS_MS: Readonly<Record<string, number>> = {
 export const MOTION_EASE_SETTLE = "cubic-bezier(0.22, 0.61, 0.36, 1)";
 
 /**
+ * The line height every body line box occupies, as a multiple of its own size.
+ *
+ * Named rather than written into the generator's `body` rule, because it is not
+ * only a paint instruction: a row of any list is a line box plus its padding, so
+ * the console's row rhythm is derived from this number and would silently stop
+ * matching what the sheet paints if the two were written separately.
+ */
+export const BODY_LINE_HEIGHT = 1.5;
+
+/**
  * Type scale, in rem. Rule 4 sets UI text in a humanist grotesque and every
  * wire-true figure in mono; the scale is shared so a figure and its label sit on
  * the same baseline.
@@ -202,3 +212,57 @@ export const RADIUS_SCALE_REM: Readonly<Record<string, number>> = {
  * rather than as a striped table.
  */
 export const ATTRIBUTION_EDGE_WIDTH_PX = 2;
+
+/**
+ * One step of a rem scale, by name. Throws rather than resolving `undefined`.
+ *
+ * The scales are open records keyed by token name, so a step read by name is
+ * `number | undefined` and a typo would otherwise propagate into an emitted
+ * length as `NaNrem` — a declaration the browser discards in silence. Same stance
+ * as `tokens.ts`'s `schemeColor`, which throws on an unknown colour token for the
+ * same reason.
+ */
+function scaleStep(scale: Readonly<Record<string, number>>, stepName: string): number {
+  const sizeRem = scale[stepName];
+  if (sizeRem === undefined) {
+    throw new RangeError(`unknown Meridian scale step ${stepName}`);
+  }
+  return sizeRem;
+}
+
+/**
+ * The height one row of an enumeration occupies, in rem.
+ *
+ * DERIVED, never measured off a screen: one `text-md` line box at the body's line
+ * height, plus a `space-2` above and below it — which is exactly the rhythm the
+ * console's one shipped enumeration, the palette's result list, already sets on
+ * `.console-palette__item`. Stating it here rather than in each list's stylesheet
+ * is what lets a bounded list be capped in ROWS, which is the unit the cap is
+ * actually about, and it means a change to the type scale, the spacing scale, or
+ * the body line height moves every such cap with it.
+ */
+export const ENUMERATION_ROW_HEIGHT_REM: number =
+  scaleStep(TYPE_SCALE_REM, "text-md") * BODY_LINE_HEIGHT +
+  2 * scaleStep(SPACE_SCALE_REM, "space-2");
+
+/**
+ * Rows a bounded enumeration shows before it scrolls.
+ *
+ * Six, and the number is a ceiling rather than a preference. The shortest window
+ * the console ships is 720 px tall (the agent-console auxiliary geometry), which
+ * is 45 rem at the 16 px root; an enumeration allowed to take more than a third of
+ * that would leave the surface holding it with nothing else on screen. Six rows is
+ * 13.875 rem and clears that third; seven is 16.1875 rem and does not.
+ */
+export const BOUNDED_ENUMERATION_MAX_ROWS = 6;
+
+/**
+ * The height a bounded enumeration scrolls past, in rem.
+ *
+ * A named multiple of the row height rather than a literal length, so a stylesheet
+ * writes `max-height: var(--meridian-enumeration-max-height)` and never multiplies.
+ * A list that grows past this scrolls inside its own box instead of pushing the
+ * rest of its surface off screen.
+ */
+export const BOUNDED_ENUMERATION_MAX_HEIGHT_REM: number =
+  BOUNDED_ENUMERATION_MAX_ROWS * ENUMERATION_ROW_HEIGHT_REM;

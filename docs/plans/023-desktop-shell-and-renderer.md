@@ -249,7 +249,7 @@ Every console surface is built now against the fixture bridge (`Spec-023 §Conso
 | `invites.list` | [Spec-002](../specs/002-invite-membership-and-presence.md) | invites surface |
 | `health.subscribe` | [Spec-020](../specs/020-observability-and-failure-recovery.md) | health strip, park banner |
 | `AgentListResponse` projection of the four attach-time snapshot axes (optional members) | [Spec-030](../specs/030-sidekick-definitions-and-peer-invocation.md), [Spec-016](../specs/016-multi-agent-channels-and-orchestration.md) | agent console, cast bar |
-| `gitActionExecute` action vocabulary and the `gitflow.*` error namespace | [Spec-011](../specs/011-gitflow-pr-and-diff-attribution.md) | repos, diffs, and pull-request surfaces |
+| `gitflow.branchContextRead` / `gitflow.prPrepare`, the `gitflow.gitActionExecute` action vocabulary, and the `gitflow.*` error namespace (the four method-name strings are registered in [api-payload-contracts.md](../architecture/contracts/api-payload-contracts.md#plan-011--gitflow-pr-and-diff-attribution) and in no code package) | [Spec-011](../specs/011-gitflow-pr-and-diff-attribution.md) | repos, diffs, and pull-request surfaces |
 | Attachment ingest method-name table and artifact CRUD method strings | [Plan-014](./014-artifacts-files-and-attachments.md) | artifact pane |
 | Effective allow-list read; ingest abort | [Spec-014](../specs/014-artifacts-files-and-attachments.md) | artifact pane |
 | `WorktreeSetupRecipe` carrier | [Spec-010](../specs/010-worktree-lifecycle-and-execution-modes.md) | repos surface |

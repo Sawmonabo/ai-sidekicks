@@ -114,7 +114,10 @@ export type GrowthOperationId =
   | "workflowPhaseOutputRead"
   | "workflowGateResolve"
   | "workflowHumanFormSubmit"
-  | "workflowGateChainVerify";
+  | "workflowGateChainVerify"
+  // gitflow
+  | "gitflowBranchContextRead"
+  | "gitflowPrPrepare";
 
 export type GrowthPrerequisiteId =
   | "browserPaneKindDeclaration"

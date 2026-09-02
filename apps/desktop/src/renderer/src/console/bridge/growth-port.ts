@@ -138,6 +138,43 @@ export interface GrowthAttentionPreference {
   readonly value: Readonly<Record<string, unknown>>;
 }
 
+// gitflow
+
+/**
+ * A writable run's branch context, as `Spec-011 §Interfaces And Contracts`
+ * requires the read to expose it — base, head, upstream, and worktree association.
+ *
+ * The three optional members are optional on the wire for structural reasons, not
+ * for convenience, and the reasons are worth carrying: `upstreamRef` is absent
+ * until the head branch has one, and `worktreeId` / `ephemeralCloneId` are present
+ * only on the anchoring their context actually has (`branch_contexts` carries an
+ * at-most-one association CHECK). A required member here would force a producer to
+ * supply a value for an anchoring the context does not have, and the only value it
+ * could supply is a fabrication.
+ */
+export interface GrowthBranchContext {
+  readonly branchContextId: string;
+  readonly workspaceId: string;
+  readonly baseBranch: string;
+  readonly headBranch: string;
+  readonly upstreamRef?: string;
+  readonly worktreeId?: string;
+  readonly ephemeralCloneId?: string;
+}
+
+/**
+ * The states a prepared pull request is in. Closed, declared once, derived below.
+ *
+ * `Spec-011 §Required Behavior` makes PR preparation reviewable BEFORE any remote
+ * mutation, and these two are what that review is between: a proposal still being
+ * assembled and one a person may send. Neither names a remote state — nothing here
+ * has talked to a git host.
+ */
+export const GROWTH_PR_PREPARATION_STATES = ["draft", "ready"] as const;
+
+/** One prepared-pull-request state. Derived, so the vocabulary has one home. */
+export type GrowthPrPreparationState = (typeof GROWTH_PR_PREPARATION_STATES)[number];
+
 interface GrowthOperationSignatures {
   browserNavigate: { request: { readonly paneId: string; readonly url: string }; value: void };
   browserReload: { request: { readonly paneId: string }; value: void };
@@ -366,6 +403,38 @@ interface GrowthOperationSignatures {
         | "signature_invalid";
     };
   };
+  // gitflow
+  //
+  // The registered request is one of two arms — a `branchContextId`, or a
+  // `worktreeId` paired with the `workspaceId` that makes it a key. Only the
+  // second is here, because the console holds no `BranchContextId` to ask with:
+  // that id is minted by `repo.executionRootPrepare`, a wire the console does not
+  // have and no growth row carries, so an arm keyed on it would be a request shape
+  // with no caller. The context id travels the other way, on the reply, which is
+  // where the proposal gate below gets the one it sends.
+  //
+  // The value is an ENVELOPE rather than a bare context, so "this workspace has no
+  // branch context" is a served answer rather than an absent one. The two facts a
+  // repos surface has to tell apart are "nobody asked" (the port's refusal) and
+  // "we asked and there is none", and a bare optional value would have collapsed
+  // the second into the shape of the first.
+  gitflowBranchContextRead: {
+    request: { readonly workspaceId: string; readonly worktreeId: string };
+    value: { readonly branchContext: GrowthBranchContext | undefined };
+  };
+  gitflowPrPrepare: {
+    request: {
+      readonly branchContextId: string;
+      readonly targetBranch: string;
+      readonly title?: string;
+      readonly description?: string;
+    };
+    value: {
+      readonly prPreparationId: string;
+      readonly state: GrowthPrPreparationState;
+      readonly proposalBlob: Readonly<Record<string, unknown>>;
+    };
+  };
 }
 
 /**
@@ -482,5 +551,8 @@ export function createRefusingGrowthPort(): GrowthPort {
     workflowGateResolve: async () => growthUnavailable("workflowGateResolve"),
     workflowHumanFormSubmit: async () => growthUnavailable("workflowHumanFormSubmit"),
     workflowGateChainVerify: async () => growthUnavailable("workflowGateChainVerify"),
+    // gitflow
+    gitflowBranchContextRead: async () => growthUnavailable("gitflowBranchContextRead"),
+    gitflowPrPrepare: async () => growthUnavailable("gitflowPrPrepare"),
   };
 }

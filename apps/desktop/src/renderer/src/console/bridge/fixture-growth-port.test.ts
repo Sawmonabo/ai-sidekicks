@@ -23,6 +23,7 @@ import type { GrowthPort } from "./index.js";
 import { createLiveBridge } from "./live-bridge.js";
 import type { ConsoleScenario, ScenarioBeat } from "./scenario.js";
 import { FLAGSHIP_SCENARIO } from "./scenarios/flagship.js";
+import { CONSOLE_SCENARIOS } from "./scenarios/index.js";
 import { findScenarioWireTruthDefects } from "./scenarios/wire-truth.js";
 import { createTier1Bridge } from "@ai-sidekicks/contracts";
 
@@ -352,6 +353,129 @@ describe("the fixture's attention projection — derived from the scenario, neve
       if (outcome.status === "unavailable") {
         expect(outcome.slateRow).toBe("attention-plane");
         expect(outcome.owningDocument).toContain("Spec-019");
+      }
+    }
+  });
+});
+
+// The gitflow reads.
+//
+// `Spec-011 §Interfaces And Contracts` puts two operations in front of the repos
+// surfaces — a branch-context read and a PR preparation — and the console had a
+// port entry for neither, so a branch-context summary built against the fixture
+// had to invent the shape inside a view family, which is the thing the growth port
+// exists to prevent.
+//
+// The subject of these cases is the DISTINCTION the two of them draw. One is
+// served and answers that there is nothing; the other refuses. Those are two
+// different kinds of nothing (`Spec-023 §Console Design (Meridian)`), a summary
+// renders them differently, and a port that collapsed them would let the surface
+// ship having only ever been driven through one.
+
+/**
+ * Names a member that would only appear if a scenario stated a branch.
+ *
+ * The two `BranchContextReadResponse` requires and cannot be derived from anything
+ * a scenario plays, plus the id that would name a context outright and the
+ * request-side name a scenario would script one under.
+ */
+const BRANCH_NAMING_MEMBERS = [
+  "branchContextId",
+  "baseBranch",
+  "headBranch",
+  "branchName",
+] as const;
+
+/**
+ * Scenarios that state a branch anywhere — in a beat's payload or a scripted reply.
+ *
+ * The fixture answers the branch-context read with an absence, and this is the
+ * premise that answer rests on rather than a restatement of it: no scenario carries
+ * a repo mount, and no registered event payload names a branch, so there is nothing
+ * to derive one from. The day a scenario does state one, this finder reports it and
+ * the absence stops being the honest answer.
+ */
+function findScenariosNamingABranch(scenarios: readonly ConsoleScenario[]): readonly string[] {
+  return scenarios
+    .filter((scenario) => {
+      const serialised = JSON.stringify(scenario);
+      return BRANCH_NAMING_MEMBERS.some((member) => serialised.includes(`"${member}"`));
+    })
+    .map((scenario) => scenario.id);
+}
+
+describe("the fixture's gitflow reads — one answers nothing, the other refuses", () => {
+  it("plays no scenario that states a branch, which is what makes the absence honest", () => {
+    expect(findScenariosNamingABranch(CONSOLE_SCENARIOS)).toStrictEqual([]);
+  });
+
+  it("negative control: reports a scenario that DOES state one", () => {
+    // Scripted as a canned reply, because that is how a scenario would really state
+    // a branch context — `gitflow.branchContextRead` is a request/response call and
+    // no event payload in the census carries a branch name at all.
+    const withBranchContext: ConsoleScenario = {
+      ...FLAGSHIP_SCENARIO,
+      id: "states-a-branch",
+      replies: [
+        {
+          call: "gitflow.branchContextRead",
+          result: { baseBranch: "develop", headBranch: "feature/topic" },
+        },
+      ],
+    };
+
+    expect(findScenariosNamingABranch([withBranchContext])).toStrictEqual(["states-a-branch"]);
+  });
+
+  it("serves the branch-context read, answering that this workspace has none", async () => {
+    const port = fixturePort();
+
+    const outcome = await port.gitflowBranchContextRead({
+      workspaceId: "workspace-1",
+      worktreeId: "worktree-1",
+    });
+
+    expect(outcome.status).toBe("served");
+    if (outcome.status === "served") {
+      expect(outcome.value.branchContext).toBeUndefined();
+    }
+  });
+
+  it("keeps that absence distinct from the live bridge's not-checked refusal", async () => {
+    // The two facts a repos summary has to tell apart. Under the fixture the read
+    // happened and found nothing; under the live bridge nobody asked, and the
+    // refusal names who owes the wire. A port that answered the same way under both
+    // would let the summary ship rendering one state for two situations.
+    const bridge = createLiveBridge(createTier1Bridge());
+
+    const outcome = await bridge.growth.gitflowBranchContextRead({
+      workspaceId: "workspace-1",
+      worktreeId: "worktree-1",
+    });
+
+    expect(outcome.status).toBe("unavailable");
+    if (outcome.status === "unavailable") {
+      expect(outcome.slateRow).toBe("gitflow-actions");
+      expect(outcome.owningDocument).toContain("Spec-011");
+    }
+    expect(outcome).not.toHaveProperty("value");
+  });
+
+  it("refuses the PR preparation under both bridges, no daemon standing behind it", async () => {
+    const liveBridge = createLiveBridge(createTier1Bridge());
+    const request = { branchContextId: "branch-context-1", targetBranch: "develop" };
+
+    for (const outcome of [
+      await fixturePort().gitflowPrPrepare(request),
+      await liveBridge.growth.gitflowPrPrepare(request),
+    ]) {
+      expect(outcome.status).toBe("unavailable");
+      if (outcome.status === "unavailable") {
+        expect(outcome.slateRow).toBe("gitflow-actions");
+        // A reviewable proposal is a daemon act — `Spec-011 §Required Behavior`
+        // puts it before any remote mutation — so a fixture that answered would be
+        // standing in for the review, not for the wire.
+        expect(outcome.detail).toContain("not registered yet");
       }
     }
   });

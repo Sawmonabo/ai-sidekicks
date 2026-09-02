@@ -36,6 +36,8 @@
 import { formatOklch } from "./color.js";
 import {
   ATTRIBUTION_EDGE_WIDTH_PX,
+  BODY_LINE_HEIGHT,
+  BOUNDED_ENUMERATION_MAX_HEIGHT_REM,
   FONT_STACKS,
   MOTION_DURATIONS_MS,
   MOTION_EASE_SETTLE,
@@ -93,6 +95,7 @@ function invariantBlock(): string {
     lines.push(declaration(tokenName, `${sizeRem}rem`));
   }
   lines.push(declaration("attribution-edge", `${ATTRIBUTION_EDGE_WIDTH_PX}px`));
+  lines.push(declaration("enumeration-max-height", `${BOUNDED_ENUMERATION_MAX_HEIGHT_REM}rem`));
 
   lines.push("");
   lines.push("  /* Motion — settles, never bounces. */");
@@ -182,7 +185,7 @@ export function generateMeridianCss(): string {
     "  color: var(--meridian-text);",
     "  font-family: var(--meridian-font-sans);",
     "  font-size: var(--meridian-text-md);",
-    "  line-height: 1.5;",
+    `  line-height: ${BODY_LINE_HEIGHT};`,
     "  -webkit-font-smoothing: antialiased;",
     "}",
     "",
