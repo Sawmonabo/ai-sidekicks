@@ -49,13 +49,13 @@ Three reasons support keeping the user-side reference even though it is empirica
 
 A skeptical staff engineer reviewing this PR would argue:
 
-> The `let mainWindow` declaration encodes a false mechanism claim. The header comment (until amended in this PR) reads "Without this, V8 may garbage-collect the only live handle once the callback's stack frame unwinds" — but in Electron 41.6.1 that is empirically not what would happen, because `BaseWindow::self_ref_` (`v8::Global<v8::Value>` at `shell/browser/api/electron_api_base_window.h:271`) strong-roots the JS wrapper from `InitWith` (`electron_api_base_window.cc:155`: `self_ref_.Reset(isolate, wrapper);`) until native-object destruction (`electron_api_base_window.cc:130`: `self_ref_.Reset();` in the destructor). Keeping a user-side reference whose comment claims it prevents GC, when in fact the native binding is what prevents GC, is a stale-comment risk waiting to bite a future reader. Better to remove the reference, document the actual mechanism inline, and let the codebase tell the truth.
+> The `let mainWindow` declaration encodes a false mechanism claim. The header comment (until amended in this PR) reads "Without this, V8 may garbage-collect the only live handle once the callback's stack frame unwinds" — but in Electron 41.6.1 that is empirically not what would happen, because `BaseWindow::self_ref_` (`v8::Global<v8::Value>` at `shell/browser/api/electron_api_base_window.h:300`) strong-roots the JS wrapper from `InitWith` (`electron_api_base_window.cc:162`: `self_ref_.Reset(isolate, wrapper);`) until native-object destruction (`electron_api_base_window.cc:145`: `self_ref_.Reset();` in the destructor). Keeping a user-side reference whose comment claims it prevents GC, when in fact the native binding is what prevents GC, is a stale-comment risk waiting to bite a future reader. Better to remove the reference, document the actual mechanism inline, and let the codebase tell the truth.
 
 The empirical evidence behind the antithesis is strong. We ran a primary-source investigation of Electron 41.6.1 + V8 v14.6.202.34-electron.0:
 
-- **Wrapper anchor.** `electron_api_base_window.h:271` declares `v8::Global<v8::Value> self_ref_;` with the inline comment "Reference to JS wrapper to prevent garbage collection." `electron_api_base_window.cc:155` sets it in `InitWith` (called as part of `BaseWindow`'s gin-helper constructor); `electron_api_base_window.cc:130` is the only site that releases it (the C++ destructor). `OnWindowClosed` (lines 169-194) emits the JS `closed` event and posts an async native-destroy task but does NOT reset `self_ref_` — the wrapper outlives the JS `closed` event.
+- **Wrapper anchor.** `electron_api_base_window.h:300` declares `v8::Global<v8::Value> self_ref_;` with the inline comment "Reference to JS wrapper to prevent garbage collection." `electron_api_base_window.cc:162` sets it in `InitWith` (called as part of `BaseWindow`'s gin-helper constructor); `electron_api_base_window.cc:145` is the only site that releases it (the C++ destructor). `OnWindowClosed` (lines 171-191) emits the JS `closed` event and posts the native-destroy task but does NOT reset `self_ref_` itself — the release happens in the destructor that task runs, so the wrapper outlives the JS `closed` event by at least that posted task and is collectable afterwards.
 - **`window-all-closed` trigger.** `WindowList::RemoveWindow` (`shell/browser/window_list.cc`) operates on a `WindowVector` of raw `NativeWindow*` pointers. The `OnWindowAllClosed` notification fires when that vector empties — i.e., when native windows are destroyed, not when JS wrappers are collected.
-- **Empirical Step 0b spike.** We ran `.agents/tmp/research/electron-gc-empirical/spike.cjs` against `apps/desktop/node_modules/.bin/electron --js-flags=--expose-gc`. Result on Electron 41.6.1 / Node 24.15.0 / V8 14.6.202.34-electron.0: `countWithWindow: 2`, `countAfterClose: 2`. After `window.close()` + `window = null` + two synchronous bare `gc()` calls, `queryObjects(BrowserWindow)` did not drop to zero. This is consistent with `OnWindowClosed` posting an async destroy task while `self_ref_` keeps the wrapper alive on the heap.
+- **Empirical Step 0b spike.** The probe (inlined verbatim in §References, re-run 2026-09-02 on Electron 41.6.1 / Node 24.15.0 / V8 14.6.202.34-electron.0) measures `v8.queryObjects(BrowserWindow, { format: "count" })` beside a plain-object negative control; the two readings the argument rests on — the unreferenced-open and post-close samples — are taken only after event dispatch has unwound (two macrotasks) and two bare `gc()` calls, while the baseline and the referenced-open reading are sampled directly (the baseline right after one `gc()`, the referenced reading right after construction), since neither is asked to show what a collection releases. Baseline `0`; one open window matches `2` (its instance plus one additional fixed match that a count-only sample cannot identify, present from the first construction onward — a second window takes the count to `3` — so the discriminating quantity is the delta from baseline); with the only JS reference nulled and the window still open the count stays `2` while the control drops `1 → 0` — an open window's wrapper survives a full major collection with no user-side reference, which is the claim this ADR rests on. After `close()`, once the `closed` dispatch has unwound, the count drops to `1` (the unidentified fixed match; the instance is released, consistent with the destructor running from the posted destroy task) and holds there at +250 ms and +1250 ms. The 2026-05-18 reading `countAfterClose: 2`, taken synchronously inside the `closed` listener, is withdrawn as a pre-destruction measurement: `OnWindowClosed` emits `closed` and only posts the task whose destructor later resets `self_ref_`, so during that listener the wrapper was still natively rooted by `self_ref_` regardless of any dispatch frame, and the delayed samples show only that the count later falls, not which root held it; it never bore on the open-window claim. Because a count-only sample cannot tell the instance from the fixed match, the lifecycle guard (`apps/desktop/test/lifecycle.gc.test.ts`) asserts a stable count across its GC cycles and a per-window delta once every window is closed, rather than a bare `≥ 1` that the fixed match alone would satisfy.
 - **V8 `gc()` semantics.** From `src/extensions/gc-extension.cc`: bare `gc()` resolves to `PreciseCollectAllGarbage` (major collection, synchronous, precise mode — all roots traced). `gc(true)` falls through `GetDefaultForTruthyWithoutOptionsBag()` to a Scavenger-only minor pass that does NOT trace old-generation. The `gc(true)` form is therefore a silent footgun in any GC-pressure test — it would leave old-generation BrowserWindow wrappers intact and yield false-negative "still reachable" results. Our probe uses bare `gc()` (lines 122-130 of `apps/desktop/src/main/index.ts`); the test enforces `globalGcAvailable === true` to detect the case where `--expose-gc` was not forwarded.
 
 If the wrapper cannot be collected while the native object lives, and `window-all-closed` fires from native-object removal rather than wrapper collection, then PR #72's `let mainWindow` does not prevent the failure mode Codex's P1 described. The mechanism Codex named ("losing all JS references allows the window to be garbage-collected") is not the operative mechanism in Electron 41.6.1.
@@ -65,11 +65,11 @@ If the wrapper cannot be collected while the native object lives, and `window-al
 The antithesis is empirically correct about Electron 41.6.1's mechanism and correctly identifies that PR #72's commit message + the original comment encoded a falsified mechanism claim. This PR (PR2-Honest in the local notation) accepts that correction in two places:
 
 1. **The header comment above the `let mainWindow` declaration** is amended to cite this ADR and reference `BaseWindow::self_ref_` as the actual load-bearing mechanism. The user-side reference is reframed as "defensive consistency with the canonical Electron community pattern," not as the GC anchor.
-2. **The Spec-023 acceptance criterion** is amended (in the same PR) to drop the "must demonstrably FAIL when the module-scope retention reference is removed" clause — that clause is empirically false in Electron 41.6.1 — and to encode the observable lifecycle invariant directly (`queryObjects(BrowserWindow) >= 1` + `window-all-closed` does not fire during the probe iteration loop).
+2. **The Spec-023 acceptance criterion** is amended (in the same PR) to drop the "must demonstrably FAIL when the module-scope retention reference is removed" clause — that clause is empirically false in Electron 41.6.1 — and to encode the observable lifecycle invariant directly (`queryObjects(BrowserWindow) >= 1` + `window-all-closed` does not fire during the probe iteration loop). The `>= 1` half of that criterion was tightened 2026-09-02 to the stable-count and per-window-delta checks the Step 0b bullet above describes, since the fixed non-instance match satisfies a bare `>= 1` with the instance gone; the criterion's subject is unchanged.
 
 What does not change: the `let mainWindow` declaration itself. The asymmetric-risk argument in the Thesis stands. The cost of being wrong about Electron internals is paid out unbounded years from now in the form of "the desktop shell stopped booting after the Electron upgrade and we cannot bisect because the change happened in vendor code"; the cost of keeping a redundant reference is paid right now in the form of one comment that has to remain accurate. We pay the second cost.
 
-The lifecycle regression test we ship in `apps/desktop/test/lifecycle.gc.test.ts` is honest about what it observes: it asserts the observable invariant (`queryObjects(BrowserWindow) >= 1` across 20 GC pressure cycles; a probe-scoped `window-all-closed` listener does not fire mid-loop) without claiming that removing `let mainWindow` would cause the test to fail. It exists as a future-regression guard, not as proof that user-side retention is causally load-bearing in the current fix-state.
+The lifecycle regression test we ship in `apps/desktop/test/lifecycle.gc.test.ts` is honest about what it observes: it asserts the observable invariant (a `queryObjects(BrowserWindow)` count that holds stable across 20 GC pressure cycles and drops by at least one per window once every window is closed and the close has unwound — the per-window delta that tells the instance from the fixed match; a probe-scoped `window-all-closed` listener does not fire mid-loop) without claiming that removing `let mainWindow` would cause the test to fail. It exists as a future-regression guard, not as proof that user-side retention is causally load-bearing in the current fix-state.
 
 ---
 
@@ -151,28 +151,162 @@ The lifecycle regression test we ship in `apps/desktop/test/lifecycle.gc.test.ts
 
 ### Primary sources (Electron v41.6.1)
 
-- `shell/browser/api/electron_api_base_window.h:271` — `v8::Global<v8::Value> self_ref_;` field declaration with inline comment "Reference to JS wrapper to prevent garbage collection."
-- `shell/browser/api/electron_api_base_window.h:38-39` — `class BaseWindow : public gin_helper::TrackableObject<BaseWindow>, private NativeWindowObserver` (the gin-helper inheritance that wires `self_ref_` into the JS wrapper lifecycle).
-- `shell/browser/api/electron_api_base_window.h:268` — `std::unique_ptr<NativeWindow> window_;` (the native-window owner).
-- `shell/browser/api/electron_api_base_window.cc:155` — `self_ref_.Reset(isolate, wrapper);` (inside `InitWith`, lines 140-156: the wrapper is captured strong-rooted as part of construction).
-- `shell/browser/api/electron_api_base_window.cc:130` — `self_ref_.Reset();` (inside the destructor, lines 124-131: the only release site).
-- `shell/browser/api/electron_api_base_window.cc:169-194` — `OnWindowClosed()` method (emits the JS `closed` event and posts an async destroy task; does NOT reset `self_ref_`).
-- `shell/browser/window_list.cc` — `WindowList::RemoveWindow` triggers `OnWindowAllClosed` notification when the `WindowVector` of raw `NativeWindow*` pointers becomes empty.
+Read at the exact `v41.6.1` tag on 2026-09-02 through the GitHub contents API (`gh api repos/electron/electron/contents/<path>?ref=v41.6.1`; the header is 308 lines, the `.cc` 1376, `window_list.cc` 111), so every line number below is tag-exact.
+
+- `shell/browser/api/electron_api_base_window.h:300` — `v8::Global<v8::Value> self_ref_;` field declaration, with the inline comment on line 299 "Reference to JS wrapper to prevent garbage collection."
+- `shell/browser/api/electron_api_base_window.h:42-43` — `class BaseWindow : public gin_helper::TrackableObject<BaseWindow>, private NativeWindowObserver` (the gin-helper inheritance that wires `self_ref_` into the JS wrapper lifecycle).
+- `shell/browser/api/electron_api_base_window.h:297` — `std::unique_ptr<NativeWindow> window_;` (the native-window owner).
+- `shell/browser/api/electron_api_base_window.cc:162` — `self_ref_.Reset(isolate, wrapper);` (inside `InitWith`, lines 148-163: the wrapper is captured strong-rooted as part of construction).
+- `shell/browser/api/electron_api_base_window.cc:145` — `self_ref_.Reset();` (inside the destructor, lines 136-146: the only release site, reached through the destroy task `OnWindowClosed` posts).
+- `shell/browser/api/electron_api_base_window.cc:171-191` — `OnWindowClosed()` method (marks the object destroyed, emits the JS `closed` event, and posts the destroy closure; does NOT reset `self_ref_` itself).
+- `shell/browser/window_list.cc:54-60` — `WindowList::RemoveWindow` triggers the `OnWindowAllClosed` notification when the `WindowVector` of raw `NativeWindow*` pointers becomes empty.
 
 ### Primary sources (V8 v14.6.202.34-electron.0)
 
-- `src/extensions/gc-extension.cc:336-340` — bare `gc()` → `PreciseCollectAllGarbage` (major collection, synchronous, precise mode — all roots traced).
-- `src/extensions/gc-extension.cc:323-325` — `gc(true)` → `GetDefaultForTruthyWithoutOptionsBag()` → MINOR Scavenger-only collection (the silent footgun: leaves old-generation objects intact).
-- `src/extensions/gc-extension.cc:290-317` — `gc({type, execution, flavor, filename})` structured form (the long-term-stable alternative if V8 ever flips the default).
+The `globalThis.gc()` mode semantics below are read from the V8 source at the upstream tag Electron 41.6.1 builds from — `src/extensions/gc-extension.cc` at tag `14.6.202.34` (<https://chromium.googlesource.com/v8/v8/+/refs/tags/14.6.202.34/src/extensions/gc-extension.cc>, 323 lines, read 2026-09-02). Electron's ten V8 patches at tag `v41.6.1` (`patches/v8/.patches`) touch no line of this file, so the upstream tag is the code that runs; the `-electron.0` suffix marks that patch set, not a fork of this extension. The return value of `gc()` establishes none of this — every mode returns `undefined` — so the empirical rows below cite these lines for the mode claim and their own output only for flag passthrough and the retention count.
+
+- `gc-extension.cc:290-298` — `GCExtension::GC` with zero arguments → `InvokeGC(isolate, GCOptions::GetDefault())`.
+- `gc-extension.cc:32-37` — `GCOptions::GetDefault()` = `{GCType::kMajor, ExecutionType::kSync, Flavor::kRegular}`.
+- `gc-extension.cc:206-212` — `InvokeGC` on `kMajor` / `kRegular` → `heap->PreciseCollectAllGarbage(GCFlag::kNoFlags, GarbageCollectionReason::kTesting, kGCCallbackFlagForced)`: the full-heap collection, run inline on the calling thread under `StackState::kMayContainHeapPointers` (lines 192-199) — the "major, synchronous, precise" reading is the function's own name and the switch it sits in.
+- `gc-extension.cc:38-43` + `182-186` — a truthy non-object argument (`gc(true)`) that carries no options bag → `GetDefaultForTruthyWithoutOptionsBag()` = `{GCType::kMinor, …}`, and `InvokeGC` on `kMinor` (lines 202-204) → `heap->CollectGarbage(NEW_SPACE, …)`: young-generation Scavenger only — the silent footgun that leaves old-generation objects intact.
+- `gc-extension.cc:143-163` — the `gc({type, execution, flavor, filename})` options bag: `type` `minor` / `major` / `major-snapshot`, `execution` `sync` / `async`, `flavor` `regular` / `last-resort` (`CollectAllAvailableGarbage`, lines 213-216) — the long-term-stable structured form if V8 ever flips the default.
 
 ### Empirical research (this investigation)
 
 | Source | Type | Key finding | URL/Location |
 | --- | --- | --- | --- |
-| Step 0a sanity check — `v8.queryObjects(Object)` return shape on host Node 22.9.0 | Primary research | `queryObjects(constructor)` returns a `number` count in both default and `{ format: "count" }` forms. | Surface-forwarded from `.agents/tmp/research/electron-gc-empirical/queryobjects-results.md` (transient artifact, deleted in this PR per surface-forward-then-delete discipline) |
-| Step 0b spike — Electron BrowserWindow prototype-chain match | Primary research | On Electron 41.6.1 / Node 24.15.0 / V8 14.6.202.34-electron.0: `countWithWindow: 2`, `countAfterClose: 2`. The wrapper does NOT drop to zero after `window.close()` + `window = null` + two bare `gc()` calls, confirming `self_ref_` keeps the wrapper alive across the JS `closed` event. | `.agents/tmp/research/electron-gc-empirical/spike.cjs` (deleted in this PR) |
-| Step 0c — `--expose-gc` passthrough + `globalThis.gc()` semantics | Primary research | Bare `gc()` returns `undefined` after a major+sync+precise collection. `gc({ type: "major", execution: "sync" })` is the structured equivalent. `gc(true)` is the MINOR Scavenger-only form (rejected). | Surface-forwarded from `.agents/tmp/research/electron-gc-empirical/queryobjects-results.md` |
+| Step 0a sanity check — `v8.queryObjects(Object)` return shape on host Node 22.9.0 | Primary research | `queryObjects(constructor)` returns a `number` count in both the default and the `{ format: "count" }` forms. Reproduce with `node -e 'const v8 = require("node:v8"); console.log(typeof v8.queryObjects(Object), typeof v8.queryObjects(Object, { format: "count" }))'`, which prints `number number`. | Node.js v22 V8 docs, `v8.queryObjects(ctor[, options])` — `format: 'count'` is documented and the API was added in v22.0.0: <https://nodejs.org/docs/latest-v22.x/api/v8.html> |
+| Step 0b spike — Electron BrowserWindow prototype-chain match | Primary research | The probe is the script inlined verbatim below this table, run as `apps/desktop/node_modules/.bin/electron --js-flags=--expose-gc window-retention-probe.cjs`. The unreferenced-open and post-close readings are taken after event dispatch has unwound (two macrotasks) and two bare `gc()` calls, beside a plain-object negative control; the baseline and referenced-open readings are sampled directly (after one `gc()` and right after construction respectively), on Electron 41.6.1 / Node 24.15.0 / V8 14.6.202.34-electron.0 on 2026-09-02. Baseline `0`. One open, referenced window: `2` (the instance plus one additional fixed match a count-only sample cannot identify, present from the first construction onward; a second window reads `3`, so the delta from baseline is the discriminating quantity). Open with the only JS reference nulled, after full GC: `2`, control `1 → 0` — the load-bearing reading: an open window's wrapper is not collected without a user-side reference. Closed, dispatch unwound, after full GC: `1` (the instance released; the fixed match remains), holding at +250 ms and +1250 ms. Two windows closed one at a time through a helper whose frame returns before each collection released both (`3 → 2 → 1`), and a third window opened and closed afterwards released normally. An earlier simultaneous-close reading that left one match through +5 s was taken from a `for … of` loop inside a suspended async frame, which retains the final iteration binding (the loop-frame control inlined below reproduces it over plain objects: one object stays visible to `queryObjects` through five seconds from the suspended frame and none from a helper whose frame returns), so it is withdrawn from the record rather than reported as Electron behavior. | Electron `--js-flags` command-line switch: <https://www.electronjs.org/docs/latest/api/command-line-switches>; Node.js v22 `v8.queryObjects`: <https://nodejs.org/docs/latest-v22.x/api/v8.html> |
+| Step 0c — `--expose-gc` passthrough + `globalThis.gc()` semantics | Primary research | The same inlined probe prints `typeof gc: function` and `gc() returned: undefined` on Electron 41.6.1, which establishes exactly one thing — the flag reaches the main process and a bare `gc()` is callable there. Which collection ran is not observable from that return value (it is `undefined` for every mode); the major + synchronous + precise reading, the `gc({ type: "major", execution: "sync" })` structured equivalent, and the rejection of `gc(true)` as the MINOR Scavenger-only form rest on the V8 source lines cited under §Primary sources above. | Electron `--js-flags` command-line switch: <https://www.electronjs.org/docs/latest/api/command-line-switches>; V8 `gc-extension.cc` at tag `14.6.202.34`: <https://chromium.googlesource.com/v8/v8/+/refs/tags/14.6.202.34/src/extensions/gc-extension.cc> |
 | Codex PR #70 P1 verbatim | Primary research | Codex's original mechanism claim retrieved from `gh api repos/SawmonAbo/ai-sidekicks/pulls/70/comments` 2026-05-18. The empirical investigation in this ADR §Antithesis falsifies the named mechanism for Electron 41.6.1. | GitHub PR #70 review comments |
+
+The Step 0b / 0c probe, verbatim — save it anywhere as `window-retention-probe.cjs` and run it from the desktop package's Electron binary with `--js-flags=--expose-gc`; its 2026-09-02 output lines are recorded as trailing comments:
+
+```js
+const { app, BrowserWindow } = require("electron");
+const v8 = require("node:v8");
+const { setImmediate: nextMacrotask, setTimeout: sleep } = require("node:timers/promises");
+const count = (constructor) => v8.queryObjects(constructor, { format: "count" });
+const settleAndCollect = async () => {
+  await nextMacrotask(); // let any in-flight event dispatch and its native frames unwind
+  await nextMacrotask();
+  globalThis.gc();
+  globalThis.gc();
+};
+class ControlSubject {}
+app.on("window-all-closed", () => {}); // keep the process alive past the last close so the late stages can run
+app.whenReady().then(async () => {
+  console.log("typeof gc:", typeof globalThis.gc, "| gc() returned:", String(globalThis.gc())); // typeof gc: function | gc() returned: undefined
+  console.log("baseline (no window):", count(BrowserWindow)); // baseline (no window): 0
+  let control = new ControlSubject();
+  let browserWindow = new BrowserWindow({ show: false });
+  console.log("open, referenced:", count(BrowserWindow), "| control:", count(ControlSubject)); // open, referenced: 2 | control: 1
+  const closed = new Promise((resolve) => browserWindow.once("closed", resolve));
+  browserWindow = null;
+  control = null;
+  await settleAndCollect();
+  console.log(
+    "open, unreferenced, after gc:",
+    count(BrowserWindow),
+    "| control:",
+    count(ControlSubject),
+  ); // open, unreferenced, after gc: 2 | control: 0
+  BrowserWindow.getAllWindows()[0].close();
+  await closed;
+  await settleAndCollect();
+  console.log("closed, unwound, after gc:", count(BrowserWindow)); // closed, unwound, after gc: 1
+  await sleep(250);
+  await settleAndCollect();
+  console.log("closed +250 ms, after gc:", count(BrowserWindow)); // closed +250 ms, after gc: 1
+  await sleep(1000);
+  await settleAndCollect();
+  console.log("closed +1250 ms, after gc:", count(BrowserWindow)); // closed +1250 ms, after gc: 1
+  app.exit(0);
+});
+```
+
+The `3` reading and the sequential-close observation in the Step 0b row come from the following script, run the same way on the same date; output lines are again recorded as trailing comments. Each close goes through a helper whose frame returns before the next collection, so no loop binding can root a window across the samples:
+
+```js
+const { app, BrowserWindow } = require("electron");
+const v8 = require("node:v8");
+const { setImmediate: nextMacrotask, setTimeout: sleep } = require("node:timers/promises");
+const count = () => {
+  globalThis.gc();
+  globalThis.gc();
+  return v8.queryObjects(BrowserWindow, { format: "count" });
+};
+const closeAndSettle = async (browserWindow) => {
+  const closed = new Promise((resolve) => browserWindow.once("closed", resolve));
+  browserWindow.close();
+  await closed;
+  await sleep(500);
+  await nextMacrotask();
+};
+app.on("window-all-closed", () => {});
+app.whenReady().then(async () => {
+  console.log("baseline:", count()); // baseline: 0
+  new BrowserWindow({ show: false });
+  new BrowserWindow({ show: false });
+  await nextMacrotask();
+  await nextMacrotask();
+  console.log("two open, unreferenced:", count()); // two open, unreferenced: 3
+  await closeAndSettle(BrowserWindow.getAllWindows()[0]);
+  console.log("first closed +500 ms:", count()); // first closed +500 ms: 2
+  await closeAndSettle(BrowserWindow.getAllWindows()[0]);
+  console.log("second closed +500 ms:", count()); // second closed +500 ms: 1
+  await sleep(2000);
+  await nextMacrotask();
+  console.log("second closed +2500 ms:", count()); // second closed +2500 ms: 1
+  new BrowserWindow({ show: false });
+  await nextMacrotask();
+  await nextMacrotask();
+  console.log("third opened (unreferenced):", count()); // third opened (unreferenced): 2
+  await closeAndSettle(BrowserWindow.getAllWindows()[0]);
+  console.log("third closed +500 ms:", count()); // third closed +500 ms: 1
+  app.exit(0);
+});
+```
+
+The loop-frame control behind that withdrawal, run 2026-09-02 as `ELECTRON_RUN_AS_NODE=1 apps/desktop/node_modules/.bin/electron --expose-gc loop-frame-control.cjs` (Electron 41.6.1's Node 24.15.0) and as `node --expose-gc loop-frame-control.cjs` (host Node 24.18.0), with identical output on both:
+
+```js
+const v8 = require("node:v8");
+const { setImmediate: nextMacrotask, setTimeout: sleep } = require("node:timers/promises");
+class Subject {}
+const count = () => {
+  globalThis.gc();
+  globalThis.gc();
+  return v8.queryObjects(Subject, { format: "count" });
+};
+async function loopInSuspendedFrame() {
+  const subjects = [new Subject(), new Subject()];
+  for (const subject of subjects) subject.touched = true; // the loop binding lives in THIS frame
+  subjects.length = 0;
+  await nextMacrotask();
+  await nextMacrotask();
+  console.log("loop frame, +0 ms:", count()); // loop frame, +0 ms: 1
+  await sleep(5000);
+  console.log("loop frame, +5000 ms:", count()); // loop frame, +5000 ms: 1
+}
+async function loopInReturnedHelper() {
+  const subjects = [new Subject(), new Subject()];
+  const touchAll = (list) => {
+    for (const subject of list) subject.touched = true; // this frame returns before the samples
+  };
+  touchAll(subjects);
+  subjects.length = 0;
+  await nextMacrotask();
+  await nextMacrotask();
+  console.log("helper frame, +0 ms:", count()); // helper frame, +0 ms: 0
+  await sleep(5000);
+  console.log("helper frame, +5000 ms:", count()); // helper frame, +5000 ms: 0
+}
+(async () => {
+  await loopInSuspendedFrame();
+  await loopInReturnedHelper();
+})();
+```
 
 ### Related ADRs
 
@@ -186,7 +320,7 @@ The Step 0b spike + `queryObjects` empirical baseline ran on macOS (darwin 25.3.
 
 ### Citation scope note
 
-The Electron + V8 source line numbers above (`electron_api_base_window.h:271`, `electron_api_base_window.cc:155`, `electron_api_base_window.cc:130`, `gc-extension.cc:336-340`, etc.) were extracted via WebFetch against the upstream repositories. The fetches could not deterministically confirm the v41.6.1 git tag from the served file contents (the responses carry only a generic Chromium-style copyright header), so the line numbers are functionally correct for the source landmarks they name (field declarations, method bodies) but may diverge by a few lines from a strict `v41.6.1`-tagged checkout. The Step 0b spike — run against `apps/desktop/node_modules/.bin/electron` at our pinned Electron 41.6.1 — provides cross-confirmation that the BEHAVIOR these citations describe (the `self_ref_` strong-anchor; the bare-`gc()` semantics) is active in the version we actually ship against, which is the load-bearing claim. Field and method names cited here (`self_ref_`, `InitWith`, `OnWindowClosed`, `RemoveWindow`, `PreciseCollectAllGarbage`) are stable across the active Electron release line.
+Every Electron and V8 line number above is tag-exact as of 2026-09-02: the Electron files were read at the `v41.6.1` tag through the GitHub contents API and `gc-extension.cc` at V8 tag `14.6.202.34` (the upstream base of `14.6.202.34-electron.0`, which Electron's ten V8 patches at that tag leave untouched). The earlier WebFetch-era caveat that the tag could not be confirmed is retired with those re-reads. The Step 0b probe — run against `apps/desktop/node_modules/.bin/electron` at the pinned Electron 41.6.1 — cross-confirms that the BEHAVIOR these citations describe (the `self_ref_` strong anchor while a window is open; the bare-`gc()` semantics) is active in the version we ship against, which is the load-bearing claim; the source lines, not the probe's return values, carry the mechanism claims. Field and method names cited here (`self_ref_`, `InitWith`, `OnWindowClosed`, `RemoveWindow`, `PreciseCollectAllGarbage`) are stable across the active Electron release line, so a later tag moves the numbers, not the landmarks.
 
 ## Decision Log
 
@@ -195,3 +329,4 @@ The Electron + V8 source line numbers above (`electron_api_base_window.h:271`, `
 | 2026-05-17 | Triggered | Codex PR #72 VERIFICATION observed that no test demonstrably fails when `let mainWindow` is removed. User affirmed production-hardened priority — empirically investigate rather than defer. |
 | 2026-05-18 | Proposed | Empirical investigation of Electron 41.6.1 + V8 14.6.202.34-electron.0 surfaced `BaseWindow::self_ref_` as the load-bearing anchor; Codex's PR #70 P1 mechanism claim falsified. |
 | 2026-05-18 | Accepted | Spec-023 AC amended (commit 76714fa); regression test + probe enhancement shipped (commit 4ddab2a); user-side `let mainWindow` retained as defensive consistency against asymmetric risk of future Electron drift. |
+| 2026-09-02 | Amended (§Antithesis evidence, §References) | Probe re-measured after event dispatch unwinds, with a plain-object negative control and the script inlined, the lifecycle guard tightened to a stable count plus a per-window close delta (the fixed non-instance match is unidentifiable from counts alone), and the loop-frame control inlined: the retained-while-open reading stands (the load-bearing claim); the 2026-05-18 `countAfterClose: 2` reading is withdrawn as a pre-destruction measurement — `OnWindowClosed` emits `closed` before the destroy task it posts runs the destructor's `self_ref_.Reset()`, so the wrapper was still rooted by `self_ref_` when it was sampled, and a closed window's wrapper is released once that task runs. Electron cites re-derived at the exact `v41.6.1` tag and the `gc()` mode semantics at V8 tag `14.6.202.34`; gitignored provenance paths retired. Status unchanged. |

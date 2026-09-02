@@ -33,6 +33,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { type ConsoleClock } from "../core/index.js";
 import { LiveAnnouncer, type Announce } from "./live-announcer.js";
 
 const LiveAnnouncerContext = createContext<LiveAnnouncer | undefined>(undefined);
@@ -49,6 +50,21 @@ export interface LiveAnnouncerProviderProps {
    * for an engine it did not build.
    */
   readonly announcer?: LiveAnnouncer;
+  /**
+   * The clock the announcer's hold deadline runs on.
+   *
+   * `Spec-023 §Console Design (Meridian)` §The fixture bridge: "the fixture clock
+   * is the only clock the renderer reads in fixture mode". The announcer arms a
+   * timeout, so an announcer left on the wall clock is a subsystem reaching past
+   * the frozen one — a refusal raised in a scenario would clear on how fast the
+   * runner happened to be rather than on the beat that advanced time, which makes
+   * an accessibility assertion and a screenshot of a standing banner both
+   * unrepeatable. The frame reads `useConsoleClock` and hands the answer down;
+   * this family sits below the bridge in the DAG and cannot ask for itself.
+   *
+   * Ignored when `announcer` is supplied — that announcer arrived with its own.
+   */
+  readonly clock?: ConsoleClock;
 }
 
 /**
@@ -62,7 +78,12 @@ export interface LiveAnnouncerProviderProps {
  * pass finds an announcer its own teardown already disposed.
  */
 export function LiveAnnouncerProvider(props: LiveAnnouncerProviderProps): React.JSX.Element {
-  const [ownedAnnouncer, setOwnedAnnouncer] = useState<LiveAnnouncer>(() => new LiveAnnouncer());
+  // Pinned at mount for the reason the announcer itself is state: the window runs
+  // on one clock for its life, and the re-mint arm below has to build the second
+  // announcer on the same one the first was built on. A caller reading the clock
+  // in its own render body would otherwise hand a new identity down every pass.
+  const [clock] = useState<ConsoleClock | undefined>(() => props.clock);
+  const [ownedAnnouncer, setOwnedAnnouncer] = useState<LiveAnnouncer>(() => mintAnnouncer(clock));
   const suppliedAnnouncer = props.announcer;
   const announcer = suppliedAnnouncer ?? ownedAnnouncer;
 
@@ -71,13 +92,13 @@ export function LiveAnnouncerProvider(props: LiveAnnouncerProviderProps): React.
       return undefined;
     }
     if (ownedAnnouncer.isDisposed) {
-      setOwnedAnnouncer(new LiveAnnouncer());
+      setOwnedAnnouncer(mintAnnouncer(clock));
       return undefined;
     }
     return () => {
       ownedAnnouncer.dispose();
     };
-  }, [suppliedAnnouncer, ownedAnnouncer]);
+  }, [suppliedAnnouncer, ownedAnnouncer, clock]);
 
   return (
     <LiveAnnouncerContext.Provider value={announcer}>
@@ -85,6 +106,18 @@ export function LiveAnnouncerProvider(props: LiveAnnouncerProviderProps): React.
       {props.children}
     </LiveAnnouncerContext.Provider>
   );
+}
+
+/**
+ * The window's announcer, on the clock it was given.
+ *
+ * The absent arm passes no `clock` member at all rather than an explicit
+ * `undefined`: `LiveAnnouncerOptions` declares the member optional under
+ * `exactOptionalPropertyTypes`, so the two are different types and only one of
+ * them reaches the constructor's own `RealClock` default.
+ */
+function mintAnnouncer(clock: ConsoleClock | undefined): LiveAnnouncer {
+  return new LiveAnnouncer(clock === undefined ? {} : { clock });
 }
 
 /**

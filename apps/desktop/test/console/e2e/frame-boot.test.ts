@@ -80,22 +80,30 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", (
       await consoleWindow.locator(".meridian-frame").waitFor({ state: "visible" });
       await consoleWindow.locator(".meridian-sessions").waitFor({ state: "visible" });
       expect(await consoleWindow.locator(".meridian-frame__absence").count()).toBe(0);
-      expect(await consoleWindow.locator(".meridian-nothing--empty").count()).toBe(0);
 
-      // And the list has rows in it. A fixture build serves the growth port's
-      // session directory read, so the scenario's session is offered here — which
-      // is what this destination could not do in any build before that read had a
-      // producer, when the only session set the renderer could name was the set
-      // this window happened to have opened, and a fresh window had opened none.
-      // Waited for rather than counted immediately: the read is asynchronous, and
-      // a bare count would race it and pass by rendering the absence instead.
+      // And the directory read has a PRODUCER, which is what this destination
+      // could not have in any build before it: the only session set the renderer
+      // could name was the set this window happened to have opened, and a fresh
+      // window had opened none.
+      //
+      // A launched shell plays the first-run scenario — a fresh install with no
+      // sessions on the node — so the answer here is a served-and-empty directory,
+      // and the surface renders the EMPTY kind of nothing: "no sessions yet", a
+      // stated fact with a next action. The claim is that kind SPECIFICALLY, which
+      // is what separates it from the two absences either side of it: a refused
+      // directory renders `not-checked` ("the console never asked", which is what a
+      // build with no producer shows) and a read still in flight renders
+      // `not-loaded`. Waited for rather than counted immediately, because the read
+      // is asynchronous and a bare count would race it into the `not-loaded` arm.
       await consoleWindow
-        .locator(".meridian-choice-list__choice")
-        .first()
+        .locator(".meridian-sessions .meridian-nothing--empty")
         .waitFor({ state: "visible" });
-      expect(await consoleWindow.locator(".meridian-choice-list__choice").count()).toBeGreaterThan(
-        0,
-      );
+      expect(
+        await consoleWindow.locator(".meridian-sessions .meridian-nothing--not-checked").count(),
+      ).toBe(0);
+      expect(
+        await consoleWindow.locator(".meridian-sessions .meridian-nothing--not-loaded").count(),
+      ).toBe(0);
 
       // Reserved, not stubbed, on a destination that genuinely has no owner. This
       // is the half of the pair that makes the other half mean something: without

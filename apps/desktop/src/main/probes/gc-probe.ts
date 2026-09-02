@@ -6,11 +6,18 @@
 // release build references nothing here and Rollup drops the whole module.
 //
 // WHAT IT MEASURES. The probe drives K iterations of GC pressure and samples
-// `v8.queryObjects(BrowserWindow)` after each cycle, then emits one summary line
-// tagged `[SIDEKICKS_GC_PROBE]` that `apps/desktop/test/lifecycle.gc.test.ts`
-// parses. It asserts the observable lifecycle contract: the window stays
-// reachable across the `.then(...)` callback unwind, and `window-all-closed`
-// does not fire mid-loop.
+// `v8.queryObjects(BrowserWindow)` after each cycle, then closes every window,
+// lets the close unwind, collects once more, and takes one post-close sample —
+// and emits one summary line tagged `[SIDEKICKS_GC_PROBE]` that
+// `apps/desktop/test/lifecycle.gc.test.ts` parses. It asserts the observable
+// lifecycle contract: the count is stable across the cycles (the window stays
+// reachable across the `.then(...)` callback unwind), `window-all-closed` does
+// not fire mid-loop, and the count drops by at least one per window once the
+// windows are closed. That last, per-window delta is what tells the
+// user-created instance apart from the fixed non-instance match a count-only
+// sample cannot identify (`ADR-024 §Antithesis — The Strongest Case Against`):
+// a bare "count >= 1" would still pass with the instance gone and that match
+// remaining.
 //
 // Per `ADR-024 §Antithesis — The Strongest Case Against` the load-bearing
 // reachability mechanism is Electron's native-side `BaseWindow::self_ref_`
@@ -22,7 +29,7 @@
 // handle would break a fix-state.
 
 import { BrowserWindow, type App } from "electron";
-import { setTimeout as wait } from "node:timers/promises";
+import { setImmediate as nextMacrotask, setTimeout as wait } from "node:timers/promises";
 import { queryObjects } from "node:v8";
 
 /** The stdout marker `apps/desktop/test/lifecycle.gc.test.ts` parses. */
@@ -89,6 +96,30 @@ export class GcProbe {
 
     const min = counts.length > 0 ? Math.min(...counts) : 0;
     const max = counts.length > 0 ? Math.max(...counts) : 0;
+    const openCount = counts.at(-1) ?? 0;
+    // Read before the close phase: closing the last window is what fires
+    // `window-all-closed`, so the flag is only a mid-loop observation up to here.
+    const allClosedFiredDuringLoop = this.#windowAllClosedFired;
+    const windowsOpened = BrowserWindow.getAllWindows().length;
+
+    // The app-level `window-all-closed` handler schedules `app.quit()`; this
+    // preventer keeps the process alive for the post-close sample, and the
+    // `app.exit(0)` below bypasses `before-quit` entirely.
+    electronApp.on("before-quit", (event) => {
+      event.preventDefault();
+    });
+    await closeEveryWindow();
+    // Two macrotasks so the `closed` dispatch and its native frames unwind, then
+    // a precise collection — the settling procedure ADR-024's Step 0b probe uses
+    // for its own post-close reading.
+    await nextMacrotask();
+    await nextMacrotask();
+    if (globalGcAvailable) {
+      globalThis.gc?.();
+      globalThis.gc?.();
+    }
+    await wait(PROBE_SETTLE_MS);
+    const closedCount = queryObjects(BrowserWindow, { format: "count" });
 
     console.log(
       `${GC_PROBE_TAG} ${JSON.stringify({
@@ -99,11 +130,37 @@ export class GcProbe {
         counts,
         min,
         max,
-        allClosedFired: this.#windowAllClosedFired,
+        windowsOpened,
+        openCount,
+        closedCount,
+        allClosedFired: allClosedFiredDuringLoop,
       })}`,
     );
     electronApp.exit(0);
   }
+}
+
+/**
+ * Closes every open window and resolves once each has emitted `closed`.
+ *
+ * A helper rather than a loop in `run()` on purpose: a `for … of` over the
+ * windows inside `run()`'s suspended async frame would keep the final iteration
+ * binding alive across the post-close sample and root the very wrapper the
+ * sample is meant to see released (the loop-frame control in
+ * `ADR-024 §References`). Here the `map` callback's frame returns before the
+ * caller awaits, and the resolved promises hold no window.
+ */
+function closeEveryWindow(): Promise<void> {
+  const closing = BrowserWindow.getAllWindows().map((browserWindow) => {
+    const closed = new Promise<void>((resolve) => {
+      browserWindow.once("closed", () => {
+        resolve();
+      });
+    });
+    browserWindow.close();
+    return closed;
+  });
+  return Promise.all(closing).then(() => undefined);
 }
 
 /**

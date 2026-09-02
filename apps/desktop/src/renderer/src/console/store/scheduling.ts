@@ -71,6 +71,7 @@ export class RefreshScheduler {
   readonly #onError: ((error: unknown) => void) | undefined;
 
   #pendingReasons: RefreshReason[] = [];
+  /** When the current window's FIRST request arrived. Written only by `request`. */
   #firstRequestAt: number | undefined;
   #armedHandle: ScheduledHandle | undefined;
   #inFlight = false;
@@ -111,6 +112,14 @@ export class RefreshScheduler {
       return;
     }
     this.#pendingReasons.push(reason);
+    // Stamped HERE, ahead of the in-flight branch below, rather than inside
+    // `#arm()`. The absolute deadline is measured from the first request of a
+    // window, and a request made while a read is outstanding OPENS one: it is
+    // already waiting, it just has no timer yet. Stamping only where a timer is
+    // armed dated the deadline from the in-flight read's COMPLETION, so a repair
+    // queued behind a read that itself outlasted `maxWaitMs` was made to wait a
+    // further debounce interval past the deadline it was already overdue against.
+    this.#firstRequestAt ??= this.#clock.now();
     if (this.#inFlight) {
       this.#requestedDuringFlight = true;
       return;
@@ -146,9 +155,13 @@ export class RefreshScheduler {
       return;
     }
     const now = this.#clock.now();
-    this.#firstRequestAt ??= now;
     const debounceDeadline = now + this.#debounceMs;
-    const absoluteDeadline = this.#firstRequestAt + this.#maxWaitMs;
+    // `request` is the single writer of the stamp and every path into `#arm()`
+    // comes from one, so the fallback is a total-function guard rather than a
+    // second place a window can start. An overdue deadline yields a non-positive
+    // delay, which `Math.max` below floors at zero — the queued repair runs at the
+    // in-flight read's completion instead of a debounce interval after it.
+    const absoluteDeadline = (this.#firstRequestAt ?? now) + this.#maxWaitMs;
     const fireAt = Math.min(debounceDeadline, absoluteDeadline);
 
     if (this.#armedHandle !== undefined) {

@@ -7,19 +7,11 @@
 // render is created again on any discarded render pass, and every event applied to
 // the discarded one is silently gone.
 //
-// So the lifecycle lives here, in one encapsulated class, and it owns three things
-// per session rather than one:
-//
-//   • the `SessionStore` itself;
-//   • the `ApplyQueue` in front of its apply chokepoint, so a burst of wire events
-//     is one transition and one render instead of N;
-//   • the `RefreshScheduler` behind its re-pull, so every read is coalesced with an
-//     absolute deadline and two reads never overlap.
-//
-// The three are created together and disposed together on purpose. A queue that
-// outlived its store would drain into a dead object; a scheduler that outlived its
-// store would arm a timer for a pane that is gone. Binding them to one entry makes
-// both unrepresentable rather than merely discouraged.
+// So the lifecycle lives here, in one encapsulated class. What ONE open session is
+// made of — its store, its apply queue, its refresh scheduler, and the repair loop
+// that binds them — lives beside it in `open-session-entry.ts`; this module owns
+// only the set: which sessions are open, who is told when that set changes, and
+// which entry a delivery is routed to.
 //
 // TWO OPENS OF ONE SESSION ARE ONE STORE. `open` is idempotent by session id — a
 // second call returns the store the first made, because two stores for one session
@@ -32,50 +24,17 @@
 import {
   ConsoleRefusalError,
   Emitter,
-  RealClock,
   refuse,
-  type ConsoleClock,
   type ConsoleRefusal,
   type Unsubscribe,
 } from "../core/index.js";
-import type { ConsoleSessionEvent, EntityProjectorRegistry } from "./entities.js";
-import { ApplyQueue, RefreshScheduler, type RefreshReason } from "./scheduling.js";
-import { SessionStore, type SessionSnapshot } from "./session-store.js";
+import type { ConsoleSessionEvent } from "./entities.js";
+import { OpenSessionEntry, type OpenSessionEntryOptions } from "./open-session-entry.js";
+import type { RefreshReason } from "./scheduling.js";
+import type { SessionStore } from "./session-store.js";
 
 /** The origin every refusal this module raises names. */
 export const SESSION_REGISTRY_ORIGIN = "session-store-registry";
-
-/**
- * The read a refresh performs.
- *
- * Returns the snapshot to establish, or `undefined` for "nothing was read" — the
- * honest answer while a session's wire is unregistered, and deliberately not an
- * empty snapshot, which would tell the store the session is genuinely empty and
- * clear its degraded flag on a read that never happened.
- */
-export type SessionSnapshotReader = (
-  sessionId: string,
-  reasons: readonly RefreshReason[],
-) => Promise<SessionSnapshot | undefined>;
-
-/**
- * What a registry does about reads: perform one, or carry the refusal that says
- * why it cannot.
- *
- * A refusal rather than a reason-less sentinel, and the two are not the same
- * mechanism wearing different names. Both answer the question a function-shaped
- * placeholder cannot be asked — can a store this registry opens ever be
- * initialised? — and a stream bound to one that cannot is a stream buffered
- * forever and projected never. The refusal answers it and also names the operation
- * that would have served the read and the document that owes the wire, which is
- * what a surface renders as the `not-checked` kind of nothing. One mechanism, and
- * the strictly more informative one.
- *
- * Still deliberately distinct from a reader that resolves `undefined`: that is a
- * read that HAPPENED and found nothing — transient, and the next refresh may well
- * succeed.
- */
-export type SessionSnapshotRead = SessionSnapshotReader | ConsoleRefusal;
 
 /** What happened to the set of open sessions. */
 export interface SessionRegistryChange {
@@ -83,83 +42,15 @@ export interface SessionRegistryChange {
   readonly change: "opened" | "closed";
 }
 
-export interface SessionStoreRegistryOptions {
-  /**
-   * The read every session's refresh scheduler performs. REQUIRED, and required
-   * on purpose: a refresh path with no read is a timer that fires into nothing,
-   * so a caller with no wire yet passes the refusal it would have rendered and
-   * says so at the call site rather than getting that behaviour by default.
-   */
-  readonly read: SessionSnapshotRead;
-  /** Defaults to `RealClock`. Every queue and scheduler this registry makes shares it. */
-  readonly clock?: ConsoleClock;
-  /** Event-kind projectors handed to each store it opens. */
-  readonly projectors?: EntityProjectorRegistry;
-  /** Timeline rows each store retains. */
-  readonly timelineCap?: number;
-  /** Apply-queue coalescing window. `0` means one drain per paint. */
-  readonly applyCoalesceMs?: number;
-  readonly refreshDebounceMs?: number;
-  readonly refreshMaxWaitMs?: number;
-}
-
-/** One open session: its store and the two schedulers bound to it. */
-class OpenSessionEntry {
-  public readonly store: SessionStore;
-  public readonly applyQueue: ApplyQueue;
-  public readonly refreshScheduler: RefreshScheduler;
-
-  public constructor(sessionId: string, options: SessionStoreRegistryOptions) {
-    const clock = options.clock ?? new RealClock();
-    this.store = new SessionStore({
-      sessionId,
-      ...(options.projectors === undefined ? {} : { projectors: options.projectors }),
-      ...(options.timelineCap === undefined ? {} : { timelineCap: options.timelineCap }),
-    });
-    this.applyQueue = new ApplyQueue({
-      clock,
-      // The one place a batch of wire events reaches the store. Nothing else in
-      // the console calls `applyBatch`, which is what makes the chokepoint a
-      // structural property rather than a convention.
-      drain: (events) => {
-        this.store.applyBatch(events);
-      },
-      ...(options.applyCoalesceMs === undefined ? {} : { coalesceMs: options.applyCoalesceMs }),
-    });
-    this.refreshScheduler = new RefreshScheduler({
-      clock,
-      perform: async (reasons) => {
-        if (typeof options.read !== "function") {
-          // A refusal, not a reader. Nothing to perform, and nothing to report
-          // either: the refusal is a STANDING fact the caller already renders,
-          // not an error this read discovered, so `onError` stays for reads that
-          // were attempted and failed.
-          return;
-        }
-        const snapshot = await options.read(sessionId, reasons);
-        if (snapshot !== undefined) {
-          // A completed re-pull is the ONE thing that clears the sticky degraded
-          // flag — `initialise` does that — which is why the read lands here and
-          // not on a caller that might forget.
-          this.store.initialise(snapshot);
-        }
-      },
-      // A failed read is a real degradation with a named cause, not an unhandled
-      // rejection: the surface renders "could not re-read" instead of stale rows
-      // that look current.
-      onError: () => {
-        this.store.markDegraded("read-failed");
-      },
-      ...(options.refreshDebounceMs === undefined ? {} : { debounceMs: options.refreshDebounceMs }),
-      ...(options.refreshMaxWaitMs === undefined ? {} : { maxWaitMs: options.refreshMaxWaitMs }),
-    });
-  }
-
-  public dispose(): void {
-    this.applyQueue.dispose();
-    this.refreshScheduler.dispose();
-  }
-}
+/**
+ * Construction inputs.
+ *
+ * An alias rather than a second declaration: the registry hands its options
+ * straight through to every entry it opens, so the two shapes are one shape and
+ * this name exists to keep the public one a caller reaches for. Declaring the
+ * fields again here would be a copy that can drift.
+ */
+export type SessionStoreRegistryOptions = OpenSessionEntryOptions;
 
 export class SessionStoreRegistry {
   readonly #options: SessionStoreRegistryOptions;
