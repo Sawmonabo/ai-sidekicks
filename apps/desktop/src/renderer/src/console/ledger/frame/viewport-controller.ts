@@ -323,11 +323,9 @@ export class LedgerViewportController {
   }
 
   /**
-   * The row the prune may not walk past, or `undefined` while following.
-   *
-   * While following there is no reading position to protect — the tail is the
-   * position, and the frame glides back to it — so the window is free to take
-   * every row the cap allows.
+   * The row the prune may not walk past, or `undefined` while following — where
+   * the tail IS the position and the frame glides back to it, so the window is
+   * free to take every row the cap allows.
    */
   #readingFloorRowKey(): string | undefined {
     const reading = this.anchor.state;
@@ -345,11 +343,13 @@ export class LedgerViewportController {
    * fall back to the anchor glide when there was nothing or nowhere to compensate.
    */
   #compensateForPrunedHeight(prunedHeightPx: number): boolean {
-    const scrollTop = this.scroll.geometry?.scrollTop;
-    if (prunedHeightPx <= 0 || scrollTop === undefined) {
+    const currentScrollTopPx = this.scroll.geometry?.scrollTop;
+    if (prunedHeightPx <= 0 || currentScrollTopPx === undefined) {
       return false;
     }
-    return this.scroll.glideTo("prune-compensation", scrollTop - prunedHeightPx) !== undefined;
+    return (
+      this.scroll.glideTo("prune-compensation", currentScrollTopPx - prunedHeightPx) !== undefined
+    );
   }
 
   #buildSnapshot(): LedgerViewportSnapshot {
