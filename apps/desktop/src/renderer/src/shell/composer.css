@@ -88,13 +88,28 @@
 }
 
 /* One primary action per surface (rule 1), so exactly one control carries the
-   accent and every other control on the composer is quiet. */
+   accent and every other control on the composer is quiet.
+
+   The accent is carried as the BOUNDARY AND THE INK, not as a fill, and that is
+   a contrast fact rather than a taste one: `accent-text` is the accent-tinted
+   colour for text on a SURFACE, so painting it on the `accent` fill puts two
+   near-isoluminant colours together (L 0.475 on L 0.575 light, L 0.845 on
+   L 0.73 dark) and fails WCAG 1.4.3 in both schemes — which the accessibility
+   tier reports on this exact selector. No token in the palette is an on-accent
+   ink: the lightest surface the console owns reaches only 4.23:1 on the light
+   accent fill, so no substitution inside the fill can clear 4.5:1 either. The
+   pair below is the one the palette DOES design for an accent affordance, the
+   same pair `.meridian-chip--accent` uses — 6.38:1 light and 11.49:1 dark for
+   the label, with the accent boundary at 4.17:1 and 7.77:1 against the send
+   box's own surface, clearing the 3:1 non-text floor rule 3 puts on a control
+   boundary. The control still reads as the one accented affordance in the
+   composer, because it is the only one. */
 .meridian-composer__primary {
   padding: var(--meridian-space-1) var(--meridian-space-3);
   color: var(--meridian-accent-text);
   font: inherit;
-  background: var(--meridian-accent);
-  border: 1px solid transparent;
+  background: var(--meridian-surface);
+  border: 1px solid var(--meridian-accent);
   border-radius: var(--meridian-radius-sm);
   cursor: pointer;
 }
