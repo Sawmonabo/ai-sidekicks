@@ -11,6 +11,12 @@
 // second turn — and Sent is the wire's own row appearing in the ledger rather than
 // a row this hook draws, which is why there is no `sent` member here to render.
 //
+// THE SINGLE-FLIGHT LATCH IS A REF AND NOT THE STATUS. `status` is what the surface
+// RENDERS, and a handler reading it sees the value from the render that produced
+// the handler — so two Enter presses inside one frame both read `idle` and both
+// dispatch, queueing two turns from one intent. The ref is set before the await and
+// cleared in `finally`, which makes the second press a no-op in the same tick.
+//
 // THE UNSENT BODY LIVES IN THE SUPPLIED `DraftStore` AND NOWHERE ELSE. The
 // workspace hands the composer seat a window-lifetime store, keyed per address; a
 // `useState` string here would be a second home for the same text, and the two
@@ -88,6 +94,10 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
   // in state would re-render the whole bar on a keystroke that changed nothing a
   // person can see.
   const historyRef = useRef<DirectiveHistory>(new DirectiveHistory());
+  // Set before the await and cleared in `finally`, so every settlement — sent,
+  // intercepted, refused, or a rejection the router turned into a refusal — releases
+  // it on exactly one path rather than on the arms an author remembered.
+  const isDispatchInFlight = useRef(false);
   const [status, setStatus] = useState<SendControllerStatus>("idle");
   const [refusal, setRefusal] = useState<ConsoleRefusal | undefined>(undefined);
   const [resendableText, setResendableText] = useState<string | undefined>(undefined);
@@ -122,6 +132,13 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
 
   const dispatch = useCallback(
     async (body: string) => {
+      if (isDispatchInFlight.current) {
+        // Silent rather than refused: the person pressed Send for the message that
+        // is already going, and a refusal card would report a failure where the
+        // only thing that happened is that they were early.
+        return;
+      }
+      isDispatchInFlight.current = true;
       setStatus("sending");
       try {
         const outcome = await router.send(body, target);
@@ -143,6 +160,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
             return;
         }
       } finally {
+        isDispatchInFlight.current = false;
         setStatus("idle");
       }
     },

@@ -11,6 +11,13 @@
 // is a control offered against nothing. Neither derives eligibility: Stop is offered
 // on the ADDRESS and refuses through the daemon, which is the fail-closed direction.
 //
+// THE DISABLED BUTTON COVERS THE POINTER PATH AND ONLY THAT PATH. A read-only
+// textarea still receives key events, so an Enter repeat or a second press before
+// settlement reaches this handler with nothing in the DOM to stop it. The keyboard
+// gate below is the render-state half of the guard; the half that holds inside one
+// frame is the controller's synchronous latch, because this handler reads the status
+// from the render that produced it.
+//
 // The component renders and does nothing else — the state, the router, and the
 // history walk are `send-controller.ts`'s, so what is left here is markup, keyboard
 // wiring, and the two absences this surface can honestly show.
@@ -49,7 +56,13 @@ export function ComposerSendBar(props: ComposerSeatProps): React.JSX.Element {
         textLength: line.value.length,
       };
       if (event.key === "Enter" && !event.shiftKey) {
+        // Always swallowed, sending or not: a read-only textarea still receives key
+        // events, so letting the default through while a send is in flight would put
+        // a newline into a line the person believes is locked.
         event.preventDefault();
+        if (isSending) {
+          return;
+        }
         void controller.send();
         return;
       }
@@ -64,7 +77,7 @@ export function ComposerSendBar(props: ComposerSeatProps): React.JSX.Element {
         event.preventDefault();
       }
     },
-    [controller],
+    [controller, isSending],
   );
 
   const neutralization = readTextNeutralization(
