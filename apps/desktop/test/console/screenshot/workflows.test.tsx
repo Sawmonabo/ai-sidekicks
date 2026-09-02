@@ -1,13 +1,13 @@
-// The screenshot tier: the workflows family's two surfaces, per scheme.
+// The screenshot tier: the workflows family's three surfaces, per scheme.
 //
 // `frame.test.tsx`'s header owns the mechanism this file rides — the three
 // snapshot-update modes, why the references are pinned to `darwin`, and which
 // machine may mint one. `baseline-platform.ts` holds the values that reasoning
 // produces, so nothing about it is restated here.
 //
-// WHAT IS PINNED, AND WHY THESE TWO. The family ships one destination surface and
-// two pane chromes, and the two captured here are different compositions rather than
-// states of one:
+// WHAT IS PINNED, AND WHY THESE THREE. The family ships one destination surface and
+// two pane chromes, and each one captured here is a different composition rather than
+// a state of one:
 //
 //   • the workflows destination, whose whole design claim is that it names the
 //     session it is reading from and then stands three scope groups in the daemon's
@@ -20,8 +20,14 @@
 //     own header says a baseline should pin: two park kinds at once, one with an
 //     armed resume and one waiting on a person, beside the reserved slot shells the
 //     bodies another plan owns will replace.
+//   • the builder pane on a definition, which is its one arm that renders a body. What
+//     an image holds and a DOM assertion does not is the COMPOSITION rule 7 leaves it
+//     in: a header whose primary action is an inline refusal standing exactly where a
+//     working control would, the not-checked absence beneath it, and the two reserved
+//     slot shells under that — three claims about one frame, and whether the refusal
+//     reads as the action's own is a question answered by looking.
 //
-// Two surfaces and two schemes is four references, and every one of them is minted
+// Three surfaces and two schemes is six references, and every one of them is minted
 // on the `macos-15` runner through `.github/workflows/console-screenshot-baselines.yml`.
 // A local run on any other host skips; a local run on a developer Mac is advisory in
 // the small, measured way `frame.test.tsx` records.
@@ -30,6 +36,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { emulateSystemScheme } from "../console-harness.js";
 import {
+  mountWorkflowBuilderPane,
   mountWorkflowParkedRunPane,
   mountWorkflowsDestination,
   type MountedFamilySurface,
@@ -52,6 +59,7 @@ const PINNED_SURFACES: readonly {
 }[] = [
   { referenceName: "workflow-definitions-browser", mount: mountWorkflowsDestination },
   { referenceName: "workflow-parked-run", mount: mountWorkflowParkedRunPane },
+  { referenceName: "workflow-builder-definition", mount: mountWorkflowBuilderPane },
 ];
 
 beforeEach(() => {
