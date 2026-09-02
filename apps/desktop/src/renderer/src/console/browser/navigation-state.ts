@@ -15,8 +15,54 @@
 
 import { useEffect, useState } from "react";
 
+import { isWireErrorEnvelope, normalizeWireRejection } from "../../../../shared/wire-errors.js";
 import type { ConsoleBridge } from "../bridge/index.js";
-import type { ConsoleRefusal } from "../core/index.js";
+import { ConsoleRefusalError, refuse, type ConsoleRefusal } from "../core/index.js";
+
+/** The subsystem name every refusal this module raises itself carries. */
+const NAVIGATION_REFUSAL_ORIGIN = "browser-navigation";
+
+/**
+ * The code a broken subscription refuses under, when the failure carries none.
+ *
+ * Distinct from the pane's `navigation-call-failed`, which is one act that did not
+ * answer: this is the READING going away, and the difference is what a person needs
+ * to know. A retry of a control is a different remedy from a pane that has stopped
+ * being told anything at all.
+ */
+const SUBSCRIPTION_FAILED_CODE = "navigation-subscription-failed";
+
+/**
+ * What a broken navigation subscription renders as.
+ *
+ * The subscription crosses the preload boundary, and a boundary that fails — a
+ * torn-down transport, a preload that never installed, a producer that dies
+ * mid-stream — REJECTS rather than answering with a refusal. Left unhandled that was
+ * an unhandled rejection in the renderer and a pane held forever in the state it has
+ * before any read answers: no reading and no refusal, so every history control stayed
+ * disabled and nothing on screen said why.
+ *
+ * A refusal the bridge itself raised travels through untouched, because it already
+ * names its own origin and code. A typed wire envelope keeps its own code too, since
+ * flattening `browser.pane_not_found` into this module's generic one would throw away
+ * the only actionable half. Everything else becomes this module's code, and every arm
+ * carries the thrown message verbatim in the sentence — `normalizeWireRejection` is
+ * the console's one wire-rejection reader, `total` because a rejection reaching a
+ * renderer is arbitrary `unknown` and a stringify that threw here would replace the
+ * refusal with a crash.
+ */
+function navigationSubscriptionRefusal(failure: unknown): ConsoleRefusal {
+  if (failure instanceof ConsoleRefusalError) {
+    return failure.refusal;
+  }
+  const code = isWireErrorEnvelope(failure) ? failure.code : SUBSCRIPTION_FAILED_CODE;
+  const reported = normalizeWireRejection(failure, { total: true }).message;
+  return refuse(
+    NAVIGATION_REFUSAL_ORIGIN,
+    code,
+    `The page's navigation state is no longer being reported to this window: ${reported}`,
+  );
+}
 
 /** The subscription's own outcome type, and the three shapes read out of it. */
 type NavigationOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["browserSubscribeNavigation"]>>;
@@ -39,6 +85,12 @@ export interface NavigationReading {
  * Both arms are implemented — the refusing arm is what runs today, and the
  * served arm drains the stream and closes it on unmount — so the day the wire lands the
  * pane is not meeting its own subscription for the first time.
+ *
+ * THREE WAYS IT CAN END, and all three are handled here: the port refuses, the call
+ * rejects, or the served iterator throws part-way through. The last two are one
+ * `catch`, because a subscription that broke and a subscription that never opened
+ * leave the pane in the same place — with no reading — and the only honest thing to
+ * put on screen for either is the refusal saying so.
  */
 export function useReportedNavigation(bridge: ConsoleBridge, paneId: string): NavigationReading {
   const [reading, setReading] = useState<NavigationReading>({
@@ -49,35 +101,51 @@ export function useReportedNavigation(bridge: ConsoleBridge, paneId: string): Na
   useEffect(() => {
     let stream: NavigationStream | undefined;
     let cancelled = false;
+    /** Close the acquired stream at most once, from whichever path reaches it first. */
+    const closeStream = (): void => {
+      const acquired = stream;
+      stream = undefined;
+      acquired?.close();
+    };
     void (async () => {
-      const outcome = await bridge.growth.browserSubscribeNavigation({ paneId });
-      if (cancelled) {
-        // Whoever finishes last owns the stream. Cleanup ran while `stream` was
-        // still undefined — there was nothing for it to close — so a stream served
-        // after that point is closed HERE or never: dropping it leaves the bridge
-        // subscription and the producer behind it alive for the life of the
-        // window, once per open/close cycle, and quick cycling is exactly what a
-        // pane deck invites.
-        if (outcome.status === "served") {
-          outcome.value.close();
-        }
-        return;
-      }
-      if (outcome.status === "unavailable") {
-        setReading({ state: undefined, refusal: outcome });
-        return;
-      }
-      stream = outcome.value;
-      for await (const state of stream.events) {
+      try {
+        const outcome = await bridge.growth.browserSubscribeNavigation({ paneId });
         if (cancelled) {
+          // Whoever finishes last owns the stream. Cleanup ran while `stream` was
+          // still undefined — there was nothing for it to close — so a stream served
+          // after that point is closed HERE or never: dropping it leaves the bridge
+          // subscription and the producer behind it alive for the life of the
+          // window, once per open/close cycle, and quick cycling is exactly what a
+          // pane deck invites.
+          if (outcome.status === "served") {
+            outcome.value.close();
+          }
           return;
         }
-        setReading({ state, refusal: undefined });
+        if (outcome.status === "unavailable") {
+          setReading({ state: undefined, refusal: outcome });
+          return;
+        }
+        stream = outcome.value;
+        for await (const state of stream.events) {
+          if (cancelled) {
+            return;
+          }
+          setReading({ state, refusal: undefined });
+        }
+      } catch (failure) {
+        // The stream goes first and unconditionally: a producer that threw part-way
+        // is still a subscription somebody has to end, and a failure after the pane
+        // has gone publishes nothing — there is no surface left to read it.
+        closeStream();
+        if (!cancelled) {
+          setReading({ state: undefined, refusal: navigationSubscriptionRefusal(failure) });
+        }
       }
     })();
     return () => {
       cancelled = true;
-      stream?.close();
+      closeStream();
     };
   }, [bridge, paneId]);
 
