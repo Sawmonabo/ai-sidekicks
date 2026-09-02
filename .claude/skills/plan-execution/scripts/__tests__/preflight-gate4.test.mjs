@@ -3862,7 +3862,15 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // rewritten T-023r-4-3 row names I-023-15 beside the I-023-1 it already
     // carried — three more bold resolved references. No none-arm row is added,
     // removed, or reworded, and the legacy compact-inline channel is untouched.
-    bold: { resolved: 1038, noneArm: 158, parentResolved: 0 },
+    // 1038/158 -> 1041/158 (2026-09-01, the same amendment's Codex round-1
+    // fold): I-023-16 is minted for the WebAuthn ceremony-input trust boundary
+    // and is named on two existing marker lines (T-023r-2-5, which narrows the
+    // bridge surface, and T-023r-4-3, which consumes the validated options),
+    // and the new T-023r-4-7 — the password-derived KEK custody leg on the
+    // no-PRF path — carries a marker line naming I-023-1. Three more bold
+    // resolved references; the none-arm and legacy channels are again
+    // untouched, since every added marker resolves to a declared invariant.
+    bold: { resolved: 1041, noneArm: 158, parentResolved: 0 },
     legacy: { resolved: 64, noneArm: 3, parentResolved: 1 },
   });
 });
