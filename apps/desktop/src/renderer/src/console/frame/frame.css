@@ -25,6 +25,17 @@
   grid-template-columns: minmax(0, 1fr);
 }
 
+/* The shell's `inert` carrier while a modal overlay is open. See `AppFrame.tsx`.
+   `display: contents` for the same reason the boundary's remount carrier uses it:
+   the element exists to hold an attribute, and a box here would sit between the
+   frame's grid and the two children it places, so the rail would lose its 52px
+   track and the column its `minmax(0, 1fr)` one. Inertness is a property of the
+   node tree rather than of layout, so removing the box costs the attribute
+   nothing. */
+.meridian-frame__background {
+  display: contents;
+}
+
 .meridian-frame__column {
   display: flex;
   flex-direction: column;
