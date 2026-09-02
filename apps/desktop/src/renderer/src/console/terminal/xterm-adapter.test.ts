@@ -18,11 +18,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { TERMINAL_DEFAULT_SCROLLBACK_LINES } from "./constants.js";
 import { TerminalRendererPool } from "./renderer-pool.js";
-import {
-  TERMINAL_LINK_SCHEMES,
-  XtermTerminalAdapter,
-  allowedTerminalLinkHref,
-} from "./xterm-adapter.js";
+import { XtermTerminalAdapter } from "./xterm-adapter.js";
 
 const liveAdapters: XtermTerminalAdapter[] = [];
 const liveHosts: HTMLElement[] = [];
@@ -140,6 +136,35 @@ describe("the emulator wrapper", () => {
   it("defaults to the scrollback the budget was measured against", () => {
     const { adapter } = mountedAdapter();
     expect(adapter.scrollbackLines).toBe(TERMINAL_DEFAULT_SCROLLBACK_LINES);
+  });
+});
+
+describe("the renderer mode, as something a surface can follow", () => {
+  it("delivers the current mode on subscribe, before an emulator exists", () => {
+    // Read-then-subscribe is the bug this shape removes: a consumer that copied
+    // the mode and subscribed afterwards would hold a value from before its own
+    // subscription. The mode a fresh adapter reports is the fallback, because
+    // nothing has been selected yet.
+    const adapter = new XtermTerminalAdapter({
+      terminalId: "unattached",
+      pool: new TerminalRendererPool(),
+    });
+    liveAdapters.push(adapter);
+    const observed: string[] = [];
+    adapter.subscribeToRendererMode((mode) => observed.push(mode));
+    expect(observed).toStrictEqual(["dom"]);
+  });
+
+  it("says nothing further on a host that never had a context to lose", () => {
+    // This environment has no WebGL2, so the selection settles on the mode the
+    // instance was constructed with. Announcing that would report a fallback that
+    // never happened — the change the emulator's own context loss makes is
+    // `webgl-context-loss.test.tsx`'s subject.
+    const { adapter } = mountedAdapter({ terminalId: "no-context" });
+    const observed: string[] = [];
+    adapter.subscribeToRendererMode((mode) => observed.push(mode));
+    adapter.dispose();
+    expect(observed).toStrictEqual(["dom"]);
   });
 });
 
@@ -317,30 +342,5 @@ describe("the accessible view of the grid", () => {
     } finally {
       defaultOptionsTerminal.dispose();
     }
-  });
-});
-
-describe("the link scheme guard", () => {
-  it("closes the allow-list at the two schemes a terminal link may open", () => {
-    expect([...TERMINAL_LINK_SCHEMES]).toStrictEqual(["http:", "https:"]);
-  });
-
-  it("passes an ordinary web link through, normalized", () => {
-    expect(allowedTerminalLinkHref("https://example.test/a")).toBe("https://example.test/a");
-    expect(allowedTerminalLinkHref("http://example.test")).toBe("http://example.test/");
-  });
-
-  it("refuses the schemes a program can print to attack the shell that renders it", () => {
-    // A terminal renders whatever a process writes, so the printed text is
-    // attacker-controlled whenever the process is.
-    expect(allowedTerminalLinkHref("javascript:alert(1)")).toBeUndefined();
-    expect(allowedTerminalLinkHref("file:///etc/passwd")).toBeUndefined();
-    expect(allowedTerminalLinkHref("data:text/html,<script>x</script>")).toBeUndefined();
-  });
-
-  it("negative control: an unparseable string is refused rather than passed through", () => {
-    // A guard that only checked for a banned prefix would let this reach an opener.
-    expect(allowedTerminalLinkHref("not a url at all")).toBeUndefined();
-    expect(allowedTerminalLinkHref("")).toBeUndefined();
   });
 });

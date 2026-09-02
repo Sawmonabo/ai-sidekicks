@@ -22,9 +22,8 @@
 //      destroyed the context rather than this code letting go of one.
 //   3. **`allowProposedApi` only for Unicode 11.** Only the `unicode` getter calls
 //      `_checkProposedApi()`; every other API here is stable.
-//   4. **Own link provider with the scheme guard.** A program can print a
-//      `javascript:` link, so `allowNonHttpProtocols` stays false AND the handler
-//      re-checks the scheme against a closed allow-list on the way out.
+//   4. **Own link provider with the scheme guard.** `link-guard.ts` owns the rule;
+//      `allowNonHttpProtocols` stays false beside it.
 //   5. **`disableStdin` plus wire-level gating for watchers.** Watch mode is the
 //      default, so stdin starts disabled and opens only when the lease says this
 //      participant holds the shell — and the keystrokes go to the wire, never into
@@ -50,37 +49,15 @@ import { SerializeAddon } from "@xterm/addon-serialize";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebglAddon } from "@xterm/addon-webgl";
 
+import { Emitter, type Unsubscribe } from "../core/index.js";
 import { TERMINAL_DEFAULT_SCROLLBACK_LINES } from "./constants.js";
+import { allowedTerminalLinkHref } from "./link-guard.js";
 import { TerminalRendererPool, terminalRendererPool } from "./renderer-pool.js";
 
 /** Which renderer an instance ended up with. Rendered, never inferred. */
 export const TERMINAL_RENDERER_MODES = ["webgl", "dom"] as const;
 
 export type TerminalRendererMode = (typeof TERMINAL_RENDERER_MODES)[number];
-
-/** URL schemes a terminal link may be activated with. Closed, and short. */
-export const TERMINAL_LINK_SCHEMES = ["http:", "https:"] as const;
-
-/**
- * The href a terminal link may be opened at, or `undefined` for one that may not.
- *
- * Ours, beside the library's `allowNonHttpProtocols: false`. Two guards because a
- * program controls what it prints: the library setting decides which links reach
- * the handler, and this decides which the handler acts on. Exported as a pure
- * function so the rule can be driven with the strings an attack would use rather
- * than inferred from a mouse event nobody can dispatch.
- */
-export function allowedTerminalLinkHref(text: string): string | undefined {
-  let parsed: URL;
-  try {
-    parsed = new URL(text);
-  } catch {
-    return undefined;
-  }
-  return TERMINAL_LINK_SCHEMES.some((scheme) => scheme === parsed.protocol)
-    ? parsed.href
-    : undefined;
-}
 
 export interface XtermTerminalAdapterOptions {
   /** The shared terminal this adapter is a view of. One per session in V1. */
@@ -120,6 +97,10 @@ export class XtermTerminalAdapter {
   #terminal: Terminal | undefined;
   #webglAddon: WebglAddon | undefined;
   #rendererMode: TerminalRendererMode = "dom";
+  // The mode settles inside `attach` and can move again whenever the host takes
+  // the context away, so a consumer that COPIED it once reported `webgl` over a
+  // terminal that had already fallen back to the DOM renderer.
+  readonly #rendererModeChanges = new Emitter<TerminalRendererMode>("terminal renderer mode");
   #hostElement: HTMLElement | undefined;
   #resizeObserver: ResizeObserver | undefined;
   #isWriteEnabled = false;
@@ -139,6 +120,20 @@ export class XtermTerminalAdapter {
 
   public get rendererMode(): TerminalRendererMode {
     return this.#rendererMode;
+  }
+
+  /**
+   * Be told which renderer this instance is on, now and whenever that changes.
+   *
+   * The current mode is delivered synchronously on subscribe, which is the point
+   * rather than a convenience: a consumer that read `rendererMode` and then
+   * subscribed would hold a value from before its own subscription — the
+   * copied-once bug in a second shape. Unsubscribing is the caller's, and
+   * disposal drops every sink regardless.
+   */
+  public subscribeToRendererMode(sink: (mode: TerminalRendererMode) => void): Unsubscribe {
+    sink(this.#rendererMode);
+    return this.#rendererModeChanges.subscribe(sink);
   }
 
   public get isDisposed(): boolean {
@@ -261,6 +256,11 @@ export class XtermTerminalAdapter {
       return;
     }
     this.#isDisposed = true;
+    // Before anything else: `Emitter` re-raises what a sink threw, so a subscriber
+    // still attached here could abort the teardown between the pool release and
+    // the emulator's disposal — a leak caused by the notification. The mode reset
+    // below therefore reaches an empty sink set by construction.
+    this.#rendererModeChanges.clear();
     this.detach();
     for (const subscription of this.#subscriptions) {
       subscription.dispose();
@@ -268,7 +268,7 @@ export class XtermTerminalAdapter {
     this.#subscriptions.length = 0;
     this.#pool.release(this.#terminalId);
     this.#webglAddon = undefined;
-    this.#rendererMode = "dom";
+    this.#setRendererMode("dom");
     this.#terminal?.dispose();
     this.#terminal = undefined;
     // After the terminal, because `Terminal.dispose()` is what disposes the addons
@@ -301,7 +301,10 @@ export class XtermTerminalAdapter {
         // The library's own gate: a non-HTTP link never reaches `activate`.
         allowNonHttpProtocols: false,
         activate: (_event: MouseEvent, text: string): void => {
-          this.#activateLink(text);
+          const href = allowedTerminalLinkHref(text);
+          if (href !== undefined) {
+            this.#onActivateLink?.(href);
+          }
         },
       },
     };
@@ -348,13 +351,13 @@ export class XtermTerminalAdapter {
       );
       terminal.loadAddon(webglAddon);
       this.#webglAddon = webglAddon;
-      this.#rendererMode = "webgl";
+      this.#setRendererMode("webgl");
     } catch {
       // No WebGL2 on this host: the addon threw before it made one. Reclaimed
       // rather than released, so a later terminal is not counted out by a context
       // that was never created.
       this.#pool.reclaim(this.#terminalId);
-      this.#rendererMode = "dom";
+      this.#setRendererMode("dom");
     }
   }
 
@@ -371,8 +374,22 @@ export class XtermTerminalAdapter {
     }
     webglAddon.dispose();
     this.#webglAddon = undefined;
-    this.#rendererMode = "dom";
+    this.#setRendererMode("dom");
     this.#pool.reclaim(this.#terminalId);
+  }
+
+  /**
+   * The one place `#rendererMode` is written, so no path moves it silently.
+   * Emission is conditional on the value actually CHANGING: the selection's catch
+   * arm settles on the constructed mode, and announcing that would report a
+   * fallback that never happened.
+   */
+  #setRendererMode(rendererMode: TerminalRendererMode): void {
+    if (this.#rendererMode === rendererMode) {
+      return;
+    }
+    this.#rendererMode = rendererMode;
+    this.#rendererModeChanges.emit(rendererMode);
   }
 
   #observeHostSize(hostElement: HTMLElement): void {
@@ -388,12 +405,5 @@ export class XtermTerminalAdapter {
     });
     resizeObserver.observe(hostElement);
     this.#resizeObserver = resizeObserver;
-  }
-
-  #activateLink(text: string): void {
-    const href = allowedTerminalLinkHref(text);
-    if (href !== undefined) {
-      this.#onActivateLink?.(href);
-    }
   }
 }
