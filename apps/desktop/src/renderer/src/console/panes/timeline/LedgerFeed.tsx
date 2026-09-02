@@ -17,7 +17,10 @@
 //
 //   • The rail's tick and find's walk both JUMP, and both jump through the
 //     viewport's `jumpToRow` — the ledger's one scroll writer. Neither touches an
-//     element.
+//     element. There is exactly ONE binding, minted here and handed to
+//     `<LedgerViewport>`: a second one would leave the rail and the find walk
+//     reading a virtualizer with no element under it, which is a jump that reports
+//     success and scrolls nothing.
 //   • The replay dock's reveal is the caller's, per §5.5: the dock is hidden until
 //     the rail is hovered or focused, because both triggers are facts about this
 //     surface rather than about replay.
@@ -123,8 +126,7 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
       ) : null}
       <div className="meridian-ledger__body">
         <LedgerViewport
-          clock={clock}
-          rows={ledgerWindow.viewportRows}
+          binding={viewport}
           renderRow={renderRow}
           feedLabel={props.feedLabel}
           hasActiveTurn={ledgerWindow.hasActiveTurn}

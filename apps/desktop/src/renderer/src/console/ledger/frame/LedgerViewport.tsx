@@ -5,7 +5,9 @@
 // `viewport-controller.ts` wires the scroll chokepoint, the reading anchor, the row
 // window, and the window cap together and publishes one snapshot; this file turns
 // that snapshot into elements and does nothing else. No measurement, no
-// subscription, no offset arithmetic lives here.
+// subscription, no offset arithmetic lives here — and no BINDING is minted here
+// either: the caller owns the one binding this ledger has and hands it down, so the
+// rail, the find walk, and the rows on screen are all reading the same virtualizer.
 //
 // THREE THINGS THE MARKUP HAS TO GET RIGHT:
 //
@@ -38,40 +40,40 @@
 
 import { memo } from "react";
 
-import { type ConsoleClock } from "../../core/index.js";
 import { DerivedFigure, Nothing, formatCount } from "../../primitives/index.js";
 import { LedgerErrorSlot, LedgerRowGroup, type LedgerErrorEntry } from "./ErrorSlot.js";
-import { useLedgerViewport, type LedgerViewportBinding } from "./viewport-binding.js";
+import { type LedgerViewportBinding } from "./viewport-binding.js";
 import type { LedgerViewportRow, LedgerViewportSnapshot } from "./viewport-controller.js";
 
 /** How a row body is drawn. Supplied by whoever owns the row vocabulary. */
 export type LedgerRowRenderer = (row: LedgerViewportRow) => React.ReactNode;
 
 export interface LedgerViewportProps {
-  /** The clock every timer in this frame is minted through. Fixed for the mount. */
-  readonly clock: ConsoleClock;
-  /** MEMOIZED by the caller — see `useLedgerViewport`. */
-  readonly rows: readonly LedgerViewportRow[];
+  /**
+   * The caller's binding — the one this ledger has.
+   *
+   * TAKEN rather than minted. `useLedgerViewport` builds a controller, a scroll
+   * chokepoint, a reading anchor, and a virtualizer, and a viewport that minted its
+   * own would give the surrounding surface a SECOND set: the rail would report a
+   * following state nobody is scrolling, and `jumpToRow` would scroll a virtualizer
+   * with no element under it. One binding per ledger is the whole invariant, and
+   * requiring it as a prop is what makes a second one unrepresentable rather than
+   * merely discouraged.
+   */
+  readonly binding: LedgerViewportBinding;
   /** STABLE across renders, or the memoized rows below re-render with it. */
   readonly renderRow: LedgerRowRenderer;
   /** Names the feed for a screen reader walking the window. */
   readonly feedLabel: string;
-  /** A turn is mid-flight. Prune waits rather than moving rows under a stream. */
+  /** A turn is mid-flight — the same value the caller reconciled the binding with. */
   readonly hasActiveTurn?: boolean;
-  /** The reveal engine still has characters queued. Prune waits for that too. */
-  readonly isRevealDraining?: boolean;
   readonly errorEntries?: readonly LedgerErrorEntry[];
 }
 
 const NO_ERROR_ENTRIES: readonly LedgerErrorEntry[] = [];
 
 export function LedgerViewport(props: LedgerViewportProps): React.JSX.Element {
-  const binding = useLedgerViewport({
-    clock: props.clock,
-    rows: props.rows,
-    hasActiveTurn: props.hasActiveTurn ?? false,
-    isRevealDraining: props.isRevealDraining ?? false,
-  });
+  const { binding } = props;
   const { snapshot } = binding;
 
   return (
