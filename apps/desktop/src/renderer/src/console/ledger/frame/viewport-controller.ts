@@ -10,26 +10,10 @@
 //
 // WHAT THE LIBRARY OWNS AND WHAT THIS CLASS OWNS.
 // `Spec-023 §Console Libraries` adopts `@tanstack/react-virtual` "under our own
-// scroll controller", and the split is exact. The library owns the measurements, the
-// offsets, the total size, and which indexes are inside the fold. This class owns
-// every seam the library reaches the outside world through, and each one is pointed
-// back at machinery that already exists:
-//
-//   • `getScrollElement` hands back the surface the chokepoint attached to, so the
-//     library and the chokepoint address the same box.
-//   • `scrollToFn` routes EVERY offset the library would write through
-//     `LedgerScrollController.glideTo`, named for its caller. The default
-//     implementation calls `scrollElement.scrollTo`, which is exactly the unnamed,
-//     unarbitrable write the chokepoint exists to prevent.
-//   • `observeElementOffset` and `observeElementRect` replay the chokepoint's own
-//     geometry subscription. The defaults each add a listener and a `ResizeObserver`
-//     of their own — a second scroll listener and a second geometry source for one
-//     box, which is how two surfaces start disagreeing about where the reader is.
-//   • `measureElement` returns the measurement ledger's accepted height, so the
-//     epsilon, the bounded prior table, and the display-validity key sit on the path
-//     rather than beside it.
-//   • `getItemKey` returns the ledger's projected keys, so a repeated row key
-//     degrades into two rows rather than one row displacing another.
+// scroll controller". The library owns the measurements, the offsets, the total
+// size, and which indexes are inside the fold; `virtualizer-seams.ts` owns every way
+// it reaches the outside world; this class owns when the four objects below are
+// asked anything, and what the tree is told afterwards.
 //
 // TWO PROPERTIES WORTH NAMING:
 //
@@ -43,15 +27,12 @@
 //     would tear the tree. Every producer routes through `#publish`, which rebuilds
 //     the snapshot once and notifies once.
 
-import type { Rect, Virtualizer } from "@tanstack/react-virtual";
-
 import {
   Emitter,
   type ConsoleClock,
   type ScheduledHandle,
   type Unsubscribe,
 } from "../../core/index.js";
-import { LEDGER_ROW_HEIGHT_ESTIMATE_PX } from "./frame-bounds.js";
 import { ReadingAnchor, type ReadingAnchorState } from "./reading-anchor.js";
 import { RowMeasurementLedger, type RowKeyProjection } from "./row-measurement-ledger.js";
 import {
@@ -59,10 +40,8 @@ import {
   type LedgerGeometry,
   type LedgerScrollSurface,
 } from "./scroll-chokepoint.js";
+import { LedgerVirtualizerSeams, type LedgerRowVirtualizer } from "./virtualizer-seams.js";
 import { LedgerWindow, type LedgerWindowRow, type PruneOutcome } from "./window-cap.js";
-
-/** The virtualizer this frame drives, at the two element types it drives it with. */
-export type LedgerRowVirtualizer = Virtualizer<HTMLElement, HTMLElement>;
 
 /**
  * One row, as the viewport addresses it.
@@ -112,6 +91,8 @@ export class LedgerViewportController {
   readonly anchor: ReadingAnchor;
   readonly measurements: RowMeasurementLedger;
   readonly window: LedgerWindow;
+  /** The option object the virtualizer is constructed with. */
+  readonly seams: LedgerVirtualizerSeams;
 
   readonly #clock: ConsoleClock;
   readonly #changeEmitter = new Emitter<void>("ledger viewport snapshot");
@@ -119,7 +100,6 @@ export class LedgerViewportController {
 
   #virtualizer: LedgerRowVirtualizer | undefined;
   #virtualKeys: readonly string[] = [];
-  #surface: HTMLElement | undefined;
   #rows: readonly LedgerViewportRow[] = [];
   #rowKeys: readonly string[] = [];
   #snapshot: LedgerViewportSnapshot;
@@ -133,6 +113,11 @@ export class LedgerViewportController {
     this.anchor = new ReadingAnchor();
     this.measurements = new RowMeasurementLedger();
     this.window = new LedgerWindow();
+    this.seams = new LedgerVirtualizerSeams({
+      scroll: this.scroll,
+      measurements: this.measurements,
+      virtualKeyAt: (index) => this.#virtualKeys[index],
+    });
     this.#snapshot = this.#buildSnapshot();
     this.#teardown.push(
       // No `#publish` here: a scroll sample changes nothing this snapshot carries.
@@ -167,12 +152,12 @@ export class LedgerViewportController {
 
   public attach(surface: LedgerScrollSurface): void {
     this.scroll.attach(surface);
-    this.#surface = surface instanceof HTMLElement ? surface : undefined;
+    this.seams.bindSurface(surface);
   }
 
   public detach(): void {
     this.scroll.detach();
-    this.#surface = undefined;
+    this.seams.bindSurface(undefined);
   }
 
   /**
@@ -188,71 +173,6 @@ export class LedgerViewportController {
     virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) =>
       this.#compensatesForGrowth(item.end, instance.scrollOffset ?? 0);
   }
-
-  /** The surface the library and the chokepoint both address. */
-  public readonly getScrollElement = (): HTMLElement | null => this.#surface ?? null;
-
-  /**
-   * Every offset the library would write, performed by the one writer.
-   *
-   * `adjustments` is the library's own compensation for a measurement that landed
-   * above the fold; it is added here because the default implementation adds it too,
-   * and dropping it would leave the library believing it had moved an offset it had
-   * not.
-   */
-  public readonly scrollToFn = (
-    offset: number,
-    options: { adjustments?: number | undefined },
-  ): void => {
-    this.scroll.glideTo("measurement-compensation", offset + (options.adjustments ?? 0));
-  };
-
-  /** The library's scroll offset, replayed from the chokepoint's own sample. */
-  public readonly observeElementOffset = (
-    _instance: LedgerRowVirtualizer,
-    sink: (offset: number, isScrolling: boolean) => void,
-  ): Unsubscribe =>
-    this.scroll.subscribeToGeometry((geometry) => {
-      // Never `isScrolling`: that flag exists to arm the library's own debounce and
-      // scroll-end timers, and this frame's budget is zero timers while idle.
-      sink(geometry.scrollTop, false);
-    });
-
-  /** The library's viewport rect, from the same sample. */
-  public readonly observeElementRect = (
-    _instance: LedgerRowVirtualizer,
-    sink: (rect: Rect) => void,
-  ): Unsubscribe =>
-    this.scroll.subscribeToGeometry((geometry) => {
-      // The ledger is a vertical list and never sets `horizontal`, so the library
-      // reads `height` and never `width`. Publishing a width the chokepoint does not
-      // sample would be inventing a number to fill a field nobody reads.
-      sink({ width: 0, height: geometry.viewportHeight });
-    });
-
-  /**
-   * One row's key, and the height a row is assumed to have before it is measured.
-   *
-   * Both are stable references on purpose. The virtualizer re-reads its options on
-   * every render and memoizes its measurements against their identity, so a closure
-   * rebuilt per render invalidates that memo every render — which is a recomputation
-   * of every offset in the window on a render that changed nothing.
-   */
-  public readonly getItemKey = (index: number): string =>
-    this.#virtualKeys[index] ?? `row-without-a-key-${String(index)}`;
-
-  public readonly estimateSize = (): number => LEDGER_ROW_HEIGHT_ESTIMATE_PX;
-
-  /** The measurement ledger's verdict on an observed row height. */
-  public readonly measureElement = (
-    element: HTMLElement,
-    entry: ResizeObserverEntry | undefined,
-    instance: LedgerRowVirtualizer,
-  ): number => {
-    const index = instance.indexFromElement(element);
-    const rowKey = String(instance.options.getItemKey(index));
-    return this.measurements.acceptedHeight(rowKey, observedHeightOf(element, entry));
-  };
 
   /**
    * Fold one render's conditions in: take the rows, prune, and hold the reader's
@@ -490,16 +410,4 @@ export class LedgerViewportController {
     this.#clock.cancel(this.#publishFrame);
     this.#publishFrame = undefined;
   }
-}
-
-/**
- * The height an observation reports, preferring the border box the observer already
- * measured over a layout read the browser has to answer.
- *
- * A `ResizeObserver` entry is the cheaper of the two by construction: it was
- * computed during layout, whereas `offsetHeight` forces one.
- */
-function observedHeightOf(element: HTMLElement, entry: ResizeObserverEntry | undefined): number {
-  const borderBox = entry?.borderBoxSize?.[0];
-  return borderBox === undefined ? element.offsetHeight : borderBox.blockSize;
 }

@@ -81,13 +81,13 @@ export function useLedgerViewport(options: UseLedgerViewportOptions): LedgerView
   const virtualizer = useVirtualizer<HTMLElement, HTMLElement>({
     count: snapshot.keyProjection.virtualKeys.length,
     overscan: LEDGER_OVERSCAN_ROWS,
-    estimateSize: controller.estimateSize,
-    getItemKey: controller.getItemKey,
-    getScrollElement: controller.getScrollElement,
-    scrollToFn: controller.scrollToFn,
-    observeElementOffset: controller.observeElementOffset,
-    observeElementRect: controller.observeElementRect,
-    measureElement: controller.measureElement,
+    estimateSize: controller.seams.estimateSize,
+    getItemKey: controller.seams.getItemKey,
+    getScrollElement: controller.seams.getScrollElement,
+    scrollToFn: controller.seams.scrollToFn,
+    observeElementOffset: controller.seams.observeElementOffset,
+    observeElementRect: controller.seams.observeElementRect,
+    measureElement: controller.seams.measureElement,
     // React 19 logs "flushSync was called from inside a lifecycle method" when the
     // adapter flushes its own re-render, and the render this would force is one this
     // frame does not need: the offsets are written to the DOM directly.

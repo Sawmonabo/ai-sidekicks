@@ -11,9 +11,9 @@
 import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "../../core/index.js";
-import { LEDGER_SCROLL_CALLERS, type LedgerScrollSurface } from "./scroll-chokepoint.js";
+import { countingSurface } from "./scroll-surface-fixture.js";
 import { LedgerViewportController } from "./viewport-controller.js";
-import type { LedgerRowVirtualizer, LedgerViewportRow } from "./viewport-controller.js";
+import type { LedgerViewportRow } from "./viewport-controller.js";
 
 /**
  * A surface whose scroll listeners can be counted, at fixed geometry.
@@ -21,46 +21,6 @@ import type { LedgerRowVirtualizer, LedgerViewportRow } from "./viewport-control
  * Structural rather than an element because `happy-dom` answers zero for every
  * geometry read, and a rect of zeroes would make the replay assertions vacuous.
  */
-interface CountingSurface extends LedgerScrollSurface {
-  readonly scrollListenerCount: number;
-  /** Move the offset the way a reader does, and tell the listeners about it. */
-  moveTo(offset: number): void;
-}
-
-function countingSurface(): CountingSurface {
-  const scrollListeners: (() => void)[] = [];
-  return {
-    scrollTop: 40,
-    clientHeight: 300,
-    scrollHeight: 4000,
-    get scrollListenerCount(): number {
-      return scrollListeners.length;
-    },
-    moveTo(offset: number): void {
-      this.scrollTop = offset;
-      for (const listener of [...scrollListeners]) {
-        listener();
-      }
-    },
-    addEventListener(_type: string, listener: () => void): void {
-      scrollListeners.push(listener);
-    },
-    removeEventListener(_type: string, listener: () => void): void {
-      const at = scrollListeners.indexOf(listener);
-      if (at >= 0) {
-        scrollListeners.splice(at, 1);
-      }
-    },
-  };
-}
-
-/**
- * The instance argument the two observer seams ignore.
- *
- * Both read the chokepoint rather than the virtualizer — which is the property under
- * test — so the parameter is unused and typed rather than constructed.
- */
-const UNUSED_VIRTUALIZER = undefined as unknown as LedgerRowVirtualizer;
 
 function syntheticRows(count: number, chapterKey?: string): readonly LedgerViewportRow[] {
   return Array.from({ length: count }, (_unused, index) => ({
@@ -200,60 +160,6 @@ describe("the viewport controller — holding the reading position", () => {
     controller.jumpToTail();
     expect(controller.snapshot().reading.mode).toBe("following");
     expect(controller.scroll.writeCount("jump-to-tail")).toBe(1);
-  });
-});
-
-describe("the viewport controller — the seams the virtualizer is bound through", () => {
-  it("routes the library's own scroll write through the chokepoint, named", () => {
-    // `Spec-023 §Console Libraries` adopts this library because its scroller is ours.
-    // The default `scrollToFn` calls `scrollElement.scrollTo`, which names neither a
-    // caller nor an amount — exactly the write the chokepoint exists to prevent.
-    const { controller } = attachedController();
-    controller.scrollToFn(120, { adjustments: 30 });
-    expect(controller.scroll.writeCount("measurement-compensation")).toBe(1);
-  });
-
-  it("negative control: no other caller was charged for that write", () => {
-    const { controller } = attachedController();
-    controller.scrollToFn(120, {});
-    for (const caller of LEDGER_SCROLL_CALLERS) {
-      expect(controller.scroll.writeCount(caller)).toBe(
-        caller === "measurement-compensation" ? 1 : 0,
-      );
-    }
-  });
-
-  it("feeds the library's offset and rect from ONE scroll listener", () => {
-    // The library's own `observeElementOffset` and `observeElementRect` each attach
-    // their own listener and observer. Two sources for one box is how two surfaces
-    // start disagreeing about where the reader is standing.
-    const surface = countingSurface();
-    const controller = new LedgerViewportController({ clock: new ManualClock() });
-    controller.attach(surface);
-    const offsets: number[] = [];
-    const heights: number[] = [];
-    controller.observeElementOffset(UNUSED_VIRTUALIZER, (offset) => offsets.push(offset));
-    controller.observeElementRect(UNUSED_VIRTUALIZER, (rect) => heights.push(rect.height));
-    expect(surface.scrollListenerCount).toBe(1);
-    // Replayed on subscribe, so a pane mounted mid-stream knows where it is.
-    expect(offsets).toStrictEqual([40]);
-    expect(heights).toStrictEqual([300]);
-  });
-
-  it("drops the library's measurements when the display changes under them", () => {
-    const { controller } = attachedController();
-    controller.measurements.acceptedHeight("row-0", 240);
-    controller.observeDisplaySettings(2, 16);
-    controller.observeDisplaySettings(2, 18);
-    expect(controller.measurements.measuredRowCount).toBe(0);
-  });
-
-  it("negative control: an unchanged display leaves them alone", () => {
-    const { controller } = attachedController();
-    controller.observeDisplaySettings(2, 16);
-    controller.measurements.acceptedHeight("row-0", 240);
-    controller.observeDisplaySettings(2, 16);
-    expect(controller.measurements.measuredRowCount).toBe(1);
   });
 });
 

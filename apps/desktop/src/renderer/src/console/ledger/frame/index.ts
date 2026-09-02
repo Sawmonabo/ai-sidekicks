@@ -42,6 +42,7 @@ export * from "./row-measurement-ledger.js"; // the residuals the virtualizer do
 export * from "./window-cap.js"; // what the log keeps, and when it may let go
 export * from "./reveal-engine.js"; // N lanes streaming on one frame budget
 export * from "./ErrorSlot.js"; // ranked per-kind slots and the row-group boundary
-export * from "./viewport-controller.js"; // the wiring, and every seam the library reaches out through
+export * from "./virtualizer-seams.js"; // every seam the library reaches the outside world through
+export * from "./viewport-controller.js"; // the wiring the feed needs held in one place
 export * from "./viewport-binding.js"; // the virtualizer, and the hook a view reads it through
 export * from "./LedgerViewport.js"; // the feed itself
