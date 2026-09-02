@@ -1,11 +1,15 @@
-// The deck's layout, and the four ways a saved one can be wrong.
+// The deck's layout, and the five ways a saved one can be wrong.
 //
-// The restore cases are the point of this file. Three of the four are ORDINARY —
+// The restore cases are the point of this file. Three of the five are ORDINARY —
 // a record written by another build, a pane kind this one has not got, an entity
 // that no longer validates — so each has to be dropped and REPORTED rather than
 // thrown, and the report has to be a value a surface can render. The fourth, the
 // cap, is what stands between a hand-edited record and a window that mounts panes
-// until it stops responding.
+// until it stops responding. The fifth is a record holding two pane ids at ONE
+// address: `open()` cannot repair that, because focusing the first pane is all it
+// ever does, so the duplicate mounts a second body, takes a second cap slot, and is
+// written straight back on the next save. It is coalesced during decoding instead,
+// first in position order winning.
 //
 // Every clean assertion below has a negative control, because the failure mode
 // that matters here is a validator that passes everything.
@@ -298,6 +302,76 @@ describe("DeckLayout — what a restore refuses", () => {
 
     expect(report.restoredPaneCount).toBe(cap);
     expect(report.refusals.map((refusal) => refusal.code)).toStrictEqual(["restore-cap-exceeded"]);
+  });
+
+  it("adopts one pane for a record holding two ids at one address", () => {
+    // The corrupted or hand-edited shape: two DIFFERENT pane ids naming the same
+    // kind over the same entity. Both decode cleanly, which is exactly why nothing
+    // downstream catches it.
+    const snapshot = twoPaneLayout().toSnapshot();
+    snapshot["pane-duplicate"] = {
+      position: 5,
+      kind: "inspector",
+      sizePermille: 300,
+      entityKind: "run",
+      entityId: "run-01",
+    };
+
+    const restored = emptyLayout();
+    const report = restored.restore(snapshot);
+
+    expect(report.restoredPaneCount).toBe(2);
+    expect(report.refusals.map((refusal) => refusal.code)).toStrictEqual([
+      "pane-address-duplicate",
+    ]);
+    // First in POSITION order survives, which is the arrangement the person last
+    // saw — not whichever id `Object.entries` happened to yield first.
+    expect(restored.snapshot().panes.map((pane) => pane.paneId)).not.toContain("pane-duplicate");
+  });
+
+  it("counts the survivor once against the restore cap", () => {
+    // A dropped duplicate must not push a real pane out of the restore, so the
+    // record below holds cap-many distinct addresses plus one repeat of the first.
+    const cap = 3;
+    const source = emptyLayout();
+    for (let index = 0; index < cap; index += 1) {
+      source.open({ kind: "inspector", entity: { kind: "run", id: `run-${String(index)}` } });
+    }
+    const snapshot = source.toSnapshot();
+    snapshot["pane-duplicate"] = {
+      position: 1.5,
+      kind: "inspector",
+      sizePermille: 300,
+      entityKind: "run",
+      entityId: "run-0",
+    };
+
+    const report = new DeckLayout({ restoredPaneCap: cap }).restore(snapshot);
+
+    expect(report.restoredPaneCount).toBe(cap);
+    // The duplicate is the ONLY refusal: if it had consumed a slot, the last
+    // distinct pane would have been dropped and the cap refusal raised beside it.
+    expect(report.refusals.map((refusal) => refusal.code)).toStrictEqual([
+      "pane-address-duplicate",
+    ]);
+  });
+
+  it("negative control: two panes at two addresses both restore, with no refusal", () => {
+    // Without this, the two cases above would pass over a decoder that coalesced
+    // every pane onto the first — the failure mode a dedupe introduces.
+    const snapshot = twoPaneLayout().toSnapshot();
+    snapshot["pane-distinct"] = {
+      position: 5,
+      kind: "inspector",
+      sizePermille: 300,
+      entityKind: "run",
+      entityId: "run-02",
+    };
+
+    const report = emptyLayout().restore(snapshot);
+
+    expect(report.restoredPaneCount).toBe(3);
+    expect(report.refusals).toStrictEqual([]);
   });
 
   it("refuses a record that is not a layout record at all", () => {

@@ -66,18 +66,53 @@ export interface DeckPaneAddress {
 }
 
 /**
- * Whether an open pane is already the pane an address asks for.
+ * The separator between an address key's fields.
+ *
+ * A control character no pane kind, no entity kind, and no wire-minted id carries.
+ * It is not load-bearing for injectivity even so: every field before the last comes
+ * from a closed set, and the one free-form field — the entity id — is last, so a key
+ * cannot be re-parsed into a different address whatever an id contains.
+ */
+const ADDRESS_KEY_SEPARATOR = "\u001f";
+
+/**
+ * One deck address, rendered as a string that equals another exactly when the two
+ * name the same thing.
  *
  * Kind PLUS entity, because the same run legitimately appears in a `runs` pane and
  * an `inspector`, and collapsing them onto one pane would make the second open
  * silently steal the first.
+ *
+ * A KEY rather than only a predicate, because two callers ask two different
+ * questions of one rule. {@link addressesMatch} asks "is this the pane I want",
+ * which a comparison answers; the snapshot decoder asks "have I already adopted
+ * this address", which a comparison answers only in quadratic time and only by
+ * re-stating the rule at a second site. Both now derive from this one function, so
+ * the restore path and the open path cannot disagree about what "the same address"
+ * means.
+ *
+ * Takes the two members the address is made of rather than either named type, so a
+ * `DeckPane` and a `DeckPaneAddress` are keyed by the same call.
+ */
+export function paneAddressKey(address: {
+  readonly kind: PaneKind;
+  readonly entity: ConsoleEntityRef | undefined;
+}): string {
+  const { entity } = address;
+  return entity === undefined
+    ? `${address.kind}${ADDRESS_KEY_SEPARATOR}`
+    : `${address.kind}${ADDRESS_KEY_SEPARATOR}${entity.kind}${ADDRESS_KEY_SEPARATOR}${entity.id}`;
+}
+
+/**
+ * Whether an open pane is already the pane an address asks for.
+ *
+ * Expressed through {@link paneAddressKey} rather than beside it: two copies of one
+ * equality rule drift, and the drift is invisible — the deck would go on focusing
+ * the right pane while a restore adopted the same one twice.
  */
 export function addressesMatch(pane: DeckPane, address: DeckPaneAddress): boolean {
-  return (
-    pane.kind === address.kind &&
-    pane.entity?.kind === address.entity?.kind &&
-    pane.entity?.id === address.entity?.id
-  );
+  return paneAddressKey(pane) === paneAddressKey(address);
 }
 
 /** Move one pane from `from` to `to`. Returns the input unchanged on a bad index. */
