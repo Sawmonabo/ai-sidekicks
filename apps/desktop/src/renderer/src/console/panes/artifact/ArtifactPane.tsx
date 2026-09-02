@@ -58,7 +58,7 @@ import {
 } from "../../primitives/index.js";
 import { ArtifactsPanel } from "../../repos/ArtifactsPanel.js";
 import type { ArtifactManifestRow } from "../../repos/artifact-model.js";
-import { type ConsolePaneContext } from "../../workspace/index.js";
+import { type ConsolePaneContext } from "../../seats/index.js";
 import type { ArtifactAllowlistReading, ArtifactRowActOutcome } from "./artifact-pane-reading.js";
 import { useArtifactPaneReading } from "./artifact-reader.js";
 
@@ -76,8 +76,19 @@ const MANIFEST_RE_READ_ANNOUNCEMENT = "Manifest re-read. The row shows what the 
 const ARTIFACT_DELETED_ANNOUNCEMENT =
   "Artifact deleted and the list read again. The reply carries no payload disposition, so what became of the bytes is not reported.";
 
+/**
+ * This body's own address arm, narrowed off the union the deck hands every pane.
+ *
+ * `ConsolePaneContext` is a discriminated union over the pane kind, so a body typed on
+ * the whole union can read an entity of a kind it cannot render — a run reference, say,
+ * looked up in a partition that has never held one. Narrowing here is what makes
+ * `entity` required and its kind `artifact`, by the compiler rather than by this file
+ * remembering.
+ */
+type ArtifactPaneContext = Extract<ConsolePaneContext, { readonly kind: "artifact" }>;
+
 export interface ArtifactPaneProps {
-  readonly context: ConsolePaneContext;
+  readonly context: ArtifactPaneContext;
 }
 
 export function ArtifactPane(props: ArtifactPaneProps): React.JSX.Element {
@@ -143,15 +154,17 @@ export function ArtifactPane(props: ArtifactPaneProps): React.JSX.Element {
           <Glyph name="artifact" />
           Artifact
         </h2>
-        {context.entity === undefined ? null : (
-          <span
-            className="meridian-repos-pane__subject"
-            title={context.entity.id}
-            aria-label={`Subject: ${context.entity.kind} ${context.entity.id}`}
-          >
-            {context.entity.id}
-          </span>
-        )}
+        {/*
+          Unconditional: an artifact address carries its artifact, so the arm this body
+          is narrowed to has no shape in which the subject is absent.
+        */}
+        <span
+          className="meridian-repos-pane__subject"
+          title={context.entity.id}
+          aria-label={`Subject: ${context.entity.kind} ${context.entity.id}`}
+        >
+          {context.entity.id}
+        </span>
         <div className="meridian-artifact-pane__read-scope">
           <button type="button" className="meridian-repos-pane__control" onClick={refresh}>
             Read again

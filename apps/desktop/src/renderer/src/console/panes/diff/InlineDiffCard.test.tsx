@@ -12,7 +12,7 @@ import {
   inlineCardBody,
   inlineCardSeatRegistry,
   type DiffInlineCardProps,
-} from "../../workspace/index.js";
+} from "../../seats/index.js";
 import { INLINE_DIFF_CARD_HEIGHT_CAP_PX } from "./diff-bounds.js";
 import { SMALL_DIFF_SHAPE, buildDiffFixture } from "./diff-fixture.js";
 import { DIFF_FIXTURE_VIEWPORT_HEIGHT_PX, DiffLayoutFixture } from "./diff-layout-fixture.js";
@@ -21,7 +21,8 @@ import { InlineDiffCard, registerInlineDiffCardBody } from "./InlineDiffCard.js"
 const CARD: DiffInlineCardProps = {
   kind: "diff",
   runId: "run-rate-limit-wiring",
-  changeSetId: "changeset-01",
+  diffArtifactId: "diff-artifact-01",
+  artifactManifestId: "artifact-manifest-01",
 };
 
 const DIFF = buildDiffFixture(SMALL_DIFF_SHAPE);
@@ -71,11 +72,20 @@ describe("inline diff card — the absence, and the diff", () => {
     expect(container.querySelector(".meridian-nothing--empty")).toBeNull();
   });
 
-  it("names the change set wire-verbatim, with the full string recoverable", () => {
+  it("names the diff wire-verbatim, with the full string recoverable", () => {
     const { container } = render(<InlineDiffCard card={CARD} />);
     const changeSet = container.querySelector(".meridian-diff-card__change-set");
-    expect(changeSet?.textContent).toBe(CARD.changeSetId);
-    expect(changeSet?.getAttribute("title")).toBe(CARD.changeSetId);
+    expect(changeSet?.textContent).toBe(CARD.diffArtifactId);
+    expect(changeSet?.getAttribute("title")).toBe(CARD.diffArtifactId);
+  });
+
+  it("negative control: the manifest id is not what the card names itself by", () => {
+    // The two identifiers the registered diff result carries are both on the arm, and
+    // only one of them is this card's subject. Without this the case above would pass
+    // over a card that rendered whichever id it was handed first.
+    const { container } = render(<InlineDiffCard card={CARD} />);
+    const changeSet = container.querySelector(".meridian-diff-card__change-set");
+    expect(changeSet?.textContent).not.toBe(CARD.artifactManifestId);
   });
 
   it("uses the same renderer the pane uses", () => {

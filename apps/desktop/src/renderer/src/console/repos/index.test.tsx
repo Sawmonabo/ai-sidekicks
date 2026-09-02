@@ -20,10 +20,11 @@ import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { SessionStore } from "../store/index.js";
 import {
   ConsolePaneRegistry,
+  isDetachablePaneKind,
   sidebarSectionRegistry,
   type ConsolePaneContext,
   type SidebarSectionContext,
-} from "../workspace/index.js";
+} from "../seats/index.js";
 import { registerRepos, registerReposPanes } from "./index.js";
 
 /** The kinds this family owns, in `PANE_KINDS` declaration order — which is what the registry answers in. */
@@ -59,9 +60,27 @@ function sectionContext(isOpen: boolean): SidebarSectionContext {
   } as unknown as SidebarSectionContext;
 }
 
+/**
+ * The subject each kind's pane is opened over.
+ *
+ * Both addresses REQUIRE one — `seats/pane-address.ts` narrows the entity with the
+ * kind — so this table is what lets one loop mount both bodies without either arm
+ * being handed a reference the other's body would read out of the wrong partition.
+ */
+const PANE_SUBJECT_BY_KIND: Readonly<
+  Record<(typeof REPOS_PANE_KINDS)[number], { readonly kind: string; readonly id: string }>
+> = {
+  diff: { kind: "workspace", id: "workspace-sidekicks" },
+  artifact: { kind: "artifact", id: "artifact-diff-01" },
+};
+
 /** A pane context whose collaborators are never reached. */
-function paneContext(kind: string): ConsolePaneContext {
-  return { kind, entity: undefined, paneId: `pane-${kind}` } as unknown as ConsolePaneContext;
+function paneContext(kind: (typeof REPOS_PANE_KINDS)[number]): ConsolePaneContext {
+  return {
+    kind,
+    entity: PANE_SUBJECT_BY_KIND[kind],
+    paneId: `pane-${kind}`,
+  } as unknown as ConsolePaneContext;
 }
 
 afterEach(() => {
@@ -127,15 +146,25 @@ describe("repos family — the deck's pane kinds", () => {
     expect(untouched.registeredPaneKinds()).toStrictEqual([]);
   });
 
-  it("answers the tear-off question for both kinds", () => {
-    // Required rather than optional on the descriptor so every family answers it
-    // deliberately. Both bodies are read from renderer state alone, so a window
-    // move carries nothing with it.
+  it("leaves the tear-off question to the kind, claiming nothing about it", () => {
+    // The descriptor carries no detach member at all: `isDetachablePaneKind` is the
+    // single answer, derived from the window model's route set, and neither of this
+    // family's kinds is in it. Both halves are asserted — the registration says
+    // nothing, and the predicate says no — because a registrar that started
+    // smuggling a claim back in would still leave the predicate answering correctly.
     const registry = new ConsolePaneRegistry();
     registerReposPanes(registry);
     for (const kind of REPOS_PANE_KINDS) {
-      expect(registry.descriptorFor(kind)?.openInWindow).toBe(true);
+      expect(registry.descriptorFor(kind)).not.toHaveProperty("openInWindow");
+      expect(isDetachablePaneKind(kind)).toBe(false);
     }
+  });
+
+  it("negative control: the predicate does name the two kinds a window model has", () => {
+    // Without this the case above would pass over an `isDetachablePaneKind` that
+    // answered `false` for everything, which would say nothing about this family.
+    expect(isDetachablePaneKind("timeline")).toBe(true);
+    expect(isDetachablePaneKind("agent-console")).toBe(true);
   });
 
   it("mounts a named region for each kind", () => {

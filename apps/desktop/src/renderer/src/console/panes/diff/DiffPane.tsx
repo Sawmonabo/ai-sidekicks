@@ -40,7 +40,7 @@
 import { useId } from "react";
 
 import { Chip, Glyph, Nothing } from "../../primitives/index.js";
-import { type ConsolePaneContext } from "../../workspace/index.js";
+import { type ConsolePaneContext } from "../../seats/index.js";
 import { DiffFileList } from "./DiffFileList.js";
 import { DiffRenderer } from "./DiffRenderer.js";
 import { DiffToolbar, useDiffViewControls } from "./DiffToolbar.js";
@@ -51,8 +51,75 @@ import {
 } from "./diff-model.js";
 import { useDiffModelViewState } from "./diff-view-state.js";
 
+/**
+ * This body's own address arm, narrowed off the union the deck hands every pane.
+ *
+ * `ConsolePaneContext` is a discriminated union over the pane kind, so a body typed
+ * on the whole union can read an entity of a kind it cannot render — which is the
+ * defect the union was minted to close. Narrowing here is what makes `entity`
+ * required and its kind one of the five a diff is opened over, by the compiler
+ * rather than by this file remembering.
+ */
+type DiffPaneContext = Extract<ConsolePaneContext, { readonly kind: "diff" }>;
+
+/**
+ * The entity kinds a diff can be a view of, READ OFF the address rather than listed.
+ *
+ * `Spec-023 §The surface set` gives the diff pane the sidebar card's own subject list
+ * — a repo, workspace, worktree, invite, or member — and `seats/pane-address.ts` is
+ * where that list is declared. Deriving it means a kind added there fails to compile
+ * in the table below until this family has said what that subject's changes render.
+ */
+type DiffSubjectKind = DiffPaneContext["entity"]["kind"];
+
+/**
+ * What the pane says when no diff has been asked for, per subject kind.
+ *
+ * ONE ENTRY PER KIND, and the totality is the point: the diff wire is unregistered
+ * (`Plan-023 §Console growth slate`'s `gitflow-actions` row, owned by `Spec-011`), so
+ * every one of these subjects reaches this pane with nothing to render — and a single
+ * sentence written for a working tree would tell a person looking at a REPOSITORY
+ * that their checkout is unchanged, which is a claim about a workspace this pane was
+ * never opened over. Each sentence says what that subject's changes would be and that
+ * nothing was asked, and none of them renders blank.
+ *
+ * The two collaboration subjects are stated rather than omitted for the same reason.
+ * What an invitation's or a member's changes MEAN is that family's question and not
+ * this one's; what this pane owes either of them is an honest absence rather than an
+ * empty region, and that is what these two say.
+ */
+const ABSENT_DIFF_COPY: Readonly<
+  Record<DiffSubjectKind, { readonly title: string; readonly detail: string }>
+> = {
+  workspace: {
+    title: "No diff has been asked for.",
+    detail:
+      "A diff names two states and the run or workspace it is attributed to. None has been requested for this workspace, so the console is not reporting that nothing changed.",
+  },
+  worktree: {
+    title: "No diff has been asked for.",
+    detail:
+      "A diff names two states and the run or workspace it is attributed to. None has been requested for this execution root, so the console is not reporting that nothing changed.",
+  },
+  repo: {
+    title: "A repository's changes are not read here yet.",
+    detail:
+      "Changes belong to a checkout, and a repository can hold several. Nothing resolves this repository to the workspace a diff would be taken over on this build, so none has been requested — and the console is not reporting that this repository is unchanged.",
+  },
+  invite: {
+    title: "An invitation's changes are not read here yet.",
+    detail:
+      "An invitation has no working tree, and what its changes are is settled by the family that owns the card, not by this pane. Nothing has been requested, so nothing is being reported about it.",
+  },
+  participant: {
+    title: "A member's changes are not read here yet.",
+    detail:
+      "A member's changes span every root they have worked in, and nothing on this build gathers them. Nothing has been requested, so the console is not reporting that this member has changed nothing.",
+  },
+};
+
 export interface DiffPaneProps {
-  readonly context: ConsolePaneContext;
+  readonly context: DiffPaneContext;
   /**
    * The diff to render. Absent until a wire produces one — see the header. The
    * prop exists rather than being a fetch this body performs, because the fetch
@@ -96,28 +163,29 @@ export function DiffPane(props: DiffPaneProps): React.JSX.Element {
           <Glyph name="diff" />
           Diff
         </h2>
-        {context.entity === undefined ? null : (
-          // Wire-verbatim and never shortened: two workspaces whose ids differ in
-          // their tail read identically once a renderer abbreviates them, and this
-          // is the only place the pane says which one it is a view of. The full
-          // string stays recoverable through the title even where the measure
-          // truncates the display copy.
-          <span
-            className="meridian-repos-pane__subject"
-            title={context.entity.id}
-            aria-label={`Subject: ${context.entity.kind} ${context.entity.id}`}
-          >
-            {context.entity.id}
-          </span>
-        )}
+        {/*
+          Wire-verbatim and never shortened: two workspaces whose ids differ in their
+          tail read identically once a renderer abbreviates them, and this is the only
+          place the pane says which one it is a view of. The full string stays
+          recoverable through the title even where the measure truncates the display
+          copy. Unconditional now, because a diff address carries its entity: the arm
+          this body is narrowed to has no shape in which the subject is absent.
+        */}
+        <span
+          className="meridian-repos-pane__subject"
+          title={context.entity.id}
+          aria-label={`Subject: ${context.entity.kind} ${context.entity.id}`}
+        >
+          {context.entity.id}
+        </span>
       </header>
       {diff === undefined ? (
         <div className="meridian-repos-pane__body">
           <Nothing
             kind="not-checked"
             placement="surface"
-            title="No diff has been asked for."
-            detail="A diff names two states and the run or workspace it is attributed to. None has been requested for this pane, so the console is not reporting that nothing changed."
+            title={ABSENT_DIFF_COPY[context.entity.kind].title}
+            detail={ABSENT_DIFF_COPY[context.entity.kind].detail}
           />
         </div>
       ) : (

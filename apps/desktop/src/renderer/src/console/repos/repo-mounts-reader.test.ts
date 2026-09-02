@@ -78,6 +78,10 @@ function openReader(
  */
 function staleFrame(sessionId: string, sequence: number): ConsoleSessionEvent {
   return {
+    // The canonical envelope names the row as well as its position, so a frame the
+    // store admits carries one. Derived from the position rather than repeated, on
+    // `bridge/scenarios/repos-beats.ts`'s rule: two numberings of one row drift.
+    id: `event-${String(sequence)}`,
     sessionId,
     sequence,
     kind: "workspace.stale",
@@ -322,6 +326,7 @@ describe("RepoMountsReader — the reasons it reads again", () => {
     });
     sessionStore.applyBatch([
       {
+        id: "event-2",
         sessionId: REPOS_SCENARIO.sessionId,
         sequence: 2,
         kind: "run.queued",

@@ -46,6 +46,24 @@ export const CONSOLE_ENTITY_KINDS = [
   "workflow-definition",
   "workflow-run",
   "browser-page",
+  // `Spec-023 §Console Design (Meridian)` §The surface set routes five entity kinds
+  // to the `inspector` pane — repo, workspace, worktree, invite, member — and these
+  // are the two the console could not NAME. `seats/pane-address.ts` derives the
+  // inspector's scope from this vocabulary, so their absence made a repo card and an
+  // invite card unrepresentable at the address layer and made the runtime scope table
+  // reject them as kind mismatches, which would have forced the repos and
+  // collaboration branches to reopen this shared substrate to open a pane the spec
+  // already routes.
+  //
+  // NO PROJECTOR IS OWED BY THIS ENTRY. A kind here is a valid REFERENCE kind and a
+  // partition that exists; it is not a promise that some family projects rows into
+  // it. An inspector card for a repo or an invite reads the row from its own family's
+  // reader — the growth port's repo and invite operations — exactly as it would if it
+  // had a partition full of rows, and the empty partition costs one `Map` per session.
+  // The alternative was a second kind vocabulary for references that the store does
+  // not fill, which is two closed sets for one idea.
+  "repo",
+  "invite",
 ] as const;
 
 /** One entity kind. Derived from the enumeration, never restated. */
@@ -72,7 +90,14 @@ export interface ConsoleEntity {
   readonly state?: string;
   /** ISO-8601 timestamp of the newest event that touched this entity. */
   readonly touchedAt?: string;
-  /** The participant this entity is attributed to, when the wire names one. */
+  /**
+   * Who this entity is attributed to, when the wire names anyone.
+   *
+   * The projector carries `ConsoleSessionEvent.actorId` here unchanged, so it holds the
+   * same three-state fact that member does — a participant id, an agent id, or nobody
+   * — and a renderer that read it as a participant's would mislabel every agent-driven
+   * run. Naming a KIND here would be the guess the decode boundary refuses to make.
+   */
   readonly attributedTo?: string;
   /** Kind-specific body, owned by the view family that registered the projector. */
   readonly body?: Readonly<Record<string, unknown>>;
@@ -107,6 +132,19 @@ export type EntityMutation = EntityUpsert | EntityRemoval;
  * so exactly one module knows the wire and everything above it reads this.
  */
 export interface ConsoleSessionEvent {
+  /**
+   * The canonical event's own opaque identifier, wire-verbatim.
+   *
+   * `EventEnvelope.id` in `packages/contracts/src/event.ts` — the first of the
+   * canonical eleven, and the only member that names THIS event rather than its
+   * position. It is carried rather than dropped because the console has a reader
+   * for it: the hydrated-event read is keyed `{sessionId, eventId}`, so a ledger
+   * row that wants the machine-authored body of the turn it is rendering has
+   * nothing to ask with unless the projection kept this. A composed
+   * `session:sequence` string names the same row to a human and resolves for no
+   * caller, which is why the member is here instead.
+   */
+  readonly id: string;
   /** The session the event belongs to, wire-verbatim. */
   readonly sessionId: string;
   /** Monotonic position within the session. Dedupe and gap detection key on it. */
@@ -115,8 +153,23 @@ export interface ConsoleSessionEvent {
   readonly kind: string;
   /** ISO-8601, wire-verbatim. Formatted at render time, never re-parsed into a store. */
   readonly occurredAt: string;
-  /** The participant the event is attributed to, when the wire names one. */
-  readonly actorParticipantId?: string;
+  /**
+   * Who the event is attributed to, wire-verbatim, when the wire names anyone.
+   *
+   * `EventEnvelope.actor`, carried under this name rather than a narrower one. The
+   * contract registers that member as a participant id, an AGENT id, or `null` for a
+   * system-emitted event, and supplies no discriminator to tell the first two apart —
+   * so this member holds whichever id the daemon named and the console never guesses
+   * which kind it has. The member used to be called `actorParticipantId`, which named
+   * one of the three states and quietly mis-described the other two: every agent-
+   * emitted event in the store was being read as a participant's.
+   *
+   * Absent for the system arm, and absent is the ONE no-value state: the wire has two,
+   * present-`null` and omitted, and the decode boundary folds both into this one
+   * (`frame/session-event-payload.ts`). Nothing downstream has to tell them apart,
+   * because no daemon distinguishes them either.
+   */
+  readonly actorId?: string;
   /** The event's own payload, narrowed by the projector that claims its kind. */
   readonly payload?: Readonly<Record<string, unknown>>;
 }

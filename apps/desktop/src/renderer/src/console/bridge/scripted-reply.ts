@@ -34,7 +34,7 @@
 // properties of what the engine did, not of which surface asked.
 
 import type { WireErrorEnvelope } from "../../../../shared/wire-errors.js";
-import type { ScenarioEngine } from "./scenario.js";
+import type { ScenarioEngine } from "./scenario-engine.js";
 
 /**
  * The codes a scripted reply that never arrived refuses with.

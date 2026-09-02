@@ -551,6 +551,9 @@ describe("ProposalGateReader — the reasons it reads again", () => {
 
     sessionStore.applyBatch([
       {
+        // The canonical envelope names the row as well as its position, so a frame
+        // the store admits carries one.
+        id: "event-1",
         sessionId: REPOS_SCENARIO.sessionId,
         sequence: 1,
         kind: "workspace.stale",
@@ -582,6 +585,7 @@ describe("ProposalGateReader — the reasons it reads again", () => {
     sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
     sessionStore.applyBatch([
       {
+        id: "event-1",
         sessionId: REPOS_SCENARIO.sessionId,
         sequence: 1,
         kind: "workspace.stale",

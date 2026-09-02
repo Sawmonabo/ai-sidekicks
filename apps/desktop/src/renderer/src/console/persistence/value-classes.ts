@@ -12,26 +12,23 @@
 //   1. **A class, with a shape.** Each class below declares the structure its
 //      value must have. There is no "arbitrary JSON" class, so a caller cannot
 //      smuggle a body through by claiming a class that accepts anything.
-//   2. **Every string is identifier-shaped.** Participant- and machine-authored
-//      content is prose: it carries spaces, punctuation, and length. Identifiers
-//      are bounded, whitespace-free, and drawn from a narrow charset. A value
-//      whose strings all pass `IDENTIFIER_PATTERN` cannot be carrying a message,
-//      a path, a name, or a line of code — and the moment someone tries, the
-//      chokepoint refuses with a typed code rather than truncating or escaping.
+//   2. **Every string is identifier-shaped.** That grammar — the charset, the
+//      ceiling, and the address exclusion built on it — lives one module down in
+//      `identifier-grammar.ts`; this module applies it to every string a value
+//      carries, including its object keys.
 //
 // The rule is deliberately stricter than "no obvious prose". A filesystem path
 // contains `/`, which the charset admits, so path-shaped strings are excluded by
 // the CLASS shapes instead: no class below has a field that takes a path. Both
 // conjuncts are load-bearing.
 //
-// A RECORD IS A VALUE AND AN ADDRESS, and both halves come through here. The
-// partition and the key are written verbatim, so validating the value alone would
-// leave a caller free to persist a sentence or a path in the key while handing
-// the value check an ordinary boolean. `validatePersistedAddress` applies the same
-// grammar to both components — minus the path separator, which the value side is
-// only safe to admit because it has a class shape behind it and an address has
-// none — and `measureRecordByteLength` is the one byte measurement every cap in
-// this family counts through, over the whole record rather than over its value.
+// WHAT THIS MODULE OWNS, AND WHAT IT DOES NOT. The closed set, the shape each of
+// its classes declares, the walk that applies the grammar to a value, and the one
+// byte measurement over a whole record — one subject, the VALUE, from four angles.
+// The refusal vocabulary every one of those raises is declared below them all in
+// `refusals.ts`, and the string grammar in `identifier-grammar.ts`, because each is
+// consumed by modules this one never sees: both adapters raise refusals, and the
+// grammar settles record ADDRESSES, which have no class and so no shape.
 //
 // Drafts are absent from this enumeration on purpose. Composer text, form values,
 // paths, and code a participant typed and did not send are participant-authored
@@ -44,11 +41,32 @@
 // table is keyed by that union. A validator with no enumerated class is an excess
 // property and an enumerated class with no validator is a missing one, so the two
 // halves cannot drift — which they could while the union and the array were two
-// hand-maintained lists that only a reader ever compared. The refusal codes are
-// declared the same way, once.
+// hand-maintained lists that only a reader ever compared.
 
-import { refuse, type ConsoleRefusal } from "../core/index.js";
 import { SCHEME_PREFERENCES, isSchemePreference } from "../tokens/index.js";
+import {
+  IDENTIFIER_MAX_LENGTH,
+  isIdentifierShaped,
+  validatePersistedAddress,
+} from "./identifier-grammar.js";
+import {
+  PERSISTENCE_REFUSAL_CODES,
+  PERSISTENCE_REFUSAL_ORIGIN,
+  refusePersistence,
+  type PersistenceRefusal,
+} from "./refusals.js";
+
+// Re-exported rather than only imported: the co-located `value-classes.test.ts`
+// reaches these five through this module, which is the surface it has always read
+// them from. Nothing else re-exports through here — every other consumer in this
+// family imports the module that owns the symbol.
+export {
+  IDENTIFIER_MAX_LENGTH,
+  PERSISTENCE_REFUSAL_CODES,
+  PERSISTENCE_REFUSAL_ORIGIN,
+  refusePersistence,
+  validatePersistedAddress,
+};
 
 /**
  * The classes of UI state the durable store admits. Closed, and the single source
@@ -67,111 +85,6 @@ export const PERSISTED_VALUE_CLASSES = [
 
 /** One admitted class. Derived from the enumeration, never restated beside it. */
 export type PersistedValueClass = (typeof PERSISTED_VALUE_CLASSES)[number];
-
-/**
- * The longest identifier the store admits. A UUID is 36 characters and a
- * namespaced command id is well under this; prose is not.
- */
-export const IDENTIFIER_MAX_LENGTH = 128;
-
-/**
- * The identifier charset: no whitespace, no quotes, no brackets. Chosen from what
- * the corpus's own identifiers actually use — UUIDs, dotted method and command
- * names, `kind:id` refs, chord strings like `$mod+Shift+P`.
- */
-export const IDENTIFIER_PATTERN: RegExp = /^[A-Za-z0-9._:@/#+$-]{1,128}$/;
-
-/** True when a string is identifier-shaped and therefore not authored content. */
-export function isIdentifierShaped(value: string): boolean {
-  return value.length <= IDENTIFIER_MAX_LENGTH && IDENTIFIER_PATTERN.test(value);
-}
-
-/**
- * The one character an ADDRESS excludes that a value string may carry.
- *
- * The charset above admits `/` deliberately, and the header says why: a
- * path-shaped VALUE is excluded by the class shapes instead, because no admitted
- * class has a field that takes a path. An address has no class shape behind it —
- * `partition` and `key` are two bare strings the caller chooses — so the
- * exclusion the value side gets from its shape has to be made at the address
- * itself. The Windows separator needs no entry: `\` is outside the charset, so
- * `isIdentifierShaped` already refuses it.
- */
-const PATH_SEPARATOR = "/";
-
-/**
- * True when a string may name half of a record's address.
- *
- * Derived from the one grammar rather than declared as a second one: an address
- * component is an identifier that is additionally not path-shaped, so the charset
- * and the length ceiling are still written in exactly one place.
- */
-function isAddressComponentShaped(component: string): boolean {
-  return isIdentifierShaped(component) && !component.includes(PATH_SEPARATOR);
-}
-
-/** Why the chokepoint refused a write. Rendered verbatim; never swallowed. */
-export const PERSISTENCE_REFUSAL_CODES = [
-  "address-not-identifier-shaped",
-  "value-class-unknown",
-  "value-shape-invalid",
-  "value-not-identifier-shaped",
-  "value-too-large",
-  "adapter-unavailable",
-  "quota-exceeded",
-] as const;
-
-/** One refusal code. Derived, so the vocabulary is declared exactly once. */
-export type PersistenceRefusalCode = (typeof PERSISTENCE_REFUSAL_CODES)[number];
-
-/**
- * The subsystem name every refusal this family raises carries.
- *
- * `core/refusal.ts` gives `origin` as the field that lets a refusal surfacing
- * three layers from where it was raised still name its author. This is that name,
- * written once rather than spelled at each construction site.
- */
-export const PERSISTENCE_REFUSAL_ORIGIN = "persistence";
-
-/**
- * A typed refusal.
- *
- * The console's ONE refusal shape (`core/refusal.ts`), narrowed on `code` to the
- * closed union this family owns. Deliberately not a second refusal vocabulary:
- * that module's header states the arrangement — "each producer keeps its own
- * closed code union and widens into this shape at its boundary" — so a
- * persistence refusal satisfies `isConsoleRefusal` and renders through the same
- * three refusal renderings as every other one, instead of needing a translation
- * at every surface that wants to show two kinds of refusal at once.
- */
-export interface PersistenceRefusal extends ConsoleRefusal {
-  readonly code: PersistenceRefusalCode;
-}
-
-/**
- * Build one. THE constructor for this family — every refusal below and in the
- * three adapters comes through here, so `origin` is spelled once and no site can
- * ship a refusal that names nobody.
- *
- * Built by narrowing `core`'s `refuse` rather than by writing the same three
- * fields again. `refuse` types `code` as `string` because it serves every
- * family; this module knows its own closed vocabulary, so the spread re-narrows
- * it and the literal is written in exactly one place in the console.
- *
- * This import was type-only for one release of this file, to keep a runtime edge
- * out of `core/index.js` — whose barrel pulls `core/tripwires.ts`, whose module
- * body reads the build-time fixture gate — because the architecture tier
- * imported this module and declared no such gate. Both halves of that premise
- * are now gone: that tier reads source TEXT and imports no console module, and
- * it declares the gate its sibling tiers already did. A duplicated literal
- * outliving the constraint that caused it is how two sources of truth start.
- */
-export function refusePersistence(
-  code: PersistenceRefusalCode,
-  detail: string,
-): PersistenceRefusal {
-  return { ...refuse(PERSISTENCE_REFUSAL_ORIGIN, code, detail), code };
-}
 
 /** Values a persisted record may hold, before class validation. */
 export type PersistableValue =
@@ -369,46 +282,13 @@ export function validatePersistedValue(
 }
 
 /**
- * The chokepoint's OTHER validator: the record's address.
- *
- * `partition` and `key` are written to the record verbatim, so a caller that
- * derived either from participant- or machine-authored input would put prose, a
- * path, or a name into durable storage while handing the value check a perfectly
- * ordinary boolean. Validating one half of a record and copying the other half
- * through is not a chokepoint, it is a chokepoint on one field.
- *
- * A code of its own rather than a reuse of `value-not-identifier-shaped`: the
- * store counts refusals BY CODE for the diagnostics surface, and an operator
- * reading a count that named values while every one of them was an address would
- * go and audit the wrong half of every write.
- *
- * Neither component is echoed, only its length and which half it is — the
- * discipline `notIdentifier` already keeps, because a refusal that quotes the
- * prose it refused has carried that prose one layer further out than the store
- * that stopped it.
- */
-export function validatePersistedAddress(
-  partition: string,
-  key: string,
-): PersistenceRefusal | undefined {
-  const components = [
-    ["partition", partition],
-    ["key", key],
-  ] as const;
-  for (const [component, value] of components) {
-    if (!isAddressComponentShaped(value)) {
-      return refusePersistence(
-        "address-not-identifier-shaped",
-        `the record ${component} is not identifier-shaped (${String(value.length)} chars, ceiling ${String(IDENTIFIER_MAX_LENGTH)}, no path separator). A record address is an identifier; participant- and machine-authored content has no durable home in the renderer.`,
-      );
-    }
-  }
-  return undefined;
-}
-
-/**
  * THE byte measurement. Every cap the chokepoint applies is counted through this
  * one function, over the whole record rather than over its value alone.
+ *
+ * It sits with the value type it serialises rather than in a module of its own:
+ * `JSON.stringify` over a `PersistableValue` is the measurement, and a module
+ * holding the ruler while the thing being measured is declared next door would be
+ * two files for one fact.
  *
  * The address counts because it is stored: a cap that measured only the value
  * would let a caller spend the entire ceiling on the value and then a further

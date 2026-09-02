@@ -38,16 +38,25 @@ export const FIRST_RUN_SCENARIO: ConsoleScenario = {
   // first-run surface that could not resolve its own participant would render the
   // invite affordance as unavailable on the one screen whose whole job is to offer it.
   viewingParticipantId: PARTICIPANT_YOU,
+  // And their role, without which the identity above answers into an empty roster:
+  // the invite affordance this screen exists to offer is owner-gated, so a first-run
+  // console whose sole member resolved to no role would render the one control the
+  // whole surface is for as unavailable.
+  membershipRoleByParticipantId: { [PARTICIPANT_YOU]: "owner" },
   startedAtIso: "2026-01-01T09:00:00.000Z",
   beats: [
     {
       atMs: 0,
       event: {
+        // The daemon's own opaque row id for this event. Spelled as a UUID v7
+        // like every other identifier in this file, so a rendered id has the
+        // width a real one does.
+        id: "019b78c9-0a80-7ea1-8110-e5e0d1150001",
         sessionId: SESSION_ID,
         sequence: 1,
         kind: "session.created",
         occurredAt: "2026-01-01T09:00:00.000Z",
-        actorParticipantId: PARTICIPANT_YOU,
+        actorId: PARTICIPANT_YOU,
         payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
       },
     },

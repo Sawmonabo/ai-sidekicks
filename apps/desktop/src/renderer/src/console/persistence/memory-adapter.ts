@@ -24,7 +24,7 @@ import {
   type QuotaGauge,
   type StoredRecord,
 } from "./adapter.js";
-import { refusePersistence } from "./value-classes.js";
+import { refusePersistence } from "./refusals.js";
 
 export interface MemoryPersistenceAdapterOptions {
   /**

@@ -47,7 +47,7 @@ import type { ConsoleBridge } from "../bridge/index.js";
 import { type ConsoleRefusal } from "../core/index.js";
 import { Nothing, RefusalCard } from "../primitives/index.js";
 import type { SessionStore } from "../store/index.js";
-import { type SidebarSectionContext } from "../workspace/index.js";
+import { type SidebarSectionContext } from "../seats/index.js";
 import { EphemeralCloneCard } from "./EphemeralCloneCard.js";
 import { MountCard } from "./MountCard.js";
 import { useRepoMounts, type RepoMountsReading } from "./repo-mounts-reader.js";

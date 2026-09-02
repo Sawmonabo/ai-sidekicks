@@ -20,28 +20,33 @@ import type { ConsoleBridge } from "../../bridge/index.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { ATTACHMENT_ALLOWLIST_DEFAULT } from "../../repos/attachment-model.js";
-import { type ConsolePaneContext } from "../../workspace/index.js";
-import { ArtifactPane } from "./ArtifactPane.js";
+import { ArtifactPane, type ArtifactPaneProps } from "./ArtifactPane.js";
+
+/** This pane's own address arm, taken from the prop rather than restated. */
+type ArtifactPaneContext = ArtifactPaneProps["context"];
 
 /**
  * A pane context whose collaborators are never reached — `legacy-surfaces.test.ts`'s
  * cast, for its reason: the assertions are about what the address renders as. The
- * blocks that press a control pass a bridge and a session and reach both.
+ * blocks that press a control pass a bridge and a session and reach both. The ADDRESS
+ * half is not cast — the entity parameter is the arm's own, so a case handing this
+ * pane a subject an artifact pane is never opened over fails to compile here.
  */
 function contextFor(
-  entity: ConsolePaneContext["entity"],
+  entity: ArtifactPaneContext["entity"],
   reached: { readonly bridge?: ConsoleBridge; readonly sessionId?: string } = {},
-): ConsolePaneContext {
+): ArtifactPaneContext {
   return {
     kind: "artifact",
     entity,
     paneId: "pane-artifact-1",
     bridge: reached.bridge,
     sessionStore: reached.sessionId === undefined ? undefined : { sessionId: reached.sessionId },
-  } as unknown as ConsolePaneContext;
+  } as unknown as ArtifactPaneContext;
 }
 
 const ARTIFACT_ENTITY = { kind: "artifact", id: "artifact-diff-01" } as const;
+const OTHER_ARTIFACT_ENTITY = { kind: "artifact", id: "artifact-attachment-02" } as const;
 
 const SESSION_ID = "019b7b30-0280-7c11-8420-b1a5c0de2200";
 const ARTIFACT_ID = "019b7b30-0280-7c11-8420-b1a5c0de2201";
@@ -71,6 +76,21 @@ const PORT_REFUSAL = {
 
 const LISTED_ONE_ROW = { status: "served", value: [summary("published")] };
 
+/**
+ * One served READ, which is a manifest plus a way to reach the bytes.
+ *
+ * The reply NESTS the envelope rather than being it — a read carries the manifest
+ * beside a payload handle — so a case that answered with a bare summary would be
+ * scripting a shape the port never sends and this pane would compile against it. On
+ * the DEFERRED arm, which is what a metadata read lands on.
+ */
+function readAnswering(state: string): Record<string, unknown> {
+  return {
+    status: "served",
+    value: { manifest: summary(state), payloadHandle: `sha256:2b4c/${state}` },
+  };
+}
+
 interface ActScript {
   readonly readAnswer?: unknown;
   readonly deleteAnswer?: unknown;
@@ -96,7 +116,7 @@ function confirmDelete(getByRole: ReturnType<typeof render>["getByRole"]): void 
   fireEvent.click(getByRole("button", { name: "Delete permanently" }));
 }
 
-function renderPane(context: ConsolePaneContext): ReturnType<typeof render> {
+function renderPane(context: ArtifactPaneContext): ReturnType<typeof render> {
   // The announcer is the pane's environment rather than its dependency, and it runs
   // on a frozen clock so a settlement sentence stands until the case reads it.
   return render(
@@ -141,11 +161,14 @@ describe("artifact pane — chrome", () => {
     expect(subject?.getAttribute("title")).toBe(ARTIFACT_ENTITY.id);
   });
 
-  it("negative control: a pane with no entity renders no subject", () => {
-    // Without this, the case above would pass over a chrome that rendered the
-    // subject slot unconditionally with an empty string in it.
-    const { container } = renderPane(contextFor(undefined));
-    expect(container.querySelector(".meridian-repos-pane__subject")).toBeNull();
+  it("negative control: the subject is read from the address, not fixed", () => {
+    // Without this, the case above would pass over a chrome that rendered a constant.
+    // An artifact address always carries its artifact — the arm has no shape in which
+    // it is absent — so the honest control is a second subject rather than none.
+    const { container } = renderPane(contextFor(OTHER_ARTIFACT_ENTITY));
+    const subject = container.querySelector(".meridian-repos-pane__subject");
+    expect(subject?.textContent).toBe(OTHER_ARTIFACT_ENTITY.id);
+    expect(subject?.getAttribute("title")).toBe(OTHER_ARTIFACT_ENTITY.id);
   });
 
   it("offers one re-read control, keyboard-reachable and named", () => {
@@ -232,7 +255,7 @@ describe("artifact pane — reading one row's manifest", () => {
     const { container, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
         bridge: bridgeListing({
-          readAnswer: { status: "served", value: summary("superseded") },
+          readAnswer: readAnswering("superseded"),
         }),
         sessionId: SESSION_ID,
       }),
@@ -253,7 +276,7 @@ describe("artifact pane — reading one row's manifest", () => {
     const { container, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
         bridge: bridgeListing({
-          readAnswer: { status: "served", value: summary("superseded") },
+          readAnswer: readAnswering("superseded"),
         }),
         sessionId: SESSION_ID,
       }),

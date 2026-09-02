@@ -39,7 +39,9 @@ import {
   registerInlineAttachmentCardBody,
 } from "../panes/artifact/index.js";
 import { DiffPane, registerInlineDiffCardBody } from "../panes/diff/index.js";
-import { registerSidebarSection, type ConsolePaneRegistry } from "../workspace/index.js";
+import { refuse, type ConsoleRefusal } from "../core/index.js";
+import { RefusalCard } from "../primitives/index.js";
+import { registerSidebarSection, type ConsolePaneRegistry, type PaneKind } from "../seats/index.js";
 import { RepoSection } from "./RepoSection.js";
 
 /**
@@ -53,6 +55,32 @@ import { RepoSection } from "./RepoSection.js";
  * on whichever body was spelled differently.
  */
 const REPOS_FAMILY_OWNER = "repos";
+
+/** The subsystem a misaddressed-pane refusal names as its author. */
+const REPOS_PANES_ORIGIN = "repos-panes";
+
+/**
+ * What a pane body renders when the deck opens it at another kind's address.
+ *
+ * A REFUSAL RATHER THAN A THROW, on `core/refusal.ts`'s terms and for the deck's
+ * sake: one misrouted pane in a restored layout takes this card and every other pane
+ * in the deck still mounts, where an exception raised inside a render would take the
+ * whole surface down with it.
+ *
+ * Reachable only through a defect above this family — the registry resolves a
+ * descriptor BY kind and hands it the context it resolved on — which is exactly why
+ * it is a rendered sentence rather than a comment: `ConsolePaneAddress` narrows the
+ * entity with the kind, so a body cannot be typed on its own arm without the compiler
+ * asking what the other arms do here, and answering "nothing" would put a blank
+ * region on screen for a state a person cannot otherwise explain.
+ */
+function misaddressedPaneRefusal(expected: PaneKind, received: PaneKind): ConsoleRefusal {
+  return refuse(
+    REPOS_PANES_ORIGIN,
+    "pane-kind-mismatch",
+    `this body renders the ${expected} pane and the deck opened it at a ${received} address, so it has nothing to be a view of`,
+  );
+}
 
 /**
  * Fill the sidebar's repos section.
@@ -84,26 +112,34 @@ export function registerRepos(): void {
  * seat board's reason: a test composes the same bodies into a registry it owns, and
  * an auxiliary window composes a subset without a second code path.
  *
- * BOTH KINDS ANSWER `openInWindow: true`, and they answer it for the same reason
- * the two kinds that cannot are the ones that hold something a window move would
- * break. A diff and an artifact are read from the renderer's own state — no
- * main-process view, no process lease — so a tear-off carries nothing with it.
- * THAT IS THIS FAMILY'S OWN DECLARATION, and no committed document states it:
- * `Spec-023 §The surface set` names `timeline` and `agent-console` as the two panes
- * that get their own hardened window, so the flag here says only that neither of
- * these bodies would break if the seat board moved one.
+ * NEITHER KIND DECLARES A TEAR-OFF, because a descriptor cannot: whether a pane
+ * may be torn off is a property of the KIND, answered once by
+ * `isDetachablePaneKind` off the window model's own route set, and never a member
+ * a family fills in. `Spec-023 §The surface set` names `timeline` and
+ * `agent-console` as the two panes that get their own hardened window, so both of
+ * this family's kinds answer that predicate `false` — and they answer it in the
+ * one place that decides it rather than in six families' registrations.
  */
 export function registerReposPanes(registry: ConsolePaneRegistry): void {
   registry.register({
     kind: "diff",
     owner: REPOS_FAMILY_OWNER,
-    openInWindow: true,
-    render: (context) => createElement(DiffPane, { context }),
+    // The comparison narrows the address union to this kind's arm, which is what
+    // gives the body a required `entity` of the kinds a diff is opened over. It is a
+    // literal rather than a captured variable deliberately: a generic helper shared
+    // by both registrations would need a cast to narrow, and the cast is the thing
+    // the union was minted to remove.
+    render: (context) =>
+      context.kind === "diff"
+        ? createElement(DiffPane, { context })
+        : createElement(RefusalCard, misaddressedPaneRefusal("diff", context.kind)),
   });
   registry.register({
     kind: "artifact",
     owner: REPOS_FAMILY_OWNER,
-    openInWindow: true,
-    render: (context) => createElement(ArtifactPane, { context }),
+    render: (context) =>
+      context.kind === "artifact"
+        ? createElement(ArtifactPane, { context })
+        : createElement(RefusalCard, misaddressedPaneRefusal("artifact", context.kind)),
   });
 }

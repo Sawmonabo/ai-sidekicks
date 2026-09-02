@@ -52,6 +52,7 @@ import {
   IMPLEMENTER_RUN_ID,
   IMPLEMENTER_WORKTREE_ID,
   PARTICIPANT_YOU,
+  PINNED_ATTACHMENT_ID,
   PLAIN_MOUNT_ID,
   PLAIN_WORKSPACE_ID,
   REPOS_AGENTS,
@@ -78,6 +79,17 @@ export const REPOS_SESSION_ID: string = SESSION_ID;
 /** The run that published the diff and was then rewound. Same reason as above. */
 export const REPOS_IMPLEMENTER_RUN_ID: string = IMPLEMENTER_RUN_ID;
 
+/**
+ * The git mount's workspace — a subject a diff is opened over. Same reason as above.
+ *
+ * The pane surfaces are mounted at an ADDRESS now, and an address carries the entity
+ * the pane is a view of, so the tiers need a workspace this scenario actually states.
+ */
+export const REPOS_GIT_WORKSPACE_ID: string = GIT_WORKSPACE_ID;
+
+/** The pinned attachment — a subject the artifact pane is opened over. Same reason. */
+export const REPOS_PINNED_ARTIFACT_ID: string = PINNED_ATTACHMENT_ID;
+
 export const REPOS_SCENARIO: ConsoleScenario = {
   id: REPOS_SCENARIO_ID,
   label: "Two mounts",
@@ -89,13 +101,20 @@ export const REPOS_SCENARIO: ConsoleScenario = {
   // the join order — that entry is whoever opened the session, on whichever machine.
   // The fixture's caller-identity read answers from this field and from nothing else.
   viewingParticipantId: PARTICIPANT_YOU,
+  // And their role, without which the identity above answers into an empty roster and
+  // every role-gated control renders closed for a reason nothing checked — which on
+  // this family's surfaces is the whole proposal gate. ONE ENTRY, not three: the
+  // members of the session are exactly the keys here, and the two agents are ATTACHED
+  // rather than admitted, so they hold no membership and no role. `owner`, because
+  // this participant is the one who attached both repositories.
+  membershipRoleByParticipantId: { [PARTICIPANT_YOU]: "owner" },
   startedAtIso: REPOS_SCENARIO_STARTED_AT_ISO,
   beats: [
     reposBeat({
       atMs: 0,
       sequence: 1,
       kind: "session.created",
-      actorParticipantId: PARTICIPANT_YOU,
+      actorId: PARTICIPANT_YOU,
       // The registered shape, verbatim: the new session's id plus the resolved
       // config and metadata, both open records the corpus names no key inside. A
       // title is not on this wire.
@@ -107,7 +126,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
         sequence: FIRST_AGENT_SEQUENCE + agentIndex,
         kind: "agent.attached",
         // The person who attached the agent, not the agent.
-        actorParticipantId: PARTICIPANT_YOU,
+        actorId: PARTICIPANT_YOU,
         // The full persona plus the daemon-resolved state, so the `agents` projection
         // rebuilds from the log alone; `name` is the member — `displayName` is not on
         // this wire.
@@ -126,7 +145,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
       atMs: 200,
       sequence: 4,
       kind: "repo.attached",
-      actorParticipantId: PARTICIPANT_YOU,
+      actorId: PARTICIPANT_YOU,
       payload: { sessionId: SESSION_ID, repoMountId: GIT_MOUNT_ID, state: "attached" },
     }),
     // One workspace immediately after a successful attach, which is what
@@ -135,7 +154,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
       atMs: 260,
       sequence: 5,
       kind: "workspace.ready",
-      actorParticipantId: PARTICIPANT_YOU,
+      actorId: PARTICIPANT_YOU,
       payload: {
         sessionId: SESSION_ID,
         repoMountId: GIT_MOUNT_ID,
@@ -147,14 +166,14 @@ export const REPOS_SCENARIO: ConsoleScenario = {
       atMs: 420,
       sequence: 6,
       kind: "repo.attached",
-      actorParticipantId: PARTICIPANT_YOU,
+      actorId: PARTICIPANT_YOU,
       payload: { sessionId: SESSION_ID, repoMountId: PLAIN_MOUNT_ID, state: "attached" },
     }),
     reposBeat({
       atMs: 480,
       sequence: 7,
       kind: "workspace.ready",
-      actorParticipantId: PARTICIPANT_YOU,
+      actorId: PARTICIPANT_YOU,
       payload: {
         sessionId: SESSION_ID,
         repoMountId: PLAIN_MOUNT_ID,
@@ -170,7 +189,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
         atMs: 620 + agentIndex * 140,
         sequence: FIRST_WORKTREE_SEQUENCE + agentIndex * 2,
         kind: "worktree.created",
-        actorParticipantId: PARTICIPANT_YOU,
+        actorId: PARTICIPANT_YOU,
         payload: {
           sessionId: SESSION_ID,
           repoMountId: GIT_MOUNT_ID,
@@ -183,7 +202,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
         atMs: 700 + agentIndex * 140,
         sequence: FIRST_WORKTREE_SEQUENCE + agentIndex * 2 + 1,
         kind: "worktree.ready",
-        actorParticipantId: PARTICIPANT_YOU,
+        actorId: PARTICIPANT_YOU,
         payload: {
           sessionId: SESSION_ID,
           repoMountId: GIT_MOUNT_ID,
@@ -197,7 +216,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
       atMs: 900,
       sequence: 12,
       kind: "run.queued",
-      actorParticipantId: PARTICIPANT_YOU,
+      actorId: PARTICIPANT_YOU,
       // A run-lifecycle payload is a STATE TRANSITION carrying the progression
       // counter, not a bare id. `previousState` is absent here and only here: a
       // queued run is being born, and no document names a value for the state it
@@ -269,7 +288,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
       atMs: 1300,
       sequence: 16,
       kind: "diff.created",
-      actorParticipantId: AGENT_IMPLEMENTER,
+      actorId: AGENT_IMPLEMENTER,
       // `Spec-006 §Artifact and Diff Publication (artifact_publication)`'s family payload, verbatim:
       // `{sessionId, artifactId?, runId?, diffArtifactId?, visibility?, state}`. A
       // diff names itself through `diffArtifactId`; the base and head refs a diff
@@ -288,7 +307,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
         atMs: attachment.atMs,
         sequence: FIRST_ATTACHMENT_SEQUENCE + attachmentIndex,
         kind: "artifact.published",
-        actorParticipantId: PARTICIPANT_YOU,
+        actorId: PARTICIPANT_YOU,
         payload: {
           sessionId: SESSION_ID,
           artifactId: attachment.artifactId,
@@ -307,7 +326,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
       atMs: 1600,
       sequence: 20,
       kind: "pr.prepared",
-      actorParticipantId: AGENT_IMPLEMENTER,
+      actorId: AGENT_IMPLEMENTER,
       payload: {
         sessionId: SESSION_ID,
         diffArtifactId: DIFF_ARTIFACT_ID,
@@ -325,7 +344,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
       atMs: 1800,
       sequence: 21,
       kind: "run.rolled_back",
-      actorParticipantId: PARTICIPANT_YOU,
+      actorId: PARTICIPANT_YOU,
       payload: {
         sessionId: SESSION_ID,
         runId: IMPLEMENTER_RUN_ID,

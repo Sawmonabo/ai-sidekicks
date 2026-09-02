@@ -19,6 +19,14 @@
 
 export { PERSISTENCE_GLOBAL_PARTITION, SCHEME_PREFERENCE_KEY } from "./adapter.js";
 
+// The one grammar that tells an identifier from authored content, published because
+// a family above this one holds the SAME value to it. A pane address's entity id is
+// a string that reaches disk through this family's own value walk, so a boundary
+// parse that admitted a whitespace-, NUL-, or path-bearing id would accept what the
+// durable path refuses — one value, two boundaries, disagreeing. The alternative was
+// a second grammar in `seats/`, which is how two sources of truth start.
+export { IDENTIFIER_MAX_LENGTH, isSingleNameIdentifierShaped } from "./identifier-grammar.js";
+
 export { CONSOLE_DATABASE_NAME, UI_STATE_STORE_NAME } from "./indexeddb-adapter.js";
 
 export { MemoryPersistenceAdapter } from "./memory-adapter.js";

@@ -13,7 +13,7 @@ import {
   inlineCardBody,
   inlineCardSeatRegistry,
   type ArtifactInlineCardProps,
-} from "../../workspace/index.js";
+} from "../../seats/index.js";
 import { InlineArtifactCard, registerInlineArtifactCardBody } from "./InlineArtifactCard.js";
 
 const CARD: ArtifactInlineCardProps = {

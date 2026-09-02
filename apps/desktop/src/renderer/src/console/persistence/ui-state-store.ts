@@ -33,86 +33,47 @@
 //      around a database that is still opening, and every operation awaits that
 //      one resolution. See `UiStateStoreOptions.adapter` for why the alternative —
 //      begin on memory, swap in the durable adapter later — loses writes.
+//
+// The class decides WHETHER a write lands. What that decision meant — whether a
+// refusal was the caller's fault or the store's, which of them fires the tripwire,
+// and the counts an operator reads afterwards — is `store-health.ts`, held here as
+// one field. Two jobs, and the second one is wrong in a way the first cannot be:
+// a misfiled refusal sends an operator to audit the wrong half of every write while
+// the chokepoint itself behaved perfectly.
 
 import {
   PERSISTENCE_RECORD_BYTE_CAP,
   PERSISTENCE_SESSION_PARTITION_CAP,
   RealClock,
-  reportTripwire,
   type ConsoleClock,
 } from "../core/index.js";
 import {
   PERSISTENCE_GLOBAL_PARTITION,
   PersistenceAdapterError,
-  unmeasuredQuota,
   type PersistenceAdapter,
-  type PersistenceAdapterKind,
   type QuotaGauge,
   type StoredRecord,
 } from "./adapter.js";
+import { validatePersistedAddress } from "./identifier-grammar.js";
 import { MemoryPersistenceAdapter } from "./memory-adapter.js";
 import { openConsoleDatabase, type OpenConsoleDatabaseOptions } from "./indexeddb-adapter.js";
+import { refusePersistence, type PersistenceRefusal } from "./refusals.js";
+import {
+  PersistenceHealthLedger,
+  REFUSED_ADDRESS_SITE,
+  type PersistenceHealth,
+} from "./store-health.js";
 import {
   measureRecordByteLength,
-  refusePersistence,
-  validatePersistedAddress,
   validatePersistedValue,
   type PersistableValue,
   type PersistedValueClass,
-  type PersistenceRefusal,
-  type PersistenceRefusalCode,
 } from "./value-classes.js";
-
-/**
- * Which refusals mean the CALLER handed the store something it may not keep, as
- * opposed to the store failing to keep something legitimate.
- *
- * A total table over the closed code union rather than a disjunction inside an
- * `if`: the caller-fault half fires the `persistence-value-class` tripwire and the
- * other half deliberately does not — a full disk is nobody's defect. Written this
- * way so a new refusal code does not compile until somebody decides which side of
- * that line it falls on, which an `if` would have let it slip past silently.
- */
-const IS_CALLER_FAULT_REFUSAL: Readonly<Record<PersistenceRefusalCode, boolean>> = {
-  "address-not-identifier-shaped": true,
-  "value-class-unknown": true,
-  "value-shape-invalid": true,
-  "value-not-identifier-shaped": true,
-  "value-too-large": true,
-  "adapter-unavailable": false,
-  "quota-exceeded": false,
-};
-
-/**
- * The site a refused ADDRESS is reported under.
- *
- * Every other arm reports `partition/key`, which names the record the breach was
- * about. That is the one thing an address refusal cannot do: the address IS what
- * was wrong, and a tripwire report quoting it would carry the prose the store
- * just refused into the report — one layer further out than the chokepoint that
- * stopped it. The refusal's own detail names the offending component and its
- * length, which is what an author needs to find the call site.
- */
-const REFUSED_ADDRESS_SITE = "<address>";
 
 /** The outcome of a write. A refusal is a value, not an exception. */
 export type PersistenceWriteResult =
   | { readonly outcome: "written" }
   | { readonly outcome: "refused"; readonly refusal: PersistenceRefusal };
-
-/** What the diagnostics surface renders about storage. */
-export interface PersistenceHealth {
-  readonly adapterKind: PersistenceAdapterKind;
-  readonly durable: boolean;
-  readonly description: string;
-  readonly quota: QuotaGauge;
-  /** Writes refused since the window opened, by refusal code. */
-  readonly refusalCounts: Readonly<Record<string, number>>;
-  /** Reads that failed and returned "not loaded" rather than a value. */
-  readonly failedReadCount: number;
-  /** LRU trims performed under quota pressure. */
-  readonly trimCount: number;
-}
 
 export interface UiStateStoreOptions {
   /**
@@ -144,12 +105,8 @@ export class UiStateStore {
   readonly #sessionPartitionCap: number;
   readonly #recordByteCap: number;
   readonly #clock: ConsoleClock;
-  readonly #refusalCounts = new Map<string, number>();
-  #failedReadCount = 0;
-  #trimCount = 0;
+  readonly #health = new PersistenceHealthLedger();
   #closed = false;
-  // Not "0 of 0 bytes": nothing has been read yet, and the reason says so.
-  #lastQuota: QuotaGauge = unmeasuredQuota("not-attempted");
 
   public constructor(options: UiStateStoreOptions) {
     this.#adapterReady = Promise.resolve(options.adapter);
@@ -250,7 +207,7 @@ export class UiStateStore {
       } catch (trimFailure) {
         return this.#refuseAdapterFailure(trimFailure, site);
       }
-      this.#trimCount += freedPartitionCount;
+      this.#health.recordTrim(freedPartitionCount);
       if (freedPartitionCount === 0) {
         return this.#refuse(error.refusal, site);
       }
@@ -289,7 +246,7 @@ export class UiStateStore {
     try {
       return await (await this.#adapterReady).read(partition, key);
     } catch {
-      this.#failedReadCount += 1;
+      this.#health.recordFailedRead();
       return undefined;
     }
   }
@@ -303,7 +260,7 @@ export class UiStateStore {
     try {
       return await (await this.#adapterReady).readPartition(partition);
     } catch {
-      this.#failedReadCount += 1;
+      this.#health.recordFailedRead();
       return [];
     }
   }
@@ -312,28 +269,20 @@ export class UiStateStore {
     try {
       await (await this.#adapterReady).delete(partition, key);
     } catch {
-      this.#failedReadCount += 1;
+      this.#health.recordFailedRead();
     }
   }
 
   /** What the diagnostics surface renders. Refreshes the quota gauge. */
   public async health(): Promise<PersistenceHealth> {
     const adapter = await this.#adapterReady;
-    this.#lastQuota = await adapter.measureQuota();
-    return {
-      adapterKind: adapter.kind,
-      durable: adapter.durable,
-      description: adapter.describe(),
-      quota: this.#lastQuota,
-      refusalCounts: Object.fromEntries(this.#refusalCounts),
-      failedReadCount: this.#failedReadCount,
-      trimCount: this.#trimCount,
-    };
+    this.#health.recordQuota(await adapter.measureQuota());
+    return this.#health.snapshot(adapter);
   }
 
   /** The last gauge read, without touching storage. For a synchronous render. */
   public get lastQuota(): QuotaGauge {
-    return this.#lastQuota;
+    return this.#health.lastQuota;
   }
 
   /**
@@ -367,12 +316,7 @@ export class UiStateStore {
   }
 
   #refuse(refusal: PersistenceRefusal, site: string): PersistenceWriteResult {
-    this.#refusalCounts.set(refusal.code, (this.#refusalCounts.get(refusal.code) ?? 0) + 1);
-    if (IS_CALLER_FAULT_REFUSAL[refusal.code]) {
-      // A caller tried to put something the durable store may not hold. In dev this
-      // throws; in production it is reported and the write is refused.
-      reportTripwire("persistence-value-class", site, refusal.detail);
-    }
+    this.#health.recordRefusal(refusal, site);
     return { outcome: "refused", refusal };
   }
 
@@ -400,7 +344,9 @@ export class UiStateStore {
     if ((await this.#countSessionPartitions()) <= this.#sessionPartitionCap) {
       return;
     }
-    this.#trimCount += await (await this.#adapterReady).trimPartitions(this.#sessionPartitionCap);
+    this.#health.recordTrim(
+      await (await this.#adapterReady).trimPartitions(this.#sessionPartitionCap),
+    );
   }
 
   /** Session partitions only — the global one is never counted and never trimmed. */

@@ -44,7 +44,11 @@ import { waitFor, within } from "@testing-library/react";
 
 import { renderSettled } from "./console-harness.js";
 
-import { REPOS_SCENARIO } from "../../src/renderer/src/console/bridge/scenarios/repos.js";
+import {
+  REPOS_GIT_WORKSPACE_ID,
+  REPOS_PINNED_ARTIFACT_ID,
+  REPOS_SCENARIO,
+} from "../../src/renderer/src/console/bridge/scenarios/repos.js";
 import {
   createFixtureBridge,
   type ConsoleBridge,
@@ -73,7 +77,7 @@ import {
   type ConsolePaneContext,
   type PaneKind,
   type SidebarSectionContext,
-} from "../../src/renderer/src/console/workspace/index.js";
+} from "../../src/renderer/src/console/seats/index.js";
 
 /** The element a tier reads, and the bridge it was mounted against. */
 export interface MountedFamilySurface {
@@ -112,17 +116,32 @@ function paneBodyComponent(kind: PaneKind): (context: ConsolePaneContext) => Rea
   return descriptor.render;
 }
 
-/** The deck context a pane is mounted with, minus the parts each caller supplies. */
-function paneContext(
-  overrides: Pick<ConsolePaneContext, "kind" | "paneId" | "bridge" | "sessionStore">,
-): ConsolePaneContext {
+/**
+ * Everything a pane is bound to, beside the address it is opened at.
+ *
+ * READ OFF THE ARM THAT CARRIES NOTHING ELSE. `ConsolePaneContext` is the address
+ * union intersected with the binding, and `runs` is a session-scoped kind — so
+ * dropping its `kind` leaves exactly the binding half, derived rather than
+ * transcribed. Each mount states its own address, because an address now carries the
+ * entity its pane is a view of and no two panes are views of the same thing.
+ */
+type ConsolePaneBinding = Omit<Extract<ConsolePaneContext, { readonly kind: "runs" }>, "kind">;
+
+/** The deck bindings a pane is mounted with, minus the address each caller states. */
+function paneBinding(reached: {
+  readonly paneId: string;
+  readonly bridge: ConsoleBridge;
+  readonly sessionStore: SessionStore;
+}): ConsolePaneBinding {
   return {
-    entity: undefined,
+    paneId: reached.paneId,
+    bridge: reached.bridge,
+    sessionStore: reached.sessionStore,
     frameStore: new FrameStore(),
     uiStateStore: UiStateStore.opening(),
     draftStore: new DraftStore(),
+    linkedSourcePaneId: undefined,
     focusHue: undefined,
-    ...overrides,
   };
 }
 
@@ -271,12 +290,14 @@ export async function mountDiffPane(): Promise<MountedFamilySurface> {
   const DiffPaneBody = DiffPane;
   const { container } = await renderSettled(
     <DiffPaneBody
-      context={paneContext({
+      context={{
         kind: "diff",
-        paneId: "pane-diff-surface",
-        bridge,
-        sessionStore,
-      })}
+        // The scenario's own git workspace, which is what a diff over this session's
+        // work is a view of. Named from the scenario rather than spelled here, so the
+        // subject the tier pins and the subject the fixture states cannot drift.
+        entity: { kind: "workspace", id: REPOS_GIT_WORKSPACE_ID },
+        ...paneBinding({ paneId: "pane-diff-surface", bridge, sessionStore }),
+      }}
       diff={buildDiffFixture(SMALL_DIFF_SHAPE)}
     />,
   );
@@ -306,9 +327,13 @@ export async function mountArtifactPane(): Promise<MountedFamilySurface> {
   const ArtifactPaneBody = paneBodyComponent("artifact");
   const { container } = await renderSettled(
     <LiveAnnouncerProvider clock={new ManualClock()}>
-      {ArtifactPaneBody(
-        paneContext({ kind: "artifact", paneId: "pane-artifact-surface", bridge, sessionStore }),
-      )}
+      {ArtifactPaneBody({
+        kind: "artifact",
+        // The scenario's pinned attachment — a published artifact this session
+        // actually holds, on the diff pane's rule about naming its subject.
+        entity: { kind: "artifact", id: REPOS_PINNED_ARTIFACT_ID },
+        ...paneBinding({ paneId: "pane-artifact-surface", bridge, sessionStore }),
+      })}
     </LiveAnnouncerProvider>,
   );
   const region = requireLabelledRegion(container, "Artifact");

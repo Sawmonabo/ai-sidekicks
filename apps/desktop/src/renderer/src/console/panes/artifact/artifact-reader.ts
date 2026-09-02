@@ -197,9 +197,12 @@ export class ArtifactPaneReader {
     }
     this.#publish({
       ...this.#reading,
+      // The reply NESTS the envelope beside the payload members, so the row is built
+      // from `manifest` and not from the reply: a read is a manifest plus a way to
+      // reach the bytes, and this surface renders the first of those two.
       artifacts: withReplacedRow(
         this.#reading.artifacts,
-        artifactManifestRowFromSummary(answer.value),
+        artifactManifestRowFromSummary(answer.value.manifest),
       ),
       refusalByArtifactId: withoutRowRefusal(this.#reading.refusalByArtifactId, artifactId),
     });

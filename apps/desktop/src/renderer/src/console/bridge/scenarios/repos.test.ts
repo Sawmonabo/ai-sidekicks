@@ -52,6 +52,7 @@ describe("the repos scenario — every beat is a wire the daemon can emit", () =
         {
           atMs: 0,
           event: {
+            id: "9f2c4a10-0000-4000-8000-000100000001",
             sessionId: REPOS_SESSION_ID,
             sequence: 1,
             // `repo.mounted` reads exactly like the real thing and is not in the
@@ -75,6 +76,7 @@ describe("the repos scenario — every beat is a wire the daemon can emit", () =
         {
           atMs: 0,
           event: {
+            id: "9f2c4a10-0000-4000-8000-000100000001",
             sessionId: REPOS_SESSION_ID,
             sequence: 1,
             kind: "repo.attached",

@@ -21,7 +21,7 @@
 //
 // WHAT A FAMILY DOES NOT DO
 //
-// A family never edits `workspace/seats/pane-registry.ts` or `pane-kinds.ts`. The
+// A family never edits `seats/pane-registry.ts` or `seats/pane-kinds.ts`. The
 // pane-kind set is closed by `Spec-023 §Console Design (Meridian)` and widening it
 // is a spec amendment, not a console change; the registry is a shared spine, and a
 // six-way concurrent edit to one is a guaranteed conflict — or worse, a merge that
@@ -40,7 +40,7 @@
 // its own, the thing it is deciding belongs in the family that owns the decision.
 
 import { registerReposPanes } from "../repos/index.js";
-import type { ConsolePaneRegistry } from "../workspace/index.js";
+import type { ConsolePaneRegistry } from "../seats/index.js";
 
 /**
  * Register every shipped pane body against a registry.

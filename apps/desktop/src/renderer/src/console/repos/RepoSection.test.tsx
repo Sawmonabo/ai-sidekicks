@@ -16,7 +16,7 @@ import { REPOS_SCENARIO } from "../bridge/scenarios/repos.js";
 import { ManualClock } from "../core/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { SessionStore } from "../store/index.js";
-import type { SidebarSectionContext } from "../workspace/index.js";
+import type { SidebarSectionContext } from "../seats/index.js";
 import { RepoSection } from "./RepoSection.js";
 
 /** How long the section's read burst may take before a case gives up on it. */

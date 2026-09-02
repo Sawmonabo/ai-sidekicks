@@ -19,7 +19,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ConsolePaneRegistry, type PaneKind } from "../workspace/index.js";
+import { ConsolePaneRegistry, type PaneKind } from "../seats/index.js";
 import { registerConsolePanes } from "./index.js";
 
 declare global {
@@ -122,12 +122,7 @@ describe("pane seat board — composing it today", () => {
     // globally. A kind no seat claims, claimed here, must survive composition.
     const registry = new ConsolePaneRegistry();
     expect(registry.registeredPaneKinds()).toStrictEqual([]);
-    registry.register({
-      kind: "timeline",
-      owner: "panes-test",
-      render: () => null,
-      openInWindow: true,
-    });
+    registry.register({ kind: "timeline", owner: "panes-test", render: () => null });
     registerConsolePanes(registry);
     expect(registry.registeredPaneKinds()).toStrictEqual(["timeline", ...CLAIMED_PANE_KINDS]);
   });

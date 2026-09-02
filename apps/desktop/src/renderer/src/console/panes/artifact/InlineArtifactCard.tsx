@@ -42,7 +42,7 @@ import {
   artifactProducerLabel,
   artifactReplicationPresentation,
 } from "../../repos/artifact-model.js";
-import { registerInlineCardBody, type ArtifactInlineCardProps } from "../../workspace/index.js";
+import { registerInlineCardBody, type ArtifactInlineCardProps } from "../../seats/index.js";
 
 /** Who owns this body, for the seat registry's owner-scoped duplicate policy. */
 const INLINE_ARTIFACT_CARD_OWNER = "repos";

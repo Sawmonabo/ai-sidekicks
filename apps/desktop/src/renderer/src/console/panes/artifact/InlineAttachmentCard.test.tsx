@@ -13,7 +13,7 @@ import {
   inlineCardBody,
   inlineCardSeatRegistry,
   type AttachmentInlineCardProps,
-} from "../../workspace/index.js";
+} from "../../seats/index.js";
 import { InlineAttachmentCard, registerInlineAttachmentCardBody } from "./InlineAttachmentCard.js";
 
 const CARD: AttachmentInlineCardProps = {

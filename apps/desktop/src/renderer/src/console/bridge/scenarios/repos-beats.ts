@@ -13,9 +13,15 @@
 // nothing would have caught it. `scenarioInstant` derives the stamp from the tick, so
 // there is one clock and one place to read it.
 //
-// It is also what keeps a wire rename cheap. `actorParticipantId` is the envelope's
-// member and appears exactly once below, so a rename of it edits one line rather than
-// one line per beat.
+// It is also what keeps a wire rename cheap. `actorId` is the envelope's member and
+// appears exactly once below, so a rename of it edits one line rather than one line
+// per beat — which is what the rename from `actorParticipantId` cost.
+//
+// AND IT IS WHERE THE EVENT'S OWN ID COMES FROM. The canonical envelope names the row
+// as well as its position, so every beat carries one; deriving it from `sequence`
+// here keeps the two facts that must agree in one place, exactly as `occurredAt` is
+// derived from `atMs`. A hand-written id per beat would be a second numbering of the
+// log, and two numberings of one thing is what this module exists to prevent.
 //
 // WHAT THIS DELIBERATELY DOES NOT OWN. The `payload` is passed through untouched.
 // Each family's payload is a different registered shape and `repos.ts` transcribes
@@ -26,6 +32,18 @@
 import type { ScenarioBeat } from "../scenario.js";
 
 import { SESSION_ID } from "./repos-fixture-data.js";
+
+/**
+ * The event-row id for one log position.
+ *
+ * UUID-shaped for `repos-fixture-data.ts`'s reason — every identifier this scenario
+ * puts on the wire is a value the wire can carry — and drawn from the same
+ * `9f2c4a10-…` family, in a block no entity in the cast occupies. The position is the
+ * variable part, so a beat's row id and its log position cannot disagree.
+ */
+function reposEventId(sequence: number): string {
+  return `9f2c4a10-0000-4000-8000-0001${String(sequence).padStart(8, "0")}`;
+}
 
 /**
  * The instant the scenario's own clock starts at.
@@ -62,7 +80,7 @@ export interface ReposBeatScript {
    * Omitted where the DAEMON made the move — a participant id on a system transition
    * would attribute the daemon's decision to a person.
    */
-  readonly actorParticipantId?: string;
+  readonly actorId?: string;
   /** The registered family payload, transcribed verbatim by the caller. */
   readonly payload: Readonly<Record<string, unknown>>;
 }
@@ -72,13 +90,12 @@ export function reposBeat(script: ReposBeatScript): ScenarioBeat {
   return {
     atMs: script.atMs,
     event: {
+      id: reposEventId(script.sequence),
       sessionId: SESSION_ID,
       sequence: script.sequence,
       kind: script.kind,
       occurredAt: scenarioInstant(script.atMs),
-      ...(script.actorParticipantId === undefined
-        ? {}
-        : { actorParticipantId: script.actorParticipantId }),
+      ...(script.actorId === undefined ? {} : { actorId: script.actorId }),
       payload: script.payload,
     },
   };

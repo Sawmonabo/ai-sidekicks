@@ -28,16 +28,17 @@
 // below is the whole contact surface.
 //
 // WHAT THE SEAT HANDS OVER, AND WHAT IT CANNOT. `DiffInlineCardProps` carries a
-// `runId` and a `changeSetId` and no diff, because there is no wire to fetch one
-// with — `gitflow.diffArtifactCreate` is a `Plan-023 §Console growth slate` row
-// and the growth port registers no operation for it. So the registered body
+// `runId`, the `diffArtifactId` the registered diff result names itself by, and the
+// `artifactManifestId` that diff minted — and no diff, because there is no wire to
+// fetch one with: `gitflow.diffArtifactCreate` is a `Plan-023 §Console growth slate`
+// row and the growth port registers no operation for it. So the registered body
 // renders the honest absence, and the `diff` prop is the seam the fetch lands on
 // the day the wire exists. Nothing here fabricates a method name to call.
 
 import { useId, useRef, useState } from "react";
 
 import { Glyph, Nothing } from "../../primitives/index.js";
-import { registerInlineCardBody, type DiffInlineCardProps } from "../../workspace/index.js";
+import { registerInlineCardBody, type DiffInlineCardProps } from "../../seats/index.js";
 import { INLINE_DIFF_CARD_HEIGHT_CAP_PX } from "./diff-bounds.js";
 import { DiffRenderer } from "./DiffRenderer.js";
 import { useDiffViewControls } from "./DiffToolbar.js";
@@ -77,11 +78,13 @@ export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
           <Glyph name="diff" size={INLINE_DIFF_CARD_GLYPH_SIZE} />
           Diff
         </h4>
-        {/* Wire-verbatim, and the change set rather than the run: the run is the
-            row's own subject and repeating it here would say nothing the ledger
-            has not already said one line above. */}
-        <span className="meridian-diff-card__change-set" title={props.card.changeSetId}>
-          {props.card.changeSetId}
+        {/* Wire-verbatim, and the diff rather than the run: the run is the row's own
+            subject and repeating it here would say nothing the ledger has not already
+            said one line above. The manifest id is not rendered beside it — it is the
+            provenance and retention of the same object, which is a reading the
+            artifact surfaces do, not a second name for what this card shows. */}
+        <span className="meridian-diff-card__change-set" title={props.card.diffArtifactId}>
+          {props.card.diffArtifactId}
         </span>
         <button
           type="button"
@@ -101,7 +104,7 @@ export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
               kind="not-checked"
               placement="surface"
               title="This diff has not been read."
-              detail="The change set is named on the turn that produced it, and the read that fetches its lines is not registered on the bridge yet."
+              detail="The diff is named on the turn that produced it, and the read that fetches its lines is not registered on the bridge yet."
             />
           ) : (
             <>
