@@ -19,10 +19,18 @@
 //     document. Both the sizer's height and each row's transform are written by the
 //     virtualizer DIRECTLY, under `directDomUpdates` — which is why neither appears
 //     in the style objects below and why writing one here would fight it.
-//   • **`role="feed"`, and rows that are `<article>`s.** The log grows at one end
-//     while a person reads the other, which is exactly what a feed is. `LedgerRow`
-//     renders an `<article>`, so the nesting is valid without this file asserting
-//     anything about what a row body draws.
+//   • **`role="feed"`, and rows that ARE articles, declared here.** The log grows at
+//     one end while a person reads the other, which is exactly what a feed is. The
+//     role's required-children relationship is satisfied by the row box BELOW, not
+//     by whatever a row body happens to draw: the body arrives through a seat a
+//     different family fills, so resting a WCAG-required structural relationship on
+//     it would be fail-OPEN — the feed would stay valid only for as long as that
+//     family kept rendering an `<article>`, and would break silently the day it
+//     stopped. The element that declares `role="feed"` owns the guarantee.
+//
+//     The sizer between them is `role="presentation"`: it is pure geometry whose
+//     height the virtualizer writes, it names nothing, and left in the tree it
+//     stands between the feed and the rows it is supposed to own.
 //
 // `Spec-023 §Console Design (Meridian)` §5.6: "Attention is steered by luminance,
 // never by motion spikes." A lane taking catch-up rate is marked with a class the
@@ -72,15 +80,29 @@ export function LedgerViewport(props: LedgerViewportProps): React.JSX.Element {
       <div
         className="meridian-ledger-viewport__surface"
         ref={binding.attachSurface}
-        role="feed"
-        aria-label={props.feedLabel}
-        aria-busy={props.hasActiveTurn ?? false}
+        // The feed role is claimed only while there is something to be a feed OF.
+        // `feed` REQUIRES owned articles, so an empty one is not a quieter feed but
+        // an invalid one — and a role whose contract the element is breaking is
+        // worse for a screen-reader user than the plain scroll container this
+        // honestly is until the first row lands. The label and the busy state go
+        // with it: both describe the feed, and neither has a subject without it.
+        {...(snapshot.rows.length === 0
+          ? {}
+          : {
+              role: "feed",
+              "aria-label": props.feedLabel,
+              "aria-busy": props.hasActiveTurn ?? false,
+            })}
         // Focusable so the log is reachable and scrollable from the keyboard: a
         // scroll container with no focusable child is unreachable by Tab, and the
         // reading anchor is a promise made to somebody who can get here.
         tabIndex={0}
       >
-        <div className="meridian-ledger-viewport__sizer" ref={binding.attachSizer}>
+        <div
+          className="meridian-ledger-viewport__sizer"
+          ref={binding.attachSizer}
+          role="presentation"
+        >
           {binding.virtualItems.map((virtualItem) => {
             const row = snapshot.rows[virtualItem.index];
             return row === undefined ? null : (
@@ -88,6 +110,7 @@ export function LedgerViewport(props: LedgerViewportProps): React.JSX.Element {
                 key={virtualItem.key}
                 rowIndex={virtualItem.index}
                 row={row}
+                rowCount={snapshot.rows.length}
                 renderRow={props.renderRow}
                 attachRow={binding.attachRow}
               />
@@ -112,6 +135,8 @@ export function LedgerViewport(props: LedgerViewportProps): React.JSX.Element {
 interface LedgerRowMountProps {
   /** The virtualizer reads this back off the element to identify the row. */
   readonly rowIndex: number;
+  /** How long the whole log is — not how many rows are mounted. See `aria-setsize`. */
+  readonly rowCount: number;
   readonly row: LedgerViewportRow;
   readonly renderRow: LedgerRowRenderer;
   readonly attachRow: (element: HTMLElement | null) => void;
@@ -135,6 +160,12 @@ const LedgerRowMount = memo(function LedgerRowMount(props: LedgerRowMountProps):
       className="meridian-ledger-viewport__row"
       data-index={props.rowIndex}
       ref={props.attachRow}
+      role="article"
+      // Only the rows near the fold exist in the document, so without these two a
+      // reader is told they are on entry 3 of 9 in a log of nine thousand. They are
+      // one-based because ARIA counts from one and the virtualizer counts from zero.
+      aria-posinset={props.rowIndex + 1}
+      aria-setsize={props.rowCount}
     >
       <LedgerRowGroup groupLabel="This entry">{props.renderRow(props.row)}</LedgerRowGroup>
     </div>
