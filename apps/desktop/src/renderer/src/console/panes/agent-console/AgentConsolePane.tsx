@@ -27,13 +27,12 @@
 //   • **Peers and linkage** — the session-scoped peer-invocation grant, and what this
 //     agent's newest run started or was refused.
 
-import { useCallback, useMemo, useReducer, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import {
   PeerInvocation,
   RunLinkage,
   SIDEKICK_DEFINITION_EDITOR_SLOT,
-  newestRunIdForAgent,
   useAgentConsoleModels,
   type AgentConsoleModels,
 } from "../../agents/index.js";
@@ -44,6 +43,8 @@ import { renderAbsorbedNodeRoster } from "../../frame/legacy-surfaces.js";
 import { Nothing, WireFigure } from "../../primitives/index.js";
 import type { SessionStore } from "../../store/index.js";
 import { AgentBindingColumn } from "./AgentBindingColumn.js";
+import { useNewestRunIdForAgent } from "./agent-run-linkage.js";
+import { usePeerInvocationEnabled, useSessionProjectionReRead } from "./session-projection.js";
 
 /** Names a peer-invocation failure the thrown value carried no refusal for. */
 const PEER_INVOCATION_ORIGIN = "peer-invocation";
@@ -118,7 +119,11 @@ export function AgentConsolePane(props: AgentConsolePaneProps): React.JSX.Elemen
 
         <div className="meridian-agent-console__column" aria-label="Peers and linkage">
           <h3 className="meridian-agent-console__column-title">Peers and linkage</h3>
-          <PeerInvocationMount models={models} sessionStore={props.sessionStore} />
+          <PeerInvocationMount
+            models={models}
+            bridge={props.bridge}
+            sessionStore={props.sessionStore}
+          />
           <RunLinkageMount
             models={models}
             sessionStore={props.sessionStore}
@@ -134,32 +139,57 @@ export function AgentConsolePane(props: AgentConsolePaneProps): React.JSX.Elemen
  * The peer-invocation grant, projected rather than remembered.
  *
  * The value comes from the session's own projection, and its ABSENCE from that
- * projection is the third state the control renders as unknown — the member is not on
- * the shipped session read, so a session that has the capability enabled looks
+ * projection is the third state the control renders as unknown — the member is not
+ * on the shipped session read, so a session that has the capability enabled looks
  * identical here to one that does not, and saying "off" would be the one wrong
- * answer. The re-read re-derives from the store rather than issuing a second read,
- * because the store IS the console's copy of that projection.
+ * answer. The re-read therefore has to be a real read: it asks the daemon again
+ * through the refresh chokepoint and its reply lands in the store, whose session
+ * partition this mount is subscribed to — so a member the daemon now serves
+ * appears without anything here holding a second copy of it.
  */
 function PeerInvocationMount(props: {
   readonly models: AgentConsoleModels | undefined;
+  readonly bridge: ConsoleBridge | undefined;
   readonly sessionStore: SessionStore | undefined;
 }): React.JSX.Element {
-  const [projectionRevision, noteReRead] = useReducer((reads: number) => reads + 1, 0);
-  const [refusal, setRefusal] = useState<ConsoleRefusal | undefined>(undefined);
-  const [servedEnabled, setServedEnabled] = useState<boolean | undefined>(undefined);
-  const { sessionStore, models } = props;
+  const { bridge, models, sessionStore } = props;
+  if (sessionStore === undefined) {
+    // No store means no partition to subscribe to and nothing for a re-read to
+    // land in, so the control is mounted without either and its recovery answers
+    // with the refusal that says so.
+    return <PeerInvocationControl models={models} bridge={bridge} projectedEnabled={undefined} />;
+  }
+  return <SubscribedPeerInvocation models={models} bridge={bridge} sessionStore={sessionStore} />;
+}
 
-  const projectedEnabled = useMemo(() => {
-    void projectionRevision;
-    if (sessionStore === undefined) {
-      return undefined;
-    }
-    const projected =
-      sessionStore.snapshot().partitions.session[sessionStore.sessionId]?.body?.[
-        "peerInvocationEnabled"
-      ];
-    return typeof projected === "boolean" ? projected : undefined;
-  }, [sessionStore, projectionRevision]);
+/** The mounted arm, where a store exists and its partition subscription may run. */
+function SubscribedPeerInvocation(props: {
+  readonly models: AgentConsoleModels | undefined;
+  readonly bridge: ConsoleBridge | undefined;
+  readonly sessionStore: SessionStore;
+}): React.JSX.Element {
+  const projectedEnabled = usePeerInvocationEnabled(props.sessionStore);
+  return (
+    <PeerInvocationControl
+      models={props.models}
+      bridge={props.bridge}
+      sessionStore={props.sessionStore}
+      projectedEnabled={projectedEnabled}
+    />
+  );
+}
+
+/** The control itself: the projected grant, the mutation, and the re-read. */
+function PeerInvocationControl(props: {
+  readonly models: AgentConsoleModels | undefined;
+  readonly bridge: ConsoleBridge | undefined;
+  readonly sessionStore?: SessionStore | undefined;
+  readonly projectedEnabled: boolean | undefined;
+}): React.JSX.Element {
+  const { bridge, models, projectedEnabled, sessionStore } = props;
+  const [mutationRefusal, setMutationRefusal] = useState<ConsoleRefusal | undefined>(undefined);
+  const [servedEnabled, setServedEnabled] = useState<boolean | undefined>(undefined);
+  const reRead = useSessionProjectionReRead(bridge, sessionStore);
 
   const setEnabled = useCallback(
     (enabled: boolean): void => {
@@ -172,10 +202,10 @@ function PeerInvocationMount(props: {
         // value that was asked for.
         .then((reply) => {
           setServedEnabled(reply.enabled);
-          setRefusal(undefined);
+          setMutationRefusal(undefined);
         })
         .catch((error: unknown) => {
-          setRefusal(consoleRefusalFrom(error, PEER_INVOCATION_ORIGIN));
+          setMutationRefusal(consoleRefusalFrom(error, PEER_INVOCATION_ORIGIN));
         });
     },
     [models],
@@ -185,8 +215,12 @@ function PeerInvocationMount(props: {
     <PeerInvocation
       enabled={servedEnabled ?? projectedEnabled}
       onSetEnabled={setEnabled}
-      onReRead={noteReRead}
-      refusal={refusal}
+      onReRead={reRead.requestReRead}
+      // The two refusals are reachable from different states of this control — the
+      // switch is drawn only where the grant is known and the re-read is offered
+      // only where it is not — so the mutation's is preferred without either ever
+      // hiding the other in practice.
+      refusal={mutationRefusal ?? reRead.refusal}
     />
   );
 }
@@ -205,12 +239,23 @@ function RunLinkageMount(props: {
   readonly agentId: string | undefined;
 }): React.JSX.Element {
   const { models, sessionStore, agentId } = props;
-  const parentRunId =
-    sessionStore === undefined ? undefined : newestRunIdForAgent(sessionStore, agentId);
-  if (models === undefined || parentRunId === undefined) {
+  if (models === undefined || sessionStore === undefined) {
     return <RunLinkage parentRunId={undefined} state={undefined} />;
   }
-  return <ResolvedRunLinkage models={models} parentRunId={parentRunId} />;
+  return <SubscribedRunLinkage models={models} sessionStore={sessionStore} agentId={agentId} />;
+}
+
+/** The subscribed arm: the linkage is re-keyed whenever the run partition moves. */
+function SubscribedRunLinkage(props: {
+  readonly models: AgentConsoleModels;
+  readonly sessionStore: SessionStore;
+  readonly agentId: string | undefined;
+}): React.JSX.Element {
+  const parentRunId = useNewestRunIdForAgent(props.sessionStore, props.agentId);
+  if (parentRunId === undefined) {
+    return <RunLinkage parentRunId={undefined} state={undefined} />;
+  }
+  return <ResolvedRunLinkage models={props.models} parentRunId={parentRunId} />;
 }
 
 /** The mounted arm, where both halves exist and the read's hook may run. */
