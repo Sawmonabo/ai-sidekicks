@@ -2,9 +2,13 @@
 //
 // The fold is the interesting half. The goal is a projection of the log rather than
 // a stored value, so "what is the goal" has exactly one right answer — whatever the
-// latest goal event says — and three ways to get it wrong: read the first event
-// instead of the last, treat a clear as an update, or read a malformed payload as
-// an empty goal. One case each below.
+// event AUTHORED last says — and four ways to get it wrong: read the first event
+// instead of the newest, take the newest local position instead of the newest
+// reading, treat a clear as an update, or read a malformed payload as an empty
+// goal. One case each below, plus the cross-node cases the local-position fold got
+// wrong: a delayed update arriving after one authored earlier, a clear and an
+// update competing in either direction, an exact-instant tie, and a stamp that does
+// not parse.
 
 import { describe, expect, it } from "vitest";
 
@@ -18,22 +22,34 @@ import {
   sessionGoalTextSchema,
 } from "./session-goal.js";
 
+/**
+ * One timeline entry.
+ *
+ * `occurredAt` defaults to a single instant so the cases that are only about kind
+ * and payload say nothing about time; the cross-node cases pass their own, which is
+ * the whole point of those cases.
+ */
 function event(
   sequence: number,
   kind: string,
   payload?: Readonly<Record<string, unknown>>,
+  occurredAt = "2026-01-01T00:00:00.000Z",
 ): ConsoleSessionEvent {
   return {
     sessionId: "session-one",
     sequence,
     kind,
-    occurredAt: "2026-01-01T00:00:00.000Z",
+    occurredAt,
     ...(payload === undefined ? {} : { payload }),
   };
 }
 
-function goalUpdate(sequence: number, text: string): ConsoleSessionEvent {
-  return event(sequence, "session.goal_updated", { goal: { text } });
+function goalUpdate(sequence: number, text: string, occurredAt?: string): ConsoleSessionEvent {
+  return event(sequence, "session.goal_updated", { goal: { text } }, occurredAt);
+}
+
+function goalClear(sequence: number, occurredAt?: string): ConsoleSessionEvent {
+  return event(sequence, "session.goal_cleared", undefined, occurredAt);
 }
 
 describe("two operations, never one", () => {
@@ -90,7 +106,10 @@ describe("the fold answers what the log says", () => {
   });
 
   it("treats a later clear as a clear rather than as an absent update", () => {
-    const goal = foldSessionGoal([goalUpdate(1, "first goal"), event(2, "session.goal_cleared")]);
+    const goal = foldSessionGoal([
+      goalUpdate(1, "first goal", "2026-01-01T00:00:00.000Z"),
+      goalClear(2, "2026-01-01T00:00:01.000Z"),
+    ]);
     expect(goal).toStrictEqual({ status: "none" });
   });
 
@@ -111,5 +130,67 @@ describe("the fold answers what the log says", () => {
     // every case above and still be wrong on the ordinary session.
     const goal = foldSessionGoal([goalUpdate(1, "the goal"), event(2, "assistant.message")]);
     expect(goal).toStrictEqual({ status: "set", text: "the goal" });
+  });
+});
+
+// The register's winner is the newest READING, not the newest arrival. A relayed
+// event takes its local sequence when it lands here, so a delayed one can sit at a
+// higher position than the event it preceded. Every case below is one the fold that
+// stopped at the newest local position answered wrong.
+describe("the fold ranks readings rather than arrivals", () => {
+  it("takes the later instant when it was delivered first", () => {
+    // Negative control on the old fold: it returned the earlier instant's text,
+    // because that event carries the higher local sequence.
+    const goal = foldSessionGoal([
+      goalUpdate(1, "authored later", "2026-01-01T00:00:09.000Z"),
+      goalUpdate(2, "authored earlier", "2026-01-01T00:00:01.000Z"),
+    ]);
+    expect(goal).toStrictEqual({ status: "set", text: "authored later" });
+  });
+
+  it("lets a clear beat an earlier update and an update beat an earlier clear", () => {
+    const clearWins = foldSessionGoal([
+      goalClear(1, "2026-01-01T00:00:09.000Z"),
+      goalUpdate(2, "authored earlier", "2026-01-01T00:00:01.000Z"),
+    ]);
+    expect(clearWins).toStrictEqual({ status: "none" });
+
+    const updateWins = foldSessionGoal([
+      goalUpdate(1, "authored later", "2026-01-01T00:00:09.000Z"),
+      goalClear(2, "2026-01-01T00:00:01.000Z"),
+    ]);
+    expect(updateWins).toStrictEqual({ status: "set", text: "authored later" });
+  });
+
+  it("breaks an exact-instant tie on the higher local sequence", () => {
+    // The only order the renderer has below the instant: the store's projected
+    // event shape carries no envelope id to break it on.
+    const goal = foldSessionGoal([
+      goalUpdate(7, "arrived first", "2026-01-01T00:00:05.000Z"),
+      goalUpdate(8, "arrived second", "2026-01-01T00:00:05.000Z"),
+    ]);
+    expect(goal).toStrictEqual({ status: "set", text: "arrived second" });
+  });
+
+  it("reports the winner's unreadable payload rather than the loser's readable one", () => {
+    const goal = foldSessionGoal([
+      goalUpdate(1, "readable but older", "2026-01-01T00:00:01.000Z"),
+      event(2, "session.goal_updated", undefined, "2026-01-01T00:00:09.000Z"),
+    ]);
+    expect(goal).toStrictEqual({ status: "unreadable" });
+  });
+
+  it("never lets an unreadable stamp beat a readable one, in either arrival order", () => {
+    const unreadableArrivesLast = foldSessionGoal([
+      goalUpdate(1, "readable stamp", "2026-01-01T00:00:01.000Z"),
+      goalUpdate(2, "unreadable stamp", "whenever"),
+    ]);
+    expect(unreadableArrivesLast).toStrictEqual({ status: "set", text: "readable stamp" });
+
+    const unreadableArrivesFirst = foldSessionGoal([
+      goalUpdate(1, "unreadable stamp", "whenever"),
+      goalUpdate(2, "readable stamp", "2026-01-01T00:00:01.000Z"),
+    ]);
+    expect(unreadableArrivesFirst).toStrictEqual({ status: "set", text: "readable stamp" });
   });
 });
