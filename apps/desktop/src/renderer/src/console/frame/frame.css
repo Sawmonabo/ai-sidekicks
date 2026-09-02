@@ -245,7 +245,13 @@
   letter-spacing: -0.01em;
 }
 
-.meridian-context-picker__list {
+/* --- Open-session list -------------------------------------------------- */
+
+/* One list, two surfaces: the picker asks which session an auxiliary window should
+   follow, and the sessions destination offers the same set to open in place. Both
+   render the identical row, so the row is styled once. */
+
+.meridian-open-sessions {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-2);
@@ -254,7 +260,7 @@
   list-style: none;
 }
 
-.meridian-context-picker__choice {
+.meridian-open-sessions__choice {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-1);
@@ -270,21 +276,55 @@
   transition: border-color var(--meridian-motion-quick) var(--meridian-ease-settle);
 }
 
-.meridian-context-picker__choice:hover {
+.meridian-open-sessions__choice:hover {
   border-color: var(--meridian-edge-strong);
 }
 
-.meridian-context-picker__choice:focus-visible {
+.meridian-open-sessions__choice:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
 }
 
-.meridian-context-picker__title {
-  font-weight: 600;
+/* --- Sessions destination ----------------------------------------------- */
+
+.meridian-sessions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--meridian-space-4);
+  max-width: 40rem;
+  margin: var(--meridian-space-8) auto;
+  padding-inline: var(--meridian-space-4);
 }
 
-.meridian-context-picker__detail {
-  font-family: var(--meridian-font-mono);
-  font-size: var(--meridian-text-sm);
-  color: var(--meridian-text-muted);
+.meridian-sessions__heading {
+  margin: 0;
+  font-size: var(--meridian-text-xl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* The list is the one block that fills the measure; everything else on this
+   surface sits at its start edge. */
+.meridian-sessions .meridian-open-sessions {
+  align-self: stretch;
+}
+
+.meridian-sessions__start {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+  font: inherit;
+  cursor: default;
+}
+
+.meridian-sessions__start:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-sessions__started {
+  align-self: stretch;
 }

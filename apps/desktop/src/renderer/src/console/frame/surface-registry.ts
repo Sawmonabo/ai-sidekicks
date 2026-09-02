@@ -13,7 +13,7 @@
 
 import { KeyedRegistry } from "../core/index.js";
 import { type ConsoleBridge } from "../bridge/index.js";
-import { type FrameStore, type SessionStore } from "../store/index.js";
+import { type FrameStore, type SessionStore, type SessionStoreRegistry } from "../store/index.js";
 import { type DraftStore, type UiStateStore } from "../persistence/index.js";
 import type { ConsoleRoute } from "../routing/index.js";
 
@@ -44,6 +44,12 @@ export interface ConsoleSurfaceContext {
   readonly frameStore: FrameStore;
   /** The session store for the route's session, or `undefined` on a bare route. */
   readonly sessionStore: SessionStore | undefined;
+  /**
+   * Every session this window has open — the only session set the renderer can
+   * name, since no bridge member lists a node's sessions. A surface that has to
+   * OFFER sessions reads it; a surface that renders one reads `sessionStore`.
+   */
+  readonly sessionStoreRegistry: SessionStoreRegistry;
   readonly uiStateStore: UiStateStore;
   readonly draftStore: DraftStore;
 }

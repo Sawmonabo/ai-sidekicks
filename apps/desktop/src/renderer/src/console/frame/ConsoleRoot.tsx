@@ -268,6 +268,7 @@ function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
     bridge: props.bridge,
     frameStore,
     sessionStore,
+    sessionStoreRegistry,
     uiStateStore,
     draftStore,
   };

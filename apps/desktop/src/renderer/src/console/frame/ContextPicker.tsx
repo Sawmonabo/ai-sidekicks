@@ -6,33 +6,37 @@
 // what to show. `Spec-023 §Console Design (Meridian)` §The surface set gives that
 // case a picker.
 //
-// Getting this wrong is the difference between a window that feels finished and one
-// that feels broken, so the distinctions are worth stating:
+// WHERE THE CANDIDATES COME FROM, AND WHY THERE IS NO "LOADING" STATE.
 //
-//   • No sessions have loaded yet → the "not loaded" kind of nothing.
-//   • Sessions loaded and there are none → the "empty" kind, with the action that
-//     would create one.
-//   • Sessions loaded and there are some → the picker.
+// There is no session-DIRECTORY read anywhere on the wire: no `SidekicksBridge`
+// member lists the sessions on a node, and `Plan-023 §Console growth slate` carries
+// no row for one either. The one session set this renderer can name is the set this
+// window has open, which `SessionStoreRegistry` owns and answers SYNCHRONOUSLY.
 //
-// A single "nothing to show" state for all three would be the conflation the five
-// kinds of nothing exist to prevent.
+// That is why the third state this file used to carry is gone rather than
+// re-plumbed. It read its candidates off `context.sessionStore` — the store for the
+// route's OWN session — which on a bare route is `undefined` by definition, so the
+// picker rendered "Loading sessions" on the one route it exists for and stayed
+// there for the life of the window. A read that cannot start is not a read in
+// flight, and rendering one as the other is the conflation the five kinds of
+// nothing exist to prevent. Two states remain, and both are reachable:
+//
+//   • This window has no session open → the "empty" kind, saying so and saying how
+//     a window comes to have one.
+//   • It has some → the picker.
 
 import { Nothing } from "../primitives/index.js";
+import { useOpenSessionIds, type SessionStoreRegistry } from "../store/index.js";
 import {
   AUXILIARY_ROUTE_LABELS,
   type AuxiliaryRouteName,
 } from "../../../../shared/auxiliary-routes.js";
-
-export interface ContextCandidate {
-  readonly sessionId: string;
-  readonly title: string;
-  readonly detail: string;
-}
+import { OpenSessionList } from "./OpenSessionList.js";
 
 export interface ContextPickerProps {
   readonly route: AuxiliaryRouteName;
-  /** `undefined` means the session list has not loaded — a different state from empty. */
-  readonly candidates: readonly ContextCandidate[] | undefined;
+  /** This window's open sessions — the only session set the console can offer. */
+  readonly registry: SessionStoreRegistry;
   readonly onChoose: (sessionId: string) => void;
 }
 
@@ -41,45 +45,26 @@ export function ContextPicker(props: ContextPickerProps): React.JSX.Element {
   // same route in the main process, and two maps in two processes drift silently
   // — a picker headed "Agent console" opened from a menu item reading something
   // else. `src/shared/auxiliary-routes.ts` names this exact pair as its reason.
-  const routeTitle = AUXILIARY_ROUTE_LABELS[props.route];
+  const routeNoun = AUXILIARY_ROUTE_LABELS[props.route].toLowerCase();
+  const openSessionIds = useOpenSessionIds(props.registry);
 
-  if (props.candidates === undefined) {
-    return (
-      <Nothing kind="not-loaded" title={`Loading sessions for the ${routeTitle.toLowerCase()}.`} />
-    );
-  }
-
-  if (props.candidates.length === 0) {
+  if (openSessionIds.length === 0) {
     return (
       <Nothing
         kind="empty"
-        title="No sessions yet."
-        detail={`The ${routeTitle.toLowerCase()} follows one session at a time. Start a session in the main window and it will appear here.`}
+        title="This window has no session open."
+        detail={`The ${routeNoun} follows one session at a time, and the console can offer only the sessions this window has opened. A ${routeNoun} window opened from a session arrives with that session already chosen.`}
       />
     );
   }
 
+  const question = `Which session should this ${routeNoun} follow?`;
   return (
     <section className="meridian-context-picker" aria-labelledby="meridian-context-picker-heading">
       <h1 className="meridian-context-picker__heading" id="meridian-context-picker-heading">
-        Which session should this {routeTitle.toLowerCase()} follow?
+        {question}
       </h1>
-      <ul className="meridian-context-picker__list">
-        {props.candidates.map((candidate) => (
-          <li key={candidate.sessionId}>
-            <button
-              type="button"
-              className="meridian-context-picker__choice"
-              onClick={() => {
-                props.onChoose(candidate.sessionId);
-              }}
-            >
-              <span className="meridian-context-picker__title">{candidate.title}</span>
-              <span className="meridian-context-picker__detail">{candidate.detail}</span>
-            </button>
-          </li>
-        ))}
-      </ul>
+      <OpenSessionList sessionIds={openSessionIds} onSelect={props.onChoose} label={question} />
     </section>
   );
 }

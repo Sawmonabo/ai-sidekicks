@@ -27,4 +27,4 @@ export { FrameStore } from "./frame-store.js";
 // producer that does not exist yet.
 export { SESSION_READ_UNREGISTERED, SessionStoreRegistry } from "./session-store-registry.js";
 
-export { useFrameStore, useLocationHash, useOpenSessionStore } from "./hooks.js";
+export { useFrameStore, useLocationHash, useOpenSessionIds, useOpenSessionStore } from "./hooks.js";
