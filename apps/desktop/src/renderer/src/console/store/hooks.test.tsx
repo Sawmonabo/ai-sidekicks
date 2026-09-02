@@ -33,7 +33,7 @@ function runIdOf(event: ConsoleSessionEvent): string {
 }
 
 const projectors: EntityProjectorRegistry = {
-  "run.started": (event) => [
+  "run.starting": (event) => [
     {
       operation: "upsert",
       entity: { kind: "run", id: runIdOf(event), state: `state-${String(event.sequence)}` },
@@ -135,7 +135,7 @@ describe("useSessionEntity — a row re-renders for its own entity and no other"
     const secondRowRenders = tally.countFor("row-run-2");
 
     act(() => {
-      registry.enqueue("session-1", [eventAt(1, "run.started", "run-1")]);
+      registry.enqueue("session-1", [eventAt(1, "run.starting", "run-1")]);
       clock.runFrame();
     });
 
@@ -209,9 +209,9 @@ describe("useSessionEntity — a row re-renders for its own entity and no other"
 
     act(() => {
       registry.enqueue("session-1", [
-        eventAt(1, "run.started", "run-1"),
-        eventAt(2, "run.started", "run-1"),
-        eventAt(3, "run.started", "run-1"),
+        eventAt(1, "run.starting", "run-1"),
+        eventAt(2, "run.starting", "run-1"),
+        eventAt(3, "run.starting", "run-1"),
       ]);
       clock.runFrame();
     });

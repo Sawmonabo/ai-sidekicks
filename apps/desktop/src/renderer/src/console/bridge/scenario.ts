@@ -35,6 +35,7 @@ import {
   type Unsubscribe,
 } from "../core/index.js";
 import { type ConsoleSessionEvent } from "../store/index.js";
+import type { WireErrorEnvelope } from "../../../../shared/wire-errors.js";
 
 /** One scripted event and the tick it is due at, measured from scenario start. */
 export interface ScenarioBeat {
@@ -42,19 +43,60 @@ export interface ScenarioBeat {
   readonly event: ConsoleSessionEvent;
 }
 
-/** A canned reply for one request/response call the scenario expects. */
-export interface ScenarioReply {
+/** What every canned reply carries, whichever way it settles. */
+interface ScenarioReplyBase {
   /** The daemon method or control-plane procedure name, verbatim. */
   readonly call: string;
-  readonly result: unknown;
   /**
    * Simulated latency, so a loading state is reachable in the fixture.
    *
    * Measured in scenario time, which only the caller moves: the reply stays
-   * pending until the engine has been advanced this far past the call.
+   * pending until the engine has been advanced this far past the call. It bounds
+   * BOTH arms — a refusal a real transport takes 400 ms to deliver is a loading
+   * state before it is an error, and a fixture that refused instantly would let a
+   * surface ship without ever rendering that half.
    */
   readonly afterMs?: number;
 }
+
+/** A canned reply that answers with a value. */
+export interface ScenarioResolvingReply extends ScenarioReplyBase {
+  readonly result: unknown;
+  readonly refusal?: never;
+}
+
+/**
+ * A canned reply that REFUSES, with the shape the wire refuses in.
+ *
+ * Without this arm no scenario could reach a refusal at all: the fixture's own
+ * `FixtureBridgeError` names something the FIXTURE could not do, so every typed
+ * daemon refusal a surface has to render — an artifact too large, an ingest at
+ * capacity, a terminal permission denied, a control already held by someone else —
+ * was unreachable, and the console's refusal renderings could only ever be driven
+ * from the growth port's one typed absence.
+ *
+ * `WireErrorEnvelope` is `src/shared/wire-errors.ts`'s, not a second refusal
+ * vocabulary minted here: that module is the console's one home for the wire's
+ * `{code, message}` shape and for `normalizeWireRejection`, which is what every
+ * renderer catch arm already turns a rejection into. A fixture refusing in any
+ * other shape would train a surface against a value the live bridge never sends.
+ */
+export interface ScenarioRejectingReply extends ScenarioReplyBase {
+  readonly refusal: WireErrorEnvelope;
+  readonly result?: never;
+}
+
+/**
+ * A canned reply for one request/response call the scenario expects.
+ *
+ * Exactly one of `result` / `refusal`, enforced by the `?: never` member on each
+ * arm rather than by two independent optionals — the two-arm-union idiom the
+ * corpus already uses for `AgentAttachRequest` in
+ * `docs/architecture/contracts/api-payload-contracts.md`. Two optionals would
+ * admit both at once (a reply that resolves AND refuses) and neither at all (a
+ * reply that settles no way), which are the two shapes nothing can serve.
+ */
+export type ScenarioReply = ScenarioResolvingReply | ScenarioRejectingReply;
 
 export interface ConsoleScenario {
   readonly id: string;
@@ -291,7 +333,12 @@ export class ScenarioEngine {
    * and the clock stays exactly where the caller left it.
    *
    * Never rejects. The outcome carries the refusal, because the vocabulary a
-   * surface renders belongs to the bridge and not to the engine.
+   * surface renders belongs to the bridge and not to the engine — and that holds
+   * for a scripted REFUSAL too: the release says only that the reply came due,
+   * and `fixture-bridge.ts` is what turns a due `ScenarioRejectingReply` into a
+   * rejection. An engine that rejected here would have to know the wire's error
+   * shape, which is the bridge boundary's vocabulary and not the playback
+   * engine's.
    */
   public holdReply(afterMs: number): Promise<ScenarioReplyOutcome> {
     if (this.#disposed) {

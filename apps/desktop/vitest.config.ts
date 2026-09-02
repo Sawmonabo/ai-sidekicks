@@ -412,20 +412,31 @@ export default defineConfig({
         },
       },
       {
-        // Tier: architecture. The tripwires, as lint tests over the source text.
-        // Node environment: these read files, they do not render.
+        // Tier: architecture. Structural claims about the console — most of them
+        // read source as text; `scenario-wire-truth.test.ts` IMPORTS it, because
+        // the rule it asserts is a shipped predicate and a test carrying its own
+        // copy of a rule proves nothing about the copy that ships. Node
+        // environment either way: nothing here renders.
         //
-        // The define is carried even though this tier reads source rather than
-        // importing it, and that is the point: `core/tripwires.ts` guards its
-        // fixture-only assignment at MODULE scope, so the first architecture test
-        // to import a console module instead of reading it would abort at import
-        // with a bare `ReferenceError` naming an identifier that is not a variable
-        // in any process. `false`, on the bundle tier's reasoning — the process
-        // doing the reading is not a build — so such a test reports its own
-        // assertion instead of the tier's configuration.
+        // The define was carried before any test imported a console module, and
+        // that anticipation is now load-bearing: `core/tripwires.ts` guards its
+        // fixture-only assignment at MODULE scope, so an importing test would
+        // otherwise abort at import with a bare `ReferenceError` naming an
+        // identifier that is not a variable in any process. `false`, on the bundle
+        // tier's reasoning — the process doing the reading is not a build — so such
+        // a test reports its own assertion instead of the tier's configuration.
+        //
+        // The source conditions arrive with that first importing test, for the
+        // reason the `main-unit` block above states: without them a workspace
+        // VALUE import resolves against `dist/`, which is stale or absent, and the
+        // tier fails to resolve `@ai-sidekicks/contracts` at all. Its files are
+        // typechecked by `tsconfig.console-architecture-test.json`, which exists
+        // for the other half of the same change.
         define: {
           __SIDEKICKS_CONSOLE_FIXTURES__: "false",
         },
+        resolve: { conditions: WORKSPACE_SOURCE_CONDITIONS },
+        ssr: { resolve: { conditions: WORKSPACE_SOURCE_CONDITIONS } },
         test: {
           name: "console-architecture",
           environment: "node",

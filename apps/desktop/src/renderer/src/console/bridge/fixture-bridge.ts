@@ -6,6 +6,15 @@
 // fixture that silently answers "nothing" trains the console to render an empty
 // state where the real bridge would render a failure.
 //
+// A scenario may also script a call that REFUSES, and the two refusal vocabularies
+// here are deliberately different values rather than one merged shape. A
+// `FixtureBridgeError` says the FIXTURE could not answer (nothing scripted, no
+// stand-in for a native capability, the engine torn down under the request); a
+// scripted `ScenarioRejectingReply` says the DAEMON refused, and travels as the
+// wire's own `{code, message}` envelope, unwrapped. Folding the second into the
+// first would put a fixture-scoped code in front of every typed daemon refusal the
+// console renders, which is the one thing a fixture must not paraphrase.
+//
 // Three fixture behaviours are deliberate:
 //
 //   • **Subscriptions come from the scenario engine, filtered by what was asked
@@ -13,7 +22,7 @@
 //     frozen clock, so a fixture session is replayable tick-for-tick and a
 //     screenshot pins an exact frame — and it hands them only to a subscriber that
 //     named them. A fixture that forwarded the whole script to every subscriber
-//     delivered `session.created` into a handler that had asked for `run.started`,
+//     delivered `session.created` into a handler that had asked for `run.starting`,
 //     which is a frame the live bridge cannot produce and therefore a screenshot
 //     or an end-to-end result that proves nothing about the shipped console.
 //   • **Native surfaces refuse rather than pretend.** `showOpenDialog` under the
@@ -233,6 +242,19 @@ async function resolveScriptedReply(engine: ScenarioEngine, call: string): Promi
         `the fixture is already holding ${String(engine.pendingReplyCount)} delayed replies and takes no more. Advance the frozen clock to release them; a backlog this size means something is issuing requests without ever moving the scenario forward.`,
       );
     }
+  }
+  if (reply.refusal !== undefined) {
+    // Thrown VERBATIM and unwrapped, which is the whole point of the arm: this is
+    // the daemon's refusal, not the fixture's, and `src/shared/wire-errors.ts`
+    // records that a wire refusal reaches a renderer either as this plain object
+    // or as an `Error` carrying the same `code` — `normalizeWireRejection` renders
+    // both as `code: message`. Wrapping it in a `FixtureBridgeError` would replace
+    // the code a surface exists to show with a fixture-scoped one and make the
+    // rendered refusal a thing the live bridge never produces.
+    //
+    // It is thrown AFTER the hold above, so a refusal is preceded by exactly the
+    // loading window a resolving reply of the same `afterMs` would have.
+    throw reply.refusal;
   }
   return reply.result;
 }

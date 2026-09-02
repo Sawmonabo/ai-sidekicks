@@ -8,13 +8,18 @@
 //
 //   • **A subscription named an event and got the whole script.** `daemon.subscribe`
 //     takes an event name and the fixture ignored it, so a surface subscribed to
-//     `run.started` was handed `session.created` and `participant.joined` too, each
+//     `run.starting` was handed `session.created` and `membership.created` too, each
 //     cast to the type it had asked for. A screenshot or an end-to-end result taken
 //     against that is a result the live bridge cannot produce.
 //   • **A scripted latency was spent by the caller, on the calling turn.** A reply
 //     carrying `afterMs` advanced the clock itself and resolved immediately, so the
 //     loading state it exists to make reachable was never reachable, and merely
 //     issuing a request delivered scenario beats that had nothing to do with it.
+//   • **A scripted reply could only ever resolve.** `ScenarioReply` carried a
+//     `result` and nothing else, so no scenario could script a call that REFUSES —
+//     and every typed daemon refusal the console renders was unreachable through
+//     the fixture, leaving the refusal renderings drivable only from the growth
+//     port's one typed absence.
 //
 // Every case drives the REAL fixture bridge over a real scenario and the real
 // engine. A hand-written stand-in for either would pass over exactly the seam
@@ -30,6 +35,11 @@ import type { ConsoleScenario, ScenarioEngine } from "./scenario.js";
 import { FLAGSHIP_SCENARIO } from "./scenarios/flagship.js";
 import { SCENARIO_PENDING_REPLY_CAP } from "../core/index.js";
 import type { ConsoleSessionEvent } from "../store/index.js";
+import {
+  isWireErrorEnvelope,
+  normalizeWireRejection,
+  type WireErrorEnvelope,
+} from "../../../../shared/wire-errors.js";
 
 /** Past the flagship script's last beat, which is at 400 ms. */
 const PAST_EVERY_BEAT_MS = 500;
@@ -38,10 +48,26 @@ const PAST_EVERY_BEAT_MS = 500;
 const SCRIPTED_LATENCY_MS = 120;
 
 /** The one call the delayed-reply scenario scripts an answer for. */
-const DELAYED_CALL = "session.list";
+const DELAYED_CALL = "agent.list";
 
 /** What a delayed call resolves to, asserted verbatim so a stub cannot pass. */
-const DELAYED_RESULT = { sessions: [] };
+const DELAYED_RESULT = { agents: [] };
+
+/** The call the refusal cases script, so a scenario can carry both arms at once. */
+const REFUSED_CALL = "session.read";
+
+/**
+ * The refusal a scripted rejection carries.
+ *
+ * A real registered code rather than an invented one: `Spec-021`'s rate-limit
+ * refusals are exactly the class of typed daemon failure this arm exists to make
+ * reachable, and a fixture refusing under a code no namespace owns would train a
+ * surface against a value nothing sends.
+ */
+const SCRIPTED_REFUSAL: WireErrorEnvelope = {
+  code: "ratelimit.exceeded",
+  message: "Too many session reads from this participant. Retry after 30 seconds.",
+};
 
 interface FixtureUnderTest {
   readonly bridge: ReturnType<typeof createFixtureBridge>;
@@ -114,14 +140,14 @@ function drainMicrotasks(): Promise<void> {
 describe("fixture bridge — a subscription delivers only the event it named", () => {
   it("hands a kind subscriber that kind's beats and no others", () => {
     const fixture = createFixture();
-    const received = subscribeThroughBridge(fixture, "run.started");
+    const received = subscribeThroughBridge(fixture, "run.starting");
 
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
 
     // The flagship script carries five kinds. A subscriber that named one of them
     // is handed one of them — never `session.created`, which arrives first and is
-    // what an unfiltered fixture delivers into a `run.started` handler.
-    expect(received.map((event) => event.kind)).toStrictEqual(["run.started"]);
+    // what an unfiltered fixture delivers into a `run.starting` handler.
+    expect(received.map((event) => event.kind)).toStrictEqual(["run.starting"]);
   });
 
   it("negative control: the session stream still receives every beat", () => {
@@ -257,5 +283,94 @@ describe("fixture bridge — a scripted latency is spent on the fixture clock", 
     await Promise.all([slower, quicker]);
 
     expect(order).toStrictEqual([DELAYED_CALL, "agent.list"]);
+  });
+});
+
+describe("fixture bridge — a scenario can script a call that refuses", () => {
+  /** The flagship script, re-scripted so one call refuses and one still answers. */
+  function scenarioWithRefusal(afterMs?: number): ConsoleScenario {
+    return {
+      ...FLAGSHIP_SCENARIO,
+      id: "flagship-refusal-probe",
+      replies: [
+        {
+          call: REFUSED_CALL,
+          refusal: SCRIPTED_REFUSAL,
+          ...(afterMs === undefined ? {} : { afterMs }),
+        },
+        { call: DELAYED_CALL, result: DELAYED_RESULT },
+      ],
+    };
+  }
+
+  it("rejects with the scripted wire error, verbatim and unwrapped", async () => {
+    const fixture = createFixture(scenarioWithRefusal());
+
+    // `toStrictEqual` against the envelope itself, not a message match: the value a
+    // surface catches has to BE the daemon's refusal. A fixture that wrapped it
+    // would hand every refusal rendering a fixture-scoped code instead of the one
+    // the person is meant to read.
+    await expect(callThroughBridge(fixture, REFUSED_CALL)).rejects.toStrictEqual(SCRIPTED_REFUSAL);
+  });
+
+  it("refuses in the shape the console's shared normalizer already understands", async () => {
+    const fixture = createFixture(scenarioWithRefusal());
+    const caught: unknown = await callThroughBridge(fixture, REFUSED_CALL).catch(
+      (rejection: unknown) => rejection,
+    );
+
+    // The claim is not "some object was thrown" — it is that `src/shared/`'s wire
+    // vocabulary recognises it, which is what every renderer catch arm runs. A
+    // second refusal shape would pass a `rejects` assertion and fail here.
+    expect(isWireErrorEnvelope(caught)).toBe(true);
+    const rendered = normalizeWireRejection(caught);
+    expect(rendered.name).toBe(SCRIPTED_REFUSAL.code);
+    expect(rendered.message).toBe(SCRIPTED_REFUSAL.message);
+  });
+
+  it("holds a delayed refusal pending until the caller advances past it", async () => {
+    const fixture = createFixture(scenarioWithRefusal(SCRIPTED_LATENCY_MS));
+    let settled = false;
+    const pending = callThroughBridge(fixture, REFUSED_CALL).catch((rejection: unknown) => {
+      settled = true;
+      throw rejection;
+    });
+
+    await drainMicrotasks();
+    // A refusal a real transport takes time to deliver is a loading state first. A
+    // fixture that refused on the calling turn would make that half unreachable —
+    // the same defect the resolving arm's latency exists to close.
+    expect(settled).toBe(false);
+    expect(fixture.engine.pendingReplyCount).toBe(1);
+
+    fixture.engine.advance(SCRIPTED_LATENCY_MS);
+
+    await expect(pending).rejects.toStrictEqual(SCRIPTED_REFUSAL);
+    expect(fixture.engine.pendingReplyCount).toBe(0);
+  });
+
+  it("settles a pending refusal as abandoned when the engine is torn down", async () => {
+    const fixture = createFixture(scenarioWithRefusal(SCRIPTED_LATENCY_MS));
+    const pending = callThroughBridge(fixture, REFUSED_CALL);
+
+    fixture.engine.dispose();
+
+    // The FIXTURE's refusal, not the scenario's: the engine was torn down before
+    // the clock ever reached the scripted answer, so what the caller is owed is the
+    // reason the fixture could not answer at all. Reporting the scripted refusal
+    // here would claim the daemon spoke.
+    await expect(pending).rejects.toBeInstanceOf(FixtureBridgeError);
+    await expect(pending).rejects.toMatchObject({
+      refusal: { code: "reply-abandoned", origin: "fixture-bridge" },
+    });
+    expect(fixture.engine.pendingReplyCount).toBe(0);
+  });
+
+  it("negative control: a resolving reply in the same scenario still resolves", async () => {
+    // Without this, an implementation that rejected every scripted reply would pass
+    // every case above.
+    const fixture = createFixture(scenarioWithRefusal());
+
+    await expect(callThroughBridge(fixture, DELAYED_CALL)).resolves.toStrictEqual(DELAYED_RESULT);
   });
 });

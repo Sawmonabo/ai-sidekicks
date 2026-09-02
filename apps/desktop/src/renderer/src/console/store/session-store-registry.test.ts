@@ -32,7 +32,7 @@ function runIdOf(event: ConsoleSessionEvent): string {
 
 /** One projector, so an applied event is observable as an entity rather than a count. */
 const projectors: EntityProjectorRegistry = {
-  "run.started": (event) => [
+  "run.starting": (event) => [
     {
       operation: "upsert",
       entity: { kind: "run", id: runIdOf(event), state: "running" },
@@ -44,7 +44,7 @@ function eventAt(sequence: number, runId: string): ConsoleSessionEvent {
   return {
     sessionId: "session-1",
     sequence,
-    kind: "run.started",
+    kind: "run.starting",
     occurredAt: new Date(Date.UTC(2026, 0, 1, 0, 0, sequence)).toISOString(),
     payload: { runId },
   };
