@@ -20,11 +20,11 @@
 // promise built in the body, would build a new promise on every pass.
 //
 // WHEN THERE IS NO WORKER — a `Worker` the host does not provide, a constructor that
-// throws — a block above the threshold renders PLAIN rather than falling back to the
-// main thread. Falling back would be the honest-looking choice and the wrong one: the
-// budget is not "highlight if you can", it is "never spend a frame on this", and a
-// console that quietly broke that rule on hosts without workers would break it exactly
-// where nobody was measuring.
+// throws, or a thread that died after construction — a block above the threshold
+// renders PLAIN rather than falling back to the main thread. Falling back would be the
+// honest-looking choice and the wrong one: the budget is not "highlight if you can", it
+// is "never spend a frame on this", and a console that quietly broke that rule on hosts
+// without workers would break it exactly where nobody was measuring.
 
 import {
   CODE_HIGHLIGHT_SOURCE_BYTE_CAP,
@@ -119,6 +119,18 @@ export class CodeHighlightScheduler {
   public dispose(): void {
     this.#worker?.terminate();
     this.#worker = undefined;
+    this.#settleEveryPendingRequestPlain();
+  }
+
+  /**
+   * Answer everything the worker was holding with no tokens.
+   *
+   * Hoisted on the second use (`apps/desktop/AGENTS.md`): disposal and a worker that
+   * died mid-flight are the same obligation seen twice — every registered settle is
+   * called exactly once and the map is emptied, so no caller is left awaiting a thread
+   * that is gone and no settle is retained after it has answered.
+   */
+  #settleEveryPendingRequestPlain(): void {
     for (const settle of this.#pendingByRequestId.values()) {
       settle(undefined);
     }
@@ -162,15 +174,23 @@ export class CodeHighlightScheduler {
    *
    * A construction that throws is recorded rather than retried: a host with no module
    * workers will not grow them, and retrying per block would pay the failure over and
-   * over on exactly the pages with the most code in them.
+   * over on exactly the pages with the most code in them. A worker that DIED is not
+   * replaced either, and for the same reason one level along: a thread that failed at
+   * construction-plus-one will fail again, and a respawn loop is a worse failure than
+   * an honest decline the card can name.
+   *
+   * THE UNAVAILABLE FLAG IS READ FIRST, before the held instance. That ordering is the
+   * whole of "no request reaches a dead worker": it makes the property local to this
+   * function instead of distributed across every path that might one day fail to clear
+   * `#worker` beside setting the flag.
    */
   #resolveWorker(): Worker | undefined {
-    if (this.#worker !== undefined) {
-      return this.#worker;
-    }
     if (this.#workerUnavailable || typeof Worker === "undefined") {
       this.#workerUnavailable = true;
       return undefined;
+    }
+    if (this.#worker !== undefined) {
+      return this.#worker;
     }
     try {
       // The specifier names the SOURCE file rather than carrying this subtree's `.js`
@@ -188,12 +208,15 @@ export class CodeHighlightScheduler {
       });
       worker.addEventListener("error", () => {
         // A worker that failed after construction settles everything it was holding —
-        // otherwise those callers wait forever for a thread that is gone.
+        // otherwise those callers wait forever for a thread that is gone — AND is let
+        // go of, in the same act. Marking the realm unavailable while still holding the
+        // instance would leave a dead thread reachable, and a later block would register
+        // a settle nothing can ever call; terminating it and clearing the field is what
+        // makes "the scheduler holds no worker it cannot use" true rather than intended.
         this.#workerUnavailable = true;
-        for (const settle of this.#pendingByRequestId.values()) {
-          settle(undefined);
-        }
-        this.#pendingByRequestId.clear();
+        worker.terminate();
+        this.#worker = undefined;
+        this.#settleEveryPendingRequestPlain();
       });
       this.#worker = worker;
       return worker;
