@@ -34,7 +34,7 @@ import {
   type InlineCardSeatProps,
   type OwnerSlotContract,
   type OwnerSlotProps,
-} from "../../workspace/index.js";
+} from "../../seats/index.js";
 import { LedgerRowGroup } from "../frame/index.js";
 import { classifyCardFamily } from "./card-family.js";
 import type { LedgerCardProps } from "./card-props.js";
@@ -216,7 +216,7 @@ function InlineCards(props: {
 function inlineCardKey(card: InlineCardSeatProps): string {
   switch (card.kind) {
     case "diff":
-      return `diff:${card.runId}:${card.changeSetId}`;
+      return `diff:${card.runId}:${card.diffArtifactId}`;
     case "attachment":
       return `attachment:${card.attachment.attachmentId}`;
     case "artifact":

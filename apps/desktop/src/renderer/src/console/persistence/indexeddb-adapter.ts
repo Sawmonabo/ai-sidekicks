@@ -41,7 +41,7 @@ import {
   type QuotaGauge,
   type StoredRecord,
 } from "./adapter.js";
-import { refusePersistence } from "./value-classes.js";
+import { refusePersistence } from "./refusals.js";
 
 /** The database this build reads and writes. Bumping the version is a migration. */
 export const CONSOLE_DATABASE_NAME = "sidekicks-console-ui-state";

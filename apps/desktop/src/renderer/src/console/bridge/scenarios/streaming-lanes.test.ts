@@ -21,6 +21,7 @@ function beatsFor(
   return entries.map(([kind, payload], entryIndex) => ({
     atMs: entryIndex * 50,
     event: {
+      id: `019b79ee-0280-7ea1-8110-e5e0d115${String(entryIndex + 1).padStart(4, "0")}`,
       sessionId: SESSION_ID,
       sequence: entryIndex + 1,
       kind,

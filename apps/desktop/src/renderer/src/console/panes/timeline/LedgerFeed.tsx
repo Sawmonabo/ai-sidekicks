@@ -78,7 +78,7 @@ import {
   LedgerWindowAbsences,
 } from "./LedgerFeedNotices.js";
 import { type SessionStore } from "../../store/index.js";
-import { type TimelineRowRenderer } from "../../workspace/index.js";
+import { type TimelineRowRenderer } from "../../seats/index.js";
 import { useActorFollowSeat, useLedgerStructureActs } from "./ledger-feed-acts.js";
 import {
   useFilteredLedgerWindow,

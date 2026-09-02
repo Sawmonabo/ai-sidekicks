@@ -15,6 +15,7 @@ function event(
   overrides: Partial<ConsoleSessionEvent> & { readonly sequence: number },
 ): ConsoleSessionEvent {
   return {
+    id: `019b793b-7b60-7ea1-8110-e5e0d115${String(overrides.sequence).padStart(4, "0")}`,
     sessionId: SESSION_ID,
     kind: "run.running",
     occurredAt: `2026-01-01T11:0${String(overrides.sequence % 10)}:00.000Z`,
@@ -34,7 +35,7 @@ function rollbackEvent(
   return event({
     sequence,
     kind: "run.rolled_back",
-    actorParticipantId: PARTICIPANT,
+    actorId: PARTICIPANT,
     payload: { sessionId: SESSION_ID, runId, runVersion: sequence, targetPosition },
   });
 }
@@ -93,7 +94,7 @@ describe("the fixture shell's row projection", () => {
       event({
         sequence: 2,
         kind: "run.rolled_back",
-        actorParticipantId: PARTICIPANT,
+        actorId: PARTICIPANT,
         payload: { sessionId: SESSION_ID, runId: RUN_ONE, runVersion: 6, targetPosition: 0 },
       }),
       runEvent(3, RUN_ONE),

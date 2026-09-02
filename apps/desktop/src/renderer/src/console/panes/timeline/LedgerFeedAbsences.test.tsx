@@ -37,6 +37,7 @@ describe("the ledger feed — what it does not hold", () => {
     sessionStore.initialise({ cursor: -1, entities: [], participantJoinLog: [] });
     sessionStore.applyBatch([
       {
+        id: "event-0",
         sessionId: SESSION_ID,
         sequence: 0,
         kind: "user.message",
@@ -44,6 +45,7 @@ describe("the ledger feed — what it does not hold", () => {
         payload: {},
       },
       {
+        id: "event-4",
         sessionId: SESSION_ID,
         sequence: 4,
         kind: "user.message",

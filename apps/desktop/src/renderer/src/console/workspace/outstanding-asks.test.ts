@@ -33,11 +33,12 @@ interface EventDraft {
 
 function logOf(drafts: readonly EventDraft[]): readonly ConsoleSessionEvent[] {
   return drafts.map((draft, position) => ({
+    id: `event-${String(position + 1)}`,
     sessionId: "session-1",
     sequence: position + 1,
     kind: draft.kind,
     occurredAt: "2026-01-01T14:20:00.000Z",
-    ...(draft.actor === undefined ? {} : { actorParticipantId: draft.actor }),
+    ...(draft.actor === undefined ? {} : { actorId: draft.actor }),
     ...(draft.payload === undefined ? {} : { payload: draft.payload }),
   }));
 }

@@ -44,7 +44,7 @@
 
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
 import { CONSOLE_ENTITY_KINDS, type ConsoleEntityRef } from "../../store/index.js";
-import { isPaneKind } from "../seats/index.js";
+import { isPaneKind } from "../../seats/index.js";
 import { DEFAULT_DECK_DENSITY, isDeckDensity, type DeckDensity } from "./density.js";
 import {
   DECK_TOTAL_PERMILLE,

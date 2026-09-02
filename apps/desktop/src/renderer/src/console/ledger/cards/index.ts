@@ -8,10 +8,13 @@
 // sibling piece of this same family, so a tag here would name the task that already owns
 // the file.
 //
-// `markdown/index.js` is a sub-barrel rather than twelve lines here, because those
-// modules are one job — a segmenter with no parse decides nothing and a mapper with no
-// segmenter re-parses the world — and `apps/desktop/AGENTS.md` puts a job that outgrows
-// one file in a module directory rather than a flat pile.
+// THE MARKDOWN PIPELINE IS NOT RE-EXPORTED THROUGH THIS DOOR. `markdown/index.js` is a
+// sub-barrel — those modules are one job, and `apps/desktop/AGENTS.md` puts a job that
+// outgrows one file in a module directory rather than a flat pile — and the cards beside
+// it reach it deep, which is what an intra-family import is for. Forwarding it here as
+// well would be a barrel chain: a family door publishing names it never declared, whose
+// home takes two hops to find, and `structure:layering`'s `console-no-barrel-chain` rule
+// reports exactly that. No symbol of that pipeline leaves `cards/`, so nothing is lost.
 //
 // The comment on each line is the table a named barrel would have been: what the module
 // carries, in dependency order, low to high.
@@ -21,7 +24,6 @@ export * from "./card-family.js"; // the one classifier: icon, label, layout, to
 export * from "./markdown-rules.js"; // what renders, what defers, and what stays inert
 export * from "./wire-payload.js"; // reading one member off an open projected payload
 export * from "./ansi-spans.js"; // ANSI as spans, with no HTML string on the path
-export * from "./markdown/index.js"; // the streaming-markdown pipeline
 export * from "./card-props.js"; // what every card is handed
 export * from "./AnsiOutput.js"; // command output
 export * from "./StreamingMarkdown.js"; // the committed-and-volatile split, mounted

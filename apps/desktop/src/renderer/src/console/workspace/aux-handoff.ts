@@ -51,7 +51,7 @@ import {
   isAuxiliaryRouteName,
   type AuxiliaryRouteName,
 } from "../../../../shared/auxiliary-routes.js";
-import { type PaneKind } from "./seats/index.js";
+import { type PaneKind } from "../seats/index.js";
 
 /** Why a hand-off was refused. Closed, so a fifth cause is a decision. */
 export const AUXILIARY_HANDOFF_REFUSAL_CODES = [

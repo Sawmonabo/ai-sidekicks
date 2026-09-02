@@ -58,11 +58,17 @@
 // table, because the per-session subscription is what a parameter-carrying
 // `session.subscribe` will need: when the wire grows a request shape, this call
 // gains an argument and nothing else about the lifecycle moves.
+//
+// Reading a delivered payload is a different job and lives in
+// `session-event-payload.ts`: this module owns WHICH sessions are bound and for how
+// long, that one owns WHAT a delivered payload has to look like. Neither can be
+// wrong in the other's way.
 
 import type { Unsubscribe } from "../core/index.js";
 import { SESSION_DIAGNOSTICS_FIXTURE_GLOBAL, reportTripwire } from "../core/index.js";
 import { SESSION_EVENT_STREAM, type ConsoleBridge } from "../bridge/index.js";
-import type { ConsoleSessionEvent, SessionStoreRegistry } from "../store/index.js";
+import type { SessionStoreRegistry } from "../store/index.js";
+import { readConsoleSessionEvent } from "./session-event-payload.js";
 
 /** The site every tripwire this module reports names. */
 const SITE = "console/frame/session-event-binder.ts";
@@ -76,8 +82,9 @@ const SITE = "console/frame/session-event-binder.ts";
  * the daemon's event union lands. The event name is pinned to `string` (the
  * genuinely untypeable half) and the payload left `unknown`, which is honest: a
  * tighter payload type here would be a fiction, and `readConsoleSessionEvent`
- * below is what turns the `unknown` into something the store may hold. Same
- * posture as the two shipped renderer families that already subscribe this way.
+ * (`session-event-payload.ts`) is what turns the `unknown` into something the
+ * store may hold. Same posture as the two shipped renderer families that already
+ * subscribe this way.
  */
 type SessionStreamSubscribe = (event: string, handler: (payload: unknown) => void) => Unsubscribe;
 
@@ -359,73 +366,4 @@ export class SessionEventBinder {
       this.#installedDiagnostics = undefined;
     }
   }
-}
-
-/** The members read off a delivered payload, before anything is known about them. */
-interface DeliveredPayloadShape {
-  readonly sessionId?: unknown;
-  readonly sequence?: unknown;
-  readonly kind?: unknown;
-  readonly occurredAt?: unknown;
-  readonly actorParticipantId?: unknown;
-  readonly payload?: unknown;
-}
-
-/**
- * Narrow a wire payload into the console's own event shape, or refuse it.
- *
- * `store/entities.ts` says where this belongs: `ConsoleSessionEvent` is a
- * renderer-local projection contract rather than a wire type, and "the bridge
- * adapter narrows a payload into this shape at the boundary, so exactly one module
- * knows the wire and everything above it reads this". This function is that
- * boundary for the session stream — the only place in the console that reads
- * fields off an `unknown` the bridge handed over.
- *
- * It narrows and it does not TRANSLATE. Where a delivered payload names its fields
- * differently the answer is a refusal, not a guess: a mapping invented here would
- * put wire member names in a module that has no contract to check them against,
- * and a mis-mapped field renders as confidently as a correct one.
- *
- * `sequence` must be an integer because the store's dedupe set, cursor, and gap
- * detection all key on it — a fractional sequence would make `cursor + 1` name a
- * position no event can ever occupy, and the session would be permanently
- * degraded by a gap that never closes.
- */
-function readConsoleSessionEvent(deliveredPayload: unknown): ConsoleSessionEvent | undefined {
-  if (typeof deliveredPayload !== "object" || deliveredPayload === null) {
-    return undefined;
-  }
-  const { sessionId, sequence, kind, occurredAt, actorParticipantId, payload } =
-    deliveredPayload as DeliveredPayloadShape;
-  if (
-    typeof sessionId !== "string" ||
-    typeof sequence !== "number" ||
-    !Number.isInteger(sequence) ||
-    typeof kind !== "string" ||
-    typeof occurredAt !== "string"
-  ) {
-    return undefined;
-  }
-  if (actorParticipantId !== undefined && typeof actorParticipantId !== "string") {
-    return undefined;
-  }
-  if (
-    payload !== undefined &&
-    (typeof payload !== "object" || payload === null || Array.isArray(payload))
-  ) {
-    // An array is `typeof "object"` and is not a keyed payload. Admitting one
-    // would hand every projector a value whose named members are all `undefined`
-    // at a type that says they are readable.
-    return undefined;
-  }
-  return {
-    sessionId,
-    sequence,
-    kind,
-    occurredAt,
-    ...(actorParticipantId === undefined ? {} : { actorParticipantId }),
-    // The one cast: the checks above establish a non-null object, which is all a
-    // projector may assume about a payload it has not claimed a kind for.
-    ...(payload === undefined ? {} : { payload: payload as Readonly<Record<string, unknown>> }),
-  };
 }

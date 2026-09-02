@@ -53,10 +53,11 @@ import {
   actorFollowHandler,
   composerSeatRenderer,
   consolePaneRegistry,
+  parseConsolePaneAddress,
   type ConsolePaneAddress,
   type ConsolePaneContext,
   type ConsolePaneRegistry,
-} from "./seats/index.js";
+} from "../seats/index.js";
 import { ACTOR_FOLLOW_ANNOUNCEMENTS, resolveActorFollow } from "./actor-follow.js";
 
 /** The durable record the deck's arrangement is saved under, per session. */
@@ -124,21 +125,33 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
   });
 
   const paneContextFor = useCallback(
-    (pane: DeckPane): ConsolePaneContext => ({
-      kind: pane.kind,
-      entity: pane.entity,
-      paneId: pane.paneId,
-      bridge: props.bridge,
-      frameStore: props.frameStore,
-      sessionStore: props.sessionStore,
-      uiStateStore: props.uiStateStore,
-      draftStore: props.draftStore,
-      // Fail-closed, per the seat's own rule: the ring takes an actor's hue only
-      // where the pane's entity is a run or an agent, and an unattributed pane takes
-      // the neutral boundary rather than somebody else's colour. Resolving that hue
-      // belongs to the lane that renders run and agent panes; nothing here guesses.
-      focusHue: undefined,
-    }),
+    (pane: DeckPane): ConsolePaneContext | ConsoleRefusal => {
+      // The kind and the entity arrived as a loose pair — off a restored snapshot, or
+      // off a route somebody typed — so they become an ADDRESS here or they become a
+      // refusal here. The seat owns that rule and this surface applies it; deciding it
+      // again would be a second answer to which entities a pane kind is a view of.
+      const address = parseConsolePaneAddress(pane.kind, pane.entity);
+      if ("code" in address) {
+        return address;
+      }
+      return {
+        ...address,
+        paneId: pane.paneId,
+        bridge: props.bridge,
+        frameStore: props.frameStore,
+        sessionStore: props.sessionStore,
+        uiStateStore: props.uiStateStore,
+        draftStore: props.draftStore,
+        // The pane this one was opened beside, passed as an identifier and never as a
+        // handle, so a linked pane stays independently movable and closable.
+        linkedSourcePaneId: pane.sourcePaneId,
+        // Fail-closed, per the seat's own rule: the ring takes an actor's hue only
+        // where the pane's entity is a run or an agent, and an unattributed pane takes
+        // the neutral boundary rather than somebody else's colour. Resolving that hue
+        // belongs to the lane that renders run and agent panes; nothing here guesses.
+        focusHue: undefined,
+      };
+    },
     [props.bridge, props.frameStore, props.sessionStore, props.uiStateStore, props.draftStore],
   );
 
@@ -326,7 +339,15 @@ function useFocusedPaneAddress(
 ): ConsolePaneAddress | undefined {
   return useMemo(() => {
     const pane = panes.find((candidate) => candidate.paneId === focusedPaneId);
-    return pane === undefined ? undefined : { kind: pane.kind, entity: pane.entity };
+    if (pane === undefined) {
+      return undefined;
+    }
+    // Parsed rather than composed, for `paneContextFor`'s reason: the pair is not an
+    // address until the seat says it is. A pane whose address the seat refuses routes
+    // nothing — which is the same answer as no focused pane, and is the honest one:
+    // the composer has no place to send to.
+    const address = parseConsolePaneAddress(pane.kind, pane.entity);
+    return "code" in address ? undefined : address;
   }, [panes, focusedPaneId]);
 }
 

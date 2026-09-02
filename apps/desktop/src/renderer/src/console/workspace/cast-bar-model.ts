@@ -188,7 +188,7 @@ export function deriveCastBar(input: CastBarInput): CastBarModel {
   const newestByParticipantId = new Map<string, ConsoleSessionEvent>();
   for (let position = input.timeline.length - 1; position >= 0; position -= 1) {
     const event = input.timeline[position];
-    const actor = event?.actorParticipantId;
+    const actor = event?.actorId;
     if (event === undefined || actor === undefined || newestByParticipantId.has(actor)) {
       continue;
     }

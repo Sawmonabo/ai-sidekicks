@@ -40,7 +40,7 @@
 // `LEDGER_MAX_ELEMENT_HEIGHT_PX` is where a browser stops being able to place a
 // virtual list's total-size spacer, and an uncapped log reaches it.
 
-import { type TimelineRowDensity } from "../../workspace/index.js";
+import { type TimelineRowDensity } from "../../seats/index.js";
 import { LEDGER_PARKED_LEASE_CAP, LEDGER_WINDOW_ROW_CAP } from "./frame-bounds.js";
 
 /** One row as the window sees it. The body is nobody's business here. */

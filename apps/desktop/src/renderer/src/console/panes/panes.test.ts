@@ -24,7 +24,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { PANE_KINDS, ConsolePaneRegistry } from "../workspace/index.js";
+import { PANE_KINDS, ConsolePaneRegistry } from "../seats/index.js";
 import { registerConsolePanes } from "./index.js";
 
 declare global {
@@ -161,9 +161,13 @@ describe("pane seat board — composing it today", () => {
     }).not.toThrow();
   });
 
-  it("negative control: a fresh registry claims nothing on its own", () => {
-    // Every case above reads `registeredPaneKinds`, and all of them would pass over
-    // a registry that reported kinds nobody registered.
-    expect(new ConsolePaneRegistry().registeredPaneKinds()).toStrictEqual([]);
+  it("negative control: the registry itself does report a claimed kind", () => {
+    // The empty result the case above reads would also be produced by a
+    // `registeredPaneKinds` that always answered `[]`, which would make that case
+    // vacuous. The kind is one no filled seat claims, so this stays a claim about
+    // the registry rather than about which family happens to have landed.
+    const registry = new ConsolePaneRegistry();
+    registry.register({ kind: "agent-console", owner: "panes-test", render: () => null });
+    expect(registry.registeredPaneKinds()).toStrictEqual(["agent-console"]);
   });
 });

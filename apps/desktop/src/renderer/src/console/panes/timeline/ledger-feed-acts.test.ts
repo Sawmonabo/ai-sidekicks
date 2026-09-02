@@ -336,6 +336,7 @@ describe("the ledger's acts — the one that refuses", () => {
 /** A log of participant messages, oldest first, so every row carries a sequence. */
 function syntheticLog(count: number): readonly ConsoleSessionEvent[] {
   return Array.from({ length: count }, (_unused, index) => ({
+    id: `event-${String(index)}`,
     sessionId: SESSION_ID,
     sequence: index,
     kind: "user.message",

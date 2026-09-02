@@ -47,13 +47,13 @@ import { LEDGER_QUIET_SCENARIO } from "../../../src/renderer/src/console/bridge/
 import { LEDGER_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/ledger.js";
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
 import { registerFixtureShellRows } from "../../../src/renderer/src/console/ledger/index.js";
-import { TimelinePane } from "../../../src/renderer/src/console/panes/timeline/TimelinePane.js";
+import {
+  TimelinePane,
+  type TimelinePaneContext,
+} from "../../../src/renderer/src/console/panes/timeline/TimelinePane.js";
 import { FrameStore, SessionStore } from "../../../src/renderer/src/console/store/index.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/index.js";
-import {
-  unregisterTimelineRowRenderer,
-  type ConsolePaneContext,
-} from "../../../src/renderer/src/console/workspace/index.js";
+import { unregisterTimelineRowRenderer } from "../../../src/renderer/src/console/seats/index.js";
 
 /**
  * The cursor a scenario's log is applied on top of.
@@ -76,15 +76,14 @@ const SCENARIO_BASE_CURSOR = 0;
  * building it to satisfy a field nothing reads would make the setup the subject.
  * (The bridge the ledger DOES read is the provider's, one level up, which is real.)
  */
-function ledgerPaneContext(sessionId: string, sessionStore: SessionStore): ConsolePaneContext {
+function ledgerPaneContext(sessionId: string, sessionStore: SessionStore): TimelinePaneContext {
   return {
     kind: "timeline",
-    entity: undefined,
     paneId: "ledger-timeline",
     frameStore: new FrameStore({ initialRoute: { kind: "workspace", sessionId } }),
     sessionStore,
     focusHue: undefined,
-  } as unknown as ConsolePaneContext;
+  } as unknown as TimelinePaneContext;
 }
 
 /**

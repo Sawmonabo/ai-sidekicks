@@ -45,6 +45,12 @@ export const LEDGER_ENDURANCE_SCENARIO_ID = "ledger-endurance";
 const ENDURANCE_ID_PREFIX = "019b7892-1c00";
 
 const SESSION_ID = `${ENDURANCE_ID_PREFIX}-75e5-8510-ada11a5a47a5`;
+
+/**
+ * The stem this scenario's row ids are minted from — its own namespace, not its
+ * session's. `scriptLedgerBeats` completes it with the beat's position.
+ */
+const EVENT_ID_STEM = `${ENDURANCE_ID_PREFIX}-7ea1-8110-e5e0d115`;
 const PARTICIPANT_YOU = `${ENDURANCE_ID_PREFIX}-79a4-8110-cca0117a0490`;
 const PARTICIPANT_PRIYA = `${ENDURANCE_ID_PREFIX}-79a4-8120-cca0117a04a0`;
 const MEMBERSHIP_PRIYA = `${ENDURANCE_ID_PREFIX}-7e3b-8110-cca0117a04b0`;
@@ -251,7 +257,7 @@ export function createLedgerEnduranceScenario(
         runVersion: 1,
         newState: "queued",
         agentId: agent.agentId,
-        actorParticipantId: opener,
+        actorId: opener,
       }),
     );
     entries.push(
@@ -301,9 +307,21 @@ export function createLedgerEnduranceScenario(
       ...ENDURANCE_AGENTS.map((agent) => agent.agentId),
     ],
     viewingParticipantId: PARTICIPANT_YOU,
+    // The roster every role gate resolves through. The viewer is an owner, which is what
+    // lets a role-gated control be driven in this scenario at all; Priya's
+    // `collaborator` is the same value her `membership.created` beat carries — one fact,
+    // stated where the roster is read from and replayed where the log records it
+    // arriving. The agents are absent on purpose: an agent is attached rather than
+    // admitted and holds no membership, so a row here would resolve to a role no daemon
+    // granted.
+    membershipRoleByParticipantId: {
+      [PARTICIPANT_YOU]: "owner",
+      [PARTICIPANT_PRIYA]: "collaborator",
+    },
     startedAtIso: STARTED_AT_ISO,
     beats: scriptLedgerBeats({
       sessionId: SESSION_ID,
+      eventIdStem: EVENT_ID_STEM,
       startedAtIso: STARTED_AT_ISO,
       entries,
     }),

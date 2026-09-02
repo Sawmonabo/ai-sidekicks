@@ -48,6 +48,17 @@ import type { ConsoleScenario } from "../scenario.js";
 export const LEDGER_FIRST_SIXTY_SCENARIO_ID = "ledger-first-sixty";
 
 const SESSION_ID = "019b78ff-f900-75e5-8510-ada11a5a46a5";
+
+/**
+ * The stem this scenario's row ids are minted from — its own namespace, not its
+ * session's.
+ *
+ * `scriptLedgerBeats` completes it with the beat's position. Distinct from
+ * `SESSION_ID` on purpose: an event id a caller could rebuild out of the session and
+ * the sequence would let a projection that stopped carrying the real one keep
+ * answering.
+ */
+const EVENT_ID_STEM = "019b78ff-f900-7ea1-8110-e5e0d115";
 const PARTICIPANT_YOU = "019b78ff-f900-79a4-8110-cca0117a0460";
 const PARTICIPANT_PRIYA = "019b78ff-f900-79a4-8120-cca0117a0470";
 const MEMBERSHIP_PRIYA = "019b78ff-f900-7e3b-8110-cca0117a0480";
@@ -131,7 +142,7 @@ const FIRST_SIXTY_SCRIPT: readonly LedgerScriptEntry[] = [
     runVersion: 1,
     newState: "queued",
     agentId: AGENT_IMPLEMENTER,
-    actorParticipantId: PARTICIPANT_YOU,
+    actorId: PARTICIPANT_YOU,
   }),
   lane.transition(RUN_IMPLEMENTER, {
     atMs: atSecond(11),
@@ -156,7 +167,7 @@ const FIRST_SIXTY_SCRIPT: readonly LedgerScriptEntry[] = [
     runVersion: 1,
     newState: "queued",
     agentId: AGENT_REVIEWER,
-    actorParticipantId: PARTICIPANT_PRIYA,
+    actorId: PARTICIPANT_PRIYA,
   }),
   lane.transition(RUN_REVIEWER, {
     atMs: atSecond(15),
@@ -239,7 +250,7 @@ const FIRST_SIXTY_SCRIPT: readonly LedgerScriptEntry[] = [
     runVersion: 5,
     previousState: "waiting_for_approval",
     newState: "running",
-    actorParticipantId: PARTICIPANT_YOU,
+    actorId: PARTICIPANT_YOU,
   }),
   lane.output(RUN_IMPLEMENTER, {
     atMs: atSecond(48),
@@ -284,9 +295,21 @@ export const LEDGER_FIRST_SIXTY_SCENARIO: ConsoleScenario = {
     AGENT_REVIEWER,
   ],
   viewingParticipantId: PARTICIPANT_YOU,
+  // The roster every role gate resolves through. The viewer is an owner, which is what
+  // lets a role-gated control be driven in this scenario at all; Priya's
+  // `collaborator` is the same value her `membership.created` beat carries — one fact,
+  // stated where the roster is read from and replayed where the log records it
+  // arriving. The agents are absent on purpose: an agent is attached rather than
+  // admitted and holds no membership, so a row here would resolve to a role no daemon
+  // granted.
+  membershipRoleByParticipantId: {
+    [PARTICIPANT_YOU]: "owner",
+    [PARTICIPANT_PRIYA]: "collaborator",
+  },
   startedAtIso: STARTED_AT_ISO,
   beats: scriptLedgerBeats({
     sessionId: SESSION_ID,
+    eventIdStem: EVENT_ID_STEM,
     startedAtIso: STARTED_AT_ISO,
     entries: FIRST_SIXTY_SCRIPT,
   }),

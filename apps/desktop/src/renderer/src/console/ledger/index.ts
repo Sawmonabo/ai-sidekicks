@@ -1,11 +1,15 @@
 // The ledger family's door, and the two surfaces it mounts.
 //
-// WHAT THIS FAMILY IS. The ledger is the console's signature surface: the work log
-// a session reads as, plus the deck that holds it. It spans three directories —
-// `ledger/` (the frame, the structure, the cards), `panes/timeline/` (the pane body
-// the deck mounts), and `workspace/` (the seats every family hands work through) —
-// and they are one family, so imports between them are intra-family and deep while
-// every import of another family goes through that family's own door.
+// WHAT THIS FAMILY IS. The ledger is the console's signature surface: the work log a
+// session reads as. It is authored in two directories — `ledger/` (the frame, the
+// structure, the cards) and `panes/timeline/` (the pane body the deck mounts), the
+// second of which sits on the pane seat board and so may name more than one family.
+// The deck that HOLDS it is `workspace/`, and that is a sibling view family rather
+// than a third directory of this one: the seat contracts both of them speak now live
+// in `seats/`, below the frame, and the one thing this family still needs from the
+// workspace — the component the session's own surface mounts — arrives as a
+// composition argument from `families.ts` rather than as an import. A view family
+// importing another is the edge `structure:layering` forbids outright.
 //
 // WHY THE REGISTRATION LIVES IN THE BARREL RATHER THAN BESIDE IT. What follows is a
 // TABLE — which slot, which owner, and what mounts there — not a view, which is
@@ -32,7 +36,7 @@
 // window is not that workspace. The rail,
 // replay, and find arrive with the lanes that author them.
 
-import { createElement, type ReactNode } from "react";
+import { createElement, type ComponentType, type ReactNode } from "react";
 
 import { consoleCommandSurface } from "../frame/command-surface.js";
 import { SurfaceAbsence } from "../frame/RouteSurface.js";
@@ -43,7 +47,7 @@ import {
 } from "../frame/surface-registry.js";
 import { Nothing } from "../primitives/index.js";
 import { routeSessionId } from "../routing/index.js";
-import { Workspace, consolePaneRegistry, type ConsolePaneContext } from "../workspace/index.js";
+import { consolePaneRegistry, type ConsolePaneContext } from "../seats/index.js";
 import { registerFixtureShellRows } from "./cards/FixtureShellRows.js";
 import { registerLedgerCommands } from "./structure/structure-commands.js";
 
@@ -83,10 +87,45 @@ const LEDGER_SURFACE_OWNER = "ledger";
  */
 const LEDGER_PANE_ID = "ledger-timeline";
 
-const LEDGER_SURFACES: readonly ConsoleSurfaceDescriptor[] = [
-  { slot: "workspace", owner: LEDGER_SURFACE_OWNER, render: mountWorkspace },
-  { slot: "timeline", owner: LEDGER_SURFACE_OWNER, render: mountLedgerPane },
-];
+/**
+ * What the composition root supplies this family, because this file may not import it.
+ *
+ * The session workspace's body lives in `workspace/`, which is a VIEW FAMILY — and view
+ * families are siblings rather than a ladder, so one may not import another and
+ * `structure:layering`'s `console-view-family-isolation` rule reports the edge. The
+ * component arrives as a parameter instead, named by `families.ts`, which sits above
+ * every family and is the one file allowed to name more than one. That is the shape
+ * `frame/legacy-surfaces.ts` already takes for the same reason, one layer down.
+ *
+ * The COMPONENT rather than a built element: which component mounts is the root's
+ * decision, and what it is handed is this file's — the surface context exists only when
+ * the slot renders, which is long after the root registered it.
+ */
+export interface LedgerComposition {
+  readonly workspace: ComponentType<WorkspaceMountProps>;
+}
+
+/**
+ * What the workspace slot hands its body.
+ *
+ * Derived from the surface context rather than restated, so a member added there is
+ * carried here without a second declaration to keep in step. `sessionStoreRegistry` is
+ * subtracted because the workspace renders ONE session — a surface that has to offer
+ * sessions reads the registry, and this one is handed the session it is a view of.
+ */
+type WorkspaceMountProps = Omit<ConsoleSurfaceContext, "sessionStoreRegistry">;
+
+/** The two slots this family claims, given the body the root composed in. */
+function ledgerSurfaces(composition: LedgerComposition): readonly ConsoleSurfaceDescriptor[] {
+  return [
+    {
+      slot: "workspace",
+      owner: LEDGER_SURFACE_OWNER,
+      render: (context) => mountWorkspace(context, composition.workspace),
+    },
+    { slot: "timeline", owner: LEDGER_SURFACE_OWNER, render: mountLedgerPane },
+  ];
+}
 
 /**
  * Claim the two surfaces the ledger mounts.
@@ -95,7 +134,10 @@ const LEDGER_SURFACES: readonly ConsoleSurfaceDescriptor[] = [
  * `registerConsoleFamilies`' reason: a test composes into a registry it owns and an
  * auxiliary window composes a subset without a second code path.
  */
-export function registerLedger(registry: ConsoleSurfaceRegistry): void {
+export function registerLedger(
+  registry: ConsoleSurfaceRegistry,
+  composition: LedgerComposition,
+): void {
   // The row seat is filled here rather than by importing `FixtureShellRows.tsx` for
   // its side effect, because a module whose IMPORT registers a seat cannot be
   // composed twice and the seat's owner scoping would refuse the second composition
@@ -119,7 +161,7 @@ export function registerLedger(registry: ConsoleSurfaceRegistry): void {
   // is mounted then (`structure/mounted-ledger.ts`) — a command contributed here
   // cannot close over a feed, because composition happens before any window has one.
   registerLedgerCommands(consoleCommandSurface);
-  for (const descriptor of LEDGER_SURFACES) {
+  for (const descriptor of ledgerSurfaces(composition)) {
     registry.register(descriptor);
   }
 }
@@ -140,7 +182,10 @@ export function registerLedger(registry: ConsoleSurfaceRegistry): void {
  * state about; the alternative is a reset effect per piece, which is the same rule
  * written once per field and forgotten on the next one.
  */
-function mountWorkspace(context: ConsoleSurfaceContext): ReactNode {
+function mountWorkspace(
+  context: ConsoleSurfaceContext,
+  Workspace: ComponentType<WorkspaceMountProps>,
+): ReactNode {
   return createElement(
     "div",
     { className: "meridian-ledger-surface" },
@@ -197,22 +242,24 @@ function mountLedgerPane(context: ConsoleSurfaceContext): ReactNode {
 /**
  * What the single pane is handed.
  *
- * `entity` is `undefined` because this timeline is scoped to the session rather than
- * to one of its entities, and `focusHue` is `undefined` for the reason the seat
- * states: the ring takes an actor's hue only where the pane's entity is a run or an
- * agent, and an unattributed pane takes the neutral boundary rather than somebody
- * else's colour.
+ * The `entity` member is OMITTED rather than passed as `undefined`: this timeline is
+ * scoped to the session rather than to one of its entities, and an absent key is the
+ * one way the address union says so. `focusHue` and `linkedSourcePaneId` are required
+ * members carrying `undefined`, which is a different claim and a deliberate one — the
+ * ring takes an actor's hue only where the pane's entity is a run or an agent, and this
+ * pane was opened from a route rather than from another pane, so both are answered here
+ * rather than left for a reader to guess whether anybody decided.
  */
 function ledgerPaneContext(context: ConsoleSurfaceContext): ConsolePaneContext {
   return {
     kind: "timeline",
-    entity: undefined,
     paneId: LEDGER_PANE_ID,
     bridge: context.bridge,
     frameStore: context.frameStore,
     sessionStore: context.sessionStore,
     uiStateStore: context.uiStateStore,
     draftStore: context.draftStore,
+    linkedSourcePaneId: undefined,
     focusHue: undefined,
   };
 }

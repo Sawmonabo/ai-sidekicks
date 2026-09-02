@@ -188,7 +188,7 @@ function commonRowFields(
     // Restated, not composed. See this file's header.
     summary: event.kind,
     timestamp: event.occurredAt,
-    ...(event.actorParticipantId === undefined ? {} : { actor: event.actorParticipantId }),
+    ...(event.actorId === undefined ? {} : { actor: event.actorId }),
   };
 }
 

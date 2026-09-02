@@ -11,12 +11,13 @@ import type { ConsoleSessionEvent } from "../store/index.js";
 import { ACTOR_FOLLOW_ANNOUNCEMENTS, resolveActorFollow } from "./actor-follow.js";
 
 function logOf(rows: readonly (readonly [number, string])[]): readonly ConsoleSessionEvent[] {
-  return rows.map(([sequence, actorParticipantId]) => ({
+  return rows.map(([sequence, actorId]) => ({
+    id: `event-${String(sequence)}`,
     sessionId: "session-1",
     sequence,
     kind: "user.message",
     occurredAt: "2026-01-01T14:20:00.000Z",
-    actorParticipantId,
+    actorId,
   }));
 }
 
@@ -49,6 +50,7 @@ describe("resolveActorFollow", () => {
   it("negative control: an unattributed row follows nobody", () => {
     const unattributed: readonly ConsoleSessionEvent[] = [
       {
+        id: "event-9",
         sessionId: "session-1",
         sequence: 9,
         kind: "session.created",

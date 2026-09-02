@@ -37,7 +37,7 @@
 import { Glyph, WireFigure } from "../../primitives/index.js";
 import { type ConsoleEntityRef } from "../../store/index.js";
 import { type GlyphName } from "../../tokens/index.js";
-import { type PaneKind } from "../seats/index.js";
+import { type PaneKind } from "../../seats/index.js";
 import { usePaneControls } from "./pane-controls.js";
 
 /**

@@ -42,7 +42,7 @@ import {
   registerTimelineRowRenderer,
   type TimelineRowDensity,
   type TimelineRowSlotProps,
-} from "../../workspace/index.js";
+} from "../../seats/index.js";
 import { classifyCardFamily } from "./card-family.js";
 import { FootnoteRegistry } from "./markdown/index.js";
 import { EDIT_AFFORDANCE_SLOT, MessageCard } from "./MessageCard.js";

@@ -31,6 +31,7 @@ const EVERY_ROW_QUERY = "user.message";
 /** A log whose every row matches `EVERY_ROW_QUERY`, oldest first. */
 function syntheticLog(count: number): readonly ConsoleSessionEvent[] {
   return Array.from({ length: count }, (_unused, index) => ({
+    id: `event-${String(index)}`,
     sessionId: SESSION_ID,
     sequence: index,
     kind: EVERY_ROW_QUERY,

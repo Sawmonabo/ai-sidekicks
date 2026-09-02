@@ -29,7 +29,7 @@ const AGENT_ARCHITECT = "019b79ee-0280-7a6e-8110-d1a4c1150001";
 interface TimelineRow {
   readonly sequence: number;
   readonly kind: string;
-  readonly actorParticipantId: string;
+  readonly actorId: string;
   /** The event's own payload — where every label and every correlation id lives. */
   readonly payload?: Readonly<Record<string, unknown>>;
 }
@@ -44,11 +44,12 @@ function storeWith(
     entities: [],
     participantJoinLog: participantIds,
     timeline: timeline.map((row) => ({
+      id: `event-${String(row.sequence)}`,
       sessionId: SESSION_ID,
       sequence: row.sequence,
       kind: row.kind,
       occurredAt: "2026-01-01T14:20:00.000Z",
-      actorParticipantId: row.actorParticipantId,
+      actorId: row.actorId,
       ...(row.payload === undefined ? {} : { payload: row.payload }),
     })),
   });
@@ -60,7 +61,7 @@ function admittedMember(sequence: number, participantId: string, handle: string)
   return {
     sequence,
     kind: "membership.created",
-    actorParticipantId: participantId,
+    actorId: participantId,
     payload: {
       membershipId: `membership-${String(sequence)}`,
       participantId,
@@ -80,7 +81,7 @@ function attachedAgent(sequence: number, agentId: string, name: string): Timelin
   return {
     sequence,
     kind: "agent.attached",
-    actorParticipantId: "participant-you",
+    actorId: "participant-you",
     payload: { sessionId: SESSION_ID, agentId, name, state: "ready", actor: "participant-you" },
   };
 }
@@ -124,7 +125,7 @@ describe("CastBar — one chip per participant", () => {
           ["participant-you", AGENT_ARCHITECT],
           [
             attachedAgent(1, AGENT_ARCHITECT, "Architect"),
-            { sequence: 2, kind: "tool.invoked", actorParticipantId: AGENT_ARCHITECT },
+            { sequence: 2, kind: "tool.invoked", actorId: AGENT_ARCHITECT },
           ],
         )}
         onFollow={() => undefined}
@@ -203,7 +204,7 @@ describe("CastBar — the name the wire gave each participant", () => {
             {
               sequence: 2,
               kind: "run.waiting_for_approval",
-              actorParticipantId: PARTICIPANT_PRIYA,
+              actorId: PARTICIPANT_PRIYA,
               payload: { runId: "run-a" },
             },
           ],
@@ -231,7 +232,7 @@ describe("CastBar — the name the wire gave each participant", () => {
             {
               sequence: 2,
               kind: "agent.config_updated",
-              actorParticipantId: "participant-you",
+              actorId: "participant-you",
               payload: { sessionId: SESSION_ID, agentId: AGENT_ARCHITECT, name: "Planner" },
             },
           ],
@@ -302,13 +303,13 @@ describe("CastBar — the chip that needs you", () => {
       {
         sequence: 2,
         kind: "run.waiting_for_approval",
-        actorParticipantId: AGENT_ARCHITECT,
+        actorId: AGENT_ARCHITECT,
         payload: { runId: "run-a" },
       },
       {
         sequence: 3,
         kind: "tool.invoked",
-        actorParticipantId: AGENT_ARCHITECT,
+        actorId: AGENT_ARCHITECT,
         payload: { runId: "run-b" },
       },
     ];
@@ -343,7 +344,7 @@ describe("CastBar — the chip that needs you", () => {
             {
               sequence: 4,
               kind: "run.running",
-              actorParticipantId: AGENT_ARCHITECT,
+              actorId: AGENT_ARCHITECT,
               payload: { runId: "run-a" },
             },
           ],
@@ -370,7 +371,7 @@ describe("CastBar — the chip that needs you", () => {
             {
               sequence: 2,
               kind: "tool.invoked",
-              actorParticipantId: AGENT_ARCHITECT,
+              actorId: AGENT_ARCHITECT,
               payload: { runId: "run-b" },
             },
           ],
@@ -391,7 +392,7 @@ describe("CastBar — the all-clear line", () => {
         sessionId={SESSION_ID}
         sessionStore={storeWith(
           ["agent-architect"],
-          [{ sequence: 1, kind: "run.running", actorParticipantId: "agent-architect" }],
+          [{ sequence: 1, kind: "run.running", actorId: "agent-architect" }],
         )}
         onFollow={() => undefined}
       />,
@@ -407,7 +408,7 @@ describe("CastBar — the all-clear line", () => {
         sessionId={SESSION_ID}
         sessionStore={storeWith(
           ["agent-architect"],
-          [{ sequence: 1, kind: "approval.requested", actorParticipantId: "agent-architect" }],
+          [{ sequence: 1, kind: "approval.requested", actorId: "agent-architect" }],
         )}
         onFollow={() => undefined}
       />,

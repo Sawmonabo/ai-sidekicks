@@ -17,7 +17,7 @@ import {
   ScenarioFixtureControl,
   ScenarioSelection,
 } from "./scenario-selection.js";
-import { ScenarioEngine } from "./scenario.js";
+import { ScenarioEngine } from "./scenario-engine.js";
 import { FIRST_RUN_SCENARIO_ID } from "./scenarios/first-run.js";
 import { FLAGSHIP_SCENARIO, FLAGSHIP_SCENARIO_ID } from "./scenarios/flagship.js";
 

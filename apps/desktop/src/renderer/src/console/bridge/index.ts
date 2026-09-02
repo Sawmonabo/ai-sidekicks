@@ -29,10 +29,18 @@ export { consoleClockFor } from "./console-bridge.js";
 // The subscribe seam's own vocabulary. Exported because the binder one family up
 // passes it to `daemon.subscribe` and the fixture answers it — two sides of one
 // seam reading one declaration rather than two spellings of one string. The two
-// `run.*` streams beside it in that table are NOT re-exported: their consumers so
-// far are in this family, which reaches them directly, and a barrel specifier no
-// cross-family import uses is a dead export rather than a convenience.
+// `run.*` stream NAMES beside it in that table are still not re-exported: their
+// consumers so far are in this family, which reaches them directly, and a barrel
+// specifier no cross-family import uses is a dead export rather than a convenience.
 export { SESSION_EVENT_STREAM } from "./session-event-streams.js";
+
+// Which run state a `run.*` transition kind announces — the same table, on the
+// same rule, now that it has a cross-family consumer: the run-lifecycle projector
+// one family up checks a durable payload's `newState` against it before storing a
+// state. That check has to read THIS mapping rather than re-derive one, or the
+// console would hold two answers to which state a kind announces and the fold
+// would be measured against the wrong one.
+export { runStateForTransitionKind } from "./session-event-streams.js";
 
 export {
   SidekicksBridgeProvider,
@@ -49,9 +57,15 @@ export { createFixtureBridge } from "./fixture-bridge.js";
 // instead, and the builder that mints one all leave through this door — the same
 // door the bridge itself does, because a growth refusal IS what this bridge
 // answers for a wire the corpus has not registered.
+// `GrowthSessionSummary` leaves through the module that DECLARES it, never through
+// `growth-values/index.js`. That inner barrel is the bridge's own sub-module door,
+// reached deep by the three modules inside this family that read several planes at
+// once; forwarding a name through it from here would chain one barrel into another,
+// which `console-no-barrel-chain` now fails and which makes a symbol's home a matter
+// of following two hops instead of reading one specifier.
 export { growthUnavailable } from "./growth-port.js";
 export type { GrowthPort } from "./growth-port.js";
-export type { GrowthSessionSummary } from "./growth-values.js";
+export type { GrowthSessionSummary } from "./growth-values/sessions.js";
 export type { GrowthUnavailable } from "./growth-outcome.js";
 
 // The growth ledger's row lookup, through the door this file's header already claims

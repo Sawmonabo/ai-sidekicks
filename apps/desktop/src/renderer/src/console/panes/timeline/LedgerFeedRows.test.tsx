@@ -12,7 +12,7 @@ import { fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { LEDGER_WINDOW_ROW_CAP } from "../../ledger/frame/frame-bounds.js";
-import { type TimelineRowSlotProps } from "../../workspace/index.js";
+import { type TimelineRowSlotProps } from "../../seats/index.js";
 import {
   LeasingRowBody,
   contributeLedgerCommands,

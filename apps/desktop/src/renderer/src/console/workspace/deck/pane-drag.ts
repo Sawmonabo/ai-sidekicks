@@ -36,7 +36,7 @@ import {
 
 import { Emitter, type Unsubscribe } from "../../core/index.js";
 import { type Announce, type AnnouncementPoliteness } from "../../primitives/index.js";
-import { type PaneKind } from "../seats/index.js";
+import { type PaneKind } from "../../seats/index.js";
 import type { DeckLayout } from "./deck-layout.js";
 
 /**

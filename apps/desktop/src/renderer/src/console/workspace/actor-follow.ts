@@ -30,7 +30,7 @@ export function resolveActorFollow(
 ): ActorFollowResolution {
   for (let position = timeline.length - 1; position >= 0; position -= 1) {
     const event = timeline[position];
-    if (event !== undefined && event.actorParticipantId === participantId) {
+    if (event !== undefined && event.actorId === participantId) {
       return { outcome: "follow", newestSequence: event.sequence };
     }
   }

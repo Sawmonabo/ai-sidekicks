@@ -11,7 +11,7 @@
 // `deck-layout`. Nothing here imports either of the other two.
 
 import type { ConsoleEntityRef } from "../../store/index.js";
-import type { PaneKind } from "../seats/index.js";
+import type { PaneKind } from "../../seats/index.js";
 import type { DeckDensity } from "./density.js";
 
 /**

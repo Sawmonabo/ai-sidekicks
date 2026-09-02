@@ -22,7 +22,7 @@ import {
   ConsolePaneRegistry,
   registerActorFollowHandler,
   unregisterActorFollowHandler,
-} from "./seats/index.js";
+} from "../seats/index.js";
 import { ACTOR_FOLLOW_ANNOUNCEMENTS } from "./actor-follow.js";
 import { Workspace } from "./Workspace.js";
 import { DeckLayout } from "./deck/deck-layout.js";
@@ -70,7 +70,6 @@ function testRegistry(): ConsolePaneRegistry {
     registry.register({
       kind,
       owner: "workspace-test",
-      openInWindow: kind === "timeline",
       render: () => <TestPaneBody kind={kind} />,
     });
   }
@@ -88,18 +87,20 @@ function sessionStoreWithRows(): SessionStore {
   const store = sessionStore();
   store.applyBatch([
     {
+      id: "event-1",
       sessionId: SESSION_ID,
       sequence: 1,
       kind: "user.message",
       occurredAt: "2026-01-01T09:01:00.000Z",
-      actorParticipantId: "participant-you",
+      actorId: "participant-you",
     },
     {
+      id: "event-2",
       sessionId: SESSION_ID,
       sequence: 2,
       kind: "user.message",
       occurredAt: "2026-01-01T09:02:00.000Z",
-      actorParticipantId: "participant-you",
+      actorId: "participant-you",
     },
   ]);
   return store;
@@ -623,7 +624,7 @@ describe("Workspace — a pane moved into a window of its own", () => {
     pressDetach(container);
 
     await waitFor(() => {
-      expect(placeholderText(container)).toContain("is not registered yet");
+      expect(placeholderText(container)).toContain("is not registered on this build yet");
     });
     // The refusal renders in the slot it is about, carrying its own code.
     expect(

@@ -10,7 +10,7 @@ import {
   timelineRowRenderer,
   unregisterTimelineRowRenderer,
   type TimelineRowSlotProps,
-} from "../../workspace/index.js";
+} from "../../seats/index.js";
 import {
   FIXTURE_SHELL_OWNER,
   FixtureShellRow,

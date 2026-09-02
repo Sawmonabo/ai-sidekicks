@@ -21,7 +21,9 @@
 
 import { createElement } from "react";
 
-import { type ConsolePaneRegistry } from "../../workspace/index.js";
+import { refuse } from "../../core/index.js";
+import { InlineRefusal } from "../../primitives/index.js";
+import { type ConsolePaneContext, type ConsolePaneRegistry } from "../../seats/index.js";
 import { TimelinePane } from "./TimelinePane.js";
 
 /** The owner string this family's pane claim carries, on `registerLedger`'s terms. */
@@ -30,19 +32,41 @@ const LEDGER_PANE_OWNER = "ledger";
 /**
  * Claim the deck's `timeline` kind.
  *
- * `openInWindow` is `true` because the full-screen timeline is one of the two
- * auxiliary windows `Spec-023 §Console Design (Meridian)` ships. It is a property of
- * the KIND rather than of a pane, so it is answered here once.
+ * The descriptor says WHO owns the kind and WHAT mounts for it, and nothing else.
+ * Whether a full-screen timeline may be torn off into an auxiliary window is a
+ * property of the KIND — `seats/pane-kinds.ts` derives it from the window model's own
+ * closed set through `isDetachablePaneKind` — so a family answering it per descriptor
+ * would be six families answering a question the window model settles.
  *
  * The body is mounted with no close and no open-in-window handler: both are the
- * deck's acts, the deck has not shipped, and a control whose act nobody can perform
- * is left out rather than drawn disabled.
+ * deck's acts, and a control whose act nobody can perform is left out rather than
+ * drawn disabled.
  */
 export function registerLedgerPanes(registry: ConsolePaneRegistry): void {
   registry.register({
     kind: "timeline",
     owner: LEDGER_PANE_OWNER,
-    render: (context) => createElement(TimelinePane, { context }),
-    openInWindow: true,
+    render: mountTimelinePane,
   });
+}
+
+/**
+ * Mount the pane, or say the address it was handed is not one this body serves.
+ *
+ * The registry resolves a body BY kind, so the mismatched arm is unreachable through
+ * the deck — and it is rendered rather than thrown anyway, because the guard is what
+ * narrows the union for the body below it, and `core/refusal.ts`' rule is that a
+ * boundary refuses by name and leaves the rest of the surface standing. A throw here
+ * would take down whatever deck the pane was mounted in.
+ */
+function mountTimelinePane(context: ConsolePaneContext): React.ReactNode {
+  if (context.kind !== "timeline") {
+    const refusal = refuse(
+      LEDGER_PANE_OWNER,
+      "pane-address-kind-mismatch",
+      `the timeline body was mounted at a "${context.kind}" address, which is a view of something else`,
+    );
+    return createElement(InlineRefusal, refusal);
+  }
+  return createElement(TimelinePane, { context });
 }

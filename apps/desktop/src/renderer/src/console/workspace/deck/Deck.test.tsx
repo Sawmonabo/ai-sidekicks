@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import { DECK_RESTORED_PANE_CAP } from "../../core/index.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
-import { ConsolePaneRegistry, type ConsolePaneContext } from "../seats/index.js";
+import { ConsolePaneRegistry, type ConsolePaneContext } from "../../seats/index.js";
 import { Deck } from "./Deck.js";
 import { DeckLayout } from "./deck-layout.js";
 import type { DeckPane } from "./deck-model.js";
@@ -39,14 +39,13 @@ function paneContextFor(pane: DeckPane): ConsolePaneContext {
 
 /** A registry whose bodies say which pane they are, and nothing else. */
 function registryWith(
-  ...descriptors: readonly { kind: DeckPane["kind"]; owner?: string; openInWindow?: boolean }[]
+  ...descriptors: readonly { kind: DeckPane["kind"]; owner?: string }[]
 ): ConsolePaneRegistry {
   const registry = new ConsolePaneRegistry();
   for (const descriptor of descriptors) {
     registry.register({
       kind: descriptor.kind,
       owner: descriptor.owner ?? "deck-test",
-      openInWindow: descriptor.openInWindow ?? false,
       // A body with a text field in it, because the deck's keyboard guard is about
       // where a keystroke came FROM: a marker-only body could not tell a chord
       // taken from the chrome apart from one taken out of somebody's typing.
@@ -103,7 +102,6 @@ describe("the deck's mount door", () => {
       registry.register({
         kind: "timeline",
         owner: "somebody-else",
-        openInWindow: false,
         render: () => null,
       }),
     ).toThrow();
@@ -117,7 +115,6 @@ describe("the deck's mount door", () => {
       registry.register({
         kind: "timeline",
         owner: "ledger",
-        openInWindow: false,
         render: () => null,
       }),
     ).not.toThrow();

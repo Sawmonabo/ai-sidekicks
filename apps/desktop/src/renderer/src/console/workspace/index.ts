@@ -1,22 +1,18 @@
 // The workspace family's door.
 //
-// The family holds the session workspace's shared vocabulary — today, the seats
-// through which the six view families hand each other panes, a composer, sidebar
-// sections, timeline rows, and inline cards. A barrel and nothing else: the
-// declarations live in `seats/`, which has its own barrel because a caller
-// reaching for a seat is reaching for the seam and should say so in the import
-// path.
+// The family holds the SESSION WORKSPACE itself: the cast bar, the deck that holds
+// the panes the seats hand it, the auxiliary-window hand-off, and the new-session
+// draft. Those are bodies rather than seams, and they live together because the deck
+// and the seat contracts are two halves of one thing — the seats declare what may be
+// mounted and the deck is what mounts it.
 //
-// The family sits above `bridge/` and below the view families in the console's
-// DAG, and it imports nothing from `frame/` or `palette/` — a seat that needed the
-// frame would be a mount rather than a seam.
-//
-// It now also holds the SESSION WORKSPACE itself: the cast bar, the deck that holds
-// the panes those seats hand it, the auxiliary-window hand-off, and the new-session
-// draft. Those are bodies rather than seams, and they live here rather than in a
-// seventh directory because the deck and the seats are two halves of one thing —
-// the seats declare what may be mounted and the deck is what mounts it, and a
-// family split between two doors would make every consumer pick.
+// The seat contracts themselves are NOT here. They live in the `seats/` family, which
+// sits directly above `bridge/` and below `frame/`, because a contract two view
+// families hand each other may not sit in either of them. This family is a VIEW
+// FAMILY at the top of the console DAG: it imports `seats/` and every layer below,
+// and no sibling view family imports it. A barrel here that re-exported `seats/`
+// would be a chain — the structure gate names that shape and fails it — and would
+// also let a sibling reach a seat through a view family's door.
 //
 // The family's stylesheet is imported HERE and nowhere else, so a surface can never
 // render a workspace element that arrived without its rules.
@@ -29,8 +25,6 @@
 // adds its line in the commit that imports it.
 
 import "./workspace.css";
-
-export * from "./seats/index.js";
 
 export { PaneHeader } from "./deck/PaneHeader.js";
 

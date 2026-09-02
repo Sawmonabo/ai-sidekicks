@@ -13,7 +13,7 @@ import { isValidElement, type ReactNode } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ConsoleSurfaceRegistry, type ConsoleSurfaceContext } from "../frame/surface-registry.js";
-import { Workspace, consolePaneRegistry, type ConsolePaneContext } from "../workspace/index.js";
+import { consolePaneRegistry, type ConsolePaneContext } from "../seats/index.js";
 import { registerLedger } from "./index.js";
 
 const PANE_TEST_OWNER = "ledger-test";
@@ -37,9 +37,21 @@ function surfaceContext(): ConsoleSurfaceContext {
   } as unknown as ConsoleSurfaceContext;
 }
 
+/**
+ * The workspace body the composition root names, stood in for by a marker.
+ *
+ * A component rather than the real `Workspace`: what these cases check is the WIRING
+ * — which slot, which owner, and what the surface hands the body — and the real
+ * workspace opens stores to render. Its identity is asserted below, so a slot that
+ * mounted something else would fail here rather than render a plausible frame.
+ */
+function TestWorkspaceBody(): null {
+  return null;
+}
+
 function registeredLedger(): ConsoleSurfaceRegistry {
   const registry = new ConsoleSurfaceRegistry();
-  registerLedger(registry);
+  registerLedger(registry, { workspace: TestWorkspaceBody });
   return registry;
 }
 
@@ -85,7 +97,7 @@ describe("the ledger — which slots it holds", () => {
   it("survives being composed twice, as a hot reload does it", () => {
     const registry = registeredLedger();
     const afterFirst = registry.registeredSlots();
-    registerLedger(registry);
+    registerLedger(registry, { workspace: TestWorkspaceBody });
     expect(registry.registeredSlots()).toStrictEqual(afterFirst);
   });
 });
@@ -99,7 +111,6 @@ describe("the ledger — what it mounts", () => {
       kind: "timeline",
       owner: PANE_TEST_OWNER,
       render: (context) => context as unknown as ReactNode,
-      openInWindow: true,
     });
     const registry = registeredLedger();
     const paneContext = paneContextHandedTo(
@@ -115,7 +126,7 @@ describe("the ledger — what it mounts", () => {
     const shell = renderedElement(registry.descriptorFor("workspace")?.render(surfaceContext()));
     expect(shell.props["className"]).toBe("meridian-ledger-surface");
     const workspace = renderedElement(shell.props["children"] as ReactNode);
-    expect(workspace.type).toBe(Workspace);
+    expect(workspace.type).toBe(TestWorkspaceBody);
     expect(workspace.props["route"]).toStrictEqual({ kind: "workspace", sessionId: "session-7" });
   });
 
@@ -127,13 +138,12 @@ describe("the ledger — what it mounts", () => {
       kind: "timeline",
       owner: PANE_TEST_OWNER,
       render: (context) => context as unknown as ReactNode,
-      openInWindow: true,
     });
     const registry = registeredLedger();
     const paneContext = paneContextHandedTo(
       registry.descriptorFor("timeline")?.render(surfaceContext()),
     );
-    expect(paneContext.entity).toBeUndefined();
+    expect(paneContext).not.toHaveProperty("entity");
     expect(paneContext.focusHue).toBeUndefined();
     expect(paneContext.paneId.length).toBeGreaterThan(0);
   });

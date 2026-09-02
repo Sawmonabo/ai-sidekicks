@@ -8,7 +8,7 @@ import {
   inlineCardSeatRegistry,
   type InlineCardSeatProps,
   type OwnerSlotProps,
-} from "../../workspace/index.js";
+} from "../../seats/index.js";
 import { EDIT_AFFORDANCE_SLOT, MessageCard } from "./MessageCard.js";
 import { FootnoteRegistry } from "./markdown/index.js";
 import { sampleRunRow } from "./row-samples.js";
@@ -144,7 +144,8 @@ describe("a message's inline cards", () => {
   const diffCard: InlineCardSeatProps = {
     kind: "diff",
     runId: "run-01",
-    changeSetId: "change-01",
+    diffArtifactId: "diff-artifact-01",
+    artifactManifestId: "artifact-manifest-01",
   };
 
   it("chips the card whether or not its body has landed", () => {

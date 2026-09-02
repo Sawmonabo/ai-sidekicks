@@ -45,7 +45,7 @@ import {
   type LedgerSeam,
 } from "../../ledger/structure/index.js";
 import { useSessionStore, type ConsoleSessionEvent, type SessionStore } from "../../store/index.js";
-import { type TimelineRowDensity } from "../../workspace/index.js";
+import { type TimelineRowDensity } from "../../seats/index.js";
 
 /** Everything one render of the ledger needs, derived once per store revision. */
 export interface LedgerWindowModel {

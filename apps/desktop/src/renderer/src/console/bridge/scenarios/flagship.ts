@@ -80,6 +80,17 @@ export const FLAGSHIP_SCENARIO_ID = "flagship";
 // bytes are the scenario's own start instant, so a reader scanning a rendered id
 // can still tell one fixture apart from another.
 const SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a11a5";
+
+/**
+ * The stem this scenario's row ids are minted from — its own namespace, not its
+ * session's.
+ *
+ * `scriptLedgerBeats` completes it with the beat's position. Distinct from
+ * `SESSION_ID` on purpose: an event id a caller could rebuild out of the session and
+ * the sequence would let a projection that stopped carrying the real one keep
+ * answering.
+ */
+const EVENT_ID_STEM = "019b79ee-0280-7ea1-8110-e5e0d115";
 const PARTICIPANT_YOU = "019b79ee-0280-79a4-8110-cca0117a0110";
 const PARTICIPANT_PRIYA = "019b79ee-0280-79a4-8120-cca0117a0120";
 const MEMBERSHIP_PRIYA = "019b79ee-0280-7e3b-8110-cca0117a0130";
@@ -205,7 +216,7 @@ const FLAGSHIP_SCRIPT: readonly LedgerScriptEntry[] = [
     runVersion: 1,
     newState: "queued",
     agentId: AGENT_IMPLEMENTER,
-    actorParticipantId: PARTICIPANT_YOU,
+    actorId: PARTICIPANT_YOU,
   }),
   lane.transition(RUN_IMPLEMENTER, {
     atMs: 500,
@@ -228,7 +239,7 @@ const FLAGSHIP_SCRIPT: readonly LedgerScriptEntry[] = [
     runVersion: 1,
     newState: "queued",
     agentId: AGENT_REVIEWER,
-    actorParticipantId: PARTICIPANT_PRIYA,
+    actorId: PARTICIPANT_PRIYA,
   }),
   lane.transition(RUN_REVIEWER, {
     atMs: 650,
@@ -247,7 +258,7 @@ const FLAGSHIP_SCRIPT: readonly LedgerScriptEntry[] = [
     runVersion: 1,
     newState: "queued",
     agentId: AGENT_SCOUT,
-    actorParticipantId: PARTICIPANT_YOU,
+    actorId: PARTICIPANT_YOU,
   }),
   lane.transition(RUN_SCOUT, {
     atMs: 800,
@@ -266,7 +277,7 @@ const FLAGSHIP_SCRIPT: readonly LedgerScriptEntry[] = [
     runVersion: 1,
     newState: "queued",
     agentId: AGENT_ARCHITECT,
-    actorParticipantId: PARTICIPANT_YOU,
+    actorId: PARTICIPANT_YOU,
   }),
   lane.transition(RUN_ARCHITECT, {
     atMs: 950,
@@ -392,7 +403,7 @@ const FLAGSHIP_SCRIPT: readonly LedgerScriptEntry[] = [
     runVersion: 5,
     previousState: "waiting_for_approval",
     newState: "running",
-    actorParticipantId: PARTICIPANT_YOU,
+    actorId: PARTICIPANT_YOU,
   }),
   lane.tool(RUN_IMPLEMENTER, {
     atMs: 1_900,
@@ -500,9 +511,25 @@ export const FLAGSHIP_SCENARIO: ConsoleScenario = {
   // the join order — that entry is whoever opened the session, on whichever machine,
   // and the two facts coincide here only because this scenario chose to make them.
   viewingParticipantId: PARTICIPANT_YOU,
+  // The two memberships, and only the two. The four agents are in the join order
+  // because they take a hue; an agent is attached rather than admitted and holds no
+  // membership, so naming one here would put a row in the participant partition that
+  // resolves to a role no daemon granted.
+  //
+  // The viewer is an owner, which is what makes this scenario able to drive a
+  // role-gated control at all: the identity read answers `PARTICIPANT_YOU`, and the
+  // role a surface gates on is this entry, looked up in the roster the session read
+  // establishes. Priya's `collaborator` is the same value her `membership.created`
+  // beat carries — one fact, stated where the roster is read from and replayed
+  // where the log records it arriving.
+  membershipRoleByParticipantId: {
+    [PARTICIPANT_YOU]: "owner",
+    [PARTICIPANT_PRIYA]: "collaborator",
+  },
   startedAtIso: STARTED_AT_ISO,
   beats: scriptLedgerBeats({
     sessionId: SESSION_ID,
+    eventIdStem: EVENT_ID_STEM,
     startedAtIso: STARTED_AT_ISO,
     entries: FLAGSHIP_SCRIPT,
   }),

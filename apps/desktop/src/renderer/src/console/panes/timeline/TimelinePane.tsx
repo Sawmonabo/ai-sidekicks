@@ -36,13 +36,13 @@ import { routeSessionId } from "../../routing/index.js";
 import { useFrameStore, type SessionStore } from "../../store/index.js";
 import { tokenReference } from "../../tokens/index.js";
 import {
-  PaneHeader,
   timelineRowRenderer,
   type ConsolePaneContext,
   type OwnerSlotContract,
   type OwnerSlotProps,
   type TimelineRowRenderer,
-} from "../../workspace/index.js";
+} from "../../seats/index.js";
+import { PaneHeader } from "../../workspace/index.js";
 import { LedgerFeed } from "./LedgerFeed.js";
 
 /**
@@ -66,8 +66,19 @@ interface PaneFocusStyle extends React.CSSProperties {
   readonly "--meridian-pane-hue": string;
 }
 
+/**
+ * The pane context, narrowed to the arm this body can serve.
+ *
+ * `ConsolePaneAddress` is a discriminated union over the pane kind, so narrowing on
+ * `kind` narrows the entity with it: this pane's entity is a channel reference or
+ * nothing, and an artifact or a run reference is not representable here. The narrowing
+ * is the type's whole purpose — a body handed an address it cannot serve would query a
+ * partition that has never held the row and render as permanently missing.
+ */
+export type TimelinePaneContext = Extract<ConsolePaneContext, { readonly kind: "timeline" }>;
+
 export interface TimelinePaneProps {
-  readonly context: ConsolePaneContext;
+  readonly context: TimelinePaneContext;
   /** Supplied by whatever owns this pane's lifetime. Absent, no close is offered. */
   readonly onClose?: () => void;
   /** Supplied where a host can open the pane in a window of its own

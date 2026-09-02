@@ -50,6 +50,7 @@ const projectors: EntityProjectorRegistry = {
 
 function eventAt(sequence: number, kind: string, entityId: string): ConsoleSessionEvent {
   return {
+    id: `event-${String(sequence)}`,
     sessionId: "session-1",
     sequence,
     kind,

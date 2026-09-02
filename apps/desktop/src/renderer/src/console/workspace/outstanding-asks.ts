@@ -178,7 +178,7 @@ export function foldOutstandingAsks(timeline: readonly ConsoleSessionEvent[]): O
       const runKey = correlationIdOf(event, RUN_CORRELATION_MEMBER) ?? uncorrelatedKey(event);
       runStateByRunId.set(runKey, {
         kind: event.kind,
-        ...(event.actorParticipantId === undefined ? {} : { opener: event.actorParticipantId }),
+        ...(event.actorId === undefined ? {} : { opener: event.actorId }),
       });
       continue;
     }
@@ -190,7 +190,7 @@ export function foldOutstandingAsks(timeline: readonly ConsoleSessionEvent[]): O
     if (event.kind === lifecycle.openedBy) {
       openerByRequestKey.set(
         `${lifecycle.openedBy}:${requestId ?? uncorrelatedKey(event)}`,
-        event.actorParticipantId,
+        event.actorId,
       );
     } else if (requestId !== undefined) {
       openerByRequestKey.delete(`${lifecycle.openedBy}:${requestId}`);

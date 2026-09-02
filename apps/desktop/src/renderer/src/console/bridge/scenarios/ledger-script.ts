@@ -16,6 +16,12 @@
 //
 // WHAT THE BUILDER GUARANTEES, AND WHY EACH GUARANTEE IS WORTH A FUNCTION CALL
 //
+//   • **The row id is positional too, and minted from the scenario's own stem.**
+//     `ConsoleSessionEvent.id` is the daemon's opaque row id, and the hydrated-event
+//     read is keyed by it — so a beat without one is a row nothing can ask about. It
+//     is minted from a stem the scenario owns rather than from its session id,
+//     because a caller that composed the id back out of `{sessionId, sequence}` would
+//     never notice the projection had stopped carrying the real one.
 //   • **Sequence is positional.** `ScenarioEngine` and `SessionStore` both key on
 //     `sequence` — the store's gap detection refuses a stream whose positions skip
 //     — so a hand-numbered script that inserted a beat in the middle would either
@@ -46,14 +52,31 @@ export interface LedgerScriptEntry {
   readonly atMs: number;
   /** A registered `SessionEventType`, verbatim. */
   readonly kind: string;
-  /** Who acted, where the wire names a participant. Absent for daemon transitions. */
-  readonly actorParticipantId?: string;
+  /**
+   * Who the beat is attributed to, where the wire names anyone.
+   *
+   * `EventEnvelope.actor`, under the console's own name for it: the wire's member
+   * holds a participant id, an AGENT id, or nothing, and carries no discriminator, so
+   * the scenario states whichever id acted and claims nothing about which kind it is.
+   * Absent for a daemon transition, which is the system arm.
+   */
+  readonly actorId?: string;
   readonly payload?: Readonly<Record<string, unknown>>;
 }
 
 /** What a script needs beyond its entries to become beats. */
 export interface LedgerScriptOptions {
   readonly sessionId: string;
+  /**
+   * The scenario's own stem for the row ids it mints — a UUID's first four groups
+   * plus the head of its last, which the builder completes with the beat's position.
+   *
+   * A stem the scenario declares rather than one derived from its session id: the
+   * two identify different things, and a row id composed out of the session would be
+   * reconstructible by any caller that had lost it, which is how a projection that
+   * stopped carrying the real id goes unnoticed.
+   */
+  readonly eventIdStem: string;
   readonly startedAtIso: string;
   readonly entries: readonly LedgerScriptEntry[];
 }
@@ -86,13 +109,12 @@ export function scriptLedgerBeats(options: LedgerScriptOptions): readonly Scenar
     return {
       atMs: entry.atMs,
       event: {
+        id: `${options.eventIdStem}${String(entryIndex + 1).padStart(4, "0")}`,
         sessionId: options.sessionId,
         sequence: entryIndex + 1,
         kind: entry.kind,
         occurredAt: new Date(startedAtMs + entry.atMs).toISOString(),
-        ...(entry.actorParticipantId === undefined
-          ? {}
-          : { actorParticipantId: entry.actorParticipantId }),
+        ...(entry.actorId === undefined ? {} : { actorId: entry.actorId }),
         payload: entry.payload ?? {},
       },
     };
@@ -111,7 +133,7 @@ export interface RunTransitionInput {
   readonly newState: string;
   /** The agent the run belongs to. Carried on the birth transition. */
   readonly agentId?: string;
-  readonly actorParticipantId?: string;
+  readonly actorId?: string;
 }
 
 /**
@@ -126,9 +148,7 @@ export function runTransitionEntry(input: RunTransitionInput): LedgerScriptEntry
   return {
     atMs: input.atMs,
     kind: `run.${input.newState}`,
-    ...(input.actorParticipantId === undefined
-      ? {}
-      : { actorParticipantId: input.actorParticipantId }),
+    ...(input.actorId === undefined ? {} : { actorId: input.actorId }),
     payload: {
       sessionId: input.sessionId,
       runId: input.runId,
@@ -249,7 +269,7 @@ export function ledgerOpeningEntries(input: LedgerOpeningInput): readonly Ledger
     {
       atMs: 0,
       kind: "session.created",
-      actorParticipantId: input.openedBy,
+      actorId: input.openedBy,
       // The registered shape verbatim: the new session's id plus the resolved
       // config and metadata. Both are open records and both are empty, because
       // nothing in the corpus names a key inside either.
@@ -258,7 +278,7 @@ export function ledgerOpeningEntries(input: LedgerOpeningInput): readonly Ledger
     {
       atMs: input.joinedAtMs,
       kind: "membership.created",
-      actorParticipantId: input.joinedBy,
+      actorId: input.joinedBy,
       payload: {
         membershipId: input.membershipId,
         participantId: input.joinedBy,
@@ -271,7 +291,7 @@ export function ledgerOpeningEntries(input: LedgerOpeningInput): readonly Ledger
       kind: "agent.attached",
       // The person who attached the agent, not the agent: an agent does not attach
       // itself, and the envelope actor is who acted.
-      actorParticipantId: input.openedBy,
+      actorId: input.openedBy,
       payload: {
         sessionId: input.sessionId,
         agentId: agent.agentId,

@@ -12,7 +12,7 @@ import { SidekicksBridgeProvider, createFixtureBridge } from "../../bridge/index
 import { LEDGER_QUIET_SCENARIO } from "../../bridge/scenarios/ledger-quiet.js";
 import { type ConsoleRefusal } from "../../core/index.js";
 import { publishConsoleActRefusalSink } from "../../frame/command-surface.js";
-import { actorFollowHandler, unregisterActorFollowHandler } from "../../workspace/index.js";
+import { actorFollowHandler, unregisterActorFollowHandler } from "../../seats/index.js";
 import { LedgerFeed } from "./LedgerFeed.js";
 import {
   REPLAY_LOG_EVENT_COUNT,

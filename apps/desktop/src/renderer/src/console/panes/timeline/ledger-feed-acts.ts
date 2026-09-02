@@ -52,7 +52,7 @@ import {
   type ActorFollowHandler,
   type ActorFollowOutcome,
   type ActorFollowRequest,
-} from "../../workspace/index.js";
+} from "../../seats/index.js";
 import {
   type LedgerFilterState,
   type LedgerFindState,

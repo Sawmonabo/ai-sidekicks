@@ -26,6 +26,11 @@ export { ChordHint } from "./ChordHint.js";
 // Rule 4's mono provenance signature. Through the door because the frame renders
 // session ids with it, and a surface that reached for its own mono span would be
 // the second rendering of the one claim this primitive exists to make.
+//
+// No `@consumedBy` marker rides it: it has its consumers today — `frame/ContextPicker.tsx`
+// and `frame/WireChoiceList.tsx` both render identifiers through it — so a tag here would
+// be the half of a marker its importing change owed and did not pay, and
+// `--treat-tag-hints-as-errors` is what reports that debt.
 export { WireFigure } from "./Figure.js";
 
 // The "whose keystroke is it" pair, through the same door and for the same reason

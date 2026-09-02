@@ -21,12 +21,8 @@ import { SidekicksBridgeProvider, createFixtureBridge } from "../../bridge/index
 import { LEDGER_QUIET_SCENARIO } from "../../bridge/scenarios/ledger-quiet.js";
 import { FrameStore, SessionStore } from "../../store/index.js";
 import { participantHueTokenName, tokenReference } from "../../tokens/index.js";
-import {
-  registerTimelineRowRenderer,
-  unregisterTimelineRowRenderer,
-  type ConsolePaneContext,
-} from "../../workspace/index.js";
-import { TIMELINE_ROW_SLOT, TimelinePane } from "./TimelinePane.js";
+import { registerTimelineRowRenderer, unregisterTimelineRowRenderer } from "../../seats/index.js";
+import { TIMELINE_ROW_SLOT, TimelinePane, type TimelinePaneContext } from "./TimelinePane.js";
 
 const SESSION_ID = "session-ledger";
 const LAID_OUT_VIEWPORT_HEIGHT_PX = 400;
@@ -41,22 +37,25 @@ const LAID_OUT_VIEWPORT_HEIGHT_PX = 400;
  * the subject.
  */
 function paneContext(
-  overrides: Partial<ConsolePaneContext> = {},
+  overrides: Partial<TimelinePaneContext> = {},
   sessionId: string | null = SESSION_ID,
-): ConsolePaneContext {
+): TimelinePaneContext {
   // `null` rather than `undefined` for the session-less arm: passing `undefined`
   // explicitly re-applies a parameter default, so the one case that needs a bare
   // route would silently have got the addressed one.
+  //
+  // The `entity` member is omitted rather than set to `undefined`: this pane kind's
+  // address arm makes it optional, and an absent key is how the union says the pane
+  // is scoped to the session rather than to one of its entities.
   return {
     kind: "timeline",
-    entity: undefined,
     paneId: "ledger-timeline",
     frameStore: new FrameStore({
       initialRoute: sessionId === null ? { kind: "sessions" } : { kind: "workspace", sessionId },
     }),
     focusHue: undefined,
     ...overrides,
-  } as unknown as ConsolePaneContext;
+  } as unknown as TimelinePaneContext;
 }
 
 /**
@@ -92,6 +91,7 @@ function openSessionStoreWithLog(): SessionStore {
   sessionStore.initialise({ cursor: -1, entities: [], participantJoinLog: [] });
   sessionStore.applyBatch([
     {
+      id: "event-0",
       sessionId: SESSION_ID,
       sequence: 0,
       kind: "session.created",
@@ -99,6 +99,7 @@ function openSessionStoreWithLog(): SessionStore {
       payload: { sessionId: SESSION_ID },
     },
     {
+      id: "event-1",
       sessionId: SESSION_ID,
       sequence: 1,
       kind: "run.running",
@@ -142,12 +143,15 @@ describe("TimelinePane — the chrome", () => {
 
   it("renders the address as breadcrumb crumbs, wire-verbatim", () => {
     const pane = renderPane(
-      <TimelinePane context={paneContext({ entity: { kind: "run", id: "run-01" } })} />,
+      // A CHANNEL, because that is the only entity a timeline is a view of: the
+      // address union scopes each pane kind to its own entity kinds, so a run
+      // reference here does not compile — which is the guard, not an inconvenience.
+      <TimelinePane context={paneContext({ entity: { kind: "channel", id: "channel-01" } })} />,
     );
     const crumbs = [...pane.querySelectorAll(".meridian-pane__crumb")].map(
       (crumb) => crumb.textContent,
     );
-    expect(crumbs).toStrictEqual([SESSION_ID, "run-01"]);
+    expect(crumbs).toStrictEqual([SESSION_ID, "channel-01"]);
   });
 
   it("says the address names no session rather than rendering an empty strip", () => {
@@ -229,7 +233,7 @@ describe("TimelinePane — the row slot", () => {
     ));
     const sessionStore = openSessionStoreWithLog();
     const pane = renderPane(
-      <TimelinePane context={paneContext({ sessionStore } as Partial<ConsolePaneContext>)} />,
+      <TimelinePane context={paneContext({ sessionStore } as Partial<TimelinePaneContext>)} />,
     );
     const feed = pane.querySelector('[role="feed"]');
     expect(feed).not.toBeNull();
@@ -245,7 +249,7 @@ describe("TimelinePane — the row slot", () => {
     const sessionStore = new SessionStore({ sessionId: SESSION_ID });
     sessionStore.initialise({ cursor: -1, entities: [], participantJoinLog: [] });
     const pane = renderPane(
-      <TimelinePane context={paneContext({ sessionStore } as Partial<ConsolePaneContext>)} />,
+      <TimelinePane context={paneContext({ sessionStore } as Partial<TimelinePaneContext>)} />,
     );
     expect(pane.textContent).toContain("Nothing has happened in this session yet.");
     expect(pane.querySelectorAll("[data-row-type]")).toHaveLength(0);

@@ -21,10 +21,22 @@ import { consoleCommandSurface, consoleCommands } from "../../frame/command-surf
 import { LEDGER_WINDOW_ROW_CAP } from "../../ledger/frame/frame-bounds.js";
 import { LEDGER_COMMAND_OWNER, registerLedgerCommands } from "../../ledger/structure/index.js";
 import { SessionStore } from "../../store/index.js";
-import { type TimelineRowSlotProps } from "../../workspace/index.js";
+import { type TimelineRowSlotProps } from "../../seats/index.js";
 import { LedgerFeed } from "./LedgerFeed.js";
 
 export const SESSION_ID = "session-ledger-feed";
+
+/**
+ * The daemon's opaque row id for the event at one log position.
+ *
+ * Every `ConsoleSessionEvent` carries one — the hydrated-event read is keyed by it —
+ * so a store seeded without one holds rows nothing could ever ask about. Positional
+ * here because these logs are generated, and distinct from `SESSION_ID` because the
+ * two identify different things.
+ */
+function fixtureEventId(sequence: number): string {
+  return `019b793b-7b60-7ea1-8110-e5e0d115${String(sequence).padStart(4, "0")}`;
+}
 export const LAID_OUT_VIEWPORT_HEIGHT_PX = 400;
 const LAID_OUT_CONTENT_HEIGHT_PX = 10_000;
 export const LONG_LOG_EVENT_COUNT = 300;
@@ -66,6 +78,7 @@ export function openSessionStoreWithLog(count: number): SessionStore {
   sessionStore.initialise({ cursor: -1, entities: [], participantJoinLog: [] });
   sessionStore.applyBatch(
     Array.from({ length: count }, (_unused, index) => ({
+      id: fixtureEventId(index),
       sessionId: SESSION_ID,
       sequence: index,
       kind: "run.running",
@@ -125,19 +138,21 @@ export function openStoreWhereJoinOrderIsNotEventOrder(): SessionStore {
   });
   sessionStore.applyBatch([
     {
+      id: fixtureEventId(0),
       sessionId: SESSION_ID,
       sequence: 0,
       kind: "user.message",
       occurredAt: "2026-01-01T11:00:00.000Z",
-      actorParticipantId: LATE_JOINER,
+      actorId: LATE_JOINER,
       payload: {},
     },
     {
+      id: fixtureEventId(1),
       sessionId: SESSION_ID,
       sequence: 1,
       kind: "user.message",
       occurredAt: "2026-01-01T11:00:01.000Z",
-      actorParticipantId: EARLY_JOINER,
+      actorId: EARLY_JOINER,
       payload: {},
     },
   ]);
@@ -190,6 +205,7 @@ export function openSessionStoreWithTerminalChapter(): SessionStore {
   const at = (index: number): string => new Date(Date.UTC(2026, 0, 1, 11, 0, index)).toISOString();
   sessionStore.applyBatch([
     {
+      id: fixtureEventId(0),
       sessionId: SESSION_ID,
       sequence: 0,
       kind: "run.running",
@@ -197,6 +213,7 @@ export function openSessionStoreWithTerminalChapter(): SessionStore {
       payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID },
     },
     {
+      id: fixtureEventId(1),
       sessionId: SESSION_ID,
       sequence: 1,
       kind: "assistant.message",
@@ -204,6 +221,7 @@ export function openSessionStoreWithTerminalChapter(): SessionStore {
       payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID },
     },
     {
+      id: fixtureEventId(2),
       sessionId: SESSION_ID,
       sequence: 2,
       kind: "run.paused",
@@ -211,6 +229,7 @@ export function openSessionStoreWithTerminalChapter(): SessionStore {
       payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID },
     },
     {
+      id: fixtureEventId(3),
       sessionId: SESSION_ID,
       sequence: 3,
       kind: "run.completed",
@@ -218,6 +237,7 @@ export function openSessionStoreWithTerminalChapter(): SessionStore {
       payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID },
     },
     {
+      id: fixtureEventId(4),
       sessionId: SESSION_ID,
       sequence: 4,
       kind: "run.running",
@@ -225,6 +245,7 @@ export function openSessionStoreWithTerminalChapter(): SessionStore {
       payload: { sessionId: SESSION_ID, runId: LIVE_RUN_ID },
     },
     {
+      id: fixtureEventId(5),
       sessionId: SESSION_ID,
       sequence: 5,
       kind: "assistant.message",
@@ -249,6 +270,7 @@ export function openSessionStoreWithSeam(): SessionStore {
   const at = (index: number): string => new Date(Date.UTC(2026, 0, 1, 11, 0, index)).toISOString();
   sessionStore.applyBatch([
     {
+      id: fixtureEventId(0),
       sessionId: SESSION_ID,
       sequence: 0,
       kind: "run.running",
@@ -256,6 +278,7 @@ export function openSessionStoreWithSeam(): SessionStore {
       payload: { sessionId: SESSION_ID, runId: LIVE_RUN_ID },
     },
     {
+      id: fixtureEventId(1),
       sessionId: SESSION_ID,
       sequence: 1,
       kind: "usage.context_compacted",
@@ -263,6 +286,7 @@ export function openSessionStoreWithSeam(): SessionStore {
       payload: { sessionId: SESSION_ID, runId: LIVE_RUN_ID },
     },
     {
+      id: fixtureEventId(2),
       sessionId: SESSION_ID,
       sequence: 2,
       kind: "assistant.message",
@@ -308,19 +332,21 @@ export function openSessionStoreWithFilterableLog(): SessionStore {
   const at = (index: number): string => new Date(Date.UTC(2026, 0, 1, 11, 0, index)).toISOString();
   sessionStore.applyBatch([
     {
+      id: fixtureEventId(0),
       sessionId: FILTERABLE_SESSION_ID,
       sequence: 0,
       kind: "run.running",
       occurredAt: at(0),
-      actorParticipantId: EARLY_JOINER,
+      actorId: EARLY_JOINER,
       payload: { sessionId: FILTERABLE_SESSION_ID, runId: LIVE_RUN_ID },
     },
     {
+      id: fixtureEventId(1),
       sessionId: FILTERABLE_SESSION_ID,
       sequence: 1,
       kind: "run.rolled_back",
       occurredAt: at(1),
-      actorParticipantId: LATE_JOINER,
+      actorId: LATE_JOINER,
       payload: {
         sessionId: FILTERABLE_SESSION_ID,
         runId: LIVE_RUN_ID,
@@ -329,11 +355,12 @@ export function openSessionStoreWithFilterableLog(): SessionStore {
       },
     },
     {
+      id: fixtureEventId(2),
       sessionId: FILTERABLE_SESSION_ID,
       sequence: 2,
       kind: "user.message",
       occurredAt: at(2),
-      actorParticipantId: LATE_JOINER,
+      actorId: LATE_JOINER,
       payload: {},
     },
   ]);
@@ -352,6 +379,7 @@ export function openSessionStoreWithToolRows(count: number): SessionStore {
   sessionStore.initialise({ cursor: -1, entities: [], participantJoinLog: [] });
   sessionStore.applyBatch(
     Array.from({ length: count }, (_unused, index) => ({
+      id: fixtureEventId(index),
       sessionId: SESSION_ID,
       sequence: index,
       kind: "tool.invoked",
@@ -373,6 +401,7 @@ export function openSessionStoreWithGeneralLog(count: number): SessionStore {
   sessionStore.initialise({ cursor: -1, entities: [], participantJoinLog: [] });
   sessionStore.applyBatch(
     Array.from({ length: count }, (_unused, index) => ({
+      id: fixtureEventId(index),
       sessionId: SESSION_ID,
       sequence: index,
       kind: "user.message",

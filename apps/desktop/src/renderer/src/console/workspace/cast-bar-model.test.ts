@@ -35,13 +35,14 @@ function wheelFor(participantIds: readonly string[]): ParticipantHueAllocator {
   return allocator;
 }
 
-function event(sequence: number, actorParticipantId: string, kind: string): ConsoleSessionEvent {
+function event(sequence: number, actorId: string, kind: string): ConsoleSessionEvent {
   return {
+    id: `event-${String(sequence)}`,
     sessionId: "session-1",
     sequence,
     kind,
     occurredAt: "2026-01-01T14:20:00.000Z",
-    actorParticipantId,
+    actorId,
   };
 }
 

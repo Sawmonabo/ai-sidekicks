@@ -22,6 +22,9 @@ import {
 } from "./ledger-script.js";
 
 const SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a5";
+
+/** This suite's own row-id namespace, as every scenario declares one. */
+const EVENT_ID_STEM = "019b793b-7b60-7ea1-8110-e5e0d115";
 const RUN_ID = "019b793b-7b60-740e-8110-d1a4c1150111";
 const STARTED_AT_ISO = "2026-01-01T11:05:00.000Z";
 
@@ -35,6 +38,7 @@ const ORDERED_SCRIPT: readonly LedgerScriptEntry[] = [
 function buildOrderedBeats(): ReturnType<typeof scriptLedgerBeats> {
   return scriptLedgerBeats({
     sessionId: SESSION_ID,
+    eventIdStem: EVENT_ID_STEM,
     startedAtIso: STARTED_AT_ISO,
     entries: ORDERED_SCRIPT,
   });
@@ -55,29 +59,30 @@ describe("scriptLedgerBeats", () => {
   it("carries the entry's kind, actor, and payload through untouched", () => {
     const [beat] = scriptLedgerBeats({
       sessionId: SESSION_ID,
+      eventIdStem: EVENT_ID_STEM,
       startedAtIso: STARTED_AT_ISO,
-      entries: [
-        { atMs: 0, kind: "user.message", actorParticipantId: RUN_ID, payload: { note: "kept" } },
-      ],
+      entries: [{ atMs: 0, kind: "user.message", actorId: RUN_ID, payload: { note: "kept" } }],
     });
     expect(beat?.event.kind).toBe("user.message");
-    expect(beat?.event.actorParticipantId).toBe(RUN_ID);
+    expect(beat?.event.actorId).toBe(RUN_ID);
     expect(beat?.event.payload).toStrictEqual({ note: "kept" });
   });
 
   it("omits the actor entirely when the entry names none", () => {
     const [beat] = scriptLedgerBeats({
       sessionId: SESSION_ID,
+      eventIdStem: EVENT_ID_STEM,
       startedAtIso: STARTED_AT_ISO,
       entries: [{ atMs: 0, kind: "run.starting" }],
     });
-    expect(beat?.event).not.toHaveProperty("actorParticipantId");
+    expect(beat?.event).not.toHaveProperty("actorId");
   });
 
   it("refuses a script that goes backwards in time", () => {
     expect(() =>
       scriptLedgerBeats({
         sessionId: SESSION_ID,
+        eventIdStem: EVENT_ID_STEM,
         startedAtIso: STARTED_AT_ISO,
         entries: [
           { atMs: 100, kind: "run.starting" },
@@ -94,6 +99,7 @@ describe("scriptLedgerBeats", () => {
     expect(() =>
       scriptLedgerBeats({
         sessionId: SESSION_ID,
+        eventIdStem: EVENT_ID_STEM,
         startedAtIso: STARTED_AT_ISO,
         entries: [
           { atMs: 40, kind: "run.starting" },
@@ -105,7 +111,12 @@ describe("scriptLedgerBeats", () => {
 
   it("refuses a start instant it cannot parse", () => {
     expect(() =>
-      scriptLedgerBeats({ sessionId: SESSION_ID, startedAtIso: "the day before", entries: [] }),
+      scriptLedgerBeats({
+        sessionId: SESSION_ID,
+        eventIdStem: EVENT_ID_STEM,
+        startedAtIso: "the day before",
+        entries: [],
+      }),
     ).toThrow(RangeError);
   });
 });

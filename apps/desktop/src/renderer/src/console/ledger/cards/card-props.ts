@@ -11,7 +11,7 @@
 
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts";
 
-import type { TimelineRowSlotProps } from "../../workspace/index.js";
+import type { TimelineRowSlotProps } from "../../seats/index.js";
 import type { FootnoteRegistry } from "./markdown/index.js";
 
 export interface LedgerCardProps extends TimelineRowSlotProps {

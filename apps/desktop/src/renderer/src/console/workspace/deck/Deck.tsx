@@ -53,7 +53,7 @@ import { Group, Separator } from "react-resizable-panels";
 
 import { RealClock, type ConsoleRefusal } from "../../core/index.js";
 import { InlineRefusal, Nothing, isEditableTarget, useAnnounce } from "../../primitives/index.js";
-import { type ConsolePaneContext, type ConsolePaneRegistry } from "../seats/index.js";
+import { type ConsolePaneContext, type ConsolePaneRegistry } from "../../seats/index.js";
 import { useDeckLayoutState, type DeckLayout } from "./deck-layout.js";
 import { DECK_TOTAL_PERMILLE, toPaneSizePercentages, type DeckPane } from "./deck-model.js";
 import { minimumPaneWidthPx, type DeckDensity } from "./density.js";
@@ -73,7 +73,8 @@ export interface DeckProps {
    * window composes a different subset without a second code path. */
   readonly registry: ConsolePaneRegistry;
   /** What each pane body is handed. The surface that owns the stores builds it. */
-  readonly paneContextFor: (pane: DeckPane) => ConsolePaneContext;
+  /** What each pane's body is handed, or why its address cannot be served. */
+  readonly paneContextFor: (pane: DeckPane) => ConsolePaneContext | ConsoleRefusal;
   /** Supplied where a host can move a pane into a window of its own
    * (`Spec-023 §The surface set`, auxiliary windows). */
   readonly onOpenInWindow?: (pane: DeckPane) => void;

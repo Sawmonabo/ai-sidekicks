@@ -68,6 +68,17 @@ export const LEDGER_SCENARIO_ID = "ledger";
 // rendered identifier tells one fixture apart from another at a glance — and so an
 // id is as wide on screen as a real one, which a readable name never is.
 const SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a5";
+
+/**
+ * The stem this scenario's row ids are minted from — its own namespace, not its
+ * session's.
+ *
+ * `scriptLedgerBeats` completes it with the beat's position. Distinct from
+ * `SESSION_ID` on purpose: an event id a caller could rebuild out of the session and
+ * the sequence would let a projection that stopped carrying the real one keep
+ * answering.
+ */
+const EVENT_ID_STEM = "019b793b-7b60-7ea1-8110-e5e0d115";
 const PARTICIPANT_YOU = "019b793b-7b60-79a4-8110-cca0117a0410";
 const PARTICIPANT_PRIYA = "019b793b-7b60-79a4-8120-cca0117a0420";
 const MEMBERSHIP_PRIYA = "019b793b-7b60-7e3b-8110-cca0117a0430";
@@ -146,7 +157,7 @@ const LEDGER_SCRIPT: readonly LedgerScriptEntry[] = [
     // The author is the envelope's actor and the text is not here: participant
     // prose is sealed per participant in `pii_payload`, and a fixture that put the
     // words on the payload would teach a row to read a member no daemon sets.
-    actorParticipantId: PARTICIPANT_PRIYA,
+    actorId: PARTICIPANT_PRIYA,
     payload: { sessionId: SESSION_ID },
   },
 
@@ -156,7 +167,7 @@ const LEDGER_SCRIPT: readonly LedgerScriptEntry[] = [
     runVersion: 1,
     newState: "queued",
     agentId: AGENT_IMPLEMENTER,
-    actorParticipantId: PARTICIPANT_YOU,
+    actorId: PARTICIPANT_YOU,
   }),
   lane.transition(RUN_IMPLEMENTER, {
     atMs: 400,
@@ -204,7 +215,7 @@ const LEDGER_SCRIPT: readonly LedgerScriptEntry[] = [
     runVersion: 1,
     newState: "queued",
     agentId: AGENT_REVIEWER,
-    actorParticipantId: PARTICIPANT_PRIYA,
+    actorId: PARTICIPANT_PRIYA,
   }),
   lane.transition(RUN_REVIEWER, {
     atMs: 1_040,
@@ -270,7 +281,7 @@ const LEDGER_SCRIPT: readonly LedgerScriptEntry[] = [
     runVersion: 4,
     previousState: "running",
     newState: "paused",
-    actorParticipantId: PARTICIPANT_PRIYA,
+    actorId: PARTICIPANT_PRIYA,
   }),
 
   // Lane three — the architect, which is still mid-turn when the script ends.
@@ -279,7 +290,7 @@ const LEDGER_SCRIPT: readonly LedgerScriptEntry[] = [
     runVersion: 1,
     newState: "queued",
     agentId: AGENT_ARCHITECT,
-    actorParticipantId: PARTICIPANT_YOU,
+    actorId: PARTICIPANT_YOU,
   }),
   lane.transition(RUN_ARCHITECT, {
     atMs: 2_400,
@@ -307,7 +318,7 @@ const LEDGER_SCRIPT: readonly LedgerScriptEntry[] = [
     // the POST-rollback progression value, and the turn boundary the run landed
     // at — which is not the boundary row's own position, and is what the
     // superseded band above it is measured against.
-    actorParticipantId: PARTICIPANT_YOU,
+    actorId: PARTICIPANT_YOU,
     payload: {
       sessionId: SESSION_ID,
       runId: RUN_IMPLEMENTER,
@@ -367,9 +378,21 @@ export const LEDGER_SCENARIO: ConsoleScenario = {
   // Which of the roster this window is. Stated rather than read off the head of the
   // join order, which is whoever opened the session on whichever machine.
   viewingParticipantId: PARTICIPANT_YOU,
+  // The roster every role gate resolves through. The viewer is an owner, which is what
+  // lets a role-gated control be driven in this scenario at all; Priya's
+  // `collaborator` is the same value her `membership.created` beat carries — one fact,
+  // stated where the roster is read from and replayed where the log records it
+  // arriving. The agents are absent on purpose: an agent is attached rather than
+  // admitted and holds no membership, so a row here would resolve to a role no daemon
+  // granted.
+  membershipRoleByParticipantId: {
+    [PARTICIPANT_YOU]: "owner",
+    [PARTICIPANT_PRIYA]: "collaborator",
+  },
   startedAtIso: STARTED_AT_ISO,
   beats: scriptLedgerBeats({
     sessionId: SESSION_ID,
+    eventIdStem: EVENT_ID_STEM,
     startedAtIso: STARTED_AT_ISO,
     entries: LEDGER_SCRIPT,
   }),

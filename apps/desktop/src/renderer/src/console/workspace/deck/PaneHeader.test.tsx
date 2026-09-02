@@ -8,7 +8,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { PANE_KINDS } from "../seats/index.js";
+import { PANE_KINDS } from "../../seats/index.js";
 import { PANE_KIND_GLYPHS, PaneHeader } from "./PaneHeader.js";
 import { PaneControlsContext } from "./pane-controls.js";
 

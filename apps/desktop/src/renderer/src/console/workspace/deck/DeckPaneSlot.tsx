@@ -16,10 +16,12 @@ import { Panel } from "react-resizable-panels";
 import { InlineRefusal, Nothing } from "../../primitives/index.js";
 import { type ConsoleRefusal } from "../../core/index.js";
 import {
+  isDetachablePaneKind,
   type ConsolePaneContext,
+  type ConsolePaneDescriptor,
   type ConsolePaneRegistry,
   type PaneKind,
-} from "../seats/index.js";
+} from "../../seats/index.js";
 import { PERMILLE_PER_PERCENT, type DeckPane } from "./deck-model.js";
 import { minimumPaneWidthPx, type DeckDensity } from "./density.js";
 import {
@@ -35,7 +37,16 @@ export interface DeckPaneSlotProps {
   readonly isFocused: boolean;
   readonly density: DeckDensity;
   readonly registry: ConsolePaneRegistry;
-  readonly paneContextFor: (pane: DeckPane) => ConsolePaneContext;
+  /**
+   * What this pane's body is handed, or why its address cannot be served.
+   *
+   * A pane's kind and its entity reference come off a restored snapshot or a route,
+   * so the pair is not known to be an address any body admits until it is parsed. The
+   * refusal arm is what a slot draws instead of a body — never a throw, which would
+   * take the whole deck down for one pane, and never a body handed an address it
+   * cannot serve, which would query a partition that has never held the row.
+   */
+  readonly paneContextFor: (pane: DeckPane) => ConsolePaneContext | ConsoleRefusal;
   readonly dragCoordinator: DeckDragCoordinator;
   /** The edge a drop would land on, when a drag is currently over this pane. */
   readonly dropIndicator: PaneDropIndicator["edge"] | undefined;
@@ -72,7 +83,10 @@ export const DeckPaneSlot: React.NamedExoticComponent<DeckPaneSlotProps> = memo(
       untrackElement,
     } = props;
     const descriptor = props.registry.descriptorFor(pane.kind);
-    const canOpenInWindow = descriptor?.openInWindow === true && onOpenInWindow !== undefined;
+    // Whether this pane may be torn off is a property of its KIND, answered once by the
+    // window model's own closed set — never a member the descriptor carries, which
+    // would let a family advertise a detach path no auxiliary route can serve.
+    const canOpenInWindow = isDetachablePaneKind(pane.kind) && onOpenInWindow !== undefined;
 
     // The panel's own root element, which is the one the library sizes. It is the
     // element the rect discipline measures and the element a drop is aimed at, so
@@ -150,13 +164,37 @@ export const DeckPaneSlot: React.NamedExoticComponent<DeckPaneSlotProps> = memo(
           ) : descriptor === undefined ? (
             <MissingPaneBody kind={pane.kind} />
           ) : (
-            descriptor.render(props.paneContextFor(pane))
+            <PaneBody descriptor={descriptor} context={props.paneContextFor(pane)} />
           )}
         </PaneControlsContext.Provider>
       </Panel>
     );
   },
 );
+
+/** Whether what the deck resolved for a pane is an address or a refusal. */
+function isPaneContext(
+  resolved: ConsolePaneContext | ConsoleRefusal,
+): resolved is ConsolePaneContext {
+  return !("code" in resolved);
+}
+
+/**
+ * The registered body, or the refusal that says why this pane has no address.
+ *
+ * Split out of the slot's own JSX so the narrowing is a named predicate rather than a
+ * condition inside a ternary chain that already has three arms.
+ */
+function PaneBody(props: {
+  readonly descriptor: ConsolePaneDescriptor;
+  readonly context: ConsolePaneContext | ConsoleRefusal;
+}): React.ReactNode {
+  return isPaneContext(props.context) ? (
+    props.descriptor.render(props.context)
+  ) : (
+    <InlineRefusal code={props.context.code} detail={props.context.detail} />
+  );
+}
 
 /**
  * The pane whose body is somewhere else.
