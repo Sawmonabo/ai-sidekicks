@@ -15,7 +15,7 @@ import { RefusalBanner } from "../primitives/index.js";
 import { type FrameBanner } from "../store/index.js";
 import { SurfaceErrorBoundary } from "./ErrorBoundary.js";
 import { IconRail, type RailEntry } from "./IconRail.js";
-import type { ConsoleRoute, RailDestination } from "../routing/index.js";
+import { isAuxiliaryRoute, type ConsoleRoute, type RailDestination } from "../routing/index.js";
 
 export interface AppFrameProps {
   readonly route: ConsoleRoute;
@@ -31,7 +31,7 @@ export interface AppFrameProps {
 }
 
 export function AppFrame(props: AppFrameProps): React.JSX.Element {
-  const isAuxiliary = props.route.kind === "auxiliary";
+  const isAuxiliary = isAuxiliaryRoute(props.route);
   return (
     <div className={isAuxiliary ? "meridian-frame meridian-frame--auxiliary" : "meridian-frame"}>
       {isAuxiliary ? null : (

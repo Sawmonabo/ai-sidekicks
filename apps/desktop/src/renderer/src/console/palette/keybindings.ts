@@ -1,13 +1,11 @@
-// The keybinding table — the chord grammar, the binding set, and one listener.
+// The keybinding table — the binding set, one listener, and the dispatch.
 //
 // WHAT IS ADOPTED AND WHAT IS OURS. `Spec-023 §Console Libraries`, the headless
 // UI row: "ADOPT `tinykeys` 4.0.0 as the chord parser only … OWN-BUILD the
-// keybinding service and when-clause grammar". So this module imports exactly two
-// things from tinykeys — `parseKeybinding`, which turns `"$mod+KeyK"` into
-// modifier sets and a key, and `matchKeybindingPress`, which decides whether one
-// `KeyboardEvent` satisfies one parsed press — and builds the service around
-// them. It deliberately does NOT call `tinykeys()` itself, for three reasons that
-// are requirements rather than preferences:
+// keybinding service and when-clause grammar". The adopted half is walled off in
+// `keybinding-chord.ts`; this module is the service, and it deliberately does NOT
+// call `tinykeys()` itself, for three reasons that are requirements rather than
+// preferences:
 //
 //   1. `tinykeys()` takes a STATIC map from chord to handler. Our bindings are
 //      `when`-scoped, so which handler a chord resolves to is a function of the
@@ -26,84 +24,30 @@
 // the part that actually breaks — let two bindings on one chord both fire,
 // because neither would know the other had already handled the press. The single
 // listener is also the only place that can arbitrate, which is what makes the
-// conflict rule below enforceable at all.
+// conflict rule enforceable at all; the conflict rule itself is decided before
+// installation, in `keybinding-conflicts.ts`.
 //
 // CAPTURE PHASE. The listener is installed with `capture: true` so the table sees
 // a press before a focused widget can `stopPropagation` it. That is safe only
 // because the per-binding text-entry guard runs first: the table declines the
 // press rather than stealing it.
-//
-// WHAT IS NOT HERE. How a chord is PRINTED and SPOKEN lives in
-// `primitives/chord-format.ts`. A keycap is a renderer's concern and primitives
-// are below palette in the console's import graph, so keeping the tables here
-// forced `ChordHint` to reach up into this family for its vocabulary. The one
-// symbol that has to be shared is imported below, and it is shared rather than
-// duplicated because the printer and the conflict comparator disagreeing about
-// whether `k` and `KeyK` are one keystroke is the exact defect it prevents.
 
-import { matchKeybindingPress, parseKeybinding, type KeybindingPress } from "tinykeys";
 import { ConsoleRefusalError, refuse } from "../core/index.js";
-import { decodeChordKeyToken } from "../primitives/index.js";
 import type { CommandInvocationOutcome, CommandRegistry } from "./command-registry.js";
+import type { KeyBinding } from "./contributions.js";
+import { chordMatchesEvent } from "./keybinding-chord.js";
 import {
-  collectWhenClauseIdentifiers,
-  evaluateWhenClause,
-  parseWhenClause,
-  whenClausesCanOverlap,
-  type WhenClauseContext,
-  type WhenClauseNode,
-} from "./when-clause.js";
-
-/** One chord bound to one command, optionally scoped. */
-export interface KeyBinding {
-  /** tinykeys syntax, single press, `$mod` for Cmd on macOS and Ctrl elsewhere. */
-  readonly chord: string;
-  readonly commandId: string;
-  /** A `when-clause.ts` expression. Absent means the binding is always live. */
-  readonly when?: string;
-  /**
-   * Fire even while focus is in a text field. Default false.
-   *
-   * Opt-in rather than opt-out because the failure modes are asymmetric: a chord
-   * that wrongly fires while someone is typing destroys their text, and a chord
-   * that wrongly declines makes them reach for a menu.
-   */
-  readonly allowInTextInput?: boolean;
-}
-
-/** Why a chord string was refused. */
-export type ChordParseErrorKind = "empty-chord" | "sequence-unsupported" | "no-key";
-
-/** A chord that parsed, or the reason it did not. */
-export type ChordParseResult =
-  | { readonly ok: true; readonly press: KeybindingPress }
-  | { readonly ok: false; readonly kind: ChordParseErrorKind; readonly message: string };
-
-/** Two bindings that can be live on one chord at one moment. */
-export interface KeyBindingConflict {
-  readonly chord: string;
-  readonly commandIds: readonly [string, string];
-  /**
-   * `overlapping-scope`: a context exists in which both are live.
-   * `undecidable-scope`: their scopes name more context keys than the overlap
-   * check enumerates, so disjointness is unproven — treated as a conflict,
-   * because an unproven separation is not a separation.
-   */
-  readonly reason: "overlapping-scope" | "undecidable-scope";
-  readonly detail: string;
-}
-
-/** A binding that was dropped rather than installed, with the reason. */
-export interface KeyBindingDiagnostic {
-  readonly binding: KeyBinding;
-  readonly reason: "chord-unparseable" | "when-unparseable";
-  readonly detail: string;
-}
+  detectConflicts,
+  prepareBindings,
+  type KeyBindingConflict,
+  type KeyBindingDiagnostic,
+  type PreparedBinding,
+} from "./keybinding-conflicts.js";
+import { evaluateWhenClause, type WhenClauseContext } from "./when-clause.js";
 
 /** What happened when a chord fired. Reported, never swallowed. */
 export type KeyBindingDispatch =
   | { readonly outcome: "ran"; readonly chord: string; readonly commandId: string }
-  | { readonly outcome: "no-live-binding"; readonly chord: string }
   | {
       readonly outcome: "refused";
       readonly chord: string;
@@ -196,45 +140,6 @@ const NON_TEXT_INPUT_TYPES = new Set([
 ]);
 
 /**
- * Parse a chord into the single press the table matches against.
- *
- * MULTI-PRESS SEQUENCES ARE REFUSED. tinykeys can express `"g d"`, and honouring
- * it would require a pending-press map behind a timeout — a timer on the
- * console's input path, which `Spec-023 §Console Design (Meridian)` §The four
- * bars rules out ("no timer fires except the refresh scheduler's deadline and the
- * presence heartbeat"). The grammar that spec names is a CHORD grammar, so a
- * sequence is refused loudly at install rather than half-supported at runtime.
- */
-export function parseChord(chord: string): ChordParseResult {
-  const trimmed = chord.trim();
-  if (trimmed.length === 0) {
-    return { ok: false, kind: "empty-chord", message: "The chord is empty" };
-  }
-  const presses = parseKeybinding(trimmed);
-  if (presses.length > 1) {
-    return {
-      ok: false,
-      kind: "sequence-unsupported",
-      message: `"${trimmed}" is a multi-press sequence; the console binds single chords only`,
-    };
-  }
-  const press = presses[0];
-  if (press === undefined) {
-    return { ok: false, kind: "empty-chord", message: "The chord is empty" };
-  }
-  const key = press[2];
-  if (typeof key === "string" && key.length === 0) {
-    return { ok: false, kind: "no-key", message: `"${trimmed}" names modifiers but no key` };
-  }
-  return { ok: true, press };
-}
-
-/** Does this event satisfy this parsed chord? Thin, so tinykeys owns the semantics. */
-export function chordMatchesEvent(press: KeybindingPress, event: KeyboardEvent): boolean {
-  return matchKeybindingPress(event, press);
-}
-
-/**
  * Is this event coming out of a text field?
  *
  * `isContentEditable` covers the composer and any rich editor; the tag check
@@ -257,59 +162,6 @@ export function isTextEntryTarget(target: EventTarget | null): boolean {
   }
   const inputType = target.getAttribute("type")?.toLowerCase() ?? "text";
   return !NON_TEXT_INPUT_TYPES.has(inputType);
-}
-
-/** A binding that survived validation, with its clause and chord already parsed. */
-interface PreparedBinding {
-  readonly binding: KeyBinding;
-  readonly press: KeybindingPress;
-  readonly whenAst: WhenClauseNode | undefined;
-  /** Registration order, the last stable key in the dispatch ordering. */
-  readonly ordinal: number;
-  /** How many distinct context keys the scope names — more keys is a narrower scope. */
-  readonly specificity: number;
-}
-
-/**
- * Validate and parse a candidate binding set once.
- *
- * Shared by `setBindings` and the static `conflictsIn` so the settings page's
- * pre-flight check and the real install cannot disagree about which bindings are
- * well formed — a preview that validated differently from the commit would be a
- * second source of truth for the same question.
- */
-function prepareBindings(bindings: readonly KeyBinding[]): {
-  prepared: readonly PreparedBinding[];
-  diagnostics: readonly KeyBindingDiagnostic[];
-} {
-  const prepared: PreparedBinding[] = [];
-  const diagnostics: KeyBindingDiagnostic[] = [];
-
-  bindings.forEach((binding, index) => {
-    const chord = parseChord(binding.chord);
-    if (!chord.ok) {
-      diagnostics.push({ binding, reason: "chord-unparseable", detail: chord.message });
-      return;
-    }
-    let whenAst: WhenClauseNode | undefined;
-    if (binding.when !== undefined) {
-      const parsed = parseWhenClause(binding.when);
-      if (!parsed.ok) {
-        diagnostics.push({ binding, reason: "when-unparseable", detail: parsed.error.message });
-        return;
-      }
-      whenAst = parsed.ast;
-    }
-    prepared.push({
-      binding,
-      press: chord.press,
-      whenAst,
-      ordinal: index,
-      specificity: whenAst === undefined ? 0 : collectWhenClauseIdentifiers(whenAst).length,
-    });
-  });
-
-  return { prepared, diagnostics };
 }
 
 /**
@@ -494,77 +346,4 @@ export class KeyBindingTable {
     this.#onDispatch?.({ outcome: "refused", chord, commandId, reason: outcome.status });
     return false;
   }
-}
-
-/**
- * Find every pair of bindings that can be live on one chord at one moment.
- *
- * Grouping is by the PARSED chord rather than by the chord string, so `$mod+k`
- * and `$mod+KeyK` — two spellings of one keystroke — are compared against each
- * other instead of passing as unrelated. Scope disjointness is decided by
- * `whenClausesCanOverlap`, which enumerates: `paneFocused` and `!paneFocused` on
- * one chord are two scopes and no conflict, while `sessionOpen` and
- * `sessionOpen && paneFocused` are a conflict even though they are spelled
- * differently.
- */
-function detectConflicts(prepared: readonly PreparedBinding[]): readonly KeyBindingConflict[] {
-  const byNormalizedChord = new Map<string, PreparedBinding[]>();
-  for (const candidate of prepared) {
-    const key = normalizePressForComparison(candidate.press);
-    const bucket = byNormalizedChord.get(key);
-    if (bucket === undefined) {
-      byNormalizedChord.set(key, [candidate]);
-    } else {
-      bucket.push(candidate);
-    }
-  }
-
-  const conflicts: KeyBindingConflict[] = [];
-  for (const bucket of byNormalizedChord.values()) {
-    for (let leftIndex = 0; leftIndex < bucket.length; leftIndex += 1) {
-      for (let rightIndex = leftIndex + 1; rightIndex < bucket.length; rightIndex += 1) {
-        const left = bucket[leftIndex];
-        const right = bucket[rightIndex];
-        if (left === undefined || right === undefined) {
-          continue;
-        }
-        const overlap = whenClausesCanOverlap(left.whenAst, right.whenAst);
-        if (overlap === "disjoint") {
-          continue;
-        }
-        conflicts.push({
-          chord: left.binding.chord,
-          commandIds: [left.binding.commandId, right.binding.commandId],
-          reason: overlap === "overlap" ? "overlapping-scope" : "undecidable-scope",
-          detail:
-            overlap === "overlap"
-              ? `Both bindings are live at once in at least one context (${describeScope(left)} and ${describeScope(right)})`
-              : `The two scopes name too many context keys to prove they never overlap (${describeScope(left)} and ${describeScope(right)})`,
-        });
-      }
-    }
-  }
-  return conflicts;
-}
-
-function describeScope(prepared: PreparedBinding): string {
-  return prepared.binding.when ?? "always";
-}
-
-/**
- * A comparison key for a parsed press: required modifiers, optional modifiers,
- * and the key, each normalised so two spellings of one keystroke collide. A
- * regular-expression key is compared by its source, which is exact for the
- * spellings tinykeys produces.
- */
-function normalizePressForComparison(press: KeybindingPress): string {
-  const [requiredModifiers, optionalModifiers, key] = press;
-  const required = [...requiredModifiers].sort().join("+");
-  const optional = [...optionalModifiers].sort().join("+");
-  const keyText = typeof key === "string" ? normalizeKeyToken(key) : `re:${key.source}`;
-  return `${required}|${optional}|${keyText}`;
-}
-
-function normalizeKeyToken(key: string): string {
-  return decodeChordKeyToken(key).toUpperCase();
 }

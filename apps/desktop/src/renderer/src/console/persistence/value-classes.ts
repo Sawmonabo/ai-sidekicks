@@ -38,7 +38,7 @@
 // hand-maintained lists that only a reader ever compared. The refusal codes are
 // declared the same way, once.
 
-import type { ConsoleRefusal } from "../core/index.js";
+import { refuse, type ConsoleRefusal } from "../core/index.js";
 import { SCHEME_PREFERENCES, isSchemePreference } from "../tokens/index.js";
 
 /**
@@ -119,20 +119,24 @@ export interface PersistenceRefusal extends ConsoleRefusal {
  * three adapters comes through here, so `origin` is spelled once and no site can
  * ship a refusal that names nobody.
  *
- * The core dependency is deliberately TYPE-ONLY, and that is a build-graph
- * decision rather than a style one. `core/index.js` re-exports the tripwire
- * registry, whose module body reads the build-time fixture gate at import; this
- * module is imported directly by the architecture tier, which compiles no such
- * gate, so a runtime edge from here into that barrel makes the drafts tripwire
- * fail with a `ReferenceError` instead of an answer. An erased import costs
- * nothing and keeps the shape identical to what `core`'s `refuse` builds — three
- * fields, same names, same order — which is what `isConsoleRefusal` reads.
+ * Built by narrowing `core`'s `refuse` rather than by writing the same three
+ * fields again. `refuse` types `code` as `string` because it serves every
+ * family; this module knows its own closed vocabulary, so the spread re-narrows
+ * it and the literal is written in exactly one place in the console.
+ *
+ * This import was type-only for one release of this file, to keep a runtime edge
+ * out of `core/index.js` — whose barrel pulls `core/tripwires.ts`, whose module
+ * body reads the build-time fixture gate — because the architecture tier
+ * imported this module and declared no such gate. Both halves of that premise
+ * are now gone: that tier reads source TEXT and imports no console module, and
+ * it declares the gate its sibling tiers already did. A duplicated literal
+ * outliving the constraint that caused it is how two sources of truth start.
  */
 export function refusePersistence(
   code: PersistenceRefusalCode,
   detail: string,
 ): PersistenceRefusal {
-  return { code, detail, origin: PERSISTENCE_REFUSAL_ORIGIN };
+  return { ...refuse(PERSISTENCE_REFUSAL_ORIGIN, code, detail), code };
 }
 
 /** Values a persisted record may hold, before class validation. */

@@ -13,7 +13,13 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { ConsoleRefusal } from "../core/index.js";
 import { toReadableStore, type ConsoleReadableStore } from "./readable.js";
-import { DEFAULT_ROUTE, parseRoute, routesAreEqual, type ConsoleRoute } from "../routing/index.js";
+import {
+  DEFAULT_ROUTE,
+  isAuxiliaryRoute,
+  parseRoute,
+  routesAreEqual,
+  type ConsoleRoute,
+} from "../routing/index.js";
 import { SYSTEM_SCHEME_PREFERENCE, type SchemePreference } from "../tokens/index.js";
 
 /**
@@ -77,7 +83,7 @@ export class FrameStore {
     if (route.kind === "workspace") {
       return route.sessionId;
     }
-    if (route.kind === "auxiliary") {
+    if (isAuxiliaryRoute(route)) {
       return route.sessionId;
     }
     return undefined;

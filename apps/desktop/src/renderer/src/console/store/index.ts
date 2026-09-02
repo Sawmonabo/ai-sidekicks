@@ -21,4 +21,6 @@ export { SessionStore } from "./session-store.js";
 export type { FrameBanner } from "./frame-store.js";
 export { FrameStore } from "./frame-store.js";
 
-export { useFrameStore, useLocationHash } from "./hooks.js";
+export { SessionStoreRegistry, type SessionSnapshotReader } from "./session-store-registry.js";
+
+export { useFrameStore, useLocationHash, useOpenSessionStore } from "./hooks.js";

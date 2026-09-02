@@ -18,7 +18,10 @@
 // kinds of nothing exist to prevent.
 
 import { Nothing } from "../primitives/index.js";
-import type { AuxiliaryRouteName } from "../routing/index.js";
+import {
+  AUXILIARY_ROUTE_LABELS,
+  type AuxiliaryRouteName,
+} from "../../../../shared/auxiliary-routes.js";
 
 export interface ContextCandidate {
   readonly sessionId: string;
@@ -33,13 +36,12 @@ export interface ContextPickerProps {
   readonly onChoose: (sessionId: string) => void;
 }
 
-const ROUTE_TITLES: Readonly<Record<AuxiliaryRouteName, string>> = {
-  timeline: "Timeline",
-  "agent-console": "Agent console",
-};
-
 export function ContextPicker(props: ContextPickerProps): React.JSX.Element {
-  const routeTitle = ROUTE_TITLES[props.route];
+  // The label comes from the shared map, not a copy: the Window menu titles the
+  // same route in the main process, and two maps in two processes drift silently
+  // — a picker headed "Agent console" opened from a menu item reading something
+  // else. `src/shared/auxiliary-routes.ts` names this exact pair as its reason.
+  const routeTitle = AUXILIARY_ROUTE_LABELS[props.route];
 
   if (props.candidates === undefined) {
     return (

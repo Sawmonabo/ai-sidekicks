@@ -1,12 +1,11 @@
-// The command registry — one list of every act the console offers, and the
-// ranking that turns a query into rows.
+// The command registry — one list of every act the console offers.
 //
 // `Spec-023 §Console Design (Meridian)` §Layout grammar: "The command palette
 // has categories, recents, a scoped-context row naming what the command acts on,
 // and one matcher shared with settings search." Categories are `group`; recents
-// are `recordInvocation`; the matcher is `scoreSubsequence`, imported rather than
-// re-implemented, because "one matcher" is a claim that fails the moment a second
-// surface writes its own ranking.
+// are `recordInvocation`; the matcher is `scoreSubsequence`, reached through
+// `command-ranking.ts` rather than re-implemented, because "one matcher" is a
+// claim that fails the moment a second surface writes its own ranking.
 //
 // TWO RULES WORTH STATING BEFORE THE CODE:
 //
@@ -22,59 +21,17 @@
 //     refused is still offered, and its refusal is rendered when it comes back —
 //     `Spec-023 §Console Design (Meridian)`'s "Offer, then render the refusal".
 
-import { KeyedRegistry, PALETTE_RECENTS_CAP, PALETTE_RESULT_CAP } from "../core/index.js";
-import { scoreSubsequence, type SubsequenceMatch } from "./subsequence-score.js";
+import { KeyedRegistry, PALETTE_RECENTS_CAP } from "../core/index.js";
+import type { ConsoleCommand } from "./contributions.js";
 import {
-  WhenClauseCache,
-  type WhenClauseContext,
-  type WhenClauseNode,
-  type WhenClauseParseError,
-} from "./when-clause.js";
-
-/** One act the console offers. */
-export interface ConsoleCommand {
-  /** Stable, unique, namespaced by owning family — `session.rename`, not `rename`. */
-  readonly id: string;
-  /** Sentence case, no trailing punctuation, names the act — console copy rules. */
-  readonly title: string;
-  /** The palette category this row sits under. Also a secondary match field. */
-  readonly group: string;
-  /** A `when-clause.ts` expression. Absent means unconditional. */
-  readonly when?: string;
-  /** Extra words a person might type for this command. Matched below the title. */
-  readonly keywords?: readonly string[];
-  /**
-   * Perform the act. May be asynchronous; the registry never awaits it.
-   *
-   * A `run` MUST SETTLE. `invoke` hands its promise back and the palette drops it,
-   * deliberately — the dialog must not stay open waiting on a command that opens
-   * another surface — so a `run` that rejects reaches no surface at all and becomes
-   * an unhandled rejection. A command that can fail catches its own failure and
-   * renders it (`palette/bridge-commands.ts` is the worked example).
-   */
-  readonly run: () => void | Promise<void>;
-}
-
-/** Which text of a command a result matched on. Rendered as provenance, not just rank. */
-export type CommandMatchField = "title" | "keyword" | "group";
-
-/** One ranked row. */
-export interface CommandSearchResult {
-  readonly command: ConsoleCommand;
-  /** Higher is better. Comparable only within one `search` call. */
-  readonly score: number;
-  readonly field: CommandMatchField;
-  /**
-   * Character positions in `command.title` to emphasise, when the match was on the
-   * title. Deliberately a required member typed `| undefined` rather than an
-   * optional one: `exactOptionalPropertyTypes` makes those two different types,
-   * and a required-but-absent value is the honest shape for "there is no title
-   * match to emphasise".
-   */
-  readonly titleMatch: SubsequenceMatch | undefined;
-  /** 0 = most recently invoked. `undefined` when the command is not in recents. */
-  readonly recentRank: number | undefined;
-}
+  compareCommandsForDisplay,
+  rankCommandsForEmptyQuery,
+  rankCommandsForQuery,
+  type CommandSearchResult,
+} from "./command-ranking.js";
+import { WhenClauseCache } from "./when-clause-cache.js";
+import type { WhenClauseContext } from "./when-clause.js";
+import type { WhenClauseParseError } from "./when-clause-parser.js";
 
 /** A clause that did not parse, named with the command it hid. */
 export interface CommandClauseDiagnostic {
@@ -87,35 +44,6 @@ export type CommandInvocationOutcome =
   | { readonly status: "ran"; readonly commandId: string; readonly completion: Promise<void> }
   | { readonly status: "unknown-command"; readonly commandId: string }
   | { readonly status: "hidden-in-context"; readonly commandId: string };
-
-/**
- * Subtracted from a match on a field other than the title.
- *
- * ADDITIVE, never multiplicative. A multiplier looks equivalent and is not: a
- * scattered title match can score below zero, and multiplying a negative by a
- * fraction makes it LARGER — a keyword hit would then outrank the title hit it
- * was supposed to sit under. Subtraction is monotone at every score.
- */
-export const COMMAND_KEYWORD_FIELD_PENALTY = 40;
-
-/** As above, for the weakest field. A group name is context, not the act's name. */
-export const COMMAND_GROUP_FIELD_PENALTY = 64;
-
-/**
- * Added to a recently invoked command's score, decaying by one per position.
- *
- * Small on purpose: recency breaks ties between comparable matches and must never
- * float a poor match over a good one, because a palette that answers with the
- * last thing you ran rather than the thing you typed stops being a search.
- */
-export const COMMAND_RECENCY_BONUS = 12;
-
-function compareStrings(left: string, right: string): number {
-  if (left === right) {
-    return 0;
-  }
-  return left < right ? -1 : 1;
-}
 
 /**
  * The console's command list.
@@ -201,22 +129,8 @@ export class CommandRegistry {
         visible.push(command);
       }
     }
-    visible.sort(
-      (left, right) =>
-        compareStrings(left.group, right.group) ||
-        compareStrings(left.title, right.title) ||
-        compareStrings(left.id, right.id),
-    );
+    visible.sort(compareCommandsForDisplay);
     return visible;
-  }
-
-  /** The parsed clause for a command, for the keybinding table's conflict check. */
-  public whenClauseFor(commandId: string): WhenClauseNode | undefined {
-    const command = this.#commandsById.get(commandId);
-    if (command?.when === undefined) {
-      return undefined;
-    }
-    return this.#whenClauses.astFor(command.when);
   }
 
   /**
@@ -294,6 +208,10 @@ export class CommandRegistry {
    * returns recents first and then the rest in category order, which is what the
    * palette shows the moment it opens. `scoreSubsequence` refuses an empty query
    * for the same reason, so the two halves cannot drift.
+   *
+   * Which commands are ELIGIBLE is settled here, by `commandsFor`; what order the
+   * eligible ones come back in is settled by `command-ranking.ts`. A ranker that
+   * could also hide a row would be a second source of truth for eligibility.
    */
   public search(query: string, context: WhenClauseContext): readonly CommandSearchResult[] {
     const trimmedQuery = query.trim();
@@ -303,114 +221,8 @@ export class CommandRegistry {
       recentRankById.set(commandId, rank);
     });
 
-    if (trimmedQuery.length === 0) {
-      return this.#emptyQueryResults(visibleCommands, recentRankById);
-    }
-
-    const results: CommandSearchResult[] = [];
-    for (const command of visibleCommands) {
-      const scored = this.#scoreCommand(command, trimmedQuery);
-      if (scored === undefined) {
-        continue;
-      }
-      const recentRank = recentRankById.get(command.id);
-      const recencyBonus =
-        recentRank === undefined ? 0 : Math.max(0, COMMAND_RECENCY_BONUS - recentRank);
-      results.push({
-        command,
-        score: scored.score + recencyBonus,
-        field: scored.field,
-        titleMatch: scored.titleMatch,
-        recentRank,
-      });
-    }
-
-    results.sort(this.#compareResults);
-    return results.slice(0, PALETTE_RESULT_CAP);
+    return trimmedQuery.length === 0
+      ? rankCommandsForEmptyQuery(visibleCommands, recentRankById)
+      : rankCommandsForQuery(visibleCommands, trimmedQuery, recentRankById);
   }
-
-  #emptyQueryResults(
-    visibleCommands: readonly ConsoleCommand[],
-    recentRankById: ReadonlyMap<string, number>,
-  ): readonly CommandSearchResult[] {
-    const recentResults: CommandSearchResult[] = [];
-    const remainingResults: CommandSearchResult[] = [];
-    for (const command of visibleCommands) {
-      const recentRank = recentRankById.get(command.id);
-      const result: CommandSearchResult = {
-        command,
-        score: 0,
-        field: "title",
-        titleMatch: undefined,
-        recentRank,
-      };
-      if (recentRank === undefined) {
-        remainingResults.push(result);
-      } else {
-        recentResults.push(result);
-      }
-    }
-    recentResults.sort((left, right) => (left.recentRank ?? 0) - (right.recentRank ?? 0));
-    // `visibleCommands` already arrives in group-then-title order, so the
-    // remainder needs no second sort — and must not get one, or the categories
-    // would reshuffle between an empty query and a cleared query.
-    return [...recentResults, ...remainingResults].slice(0, PALETTE_RESULT_CAP);
-  }
-
-  #scoreCommand(
-    command: ConsoleCommand,
-    query: string,
-  ):
-    | { score: number; field: CommandMatchField; titleMatch: SubsequenceMatch | undefined }
-    | undefined {
-    const titleMatch = scoreSubsequence(command.title, query);
-    let best:
-      | { score: number; field: CommandMatchField; titleMatch: SubsequenceMatch | undefined }
-      | undefined =
-      titleMatch === undefined
-        ? undefined
-        : { score: titleMatch.score, field: "title", titleMatch };
-
-    for (const keyword of command.keywords ?? []) {
-      const keywordMatch = scoreSubsequence(keyword, query);
-      if (keywordMatch === undefined) {
-        continue;
-      }
-      const score = keywordMatch.score - COMMAND_KEYWORD_FIELD_PENALTY;
-      if (best === undefined || score > best.score) {
-        best = { score, field: "keyword", titleMatch: undefined };
-      }
-    }
-
-    const groupMatch = scoreSubsequence(command.group, query);
-    if (groupMatch !== undefined) {
-      const score = groupMatch.score - COMMAND_GROUP_FIELD_PENALTY;
-      if (best === undefined || score > best.score) {
-        best = { score, field: "group", titleMatch: undefined };
-      }
-    }
-
-    return best;
-  }
-
-  /**
-   * Score first, then a chain of stable keys. The tail of the chain ends at `id`,
-   * which is unique, so the order is TOTAL — two renders of one result set are
-   * byte-identical, which is what the screenshot tier depends on.
-   */
-  readonly #compareResults = (left: CommandSearchResult, right: CommandSearchResult): number => {
-    if (left.score !== right.score) {
-      return right.score - left.score;
-    }
-    const leftRecency = left.recentRank ?? Number.MAX_SAFE_INTEGER;
-    const rightRecency = right.recentRank ?? Number.MAX_SAFE_INTEGER;
-    if (leftRecency !== rightRecency) {
-      return leftRecency - rightRecency;
-    }
-    return (
-      compareStrings(left.command.group, right.command.group) ||
-      compareStrings(left.command.title, right.command.title) ||
-      compareStrings(left.command.id, right.command.id)
-    );
-  };
 }

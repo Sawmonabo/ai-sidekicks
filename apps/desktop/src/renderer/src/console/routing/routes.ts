@@ -22,6 +22,21 @@
 // picker rather than an empty window. A route arriving MALFORMED (an unknown route
 // name, too many segments, an empty segment) is different: it resolves to the
 // not-found route, which says what it could not open rather than rendering blank.
+//
+// THE AUXILIARY GRAMMAR IS NOT DECLARED HERE. `src/shared/auxiliary-routes.ts`
+// owns the route names, their labels, and the `#/window/…` producer/consumer pair,
+// because the main process PRODUCES those fragments (the Window menu, the
+// auxiliary-window factory) and this module CONSUMES them — two halves in two
+// processes, which is exactly the pair that drifts when each writes its own. This
+// module keeps the console-wide grammar (`#/sessions`, `#/session/<id>`,
+// `#/settings`) and delegates the one arm it shares with main, so the console
+// cannot accept a fragment the menu cannot produce or the reverse.
+
+import {
+  formatAuxiliaryFragment,
+  parseAuxiliaryFragment,
+  type AuxiliaryRouteName,
+} from "../../../../shared/auxiliary-routes.js";
 
 /**
  * Destinations on the icon rail, in rail order. Closed; the rail renders exactly
@@ -36,17 +51,6 @@ export const RAIL_DESTINATIONS = ["sessions", "workspace", "settings"] as const;
 
 /** One icon-rail destination, derived from the tuple above. */
 export type RailDestination = (typeof RAIL_DESTINATIONS)[number];
-
-/**
- * Auxiliary-window routes.
- *
- * One declaration, with the union derived from it. A hand-repeated array beside a
- * hand-written union is two closed sets that agree until the day someone widens
- * one, and nothing in the compiler notices.
- */
-export const AUXILIARY_ROUTE_NAMES = ["timeline", "agent-console"] as const;
-
-export type AuxiliaryRouteName = (typeof AUXILIARY_ROUTE_NAMES)[number];
 
 /** Where the console currently is. A closed union — every arm renders something. */
 export type ConsoleRoute =
@@ -100,20 +104,25 @@ export function parseRoute(hash: string): ConsoleRoute {
   }
 
   if (head === "window") {
-    const [routeName, sessionId, agentId, ...extra] = rest;
-    if (routeName === undefined || extra.length > 0) {
-      return notFound(hash);
-    }
-    if (!isAuxiliaryRouteName(routeName)) {
+    // Re-composed from the already-split segments rather than passed through as
+    // `hash`, so this module keeps its own tolerance for a leading `#` or `#/`
+    // while the SEGMENTS are read by the shared grammar: segment-count bounds,
+    // the empty-segment refusal, the closed route-name check, and the per-segment
+    // decode. That decode is the reason to delegate rather than to re-derive —
+    // the arm this replaced called `decodeURIComponent` directly, and a malformed
+    // escape (`#/window/timeline/%zz`) throws `URIError` out of a function whose
+    // own contract is that every input produces a route.
+    const target = parseAuxiliaryFragment(`#/window/${rest.join("/")}`);
+    if (target === null) {
       return notFound(hash);
     }
     return {
       kind: "auxiliary",
-      route: routeName,
+      route: target.route,
       // A bare auxiliary route is legitimate and gets the context picker; only an
       // unparseable one is not-found.
-      sessionId: sessionId === undefined ? undefined : decodeURIComponent(sessionId),
-      agentId: agentId === undefined ? undefined : decodeURIComponent(agentId),
+      sessionId: "sessionId" in target ? target.sessionId : undefined,
+      agentId: "agentId" in target ? target.agentId : undefined,
     };
   }
 
@@ -132,14 +141,21 @@ export function formatRoute(route: ConsoleRoute): string {
         ? "#/settings"
         : `#/settings/${encodeURIComponent(route.page)}`;
     case "auxiliary": {
-      const parts = ["#", "window", route.route];
-      if (route.sessionId !== undefined) {
-        parts.push(encodeURIComponent(route.sessionId));
-        if (route.agentId !== undefined) {
-          parts.push(encodeURIComponent(route.agentId));
-        }
+      // Widened into the shared three-arm target rather than encoded here. The
+      // arms are what make "an agent id with no session to read it in"
+      // unrepresentable, and going through them keeps this the exact inverse of
+      // the parse above — both sides of one grammar, written once.
+      if (route.sessionId === undefined) {
+        return formatAuxiliaryFragment({ route: route.route });
       }
-      return parts.join("/");
+      if (route.agentId === undefined) {
+        return formatAuxiliaryFragment({ route: route.route, sessionId: route.sessionId });
+      }
+      return formatAuxiliaryFragment({
+        route: route.route,
+        sessionId: route.sessionId,
+        agentId: route.agentId,
+      });
     }
     case "not-found":
       return route.attempted;
@@ -161,8 +177,20 @@ export function railDestinationFor(route: ConsoleRoute): RailDestination | undef
   }
 }
 
-/** True when this window is an auxiliary one, which changes what chrome renders. */
-export function isAuxiliaryRoute(route: ConsoleRoute): boolean {
+/** The auxiliary arm of the route union, named so predicates can narrow to it. */
+export type AuxiliaryConsoleRoute = Extract<ConsoleRoute, { kind: "auxiliary" }>;
+
+/**
+ * True when this window is an auxiliary one, which changes what chrome renders.
+ *
+ * A type PREDICATE rather than a `boolean`, because the call sites that would
+ * otherwise keep writing `route.kind === "auxiliary"` are not all asking a
+ * yes/no question — several go on to read `route.sessionId`, which only the
+ * discriminant narrows. Returning `boolean` here is what left four hand-written
+ * copies of this comparison in the tree: adopting the helper would have cost
+ * those callers their narrowing, so they kept the comparison instead.
+ */
+export function isAuxiliaryRoute(route: ConsoleRoute): route is AuxiliaryConsoleRoute {
   return route.kind === "auxiliary";
 }
 
@@ -196,10 +224,6 @@ export function routesAreEqual(left: ConsoleRoute, right: ConsoleRoute): boolean
     case "not-found":
       return right.kind === "not-found" && left.attempted === right.attempted;
   }
-}
-
-function isAuxiliaryRouteName(candidate: string): candidate is AuxiliaryRouteName {
-  return (AUXILIARY_ROUTE_NAMES as readonly string[]).includes(candidate);
 }
 
 function notFound(attempted: string): ConsoleRoute {

@@ -18,10 +18,14 @@ import type { GlyphName } from "../primitives/index.js";
 import { Glyph } from "../primitives/index.js";
 import type { RailDestination } from "../routing/index.js";
 
-export interface RailEntry {
-  readonly destination: RailDestination;
+/** What one destination shows. Availability and attention are decided elsewhere. */
+export interface RailEntryTemplate {
   readonly label: string;
   readonly glyph: GlyphName;
+}
+
+export interface RailEntry extends RailEntryTemplate {
+  readonly destination: RailDestination;
   /** True when this destination has something waiting for a person (amber). */
   readonly needsAttention?: boolean;
   /** False hides the entry entirely — absent, never disabled. */
@@ -73,9 +77,21 @@ export function IconRail(props: IconRailProps): React.JSX.Element {
   );
 }
 
-/** The rail's fixed contents. Availability is decided by the frame, not here. */
-export const RAIL_ENTRY_TEMPLATE: readonly Omit<RailEntry, "isAvailable" | "needsAttention">[] = [
-  { destination: "sessions", label: "Sessions", glyph: "sessions" },
-  { destination: "workspace", label: "Workspace", glyph: "workspace" },
-  { destination: "settings", label: "Settings", glyph: "settings" },
-];
+/**
+ * The rail's fixed contents, one entry per destination.
+ *
+ * A total `Record` over the destination union rather than an array, because "one
+ * entry per destination" is a claim only an indexed table can hold: as an array it
+ * enforced nothing, and a fourth `RailDestination` would have typechecked and
+ * rendered nowhere — the exact failure `RAIL_DESTINATIONS` is a walkable tuple to
+ * prevent, left open on the one table that consumes it.
+ *
+ * ORDER IS NOT HERE. A record's key order is an artefact of how it was written; the
+ * rail's order is a design decision, so it is read from the `RAIL_DESTINATIONS`
+ * tuple where the entries are built (`rail-navigation.ts`), not from this literal.
+ */
+export const RAIL_ENTRY_TEMPLATES: Readonly<Record<RailDestination, RailEntryTemplate>> = {
+  sessions: { label: "Sessions", glyph: "sessions" },
+  workspace: { label: "Workspace", glyph: "workspace" },
+  settings: { label: "Settings", glyph: "settings" },
+};

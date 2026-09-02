@@ -1,0 +1,147 @@
+// Failure modes of the outside-world seam.
+//
+// The class: the bridge is the only place the console reaches something it does not
+// own, and both halves of that reach can lie. A scenario engine can outlive the
+// store it feeds and deliver a tick into a torn-down subscriber; a growth port can
+// claim a wire is fixture-only after the wire has landed, or refuse an operation the
+// ledger never heard of. Either way a surface above reads a plausible answer that is
+// not true, which is the one failure this family exists to make impossible.
+//
+// They live in `bridge/` because the subject is what crosses the seam: the engine's
+// lifecycle and the port-and-ledger pair that `Plan-023 §Console growth slate` is
+// audited against. The store that receives the delivered events asserts its own
+// admission rules in `store/failure-modes.test.ts` — the split follows the seam.
+//
+// Where a mode has a "the code should have refused" shape, the assertion is on the
+// REFUSAL — its dropped-tick count, its tripwire, its `unavailable` status and the
+// document it names — rather than merely on the absence of a crash. A port that
+// answered `[]` instead of refusing would pass a does-not-throw assertion while
+// telling a surface that there are none, when the truth is that nobody asked.
+
+import { beforeEach, describe, expect, it } from "vitest";
+
+import { consoleTripwires } from "../core/index.js";
+import type { ConsoleSessionEvent } from "../store/index.js";
+import { GROWTH_OPERATIONS } from "./growth-operations.js";
+import { createRefusingGrowthPort, growthUnavailable } from "./growth-port.js";
+import { GROWTH_PREREQUISITES } from "./growth-prerequisites.js";
+import { GROWTH_SLATE_ROWS, type GrowthSlateRow } from "./growth-slate.js";
+import {
+  CONSOLE_SCENARIO_MANIFEST,
+  findOrphanedLedgerRowIds,
+  mapSlateRowCoverage,
+  type ConsoleScenarioManifest,
+} from "./scenario-manifest.js";
+import { ScenarioEngine } from "./scenario.js";
+import { FIRST_RUN_SCENARIO } from "./scenarios/first-run.js";
+
+// Tripwires throw in development so a breach is impossible to ignore. Under test
+// they are RECORDED instead, because the point of these cases is to assert that the
+// breach was detected and described — a throw would only prove it was noticed.
+beforeEach(() => {
+  consoleTripwires.setThrowOnReport(false);
+  consoleTripwires.reset();
+});
+
+describe("failure matrix — a scenario tick arrives after teardown", () => {
+  it("drops the tick, counts it, and reports rather than delivering into a dead store", () => {
+    const engine = new ScenarioEngine({ scenario: FIRST_RUN_SCENARIO });
+    const delivered: ConsoleSessionEvent[][] = [];
+    engine.subscribe((events) => {
+      delivered.push([...events]);
+    });
+
+    engine.dispose();
+    engine.tick();
+    engine.advance(500);
+
+    expect(delivered).toHaveLength(0);
+    expect(engine.droppedTickCount).toBe(2);
+    expect(consoleTripwires.firingCount("apply-chokepoint-bypass")).toBe(2);
+  });
+
+  it("delivers normally before teardown, so the drop is not vacuous", () => {
+    const engine = new ScenarioEngine({ scenario: FIRST_RUN_SCENARIO });
+    const delivered: ConsoleSessionEvent[][] = [];
+    engine.subscribe((events) => {
+      delivered.push([...events]);
+    });
+
+    engine.runToCompletion();
+
+    expect(delivered).toHaveLength(1);
+    expect(engine.progress.isComplete).toBe(true);
+  });
+});
+
+describe("failure matrix — a growth-slate row lands and the port still claims fixture-only", () => {
+  it("has every slate row served by at least one operation or prerequisite", () => {
+    const uncovered = mapSlateRowCoverage().filter(
+      (coverage) => coverage.operations.length === 0 && coverage.prerequisites.length === 0,
+    );
+    expect(uncovered.map((coverage) => coverage.row.id)).toStrictEqual([]);
+  });
+
+  it("has no ledger entry naming a row that is not on the slate", () => {
+    expect(findOrphanedLedgerRowIds()).toStrictEqual([]);
+  });
+
+  it("agrees with the slate: every entry is fixture-only while its row is unregistered", () => {
+    for (const entry of [
+      ...CONSOLE_SCENARIO_MANIFEST.growthOperations,
+      ...CONSOLE_SCENARIO_MANIFEST.prerequisites,
+    ]) {
+      expect(entry.liveStatus).toBe("fixture-only");
+    }
+    for (const row of GROWTH_SLATE_ROWS) {
+      expect(row.wireRegistered).toBe(false);
+    }
+  });
+
+  it("fails when a row is registered and its entries have not been re-pointed", () => {
+    // The day a wire lands, its row leaves the slate. This drives that day: a
+    // manifest whose slate no longer carries a row its entries still name must be
+    // caught, not quietly tolerated.
+    const withoutBrowserRow: ConsoleScenarioManifest = {
+      ...CONSOLE_SCENARIO_MANIFEST,
+      slateRows: CONSOLE_SCENARIO_MANIFEST.slateRows.filter(
+        (row: GrowthSlateRow) => row.id !== "browser-pane-namespace",
+      ),
+    };
+
+    expect(findOrphanedLedgerRowIds(withoutBrowserRow)).toContain("browser-pane-namespace");
+  });
+
+  it("refuses every operation under the live bridge, as the not-checked absence", async () => {
+    const port = createRefusingGrowthPort();
+    const outcome = await port.invitesList({ sessionId: "session-1" });
+
+    expect(outcome.status).toBe("unavailable");
+    if (outcome.status === "unavailable") {
+      expect(outcome.detail).toContain("Not checked");
+      expect(outcome.owningDocument).toContain("Spec-002");
+    }
+    // Not an empty list. "We have not asked" and "there are none" are different
+    // facts, and a surface handed `[]` cannot tell them apart.
+    expect(outcome).not.toHaveProperty("value");
+  });
+
+  it("exposes one port method per operation entry and none per prerequisite", () => {
+    const port = createRefusingGrowthPort();
+    const portMethodNames = Object.keys(port).sort();
+    const operationIds = Object.keys(GROWTH_OPERATIONS).sort();
+
+    expect(portMethodNames).toStrictEqual(operationIds);
+    for (const prerequisiteId of Object.keys(GROWTH_PREREQUISITES)) {
+      expect(portMethodNames).not.toContain(prerequisiteId);
+    }
+  });
+
+  it("names the owning document in every refusal, so a reader knows who owes the wire", () => {
+    for (const operationId of Object.keys(GROWTH_OPERATIONS)) {
+      const refusal = growthUnavailable(operationId as keyof typeof GROWTH_OPERATIONS);
+      expect(refusal.owningDocument.length).toBeGreaterThan(0);
+      expect(refusal.detail).toContain("not registered yet");
+    }
+  });
+});

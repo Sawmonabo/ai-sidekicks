@@ -72,24 +72,39 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", (
       expect(railButtonCount).toBeGreaterThan(0);
 
       // The sessions destination has an owner — the shipped session-bootstrap
-      // family, absorbed by the console — so the frame mounts it rather than
-      // reporting the slot reserved. Stated as the ABSENCE of the frame's
-      // composed absence because what the family renders is the family's own
-      // business and its unit tests own it; this tier's claim is only that the
-      // registry resolved and something mounted in its place.
+      // family, absorbed by the console — so the registry resolves and the
+      // owner's own render runs. What that render PRODUCES here is a refusal, and
+      // deliberately: this window is a fixture build, that family reads the
+      // installed bridge directly, and the console says the question was not put
+      // rather than answering from the live daemon beside fixture data. So the
+      // claim is not "no absence" — it is that the absence is the OWNER's and not
+      // the frame's reserved-slot arm.
+      //
+      // Read off the kind rather than the wrapper. Both producers compose through
+      // `SurfaceAbsence`, because a whole-surface absence is centred whoever
+      // raised it; the wrapper therefore says only "something is absent here",
+      // and the kind is what says which. Reading it off the wrapper is what an
+      // earlier form of this test did, and it passed only while the owner's
+      // refusal rendered as a bare line at the pane's top-left corner — the
+      // half-painted-page shape `SurfaceAbsence` exists to prevent.
       await consoleWindow.locator(".meridian-frame").waitFor({ state: "visible" });
-      expect(await consoleWindow.locator(".meridian-frame__absence").count()).toBe(0);
+      await consoleWindow
+        .locator(".meridian-frame__absence .meridian-nothing--not-checked")
+        .waitFor({ state: "visible" });
+      expect(await consoleWindow.locator(".meridian-nothing--empty").count()).toBe(0);
 
       // Reserved, not stubbed, on a destination that genuinely has no owner. This
       // is the half of the pair that makes the other half mean something: without
-      // it, "no absence on sessions" would also pass over a frame that had
-      // stopped rendering absences altogether. And the absence must be the
-      // COMPOSED one, not a bare line, because a bare line at the top-left of a
-      // real window is what a half-painted page looks like.
+      // it, "no reserved-slot absence on sessions" would also pass over a frame
+      // that had stopped rendering that arm altogether. And the absence must be
+      // the COMPOSED one, not a bare line, because a bare line at the top-left of
+      // a real window is what a half-painted page looks like.
       await consoleWindow.evaluate(() => {
         window.location.hash = "#/settings";
       });
-      await consoleWindow.locator(".meridian-frame__absence").waitFor({ state: "visible" });
+      await consoleWindow
+        .locator(".meridian-frame__absence .meridian-nothing--empty")
+        .waitFor({ state: "visible" });
     } finally {
       await consoleApplication.close();
     }

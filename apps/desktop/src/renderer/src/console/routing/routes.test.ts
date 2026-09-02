@@ -108,6 +108,57 @@ describe("routes — malformed main-window hashes resolve to not-found", () => {
   });
 });
 
+describe("routes — the auxiliary arm is the shared grammar, not a second copy", () => {
+  it("refuses a malformed escape instead of throwing out of a total function", () => {
+    // `parseRoute` promises that every input produces a route. Before this arm
+    // delegated to `src/shared/auxiliary-routes.ts` it called
+    // `decodeURIComponent` on the segment directly, and `%zz` raises `URIError` —
+    // a throw from the function the renderer calls to decide what to render, on
+    // a string anyone can type into the address bar.
+    expect(() => parseRoute("#/window/timeline/%zz")).not.toThrow();
+    expect(parseRoute("#/window/timeline/%zz")).toStrictEqual({
+      kind: "not-found",
+      attempted: "#/window/timeline/%zz",
+    });
+  });
+
+  it("refuses an unknown auxiliary route name and too many segments", () => {
+    expect(parseRoute("#/window/nowhere").kind).toBe("not-found");
+    expect(parseRoute("#/window/timeline/s1/a1/extra").kind).toBe("not-found");
+  });
+
+  it("negative control: the well-formed auxiliary hashes still parse", () => {
+    // Without this the refusals above would pass over an arm that refused
+    // everything, which is the failure this delegation could plausibly cause.
+    expect(parseRoute("#/window/timeline")).toStrictEqual({
+      kind: "auxiliary",
+      route: "timeline",
+      sessionId: undefined,
+      agentId: undefined,
+    });
+    expect(parseRoute("#/window/agent-console/session-1")).toStrictEqual({
+      kind: "auxiliary",
+      route: "agent-console",
+      sessionId: "session-1",
+      agentId: undefined,
+    });
+  });
+
+  it("round-trips through the shared producer, escapes included", () => {
+    // The console parses fragments the MAIN process produces, so the pair has to
+    // be an inverse across the process boundary, not merely within this module.
+    const hash = "#/window/agent-console/session%2Fone/agent%20two";
+    const route = parseRoute(hash);
+    expect(route).toStrictEqual({
+      kind: "auxiliary",
+      route: "agent-console",
+      sessionId: "session/one",
+      agentId: "agent two",
+    });
+    expect(formatRoute(route)).toBe(hash);
+  });
+});
+
 describe("railDestinationFor — which rail icon is current", () => {
   it("names a destination for each main-window route", () => {
     expect(railDestinationFor({ kind: "sessions" })).toBe("sessions");

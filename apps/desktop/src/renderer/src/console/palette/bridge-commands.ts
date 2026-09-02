@@ -26,7 +26,7 @@
 import { useMemo } from "react";
 import { useConsoleBridge, type ConsoleBridge } from "../bridge/index.js";
 import { refuse, type ConsoleRefusal } from "../core/index.js";
-import type { ConsoleCommand } from "./command-registry.js";
+import type { ConsoleCommand } from "./contributions.js";
 
 /** Why a bridge-backed command could not complete. */
 export const BRIDGE_COMMAND_REFUSAL_CODES = [

@@ -21,32 +21,21 @@
 //     combobox filter again would put a second matcher in the console, and
 //     "one matcher shared with settings search" is a claim about the whole app.
 //
-// FIVE KINDS OF NOTHING. `Spec-023 §Console Design (Meridian)` rule 8: "A renderer
-// that collapses two of these into one is wrong." The palette can be empty for
-// five distinct reasons and renders five distinct things — a skeleton while
-// contributions are still arriving, three different quiet lines (nothing
-// registered / nothing offered here / nothing matched), a red-edged row when a
-// `when` clause failed to parse and hid its command, a dotted badge when the
-// frame has not evaluated its context keys, and a clock badge while something is
-// still being computed. An empty query is NOT "no results".
+// WHAT IS NOT HERE. The rows are `PaletteResultList.tsx` and the five kinds of
+// nothing are `PaletteAbsence.tsx`. This module is the composition, the query
+// state, and the one chord that opens the whole thing.
 
 import { Combobox } from "@base-ui/react/combobox";
 import { Dialog } from "@base-ui/react/dialog";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PALETTE_RESULT_CAP } from "../core/index.js";
-import {
-  ChordHint,
-  formatChordForPlatform,
-  formatCount,
-  type ChordPlatform,
-} from "../primitives/index.js";
-import type { CommandRegistry, CommandSearchResult } from "./command-registry.js";
-import {
-  chordMatchesEvent,
-  parseChord,
-  type KeyBindingTable,
-  type KeyBindingTarget,
-} from "./keybindings.js";
+import { formatChordForPlatform, formatCount, type ChordPlatform } from "../primitives/index.js";
+import type { CommandSearchResult } from "./command-ranking.js";
+import type { CommandRegistry } from "./command-registry.js";
+import { chordMatchesEvent, parseChord } from "./keybinding-chord.js";
+import type { KeyBindingTable, KeyBindingTarget } from "./keybindings.js";
+import { PaletteAbsence, type PaletteReadiness } from "./PaletteAbsence.js";
+import { PaletteResultList, groupResults } from "./PaletteResultList.js";
 import type { WhenClauseContext } from "./when-clause.js";
 
 /**
@@ -57,24 +46,6 @@ import type { WhenClauseContext } from "./when-clause.js";
  * and matching by `KeyboardEvent.code` is what preserves that.
  */
 export const COMMAND_PALETTE_OPEN_CHORD = "$mod+KeyK";
-
-/**
- * Why the palette might have nothing to show that is not about the query.
- *
- * Supplied by the frame, because only the frame knows whether command
- * contributions have finished arriving or whether its context keys have been
- * evaluated. Defaults to `ready`, so a surface that does not care says nothing.
- */
-export type PaletteReadiness =
-  | { readonly status: "ready" }
-  /** not loaded — contributions are still arriving. */
-  | { readonly status: "loading" }
-  /** unknown, still computing — a value the offer set depends on is in flight. */
-  | { readonly status: "computing"; readonly detail: string }
-  /** not checked — the frame has not evaluated the context keys yet. */
-  | { readonly status: "unchecked"; readonly detail: string }
-  /** error — the command source itself failed. Code and message render verbatim. */
-  | { readonly status: "failed"; readonly code: string; readonly message: string };
 
 export interface PaletteOverlayProps {
   readonly registry: CommandRegistry;
@@ -99,180 +70,6 @@ export interface PaletteOverlayProps {
   readonly overlayContainer?: HTMLElement | null;
   /** Listener target for the open chord. Defaults to `window`. */
   readonly chordTarget?: KeyBindingTarget;
-}
-
-/** Results for one category, in the order the best result in it appeared. */
-interface CommandResultGroup {
-  readonly value: string;
-  readonly items: readonly CommandSearchResult[];
-}
-
-function groupResults(results: readonly CommandSearchResult[]): readonly CommandResultGroup[] {
-  const itemsByGroup = new Map<string, CommandSearchResult[]>();
-  for (const result of results) {
-    const bucket = itemsByGroup.get(result.command.group);
-    if (bucket === undefined) {
-      itemsByGroup.set(result.command.group, [result]);
-    } else {
-      bucket.push(result);
-    }
-  }
-  // Insertion order is first-appearance order, so the best-ranked category leads
-  // and the categories do not reshuffle as a person types.
-  return [...itemsByGroup.entries()].map(([value, items]) => ({ value, items }));
-}
-
-/**
- * Split a title into matched and unmatched runs.
- *
- * Emphasis is by weight and luminance, never hue: the two-hue rule reserves
- * colour for "a person is needed" and "something failed", and a search hit is
- * neither.
- */
-function renderTitle(title: string, matchedIndices: readonly number[] | undefined): ReactNode {
-  if (matchedIndices === undefined || matchedIndices.length === 0) {
-    return title;
-  }
-  const matched = new Set(matchedIndices);
-  const segments: ReactNode[] = [];
-  let runStart = 0;
-  let runIsMatch = matched.has(0);
-  for (let characterIndex = 1; characterIndex <= title.length; characterIndex += 1) {
-    const isMatch = matched.has(characterIndex);
-    if (characterIndex === title.length || isMatch !== runIsMatch) {
-      const text = title.slice(runStart, characterIndex);
-      segments.push(
-        runIsMatch ? (
-          <span className="console-palette__match" key={`${String(runStart)}-match`}>
-            {text}
-          </span>
-        ) : (
-          <span key={`${String(runStart)}-plain`}>{text}</span>
-        ),
-      );
-      runStart = characterIndex;
-      runIsMatch = isMatch;
-    }
-  }
-  return segments;
-}
-
-function AbsenceSkeleton(): React.JSX.Element {
-  return (
-    <div className="console-palette__absence" aria-hidden="true">
-      <div className="console-palette__skeleton-row" />
-      <div className="console-palette__skeleton-row" />
-      <div className="console-palette__skeleton-row" />
-    </div>
-  );
-}
-
-interface QuietAbsenceProps {
-  readonly headline: string;
-  readonly detail: string;
-}
-
-function QuietAbsence(props: QuietAbsenceProps): React.JSX.Element {
-  return (
-    <div className="console-palette__absence">
-      <span className="console-palette__absence-headline">{props.headline}</span>
-      <span className="console-palette__absence-detail">{props.detail}</span>
-    </div>
-  );
-}
-
-/**
- * Decide which absence to render.
- *
- * The order is deliberate. A parse failure outranks every quiet absence, because
- * a hidden command with no visible cause looks exactly like a command nobody
- * contributed, and those two absences need different fixes. Readiness outranks
- * the query arms, because "still arriving" is not "nothing matched".
- */
-function renderAbsence(
-  readiness: PaletteReadiness,
-  registry: CommandRegistry,
-  query: string,
-  visibleCount: number,
-): ReactNode {
-  if (readiness.status === "loading") {
-    return <AbsenceSkeleton />;
-  }
-
-  if (readiness.status === "failed") {
-    return (
-      <div className="console-palette__absence console-palette__absence--error">
-        <span className="console-palette__absence-headline">The command list could not load</span>
-        <span className="console-palette__error-code">{readiness.code}</span>
-        <span className="console-palette__absence-detail">{readiness.message}</span>
-      </div>
-    );
-  }
-
-  const clauseDiagnostics = registry.clauseDiagnostics();
-  if (clauseDiagnostics.length > 0) {
-    return (
-      <div className="console-palette__absence console-palette__absence--error">
-        <span className="console-palette__absence-headline">
-          {formatCount(clauseDiagnostics.length)} command
-          {clauseDiagnostics.length === 1 ? " is" : "s are"} hidden by a scope that did not parse
-        </span>
-        <ul className="console-palette__error-list">
-          {clauseDiagnostics.map((diagnostic) => (
-            <li key={diagnostic.commandId}>
-              <span className="console-palette__error-code">{diagnostic.commandId}</span>
-              {` — ${diagnostic.error.message}`}
-            </li>
-          ))}
-        </ul>
-      </div>
-    );
-  }
-
-  if (readiness.status === "computing") {
-    return (
-      <div className="console-palette__absence">
-        <span className="console-palette__badge console-palette__badge--computing">
-          {"\u{1F553} Still computing"}
-        </span>
-        <span className="console-palette__absence-detail">{readiness.detail}</span>
-      </div>
-    );
-  }
-
-  if (readiness.status === "unchecked") {
-    return (
-      <div className="console-palette__absence">
-        <span className="console-palette__badge">Not checked</span>
-        <span className="console-palette__absence-detail">{readiness.detail}</span>
-      </div>
-    );
-  }
-
-  if (registry.size === 0) {
-    return (
-      <QuietAbsence
-        headline="No commands are registered in this window"
-        detail="An auxiliary window carries only the commands it can perform. The main window has the full set."
-      />
-    );
-  }
-
-  if (query.trim().length === 0 && visibleCount === 0) {
-    return (
-      <QuietAbsence
-        headline="No commands apply here"
-        detail="Every registered command is scoped to a context this window is not in. Open a session to reach the session commands."
-      />
-    );
-  }
-
-  return (
-    <QuietAbsence
-      headline={`Nothing matched "${query.trim()}"`}
-      detail="Try fewer characters, or the name of the category the command sits under."
-    />
-  );
 }
 
 /**
@@ -412,57 +209,12 @@ export function PaletteOverlay(props: PaletteOverlayProps): React.JSX.Element {
               aria-label="Search commands"
             />
 
-            <Combobox.List className="console-palette__list">
-              {(group: CommandResultGroup) => (
-                <Combobox.Group key={group.value} items={group.items}>
-                  <Combobox.GroupLabel className="console-palette__group-label">
-                    {group.value}
-                  </Combobox.GroupLabel>
-                  <Combobox.Collection>
-                    {(result: CommandSearchResult) => {
-                      const chord = bindings?.chordFor(result.command.id, context);
-                      return (
-                        // No `index` prop. `Combobox.Collection` inside a
-                        // `Combobox.Group` maps over THAT GROUP's items, so the
-                        // index it hands out is group-relative, while
-                        // `Combobox.Item.index` is an index into the flat
-                        // composite list. Passing the former would have every
-                        // group's first row claim slot 0 — colliding option ids
-                        // (`aria-activedescendant` breaks) and a composite list
-                        // whose later groups overwrite the earlier ones' element
-                        // refs. Omitted, the item derives its flat index from DOM
-                        // order, which is correct by construction.
-                        <Combobox.Item
-                          key={result.command.id}
-                          value={result.command.id}
-                          className="console-palette__item"
-                          onClick={() => {
-                            runResult(result);
-                          }}
-                        >
-                          <span className="console-palette__item-title">
-                            {renderTitle(result.command.title, result.titleMatch?.matchedIndices)}
-                          </span>
-                          {result.field === "title" ? null : (
-                            <span className="console-palette__item-field">
-                              matched on {result.field}
-                            </span>
-                          )}
-                          {result.recentRank === undefined ? null : (
-                            <span className="console-palette__recent-mark">Recent</span>
-                          )}
-                          {chord === undefined ? null : (
-                            <span className="console-palette__chord">
-                              <ChordHint chord={chord} platform={platform} />
-                            </span>
-                          )}
-                        </Combobox.Item>
-                      );
-                    }}
-                  </Combobox.Collection>
-                </Combobox.Group>
-              )}
-            </Combobox.List>
+            <PaletteResultList
+              context={context}
+              platform={platform}
+              bindings={bindings}
+              onRunResult={runResult}
+            />
 
             {/*
               Must stay mounted: it announces by mutating its own text, and it is
@@ -471,7 +223,12 @@ export function PaletteOverlay(props: PaletteOverlayProps): React.JSX.Element {
               Two live regions describing one absence would announce it twice.
             */}
             <Combobox.Empty className="console-palette__empty">
-              {renderAbsence(readiness, registry, query, visibleCount)}
+              <PaletteAbsence
+                readiness={readiness}
+                registry={registry}
+                query={query}
+                visibleCount={visibleCount}
+              />
             </Combobox.Empty>
 
             <Combobox.Status className="console-palette__status">

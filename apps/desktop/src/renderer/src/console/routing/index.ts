@@ -12,11 +12,13 @@
 
 export {
   DEFAULT_ROUTE,
+  RAIL_DESTINATIONS,
   formatRoute,
+  isAuxiliaryRoute,
+  needsContextPicker,
   parseRoute,
   railDestinationFor,
   routesAreEqual,
-  type AuxiliaryRouteName,
   type ConsoleRoute,
   type RailDestination,
 } from "./routes.js";

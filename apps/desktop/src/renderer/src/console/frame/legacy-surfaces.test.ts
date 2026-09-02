@@ -16,6 +16,7 @@ import { NodeRoster } from "../../runtime-node-attach/index.js";
 import { SessionBootstrap } from "../../session-bootstrap/index.js";
 import { ParticipantRoster } from "../../session-members/participant-roster.js";
 import { registerLegacySurfaces } from "./legacy-surfaces.js";
+import { SurfaceAbsence } from "./RouteSurface.js";
 import { ConsoleSurfaceRegistry, type ConsoleSurfaceContext } from "./surface-registry.js";
 
 /**
@@ -35,6 +36,23 @@ function renderedElement(node: ReactNode): { type: unknown; props: Record<string
     throw new Error(`expected a React element, got ${String(node)}`);
   }
   return { type: node.type, props: node.props };
+}
+
+/**
+ * The `Nothing` inside a whole-surface absence, having first asserted that it IS
+ * one.
+ *
+ * These three arms fill the entire pane, and a `Nothing` left in flow renders as
+ * a strip in its top-left corner — a page that reads as having failed to finish
+ * painting. That shipped once precisely because the assertions here reached
+ * straight for `kind`: the kind was right and the placement was wrong, and no
+ * test named the placement. Unwrapping through this helper pins both, and only
+ * the screenshot tier could see the difference otherwise.
+ */
+function centredAbsence(node: ReactNode): { type: unknown; props: Record<string, unknown> } {
+  const wrapper = renderedElement(node);
+  expect(wrapper.type).toBe(SurfaceAbsence);
+  return renderedElement(wrapper.props["children"] as ReactNode);
 }
 
 function registeredLegacySurfaces(): ConsoleSurfaceRegistry {
@@ -111,7 +129,7 @@ describe("legacy surfaces — under the fixture, the console says it did not ask
     // stand in for it. Mounting them anyway would either throw into the surface
     // boundary or answer from the live daemon beside fixture data in one window.
     const registry = registeredLegacySurfaces();
-    const element = renderedElement(
+    const element = centredAbsence(
       registry.descriptorFor("sessions")?.render(contextFor({ kind: "sessions" }, "fixture")),
     );
     expect(element.type).not.toBe(SessionBootstrap);
@@ -123,7 +141,7 @@ describe("legacy surfaces — under the fixture, the console says it did not ask
     // for a workspace address under the fixture, which is a different and false
     // statement about a route that names one perfectly well.
     const registry = registeredLegacySurfaces();
-    const element = renderedElement(
+    const element = centredAbsence(
       registry
         .descriptorFor("workspace")
         ?.render(contextFor({ kind: "workspace", sessionId: "session-7" }, "fixture")),
@@ -139,7 +157,7 @@ describe("legacy surfaces — an address that names no session", () => {
     // descriptor is callable by anything holding the registry, and the arm that
     // exists only for that case is the arm nobody would notice going wrong.
     const registry = registeredLegacySurfaces();
-    const element = renderedElement(
+    const element = centredAbsence(
       registry
         .descriptorFor("agent-console")
         ?.render(

@@ -17,7 +17,7 @@ import {
   type ConsoleBridge,
 } from "../bridge/index.js";
 import type { ConsoleRefusal } from "../core/index.js";
-import type { ConsoleCommand } from "./command-registry.js";
+import type { ConsoleCommand } from "./contributions.js";
 import { buildBridgeCommands, useBridgeCommands } from "./bridge-commands.js";
 import { FIRST_RUN_SCENARIO } from "../bridge/scenarios/first-run.js";
 

@@ -17,14 +17,14 @@
 // the slate, and the entry still claiming `fixture-only` fails the build, which is
 // precisely the reminder the console wants at that moment.
 
+import type {
+  GrowthOperationEntry,
+  GrowthOperationId,
+  GrowthPrerequisiteEntry,
+} from "./growth-entry.js";
+import { GROWTH_OPERATIONS } from "./growth-operations.js";
+import { GROWTH_PREREQUISITES } from "./growth-prerequisites.js";
 import { GROWTH_SLATE_ROWS, type GrowthSlateRow, type GrowthSlateRowId } from "./growth-slate.js";
-import {
-  GROWTH_OPERATIONS,
-  GROWTH_PREREQUISITES,
-  type GrowthOperationEntry,
-  type GrowthOperationId,
-  type GrowthPrerequisiteEntry,
-} from "./growth-port.js";
 import type { ConsoleScenario } from "./scenario.js";
 // The scenario list lives in `scenarios/index.ts`, which holds one reserved line
 // per view family. Seven families ship concurrently; an array they all edit here

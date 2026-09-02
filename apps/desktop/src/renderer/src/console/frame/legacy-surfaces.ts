@@ -35,6 +35,7 @@ import type { SessionId } from "@ai-sidekicks/contracts";
 
 import { Nothing } from "../primitives/index.js";
 import type { ConsoleRoute } from "../routing/index.js";
+import { SurfaceAbsence } from "./RouteSurface.js";
 import { NodeRoster } from "../../runtime-node-attach/index.js";
 import { SessionBootstrap } from "../../session-bootstrap/index.js";
 // Deep, because `session-members/` ships no barrel. The other two are reached
@@ -110,12 +111,20 @@ export function registerLegacySurfaces(registry: ConsoleSurfaceRegistry): void {
  */
 function mountLegacySurface(context: ConsoleSurfaceContext, build: () => ReactNode): ReactNode {
   if (context.bridge.source !== "live") {
-    return createElement(Nothing, {
-      kind: "not-checked",
-      title: "This surface reads the installed bridge, and this window is running on the fixture.",
-      detail:
-        "It renders in the application, where the preload bridge is installed. Nothing was asked of the daemon here.",
-    });
+    // Centred, because this fills the whole surface. Left in flow it renders as a
+    // strip in the top-left corner of the pane — the shape `SurfaceAbsence` exists
+    // to prevent, and the one a reader mistakes for a paint that did not finish.
+    return createElement(
+      SurfaceAbsence,
+      null,
+      createElement(Nothing, {
+        kind: "not-checked",
+        title:
+          "This surface reads the installed bridge, and this window is running on the fixture.",
+        detail:
+          "It renders in the application, where the preload bridge is installed. Nothing was asked of the daemon here.",
+      }),
+    );
   }
   return build();
 }
@@ -128,11 +137,15 @@ function mountSessionScopedLegacySurface(
   return mountLegacySurface(context, () => {
     const sessionId = subjectSessionId(context.route);
     if (sessionId === undefined) {
-      return createElement(Nothing, {
-        kind: "empty",
-        title: "This surface needs a session, and this address names none.",
-        detail: "Open a session from the Sessions list and the surface follows it.",
-      });
+      return createElement(
+        SurfaceAbsence,
+        null,
+        createElement(Nothing, {
+          kind: "empty",
+          title: "This surface needs a session, and this address names none.",
+          detail: "Open a session from the Sessions list and the surface follows it.",
+        }),
+      );
     }
     return build(sessionId);
   });

@@ -1,7 +1,8 @@
 // The palette subtree's public surface.
 //
-// Four modules, one door. The frame mounts `PaletteOverlay`, contributes commands
-// through `CommandRegistry`, and installs chords through `KeyBindingTable`.
+// One door, whatever the module count behind it. The frame mounts
+// `PaletteOverlay`, contributes commands through `CommandRegistry`, and installs
+// chords through `KeyBindingTable`.
 // Settings search and the sidebar filter reach past none of that — they import
 // `scoreSubsequence` directly, which is what "one matcher shared with settings
 // search" (`Spec-023 §Console Design (Meridian)` §Layout grammar) means in code.
@@ -20,10 +21,9 @@
 import "./palette.css";
 
 export { CommandRegistry } from "./command-registry.js";
-export type { ConsoleCommand } from "./command-registry.js";
+export type { ConsoleCommand, KeyBinding } from "./contributions.js";
 
 export { KeyBindingTable } from "./keybindings.js";
-export type { KeyBinding } from "./keybindings.js";
 
 export type { WhenClauseContext } from "./when-clause.js";
 

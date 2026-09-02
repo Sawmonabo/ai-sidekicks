@@ -41,7 +41,8 @@ import {
 } from "./bridge-shape.js";
 import type { ConsoleBridge } from "./console-bridge.js";
 import { createFixtureBridge } from "./fixture-bridge.js";
-import { GROWTH_OPERATIONS, GROWTH_PREREQUISITES } from "./growth-port.js";
+import { GROWTH_OPERATIONS } from "./growth-operations.js";
+import { GROWTH_PREREQUISITES } from "./growth-prerequisites.js";
 import { growthSlateRow } from "./growth-slate.js";
 import { createLiveBridge, readInstalledBridge } from "./live-bridge.js";
 import { CONSOLE_SCENARIO_MANIFEST, consoleScenario } from "./scenario-manifest.js";

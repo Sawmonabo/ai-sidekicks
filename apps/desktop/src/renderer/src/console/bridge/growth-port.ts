@@ -4,14 +4,9 @@
 // against and does not yet have. Those rows are not methods — one bundles a whole
 // namespace plus two settings plus a pane-kind declaration, several describe type
 // semantics on replies that already exist. So the port is keyed by OPERATION, not
-// by row:
-//
-//   • `GROWTH_OPERATIONS` — one entry per eventual bridge method or subscription,
-//     each naming the slate row it serves.
-//   • `GROWTH_PREREQUISITES` — the non-callable rest: types, settings keys,
-//     pane-kind declarations, event-type registrations, error namespaces. These
-//     never become port methods, because a method that dispatches nothing is a
-//     fiction the compiler would then let callers depend on.
+// by row, and the ledger that records the keying is two tables next door:
+// `GROWTH_OPERATIONS` (`growth-operations.ts`) for the callables and
+// `GROWTH_PREREQUISITES` (`growth-prerequisites.ts`) for the non-callable rest.
 //
 // I-023-13's test maps in both directions: no slate row is unmapped, no entry names
 // a row that is not on the slate, and every entry's live-status agrees with its
@@ -24,528 +19,26 @@
 // as the "not checked" kind of nothing (`Spec-023 §Console Design (Meridian)` §The
 // five kinds of nothing), never as an empty list — because "we have not asked" and
 // "there is none" are different facts and the console does not conflate them.
+//
+// WHAT THIS FILE OWNS, AND WHY THE LINE IS HERE. Everything that makes the port
+// CALLABLE: what each operation takes, what it gives back, the mapped type that
+// derives one method per operation, and the two functions that produce a port
+// value. The ledger's rows and the ledger's row shape are somebody else's — they
+// change when a wire lands, and this file does not. What a call ANSWERS with is
+// `growth-outcome.ts`, so a surface can narrow a result without reaching for the
+// signature table it will never read.
 
-import { refuse, type ConsoleRefusal } from "../core/index.js";
-import type { GrowthSlateRowId } from "./growth-slate.js";
+import { refuse } from "../core/index.js";
+import type { GrowthOperationId } from "./growth-entry.js";
+import { GROWTH_OPERATIONS } from "./growth-operations.js";
+import {
+  GROWTH_PORT_REFUSAL_ORIGIN,
+  type GrowthOutcome,
+  type GrowthPortRefusalCode,
+  type GrowthStream,
+  type GrowthUnavailable,
+} from "./growth-outcome.js";
 import { growthSlateRow } from "./growth-slate.js";
-
-/** Why the port refused. One member today; a closed set so a second is a decision. */
-export const GROWTH_PORT_REFUSAL_CODES = ["wire-unregistered"] as const;
-
-/** One growth-port refusal code. Derived, so the vocabulary is declared once. */
-export type GrowthPortRefusalCode = (typeof GROWTH_PORT_REFUSAL_CODES)[number];
-
-/** The subsystem name every refusal this module raises carries. */
-export const GROWTH_PORT_REFUSAL_ORIGIN = "growth-port";
-
-/** Whether an entry is wired to a real bridge yet. Checked against the slate. */
-export type GrowthLiveStatus = "fixture-only" | "live";
-
-/** A callable the eventual namespace will expose. */
-export type GrowthOperationKind = "method" | "subscription";
-
-/** The non-callable prerequisites a row also needs. */
-export type GrowthPrerequisiteKind =
-  | "pane-kind"
-  | "settings-key"
-  | "type-member"
-  | "event-type"
-  | "error-namespace"
-  | "tool-registration"
-  | "governing-document";
-
-export interface GrowthOperationEntry {
-  readonly id: GrowthOperationId;
-  readonly slateRow: GrowthSlateRowId;
-  readonly kind: GrowthOperationKind;
-  /** The wire method string, where the slate row already names one. */
-  readonly expectedWireMethod: string | undefined;
-  readonly liveStatus: GrowthLiveStatus;
-  readonly summary: string;
-}
-
-export interface GrowthPrerequisiteEntry {
-  readonly id: GrowthPrerequisiteId;
-  readonly slateRow: GrowthSlateRowId;
-  readonly kind: GrowthPrerequisiteKind;
-  readonly liveStatus: GrowthLiveStatus;
-  readonly summary: string;
-}
-
-export type GrowthOperationId =
-  | "browserNavigate"
-  | "browserReload"
-  | "browserStopLoading"
-  | "browserGoBack"
-  | "browserGoForward"
-  | "browserSubscribeNavigation"
-  | "browserSubscribeToolCalls"
-  | "browserRespondToToolCall"
-  | "terminalSubscribeOutput"
-  | "terminalWrite"
-  | "terminalResize"
-  | "terminalAcquireWriteLease"
-  | "terminalReleaseWriteLease"
-  | "devServerProbe"
-  | "sessionRename"
-  | "sessionArchive"
-  | "sessionClose"
-  | "sessionReactivate"
-  | "daemonStatusRead"
-  | "daemonStop"
-  | "daemonRestart"
-  | "onboardingStateRead"
-  | "onboardingStepAdvance"
-  | "onboardingStepSkip"
-  | "onboardingComplete"
-  | "onboardingProviderSignInHandoff"
-  | "shellConfigRead"
-  | "shellConfigWrite"
-  | "invitesList"
-  | "healthSubscribe"
-  | "gitActionExecute"
-  | "artifactIngestBegin"
-  | "artifactIngestWriteChunk"
-  | "artifactIngestComplete"
-  | "artifactList"
-  | "artifactRead"
-  | "artifactDelete"
-  | "artifactAllowlistRead"
-  | "artifactIngestAbort"
-  | "sessionSearch"
-  | "windowDetachPane"
-  | "windowFocusAuxiliary"
-  | "windowCloseAuxiliary"
-  | "windowSubscribePaneErrors"
-  | "providerSessionImportBegin"
-  | "providerSessionImportSubscribe";
-
-export type GrowthPrerequisiteId =
-  | "browserPaneKindDeclaration"
-  | "browserNodeSettings"
-  | "browserCallbackToolRows"
-  | "terminalWriteLeaseObligations"
-  | "onboardingErrorCodes"
-  | "shellConfigPreferenceKeys"
-  | "agentSnapshotAxisMembers"
-  | "gitActionVocabulary"
-  | "gitflowErrorNamespace"
-  | "worktreeSetupRecipeCarrier"
-  | "workflowEventTypeRegistration"
-  | "workflowDefinitionScopeMeaning"
-  | "timelineEpochMember"
-  | "timelineRevisionAttestationMember"
-  | "timelinePathReferenceMember"
-  | "approvalRememberedRuleMember"
-  | "approvalAmendmentArm"
-  | "providerSessionImportSpec";
-
-/**
- * Every operation, keyed by id. Typed as an exhaustive record so the compiler — not
- * a reviewer — is what guarantees a new id gets an entry.
- */
-export const GROWTH_OPERATIONS: Readonly<Record<GrowthOperationId, GrowthOperationEntry>> = {
-  browserNavigate: op(
-    "browserNavigate",
-    "browser-pane-namespace",
-    "method",
-    "navigate the embedded browser pane to a URL",
-  ),
-  browserReload: op(
-    "browserReload",
-    "browser-pane-namespace",
-    "method",
-    "reload the embedded browser pane",
-  ),
-  browserStopLoading: op(
-    "browserStopLoading",
-    "browser-pane-namespace",
-    "method",
-    "stop an in-flight page load",
-  ),
-  browserGoBack: op(
-    "browserGoBack",
-    "browser-pane-namespace",
-    "method",
-    "step back in the pane's history",
-  ),
-  browserGoForward: op(
-    "browserGoForward",
-    "browser-pane-namespace",
-    "method",
-    "step forward in the pane's history",
-  ),
-  browserSubscribeNavigation: op(
-    "browserSubscribeNavigation",
-    "browser-pane-namespace",
-    "subscription",
-    "navigation state for the pane's chrome (URL, title, loading, history depth)",
-  ),
-  browserSubscribeToolCalls: op(
-    "browserSubscribeToolCalls",
-    "browser-tool-relay",
-    "subscription",
-    "daemon-to-desktop relay of agent browser tool calls awaiting execution",
-  ),
-  browserRespondToToolCall: op(
-    "browserRespondToToolCall",
-    "browser-tool-relay",
-    "method",
-    "return a browser tool call's result to the daemon",
-  ),
-  terminalSubscribeOutput: op(
-    "terminalSubscribeOutput",
-    "terminal-pane",
-    "subscription",
-    "terminal output stream for a shared terminal session",
-  ),
-  terminalWrite: op(
-    "terminalWrite",
-    "terminal-pane",
-    "method",
-    "write participant keystrokes, subject to the write lease",
-  ),
-  terminalResize: op(
-    "terminalResize",
-    "terminal-pane",
-    "method",
-    "report the pane's column and row count",
-  ),
-  terminalAcquireWriteLease: op(
-    "terminalAcquireWriteLease",
-    "terminal-pane",
-    "method",
-    "take the shared-terminal write lease",
-  ),
-  terminalReleaseWriteLease: op(
-    "terminalReleaseWriteLease",
-    "terminal-pane",
-    "method",
-    "give the write lease back",
-  ),
-  devServerProbe: op(
-    "devServerProbe",
-    "dev-server-probe",
-    "method",
-    "probe whether a local dev server is listening, for the browser pane's chip",
-  ),
-  sessionRename: op("sessionRename", "session-lifecycle-verbs", "method", "rename a session"),
-  sessionArchive: op("sessionArchive", "session-lifecycle-verbs", "method", "archive a session"),
-  sessionClose: op("sessionClose", "session-lifecycle-verbs", "method", "close a session"),
-  sessionReactivate: op(
-    "sessionReactivate",
-    "session-lifecycle-verbs",
-    "method",
-    "reactivate an archived session",
-  ),
-  daemonStatusRead: op(
-    "daemonStatusRead",
-    "daemon-control-methods",
-    "method",
-    "read the daemon's status for the settings daemon page",
-    "DaemonStatusRead",
-  ),
-  daemonStop: op("daemonStop", "daemon-control-methods", "method", "stop the daemon", "DaemonStop"),
-  daemonRestart: op(
-    "daemonRestart",
-    "daemon-control-methods",
-    "method",
-    "restart the daemon",
-    "DaemonRestart",
-  ),
-  onboardingStateRead: op(
-    "onboardingStateRead",
-    "onboarding-methods",
-    "method",
-    "read first-run progress",
-  ),
-  onboardingStepAdvance: op(
-    "onboardingStepAdvance",
-    "onboarding-methods",
-    "method",
-    "record a completed first-run step",
-  ),
-  onboardingStepSkip: op(
-    "onboardingStepSkip",
-    "onboarding-methods",
-    "method",
-    "record a skipped first-run step",
-  ),
-  onboardingComplete: op(
-    "onboardingComplete",
-    "onboarding-methods",
-    "method",
-    "finish first-run setup",
-  ),
-  onboardingProviderSignInHandoff: op(
-    "onboardingProviderSignInHandoff",
-    "onboarding-methods",
-    "method",
-    "hand the participant off to a provider's own sign-in flow",
-  ),
-  shellConfigRead: op(
-    "shellConfigRead",
-    "shell-config-preferences",
-    "method",
-    "read the shell-level preferences",
-  ),
-  shellConfigWrite: op(
-    "shellConfigWrite",
-    "shell-config-preferences",
-    "method",
-    "set one shell-level preference",
-  ),
-  invitesList: op("invitesList", "invites-list", "method", "list pending invites", "invites.list"),
-  healthSubscribe: op(
-    "healthSubscribe",
-    "health-subscribe",
-    "subscription",
-    "node health for the strip and the park banner",
-    "health.subscribe",
-  ),
-  gitActionExecute: op(
-    "gitActionExecute",
-    "gitflow-actions",
-    "method",
-    "run a git action from the repos and diffs surfaces",
-    "gitActionExecute",
-  ),
-  artifactIngestBegin: op(
-    "artifactIngestBegin",
-    "artifact-ingest-and-crud",
-    "method",
-    "open an attachment ingest",
-  ),
-  artifactIngestWriteChunk: op(
-    "artifactIngestWriteChunk",
-    "artifact-ingest-and-crud",
-    "method",
-    "write one ingest chunk",
-  ),
-  artifactIngestComplete: op(
-    "artifactIngestComplete",
-    "artifact-ingest-and-crud",
-    "method",
-    "close an ingest",
-  ),
-  artifactList: op(
-    "artifactList",
-    "artifact-ingest-and-crud",
-    "method",
-    "list a session's artifacts",
-  ),
-  artifactRead: op(
-    "artifactRead",
-    "artifact-ingest-and-crud",
-    "method",
-    "read one artifact's metadata",
-  ),
-  artifactDelete: op("artifactDelete", "artifact-ingest-and-crud", "method", "delete an artifact"),
-  artifactAllowlistRead: op(
-    "artifactAllowlistRead",
-    "artifact-allowlist-and-abort",
-    "method",
-    "read the effective attachment allow-list so the pane can say what it will accept before a file is chosen",
-  ),
-  artifactIngestAbort: op(
-    "artifactIngestAbort",
-    "artifact-allowlist-and-abort",
-    "method",
-    "abort an in-flight ingest",
-  ),
-  sessionSearch: op(
-    "sessionSearch",
-    "session-search",
-    "method",
-    "search sessions from the palette and the all-sessions list",
-  ),
-  windowDetachPane: op(
-    "windowDetachPane",
-    "window-control-namespace",
-    "method",
-    "detach a pane into an auxiliary window",
-  ),
-  windowFocusAuxiliary: op(
-    "windowFocusAuxiliary",
-    "window-control-namespace",
-    "method",
-    "focus an auxiliary window",
-  ),
-  windowCloseAuxiliary: op(
-    "windowCloseAuxiliary",
-    "window-control-namespace",
-    "method",
-    "close an auxiliary window",
-  ),
-  windowSubscribePaneErrors: op(
-    "windowSubscribePaneErrors",
-    "window-control-namespace",
-    "subscription",
-    "the crashed-window pane-error signal",
-  ),
-  providerSessionImportBegin: op(
-    "providerSessionImportBegin",
-    "provider-session-import",
-    "method",
-    "start importing an existing provider session's history",
-  ),
-  providerSessionImportSubscribe: op(
-    "providerSessionImportSubscribe",
-    "provider-session-import",
-    "subscription",
-    "progress for a running provider-session import",
-  ),
-};
-
-/** Every non-callable prerequisite, keyed by id. Never a port method. */
-export const GROWTH_PREREQUISITES: Readonly<Record<GrowthPrerequisiteId, GrowthPrerequisiteEntry>> =
-  {
-    browserPaneKindDeclaration: prerequisite(
-      "browserPaneKindDeclaration",
-      "browser-pane-namespace",
-      "pane-kind",
-      "the browser member of the closed pane-kind set",
-    ),
-    browserNodeSettings: prerequisite(
-      "browserNodeSettings",
-      "browser-pane-namespace",
-      "settings-key",
-      "the two node-wide browser settings",
-    ),
-    browserCallbackToolRows: prerequisite(
-      "browserCallbackToolRows",
-      "browser-tool-relay",
-      "tool-registration",
-      "browser tool set as callback-tool rows in the session registry",
-    ),
-    terminalWriteLeaseObligations: prerequisite(
-      "terminalWriteLeaseObligations",
-      "terminal-pane",
-      "type-member",
-      "the renderer's obligations under the shared-terminal write lease",
-    ),
-    onboardingErrorCodes: prerequisite(
-      "onboardingErrorCodes",
-      "onboarding-methods",
-      "error-namespace",
-      "the first-run error codes the frame renders",
-    ),
-    shellConfigPreferenceKeys: prerequisite(
-      "shellConfigPreferenceKeys",
-      "shell-config-preferences",
-      "settings-key",
-      "crash-report opt-out, the two browser switches, and the auto-update toggle",
-    ),
-    agentSnapshotAxisMembers: prerequisite(
-      "agentSnapshotAxisMembers",
-      "agent-snapshot-axes",
-      "type-member",
-      "the four attach-time snapshot axes as optional members on the agent-list reply",
-    ),
-    gitActionVocabulary: prerequisite(
-      "gitActionVocabulary",
-      "gitflow-actions",
-      "type-member",
-      "the closed vocabulary of git actions the surfaces may offer",
-    ),
-    gitflowErrorNamespace: prerequisite(
-      "gitflowErrorNamespace",
-      "gitflow-actions",
-      "error-namespace",
-      "the gitflow error codes the surfaces render",
-    ),
-    worktreeSetupRecipeCarrier: prerequisite(
-      "worktreeSetupRecipeCarrier",
-      "worktree-setup-recipe",
-      "type-member",
-      "the worktree setup-recipe carrier the repos surface renders",
-    ),
-    workflowEventTypeRegistration: prerequisite(
-      "workflowEventTypeRegistration",
-      "workflow-event-registration",
-      "event-type",
-      "the twenty-four workflow event types the run pane projects",
-    ),
-    workflowDefinitionScopeMeaning: prerequisite(
-      "workflowDefinitionScopeMeaning",
-      "workflow-definition-scope",
-      "type-member",
-      "what a project-scoped workflow-definition reference means",
-    ),
-    timelineEpochMember: prerequisite(
-      "timelineEpochMember",
-      "timeline-epoch-attestation",
-      "type-member",
-      "the timeline read's epoch member",
-    ),
-    timelineRevisionAttestationMember: prerequisite(
-      "timelineRevisionAttestationMember",
-      "timeline-epoch-attestation",
-      "type-member",
-      "the timeline read's revision-attestation member",
-    ),
-    timelinePathReferenceMember: prerequisite(
-      "timelinePathReferenceMember",
-      "timeline-path-reference",
-      "type-member",
-      "the validated path-reference member on timeline rows",
-    ),
-    approvalRememberedRuleMember: prerequisite(
-      "approvalRememberedRuleMember",
-      "approval-remembered-rule",
-      "type-member",
-      "the per-row remembered-rule match on approval rows",
-    ),
-    approvalAmendmentArm: prerequisite(
-      "approvalAmendmentArm",
-      "approval-amendment-arm",
-      "type-member",
-      "the amendment arm on the approval decision input",
-    ),
-    providerSessionImportSpec: prerequisite(
-      "providerSessionImportSpec",
-      "provider-session-import",
-      "governing-document",
-      "the spec that will govern provider-session import",
-    ),
-  };
-
-/**
- * The refusal a live bridge returns for an unbuilt wire.
- *
- * The console's ONE refusal shape (`core/refusal.ts`), widened with what a growth
- * refusal knows and nothing else does: which operation was called, which slate row
- * it serves, and who owes the wire. `core/refusal.ts` names this port as one of the
- * five producers that had minted a refusal vocabulary of its own — the cost was
- * that a surface rendering a growth refusal beside a persistence one had to
- * translate between two shapes to reach one renderer. Extending means
- * `isConsoleRefusal` answers true here and `<RefusalCard {...outcome} />` works.
- *
- * `status` stays, and is not replaced by the presence of `code`: this value is one
- * arm of `GrowthOutcome`, and the discriminant is what makes the served arm
- * narrowable.
- */
-export interface GrowthUnavailable extends ConsoleRefusal {
-  readonly status: "unavailable";
-  readonly code: GrowthPortRefusalCode;
-  readonly operationId: GrowthOperationId;
-  readonly slateRow: GrowthSlateRowId;
-  readonly owningDocument: string;
-}
-
-/** A served result, from the fixture bridge. */
-export interface GrowthServed<TValue> {
-  readonly status: "served";
-  readonly value: TValue;
-}
-
-export type GrowthOutcome<TValue> = GrowthServed<TValue> | GrowthUnavailable;
-
-/** A subscription's served form: an async iterable the caller drains and closes. */
-export interface GrowthStream<TEvent> {
-  readonly events: AsyncIterable<TEvent>;
-  close(): void;
-}
 
 // --- Operation signatures -------------------------------------------------
 //
@@ -728,13 +221,20 @@ export type GrowthPort = {
 export function growthUnavailable(operationId: GrowthOperationId): GrowthUnavailable {
   const entry = GROWTH_OPERATIONS[operationId];
   const row = growthSlateRow(entry.slateRow);
+  // Bound once, then read twice. `refuse` takes `code` as a `string` and the spread
+  // has to re-narrow it, so the value is needed in two positions — and two
+  // independent literals could drift apart with nothing to catch it, since one feeds
+  // a `string` parameter that accepts anything. One binding makes them the same
+  // value by construction, and the annotation holds it inside the closed vocabulary
+  // `GROWTH_PORT_REFUSAL_CODES` declares.
+  const code: GrowthPortRefusalCode = "wire-unregistered";
   return {
     ...refuse(
       GROWTH_PORT_REFUSAL_ORIGIN,
-      "wire-unregistered",
+      code,
       `Not checked — ${row.wire} is not registered yet (${row.owningDocument} owns it).`,
     ),
-    code: "wire-unregistered",
+    code,
     status: "unavailable",
     operationId,
     slateRow: entry.slateRow,
@@ -800,23 +300,4 @@ export function createRefusingGrowthPort(): GrowthPort {
     providerSessionImportBegin: async () => growthUnavailable("providerSessionImportBegin"),
     providerSessionImportSubscribe: async () => growthUnavailable("providerSessionImportSubscribe"),
   };
-}
-
-function op(
-  id: GrowthOperationId,
-  slateRow: GrowthSlateRowId,
-  kind: GrowthOperationKind,
-  summary: string,
-  expectedWireMethod?: string,
-): GrowthOperationEntry {
-  return { id, slateRow, kind, summary, expectedWireMethod, liveStatus: "fixture-only" };
-}
-
-function prerequisite(
-  id: GrowthPrerequisiteId,
-  slateRow: GrowthSlateRowId,
-  kind: GrowthPrerequisiteKind,
-  summary: string,
-): GrowthPrerequisiteEntry {
-  return { id, slateRow, kind, summary, liveStatus: "fixture-only" };
 }
