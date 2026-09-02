@@ -32,6 +32,19 @@ export const REFRESH_MAX_WAIT_MS = 1000;
 export const APPLY_COALESCE_MS = 16;
 
 /**
+ * Wire events one session store holds while it waits for its first read.
+ *
+ * A store buffers rather than applies until a read response gives it a base
+ * state, and that wait is ordinarily the milliseconds between opening a
+ * subscription and the read landing — a handful of events. Past this bound the
+ * wait is not a race any more, it is a read that is not coming, and the honest
+ * response is to stop growing: the oldest is dropped and the loss is recorded
+ * (and re-derived exactly, as a sequence gap, the moment a base state does
+ * arrive) rather than the buffer holding an entire session's stream forever.
+ */
+export const PRE_INITIALISATION_BUFFER_CAP = 512;
+
+/**
  * Sessions whose UI state the persistence layer keeps. Past this the least
  * recently touched partition is trimmed, so a long-lived install does not grow
  * an unbounded IndexedDB.

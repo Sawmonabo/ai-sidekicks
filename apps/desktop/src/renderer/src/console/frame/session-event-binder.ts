@@ -33,6 +33,14 @@
 //     would silently miss a session opened between construction and attachment,
 //     and the symptom — one session that never updates — looks like a wire fault
 //     rather than a wiring one.
+//   • **No stream into a store that cannot be initialised.** A store buffers
+//     rather than applies until a read gives it a base state, so binding a stream
+//     to a registry whose `read` is `SESSION_READ_UNREGISTERED` feeds a buffer
+//     nothing will ever drain — a long-running session retains its whole event
+//     stream and projects none of it. `attach` reads
+//     `SessionStoreRegistry.canInitialiseSessionStores` and takes no subscription
+//     at all when the answer is no. Structural rather than a check the composition
+//     root makes: every caller gets it, and it cannot be forgotten by the next one.
 //
 // WHAT THE WIRE ACTUALLY OFFERS, AND WHAT THIS DOES ABOUT IT
 //
@@ -90,12 +98,14 @@ export interface ConsoleSessionDiagnostics {
   /**
    * Events this window has put through one session's apply chokepoint.
    *
-   * Deliberately NOT the store's timeline length. The console has no session-read
-   * wire yet, so no store is ever initialised and every event is buffered rather
-   * than admitted — a timeline reading would be zero for every session forever,
-   * and a diagnostic that reports the same number whether or not this binder
-   * exists is worse than no diagnostic at all. This counts admissions to the
-   * chokepoint: deliveries the registry accepted for a session's apply queue.
+   * Deliberately NOT the store's timeline length: a store admits nothing until a
+   * read gives it a base state, so a timeline reading is zero for every session
+   * whose read has not landed, and a diagnostic that reports the same number
+   * whether or not this binder exists is worse than no diagnostic at all. This
+   * counts admissions to the chokepoint: deliveries the registry accepted for a
+   * session's apply queue. It is zero — correctly, and beside `boundSessionIds()`
+   * reading empty — on a window whose registry can initialise no store, because
+   * that window takes no wire subscription in the first place.
    *
    * Retained after a session closes, so the count FREEZES rather than vanishing.
    * A reading that disappeared on close could not be told apart from a session
@@ -130,6 +140,7 @@ export class SessionEventBinder {
   #installedDiagnostics: ConsoleSessionDiagnostics | undefined;
   #unreadableDeliveryCount = 0;
   #droppedAfterCloseCount = 0;
+  #attached = false;
   #disposed = false;
 
   public constructor(options: SessionEventBinderOptions) {
@@ -146,22 +157,31 @@ export class SessionEventBinder {
    * unobserved; taking the subscription first can at worst bind a session twice,
    * and `#bindSession` is idempotent by session id.
    *
+   * A registry that can initialise no store gets NEITHER subscription — not the
+   * registry's change feed and not the wire's — because every delivery would land
+   * in a pre-initialisation buffer nothing can ever drain. The diagnostics handle
+   * is still installed on that arm: "bound: none, applied: zero" is a reading, and
+   * an absent handle is indistinguishable from a build with no binder at all.
+   *
    * Idempotent, and a no-op once disposed: a disposed binder holds no
    * subscription and must not be able to start one from a late effect.
    */
   public attach(): void {
-    if (this.#disposed || this.#unsubscribeFromRegistry !== undefined) {
+    if (this.#disposed || this.#attached) {
       return;
     }
-    this.#unsubscribeFromRegistry = this.#registry.subscribe((change) => {
-      if (change.change === "opened") {
-        this.#bindSession(change.sessionId);
-        return;
+    this.#attached = true;
+    if (this.#registry.canInitialiseSessionStores) {
+      this.#unsubscribeFromRegistry = this.#registry.subscribe((change) => {
+        if (change.change === "opened") {
+          this.#bindSession(change.sessionId);
+          return;
+        }
+        this.#unbindSession(change.sessionId);
+      });
+      for (const sessionId of this.#registry.openSessionIds) {
+        this.#bindSession(sessionId);
       }
-      this.#unbindSession(change.sessionId);
-    });
-    for (const sessionId of this.#registry.openSessionIds) {
-      this.#bindSession(sessionId);
     }
     this.#installFixtureDiagnostics();
   }
