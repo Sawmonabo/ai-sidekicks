@@ -26,10 +26,14 @@
 // these hooks are the callers of), and derivation happens in the component under
 // `useMemo`.
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useStore } from "zustand";
+import type { MembershipRole } from "@ai-sidekicks/contracts";
+
+import { isConsoleRefusal, type ConsoleRefusal } from "../core/index.js";
 import type { ConsoleEntity, ConsoleEntityKind, ConsoleEntityRef } from "./entities.js";
 import type { FrameStore, FrameStoreState } from "./frame-store.js";
+import { membershipRoleOf } from "./selectors.js";
 import type { SessionStoreRegistry } from "./session-store-registry.js";
 import { selectEntity, selectPartition, type SessionStore } from "./session-store.js";
 import type { SessionStoreState } from "./session-store.js";
@@ -114,6 +118,116 @@ export function useSessionEntity(
   );
   return useStore(store.readable, select);
 }
+
+/**
+ * The caller-identity read, as this family is allowed to take it: a function that
+ * answers the participant id this window is, or the refusal that says why it could
+ * not be read.
+ *
+ * INJECTED RATHER THAN REACHED FOR, on `open-session-entry.ts`'s precedent and for
+ * its reason. The read is the growth port's `callerParticipantRead`, which lives in
+ * `bridge/` — a family ABOVE this one in the console's DAG, so a hook here that
+ * named the bridge would be the upward edge `structure:layering` refuses. What a
+ * caller has to SAY is the same either way: perform the read, or carry the refusal
+ * a live build's unregistered wire produces. The composition root, which may reach
+ * the bridge, adapts the port's outcome into this shape — a served value's
+ * `participantId`, or the `GrowthUnavailable` itself, which IS a `ConsoleRefusal`.
+ */
+export type CallerParticipantReader = () => Promise<string | ConsoleRefusal>;
+
+/**
+ * What this window's own membership role is, or why it is not known.
+ *
+ * Three arms rather than a bare `MembershipRole | undefined`, because a surface
+ * gating a control on the caller's role has three genuinely different situations
+ * and only one of them is "this participant is a viewer": the read is still in
+ * flight, the read was refused, or the read landed. Collapsing them would render a
+ * viewer's affordances for all three, which claims a role nothing checked.
+ *
+ * `role` is `undefined` on the `read` arm when the roster holds no parseable role
+ * for that participant — the read succeeded and the lookup found nothing, which is
+ * a different fact again and is left as the honest absence rather than a default.
+ */
+export type CallerMembershipRoleResult =
+  | { readonly status: "not-loaded" }
+  | {
+      readonly status: "read";
+      readonly participantId: string;
+      readonly role: MembershipRole | undefined;
+    }
+  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
+
+/**
+ * This window's own membership role: the caller read, chained to the roster lookup.
+ *
+ * Two facts, and neither is guessed. Which participant this window is comes from
+ * the injected read and from nowhere else — there is no "the first participant" or
+ * "the one that matches the handle" fallback, because a wrong answer here silently
+ * shows one person another person's controls. What that participant's role is comes
+ * from the store's own roster through `membershipRoleOf`, because the roster is
+ * where the role lives and a second copy carried on the identity read would be a
+ * second source of truth for it.
+ *
+ * The read runs once per reader identity — the `not-loaded` arm is entered once and
+ * never re-entered — while the ROLE stays subscribed, so a role change arriving on
+ * the wire re-renders without the identity being asked again.
+ */
+export function useCallerMembershipRole(
+  readCallerParticipant: CallerParticipantReader,
+  store: SessionStore,
+): CallerMembershipRoleResult {
+  const [callerIdentity, setCallerIdentity] = useState<CallerIdentityState>(NOT_LOADED_IDENTITY);
+
+  useEffect(() => {
+    let abandoned = false;
+    void (async () => {
+      const answer = await readCallerParticipant();
+      if (abandoned) {
+        return;
+      }
+      setCallerIdentity(
+        isConsoleRefusal(answer)
+          ? { status: "refused", refusal: answer }
+          : { status: "read", participantId: answer },
+      );
+    })();
+    return () => {
+      // The component unmounted, or the reader changed, before the read landed.
+      // Settling state afterwards would either warn or, worse, publish a stale
+      // window's identity into a fresh one.
+      abandoned = true;
+    };
+  }, [readCallerParticipant]);
+
+  const participantId = callerIdentity.status === "read" ? callerIdentity.participantId : undefined;
+  const selectRole = useCallback(
+    (state: SessionStoreState) =>
+      participantId === undefined ? undefined : membershipRoleOf(state, participantId),
+    [participantId],
+  );
+  const role = useStore(store.readable, selectRole);
+
+  return useMemo(
+    () =>
+      callerIdentity.status === "read"
+        ? { status: "read", participantId: callerIdentity.participantId, role }
+        : callerIdentity,
+    [callerIdentity, role],
+  );
+}
+
+/** The identity half of the chain, before the roster lookup is folded onto it. */
+type CallerIdentityState =
+  | { readonly status: "not-loaded" }
+  | { readonly status: "read"; readonly participantId: string }
+  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
+
+/**
+ * One frozen initial value rather than a fresh literal per mount, so the identity
+ * of the "nothing has been read yet" answer does not change under a consumer's
+ * `useMemo` or effect dependency on the result.
+ */
+const NOT_LOADED_IDENTITY: CallerIdentityState = { status: "not-loaded" };
 
 /** Whether the store has been initialised, so a surface can tell "not loaded" apart. */
 export function useSessionInitialised(store: SessionStore): boolean {

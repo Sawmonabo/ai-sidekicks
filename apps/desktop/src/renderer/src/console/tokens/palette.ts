@@ -80,6 +80,23 @@ export const ATTENTION_TOKENS: Readonly<Record<string, SchemePair>> = {
   "red-ground": { light: oklch(0.95, 0.03, 25), dark: oklch(0.25, 0.055, 25) },
   accent: { light: oklch(0.575, 0.09, 215), dark: oklch(0.73, 0.085, 205) },
   "accent-text": { light: oklch(0.475, 0.1, 215), dark: oklch(0.845, 0.075, 205) },
+  // The ink for a control FILLED with `accent` — a primary action's label, and
+  // nothing else. `accent-text` is the ink for accent-coloured text on a NEUTRAL
+  // ground and is measured against the four grounds; painted on the accent itself
+  // it reaches 1.53:1 in light and 1.48:1 in dark, which is rule 3's floor missed
+  // by a factor of three. The pair needs its own token because one value cannot
+  // serve both, exactly as `-text` and `-mark` cannot.
+  //
+  // DARK IN BOTH SCHEMES, and that is forced rather than chosen. A light ink cannot
+  // clear 4.5:1 on the LIGHT accent at all: the lightest thing the palette has,
+  // `surface-raised` (pure white there), reaches 4.23:1, and `text` reaches 3.89:1.
+  // So the light leg sits below the whole text scale, at L 0.13 (4.75:1); the dark
+  // leg has room, because its accent is lighter, and sits at L 0.22 (7.41:1) —
+  // which is also where the dark scheme's own `surface` family sits, so a filled
+  // control reads as the console's ground punched out of the accent rather than as
+  // a black label stuck on top of it. Both carry a little of the accent's own
+  // chroma for the same reason.
+  "accent-ink": { light: oklch(0.13, 0.03, 215), dark: oklch(0.22, 0.04, 205) },
   "focus-ring": { light: oklch(0.55, 0.11, 215), dark: oklch(0.8, 0.09, 205) },
 };
 

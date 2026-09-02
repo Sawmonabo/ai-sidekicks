@@ -18,6 +18,14 @@
 // What they DO share is the duplicate policy and the reason for it, so both are
 // `KeyedRegistry` with `duplicatePolicy: "owner-scoped"` rather than two
 // hand-rolled tables that agree today.
+//
+// PANES CAN NAME THE PANE THEY WERE OPENED FROM, AND STILL NOT HOLD IT. A deck
+// links two panes when one opens the other — an inspector opened from a ledger row
+// is a view OF that row's pane — and the link travels as an identifier passed in at
+// mount (`ConsolePaneContext.linkedSourcePaneId`), never as a handle held. That is
+// the design's independence rule made structural: a linked pane is still moved,
+// detached, and closed on its own, because the only thing it has of its source is a
+// string, and a string cannot be dereferenced into a body.
 
 import { KeyedRegistry } from "../../core/index.js";
 import { type ConsoleBridge } from "../../bridge/index.js";
@@ -42,14 +50,35 @@ export interface ConsolePaneAddress {
 
 // Consumed by T-023p-1C-2, T-023p-1C-3
 /**
+ * How a pane names itself as the pane another was opened FROM.
+ *
+ * A parameter object rather than a bare second string, so the caller writes what
+ * the identifier means at the call site: `openPane(address, { linkedSourcePaneId })`
+ * reads as a link and a positional `openPane(address, paneId)` reads as anything at
+ * all. `linkedSourcePaneId` is required here — the whole value is optional on the
+ * opener, so an absent link is an absent argument rather than a present object
+ * carrying `undefined`, and there is exactly one way to say "no link".
+ */
+export interface ConsolePaneLink {
+  readonly linkedSourcePaneId: string;
+}
+
+// Consumed by T-023p-1C-2, T-023p-1C-3
+/**
  * The call the sidebar and the palette make to open a pane.
  *
  * A callback handed down by whoever owns the deck, rather than a module-scope
  * function, because an auxiliary window's deck is a different deck: a section
  * rendered in the timeline window must open its panes there and not in the main
  * window that happens to have loaded the same module.
+ *
+ * The optional `link` is how a pane that opens another says which pane it is: the
+ * deck copies it onto the new pane's `ConsolePaneContext.linkedSourcePaneId`.
+ * Optional because most opens have no source pane at all — the sidebar and the
+ * palette open from a list, not from a pane — and a required member would have both
+ * of those inventing a value to pass.
  */
-export type ConsolePaneOpener = (address: ConsolePaneAddress) => void;
+export type ConsolePaneOpener = (address: ConsolePaneAddress, link?: ConsolePaneLink) => void;
 
 // Consumed by T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7
 /**
@@ -65,6 +94,26 @@ export interface ConsolePaneContext extends ConsolePaneAddress {
   readonly sessionStore: SessionStore | undefined;
   readonly uiStateStore: UiStateStore;
   readonly draftStore: DraftStore;
+  /**
+   * The pane this one was opened FROM, when the deck linked the two — a value
+   * passed in and never a handle held, so a linked pane stays independently
+   * movable, detachable, and closable.
+   *
+   * A required member carrying `undefined` when unlinked, on `sessionStore`'s
+   * precedent: an optional member would read identically whether the deck decided
+   * there was no source pane or forgot to pass one, and only one of those is a
+   * deliberate answer.
+   *
+   * WHETHER A RESTORED LAYOUT RESTORES THE LINK IS THE DECK'S CALL, AND IT IS
+   * ALREADY EXPRESSIBLE. `persistence/value-classes.ts`'s `layout` class admits a
+   * per-pane record whose members are numbers, booleans, and identifier-shaped
+   * strings, and a pane id is identifier-shaped — so a deck that writes the link
+   * into its layout entry gets it back on restore, through the closed value-class
+   * set exactly as it stands. No class is widened here, and nothing on this
+   * substrate writes such a member: until the deck that owns the layout writes one,
+   * a restored pane comes back unlinked.
+   */
+  readonly linkedSourcePaneId: string | undefined;
   /**
    * The focus ring's colour, as a `var()` reference produced by
    * `tokens/tokenReference` — `Spec-023 §Console Design (Meridian)` rule 2: "the
