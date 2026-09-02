@@ -18,6 +18,8 @@
 // to the wire's own truth all DESCRIBE scenarios and play none, so they stop here
 // and never reach the engine's teardown rules or its held-reply queue.
 
+import type { MembershipRole } from "@ai-sidekicks/contracts";
+
 import type { ConsoleSessionEvent } from "../store/index.js";
 import type { WireErrorEnvelope } from "../../../../shared/wire-errors.js";
 
@@ -106,6 +108,35 @@ export interface ConsoleScenario {
    * holds every scenario to that, the substrate's own two included.
    */
   readonly viewingParticipantId?: string;
+  /**
+   * The membership role each MEMBER of the roster holds, keyed by participant id.
+   *
+   * The fact `viewingParticipantId` is useless without. An identity read answers
+   * WHICH entry of the roster this window is; every role-gated control then resolves
+   * the role by looking that id up in the session's participant projection
+   * (`store/selectors.ts`'s `membershipRoleOf`) — so a scenario that states a viewer
+   * and no roles serves a successful identity read into a roster that holds nothing,
+   * and every owner- and collaborator-gated control renders closed for a reason
+   * nothing checked. That is indistinguishable, on screen, from a member who simply
+   * has no elevated role.
+   *
+   * NOT A SECOND COPY OF THE ROSTER. `participantIdsInJoinOrder` stays the sole home
+   * of the ORDER, which is what the hue allocator consumes; this is a different fact
+   * about the same people, and `scenarios/wire-truth.ts` holds every key in it to
+   * that list. Keyed rather than ordered for exactly that reason — an ordered second
+   * list would be the order declared twice.
+   *
+   * PARTIAL ON PURPOSE, and the partiality carries meaning. A scenario's join order
+   * holds everything that gets a hue, agents included, and an agent is attached
+   * rather than admitted: it holds no membership and no role. So the members of the
+   * session are exactly the keys here, and an id in the join order with no entry is
+   * something the fixture does not claim to know the membership of.
+   *
+   * `MembershipRole` is the contract's, imported: it is the union
+   * `MembershipRoleSchema` parses on the way back out, so a role stated here and a
+   * role read there cannot be two vocabularies.
+   */
+  readonly membershipRoleByParticipantId?: Readonly<Record<string, MembershipRole>>;
   readonly beats: readonly ScenarioBeat[];
   readonly replies: readonly ScenarioReply[];
   /** Wall-clock instant the frozen clock reports as "now" at tick zero. */

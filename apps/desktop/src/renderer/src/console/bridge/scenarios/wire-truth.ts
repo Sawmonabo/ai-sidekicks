@@ -55,6 +55,7 @@
 // failure is the beat's.
 
 import {
+  MembershipRoleSchema,
   SESSION_EVENT_CATEGORY_BY_TYPE,
   SessionEventSchema,
   type SessionEventType,
@@ -110,6 +111,7 @@ export function findScenarioWireTruthDefects(
     if (viewerDefect !== undefined) {
       defects.push(viewerDefect);
     }
+    defects.push(...findMembershipRoleDefects(scenario));
   }
   return defects;
 }
@@ -228,6 +230,60 @@ function describeViewerDefect(scenario: ConsoleScenario): ScenarioWireTruthDefec
       "scenario actually joins, or leave the field absent and let the caller-identity " +
       "read refuse.",
   };
+}
+
+/**
+ * Declared memberships that name someone the scenario never joins, or a role the
+ * contract does not register.
+ *
+ * `membershipRoleByParticipantId` is the fact every role gate resolves through: the
+ * fixture's session read turns each entry into a `participant` row and
+ * `store/selectors.ts`'s `membershipRoleOf` reads the role back off it. Both legs
+ * therefore catch a defect that renders as nothing at all.
+ *
+ *   • A key outside `participantIdsInJoinOrder` mints a roster row for someone the
+ *     session has no join order position for — so the hue wheel and the roster
+ *     disagree about who is in the room, and the entry can only ever be reached by a
+ *     lookup no surface performs.
+ *   • A role the contract does not register is parsed back as ABSENT rather than as
+ *     wrong: `membershipRoleOf` returns `undefined` for anything
+ *     `MembershipRoleSchema` rejects, so a scenario writing `"admin"` produces a
+ *     member with no role and looks identical to one whose role went unread.
+ *
+ * The second leg is not made redundant by the field's type. A scenario is data, and
+ * data reaches this predicate from files that were authored against design notes and
+ * cast into shape; the beats above are typed too, and are parsed here for the same
+ * reason.
+ */
+function findMembershipRoleDefects(scenario: ConsoleScenario): readonly ScenarioWireTruthDefect[] {
+  const defects: ScenarioWireTruthDefect[] = [];
+  for (const [participantId, role] of Object.entries(
+    scenario.membershipRoleByParticipantId ?? {},
+  )) {
+    const subject = `membershipRoleByParticipantId["${participantId}"]`;
+    if (!scenario.participantIdsInJoinOrder.includes(participantId)) {
+      defects.push({
+        scenarioId: scenario.id,
+        subject,
+        reason:
+          "a role is declared for someone this scenario never joins, so the roster and " +
+          "the hue wheel disagree about who is in the room and no surface can reach the " +
+          "entry. Add the participant to `participantIdsInJoinOrder`, or drop the role.",
+      });
+      continue;
+    }
+    if (!MembershipRoleSchema.safeParse(role).success) {
+      defects.push({
+        scenarioId: scenario.id,
+        subject,
+        reason:
+          `"${role}" is not a registered \`MembershipRole\`, and the roster lookup reads an ` +
+          "unregistered role as no role at all — so this renders as a member whose role " +
+          "went unread rather than as anything wrong. Use one of the registered roles.",
+      });
+    }
+  }
+  return defects;
 }
 
 /**

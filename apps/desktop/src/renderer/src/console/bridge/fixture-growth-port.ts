@@ -1,19 +1,21 @@
 // The growth port the fixture bridge actually serves.
 //
-// Every other growth operation refuses under both bridges, which is what makes the
-// "not checked" absence a true statement rather than a placeholder. Five do not:
-// the two the console cannot function without — a session snapshot read and a
-// session directory read — the attention projection read, which is the only one of
-// them the console must not compute for itself, the gitflow branch-context read,
-// whose whole answer today is that there is none, and the caller-identity read,
-// which is answered from a scenario that states its own viewer and refused from one
-// that does not.
+// ONE RULE DECIDES WHICH, AND THE SET IS DECLARED ONCE. An operation is served when
+// a scenario states something it can be answered FROM, and refuses otherwise —
+// refuses under both bridges, which is what makes the "not checked" absence a true
+// statement rather than a placeholder. The served operations are
+// `FIXTURE_SERVED_GROWTH_OPERATION_IDS` below and each entry carries its own reason
+// beside it; this header used to enumerate and count them here as well, which is one
+// closed set with two homes and goes stale in the direction nothing catches. The
+// sweep in `fixture-growth-port.test.ts` calls every registered operation and holds
+// each answer to that tuple, so the set and what the port does cannot disagree.
 //
-// WHAT THIS MODULE OWNS, AND WHAT ITS THREE NEIGHBOURS DO
+// WHAT THIS MODULE OWNS, AND WHAT ITS NEIGHBOURS DO
 //
 // This one owns the decision: which operations are served, and with which outcome.
-// The three answers with a job of their own live beside it, because each fails in a
-// way this one cannot — `fixture-session-directory.ts` derives what the node HAS,
+// The four answers with a job of their own live beside it, because each fails in a
+// way this one cannot — `fixture-session-snapshot.ts` derives the base state one
+// session opens with, `fixture-session-directory.ts` derives what the node HAS,
 // `fixture-attention-derivation.ts` folds beats into an attention projection, and
 // `fixture-scripted-answer.ts` maps a scripted settlement onto an outcome.
 //
@@ -44,16 +46,9 @@
 // console's own `SessionSnapshot`, which mints no second shape, and the slate row
 // names the registered request and reply as the half the corpus already owns.
 //
-// WHAT THE BASE STATE HONESTLY IS
-//
-// Cursor zero, no entities, and the scenario's join log. Zero rather than a
-// position derived from the scenario's beats, because a base state ahead of the
-// stream would make the store discard every beat below it; the subscription is
-// replay-then-tail, so nothing is missed by starting at the bottom. A re-read
-// therefore lands behind an initialised store's cursor and is a silent no-op,
-// which is `SessionStore.admitsSnapshotAt`'s documented behaviour and not a defect
-// of this port: repairing a degraded store needs a read that carries a position,
-// and this one cannot until the wire does.
+// WHAT THE BASE STATE HONESTLY IS — and why it is not derived here. Cursor zero,
+// the session's roster, and the memberships that roster holds, all of it
+// `fixture-session-snapshot.ts`'s, whose header carries the reasoning for each.
 //
 // WHY THE BRANCH-CONTEXT READ IS SERVED AND ANSWERS NOTHING
 //
@@ -68,8 +63,8 @@
 // rather than a stub. Two things would have to be true for a scenario to state a
 // branch context, and neither is:
 //
-//   • `ConsoleScenario` carries no repo mount, no workspace, and no branch. Its
-//     fields are a session id, a join order, beats, replies, and a start instant.
+//   • `ConsoleScenario` carries no repo mount, no workspace, and no branch. What it
+//     does carry is a session, its roster, beats, replies, and a start instant.
 //   • No registered event payload names a branch. The `repo.*` / `workspace.*` /
 //     `worktree.*` family payload is `{sessionId, repoMountId?, workspaceId?,
 //     worktreeId?, state, actor?}` (`packages/contracts/src/repo.ts`), so a fold
@@ -80,6 +75,22 @@
 // `fixture-growth-port.gitflow.test.ts` beside this file is what keeps the claim
 // true: the day a scenario does carry a branch, that test fails and this derivation
 // is what has to change.
+//
+// AND WHY ITS SIBLING ON THE SAME SLATE ROW REFUSES
+//
+// `gitflowPrPrepare` is registered in the signature table and is not in the served
+// set, which reads as an omission and is the rule above applied twice over. A
+// PREPARATION is not an absence a surface has to draw: a proposal was either assembled
+// or it was not, so there is no "we asked and there is none" state here for the served
+// arm to answer with, and the port would have to mint a `prPreparationId` and a
+// `proposalBlob` out of nothing. Nor could a caller reach it: the request is keyed on a
+// `branchContextId`, and the read next door answers the absence for every scenario, so
+// under this bridge there is no id to send. `Spec-011 §Required Behavior` puts the
+// review before any remote mutation, which is the last of it — a fixture that answered
+// would be standing in for the review rather than for the wire.
+//
+// The finder pins that too, from the same side it pins the branch premise: no scenario
+// states a prepared proposal, and the day one does, the case beside it fails.
 //
 // WHY THE CALLER-IDENTITY READ IS ANSWERED FROM A FIELD AND NOT FROM JOIN ORDER
 //
@@ -97,6 +108,15 @@
 // operation IS scripted here, and whether a given scenario scripts the fact is the
 // scenario's business. `wire-truth.ts` holds a stated viewer to the roster, so the
 // served arm can never answer with an identity no surface could resolve a role from.
+//
+// AND THE ANSWER IS RESOLVABLE, WHICH IT WAS NOT. Being in the roster made the
+// identity well-formed and left it unusable: the base state carried no entities and
+// the composition root registers no `membership.*` projector, so `membershipRoleOf`
+// found nothing for the viewer under any scenario and every owner- and
+// collaborator-gated control rendered closed against a store that had never held a
+// participant — which looks, on screen, exactly like a member with no elevated role.
+// The roster now arrives with the base state (`fixture-session-snapshot.ts`), so the
+// identity this read serves resolves to the role the scenario declares for it.
 //
 // WHY THE REGISTRY READS REFUSE HERE, AND WHY THAT IS NOT A GAP EITHER
 //
@@ -127,6 +147,7 @@
 import { deriveAttentionProjection } from "./fixture-attention-derivation.js";
 import { answerFromScriptedReply } from "./fixture-scripted-answer.js";
 import { directorySessionsOf } from "./fixture-session-directory.js";
+import { fixtureSessionSnapshot } from "./fixture-session-snapshot.js";
 import { createRefusingGrowthPort, growthUnavailable, type GrowthPort } from "./growth-port.js";
 import type { ScenarioEngine } from "./scenario-engine.js";
 
@@ -139,12 +160,19 @@ import type { ScenarioEngine } from "./scenario-engine.js";
  * member — a compile error rather than a runtime surprise.
  */
 export const FIXTURE_SERVED_GROWTH_OPERATION_IDS = [
+  // The two the console cannot function without — a store admits nothing until a read
+  // gives it a base state, and without the directory the only sessions a surface can
+  // name are the ones this window happens to have open.
   "sessionRead",
   "sessionList",
+  // The one projection the console must not compute for itself.
   "attentionProjectionRead",
-  // gitflow
+  // gitflow — the branch-context read, whose whole answer today is that there is none.
+  // Its sibling `gitflowPrPrepare` is on the same slate row and refuses, which is the
+  // rule above rather than an omission: see the branch-context section of the header.
   "gitflowBranchContextRead",
-  // identity
+  // identity — answered from a scenario that states its own viewer, refused from one
+  // that does not.
   "callerParticipantRead",
 ] as const;
 
@@ -164,18 +192,7 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
   const served: Pick<GrowthPort, FixtureServedGrowthOperationId> = {
     sessionRead: async (request) => ({
       status: "served",
-      value: {
-        cursor: 0,
-        entities: [],
-        // The join log is the scenario's only where the scenario is the session
-        // being read. Another id gets an empty one rather than this session's
-        // roster: hue allocation keys on join order, and lending one session's
-        // order to another would colour a stranger's rows as if they were hers.
-        participantJoinLog:
-          request.sessionId === engine.scenario.sessionId
-            ? engine.scenario.participantIdsInJoinOrder
-            : [],
-      },
+      value: fixtureSessionSnapshot(engine.scenario, request.sessionId),
     }),
     sessionList: async () => ({
       status: "served",
