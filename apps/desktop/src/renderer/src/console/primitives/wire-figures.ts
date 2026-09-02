@@ -226,6 +226,37 @@ export function formatClockTime(iso: string, locale?: string): string {
 }
 
 /**
+ * An instant a person acts on: the calendar day AND the wall-clock time.
+ *
+ * `formatClockTime` beside it is deliberately date-free, and the reason is stated
+ * there — a ledger row aligns under a day divider that carries the date once. A
+ * surface with no divider has no such carrier, and rendering a bare clock reading
+ * there makes two instants days apart identical on screen. That is the whole
+ * distinction between the two: not precision, but whether anything else on the
+ * surface says which day it is.
+ *
+ * The field list is explicit rather than a `dateStyle` preset, so the reading stays
+ * scannable at one width while the ORDER and the separators remain the locale's
+ * own. Seconds are absent because the instants this answers for — an expiry, a
+ * deadline — are not read to the second, and the same 24-hour clock as its
+ * neighbour so two figures on one surface do not disagree about the format.
+ */
+export function formatDateTime(iso: string, locale?: string): string {
+  const milliseconds = Date.parse(iso);
+  if (Number.isNaN(milliseconds)) {
+    return "—";
+  }
+  return new Intl.DateTimeFormat(locale, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(milliseconds);
+}
+
+/**
  * Currency codes whose minor-unit precision the formatter remembers.
  *
  * A receipt spans the currencies its paying accounts bill in — a handful, never
