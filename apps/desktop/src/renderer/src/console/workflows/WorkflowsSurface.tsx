@@ -15,43 +15,45 @@
 // empty state of a console that cannot yet author a definition says so by having no
 // button rather than by having a dead one.
 //
+// WHERE THE GROUPS THEMSELVES LIVE. This file is the destination's chrome — heading,
+// one primary action, and which of the absence grammars the state calls for. The
+// scope groups and their rows are `DefinitionsBrowser.tsx`, because those are the
+// browser and this is the frame around it, and a surface that also owned the rows
+// would be the place a second grouping quietly appeared beside the first.
+//
 // WHAT IS RESERVED HERE. Starting a run by talking to it is Plan-017's body, mounted
 // through `owner-slots.ts` and standing empty until that plan fills it. The version
 // chain, the content hash, the schema marker and the parent hash are one click away
 // in the detail pane by design (rule 7's density budget), so none of them appears in
 // this list.
 
-import { Nothing } from "../primitives/index.js";
+import type { ConsoleRefusal } from "../core/index.js";
 import { WorkflowChrome } from "./WorkflowChrome.js";
 import { WorkflowSlotMount } from "./WorkflowSlotMount.js";
 import { WORKFLOW_CHAT_START_SLOT } from "./owner-slots.js";
 import type { WorkflowChromeState } from "./chrome-state.js";
-
-/**
- * The three definition scopes, in the daemon's own resolution order.
- *
- * A tuple because the ORDER is the claim. Written as three headings in the markup,
- * the order would be a fact about where someone happened to paste a block; declared
- * here, it is a value a test can compare against the rule it encodes.
- */
-export const WORKFLOW_DEFINITION_SCOPES = ["session", "project", "shared"] as const;
-
-/** One definition scope. Derived from the enumeration, never restated. */
-export type WorkflowDefinitionScope = (typeof WORKFLOW_DEFINITION_SCOPES)[number];
-
-/** What each group is, in a line, so the scope model teaches itself. */
-const SCOPE_SUMMARIES: Readonly<Record<WorkflowDefinitionScope, string>> = {
-  session: "Authored in this session. Checked first, so a session definition wins.",
-  project: "Shared by everyone working in this project checkout. Checked second.",
-  shared: "Available across projects, and never edited in place — editing forks a copy.",
-};
+import {
+  DefinitionsBrowser,
+  type WorkflowDefinitionRow,
+  type WorkflowDefinitionScope,
+} from "./DefinitionsBrowser.js";
 
 export interface WorkflowsSurfaceProps {
   readonly state: WorkflowChromeState;
+  /** Every definition this context can see. Empty until a read supplies some. */
+  readonly definitions?: readonly WorkflowDefinitionRow[] | undefined;
+  /** Scopes whose page is still in flight, so their absence reads as a wait. */
+  readonly pendingScopes?: readonly WorkflowDefinitionScope[] | undefined;
+  /** A daemon refusal belonging to one scope, rendered with its message verbatim. */
+  readonly scopeRefusals?:
+    | Readonly<Partial<Record<WorkflowDefinitionScope, ConsoleRefusal>>>
+    | undefined;
   /** Opens the builder on a new definition. Absent while nothing can author one. */
   readonly onNewDefinition?: () => void;
   /** Reads a definition file in and submits it. Absent while nothing can import one. */
   readonly onImportDefinition?: () => void;
+  /** Opens one definition's detail. Absent while nothing can open one. */
+  readonly onOpenDefinition?: ((definition: WorkflowDefinitionRow) => void) | undefined;
 }
 
 /** The definitions browser's chrome, grouped by scope in resolution order. */
@@ -75,31 +77,13 @@ export function WorkflowsSurface(props: WorkflowsSurfaceProps): React.JSX.Elemen
         )
       }
     >
-      <ol className="meridian-workflow__scopes">
-        {WORKFLOW_DEFINITION_SCOPES.map((scope) => (
-          <li className="meridian-workflow__scope" key={scope}>
-            <h3 className="meridian-workflow__scope-heading">{scope}</h3>
-            <p className="meridian-workflow__scope-summary">{SCOPE_SUMMARIES[scope]}</p>
-            <Nothing
-              kind="empty"
-              placement="surface"
-              title={`No ${scope} definitions.`}
-              detail="A definition saved at this scope appears here, and the one a run would pick is marked."
-              action={
-                scope === "session" && props.onImportDefinition !== undefined ? (
-                  <button
-                    type="button"
-                    className="meridian-workflow__action"
-                    onClick={props.onImportDefinition}
-                  >
-                    Import a definition file
-                  </button>
-                ) : undefined
-              }
-            />
-          </li>
-        ))}
-      </ol>
+      <DefinitionsBrowser
+        definitions={props.definitions ?? []}
+        pendingScopes={props.pendingScopes}
+        scopeRefusals={props.scopeRefusals}
+        onOpenDefinition={props.onOpenDefinition}
+        onImportDefinition={props.onImportDefinition}
+      />
       <WorkflowSlotMount
         slot={WORKFLOW_CHAT_START_SLOT}
         title="Starting a workflow by talking to it is not built yet."
