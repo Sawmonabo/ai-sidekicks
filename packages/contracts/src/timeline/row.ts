@@ -79,6 +79,20 @@ export const TIMELINE_ROW_SUMMARY_MAX_LEN = 4096;
 export const TIMELINE_ROLLBACK_BOUNDARY_TYPE = "run.rolled_back" as const;
 
 /**
+ * The event category every run-scoped row family projects from, and the one
+ * the boundary arm pins.
+ *
+ * `Spec-006 §Run Lifecycle (run_lifecycle)` registers thirteen
+ * `run_lifecycle` types and every one is run-scoped: the nine state
+ * transitions share a payload shape carrying a required `runId`, and each of
+ * the four non-state rows (`run.rolled_back`, `run.provider_initialized`,
+ * `run.turn_started`, `run.worker_shutdown`) re-lists `runId` in its own
+ * shape. That census is what lets the `general` arm refuse this category
+ * outright — see {@link refuseRunLifecycleOnNonRunArm}.
+ */
+export const TIMELINE_RUN_LIFECYCLE_CATEGORY = "run_lifecycle" as const;
+
+/**
  * The single-field superseded marker (I-013-3). Present exactly when the row's
  * turn is superseded; ABSENCE means current — there is no `superseded: false`
  * spelling, because two ways to say "current" is two things to keep in sync.
@@ -225,7 +239,9 @@ export interface LegacyStubTimelineEntry extends TimelineRowBase {
  *
  * `type` is pinned to the `run.rolled_back` literal, narrowing the base's
  * free-form `type` — the one arm where the event-type string is closed, because
- * the arm exists to carry exactly that one event.
+ * the arm exists to carry exactly that one event. `category` is pinned with it,
+ * for the same reason and in the same act: the two describe one registration,
+ * and pinning only half of it leaves the half that can still disagree.
  *
  * OUTER ATTRIBUTION AND PAYLOAD CANNOT DISAGREE. The schema refines
  * `runId === payload.runId`, `sessionId === payload.sessionId`, and
@@ -240,8 +256,19 @@ export interface LegacyStubTimelineEntry extends TimelineRowBase {
  * payload would be unconstructible and `RunRolledBackEventSchema` would not
  * type against it. Replacing the member says what the doc's own comment means.
  */
-export interface TimelineRollbackBoundary extends Omit<TimelineRowBase, "type" | "payload"> {
+export interface TimelineRollbackBoundary extends Omit<
+  TimelineRowBase,
+  "category" | "type" | "payload"
+> {
   kind: "rollback_boundary";
+  /**
+   * Pinned alongside `type`. `run.rolled_back` is registered `run_lifecycle`
+   * and nothing else, so leaving `category` open on the one arm whose event
+   * type is closed would let a boundary row arrive labelled with a category
+   * its own event cannot have — and a renderer that groups or filters by
+   * category would then file the rewind cutoff under the wrong family.
+   */
+  category: typeof TIMELINE_RUN_LIFECYCLE_CATEGORY;
   runId: RunId;
   /** The boundary row's own originating position — the confirmed rewind floor. */
   position: number;
@@ -325,6 +352,47 @@ const requireMarkerToOutrankRow = (
   }
 };
 
+/**
+ * The non-run arm refuses the run-scoped category.
+ *
+ * `kind: "general"` is structurally the NON-RUN arm: it carries no `runId`,
+ * `position`, or `epoch`, and `.strict()` refuses a row that smuggles them on.
+ * But `category` is the base's open `EventCategory` enum on that arm, so a
+ * projector that stamped `kind` wrong could deliver a `run_lifecycle` row with
+ * its whole attribution triple structurally absent — and it would parse.
+ *
+ * That is I-013-1's failure by the back door. The invariant's guarantee is
+ * all-or-none attribution enforced by arm selection: a run-scoped row missing
+ * any of the triple fails ITS OWN arm. A misclassified row never reaches that
+ * arm at all, so the check never runs, and a consumer narrowing on `kind` sees
+ * a legitimately attribution-free row where the session holds a run event.
+ *
+ * The refusal is safe because the category is CLOSED on the run-scoped side:
+ * `Spec-006 §Run Lifecycle (run_lifecycle)` registers thirteen
+ * `run_lifecycle` types, the nine state transitions carry a required `runId`
+ * through their shared payload shape and the four non-state rows each re-list
+ * it, so there is no `run_lifecycle` event a correct projection could
+ * legitimately deliver without run identity. See {@link TIMELINE_RUN_LIFECYCLE_CATEGORY}.
+ *
+ * Scoped to `general` alone: `run` and `legacy_stub` are the arms that SHOULD
+ * carry this category, and the boundary arm pins it.
+ */
+const refuseRunLifecycleOnNonRunArm = (
+  row: { category: EventCategory },
+  issueContext: z.RefinementCtx,
+): void => {
+  if (row.category === TIMELINE_RUN_LIFECYCLE_CATEGORY) {
+    issueContext.addIssue({
+      code: "custom",
+      path: ["category"],
+      message:
+        `every ${TIMELINE_RUN_LIFECYCLE_CATEGORY} event is run-scoped, so a row in that ` +
+        "category belongs to the run arm and carries the full attribution triple; delivering " +
+        "one under the general kind would present a run event as having no run identity",
+    });
+  }
+};
+
 const timelineGeneralArmSchema = z
   .object({
     ...buildTimelineRowCommonShape(),
@@ -332,7 +400,10 @@ const timelineGeneralArmSchema = z
     payload: projectedPayloadSchema,
   })
   .strict()
-  .superRefine(refuseBoundaryTypeOnNonBoundaryArm);
+  .superRefine((generalRow, issueContext) => {
+    refuseBoundaryTypeOnNonBoundaryArm(generalRow, issueContext);
+    refuseRunLifecycleOnNonRunArm(generalRow, issueContext);
+  });
 
 const runScopedTimelineArmSchema = z
   .object({
@@ -362,12 +433,15 @@ const legacyStubTimelineArmSchema = z
 
 const timelineRollbackBoundaryArmSchema = z
   .object({
-    // `type` below REPLACES the base shape's free-form parser by spread order:
-    // this is the one arm where the event-type string is closed. The base
-    // carries no `payload` member at all — each arm declares its own, because
-    // this one's is the typed event and the other three's is the open record.
+    // `category` and `type` below REPLACE the base shape's parsers by spread
+    // order: this is the one arm where both the category and the event-type
+    // string are closed, because it exists to carry exactly one registered
+    // event. The base carries no `payload` member at all — each arm declares
+    // its own, because this one's is the typed event and the other three's is
+    // the open record.
     ...buildTimelineRowCommonShape(),
     kind: z.literal("rollback_boundary"),
+    category: z.literal(TIMELINE_RUN_LIFECYCLE_CATEGORY),
     runId: RunIdSchema,
     position: z.number().int().nonnegative(),
     epoch: z.number().int().nonnegative(),

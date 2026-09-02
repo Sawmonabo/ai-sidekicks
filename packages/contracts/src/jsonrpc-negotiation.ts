@@ -77,10 +77,10 @@ export type DaemonHelloMethod = typeof DAEMON_HELLO_METHOD;
 // Per-field length caps — defense-in-depth bounds
 // --------------------------------------------------------------------------
 //
-// The framing layer (`MAX_MESSAGE_BYTES = 1_000_000` in
-// `local-ipc-gateway.ts`) is authoritative on overall body size; these
-// caps are a SECOND line of defense bounding individual fields. Mirrors
-// the pattern in `error.ts` / `event.ts`.
+// The framing layer (`MAX_MESSAGE_BYTES = 1_000_000`, declared in
+// `./jsonrpc.ts` and enforced by `local-ipc-gateway.ts`) is authoritative
+// on overall body size; these caps are a SECOND line of defense bounding
+// individual fields. Mirrors the pattern in `error.ts` / `event.ts`.
 
 /**
  * Cap on free-form string fields inside the negotiation envelopes

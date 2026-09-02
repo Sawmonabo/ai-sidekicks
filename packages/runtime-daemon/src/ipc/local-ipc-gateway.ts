@@ -68,6 +68,7 @@ import type {
 import {
   ENVELOPE_PROTOCOL_VERSION_EXEMPT_METHODS,
   JSONRPC_VERSION,
+  MAX_MESSAGE_BYTES,
   PROTOCOL_VERSION_REGEX,
 } from "@ai-sidekicks/contracts";
 
@@ -81,20 +82,23 @@ import { mapJsonRpcError } from "./jsonrpc-error-mapping.js";
 
 /**
  * 1 MB max message size per `Spec-007 §Wire Format` ("Maximum message
- * size: 1 MB") and F-007p-2-11 (substrate-side hard-coded constant).
+ * size: 1 MB") and F-007p-2-11.
  *
- * "1 MB" is interpreted as 1,000,000 bytes (decimal MB) following the
- * Spec-007 wording. The substrate enforces this on the BODY byte count
- * declared by the `Content-Length` header — the header bytes themselves
- * are not counted against the limit. Per F-007p-2-05, an oversized body
- * causes the connection to close with an error frame (T-007p-2-2 wires
- * the canonical error code; this substrate detects + signals the
- * boundary).
+ * The VALUE now lives in `@ai-sidekicks/contracts` (`jsonrpc.ts`) and is
+ * re-exported here unchanged, so the substrate keeps its own name for the
+ * constant and every existing importer of `MAX_MESSAGE_BYTES` from this
+ * module is unaffected. It moved because a producer outside the substrate
+ * now has to size a reply against the frame it will become, and a second
+ * copy of the number would drift from the framer silently — the drift
+ * surfacing as closed connections rather than as a failing test.
  *
- * Changing this constant requires a Phase 2 amendment + Spec-007 update
- * per F-007p-2-11.
+ * Enforcement is still HERE and only here: `parseFrame` rejects an
+ * oversized declared length and `encodeFrame` refuses to emit an oversized
+ * body. Per F-007p-2-05 an oversized body closes the connection with an
+ * error frame. Changing the value still requires a Phase 2 amendment plus a
+ * Spec-007 update per F-007p-2-11.
  */
-export const MAX_MESSAGE_BYTES = 1_000_000;
+export { MAX_MESSAGE_BYTES };
 
 /**
  * The LSP-style framing header name. Lower-cased compare on receive

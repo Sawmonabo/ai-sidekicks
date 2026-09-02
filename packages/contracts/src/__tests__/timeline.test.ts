@@ -64,6 +64,27 @@
 //   MUST FAIL — the reasoning-surface request (§"read window")
 //     F48  request carrying a principal member ....... strict refuses (no wire principal)
 //
+//   MUST FAIL — review folds (§"availability", §"arm selection", §"read window")
+//     F49  `available` carrying zero entries ......... refuses (collapses onto unavailable)
+//     F50  `hasMore: true` without `nextCursor` ...... arm selection refuses
+//     F51  terminal window WITH a cursor ............. PARSES — see below
+//     F52  response entry list above the cap ......... refuses (shared with the request cap)
+//     F53  non-boundary arm carrying `run.rolled_back` refuses (untyped cutoff)
+//     F54  marker at or below the row's position ..... refuses (cutoff is the retained floor)
+//
+//   MUST FAIL — frame safety, ordering, and lineage (§"category", §"lineage", §"paged")
+//     F55  general arm carrying `run_lifecycle` ...... refuses (run event with no run identity)
+//     F56  boundary arm carrying another category .... refuses (its event is registered one way)
+//     F57  runId === parentRunId ..................... refuses (cyclic lineage), summary + expansion
+//     F58  entries out of sequence order ............. refuses (oldest-to-newest)
+//     F59  expansion entry from another run .......... refuses (general arm exempt)
+//     F60  page over the frame byte budget ........... refuses — including a page AT the row cap
+//     F61  paged `available` without its cursor ...... refuses; unpaged states carry no `hasMore`
+//
+//   REVERSED BY A REVIEW FOLD — each was asserted the other way when first shipped
+//     F49  now REFUSES the empty `available` list (was: accepted)
+//     F51  now ACCEPTS a cursor on the terminal arm (was: refused)
+//
 //   MUST PASS
 //     P1   general row, minimal
 //     P2   run row, full triple, unmarked (current)
@@ -80,6 +101,7 @@
 //     P13  the `complete` arm round-trips
 //     P14  each of the three causes round-trips on the incomplete arm
 //     P15  an incomplete row still parses — the marker never removes the row
+//     P16  a page built by `countEntriesFittingOneFrame` is accepted by the schema
 //
 // Refs: Spec-013, Plan-013 (I-013-1, I-013-3, I-013-4, I-013-5, I-013-7,
 // I-013-8), ADR-018 (no legacy tolerant arm — the shape has no shipped parser
@@ -87,25 +109,34 @@
 
 import { describe, expect, it } from "vitest";
 
+import { EVENT_FIELD_MAX_LEN } from "../event.js";
+import { EVENT_CURSOR_MAX_LEN } from "../session.js";
+import { MAX_MESSAGE_BYTES, jsonUtf8ByteLength } from "../jsonrpc.js";
 import type { RunRolledBackEvent } from "../runControl.js";
 import {
   CHILD_RUN_INCOMPLETE_CAUSES,
+  countEntriesFittingOneFrame,
   ChildRunCompletenessSchema,
   ChildRunExpandRequestSchema,
   ChildRunExpandResponseSchema,
   ChildRunSummarySchema,
   REASONING_AVAILABILITY_STATES,
+  REASONING_ENTRY_CONTENT_MAX_LEN,
   REASONING_SURFACE_ENTRIES_MAX,
   ReasoningSurfaceReadRequestSchema,
   ReasoningSurfaceReadResponseSchema,
   TIMELINE_CHILD_RUN_EXPAND_METHOD,
   TIMELINE_METHOD_DESCRIPTORS,
   TIMELINE_METHOD_NAMES,
+  TIMELINE_PAGE_FRAME_RESERVE_BYTES,
+  TIMELINE_PAGE_MAX_BYTES,
   TIMELINE_READ_LIMIT_MAX,
   TIMELINE_READ_METHOD,
   TIMELINE_REASONING_SURFACE_READ_METHOD,
   TIMELINE_ROLLBACK_BOUNDARY_TYPE,
   TIMELINE_ROW_KINDS,
+  TIMELINE_ROW_SUMMARY_MAX_LEN,
+  TIMELINE_RUN_LIFECYCLE_CATEGORY,
   TIMELINE_SUBSCRIBE_METHOD,
   TimelineReadRequestSchema,
   TimelineReadResponseSchema,
@@ -140,7 +171,18 @@ const rowCommon = {
   payload: { detail: "opaque" },
 } as const;
 
-const generalRow = { ...rowCommon, kind: "general" } as const;
+/**
+ * The general arm carries a NON-run category, and must: every
+ * `run_lifecycle` event is run-scoped, so the arm that structurally has no run
+ * identity refuses that category outright (F55).
+ */
+const generalRow = {
+  ...rowCommon,
+  kind: "general",
+  category: "session_lifecycle",
+  type: "session.created",
+  summary: "Session created",
+} as const;
 
 const runScopedRow = {
   ...rowCommon,
@@ -751,6 +793,15 @@ describe("ReasoningSurfaceReadResponse availability (I-013-7)", () => {
     expectRoundTrip(ReasoningSurfaceReadResponseSchema, {
       availability: "available",
       reasoningEntries: [reasoningEntry],
+      hasMore: false,
+    });
+    // …and the paged form of the same state, which is a continuation and not a
+    // fifth state — `REASONING_AVAILABILITY_STATES` stays four.
+    expectRoundTrip(ReasoningSurfaceReadResponseSchema, {
+      availability: "available",
+      reasoningEntries: [reasoningEntry],
+      hasMore: true,
+      nextCursor: "seq-42",
     });
     expectRoundTrip(ReasoningSurfaceReadResponseSchema, { availability: "unavailable" });
     expectRoundTrip(ReasoningSurfaceReadResponseSchema, { availability: "compacted" });
@@ -772,19 +823,54 @@ describe("ReasoningSurfaceReadResponse availability (I-013-7)", () => {
       ReasoningSurfaceReadResponseSchema.safeParse({
         availability: "available",
         reasoningEntries: [],
+        hasMore: false,
       }).success,
     ).toBe(false);
     // Positive control on the same axis: one entry is enough.
     expectRoundTrip(ReasoningSurfaceReadResponseSchema, {
       availability: "available",
       reasoningEntries: [reasoningEntry],
+      hasMore: false,
     });
   });
 
   it("F23 — `available` without `reasoningEntries` fails", () => {
     expect(
-      ReasoningSurfaceReadResponseSchema.safeParse({ availability: "available" }).success,
+      ReasoningSurfaceReadResponseSchema.safeParse({ availability: "available", hasMore: false })
+        .success,
     ).toBe(false);
+  });
+
+  it("F61 — the paged `available` state obeys the same cursor rule the window does", () => {
+    // A reasoning surface that says there is more and cannot say where to
+    // resume is the same broken promise a cursorless `hasMore: true` window
+    // makes, on a surface `Spec-013 §Default Behavior` already calls
+    // summary-first — so the page break is the normal case, not the edge one.
+    expect(
+      ReasoningSurfaceReadResponseSchema.safeParse({
+        availability: "available",
+        reasoningEntries: [reasoningEntry],
+        hasMore: true,
+      }).success,
+    ).toBe(false);
+    // `hasMore` is required on the state that pages: its absence would be a
+    // third answer to a two-valued question.
+    expect(
+      ReasoningSurfaceReadResponseSchema.safeParse({
+        availability: "available",
+        reasoningEntries: [reasoningEntry],
+      }).success,
+    ).toBe(false);
+    // The three unpaged states carry no continuation at all — `hasMore` on a
+    // state that returns nothing would promise more of nothing.
+    for (const unpagedState of ["unavailable", "compacted"]) {
+      expect(
+        ReasoningSurfaceReadResponseSchema.safeParse({
+          availability: unpagedState,
+          hasMore: false,
+        }).success,
+      ).toBe(false);
+    }
   });
 
   it("F24 — `policy_redacted` without `policyReason` fails", () => {
@@ -854,12 +940,14 @@ describe("ReasoningSurfaceReadResponse availability (I-013-7)", () => {
       ReasoningSurfaceReadResponseSchema.safeParse({
         availability: "available",
         reasoningEntries: atCap,
+        hasMore: false,
       }).success,
     ).toBe(true);
     expect(
       ReasoningSurfaceReadResponseSchema.safeParse({
         availability: "available",
         reasoningEntries: [...atCap, reasoningEntry],
+        hasMore: false,
       }).success,
     ).toBe(false);
   });
@@ -875,6 +963,7 @@ describe("ReasoningSurfaceReadResponse availability (I-013-7)", () => {
 
   it("F48 — the request is run-scoped and carries no principal, in any spelling", () => {
     expectRoundTrip(ReasoningSurfaceReadRequestSchema, { runId: RUN_ID });
+    expectRoundTrip(ReasoningSurfaceReadRequestSchema, { runId: RUN_ID, afterCursor: "seq-42" });
     // The principal is resolved from the transport, never supplied by the
     // caller. `.strict()` is what makes that a refusal rather than a silent
     // strip — a stripped member would let a caller believe it had scoped the
@@ -935,13 +1024,23 @@ describe("timeline read window and live stream", () => {
     ).toBe(true);
   });
 
-  it("F51 — the terminal window REFUSES a cursor", () => {
-    // Two contradictory claims about one window. Refused rather than ignored,
-    // so a producer cannot ship a continuation token nobody will honour.
-    expect(
-      TimelineReadResponseSchema.safeParse({ entries: [], hasMore: false, nextCursor: cursor })
-        .success,
-    ).toBe(false);
+  it("F51 — the terminal window ALLOWS a cursor, and never requires one", () => {
+    // This assertion is the reverse of the one first shipped here, and the
+    // reversal is the finding. The two members answer different questions —
+    // `hasMore` whether unread rows remain, `nextCursor` where this window
+    // ended — so they do not contradict on a final page. A client that has
+    // just read to the end and now wants `timeline.subscribe` to "support live
+    // append plus replay recovery" from exactly there needs that position, and
+    // forbidding it would make the client re-derive it or re-read the window
+    // to recover something the producer already held.
+    expectRoundTrip(TimelineReadResponseSchema, {
+      entries: [],
+      hasMore: false,
+      nextCursor: cursor,
+    });
+    // …and it stays OPTIONAL: a producer with nothing more to say owes no
+    // cursor. Both halves are asserted because neither implies the other.
+    expectRoundTrip(TimelineReadResponseSchema, { entries: [], hasMore: false });
   });
 
   it("F52 — the response entry list is bounded by the SAME cap as the request", () => {
@@ -965,6 +1064,7 @@ describe("timeline read window and live stream", () => {
         parentRunId: PARENT_RUN_ID,
         state: "completed",
         entries: overCap,
+        hasMore: false,
       }).success,
     ).toBe(false);
   });
@@ -1005,25 +1105,52 @@ describe("timeline read window and live stream", () => {
     const window = TimelineReadResponseSchema.parse({
       entries: [rollbackBoundaryRow],
       hasMore: false,
-    });
+    }) as { entries: TimelineRow[] };
     const live = TimelineRowSchema.parse(rollbackBoundaryRow);
     expect(window.entries[0]).toStrictEqual(live);
   });
 
-  it("child-run expansion carries the same row union", () => {
+  it("child-run expansion carries the same row union, with the same continuation", () => {
     expectRoundTrip(ChildRunExpandRequestSchema, { runId: RUN_ID });
+    expectRoundTrip(ChildRunExpandRequestSchema, { runId: RUN_ID, afterCursor: cursor });
+    // The request names the position to resume from `afterCursor`, matching its
+    // sibling reads rather than spelling one namespace's cursor two ways.
+    expect(ChildRunExpandRequestSchema.safeParse({ runId: RUN_ID, cursor: cursor }).success).toBe(
+      false,
+    );
     expectRoundTrip(ChildRunExpandResponseSchema, {
       runId: RUN_ID,
       parentRunId: PARENT_RUN_ID,
       state: "completed",
       entries: [runScopedRow],
+      hasMore: false,
     });
+    expectRoundTrip(ChildRunExpandResponseSchema, {
+      runId: RUN_ID,
+      parentRunId: PARENT_RUN_ID,
+      state: "running",
+      entries: [runScopedRow],
+      hasMore: true,
+      nextCursor: cursor,
+    });
+    // A child run is not inherently smaller than a session window, so the
+    // continuing arm owes its cursor for the same reason F50 does.
+    expect(
+      ChildRunExpandResponseSchema.safeParse({
+        runId: RUN_ID,
+        parentRunId: PARENT_RUN_ID,
+        state: "running",
+        entries: [runScopedRow],
+        hasMore: true,
+      }).success,
+    ).toBe(false);
     expect(
       ChildRunExpandResponseSchema.safeParse({
         runId: RUN_ID,
         parentRunId: PARENT_RUN_ID,
         state: "completed",
         entries: [{ ...runScopedRow, epoch: undefined }],
+        hasMore: false,
       }).success,
     ).toBe(false);
   });
@@ -1095,5 +1222,324 @@ describe("timeline method-name registry (T1.4)", () => {
     for (const method of TIMELINE_METHOD_NAMES) {
       expect(Object.isFrozen(TIMELINE_METHOD_DESCRIPTORS[method])).toBe(true);
     }
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Category pinning and run-scoping (T1.1, I-013-1, I-013-5)
+// ----------------------------------------------------------------------------
+
+describe("row category is pinned where the event is", () => {
+  it("F55 — the general arm REFUSES the run-scoped category", () => {
+    // I-013-1's all-or-none attribution is enforced by ARM SELECTION: a
+    // run-scoped row missing part of its triple fails the run arm and is never
+    // re-offered. A row whose `kind` was stamped wrong never reaches that arm
+    // at all, so the check never runs — and a `run_lifecycle` row would arrive
+    // as a legitimately attribution-free general row. Every one of Spec-006's
+    // thirteen `run_lifecycle` types is run-scoped, so there is no correct
+    // projection this refusal costs.
+    const misfiled = { ...generalRow, category: TIMELINE_RUN_LIFECYCLE_CATEGORY };
+    const result = TimelineRowSchema.safeParse(misfiled);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((issue) => issue.path.join(".") === "category")).toBe(true);
+    }
+    // Positive controls. The same category on the arms that SHOULD carry it
+    // parses, so the refusal is the arm and not the category.
+    expect(TimelineRowSchema.safeParse(runScopedRow).success).toBe(true);
+    expect(TimelineRowSchema.safeParse(legacyStubRow).success).toBe(true);
+    expect(runScopedRow.category).toBe(TIMELINE_RUN_LIFECYCLE_CATEGORY);
+    // …and the general arm's own category still parses, so the fixture is not
+    // failing for an unrelated reason.
+    expect(TimelineRowSchema.safeParse(generalRow).success).toBe(true);
+  });
+
+  it("F56 — the boundary arm REFUSES any category but its event's own", () => {
+    // `run.rolled_back` is registered `run_lifecycle` and nothing else. The arm
+    // already pins `type`; leaving `category` open would leave the half that
+    // can still disagree, and a renderer grouping by category would file the
+    // rewind cutoff under the wrong family.
+    const misCategorized = { ...rollbackBoundaryRow, category: "session_lifecycle" };
+    const result = TimelineRowSchema.safeParse(misCategorized);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((issue) => issue.path.join(".") === "category")).toBe(true);
+    }
+    expect(TimelineRowSchema.safeParse(rollbackBoundaryRow).success).toBe(true);
+  });
+});
+
+describe("child-run lineage is acyclic (T1.2)", () => {
+  it("F57 — a summary that is its own parent is refused", () => {
+    // Every consumer of the lineage walks it: the renderer nests a child under
+    // its parent, the one-layer nesting rule is checked against the chain, and
+    // cost attribution sums along it. A self-parenting row turns each of those
+    // walks into a loop, so it is refused once here rather than defended
+    // against separately at every walk.
+    const result = ChildRunSummarySchema.safeParse({ ...childRunSummary, parentRunId: RUN_ID });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((issue) => issue.path.join(".") === "parentRunId")).toBe(
+        true,
+      );
+    }
+    // Positive control: a distinct parent parses.
+    expect(ChildRunSummarySchema.safeParse(childRunSummary).success).toBe(true);
+  });
+
+  it("F57 — the expansion states the same relationship and refuses it the same way", () => {
+    expect(
+      ChildRunExpandResponseSchema.safeParse({
+        runId: RUN_ID,
+        parentRunId: RUN_ID,
+        state: "completed",
+        entries: [],
+        hasMore: false,
+      }).success,
+    ).toBe(false);
+    expect(
+      ChildRunExpandResponseSchema.safeParse({
+        runId: RUN_ID,
+        parentRunId: PARENT_RUN_ID,
+        state: "completed",
+        entries: [],
+        hasMore: false,
+      }).success,
+    ).toBe(true);
+  });
+});
+
+describe("paged replies are ordered, run-scoped, and frame-safe (T1.3)", () => {
+  const cursor = "seq-42";
+  const rowAt = (sequence: number): Record<string, unknown> => ({
+    ...runScopedRow,
+    id: `evt-${String(sequence)}`,
+    sequence,
+  });
+
+  it("F58 — a window whose entries go backwards is refused", () => {
+    // `Spec-013 §Default Behavior`: rows run oldest to newest. A producer that
+    // ships them scrambled forces every consumer to re-sort a window it
+    // already had in order, and a consumer that does not re-sort renders the
+    // session's history out of sequence.
+    const result = TimelineReadResponseSchema.safeParse({
+      entries: [rowAt(10), rowAt(3)],
+      hasMore: false,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(
+        result.error.issues.some((issue) => issue.path.join(".") === "entries.1.sequence"),
+      ).toBe(true);
+    }
+    // Positive controls: ascending parses, and so does a repeated sequence —
+    // the rule is nondecreasing, because nothing in Spec-013 forbids a
+    // projection from emitting two rows for one event.
+    expect(
+      TimelineReadResponseSchema.safeParse({ entries: [rowAt(3), rowAt(10)], hasMore: false })
+        .success,
+    ).toBe(true);
+    expect(
+      TimelineReadResponseSchema.safeParse({ entries: [rowAt(3), rowAt(3)], hasMore: false })
+        .success,
+    ).toBe(true);
+    // The expansion is the same window over a child's rows, so the same rule.
+    expect(
+      ChildRunExpandResponseSchema.safeParse({
+        runId: RUN_ID,
+        parentRunId: PARENT_RUN_ID,
+        state: "completed",
+        entries: [rowAt(10), rowAt(3)],
+        hasMore: false,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("F59 — an expansion carries only the expanded run's rows", () => {
+    // An expansion answers "what did child run X do". A row attributed to
+    // another run is either a projection defect or a cross-run leak, and both
+    // render as X's activity once the row is inside X's expansion.
+    const foreignRow = { ...runScopedRow, runId: OTHER_RUN_ID };
+    const result = ChildRunExpandResponseSchema.safeParse({
+      runId: RUN_ID,
+      parentRunId: PARENT_RUN_ID,
+      state: "completed",
+      entries: [foreignRow],
+      hasMore: false,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((issue) => issue.path.join(".") === "entries.0.runId")).toBe(
+        true,
+      );
+    }
+    // Every run-bearing kind is checked, not just the run arm.
+    for (const foreign of [
+      { ...legacyStubRow, runId: OTHER_RUN_ID },
+      {
+        ...rollbackBoundaryRow,
+        runId: OTHER_RUN_ID,
+        payload: { ...rolledBackPayload, runId: OTHER_RUN_ID },
+      },
+    ]) {
+      expect(
+        ChildRunExpandResponseSchema.safeParse({
+          runId: RUN_ID,
+          parentRunId: PARENT_RUN_ID,
+          state: "completed",
+          entries: [foreign],
+          hasMore: false,
+        }).success,
+      ).toBe(false);
+    }
+    // The general arm is EXEMPT and must be: it structurally carries no
+    // `runId`, so a session-scoped row inside a child's window is context,
+    // not misattribution.
+    expect(
+      ChildRunExpandResponseSchema.safeParse({
+        runId: RUN_ID,
+        parentRunId: PARENT_RUN_ID,
+        state: "completed",
+        entries: [generalRow],
+        hasMore: false,
+      }).success,
+    ).toBe(true);
+  });
+
+  // A single JS unit that `JSON.stringify` escapes to a six-byte `\uXXXX`
+  // sequence — the true worst case for the reserve derivation, and admissible
+  // because `wireFreeFormString` bans only NUL and whitespace-only strings.
+  const worstCaseUnit = "\u0001";
+  const worstCaseRow = {
+    ...runScopedRow,
+    id: worstCaseUnit.repeat(EVENT_FIELD_MAX_LEN),
+    type: worstCaseUnit.repeat(EVENT_FIELD_MAX_LEN),
+    actor: worstCaseUnit.repeat(EVENT_FIELD_MAX_LEN),
+    summary: worstCaseUnit.repeat(TIMELINE_ROW_SUMMARY_MAX_LEN),
+    childRunSummary,
+    superseded: { targetPosition: 1 },
+  };
+  const worstCasePage = Array.from({ length: TIMELINE_READ_LIMIT_MAX }, (_unused, index) => ({
+    ...worstCaseRow,
+    sequence: index,
+  }));
+
+  it("F60 — the row-count ceiling alone does NOT bound the frame, and the byte budget does", () => {
+    // The finding, stated as arithmetic rather than as a worry. Every field
+    // below is at its own contract bound, so this page is contract-valid on
+    // every axis except the one being added here.
+    expect(jsonUtf8ByteLength(worstCasePage)).toBeGreaterThan(MAX_MESSAGE_BYTES);
+    expect(
+      TimelineReadResponseSchema.safeParse({ entries: worstCasePage, hasMore: false }).success,
+    ).toBe(false);
+
+    // The producer's half stops before the count ceiling, which is the whole
+    // point: reaching 256 rows is not what usually ends a page.
+    const fitted = countEntriesFittingOneFrame(worstCasePage, TIMELINE_READ_LIMIT_MAX);
+    expect(fitted).toBeGreaterThan(0);
+    expect(fitted).toBeLessThan(TIMELINE_READ_LIMIT_MAX);
+
+    // P16 — the producer and the validator agree BY CONSTRUCTION: the page the
+    // fitting function returns is accepted, and one row more is refused.
+    const page = worstCasePage.slice(0, fitted);
+    expect(
+      TimelineReadResponseSchema.safeParse({ entries: page, hasMore: true, nextCursor: cursor })
+        .success,
+    ).toBe(true);
+    expect(
+      TimelineReadResponseSchema.safeParse({
+        entries: worstCasePage.slice(0, fitted + 1),
+        hasMore: true,
+        nextCursor: cursor,
+      }).success,
+    ).toBe(false);
+
+    // …and the frame that page becomes fits. This is the claim the reserve
+    // exists to make true: the whole JSON-RPC response envelope, carrying a
+    // maximal continuation cursor and a maximal echoed id, stays under the
+    // framer's cap.
+    const maximalCursor = worstCaseUnit.repeat(EVENT_CURSOR_MAX_LEN);
+    const frameBody = {
+      jsonrpc: "2.0",
+      id: maximalCursor,
+      result: { entries: page, hasMore: true, nextCursor: maximalCursor },
+    };
+    expect(jsonUtf8ByteLength(frameBody)).toBeLessThan(MAX_MESSAGE_BYTES);
+  });
+
+  it("F60 — the same budget bounds the expansion and the reasoning surface", () => {
+    expect(
+      ChildRunExpandResponseSchema.safeParse({
+        runId: RUN_ID,
+        parentRunId: PARENT_RUN_ID,
+        state: "completed",
+        entries: worstCasePage,
+        hasMore: false,
+      }).success,
+    ).toBe(false);
+
+    const worstCaseEntries = Array.from(
+      { length: REASONING_SURFACE_ENTRIES_MAX },
+      (_unused, index) => ({
+        sequence: index,
+        content: worstCaseUnit.repeat(REASONING_ENTRY_CONTENT_MAX_LEN),
+        timestamp: TIMESTAMP,
+      }),
+    );
+    expect(jsonUtf8ByteLength(worstCaseEntries)).toBeGreaterThan(MAX_MESSAGE_BYTES);
+    expect(
+      ReasoningSurfaceReadResponseSchema.safeParse({
+        availability: "available",
+        reasoningEntries: worstCaseEntries,
+        hasMore: false,
+      }).success,
+    ).toBe(false);
+    // Positive control on the same axis: the fitted prefix parses.
+    const fitted = countEntriesFittingOneFrame(worstCaseEntries, REASONING_SURFACE_ENTRIES_MAX);
+    expect(fitted).toBeGreaterThan(0);
+    expect(
+      ReasoningSurfaceReadResponseSchema.safeParse({
+        availability: "available",
+        reasoningEntries: worstCaseEntries.slice(0, fitted),
+        hasMore: true,
+        nextCursor: cursor,
+      }).success,
+    ).toBe(true);
+  });
+
+  it("the budget is the frame cap less a reserve, and the measure is exact", () => {
+    expect(TIMELINE_PAGE_MAX_BYTES).toBe(MAX_MESSAGE_BYTES - TIMELINE_PAGE_FRAME_RESERVE_BYTES);
+    // UTF-8 bytes of the JSON encoding, not JS string units — the distinction
+    // the whole derivation rests on. Each figure includes the two quotes.
+    expect(jsonUtf8ByteLength("a")).toBe(3);
+    expect(jsonUtf8ByteLength("\u00e9")).toBe(4);
+    expect(jsonUtf8ByteLength("\u2603")).toBe(5);
+    expect(jsonUtf8ByteLength("\ud83d\ude42")).toBe(6);
+    expect(jsonUtf8ByteLength("\u0001")).toBe(8);
+    // An unserializable value measures as infinitely large rather than
+    // throwing, so a refinement on a parse path reports an issue instead of
+    // escaping `.parse()` as an exception.
+    const cyclic: Record<string, unknown> = {};
+    cyclic["self"] = cyclic;
+    expect(jsonUtf8ByteLength(cyclic)).toBe(Number.POSITIVE_INFINITY);
+    expect(jsonUtf8ByteLength(1n)).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it("the fitting function is exact at the boundary and honest about zero", () => {
+    const smallRow = { ...runScopedRow, sequence: 1 };
+    // Nothing is dropped when everything fits.
+    expect(countEntriesFittingOneFrame([smallRow, smallRow], TIMELINE_READ_LIMIT_MAX)).toBe(2);
+    // The count ceiling still binds when it is the tighter of the two.
+    expect(countEntriesFittingOneFrame([smallRow, smallRow], 1)).toBe(1);
+    expect(countEntriesFittingOneFrame([], TIMELINE_READ_LIMIT_MAX)).toBe(0);
+    // Zero from a non-empty input means the FIRST candidate cannot ride a
+    // frame at all. A caller that treated that as an empty page with more to
+    // come would build a cursor that never advances, so it is a documented
+    // failure rather than a page break.
+    const unfittableRow = {
+      ...runScopedRow,
+      payload: { blob: "x".repeat(TIMELINE_PAGE_MAX_BYTES) },
+    };
+    expect(countEntriesFittingOneFrame([unfittableRow], TIMELINE_READ_LIMIT_MAX)).toBe(0);
   });
 });

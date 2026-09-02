@@ -72,6 +72,23 @@ export type TimelineMethodName =
   | typeof TIMELINE_CHILD_RUN_EXPAND_METHOD;
 
 /**
+ * The three `query` method strings — every timeline method EXCEPT the
+ * subscription.
+ *
+ * The split is not decoration. A `query` is bound by supplying a handler whose
+ * resolved value the registry validates against the response schema; a
+ * subscription additionally has a PER-EMISSION schema
+ * ({@link TimelineSubscriptionMethodBinding.emissionSchema}) that nothing in a
+ * `query` binding has anywhere to consume. Deriving this set with `Exclude`
+ * rather than re-listing it lets the daemon's query binder be typed so the
+ * subscription cannot be passed to it at all — the emission schema is then
+ * unskippable rather than merely available, because the only binder that
+ * accepts `timeline.subscribe` is the one that fixes the producer's schema
+ * from the descriptor.
+ */
+export type TimelineQueryMethodName = Exclude<TimelineMethodName, typeof TIMELINE_SUBSCRIBE_METHOD>;
+
+/**
  * Every `timeline.*` method string, in the canonical registry table's row
  * order. A census a consumer can walk rather than a list it re-types.
  */

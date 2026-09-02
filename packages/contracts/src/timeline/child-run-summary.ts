@@ -139,6 +139,15 @@ export interface ChildRunSummary {
  * is closed, so a producer offering a sixth member (an incompleteness marker
  * among them) is refused here rather than silently stripped at the seam and
  * then missing from every consumer that expected it.
+ *
+ * NO RUN IS ITS OWN PARENT. `runId === parentRunId` makes the run-lineage
+ * graph cyclic, and every consumer of that graph walks it: the renderer nests
+ * a child row under its parent, `Spec-016`'s one-layer nesting rule is checked
+ * against the chain, and cost attribution sums along it. A self-parenting row
+ * turns each of those walks into a non-terminating loop, so it is refused at
+ * the parse boundary rather than defended against separately at every walk.
+ * `ChildRunExpandResponse` carries the same refusal on the same identity pair
+ * — the shapes state one relationship, so they cannot disagree about it.
  */
 export const ChildRunSummarySchema: z.ZodType<ChildRunSummary> = z
   .object({
@@ -152,4 +161,15 @@ export const ChildRunSummarySchema: z.ZodType<ChildRunSummary> = z
     eventCount: z.number().int().nonnegative(),
     completeness: ChildRunCompletenessSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((summary, issueContext) => {
+    if (summary.runId === summary.parentRunId) {
+      issueContext.addIssue({
+        code: "custom",
+        path: ["parentRunId"],
+        message:
+          "a child run cannot be its own parent: runId and parentRunId are equal, which makes " +
+          "the run-lineage graph cyclic and any walk of it non-terminating",
+      });
+    }
+  });

@@ -23,13 +23,15 @@ import type {
   ChildRunExpandResponse,
   Handler,
   HandlerContext,
+  JsonRpcNotification,
+  LocalSubscriptionProducer,
   ReasoningSurfaceReadResponse,
   RunId,
   SessionId,
-  SubscriptionId,
   TimelineReadRequest,
   TimelineReadResponse,
-  TimelineSubscribeResponse,
+  TimelineRow,
+  TimelineSubscribeRequest,
 } from "@ai-sidekicks/contracts";
 import {
   TIMELINE_CHILD_RUN_EXPAND_METHOD,
@@ -40,29 +42,67 @@ import {
   TIMELINE_SUBSCRIBE_METHOD,
 } from "@ai-sidekicks/contracts";
 
-import { registerTimelineMethod } from "../handlers/timeline-methods.js";
+import {
+  registerTimelineMethod,
+  registerTimelineSubscription,
+} from "../handlers/timeline-methods.js";
 import {
   isCanonicalMethodName,
   MethodRegistryImpl,
   RegistryDispatchError,
   RegistryRegistrationError,
 } from "../registry.js";
+import { StreamingPrimitive, StreamingValidationError } from "../streaming-primitive.js";
 
-const dispatchContext: HandlerContext = {};
+const TRANSPORT_ID = 7;
+const dispatchContext: HandlerContext = { transportId: TRANSPORT_ID };
 
 const SESSION_ID: SessionId = "6f1c9a6e-1f2b-4a3c-8d5e-0a1b2c3d4e5f" as SessionId;
 const RUN_ID: RunId = "11111111-2222-4333-8444-555555555555" as RunId;
 const PARENT_RUN_ID: RunId = "33333333-4444-4555-8666-777777777777" as RunId;
-const SUBSCRIPTION_ID: SubscriptionId = "55555555-6666-4777-8888-999999999999" as SubscriptionId;
 
 const readResponse: TimelineReadResponse = { entries: [], hasMore: false };
-const subscribeResponse: TimelineSubscribeResponse = { subscriptionId: SUBSCRIPTION_ID };
 const reasoningResponse: ReasoningSurfaceReadResponse = { availability: "unavailable" };
 const childRunExpandResponse: ChildRunExpandResponse = {
   runId: RUN_ID,
   parentRunId: PARENT_RUN_ID,
   state: "completed",
   entries: [],
+  hasMore: false,
+};
+
+const timelineRow: TimelineRow = {
+  kind: "general",
+  id: "evt-1",
+  sessionId: SESSION_ID,
+  sequence: 1,
+  category: "session_lifecycle",
+  type: "session.created",
+  summary: "session created",
+  timestamp: "2026-09-01T00:00:00.000Z",
+  payload: {},
+};
+
+/**
+ * A REAL `StreamingPrimitive` plus the frames it emitted.
+ *
+ * Deliberately not a hand-rolled producer double: the claim under test is that
+ * an emission is validated against the descriptor's own schema before a frame
+ * is written, and a double that re-implements that check would prove only that
+ * the test can validate. This one records what the primitive actually wrote.
+ */
+const buildStreamingPrimitive = (): {
+  streamingPrimitive: StreamingPrimitive;
+  sentFrames: JsonRpcNotification<unknown>[];
+} => {
+  const sentFrames: JsonRpcNotification<unknown>[] = [];
+  const streamingPrimitive = new StreamingPrimitive({
+    send: (_transportId, frame) => {
+      sentFrames.push(frame);
+    },
+    registry: new MethodRegistryImpl(),
+  });
+  return { streamingPrimitive, sentFrames };
 };
 
 /**
@@ -70,15 +110,29 @@ const childRunExpandResponse: ChildRunExpandResponse = {
  * own operation. Deliberately NOT a production binder — the production
  * handlers arrive with the Phase-2/Phase-3 services; these exist so the
  * registration and dispatch paths can be exercised end to end.
+ *
+ * `timeline.subscribe` goes through its OWN binder, because it has to: the
+ * query binder's `MethodName` excludes it.
  */
-const registerAllTimelineMethods = (registry: MethodRegistryImpl): void => {
+const registerAllTimelineMethods = (
+  registry: MethodRegistryImpl,
+  subscriptionOverrides?: Partial<{
+    streamingPrimitive: StreamingPrimitive;
+    attachProjection: (
+      request: TimelineSubscribeRequest,
+      producer: LocalSubscriptionProducer<TimelineRow>,
+      context: HandlerContext,
+    ) => void | Promise<void>;
+  }>,
+): void => {
   registerTimelineMethod(registry, {
     method: TIMELINE_READ_METHOD,
     handler: async () => readResponse,
   });
-  registerTimelineMethod(registry, {
-    method: TIMELINE_SUBSCRIBE_METHOD,
-    handler: async () => subscribeResponse,
+  registerTimelineSubscription(registry, {
+    streamingPrimitive:
+      subscriptionOverrides?.streamingPrimitive ?? buildStreamingPrimitive().streamingPrimitive,
+    attachProjection: subscriptionOverrides?.attachProjection ?? ((): void => {}),
   });
   registerTimelineMethod(registry, {
     method: TIMELINE_REASONING_SURFACE_READ_METHOD,
@@ -185,9 +239,14 @@ describe("timeline method-name registration (Plan-013 T1.4)", () => {
       registry.dispatch(TIMELINE_REASONING_SURFACE_READ_METHOD, { runId: RUN_ID }, dispatchContext),
     ).resolves.toStrictEqual(reasoningResponse);
 
-    await expect(
-      registry.dispatch(TIMELINE_SUBSCRIBE_METHOD, { sessionId: SESSION_ID }, dispatchContext),
-    ).resolves.toStrictEqual(subscribeResponse);
+    const subscribeResult = await registry.dispatch(
+      TIMELINE_SUBSCRIBE_METHOD,
+      { sessionId: SESSION_ID },
+      dispatchContext,
+    );
+    // The ack is the shared `{ subscriptionId }` floor, and the id is the one
+    // the primitive minted rather than one this test supplied.
+    expect(Object.keys(subscribeResult as object)).toStrictEqual(["subscriptionId"]);
 
     // A read-window request offered to the subscribe method: `beforeCursor` and
     // `limit` are not members of the subscribe shape, so `.strict()` refuses.
@@ -294,5 +353,132 @@ describe("timeline method-name registration (Plan-013 T1.4)", () => {
       handler: async () => reasoningResponse,
     });
     expect(registry.has(TIMELINE_CHILD_RUN_EXPAND_METHOD)).toBe(true);
+  });
+
+  it("the query binder cannot bind the subscription — a COMPILE-time barrier", () => {
+    // The structural half of the emission guarantee. If `timeline.subscribe`
+    // could be bound here, a handler would supply its own producer schema and
+    // the descriptor's `emissionSchema` would go unread while the ack still
+    // validated. Excluding it from `TimelineQueryMethodName` makes the
+    // subscription binder the only route.
+    //
+    // The barrier is the TYPE, and this test says so rather than pretending
+    // otherwise: the `@ts-expect-error` below is the assertion, enforced by CI
+    // typecheck, and deleting the exclusion turns that suppression into an
+    // unused-directive error. At RUNTIME the suppressed call still registers —
+    // asserting a throw here would claim a defence the binder does not have,
+    // and the registration below records the real behaviour.
+    const registry = new MethodRegistryImpl();
+    registerTimelineMethod(registry, {
+      // @ts-expect-error `timeline.subscribe` is not a query method: it binds
+      // through `registerTimelineSubscription`, which fixes the per-emission
+      // schema from the canonical descriptor.
+      method: TIMELINE_SUBSCRIBE_METHOD,
+      handler: async () => readResponse,
+    });
+    expect(registry.has(TIMELINE_SUBSCRIBE_METHOD)).toBe(true);
+  });
+
+  it("the subscription's producer emits a TimelineRow and writes one notify frame", async () => {
+    const registry = new MethodRegistryImpl();
+    const { streamingPrimitive, sentFrames } = buildStreamingPrimitive();
+    let capturedProducer: LocalSubscriptionProducer<TimelineRow> | null = null;
+    registerTimelineSubscription(registry, {
+      streamingPrimitive,
+      attachProjection: (_request, producer) => {
+        capturedProducer = producer;
+      },
+    });
+
+    const ack = await registry.dispatch(
+      TIMELINE_SUBSCRIBE_METHOD,
+      { sessionId: SESSION_ID },
+      dispatchContext,
+    );
+    expect(capturedProducer).not.toBeNull();
+    const producer = capturedProducer as unknown as LocalSubscriptionProducer<TimelineRow>;
+    expect((ack as { subscriptionId: string }).subscriptionId).toBe(producer.subscriptionId);
+
+    producer.next(timelineRow);
+    expect(sentFrames).toHaveLength(1);
+    expect(sentFrames[0]?.method).toBe("$/subscription/notify");
+  });
+
+  it("a wrong-shape emission is refused before any frame is written", () => {
+    // The claim the subscription binder exists for. The producer's schema is
+    // the descriptor's `emissionSchema` and the handler never chose it, so a
+    // projection that pushes a non-`TimelineRow` value is stopped at
+    // `next(...)` — not accepted onto the wire under a passing ack.
+    const registry = new MethodRegistryImpl();
+    const { streamingPrimitive, sentFrames } = buildStreamingPrimitive();
+    let capturedProducer: LocalSubscriptionProducer<TimelineRow> | null = null;
+    registerTimelineSubscription(registry, {
+      streamingPrimitive,
+      attachProjection: (_request, producer) => {
+        capturedProducer = producer;
+      },
+    });
+
+    return registry
+      .dispatch(TIMELINE_SUBSCRIBE_METHOD, { sessionId: SESSION_ID }, dispatchContext)
+      .then(() => {
+        const producer = capturedProducer as unknown as LocalSubscriptionProducer<TimelineRow>;
+        // The cast stands in for a Phase-2 projection wired to the wrong shape.
+        // Without it this is a compile error, which is the binder's first line
+        // of defence; the runtime backstop can only be exercised by defeating
+        // the type check deliberately. The value below is the subscribe ACK —
+        // the exact shape a handler that confused the two schemas would emit.
+        expect(() => {
+          producer.next({ subscriptionId: "not-a-row" } as unknown as TimelineRow);
+        }).toThrow(StreamingValidationError);
+        expect(sentFrames).toHaveLength(0);
+
+        // Negative control on the same producer: a real row does go out, so the
+        // refusal above is the value and not a producer that rejects everything.
+        producer.next(timelineRow);
+        expect(sentFrames).toHaveLength(1);
+      });
+  });
+
+  it("subscribing without a transport identity is refused", async () => {
+    const registry = new MethodRegistryImpl();
+    const { streamingPrimitive } = buildStreamingPrimitive();
+    const attachProjection = vi.fn();
+    registerTimelineSubscription(registry, { streamingPrimitive, attachProjection });
+
+    // `dispatch` does not wrap a handler throw — the gateway's `mapJsonRpcError`
+    // does, one layer up — so the raw error is what reaches this assertion.
+    await expect(
+      registry.dispatch(TIMELINE_SUBSCRIBE_METHOD, { sessionId: SESSION_ID }, {}),
+    ).rejects.toThrow(/transport identity/);
+    // Per-connection state was never allocated, so the projection was never
+    // wired to a producer that would outlive the refusal.
+    expect(attachProjection).not.toHaveBeenCalled();
+  });
+
+  it("a projection that throws leaves no subscription behind", async () => {
+    const registry = new MethodRegistryImpl();
+    const { streamingPrimitive, sentFrames } = buildStreamingPrimitive();
+    let capturedProducer: LocalSubscriptionProducer<TimelineRow> | null = null;
+    registerTimelineSubscription(registry, {
+      streamingPrimitive,
+      attachProjection: (_request, producer) => {
+        capturedProducer = producer;
+        throw new Error("session not found");
+      },
+    });
+
+    // The projection's own error propagates unchanged, so a Phase-2 refusal
+    // reaches `mapJsonRpcError` with its own identity rather than flattened
+    // into a binder-invented one.
+    await expect(
+      registry.dispatch(TIMELINE_SUBSCRIBE_METHOD, { sessionId: SESSION_ID }, dispatchContext),
+    ).rejects.toThrow("session not found");
+
+    // The allocated entry was drained: `next` on a cancelled producer is a
+    // documented silent no-op, so nothing reaches the transport afterwards.
+    const producer = capturedProducer as unknown as LocalSubscriptionProducer<TimelineRow>;
+    producer.next(timelineRow);
+    expect(sentFrames).toHaveLength(0);
   });
 });

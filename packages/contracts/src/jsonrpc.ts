@@ -61,6 +61,81 @@ export const JSONRPC_VERSION = "2.0" as const;
 export type JsonRpcVersion = typeof JSONRPC_VERSION;
 
 /**
+ * The maximum size, in bytes, of ONE framed JSON-RPC message body.
+ *
+ * `Spec-007 §Wire Format` ("Maximum message size: 1 MB"); "1 MB" is decimal,
+ * 1,000,000 bytes, following that section's wording. The bound is on the BODY
+ * the `Content-Length` header declares — the header bytes are not counted
+ * against it. An oversized body closes the connection with an error frame
+ * (F-007p-2-05), so exceeding this is not a recoverable per-request failure.
+ * Changing the value requires a Plan-007 Phase 2 amendment plus a Spec-007
+ * update, per F-007p-2-11.
+ *
+ * DECLARED HERE, ENFORCED IN THE SUBSTRATE. The framing parser and encoder
+ * live daemon-side in `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts`,
+ * which re-exports this constant so the substrate keeps its single name for
+ * it. It was hoisted into this package because it acquired a SECOND consumer
+ * that is not the framer: a producer that must size a paged reply so the
+ * frame it will become cannot be refused. A response schema deriving its own
+ * page budget from a private copy of the number would drift from the framer
+ * the day the framer moved, and the drift would surface as closed connections
+ * rather than as a failing test.
+ */
+export const MAX_MESSAGE_BYTES = 1_000_000;
+
+/**
+ * The UTF-8 byte length of `value` once serialized as JSON — the quantity
+ * {@link MAX_MESSAGE_BYTES} bounds — or `Number.POSITIVE_INFINITY` when
+ * `value` cannot be serialized at all.
+ *
+ * WHY A PRODUCER NEEDS THIS. A reply is refused by the framer AFTER it has
+ * been built, and the refusal closes the connection rather than failing one
+ * request (F-007p-2-05). A producer that pages its output therefore has to
+ * decide where to stop BEFORE it hands the page over, and the only honest
+ * comparand is the same number the framer will compute. Estimating from
+ * field-length caps does not substitute: a bound derived from caps is either
+ * so conservative that ordinary pages split needlessly, or it silently omits
+ * an unbounded member and stops being a bound at all.
+ *
+ * WHY NOT `Buffer.byteLength`. This package declares no Node dependency (see
+ * this file's header), and the loop below is exact on every runtime. Lone
+ * surrogates cannot reach it: `JSON.stringify` has been well-formed since
+ * ES2019 and escapes them to ASCII, so the `0xd800`-`0xdbff` branch always
+ * has its low surrogate. The unpaired-low-surrogate fall-through is charged
+ * three bytes anyway rather than trusted, because a wrong answer here is a
+ * closed connection.
+ *
+ * `POSITIVE_INFINITY` rather than a throw on an unserializable value (a
+ * cycle, a `BigInt`): the callers are Zod refinements on a parse path, where
+ * a throw escapes `.parse()` as an exception instead of a validation issue.
+ * Infinity fails every comparison against a finite budget, which is the
+ * correct verdict — a value the framer cannot serialize cannot be sent.
+ */
+export function jsonUtf8ByteLength(value: unknown): number {
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(value) ?? "";
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+  let byteLength = 0;
+  for (let index = 0; index < serialized.length; index += 1) {
+    const codeUnit = serialized.charCodeAt(index);
+    if (codeUnit < 0x80) {
+      byteLength += 1;
+    } else if (codeUnit < 0x800) {
+      byteLength += 2;
+    } else if (codeUnit >= 0xd800 && codeUnit <= 0xdbff && index + 1 < serialized.length) {
+      byteLength += 4;
+      index += 1;
+    } else {
+      byteLength += 3;
+    }
+  }
+  return byteLength;
+}
+
+/**
  * Methods exempt from the substrate's envelope-level `protocolVersion`
  * gate. `Spec-007 §Wire Format` mandates that every request carries an ISO 8601
  * `YYYY-MM-DD` `protocolVersion` field on the JSON-RPC envelope; the

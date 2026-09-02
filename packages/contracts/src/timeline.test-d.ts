@@ -38,7 +38,9 @@ import type { EventCursor } from "./session.js";
 import type { RunRolledBackEvent } from "./runControl.js";
 import type {
   ChildRunCompleteness,
+  ChildRunExpandResponse,
   ChildRunSummary,
+  ReasoningSurfaceReadResponse,
   TimelineReadResponse,
   TimelineRow,
 } from "./timeline/index.js";
@@ -123,6 +125,14 @@ type _BoundaryCutoffIsNumber = AssertExtends<
 /** The boundary arm's `type` is pinned, not the base's free-form string. */
 type _BoundaryTypeIsPinned = AssertExtends<"run.rolled_back", RollbackBoundaryArm["type"]>;
 
+/**
+ * …and so is its `category`. On the other three arms this is the open
+ * `EventCategory` enum; here it is the one literal `run.rolled_back` is
+ * registered under, so a consumer that groups rows by category cannot be
+ * handed a boundary filed anywhere else.
+ */
+type _BoundaryCategoryIsPinned = AssertExtends<"run_lifecycle", RollbackBoundaryArm["category"]>;
+
 // ---------------------------------------------------------------------------
 // Claim 4 — the general arm carries no attribution member
 // ---------------------------------------------------------------------------
@@ -144,8 +154,19 @@ type _ContinuingWindowRequiresCursor = AssertExtends<
   "entries" | "hasMore" | "nextCursor"
 >;
 
-/** On the terminal arm it is absent entirely, not merely optional. */
-type _TerminalWindowHasNoCursor = AssertNever<Extract<keyof TerminalWindow, "nextCursor">>;
+/**
+ * On the terminal arm it is OPTIONAL — present as a key, never required.
+ *
+ * Both halves are load-bearing and neither implies the other. The key must
+ * exist, because a final page is exactly where a client switches to
+ * `timeline.subscribe` and needs the position it stopped at. It must not be
+ * required, because a producer that has nothing more to say is not obliged to
+ * mint one.
+ */
+type _TerminalWindowAllowsCursor = AssertExtends<keyof TerminalWindow, "nextCursor">;
+type _TerminalWindowCursorIsOptional = AssertNever<
+  Extract<RequiredKeys<TerminalWindow>, "nextCursor">
+>;
 
 /**
  * The consumer this shape exists for. A client paginating the timeline reaches
@@ -156,6 +177,53 @@ type _TerminalWindowHasNoCursor = AssertNever<Extract<keyof TerminalWindow, "nex
  */
 export function nextPageCursorOf(window: TimelineReadResponse): EventCursor | null {
   return window.hasMore ? window.nextCursor : null;
+}
+
+// ---------------------------------------------------------------------------
+// The other two paged replies split on `hasMore` the same way
+// ---------------------------------------------------------------------------
+
+type ContinuingExpansion = Extract<ChildRunExpandResponse, { hasMore: true }>;
+type ContinuingReasoning = Extract<
+  ReasoningSurfaceReadResponse,
+  { availability: "available"; hasMore: true }
+>;
+
+/**
+ * The expansion's continuing arm requires its cursor, and keeps every member a
+ * terminal expansion carries — the continuation is additive to the shape, not
+ * a different reply.
+ */
+type _ContinuingExpansionRequiresCursor = AssertExtends<
+  RequiredKeys<ContinuingExpansion>,
+  "runId" | "parentRunId" | "state" | "entries" | "hasMore" | "nextCursor"
+>;
+
+/** Same rule on the one reasoning state that carries entries. */
+type _ContinuingReasoningRequiresCursor = AssertExtends<
+  RequiredKeys<ContinuingReasoning>,
+  "availability" | "reasoningEntries" | "hasMore" | "nextCursor"
+>;
+
+/**
+ * The three non-`available` reasoning states carry no continuation at all —
+ * `hasMore` on a state that returns no entries would be a promise of more of
+ * nothing. Structurally absent rather than optional-and-always-missing.
+ */
+type _UnpagedReasoningStatesHaveNoContinuation = AssertNever<
+  Extract<
+    keyof Extract<ReasoningSurfaceReadResponse, { availability: "unavailable" | "compacted" }>,
+    "hasMore" | "nextCursor" | "reasoningEntries"
+  >
+>;
+
+/**
+ * The consumer both shapes exist for, written once against the whole
+ * namespace: whichever paged reply arrives, the cursor is reached by narrowing
+ * on `hasMore` and nothing else.
+ */
+export function nextExpansionCursorOf(expansion: ChildRunExpandResponse): EventCursor | null {
+  return expansion.hasMore ? expansion.nextCursor : null;
 }
 
 // ---------------------------------------------------------------------------

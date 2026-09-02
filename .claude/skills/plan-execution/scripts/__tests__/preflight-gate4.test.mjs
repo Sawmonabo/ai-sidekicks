@@ -3815,7 +3815,23 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // T4.1 was already resolved, so its added id moves no none-arm. Nothing
     // else in the fold touches a `Verifies invariant:` row; the legacy channel
     // is unchanged.
-    bold: { resolved: 1025, noneArm: 159, parentResolved: 0 },
+    // 1025/159 -> 1033/159 (2026-09-01, NS-98 Codex round-3 fold — PR #410):
+    // the page-framing leg mints I-013-11 (one reply, one frame — the bound
+    // stated on encoded size and continuation on every read) and I-013-12
+    // (page integrity: nondecreasing sequence, expansion entries bound to the
+    // response's own run, no self-parenting summary), and assigns them across
+    // the shape task, the new contract task, and the three producers rather
+    // than only where they are minted: T1.3 +I-013-11, the NEW T1.5
+    // +I-013-11 +I-013-12, T2.4 +I-013-11 +I-013-12, T3.1 +I-013-11
+    // +I-013-12, T3.2 +I-013-11 — eight more bold resolved references.
+    // The none arm does NOT move: T1.5 is born resolved, every other row
+    // named here was already resolved, and T1.4 stays on `none` (registering
+    // method strings verifies no invariant of this plan). Plan-007 takes a
+    // recorded no-flip whose only edits are a `### CP-007-16` section and a
+    // Target-Areas line, neither a marker block; Spec-013 and
+    // cross-plan-dependencies.md carry no marker blocks. The legacy
+    // compact-inline channel is unchanged.
+    bold: { resolved: 1033, noneArm: 159, parentResolved: 0 },
     legacy: { resolved: 64, noneArm: 3, parentResolved: 1 },
   });
 });
