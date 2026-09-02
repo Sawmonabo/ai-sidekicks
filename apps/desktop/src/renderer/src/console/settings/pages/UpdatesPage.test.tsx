@@ -135,6 +135,24 @@ function bridgeHoldingItsRead(): {
   };
 }
 
+/**
+ * Press Check now and let the press settle.
+ *
+ * Written once because four cases perform it: a control whose failure is a
+ * synchronous throw and one whose failure is a rejection have to be pressed the same
+ * way, or the two arms would be comparing presses rather than failures.
+ */
+async function pressCheckNow(block: HTMLElement): Promise<void> {
+  const check = [...block.querySelectorAll("button")].find(
+    (button) => button.textContent === "Check now",
+  );
+  await act(async () => {
+    check?.click();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
 /** The block's own element, so a case never reads the announcer's regions by accident. */
 function updatesBlockOf(root: HTMLElement): HTMLElement {
   const block = root.querySelector<HTMLElement>('section[aria-label="Application updates"]');
@@ -294,15 +312,65 @@ describe("updates page — nothing restarts without a press", () => {
         { requestCheck: () => Promise.reject(new Error("the updater is disabled in this build")) },
       ),
     );
-    const check = [...container.querySelectorAll("button")].find(
-      (button) => button.textContent === "Check now",
+    await pressCheckNow(container);
+    expect(container.textContent ?? "").toContain("the updater is disabled in this build");
+  });
+});
+
+describe("updates page — a control fails onto one line, however it failed", () => {
+  it("renders the refusal when the control THROWS rather than rejecting", async () => {
+    // The shape that matters on the build a person runs. The shipped Tier-1 bridge
+    // implements every updater method as a synchronous `throw`, while the fixture's
+    // refusals arrive as rejected promises — so a handler that attached its `catch`
+    // to the RETURNED promise handled the fixture and let the release build's throw
+    // escape the React event handler with no line ever drawn. This case fails on
+    // that shape and is the negative control for it: the sentence below is never
+    // set, because the call never reaches the boundary that sets it.
+    const { page: container } = await renderSettled(
+      bridgeReporting(
+        { status: "idle" },
+        {
+          requestCheck: () => {
+            throw new Error("the updater is not built into this build");
+          },
+        },
+      ),
+    );
+    await pressCheckNow(container);
+    expect(container.textContent ?? "").toContain("the updater is not built into this build");
+  });
+
+  it("renders the refusal when the restart control throws too", async () => {
+    // The second control reaches the same namespace the same way, so it must reach
+    // the same boundary — without this, a fix applied to one button would pass.
+    const { page: container } = await renderSettled(
+      bridgeReporting(
+        { status: "ready" },
+        {
+          requestRestart: () => {
+            throw new Error("the updater cannot restart this build");
+          },
+        },
+      ),
+    );
+    const restart = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Restart to apply",
     );
     await act(async () => {
-      check?.click();
+      restart?.click();
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(container.textContent ?? "").toContain("the updater is disabled in this build");
+    expect(container.textContent ?? "").toContain("the updater cannot restart this build");
+  });
+
+  it("negative control: a control that settles leaves no refusal line behind", async () => {
+    // Without this, a page that rendered the aside unconditionally — or one that
+    // reported a refusal on every press — would satisfy both cases above while
+    // telling a person their successful check had failed.
+    const { page: container } = await renderSettled(bridgeReporting({ status: "idle" }));
+    await pressCheckNow(container);
+    expect(container.querySelectorAll(".meridian-settings-page__aside")).toHaveLength(0);
   });
 });
 
