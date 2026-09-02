@@ -88,7 +88,6 @@ export {
   registerTimelineRowRenderer,
   timelineRowRenderer,
   unregisterTimelineRowRenderer,
-  /** @consumedBy T-023p-1C-2 */
   type TimelineRowDensity,
   type TimelineRowRenderer,
   /** @consumedBy T-023p-1C-2 */
