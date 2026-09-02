@@ -37,7 +37,7 @@ function eventAt(
   return {
     sessionId: "session-1",
     sequence,
-    kind: "run.started",
+    kind: "run.starting",
     occurredAt: new Date(Date.UTC(2026, 0, 1, 0, 0, sequence)).toISOString(),
     ...overrides,
   };
