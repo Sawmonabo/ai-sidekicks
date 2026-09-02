@@ -41,11 +41,9 @@ export {
   registerConsolePane,
   /** @consumedBy T-023p-1C-2, T-023p-1C-8 */
   registeredPaneKinds,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ConsolePaneAddress,
   type ConsolePaneContext,
   type ConsolePaneDescriptor,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ConsolePaneOpener,
 } from "./pane-registry.js";
 

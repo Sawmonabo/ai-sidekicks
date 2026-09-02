@@ -14,7 +14,11 @@ import { WORKFLOWS_SCENARIO } from "../bridge/scenarios/workflows.js";
 import { WORKFLOWS_SESSION_ID } from "../bridge/scenarios/workflow-fixture-data.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { FrameStore, SessionStoreRegistry } from "../store/index.js";
-import { consolePaneRegistry, type ConsoleSurfaceContext } from "../workspace/index.js";
+import { consolePaneRegistry } from "../workspace/index.js";
+// Deep, for `index.ts`'s reason: the frame's barrel also exports `ConsoleRoot`, which
+// composes the families, so a family reaching it through that door closes a cycle the
+// layering gate rejects.
+import type { ConsoleSurfaceContext } from "../frame/surface-registry.js";
 import { registerWorkflowPanes } from "./index.js";
 import { WorkflowsPaneHost } from "./WorkflowsPaneHost.js";
 
