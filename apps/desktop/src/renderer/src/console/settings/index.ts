@@ -24,6 +24,9 @@ import "./settings.css";
 import { createElement } from "react";
 
 import type { ConsoleSurfaceRegistry } from "../frame/surface-registry.js";
+import { registerApplicationPage } from "./pages/ApplicationPage.js";
+import { registerNotificationsPage } from "./pages/NotificationsPage.js";
+import { registerRuntimeNodesPage } from "./pages/RuntimeNodesPage.js";
 import { SettingsPageRegistry, registerReservedSettingsPages } from "./settings-page-registry.js";
 import { SettingsSurface } from "./SettingsSurface.js";
 
@@ -38,9 +41,12 @@ export function registerSettingsPages(registry: SettingsPageRegistry): void {
   // The two pages whose body another plan authors. Chrome plus a typed slot; the
   // shell is deleted by the task that fills it, not left beside the body.
   registerReservedSettingsPages(registry);
-  // T-023p-1C-4 L4.6 nodes, mounts
-  // T-023p-1C-4 L4.7 notifications, keyboard, appearance
-  // T-023p-1C-4 L4.8 diagnostics, data, application
+  // T-023p-1C-4 L4.6 nodes, notifications, application
+  registerRuntimeNodesPage(registry);
+  registerNotificationsPage(registry);
+  registerApplicationPage(registry);
+  // T-023p-1C-4 L4.7 keyboard, appearance, mounts
+  // T-023p-1C-4 L4.8 diagnostics, data, browser, cost
 }
 
 /**

@@ -71,7 +71,14 @@ export function SettingsSurface(props: SettingsSurfaceProps): React.JSX.Element 
     context.frameStore.navigate({ kind: "settings", page: section });
   };
 
-  const pageContext: SettingsPageContext = { bridge: context.bridge, openSection };
+  // The session comes off the frame store, which projects it from the route rather
+  // than recording it a second time. On a `#/settings` address there is none, and a
+  // session-scoped page renders that as an absence it ASKED for.
+  const pageContext: SettingsPageContext = {
+    bridge: context.bridge,
+    openSection,
+    activeSessionId: context.frameStore.activeSessionId,
+  };
 
   // Memoised on the registry and the query: the registry is composed once by the
   // registrar and does not change while a window is open, so re-ranking on every

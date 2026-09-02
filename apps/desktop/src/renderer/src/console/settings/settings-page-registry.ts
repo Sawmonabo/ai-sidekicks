@@ -90,6 +90,19 @@ export interface SettingsPageContext {
   readonly bridge: ConsoleBridge;
   /** Renderer-local rail navigation — the deep-link grammar's other half. */
   readonly openSection: (section: SettingsSectionId) => void;
+  /**
+   * The session this window has open, or `undefined` where the address names none.
+   *
+   * A projection of the route, taken from the frame store and never a second record
+   * of it — the same value `routeSessionId` answers everywhere else in the console.
+   * It is here rather than absent because one shipped page is genuinely
+   * session-scoped: the node roster is read per session, and a page that ASKED and
+   * was told nothing renders an honest absence, while a page holding a hardcoded
+   * `undefined` renders a constant. It is deliberately NOT the session STORE: a
+   * settings page that could reach the projection could hold session state, and the
+   * settings surface has no session to hold it for.
+   */
+  readonly activeSessionId: string | undefined;
 }
 
 /** What a page renders. A function rather than a component type, as the seats are. */

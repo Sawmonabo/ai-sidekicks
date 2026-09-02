@@ -89,9 +89,11 @@ describe("settings pages whose body another plan authors", () => {
     const sections = registry.registeredSections();
     expect(sections.length).toBeGreaterThan(0);
     for (const section of sections) {
-      const rendered = registry
-        .descriptorFor(section)
-        ?.render({ bridge: undefined as never, openSection: () => undefined });
+      const rendered = registry.descriptorFor(section)?.render({
+        bridge: undefined as never,
+        openSection: () => undefined,
+        activeSessionId: undefined,
+      });
       expect(rendered).not.toBeNull();
       expect(rendered).toBeDefined();
     }
