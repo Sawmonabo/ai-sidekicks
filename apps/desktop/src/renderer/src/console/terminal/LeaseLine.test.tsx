@@ -113,7 +113,7 @@ function transitionAt(
     reason,
     holderParticipantId: reason === "taken" ? HOLDER : null,
     previousHolderParticipantId: reason === "taken" ? null : HOLDER,
-    actorParticipantId: HOLDER,
+    actorId: HOLDER,
     ...overrides,
   };
 }

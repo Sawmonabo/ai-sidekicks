@@ -5,19 +5,20 @@
 // what the deck is allowed to do with it. Splitting them is what lets the
 // registration terms below be asserted without rendering anything.
 
-import type { ConsolePaneDescriptor } from "../../workspace/index.js";
+import type { ConsolePaneDescriptor } from "../../seats/index.js";
 import { BrowserPane } from "./BrowserPane.js";
 
 /**
  * The browser pane, as the deck holds it.
  *
- * `openInWindow: false` is a property of the KIND, and it is not provisional. The
- * pane's eventual body is a main-process view hosted in the window that owns the
- * pane; following a detach would mean moving that host view between two windows,
- * which `Spec-023 §Console Design (Meridian)` ships no mechanism for and the
- * embedded-browser Type-2 ADR has not decided. False is therefore the fail-closed
- * answer AND the answer that ADR is expected to keep — a tear-off is a decision it
- * makes, not a default this console falls into.
+ * IT ADVERTISES NO DETACH, because a descriptor cannot. Whether this kind may be
+ * torn off into a window of its own is `seats/pane-kinds.ts`'s
+ * `isDetachablePaneKind`, derived from the window model's own route set — one
+ * answer for the whole deck rather than a boolean each family sets for the kind it
+ * owns. The answer for `browser` is no, and the reason is a property of the kind:
+ * the pane's eventual body is a main-process view hosted in the window that owns
+ * the pane, and following a detach would mean moving that host view between two
+ * windows, which `Spec-023 §Console Design (Meridian)` ships no mechanism for.
  *
  * `render` is the component itself rather than a closure over the pane context. The
  * body takes the context whole — it needs the pane id the browser wire is keyed by,
@@ -28,5 +29,4 @@ export const BROWSER_PANE_DESCRIPTOR: ConsolePaneDescriptor = {
   kind: "browser",
   owner: "browser",
   render: BrowserPane,
-  openInWindow: false,
 };

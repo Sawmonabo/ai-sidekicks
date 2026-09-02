@@ -17,7 +17,7 @@
 import { describe, expect, it } from "vitest";
 
 import { TERMINAL_SCENARIO, TERMINAL_SCENARIO_ID } from "../bridge/scenarios/terminal.js";
-import { ConsolePaneRegistry } from "../workspace/index.js";
+import { ConsolePaneRegistry } from "../seats/index.js";
 import {
   TERMINAL_LEASE_EVENT_KIND as LEASE_TRANSITION_KIND,
   TERMINAL_LEASE_TRANSITION_REASONS as LEASE_TRANSITION_REASONS,
@@ -37,9 +37,8 @@ describe("terminal family — claiming the deck's terminal pane", () => {
     const descriptor = registry.descriptorFor("terminal");
     expect(descriptor?.kind).toBe("terminal");
     expect(descriptor?.owner).toBe("terminal");
-    // The body holds a process lease, not a view. Two mount points would show one
-    // shared shell twice while exactly one participant may write to it.
-    expect(descriptor?.openInWindow).toBe(false);
+    // Kind and owner are the whole registration: whether the kind may be torn off
+    // is the window model's answer, and `seats/pane-kinds.test.ts` holds it.
   });
 
   it("claims exactly one kind — V1 has one terminal per session", () => {
@@ -56,7 +55,6 @@ describe("terminal family — claiming the deck's terminal pane", () => {
         kind: "terminal",
         owner: "some-other-family",
         render: () => null,
-        openInWindow: true,
       });
     }).toThrow();
   });

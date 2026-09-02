@@ -50,7 +50,7 @@ import type { ConsoleBridge } from "../../bridge/index.js";
 import { refusalFromRejection, type ConsoleRefusal } from "../../core/index.js";
 import { InlineRefusal, Nothing } from "../../primitives/index.js";
 import { useSessionStore, type SessionStore, type SessionStoreState } from "../../store/index.js";
-import type { ConsolePaneContext } from "../../workspace/index.js";
+import type { ConsolePaneContext } from "../../seats/index.js";
 import { LeaseLine, type TerminalParticipantMark } from "../../terminal/LeaseLine.js";
 import { XtermHost } from "../../terminal/XtermHost.js";
 import { projectTerminalLease, type TerminalLeaseState } from "../../terminal/lease-model.js";

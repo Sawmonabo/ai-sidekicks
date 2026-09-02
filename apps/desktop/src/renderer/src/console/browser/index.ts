@@ -21,7 +21,7 @@
 // per bundle, and no surface can render a shape whose CSS never arrived.
 import "./browser.css";
 
-import type { ConsolePaneRegistry } from "../workspace/index.js";
+import type { ConsolePaneRegistry } from "../seats/index.js";
 import { BROWSER_PANE_DESCRIPTOR } from "../panes/browser/index.js";
 
 /**

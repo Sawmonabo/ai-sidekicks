@@ -1,4 +1,4 @@
-// The terminal scenario — one shared shell changing hands, and ending held.
+// The terminal scenario — one shared shell changing hands, and ending degraded.
 //
 // THIS FILE IS THE SCRIPT. The cast is in `terminal-cast.ts`, the beat envelope and
 // its clock in `terminal-beats.ts`, and the canned replies in `terminal-replies.ts`.
@@ -110,7 +110,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
       atMs: 0,
       sequence: 1,
       kind: "session.created",
-      actorParticipantId: OWNER,
+      actorId: OWNER,
       // The registered shape, verbatim: the new session's id plus the resolved
       // config and metadata, both open records the corpus names no key inside. A
       // session's name is read off `session.list`, and the lifecycle payload
@@ -122,7 +122,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
       atMs: 30,
       sequence: 2,
       kind: "session.activated",
-      actorParticipantId: OWNER,
+      actorId: OWNER,
       payload: {
         sessionId: TERMINAL_SCENARIO_SESSION_ID,
         previousState: "provisioning",
@@ -139,7 +139,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
       // own id, the participant, the role from the closed role vocabulary, and the
       // handle.
       kind: "membership.created",
-      actorParticipantId: OWNER,
+      actorId: OWNER,
       payload: {
         membershipId: TERMINAL_OWNER_MEMBERSHIP_ID,
         participantId: OWNER,
@@ -151,7 +151,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
       atMs: 100,
       sequence: 4,
       kind: "membership.created",
-      actorParticipantId: COLLABORATOR,
+      actorId: COLLABORATOR,
       // A collaborator, not a viewer, and the choice is load-bearing: taking the
       // lease is owner/collaborator-only, so a viewer second participant could
       // never hold it and the hand-off below would be unreachable.
@@ -166,7 +166,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
       atMs: TERMINAL_HOST_NODE_ATTACHED_AT_MS,
       sequence: 5,
       kind: "runtime_node.online",
-      actorParticipantId: OWNER,
+      actorId: OWNER,
       // The terminal's host, present before any lease exists. Without it the
       // offline beat at the end would drop a node the pane had never heard of, and
       // the degraded line naming the node would have no name to use.
@@ -184,7 +184,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
       kind: "agent.attached",
       // The person who attached the agent, not the agent: an agent does not attach
       // itself, and the envelope actor is who acted.
-      actorParticipantId: OWNER,
+      actorId: OWNER,
       payload: {
         sessionId: TERMINAL_SCENARIO_SESSION_ID,
         agentId: AGENT,
@@ -202,7 +202,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
       holderParticipantId: OWNER,
       previousHolderParticipantId: null,
       reason: "taken",
-      actorParticipantId: OWNER,
+      actorId: OWNER,
     }),
     terminalLeaseTransitionBeat({
       atMs: 900,
@@ -210,7 +210,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
       holderParticipantId: null,
       previousHolderParticipantId: OWNER,
       reason: "released",
-      actorParticipantId: OWNER,
+      actorId: OWNER,
     }),
     terminalLeaseTransitionBeat({
       atMs: 1200,
@@ -218,7 +218,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
       holderParticipantId: COLLABORATOR,
       previousHolderParticipantId: null,
       reason: "taken",
-      actorParticipantId: COLLABORATOR,
+      actorId: COLLABORATOR,
     }),
     terminalLeaseTransitionBeat({
       atMs: 1800,
@@ -226,7 +226,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
       holderParticipantId: null,
       previousHolderParticipantId: COLLABORATOR,
       reason: "auto_released_disconnect",
-      actorParticipantId: COLLABORATOR,
+      actorId: COLLABORATOR,
     }),
     terminalLeaseTransitionBeat({
       atMs: 2300,
@@ -234,7 +234,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
       holderParticipantId: OWNER,
       previousHolderParticipantId: null,
       reason: "taken",
-      actorParticipantId: OWNER,
+      actorId: OWNER,
     }),
     terminalLeaseTransitionBeat({
       atMs: 2700,
@@ -242,7 +242,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
       holderParticipantId: null,
       previousHolderParticipantId: OWNER,
       reason: "auto_released_authorization_lost",
-      actorParticipantId: OWNER,
+      actorId: OWNER,
     }),
     terminalScenarioBeat({
       atMs: 3000,
@@ -251,7 +251,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
       // The person who started the run, not the agent. `previousState` is absent
       // here and only here: a queued run is being born, and no document names the
       // state it came from.
-      actorParticipantId: OWNER,
+      actorId: OWNER,
       payload: {
         sessionId: TERMINAL_SCENARIO_SESSION_ID,
         runId: TERMINAL_AGENT_RUN_ID,
@@ -331,13 +331,13 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
       holderParticipantId: OWNER,
       previousHolderParticipantId: null,
       reason: "taken",
-      actorParticipantId: OWNER,
+      actorId: OWNER,
     }),
     terminalScenarioBeat({
       atMs: 4900,
       sequence: 20,
       kind: "runtime_node.offline",
-      actorParticipantId: OWNER,
+      actorId: OWNER,
       // THE DEGRADED BEAT. `heartbeat_lost` and not `explicit_shutdown`, because
       // the case the read-side suppression exists for is the host that never says
       // goodbye — a crashed or powered-off machine calls no detach, and its

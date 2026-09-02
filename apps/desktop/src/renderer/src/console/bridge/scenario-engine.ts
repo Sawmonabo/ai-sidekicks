@@ -11,6 +11,16 @@
 // store that no longer has a consumer. So `dispose()` is final: every later tick is
 // dropped and reported on the tripwire rather than delivered.
 //
+// The engine also answers a subscription that arrives LATE. `session.subscribe` is
+// registered replay-then-tail — the whole log, then what follows — and the engine
+// used to register a sink for future emissions only. A store opened after the clock
+// had already delivered beats therefore read the next beat as a real sequence gap
+// (its snapshot answers at cursor zero, so every position in between counts as
+// missing) and entered degradation and repair, or, if the scenario had already
+// finished, stayed empty forever. The replay is served from the engine's OWN record
+// of what it has delivered — the script and the count of its consumed prefix — so
+// there is no second copy of the beats to keep in step.
+//
 // The engine holds ONE more thing than the script: the replies a scripted latency
 // has parked. A `ScenarioReply` carrying `afterMs` is a request that has not been
 // answered yet, and on a frozen clock the only thing that can answer it is the
@@ -136,6 +146,18 @@ class HeldReplyQueue {
   }
 }
 
+/** What one subscriber asks of the engine beyond being handed later beats. */
+export interface ScenarioSubscribeOptions {
+  /**
+   * Deliver the already-delivered prefix on attach, then tail.
+   *
+   * The registered behaviour of the whole-session stream and of nothing else. A
+   * narrowed run stream and the relay are live streams: replaying a projection into
+   * one would hand a runs surface transitions it is not opening a subscription for.
+   */
+  readonly replayDeliveredPrefix?: boolean;
+}
+
 export interface ScenarioEngineOptions {
   readonly scenario: ConsoleScenario;
   /** Defaults to a `ManualClock`, which is what makes the fixture deterministic. */
@@ -194,9 +216,48 @@ export class ScenarioEngine {
     return this.#disposed;
   }
 
-  /** Subscribe to delivered beats. Returns an idempotent unsubscribe. */
-  public subscribe(sink: ScenarioSink): Unsubscribe {
+  /**
+   * Subscribe to delivered beats. Returns an idempotent unsubscribe.
+   *
+   * TAIL BY DEFAULT, REPLAY-THEN-TAIL BY REQUEST, because the two are different
+   * registered subscriptions rather than a preference. Which one a caller is opening
+   * is a fact about the SUBSCRIPTION NAME, and the name vocabulary is
+   * `session-event-streams.ts`'s — so the engine takes the answer and holds none of
+   * that vocabulary itself.
+   *
+   * The prefix is delivered synchronously, in log order, in one batch, BEFORE the
+   * sink is registered. Ordering it that way is what makes a beat impossible to see
+   * twice or miss: nothing can advance the frozen clock between the two statements
+   * (the caller is the only thing that moves it), so the sink is attached to a stream
+   * standing exactly where the replay left off.
+   *
+   * A DISPOSED engine replays nothing, on the same rule as `advance`: a delivery into
+   * a torn-down subscriber is the failure this module's teardown exists to prevent,
+   * and a replay is a delivery. The sink still attaches and still receives nothing,
+   * which is what it would have done before.
+   */
+  public subscribe(sink: ScenarioSink, options?: ScenarioSubscribeOptions): Unsubscribe {
+    if (
+      options?.replayDeliveredPrefix === true &&
+      !this.#disposed &&
+      this.#deliveredBeatCount > 0
+    ) {
+      sink(this.#deliveredEvents());
+    }
     return this.#beats.subscribe(sink);
+  }
+
+  /**
+   * The beats the frozen clock has already delivered, in log order.
+   *
+   * Derived from the script and the consumed count rather than accumulated into a
+   * list of its own. `#deliveredBeatCount` is already the engine's record of how far
+   * the prefix has been consumed — `advance` keeps it and the set actually delivered
+   * one claim — so a second array would be that same fact stored twice, free to
+   * disagree with it after any change to the due-prefix rule.
+   */
+  #deliveredEvents(): readonly ConsoleSessionEvent[] {
+    return this.#scenario.beats.slice(0, this.#deliveredBeatCount).map((beat) => beat.event);
   }
 
   /** Advance one tick. A no-op after teardown, reported rather than silent. */
@@ -222,9 +283,23 @@ export class ScenarioEngine {
       return;
     }
     const target = this.#elapsedMs + deltaMs;
-    const due = this.#scenario.beats
-      .slice(this.#deliveredBeatCount)
-      .filter((beat) => beat.atMs <= target);
+    // The CONTIGUOUS due prefix, and contiguity is the whole of it. A filter over
+    // the remainder picked up a later entry that happened to be due while leaving
+    // an earlier undelivered one in front of it, then advanced the count as though
+    // a prefix had been consumed — so the next advance sliced PAST the entry it had
+    // skipped and re-emitted the one it had already sent. Stopping at the first
+    // entry that is not yet due makes `deliveredBeatCount` and the set actually
+    // delivered the same claim, whatever order the script is written in.
+    //
+    // Scripts are held to nondecreasing `atMs` by `scenarios/wire-truth.ts`, so a
+    // shipped scenario reaches here already ordered. This is the runtime half of
+    // that pair rather than a restatement of it: the check reports an author error
+    // before the scenario ships, and this makes the error cost a late beat instead
+    // of a duplicated and a dropped one.
+    const remainingBeats = this.#scenario.beats.slice(this.#deliveredBeatCount);
+    const firstNotYetDueIndex = remainingBeats.findIndex((beat) => beat.atMs > target);
+    const due =
+      firstNotYetDueIndex === -1 ? remainingBeats : remainingBeats.slice(0, firstNotYetDueIndex);
     this.#elapsedMs = target;
     if (this.#clock.advance !== undefined) {
       this.#clock.advance(deltaMs);

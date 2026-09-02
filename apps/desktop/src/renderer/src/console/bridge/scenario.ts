@@ -18,6 +18,8 @@
 // to the wire's own truth all DESCRIBE scenarios and play none, so they stop here
 // and never reach the engine's teardown rules or its held-reply queue.
 
+import type { MembershipRole } from "@ai-sidekicks/contracts";
+
 import type { ConsoleSessionEvent } from "../store/index.js";
 import type { WireErrorEnvelope } from "../../../../shared/wire-errors.js";
 
@@ -47,6 +49,7 @@ interface ScenarioReplyBase {
 export interface ScenarioResolvingReply extends ScenarioReplyBase {
   readonly result: unknown;
   readonly refusal?: never;
+  readonly resultFor?: never;
 }
 
 /**
@@ -68,19 +71,45 @@ export interface ScenarioResolvingReply extends ScenarioReplyBase {
 export interface ScenarioRejectingReply extends ScenarioReplyBase {
   readonly refusal: WireErrorEnvelope;
   readonly result?: never;
+  readonly resultFor?: never;
+}
+
+/**
+ * A canned reply the scenario COMPUTES from the request the caller actually sent.
+ *
+ * `replyFor` matches on the method NAME, which is right for a session-scoped read and
+ * wrong for an entity-scoped one: a session holding two repo mounts asked
+ * `repo.mountRead` twice and got the same mount back both times, so the second mount
+ * and every state only it carried were unreachable — in the fixture and in every
+ * capture taken from it — while the surfaces above read as though both had answered.
+ *
+ * Returning `undefined` means the scenario scripts no answer for THAT request and
+ * settles exactly as an unscripted method does: refused by name, never resolved with
+ * an absence, which renders as a claim about the session nothing checked.
+ *
+ * A COMPUTATION, NEVER A SECOND SCRIPT — no state, no mutation, called once per
+ * settled reply, so a scenario stays replayable tick-for-tick on the frozen clock.
+ * The request is typed `unknown` and is READ rather than destructured: this seam
+ * reports settlements and throws none, so an exception raised in here leaves past
+ * every refusal arm as itself.
+ */
+export interface ScenarioComputedReply extends ScenarioReplyBase {
+  readonly resultFor: (request: unknown) => unknown;
+  readonly result?: never;
+  readonly refusal?: never;
 }
 
 /**
  * A canned reply for one request/response call the scenario expects.
  *
- * Exactly one of `result` / `refusal`, enforced by the `?: never` member on each
- * arm rather than by two independent optionals — the two-arm-union idiom the
+ * Exactly one of `result` / `refusal` / `resultFor`, enforced by the `?: never`
+ * member on each arm rather than by independent optionals — the arm-union idiom the
  * corpus already uses for `AgentAttachRequest` in
- * `docs/architecture/contracts/api-payload-contracts.md`. Two optionals would
- * admit both at once (a reply that resolves AND refuses) and neither at all (a
- * reply that settles no way), which are the two shapes nothing can serve.
+ * `docs/architecture/contracts/api-payload-contracts.md`. Independent optionals would
+ * admit two at once (a reply that resolves AND refuses) and none at all (a reply that
+ * settles no way), which are the two shapes nothing can serve.
  */
-export type ScenarioReply = ScenarioResolvingReply | ScenarioRejectingReply;
+export type ScenarioReply = ScenarioResolvingReply | ScenarioRejectingReply | ScenarioComputedReply;
 
 export interface ConsoleScenario {
   readonly id: string;
@@ -106,6 +135,35 @@ export interface ConsoleScenario {
    * holds every scenario to that, the substrate's own two included.
    */
   readonly viewingParticipantId?: string;
+  /**
+   * The membership role each MEMBER of the roster holds, keyed by participant id.
+   *
+   * The fact `viewingParticipantId` is useless without. An identity read answers
+   * WHICH entry of the roster this window is; every role-gated control then resolves
+   * the role by looking that id up in the session's participant projection
+   * (`store/selectors.ts`'s `membershipRoleOf`) — so a scenario that states a viewer
+   * and no roles serves a successful identity read into a roster that holds nothing,
+   * and every owner- and collaborator-gated control renders closed for a reason
+   * nothing checked. That is indistinguishable, on screen, from a member who simply
+   * has no elevated role.
+   *
+   * NOT A SECOND COPY OF THE ROSTER. `participantIdsInJoinOrder` stays the sole home
+   * of the ORDER, which is what the hue allocator consumes; this is a different fact
+   * about the same people, and `scenarios/wire-truth.ts` holds every key in it to
+   * that list. Keyed rather than ordered for exactly that reason — an ordered second
+   * list would be the order declared twice.
+   *
+   * PARTIAL ON PURPOSE, and the partiality carries meaning. A scenario's join order
+   * holds everything that gets a hue, agents included, and an agent is attached
+   * rather than admitted: it holds no membership and no role. So the members of the
+   * session are exactly the keys here, and an id in the join order with no entry is
+   * something the fixture does not claim to know the membership of.
+   *
+   * `MembershipRole` is the contract's, imported: it is the union
+   * `MembershipRoleSchema` parses on the way back out, so a role stated here and a
+   * role read there cannot be two vocabularies.
+   */
+  readonly membershipRoleByParticipantId?: Readonly<Record<string, MembershipRole>>;
   readonly beats: readonly ScenarioBeat[];
   readonly replies: readonly ScenarioReply[];
   /** Wall-clock instant the frozen clock reports as "now" at tick zero. */

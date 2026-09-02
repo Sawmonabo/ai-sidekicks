@@ -71,7 +71,7 @@ export interface TerminalLeaseTransition {
   readonly holderParticipantId: string | null;
   readonly previousHolderParticipantId: string | null;
   /** Who the log attributes the event to, when it names anyone. */
-  readonly actorParticipantId: string | undefined;
+  readonly actorId: string | undefined;
 }
 
 /**
@@ -331,7 +331,7 @@ function readTransition(event: ConsoleSessionEvent): TerminalLeaseTransition | u
     reason,
     holderParticipantId: readParticipantId(payload["holderParticipantId"]),
     previousHolderParticipantId: readParticipantId(payload["previousHolderParticipantId"]),
-    actorParticipantId: event.actorParticipantId,
+    actorId: event.actorId,
   };
 }
 

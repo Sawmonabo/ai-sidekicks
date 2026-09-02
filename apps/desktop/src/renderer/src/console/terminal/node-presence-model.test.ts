@@ -24,6 +24,10 @@ function presenceEvent(
   payload: Readonly<Record<string, unknown>> | undefined,
 ): ConsoleSessionEvent {
   return {
+    // Readable rather than UUID-shaped, as the substrate's own fold suites spell it
+    // (`store/failure-modes.test-support.ts`): the presence fold reads this member
+    // for nothing, and every id it does render comes off the scenario's cast.
+    id: `event-${String(sequence)}`,
     sessionId: "session-terminal",
     sequence,
     kind,

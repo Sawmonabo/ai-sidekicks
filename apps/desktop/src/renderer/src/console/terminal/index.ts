@@ -35,7 +35,7 @@
 // excludes when it names the terminal a lazy chunk.
 import "./terminal.css";
 
-import type { ConsolePaneRegistry } from "../workspace/index.js";
+import type { ConsolePaneRegistry } from "../seats/index.js";
 import { TERMINAL_PANE_DESCRIPTOR } from "../panes/terminal/index.js";
 
 /**

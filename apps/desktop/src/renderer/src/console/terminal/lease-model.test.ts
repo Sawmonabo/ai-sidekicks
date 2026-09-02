@@ -40,14 +40,20 @@ function transitionEvent(
   reason: string,
   holderParticipantId: string | null,
   previousHolderParticipantId: string | null = null,
-  actorParticipantId: string | undefined = holderParticipantId ?? undefined,
+  actorId: string | undefined = holderParticipantId ?? undefined,
 ): ConsoleSessionEvent {
   return {
+    // Distinct per position, and readable rather than UUID-shaped: the fold reads
+    // this member for nothing, so `store/failure-modes.test-support.ts`'s spelling
+    // is the one to match. The participant ids above are the opposite case — those
+    // reach a surface, which is why they are read off the scenario's wire-declared
+    // cast.
+    id: `event-${String(sequence)}`,
     sessionId: "session-terminal",
     sequence,
     kind: TERMINAL_LEASE_EVENT_KIND,
     occurredAt: `2026-01-01T16:40:0${String(sequence % 10)}.000Z`,
-    ...(actorParticipantId === undefined ? {} : { actorParticipantId }),
+    ...(actorId === undefined ? {} : { actorId }),
     payload: { holderParticipantId, previousHolderParticipantId, reason },
   };
 }
@@ -59,7 +65,7 @@ function transitionOf(reason: TerminalLeaseTransitionReason): TerminalLeaseTrans
     reason,
     holderParticipantId: reason === "taken" ? OTHER : null,
     previousHolderParticipantId: reason === "taken" ? null : OTHER,
-    actorParticipantId: OTHER,
+    actorId: OTHER,
   };
 }
 
@@ -133,7 +139,13 @@ describe("the lease fold — what the wire said, and only that", () => {
   it("ignores every event that is not a lease transition", () => {
     const state = projectTerminalLease(
       [
-        { sessionId: "session-terminal", sequence: 1, kind: "session.created", occurredAt: "x" },
+        {
+          id: "event-1",
+          sessionId: "session-terminal",
+          sequence: 1,
+          kind: "session.created",
+          occurredAt: "x",
+        },
         transitionEvent(2, "taken", OTHER),
       ],
       { viewerParticipantId: VIEWER },
@@ -212,6 +224,7 @@ describe("an unread transition — ignorance about a write lease is not the old 
       [
         transitionEvent(1, "taken", VIEWER),
         {
+          id: "event-2",
           sessionId: "session-terminal",
           sequence: 2,
           kind: TERMINAL_LEASE_EVENT_KIND,

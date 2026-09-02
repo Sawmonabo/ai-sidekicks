@@ -26,6 +26,19 @@ const ATTENTION_SESSION_ID = "019b7a11-0280-75e5-8510-ada11a5a33a5";
 const ATTENTION_PARTICIPANT_ID = "019b7a11-0280-79a4-8110-cca0117a0330";
 const RUN_AWAITING_APPROVAL = "019b7a11-0280-740e-8110-d1a4c1150021";
 const RUN_FINISHED = "019b7a11-0280-740e-8120-d1a4c1150022";
+const RUN_FAILED = "019b7a11-0280-740e-8130-d1a4c1150023";
+
+/**
+ * The daemon's opaque row id for the beat at `sequence`.
+ *
+ * A UUID v7 like every identifier the shipped scenarios carry, and deliberately
+ * NOT a function of the session id and the sequence: the assertions below prove
+ * an item's `sourceEventId` is the triggering event's OWN id, and a composed one
+ * would let the derivation keep composing and still pass.
+ */
+function eventIdFor(sequence: number): string {
+  return `019b7a11-0280-7ea1-8110-e5e0d115${String(sequence).padStart(4, "0")}`;
+}
 
 /** One run state transition, in the shape the shipped scenarios script them. */
 function runTransition(
@@ -38,6 +51,7 @@ function runTransition(
   return {
     atMs,
     event: {
+      id: eventIdFor(sequence),
       sessionId: ATTENTION_SESSION_ID,
       sequence,
       kind: `run.${newState}`,
@@ -75,6 +89,26 @@ function twoRunAttentionScenario(extraBeats: readonly ScenarioBeat[] = []): Cons
       runTransition(200, 2, RUN_AWAITING_APPROVAL, "running", "waiting_for_approval"),
       ...extraBeats,
     ],
+    replies: [],
+  };
+}
+
+/**
+ * A session whose one run fails, so the failure is the whole projection.
+ *
+ * One contributor and not two, deliberately: with an actionable contributor beside it
+ * the aggregate would be actionable whatever this fold decided about a failure, so the
+ * severity the aggregate carries here is the failure's own.
+ */
+function failedRunScenario(extraBeats: readonly ScenarioBeat[] = []): ConsoleScenario {
+  return {
+    id: "attention-run-failed",
+    label: "One run, and it failed",
+    purpose: "Drives the fixture's attention derivation over a terminal run failure.",
+    sessionId: ATTENTION_SESSION_ID,
+    participantIdsInJoinOrder: [ATTENTION_PARTICIPANT_ID],
+    startedAtIso: "2026-01-01T16:00:00.000Z",
+    beats: [runTransition(100, 1, RUN_FAILED, "running", "failed"), ...extraBeats],
     replies: [],
   };
 }
@@ -144,9 +178,39 @@ describe("the fixture's attention projection — derived from the scenario, neve
       trigger: "run_completed",
       severity: "informational",
     });
-    // The canonical event each item came from, keyed the way the console keys
-    // events. Asserted against the scenario's own beat rather than a literal.
-    expect(byRunId.get(RUN_AWAITING_APPROVAL)?.sourceEventId).toBe(`${ATTENTION_SESSION_ID}:2`);
+    // The canonical event each item came from — the triggering beat's OWN opaque
+    // id, read off the scenario rather than restated as a literal. This is the
+    // value `hydratedEventRead({sessionId, eventId})` takes, so an item that
+    // named anything else would hand every attention surface a dead handle.
+    const approvalBeat = twoRunAttentionScenario().beats.find(
+      (beat) => beat.event.payload?.["runId"] === RUN_AWAITING_APPROVAL,
+    );
+    expect(approvalBeat).toBeDefined();
+    expect(byRunId.get(RUN_AWAITING_APPROVAL)?.sourceEventId).toBe(approvalBeat?.event.id);
+  });
+
+  it("negative control: the id is the beat's own, not one composed from session and sequence", async () => {
+    // The case above would pass over a derivation that composed
+    // `${sessionId}:${sequence}` if the scenario's ids happened to be spelled
+    // that way. They are not — `eventIdFor` mints a UUID unrelated to both — so
+    // this pins the two apart: a composed id resolves through no read, and the
+    // set of ids the projection carries must be a subset of the ids the script
+    // actually played.
+    const scenario = twoRunAttentionScenario();
+    const { port, advanceToEnd } = playScenario(scenario);
+    advanceToEnd();
+
+    const items = await readAttentionItems(port, ATTENTION_SESSION_ID);
+    const scriptedEventIds = new Set(scenario.beats.map((beat) => beat.event.id));
+    const composedIds = new Set(
+      scenario.beats.map((beat) => `${ATTENTION_SESSION_ID}:${String(beat.event.sequence)}`),
+    );
+
+    expect(items.length).toBeGreaterThan(0);
+    for (const item of items) {
+      expect(scriptedEventIds.has(item.sourceEventId)).toBe(true);
+      expect(composedIds.has(item.sourceEventId)).toBe(false);
+    }
   });
 
   it("carries the session aggregate as the item with no run, actionable while any contributor is", async () => {
@@ -184,6 +248,85 @@ describe("the fixture's attention projection — derived from the scenario, neve
     // The finished run still contributes, so the aggregate survives and downgrades
     // rather than vanishing — a vanished aggregate would read as "nothing happened".
     expect(items.find((item) => item.runId === undefined)?.severity).toBe("informational");
+  });
+
+  it("raises one informational item for a run that failed, keyed to that run and its own event", async () => {
+    // The state the projection exists for, and the one it used to drop: before this
+    // classification a `run.failed` beat fell through the fold's delete branch, so a
+    // scenario that played a failure served an EMPTY projection and every
+    // failure-oriented surface would have been built against it. `Spec-019 §Required
+    // Behavior` makes run failure a required trigger, and a terminal run blocks on no
+    // participant, so the severity is the informational one that spec's own class
+    // definition assigns.
+    const scenario = failedRunScenario();
+    const { port, advanceToEnd } = playScenario(scenario);
+    advanceToEnd();
+
+    const items = await readAttentionItems(port, ATTENTION_SESSION_ID);
+    const runScoped = items.filter((item) => item.runId !== undefined);
+    const failingBeat = scenario.beats.find((beat) => beat.event.payload?.["runId"] === RUN_FAILED);
+
+    expect(runScoped).toHaveLength(1);
+    expect(runScoped[0]).toMatchObject({
+      id: `${RUN_FAILED}:run_failed`,
+      runId: RUN_FAILED,
+      trigger: "run_failed",
+      severity: "informational",
+      sessionId: ATTENTION_SESSION_ID,
+    });
+    // The failing event's OWN opaque id, which is what `hydratedEventRead` takes.
+    expect(failingBeat).toBeDefined();
+    expect(runScoped[0]?.sourceEventId).toBe(failingBeat?.event.id);
+  });
+
+  it("folds the failure into the session aggregate as informational when nothing else is actionable", async () => {
+    const { port, advanceToEnd } = playScenario(failedRunScenario());
+    advanceToEnd();
+
+    const aggregate = (await readAttentionItems(port, ATTENTION_SESSION_ID)).find(
+      (item) => item.runId === undefined,
+    );
+
+    expect(aggregate).toMatchObject({ trigger: "run_failed", severity: "informational" });
+  });
+
+  it("negative control: an outstanding approval still makes that same aggregate actionable", async () => {
+    // D-019-2's rule, driven from the other side. Without this the case above would
+    // hold over a fold that returned `informational` for every aggregate — which would
+    // hide exactly the blocking state the two severities exist to separate.
+    const withFailure = twoRunAttentionScenario([
+      runTransition(300, 3, RUN_FAILED, "running", "failed"),
+    ]);
+    const { port, advanceToEnd } = playScenario(withFailure);
+    advanceToEnd();
+
+    const items = await readAttentionItems(port, ATTENTION_SESSION_ID);
+
+    expect(items.filter((item) => item.runId === RUN_FAILED)).toHaveLength(1);
+    expect(items.find((item) => item.runId === undefined)?.severity).toBe("actionable");
+  });
+
+  it("clears the failure through the one exit the state machine gives a terminal run", async () => {
+    // The delete branch, unchanged and proven still to be reachable from this new
+    // entry. `failed` is terminal, and the run state machine's transition table gives
+    // it exactly one exit — the rollback intervention re-opening the run at `paused`,
+    // which this table classifies as no attention at all. A fold that had learned to
+    // raise a failure and not to resolve one would leave the session marked forever.
+    const rolledBack = failedRunScenario([runTransition(200, 2, RUN_FAILED, "failed", "paused")]);
+    const { port, advanceToEnd } = playScenario(rolledBack);
+    advanceToEnd();
+
+    expect(await readAttentionItems(port, ATTENTION_SESSION_ID)).toStrictEqual([]);
+  });
+
+  it("scripts the failure beats a daemon can emit, so the four cases above are not about a fake wire", () => {
+    expect(
+      findScenarioWireTruthDefects([
+        failedRunScenario(),
+        failedRunScenario([runTransition(200, 2, RUN_FAILED, "failed", "paused")]),
+        twoRunAttentionScenario([runTransition(300, 3, RUN_FAILED, "running", "failed")]),
+      ]),
+    ).toStrictEqual([]);
   });
 
   it("reflects playback position, so attention arrives as the frozen clock reaches it", async () => {

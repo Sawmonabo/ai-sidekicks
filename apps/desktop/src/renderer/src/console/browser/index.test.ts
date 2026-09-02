@@ -10,7 +10,7 @@
 import { describe, expect, it } from "vitest";
 
 import { BROWSER_SCENARIO, BROWSER_SCENARIO_ID } from "../bridge/scenarios/browser.js";
-import { ConsolePaneRegistry } from "../workspace/index.js";
+import { ConsolePaneRegistry } from "../seats/index.js";
 import { registerBrowserPanes } from "./index.js";
 
 /**
@@ -51,9 +51,8 @@ describe("browser family — claiming the deck's browser pane", () => {
     const descriptor = registry.descriptorFor("browser");
     expect(descriptor?.kind).toBe("browser");
     expect(descriptor?.owner).toBe("browser");
-    // Not a default and not provisional: the pane's eventual body is a
-    // main-process view, and no mechanism moves one between windows.
-    expect(descriptor?.openInWindow).toBe(false);
+    // Kind and owner are the whole registration: whether the kind may be torn off
+    // is the window model's answer, and `seats/pane-kinds.test.ts` holds it.
   });
 
   it("composes into the registry it is handed, never a module-scope one", () => {
@@ -83,7 +82,6 @@ describe("browser family — claiming the deck's browser pane", () => {
         kind: "browser",
         owner: "some-other-family",
         render: () => null,
-        openInWindow: true,
       });
     }).toThrow();
   });

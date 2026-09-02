@@ -18,7 +18,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ConsolePaneRegistry, type PaneKind } from "../workspace/index.js";
+import { ConsolePaneRegistry, type PaneKind } from "../seats/index.js";
 import { registerConsolePanes } from "./index.js";
 
 declare global {
@@ -128,12 +128,7 @@ describe("pane seat board — composing it today", () => {
     // answered the landed kinds and nothing else whatever else was claimed, which
     // would make the first case vacuous.
     const registry = new ConsolePaneRegistry();
-    registry.register({
-      kind: "timeline",
-      owner: "panes-test",
-      render: () => null,
-      openInWindow: true,
-    });
+    registry.register({ kind: "timeline", owner: "panes-test", render: () => null });
     registerConsolePanes(registry);
     expect(registry.registeredPaneKinds()).toStrictEqual(["timeline", ...LANDED_PANE_KINDS]);
   });

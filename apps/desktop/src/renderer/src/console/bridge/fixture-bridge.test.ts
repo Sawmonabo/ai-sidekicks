@@ -12,13 +12,22 @@
 //
 // Two claims travel here rather than one, because a fixture can route by two
 // different keys and getting either wrong is invisible in a surface: a subscriber
-// naming an EVENT KIND is handed that kind, and a subscriber naming a registered
-// STREAM is handed every kind that stream carries. A table that routed nothing
-// anywhere satisfies both exact-set claims by delivering the empty set twice, so
-// each carries the control that catches it.
+// naming an EVENT KIND is handed that kind, and a subscriber naming the whole-session
+// STREAM is handed every kind it carries. A table that routed nothing anywhere
+// satisfies both exact-set claims by delivering the empty set twice, so each carries
+// the control that catches it.
 //
-// The other two concerns have their own files, one each:
-// `fixture-bridge.latency.test.ts` and `fixture-bridge.refusals.test.ts`.
+// A third claim rides here because it belongs to the same two arms: WHEN a
+// subscriber attaches. `session.subscribe` is registered replay-then-tail, so one
+// opened mid-scenario is handed the elapsed beats before it tails; a bare event type
+// and the two narrowed run streams are live and are handed nothing they missed.
+//
+// This file owns the two arms that deliver the beat's own ENVELOPE — a bare event
+// type and the whole-session stream. The two narrowed run streams deliver a
+// registered projection instead, which is a different claim with a different failure
+// mode, and it lives in `fixture-bridge.run-streams.test.ts`. The remaining concerns
+// have their own files too: `fixture-bridge.latency.test.ts` and
+// `fixture-bridge.refusals.test.ts`.
 //
 // Every case drives the REAL fixture bridge over a real scenario and the real
 // engine. A hand-written stand-in for either would pass over exactly the seam
@@ -27,13 +36,8 @@
 import { describe, expect, it } from "vitest";
 
 import { createFixture, subscribeThroughBridge } from "./fixture-bridge.test-support.js";
-import type { ConsoleScenario } from "./scenario.js";
 import { FLAGSHIP_SCENARIO } from "./scenarios/flagship.js";
-import {
-  RUN_QUEUE_EVENT_STREAM,
-  RUN_STATE_EVENT_STREAM,
-  SESSION_EVENT_STREAM,
-} from "./session-event-streams.js";
+import { RUN_STATE_EVENT_STREAM, SESSION_EVENT_STREAM } from "./session-event-streams.js";
 
 /** Past the flagship script's last beat, which is at 400 ms. */
 const PAST_EVERY_BEAT_MS = 500;
@@ -48,7 +52,7 @@ describe("fixture bridge — a subscription delivers only the event it named", (
     // The flagship script carries five kinds. A subscriber that named one of them
     // is handed one of them — never `session.created`, which arrives first and is
     // what an unfiltered fixture delivers into a `run.starting` handler.
-    expect(received.map((event) => event.kind)).toStrictEqual(["run.starting"]);
+    expect(received.map((envelope) => envelope.type)).toStrictEqual(["run.starting"]);
   });
 
   it("negative control: the session stream still receives every beat", () => {
@@ -61,7 +65,7 @@ describe("fixture bridge — a subscription delivers only the event it named", (
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
 
     expect(received).toHaveLength(FLAGSHIP_SCENARIO.beats.length);
-    expect(new Set(received.map((event) => event.kind)).size).toBeGreaterThan(1);
+    expect(new Set(received.map((envelope) => envelope.type)).size).toBeGreaterThan(1);
   });
 
   it("delivers nothing to a subscriber whose kind the script never plays", () => {
@@ -81,7 +85,7 @@ describe("fixture bridge — a subscription delivers only the event it named", (
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
 
     expect(streamed).toHaveLength(FLAGSHIP_SCENARIO.beats.length);
-    expect(attached.map((event) => event.kind)).toStrictEqual([
+    expect(attached.map((envelope) => envelope.type)).toStrictEqual([
       "agent.attached",
       "agent.attached",
       "agent.attached",
@@ -90,124 +94,64 @@ describe("fixture bridge — a subscription delivers only the event it named", (
   });
 });
 
-describe("fixture bridge — a registered stream delivers the kinds it carries", () => {
-  /** The tick the probe's queue beat falls due at. Past the flagship's last. */
-  const QUEUE_BEAT_MS = 440;
+describe("fixture bridge — the whole-session stream is replay-then-tail", () => {
+  /** Far enough in to have delivered part of the flagship script and not all of it. */
+  const MID_SCRIPT_MS = 100;
 
-  /** The tick the probe's rollback beat falls due at. */
-  const ROLLBACK_BEAT_MS = 460;
-
-  /**
-   * The flagship script plus one queue row and one rollback row.
-   *
-   * The flagship alone leaves both narrowed streams half-tested: it plays two run
-   * transitions and no queue row at all, so a queue subscriber's empty result
-   * would be indistinguishable from a filter that drops everything. Both added
-   * beats name registered event types and carry the payload members their
-   * registrations name, so the probe is a script the daemon could have produced.
-   */
-  function scenarioWithQueueAndRollbackBeats(): ConsoleScenario {
-    const lastFlagshipBeat = FLAGSHIP_SCENARIO.beats[FLAGSHIP_SCENARIO.beats.length - 1];
-    if (lastFlagshipBeat === undefined) {
-      throw new Error("the flagship scenario plays no beats, so there is nothing to extend");
-    }
-    const { sessionId } = lastFlagshipBeat.event;
-    const nextSequence = lastFlagshipBeat.event.sequence + 1;
-    return {
-      ...FLAGSHIP_SCENARIO,
-      id: "flagship-stream-routing-probe",
-      beats: [
-        ...FLAGSHIP_SCENARIO.beats,
-        {
-          atMs: QUEUE_BEAT_MS,
-          event: {
-            sessionId,
-            sequence: nextSequence,
-            kind: "queue_item.created",
-            occurredAt: "2026-01-01T14:20:00.440Z",
-            payload: {
-              sessionId,
-              queueItemId: "queue-item-stream-routing-probe",
-              state: "queued",
-            },
-          },
-        },
-        {
-          atMs: ROLLBACK_BEAT_MS,
-          event: {
-            sessionId,
-            sequence: nextSequence + 1,
-            kind: "run.rolled_back",
-            occurredAt: "2026-01-01T14:20:00.460Z",
-            // The forward, non-state arm the same stream carries: no transition,
-            // and the landing position the run came to rest at.
-            payload: {
-              sessionId,
-              runId: "run-stream-routing-probe",
-              runVersion: 3,
-              targetPosition: 1,
-            },
-          },
-        },
-      ],
-    };
-  }
-
-  it("hands the run-state stream the script's run transitions and no other kind", () => {
+  it("hands a subscriber attaching mid-script the beats it missed, then tails", () => {
     const fixture = createFixture();
-    const received = subscribeThroughBridge(fixture, RUN_STATE_EVENT_STREAM);
+
+    fixture.engine.advance(MID_SCRIPT_MS);
+    const elapsed = fixture.engine.progress.deliveredBeatCount;
+    expect(elapsed).toBeGreaterThan(0);
+    expect(elapsed).toBeLessThan(FLAGSHIP_SCENARIO.beats.length);
+
+    const received = subscribeThroughBridge(fixture, SESSION_EVENT_STREAM);
+    expect(received).toHaveLength(elapsed);
 
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
 
-    // The flagship plays five kinds and two of them are run transitions. Before
-    // this table the fixture recognised one stream name, so this subscriber — the
-    // one the runs surface makes — received nothing at all.
-    expect(received.map((event) => event.kind)).toStrictEqual(["run.queued", "run.starting"]);
+    // Contiguous from the first log position, which is what keeps the store that
+    // consumes this stream out of degradation: a subscriber handed only the tail
+    // reads every position it missed as a gap.
+    expect(received.map((envelope) => envelope.sequence)).toStrictEqual(
+      FLAGSHIP_SCENARIO.beats.map((beat) => beat.event.sequence),
+    );
   });
 
-  it("carries both registered arms of the run-state stream", () => {
-    const fixture = createFixture(scenarioWithQueueAndRollbackBeats());
-    const received = subscribeThroughBridge(fixture, RUN_STATE_EVENT_STREAM);
+  it("hands a subscriber attaching after completion the whole script", () => {
+    const fixture = createFixture();
 
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
-
-    expect(received.map((event) => event.kind)).toStrictEqual([
-      "run.queued",
-      "run.starting",
-      "run.rolled_back",
-    ]);
-  });
-
-  it("hands the queue stream its own rows and no run beat", () => {
-    const fixture = createFixture(scenarioWithQueueAndRollbackBeats());
-    const received = subscribeThroughBridge(fixture, RUN_QUEUE_EVENT_STREAM);
-
-    fixture.engine.advance(PAST_EVERY_BEAT_MS);
-
-    expect(received.map((event) => event.kind)).toStrictEqual(["queue_item.created"]);
-  });
-
-  it("negative control: the whole-session stream still receives every beat of the probe", () => {
-    // Without this, a table that routed nothing anywhere would satisfy both
-    // exact-set cases above by delivering the empty set twice.
-    const probe = scenarioWithQueueAndRollbackBeats();
-    const fixture = createFixture(probe);
     const received = subscribeThroughBridge(fixture, SESSION_EVENT_STREAM);
 
-    fixture.engine.advance(PAST_EVERY_BEAT_MS);
-
-    expect(received).toHaveLength(probe.beats.length);
+    expect(received).toHaveLength(FLAGSHIP_SCENARIO.beats.length);
   });
 
-  it("negative control: a stream name nothing registers receives nothing", () => {
-    const fixture = createFixture(scenarioWithQueueAndRollbackBeats());
-    const received = subscribeThroughBridge(fixture, "run.subscribeStates");
+  it("negative control: the narrowed run stream and a bare event type stay live", () => {
+    // Without this, an engine that replayed to every subscriber would pass the two
+    // cases above while handing a runs surface transitions it never subscribed in
+    // time for — a frame the daemon does not send on a live projection stream.
+    const fixture = createFixture();
 
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
 
-    // A misspelled stream is not a stream, and it names no event type either, so
-    // it matches nothing — the same silence the daemon answers with, rather than
-    // the whole script a fall-through would deliver.
-    expect(received).toStrictEqual([]);
+    expect(subscribeThroughBridge(fixture, RUN_STATE_EVENT_STREAM)).toStrictEqual([]);
+    expect(subscribeThroughBridge(fixture, "agent.attached")).toStrictEqual([]);
+  });
+
+  it("negative control: an early subscriber receives each beat exactly once", () => {
+    // The duplicate the replay could introduce: a subscriber attached before the
+    // first advance has no prefix to be handed, and one handed the prefix anyway
+    // would read as a session that happened twice.
+    const fixture = createFixture();
+    const received = subscribeThroughBridge(fixture, SESSION_EVENT_STREAM);
+
+    fixture.engine.advance(MID_SCRIPT_MS);
+    fixture.engine.advance(PAST_EVERY_BEAT_MS);
+
+    expect(received.map((envelope) => envelope.id)).toStrictEqual(
+      FLAGSHIP_SCENARIO.beats.map((beat) => beat.event.id),
+    );
   });
 });

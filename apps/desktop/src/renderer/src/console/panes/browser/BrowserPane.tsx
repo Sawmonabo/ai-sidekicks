@@ -55,7 +55,7 @@ import { HOST_CHORD_PLATFORM, Nothing, RefusalBanner } from "../../primitives/in
 import { tokenReference } from "../../tokens/index.js";
 import { useBrowserPaneActs } from "./act-sequence.js";
 import { ChromeControl } from "./ChromeControl.js";
-import type { ConsolePaneContext } from "../../workspace/index.js";
+import type { ConsolePaneContext } from "../../seats/index.js";
 
 /** The pane region's accessible name. The tab strip's own labels arrive with it. */
 const BROWSER_PANE_LABEL = "Browser";

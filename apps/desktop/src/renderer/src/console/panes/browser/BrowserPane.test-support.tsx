@@ -14,7 +14,7 @@ import { BROWSER_SCENARIO } from "../../bridge/scenarios/browser.js";
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { DraftStore, UiStateStore } from "../../persistence/index.js";
 import { FrameStore } from "../../store/index.js";
-import type { ConsolePaneContext } from "../../workspace/index.js";
+import type { ConsolePaneContext } from "../../seats/index.js";
 import { BrowserPane } from "./BrowserPane.js";
 
 /**
@@ -47,14 +47,17 @@ function paneContext(bridge: ConsoleBridge = createFixtureBridge({ scenario: BRO
   return {
     bridge,
     context: {
+      // No `entity` member at all: the `browser` address is session-scoped, so the
+      // kind's arm of the union carries none and an `undefined` one would be a
+      // reference this pane is documented never to be a view of.
       kind: "browser",
-      entity: undefined,
       paneId: "pane-browser-1",
       bridge,
       frameStore: new FrameStore(),
       sessionStore: undefined,
       uiStateStore: UiStateStore.opening(),
       draftStore: new DraftStore(),
+      linkedSourcePaneId: undefined,
       focusHue: undefined,
     },
   };

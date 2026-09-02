@@ -16,7 +16,12 @@ import type { ConsoleBridge } from "../bridge/index.js";
 import type { ScenarioEngine } from "../bridge/scenario-engine.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { APPLY_COALESCE_MS, ManualClock } from "../core/index.js";
-import { SessionStoreRegistry, type ConsoleSessionEvent } from "../store/index.js";
+import {
+  ConsoleEntityProjectorRegistry,
+  SessionStoreRegistry,
+  type ConsoleSessionEvent,
+} from "../store/index.js";
+import { RUN_LIFECYCLE_PROJECTORS } from "./run-lifecycle-projector.js";
 import {
   SessionProbe,
   fixtureBridgeHarness,
@@ -37,6 +42,7 @@ function scenarioEngineOf(bridge: ConsoleBridge): ScenarioEngine {
 /** One wire event, shaped as the apply chokepoint consumes it. */
 function deliveredEvent(sessionId: string, sequence: number): ConsoleSessionEvent {
   return {
+    id: `event-${String(sequence)}`,
     sessionId,
     sequence,
     kind: "run.queued",
@@ -47,6 +53,7 @@ function deliveredEvent(sessionId: string, sequence: number): ConsoleSessionEven
 /** One run beat, payload-shaped as `Spec-006 §Run Lifecycle (run_lifecycle)` spells it. */
 function queuedRunEvent(sessionId: string, sequence: number, runId: string): ConsoleSessionEvent {
   return {
+    id: `event-${String(sequence)}`,
     sessionId,
     sequence,
     kind: "run.queued",
@@ -162,6 +169,94 @@ describe("useSessionStoreRegistry — the projectors the window's stores fold wi
 
     expect(store.snapshot().timeline).toHaveLength(1);
     expect(store.snapshot().partitions.run).toStrictEqual({});
+    registry.disposeAll();
+  });
+});
+
+describe("useSessionStoreRegistry — the board a family projects its own events through", () => {
+  /** An event kind no taxonomy registers, so only a registered claim can fold it. */
+  const FAMILY_EVENT_KIND = "approval.probe_raised";
+
+  /** One beat of that kind, in the shape the apply chokepoint consumes. */
+  function familyEvent(sessionId: string, sequence: number): ConsoleSessionEvent {
+    return {
+      id: `event-${String(sequence)}`,
+      sessionId,
+      sequence,
+      kind: FAMILY_EVENT_KIND,
+      occurredAt: new Date(sequence).toISOString(),
+      payload: { approvalId: "approval-probe-1" },
+    };
+  }
+
+  it("folds an event kind a family claimed, in a store the window opened", () => {
+    // The whole point of the seam. `store/entities.ts` declares an `approval`
+    // partition and every other family's besides, and under the frame's constant
+    // table not one of them had a possible producer: a family could only fill its own
+    // partition by reading the wire a second time, beside the store rather than in
+    // it. Here the fold is claimed on a board the window is handed, and the store the
+    // window opens folds with it.
+    const projectorRegistry = new ConsoleEntityProjectorRegistry();
+    projectorRegistry.registerAll(RUN_LIFECYCLE_PROJECTORS, "frame");
+    projectorRegistry.register(
+      FAMILY_EVENT_KIND,
+      (event) => [
+        {
+          operation: "upsert",
+          entity: {
+            kind: "approval",
+            id: String(event.payload?.["approvalId"]),
+            state: "pending",
+          },
+        },
+      ],
+      "composer",
+    );
+
+    const observed: Observation[] = [];
+    const sessionId = "session-family-projection";
+    render(
+      <SessionProbe
+        sessionId={sessionId}
+        projectorRegistry={projectorRegistry}
+        onObserve={(observation) => {
+          observed.push(observation);
+        }}
+      />,
+      { wrapper: fixtureBridgeWrapper() },
+    );
+    const { registry } = lastObservation(observed);
+    const store = registry.peek(sessionId);
+    store?.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+
+    act(() => {
+      registry.enqueue(sessionId, [familyEvent(sessionId, 1)]);
+      registry.flush(sessionId);
+    });
+
+    expect(store?.snapshot().partitions.approval["approval-probe-1"]?.state).toBe("pending");
+    // The frame's own claim still stands beside it: a board is shared, not replaced.
+    expect(projectorRegistry.ownerOf("run.queued")).toBe("frame");
+  });
+
+  it("negative control: the frame's own table alone folds that same event into nothing", () => {
+    // The constant path, exactly as it was. Same registry class, same event, one
+    // difference — the fold is the frame's table and nothing else — and the partition
+    // stays empty while the timeline still records the arrival. That is the state
+    // every family's surface would have been built against.
+    const registry = new SessionStoreRegistry({
+      read: () => Promise.resolve(undefined),
+      projectors: RUN_LIFECYCLE_PROJECTORS,
+    });
+    const sessionId = "session-unclaimed-kind";
+    const store = registry.open(sessionId);
+    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+
+    registry.enqueue(sessionId, [familyEvent(sessionId, 1)]);
+    registry.flush(sessionId);
+
+    expect(store.snapshot().timeline).toHaveLength(1);
+    expect(store.snapshot().partitions.approval).toStrictEqual({});
     registry.disposeAll();
   });
 });

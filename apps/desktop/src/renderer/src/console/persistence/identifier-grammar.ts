@@ -58,13 +58,22 @@ export function isIdentifierShaped(value: string): boolean {
 const PATH_SEPARATOR = "/";
 
 /**
- * True when a string may name half of a record's address.
+ * True when a string may name ONE thing: a record address's component, or the id on
+ * an entity reference.
  *
- * Derived from the one grammar rather than declared as a second one: an address
- * component is an identifier that is additionally not path-shaped, so the charset
- * and the length ceiling are still written in exactly one place.
+ * Derived from the one grammar rather than declared as a second one: such a string is
+ * an identifier that is additionally not path-shaped, so the charset and the length
+ * ceiling are still written in exactly one place.
+ *
+ * EXPORTED FOR THE PANE ADDRESS, and the two callers want the same thing for the same
+ * reason. A layout row's entity id is a string this family already holds to
+ * `isIdentifierShaped` on the way to disk, so a pane-address parse that admitted any
+ * non-empty string would have route resolution accept an id the durable path refuses —
+ * two boundaries onto one value, disagreeing. The separator exclusion carries over
+ * too: an id names one row, and a value that can encode a path is a value a body can
+ * be talked into resolving.
  */
-function isAddressComponentShaped(component: string): boolean {
+export function isSingleNameIdentifierShaped(component: string): boolean {
   return isIdentifierShaped(component) && !component.includes(PATH_SEPARATOR);
 }
 
@@ -96,7 +105,7 @@ export function validatePersistedAddress(
     ["key", key],
   ] as const;
   for (const [component, value] of components) {
-    if (!isAddressComponentShaped(value)) {
+    if (!isSingleNameIdentifierShaped(value)) {
       return refusePersistence(
         "address-not-identifier-shaped",
         `the record ${component} is not identifier-shaped (${String(value.length)} chars, ceiling ${String(IDENTIFIER_MAX_LENGTH)}, no path separator). A record address is an identifier; participant- and machine-authored content has no durable home in the renderer.`,

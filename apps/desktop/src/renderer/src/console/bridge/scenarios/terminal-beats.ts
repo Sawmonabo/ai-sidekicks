@@ -11,12 +11,25 @@
 // clock advances on `atMs`, so a drifted `occurredAt` would put a timestamp on screen
 // that no tick of this scenario corresponds to. One of them is now computed from the
 // other, so they cannot disagree.
+//
+// THE ROW ID IS STAMPED HERE TOO, and it is a different kind of claim. `id` is the
+// daemon's own opaque identifier for the event — the member the hydrated-event read
+// is keyed by, and the one canonical member that names THIS event rather than its
+// position — so it is a fact of its own and not a second spelling of the sequence.
+// What the stamp below asserts is only that this script's twenty beats each carry a
+// distinct, stable, UUID-shaped id under the scenario's own prefix, which is exactly
+// the value a hand-written table would have held: a v7 id minted one beat after
+// another differs in its tail and nowhere else. The beats state their `sequence`
+// already, so the tail is read from there rather than written twenty more times.
 
 import type { ScenarioBeat } from "../scenario.js";
 import { TERMINAL_SCENARIO_SESSION_ID } from "./terminal-cast.js";
 
 /** Wall-clock instant the frozen clock reports as "now" at tick zero. */
 export const TERMINAL_SCENARIO_STARTED_AT_ISO = "2026-01-01T16:40:00.000Z";
+
+/** The scenario's own event-id prefix, shared by every beat's opaque row id. */
+const TERMINAL_EVENT_ID_PREFIX = "019b7b30-0280-7ea1-8110-e5e0d115";
 
 const TERMINAL_SCENARIO_STARTED_AT_MS = Date.parse(TERMINAL_SCENARIO_STARTED_AT_ISO);
 
@@ -45,6 +58,18 @@ export function terminalScenarioInstantAt(atMs: number): string {
   return new Date(TERMINAL_SCENARIO_STARTED_AT_MS + atMs).toISOString();
 }
 
+/**
+ * The opaque row id the daemon would have minted for the beat at this position.
+ *
+ * Exported because a suite that appends a beat AFTER the script — a second host
+ * attaching once everything scripted has played — has to give it a row id, and one
+ * spelled any other way would be the single row in that log a reader could tell was
+ * not the daemon's.
+ */
+export function terminalScenarioEventId(sequence: number): string {
+  return `${TERMINAL_EVENT_ID_PREFIX}${String(sequence).padStart(4, "0")}`;
+}
+
 /** What one beat says beyond the envelope this module stamps. */
 export interface TerminalScenarioBeatInput {
   /** The tick this beat is due at, measured from scenario start. */
@@ -53,27 +78,28 @@ export interface TerminalScenarioBeatInput {
   /** Wire-verbatim event type. Held to the registered taxonomy by `scenarios.test.ts`. */
   readonly kind: string;
   /** Who the log attributes the event to. Omitted where the daemon acted alone. */
-  readonly actorParticipantId?: string;
+  readonly actorId?: string;
   readonly payload: Readonly<Record<string, unknown>>;
 }
 
 /**
- * One scripted beat of this session, with its session id and its instant stamped.
+ * One scripted beat of this session, with its id, its session id, and its instant
+ * stamped.
  *
- * Both stamped rather than written per beat: the session id is the same string
- * twenty times over, and the instant is `atMs` in the other spelling.
+ * All three stamped rather than written per beat: the session id is the same string
+ * twenty times over, the instant is `atMs` in the other spelling, and the row id is
+ * the scenario's prefix with this beat's own position on the end.
  */
 export function terminalScenarioBeat(beat: TerminalScenarioBeatInput): ScenarioBeat {
   return {
     atMs: beat.atMs,
     event: {
+      id: terminalScenarioEventId(beat.sequence),
       sessionId: TERMINAL_SCENARIO_SESSION_ID,
       sequence: beat.sequence,
       kind: beat.kind,
       occurredAt: terminalScenarioInstantAt(beat.atMs),
-      ...(beat.actorParticipantId === undefined
-        ? {}
-        : { actorParticipantId: beat.actorParticipantId }),
+      ...(beat.actorId === undefined ? {} : { actorId: beat.actorId }),
       payload: beat.payload,
     },
   };
@@ -95,7 +121,7 @@ export interface TerminalLeaseTransitionBeatInput {
   /** One of the five reasons `Spec-006` closes the set at. */
   readonly reason: string;
   /** Omitted for a take the daemon's own lease authority performed. */
-  readonly actorParticipantId?: string;
+  readonly actorId?: string;
 }
 
 /**
@@ -113,9 +139,7 @@ export function terminalLeaseTransitionBeat(
     atMs: transition.atMs,
     sequence: transition.sequence,
     kind: LEASE_TRANSITION_KIND,
-    ...(transition.actorParticipantId === undefined
-      ? {}
-      : { actorParticipantId: transition.actorParticipantId }),
+    ...(transition.actorId === undefined ? {} : { actorId: transition.actorId }),
     payload: {
       sessionId: TERMINAL_SCENARIO_SESSION_ID,
       holderParticipantId: transition.holderParticipantId,

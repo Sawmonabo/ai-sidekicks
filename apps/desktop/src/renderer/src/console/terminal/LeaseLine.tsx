@@ -242,7 +242,7 @@ function LeaseTransitionLedger(props: {
   return (
     <div className="meridian-lease-line__ledger" role="feed" aria-label="Lease transitions">
       {state.transitions.map((transition) => {
-        const actorId = transition.actorParticipantId;
+        const actorId = transition.actorId;
         const mark = actorId === undefined ? undefined : markFor(actorId);
         return (
           <LedgerRow

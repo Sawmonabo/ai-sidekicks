@@ -44,7 +44,7 @@ import {
   ConsolePaneRegistry,
   type ConsolePaneContext,
   type PaneKind,
-} from "../../src/renderer/src/console/workspace/index.js";
+} from "../../src/renderer/src/console/seats/index.js";
 
 /**
  * A registry carrying exactly this family's two claims.
@@ -80,15 +80,28 @@ function paneBodyComponent(kind: PaneKind): FunctionComponent<ConsolePaneContext
   return descriptor.render;
 }
 
-/** The deck context a pane is mounted with, minus the parts each caller supplies. */
-function paneContext(
-  overrides: Pick<ConsolePaneContext, "kind" | "paneId" | "bridge" | "sessionStore">,
-): ConsolePaneContext {
+/**
+ * What a pane is BOUND to, minus the address that says which pane it is.
+ *
+ * `ConsolePaneAddress` is a kind-scoped union, so the address cannot come from a
+ * shared helper: an object typed over every kind at once narrows to none of them,
+ * and a helper that returned one would be claiming this context could serve an
+ * artifact pane as readily as a browser. The `kind` therefore stays at each mount
+ * below, where the body being mounted is also named, and this function supplies only
+ * the binding — which is the same for both.
+ *
+ * `Omit` over the whole context rather than a hand-listed set: the binding is
+ * exactly the members every arm of the union shares, so a member added to it lands
+ * here and a member added to one arm's address does not.
+ */
+function paneBinding(
+  overrides: Pick<ConsolePaneContext, "paneId" | "bridge" | "sessionStore">,
+): Omit<ConsolePaneContext, "kind"> {
   return {
-    entity: undefined,
     frameStore: new FrameStore(),
     uiStateStore: UiStateStore.opening(),
     draftStore: new DraftStore(),
+    linkedSourcePaneId: undefined,
     focusHue: undefined,
     ...overrides,
   };
@@ -147,12 +160,8 @@ export async function mountBrowserPane(): Promise<MountedFamilySurface> {
   const BrowserPaneBody = paneBodyComponent("browser");
   const { container } = await renderSettled(
     <BrowserPaneBody
-      {...paneContext({
-        kind: "browser",
-        paneId: "pane-browser-surface",
-        bridge,
-        sessionStore: undefined,
-      })}
+      kind="browser"
+      {...paneBinding({ paneId: "pane-browser-surface", bridge, sessionStore: undefined })}
     />,
   );
   return { element: requireRegion(container, "Browser"), bridge };
@@ -171,8 +180,8 @@ export async function mountTerminalPane(): Promise<MountedFamilySurface> {
   const TerminalPaneBody = paneBodyComponent("terminal");
   const { container } = await renderSettled(
     <TerminalPaneBody
-      {...paneContext({
-        kind: "terminal",
+      kind="terminal"
+      {...paneBinding({
         paneId: "pane-terminal-surface",
         bridge,
         sessionStore: terminalSessionStore(),

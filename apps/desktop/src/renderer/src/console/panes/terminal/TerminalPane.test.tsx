@@ -21,6 +21,7 @@ import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { TERMINAL_SCENARIO, TERMINAL_SCENARIO_CAST } from "../../bridge/scenarios/terminal.js";
+import { terminalScenarioEventId } from "../../bridge/scenarios/terminal-beats.js";
 import { TERMINAL_HOST_NODE_ID } from "../../bridge/scenarios/terminal-cast.js";
 import { SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
 import { TerminalPane } from "./TerminalPane.js";
@@ -103,9 +104,11 @@ function secondNodeOnlineEvent(): ConsoleSessionEvent {
   if (lastScripted === undefined) {
     throw new Error("the terminal scenario scripts no beats");
   }
+  const sequence = lastScripted.event.sequence + 1;
   return {
+    id: terminalScenarioEventId(sequence),
     sessionId: SESSION_ID,
-    sequence: lastScripted.event.sequence + 1,
+    sequence,
     kind: "runtime_node.online",
     occurredAt: "2026-01-01T16:40:06.000Z",
     payload: { sessionId: SESSION_ID, nodeId: SECOND_NODE_ID, newState: "online" },
