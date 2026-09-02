@@ -53,7 +53,18 @@ const LIFECYCLE_MENU_ACTIONS: readonly ArgumentFreeMembershipAction[] = MEMBERSH
  */
 export function MembershipActionsMenu(props: {
   readonly row: MembershipRow;
+  /** This row's own change is the one in flight. */
   readonly isPending: boolean;
+  /**
+   * Some row's change is in flight — this one's, or a neighbour's.
+   *
+   * Both controls close on it rather than on `isPending` alone, because the
+   * coordinator behind them applies one mutation at a time: a neighbour's control
+   * left open offers an act the surface would answer with a refusal about a row
+   * the person did not press. The pending row keeps its own in-flight wording, so
+   * "not now" and "this is the one running" stay two different states on screen.
+   */
+  readonly isAnyPending: boolean;
   readonly onApply: (update: MembershipUpdate) => void;
 }): React.JSX.Element {
   const { row } = props;
@@ -66,7 +77,7 @@ export function MembershipActionsMenu(props: {
       <Menu.Root>
         <Menu.Trigger
           className="meridian-members__manage"
-          disabled={props.isPending}
+          disabled={props.isAnyPending}
           aria-label={`Manage the membership of ${row.participantId}`}
         >
           {props.isPending ? "Applying…" : "Manage"}
@@ -110,7 +121,7 @@ export function MembershipActionsMenu(props: {
 
       <RevokeConfirmation
         row={row}
-        isPending={props.isPending}
+        isAnyPending={props.isAnyPending}
         onConfirm={() => {
           props.onApply({ membershipId, action: "revoke" });
         }}
@@ -129,7 +140,8 @@ export function MembershipActionsMenu(props: {
  */
 function RevokeConfirmation(props: {
   readonly row: MembershipRow;
-  readonly isPending: boolean;
+  /** Some row's change is in flight, so this row's confirmation cannot be opened. */
+  readonly isAnyPending: boolean;
   readonly onConfirm: () => void;
 }): React.JSX.Element {
   const cost =
@@ -138,7 +150,7 @@ function RevokeConfirmation(props: {
     <AlertDialog.Root>
       <AlertDialog.Trigger
         className="meridian-members__revoke"
-        disabled={props.isPending}
+        disabled={props.isAnyPending}
         aria-label={`Revoke the membership of ${props.row.participantId}`}
       >
         {MEMBERSHIP_ACTION_NOTES.revoke.label}

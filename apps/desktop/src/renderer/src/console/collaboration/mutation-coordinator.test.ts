@@ -1,10 +1,13 @@
-// The mutation coordinator: what is in flight, whose refusal it was, and which
-// reply is allowed to win.
+// The mutation coordinator: what is in flight, whose refusal it was, and what a
+// second press earns while the first is unsettled.
 //
-// The property worth the most here is the last one. Two presses against the same
-// row race, and a superseded reply overwriting the current one would show the
-// wrong outcome for the wrong attempt — silently, because both replies are
-// well-formed. Nothing in the rendered tree would say which one landed.
+// The property worth the most here is the last one, and it is worth the most
+// because both of its failures are silent. A second call started beside the first
+// discards the first's settlement — including its refusal — so a change that
+// failed simply disappears; and a second press dropped on the floor instead is
+// indistinguishable from one the daemon ignored. Neither leaves a mark in the
+// rendered tree, so the tests read the call count and the keyed refusal rather
+// than what is on screen.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -127,36 +130,82 @@ describe("wire mutation coordinator — whose refusal it was", () => {
   });
 });
 
-describe("wire mutation coordinator — which reply wins", () => {
-  it("ignores a superseded reply and keeps the latest attempt's outcome", async () => {
-    const first = settleable();
-    const second = settleable();
-    const calls = [first, second];
-    let index = 0;
+describe("wire mutation coordinator — one at a time", () => {
+  /** A coordinator whose calls settle on demand, counting every one it makes. */
+  function countingCoordinator(): {
+    readonly coordinator: WireMutationCoordinator<string, string>;
+    readonly calls: readonly Settleable[];
+    readonly callCount: () => number;
+  } {
+    const calls: Settleable[] = [];
     const coordinator = coordinatorOver(async () => {
-      const call = calls[index];
-      index += 1;
-      return call === undefined ? await Promise.resolve("applied") : await call.promise;
+      const call = settleable();
+      calls.push(call);
+      return await call.promise;
     });
+    return { coordinator, calls, callCount: () => calls.length };
+  }
+
+  it("puts no second call on the wire while one is unsettled", async () => {
+    const { coordinator, calls, callCount } = countingCoordinator();
     const firstRun = coordinator.run("membership-1", "first");
-    const secondRun = coordinator.run("membership-1", "second");
-    // The first call refuses AFTER the second was issued. Its refusal is stale.
-    first.reject({ code: "membership.not_found", message: "gone" });
+    expect(callCount()).toBe(1);
+
+    await expect(coordinator.run("membership-2", "second")).resolves.toBeUndefined();
+
+    expect(callCount()).toBe(1);
+    calls[0]?.resolve("applied");
     await firstRun;
-    second.resolve("applied");
-    await secondRun;
-    expect(coordinator.snapshot().refusalByKey["membership-1"]).toBeUndefined();
-    expect(coordinator.snapshot().pendingKey).toBeUndefined();
   });
 
-  it("negative control: a lone refusal on the same subject IS recorded", async () => {
-    // Without this, the case above would pass over an implementation that dropped
-    // every refusal rather than only the superseded one.
-    const coordinator = coordinatorOver(
-      async () => await Promise.reject({ code: "membership.not_found", message: "gone" }),
-    );
-    await coordinator.run("membership-1", "only");
-    expect(coordinator.snapshot().refusalByKey["membership-1"]?.code).toBe("membership.not_found");
+  it("refuses the second press against its own subject, naming what is still running", async () => {
+    const { coordinator, calls } = countingCoordinator();
+    const firstRun = coordinator.run("membership-1", "first");
+
+    await coordinator.run("membership-2", "second");
+
+    const refusal = coordinator.snapshot().refusalByKey["membership-2"];
+    expect(refusal?.code).toBe("mutation-in-flight");
+    expect(refusal?.origin).toBe("collaboration");
+    // The row still running is named, because on a ledger of many rows "one at a
+    // time" without a subject is not an answer a person can act on.
+    expect(refusal?.detail).toContain("membership-1");
+    // The refused press never became the pending one.
+    expect(coordinator.snapshot().pendingKey).toBe("membership-1");
+    calls[0]?.resolve("applied");
+    await firstRun;
+  });
+
+  it("lets the first call's own refusal reach its own subject when it settles", async () => {
+    // The bug this replaces: the second attempt superseded the first, so the
+    // first's refusal was discarded as stale and a failed change vanished.
+    const { coordinator, calls } = countingCoordinator();
+    const firstRun = coordinator.run("membership-1", "first");
+    await coordinator.run("membership-2", "second");
+
+    calls[0]?.reject({ code: "membership.last_owner", message: "refused" });
+    await firstRun;
+
+    const { refusalByKey, pendingKey } = coordinator.snapshot();
+    expect(refusalByKey["membership-1"]?.code).toBe("membership.last_owner");
+    expect(refusalByKey["membership-2"]?.code).toBe("mutation-in-flight");
+    expect(pendingKey).toBeUndefined();
+  });
+
+  it("negative control: once the first settles, the next press DOES reach the wire", async () => {
+    // Without this, the three cases above would pass over a coordinator that had
+    // stopped calling the wire altogether.
+    const { coordinator, calls, callCount } = countingCoordinator();
+    const firstRun = coordinator.run("membership-1", "first");
+    calls[0]?.resolve("applied");
+    await firstRun;
+
+    const secondRun = coordinator.run("membership-2", "second");
+
+    expect(callCount()).toBe(2);
+    expect(coordinator.snapshot().refusalByKey["membership-2"]).toBeUndefined();
+    calls[1]?.resolve("applied");
+    await expect(secondRun).resolves.toBe("applied");
   });
 });
 

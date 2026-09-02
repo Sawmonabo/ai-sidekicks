@@ -254,6 +254,66 @@ describe("sent invites — what a person reads", () => {
   });
 });
 
+describe("sent invites — one revoke at a time", () => {
+  /** Every revoke control on screen, read fresh after each render. */
+  function revokeControls(container: HTMLElement): readonly HTMLButtonElement[] {
+    return [...container.querySelectorAll<HTMLButtonElement>(".meridian-invites__row-action")];
+  }
+
+  async function renderTwoPending(): Promise<HTMLElement> {
+    const { container } = render(
+      <SentInvites
+        bridge={bridgeServing([
+          invite({ inviteId: "invite-one" }),
+          invite({ inviteId: "invite-two" }),
+        ])}
+        sessionId="session-1"
+      />,
+    );
+    await settle();
+    return container;
+  }
+
+  it("closes every pending row's control while one revoke is unsettled", async () => {
+    const container = await renderTwoPending();
+    expect(revokeControls(container).map((control) => control.disabled)).toStrictEqual([
+      false,
+      false,
+    ]);
+
+    // A SYNCHRONOUS act on purpose: the coordinator publishes its pending key
+    // before the call it awaits settles, so this reads the tree at exactly the
+    // moment one revoke is in flight. An awaiting act would flush the reply first
+    // and find the surface back at rest.
+    act(() => {
+      revokeControls(container)[0]?.click();
+    });
+
+    expect(revokeControls(container).map((control) => control.disabled)).toStrictEqual([
+      true,
+      true,
+    ]);
+    // The row that was pressed says what it is doing; its neighbour is only shut.
+    expect(revokeControls(container)[0]?.textContent).toBe("Revoking…");
+    expect(revokeControls(container)[1]?.textContent).toBe("Revoke");
+    await settle();
+  });
+
+  it("negative control: both controls open again once that revoke settles", async () => {
+    // Without this, the case above would pass over a ledger that disabled every
+    // revoke control permanently.
+    const container = await renderTwoPending();
+
+    await pressRevoke(container);
+
+    expect(container.textContent ?? "").toContain("reply-unscripted");
+    expect(revokeControls(container).map((control) => control.disabled)).toStrictEqual([
+      false,
+      false,
+    ]);
+  });
+});
+
 describe("sent invites — a revoke that settles", () => {
   it("moves the row into the settled ledger from the reply itself", async () => {
     const served = bridgeSettlingRevoke([invite()]);

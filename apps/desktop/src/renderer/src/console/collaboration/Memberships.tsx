@@ -178,6 +178,10 @@ function MembershipLedger(props: {
               isPending={
                 row.membershipId !== undefined && props.mutation.pendingKey === row.membershipId
               }
+              // Every row's controls close while ANY row's change is unsettled,
+              // not only the pending one's: the coordinator applies one at a time,
+              // so a second row's control offers an act the surface would refuse.
+              isAnyPending={props.mutation.pendingKey !== undefined}
               refusal={
                 row.membershipId === undefined
                   ? undefined
@@ -202,7 +206,10 @@ function MembershipLedger(props: {
 function MembershipLedgerRow(props: {
   readonly row: MembershipRow;
   readonly isLastOwner: boolean;
+  /** This row's own change is the one in flight. */
   readonly isPending: boolean;
+  /** Some row's change is in flight — this one's, or a neighbour's. */
+  readonly isAnyPending: boolean;
   readonly refusal: { readonly code: string; readonly detail: string } | undefined;
   readonly onApply: (update: MembershipUpdate) => void;
   readonly onDismissRefusal: () => void;
@@ -249,7 +256,12 @@ function MembershipLedgerRow(props: {
           detail="Changing a membership names its membership id, and no read this console has returns one alongside a participant."
         />
       ) : (
-        <MembershipActionsMenu row={row} isPending={props.isPending} onApply={props.onApply} />
+        <MembershipActionsMenu
+          row={row}
+          isPending={props.isPending}
+          isAnyPending={props.isAnyPending}
+          onApply={props.onApply}
+        />
       )}
 
       {props.refusal === undefined ? null : (
