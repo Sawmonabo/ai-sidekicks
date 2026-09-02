@@ -30,10 +30,14 @@
 
 import type { FunctionComponent } from "react";
 
+import { act } from "@testing-library/react";
+
 import { renderSettled } from "./console-harness.js";
 
+import { APPROVALS_SCENARIO } from "../../src/renderer/src/console/bridge/scenarios/approvals.js";
 import { COMPOSER_SCENARIO } from "../../src/renderer/src/console/bridge/scenarios/composer.js";
 import { RUNS_SCENARIO } from "../../src/renderer/src/console/bridge/scenarios/runs.js";
+import { REFRESH_DEBOUNCE_MS } from "../../src/renderer/src/console/core/index.js";
 import {
   createFixtureBridge,
   type ConsoleBridge,
@@ -49,7 +53,12 @@ import {
   type ConsoleSessionEvent,
 } from "../../src/renderer/src/console/store/index.js";
 import { MessageComposer } from "../../src/renderer/src/shell/MessageComposer.js";
+import {
+  registerApprovalsPane,
+  registerApprovalFlowProjectors,
+} from "../../src/renderer/src/console/panes/approvals/index.js";
 import { registerRunsPane } from "../../src/renderer/src/console/panes/runs/index.js";
+import { ConsoleEntityProjectorRegistry } from "../../src/renderer/src/console/store/index.js";
 import {
   ConsolePaneRegistry,
   type ConsolePaneAddress,
@@ -170,7 +179,7 @@ export async function mountComposerProviderBoundWaiting(): Promise<MountedFamily
  */
 export async function mountRunsPane(): Promise<MountedFamilySurface> {
   const bridge = createFixtureBridge({ scenario: RUNS_SCENARIO });
-  const RunsPaneBody = paneBodyComponent("runs");
+  const RunsPaneBody = paneBodyComponent("runs", registerRunsPane);
   const { container } = await renderSettled(
     <RunsPaneBody
       kind="runs"
@@ -196,6 +205,69 @@ export async function mountRunsPane(): Promise<MountedFamilySurface> {
 }
 
 /**
+ * The approvals pane, over a store opened with the fold the composer family claims.
+ *
+ * THE APPROVAL PARTITION IS THE REAL ONE, for the reason the run partition above is:
+ * the store is fed the scenario's own beats through `APPROVAL_FLOW_PROJECTORS` — the
+ * table `registerComposerFamily` registers — so the provider-ask framing these tiers
+ * capture is the one a person would see, and a change to the projector reaches them
+ * rather than passing them.
+ *
+ * The clock is advanced after the mount because this pane READS: its two reads settle
+ * through the console's one refresh scheduler, and a capture taken before that
+ * deadline would photograph the in-flight phase under a name that claims to be the
+ * answered one.
+ */
+export async function mountApprovalsPane(): Promise<MountedFamilySurface> {
+  const bridge = createFixtureBridge({ scenario: APPROVALS_SCENARIO });
+  const projectorRegistry = new ConsoleEntityProjectorRegistry();
+  registerApprovalFlowProjectors(projectorRegistry);
+  const sessionStore = new SessionStore({
+    sessionId: APPROVALS_SCENARIO.sessionId,
+    projectors: projectorRegistry.snapshot(),
+  });
+  const sequences = APPROVALS_SCENARIO.beats.map((beat) => beat.event.sequence);
+  sessionStore.initialise({
+    cursor: Math.min(...sequences) - 1,
+    entities: [],
+    participantJoinLog: [...APPROVALS_SCENARIO.participantIdsInJoinOrder],
+  });
+  sessionStore.applyBatch(
+    APPROVALS_SCENARIO.beats.map((beat) => beat.event as ConsoleSessionEvent),
+  );
+
+  const ApprovalsPaneBody = paneBodyComponent("approvals", registerApprovalsPane);
+  const { container } = await renderSettled(
+    <ApprovalsPaneBody
+      kind="approvals"
+      paneId="pane-approvals-surface"
+      linkedSourcePaneId={undefined}
+      bridge={bridge}
+      sessionStore={sessionStore}
+      frameStore={new FrameStore()}
+      uiStateStore={UiStateStore.opening()}
+      draftStore={new DraftStore()}
+      focusHue={undefined}
+    />,
+  );
+  await act(async () => {
+    bridge.scenarioEngine?.advance(REFRESH_DEBOUNCE_MS);
+  });
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  const pane = container.querySelector(".meridian-approvals");
+  if (!(pane instanceof HTMLElement)) {
+    throw new Error("the approvals pane rendered no .meridian-approvals element to capture");
+  }
+  // By class rather than by accessible name, for `mountRunsPane`'s reason: the pane
+  // root is a layout container and the accessible names inside it belong to its
+  // sections.
+  return { element: pane, bridge };
+}
+
+/**
  * The pane body the deck holds for a kind, as a component, or a throw.
  *
  * A throw rather than an optional return, so a family that stopped registering its
@@ -204,12 +276,16 @@ export async function mountRunsPane(): Promise<MountedFamilySurface> {
  * `render` is handed back for React to MOUNT rather than called here: the body holds
  * hooks, and a plain call outside a render would run them against no dispatcher.
  */
-function paneBodyComponent(kind: PaneKind): FunctionComponent<ConsolePaneContext> {
+function paneBodyComponent(
+  kind: PaneKind,
+  registerPane: (registry: ConsolePaneRegistry) => void,
+): FunctionComponent<ConsolePaneContext> {
   // Built per call rather than shared: the registry is owner-scoped state, and two
   // tiers holding one instance would make the second tier's mount depend on whether
-  // the first had run.
+  // the first had run. The family's own registrar is passed in rather than every
+  // family being registered here, so a mount composes the one body it captures.
   const registry = new ConsolePaneRegistry();
-  registerRunsPane(registry);
+  registerPane(registry);
   const descriptor = registry.descriptorFor(kind);
   if (descriptor === undefined) {
     throw new Error(`no console pane is registered for the \`${kind}\` kind`);

@@ -243,7 +243,13 @@ export const APPROVALS_SCENARIO: ConsoleScenario = {
         sequence: 8,
         // The second pending request, and the one that arrived as a provider
         // permission ask: `askId` is the originating `driver_ask` identifier, and it
-        // is what routes this record to the ask card rather than the plain one.
+        // reaches the console HERE and on no read. The pane learns the origin by
+        // joining its projection row to the `approval` entity this beat folds into,
+        // so the framing it renders comes from the event and never from the reply.
+        // `expiryAt` rides beside it because the wire requires the pair — an
+        // `askId`-bearing request without its shared deadline refuses at the
+        // emission parse, so a fixture carrying one alone would teach a shape no
+        // daemon can send.
         kind: "approval.requested",
         occurredAt: "2026-01-01T13:30:01.100Z",
         actorId: AGENT_IMPLEMENTER,
@@ -313,7 +319,9 @@ export const APPROVALS_SCENARIO: ConsoleScenario = {
           // The request that arrived as a provider permission ask. It carries no
           // marker of that origin, because the projection reply registers none: the
           // `askId` is on the EVENT payload and on the persisted row, and a fixture
-          // that answered one here would be teaching a member into existence.
+          // that answered one here would be teaching a member into existence. The
+          // pane joins this row to the projected entity to learn what the reply
+          // cannot tell it.
           {
             id: APPROVAL_PENDING_ASK,
             runId: RUN_ID,
