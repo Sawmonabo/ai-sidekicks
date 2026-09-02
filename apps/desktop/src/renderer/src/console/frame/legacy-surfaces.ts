@@ -78,6 +78,10 @@ const LEGACY_SURFACES: readonly ConsoleSurfaceDescriptor[] = [
       createElement(SessionsSurface, {
         frameStore: context.frameStore,
         sessionStoreRegistry: context.sessionStoreRegistry,
+        // The port comes off the surface context's bridge rather than out of React
+        // context, so the surface stays a function of what it is handed and its
+        // tests need no provider to render it.
+        growth: context.bridge.growth,
         startSession: () => mountLegacySurface(context, () => createElement(SessionBootstrap)),
       }),
   },

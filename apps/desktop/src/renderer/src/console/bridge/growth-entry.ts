@@ -70,6 +70,8 @@ export type GrowthOperationId =
   | "sessionArchive"
   | "sessionClose"
   | "sessionReactivate"
+  | "sessionRead"
+  | "sessionList"
   | "daemonStatusRead"
   | "daemonStop"
   | "daemonRestart"

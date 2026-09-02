@@ -13,15 +13,11 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { createFixtureBridge } from "../bridge/index.js";
+import { createFixtureBridge, growthUnavailable } from "../bridge/index.js";
 import type { ConsoleScenario, ScenarioEngine } from "../bridge/scenario.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { APPLY_COALESCE_MS, ManualClock, consoleTripwires } from "../core/index.js";
-import {
-  SESSION_READ_UNREGISTERED,
-  SessionStoreRegistry,
-  type ConsoleSessionEvent,
-} from "../store/index.js";
+import { SessionStoreRegistry, type ConsoleSessionEvent } from "../store/index.js";
 import { SESSION_DIAGNOSTICS_FIXTURE_GLOBAL, SessionEventBinder } from "./session-event-binder.js";
 import type { ConsoleSessionDiagnostics } from "./session-event-binder.js";
 
@@ -75,7 +71,10 @@ function createUnreadableHarness(): BinderHarness {
     throw new Error("the fixture bridge built no scenario engine, so there is nothing to drive");
   }
   const registry = new SessionStoreRegistry({
-    read: SESSION_READ_UNREGISTERED,
+    // The refusal a bridge that does not serve the session read hands over — the
+    // real one the composition root would pass, built by the same function, not a
+    // stand-in shaped like it.
+    read: growthUnavailable("sessionRead"),
     clock: engine.clock,
   });
   return { registry, binder: new SessionEventBinder({ registry, bridge }), engine };
@@ -311,6 +310,48 @@ describe("SessionEventBinder — the console's one subscription to the wire", ()
     // that has no binder in it at all.
     expect(readInstalledDiagnostics()?.boundSessionIds()).toEqual([]);
     expect(readInstalledDiagnostics()?.openSessionIds()).toEqual([SESSION_ID]);
+
+    binder.dispose();
+  });
+
+  it("asks for the base-state read in the same act as taking the subscription", async () => {
+    // The gap this closes: nothing in the console called `requestRefresh` on an
+    // open, so even a registry with a working read never performed one — every
+    // bound session buffered its stream against a store that was never
+    // initialised. The control is the count itself: it is zero without the
+    // request, and the timeline stays empty however many beats arrive.
+    const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
+    const engine = bridge.scenarioEngine;
+    if (engine === undefined) {
+      throw new Error("the fixture bridge built no scenario engine, so there is nothing to drive");
+    }
+    const reasonsSeen: string[] = [];
+    const registry = new SessionStoreRegistry({
+      read: (_sessionId, reasons) => {
+        reasonsSeen.push(...reasons);
+        return Promise.resolve({ cursor: 0, entities: [], participantJoinLog: [] });
+      },
+      clock: engine.clock,
+      refreshDebounceMs: 0,
+    });
+    const binder = new SessionEventBinder({ registry, bridge });
+    binder.attach();
+    registry.open(SESSION_ID);
+
+    // The scheduler debounces on the frozen clock, so the read lands on an advance
+    // rather than on a turn of the microtask queue.
+    engine.advance(1);
+    await Promise.resolve();
+
+    expect(reasonsSeen).toEqual(["subscribe"]);
+    expect(registry.refreshCountFor(SESSION_ID)).toBe(1);
+    expect(registry.peek(SESSION_ID)?.snapshot().initialised).toBe(true);
+
+    engine.advance(PAST_EVERY_BEAT_MS);
+    engine.advance(APPLY_COALESCE_MS + 1);
+    expect(registry.peek(SESSION_ID)?.snapshot().timeline).toHaveLength(
+      FLAGSHIP_SCENARIO.beats.length,
+    );
 
     binder.dispose();
   });

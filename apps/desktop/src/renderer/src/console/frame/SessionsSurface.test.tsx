@@ -13,7 +13,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SidekicksBridge } from "@ai-sidekicks/contracts";
 
 import { FrameStore, SessionStoreRegistry } from "../store/index.js";
-import type { ConsoleBridgeSource } from "../bridge/index.js";
+import { createFixtureBridge, type ConsoleBridgeSource, type GrowthPort } from "../bridge/index.js";
+import { createRefusingGrowthPort } from "../bridge/growth-port.js";
+import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { registerLegacySurfaces } from "./legacy-surfaces.js";
 import { ConsoleSurfaceRegistry, type ConsoleSurfaceContext } from "./surface-registry.js";
 
@@ -34,7 +36,10 @@ function installBridgeSpy(): ReturnType<typeof vi.fn> {
   return daemonCall;
 }
 
-function sessionsSurfaceFor(source: ConsoleBridgeSource): {
+function sessionsSurfaceFor(
+  source: ConsoleBridgeSource,
+  growth: GrowthPort = createRefusingGrowthPort(),
+): {
   element: React.JSX.Element;
   frameStore: FrameStore;
   sessionStoreRegistry: SessionStoreRegistry;
@@ -49,17 +54,31 @@ function sessionsSurfaceFor(source: ConsoleBridgeSource): {
   const sessionStoreRegistry = new SessionStoreRegistry({
     read: () => Promise.resolve(undefined),
   });
-  // The three fields this slot reads. The persistence stores are cast away for the
+  // The four fields this slot reads. The persistence stores are cast away for the
   // reason `legacy-surfaces.test.ts` gives: constructing them opens a database to
-  // hand a surface that never touches them.
+  // hand a surface that never touches them. The growth port is REAL and defaults to
+  // the refusing one, so a case that says nothing about the directory gets the live
+  // bridge's answer rather than a convenient one.
   const context = {
     route: { kind: "sessions" },
-    bridge: { source },
+    bridge: { source, growth },
     frameStore,
     sessionStore: undefined,
     sessionStoreRegistry,
   } as unknown as ConsoleSurfaceContext;
   return { element: <>{descriptor.render(context)}</>, frameStore, sessionStoreRegistry };
+}
+
+/** The fixture's port, which serves the directory read the live bridge refuses. */
+function fixtureGrowthPort(): GrowthPort {
+  return createFixtureBridge({ scenario: FLAGSHIP_SCENARIO }).growth;
+}
+
+/** Let the directory read settle, so an assertion is about the answer. */
+async function settle(): Promise<void> {
+  await act(async () => {
+    await Promise.resolve();
+  });
 }
 
 /**
@@ -99,6 +118,10 @@ describe("the sessions destination — a session is created by an act, not by a 
     const daemonCall = installBridgeSpy();
 
     render(sessionsSurfaceFor("live").element);
+    // The surface reads its session directory on mount and shows a skeleton while
+    // it is in flight — which carries no control, by the primitive's own rule — so
+    // the act this case is about is only reachable once the read has settled.
+    await settle();
     await press("Start a session");
 
     expect(daemonCall).toHaveBeenCalledTimes(1);
@@ -111,6 +134,7 @@ describe("the sessions destination — a session is created by an act, not by a 
     const daemonCall = installBridgeSpy();
 
     render(sessionsSurfaceFor("live").element);
+    await settle();
     await press("Start a session");
     await press("Start a session");
 
@@ -123,6 +147,7 @@ describe("the sessions destination — a session is created by an act, not by a 
     const daemonCall = installBridgeSpy();
 
     const { container } = render(sessionsSurfaceFor("fixture").element);
+    await settle();
     await press("Start a session");
 
     expect(daemonCall).not.toHaveBeenCalled();
@@ -142,6 +167,7 @@ describe("the sessions destination — what it can honestly list", () => {
     sessionStoreRegistry.open("session-alpha");
 
     render(element);
+    await settle();
     await press("session-alpha");
 
     expect(frameStore.getState().route).toStrictEqual({
@@ -150,14 +176,32 @@ describe("the sessions destination — what it can honestly list", () => {
     });
   });
 
-  it("negative control: with none open it reports an unasked question, not an empty answer", () => {
-    // "There are none" would be a claim about every session on the node, and the
-    // console never asked — no session-directory read is registered.
+  it("lists the node's sessions when the bridge serves the directory read", async () => {
+    // The window has none open, so every row on screen came from the directory.
+    // Before the read had a producer this surface could only ever show what this
+    // window happened to have opened — a node with sessions on it rendered as an
+    // absence.
+    installBridgeSpy();
+
+    const { container } = render(sessionsSurfaceFor("fixture", fixtureGrowthPort()).element);
+    await settle();
+
+    expect(screen.getByRole("button", { name: FLAGSHIP_SCENARIO.sessionId })).toBeDefined();
+    // The heading follows the source: a list of the node's sessions must not still
+    // be titled as this window's.
+    expect(container.textContent).toContain("Sessions on this node");
+  });
+
+  it("negative control: with none open and a refused directory it reports an unasked question", async () => {
+    // "There are none" would be a claim about every session on the node, and a
+    // refused directory read means the console never asked.
     installBridgeSpy();
 
     const { container } = render(sessionsSurfaceFor("live").element);
+    await settle();
 
     expect(container.textContent).toContain("No session is open in this window.");
     expect(container.textContent).toContain("it has not asked the daemon for the rest");
+    expect(container.textContent).not.toContain("Sessions on this node");
   });
 });

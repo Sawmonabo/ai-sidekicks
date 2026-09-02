@@ -21,6 +21,7 @@ export type GrowthSlateRowId =
   | "terminal-pane"
   | "dev-server-probe"
   | "session-lifecycle-verbs"
+  | "session-directory-read"
   | "daemon-control-methods"
   | "onboarding-methods"
   | "shell-config-preferences"
@@ -107,6 +108,14 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "session lifecycle verbs — rename, archive, close, reactivate",
     owningDocument: "Spec-001",
     consumingSurface: "all-sessions list, workspace header",
+    wireRegistered: false,
+  },
+  "session-directory-read": {
+    id: "session-directory-read",
+    wire: "typed session snapshot read for a store's base state, and the participant's session directory read, over the daemon method union",
+    owningDocument:
+      "Spec-007 (the daemon method union); Spec-001 (the session.read payloads; no directory read is registered)",
+    consumingSurface: "session-store initialisation, all-sessions list, auxiliary context picker",
     wireRegistered: false,
   },
   "daemon-control-methods": {

@@ -13,6 +13,7 @@
 // exactly what the preload gives, `growth` is exactly what it does not.
 
 import type { SidekicksBridge } from "@ai-sidekicks/contracts";
+import type { GrowthOperationId } from "./growth-entry.js";
 import type { GrowthPort } from "./growth-port.js";
 import type { ScenarioEngine } from "./scenario.js";
 
@@ -55,6 +56,21 @@ export interface ConsoleBridge {
   readonly sidekicks: SidekicksBridge;
   /** The single fixture-only seam for wires the corpus has not registered. */
   readonly growth: GrowthPort;
+  /**
+   * Which growth operations this bridge ANSWERS rather than refuses.
+   *
+   * A synchronous fact beside the asynchronous port, and it earns its place: some
+   * decisions have to be made before a call can be awaited. The composition root
+   * has to know whether a session read exists before it builds the registry that
+   * would perform one, because a registry that cannot read must not have a stream
+   * bound to it at all — and under the live bridge `daemon.subscribe` throws, so
+   * "bind and find out" is not a fallback, it is a crash inside a mount effect.
+   *
+   * Declared by the bridge that serves them, so the two cannot drift: a fixture
+   * that implements an operation and forgets to publish it here is a set that
+   * disagrees with a port, which is the disagreement `bridge-shape.test.ts` reads.
+   */
+  readonly growthServedOperations: ReadonlySet<GrowthOperationId>;
   readonly source: ConsoleBridgeSource;
   /** Present only under the fixture, so a surface can drive playback in a story. */
   readonly scenarioEngine: ScenarioEngine | undefined;
