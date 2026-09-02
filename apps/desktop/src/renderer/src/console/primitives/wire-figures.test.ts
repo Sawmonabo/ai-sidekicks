@@ -307,6 +307,40 @@ describe("formatMoney — the wire's own precision, and never fewer than two dig
     expect(formatMoney(12, "JPY", "en-US")).toBe("¥12.00");
   });
 
+  it("keeps the third digit of a currency whose minor unit is a thousandth", () => {
+    // Two digits is a FLOOR, and a floor that also LOWERS is a cap. KWD, BHD and
+    // TND are three of the currencies whose minor unit is a thousandth, so
+    // capping at two renders 1.234 KWD as "KWD 1.23" — a figure the daemon never
+    // sent, dropped by the very rule that exists to stop a sub-cent price being
+    // rounded away.
+    expect(formatMoney(1.234, "KWD", "en-US")).toBe(`KWD${NO_BREAK_SPACE}1.234`);
+    expect(formatMoney(1.234, "KWD", "en-US")).not.toBe(`KWD${NO_BREAK_SPACE}1.23`);
+    expect(formatMoney(1.234, "BHD", "en-US")).toBe(`BHD${NO_BREAK_SPACE}1.234`);
+    expect(formatMoney(1.234, "TND", "en-US")).toBe(`TND${NO_BREAK_SPACE}1.234`);
+    // The floor still binds where the currency's own precision is coarser, which
+    // is what makes the assertions above about precision rather than about the
+    // console having stopped padding.
+    expect(formatMoney(1.5, "USD", "en-US")).toBe("$1.50");
+    expect(formatMoney(1.5, "JPY", "en-US")).toBe("¥1.50");
+  });
+
+  it("caches a currency's precision without letting the cache answer for another", () => {
+    // The precision is read once per code and remembered under a bound, so the
+    // failures worth pinning are an evicted entry coming back wrong and a
+    // remembered one answering for the wrong currency. Formatting far more
+    // distinct codes than the cache holds and then re-asserting both a
+    // three-digit and a two-digit currency catches either.
+    for (let letter = 0; letter < 26; letter += 1) {
+      for (const suffix of ["AA", "BB"]) {
+        formatMoney(1.5, `${String.fromCharCode("A".charCodeAt(0) + letter)}${suffix}`, "en-US");
+      }
+    }
+
+    expect(formatMoney(1.234, "KWD", "en-US")).toBe(`KWD${NO_BREAK_SPACE}1.234`);
+    expect(formatMoney(1.5, "USD", "en-US")).toBe("$1.50");
+    expect(formatMoney(12, "JPY", "en-US")).toBe("¥12.00");
+  });
+
   it("still shows the figure when the currency code is one Intl rejects", () => {
     // `Intl.NumberFormat` throws `RangeError` on anything that is not three ASCII
     // letters, and the currency is a wire string. Throwing inside a render body
@@ -316,6 +350,10 @@ describe("formatMoney — the wire's own precision, and never fewer than two dig
     expect(() => new Intl.NumberFormat("en-US", { style: "currency", currency: "?" })).toThrow(
       RangeError,
     );
+    // The minor-unit lookup constructs a SECOND formatter with the same currency,
+    // so it throws in the same place; it sits inside the same `try` for exactly
+    // that reason, and this is the assertion that says so.
+    expect(() => formatMoney(1.5, "?", "en-US")).not.toThrow();
     expect(formatMoney(1.5, "?", "en-US")).toBe(`1.50${NO_BREAK_SPACE}?`);
     expect(formatMoney(1.5, "not-a-code", "en-US")).toBe(`1.50${NO_BREAK_SPACE}not-a-code`);
   });
