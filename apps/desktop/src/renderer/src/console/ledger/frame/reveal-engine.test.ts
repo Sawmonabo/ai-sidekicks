@@ -188,7 +188,7 @@ describe("the reveal engine — the visible text never regresses", () => {
     expect(engine.publishedText("lane-1")).toBe("The run started");
   });
 
-  it("reports a source that changed out of band, and holds the visible text", () => {
+  it("reports a source that changed out of band, and keeps the agreed prefix", () => {
     const clock = new ManualClock();
     const engine = engineOn(clock);
     const diagnostics: RevealDiagnostic[] = [];
@@ -196,19 +196,66 @@ describe("the reveal engine — the visible text never regresses", () => {
 
     engine.ingest({ laneId: "lane-1", mode: "direct", text: "The run started at noon" });
     clock.runFrame();
-    const before = engine.publishedText("lane-1");
 
     const rewritten = "The run failed to start, and was retried";
     engine.ingest({ laneId: "lane-1", mode: "authoritative", text: rewritten });
     expect(diagnostics.map((diagnostic) => diagnostic.kind)).toStrictEqual([
       "out-of-band-source-change",
     ]);
-    // Re-based, not reset: the reader keeps exactly as much text as they had, and
-    // the rest of the rewritten source arrives through the ordinary frame budget.
-    expect(engine.publishedText("lane-1")).toHaveLength(before.length);
-    expect(rewritten.length).toBeGreaterThan(before.length);
+    // Re-based on what the two sources agree on, not on how much had been
+    // published: holding the LENGTH would have swapped "started at noon" for
+    // "failed to start, " in one frame with no budget spent.
+    expect(engine.publishedText("lane-1")).toBe("The run ");
+    expect(diagnostics[0]?.detail).toContain("8 characters both sources agree on");
+    expect(diagnostics[0]?.detail).toContain("15 characters were retracted");
+    // The rest of the rewritten source arrives through the ordinary frame budget.
     clock.runFrame();
     expect(engine.publishedText("lane-1")).toBe(rewritten);
+  });
+
+  it("keeps the agreed prefix when the rewrite is SHORTER than what was published", () => {
+    // Clamping to `min(publishedLength, sourceLength)` truncated the visible text
+    // here — the one case the published-text contract says cannot happen silently.
+    const clock = new ManualClock();
+    const engine = engineOn(clock);
+    const diagnostics: RevealDiagnostic[] = [];
+    engine.subscribeToDiagnostics((diagnostic) => diagnostics.push(diagnostic));
+
+    engine.ingest({ laneId: "lane-1", mode: "direct", text: "The run started at noon" });
+    clock.runFrame();
+
+    engine.ingest({ laneId: "lane-1", mode: "authoritative", text: "The run failed" });
+    expect(engine.publishedText("lane-1")).toBe("The run ");
+    expect(diagnostics[0]?.detail).toContain("8 characters both sources agree on");
+    expect(diagnostics[0]?.detail).toContain("15 characters were retracted");
+    clock.runFrame();
+    expect(engine.publishedText("lane-1")).toBe("The run failed");
+  });
+
+  it("re-reveals a divergent rewrite through the frame budget instead of swapping it", () => {
+    const clock = new ManualClock();
+    const engine = engineOn(clock);
+    const sharedCharacterCount = 40;
+    const original = prose(REVEAL_FRAME_CHARACTER_BUDGET * 3);
+    engine.ingest({ laneId: "lane-1", mode: "direct", text: original });
+    clock.runFrame();
+    expect(engine.publishedText("lane-1").length).toBeGreaterThan(sharedCharacterCount);
+
+    // Same length, diverging at character 40: the case where holding the published
+    // LENGTH would have looked correct and shown different characters.
+    const rewritten =
+      prose(sharedCharacterCount) + prose(original.length - sharedCharacterCount).toUpperCase();
+    expect(rewritten).toHaveLength(original.length);
+    engine.ingest({ laneId: "lane-1", mode: "authoritative", text: rewritten });
+    expect(engine.publishedText("lane-1")).toBe(prose(sharedCharacterCount));
+
+    clock.runFrame();
+    const afterOneFrame = engine.publishedText("lane-1");
+    expect(afterOneFrame.length).toBeGreaterThan(sharedCharacterCount);
+    expect(afterOneFrame.length).toBeLessThanOrEqual(
+      sharedCharacterCount + REVEAL_FRAME_CHARACTER_BUDGET,
+    );
+    expect(rewritten.startsWith(afterOneFrame)).toBe(true);
   });
 
   it("negative control: a commit that DOES extend raises no diagnostic", () => {

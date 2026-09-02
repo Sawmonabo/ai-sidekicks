@@ -190,10 +190,22 @@ export class RevealEngine {
    *
    * The prefix check is the whole point: a producer that re-wrote its own history
    * — a retry, a rollback, a driver reconnect — must not have its new source glued
-   * onto the tail of the old one. When the check fails the lane is re-based on the
-   * authoritative text and the reveal cursor is CLAMPED rather than reset, because
-   * §5.6's invariant is that the visible text never regresses even when the source
-   * did.
+   * onto the tail of the old one.
+   *
+   * When the check fails the lane is re-based on the LONGEST COMMON PREFIX of what
+   * it had published and what the producer now claims, and never on the published
+   * LENGTH. Clamping to the length preserved the cursor's position and not its
+   * text: a shorter rewrite truncated the visible prefix, and an equal-or-longer
+   * one replaced every character after the divergence in a single frame with no
+   * budget spent — which is the teleport this engine exists to prevent, arriving in
+   * exactly the retry case the branch was written for. Rebasing on the agreed
+   * prefix keeps the characters the two sources actually share, and the divergent
+   * remainder is revealed by the ordinary per-frame budget, so a rewrite streams.
+   *
+   * Both strings are already materialised here, so the comparison reads no growing
+   * source. The retraction is real — the producer withdrew text a reader had
+   * already seen — so the diagnostic states how many characters went, rather than
+   * claiming the revealed text held where it was.
    */
   #commitAuthoritative(lane: RevealLane, delta: RevealDelta): void {
     if (lane.smoother.isPrefixOf(delta.text)) {
@@ -205,16 +217,16 @@ export class RevealEngine {
       }
       return;
     }
+    const alreadyPublished = lane.publishedText;
+    const agreedPrefixLength = commonPrefixLength(alreadyPublished, delta.text);
     this.#reportDiagnostic({
       kind: "out-of-band-source-change",
       laneId: delta.laneId,
-      detail:
-        "an authoritative commit did not extend the text this lane had published; the lane was re-based and the revealed text held where it was",
+      detail: `an authoritative commit did not extend the text this lane had published; the lane was re-based on the ${String(agreedPrefixLength)} characters both sources agree on and ${String(alreadyPublished.length - agreedPrefixLength)} characters were retracted`,
     });
-    const alreadyPublished = lane.publishedText;
     const rebased = new RopeSmoother(delta.laneId);
     const token = rebased.append(delta.text);
-    rebased.advance(Math.min(alreadyPublished.length, delta.text.length));
+    rebased.advance(agreedPrefixLength);
     this.#lanesById.set(delta.laneId, {
       smoother: rebased,
       checkpoints: [],
@@ -366,4 +378,21 @@ export class RevealEngine {
   #reportDiagnostic(diagnostic: RevealDiagnostic): void {
     this.#diagnosticEmitter.emit(diagnostic);
   }
+}
+
+/**
+ * How many leading characters two settled strings share.
+ *
+ * Both arguments are materialised strings the caller already holds — the text a
+ * lane published and the whole source an authoritative commit carried — so this
+ * inspects nothing that is still growing, which is the one thing the rope's
+ * proven-append token exists to prevent.
+ */
+function commonPrefixLength(first: string, second: string): number {
+  const ceiling = Math.min(first.length, second.length);
+  let shared = 0;
+  while (shared < ceiling && first[shared] === second[shared]) {
+    shared += 1;
+  }
+  return shared;
 }
