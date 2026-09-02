@@ -37,6 +37,7 @@ import {
   TIMELINE_CHILD_RUN_EXPAND_METHOD,
   TIMELINE_METHOD_DESCRIPTORS,
   TIMELINE_METHOD_NAMES,
+  TIMELINE_READ_LIMIT_MAX,
   TIMELINE_READ_METHOD,
   TIMELINE_REASONING_SURFACE_READ_METHOD,
   TIMELINE_SUBSCRIBE_METHOD,
@@ -648,6 +649,111 @@ describe("timeline method-name registration (Plan-013 T1.4)", () => {
     await expect(
       scopedRegistry.dispatch(TIMELINE_CHILD_RUN_EXPAND_METHOD, { runId: RUN_ID }, dispatchContext),
     ).resolves.toStrictEqual(childRunExpandResponse);
+  });
+
+  it("a read page over the caller's own limit is refused, and at the limit resolves", async () => {
+    // The response schema bounds `entries` at the GLOBAL ceiling, which is the
+    // only one it can know: the caller's number is on the REQUEST, which no
+    // response schema sees. So a read for two rows answering with three parses
+    // today, and a client sizing a viewport, a budget, or a render pass from
+    // what it asked for is handed more with nothing on the reply saying so.
+    const threeRowPage = {
+      entries: [timelineRow, timelineRow, timelineRow],
+      hasMore: false,
+    } satisfies TimelineReadResponse;
+    const registry = new MethodRegistryImpl();
+    registerTimelineMethod(registry, {
+      method: TIMELINE_READ_METHOD,
+      handler: async () => threeRowPage,
+    });
+
+    let caught: unknown = null;
+    try {
+      await registry.dispatch(
+        TIMELINE_READ_METHOD,
+        { sessionId: SESSION_ID, limit: 2 },
+        dispatchContext,
+      );
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(RegistryDispatchError);
+    if (caught instanceof RegistryDispatchError) {
+      expect(caught.registryCode).toBe("invalid_result");
+      // The member, not an index: the page's SIZE is the defect and no single
+      // entry is responsible for it.
+      expect(caught.issues?.[0]).toMatchObject({ path: ["entries"] });
+    }
+
+    // NEGATIVE CONTROL, both directions on the same page. At the requested
+    // limit it resolves…
+    await expect(
+      registry.dispatch(TIMELINE_READ_METHOD, { sessionId: SESSION_ID, limit: 3 }, dispatchContext),
+    ).resolves.toStrictEqual(threeRowPage);
+    // …and so does a request that named no limit at all, which falls back to
+    // the default ceiling rather than to zero.
+    await expect(
+      registry.dispatch(TIMELINE_READ_METHOD, { sessionId: SESSION_ID }, dispatchContext),
+    ).resolves.toStrictEqual(threeRowPage);
+  });
+
+  it("an expansion over the default page ceiling is refused, and at the ceiling resolves", async () => {
+    // ChildRunExpandRequest declares no limit of its own, so its ceiling is the
+    // default constant — the same rule, stated on both paged reads so neither
+    // surface can drift, and already in place the day this request grows a
+    // caller-supplied limit.
+    //
+    // WHICH REPORTER ANSWERS is the whole assertion here, and it has to be,
+    // because today the response schema bounds this member at the same number:
+    // a path-only assertion passes with the correlation check deleted, which
+    // would make this test vacuous. So it asserts the message only THIS check
+    // emits — the one that names the ceiling and where the ceiling came from.
+    const pageOfSize = (size: number): ChildRunExpandResponse => ({
+      ...childRunExpandResponse,
+      entries: Array.from({ length: size }, () => timelineRow),
+    });
+    const registry = new MethodRegistryImpl();
+    registerTimelineMethod(registry, {
+      method: TIMELINE_CHILD_RUN_EXPAND_METHOD,
+      handler: async () => pageOfSize(TIMELINE_READ_LIMIT_MAX + 1),
+    });
+
+    let caught: unknown = null;
+    try {
+      await registry.dispatch(TIMELINE_CHILD_RUN_EXPAND_METHOD, { runId: RUN_ID }, dispatchContext);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(RegistryDispatchError);
+    if (caught instanceof RegistryDispatchError) {
+      expect(caught.registryCode).toBe("invalid_result");
+      expect(caught.issues?.[0]).toMatchObject({ path: ["entries"] });
+      expect(
+        caught.issues?.some(
+          (issue) =>
+            typeof (issue as { message?: unknown }).message === "string" &&
+            (issue as { message: string }).message.includes(
+              `against a ceiling of ${String(TIMELINE_READ_LIMIT_MAX)}`,
+            ),
+        ),
+      ).toBe(true);
+    }
+
+    // NEGATIVE CONTROL: exactly at the ceiling resolves, so the refusal is the
+    // overrun and not the size of the page.
+    const atCeilingRegistry = new MethodRegistryImpl();
+    const atCeiling = pageOfSize(TIMELINE_READ_LIMIT_MAX);
+    registerTimelineMethod(atCeilingRegistry, {
+      method: TIMELINE_CHILD_RUN_EXPAND_METHOD,
+      handler: async () => atCeiling,
+    });
+    await expect(
+      atCeilingRegistry.dispatch(
+        TIMELINE_CHILD_RUN_EXPAND_METHOD,
+        { runId: RUN_ID },
+        dispatchContext,
+      ),
+    ).resolves.toStrictEqual(atCeiling);
   });
 
   it("a malformed read entry reaches invalid_result, not a bare TypeError", async () => {

@@ -85,6 +85,7 @@
 import {
   TIMELINE_CHILD_RUN_EXPAND_METHOD,
   TIMELINE_METHOD_DESCRIPTORS,
+  TIMELINE_READ_LIMIT_MAX,
   TIMELINE_READ_METHOD,
   TIMELINE_REASONING_SURFACE_READ_METHOD,
   TIMELINE_SUBSCRIBE_METHOD,
@@ -136,6 +137,18 @@ import {
 // floor because it is the arm that can loop a client) and stops exactly where
 // the request leaves scope.
 //
+// A REPLY THAT OVERRUNS THE WINDOW THE CALLER ASKED FOR. `TimelineReadRequest`
+// carries an optional `limit`, and the response schema bounds `entries` at the
+// GLOBAL `TIMELINE_READ_LIMIT_MAX` — which is the only ceiling a schema can
+// know, since the caller's own number is on the request. So a read for ten rows
+// answering with two hundred and fifty-six parses: the caller's window is a
+// request the producer may honour or ignore, and a client sizing a viewport,
+// a budget, or a render pass from what it asked for is handed several times
+// that with nothing on the reply saying so. The ceiling is therefore resolved
+// per request — the caller's `limit` where it supplied one, the same global
+// constant where it did not — and enforced here, which is the only layer that
+// holds both numbers.
+//
 // The refusal is therefore an INTERNAL error and not a client error: the caller
 // asked a well-formed question, and the daemon assembled an answer that does
 // not answer it. It reuses the registry's own `invalid_result` code, which is
@@ -184,10 +197,19 @@ type TimelineRequestCorrelationCheck<MethodName extends TimelineQueryMethodName>
  * So every arm below tests the shape it reads — down to each element it
  * dereferences, not merely the container that holds them — and returns NO
  * violations when that shape is absent. This is not defensiveness for its own
- * sake: a result
- * that does not match the response schema is the registry's finding to report,
- * with the offending path and the real reason, one step later. Two reporters
- * for one defect would leave the worse message on the wire.
+ * sake: a result whose SHAPE does not match the response schema is the
+ * registry's finding to report, with the offending path and the real reason,
+ * one step later. Two reporters for one shape defect would leave the worse
+ * message on the wire.
+ *
+ * The page-ceiling check below is deliberately NOT an exception to that rule,
+ * and the distinction is worth stating because it looks like one. The schema
+ * bounds every page at the global constant; this check bounds it at the number
+ * the CALLER asked for, which the schema cannot see and which is usually
+ * tighter. Where the caller named no limit the two ceilings coincide and this
+ * check reports first — not a worse message for a defect the schema understood
+ * better, but the same ceiling stated with the request in hand, which is what
+ * lets one message cover both cases instead of two messages covering one each.
  *
  * BOUNDED REPORTING. A read page holds up to `TIMELINE_READ_LIMIT_MAX` rows,
  * and every one of them could be cross-scope. Reporting each would put an
@@ -198,6 +220,45 @@ type TimelineRequestCorrelationCheck<MethodName extends TimelineQueryMethodName>
  * entries disagreed in total, which is what an operator needs to tell a single
  * stray row from a whole page from the wrong session.
  */
+/**
+ * Refuse a page carrying more entries than the caller's own window admits.
+ *
+ * The ceiling is resolved per request rather than read off a constant: a caller
+ * that named a `limit` gets that number, and one that named none gets
+ * {@link TIMELINE_READ_LIMIT_MAX}, which is the same bound the response schema
+ * enforces. Both cases are stated by one message because they are one rule —
+ * the window the caller asked for — and the message says WHICH ceiling applied,
+ * so an operator can tell a producer ignoring a narrow request from one
+ * overrunning the global bound.
+ *
+ * `path` names the member and not an index: the defect is the page's size,
+ * which no single entry is responsible for, and pointing at entry N would
+ * invite a reader to treat that row as the offending one.
+ */
+const refusePageOverRequestedCeiling = (
+  entryCount: number,
+  ceiling: number,
+  ceilingIsCallerSupplied: boolean,
+): readonly RequestCorrelationViolation[] => {
+  if (entryCount <= ceiling) {
+    return [];
+  }
+  return [
+    {
+      code: "custom",
+      path: ["entries"],
+      message:
+        `the reply carries ${String(entryCount)} entries against a ceiling of ` +
+        `${String(ceiling)} (${
+          ceilingIsCallerSupplied
+            ? "the limit this request asked for"
+            : "the default page ceiling, which this request did not narrow"
+        }): a caller sizing a viewport, a budget, or a render pass from the window it asked for ` +
+        "is handed a larger one, with nothing on the reply saying the request was not honoured",
+    },
+  ];
+};
+
 const TIMELINE_REQUEST_CORRELATION_CHECKS: {
   readonly [MethodName in TimelineQueryMethodName]: TimelineRequestCorrelationCheck<MethodName>;
 } = {
@@ -222,27 +283,36 @@ const TIMELINE_REQUEST_CORRELATION_CHECKS: {
     if (!result.entries.every((entry) => typeof entry?.sessionId === "string")) {
       return [];
     }
+    // The caller's own window. `limit` is optional on the request and the
+    // response schema bounds `entries` at the global constant, so this is the
+    // one layer that can hold a read for ten rows to ten rows.
+    const violations: RequestCorrelationViolation[] = [
+      ...refusePageOverRequestedCeiling(
+        result.entries.length,
+        request.limit ?? TIMELINE_READ_LIMIT_MAX,
+        request.limit !== undefined,
+      ),
+    ];
     const firstOffendingIndex = result.entries.findIndex(
       (entry) => entry.sessionId !== request.sessionId,
     );
     if (firstOffendingIndex === -1) {
-      return [];
+      return violations;
     }
     const offendingCount = result.entries.filter(
       (entry) => entry.sessionId !== request.sessionId,
     ).length;
     const firstOffendingEntry = result.entries[firstOffendingIndex];
-    return [
-      {
-        code: "custom",
-        path: ["entries", firstOffendingIndex, "sessionId"],
-        message:
-          `entry sessionId ${JSON.stringify(firstOffendingEntry?.sessionId)} does not match the ` +
-          `requested session ${JSON.stringify(request.sessionId)} (${String(offendingCount)} of ` +
-          `${String(result.entries.length)} entries disagree): the reply is a valid page of ` +
-          "another session's history, which the caller cannot distinguish from its own",
-      },
-    ];
+    violations.push({
+      code: "custom",
+      path: ["entries", firstOffendingIndex, "sessionId"],
+      message:
+        `entry sessionId ${JSON.stringify(firstOffendingEntry?.sessionId)} does not match the ` +
+        `requested session ${JSON.stringify(request.sessionId)} (${String(offendingCount)} of ` +
+        `${String(result.entries.length)} entries disagree): the reply is a valid page of ` +
+        "another session's history, which the caller cannot distinguish from its own",
+    });
+    return violations;
   },
   // The reasoning surface has no SUBJECT to cross-check, and that omission is
   // deliberate rather than overlooked: `ReasoningSurfaceReadResponse` carries
@@ -287,8 +357,18 @@ const TIMELINE_REQUEST_CORRELATION_CHECKS: {
     ];
   },
   [TIMELINE_CHILD_RUN_EXPAND_METHOD]: (request, result) => {
+    // The same page ceiling as the read window, and the SAME constant, because
+    // `ChildRunExpandRequest` declares no `limit` of its own: an expansion is a
+    // bounded window over a child run's rows and its ceiling is the default
+    // one. Stated here rather than left to the schema so the rule has one
+    // expression across both paged reads — and so it already holds the day this
+    // request grows a caller-supplied limit, which is the change that would
+    // otherwise reintroduce the read window's gap on a second surface.
+    const violations: RequestCorrelationViolation[] = Array.isArray(result?.entries)
+      ? [...refusePageOverRequestedCeiling(result.entries.length, TIMELINE_READ_LIMIT_MAX, false)]
+      : [];
     if (typeof result?.runId !== "string") {
-      return [];
+      return violations;
     }
     if (result.runId === request.runId) {
       // Entry-level run attribution needs no separate check here: the response
@@ -296,19 +376,18 @@ const TIMELINE_REQUEST_CORRELATION_CHECKS: {
       // (`requireEntriesToBelongToRun`), so pinning `result.runId` to the
       // request pins the entries transitively. Two checks over one fact would
       // be a second source of truth for it.
-      return [];
+      return violations;
     }
-    return [
-      {
-        code: "custom",
-        path: ["runId"],
-        message:
-          `response runId ${JSON.stringify(result.runId)} does not match the expanded run ` +
-          `${JSON.stringify(request.runId)}: the reply is a self-consistent expansion of a ` +
-          "different run, and its entries were validated against the run it names rather than " +
-          "the run that was asked for",
-      },
-    ];
+    violations.push({
+      code: "custom",
+      path: ["runId"],
+      message:
+        `response runId ${JSON.stringify(result.runId)} does not match the expanded run ` +
+        `${JSON.stringify(request.runId)}: the reply is a self-consistent expansion of a ` +
+        "different run, and its entries were validated against the run it names rather than " +
+        "the run that was asked for",
+    });
+    return violations;
   },
 };
 
