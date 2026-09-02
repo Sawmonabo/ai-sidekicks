@@ -3984,7 +3984,7 @@ interface RuntimeBindingReadResponse {
 
 ### Plan-013 — Live Timeline Visibility And Reasoning Surfaces
 
-Every paged timeline reply is bounded by the frame it becomes (2026-09-01, Plan-013 Phase 1). A JSON-RPC reply leaves the daemon inside one `Content-Length`-framed body, and a body over `MAX_MESSAGE_BYTES` is not a failed request: the framer refuses to emit it and the **connection closes** (`Spec-007 §Wire Format`, F-007p-2-05). A row-count ceiling does not bound that — a `TimelineRow` carries three free-form fields at `EVENT_FIELD_MAX_LEN` plus a 4 KiB `summary`, and `JSON.stringify` expands a control character to a six-byte escape, so 256 contract-valid rows exceed the cap several times over before `payload`, which this contract does not bound at all. So each of the three paged members — `TimelineReadResponse.entries`, `ChildRunExpandResponse.entries`, and `ReasoningSurfaceReadResponse.reasoningEntries` — carries a byte budget (`TIMELINE_PAGE_MAX_BYTES` = `MAX_MESSAGE_BYTES` less a reserve for the envelope and the reply's non-paged members), a producer stops at whichever of the row limit and the byte budget trips first, and all three replies discriminate on `hasMore` so a caller can always continue. The budget is not bounded for one `timeline.subscribe` emission, which is a single row on its own frame: a row that blows a frame by itself is an oversized projected event payload, which `session.subscribe` has carried since it shipped, and bounding it is an event-envelope and framer decision rather than one a Plan-013 page budget may make on their behalf.
+Every paged timeline reply is bounded by the frame it becomes (2026-09-01, Plan-013 Phase 1). A JSON-RPC reply leaves the daemon inside one `Content-Length`-framed body, and a body over `MAX_MESSAGE_BYTES` is not a failed request: the framer refuses to emit it and the **connection closes** (`Spec-007 §Wire Format`, F-007p-2-05). A row-count ceiling does not bound that — a `TimelineRow` carries three free-form fields at `EVENT_FIELD_MAX_LEN` plus a 4 KiB `summary`, and `JSON.stringify` expands a control character to a six-byte escape, so 256 contract-valid rows exceed the cap several times over before `payload`, which this contract does not bound at all. So each of the three paged members — `TimelineReadResponse.entries`, `ChildRunExpandResponse.entries`, and `ReasoningSurfaceReadResponse.reasoningEntries` — carries a byte budget (`TIMELINE_PAGE_MAX_BYTES` = `MAX_MESSAGE_BYTES` less a reserve for the envelope and the reply's non-paged members), a producer stops at whichever of the row limit and the byte budget trips first, and all three replies discriminate on `hasMore` so a caller can always continue. **The budget bounds aggregation and never bounds a page below one entry** (2026-09-01, Plan-013 Phase 1): a continuing arm requires at least one entry — a page promising more and delivering none re-offers the same cursor forever while reading like progress — so where the first candidate alone exceeds the budget the producer pages that single entry and the reply is refused **for its size** at the response boundary, naming the member and its measured bytes on an error frame the substrate can deliver, rather than the page-fill helper returning a bare zero whose only representable answer is the empty continuing page the schema now refuses. A **terminal** arm carries no such floor: an empty final page is the honest answer to a continuation whose cursor already sat at the end and to a filtered read that matched nothing. The budget is not bounded for one `timeline.subscribe` emission, which is a single row on its own frame: a row that blows a frame by itself is an oversized projected event payload, which `session.subscribe` has carried since it shipped, and bounding it is an event-envelope and framer decision rather than one a Plan-013 page budget may make on their behalf.
 
 ```ts
 // TimelineRead
@@ -4001,6 +4001,10 @@ interface TimelineReadRequest {
 // "cursor-based continuation"). The terminal arm PERMITS one and never requires it — the two members
 // answer different questions, and a client that has just read to the end and now wants TimelineSubscribe
 // to "support live append plus replay recovery" from exactly there needs that position.
+// The continuing arm additionally requires entries to be NON-EMPTY (2026-09-01, Plan-013 Phase 1):
+// a page promising more and delivering none advances no cursor while reading like progress, so the
+// client re-asks from the same position and loops. The terminal arm keeps no floor — an empty final
+// page is the honest answer to an exhausted continuation and to a filtered read that matched nothing.
 // entries is additionally bounded by TIMELINE_PAGE_MAX_BYTES (see this section's opening note).
 type TimelineReadResponse =
   | { entries: TimelineRow[]; hasMore: true; nextCursor: EventCursor }
@@ -4019,7 +4023,7 @@ interface TimelineRowBase {
   payload: Record<string, unknown>;
 }
 
-type TimelineEntry = TimelineRowBase & { kind: "general" }; // the non-run arm (Codex round 4 on PR #232): carries no run attribution structurally — the projector stamps kind from the event family, so a run-scoped family can never arrive on this arm. The arm additionally REFUSES category: "run_lifecycle" (2026-09-01, Plan-013 Phase 1): all-or-none attribution is enforced by arm SELECTION, so a row whose kind was stamped wrong never reaches the run arm and its missing triple is never checked — it would arrive as a legitimately attribution-free general row. Every one of Spec-006 §Run Lifecycle's thirteen types is run-scoped (the nine state transitions share a payload shape carrying a required runId; the four non-state rows each re-list it), so the refusal costs no correct projection
+type TimelineEntry = TimelineRowBase & { kind: "general" }; // the non-run arm (Codex round 4 on PR #232): carries no run attribution structurally — the projector stamps kind from the event family, so a run-scoped family can never arrive on this arm. The arm additionally REFUSES category: "run_lifecycle" (2026-09-01, Plan-013 Phase 1): all-or-none attribution is enforced by arm SELECTION, so a row whose kind was stamped wrong never reaches the run arm and its missing triple is never checked — it would arrive as a legitimately attribution-free general row. Every one of Spec-006 §Run Lifecycle's thirteen types is run-scoped (the nine state transitions share a payload shape carrying a required runId; the four non-state rows each re-list it), so the refusal costs no correct projection. The refusal is THREE-LEGGED, not category alone (2026-09-01, Plan-013 Phase 1): category was only ever decisive for run_lifecycle, so the arm also refuses a canonical type in the derived census of Spec-006 types whose registered payload names a run unconditionally, and — for the types whose run identity is registered OPTIONAL (every artifact_publication type, five usage_telemetry types, user.message), which no type-level test can decide — a payload naming a run under either registered spelling, runId or the intervention family's targetRunId. The census is derived from Plan-006's per-category arrays rather than transcribed, and its size is pinned by a test so a taxonomy growth changes it loudly
 
 type RunScopedTimelineEntry = TimelineRowBase & {
   kind: "run"; // literal discriminator — row.kind narrowing is structural, never a probe of the free-form type: string
@@ -4027,6 +4031,14 @@ type RunScopedTimelineEntry = TimelineRowBase & {
   position: number; // the row's projection-resolved originating run position (Plan-004 T3.14's uniform row-to-turn assignment); the live rule compares it against the run.rolled_back boundary's carried targetPosition (sequence is the session event sequence, never a run position)
   epoch: number; // the row's projection-resolved execution epoch (T3.14's row attribution: the stamped sourceEpoch on late rows, the operation association's epoch on in-time content-asynchronous rows, the run's current epoch at emission otherwise — Codex round 2, PR #232); position alone can never recover the epoch, since re-execution reuses ordinals
   superseded?: { targetPosition: number }; // present exactly when the row's turn is superseded, absence = current (campaign B9 CP-004-13, 2026-07-20) — projection-computed from Plan-004 T3.14's exported supersededTurns(runId); deliberately single-field (Codex round 4, PR #232): the marker's run identity and source epoch ARE the containing row's runId + epoch, so no duplicated fields exist to disagree and live marking (the row plus the boundary cutoff) is identical to replay marking by construction; targetPosition = the superseding rollback's rewind cutoff — the first accepted rollback in the run's lineage, at the row's epoch or later, that rewound the surviving history containing the row (a later rollback below an earlier retained prefix supersedes the inherited rows; a row ranks superseded when position exceeds the run's effective cutoff for its epoch — the minimum cutoff among accepted rollbacks at epoch >= the row's); identical on TimelineRead and TimelineSubscribe replay, rows delivered after a boundary arriving with the marker already projection-computed — per Spec-013 §Required Behavior
+  // Where a projection echoes canonical keys into payload, they must AGREE with the outer triple
+  // (2026-09-01, Plan-013 Phase 1 — I-013-3's no-second-source rule reaching the payload): payload run
+  // identity under either spelling (runId, targetRunId) must equal this row's runId, and payload
+  // sourceEpoch / sourcePosition must equal this row's epoch / position. Echoing stays OPTIONAL and
+  // absence passes; only disagreement is refused, because consumers filter and mark superseded on the
+  // outer triple while the row's detail and provenance read the payload, so a row stating two
+  // attributions is filed under one turn and sourced from another. The run-identity half binds every
+  // arm carrying an outer runId, LegacyStubTimelineEntry included.
 };
 
 type LegacyStubTimelineEntry = TimelineRowBase & {
@@ -4137,17 +4149,23 @@ type ReasoningSurfaceReadResponse =
   // The available state is the one that PAGES, so it is the one that splits on hasMore (2026-09-01,
   // Plan-013 Phase 1) — the same continuation rule TimelineReadResponse carries, nested inside the
   // availability discriminant so the four states stay four and a paged reply is not a fifth state.
-  // reasoningEntries is non-empty: a zero-entry available arm claims a reasoning surface exists and
-  // then shows nothing, which renders identically to unavailable while asserting the opposite.
+  // reasoningEntries is non-empty ON THE CONTINUING ARM ONLY (narrowed 2026-09-01, Plan-013 Phase 1).
+  // A zero-entry available page claims a reasoning surface exists and then shows nothing, which renders
+  // identically to unavailable while asserting the opposite — true of a FIRST read, and false of a
+  // continuation whose afterCursor already sat at the end of the surface, which unavailable, compacted,
+  // and policy_redacted would each misstate. The schema cannot separate the two, because only the
+  // request separates them: it carries the half it can see (the continuing arm, which is the arm that
+  // can loop a client on a repeated cursor) and the daemon binder carries the first-page half, beside
+  // the request-scope checks, under Plan-013 I-013-13.
   | {
       availability: "available"; // normalized reasoning present and permitted
-      reasoningEntries: Array<{ sequence: number; content: string; timestamp: string }>; // required on this arm only, non-empty, bounded by TIMELINE_PAGE_MAX_BYTES
+      reasoningEntries: Array<{ sequence: number; content: string; timestamp: string }>; // required on this arm only, non-empty (continuing arm), bounded by TIMELINE_PAGE_MAX_BYTES
       hasMore: true;
       nextCursor: EventCursor;
     }
   | {
       availability: "available";
-      reasoningEntries: Array<{ sequence: number; content: string; timestamp: string }>;
+      reasoningEntries: Array<{ sequence: number; content: string; timestamp: string }>; // may be EMPTY on this arm — see the note above; a first read answering empty is refused at the binder
       hasMore: false;
       nextCursor?: EventCursor;
     }
@@ -4166,7 +4184,9 @@ interface ChildRunExpandRequest {
 // Discriminated on hasMore exactly as TimelineReadResponse is, and for the same reason: a child run is
 // not inherently smaller than a session window — a long-running subagent produces more rows than fit one
 // frame — so the expansion needs the same continuation, on the same two arms, with the same rule about
-// which of them may carry a cursor. Two further rules the schema enforces (2026-09-01, Plan-013 Phase 1):
+// which of them may carry a cursor — and the same non-empty floor on the continuing arm, for the same
+// reason: a child run's expansion loops a client on a repeated cursor exactly as a session read does.
+// Two further rules the schema enforces (2026-09-01, Plan-013 Phase 1):
 // every entry that carries a run identity must carry THIS run's (the general arm is exempt, having none —
 // a session-scoped row inside a child's window is context, not misattribution), and runId !== parentRunId,
 // since a run that is its own parent makes the lineage graph cyclic and every walk of it — nesting,

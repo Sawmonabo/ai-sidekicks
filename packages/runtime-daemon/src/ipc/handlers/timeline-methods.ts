@@ -110,24 +110,35 @@ import {
 } from "../subscription-ack-barrier.js";
 
 // ----------------------------------------------------------------------------
-// Request scope: the check no schema can perform
+// Request correlation: the checks no schema can perform
 // ----------------------------------------------------------------------------
 //
 // The registry validates a handler's resolved value against the response
 // schema and NOTHING ELSE — it never shows the schema the parsed request. That
 // is the right boundary for the registry (a schema that needed the request
-// would stop being a schema), and it leaves exactly one class of defect
-// unreachable from inside the contracts package: a self-consistent reply about
-// the WRONG SUBJECT. A `timeline.read` for session A can return a page of rows
-// every one of which is a valid `TimelineRow` from session B; a
-// `timeline.childRunExpand` for run A can return a response naming run B whose
-// entries all agree with the run it names. Both parse. Both reach the client,
-// which has no way to tell that the aggregate answers a question it did not
-// ask — the request id it correlates on says the reply is its own.
+// would stop being a schema), and it leaves behind the defects that are only
+// visible when request and response are held together. Two of them are live
+// here.
+//
+// A SELF-CONSISTENT REPLY ABOUT THE WRONG SUBJECT. A `timeline.read` for
+// session A can return a page of rows every one of which is a valid
+// `TimelineRow` from session B; a `timeline.childRunExpand` for run A can
+// return a response naming run B whose entries all agree with the run it
+// names. Both parse. Both reach the client, which has no way to tell that the
+// aggregate answers a question it did not ask — the request id it correlates
+// on says the reply is its own.
+//
+// A REPLY WHOSE MEANING DEPENDS ON WHAT WAS ASKED. An `available` reasoning
+// surface with no entries is a true statement about a continuation that has
+// reached the end, and a false one about a first read — the same bytes, two
+// meanings, separated only by whether the request carried an `afterCursor`.
+// The contract encodes what it can (the continuing arm carries a non-empty
+// floor because it is the arm that can loop a client) and stops exactly where
+// the request leaves scope.
 //
 // The refusal is therefore an INTERNAL error and not a client error: the caller
-// asked a well-formed question, and the daemon assembled an answer about
-// something else. It reuses the registry's own `invalid_result` code, which is
+// asked a well-formed question, and the daemon assembled an answer that does
+// not answer it. It reuses the registry's own `invalid_result` code, which is
 // exactly the condition ("the handler returned a value that does not match what
 // this method may return") one step further out than the registry can see —
 // mapping to `-32603` with `data.type: "invalid_result"` and the offending
@@ -135,33 +146,34 @@ import {
 // schema-side result failure. No new error code is minted.
 
 /**
- * One scope disagreement, shaped like a Zod issue so it rides
+ * One request/response disagreement, shaped like a Zod issue so it rides
  * `data.fields.issues` identically to a schema-side result-validation failure
  * and a client reading that field needs no second parser.
  */
-interface ScopeViolation {
+interface RequestCorrelationViolation {
   readonly code: "custom";
   readonly path: readonly (string | number)[];
   readonly message: string;
 }
 
 /**
- * The per-method scope check, keyed by method so each arm is typed against its
- * own request and response rather than against the four-way union.
+ * The per-method request-correlation check, keyed by method so each arm is
+ * typed against its own request and response rather than against the four-way
+ * union.
  *
  * The mapped type is indexed by the same generic the binder carries, so the
  * lookup in {@link registerTimelineMethod} correlates without a cast — the
  * same property `TIMELINE_METHOD_DESCRIPTORS` relies on.
  */
-type TimelineScopeCheck<MethodName extends TimelineQueryMethodName> = (
+type TimelineRequestCorrelationCheck<MethodName extends TimelineQueryMethodName> = (
   request: TimelineMethodRequest<MethodName>,
   result: TimelineMethodResponse<MethodName>,
-) => readonly ScopeViolation[];
+) => readonly RequestCorrelationViolation[];
 
 /**
- * SHAPE FIRST, SCOPE SECOND — and this check owns only the second.
+ * SHAPE FIRST, CORRELATION SECOND — and this check owns only the second.
  *
- * The scope check runs inside the handler wrapper, which is one step BEFORE
+ * The correlation check runs inside the handler wrapper, which is one step BEFORE
  * the registry validates the result against the response schema, so it is
  * handed values that may not be a response at all: a handler that resolved a
  * sibling operation's shape, or `undefined`. Reading `result.entries.length`
@@ -169,8 +181,10 @@ type TimelineScopeCheck<MethodName extends TimelineQueryMethodName> = (
  * a clean `invalid_result` envelope into an unmapped internal failure — the
  * check would have destroyed the diagnostic it exists beside.
  *
- * So every arm below tests the shape it reads and returns NO violations when
- * that shape is absent. This is not defensiveness for its own sake: a result
+ * So every arm below tests the shape it reads — down to each element it
+ * dereferences, not merely the container that holds them — and returns NO
+ * violations when that shape is absent. This is not defensiveness for its own
+ * sake: a result
  * that does not match the response schema is the registry's finding to report,
  * with the offending path and the real reason, one step later. Two reporters
  * for one defect would leave the worse message on the wire.
@@ -184,11 +198,28 @@ type TimelineScopeCheck<MethodName extends TimelineQueryMethodName> = (
  * entries disagreed in total, which is what an operator needs to tell a single
  * stray row from a whole page from the wrong session.
  */
-const TIMELINE_SCOPE_CHECKS: {
-  readonly [MethodName in TimelineQueryMethodName]: TimelineScopeCheck<MethodName>;
+const TIMELINE_REQUEST_CORRELATION_CHECKS: {
+  readonly [MethodName in TimelineQueryMethodName]: TimelineRequestCorrelationCheck<MethodName>;
 } = {
   [TIMELINE_READ_METHOD]: (request, result) => {
     if (!Array.isArray(result?.entries)) {
+      return [];
+    }
+    // PER-ELEMENT, not just per-array. `entries` being an array says nothing
+    // about what is IN it, and the declared element type is a promise the
+    // handler has not yet been held to: a page holding `null`, or an object
+    // with no `sessionId`, satisfies `Array.isArray` and then throws a bare
+    // `TypeError` out of the comparison below — which is the one outcome this
+    // whole check is built to avoid, since an exception on the dispatch path
+    // replaces the structured `invalid_result` envelope with an unmapped
+    // internal failure carrying no issue paths at all.
+    //
+    // A page with even one unreadable element defers ENTIRELY rather than
+    // reporting the readable ones: a malformed entry is a shape defect, the
+    // response schema is its reporter, and this check throwing first would
+    // pre-empt that reporter with a strictly worse message. Same rule as the
+    // array guard above, applied one level down.
+    if (!result.entries.every((entry) => typeof entry?.sessionId === "string")) {
       return [];
     }
     const firstOffendingIndex = result.entries.findIndex(
@@ -213,13 +244,48 @@ const TIMELINE_SCOPE_CHECKS: {
       },
     ];
   },
-  // The reasoning surface has NOTHING to cross-check, and the omission is
+  // The reasoning surface has no SUBJECT to cross-check, and that omission is
   // deliberate rather than overlooked: `ReasoningSurfaceReadResponse` carries
   // no `runId` and no `sessionId` on any of its four states — it is a
   // reasoning body plus an availability verdict — so there is no member on the
-  // reply that could disagree with the request. Adding one purely to check it
-  // would mint a wire member whose only reader is this guard.
-  [TIMELINE_REASONING_SURFACE_READ_METHOD]: () => [],
+  // reply that could name the wrong run. Adding one purely to check it would
+  // mint a wire member whose only reader is this guard.
+  //
+  // What it does have is the FIRST-PAGE floor, which is a correlation rule and
+  // not a subject one. `available` with zero entries renders as a reasoning
+  // surface that exists and shows nothing — pixel-identical to `unavailable`
+  // while asserting the opposite, the state collapse the availability
+  // vocabulary exists to prevent. That is a defect on a first read and the
+  // correct answer on a continuation whose cursor already sat at the end, so
+  // the response schema cannot decide it: the request is what separates the
+  // two, and this is the only layer holding both. The schema carries the half
+  // it can see (the continuing arm's non-empty floor, which is about looping);
+  // this carries the half it cannot.
+  [TIMELINE_REASONING_SURFACE_READ_METHOD]: (request, result) => {
+    if (request?.afterCursor !== undefined) {
+      return [];
+    }
+    if (result?.availability !== "available") {
+      return [];
+    }
+    // Shape first here too: a non-array `reasoningEntries` is the response
+    // schema's finding, not this one's.
+    if (!Array.isArray(result.reasoningEntries) || result.reasoningEntries.length > 0) {
+      return [];
+    }
+    return [
+      {
+        code: "custom",
+        path: ["reasoningEntries"],
+        message:
+          "a first reasoning read carried no cursor, so an empty available surface has no " +
+          "continuation to explain it: the client renders a surface that exists and shows " +
+          "nothing, which is indistinguishable from the unavailable state while asserting the " +
+          "opposite — a producer with nothing to serve must answer with the state that is true " +
+          "(unavailable, compacted, or policy_redacted) rather than with an empty page",
+      },
+    ];
+  },
   [TIMELINE_CHILD_RUN_EXPAND_METHOD]: (request, result) => {
     if (typeof result?.runId !== "string") {
       return [];
@@ -305,22 +371,22 @@ export function registerTimelineMethod<MethodName extends TimelineQueryMethodNam
   registration: TimelineMethodRegistration<MethodName>,
 ): void {
   const descriptor = TIMELINE_METHOD_DESCRIPTORS[registration.method];
-  const enforceRequestScope = TIMELINE_SCOPE_CHECKS[registration.method];
-  // The scoped handler. It is what gets registered, so the check runs on the
-  // caller's own request BEFORE the registry sees the value — the only place
-  // both are in scope at once.
-  const scopedHandler: Handler<
+  const enforceRequestCorrelation = TIMELINE_REQUEST_CORRELATION_CHECKS[registration.method];
+  // The correlating handler. It is what gets registered, so the check runs on
+  // the caller's own request BEFORE the registry sees the value — the only
+  // place both are in scope at once.
+  const correlatedHandler: Handler<
     TimelineMethodRequest<MethodName>,
     TimelineMethodResponse<MethodName>
   > = async (request, context) => {
     const result = await registration.handler(request, context);
-    const violations = enforceRequestScope(request, result);
+    const violations = enforceRequestCorrelation(request, result);
     if (violations.length > 0) {
       throw new RegistryDispatchError(
         "invalid_result",
-        `${descriptor.method}: handler returned a result outside the request's scope ` +
-          "(the daemon assembled a well-formed answer about a different subject; the client is " +
-          "not at fault)",
+        `${descriptor.method}: handler returned a result that does not correlate with the ` +
+          "request (the daemon assembled a well-formed answer that does not answer the " +
+          "question asked; the client is not at fault)",
         violations,
       );
     }
@@ -337,7 +403,7 @@ export function registerTimelineMethod<MethodName extends TimelineQueryMethodNam
     descriptor.method,
     descriptor.requestSchema,
     descriptor.responseSchema,
-    scopedHandler as Handler<unknown, unknown>,
+    correlatedHandler as Handler<unknown, unknown>,
     { mutating: descriptor.mutating },
   );
 }

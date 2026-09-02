@@ -165,11 +165,34 @@ export const TIMELINE_PAGE_MAX_BYTES: number =
  * A caller stops at `min(count, maxCount)` and sets `hasMore` from whether any
  * candidate was left behind.
  *
- * RETURNING ZERO IS A REAL OUTCOME, not a page break. It means the FIRST
- * candidate alone cannot fit a frame, and a caller that treats it as an empty
- * page with `hasMore: true` has built a cursor that never advances. The honest
- * response is to fail the read: the row exists, it cannot be delivered under
- * this transport, and saying so is the only answer that does not loop.
+ * FLOOR OF ONE. The byte budget bounds AGGREGATION — how many rows may be
+ * batched into one reply — and it never bounds a page below a single entry. So
+ * a non-empty candidate list yields at least one, even when that first
+ * candidate alone measures over the budget.
+ *
+ * The alternative, returning zero, is what forces the loop this floor exists
+ * to foreclose. A zero says "nothing fit" while candidates remain, and the only
+ * response a caller can build from it is an empty page that still has more —
+ * a cursor that never advances, re-asked forever, with the offending row never
+ * named. Every caller would have to remember to special-case the zero, and one
+ * that forgot would ship the loop; the continuing arms of
+ * {@link TimelineReadResponseSchema} and {@link ChildRunExpandResponseSchema}
+ * now refuse that page outright, so the zero has no representable answer left.
+ *
+ * The floor does NOT put an oversized reply on the wire, and does not weaken
+ * the budget. The single-entry page it produces is measured by
+ * {@link requirePageToRideOneFrame} like any other, and an over-budget one is
+ * refused there — as a typed result-validation failure naming the member and
+ * its measured size, on a small error frame the substrate can deliver. What
+ * changes is only WHERE the undeliverable row is reported: at the response
+ * boundary, structurally, on every producer, instead of in whatever each
+ * caller chose to do with a bare `0`.
+ *
+ * `maxCount` still wins where it is smaller: a caller asking for zero rows gets
+ * zero, because the floor answers "how little may a page be" and not "may a
+ * page exist at all". `TimelineReadRequest.limit` is `.positive()`, so that
+ * degenerate case reaches this function only from a caller that constructed it
+ * itself.
  */
 export function countEntriesFittingOneFrame(
   candidates: readonly unknown[],
@@ -184,6 +207,13 @@ export function countEntriesFittingOneFrame(
     const entryBytes = jsonUtf8ByteLength(candidates[index]);
     const separatorBytes = fittedCount === 0 ? 0 : 1;
     if (usedBytes + separatorBytes + entryBytes > TIMELINE_PAGE_MAX_BYTES) {
+      // Nothing has fitted yet, so this is the first candidate and the floor
+      // applies: deliver it alone rather than reporting an empty page beside
+      // an unconsumed cursor. `fittedCount === 0` can only hold at `index 0`,
+      // since every later iteration is reached by incrementing it.
+      if (fittedCount === 0) {
+        return 1;
+      }
       break;
     }
     usedBytes += separatorBytes + entryBytes;
@@ -348,28 +378,52 @@ export type TimelineReadResponse =
   | { entries: TimelineRow[]; hasMore: true; nextCursor: EventCursor }
   | { entries: TimelineRow[]; hasMore: false; nextCursor?: EventCursor | undefined };
 
-const timelineReadEntriesSchema = z.array(TimelineRowSchema).max(TIMELINE_READ_LIMIT_MAX);
-
 /**
- * `entries` is capped at the same {@link TIMELINE_READ_LIMIT_MAX} the request's
- * `limit` is, and deliberately shares the one constant: a response cap looser
- * than the request cap would let a producer answer a bounded ask with an
- * unbounded window, which is the bound the request cap exists to impose read
- * from the other side. The byte budget and the ordering rule apply to both
- * arms, so they are refined on the union rather than duplicated per arm.
+ * A CONTINUING page carries at least one row; a terminal page may be empty.
+ *
+ * The floor is the other half of the continuation contract. `hasMore: true`
+ * with `nextCursor` and zero entries is a well-formed promise of more that
+ * delivers none of it, and a client obeying the contract re-asks from the same
+ * cursor, receives the same answer, and loops — the producer has advanced
+ * nothing and said so in a shape that reads like progress. Making the page
+ * non-empty makes that unrepresentable rather than discouraged, which is what
+ * lets {@link countEntriesFittingOneFrame} carry its floor of one: the two
+ * rules are one rule seen from the producer's side and the validator's.
+ *
+ * The TERMINAL arm keeps no floor, and deliberately. An empty final page is
+ * the honest answer to a continuation whose `afterCursor` already sat at the
+ * end of the window, and to a filtered read that matched nothing — both are
+ * "there is nothing further", which is exactly what `hasMore: false` says.
+ * Requiring a row there would force a producer to either invent one or refuse
+ * a read that succeeded.
+ *
+ * Both arms share the {@link TIMELINE_READ_LIMIT_MAX} ceiling with the
+ * request's own `limit`, and deliberately share the one constant: a response
+ * cap looser than the request cap would let a producer answer a bounded ask
+ * with an unbounded window, which is the bound the request cap exists to
+ * impose read from the other side. The byte budget and the ordering rule apply
+ * to both arms, so they are refined on the union rather than duplicated per
+ * arm.
  */
+const continuingTimelineEntriesSchema = z
+  .array(TimelineRowSchema)
+  .min(1)
+  .max(TIMELINE_READ_LIMIT_MAX);
+
+const terminalTimelineEntriesSchema = z.array(TimelineRowSchema).max(TIMELINE_READ_LIMIT_MAX);
+
 export const TimelineReadResponseSchema: z.ZodType<TimelineReadResponse> = z
   .discriminatedUnion("hasMore", [
     z
       .object({
-        entries: timelineReadEntriesSchema,
+        entries: continuingTimelineEntriesSchema,
         hasMore: z.literal(true),
         nextCursor: EventCursorSchema,
       })
       .strict(),
     z
       .object({
-        entries: timelineReadEntriesSchema,
+        entries: terminalTimelineEntriesSchema,
         hasMore: z.literal(false),
         nextCursor: EventCursorSchema.optional(),
       })
@@ -535,16 +589,39 @@ export type ReasoningSurfaceReadResponse =
   | { availability: "compacted" }
   | { availability: "policy_redacted"; policyReason: string };
 
-// NON-EMPTY. An `available` arm carrying zero entries claims a reasoning
-// surface exists and then shows nothing, which renders identically to
-// `unavailable` while asserting the opposite — the collapse
+// NON-EMPTY ON THE CONTINUING ARM, and there alone.
+//
+// A FIRST `available` page carrying zero entries claims a reasoning surface
+// exists and then shows nothing, which renders identically to `unavailable`
+// while asserting the opposite — the collapse
 // `Spec-013 §Acceptance Criteria`'s distinguish-the-cases requirement forbids,
 // and which I-013-7 ("redaction never renders as absence") forbids in the
-// redaction direction. A producer with no entries to serve has three honest
-// arms to choose from and must pick one.
-const reasoningEntriesSchema = z
+// redaction direction. A producer with no entries to serve at all has three
+// honest arms to choose from and must pick one.
+//
+// A CONTINUATION is a different question with a different honest answer. A
+// caller re-asking from an `afterCursor` that already sat at the end of the
+// surface has reached the end of something that does exist, and every other
+// arm misstates that: `unavailable` says no reasoning was captured,
+// `compacted` says it was captured and discarded, `policy_redacted` says it
+// was withheld. The true statement is `available`, `hasMore: false`, nothing
+// further — so the terminal arm carries no floor.
+//
+// The two rules split cleanly by arm only because `hasMore: true` is the one
+// that can loop: a continuing page with no rows re-offers the same cursor
+// forever, exactly as the timeline read window's does, so it takes the same
+// `.min(1)`. What the SCHEMA cannot do is tell a first page from a
+// continuation — the request is not in scope here — so the first-page floor is
+// enforced where request and response meet, in the daemon's binder
+// (`registerTimelineMethod`), and is the reason that binder's reasoning arm is
+// no longer empty.
+const continuingReasoningEntriesSchema = z
   .array(ReasoningEntrySchema)
   .min(1)
+  .max(REASONING_SURFACE_ENTRIES_MAX);
+
+const terminalReasoningEntriesSchema = z
+  .array(ReasoningEntrySchema)
   .max(REASONING_SURFACE_ENTRIES_MAX);
 
 const reasoningAvailableArmSchema = z
@@ -552,7 +629,7 @@ const reasoningAvailableArmSchema = z
     z
       .object({
         availability: z.literal("available"),
-        reasoningEntries: reasoningEntriesSchema,
+        reasoningEntries: continuingReasoningEntriesSchema,
         hasMore: z.literal(true),
         nextCursor: EventCursorSchema,
       })
@@ -560,7 +637,7 @@ const reasoningAvailableArmSchema = z
     z
       .object({
         availability: z.literal("available"),
-        reasoningEntries: reasoningEntriesSchema,
+        reasoningEntries: terminalReasoningEntriesSchema,
         hasMore: z.literal(false),
         nextCursor: EventCursorSchema.optional(),
       })
@@ -650,13 +727,15 @@ export type ChildRunExpandResponse =
   | (ChildRunExpandResponseBase & { hasMore: true; nextCursor: EventCursor })
   | (ChildRunExpandResponseBase & { hasMore: false; nextCursor?: EventCursor | undefined });
 
+// `entries` is deliberately NOT part of the shared shape: the two arms differ
+// in exactly that member, each declaring the continuation-appropriate one from
+// the pair the read window uses — same cap, same non-empty rule on the
+// continuing arm, for the same reasons stated there. A child run's expansion
+// loops a client on a repeated cursor exactly as a session read does.
 const childRunExpandCommonShape = () => ({
   runId: RunIdSchema,
   parentRunId: RunIdSchema,
   state: RunStateSchema,
-  // Same cap as the read window, same reason: this is a bounded window over a
-  // child run's rows, not an unbounded dump.
-  entries: z.array(TimelineRowSchema).max(TIMELINE_READ_LIMIT_MAX),
 });
 
 /**
@@ -696,6 +775,7 @@ export const ChildRunExpandResponseSchema: z.ZodType<ChildRunExpandResponse> = z
     z
       .object({
         ...childRunExpandCommonShape(),
+        entries: continuingTimelineEntriesSchema,
         hasMore: z.literal(true),
         nextCursor: EventCursorSchema,
       })
@@ -703,6 +783,7 @@ export const ChildRunExpandResponseSchema: z.ZodType<ChildRunExpandResponse> = z
     z
       .object({
         ...childRunExpandCommonShape(),
+        entries: terminalTimelineEntriesSchema,
         hasMore: z.literal(false),
         nextCursor: EventCursorSchema.optional(),
       })

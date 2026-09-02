@@ -650,6 +650,130 @@ describe("timeline method-name registration (Plan-013 T1.4)", () => {
     ).resolves.toStrictEqual(childRunExpandResponse);
   });
 
+  it("a malformed read entry reaches invalid_result, not a bare TypeError", async () => {
+    // The correlation check runs one step BEFORE the response schema, so it is
+    // handed values that have not been validated yet. `Array.isArray` says
+    // nothing about what is IN the array: a page holding `null` passed the
+    // container guard and then threw a bare `TypeError` out of the comparison,
+    // which escapes the dispatch promise as an unmapped internal failure with
+    // no issue paths — destroying the very diagnostic the check exists beside.
+    //
+    // The rule is the one the check already applies to the container: a shape
+    // it cannot read is the response schema's finding, reported one step later
+    // with the real reason.
+    const registry = new MethodRegistryImpl();
+    registerTimelineMethod(registry, {
+      method: TIMELINE_READ_METHOD,
+      // The cast stands in for a projection defect. Without it the malformed
+      // entry is a compile error, so the runtime backstop can only be reached
+      // by defeating the type check deliberately.
+      handler: (async () => ({
+        entries: [null],
+        hasMore: false,
+      })) as unknown as Handler<TimelineReadRequest, TimelineReadResponse>,
+    });
+
+    let caught: unknown = null;
+    try {
+      await registry.dispatch(TIMELINE_READ_METHOD, { sessionId: SESSION_ID }, dispatchContext);
+    } catch (error) {
+      caught = error;
+    }
+    // NOT a TypeError — that is the whole assertion. A `TypeError` here would
+    // still fail the dispatch, which is why the defect was invisible: it fails
+    // in a shape the client cannot read.
+    expect(caught).not.toBeInstanceOf(TypeError);
+    expect(caught).toBeInstanceOf(RegistryDispatchError);
+    if (caught instanceof RegistryDispatchError) {
+      expect(caught.registryCode).toBe("invalid_result");
+      // …and the issue paths locate the offending element, which is what the
+      // schema reports and the correlation check deliberately does not.
+      expect(caught.issues?.length ?? 0).toBeGreaterThan(0);
+    }
+
+    // NEGATIVE CONTROL: a page whose entries ARE readable and cross-session is
+    // still refused by the correlation check itself, so deferring on malformed
+    // input did not disable the check for well-formed pages.
+    const foreignRegistry = new MethodRegistryImpl();
+    registerTimelineMethod(foreignRegistry, {
+      method: TIMELINE_READ_METHOD,
+      handler: async () => ({
+        entries: [{ ...timelineRow, sessionId: OTHER_SESSION_ID }],
+        hasMore: false,
+      }),
+    });
+    await expect(
+      foreignRegistry.dispatch(TIMELINE_READ_METHOD, { sessionId: SESSION_ID }, dispatchContext),
+    ).rejects.toMatchObject({ registryCode: "invalid_result" });
+  });
+
+  it("an empty reasoning surface on a FIRST read is refused; on a continuation it resolves", async () => {
+    // The one correlation rule that is not about the reply's subject. An
+    // `available` surface with no entries renders as a surface that exists and
+    // shows nothing — indistinguishable from `unavailable` while asserting the
+    // opposite. That is a defect on a first read and the correct answer on a
+    // continuation whose cursor already sat at the end, and the response schema
+    // cannot tell them apart because the request is not in its scope.
+    const emptyAvailable: ReasoningSurfaceReadResponse = {
+      availability: "available",
+      reasoningEntries: [],
+      hasMore: false,
+    };
+    const registry = new MethodRegistryImpl();
+    registerTimelineMethod(registry, {
+      method: TIMELINE_REASONING_SURFACE_READ_METHOD,
+      handler: async () => emptyAvailable,
+    });
+
+    let caught: unknown = null;
+    try {
+      await registry.dispatch(
+        TIMELINE_REASONING_SURFACE_READ_METHOD,
+        { runId: RUN_ID },
+        dispatchContext,
+      );
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(RegistryDispatchError);
+    if (caught instanceof RegistryDispatchError) {
+      expect(caught.registryCode).toBe("invalid_result");
+      expect(caught.issues?.[0]).toMatchObject({ path: ["reasoningEntries"] });
+    }
+
+    // NEGATIVE CONTROL, and the reason the floor lives here rather than in the
+    // schema: the SAME reply is correct when the request carried a cursor.
+    await expect(
+      registry.dispatch(
+        TIMELINE_REASONING_SURFACE_READ_METHOD,
+        { runId: RUN_ID, afterCursor: "seq-42" },
+        dispatchContext,
+      ),
+    ).resolves.toStrictEqual(emptyAvailable);
+
+    // SECOND NEGATIVE CONTROL: a first read that actually has something to
+    // serve resolves, so the refusal is the emptiness and not the first read.
+    const servedRegistry = new MethodRegistryImpl();
+    const servedSurface: ReasoningSurfaceReadResponse = {
+      availability: "available",
+      reasoningEntries: [
+        { sequence: 1, content: "normalized reasoning", timestamp: "2026-09-01T00:00:00.000Z" },
+      ],
+      hasMore: false,
+    };
+    registerTimelineMethod(servedRegistry, {
+      method: TIMELINE_REASONING_SURFACE_READ_METHOD,
+      handler: async () => servedSurface,
+    });
+    await expect(
+      servedRegistry.dispatch(
+        TIMELINE_REASONING_SURFACE_READ_METHOD,
+        { runId: RUN_ID },
+        dispatchContext,
+      ),
+    ).resolves.toStrictEqual(servedSurface);
+  });
+
   it("an emission from ANOTHER session never reaches the wire", async () => {
     // `TimelineRowSchema` accepts it — a row of a different session is a
     // perfectly valid row — so validation alone would forward another

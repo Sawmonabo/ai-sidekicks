@@ -561,13 +561,60 @@ const refuseRunScopedRowOnGeneralArm = (
 };
 
 /**
+ * Every arm carrying an outer `runId` refuses a payload that names a different
+ * run under EITHER registered spelling.
+ *
+ * The spellings are {@link TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS} — `runId`
+ * and the intervention family's `targetRunId` — and they are iterated rather
+ * than spelled here so the general arm's refusal and this arm's agreement
+ * check can never drift apart. That drift was real: a guard reading only
+ * `runId` accepts an intervention row projected with outer `runId` A and
+ * `payload.targetRunId` B, and the row is then filtered, ranked, and marked
+ * superseded under A while its detail view names B — the exact
+ * two-identity split this check exists to foreclose, reached through the one
+ * spelling the check did not read.
+ *
+ * Equality is the right relation for BOTH keys, not just the first. An
+ * intervention event's registered shape names no run other than the one it
+ * targets (`Spec-006 §Queue and Intervention (interactive_request)`), so the
+ * run a projection files such a row under IS `targetRunId`; that is the same
+ * premise {@link refuseRunScopedRowOnGeneralArm} already acts on when it
+ * treats a payload `targetRunId` as making a row run-attributed.
+ *
+ * Applied to the `legacy_stub` arm as well as `run`. A stub preserves its
+ * `runId` and loses only its ordinals, so a stub whose payload names another
+ * run splits its identity exactly as a run row does, and the check needs
+ * nothing the stub arm lacks.
+ */
+const requirePayloadRunIdentityToAgree = (
+  row: { runId: RunId; payload: Record<string, unknown> },
+  issueContext: z.RefinementCtx,
+): void => {
+  for (const attributionKey of TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS) {
+    const payloadRunIdentity = row.payload[attributionKey];
+    if (payloadRunIdentity === undefined || payloadRunIdentity === row.runId) {
+      continue;
+    }
+    issueContext.addIssue({
+      code: "custom",
+      path: ["payload", attributionKey],
+      message:
+        `payload ${attributionKey} ${JSON.stringify(payloadRunIdentity)} disagrees with the ` +
+        `row's own runId ${JSON.stringify(row.runId)}: consumers filter and mark superseded ` +
+        "on the outer value while the row's detail and provenance read the payload, so a row " +
+        "that states two run identities is filed under one run and sourced from another",
+    });
+  }
+};
+
+/**
  * The run arm refuses a row whose payload contradicts its own outer
  * attribution.
  *
  * A run row states its identity TWICE when the projection echoes canonical
  * keys into `payload`: once in the outer `runId` / `epoch` / `position` that
  * every consumer keys filtering and superseded treatment on, and once in the
- * payload's own `runId` / {@link SOURCE_EPOCH_PAYLOAD_KEY} /
+ * payload's own run spelling / {@link SOURCE_EPOCH_PAYLOAD_KEY} /
  * {@link SOURCE_POSITION_PAYLOAD_KEY}, which is where the row's detail view
  * and its canonical provenance are read from. Nothing forced the two to
  * agree. A row carrying outer attribution for run A and a payload naming run
@@ -590,18 +637,7 @@ const requirePayloadAttributionToAgree = (
   row: { runId: RunId; epoch: number; position: number; payload: Record<string, unknown> },
   issueContext: z.RefinementCtx,
 ): void => {
-  const payloadRunId = row.payload["runId"];
-  if (payloadRunId !== undefined && payloadRunId !== row.runId) {
-    issueContext.addIssue({
-      code: "custom",
-      path: ["payload", "runId"],
-      message:
-        `payload runId ${JSON.stringify(payloadRunId)} disagrees with the row's own runId ` +
-        `${JSON.stringify(row.runId)}: consumers filter and mark superseded on the outer ` +
-        "value while the row's detail and provenance read the payload, so a row that states " +
-        "two run identities is filed under one run and sourced from another",
-    });
-  }
+  requirePayloadRunIdentityToAgree(row, issueContext);
   const payloadEpoch = row.payload[SOURCE_EPOCH_PAYLOAD_KEY];
   if (payloadEpoch !== undefined && payloadEpoch !== row.epoch) {
     issueContext.addIssue({
@@ -665,7 +701,10 @@ const legacyStubTimelineArmSchema = z
     payload: projectedPayloadSchema,
   })
   .strict()
-  .superRefine(refuseBoundaryTypeOnNonBoundaryArm);
+  .superRefine((legacyStubRow, issueContext) => {
+    refuseBoundaryTypeOnNonBoundaryArm(legacyStubRow, issueContext);
+    requirePayloadRunIdentityToAgree(legacyStubRow, issueContext);
+  });
 
 const timelineRollbackBoundaryArmSchema = z
   .object({

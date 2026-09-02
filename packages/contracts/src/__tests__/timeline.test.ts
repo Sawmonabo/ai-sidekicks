@@ -817,25 +817,43 @@ describe("ReasoningSurfaceReadResponse availability (I-013-7)", () => {
     });
   });
 
-  it("F49 — `available` REFUSES an empty entry list", () => {
-    // This assertion is the reverse of the one first shipped here, and the
-    // reversal is the finding. An `available` arm carrying zero entries claims
-    // a reasoning surface exists and then shows nothing: it renders identically
-    // to `unavailable` while asserting the opposite, which collapses two of the
-    // four states `Spec-013 §Acceptance Criteria` requires a client be able to
-    // tell apart. A producer with nothing to serve has three honest arms and
-    // must pick one.
+  it("F49 — a CONTINUING `available` page REFUSES an empty entry list", () => {
+    // A continuing page with no entries promises more, supplies a cursor to ask
+    // with, and delivers nothing: the client re-asks from the same cursor,
+    // receives the same answer, and loops. The floor makes that unrepresentable
+    // rather than discouraged.
     expect(
       ReasoningSurfaceReadResponseSchema.safeParse({
         availability: "available",
         reasoningEntries: [],
-        hasMore: false,
+        hasMore: true,
+        nextCursor: "seq-42",
       }).success,
     ).toBe(false);
     // Positive control on the same axis: one entry is enough.
     expectRoundTrip(ReasoningSurfaceReadResponseSchema, {
       availability: "available",
       reasoningEntries: [reasoningEntry],
+      hasMore: true,
+      nextCursor: "seq-42",
+    });
+  });
+
+  it("F65 — a TERMINAL `available` page ACCEPTS an empty entry list", () => {
+    // The second reversal on this axis, and the reason it is not a retreat from
+    // the first: the collapse onto `unavailable` is a defect of a FIRST read,
+    // and this arm is also how a continuation says it reached the end of a
+    // surface that does exist. `unavailable` would say no reasoning was
+    // captured, `compacted` that it was discarded, `policy_redacted` that it
+    // was withheld — all three misstate a cursor that simply ran out.
+    //
+    // The schema cannot tell those two cases apart because the request is not
+    // in its scope, so the first-page floor is enforced in the daemon binder,
+    // where request and response are held together; the daemon suite owns that
+    // assertion.
+    expectRoundTrip(ReasoningSurfaceReadResponseSchema, {
+      availability: "available",
+      reasoningEntries: [],
       hasMore: false,
     });
   });
@@ -1020,13 +1038,19 @@ describe("timeline read window and live stream", () => {
     // the caller re-reading the same window or giving up, and both lose rows
     // the session holds. `Spec-013 §Interfaces And Contracts` requires
     // "cursor-based continuation"; this is that requirement made unskippable.
-    expect(TimelineReadResponseSchema.safeParse({ entries: [], hasMore: true }).success).toBe(
-      false,
-    );
-    // Positive control: the same window with its cursor parses.
     expect(
-      TimelineReadResponseSchema.safeParse({ entries: [], hasMore: true, nextCursor: cursor })
-        .success,
+      TimelineReadResponseSchema.safeParse({ entries: [generalRow], hasMore: true }).success,
+    ).toBe(false);
+    // Positive control: the same window with its cursor parses. `entries` is
+    // non-empty on both, because F66 makes an empty continuing page a refusal
+    // in its own right and a negative control that trips two rules at once
+    // proves neither.
+    expect(
+      TimelineReadResponseSchema.safeParse({
+        entries: [generalRow],
+        hasMore: true,
+        nextCursor: cursor,
+      }).success,
     ).toBe(true);
   });
 
@@ -1395,8 +1419,16 @@ describe("run attribution is refused where it cannot be read, and pinned where i
     // consumer filters on, once in the payload the detail view and canonical
     // provenance are read from. Nothing forced agreement, so a row filed under
     // run A could be sourced from run B, permanently and silently.
+    const otherRunId = "99999999-8888-4777-8666-555555555555";
     const disagreements = [
-      { payloadKey: "runId", payloadValue: "99999999-8888-4777-8666-555555555555" },
+      { payloadKey: "runId", payloadValue: otherRunId },
+      // BOTH registered spellings, not just the first. An intervention row is
+      // projected under the run it targets, so its payload names that run as
+      // `targetRunId`; a guard reading only `runId` accepted outer run A with
+      // payload run B and the row was then filtered, ranked, and superseded
+      // under A while its detail named B — the same two-identity split, reached
+      // through the one key the check did not read.
+      { payloadKey: "targetRunId", payloadValue: otherRunId },
       { payloadKey: "sourceEpoch", payloadValue: runScopedRow.epoch + 1 },
       { payloadKey: "sourcePosition", payloadValue: runScopedRow.position + 1 },
     ] as const;
@@ -1429,6 +1461,35 @@ describe("run attribution is refused where it cannot be read, and pinned where i
     // …and ABSENCE parses, because a projection may summarize a payload down
     // to nothing and `Spec-013` requires no particular payload content.
     expect(TimelineRowSchema.safeParse(runScopedRow).success).toBe(true);
+  });
+
+  it("F64 — the legacy-stub arm REFUSES the same contradiction, under either key", () => {
+    // A stub preserves its `runId` and loses only its ordinals, so a stub whose
+    // payload names a different run splits its identity exactly as a run row
+    // does. The arm carries no epoch or position, so the run-identity half of
+    // the check is the whole of it here.
+    const otherRunId = "99999999-8888-4777-8666-555555555555";
+    for (const payloadKey of ["runId", "targetRunId"] as const) {
+      const contradicted = {
+        ...legacyStubRow,
+        payload: { detail: "opaque", [payloadKey]: otherRunId },
+      };
+      const result = TimelineRowSchema.safeParse(contradicted);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(
+          result.error.issues.some((issue) => issue.path.join(".") === `payload.${payloadKey}`),
+        ).toBe(true);
+      }
+    }
+    // POSITIVE CONTROLS: agreement parses, and so does absence.
+    expect(
+      TimelineRowSchema.safeParse({
+        ...legacyStubRow,
+        payload: { detail: "opaque", targetRunId: legacyStubRow.runId },
+      }).success,
+    ).toBe(true);
+    expect(TimelineRowSchema.safeParse(legacyStubRow).success).toBe(true);
   });
 });
 
@@ -1731,21 +1792,90 @@ describe("paged replies are ordered, run-scoped, and frame-safe (T1.3)", () => {
     expect(jsonUtf8ByteLength(1n)).toBe(Number.POSITIVE_INFINITY);
   });
 
-  it("the fitting function is exact at the boundary and honest about zero", () => {
+  it("the fitting function is exact at the boundary and floors at one", () => {
     const smallRow = { ...runScopedRow, sequence: 1 };
     // Nothing is dropped when everything fits.
     expect(countEntriesFittingOneFrame([smallRow, smallRow], TIMELINE_READ_LIMIT_MAX)).toBe(2);
     // The count ceiling still binds when it is the tighter of the two.
     expect(countEntriesFittingOneFrame([smallRow, smallRow], 1)).toBe(1);
+    // An empty candidate list is genuinely empty — the floor answers "how
+    // little may a page be", not "may a page exist at all".
     expect(countEntriesFittingOneFrame([], TIMELINE_READ_LIMIT_MAX)).toBe(0);
-    // Zero from a non-empty input means the FIRST candidate cannot ride a
-    // frame at all. A caller that treated that as an empty page with more to
-    // come would build a cursor that never advances, so it is a documented
-    // failure rather than a page break.
+    // …and `maxCount` still wins where it is the smaller of the two, which is
+    // the negative control that keeps the floor from reading as an absolute.
+    expect(countEntriesFittingOneFrame([smallRow], 0)).toBe(0);
+  });
+
+  it("F66 — an over-budget FIRST candidate is paged as one entry, then refused by the budget", () => {
+    // THE FLOOR, and where it stops. The byte budget bounds aggregation and
+    // never bounds a page below one entry, so a first candidate that alone
+    // exceeds the budget still counts as one: returning zero would leave the
+    // caller with an empty page beside an unconsumed cursor, which is a
+    // continuation that never advances and never names the offending row.
     const unfittableRow = {
       ...runScopedRow,
       payload: { blob: "x".repeat(TIMELINE_PAGE_MAX_BYTES) },
     };
-    expect(countEntriesFittingOneFrame([unfittableRow], TIMELINE_READ_LIMIT_MAX)).toBe(0);
+    expect(countEntriesFittingOneFrame([unfittableRow], TIMELINE_READ_LIMIT_MAX)).toBe(1);
+    // The floor does NOT put an oversized reply on the wire, and this is the
+    // assertion that says so: the single-entry page it produces is measured
+    // like any other and refused, naming the member. What the floor changed is
+    // WHERE the undeliverable row is reported — structurally, at the response
+    // boundary, on every producer — not whether it is delivered.
+    const overBudgetPage = TimelineReadResponseSchema.safeParse({
+      entries: [unfittableRow],
+      hasMore: false,
+    });
+    expect(overBudgetPage.success).toBe(false);
+    if (!overBudgetPage.success) {
+      expect(overBudgetPage.error.issues.some((issue) => issue.path.join(".") === "entries")).toBe(
+        true,
+      );
+    }
+  });
+
+  it("F66 — `hasMore: true` REQUIRES at least one entry, on both paged row replies", () => {
+    // The producer's floor and the validator's floor are one rule seen from two
+    // sides. A continuing page with no rows re-offers the same cursor forever:
+    // the client obeys the contract, re-asks, and receives the same answer, and
+    // nothing in the reply says anything is wrong.
+    expect(
+      TimelineReadResponseSchema.safeParse({ entries: [], hasMore: true, nextCursor: "seq-42" })
+        .success,
+    ).toBe(false);
+    expect(
+      ChildRunExpandResponseSchema.safeParse({
+        runId: RUN_ID,
+        parentRunId: PARENT_RUN_ID,
+        state: "running",
+        entries: [],
+        hasMore: true,
+        nextCursor: "seq-42",
+      }).success,
+    ).toBe(false);
+    // POSITIVE CONTROLS, both directions. One row makes the same continuing
+    // page legal…
+    expect(
+      TimelineReadResponseSchema.safeParse({
+        entries: [generalRow],
+        hasMore: true,
+        nextCursor: "seq-42",
+      }).success,
+    ).toBe(true);
+    // …and the TERMINAL arm keeps no floor, because an empty final page is the
+    // honest answer to a continuation that reached the end and to a filtered
+    // read that matched nothing.
+    expect(TimelineReadResponseSchema.safeParse({ entries: [], hasMore: false }).success).toBe(
+      true,
+    );
+    expect(
+      ChildRunExpandResponseSchema.safeParse({
+        runId: RUN_ID,
+        parentRunId: PARENT_RUN_ID,
+        state: "running",
+        entries: [],
+        hasMore: false,
+      }).success,
+    ).toBe(true);
   });
 });
