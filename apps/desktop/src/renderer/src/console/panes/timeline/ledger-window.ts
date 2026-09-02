@@ -39,7 +39,6 @@ import { type LedgerViewportRow } from "../../ledger/frame/index.js";
 import {
   LedgerChapterIndex,
   LedgerSeamIndex,
-  ProvenanceRailModel,
   SupersededIndex,
   type LedgerSeam,
 } from "../../ledger/structure/index.js";
@@ -56,8 +55,6 @@ export interface LedgerWindowModel {
   readonly supersededRowIds: ReadonlySet<string>;
   /** Which rows are collapsed, under rule 7's terminal-chapter fold. */
   readonly collapsedRowIds: ReadonlySet<string>;
-  /** The rail's derivation over this window. */
-  readonly railModel: ProvenanceRailModel;
   /** Every seam in log order — what the replay dock's next-seam jump walks. */
   readonly seams: readonly LedgerSeam[];
   /** The rows in log order, for find, the chapter fold, and the replay scrub. */
@@ -134,8 +131,10 @@ export function deriveLedgerWindow(
   const { rows } = projection;
   const chapterIndex = new LedgerChapterIndex(rows);
   const supersededIndex = new SupersededIndex(rows);
-  // One classifier, shared by the rail and the seam list, rather than two indexes
-  // deriving the same vocabulary twice over the same rows.
+  // The seam vocabulary has one classifier; this is the instance that reads the
+  // whole log, which is what replay's next-seam jump walks. The rail's own instance
+  // reads the pruned window in `ledger-feed-model.ts`, because the rail marks what
+  // is on screen.
   const seamIndex = new LedgerSeamIndex();
   const rowsByKey = new Map<string, TimelineRow>();
   const viewportRows: LedgerViewportRow[] = [];
@@ -156,7 +155,6 @@ export function deriveLedgerWindow(
     rowsByKey,
     supersededRowIds,
     collapsedRowIds: collapsedRowIdsOf(chapterIndex),
-    railModel: new ProvenanceRailModel({ rows, hasEarlierRows }, seamIndex),
     seams: seamIndex.seams(rows),
     rows,
     unprojectableEventCount: projection.unprojectableEventCount,
