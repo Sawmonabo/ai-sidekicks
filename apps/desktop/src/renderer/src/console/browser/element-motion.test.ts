@@ -1,67 +1,23 @@
-// The DOM seams an overlay's movement is read through.
+// The DOM seams an element's movement is read through.
 //
-// Each of the four is a claim a naive reading gets wrong: a resize observer that is
-// never disconnected outlives its overlay; a motion listener attached to the overlay
-// hears its ancestors' transitions not at all; a sibling's animation moves nothing;
-// and a paused animation is not motion. Every clean case below has the control that
-// fails without the rule.
+// Each seam is a claim a naive reading gets wrong: a resize observer that is never
+// disconnected outlives its subject; a motion listener attached to the subject hears
+// its ancestors' transitions not at all; a sibling's animation moves nothing; a
+// paused animation is not motion; and a size observer over the element reports
+// nothing whatever when the element is MOVED rather than resized. Every clean case
+// below has the control that fails without the rule.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ManualClock } from "../core/index.js";
 import {
   hasRunningMotion,
+  observeElementPosition,
   observeElementResize,
   observeMotionStarts,
   sharesMotionWith,
 } from "./element-motion.js";
-
-interface FakeResizeObserverControl {
-  deliverAll(): void;
-  observedCount(): number;
-  disconnectCount(): number;
-}
-
-/** The minimal `ResizeObserver` the module's arming path needs, under test control. */
-function installFakeResizeObserver(): FakeResizeObserverControl {
-  const deliverers: (() => void)[] = [];
-  let observedCount = 0;
-  let disconnectCount = 0;
-
-  class FakeResizeObserver {
-    readonly #callback: () => void;
-
-    public constructor(callback: () => void) {
-      this.#callback = callback;
-      deliverers.push(() => {
-        this.#callback();
-      });
-    }
-
-    public observe(): void {
-      observedCount += 1;
-    }
-
-    public unobserve(): void {
-      // The module disconnects rather than unobserving; present so the fake is the
-      // shape the platform declares rather than the subset one caller happens to use.
-    }
-
-    public disconnect(): void {
-      disconnectCount += 1;
-    }
-  }
-
-  vi.stubGlobal("ResizeObserver", FakeResizeObserver);
-  return {
-    deliverAll: () => {
-      for (const deliver of deliverers) {
-        deliver();
-      }
-    },
-    observedCount: () => observedCount,
-    disconnectCount: () => disconnectCount,
-  };
-}
+import { installFakeResizeObserver, settleMutationRecords } from "./element-motion.test-support.js";
 
 function fakeAnimation(playState: AnimationPlayState): Animation {
   return { playState } as unknown as Animation;
@@ -200,5 +156,172 @@ describe("hasRunningMotion", () => {
     withAnimations(ancestor, undefined);
 
     expect(hasRunningMotion(element)).toBe(false);
+  });
+});
+
+// The three ways a pane moves while its own box stays exactly the shape it was.
+//
+// Each source below is a case a size observer on the element reports as nothing at
+// all: the deck reorders its seats, a sibling shrinks and the flex line redistributes,
+// a rail slides in carrying everything inside it. The pane's rectangle is wrong for
+// the whole of each of them and the platform never says so on the element itself.
+// The last two cases are the budget: nothing is armed at rest, and nothing survives
+// the disposer.
+describe("observeElementPosition", () => {
+  /** One animation whose play state the test moves, read live through the getter. */
+  function movingAnimation(): { readonly animation: Animation; settle: () => void } {
+    let playState: AnimationPlayState = "running";
+    return {
+      animation: {
+        get playState(): AnimationPlayState {
+          return playState;
+        },
+      } as unknown as Animation,
+      settle: () => {
+        playState = "finished";
+      },
+    };
+  }
+
+  it("reports a reorder of the element's ancestors, which changes no size", async () => {
+    installFakeResizeObserver();
+    const { ancestor, element } = attachedPair();
+    const onMove = vi.fn();
+
+    const detach = observeElementPosition({ element, clock: new ManualClock(), onMove });
+    ancestor.insertBefore(document.createElement("div"), element);
+    await settleMutationRecords();
+
+    expect(onMove).toHaveBeenCalled();
+    detach();
+  });
+
+  it("negative control: the element's OWN children changing is content, not placement", async () => {
+    // Watching the element's child list instead of its ancestors' would fire on every
+    // render of whatever the pane contains and never once on the deck reordering it.
+    installFakeResizeObserver();
+    const { element } = attachedPair();
+    const onMove = vi.fn();
+
+    const detach = observeElementPosition({ element, clock: new ManualClock(), onMove });
+    element.append(document.createElement("span"));
+    await settleMutationRecords();
+
+    expect(onMove).not.toHaveBeenCalled();
+    detach();
+  });
+
+  it("reports a sibling's relayout, which the platform reports on the ancestor", () => {
+    // A sibling that shrinks moves this element and resizes neither it nor, in the
+    // reading a naive observer takes, anything else. What actually changes is the
+    // ancestor's own content box, which is why the ancestors are what is observed.
+    const resizeObserver = installFakeResizeObserver();
+    const { ancestor, element } = attachedPair();
+    const onMove = vi.fn();
+
+    const detach = observeElementPosition({ element, clock: new ManualClock(), onMove });
+    resizeObserver.deliverFor(ancestor);
+
+    expect(onMove).toHaveBeenCalledTimes(1);
+    detach();
+  });
+
+  it("negative control: the element's own size belongs to the other seam", () => {
+    // `observeElementResize` is armed over the host separately and reports
+    // `resize-observer`. If this arm also claimed it, one relayout would be counted
+    // as two different facts and the diagnostic reason would stop meaning anything.
+    const resizeObserver = installFakeResizeObserver();
+    const { element } = attachedPair();
+    const onMove = vi.fn();
+
+    const detach = observeElementPosition({ element, clock: new ManualClock(), onMove });
+    resizeObserver.deliverFor(element);
+
+    expect(onMove).not.toHaveBeenCalled();
+    detach();
+  });
+
+  it("samples once a frame while an ancestor animates, then stops on the resting frame", () => {
+    installFakeResizeObserver();
+    const clock = new ManualClock();
+    const { ancestor, element } = attachedPair();
+    const motion = movingAnimation();
+    withAnimations(element, []);
+    withAnimations(ancestor, [motion.animation]);
+    const onMove = vi.fn();
+
+    // Armed mid-animation, so the loop starts at arm time rather than at a start event.
+    const detach = observeElementPosition({ element, clock, onMove });
+    expect(clock.pendingFrameCount).toBe(1);
+
+    clock.runFrame();
+    expect(onMove).toHaveBeenCalledTimes(1);
+    expect(clock.pendingFrameCount).toBe(1);
+
+    motion.settle();
+    clock.runFrame();
+    // The resting frame reports where the pane ended up, and is the last one.
+    expect(onMove).toHaveBeenCalledTimes(2);
+    expect(clock.pendingFrameCount).toBe(0);
+    detach();
+  });
+
+  it("starts sampling when an ancestor's motion begins after it was armed", () => {
+    installFakeResizeObserver();
+    const clock = new ManualClock();
+    const { ancestor, element } = attachedPair();
+    withAnimations(element, []);
+    withAnimations(ancestor, []);
+    const onMove = vi.fn();
+    const detach = observeElementPosition({ element, clock, onMove });
+    expect(clock.pendingFrameCount).toBe(0);
+
+    withAnimations(ancestor, [fakeAnimation("running")]);
+    ancestor.dispatchEvent(new Event("transitionrun", { bubbles: true }));
+
+    expect(clock.pendingFrameCount).toBe(1);
+    detach();
+  });
+
+  it("negative control: nothing moves, so no frame is armed and nothing is sampled", () => {
+    // The idle-CPU budget. A standing frame loop would satisfy every clean case above
+    // and would also spend a frame per pane forever on a console sitting still.
+    installFakeResizeObserver();
+    const clock = new ManualClock();
+    const { element } = attachedPair();
+    const onMove = vi.fn();
+
+    const detach = observeElementPosition({ element, clock, onMove });
+    for (let frame = 0; frame < 5; frame += 1) {
+      clock.runFrame();
+    }
+
+    expect(onMove).not.toHaveBeenCalled();
+    expect(clock.pendingCount).toBe(0);
+    detach();
+  });
+
+  it("disarms all three sources on dispose, mid-animation included", async () => {
+    const resizeObserver = installFakeResizeObserver();
+    const clock = new ManualClock();
+    const { ancestor, element } = attachedPair();
+    const motion = movingAnimation();
+    withAnimations(element, []);
+    withAnimations(ancestor, [motion.animation]);
+    const onMove = vi.fn();
+    const detach = observeElementPosition({ element, clock, onMove });
+    expect(resizeObserver.liveObserverCount()).toBeGreaterThan(0);
+    expect(clock.pendingFrameCount).toBe(1);
+
+    detach();
+
+    expect(resizeObserver.liveObserverCount()).toBe(0);
+    expect(clock.pendingCount).toBe(0);
+    ancestor.insertBefore(document.createElement("div"), element);
+    resizeObserver.deliverFor(ancestor);
+    ancestor.dispatchEvent(new Event("transitionrun", { bubbles: true }));
+    await settleMutationRecords();
+    clock.runFrame();
+    expect(onMove).not.toHaveBeenCalled();
   });
 });
