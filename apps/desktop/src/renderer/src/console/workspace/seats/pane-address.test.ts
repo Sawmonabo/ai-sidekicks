@@ -29,6 +29,8 @@ import { PANE_KINDS } from "./pane-kinds.js";
 const AGENT = { kind: "agent", id: "agent-1" } as const satisfies ConsoleEntityRef;
 const RUN = { kind: "run", id: "run-1" } as const satisfies ConsoleEntityRef;
 const ARTIFACT = { kind: "artifact", id: "artifact-1" } as const satisfies ConsoleEntityRef;
+/** Still a registered entity kind, and no longer one any pane kind is a view of. */
+const BROWSER_PAGE = { kind: "browser-page", id: "page-1" } as const satisfies ConsoleEntityRef;
 
 /** One arm of the address union, so a case can read the member that arm carries. */
 type AddressArm<TKind extends ConsolePaneAddress["kind"]> = Extract<
@@ -74,6 +76,13 @@ describe("the address union, at a typed call site", () => {
     expect(strayEntity.kind).toBe("runs");
   });
 
+  it("refuses an entity on the browser pane, which the seam keys by pane id", () => {
+    // @ts-expect-error the browser seam keys every operation by `paneId`; there is
+    // no page entity for a browser address to be over
+    const strayPage: AddressArm<"browser"> = { kind: "browser", entity: BROWSER_PAGE };
+    expect(strayPage.kind).toBe("browser");
+  });
+
   it("admits the documented no-agent arm, so the optionality that is real survives", () => {
     // The negative control for the three cases above: a union that refused
     // everything would satisfy them all. The agent console's bare arm is the
@@ -111,6 +120,24 @@ describe("the boundary parse — what it admits", () => {
       kind: "agent-console",
     });
   });
+
+  it("admits a bare browser pane at both untyped boundaries", () => {
+    // The two shapes the parse actually receives, and the pre-fold arm refused
+    // both: a restored layout row that carries a kind and no entity, and a route
+    // that resolves to a pane kind and nothing else. A page entity a caller could
+    // have supplied instead does not exist — the browser seam keys navigate,
+    // reload, stop, back, forward, and its navigation subscription by `paneId`.
+    const restoredLayoutRow: unknown = { kind: "browser" };
+    const { kind: restoredKind, entity: restoredEntity } = restoredLayoutRow as {
+      readonly kind: unknown;
+      readonly entity?: unknown;
+    };
+
+    expect(parseConsolePaneAddress(restoredKind, restoredEntity)).toStrictEqual({
+      kind: "browser",
+    });
+    expect(parseConsolePaneAddress("browser", undefined)).toStrictEqual({ kind: "browser" });
+  });
 });
 
 describe("the boundary parse — what it refuses, and by which name", () => {
@@ -139,6 +166,16 @@ describe("the boundary parse — what it refuses, and by which name", () => {
     const refusal = refusalFrom(parseConsolePaneAddress("runs", RUN));
 
     expect(refusal.code).toBe("pane-entity-unexpected");
+  });
+
+  it("rejects a page entity handed to the browser pane", () => {
+    // The other direction of the same fold. The arm takes no entity, so a caller
+    // that resolved one is naming a locator the browser seam never issued, and the
+    // refusal says so rather than letting a body query a partition nothing fills.
+    const refusal = refusalFrom(parseConsolePaneAddress("browser", BROWSER_PAGE));
+
+    expect(refusal.code).toBe("pane-entity-unexpected");
+    expect(refusal.detail).toContain("browser-page");
   });
 
   it("rejects a value that is not an entity reference at all", () => {

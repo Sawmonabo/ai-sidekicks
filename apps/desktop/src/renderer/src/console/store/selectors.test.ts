@@ -140,6 +140,72 @@ describe("stampedExecutionPostureOf — the posture a run.running payload carrie
       ).toBeUndefined();
     }
   });
+
+  it("negative control: values the wire string rules refuse yield undefined, never themselves", () => {
+    // The class the hand-written mirror could not see. It checked member TYPES and
+    // arm presence, so each of these — a well-typed string in the right arm — was
+    // admitted and handed to a permission surface, while the contract composes
+    // `wireFreeFormString` and `filesystemPathSchema` and refuses every one:
+    // `credentialPolicyRef` empty or carrying a NUL, `profileName` whitespace-only,
+    // a writable root that is the empty string or carries a NUL.
+    const wireRefused: readonly unknown[] = [
+      {
+        networkAccess: "none",
+        writableRoots: [],
+        mode: "workspace-sandboxed",
+        credentialPolicyRef: "",
+      },
+      {
+        networkAccess: "none",
+        writableRoots: [],
+        mode: "workspace-sandboxed",
+        credentialPolicyRef: "sha256:0f\u0000",
+      },
+      { networkAccess: "none", writableRoots: [], mode: "trusted", profileName: "   " },
+      { networkAccess: "none", writableRoots: [""], mode: "trusted" },
+      { networkAccess: "none", writableRoots: ["/work\u0000"], mode: "trusted" },
+    ];
+    for (const candidate of wireRefused) {
+      expect(
+        stampedExecutionPostureOf(runEntityWithBody({ executionPosture: candidate })),
+      ).toBeUndefined();
+    }
+  });
+
+  it("negative control: a member the registered shape does not carry yields undefined", () => {
+    // The other thing a mirror cannot do: the contract's posture arms are strict, so
+    // an unregistered member is a posture no daemon stamps. A predicate that checked
+    // only the members it knew about admitted this one whole.
+    expect(
+      stampedExecutionPostureOf(
+        runEntityWithBody({
+          executionPosture: {
+            networkAccess: "none",
+            writableRoots: [],
+            mode: "trusted",
+            invented: true,
+          },
+        }),
+      ),
+    ).toBeUndefined();
+  });
+
+  it("the carrier the parse runs over is itself admissible, so a refusal is the posture's", () => {
+    // The registered posture parse is declared per EVENT, so the selector presents
+    // each candidate on a fixed carrier. If a member were added to that event, the
+    // carrier would stop parsing and EVERY posture would read as absent — a silent
+    // return to "not checked" that every refusal case above would keep passing over.
+    // The smallest posture the contract admits is what separates the two: it can
+    // only be answered if the carrier around it parsed.
+    const minimal: ExecutionPosture = {
+      networkAccess: "none",
+      writableRoots: [],
+      mode: "trusted",
+    };
+    expect(stampedExecutionPostureOf(runEntityWithBody({ executionPosture: minimal }))).toBe(
+      minimal,
+    );
+  });
 });
 
 describe("membershipRoleOf — the role the roster carries", () => {

@@ -267,16 +267,25 @@ describe("run streams — the registered payload reaches the subscriber", () => 
 /** When the single-beat queue probes below play their beat. */
 const QUEUE_REFUSAL_PROBE_OCCURRED_AT = "2026-01-01T14:20:00.500Z";
 
+/** The one contract-valid queue payload the probes below vary from. */
+const PROBE_QUEUE_PAYLOAD: Readonly<Record<string, unknown>> = {
+  sessionId: FLAGSHIP_SCENARIO.sessionId,
+  queueItemId: PROBE_QUEUE_ITEM_ID,
+  state: "admitted",
+};
+
 /**
- * A scenario playing exactly one contract-valid queue beat, with whatever replies
- * the case under test wants scripted.
+ * A scenario playing exactly one queue beat, with whatever replies the case under
+ * test wants scripted, over the contract-valid payload unless it says otherwise.
  *
  * One shape for every queue probe below, so each case varies exactly one thing —
- * whether the row read is scripted, and what the row says.
+ * whether the row read is scripted, what the row says, or what the beat itself
+ * carries.
  */
 function queueScenario(
   scenarioId: string,
   replies: readonly { readonly call: string; readonly result: unknown }[],
+  payload: Readonly<Record<string, unknown>> = PROBE_QUEUE_PAYLOAD,
 ): ConsoleScenario {
   return {
     ...FLAGSHIP_SCENARIO,
@@ -291,11 +300,7 @@ function queueScenario(
           sequence: 1,
           kind: "queue_item.admitted",
           occurredAt: QUEUE_REFUSAL_PROBE_OCCURRED_AT,
-          payload: {
-            sessionId: FLAGSHIP_SCENARIO.sessionId,
-            queueItemId: PROBE_QUEUE_ITEM_ID,
-            state: "admitted",
-          },
+          payload,
         },
       },
     ],
@@ -376,6 +381,44 @@ describe("run streams — a beat that cannot be projected refuses, loudly", () =
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
 
     expect(QueueItemSummarySchema.parse(received[0]).priority).toBe(-3);
+  });
+
+  it("refuses a queue beat that names no state rather than deriving one from its kind", () => {
+    // `state` is required on every queue payload, and the strict layer registers no
+    // variant for the five `queue_item.*` kinds — so nothing the contracts package
+    // ships refuses a beat without it. The projection used to skip its comparison
+    // when the member was absent and take the state from the KIND alone, which
+    // delivered a valid-looking `QueueItemSummary` assembled from half a payload.
+    const fixture = createFixture(
+      queueScenario(
+        "queue-beat-stateless-probe",
+        [queueRowReadReply(probeQueueRow({ state: "admitted" }))],
+        { sessionId: FLAGSHIP_SCENARIO.sessionId, queueItemId: PROBE_QUEUE_ITEM_ID },
+      ),
+    );
+    subscribeThroughBridge<unknown>(fixture, RUN_QUEUE_EVENT_STREAM);
+
+    expect(() => {
+      fixture.engine.advance(PAST_EVERY_BEAT_MS);
+    }).toThrow(/names no `state`/u);
+  });
+
+  it("refuses a beat whose kind and payload disagree about the queue state", () => {
+    // The check the missing member used to skip past. `queue_item.admitted`
+    // announces `admitted`; a payload saying `queued` routes by one key and renders
+    // by the other, exactly as the run-state arm's disagreement does.
+    const fixture = createFixture(
+      queueScenario(
+        "queue-beat-state-disagreement-probe",
+        [queueRowReadReply(probeQueueRow({ state: "admitted" }))],
+        { ...PROBE_QUEUE_PAYLOAD, state: "queued" },
+      ),
+    );
+    subscribeThroughBridge<unknown>(fixture, RUN_QUEUE_EVENT_STREAM);
+
+    expect(() => {
+      fixture.engine.advance(PAST_EVERY_BEAT_MS);
+    }).toThrow(/two queue states/u);
   });
 
   it("refuses a beat whose kind and payload disagree about the current state", () => {

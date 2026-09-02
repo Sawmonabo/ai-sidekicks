@@ -22,7 +22,11 @@
 // string is value equality, and the posture read returns the stored object it
 // narrowed rather than a copy of it.
 
-import { MembershipRoleSchema, type MembershipRole } from "@ai-sidekicks/contracts";
+import {
+  MembershipRoleSchema,
+  RunStateChangeEventSchema,
+  type MembershipRole,
+} from "@ai-sidekicks/contracts";
 import type { ExecutionPosture } from "@ai-sidekicks/contracts";
 
 import type { ConsoleEntity, ConsoleEntityKind, ConsoleEntityRef } from "./entities.js";
@@ -82,7 +86,7 @@ export function stampedExecutionPostureOf(
   entity: ConsoleEntity | undefined,
 ): ExecutionPosture | undefined {
   const stamped = entity?.body?.[STAMPED_EXECUTION_POSTURE_MEMBER];
-  return isExecutionPosture(stamped) ? stamped : undefined;
+  return isRegisteredExecutionPosture(stamped) ? stamped : undefined;
 }
 
 /**
@@ -132,101 +136,56 @@ const STAMPED_EXECUTION_POSTURE_MEMBER = "executionPosture";
 const MEMBERSHIP_ROLE_MEMBER = "role";
 
 /**
- * The posture's mode arms, split by whether the contract requires a
- * credential-policy reference alongside them.
+ * The five members the registered event requires beside the posture.
  *
- * WHY THIS MODULE NARROWS BY HAND INSTEAD OF PARSING. `@ai-sidekicks/contracts`
- * exports the `ExecutionPosture` TYPE and no parser for it: `runControl.ts` keeps
- * `executionPostureSchema` module-private on purpose, because exporting one there
- * would claim a Plan-005 symbol name in this package's barrel, and
- * `provider-driver.ts` — which owns the type — ships none either. The only
- * reachable parse runs inside `RunStateChangeEventSchema`, over a whole
- * subscription event this store never holds. So the choice is between trusting an
- * `unknown` body member and checking it here; a permission surface rendered off an
- * unchecked shape is the worse of the two.
+ * Placeholders, every one: they are never read, never rendered, and never sent.
+ * They exist because the only reachable parse for a posture is declared per EVENT
+ * and is strict, so the posture cannot be presented to it on its own — the same
+ * constraint `bridge/scenarios/wire-truth.ts` records about having to present a
+ * beat as the whole envelope it claims to be.
  *
- * The two annotations below fail the build if the contract RENAMES or REMOVES a
- * mode. A contract that adds one fails closed at runtime instead — an unknown mode
- * reads as absent, and the surface renders "not checked" rather than a posture it
- * could not classify. That asymmetry is the same one `runControl.ts` records about
- * its own `z.ZodType<ExecutionPosture>` annotation, and it is stated rather than
- * hidden. The day contracts exports a parser, everything below `isExecutionPosture`
- * is deleted and the selector calls it.
+ * A member added to the registered event would make this carrier stop parsing and
+ * every posture read as absent, so the carrier's own admissibility is asserted
+ * directly in this module's test rather than only through a posture case.
  */
-const CREDENTIAL_POLICY_FREE_MODES = [
-  "trusted",
-] as const satisfies readonly ExecutionPosture["mode"][];
-
-const CREDENTIAL_POLICY_BEARING_MODES = [
-  "workspace-sandboxed",
-  "readonly-sandboxed",
-] as const satisfies readonly ExecutionPosture["mode"][];
-
-/** Network arms that carry no domain allow-list, spelled as the contract spells them. */
-const UNLISTED_NETWORK_ACCESS = [
-  "none",
-  "full",
-] as const satisfies readonly ExecutionPosture["networkAccess"][];
-
-/** The network arm whose allow-list is non-empty by construction. */
-const LISTED_NETWORK_ACCESS = "allowed-domains" satisfies ExecutionPosture["networkAccess"];
+const POSTURE_CARRIER_MEMBERS = {
+  runId: "00000000-0000-4000-8000-000000000000",
+  runVersion: 0,
+  previousState: "queued",
+  currentState: "starting",
+  timestamp: "1970-01-01T00:00:00.000Z",
+} as const;
 
 /**
- * Whether an unknown value is a well-formed `ExecutionPosture`.
+ * Whether an unknown value is a posture the registered shape admits.
  *
- * Both of the contract's structural invariants are checked, because both are what
- * make a posture readable at all: `allowedDomains` exists only under the
- * allow-list arm and is non-empty there, and `credentialPolicyRef` is required on
- * the two sandboxed modes and absent under `trusted`. A value satisfying the
- * member types but violating an arm is not a posture the contract can produce, and
- * admitting one would put a surface in the position of rendering a trusted run
- * that also claims an enforced credential constraint.
+ * WHY THE PARSE RUNS THROUGH AN EVENT. `@ai-sidekicks/contracts` exports the
+ * `ExecutionPosture` TYPE and no parser for it: `runControl.ts` keeps its posture
+ * schema module-private on purpose, because exporting one there would claim a
+ * Plan-005 symbol name in this package's barrel, and `provider-driver.ts` — which
+ * owns the type — ships none either. `RunStateChangeEventSchema` is the one
+ * exported shape that composes that schema, so running it over a fixed carrier is
+ * the only way to reach the canonical parse, and reaching it is worth a carrier.
+ *
+ * WHAT THIS REPLACES, AND WHY THE REPLACEMENT IS NOT COSMETIC. This module used to
+ * narrow by hand — member types plus the two arm invariants — which is a mirror of
+ * a shape rather than the shape. A mirror checks what its author remembered to
+ * check, and this one checked neither the wire string rules nor the strictness the
+ * contract composes through: an empty or NUL-bearing `credentialPolicyRef`, an
+ * empty writable-root path, a whitespace-only `profileName`, and any unregistered
+ * member alongside them were all admitted and handed to a surface as a valid
+ * permission posture. Every one of those is a value the contract refuses outright.
+ *
+ * `undefined` is excluded here rather than left to the parse: the posture member is
+ * optional on the registered event, so a carrier with no posture parses cleanly,
+ * and an absent member must read as absent rather than as admitted.
  */
-function isExecutionPosture(candidate: unknown): candidate is ExecutionPosture {
-  if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) {
+function isRegisteredExecutionPosture(candidate: unknown): candidate is ExecutionPosture {
+  if (candidate === undefined) {
     return false;
   }
-  const posture = candidate as Record<string, unknown>;
-  return (
-    isStringArray(posture["writableRoots"]) &&
-    isAbsentOrString(posture["profileName"]) &&
-    hasWellFormedNetworkArm(posture) &&
-    hasWellFormedModeArm(posture)
-  );
-}
-
-function hasWellFormedNetworkArm(posture: Record<string, unknown>): boolean {
-  const networkAccess = posture["networkAccess"];
-  const allowedDomains = posture["allowedDomains"];
-  if (isMemberOf(UNLISTED_NETWORK_ACCESS, networkAccess)) {
-    return allowedDomains === undefined;
-  }
-  return (
-    networkAccess === LISTED_NETWORK_ACCESS &&
-    isStringArray(allowedDomains) &&
-    allowedDomains.length > 0
-  );
-}
-
-function hasWellFormedModeArm(posture: Record<string, unknown>): boolean {
-  const mode = posture["mode"];
-  const credentialPolicyRef = posture["credentialPolicyRef"];
-  if (isMemberOf(CREDENTIAL_POLICY_FREE_MODES, mode)) {
-    return credentialPolicyRef === undefined;
-  }
-  return (
-    isMemberOf(CREDENTIAL_POLICY_BEARING_MODES, mode) && typeof credentialPolicyRef === "string"
-  );
-}
-
-function isMemberOf(members: readonly string[], candidate: unknown): boolean {
-  return typeof candidate === "string" && members.includes(candidate);
-}
-
-function isStringArray(candidate: unknown): candidate is readonly string[] {
-  return Array.isArray(candidate) && candidate.every((element) => typeof element === "string");
-}
-
-function isAbsentOrString(candidate: unknown): boolean {
-  return candidate === undefined || typeof candidate === "string";
+  return RunStateChangeEventSchema.safeParse({
+    ...POSTURE_CARRIER_MEMBERS,
+    executionPosture: candidate,
+  }).success;
 }

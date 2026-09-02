@@ -39,6 +39,13 @@
 // written into the address here would be a second, unowned locator for something
 // the builder has not defined yet".
 //
+// A REQUIRED entity is never invented either, and for a sharper reason: an
+// optional arm that should have been required costs a caller nothing, while a
+// required arm over an entity kind no producer mints is unconstructible. `browser`
+// and `terminal` are the pair that proves it — both are driven by a seam that keys
+// every one of its operations by the pane's or the lease's own id, so neither has
+// a reference to be a view of, and both are session-scoped.
+//
 // A kind whose scope is `never` is SESSION-scoped and its address carries no
 // `entity` member at all, rather than a member that is always `undefined`: the
 // two read identically at a call site, and only the first makes "this pane takes
@@ -90,7 +97,20 @@ interface PaneEntityScopeByKind {
   readonly "workflow-run": ScopedEntityRef<"workflow-run">;
   /** Bare from the workflows destination; over a definition once one is saved. */
   readonly "workflow-builder": ScopedEntityRef<"workflow-definition"> | undefined;
-  readonly browser: ScopedEntityRef<"browser-page">;
+  /**
+   * One page per browser pane, keyed by the pane's own id and nothing else.
+   *
+   * Session-scoped rather than over a page reference, because the identity a page
+   * reference would name does not exist: every registered browser operation in
+   * `bridge/growth-signatures.ts` — navigate, reload, stop, back, forward, and the
+   * navigation subscription — takes the `paneId`, and the navigation state they
+   * stream back carries a url, a title, and three flags and no page identifier at
+   * all. Nothing in this build produces such an entity, so requiring one would
+   * make every caller mint an identifier the seam never issues, and would refuse
+   * `parseConsolePaneAddress("browser", undefined)` — which is the shape both
+   * untyped boundaries actually supply for a pane opened bare.
+   */
+  readonly browser: never;
   /** One shared terminal per session, over the runtime node's write lease. */
   readonly terminal: never;
   /** Bare is the picker arm: a session is chosen and no agent is named yet. */
@@ -155,7 +175,7 @@ const PANE_ENTITY_SCOPES: {
   artifact: { entityKinds: ["artifact"], entityRequired: true },
   "workflow-run": { entityKinds: ["workflow-run"], entityRequired: true },
   "workflow-builder": { entityKinds: ["workflow-definition"], entityRequired: false },
-  browser: { entityKinds: ["browser-page"], entityRequired: true },
+  browser: { entityKinds: [], entityRequired: false },
   terminal: { entityKinds: [], entityRequired: false },
   "agent-console": { entityKinds: ["agent"], entityRequired: false },
 };

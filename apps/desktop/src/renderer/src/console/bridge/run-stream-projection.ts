@@ -259,11 +259,23 @@ function projectRunQueueStreamBeat(
   if (queueItemId === undefined) {
     return unprojectableFor(event, "names no `queueItemId` to find its queue row by");
   }
-  const statedState = readWireString(payload, "state");
-  if (statedState !== undefined && statedState !== announcedState) {
+  // Required, exactly as `newState` is on the state arm above. `Spec-006 §Queue
+  // Events` fixes the payload at `{sessionId, queueItemId, channelId?, state}`, so
+  // a beat without one is not a queue event that omitted a check — it is a queue
+  // event no daemon emits. Skipping the comparison when the member was absent let
+  // the summary take its state from the KIND alone and delivered a valid-looking
+  // `QueueItemSummary` built from a payload the contract rejects.
+  const statedState = payload["state"];
+  if (statedState === undefined) {
     return unprojectableFor(
       event,
-      `announces "${announcedState}" by its kind and "${statedState}" in its payload; one beat cannot report two queue states`,
+      "names no `state` for the queue state its kind announces to be checked against",
+    );
+  }
+  if (statedState !== announcedState) {
+    return unprojectableFor(
+      event,
+      `announces "${announcedState}" by its kind and ${JSON.stringify(statedState)} in its payload; one beat cannot report two queue states`,
     );
   }
   // The row, not the beat. `QueueItemSummary` is a projection of `queue_items` and
