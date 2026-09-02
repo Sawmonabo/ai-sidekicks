@@ -23,4 +23,12 @@ export { FrameStore } from "./frame-store.js";
 
 export { SessionStoreRegistry, type SessionSnapshotReader } from "./session-store-registry.js";
 
+// The read side of the refresh policy, opened for the surfaces that perform their
+// own reads. `SessionStoreRegistry` owns one scheduler per open session for the
+// session snapshot; a family reading a wire the snapshot does not carry — the repos
+// section's `repo.mountRead`, for one — still owes rule "no interval polling", and
+// this is the only implementation of it. Exported so that obligation is reachable
+// through the door rather than deep-imported around.
+export { RefreshScheduler } from "./scheduling.js";
+
 export { useFrameStore, useLocationHash, useOpenSessionStore } from "./hooks.js";

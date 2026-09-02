@@ -104,3 +104,245 @@
   gap: var(--meridian-space-2);
   padding: 0 var(--meridian-space-3) var(--meridian-space-2);
 }
+
+/* -------------------------------------------------------------- mount card */
+
+/*
+ * One mount, on two axes. The card carries its own edge because the section's
+ * container deliberately does not (see `__mounts` above), and a withheld card is
+ * marked by its edge rather than by dimming its content: the facts on a card whose
+ * bind controls are withheld are exactly the facts a reader needs most.
+ */
+.meridian-mount-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-mount-card--withheld {
+  border-color: var(--meridian-red-mark);
+}
+
+.meridian-mount-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  min-inline-size: 0;
+}
+
+/*
+ * The resolved root. Truncated at the MEASURE and never in the string — the element
+ * keeps the whole value in its title and the copy control carries it out, so two
+ * roots that differ only in their tail are always distinguishable.
+ */
+.meridian-mount-card__head > .meridian-figure--wire {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meridian-mount-card__copy {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  padding: var(--meridian-space-1);
+  border: 1px solid transparent;
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+}
+
+.meridian-mount-card__copy:hover {
+  color: var(--meridian-text);
+  border-color: var(--meridian-edge);
+}
+
+.meridian-mount-card__copy:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+.meridian-mount-card__axes {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-mount-card__checked-at {
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}
+
+.meridian-mount-card__sentence {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-mount-card__withheld {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-red-text);
+}
+
+/* Provenance is collapsed by default; the two status axes and the root are not. */
+.meridian-mount-card__provenance-summary {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+}
+
+.meridian-mount-card__provenance-summary:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+.meridian-mount-card__provenance-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--meridian-space-1) var(--meridian-space-3);
+  margin: var(--meridian-space-2) 0 0;
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-mount-card__provenance-list > dt {
+  color: var(--meridian-text-faint);
+}
+
+.meridian-mount-card__provenance-list > dd {
+  margin: 0;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-mount-card__disclosure {
+  color: var(--meridian-text-muted);
+}
+
+.meridian-mount-card__workspaces {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+/* ---------------------------------------------------------- workspace card */
+
+.meridian-workspace-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-workspace-card__head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  min-inline-size: 0;
+}
+
+.meridian-workspace-card__root {
+  margin: 0;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/*
+ * The daemon's captured failure detail, quoted rather than paraphrased. It reads at
+ * a wider measure than the chrome around it because it is the one thing on the row
+ * a person has to read whole.
+ */
+.meridian-workspace-card__last-error {
+  margin: 0;
+  padding: var(--meridian-space-2);
+  border-inline-start: 2px solid var(--meridian-red-mark);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-red-ground);
+  color: var(--meridian-red-text);
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  overflow-wrap: anywhere;
+}
+
+/* ----------------------------------------------------------- mode picker */
+
+.meridian-mode-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+/*
+ * All rows at once, each with its reason — the reason is the point, and a menu would
+ * hide exactly the reasons a restricted mount exists to show.
+ */
+.meridian-mode-picker__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.meridian-mode-picker__legend {
+  padding: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}
+
+.meridian-mode-picker__row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  gap: var(--meridian-space-1) var(--meridian-space-2);
+}
+
+.meridian-mode-picker__row--restricted {
+  color: var(--meridian-text-faint);
+}
+
+.meridian-mode-picker__input:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+.meridian-mode-picker__label {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-mode-picker__tag {
+  color: var(--meridian-text-faint);
+}
+
+.meridian-mode-picker__reason {
+  grid-column: 2;
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-repo-section__count {
+  font-family: var(--meridian-font-mono);
+  color: var(--meridian-text-muted);
+}
