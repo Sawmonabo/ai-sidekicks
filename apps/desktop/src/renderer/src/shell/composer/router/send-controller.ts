@@ -32,7 +32,9 @@ import type { ConsoleRefusal } from "../../../console/core/index.js";
 import type { ConsoleBridge } from "../../../console/bridge/index.js";
 import type { DraftStore } from "../../../console/persistence/index.js";
 import type { ComposerTarget } from "../chips/chip-models.js";
+import type { CommandExecutor } from "./command-executor.js";
 import { composerDraftKey } from "./draft-key.js";
+import { composerRefusal } from "./send-refusals.js";
 import {
   DirectiveHistory,
   caretAtEnd,
@@ -42,10 +44,20 @@ import {
   type DirectiveCaret,
   type DirectivePathLabel,
 } from "./directive-line.js";
-import { ComposerSendRouter } from "./send-router.js";
+import { ComposerSendRouter, type ClientCommandPredicate } from "./send-router.js";
 
 /** Whether the line is accepting text or is locked behind an in-flight dispatch. */
 export type SendControllerStatus = "idle" | "sending";
+
+/**
+ * What a recognised command with nowhere to run says.
+ *
+ * Names the state rather than the wiring: a person cannot act on "no executor was
+ * supplied", and can act on knowing their text is still there and the command did
+ * not run.
+ */
+const NO_EXECUTOR_DETAIL =
+  "That command was recognised but nothing here can run it, so nothing happened. Your message is still in the line.";
 
 /** What the composer is built from. One object, so a new dependency is one edit. */
 export interface SendControllerDependencies {
@@ -53,6 +65,25 @@ export interface SendControllerDependencies {
   readonly target: ComposerTarget;
   /** The window-lifetime draft store the composer seat is handed. */
   readonly draftStore: DraftStore;
+  /**
+   * Whether a name is a registered client command.
+   *
+   * Travels with the executor because the two are one decision split in half: the
+   * router will not intercept a name nothing claims, so a recogniser without an
+   * executor intercepts into a refusal and an executor without a recogniser is
+   * never called. The composer's command zone supplies both or neither.
+   */
+  readonly recognizeClientCommand?: ClientCommandPredicate | undefined;
+  /**
+   * Runs a recognised client command, when this composer has one to run with.
+   *
+   * Optional because the command family is a separate zone that mounts its own
+   * recogniser and executor together. Absent, an intercepted line REFUSES: the
+   * router only intercepts a name a recogniser claimed, so reaching this arm with
+   * no executor means the two halves were wired apart, and clearing the line would
+   * report success for an act nothing performed.
+   */
+  readonly commandExecutor?: CommandExecutor | undefined;
 }
 
 /** Everything the send bar renders and every act it offers. */
@@ -88,8 +119,14 @@ export interface SendController {
 
 /** Build the controller for one addressed composer. */
 export function useSendController(dependencies: SendControllerDependencies): SendController {
-  const { bridge, target, draftStore } = dependencies;
-  const router = useMemo(() => new ComposerSendRouter({ bridge }), [bridge]);
+  const { bridge, target, draftStore, commandExecutor, recognizeClientCommand } = dependencies;
+  const router = useMemo(
+    () =>
+      new ComposerSendRouter(
+        recognizeClientCommand === undefined ? { bridge } : { bridge, recognizeClientCommand },
+      ),
+    [bridge, recognizeClientCommand],
+  );
   // A ref rather than state: the walk's own cursor is not rendered, and putting it
   // in state would re-render the whole bar on a keystroke that changed nothing a
   // person can see.
@@ -149,12 +186,27 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
             draftStore.clear(draftKey);
             setRefusal(undefined);
             return;
-          case "intercepted":
+          case "intercepted": {
+            if (commandExecutor === undefined) {
+              setRefusal(composerRefusal("command-unexecutable", NO_EXECUTOR_DETAIL));
+              return;
+            }
+            const settled = await commandExecutor({
+              commandName: outcome.commandName,
+              text: body.trim(),
+            });
+            if (settled.status === "refused") {
+              // The line is kept: the command did not run, and the text is the one
+              // thing the person would otherwise have to retype to try again.
+              setRefusal(settled.refusal);
+              return;
+            }
             // A registered command never composes into a message: the line is
             // cleared because the act happened, and nothing was sent.
             draftStore.clear(draftKey);
             setRefusal(undefined);
             return;
+          }
           case "refused":
             setRefusal(outcome.refusal);
             return;
@@ -164,7 +216,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
         setStatus("idle");
       }
     },
-    [router, target, draftStore, draftKey],
+    [router, target, draftStore, draftKey, commandExecutor],
   );
 
   const send = useCallback(async () => {

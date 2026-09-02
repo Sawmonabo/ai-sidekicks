@@ -37,7 +37,7 @@ export const DAEMON_UNTYPED_REJECTION_CODE = "rejected";
 /**
  * Why the composer refused, before the wire was reached.
  *
- * Closed: a sixth reason is a decision, and each of these carries copy of its own.
+ * Closed: another reason is a decision, and each of these carries copy of its own.
  * None is a governance id, and each reaches a person only through
  * `primitives/Refusal`, which puts the code in mono beside the sentence — so the
  * code is what somebody pastes into a search and `detail` is what they act on.
@@ -49,6 +49,7 @@ export const COMPOSER_REFUSAL_CODES = [
   "run-version-unread",
   "no-running-turn",
   "identifier-unparseable",
+  "command-unexecutable",
 ] as const;
 
 /** One composer refusal code. Derived, so the vocabulary is declared exactly once. */
