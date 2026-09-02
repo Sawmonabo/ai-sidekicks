@@ -21,8 +21,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { DriverCompactionResultSchema, type DriverCompactionResult } from "@ai-sidekicks/contracts";
 import { normalizeWireRejection } from "../../../../../shared/wire-errors.js";
 import { refuse, type ConsoleRefusal } from "../../../console/core/index.js";
-import type { ConsoleBridge } from "../../../console/bridge/index.js";
-import { COMPACT_CONTEXT_METHOD, callDaemon } from "./daemon-calls.js";
+import {
+  COMPACT_CONTEXT_METHOD,
+  callDaemon,
+  type ConsoleBridge,
+} from "../../../console/bridge/index.js";
 
 /** The subsystem name every refusal this module raises carries. */
 export const COMPACTION_REFUSAL_ORIGIN = "composer-compaction";

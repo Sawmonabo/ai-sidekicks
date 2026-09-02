@@ -1,0 +1,295 @@
+// The six run controls' one chokepoint: guards threaded, keys minted, answers read.
+//
+// `Spec-023 §Console Design (Meridian)` §7.2 puts it plainly — "the guard threading
+// and idempotency-key minting are own-build in the run-control store, because both
+// must be one chokepoint rather than a per-button convenience". Six buttons each
+// assembling their own request would be six chances to omit a comparand or reuse a
+// key across a changed body, and both of those are silent at the call site and loud
+// on the wire.
+//
+// FIVE RULES, EACH STRUCTURAL HERE RATHER THAN CONVENTIONAL.
+//
+//   1. **Both guards, always.** `expectedRunVersion` is mandatory on every
+//      intervention and on pause and resume alike; an absent comparand is rejected
+//      rather than applied. This module takes the comparand as a REQUIRED argument
+//      and mints `clientIdempotencyKey` itself, so neither can be forgotten.
+//   2. **One key per body.** A key is minted per dispatch and never reused across a
+//      changed body — reuse with a differing body is `intervention.idempotency_conflict`
+//      (422), which is a refusal the caller earned rather than one to render around.
+//   3. **The fresh comparand comes from the answer.** `InterventionResponseBase.runVersion`
+//      and `RunControlAck.runVersion` are threaded back out on every settlement,
+//      because after an applied native steer the response is the ONLY place the
+//      caller can read it — that advance emits no state event.
+//   4. **Eligibility is not projected.** Every control is dispatched and the
+//      daemon's typed refusal is what renders. There is no role check, no
+//      authorship check, and no state precondition anywhere in this file.
+//   5. **Capability gating is a read, not a rule.** `steer` and `rollback` are
+//      gated on the bound driver's declared flags, read from
+//      `driver.listCapabilities`; pause, resume, interrupt, and cancel are
+//      orchestration-layer and are never driver-gated. A gated control whose flag
+//      is false is ABSENT, not disabled, on the absent-not-disabled discipline —
+//      and a capability read that has not answered yet leaves both gated controls
+//      absent, which is the fail-closed direction.
+//
+// WHAT THIS MODULE NEVER OFFERS. No reorder, no priority, no dequeue distinct from
+// cancel, and no move-to-background: none of the four exists anywhere in the corpus
+// and §7.2's Never list rules out each by name.
+
+import {
+  InterventionRequestPayloadSchema,
+  InterventionRequestResponseSchema,
+  RunControlAckSchema,
+  RunIdSchema,
+  type InterventionRequestResponse,
+  type RunControlAck,
+} from "@ai-sidekicks/contracts";
+
+import { normalizeWireRejection } from "../../../../../shared/wire-errors.js";
+import { refuse, type ConsoleRefusal } from "../../core/index.js";
+import {
+  RUN_INTERVENE_METHOD,
+  RUN_PAUSE_METHOD,
+  RUN_RESUME_METHOD,
+  callDaemon,
+  type ConsoleBridge,
+} from "../../bridge/index.js";
+
+/** The subsystem name every refusal this module raises carries. */
+export const RUN_CONTROL_REFUSAL_ORIGIN = "run-controls";
+
+/**
+ * The six controls, closed and declared once.
+ *
+ * §7.2: "Six controls, and the set is closed: pause, resume, steer, interrupt,
+ * cancel, rollback." `Spec-004 §Resolved Questions and V1 Scope Decisions`
+ * enumerates five and omits `cancel`; `cancel` is nonetheless a first-class arm of
+ * the registered `InterventionRequestPayload` union and is named in
+ * `Spec-012 §Required Behavior`, so six is the correct reading and the omission is
+ * an under-enumeration worth an erratum.
+ */
+export const RUN_CONTROLS = [
+  "pause",
+  "resume",
+  "steer",
+  "interrupt",
+  "cancel",
+  "rollback",
+] as const;
+
+/** One control. Derived from the tuple, never restated. */
+export type RunControl = (typeof RUN_CONTROLS)[number];
+
+/** What one settled dispatch says. */
+export type RunControlOutcome =
+  | { readonly kind: "acknowledged"; readonly control: RunControl; readonly ack: RunControlAck }
+  | {
+      readonly kind: "settled";
+      readonly control: RunControl;
+      readonly response: InterventionRequestResponse;
+    }
+  | { readonly kind: "refused"; readonly control: RunControl; readonly refusal: ConsoleRefusal };
+
+/** What a rollback dispatch carries beyond the two mandatory guards. */
+export interface RollbackRequest {
+  readonly targetPosition: number;
+  /**
+   * Presence alone selects the atomic edit-and-resend composite and turns on its
+   * four additional structural refusal guards. Absent is a bare rollback.
+   */
+  readonly replacementSend?: { readonly content: string } | undefined;
+}
+
+/** What a steer dispatch carries. */
+export interface SteerRequest {
+  readonly content: string;
+}
+
+/** The comparand every dispatch threads, plus the run it names. */
+export interface RunControlTarget {
+  readonly runId: string;
+  readonly expectedRunVersion: number;
+}
+
+/**
+ * The dispatcher.
+ *
+ * A class with private fields rather than a bag of callbacks: the freshest
+ * comparand, the minted keys, and the recorded outcomes are one object's state, and
+ * a hook closing over three `useState` setters would have made "thread the answer's
+ * runVersion into the next request" a rule each button re-implemented.
+ */
+export class RunControlDispatcher {
+  readonly #bridge: ConsoleBridge;
+  readonly #mintIdempotencyKey: () => string;
+  readonly #freshComparandByRunId = new Map<string, number>();
+
+  public constructor(options: {
+    readonly bridge: ConsoleBridge;
+    /** Injected so a test pins the key; the default is the platform's own UUID. */
+    readonly mintIdempotencyKey?: () => string;
+  }) {
+    this.#bridge = options.bridge;
+    this.#mintIdempotencyKey = options.mintIdempotencyKey ?? (() => crypto.randomUUID());
+  }
+
+  /**
+   * The freshest comparand this dispatcher has read for a run, if any.
+   *
+   * Read from the daemon's own answers and from nowhere else. A caller that has
+   * none falls back to the stream's `runVersion`, and a caller with neither does
+   * not dispatch — never a zero, which would be a guard the console invented.
+   */
+  public freshComparandFor(runId: string): number | undefined {
+    return this.#freshComparandByRunId.get(runId);
+  }
+
+  /** Pause. `run.pause`, and never an intervention arm — the union has none. */
+  public pause(target: RunControlTarget): Promise<RunControlOutcome> {
+    return this.#dispatchControlVerb("pause", RUN_PAUSE_METHOD, target);
+  }
+
+  /**
+   * Resume. Never a reread and never a reattach: the design's
+   * `Spec-023 §Console Design (Meridian)` §7.2 reserves the word for the verb
+   * that moves a paused run back to running.
+   */
+  public resume(target: RunControlTarget): Promise<RunControlOutcome> {
+    return this.#dispatchControlVerb("resume", RUN_RESUME_METHOD, target);
+  }
+
+  public steer(target: RunControlTarget, request: SteerRequest): Promise<RunControlOutcome> {
+    return this.#dispatchIntervention("steer", target, { content: request.content });
+  }
+
+  public interrupt(target: RunControlTarget, reason?: string): Promise<RunControlOutcome> {
+    return this.#dispatchIntervention("interrupt", target, reason === undefined ? {} : { reason });
+  }
+
+  public cancel(target: RunControlTarget, reason?: string): Promise<RunControlOutcome> {
+    return this.#dispatchIntervention("cancel", target, reason === undefined ? {} : { reason });
+  }
+
+  public rollback(target: RunControlTarget, request: RollbackRequest): Promise<RunControlOutcome> {
+    return this.#dispatchIntervention("rollback", target, {
+      targetPosition: request.targetPosition,
+      ...(request.replacementSend === undefined
+        ? {}
+        : { replacementSend: { content: request.replacementSend.content } }),
+    });
+  }
+
+  /** Pause and resume: one shape, one acknowledgment, one comparand threaded back. */
+  async #dispatchControlVerb(
+    control: RunControl,
+    method: string,
+    target: RunControlTarget,
+  ): Promise<RunControlOutcome> {
+    const runId = RunIdSchema.safeParse(target.runId);
+    if (!runId.success) {
+      return this.#unparseableRun(control);
+    }
+    try {
+      const reply = await callDaemon(this.#bridge, method, {
+        targetRunId: runId.data,
+        expectedRunVersion: target.expectedRunVersion,
+      });
+      const parsed = RunControlAckSchema.safeParse(reply);
+      if (!parsed.success) {
+        return this.#unreadableReply(control, "acknowledgment");
+      }
+      this.#freshComparandByRunId.set(target.runId, parsed.data.runVersion);
+      return { kind: "acknowledged", control, ack: parsed.data };
+    } catch (rejection) {
+      return this.#carried(control, rejection);
+    }
+  }
+
+  /**
+   * Steer, interrupt, cancel, rollback: one method, four arms.
+   *
+   * The request is built here and parsed through the registered schema BEFORE it is
+   * sent, so a shape the daemon would refuse becomes a rendered refusal instead of
+   * a rejected round trip — the posture the composer's send router already takes.
+   */
+  async #dispatchIntervention(
+    control: RunControl,
+    target: RunControlTarget,
+    arm: Readonly<Record<string, unknown>>,
+  ): Promise<RunControlOutcome> {
+    const runId = RunIdSchema.safeParse(target.runId);
+    if (!runId.success) {
+      return this.#unparseableRun(control);
+    }
+    const request = InterventionRequestPayloadSchema.safeParse({
+      type: control,
+      targetRunId: runId.data,
+      expectedRunVersion: target.expectedRunVersion,
+      clientIdempotencyKey: this.#mintIdempotencyKey(),
+      ...arm,
+    });
+    if (!request.success) {
+      return {
+        kind: "refused",
+        control,
+        refusal: refuse(
+          RUN_CONTROL_REFUSAL_ORIGIN,
+          "request-unsendable",
+          "The console could not build a request the daemon would accept for this control. Reopen the session so its identifiers and run version are read again.",
+        ),
+      };
+    }
+    try {
+      const reply = await callDaemon(this.#bridge, RUN_INTERVENE_METHOD, request.data);
+      const parsed = InterventionRequestResponseSchema.safeParse(reply);
+      if (!parsed.success) {
+        return this.#unreadableReply(control, "intervention response");
+      }
+      this.#freshComparandByRunId.set(target.runId, parsed.data.runVersion);
+      return { kind: "settled", control, response: parsed.data };
+    } catch (rejection) {
+      return this.#carried(control, rejection);
+    }
+  }
+
+  #unparseableRun(control: RunControl): RunControlOutcome {
+    return {
+      kind: "refused",
+      control,
+      refusal: refuse(
+        RUN_CONTROL_REFUSAL_ORIGIN,
+        "identifier-unparseable",
+        "The console is holding a run identifier the daemon would not accept. Reopen the session so its identifiers are read again.",
+      ),
+    };
+  }
+
+  #unreadableReply(control: RunControl, subject: string): RunControlOutcome {
+    return {
+      kind: "refused",
+      control,
+      refusal: refuse(
+        RUN_CONTROL_REFUSAL_ORIGIN,
+        "reply-unreadable",
+        `The ${subject} did not match the registered shape, so the console read no settlement from it.`,
+      ),
+    };
+  }
+
+  /**
+   * Carry a daemon rejection through without paraphrasing it.
+   *
+   * The code the daemon sent is the code a person sees; there is deliberately no
+   * table here mapping a wire code onto console prose. Every refusal §7.2 names as
+   * reachable — `run.invalid_transition`, `run.not_found`, `run.limit_exceeded`,
+   * `run.recovery_failed`, `intervention.idempotency_conflict`,
+   * `auth.principal_mismatch` — travels this one path.
+   */
+  #carried(control: RunControl, rejection: unknown): RunControlOutcome {
+    const wireError = normalizeWireRejection(rejection, { total: true });
+    return {
+      kind: "refused",
+      control,
+      refusal: refuse(RUN_CONTROL_REFUSAL_ORIGIN, wireError.name, wireError.message),
+    };
+  }
+}

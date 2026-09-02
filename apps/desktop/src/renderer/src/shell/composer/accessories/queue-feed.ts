@@ -21,13 +21,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { QueueItemSummarySchema, type QueueItemSummary } from "@ai-sidekicks/contracts";
 import { normalizeWireRejection } from "../../../../../shared/wire-errors.js";
 import { refuse, type ConsoleRefusal } from "../../../console/core/index.js";
-import type { ConsoleBridge } from "../../../console/bridge/index.js";
 import {
   QUEUE_CANCEL_METHOD,
   QUEUE_SUBSCRIBE_STREAM,
   callDaemon,
   subscribeDaemon,
-} from "./daemon-calls.js";
+  type ConsoleBridge,
+} from "../../../console/bridge/index.js";
 
 /** The subsystem name every refusal this module raises carries. */
 export const QUEUE_REFUSAL_ORIGIN = "composer-queue";

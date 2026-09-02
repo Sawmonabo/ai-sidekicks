@@ -8,8 +8,8 @@
 //
 // The queue snapshot is a canned reply rather than a beat, because the queue is a
 // read and not a stream of session events. Its rows carry the closed five-value
-// item state verbatim, including the run-bound row that only an edit-and-resend can
-// mint — the one row whose rendering says which run it is bound to.
+// item state verbatim — an admitted head that can no longer be taken back, and two
+// still waiting that can.
 
 import type { ConsoleScenario } from "../scenario.js";
 
@@ -126,30 +126,39 @@ export const RUNS_SCENARIO: ConsoleScenario = {
     },
     {
       call: "run.queueList",
-      // Canonical order, FIFO within the target scheduling scope. The third row
-      // carries a bound run, which is what an edit-and-resend produces and what the
-      // row has to say out loud.
+      // Canonical order, FIFO within the target scheduling scope. The ids are
+      // canonical UUIDs because `QueueItemIdSchema` is a BRANDED UUID: a readable
+      // `queue-01` fails the registered parse, and because the list schema is
+      // strict that failure takes the whole reply down rather than one row.
+      //
+      // NO RUN-BINDING MEMBER. The design asks the queue row to say which run it is
+      // bound to, and the registered `QueueItemSummary` — `{ id, state, priority,
+      // channelId?, createdAt, updatedAt }`, parsed `.strict()` — carries no run
+      // member at all. A scripted `targetRunId` therefore fails the registered
+      // parse and takes the WHOLE reply down with it, so the surface renders a
+      // refusal where the scenario meant to show a queue. The binding arrives when
+      // the wire grows the member; until then this reply is what the daemon can
+      // actually send.
       result: {
         items: [
           {
-            id: "queue-01",
+            id: "5a7c1e20-3b4d-4e5f-8a90-1b2c3d4e5f60",
             state: "admitted",
             priority: 0,
             createdAt: "2026-01-01T16:00:00.090Z",
             updatedAt: "2026-01-01T16:00:00.160Z",
           },
           {
-            id: "queue-02",
+            id: "5a7c1e20-3b4d-4e5f-8a90-1b2c3d4e5f61",
             state: "queued",
             priority: 0,
             createdAt: "2026-01-01T16:00:00.410Z",
             updatedAt: "2026-01-01T16:00:00.410Z",
           },
           {
-            id: "queue-03",
+            id: "5a7c1e20-3b4d-4e5f-8a90-1b2c3d4e5f62",
             state: "queued",
             priority: 0,
-            targetRunId: "run-10",
             createdAt: "2026-01-01T16:00:00.640Z",
             updatedAt: "2026-01-01T16:00:00.640Z",
           },
