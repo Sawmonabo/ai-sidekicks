@@ -7,8 +7,9 @@
 // is installed in capture phase, so it consumes the press before the button sees
 // it whenever a chord actually fires — one act either way, never two.
 //
-// THE ATTENTION MARK IS THE SECTION'S CLAIM, NOT THIS FILE'S READING. §4.4:
-// "Never synthesises a badge the daemon has not served." So the mark renders only
+// THE ATTENTION MARK IS THE SECTION'S CLAIM, NOT THIS FILE'S READING.
+// `Spec-023 §The surface set` holds the rail's attention count "never counted in
+// the renderer", and this file synthesises no badge either. So the mark renders only
 // where the section itself reported amber or red through the seat, and a section
 // that has reported nothing shows nothing — not a zero, not a grey dot.
 //

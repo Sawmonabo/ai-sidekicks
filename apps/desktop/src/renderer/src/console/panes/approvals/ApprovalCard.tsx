@@ -1,8 +1,11 @@
 // One approval, one card, two answers.
 //
-// `Spec-023 §Console Design (Meridian)` §7.6: the card carries category, requesting
-// actor, requested resource, target scope, and the remembered-rule option, with the
-// policy that will remember it visible BEFORE the answer is given. Four properties
+// `Spec-023 §Signature Feature Composition Sketches`' Approvals View renders
+// "pending approval cards (category, requesting agent, summary of action, target
+// scope, remembered-rule option)", which is what this card carries. THAT THE
+// REMEMBERING POLICY IS VISIBLE BEFORE THE ANSWER IS GIVEN is this component's own
+// rule, because no committed document states it: an opt-in whose consequence is
+// disclosed after the click is not an opt-in. Four properties
 // this component keeps that are worth naming because each one is a Never:
 //
 //   • **Two answers, no third.** `APPROVAL_DECISIONS` is closed at two and there is
@@ -23,7 +26,8 @@
 //
 // The action row is a `toolbar` walked with arrows and with `h`/`l`, and both
 // suppress the page scroll they would otherwise cause. Base UI supplies the
-// disclosure under Meridian tokens (§14.10); the row itself is two ordinary buttons,
+// disclosure under Meridian tokens — `Spec-023 §Console Libraries` adopts
+// `@base-ui/react` as "the one widget family … with zero CSS"; the row itself is two ordinary buttons,
 // because a library button would add weight without adding behaviour a `<button>`
 // does not already have.
 
@@ -66,7 +70,12 @@ export interface ApprovalCardProps {
   /** The refusal this record's last answer came back with, if any. */
   readonly refusal: ConsoleRefusal | undefined;
   readonly onResolve: (request: ApprovalResolveRequest) => void;
-  /** Extra body between the header and the action row — §7.8's normalized input. */
+  /**
+   * Extra body between the header and the action row — where a permission-kind
+   * `driver_ask` lands, which `Spec-023 §Signature Feature Composition Sketches`'
+   * Timeline View sends here: it "normalizes into the approval model and belongs to
+   * the Approvals View".
+   */
   readonly children?: React.ReactNode;
 }
 

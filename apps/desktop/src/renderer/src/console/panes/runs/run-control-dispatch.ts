@@ -1,11 +1,10 @@
 // The six run controls' one chokepoint: guards threaded, keys minted, answers read.
 //
-// `Spec-023 §Console Design (Meridian)` §7.2 puts it plainly — "the guard threading
-// and idempotency-key minting are own-build in the run-control store, because both
-// must be one chokepoint rather than a per-button convenience". Six buttons each
-// assembling their own request would be six chances to omit a comparand or reuse a
-// key across a changed body, and both of those are silent at the call site and loud
-// on the wire.
+// THIS MODULE'S OWN RULE, because no committed document states it: guard threading
+// and idempotency-key minting are one chokepoint rather than a per-button
+// convenience. Six buttons each assembling their own request would be six chances
+// to omit a comparand or reuse a key across a changed body, and both of those are
+// silent at the call site and loud on the wire.
 //
 // FIVE RULES, EACH STRUCTURAL HERE RATHER THAN CONVENTIONAL.
 //
@@ -37,8 +36,13 @@
 //      absent, which is the fail-closed direction.
 //
 // WHAT THIS MODULE NEVER OFFERS. No reorder, no priority, no dequeue distinct from
-// cancel, and no move-to-background: none of the four exists anywhere in the corpus
-// and §7.2's Never list rules out each by name.
+// cancel, and no move-to-background: none of the four exists anywhere in the corpus.
+// `Spec-023 §Signature Feature Composition Sketches`' Runs View strikes the first
+// three in terms — "**Queue reorder is struck**: `Spec-004 §Resolved Questions and
+// V1 Scope Decisions` defers queue priority overrides for V1 … the queue's only V1
+// removal path is `run.queueCancel`." The fourth is this module's own refusal: no
+// wire member anywhere backgrounds a run, so a control for it would be an offer the
+// daemon could not answer.
 
 import {
   InterventionRequestPayloadSchema,
@@ -65,8 +69,10 @@ export const RUN_CONTROL_REFUSAL_ORIGIN = "run-controls";
 /**
  * The six controls, closed and declared once.
  *
- * §7.2: "Six controls, and the set is closed: pause, resume, steer, interrupt,
- * cancel, rollback." `Spec-004 §Resolved Questions and V1 Scope Decisions`
+ * `Spec-023 §Signature Feature Composition Sketches`' Runs View enumerates exactly
+ * these six — "pause / resume on active runs (`run.pause` / `run.resume`); steer /
+ * interrupt / cancel / **rollback** through the generic `run.intervene` dispatch".
+ * `Spec-004 §Resolved Questions and V1 Scope Decisions`
  * enumerates five and omits `cancel`; `cancel` is nonetheless a first-class arm of
  * the registered `InterventionRequestPayload` union and is named in
  * `Spec-012 §Required Behavior`, so six is the correct reading and the omission is
@@ -181,9 +187,9 @@ export class RunControlDispatcher {
   }
 
   /**
-   * Resume. Never a reread and never a reattach: the design's
-   * `Spec-023 §Console Design (Meridian)` §7.2 reserves the word for the verb
-   * that moves a paused run back to running.
+   * Resume. Never a reread and never a reattach: the Runs View sketch cited above
+   * binds the word to `run.resume` on an active run, which is the verb that moves a
+   * paused run back to running and no other.
    */
   public resume(target: RunControlTarget): Promise<RunControlOutcome> {
     return this.#dispatchControlVerb("resume", RUN_RESUME_METHOD, target);
@@ -312,10 +318,14 @@ export class RunControlDispatcher {
  * Carry a rejection through without paraphrasing it.
  *
  * The code the daemon sent is the code a person sees; there is deliberately no
- * table here mapping a wire code onto console prose. Every refusal §7.2 names as
- * reachable — `run.invalid_transition`, `run.not_found`, `run.limit_exceeded`,
- * `run.recovery_failed`, `intervention.idempotency_conflict`,
- * `auth.principal_mismatch` — travels this one path.
+ * table here mapping a wire code onto console prose — `Spec-023 §Rules every console
+ * surface obeys` has the renderer never pre-deny: "it calls, and renders the typed
+ * refusal code with the daemon's message text and the operator's next move". Every
+ * refusal these six controls can reach is registered
+ * in `error-contracts.md` — `run.invalid_transition`, `run.not_found`,
+ * `run.limit_exceeded`, `run.recovery_failed`,
+ * `intervention.idempotency_conflict`, `auth.principal_mismatch` — and each travels
+ * this one path.
  *
  * Module-level rather than a private method because the React binding needs the
  * same carriage for a `perform` that rejects before the dispatcher ever runs, and

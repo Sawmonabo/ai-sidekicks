@@ -2,17 +2,19 @@
 // four calls it makes.
 //
 // Every name below is a row of a registry the corpus already publishes, quoted
-// verbatim. `Spec-023 §Console Design (Meridian)` §7.6 and §7.7 give this surface
-// exactly four callables and one deliberate absence, and the absence is the point
-// of the last constant in this header rather than of a method that is missing:
+// verbatim: `api-payload-contracts.md §Approval Method-Name Registry (Tier 6)`
+// exposes five `approval.*` methods. WHICH FOUR THIS SURFACE CALLS IS ITS OWN
+// DECISION, because no committed document assigns them; the fifth and one absence
+// are the registry's own:
 //
-//   • `PermissionCheck` is NOT here and is reached from nowhere. §7.6 states it is
-//     deliberately unregistered, because no V1 client consumes a wire preflight and
-//     exposing one would invite time-of-check/time-of-use authorization against the
-//     security gate. A preflight constant declared "for later" would be the first
-//     half of exactly that mistake.
-//   • `approval.requestCreate` is daemon-internal. The console never raises an
-//     approval, so it holds no constant for one either.
+//   • `PermissionCheck` is NOT here and is reached from nowhere. That registry says
+//     it "is deliberately **not** registered: it is the daemon-internal
+//     pre-execution gate … no V1 client consumes a wire preflight, and exposing one
+//     would invite stale-verdict (time-of-check/time-of-use) authorization against
+//     the security gate". A preflight constant declared "for later" would be the
+//     first half of exactly that mistake.
+//   • `approval.requestCreate` is the fifth registered method and is daemon-raised.
+//     The console never raises an approval, so it holds no constant for one.
 //
 // The two brand widenings are `console/bridge/daemon-call.ts`'s, not a third copy.
 
@@ -30,15 +32,18 @@ import { type ApprovalDecision, type RememberedScopeKind } from "./approval-voca
  * The unfiltered projection read.
  *
  * The server-side filters `state?` and `category?` exist and this surface passes
- * neither: §7.6 requires history to render every record an unfiltered read returns,
- * and the client never filters by state itself.
+ * neither. `Spec-023 §Signature Feature Composition Sketches`' Approvals View
+ * renders "resolved approvals in history view" without a filter, and THIS SURFACE'S
+ * OWN RULE, because no committed document states it, is that history renders every
+ * record an unfiltered read returns and the client never filters by state itself.
  */
 export const APPROVAL_PROJECTION_READ_METHOD = "approval.projectionRead";
 
 /** The one resolve. Approve and reject are the same call with a different decision. */
 export const APPROVAL_RESOLVE_METHOD = "approval.resolve";
 
-/** The standing-permission list. Always read with revoked rules included (§7.7). */
+/** The standing-permission list. Always read with revoked rules included — a
+ * revoked rule that vanished would read as one that was never granted. */
 export const APPROVAL_RULE_LIST_METHOD = "approval.ruleList";
 
 /** The revoke. Fired only by the confirming click of the two-step control. */
@@ -47,8 +52,10 @@ export const APPROVAL_RULE_REVOKE_METHOD = "approval.ruleRevoke";
 /**
  * The five lifecycle signals, as opaque re-read triggers.
  *
- * §7.6's leverage note fixes the rule: these are triggers whose payloads are never
- * decoded. The surface matches an arrived event's wire-verbatim `kind` against this
+ * THIS SURFACE'S OWN RULE, because no committed document states it: these are
+ * triggers whose payloads are never decoded — the projection read is the single
+ * source of what is true, and a second reading taken from a signal would be a
+ * second source. The surface matches an arrived event's wire-verbatim `kind` against this
  * set and re-reads; it reads no payload member, so no decision can be taken from a
  * signal and the projection read stays the single source of what is true.
  */
@@ -63,18 +70,20 @@ export const APPROVAL_LIFECYCLE_EVENT_KINDS = [
 /**
  * The two rule-lifecycle signals, on the same terms.
  *
- * §7.7 puts the grant moment and the revocation moment in the ledger; here they are
- * re-read triggers for the standing-permission list and nothing more.
+ * The grant moment and the revocation moment are durable `approval_flow` events;
+ * here they are re-read triggers for the standing-permission list and nothing more,
+ * on the same never-decoded rule as the five above.
  */
 export const APPROVAL_RULE_EVENT_KINDS = ["approval.remembered", "approval.rule_revoked"] as const;
 
-/** What one resolve carries. Nothing on it edits the requested action (§7.6). */
+/** What one resolve carries. Nothing on it edits the requested action: the
+ * Approvals View sketch's interactions are approve / deny / remember and no fourth. */
 export interface ApprovalResolveRequest {
   readonly approvalRequestId: string;
   readonly decision: ApprovalDecision;
   /**
-   * Informational and routing only. §7.6: the console never treats it as
-   * authoritative — a mismatch is the daemon's `auth.principal_mismatch`.
+   * Informational and routing only. The console never treats it as authoritative —
+   * a mismatch is the daemon's `auth.principal_mismatch`.
    */
   readonly approver?: string;
   /** Never broader than requested. The surface offers no scope-widening control. */

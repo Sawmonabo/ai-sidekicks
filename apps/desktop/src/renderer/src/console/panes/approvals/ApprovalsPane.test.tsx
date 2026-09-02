@@ -1,7 +1,7 @@
 // The pane, mounted over the real fixture bridge.
 //
-// Three of §7.6's rules only exist at this level, because each is a property of the
-// COMPOSITION rather than of any card: that the pending / history split is a
+// The three rules this pane's own header states only exist at this level, because
+// each is a property of the COMPOSITION rather than of any card: that the pending / history split is a
 // rendering of one unfiltered read (so history drops nothing), that the four read
 // phases stay four different answers, and that an arriving decision is announced
 // without taking a caret out of someone's hands.

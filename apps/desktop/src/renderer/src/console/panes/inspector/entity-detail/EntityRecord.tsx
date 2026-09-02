@@ -21,9 +21,10 @@
 //      The one arm allowed to say a record is not there.
 //   4. **There is a record.** The record.
 //
-// `Spec-023 §Console Design (Meridian)` rule 8 is what makes them four rather than
-// two, and §4.2's States line is what makes the second one a rank rather than a
-// replacement.
+// `Spec-023 §Meridian, the design language` rule 8 is what makes them four rather
+// than two — "A renderer that collapses two of these into one is wrong". That the
+// second is a RANK on the record rather than a replacement for it is this console's
+// own rule, because no committed document states it.
 
 import { Chip, DerivedFigure, Glyph, Nothing, WireFigure } from "../../../primitives/index.js";
 import type { GlyphName } from "../../../primitives/index.js";

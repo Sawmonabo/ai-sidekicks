@@ -11,14 +11,16 @@
 //
 // THREE DECISIONS THIS CLASS MAKES
 //
-//   1. **Collapse is an inverted set.** `Spec-023 §Console Design (Meridian)`
-//      §4.4: "Expansion persistence as an inverted set (collapsed ids), so a new
-//      section defaults open when it carries attention." What is stored is what
+//   1. **Collapse is an inverted set.** THIS CLASS'S OWN RULE, because no
+//      committed document states it: expansion persists as an inverted set
+//      (collapsed ids), so a new section defaults open when it carries attention —
+//      which is how `Spec-023 §The surface set`'s "a section carrying an amber or
+//      red item is open" survives a section minted after the last save. What is stored is what
 //      the person SHUT. A section minted after the last save is therefore open,
 //      which is the arm that matters, because the new section is the one nobody
 //      has seen.
-//   2. **Filtering never mutates the collapsed set.** §4.4 asks for "auto-expand
-//      while filtering and rollback when cleared". Rollback is free if the filter
+//   2. **Filtering never mutates the collapsed set.** Also this class's own:
+//      filtering auto-expands and clearing rolls back. Rollback is free if the filter
 //      is read as an override at the point of the question rather than written
 //      into the state — a filter that expanded by mutating would have to
 //      remember what it changed, and would get it wrong the moment somebody

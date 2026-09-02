@@ -1,8 +1,9 @@
 // What a settled rollback did, said once, with nothing hidden.
 //
-// `Spec-023 §Console Design (Meridian)` §7.3 fixes the density: "the preview shows
-// scope and target position; the two file enumerations are collapsed behind a count
-// chip that reads zero honestly, and expand in place". So the settlement is a
+// THIS COMPONENT'S OWN DENSITY RULE, because no committed document states it: the
+// preview shows scope and target position, and the two file enumerations are
+// collapsed behind a count chip that reads zero honestly and expands in place. So
+// the settlement is a
 // sentence and a disposition chip, the daemon's positions sit beside it as wire
 // figures, and each enumeration is a `<details>` whose summary carries its own
 // count — including when that count is zero, which is a fact the participant needs
@@ -85,7 +86,8 @@ export function RollbackDisclosure(props: RollbackDisclosureProps): React.JSX.El
  * One never-silent enumeration, collapsed behind its own count.
  *
  * The paths are wire strings and render verbatim — a truncated path is a wrong
- * path, and §7.3 gives the console no licence to shorten one.
+ * path, and `Spec-023 §Rules every console surface obeys` puts "roots and paths"
+ * among the byte-for-byte strings that "render exactly as received".
  */
 function FileEnumeration(props: {
   readonly label: string;

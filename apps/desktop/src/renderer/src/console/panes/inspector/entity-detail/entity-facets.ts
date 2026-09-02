@@ -62,8 +62,10 @@ export interface EntityDetailProps {
    * The pane this inspector was opened from, when the deck linked the two.
    *
    * A PROP and never a coupling: an inspector may be linked to a source pane, and
-   * §4.2's Never list still requires every pane to be independently movable and
-   * closable. Holding a handle on the source pane would make one of those two
+   * this console's own rule — stated in `InspectedEntity.tsx` — still keeps every
+   * pane independently movable and closable, which is what
+   * `Spec-023 §Meridian, the design language`'s "a pane kind, not a fixed third
+   * column" means here. Holding a handle on the source pane would make one of those two
    * false; holding its id makes the link a fact the record can state.
    */
   readonly linkedSourcePaneId: string | undefined;
@@ -172,10 +174,12 @@ export function instantFacet(label: string, value: unknown, memberName: string):
 /**
  * An expiry, which has three answers rather than two.
  *
- * `Spec-023 §Console Design (Meridian)` §7.6 asks for "a verbatim expiry with an
- * explicit 'no expiry' label", so a member the projector set to `null` is a
- * decision that never lapses and says so — which is a different sentence from a
- * member nobody projected.
+ * `Spec-023 §Rules every console surface obeys` renders a wire timestamp from the
+ * exact value, and rule 8 of `§Meridian, the design language` forbids collapsing two
+ * kinds of nothing. THE EXPLICIT "no expiry" LABEL IS THIS MODULE'S OWN, because no
+ * committed document states it: a member the projector set to `null` is a decision
+ * that never lapses and says so — a different sentence from a member nobody
+ * projected.
  */
 export function expiryFacet(label: string, value: unknown, memberName: string): EntityFacet {
   if (value === null) {

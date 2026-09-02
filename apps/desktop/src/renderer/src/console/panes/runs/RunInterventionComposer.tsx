@@ -1,9 +1,9 @@
 // Composing the two controls that carry a body: steer, and the rewind composite.
 //
-// `Spec-023 §Console Design (Meridian)` §7.3 opens with the rule this component
-// exists for: **preview is consent.** "The scope of the rewind, which turns and
-// which run position, is shown before the confirm, on every rewind without
-// exception." So a rewind is never a button that fires — it is a target position, a
+// THIS COMPONENT'S OWN RULE, because no committed document states it: **preview is
+// consent.** The scope of the rewind — which turns and which run position — is
+// shown before the confirm, on every rewind without exception. So a rewind is never
+// a button that fires — it is a target position, a
 // preview of what that position means for this run, and then a confirm.
 //
 // WHAT THE PREVIEW CAN HONESTLY SHOW. The scope's turn-by-turn half belongs to the
@@ -16,8 +16,9 @@
 // THREE REFUSALS THIS SURFACE RAISES BEFORE THE WIRE.
 //
 //   • A rewind with no target position. The cut is daemon-supplied and this pane
-//     computes none — §7.3's Never list forbids deriving one — so an unnamed
-//     position is a refusal here rather than a request the daemon has to reject.
+//     computes none, on `Spec-023 §Rules every console surface obeys`' rule that
+//     "eligibility is never projected by the renderer" — so an unnamed position is a
+//     refusal here rather than a request the daemon has to reject.
 //   • A rewind whose target is not a position. The field's whole trimmed value is
 //     read through `rewind-position.ts`, so a typed suffix is refused rather than
 //     truncated into the position it happens to start with — a prefix parse turns

@@ -1,12 +1,13 @@
 // The nine rollback dispositions, read exhaustively.
 //
-// `Spec-023 §Console Design (Meridian)` §7.3 asks for "one exhaustive switch over
-// nine arms with a `satisfies never` tail, so a tenth arm fails the build rather
-// than falling through". This module is that switch, and it is a pure function over
-// the registered result union so the whole disposition vocabulary can be asserted
-// without rendering anything.
+// THIS MODULE'S OWN RULE, because no committed document states it: one exhaustive
+// switch over nine arms with a `satisfies never` tail, so a tenth arm fails the
+// build rather than falling through. It is a pure function over the registered
+// result union, so the whole disposition vocabulary can be asserted without
+// rendering anything.
 //
-// FIVE PROPERTIES OF THE READING, EACH ONE §7.3 STATES.
+// FIVE PROPERTIES OF THE READING, EACH ONE FIXED BY THAT REGISTERED UNION
+// (`api-payload-contracts.md §Plan-004`) RATHER THAN CHOSEN HERE.
 //
 //   • **The class is read from the type, never asserted in prose.** `applied`
 //     admits exactly `files-restored` and `conversation-only`; every other
@@ -22,7 +23,8 @@
 //     and confirmed positions, `boundary-diverged` the confirmed and the newest
 //     boundary — the latter typed NULLABLE, because a position-less compaction row
 //     classifies as crossing for every target of that run. Nothing here computes a
-//     cut; §7.3's Never list forbids it in terms.
+//     cut, on `Spec-023 §Rules every console surface obeys`' rule that "eligibility
+//     is never projected by the renderer".
 //   • **`resendDisposition` is read, never inferred.** It is schema-optional
 //     everywhere except `resend-unapplied`, where it is required, and its value is
 //     state-determined. The reading passes it through and does not derive the

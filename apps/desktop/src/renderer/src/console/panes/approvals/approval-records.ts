@@ -12,9 +12,12 @@
 //
 //   • **Wire strings stay strings.** `category` and `state` are parsed as `string`
 //     and classified at render time through `approval-vocabulary.ts`. Parsing them
-//     as enums would make one unrecognized token drop a whole record, and §7.6's
-//     history rule is that an unfiltered read renders every record it returns and
-//     drops nothing.
+//     as enums would make one unrecognized token drop a whole record, and this
+//     surface's history rule — stated once in `approvals-wire.ts` — is that an
+//     unfiltered read renders every record it returns and drops nothing. It is also
+//     the fail-closed direction `Spec-023 §Rules every console surface obeys` asks
+//     for: an unknown member renders "as the explicit unrecognized row or badge,
+//     never as a guess".
 //   • **A malformed record is dropped and COUNTED, never silently skipped.** The
 //     count is what the pane renders beside the list, because "the daemon returned
 //     eleven and we could read nine" is a fact an operator has to be able to see.
@@ -30,8 +33,9 @@
 //     and one word for two of them is how a surface starts showing the granted scope
 //     where the requested one belongs.
 //
-// WHAT IS DELIBERATELY ABSENT: a barrier identifier. §7.6 states the wait-for-all
-// barrier, and no member of this reply groups the requests one turn raised. The
+// WHAT IS DELIBERATELY ABSENT: a barrier identifier. The wait-for-all barrier is
+// real — `Spec-012` makes a turn wait on every request it raised — and no member of
+// this reply groups the requests one turn raised. The
 // pane states the rule in copy rather than inventing a field to group by, because
 // a fabricated grouping key would silently claim that two unrelated requests must
 // resolve together.
@@ -257,9 +261,10 @@ function parseRows<TRow>(
 /**
  * Whether a record's resolved quad is complete.
  *
- * §7.6 requires the quad "present exactly when the state is `approved` or
- * `rejected`", so a resolved record missing a member of it is a record the surface
- * labels rather than renders as if it were whole.
+ * THIS MODULE'S OWN RULE, because no committed document states it: the quad is
+ * present exactly when the state is `approved` or `rejected`, so a resolved record
+ * missing a member of it is a record the surface labels rather than renders as if
+ * it were whole.
  */
 export function hasCompleteResolvedQuad(record: ApprovalRecord): boolean {
   return (

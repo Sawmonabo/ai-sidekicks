@@ -18,10 +18,11 @@
 // in the same tick — the person pressed the control for the act that is already
 // going, and there is nothing to refuse them.
 //
-// THE RECORD IS THIS WINDOW'S OWN. `Spec-023 §Console Design (Meridian)` §7.5 asks
-// for the durable intervention history, including the attempts that failed, with
-// the `origin` discriminator and the admitting principal on the participant arm.
-// Those live on the `interventions` table and no registered wire reads them, so
+// THE RECORD IS THIS WINDOW'S OWN. `Spec-023 §Signature Feature Composition
+// Sketches`' Runs View renders "intervention history per Spec-004" — the durable
+// history, including the attempts that failed, with the `origin` discriminator and
+// the admitting principal on the participant arm. Those live on the `interventions`
+// table and no registered wire reads them, so
 // what this surface can honestly hold is what it dispatched and what came back —
 // every field of it daemon-supplied. The surface that renders it says so rather
 // than passing a partial record off as the whole one.

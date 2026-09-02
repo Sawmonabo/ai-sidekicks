@@ -1,7 +1,12 @@
 // Under what sandbox, network, and credential boundary the work actually ran.
 //
-// `Spec-023 §Console Design (Meridian)` §7.9. The shape is the provider-driver
-// contract's `ExecutionPosture`, imported rather than restated — it is one of the
+// `Spec-023 §Signature Feature Composition Sketches`' Session Composer settles what
+// a posture surface may claim — it renders "the run's stamped execution posture from
+// the `run.running` row's `executionPosture` member … a projection of the daemon's
+// stamp and never of a request, because no wire member carries a posture request",
+// and it "offers no mutation". The five Nevers below are this component's own
+// reading of that. The shape is the provider-driver contract's `ExecutionPosture`,
+// imported rather than restated — it is one of the
 // few things on this surface the wire actually registers today, and its two
 // cross-field invariants (`allowedDomains` only under `allowed-domains`,
 // `credentialPolicyRef` required on both sandboxed modes and forbidden under
@@ -36,9 +41,10 @@ import { BROAD_ALLOW_LIST_THRESHOLD } from "./posture-bounds.js";
  * Which kind of posture reading this is.
  *
  * `stamped` is a fact about a run that happened. `intent` is a projection of
- * configured intent for the NEXT run — §7.9's last Never requires the two to be
- * visibly distinct, because no wire member carries an agent-level or composer-level
- * posture and a chip that looked identical would imply one had been enforced.
+ * configured intent for the NEXT run. The two are kept visibly distinct because no
+ * wire member carries an agent-level or composer-level posture — the sketch's
+ * "never of a request" — and a chip that looked identical would imply one had been
+ * enforced.
  */
 export type PostureReading = "stamped" | "intent";
 

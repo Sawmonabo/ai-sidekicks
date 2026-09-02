@@ -14,8 +14,8 @@
 // integer, not negative, and inside the safe-integer range its `.int()` check
 // enforces. This module reads exactly that and nothing more — whether the position
 // names a recorded turn boundary of the target run is a daemon admission check
-// against durable state, and §7.3's Never list forbids the console computing a cut
-// of its own.
+// against durable state, and `Spec-023 §Rules every console surface obeys` holds
+// that "eligibility is never projected by the renderer".
 //
 // THREE THINGS THE WHOLE-VALUE RULE CATCHES that a prefix parse does not: a typed
 // suffix (`4oops`), a value in a notation the wire does not take (`1e3`, `4.0`,

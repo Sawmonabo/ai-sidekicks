@@ -1,12 +1,13 @@
 // The runs section — the one sidebar section this family owns.
 //
-// `Spec-023 §Console Design (Meridian)` §4.4 makes each section "a composition of
-// its own read", groups its rows "pinned, needs-attention, running, then the
-// rest", shows "counts only when the section's read has answered", and renders
-// "unavailable" rather than zero when the read is not there. This file is that
-// composition for runs.
+// `Spec-023 §The surface set` makes each sidebar section "a composition of its own
+// read, opening panes". THE REST IS THIS SECTION'S OWN, because no committed
+// document states it: rows group pinned, needs-attention, running, then the rest;
+// counts show only once the section's read has answered; and an unavailable read
+// renders as unavailable rather than as zero. This file is that composition for
+// runs.
 //
-// THE READ IS THE SESSION STORE, NOT A BRIDGE CALL. §4.4's wire table gives runs
+// THE READ IS THE SESSION STORE, NOT A BRIDGE CALL. Runs reach this console over
 // `run.subscribeState` and `run.subscribeQueue`, which are SDK-only today. What
 // the console has instead is the projected `run` partition, filled by the
 // projectors registered at store construction — and that is a read the section is
@@ -19,7 +20,9 @@
 // initialised is `not-loaded`; a store the daemon told us is incomplete is
 // `error` carrying its own cause verbatim; an initialised, whole store holding no
 // runs is `empty` with the escape hatch. Collapsing any two of those is exactly
-// what rule 8 forbids, and the middle one is §4.4's "never zero".
+// what `Spec-023 §Meridian, the design language` rule 8 forbids — "A renderer that
+// collapses two of these into one is wrong" — and the middle one is this section's
+// own never-zero rule above.
 //
 // THE STATE VOCABULARY IS THE WIRE'S. `RunState` is the registered nine-member
 // union, and grouping reads a run's wire-verbatim `state` against it through a
@@ -49,12 +52,12 @@ import { type SidebarSectionContext } from "../../seats/index.js";
 /**
  * Which group a run's state sorts into, total over the registered union.
  *
- * `needs-attention` is the amber-or-red half of §4.4's grouping and is also what
+ * `needs-attention` is the amber-or-red half of the grouping above and is also what
  * the section reports through the seat, so one table decides both — a section
  * that grouped by one rule and reported attention by another could show a red
  * mark over a list with nothing red in it.
  *
- * `pinned`, the first of §4.4's four groups, is absent because nothing in the
+ * `pinned`, the first of those four groups, is absent because nothing in the
  * corpus pins a run: no wire member and no persisted value class carries it. A
  * group with no source would be a heading that is always empty.
  */
@@ -109,8 +112,8 @@ export function RunsSection(context: SidebarSectionContext): React.JSX.Element {
     }
     // Only an answered read may raise a mark. A store that has not loaded, or one
     // the daemon has told us is incomplete, knows nothing about whether a run
-    // needs attention — and a mark raised from that would be the badge §4.4
-    // forbids the sidebar to synthesise.
+    // needs attention — and a mark raised from that would be the badge
+    // `SidebarSection.tsx` refuses to synthesise.
     if (!isInitialised || degradedCause !== undefined) {
       reportAttention("calm");
       return;
@@ -194,8 +197,8 @@ export function RunsSection(context: SidebarSectionContext): React.JSX.Element {
  *
  * A `Map` keyed by group with absent rather than empty entries, so a caller
  * renders a heading only for a group that has rows — the alternative, four
- * headings of which three say nothing, is the chrome §4.4's density rule spends
- * its whole paragraph avoiding.
+ * headings of which three say nothing, is the chrome the sidebar's counts-not-lists
+ * density rule exists to avoid.
  */
 function groupRuns(
   runs: readonly ConsoleEntity[],
@@ -224,7 +227,8 @@ function groupRuns(
   return grouped;
 }
 
-/** §4.4's filter is "over titles and paths"; a run's are its identifier and its state. */
+/** The sidebar filter runs over titles and paths; a run's are its identifier and
+ *  its state. */
 function matchesFilter(run: ConsoleEntity, normalisedQuery: string): boolean {
   return (
     run.id.toLocaleLowerCase().includes(normalisedQuery) ||

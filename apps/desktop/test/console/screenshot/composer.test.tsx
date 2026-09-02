@@ -6,9 +6,11 @@
 // produces, so nothing about it is restated here.
 //
 // WHAT IS PINNED, AND WHY THESE FIVE. The composer is one component whose whole
-// design claim is about ADDRESSING: `Spec-023 §Console Design (Meridian)` §6.1 says
-// the placeholder names the target and the path label is derived from the target
-// run's state as the wire delivered it, never predicted. That claim is invisible to
+// design claim is about ADDRESSING. `Spec-023 §Signature Feature Composition
+// Sketches`' Session Composer fixes the half that decides these images — "a path
+// label under the input reading _new turn_ or _steer_ from the target run's
+// subscribed state and never predicted" — and this composer's own rule is that the
+// placeholder names the target too. That claim is invisible to
 // a DOM assertion reading one attribute and is exactly what an image holds, so the
 // four addresses are captured rather than described:
 //
@@ -17,12 +19,13 @@
 //   • a named channel, where the chip carries an id and states that it read no
 //     label rather than inventing one;
 //   • a working run, the new-turn path;
-//   • a run waiting on a person, which is the one address §6.1 calls "steer" and the
-//     state the composer scenario deliberately ends on.
+//   • a run waiting on a person, which is the one address that sketch labels
+//     _steer_ and the state the composer scenario deliberately ends on.
 //
-// The fifth is the runs pane on its own scenario, whose §7.1 claim is likewise
-// pictorial: nine wire-verbatim states, waiting rendered as blocked-on-someone
-// rather than as paused, and a queue whose order is rendered and never reordered.
+// The fifth is the runs pane on its own scenario, whose claims are likewise
+// pictorial: the nine wire-verbatim states and waiting-is-not-pausing that
+// `panes/runs/run-status.ts` states, and the rendered-never-reordered queue order
+// that `bridge/queue-feed.ts` states.
 //
 // Five surfaces and two schemes is ten references, and every one of them is minted
 // on the `macos-15` runner through `.github/workflows/console-screenshot-baselines.yml`.

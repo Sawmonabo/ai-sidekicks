@@ -1,7 +1,9 @@
 // Every run in the session with its live status, its queue, and its intervention
 // history, in one place that never invents a state.
 //
-// `Spec-023 §Console Design (Meridian)` §7.1 gives this pane a live spine of two
+// `Spec-023 §Signature Feature Composition Sketches`' Runs View names the pane's
+// data sources — "daemon run-state subscription per Spec-004; daemon queue
+// subscription per Spec-004" — and this pane reads them as a live spine of two
 // session-scoped subscriptions and one snapshot: `run.subscribeState` streaming
 // `RunStateChangeEvent | RunRolledBackEvent`, `run.subscribeQueue` streaming
 // `QueueItemSummary`, and the `run.queueList` snapshot. Both subscriptions are
