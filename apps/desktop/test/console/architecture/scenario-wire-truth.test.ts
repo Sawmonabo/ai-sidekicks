@@ -27,6 +27,14 @@
 
 import { describe, expect, it } from "vitest";
 
+import { EventEnvelopeSchema } from "@ai-sidekicks/contracts";
+
+import {
+  createFixture,
+  subscribeThroughBridge,
+} from "../../../src/renderer/src/console/bridge/fixture-bridge.test-support.js";
+import { SESSION_EVENT_STREAM } from "../../../src/renderer/src/console/bridge/session-event-streams.js";
+import { readConsoleSessionEvent } from "../../../src/renderer/src/console/frame/session-event-payload.js";
 import { CONSOLE_SCENARIOS } from "../../../src/renderer/src/console/bridge/scenarios/index.js";
 import { findScenarioWireTruthDefects } from "../../../src/renderer/src/console/bridge/scenarios/wire-truth.js";
 import type { ConsoleScenario } from "../../../src/renderer/src/console/bridge/scenario.js";
@@ -80,6 +88,51 @@ describe("scenario wire truth — every shipped scenario", () => {
     // emptied or the import resolves to something else.
     expect(CONSOLE_SCENARIOS.length).toBeGreaterThan(0);
     expect(CONSOLE_SCENARIOS.some((scenario) => scenario.beats.length > 0)).toBe(true);
+  });
+});
+
+describe("scenario wire truth — what the fixture bridge actually delivers", () => {
+  // The predicate above measures the beats a scenario DECLARES. This block measures
+  // what a subscriber RECEIVES, through the real bridge over the real engine, and
+  // the two are different claims: the composition sits in the bridge's delivery
+  // path, so a bridge that forwarded the authoring record would leave every case
+  // above green while handing the console a shape no daemon sends. That is the
+  // defect this block exists for, and it is only reachable from this side.
+  it.each(CONSOLE_SCENARIOS.map((scenario) => [scenario.id, scenario] as const))(
+    "delivers %s as envelopes the carrier accepts and the console reads back",
+    (_scenarioId, scenario) => {
+      const fixture = createFixture(scenario);
+      const received = subscribeThroughBridge<unknown>(fixture, SESSION_EVENT_STREAM);
+
+      fixture.engine.runToCompletion();
+
+      expect(received).toHaveLength(scenario.beats.length);
+      received.forEach((delivered, beatIndex) => {
+        const parsed = EventEnvelopeSchema.safeParse(delivered);
+        expect(parsed.error?.issues.map((issue) => issue.message) ?? []).toStrictEqual([]);
+
+        // The other half of the seam, and the half a schema check alone misses: a
+        // composer and a boundary can both be self-consistently wrong. `payload` is
+        // the one member the trip normalizes, and it normalizes toward the wire —
+        // the canonical envelope's payload is required, so a beat that states none
+        // travels as an empty record and arrives as one.
+        const authored = scenario.beats[beatIndex]?.event;
+        expect(readConsoleSessionEvent(delivered)).toStrictEqual({
+          ...authored,
+          payload: authored?.payload ?? {},
+        });
+      });
+    },
+  );
+
+  it("negative control: the authoring record those beats are written in does not", () => {
+    // Without it, the sweep above passes against a schema that accepts anything —
+    // and it is the exact record the bridge used to deliver, so a regression to
+    // forwarding the beat verbatim fails the sweep for the reason named here.
+    const authored = CONSOLE_SCENARIOS.flatMap((scenario) => scenario.beats).at(0)?.event;
+
+    expect(authored).toBeDefined();
+    expect(EventEnvelopeSchema.safeParse(authored).success).toBe(false);
   });
 });
 
@@ -156,6 +209,36 @@ describe("scenario wire truth — the controls", () => {
 
     expect(defects).toHaveLength(1);
     expect(defects[0]?.reason).toContain("rejects this beat");
+  });
+
+  it("reports a beat the canonical carrier rejects, on a kind the strict layer skips", () => {
+    // The carrier leg's own control, and it is planted where only that leg reaches:
+    // `run.starting` has no registered payload variant, so the strict layer reports
+    // nothing but the unmatched discriminator and this beat used to pass silently.
+    // A negative `sequence` is not a position any event can occupy — the store's
+    // cursor and gap detection key on it — so the delivery would be counted
+    // unreadable and dropped, which in a fixture reads as a beat that renders
+    // nothing.
+    const defects = findScenarioWireTruthDefects([
+      controlScenario({
+        beats: [
+          {
+            atMs: 0,
+            event: {
+              id: CONTROL_EVENT_ID,
+              sessionId: CONTROL_SESSION_ID,
+              sequence: -1,
+              kind: "run.starting",
+              occurredAt: "2026-01-01T00:00:00.000Z",
+              payload: {},
+            },
+          },
+        ],
+      }),
+    ]);
+
+    expect(defects).toHaveLength(1);
+    expect(defects[0]?.reason).toContain("the canonical envelope rejects this beat");
   });
 
   it("reports a second reply for a call another reply already claims", () => {

@@ -209,8 +209,8 @@ describe("run streams — the registered payload reaches the subscriber", () => 
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
 
     expect(received).toHaveLength(probe.beats.length);
-    expect(received.map((event) => event.kind)).toContain("run.rolled_back");
-    expect(received.every((event) => typeof event.id === "string")).toBe(true);
+    expect(received.map((envelope) => envelope.type)).toContain("run.rolled_back");
+    expect(received.every((envelope) => typeof envelope.id === "string")).toBe(true);
   });
 
   it("negative control: a bare event-type subscriber still receives the envelope", () => {
@@ -223,7 +223,7 @@ describe("run streams — the registered payload reaches the subscriber", () => 
 
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
 
-    expect(received.map((event) => event.kind)).toStrictEqual(["run.starting"]);
+    expect(received.map((envelope) => envelope.type)).toStrictEqual(["run.starting"]);
   });
 });
 

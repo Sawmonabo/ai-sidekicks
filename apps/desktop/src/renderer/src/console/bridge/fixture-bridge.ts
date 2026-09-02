@@ -26,10 +26,15 @@
 //     subscriber delivered `session.created` into a handler that had asked for
 //     `run.starting`; a fixture that recognised only ONE stream name delivered
 //     nothing at all to the two `run.*` streams the daemon serves, which reads
-//     exactly like a quiet session; and a fixture that delivered the ENVELOPE to
-//     those two streams sent a frame with no `currentState` on a wire whose whole
-//     payload is one. `session-event-streams.ts` routes, `run-stream-projection.ts`
-//     projects, and all three defects are gone from one table between them.
+//     exactly like a quiet session; a fixture that delivered the envelope to those
+//     two streams sent a frame with no `currentState` on a wire whose whole payload
+//     is one; and a fixture that delivered the AUTHORING RECORD to the streams that
+//     do carry an envelope sent a frame carrying `kind` and `actorParticipantId`
+//     where the wire carries `type` and `actor`, which is how the console's decode
+//     boundary came to read fixture-local names and refuse every live delivery with
+//     every fixture test green. `session-event-streams.ts` routes,
+//     `run-stream-projection.ts` projects, `scenario-envelope.ts` composes, and all
+//     four defects are gone from the three tables between them.
 //   • **Native surfaces refuse rather than pretend.** `showOpenDialog` under the
 //     fixture cannot open a dialog, so it rejects with a fixture-scoped error. A
 //     fixture that returned a plausible path would let a surface ship with a code
@@ -56,6 +61,7 @@ import {
 } from "./fixture-growth-port.js";
 import { projectRunStreamDelivery } from "./run-stream-projection.js";
 import { ScenarioEngine } from "./scenario-engine.js";
+import { composeScenarioEventEnvelope } from "./scenario-envelope.js";
 import type { ConsoleScenario } from "./scenario.js";
 import { SCRIPTED_REPLY_REFUSAL_CODES, settleScriptedReply } from "./scripted-reply.js";
 import { subscriptionDeliversEventKind } from "./session-event-streams.js";
@@ -159,10 +165,16 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
       // than an event, and a scenario scripts exactly one session — so every beat
       // it plays belongs to the session any caller could be asking for. The
       // filter that `daemon.subscribe` needs has nothing to key on here.
+      //
+      // Composed rather than forwarded raw for the same reason the two envelope
+      // arms above are: the relay frame is a Plan-008 stub the corpus has not
+      // shaped yet, and whatever it turns out to be, it is not this console's own
+      // projection type. Handing that type out here would leave one door through
+      // which the fixture still teaches a surface a shape no wire sends.
       subscribeRelay: (_sessionId, handler): Unsubscribe =>
         scenarioEngine.subscribe((events) => {
           for (const event of events) {
-            handler(event);
+            handler(composeScenarioEventEnvelope(event));
           }
         }),
     },
@@ -225,9 +237,12 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
  * WHAT REACHES THE HANDLER depends on which arm the name is, because the corpus
  * registers two different answers. `session.subscribe` is the replay-then-tail
  * stream of the whole log and a bare event-type name carries only itself, so both
- * deliver the beat's own envelope. The two `run.*` streams are registered
- * PROJECTIONS — `RunStateChangeEvent | RunRolledBackEvent` and `QueueItemSummary` —
- * and `run-stream-projection.ts` builds one from the beat. Handing those two the
+ * deliver the canonical `EventEnvelope` that `scenario-envelope.ts` composes from
+ * the beat — the wire's own shape rather than the console's authoring record, so
+ * the decode boundary above is exercised here exactly as the live bridge exercises
+ * it. The two `run.*` streams are registered PROJECTIONS —
+ * `RunStateChangeEvent | RunRolledBackEvent` and `QueueItemSummary` — and
+ * `run-stream-projection.ts` builds one from the beat. Handing those two the
  * envelope, as this function used to, trained every runs surface on a frame the
  * live bridge cannot send: no `kind`, no `sequence`, no nested `payload`, and
  * `currentState` where the envelope has `payload.newState`.
@@ -249,7 +264,7 @@ function subscribeToScenario(
       }
       const projection = projectRunStreamDelivery(subscriptionName, event);
       if (projection === undefined) {
-        deliver(event);
+        deliver(composeScenarioEventEnvelope(event));
         continue;
       }
       if (projection.status === "unprojectable") {

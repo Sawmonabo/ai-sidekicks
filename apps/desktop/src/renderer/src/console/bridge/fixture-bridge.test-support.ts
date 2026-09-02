@@ -6,13 +6,12 @@
 // It holds nothing a single suite uses: the scripts each concern re-writes, and the
 // constants only one of them reads, stay beside their reader.
 
-import type { DaemonEvent, DaemonMethod } from "@ai-sidekicks/contracts";
+import type { DaemonEvent, DaemonMethod, EventEnvelope } from "@ai-sidekicks/contracts";
 
 import { createFixtureBridge } from "./fixture-bridge.js";
 import type { ScenarioEngine } from "./scenario-engine.js";
 import type { ConsoleScenario, ScenarioBeat } from "./scenario.js";
 import { FLAGSHIP_SCENARIO } from "./scenarios/flagship.js";
-import type { ConsoleSessionEvent } from "../store/index.js";
 
 /** The scripted latency both settling suites spend. Longer than one tick. */
 export const SCRIPTED_LATENCY_MS = 120;
@@ -72,13 +71,14 @@ export function createFixture(scenario: ConsoleScenario = FLAGSHIP_SCENARIO): Fi
  * payload type here would be a fiction.
  *
  * The delivered type is a PARAMETER because the answer depends on the name: the
- * whole-session stream and a bare event type deliver the envelope, and the two
- * narrowed run streams deliver the registered projection. Defaulting it to the
- * envelope keeps every existing caller reading as it did while letting the
- * run-stream suite name what it actually receives instead of asserting through a
- * type that is wrong for it.
+ * whole-session stream and a bare event type deliver the canonical `EventEnvelope`,
+ * and the two narrowed run streams deliver the registered projection. Defaulting it
+ * to the envelope lets every caller on the unprojected arms assert through the
+ * wire's own shape — `type`, not the console's `kind` — while the run-stream suite
+ * names what it actually receives instead of asserting through a type that is wrong
+ * for it.
  */
-export function subscribeThroughBridge<Delivered = ConsoleSessionEvent>(
+export function subscribeThroughBridge<Delivered = EventEnvelope>(
   fixture: FixtureUnderTest,
   eventName: string,
 ): readonly Delivered[] {

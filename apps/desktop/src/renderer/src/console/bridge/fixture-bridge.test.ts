@@ -47,7 +47,7 @@ describe("fixture bridge — a subscription delivers only the event it named", (
     // The flagship script carries five kinds. A subscriber that named one of them
     // is handed one of them — never `session.created`, which arrives first and is
     // what an unfiltered fixture delivers into a `run.starting` handler.
-    expect(received.map((event) => event.kind)).toStrictEqual(["run.starting"]);
+    expect(received.map((envelope) => envelope.type)).toStrictEqual(["run.starting"]);
   });
 
   it("negative control: the session stream still receives every beat", () => {
@@ -60,7 +60,7 @@ describe("fixture bridge — a subscription delivers only the event it named", (
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
 
     expect(received).toHaveLength(FLAGSHIP_SCENARIO.beats.length);
-    expect(new Set(received.map((event) => event.kind)).size).toBeGreaterThan(1);
+    expect(new Set(received.map((envelope) => envelope.type)).size).toBeGreaterThan(1);
   });
 
   it("delivers nothing to a subscriber whose kind the script never plays", () => {
@@ -80,7 +80,7 @@ describe("fixture bridge — a subscription delivers only the event it named", (
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
 
     expect(streamed).toHaveLength(FLAGSHIP_SCENARIO.beats.length);
-    expect(attached.map((event) => event.kind)).toStrictEqual([
+    expect(attached.map((envelope) => envelope.type)).toStrictEqual([
       "agent.attached",
       "agent.attached",
       "agent.attached",
