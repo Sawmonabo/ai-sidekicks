@@ -16,7 +16,10 @@ import {
   consolePaneRegistry,
   registerConsolePane,
   registeredPaneKinds,
+  type ConsolePaneAddress,
   type ConsolePaneDescriptor,
+  type ConsolePaneLink,
+  type ConsolePaneOpener,
 } from "./pane-registry.js";
 
 /** A descriptor whose render is never called: these cases are about the table. */
@@ -120,5 +123,57 @@ describe("pane registry — the module-scope door", () => {
     // if `registerConsolePane` stopped registering anything at all.
     expect(consolePaneRegistry.descriptorFor("workflow-builder")).toBeUndefined();
     expect(registeredPaneKinds()).not.toContain("workflow-builder");
+  });
+});
+
+describe("pane opener — a pane that opens another can name itself", () => {
+  /**
+   * A deck-shaped opener: it records what it was asked for, exactly as a deck
+   * would copy the link onto the new pane's context.
+   *
+   * Driven here rather than left to the ledger deck to discover, for the reason
+   * the module-scope door above is driven here: the deck ships on another branch,
+   * so the seat's second parameter would otherwise be a contract nothing exercises
+   * until the first consumer gets it wrong.
+   */
+  function recordingOpener(): {
+    readonly openPane: ConsolePaneOpener;
+    readonly opens: {
+      readonly address: ConsolePaneAddress;
+      readonly link: ConsolePaneLink | undefined;
+    }[];
+  } {
+    const opens: {
+      readonly address: ConsolePaneAddress;
+      readonly link: ConsolePaneLink | undefined;
+    }[] = [];
+    return {
+      openPane: (address, link) => {
+        opens.push({ address, link });
+      },
+      opens,
+    };
+  }
+
+  const inspectorAddress: ConsolePaneAddress = {
+    kind: "diff",
+    entity: { kind: "artifact", id: "artifact-7" },
+  };
+
+  it("carries the source pane id through to the deck", () => {
+    const { openPane, opens } = recordingOpener();
+    openPane(inspectorAddress, { linkedSourcePaneId: "pane-ledger-2" });
+    expect(opens).toStrictEqual([
+      { address: inspectorAddress, link: { linkedSourcePaneId: "pane-ledger-2" } },
+    ]);
+  });
+
+  it("negative control: an open with no source pane carries no link", () => {
+    // Without this, the case above would pass over an opener that stamped some
+    // link on every open — and a pane linked to a source it was not opened from
+    // is exactly the state `linkedSourcePaneId` exists to make impossible.
+    const { openPane, opens } = recordingOpener();
+    openPane(inspectorAddress);
+    expect(opens[0]?.link).toBeUndefined();
   });
 });

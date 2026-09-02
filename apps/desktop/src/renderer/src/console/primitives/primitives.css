@@ -49,9 +49,55 @@
 .meridian-nothing :focus-visible,
 .meridian-refusal :focus-visible,
 .meridian-refusal__dismiss:focus-visible,
+.meridian-accent-fill:focus-visible,
 .meridian-ledger-row :focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
+}
+
+/* --------------------------------------------------------------- accent fill */
+
+/*
+ * The one filled-accent treatment: a control whose whole face is the accent, with
+ * `accent-ink` as its label. Two surfaces reach for this — an approval's approve
+ * action and a goal's save — and both were painting `accent-text` on `accent`,
+ * which is 1.53:1 in light and 1.48:1 in dark against rule 3's 4.5:1 floor. One
+ * class, so the pairing is made once and `tokens/contrast.test.ts` measures the
+ * pair it makes.
+ *
+ * A BLOCK RATHER THAN A `--modifier`, deliberately. These primitives carry no
+ * `.meridian-button` block, and minting one here would mean minting a button
+ * primitive — geometry, disabled state, sizes — that the console has not settled
+ * and that neither consumer needs: both already own their control's padding and
+ * type. So this class carries the FILL and what the fill implies (its own edge,
+ * its corner, its ink, and how it responds to a pointer) and nothing about size.
+ *
+ * The border matches the fill rather than being omitted, so a control that sits
+ * against `surface-raised` still has a definite boundary at its edge — and so a
+ * consumer replacing a bordered button with this one does not lose a pixel of
+ * geometry in the swap.
+ */
+.meridian-accent-fill {
+  border: 1px solid var(--meridian-accent);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-accent);
+  color: var(--meridian-accent-ink);
+  cursor: pointer;
+  transition: filter var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+/*
+ * Hover and press shift the whole face rather than swapping either colour, which
+ * is what keeps the measured ink-on-fill ratio the ratio a person actually sees:
+ * a `filter` scales foreground and background together, while a second background
+ * token would need a second contrast pair to hold it to the floor.
+ */
+.meridian-accent-fill:hover {
+  filter: brightness(1.06);
+}
+
+.meridian-accent-fill:active {
+  filter: brightness(0.94);
 }
 
 /* ------------------------------------------------------------------- glyph */

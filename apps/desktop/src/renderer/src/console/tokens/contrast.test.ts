@@ -20,6 +20,7 @@ import { describe, expect, it } from "vitest";
 import { contrastRatio, isOklchInsideSrgbGamut } from "./color.js";
 import { PARTICIPANT_HUE_STEPS } from "./palette.js";
 import {
+  ACCENT_FILL_PAIRS,
   CONSOLE_SCHEMES,
   GROUND_TOKEN_NAMES,
   NON_TEXT_CONTRAST_FLOOR,
@@ -88,6 +89,36 @@ describe("Meridian palette — tinted grounds hold the text floor for their own 
       });
     }
   }
+});
+
+describe("Meridian palette — a filled accent control holds the text floor for its label", () => {
+  for (const scheme of CONSOLE_SCHEMES) {
+    for (const [inkToken, fillToken] of ACCENT_FILL_PAIRS) {
+      it(`${scheme}: ${inkToken} on ${fillToken}`, () => {
+        // A primary action's whole face is the accent, so its label is text on
+        // that fill and carries 1.4.3's floor like any other text. Measured rather
+        // than asserted, for this file's reason: the pair is the one place in the
+        // console where a foreground sits on a saturated mid-lightness field, which
+        // is where an eyeballed choice is most likely to be wrong.
+        const ratio = contrastRatio(schemeColor(inkToken, scheme), schemeColor(fillToken, scheme));
+        expect(ratio).toBeGreaterThanOrEqual(TEXT_CONTRAST_FLOOR);
+      });
+    }
+  }
+
+  it("negative control: the accent's own text token fails on the accent fill", () => {
+    // This is the pair the console would otherwise have reached for, and the
+    // reason `accent-ink` exists at all. Without this case, `ACCENT_FILL_PAIRS`
+    // would pass over any ink whatsoever — including the one that is wrong — and
+    // the assertion above would prove only that some number was computed.
+    for (const scheme of CONSOLE_SCHEMES) {
+      const ratio = contrastRatio(
+        schemeColor("accent-text", scheme),
+        schemeColor("accent", scheme),
+      );
+      expect(ratio).toBeLessThan(TEXT_CONTRAST_FLOOR);
+    }
+  });
 });
 
 describe("Meridian palette — non-text boundaries clear WCAG 2.2 AA (3:1)", () => {
