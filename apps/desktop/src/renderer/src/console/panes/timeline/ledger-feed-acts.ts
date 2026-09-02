@@ -22,19 +22,21 @@
 // honouring that rather than adding a third one; conceal is unchanged, and the next
 // pointer-leave or focus-out concludes it.
 //
-// ONE OF THE EIGHT REFUSES, AND THAT IS THE HONEST ANSWER RATHER THAN A GAP.
-// `Spec-023 §Console Design (Meridian)` rule 8 says a surface never renders a
-// default in place of a reading, and the same holds for an act: "clear filters" over
-// a ledger with no filter control is a press that could only pretend, and a no-op
-// would report success for work that did not happen — so it states rule 9's banner
-// instead, naming what is missing.
+// ONE OF THE EIGHT REFUSES, AND IT REFUSES A STATE RATHER THAN AN ABSENCE.
+// "Clear ledger filters" USED TO answer that this ledger had no filter surface at
+// all, which was true while `filters.ts` had no caller: the model was complete and
+// unreachable, so the press could only pretend. The facet bar reaches it now, so the
+// act clears, and the one thing left to refuse is the state a person can still put
+// the ledger in — nothing is narrowed, so there is nothing to widen. A no-op there
+// would report success for work that did not happen, which is what the banner exists
+// to prevent.
 //
-// "Collapse all finished run chapters" USED TO BE THE SECOND, on the reasoning that
-// every finished chapter was already folded and no control opened one. That
-// reasoning was true of a ledger that drew no chapter header and false the moment
-// one existed: the headers are disclosures, a person can open any of them, and this
-// act now folds exactly the ones they opened. A typed refusal for a thing that
-// exists is worse than no refusal at all.
+// "Collapse all finished run chapters" USED TO BE A SECOND SUCH REFUSAL, on the
+// reasoning that every finished chapter was already folded and no control opened
+// one. That reasoning was true of a ledger that drew no chapter header and false the
+// moment one existed: the headers are disclosures, a person can open any of them,
+// and this act now folds exactly the ones they opened. A typed refusal for a thing
+// that exists is worse than no refusal at all.
 
 import { useEffect, useMemo, useRef } from "react";
 
@@ -51,20 +53,25 @@ import {
   type ActorFollowOutcome,
   type ActorFollowRequest,
 } from "../../workspace/index.js";
-import { type LedgerFindState, type LedgerReplayState } from "./ledger-feed-model.js";
+import {
+  type LedgerFilterState,
+  type LedgerFindState,
+  type LedgerReplayState,
+} from "./ledger-feed-model.js";
 
 /**
- * What "clear ledger filters" answers on a build with nothing to clear.
+ * What "clear ledger filters" answers over a ledger nobody has narrowed.
  *
- * `filters.ts` holds the whole narrowing model and no surface drives it: the feed
- * renders the window unfiltered, and there is no menu, chip, or chord that narrows
- * it. Holding a `LedgerFilter` here anyway so the act had something to reset would
- * be a control nobody can reach, kept only to make a press look successful.
+ * A refusal about the STATE, not about the surface: the facet bar is on screen and
+ * the chips are pressable, and this says the ledger is showing everything already.
+ * The alternative — clearing an unfiltered ledger silently — would report a change
+ * to a person who pressed a row precisely because they were unsure whether one was
+ * in effect.
  */
-export const LEDGER_NO_FILTER_SURFACE_REFUSAL: ConsoleRefusal = refuse(
+export const LEDGER_NOTHING_FILTERED_REFUSAL: ConsoleRefusal = refuse(
   "ledger",
-  "ledger.no_filter_surface",
-  "This ledger is not filtered. It offers no participant or event-family narrowing yet, so there is nothing to clear.",
+  "ledger.nothing_filtered",
+  "This ledger is not narrowed. Every loaded entry is already showing, so there is nothing to clear.",
 );
 
 /** The state one window's acts are built over. */
@@ -76,10 +83,12 @@ export interface LedgerFeedActInputs {
   readonly jumpToTail: () => void;
   /** Fold every terminal chapter the feed has open. */
   readonly collapseAllTerminalChapters: () => void;
+  /** The narrowing the facet bar writes, and the one act that widens it back. */
+  readonly ledgerFilter: LedgerFilterState;
 }
 
 /**
- * Build the eight acts a contributed ledger command runs.
+ * Build the acts a contributed ledger command runs.
  *
  * Written out member by member rather than assembled from a name list, for
  * `structure-commands.ts`' reason: a ninth act added to `LedgerStructureActs` fails
@@ -101,7 +110,11 @@ export function buildLedgerStructureActs(inputs: LedgerFeedActInputs): LedgerStr
       stepAndJump("previous");
     },
     clearFilters: () => {
-      raiseConsoleActRefusal(LEDGER_NO_FILTER_SURFACE_REFUSAL);
+      if (!inputs.ledgerFilter.isFiltered) {
+        raiseConsoleActRefusal(LEDGER_NOTHING_FILTERED_REFUSAL);
+        return;
+      }
+      inputs.ledgerFilter.clear();
     },
     scrollToTail: inputs.jumpToTail,
     collapseAllTerminalChapters: inputs.collapseAllTerminalChapters,
@@ -137,7 +150,7 @@ export function buildLedgerStructureActs(inputs: LedgerFeedActInputs): LedgerStr
  * cost the feed avoids rather than a correctness the seat depends on.
  */
 export function useLedgerStructureActs(inputs: LedgerFeedActInputs): void {
-  const { find, replay, jumpToRow, jumpToTail, collapseAllTerminalChapters } = inputs;
+  const { find, replay, jumpToRow, jumpToTail, collapseAllTerminalChapters, ledgerFilter } = inputs;
   const acts = useMemo(
     () =>
       buildLedgerStructureActs({
@@ -146,8 +159,9 @@ export function useLedgerStructureActs(inputs: LedgerFeedActInputs): void {
         jumpToRow,
         jumpToTail,
         collapseAllTerminalChapters,
+        ledgerFilter,
       }),
-    [find, replay, jumpToRow, jumpToTail, collapseAllTerminalChapters],
+    [find, replay, jumpToRow, jumpToTail, collapseAllTerminalChapters, ledgerFilter],
   );
   useMountedLedger(acts);
 }

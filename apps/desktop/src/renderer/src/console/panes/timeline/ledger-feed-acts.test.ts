@@ -5,24 +5,34 @@
 // so the only thing that can be wrong is which of the feed's own callbacks an act
 // runs — and none of them needs a DOM to check.
 //
-// The two REFUSING acts are the reason this file exists in the shape it does. A
-// no-op and a refusal are indistinguishable from a component test: nothing moves
-// either way. Here the refusal is read off the frame's own act-refusal channel, so
-// a press that quietly did nothing fails.
+// THE REFUSING ARM is the reason this file exists in the shape it does. A no-op and
+// a refusal are indistinguishable from a component test: nothing moves either way.
+// Here the refusal is read off the frame's own act-refusal channel, so a press that
+// quietly did nothing fails — and the act that CAN refuse is checked on both arms,
+// because an act that refused unconditionally would pass a one-armed case.
 
 import { afterEach, describe, expect, it } from "vitest";
 
 import { type ConsoleRefusal } from "../../core/index.js";
 import { publishConsoleActRefusalSink } from "../../frame/command-surface.js";
-import { REPLAY_STATES, emptyFindResult, type ReplayState } from "../../ledger/structure/index.js";
+import {
+  REPLAY_STATES,
+  UNFILTERED_LEDGER,
+  emptyFindResult,
+  type ReplayState,
+} from "../../ledger/structure/index.js";
 import { type ConsoleSessionEvent } from "../../store/index.js";
 import {
-  LEDGER_NO_FILTER_SURFACE_REFUSAL,
+  LEDGER_NOTHING_FILTERED_REFUSAL,
   buildActorFollowHandler,
   buildLedgerStructureActs,
   type LedgerFeedActInputs,
 } from "./ledger-feed-acts.js";
-import { type LedgerFindState, type LedgerReplayState } from "./ledger-feed-model.js";
+import {
+  type LedgerFilterState,
+  type LedgerFindState,
+  type LedgerReplayState,
+} from "./ledger-feed-model.js";
 import { deriveLedgerWindow } from "./ledger-window.js";
 
 const SESSION_ID = "session-ledger-feed-acts";
@@ -108,7 +118,11 @@ function recordingReplayState(state: ReplayState, trace: ActTrace): LedgerReplay
 /** One window's act inputs, with every seam recording into `trace`. */
 function actInputs(
   trace: ActTrace,
-  options: { readonly replayState?: ReplayState; readonly walkedRowId?: string } = {},
+  options: {
+    readonly replayState?: ReplayState;
+    readonly walkedRowId?: string;
+    readonly isFiltered?: boolean;
+  } = {},
 ): LedgerFeedActInputs {
   return {
     find: recordingFindState(trace, options.walkedRowId),
@@ -121,6 +135,22 @@ function actInputs(
     },
     collapseAllTerminalChapters: () => {
       trace.push("collapseAllTerminalChapters");
+    },
+    ledgerFilter: recordingFilterState(options.isFiltered ?? false, trace),
+  };
+}
+
+/** A narrowing whose members record. What it holds is `ledger-feed-model.test.ts`'. */
+function recordingFilterState(isFiltered: boolean, trace: ActTrace): LedgerFilterState {
+  return {
+    filter: UNFILTERED_LEDGER,
+    facets: { participants: [], categories: [] },
+    isFiltered,
+    setFilter: () => {
+      trace.push("setFilter");
+    },
+    clear: () => {
+      trace.push("clearFilters");
     },
   };
 }
@@ -208,13 +238,25 @@ describe("the ledger's acts — the one that refuses", () => {
     withdrawSink = undefined;
   });
 
-  it("says why there is nothing to unfilter", () => {
+  it("says why there is nothing to widen when nothing is narrowed", () => {
     const { raised, withdraw } = collectRaisedRefusals();
     withdrawSink = withdraw;
     buildLedgerStructureActs(actInputs([])).clearFilters();
-    expect(raised).toStrictEqual([LEDGER_NO_FILTER_SURFACE_REFUSAL]);
-    expect(raised[0]?.code).toBe("ledger.no_filter_surface");
+    expect(raised).toStrictEqual([LEDGER_NOTHING_FILTERED_REFUSAL]);
+    expect(raised[0]?.code).toBe("ledger.nothing_filtered");
     expect(raised[0]?.origin).toBe("ledger");
+  });
+
+  it("clears a narrowed ledger rather than refusing over a surface that now exists", () => {
+    // The refusal this replaces said the ledger offered no narrowing at all, which
+    // was true only while `filters.ts` had no caller. The facet bar reaches it now,
+    // so a narrowed ledger widens and raises nothing.
+    const trace: ActTrace = [];
+    const { raised, withdraw } = collectRaisedRefusals();
+    withdrawSink = withdraw;
+    buildLedgerStructureActs(actInputs(trace, { isFiltered: true })).clearFilters();
+    expect(trace).toStrictEqual(["clearFilters"]);
+    expect(raised).toStrictEqual([]);
   });
 
   it("folds the chapters rather than refusing over a control that now exists", () => {

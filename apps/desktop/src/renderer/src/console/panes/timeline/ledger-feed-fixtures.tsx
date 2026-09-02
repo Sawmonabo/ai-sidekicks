@@ -274,6 +274,73 @@ export function openSessionStoreWithSeam(): SessionStore {
 }
 
 /**
+ * A log with two participants, two event families, and a rollback boundary.
+ *
+ * Built for the narrowing cases, and shaped so the load-bearing rule can fail: the
+ * boundary carries a DIFFERENT actor from the run it belongs to, so admitting the
+ * agent's rows admits the boundary only if the filter's second pass does its job.
+ * With one actor throughout, a filter that had dropped the boundary rule entirely
+ * would still have passed.
+ */
+/**
+ * A session id the CONTRACT accepts, which the boundary arm's payload needs.
+ *
+ * The shared `SESSION_ID` above is a readable string, which every other fixture can
+ * afford because their payloads are open records. A rollback boundary's is parsed
+ * against the wire schema and dropped when it does not satisfy it, so this one
+ * fixture pays for a real identifier rather than shipping a log whose boundary is
+ * silently counted as unprojectable.
+ */
+export const FILTERABLE_SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a5";
+
+/** The row id the projection mints for one sequence of that log. */
+export function filterableRowId(sequence: number): string {
+  return `${FILTERABLE_SESSION_ID}:${String(sequence)}`;
+}
+
+export function openSessionStoreWithFilterableLog(): SessionStore {
+  const sessionStore = new SessionStore({ sessionId: FILTERABLE_SESSION_ID });
+  sessionStore.initialise({
+    cursor: -1,
+    entities: [],
+    participantJoinLog: [EARLY_JOINER, LATE_JOINER],
+  });
+  const at = (index: number): string => new Date(Date.UTC(2026, 0, 1, 11, 0, index)).toISOString();
+  sessionStore.applyBatch([
+    {
+      sessionId: FILTERABLE_SESSION_ID,
+      sequence: 0,
+      kind: "run.running",
+      occurredAt: at(0),
+      actorParticipantId: EARLY_JOINER,
+      payload: { sessionId: FILTERABLE_SESSION_ID, runId: LIVE_RUN_ID },
+    },
+    {
+      sessionId: FILTERABLE_SESSION_ID,
+      sequence: 1,
+      kind: "run.rolled_back",
+      occurredAt: at(1),
+      actorParticipantId: LATE_JOINER,
+      payload: {
+        sessionId: FILTERABLE_SESSION_ID,
+        runId: LIVE_RUN_ID,
+        runVersion: 1,
+        targetPosition: 0,
+      },
+    },
+    {
+      sessionId: FILTERABLE_SESSION_ID,
+      sequence: 2,
+      kind: "user.message",
+      occurredAt: at(2),
+      actorParticipantId: LATE_JOINER,
+      payload: {},
+    },
+  ]);
+  return sessionStore;
+}
+
+/**
  * A live run whose rows are tool rows, which are the ones that carry a disclosure.
  *
  * The only card in the shell that offers one, so it is the only row through which a

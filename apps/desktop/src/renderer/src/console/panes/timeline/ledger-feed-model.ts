@@ -51,9 +51,15 @@ import { type LedgerVisibleRowRange } from "../../ledger/frame/viewport-binding.
 import {
   ProvenanceRailModel,
   ReplayEngine,
+  UNFILTERED_LEDGER,
+  applyLedgerFilter,
+  deriveLedgerFacets,
   emptyFindResult,
   findInLedger,
+  isLedgerFiltered,
   stepFindMatch,
+  type LedgerFacets,
+  type LedgerFilter,
   type LedgerFindResult,
   type ReplayPosition,
   type ReplaySpeed,
@@ -147,6 +153,93 @@ export function useVisibleLedgerWindow(
       railModel: new ProvenanceRailModel({ rows, hasEarlierRows }),
     };
   }, [ledgerWindow, revealedRows, viewportRows]);
+}
+
+/** What a person has narrowed this ledger to, and what the bar may offer them. */
+export interface LedgerFilterState {
+  readonly filter: LedgerFilter;
+  /** Derived from the WHOLE loaded window, never from the narrowed one. */
+  readonly facets: LedgerFacets;
+  readonly isFiltered: boolean;
+  readonly setFilter: (filter: LedgerFilter) => void;
+  /** Widen back to the whole window — what the palette's clear row runs. */
+  readonly clear: () => void;
+}
+
+/**
+ * Hold one mount's narrowing, and derive what the bar can offer.
+ *
+ * THE FACETS COME OFF THE UNFILTERED WINDOW, which is the only choice that leaves
+ * the bar usable: derived from the narrowed rows instead, admitting one participant
+ * would collapse the offer to that participant and there would be no chip left to
+ * press to get back — a control that removes itself the first time it is used.
+ */
+export function useLedgerFilter(ledgerWindow: LedgerWindowModel): LedgerFilterState {
+  const [filter, setFilter] = useState<LedgerFilter>(UNFILTERED_LEDGER);
+  const facets = useMemo(() => deriveLedgerFacets(ledgerWindow.rows), [ledgerWindow]);
+  const clear = useCallback(() => {
+    setFilter(UNFILTERED_LEDGER);
+  }, []);
+  return useMemo(
+    () => ({ filter, facets, isFiltered: isLedgerFiltered(filter), setFilter, clear }),
+    [filter, facets, clear],
+  );
+}
+
+/**
+ * Narrow one loaded window, before anything downstream of it has seen it.
+ *
+ * THE ORDER IS THE WHOLE DESIGN: filter, then replay's reveal, then the viewport,
+ * then the visible window. The filter runs on the LOG because that is what
+ * `Spec-023 §Console Design (Meridian)` narrows — everything after it then holds
+ * without restatement. Replay plays over rows the filter admitted, the cap prunes
+ * what the filter left, and find and the rail keep reading only rows the one scroll
+ * writer can reach. Applying it after the viewport instead would have left the rail
+ * marking rows the feed no longer draws.
+ *
+ * A NARROWED CHAPTER KEEPS ITS HEADER, and a chapter the filter emptied loses one:
+ * the header is a row of the list keyed by its run, so leaving one over nothing
+ * would draw a finished run that this narrowing has no rows for.
+ *
+ * The unnarrowed case returns the model BY IDENTITY, so a ledger nobody has
+ * filtered reconciles nothing and pays nothing — `foldChapterHeaders`' own early
+ * return, for its reason.
+ */
+export function useFilteredLedgerWindow(
+  ledgerWindow: LedgerWindowModel,
+  filter: LedgerFilter,
+): LedgerWindowModel {
+  return useMemo(() => {
+    if (!isLedgerFiltered(filter)) {
+      return ledgerWindow;
+    }
+    const rows = applyLedgerFilter(ledgerWindow.rows, filter);
+    const admittedRowIds = new Set(rows.map((row) => row.id));
+    const admittedRunIds = new Set<string>();
+    for (const row of rows) {
+      if (row.kind !== "general") {
+        admittedRunIds.add(row.runId);
+      }
+    }
+    return {
+      ...ledgerWindow,
+      rows,
+      rowsByKey: new Map([...ledgerWindow.rowsByKey].filter(([key]) => admittedRowIds.has(key))),
+      viewportRows: ledgerWindow.viewportRows.filter(
+        (row) => admittedRowIds.has(row.key) || admittedRunIds.has(row.key),
+      ),
+      chapterByHeaderKey: new Map(
+        [...ledgerWindow.chapterByHeaderKey].filter(([runId]) => admittedRunIds.has(runId)),
+      ),
+      // The dock's next-seam jump walks these, so a seam the filter took out must
+      // leave with it: scrubbing to a row the feed is not drawing would move the
+      // position and reveal nothing.
+      seams: ledgerWindow.seams.filter((seam) => admittedRowIds.has(seam.rowId)),
+      seamByRowId: new Map(
+        [...ledgerWindow.seamByRowId].filter(([rowId]) => admittedRowIds.has(rowId)),
+      ),
+    };
+  }, [ledgerWindow, filter]);
 }
 
 /** The find field's state, and the walk over one window's matches. */

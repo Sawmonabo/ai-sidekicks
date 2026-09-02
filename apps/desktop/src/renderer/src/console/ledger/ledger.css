@@ -1382,3 +1382,107 @@
 .meridian-chapter-header__counts {
   font-size: var(--meridian-text-xs);
 }
+
+/*
+ * The facet bar — the only surface that narrows this ledger.
+ *
+ * Sits with the find field on the sunken band above the log rather than floating
+ * over it: both are readings ABOUT the window rather than rows of it, and a control
+ * that overlaid the feed would cover the rows it is narrowing. Wraps, because the
+ * number of chips is the session's and not the layout's.
+ */
+.meridian-ledger-filter {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-3);
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border-bottom: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface-sunken);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+  flex-wrap: wrap;
+}
+
+.meridian-ledger-filter__axis {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.meridian-ledger-filter__axis-label {
+  color: var(--meridian-text-muted);
+}
+
+/*
+ * One chip. The admitted state is carried by `aria-pressed` and painted from it,
+ * so the thing a screen reader announces and the thing an eye reads are one fact.
+ */
+.meridian-ledger-filter__facet {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--meridian-space-1);
+  padding: 0 var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-lg);
+  background: var(--meridian-surface);
+  color: var(--meridian-text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.meridian-ledger-filter__facet[aria-pressed="true"] {
+  border-color: var(--meridian-accent);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+}
+
+.meridian-ledger-filter__facet-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 12rem;
+}
+
+.meridian-ledger-filter__clear {
+  margin-inline-start: auto;
+  padding: 0 var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.meridian-ledger-filter__facet:focus-visible,
+.meridian-ledger-filter__clear:focus-visible,
+.meridian-ledger__jump-action:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--meridian-radius-sm);
+}
+
+/*
+ * The jump offer a query naming a row id produces. A sentence with one control in
+ * it, on the same band as the find field that raised it.
+ */
+.meridian-ledger__jump {
+  margin: 0;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border-bottom: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface-sunken);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-ledger__jump-action {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--meridian-accent);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}

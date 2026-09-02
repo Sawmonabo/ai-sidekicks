@@ -22,6 +22,16 @@
 // reveals the replay dock), so a tag here would name the task that already owns the
 // file.
 //
+// AND HERE IS WHAT THE FORM COSTS, because it was paid once already. A star
+// re-export gives the dead-code gate no specifier to hang a finding on, so a module
+// behind one is invisible to it however dead it is: `filters.js` shipped complete
+// and tested with no production caller at all, and the gate stayed green through
+// every run because this line, not the module, is what it saw. The claim above —
+// that every consumer is a sibling piece already in this task — is the only thing
+// standing between the form and that outcome, so a line added here without its
+// consumer landing in the same change is a dead module CI cannot report, and review
+// is the only reader left. Add the consumer, or add the line later.
+//
 // The comment on each line is the table a named barrel would have been: what the
 // module carries, in DAG order, low to high.
 
@@ -36,6 +46,7 @@ export * from "./ProvenanceRail.js"; // the canvas, the hit strip, and the keybo
 export * from "./replay-model.js"; // playback over the frozen clock
 export * from "./ReplayControls.js"; // the docked scrub-and-play control
 export * from "./filters.js"; // participant and family narrowing, and the jumps
+export * from "./LedgerFilterBar.js"; // the facet bar that reaches that narrowing
 export * from "./find-model.js"; // the matcher, and the boundary it states
 export * from "./FindInLedger.js"; // the find field itself
 export * from "./mounted-ledger.js"; // which mounted ledger a command acts on
