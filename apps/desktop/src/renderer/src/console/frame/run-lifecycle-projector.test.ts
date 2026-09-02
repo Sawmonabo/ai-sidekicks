@@ -149,6 +149,31 @@ describe("the run partition under every shipped scenario", () => {
 describe("the flagship scenario's run, folded", () => {
   const flagship = CONSOLE_SCENARIOS.find((scenario) => scenario.id === "flagship");
 
+  it("stamps the run into the store from its creation beat, with no state it came from", () => {
+    // The creation beat is not a transition, so it names the state the run is IN and
+    // no state it came from — `queued` is the destination of no row in the run state
+    // machine's transition table. The run still has to reach the store from it,
+    // because `run.subscribeState` does not carry the creation kind at all: this
+    // fold is the only way a surface learns the run exists.
+    if (flagship === undefined) {
+      throw new Error("the flagship scenario is not on the scenario board");
+    }
+    const queued = firstBeatOfKind(flagship, "run.queued");
+    const beforeAnyTransition = {
+      ...flagship,
+      beats: flagship.beats.filter((beat) => beat.event.sequence <= queued.sequence),
+    };
+
+    const run =
+      storeDrivenBy(beforeAnyTransition).snapshot().partitions.run[
+        String(queued.payload?.["runId"])
+      ];
+
+    expect(run?.state).toBe("queued");
+    expect(run?.body?.["previousState"]).toBeUndefined();
+    expect(run?.touchedAt).toBe(queued.occurredAt);
+  });
+
   it("keeps the agent the queued beat named across the next transition", () => {
     if (flagship === undefined) {
       throw new Error("the flagship scenario is not on the scenario board");

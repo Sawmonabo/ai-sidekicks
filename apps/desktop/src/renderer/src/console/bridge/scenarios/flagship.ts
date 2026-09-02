@@ -204,19 +204,20 @@ export const FLAGSHIP_SCENARIO: ConsoleScenario = {
         kind: "run.queued",
         occurredAt: "2026-01-01T14:20:00.320Z",
         actorParticipantId: PARTICIPANT_YOU,
-        // A run-lifecycle payload is a STATE TRANSITION carrying the progression
-        // counter, not a bare id — and the transition is total. `previousState` was
-        // absent here on the reasoning that a run being born came from nowhere, but
-        // the shape this beat is projected into on `run.subscribeState` requires it
-        // and the registered `RunState` vocabulary has no pre-birth member. A beat
-        // that omits it is refused rather than half-projected, so the birth row is
-        // recorded as the run entering the queue: `queued` is the only value that
-        // does not claim a state this run was never in.
+        // The run's CREATION, and creation is not a transition. This beat briefly
+        // carried `previousState: "queued"` so it would satisfy the shape
+        // `run.subscribeState` projects into — which made it claim the run had
+        // moved from `queued` to `queued`, a self-transition
+        // `docs/domain/run-state-machine.md`'s transition table defines for no
+        // state and no daemon can produce. `queued` is the state a run is created
+        // IN, the destination of no row in that table, so the honest beat names the
+        // state the run is now in and no state it came from — and that stream
+        // carries the creation kind no longer. A subscriber learns this run exists
+        // from `session.subscribe`, where the run-lifecycle projector folds it in.
         payload: {
           sessionId: SESSION_ID,
           runId: FIRST_RUN_ID,
           runVersion: 1,
-          previousState: "queued",
           newState: "queued",
           agentId: AGENT_IMPLEMENTER,
         },

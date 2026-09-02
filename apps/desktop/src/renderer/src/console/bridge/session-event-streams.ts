@@ -21,10 +21,11 @@
 //     long-lived `LocalSubscriptionConsumer<EventEnvelope>` row). Every kind the
 //     session emits reaches it.
 //   • `run.subscribeState` — streams `RunStateChangeEvent | RunRolledBackEvent`.
-//     The first arm is one event per canonical run state, so its kinds are the
-//     registered `RunState` union under the `run.` root; the second arm is the
-//     forward, non-state `run.rolled_back` row that the same registration names as
-//     riding the same stream.
+//     The first arm is one event per canonical run state the machine can transition
+//     INTO, so its kinds are the registered `RunState` union under the `run.` root
+//     less the initial state; the second arm is the forward, non-state
+//     `run.rolled_back` row that the same registration names as riding the same
+//     stream.
 //   • `run.subscribeQueue` — streams the `QueueItemSummary` projection, which is
 //     what each `queue_item.*` row announces, so its kinds are that root within
 //     the registered census.
@@ -36,10 +37,32 @@
 // Totality and excess are therefore both compile-time facts: a newly registered
 // run state or queue row fails this file, and a kind this table invents fails it
 // too. The import stays TYPE-ONLY — the renderer's initial-bundle budget is
-// enforced, and a value import of the census would pull the whole taxonomy module
-// and its schemas into the console — so the runtime cross-check against
-// `SESSION_EVENT_CATEGORY_BY_TYPE` lives in the co-located test, which is not
-// bundled and can therefore read the census itself.
+// enforced and this module is on the RELEASE path, reached from the binder one
+// family up, so a value import of the census would pull the whole taxonomy module
+// and its schemas into the shipped console — and the runtime cross-check against
+// `SESSION_EVENT_CATEGORY_BY_TYPE` therefore lives in the co-located test, which
+// is not bundled and can read the census itself.
+//
+// WHY EVERY COLLECTION HERE IS A FROZEN RECORD OR A FROZEN ARRAY, AND NOT A `Set`
+// OR A `Map`. This table is a compile-time constant that every subscription in a
+// renderer routes through, and it used to be exported as `ReadonlySet` views over
+// mutable `Set`s with a module-level `Map` and `Set` beside them. `ReadonlySet` is
+// a TypeScript view and nothing more: `CONSOLE_SESSION_EVENT_STREAMS` is exported,
+// so one `carriedKinds.add(…)` anywhere in the process would have re-routed EVERY
+// fixture subscription in that renderer for the rest of its life, and no compiler
+// and no test would have said so. Module-level mutable singletons are rejected
+// outright by `apps/desktop/AGENTS.md §State and views` for exactly that reason.
+//
+// The replacement is immutable record membership rather than an encapsulated class
+// with private fields, and the choice is not stylistic. A class exists to own
+// STATE, and there is none here to own: which kinds `run.subscribeState` carries is
+// a fact about the wire contract, identical in every renderer and for every bridge
+// instance, so a per-instance registry would hand each bridge its own copy of one
+// constant and invite the two copies to answer differently. What was actually
+// wrong was reachable mutability, and `Object.freeze` removes it at the root:
+// membership is a pure lookup over frozen data, there is nothing to construct,
+// nothing to inject, and nothing for one subscription to change out from under
+// another.
 
 import type { QueueItemState, RunState, SessionEventType } from "@ai-sidekicks/contracts";
 
@@ -57,24 +80,50 @@ export const RUN_STATE_EVENT_STREAM = "run.subscribeState";
 /** The registered subscription name for a session's queue-projection stream. */
 export const RUN_QUEUE_EVENT_STREAM = "run.subscribeQueue";
 
+/** The namespace prefix every run-lifecycle event kind carries. */
+const RUN_EVENT_KIND_PREFIX = "run.";
+
+/**
+ * The run's initial state.
+ *
+ * `docs/domain/run-state-machine.md` calls `queued` the state a run is CREATED in,
+ * and its §Complete Transition Table — the single authoritative reference — names
+ * `queued` in the `From` column of three rows and in the `To` column of none. So no
+ * transition ends in `queued`, and `RunStateChangeEvent` requires a `previousState`:
+ * there is no registered state a run could have come from to reach it, and no
+ * pre-birth member of the vocabulary to invent one out of.
+ */
+type RunInitialState = "queued";
+
 /**
  * The registered event kinds `run.subscribeState` projects, and the wire arm each
  * one travels as.
  *
- * The union is derived twice over — the census filtered to the `run.` root, then
- * intersected with the registered run-state vocabulary — so the nine transitions
- * are the nine canonical states and nothing else. `run.rolled_back` joins them
- * explicitly because it is the stream's SECOND registered arm rather than a
- * transition: it records no state change, which is why the registration gives it
- * its own payload shape and why deriving it from `RunState` is impossible.
+ * The union is derived three ways over — the census filtered to the `run.` root,
+ * intersected with the registered run-state vocabulary, less the initial state — so
+ * the eight transitions are exactly the states the machine can move a run INTO.
+ * `run.rolled_back` joins them explicitly because it is the stream's SECOND
+ * registered arm rather than a transition: it records no state change, which is why
+ * the registration gives it its own payload shape and why deriving it from
+ * `RunState` is impossible.
+ *
+ * `run.queued` is the excluded one, and it is excluded for the same reason the three
+ * forward rows below are: neither wire arm can represent it. It is the run's
+ * CREATION rather than a transition — a beat carrying it reaches a subscriber
+ * through `session.subscribe`, where the run-lifecycle projector folds it into the
+ * run's existence — and the scenario that used to script `previousState: "queued"`
+ * on it to satisfy this stream was describing a self-transition the machine defines
+ * for no state, which a surface could then learn to render or count.
  *
  * The three forward, non-state run rows the taxonomy also registers —
- * provider-initialization, turn-start, worker-shutdown — are deliberately absent:
- * neither wire arm can represent one, so a subscriber to this stream never sees
- * them, and a table that carried them would train a surface on a frame the daemon
- * does not send here.
+ * provider-initialization, turn-start, worker-shutdown — are deliberately absent
+ * too, and a table that carried any of these four would train a surface on a frame
+ * the daemon does not send here.
  */
-type RunStateStreamKind = Extract<SessionEventType, `run.${RunState}` | "run.rolled_back">;
+type RunStateStreamKind = Extract<
+  SessionEventType,
+  `run.${Exclude<RunState, RunInitialState>}` | "run.rolled_back"
+>;
 
 /**
  * Which of the stream's two registered arms a kind is projected into.
@@ -86,18 +135,18 @@ type RunStateStreamKind = Extract<SessionEventType, `run.${RunState}` | "run.rol
  */
 export type RunStateStreamArm = "state-change" | "rollback";
 
-const RUN_STATE_STREAM_ARM_BY_KIND = {
-  "run.queued": "state-change",
-  "run.starting": "state-change",
-  "run.running": "state-change",
-  "run.waiting_for_approval": "state-change",
-  "run.waiting_for_input": "state-change",
-  "run.paused": "state-change",
-  "run.completed": "state-change",
-  "run.interrupted": "state-change",
-  "run.failed": "state-change",
-  "run.rolled_back": "rollback",
-} as const satisfies Record<RunStateStreamKind, RunStateStreamArm>;
+const RUN_STATE_STREAM_ARM_BY_KIND: Readonly<Record<RunStateStreamKind, RunStateStreamArm>> =
+  Object.freeze({
+    "run.starting": "state-change",
+    "run.running": "state-change",
+    "run.waiting_for_approval": "state-change",
+    "run.waiting_for_input": "state-change",
+    "run.paused": "state-change",
+    "run.completed": "state-change",
+    "run.interrupted": "state-change",
+    "run.failed": "state-change",
+    "run.rolled_back": "rollback",
+  } satisfies Record<RunStateStreamKind, RunStateStreamArm>);
 
 /**
  * The registered event kinds `run.subscribeQueue` projects, and the queue state
@@ -112,13 +161,14 @@ const RUN_STATE_STREAM_ARM_BY_KIND = {
  */
 type RunQueueStreamKind = Extract<SessionEventType, `queue_item.${string}`>;
 
-const RUN_QUEUE_STREAM_STATE_BY_KIND = {
-  "queue_item.created": "queued",
-  "queue_item.admitted": "admitted",
-  "queue_item.superseded": "superseded",
-  "queue_item.canceled": "canceled",
-  "queue_item.expired": "expired",
-} as const satisfies Record<RunQueueStreamKind, QueueItemState>;
+const RUN_QUEUE_STREAM_STATE_BY_KIND: Readonly<Record<RunQueueStreamKind, QueueItemState>> =
+  Object.freeze({
+    "queue_item.created": "queued",
+    "queue_item.admitted": "admitted",
+    "queue_item.superseded": "superseded",
+    "queue_item.canceled": "canceled",
+    "queue_item.expired": "expired",
+  } satisfies Record<RunQueueStreamKind, QueueItemState>);
 
 /**
  * A stream that carries a session's whole event log.
@@ -137,12 +187,16 @@ export interface WholeSessionEventStream {
 export interface NarrowedSessionEventStream {
   readonly scope: "selected-kinds";
   /**
-   * The routing index for this stream's kinds, built from the contract-bound
-   * record that declares them. Typed as strings because a subscriber's event
-   * `kind` arrives wire-verbatim: the membership test IS what recognises it, and
-   * the registration proof lives on the record rather than on this lookup.
+   * This stream's kinds, read off the contract-bound record that declares them and
+   * frozen. Typed as strings because a subscriber's event `kind` arrives
+   * wire-verbatim: the membership test IS what recognises it, and the registration
+   * proof lives on the record rather than on this list.
+   *
+   * A frozen array rather than a `ReadonlySet`, because the readonly view was the
+   * defect — nine members are a `.includes` away, and the array cannot be added to
+   * by a caller that got hold of it.
    */
-  readonly carriedKinds: ReadonlySet<string>;
+  readonly carriedKinds: readonly string[];
 }
 
 /** One registered session-event stream. */
@@ -162,105 +216,75 @@ export type ConsoleSessionEventStreamName =
   | typeof RUN_QUEUE_EVENT_STREAM;
 
 /**
- * Every session-event stream the console can subscribe to. Closed, and the one
- * authority on which kinds each carries.
+ * Every session-event stream the console can subscribe to. Closed, frozen, and the
+ * one authority on which kinds each carries.
  *
  * Keyed by subscription name rather than listed, so the table is total over the
  * names by construction: a registered stream with no row here, or a row for a
  * name nothing registers, is a compile error rather than a silent hole in the
  * routing — which is precisely the shape the defect this table replaces took.
+ *
+ * Frozen at every level — the table, each row, and each row's kind list — because
+ * it is exported: a reachable mutation would re-route every subscription in the
+ * renderer at once, and the readonly types alone say nothing about that at runtime.
  */
 export const CONSOLE_SESSION_EVENT_STREAMS: Readonly<
   Record<ConsoleSessionEventStreamName, ConsoleSessionEventStream>
-> = {
-  [SESSION_EVENT_STREAM]: { scope: "whole-session" },
-  [RUN_STATE_EVENT_STREAM]: {
+> = Object.freeze({
+  [SESSION_EVENT_STREAM]: Object.freeze({
+    scope: "whole-session",
+  } satisfies ConsoleSessionEventStream),
+  [RUN_STATE_EVENT_STREAM]: Object.freeze({
     scope: "selected-kinds",
-    carriedKinds: new Set(Object.keys(RUN_STATE_STREAM_ARM_BY_KIND)),
-  },
-  [RUN_QUEUE_EVENT_STREAM]: {
+    carriedKinds: Object.freeze(Object.keys(RUN_STATE_STREAM_ARM_BY_KIND)),
+  } satisfies ConsoleSessionEventStream),
+  [RUN_QUEUE_EVENT_STREAM]: Object.freeze({
     scope: "selected-kinds",
-    carriedKinds: new Set(Object.keys(RUN_QUEUE_STREAM_STATE_BY_KIND)),
-  },
-};
-
-/** The namespace prefix every run-lifecycle event kind carries. */
-const RUN_EVENT_KIND_PREFIX = "run.";
-
-/**
- * The registered run state each state-change kind announces, derived from the arm
- * table rather than written a second time.
- *
- * `run.waiting_for_approval` announces `waiting_for_approval`: the kind IS the
- * prefix plus the state, which is why the union above could be `Extract`ed with a
- * template literal in the first place. Taking the map from the same record that
- * decides routing keeps one declaration answering both questions — which kinds this
- * stream carries, and what state each of them means — so a newly registered run
- * state cannot arrive in one and be missing from the other.
- */
-const RUN_STATE_BY_TRANSITION_KIND: ReadonlyMap<string, RunState> = new Map(
-  Object.entries(RUN_STATE_STREAM_ARM_BY_KIND)
-    .filter(([, arm]) => arm === "state-change")
-    // Sound by the record's own key type: every `state-change` row is keyed
-    // `run.${RunState}`, so the tail after the prefix is exactly a `RunState`.
-    // The `rollback` row — the one key that is not — is filtered out above.
-    .map(([kind]) => [kind, kind.slice(RUN_EVENT_KIND_PREFIX.length) as RunState] as const),
-);
-
-/** Every registered run state, read off the map above so it has one home. */
-const REGISTERED_RUN_STATES: ReadonlySet<string> = new Set(RUN_STATE_BY_TRANSITION_KIND.values());
+    carriedKinds: Object.freeze(Object.keys(RUN_QUEUE_STREAM_STATE_BY_KIND)),
+  } satisfies ConsoleSessionEventStream),
+});
 
 /**
  * Which registered arm of `run.subscribeState` this event kind travels as, or
  * `undefined` when the stream does not carry the kind at all.
  */
 export function runStateStreamArmFor(eventKind: string): RunStateStreamArm | undefined {
-  const armsByKind: Readonly<Record<string, RunStateStreamArm | undefined>> =
-    RUN_STATE_STREAM_ARM_BY_KIND;
-  return armsByKind[eventKind];
-}
-
-/** The run state a state-change kind announces, or `undefined` for any other kind. */
-export function runStateForTransitionKind(eventKind: string): RunState | undefined {
-  return RUN_STATE_BY_TRANSITION_KIND.get(eventKind);
+  return readFrozenRecord(RUN_STATE_STREAM_ARM_BY_KIND, eventKind);
 }
 
 /**
- * The value as a registered run state, or `undefined` when the vocabulary has no
- * such member.
+ * The run state a state-change kind announces, or `undefined` for any other kind.
  *
- * The membership test for a state a beat NAMES rather than one a kind implies —
- * `previousState` has no kind to be read off, and a value outside the vocabulary
- * would otherwise reach a consumer typed as though it were inside it.
+ * Read off the kind rather than out of a second table: `run.waiting_for_approval`
+ * announces `waiting_for_approval`, because the kind IS the prefix plus the state,
+ * which is why the union above could be `Extract`ed with a template literal in the
+ * first place. Sound by the arm record's own key type — every `state-change` row is
+ * keyed `run.${RunState}`, and the one key that is not is the `rollback` row this
+ * guard excludes.
  */
-export function registeredRunStateFor(value: string): RunState | undefined {
-  return REGISTERED_RUN_STATES.has(value) ? (value as RunState) : undefined;
+export function runStateForTransitionKind(eventKind: string): RunState | undefined {
+  return runStateStreamArmFor(eventKind) === "state-change"
+    ? (eventKind.slice(RUN_EVENT_KIND_PREFIX.length) as RunState)
+    : undefined;
 }
 
 /**
  * The queue state a `queue_item.*` kind announces, or `undefined` for any other
  * kind.
  *
- * The map's whole reason for being a map rather than a list, exposed: the queue's
- * first row is `queue_item.created` and the state it announces is `queued`.
+ * The record's whole reason for being keyed by kind rather than being a list,
+ * exposed: the queue's first row is `queue_item.created` and the state it announces
+ * is `queued`.
  */
 export function runQueueStreamStateFor(eventKind: string): QueueItemState | undefined {
-  const statesByKind: Readonly<Record<string, QueueItemState | undefined>> =
-    RUN_QUEUE_STREAM_STATE_BY_KIND;
-  return statesByKind[eventKind];
+  return readFrozenRecord(RUN_QUEUE_STREAM_STATE_BY_KIND, eventKind);
 }
 
 /** The registered stream this subscription name is, or `undefined` if it is not one. */
 export function sessionEventStreamFor(
   subscriptionName: string,
 ): ConsoleSessionEventStream | undefined {
-  // Read through a widened view rather than an indexed access on the keyed
-  // record: the argument is a wire-verbatim string, and asking the keyed shape
-  // about one would need an assertion that claims the answer this lookup exists
-  // to find out.
-  const streamsByName: Readonly<Record<string, ConsoleSessionEventStream | undefined>> =
-    CONSOLE_SESSION_EVENT_STREAMS;
-  return streamsByName[subscriptionName];
+  return readFrozenRecord(CONSOLE_SESSION_EVENT_STREAMS, subscriptionName);
 }
 
 /**
@@ -285,5 +309,19 @@ export function subscriptionDeliversEventKind(
   if (stream.scope === "whole-session") {
     return true;
   }
-  return stream.carriedKinds.has(eventKind);
+  return stream.carriedKinds.includes(eventKind);
+}
+
+/**
+ * One row of a keyed table, looked up by a wire-verbatim string.
+ *
+ * `Object.hasOwn` rather than a bare indexed read, and one helper rather than the
+ * same widened-view dance written out at each of the four call sites: the argument
+ * is a string that arrived off the wire, so `"constructor"` and `"toString"` reach
+ * these lookups exactly as a real kind does, and an indexed read would answer one
+ * of them with something off `Object.prototype` — a truthy value where the caller
+ * is asking whether the table has a row at all.
+ */
+function readFrozenRecord<Row>(table: Readonly<Record<string, Row>>, key: string): Row | undefined {
+  return Object.hasOwn(table, key) ? table[key] : undefined;
 }
