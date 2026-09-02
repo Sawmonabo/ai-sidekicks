@@ -63,9 +63,56 @@ export const CAST_VERB_BY_EVENT_KIND: Readonly<Record<string, string>> = {
   "approval.requested": "waiting on approval",
 };
 
+/**
+ * Where a chip's visible NAME comes from, keyed by registered event kind.
+ *
+ * The same discipline as the verb table above, for the same reason: the keys are
+ * the claim, and the co-located test checks each one against the contracts census.
+ *
+ * Both members are read off the PAYLOAD and never off the envelope actor. An agent
+ * does not attach itself — `agent.attached` is authored by the person who did — so
+ * the actor names the wrong participant for the name the payload carries. And a
+ * label is never derived from an id: participant ids are branded UUIDs minted at one
+ * instant, so a bar full of them is a bar of one repeated fifteen-character prefix.
+ *
+ * `agent.config_updated` carries the rename: its `name` is optional and present only
+ * when that field changed, which is exactly what a last-writer-wins forward pass
+ * needs to land a rename over the attach-time name.
+ */
+export interface CastLabelSource {
+  /** The payload member naming the participant this label belongs to. */
+  readonly participantIdMember: string;
+  /** The payload member carrying the label itself. */
+  readonly labelMember: string;
+}
+
+export const CAST_LABEL_SOURCE_BY_EVENT_KIND: Readonly<Record<string, CastLabelSource>> = {
+  "membership.created": { participantIdMember: "participantId", labelMember: "identityHandle" },
+  "agent.attached": { participantIdMember: "agentId", labelMember: "name" },
+  "agent.config_updated": { participantIdMember: "agentId", labelMember: "name" },
+};
+
+/**
+ * The clause a frozen chip adds to its own accessible name.
+ *
+ * The same sentence the bar has always spoken for a stale verb, re-cast as a clause
+ * because the name is now composed rather than concatenated out of the chip's
+ * children — a visually-hidden sentence inside a labelled control is never read.
+ */
+const CAST_STALE_CLAUSE = "the connection dropped, so this may be out of date";
+
 /** One chip. */
 export interface CastMember {
   readonly participantId: string;
+  /**
+   * The name the wire gave this participant, or `undefined` where it named none.
+   *
+   * Folded from the label table above, so it is a value some registered payload
+   * actually carried. A participant the log never named keeps its id on screen: the
+   * chip shows what the console knows, and inventing a name would be worse than a
+   * UUID because a reader could not tell the invention from a reading.
+   */
+  readonly label: string | undefined;
   /** The participant's place on the twelve-step wheel — identity, never state. */
   readonly hue: ParticipantHueAssignment;
   /** The present-tense verb, or `undefined` where the newest row implies none. */
@@ -127,6 +174,7 @@ export function deriveCastBar(input: CastBarInput): CastBarModel {
   // the newest row — is what let a newer ordinary event clear an approval that was
   // still blocking a parallel run.
   const outstanding = foldOutstandingAsks(input.timeline);
+  const labelByParticipantId = foldParticipantLabels(input.timeline);
   const newestByParticipantId = new Map<string, ConsoleSessionEvent>();
   for (let position = input.timeline.length - 1; position >= 0; position -= 1) {
     const event = input.timeline[position];
@@ -142,6 +190,7 @@ export function deriveCastBar(input: CastBarInput): CastBarModel {
     const kind = newest?.kind;
     return {
       participantId: hue.participantId,
+      label: labelByParticipantId.get(hue.participantId),
       hue,
       verb: kind === undefined ? undefined : verbFor(kind),
       isVerbStale: input.isDegraded,
@@ -160,6 +209,66 @@ export function deriveCastBar(input: CastBarInput): CastBarModel {
     // chip in amber and still means something in the session needs a person.
     isAllClear: !input.isDegraded && outstanding.count === 0,
   };
+}
+
+/**
+ * Fold the log into the name each participant was given.
+ *
+ * One FORWARD pass, and the direction is the point: last writer wins, so a rename
+ * carried by a later `agent.config_updated` lands over the name the attach beat set.
+ * The backwards pass beside this one answers a different question — the NEWEST row —
+ * and the first writer would win there, which is the wrong rule for a rename.
+ *
+ * Guarded the way the outstanding-asks fold guards its correlation ids: a member
+ * that is not a non-empty string is skipped rather than coerced, so an empty handle
+ * leaves the id on screen instead of blanking the chip.
+ */
+function foldParticipantLabels(
+  timeline: readonly ConsoleSessionEvent[],
+): ReadonlyMap<string, string> {
+  const labelByParticipantId = new Map<string, string>();
+  for (const event of timeline) {
+    if (!Object.hasOwn(CAST_LABEL_SOURCE_BY_EVENT_KIND, event.kind)) {
+      continue;
+    }
+    const source = CAST_LABEL_SOURCE_BY_EVENT_KIND[event.kind];
+    if (source === undefined) {
+      continue;
+    }
+    const participantId = event.payload?.[source.participantIdMember];
+    const label = event.payload?.[source.labelMember];
+    if (typeof participantId !== "string" || participantId.length === 0) {
+      continue;
+    }
+    if (typeof label !== "string" || label.length === 0) {
+      continue;
+    }
+    labelByParticipantId.set(participantId, label);
+  }
+  return labelByParticipantId;
+}
+
+/**
+ * What a screen reader hears for one chip.
+ *
+ * Composed here rather than left to the browser's own name computation over the
+ * chip's children, because the presence glyph is an image carrying a name of its
+ * own: concatenated, every chip in the bar would open with "Presence has not been
+ * read" before the person it is about. The composition is the one §4.1 documents —
+ * the identifier and the verb — with each further state added as its own clause, so
+ * a chip that is only itself reads exactly "priya, waiting on approval".
+ *
+ * Every clause is a value this model already derived. Nothing is invented here.
+ */
+export function castChipAccessibleName(member: CastMember): string {
+  const clauses: string[] = [member.label ?? member.participantId];
+  if (member.verb !== undefined) {
+    clauses.push(member.verb);
+  }
+  if (member.isVerbStale) {
+    clauses.push(CAST_STALE_CLAUSE);
+  }
+  return clauses.join(", ");
 }
 
 /**

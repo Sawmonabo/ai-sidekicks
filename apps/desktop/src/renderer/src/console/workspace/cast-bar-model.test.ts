@@ -16,7 +16,12 @@ import { describe, expect, it } from "vitest";
 
 import type { ConsoleSessionEvent } from "../store/index.js";
 import { ParticipantHueAllocator } from "../tokens/index.js";
-import { CAST_VERB_BY_EVENT_KIND, deriveCastBar } from "./cast-bar-model.js";
+import {
+  CAST_LABEL_SOURCE_BY_EVENT_KIND,
+  CAST_VERB_BY_EVENT_KIND,
+  castChipAccessibleName,
+  deriveCastBar,
+} from "./cast-bar-model.js";
 
 const REGISTERED_EVENT_TYPES: ReadonlySet<string> = new Set<string>(
   SESSION_EVENT_CATEGORY_BY_TYPE.keys(),
@@ -45,6 +50,14 @@ function withRun(base: ConsoleSessionEvent, runId: string): ConsoleSessionEvent 
   return { ...base, payload: { runId } };
 }
 
+/** The same event, carrying the payload a label is read off. */
+function withPayload(
+  base: ConsoleSessionEvent,
+  payload: Readonly<Record<string, unknown>>,
+): ConsoleSessionEvent {
+  return { ...base, payload };
+}
+
 describe("the verb vocabulary — wire truth", () => {
   it("names only event kinds the contracts package registers", () => {
     const unregistered = Object.keys(CAST_VERB_BY_EVENT_KIND).filter(
@@ -58,6 +71,130 @@ describe("the verb vocabulary — wire truth", () => {
     // above pass over nothing at all.
     expect(REGISTERED_EVENT_TYPES.size).toBeGreaterThan(100);
     expect(REGISTERED_EVENT_TYPES.has("run.started")).toBe(false);
+  });
+});
+
+describe("the label vocabulary — wire truth", () => {
+  it("names only event kinds the contracts package registers", () => {
+    const unregistered = Object.keys(CAST_LABEL_SOURCE_BY_EVENT_KIND).filter(
+      (kind) => !REGISTERED_EVENT_TYPES.has(kind),
+    );
+    expect(unregistered).toStrictEqual([]);
+  });
+});
+
+describe("deriveCastBar — the name each participant was given", () => {
+  it("takes the identity handle off a membership beat's own payload", () => {
+    const wheel = wheelFor(["participant-priya"]);
+    const model = deriveCastBar({
+      assignments: wheel.assignments(),
+      timeline: [
+        withPayload(event(1, "participant-priya", "membership.created"), {
+          participantId: "participant-priya",
+          identityHandle: "priya",
+        }),
+      ],
+      isDegraded: false,
+      chipCap: 8,
+    });
+    expect(model.members[0]?.label).toBe("priya");
+  });
+
+  it("keys an agent's name off the payload's agent id and never off the actor", () => {
+    // The person who attached the agent is the actor. Keying on the envelope would
+    // put the agent's name on that person's chip and leave the agent unnamed.
+    const wheel = wheelFor(["participant-you", "agent-architect"]);
+    const model = deriveCastBar({
+      assignments: wheel.assignments(),
+      timeline: [
+        withPayload(event(1, "participant-you", "agent.attached"), {
+          agentId: "agent-architect",
+          name: "Architect",
+        }),
+      ],
+      isDegraded: false,
+      chipCap: 8,
+    });
+    expect(model.members[0]?.label).toBeUndefined();
+    expect(model.members[1]?.label).toBe("Architect");
+  });
+
+  it("lets a later config update rename an agent, because the fold's last writer wins", () => {
+    const wheel = wheelFor(["agent-architect"]);
+    const model = deriveCastBar({
+      assignments: wheel.assignments(),
+      timeline: [
+        withPayload(event(1, "participant-you", "agent.attached"), {
+          agentId: "agent-architect",
+          name: "Architect",
+        }),
+        withPayload(event(2, "participant-you", "agent.config_updated"), {
+          agentId: "agent-architect",
+          name: "Planner",
+        }),
+      ],
+      isDegraded: false,
+      chipCap: 8,
+    });
+    expect(model.members[0]?.label).toBe("Planner");
+  });
+
+  it("negative control: an unnamed participant, and an empty handle, carry no label", () => {
+    // Without this, the cases above would pass over a fold that invented a label
+    // from the id — and an empty string would blank the chip rather than leave the
+    // id on it.
+    const wheel = wheelFor(["participant-you", "participant-priya"]);
+    const model = deriveCastBar({
+      assignments: wheel.assignments(),
+      timeline: [
+        withPayload(event(1, "participant-priya", "membership.created"), {
+          participantId: "participant-priya",
+          identityHandle: "",
+        }),
+      ],
+      isDegraded: false,
+      chipCap: 8,
+    });
+    expect(model.members[0]?.label).toBeUndefined();
+    expect(model.members[1]?.label).toBeUndefined();
+  });
+});
+
+describe("castChipAccessibleName — the identifier and the verb", () => {
+  it("speaks the label and the verb, which is the name §4.1 documents", () => {
+    const wheel = wheelFor(["participant-priya"]);
+    const model = deriveCastBar({
+      assignments: wheel.assignments(),
+      timeline: [
+        withPayload(event(1, "participant-priya", "membership.created"), {
+          participantId: "participant-priya",
+          identityHandle: "priya",
+        }),
+        withRun(event(2, "participant-priya", "run.waiting_for_approval"), "run-a"),
+      ],
+      isDegraded: false,
+      chipCap: 8,
+    });
+    const member = model.members[0];
+    expect(member).toBeDefined();
+    expect(member === undefined ? "" : castChipAccessibleName(member)).toBe(
+      "priya, waiting on approval",
+    );
+  });
+
+  it("falls back to the id, and adds the frozen clause when the projection is stale", () => {
+    const wheel = wheelFor(["participant-you"]);
+    const model = deriveCastBar({
+      assignments: wheel.assignments(),
+      timeline: [event(1, "participant-you", "run.running")],
+      isDegraded: true,
+      chipCap: 8,
+    });
+    const member = model.members[0];
+    expect(member).toBeDefined();
+    expect(member === undefined ? "" : castChipAccessibleName(member)).toBe(
+      "participant-you, working, the connection dropped, so this may be out of date",
+    );
   });
 });
 
