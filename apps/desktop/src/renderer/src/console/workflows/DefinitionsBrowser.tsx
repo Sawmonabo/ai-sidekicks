@@ -47,33 +47,56 @@
 // it appears while a cursor is held and not otherwise.
 //
 // WIRE STATUS. `packages/contracts` registers no `workflow.*` method and none of
-// these shapes; `WorkflowDefinitionRow` below mirrors the `WorkflowDefinitionSummary`
-// declaration in `docs/architecture/contracts/api-payload-contracts.md` as the
-// console's own consumption shape, on the growth port's precedent. Rows reach this
-// component from its caller and are fixture-fed until the wire registers.
+// these shapes; `WorkflowDefinitionRow` below IS the substrate's own
+// `WorkflowDefinitionSummary`, which is where the console declares what the
+// enumeration answers with against
+// `docs/architecture/contracts/api-payload-contracts.md`, on the growth port's
+// precedent. Rows reach this component from its caller and are fixture-fed until the
+// wire registers.
 
 import { memo } from "react";
 
-import { WORKFLOW_DEFINITION_SCOPES, type WorkflowDefinitionScope } from "../bridge/index.js";
+import {
+  WORKFLOW_DEFINITION_SCOPES,
+  type WorkflowDefinitionScope,
+  type WorkflowDefinitionSummary,
+} from "../bridge/index.js";
 import type { ConsoleRefusal } from "../core/index.js";
 import { Chip, InlineRefusal, Nothing, WireFigure, formatCount } from "../primitives/index.js";
 
 /**
- * The three definition scopes, in the daemon's own resolution order.
+ * The three definition scopes, in the daemon's own resolution order, and the row the
+ * enumeration answers with — both taken from the bridge's declaration of the workflow
+ * plane rather than spelled again here.
  *
- * A tuple because the ORDER is the claim. Written as three headings in the markup,
- * the order would be a fact about where someone happened to paste a block; declared
- * as a value, it is something a test can compare against the rule it encodes.
+ * The tuple is a tuple because the ORDER is the claim. Written as three headings in
+ * the markup, the order would be a fact about where someone happened to paste a
+ * block; declared as a value, it is something a test can compare against the rule it
+ * encodes.
  *
- * Re-exported from the bridge's own declaration of the workflow plane rather than
- * spelled again here. The wire declares this vocabulary because the enumeration's
- * request carries it, and a second tuple in the view family would be a closed set
- * with two homes — they agree until one of them is widened, and the compiler sees
- * neither drift. Consumers keep importing it from the browser, which is where a
- * reader of this surface looks for it.
+ * NEITHER IS RESTATED IN THIS FAMILY, and that is one rule rather than two. The wire
+ * declares the scope vocabulary because the enumeration's request carries it and the
+ * row because its reply is made of them, and a second tuple or a second interface
+ * here would be a closed set with two homes — they agree until one of them is
+ * widened, and the compiler sees neither drift: a member added to the reply stays
+ * structurally assignable to a mirror that never heard of it, so every callback in
+ * this family would read a vocabulary the daemon had already moved past. Consumers
+ * keep importing both from the browser, which is where a reader of this surface looks
+ * for them.
  */
 export { WORKFLOW_DEFINITION_SCOPES };
 export type { WorkflowDefinitionScope };
+
+/**
+ * One definition, as the enumeration carries it.
+ *
+ * The list draws four of it — the name, the scope, the latest version, and the
+ * resolution mark — and carries the whole row anyway, because a row is the value a
+ * caller passes to whatever opens the detail: trimming it here would force that
+ * caller into a second read for facts it already held. What each member MEANS is
+ * documented once, on the wire declaration this alias names.
+ */
+export type WorkflowDefinitionRow = WorkflowDefinitionSummary;
 
 /** What each group is, in a line, so the scope model teaches itself. */
 const SCOPE_SUMMARIES: Readonly<Record<WorkflowDefinitionScope, string>> = {
@@ -93,29 +116,6 @@ const SCOPE_SUMMARIES: Readonly<Record<WorkflowDefinitionScope, string>> = {
  */
 const SHARED_SCOPE_CONSEQUENCE =
   "Editing one of these never changes it. The save creates a new definition at your editing scope — the project, or this session where there is no project — carrying this definition's hash as its parent, and the shared original is untouched.";
-
-/**
- * One definition, as the enumeration carries it.
- *
- * Every member of the wire summary, and the four the list renders are a subset of
- * it: a row is the value a caller passes to whatever opens the detail, so trimming
- * it here would force that caller into a second read for facts it already held.
- */
-export interface WorkflowDefinitionRow {
-  readonly id: string;
-  readonly name: string;
-  readonly scope: WorkflowDefinitionScope;
-  /** What `project` or `shared` names. Opaque; passed through, never parsed. */
-  readonly scopeRef: string;
-  readonly latestVersionNumber: number;
-  /** The opaque reference a run start accepts. Passed through, never synthesized. */
-  readonly latestWorkflowVersionId: string;
-  /** BLAKE3 over the canonicalized body. Rendered in the detail, in mono. */
-  readonly contentHash: string;
-  /** True on the one row this context's resolution would pick. The daemon's answer. */
-  readonly resolvesAtThisContext: boolean;
-  readonly createdAt: string;
-}
 
 /** What a row's open control does, when a caller supplies one. */
 type OpenDefinition = (definition: WorkflowDefinitionRow) => void;
