@@ -19,8 +19,10 @@
 //     `version.floor_exceeded` read-refusal case both keep the surface legible
 //     rather than blanking it.
 //   • Spec-023 §Trust Stance + `Plan-003 §Cross-Plan Obligations` CP-003-3: the
-//     view reaches the control plane and the daemon ONLY through
-//     `window.sidekicks` (the mock bridge below IS that seam), and the
+//     view reaches the control plane and the daemon through no path of its own —
+//     `window.sidekicks` by default (the mock bridge below IS that seam), or the
+//     optional `reads` seam a host supplies, which is a bridge the host already
+//     resolved rather than a second way out of the renderer — and the
 //     bridge-projection source scan at the bottom of this file.
 //
 // Harness: the Vitest `renderer` project (happy-dom) + `@testing-library/react`
@@ -58,6 +60,7 @@ import type {
   NodeId,
   ParticipantId,
   RuntimeNodeRosterEntry,
+  RuntimeNodeRosterRequest,
   RuntimeNodeRosterResponse,
   SessionId,
   SidekicksBridge,
@@ -65,7 +68,7 @@ import type {
   VersionFloorExceededError,
 } from "@ai-sidekicks/contracts";
 
-import { NodeRoster } from "../NodeRoster.js";
+import { NodeRoster, type NodeRosterReads } from "../NodeRoster.js";
 
 // CP-003-3 source-text read — Vite `import.meta.glob` raw form. See the
 // MixedVersionStatus suite's header for the full rationale (`node:fs` is doubly
@@ -558,6 +561,210 @@ describe("NodeRoster", () => {
       // Session A's nodes never reach session B's roster.
       expect(screen.queryByText(`node id: ${AT_FLOOR_NODE_ID}`)).toBeNull();
       expect(screen.getByText(`node id: ${SECOND_SESSION_NODE_ID}`)).toBeDefined();
+    });
+  });
+
+  describe("the injectable read seam", () => {
+    // `NodeRosterProps.reads` is additive and optional. Every case above omits
+    // it and therefore drives the DEFAULT arm — the `window.sidekicks` pair this
+    // view has always used — so these cases drive the other arm, and each one
+    // carries the negative control that proves the two arms are actually
+    // different. A seam whose default is "unchanged" has to earn both halves of
+    // that claim: the injected pair must be the one that answers, and the
+    // installed bridge must be the one that answers when nothing is injected.
+
+    /** A supplied seam, plus the handles a case needs to drive it. */
+    interface InjectedSeam {
+      readonly reads: NodeRosterReads;
+      readonly readRoster: Mock<
+        (request: RuntimeNodeRosterRequest) => Promise<RuntimeNodeRosterResponse>
+      >;
+      readonly subscribePresence: Mock<
+        (sessionId: SessionId, onPresenceChange: () => void) => Unsubscribe
+      >;
+      /** Fire the presence signal the view registered. Throws if it registered none. */
+      readonly emitPresenceChange: () => void;
+    }
+
+    function createInjectedSeam(options: {
+      readonly readRoster: (
+        request: RuntimeNodeRosterRequest,
+      ) => Promise<RuntimeNodeRosterResponse>;
+      readonly unsubscribe?: Unsubscribe;
+      /** Set to drive the arm where a host has no live channel to offer. */
+      readonly subscribeThrows?: Error;
+    }): InjectedSeam {
+      let registeredHandler: (() => void) | undefined;
+      const readRoster = vi.fn(options.readRoster);
+      const subscribePresence = vi.fn(
+        (_sessionId: SessionId, onPresenceChange: () => void): Unsubscribe => {
+          if (options.subscribeThrows !== undefined) {
+            throw options.subscribeThrows;
+          }
+          registeredHandler = onPresenceChange;
+          return options.unsubscribe ?? noopUnsubscribe;
+        },
+      );
+      const emitPresenceChange = (): void => {
+        if (registeredHandler === undefined) {
+          throw new Error("NodeRoster registered no handler on the injected seam");
+        }
+        registeredHandler();
+      };
+      return {
+        reads: { readRoster, subscribePresence },
+        readRoster,
+        subscribePresence,
+        emitPresenceChange,
+      };
+    }
+
+    it("reads and subscribes through the supplied seam, touching no installed bridge", async () => {
+      const controlPlaneCall = vi.fn().mockResolvedValue(SECOND_SESSION_SNAPSHOT);
+      const { daemonSubscribe } = createSubscribeCapture();
+      installMockBridge(controlPlaneCall, daemonSubscribe);
+      const seam = createInjectedSeam({
+        readRoster: async () => await Promise.resolve(FIRST_SNAPSHOT),
+      });
+
+      render(<NodeRoster sessionId={FIRST_SESSION_ID} reads={seam.reads} />);
+
+      await screen.findByText(`node id: ${AT_FLOOR_NODE_ID}`);
+      // The seam takes the registered REQUEST and no procedure name: which
+      // procedure answers a roster read is the wire's fact, not the host's.
+      expect(seam.readRoster).toHaveBeenCalledWith({ sessionId: FIRST_SESSION_ID });
+      expect(seam.subscribePresence).toHaveBeenCalledWith(FIRST_SESSION_ID, expect.any(Function));
+      expect(controlPlaneCall).not.toHaveBeenCalled();
+      expect(daemonSubscribe).not.toHaveBeenCalled();
+      // …and the installed bridge's own snapshot never reached the screen.
+      expect(screen.queryByText(`node id: ${SECOND_SESSION_NODE_ID}`)).toBeNull();
+    });
+
+    it("negative control: with no seam supplied the installed bridge answers, unchanged", async () => {
+      // Without this, the case above would pass over a view that had stopped
+      // reading the installed bridge at all — which is exactly the regression an
+      // additive, defaulted prop exists to rule out.
+      const controlPlaneCall = vi.fn().mockResolvedValue(SECOND_SESSION_SNAPSHOT);
+      const { daemonSubscribe } = createSubscribeCapture();
+      installMockBridge(controlPlaneCall, daemonSubscribe);
+
+      render(<NodeRoster sessionId={FIRST_SESSION_ID} />);
+
+      await screen.findByText(`node id: ${SECOND_SESSION_NODE_ID}`);
+      expect(controlPlaneCall).toHaveBeenCalledWith("runtimenode.roster", {
+        sessionId: FIRST_SESSION_ID,
+      });
+      expect(daemonSubscribe).toHaveBeenCalledWith("runtime_node.online", expect.any(Function));
+    });
+
+    it("re-reads on a supplied presence signal without flashing back to loading", async () => {
+      // The no-flicker contract, held on the injected arm too: a host driving the
+      // signal must not blank a roster that is already on screen.
+      const heldReRead = createDeferred<RuntimeNodeRosterResponse>();
+      const readRoster = vi
+        .fn<(request: RuntimeNodeRosterRequest) => Promise<RuntimeNodeRosterResponse>>()
+        .mockResolvedValueOnce(FIRST_SNAPSHOT)
+        .mockReturnValueOnce(heldReRead.promise);
+      const seam = createInjectedSeam({ readRoster });
+
+      render(<NodeRoster sessionId={FIRST_SESSION_ID} reads={seam.reads} />);
+      const firstRow = await screen.findByText(`node id: ${AT_FLOOR_NODE_ID}`);
+
+      act(() => {
+        seam.emitPresenceChange();
+      });
+
+      expect(screen.queryByLabelText("node-roster-loading")).toBeNull();
+      // The SAME node, not merely an equal one: an unmount-and-remount between
+      // reads is the flash this contract forbids, and re-querying by text alone
+      // could not tell the two apart.
+      expect(screen.getByText(`node id: ${AT_FLOOR_NODE_ID}`)).toBe(firstRow);
+
+      await act(async () => {
+        heldReRead.resolve(SECOND_SNAPSHOT);
+        await heldReRead.promise;
+      });
+      expect(screen.getByText(`node id: ${JOINED_LATER_NODE_ID}`)).toBeDefined();
+      expect(seam.readRoster).toHaveBeenCalledTimes(2);
+    });
+
+    it("drops a stale supplied read that settles after a newer one", async () => {
+      // The out-of-order guard is effect-scoped and therefore independent of
+      // where the reads come from — which is a claim, and this is it checked.
+      const firstRead = createDeferred<RuntimeNodeRosterResponse>();
+      const secondRead = createDeferred<RuntimeNodeRosterResponse>();
+      const readRoster = vi
+        .fn<(request: RuntimeNodeRosterRequest) => Promise<RuntimeNodeRosterResponse>>()
+        .mockReturnValueOnce(firstRead.promise)
+        .mockReturnValueOnce(secondRead.promise);
+      const seam = createInjectedSeam({ readRoster });
+
+      render(<NodeRoster sessionId={FIRST_SESSION_ID} reads={seam.reads} />);
+      act(() => {
+        seam.emitPresenceChange();
+      });
+      expect(seam.readRoster).toHaveBeenCalledTimes(2);
+
+      await act(async () => {
+        secondRead.resolve(SECOND_SNAPSHOT);
+        await secondRead.promise;
+      });
+      await act(async () => {
+        firstRead.resolve(FIRST_SNAPSHOT);
+        await firstRead.promise;
+      });
+
+      expect(screen.getByText(`node id: ${JOINED_LATER_NODE_ID}`)).toBeDefined();
+      expect(screen.queryByText(`node id: ${REGISTERING_NODE_ID}`)).toBeNull();
+    });
+
+    it("surfaces a supplied read's rejection in the error arm, code first", async () => {
+      // A host with no answer rejects rather than resolving an empty roster, and
+      // the rejection carries the refuser's own code as the error name — which is
+      // what the shipped normalizer already renders for a wire refusal.
+      const refusal = new Error("This scenario names no runtime-node roster at this tick.");
+      refusal.name = "roster-unscripted";
+      const seam = createInjectedSeam({ readRoster: async () => await Promise.reject(refusal) });
+
+      render(<NodeRoster sessionId={FIRST_SESSION_ID} reads={seam.reads} />);
+
+      const errorSection = await screen.findByRole("alert", { name: "node-roster-error" });
+      expect(errorSection.textContent).toContain("roster-unscripted");
+      expect(errorSection.textContent).toContain("names no runtime-node roster");
+    });
+
+    it("renders the error arm and skips the read when the supplied subscribe throws", async () => {
+      // A host that cannot open a live channel throws here for the same reason
+      // the Tier-1 stub does, and the same arm catches it: a roster that believed
+      // it was live and never re-read would go quietly stale, which is the one
+      // failure a live roster exists to prevent.
+      const seam = createInjectedSeam({
+        readRoster: async () => await Promise.resolve(FIRST_SNAPSHOT),
+        subscribeThrows: Object.assign(new Error("No presence channel here."), {
+          name: "presence-unavailable",
+        }),
+      });
+
+      render(<NodeRoster sessionId={FIRST_SESSION_ID} reads={seam.reads} />);
+
+      const errorSection = await screen.findByRole("alert", { name: "node-roster-error" });
+      expect(errorSection.textContent).toContain("presence-unavailable");
+      expect(seam.readRoster).not.toHaveBeenCalled();
+    });
+
+    it("releases the supplied subscription on unmount", async () => {
+      const unsubscribeSpy = vi.fn();
+      const seam = createInjectedSeam({
+        readRoster: async () => await Promise.resolve(FIRST_SNAPSHOT),
+        unsubscribe: unsubscribeSpy,
+      });
+
+      const { unmount } = render(<NodeRoster sessionId={FIRST_SESSION_ID} reads={seam.reads} />);
+      await screen.findByLabelText("node-roster-loaded");
+
+      unmount();
+
+      expect(unsubscribeSpy).toHaveBeenCalledTimes(1);
     });
   });
 
