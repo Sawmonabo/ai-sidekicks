@@ -41,6 +41,7 @@ import { playwright, type PlaywrightProviderOptions } from "@vitest/browser-play
 import { defineConfig } from "vitest/config";
 
 import { sharedCoverageOptions } from "../../vitest.shared";
+import { BROWSER_MODE_OPTIMIZE_DEPS_INCLUDE } from "./test/console/browser-mode-deps";
 
 /**
  * Conditions that resolve workspace *value* imports to TS source rather than a
@@ -51,27 +52,14 @@ const WORKSPACE_SOURCE_CONDITIONS = ["@ai-sidekicks/source", "import", "default"
 
 /**
  * Everything a browser-mode tier renders through, pre-bundled in ONE optimizer
- * pass and deduplicated.
- *
- * Without this the optimizer discovers `react` twice — once as a dependency of
- * `@testing-library/react`, once as a dependency of `@base-ui/react` reached later
- * through the console's own graph — and emits two chunks under different `?v=`
- * hashes. Two React module instances share no context, so the first Base UI
- * component to call `useContext` reads `null` and the entire tree fails to render.
- * Listing them together makes one pass see all of them; `dedupe` keeps a single
- * copy resolved from the package root.
+ * pass and deduplicated. The list lives in `test/console/browser-mode-deps.ts`
+ * so the architecture tier can hold it against the Base UI entries the source
+ * tree imports: the optimizer keys on the exact specifier, so a subpath the list
+ * does not name is discovered lazily on a cold cache, starts a second pass, and
+ * leaves the tier with two React copies — the first Base UI `useContext` then
+ * reads `null` and the whole tree fails to render.
  */
-const BROWSER_MODE_OPTIMIZE_DEPS = {
-  include: [
-    "react",
-    "react/jsx-dev-runtime",
-    "react-dom",
-    "react-dom/client",
-    "@base-ui/react",
-    "@testing-library/react",
-    "axe-core",
-  ],
-};
+const BROWSER_MODE_OPTIMIZE_DEPS = { include: [...BROWSER_MODE_OPTIMIZE_DEPS_INCLUDE] };
 
 /** The one React copy every browser-mode tier resolves. */
 const BROWSER_MODE_DEDUPE = ["react", "react-dom"];
