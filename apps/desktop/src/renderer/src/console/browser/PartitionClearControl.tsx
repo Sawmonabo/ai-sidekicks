@@ -17,6 +17,16 @@
 // watching an unchanged button cannot tell which one stalled. The region carries
 // `aria-busy` for the same reason, and the button is disabled so a second confirm
 // cannot start a second close underneath the first.
+//
+// WHICH VERDICT IS SHOWN, AND WHY IT IS RANKED RATHER THAN COALESCED. The control holds
+// two facts that can both be present: the projected refusal of a clear that failed out
+// of band, and the outcome of the act the operator ran here. Preferring "whichever
+// refusal exists" reports failure after a clear that WORKED, because a served
+// settlement carries no refusal to prefer. So the two are ranked instead: an outcome
+// settled in this mount is the operator's own act and outranks the projection whichever
+// way it went, and the projection speaks only while this control has settled nothing.
+// A served settlement gets a reading of its own, because a receipt that renders as the
+// absence of a complaint is indistinguishable from an act that never ran.
 
 import { useCallback, useState } from "react";
 
@@ -46,6 +56,40 @@ type ClearControlState =
   | { readonly phase: "idle" }
   | { readonly phase: "running"; readonly step: ClearSiteDataStep }
   | { readonly phase: "settled"; readonly outcome: ClearSiteDataOutcome };
+
+/**
+ * What the control reports beneath the arm, once the two facts it holds are ranked.
+ *
+ * Three arms rather than "a refusal or nothing": a served settlement is a fact to
+ * render and not an absence of one, and giving it an arm is what stops the projected
+ * refusal from reappearing under a clear that succeeded.
+ */
+type ClearControlReport =
+  | { readonly kind: "cleared" }
+  | { readonly kind: "refused"; readonly refusal: ConsoleRefusal }
+  | { readonly kind: "silent" };
+
+/**
+ * The ranking, as a pure reading of the control's own state and what it was handed.
+ *
+ * `running` reports nothing on purpose. An act is in flight, the button already says
+ * which step it is waiting on, and the projection it is about to replace is the one
+ * verdict on screen that is certainly not about this attempt.
+ */
+function reportFor(
+  state: ClearControlState,
+  lastClearRefusal: ConsoleRefusal | undefined,
+): ClearControlReport {
+  if (state.phase === "settled") {
+    return state.outcome.status === "cleared"
+      ? { kind: "cleared" }
+      : { kind: "refused", refusal: state.outcome.refusal };
+  }
+  if (state.phase === "running" || lastClearRefusal === undefined) {
+    return { kind: "silent" };
+  }
+  return { kind: "refused", refusal: lastClearRefusal };
+}
 
 export interface PartitionClearControlProps {
   readonly sessionId: string;
@@ -104,13 +148,7 @@ export function PartitionClearControl(props: PartitionClearControlProps): React.
     );
   }, [hasOpenPane, onClearSiteData, onClosePane, sessionId]);
 
-  const settledRefusal =
-    state.phase === "settled" && state.outcome.status === "refused"
-      ? state.outcome.refusal
-      : undefined;
-  // The act the operator just took wins over the projected one: it is the newer fact
-  // and the one they are standing here waiting for.
-  const shownRefusal = settledRefusal ?? lastClearRefusal;
+  const report = reportFor(state, lastClearRefusal);
 
   return (
     <div className="meridian-browser-partitions__control" aria-busy={state.phase === "running"}>
@@ -152,9 +190,14 @@ export function PartitionClearControl(props: PartitionClearControlProps): React.
           )}
         </div>
       </details>
-      {shownRefusal === undefined ? null : (
-        <InlineRefusal code={shownRefusal.code} detail={shownRefusal.detail} />
-      )}
+      {report.kind === "cleared" ? (
+        <p className="meridian-browser-partitions__reading" role="status">
+          Cleared. The node reports this session&rsquo;s site data removed.
+        </p>
+      ) : null}
+      {report.kind === "refused" ? (
+        <InlineRefusal code={report.refusal.code} detail={report.refusal.detail} />
+      ) : null}
     </div>
   );
 }

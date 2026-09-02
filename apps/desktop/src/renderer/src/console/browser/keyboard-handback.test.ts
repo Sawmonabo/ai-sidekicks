@@ -9,6 +9,7 @@
 import { describe, expect, it } from "vitest";
 
 import { isConsoleRefusal } from "../core/index.js";
+import type { ChordPlatform } from "../primitives/index.js";
 import {
   CHORD_MODIFIER_TOKENS,
   CLOSE_TAB_CHORD,
@@ -35,8 +36,15 @@ function chord(overrides: Partial<ChordDescriptor> = {}): ChordDescriptor {
   };
 }
 
-function handbackOver(installed: readonly string[] | undefined): KeyboardHandback {
-  return new KeyboardHandback({ readInstalledChords: () => installed });
+/**
+ * A handback over a fixed chord set. `darwin` by default because meta is the modifier
+ * every case below reaches for; the platform cases name theirs.
+ */
+function handbackOver(
+  installed: readonly string[] | undefined,
+  platform: ChordPlatform = "darwin",
+): KeyboardHandback {
+  return new KeyboardHandback({ readInstalledChords: () => installed, platform });
 }
 
 function attachedPaneRoot(): HTMLElement {
@@ -131,7 +139,7 @@ describe("KeyboardHandback.decide", () => {
     expect(handbackOver(undefined).mirrorChords()).toBeUndefined();
   });
 
-  it("claims a modified keystroke once the mirror is readable", () => {
+  it("claims the chord the mirror actually holds", () => {
     expect(handbackOver(["$mod+KeyK"]).decide(chord({ metaKey: true }))).toStrictEqual({
       claimed: true,
     });
@@ -139,16 +147,97 @@ describe("KeyboardHandback.decide", () => {
 
   it("re-reads the chord set on every decision, so a rebinding is never stale", () => {
     let installed: readonly string[] | undefined = undefined;
-    const handback = new KeyboardHandback({ readInstalledChords: () => installed });
+    const handback = new KeyboardHandback({
+      readInstalledChords: () => installed,
+      platform: "darwin",
+    });
     expect(handback.decide(chord({ metaKey: true })).claimed).toBe(false);
     installed = ["$mod+KeyK"];
     expect(handback.decide(chord({ metaKey: true })).claimed).toBe(true);
   });
 });
 
+describe("KeyboardHandback.decide — the claim is an exact mirrored chord", () => {
+  it("resolves the platform's own modifier, so one authored chord claims on all three", () => {
+    expect(handbackOver(["$mod+KeyK"], "darwin").decide(chord({ metaKey: true }))).toStrictEqual({
+      claimed: true,
+    });
+    expect(handbackOver(["$mod+KeyK"], "win32").decide(chord({ ctrlKey: true }))).toStrictEqual({
+      claimed: true,
+    });
+    expect(handbackOver(["$mod+KeyK"], "linux").decide(chord({ ctrlKey: true }))).toStrictEqual({
+      claimed: true,
+    });
+  });
+
+  it("leaves the OTHER platform's modifier with the page", () => {
+    // On macOS control-K is the page's and meta-K is the console's, and a claim rule
+    // that took either would take a page shortcut on every keystroke.
+    expect(handbackOver(["$mod+KeyK"], "darwin").decide(chord({ ctrlKey: true }))).toStrictEqual({
+      claimed: false,
+      because: "not-mirrored",
+    });
+    expect(handbackOver(["$mod+KeyK"], "win32").decide(chord({ metaKey: true }))).toStrictEqual({
+      claimed: false,
+      because: "not-mirrored",
+    });
+  });
+
+  it("leaves the page every modified keystroke the mirror does not hold", () => {
+    const handback = handbackOver(["$mod+KeyK"]);
+    const pageKeystrokes: readonly ChordDescriptor[] = [
+      chord({ key: "c", code: "KeyC", metaKey: true }),
+      chord({ key: "l", code: "KeyL", metaKey: true }),
+      chord({ metaKey: true, shiftKey: true }),
+      chord({ metaKey: true, altKey: true }),
+    ];
+    for (const keystroke of pageKeystrokes) {
+      expect(handback.decide(keystroke)).toStrictEqual({
+        claimed: false,
+        because: "not-mirrored",
+      });
+    }
+  });
+
+  it("claims each chord of a two-chord mirror and nothing beside them", () => {
+    const handback = handbackOver(["$mod+KeyK", "$mod+Shift+KeyP"]);
+
+    expect(handback.decide(chord({ metaKey: true })).claimed).toBe(true);
+    expect(
+      handback.decide(chord({ key: "p", code: "KeyP", metaKey: true, shiftKey: true })).claimed,
+    ).toBe(true);
+    expect(handback.decide(chord({ key: "p", code: "KeyP", metaKey: true })).claimed).toBe(false);
+  });
+
+  it("reads a chord authored either way as one keystroke", () => {
+    // `$mod+k` and `$mod+KeyK` are one binding to the keybinding table, because both
+    // go through the same comparison key. They are one claim here for the same reason.
+    expect(handbackOver(["$mod+k"]).decide(chord({ metaKey: true })).claimed).toBe(true);
+  });
+
+  it("leaves the page a keystroke whose only mirrored chord does not parse", () => {
+    // Modifiers with no key is a chord `parseChord` refuses. It matches nothing rather
+    // than throwing, so the keystroke stays with the page.
+    expect(handbackOver(["$mod+"]).decide(chord({ metaKey: true }))).toStrictEqual({
+      claimed: false,
+      because: "not-mirrored",
+    });
+  });
+
+  it("negative control: a non-empty mirror does not claim by presence alone", () => {
+    // The rule this replaces returned `claimed: true` for every modified keystroke as
+    // soon as the mirror held anything, so a mirror of one chord took Cmd+C, Cmd+L,
+    // and the rest of the page's shortcuts with it.
+    const handback = handbackOver(["$mod+KeyK"]);
+
+    expect(handback.decide(chord({ metaKey: true })).claimed).toBe(true);
+    expect(handback.decide(chord({ key: "c", code: "KeyC", metaKey: true })).claimed).toBe(false);
+  });
+});
+
 describe("KeyboardHandback.replay", () => {
   it("replays as a window keydown, carrying every modifier through unchanged", () => {
-    const handback = handbackOver(["$mod+KeyK"]);
+    const handback = handbackOver(["$mod+Shift+KeyK"]);
     const paneRoot = attachedPaneRoot();
     const seen: KeyboardEvent[] = [];
     const listener = (event: Event): void => {

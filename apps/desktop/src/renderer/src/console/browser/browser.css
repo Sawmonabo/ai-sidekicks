@@ -211,6 +211,17 @@
 }
 
 /*
+ * The receipt a settled clear leaves. A quiet line rather than a chip, because it
+ * is a sentence about what happened rather than a label on a row — and it sits
+ * exactly where a refusal would, so the control has one place a verdict appears.
+ */
+.meridian-browser-partitions__reading {
+  margin: var(--meridian-space-2) 0 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+/*
  * The arming disclosure. A native `details` rather than a remembered flag: the
  * control has to SAY what it clears before it is armed, and a summary that opens
  * onto the sentence and the confirm button is that requirement expressed as
