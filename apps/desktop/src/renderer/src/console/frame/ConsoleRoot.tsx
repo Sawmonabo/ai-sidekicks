@@ -69,6 +69,7 @@ import { useActiveSessionStore, useSessionStoreRegistry } from "./session-lifecy
 import { useUiStateStore } from "./ui-state-lifecycle.js";
 import { parseRoute, railDestinationFor } from "../routing/index.js";
 import { consoleSurfaceRegistry, type ConsoleSurfaceContext } from "./surface-registry.js";
+import { consolePaneRegistry } from "../workspace/index.js";
 
 // Composition, at module scope, before any window renders.
 //
@@ -85,7 +86,12 @@ import { consoleSurfaceRegistry, type ConsoleSurfaceContext } from "./surface-re
 // surface does not exist. Registration is idempotent per module graph, and the
 // registry refuses a second OWNER on one slot, so a hot reload replaces and a
 // collision raises.
-registerConsoleFamilies(consoleSurfaceRegistry);
+//
+// Both process-wide registries are named HERE rather than reached for inside the
+// composition, which is what makes this the composition site: a test or an
+// auxiliary window calls the same function with registries of its own and touches
+// neither of these.
+registerConsoleFamilies(consoleSurfaceRegistry, consolePaneRegistry);
 
 export interface ConsoleRootProps {
   /** Which fixture scenario to play. Ignored when fixtures are compiled out. */
