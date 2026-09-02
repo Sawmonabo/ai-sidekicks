@@ -49,6 +49,14 @@
 // match is the same defect wearing a disguise: the match was wrong, not the
 // directory. Both that prune and the `build` prune are gone, the walk covers
 // 297 files where it covered 171, and the derived set is unchanged at nine.
+//
+// Ten since 2026-09-01. `apps/desktop/build/assert-webprefs.ts` took an
+// optional path argument (Plan-023 T-023p-1B-2, so its own test can drive the
+// real script over fixtures instead of re-implementing its rules), which is
+// the second operand it had been missing — it already resolved `window.ts`
+// through `import.meta.url`, so it is exactly the hostile-path shape this file
+// pins. The derivation picked it up on the change that introduced it, which is
+// what removing the `build` prune bought.
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -76,6 +84,22 @@ const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 // identically whether the script is reached through the real root or through
 // the spaced symlink. A fixture that cited a real doc would make the assertion
 // depend on how each script resolves the repo, which is not what is under test.
+// A window factory whose locked `webPreferences` block has drifted on two keys
+// and omits three more. Like the fixture above, the violation is entirely
+// WITHIN the file, so the verdict does not depend on how the script resolves
+// the repo — which is the point, since this script resolves its DEFAULT target
+// through `import.meta.url` and the spaced symlink is exactly what breaks that.
+const DRIFTED_WINDOW_FIXTURE = [
+  "new BrowserWindow({",
+  "  webPreferences: {",
+  "    contextIsolation: true,",
+  "    sandbox: false,",
+  "    nodeIntegration: true,",
+  "  },",
+  "});",
+  "",
+].join("\n");
+
 const UNBALANCED_TOTAL_FIXTURE = [
   "# Fixture",
   "",
@@ -146,6 +170,17 @@ const CLI_SCRIPTS = [
   // 0, so the failing invocation is a malformed JSON line rather than a bad
   // argument. Writes its diagnostic to stdout, not stderr — hence the combined
   // -stream assertion below.
+  // Runs from `pnpm build` and `pnpm build:smoke` in `apps/desktop`, and its
+  // DEFAULT target is resolved from `import.meta.url` — so a spaced or
+  // symlinked checkout is the exact path this file pins, and a silent no-op
+  // here is a green build over an unrun `Spec-023 §Security Hardening
+  // Baseline` assertion. Listed since 2026-09-01, when it took the optional
+  // path argument that made it evaluate both operands (see the header).
+  {
+    relativePath: "apps/desktop/build/assert-webprefs.ts",
+    nodeOptions: ["--experimental-strip-types"],
+    args: (fixtureDirectory) => [join(fixtureDirectory, "drifted-window.ts")],
+  },
   {
     relativePath: "tools/docs-corpus/bin/lane-boundary-check.ts",
     nodeOptions: ["--experimental-strip-types"],
@@ -179,6 +214,7 @@ function withSpacedSymlinkedRepo(runBody) {
   const spacedRepoLink = join(containingDirectory, "repo root with spaces");
   symlinkSync(REPO_ROOT, spacedRepoLink, "dir");
   writeFileSync(join(containingDirectory, "unbalanced-total.md"), UNBALANCED_TOTAL_FIXTURE);
+  writeFileSync(join(containingDirectory, "drifted-window.ts"), DRIFTED_WINDOW_FIXTURE);
   try {
     return runBody(spacedRepoLink, containingDirectory);
   } finally {

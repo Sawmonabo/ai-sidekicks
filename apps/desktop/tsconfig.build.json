@@ -1,17 +1,25 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  // Type-validates the `build/` directory (Node-context scripts that run as
-  // part of `pnpm build`) without emitting. The production `tsconfig.json`
-  // has `rootDir: ./src` and does not cover `build/`; this sibling config
-  // mirrors the `tsconfig.test.json` pattern (noEmit + isolated buildinfo)
-  // so the build scripts are still typechecked without polluting the
+  // Type-validates the package's two executable-script directories without
+  // emitting: `build/` (run DURING `pnpm build` — `assert-webprefs.ts`) and
+  // `scripts/` (invoked BY NAME from a package script —
+  // `materialize-electron.ts`, called by `postinstall` and `test:smoke`). The
+  // production `tsconfig.json` has `rootDir: ./src` and covers neither; this
+  // sibling mirrors the `tsconfig.test.json` pattern (noEmit + isolated
+  // buildinfo) so both are typechecked without polluting the
   // project-references graph or the production `dist/` layout.
   //
-  // Authored at Plan-023 Phase 1 T-023p-1-3 alongside `build/assert-webprefs.ts`.
+  // `rootDir` is omitted rather than pinned to one of the two directories: with
+  // `noEmit` it constrains nothing useful, and pinning it to `./build` would
+  // make every `scripts/` file a TS6059 "not under rootDir" error. TS infers it
+  // as the longest common ancestor of the include set, exactly as
+  // `tsconfig.test.json` does for its own two-directory set.
+  //
+  // Authored at Plan-023 Phase 1 T-023p-1-3 alongside `build/assert-webprefs.ts`;
+  // widened to `scripts/` at Plan-023 Phase 1B.
   "extends": "../../tsconfig.node22.json",
   "compilerOptions": {
     "noEmit": true,
-    "rootDir": "./build",
     // `isolatedDeclarations` (inherited from base) requires either `declaration`
     // or `composite`; we keep `declaration: true` paired with `noEmit: true` so
     // the typechecker honors `isolatedDeclarations` constraints without writing
@@ -22,6 +30,6 @@
     "declarationMap": false,
     "sourceMap": false
   },
-  "include": ["build/**/*"],
+  "include": ["build/**/*", "scripts/**/*"],
   "exclude": ["dist", "out", "node_modules"]
 }

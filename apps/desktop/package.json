@@ -3,26 +3,29 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Desktop shell + renderer skeleton (Electron 41 / Node 22 tier per ADR-016/022).",
+  "description": "Desktop shell + renderer skeleton (Electron 44.x / Node 22 tier per ADR-016/022).",
   "license": "Apache-2.0",
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=22.14.0"
   },
   "scripts": {
+    "postinstall": "node --experimental-strip-types scripts/materialize-electron.ts",
     "build": "electron-vite build && node --experimental-strip-types build/assert-webprefs.ts",
     "build:smoke": "electron-vite build --mode=smoke && node --experimental-strip-types build/assert-webprefs.ts",
     "typecheck": "tsc -b && tsc -p tsconfig.test.json && tsc -p src/renderer/tsconfig.test.json && tsc -p tsconfig.build.json",
-    "lint": "eslint src test",
+    "lint": "eslint build scripts src test",
     "test:renderer": "vitest run --project=renderer",
     "test:coverage": "vitest run --project=renderer --coverage",
-    "test:smoke": "vitest run --project=main",
-    "test": "turbo run test:renderer test:smoke --filter=@ai-sidekicks/desktop"
+    "test:main-unit": "vitest run --project=main-unit",
+    "test:smoke": "node --experimental-strip-types scripts/materialize-electron.ts && vitest run --project=main",
+    "test": "turbo run test:renderer test:main-unit test:smoke --filter=@ai-sidekicks/desktop"
   },
   "dependencies": {
     "@ai-sidekicks/client-sdk": "workspace:*",
     "@ai-sidekicks/contracts": "workspace:*",
     "react": "^19",
-    "react-dom": "^19"
+    "react-dom": "^19",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@testing-library/dom": "^10.4.1",
@@ -30,7 +33,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitest/coverage-v8": "catalog:testing",
-    "electron": "^41.1.0",
+    "electron": "44.1.0",
     "electron-vite": "^5.0.0",
     "happy-dom": "^19.0.0",
     "vitest": "catalog:testing"

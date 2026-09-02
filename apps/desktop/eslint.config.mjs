@@ -12,10 +12,12 @@
 // future contributor cannot silently introduce such an import without CI
 // turning red.
 //
-// The ban applies ONLY to `src/renderer/src/**/*.{ts,tsx}` — the main and
-// preload processes legitimately depend on `electron`, `node:*`, and friends,
-// and must remain free to import them. Scope is narrowed by the `files`
-// selector on the override block below.
+// The ban applies to `src/renderer/src/**/*.{ts,tsx}` AND to
+// `src/shared/**/*.{ts,tsx}` — the main and preload processes legitimately
+// depend on `electron`, `node:*`, and friends, and must remain free to import
+// them, but a shared module is bundled into the renderer and so carries exactly
+// the renderer's constraints. Scope is narrowed by the `files` selectors on the
+// override blocks below.
 //
 // Tier-1 ban list (this task): `electron`, the `node:*` protocol family,
 // the bare-specifier Node built-ins (`fs`, `child_process`, `net`, `os`,
@@ -61,6 +63,64 @@ import root from "../../eslint.config.mjs";
 
 export default [
   ...root,
+  // `src/shared/**` is imported by BOTH processes (see
+  // `src/shared/auxiliary-routes.ts`), which means every byte of it is bundled
+  // into the RENDERER. The renderer-untrusted ban below is scoped to
+  // `src/renderer/src/**`, so without this block a `node:fs` import could reach
+  // the renderer bundle through a shared module and pass lint — the exact
+  // transitive shape the BL-131 addition to that block exists to close, arriving
+  // through a different door. The ban restated here is the shipped-renderer one;
+  // there is no test carve-out, because a shared test file is not bundled either
+  // way and a shared module has no reason to touch a Node builtin at all.
+  {
+    files: ["src/shared/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "electron",
+              message:
+                "Spec-023 §Trust Stance: `src/shared/**` is bundled into the RENDERER — `electron` must never be imported here. Put main-process code in `src/main/**` and share only data and pure functions.",
+            },
+            {
+              name: "@ai-sidekicks/runtime-daemon",
+              message:
+                "Plan-003 CP-003-3 / Spec-023 §Trust Stance: `src/shared/**` is bundled into the renderer — the daemon package must never be imported here. Route through the preload bridge.",
+            },
+            {
+              name: "@ai-sidekicks/control-plane",
+              message:
+                "Plan-003 CP-003-3 / Spec-023 §Trust Stance: `src/shared/**` is bundled into the renderer — the control-plane package must never be imported here. Route through the preload bridge.",
+            },
+          ],
+          patterns: [
+            {
+              group: ["electron/**"],
+              message:
+                "Spec-023 §Trust Stance: `src/shared/**` is bundled into the renderer — `electron` and every `electron/*` subpath are forbidden here.",
+            },
+            {
+              group: ["node:**"],
+              message:
+                "Spec-023 §Trust Stance: `src/shared/**` is bundled into the renderer — `node:*` protocol imports (and their subpaths) are forbidden here.",
+            },
+            {
+              group: ["@ai-sidekicks/runtime-daemon/**", "@ai-sidekicks/control-plane/**"],
+              message:
+                "Plan-003 CP-003-3: daemon / control-plane subpaths are forbidden in `src/shared/**`, which is bundled into the renderer.",
+            },
+            {
+              group: ["**/main/**", "**/preload/**"],
+              message:
+                "Spec-023 §Trust Stance: `src/shared/**` is bundled into the renderer — it must never reach into `main/**` or `preload/**`. Dependencies point the other way: main imports shared, never the reverse.",
+            },
+          ],
+        },
+      ],
+    },
+  },
   {
     files: ["src/renderer/src/**/*.{ts,tsx}"],
     // Scope is the SHIPPED renderer surface. `__tests__/**` is excluded here

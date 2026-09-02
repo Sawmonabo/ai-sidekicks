@@ -59,6 +59,12 @@
 
 import type { RuntimeNodeAttachRequest } from "@ai-sidekicks/contracts";
 
+// The never-throwing stringifier lives once, in `src/shared/`, for every
+// renderer surface and both Electron processes (Plan-023 Phase 1B). This file
+// authored the original and a sibling copied it verbatim under a comment
+// saying so; the body is now imported by both.
+import { lossyStringify } from "../../../shared/wire-errors.js";
+
 /**
  * Props for {@link CapabilityDeclaration}.
  *
@@ -72,23 +78,6 @@ export interface CapabilityDeclarationProps {
   capabilities: RuntimeNodeAttachRequest["capabilities"];
 }
 
-// Never-throwing lossy fallback for values `JSON.stringify` cannot render.
-// Bare `String(...)` is NOT total: it runs ToPrimitive, which itself throws
-// for a null-prototype object — or null-prototype FUNCTION — carrying no
-// `toString`/`valueOf`/`Symbol.toPrimitive`, so it gets an inner guard. The
-// terminal fallback is a string LITERAL, deliberately not
-// `Object.prototype.toString.call(...)`: even that can throw (its
-// `Symbol.toStringTag` lookup is a Get, and a hostile getter propagates), so
-// only a literal makes the totality claim PROVABLE rather than merely one
-// pathological layer deeper.
-function lossyStringify(declaredValue: unknown): string {
-  try {
-    return String(declaredValue);
-  } catch {
-    return "[unrepresentable value]";
-  }
-}
-
 // Total formatter for an interim-opaque capability value. Wire-borne
 // capability maps are JSON by construction (they arrived through JSON
 // serialization), but the PROP boundary admits arbitrary `unknown` at Tier 3
@@ -97,7 +86,7 @@ function lossyStringify(declaredValue: unknown): string {
 // to a lossy string, never crashes the render:
 //   • a plain string renders verbatim (no JSON quoting noise);
 //   • everything else rides `JSON.stringify`, whose two non-string outcomes
-//     BOTH route through the never-throwing `lossyStringify` above — it
+//     BOTH route through the never-throwing shared `lossyStringify` — it
 //     returns `undefined` (not a string) for `undefined`/function/symbol
 //     inputs, and it THROWS on circular references and `BigInt`.
 // The two fallback paths share that one guarded helper because BOTH can

@@ -28,10 +28,33 @@ import { createRoot } from "react-dom/client";
 
 import { App } from "./App.js";
 
-// Non-null assertion is appropriate here: `#root` is statically declared in
-// `apps/desktop/src/renderer/index.html` (the Vite entry HTML). If the div is
-// removed, mount would fail fast at runtime — which is the correct posture
-// for a substrate boot probe (the T-023p-1-7 smoke test exercises this path).
-const container = document.getElementById("root")!;
+/** The mount point `apps/desktop/src/renderer/index.html` declares. */
+const ROOT_ELEMENT_ID = "root";
+
+/**
+ * Raised when the entry HTML carries no mount point.
+ *
+ * A named class rather than the `!` non-null assertion this used to carry.
+ * Failing fast was the right posture; the assertion's problem is WHAT it fails
+ * with — `createRoot(null)` throws React's own "Target container is not a DOM
+ * element", a message that names neither the document that was supposed to
+ * declare the element nor the id that was looked up, in a window whose only
+ * other symptom is a white rectangle. Both facts are known here, so both are
+ * stated here.
+ */
+class MissingRootElementError extends Error {
+  public constructor() {
+    super(
+      `renderer entry document declares no #${ROOT_ELEMENT_ID} element ` +
+        `(expected it in apps/desktop/src/renderer/index.html) — nothing to mount into`,
+    );
+    this.name = "MissingRootElementError";
+  }
+}
+
+const container = document.getElementById(ROOT_ELEMENT_ID);
+if (container === null) {
+  throw new MissingRootElementError();
+}
 
 createRoot(container).render(<App />);

@@ -80,6 +80,49 @@ export default defineConfig({
         },
       },
       {
+        // Plan-023 Phase 1B (T-023p-1B-3). Named `main-unit` because `main` is
+        // already taken by the smoke project above — these are the in-process
+        // units for `src/main/**`, which neither existing project reaches.
+        //
+        // Deliberately NOT hung off `build:smoke` in `turbo.json`: these are
+        // plain-TypeScript units that need no `electron-vite` bundle, and
+        // hanging them off the smoke build would re-impose the ~25-30 s cost the
+        // two-project posture exists to avoid.
+        define: {
+          // Mirrors the release substitution in `electron.vite.config.ts`, so
+          // `main/index.ts`'s probe branch is statically dead here exactly as it
+          // is in a release bundle. Without it the bare identifier is a
+          // ReferenceError the moment the ready continuation runs.
+          __SIDEKICKS_SMOKE_BUILD__: "false",
+        },
+        // `src/main/window.ts` imports `SessionIdSchema` from the contracts
+        // `./session` subpath as a VALUE, so this project must resolve the
+        // provider to TS source rather than a possibly-stale `dist/`. Node
+        // environment → the SSR resolver is the one that decides, but both are
+        // set for the same Vite-6 reason the renderer block below records.
+        // Conditions replace vitest's defaults, so `import` / `default` are
+        // re-listed.
+        resolve: {
+          conditions: ["@ai-sidekicks/source", "import", "default"],
+        },
+        ssr: {
+          resolve: {
+            conditions: ["@ai-sidekicks/source", "import", "default"],
+          },
+        },
+        test: {
+          name: "main-unit",
+          environment: "node",
+          // Disjoint from `test/**/*.test.ts` (the smoke project) and from
+          // `src/renderer/**/__tests__/**` (the renderer project), so the
+          // posture's no-double-discovery property still holds. `src/shared/**`
+          // joins the set because that subtree is imported by BOTH processes
+          // (see `src/shared/auxiliary-routes.ts`), and a shared module no test
+          // project reaches would be a subtree with no home for its own units.
+          include: ["src/main/**/*.test.ts", "src/shared/**/*.test.ts", "build/**/*.test.ts"],
+        },
+      },
+      {
         // Resolve workspace *value* imports (e.g. `NotImplementedAtTier1Error`
         // from @ai-sidekicks/contracts in SessionBootstrap.test.tsx) to TS source,
         // not stale dist/, via the provider's `@ai-sidekicks/source` export
@@ -87,7 +130,9 @@ export default defineConfig({
         // `resolve.conditions`; per vitest-dev/vitest#8431 (Vite 6 can wrongly apply
         // node conditions in happy-dom resolution passes) we set `ssr.resolve.*` too.
         // Conditions replace vitest's defaults, so `import`/`default` are re-listed.
-        // (The node `main` project imports contracts type-only → erased → needs none.)
+        // (The node `main` smoke project imports contracts type-only → erased →
+        // needs none. The `main-unit` project above DOES need them — see its
+        // own block.)
         resolve: {
           conditions: ["@ai-sidekicks/source", "import", "default"],
         },

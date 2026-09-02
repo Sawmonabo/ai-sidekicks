@@ -89,13 +89,16 @@
 //
 // Module-system shape (verified empirically at T-023p-1-7):
 //   • `out/main/index.js`     — ESM (matches package `"type": "module"`).
-//                              Electron 41 supports ESM main since v28.
+//                              Electron supports ESM main since v28, so
+//                              the 44.x pin carries it.
 //                              In SMOKE mode this bundle additionally
 //                              includes the probe body (the
-//                              `[SIDEKICKS_SMOKE_PROBE]` tag, the
-//                              `webContents.executeJavaScript(...)` call,
-//                              and the `about:blank` load). In RELEASE
-//                              mode all three are physically absent —
+//                              `[SIDEKICKS_SMOKE_PROBE]` tag and the
+//                              `webContents.executeJavaScript(...)` call;
+//                              the `about:blank` load was RETIRED at
+//                              Plan-023 T-023p-1B-2, the probe now running
+//                              against the real bundle). In RELEASE
+//                              mode both are physically absent —
 //                              Vite's `define` substitutes the outer
 //                              `__SIDEKICKS_SMOKE_BUILD__` flag with
 //                              `false` and Rollup eliminates the branch
@@ -105,18 +108,19 @@
 //                              global all undefined) hold identically in
 //                              both modes — the smoke probe just adds
 //                              the readout machinery on top of the same
-//                              trust-boundary surface.
+//                              trust-boundary surface, and the document it
+//                              reads is the same one a release build loads.
 //   • `out/preload/index.cjs` — CommonJS (sandboxed preload constraint).
 //                              The explicit `.cjs` extension overrides the
 //                              package `"type": "module"` so Node loads the
 //                              file as CJS. Verified empirically: an ESM
 //                              preload fails to register with `"SyntaxError:
 //                              Cannot use import statement outside a module"`
-//                              on Electron 41.6.1.
+//                              on Electron 41.6.1, unchanged on 44.x.
 //   See `apps/desktop/electron.vite.config.ts` header for the decision log.
 
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { availableParallelism, loadavg, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -149,6 +153,41 @@ const PRELOAD_ENTRY = path.join(PACKAGE_ROOT, "out/preload/index.cjs");
 // `bin` entry. Resolving by absolute path (instead of PATH lookup)
 // makes the test independent of the caller's `$PATH` configuration.
 const ELECTRON_BIN = path.join(PACKAGE_ROOT, "node_modules/.bin/electron");
+
+// Where the Electron BINARY lives, as distinct from the launcher shim above.
+//
+// Electron 44 publishes NO install script — 41.6.1 published
+// `postinstall: node install.js`; 44.1.0's manifest has no `scripts` field at
+// all — and moved binary acquisition into a lazy download on the first
+// `require('electron')`. So `pnpm install` alone plants the shim and leaves no
+// `dist/`, and the first spawn would pay a ~100 MB download INSIDE this suite's
+// spawn deadline: a `SPAWN_TIMEOUT_MS` timeout whose message says nothing about
+// downloading. `apps/desktop/scripts/materialize-electron.ts` closes that as an
+// install-time step (wired as this package's `postinstall`, and re-run by
+// `test:smoke` and by CI), and the pre-spawn assertion below turns the residual
+// case — a tree where that step was skipped — into a named refusal instead of a
+// timeout.
+//
+// This is a PRESENCE probe, deliberately not a copy of the materializer's
+// idempotence rule: that one additionally compares `dist/version` against the
+// installed package version, because it decides whether to re-download. A
+// stale-but-present binary still spawns without a download, which is the only
+// property this suite needs.
+const ELECTRON_PACKAGE_ROOT = path.join(PACKAGE_ROOT, "node_modules/electron");
+
+/** The materialized Electron executable, or `null` when it is not on disk. */
+function materializedElectronExecutable(): string | null {
+  const pathFile = path.join(ELECTRON_PACKAGE_ROOT, "path.txt");
+  if (!existsSync(pathFile)) {
+    return null;
+  }
+  const executable = path.join(
+    ELECTRON_PACKAGE_ROOT,
+    "dist",
+    readFileSync(pathFile, "utf8").trim(),
+  );
+  return existsSync(executable) ? executable : null;
+}
 
 // Tagged-stdout marker emitted by the main-process smoke branch
 // (`apps/desktop/src/main/index.ts` constant `SMOKE_PROBE_TAG`). The
@@ -337,7 +376,19 @@ interface SmokeProbe {
     readonly require: string;
     readonly process: string;
     readonly global: string;
+    // Plan-023 Phase 1B (T-023p-1B-2) — the origin readings. These exist only
+    // because the probe now runs against the REAL bundle served over the
+    // privileged scheme; on the retired `about:blank` document every one of
+    // them would have read the opaque origin instead.
+    readonly protocol: string;
+    readonly host: string;
+    readonly indexedDB: string;
+    readonly localStorageRoundTrip: boolean;
+    readonly rootChildren: number;
   };
+  // Read by the MAIN process, not the renderer: `net.fetch` against the served
+  // `index.html`, so the header is observed on the wire the window loads from.
+  readonly contentSecurityPolicy: string | null;
 }
 
 interface SpawnResult {
@@ -845,11 +896,11 @@ function spawnElectron(): Promise<SpawnResult> {
     `--user-data-dir=${userDataDir}`,
     MAIN_ENTRY,
   ];
-  const cmd = needsXvfb() ? "xvfb-run" : ELECTRON_BIN;
-  const args = needsXvfb() ? ["-a", ELECTRON_BIN, ...electronArgs] : electronArgs;
+  const spawnCommand = needsXvfb() ? "xvfb-run" : ELECTRON_BIN;
+  const spawnArguments = needsXvfb() ? ["-a", ELECTRON_BIN, ...electronArgs] : electronArgs;
 
   return new Promise<SpawnResult>((resolve) => {
-    const child = spawn(cmd, args, {
+    const child = spawn(spawnCommand, spawnArguments, {
       cwd: PACKAGE_ROOT,
       env: {
         // Under the forced-stall override the probe opt-in is DROPPED from the
@@ -1022,9 +1073,9 @@ function spawnElectron(): Promise<SpawnResult> {
       // line-anchored substring match is sufficient; we don't need a
       // full JSON-line parser. We parse the suffix after the tag as JSON.
       for (const line of lines) {
-        const ix = line.indexOf(SMOKE_PROBE_TAG);
-        if (ix < 0) continue;
-        const payload = line.slice(ix + SMOKE_PROBE_TAG.length).trim();
+        const probeTagIndex = line.indexOf(SMOKE_PROBE_TAG);
+        if (probeTagIndex < 0) continue;
+        const payload = line.slice(probeTagIndex + SMOKE_PROBE_TAG.length).trim();
         if (!payload.startsWith("{")) continue;
         try {
           probe = JSON.parse(payload) as SmokeProbe;
@@ -1120,14 +1171,29 @@ function diagnoseMissingProbe(result: SpawnResult): string {
       "being shared again."
     );
   }
-  if (result.combinedOutput.includes(`${SMOKE_PROBE_TAG} loadURL failed`)) {
+  if (result.combinedOutput.includes("failed to load sidekicks-renderer://")) {
     return (
-      "the window was created but `about:blank` never loaded, so the preload " +
-      "never executed and `did-finish-load` never fired."
+      "the window was created but the bundle never loaded over the renderer " +
+      "scheme, so the preload never executed and `did-finish-load` never " +
+      "fired. Either the scheme was not registered before ready or the " +
+      "handler refused `index.html` — the handler answers an escape with an " +
+      "empty-bodied 403 and a miss with an empty-bodied 404, so the renderer " +
+      "side reports only the failure, never the reason."
     );
   }
   if (result.combinedOutput.includes(`${SMOKE_PROBE_TAG} executeJavaScript failed`)) {
     return "the renderer document loaded but the probe expression never evaluated in it.";
+  }
+  // Ahead of the breadcrumb arm below, and deliberately so: this failure
+  // happens AFTER `did-finish-load`, so the breadcrumb arm would absorb it and
+  // report a hung `executeJavaScript` round trip — which would be exactly
+  // false. The round trip returned; the main-process readback is what failed.
+  if (result.combinedOutput.includes(`${SMOKE_PROBE_TAG} index fetch failed`)) {
+    return (
+      "the renderer loaded and the probe expression evaluated, but the main " +
+      "process could not fetch `sidekicks-renderer://app/index.html` back " +
+      "through its own handler to read the CSP header."
+    );
   }
   // `did-finish-load` fired and the probe line still never arrived. That is a
   // materially different fault from a boot that never loaded: the document IS
@@ -1228,6 +1294,17 @@ describe("desktop shell substrate boot", () => {
       existsSync(ELECTRON_BIN),
       `Electron launcher missing at ${ELECTRON_BIN}. Run \`pnpm install\` first.`,
     ).toBe(true);
+    // The launcher shim exists after any install; the BINARY does not. Refusing
+    // here names the remedy, where letting the spawn proceed would download
+    // ~100 MB inside the spawn deadline and report a timeout.
+    expect(
+      materializedElectronExecutable(),
+      `Electron binary not materialized; run \`pnpm install\` (its ` +
+        `\`postinstall\` runs apps/desktop/scripts/materialize-electron.ts). ` +
+        `Electron 44 publishes no install script, so an install that skipped ` +
+        `that step leaves ${ELECTRON_PACKAGE_ROOT}/dist absent and the first ` +
+        `spawn would download the binary inside this test's timeout.`,
+    ).not.toBeNull();
   });
 
   // Asserts the Spec-023 §Security Hardening Baseline runtime invariants:
@@ -1252,9 +1329,12 @@ describe("desktop shell substrate boot", () => {
 
       // Invariant 1: main window appears within 5 seconds.
       // The `windowMs` measurement is from `app.whenReady()` to
-      // `webContents.did-finish-load` on the loaded `about:blank`
-      // document — i.e., the moment the renderer is up and the preload
-      // has executed.
+      // `webContents.did-finish-load` on the REAL renderer bundle served over
+      // `sidekicks-renderer://` (Plan-023 Phase 1B) — i.e. the moment the
+      // renderer is up, the preload has executed, and the served document has
+      // finished loading. The retired `about:blank` arm measured only that a
+      // window existed, so this budget now covers the handler and the bundle
+      // as well.
       expect(probe.ok).toBe(true);
       expect(probe.windowMs).toBeLessThanOrEqual(WINDOW_BUDGET_MS);
 
@@ -1286,6 +1366,55 @@ describe("desktop shell substrate boot", () => {
       // applied snapshot) but the Tier 1 substrate is the load-bearing
       // single-source-of-truth that the runtime invariant holds.
       expect(probe.probe.global).toBe("undefined");
+
+      // Invariant 6 (Plan-023 Phase 1B, I-023-11): the document came from the
+      // privileged scheme at the `app` host. This is the assertion that
+      // distinguishes "a window exists" from "the bundle is served" — the
+      // whole reason the `about:blank` arm was retired.
+      expect(probe.probe.protocol).toBe("sidekicks-renderer:");
+      expect(probe.probe.host).toBe("app");
+
+      // Invariant 7 (I-023-11): the origin carries storage. A scheme
+      // registered WITHOUT `standard: true` still loads documents — it just
+      // has an opaque origin, so `indexedDB` is absent and `localStorage`
+      // throws. The console's persisted layouts, drafts, and pins
+      // (`Spec-023 §Console Design (Meridian)` §Persistence) live here, so a
+      // silent regression to a non-standard scheme would surface as data that
+      // never survives a restart rather than as an error.
+      expect(probe.probe.indexedDB).toBe("object");
+      expect(probe.probe.localStorageRoundTrip).toBe(true);
+
+      // Invariant 8: the React tree actually mounted inside the served
+      // document. `did-finish-load` fires on the document, not on the app, so
+      // without this a bundle whose entry chunk 404'd would still pass every
+      // assertion above.
+      expect(probe.probe.rootChildren).toBeGreaterThan(0);
+
+      // Invariant 9: the CSP header rides the response. The header is the
+      // policy's ONLY carrier — `index.html` deliberately ships no meta tag —
+      // so nothing else in the suite would notice it silently disappearing.
+      // Read from the main process through `net.fetch` against the handler's
+      // own output, not from the renderer, because a renderer cannot read its
+      // own response headers.
+      expect(probe.contentSecurityPolicy).not.toBeNull();
+      const contentSecurityPolicy = probe.contentSecurityPolicy ?? "";
+      for (const directive of [
+        "default-src 'self'",
+        "script-src 'self'",
+        "connect-src 'self'",
+        "frame-src 'none'",
+        "object-src 'none'",
+        "base-uri 'none'",
+        "form-action 'none'",
+      ]) {
+        expect(contentSecurityPolicy).toContain(directive);
+      }
+      // Nothing in the policy may admit remote script or a wildcard origin;
+      // asserting the presence of each directive above would not catch a
+      // widened one appended beside it.
+      expect(contentSecurityPolicy).not.toContain("unsafe-eval");
+      expect(contentSecurityPolicy).not.toContain("*");
+      expect(contentSecurityPolicy).not.toContain("http://");
 
       // Process should have exited cleanly via `app.exit(0)` from the
       // probe branch. Signal-killed (timeout) or non-zero exit means
@@ -1472,6 +1601,32 @@ describe("desktop shell substrate boot", () => {
     },
     FORCED_STALL_TEST_TIMEOUT_MS,
   );
+
+  // The retirement, asserted rather than assumed (Plan-023 T-023p-1B-2).
+  //
+  // The smoke bundle is the one build where the probe body SURVIVES — a
+  // release bundle tree-shakes the whole branch, so grepping it for
+  // `about:blank` would pass no matter what the source said. Checking the
+  // smoke bundle is therefore the only form of this assertion with any force:
+  // if anyone re-introduces a blank-document load behind the probe gate, the
+  // suite's other assertions would go on passing (a blank document has a
+  // `#root`-less DOM, so they would actually FAIL — but for a reason nobody
+  // would read as "the retirement was reverted"). This says it directly.
+  it("ships no blank-document load in the built smoke bundle", () => {
+    expect(
+      existsSync(MAIN_ENTRY),
+      `Main entry missing at ${MAIN_ENTRY}. Run \`pnpm --filter @ai-sidekicks/desktop test\` (which rebuilds the smoke bundle).`,
+    ).toBe(true);
+
+    const builtMainBundle = readFileSync(MAIN_ENTRY, "utf8");
+
+    expect(builtMainBundle).not.toContain("about:blank");
+    // Positive control: the probe body IS present in this bundle, so the
+    // absence above is a real absence and not a mis-pointed path or a release
+    // bundle that tree-shook everything.
+    expect(builtMainBundle).toContain(SMOKE_PROBE_TAG);
+    expect(builtMainBundle).toContain("sidekicks-renderer://app/index.html");
+  });
 });
 
 // Unit coverage for the breadcrumb scanner's line buffering.

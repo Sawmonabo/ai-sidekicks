@@ -5,13 +5,18 @@
   "description": "Shared protocol contracts, schema definitions, and cross-container types.",
   "license": "Apache-2.0",
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=22.14.0"
   },
   "exports": {
     ".": {
       "@ai-sidekicks/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./session": {
+      "@ai-sidekicks/source": "./src/session.ts",
+      "types": "./dist/session.d.ts",
+      "import": "./dist/session.js"
     }
   },
   "main": "./dist/index.js",

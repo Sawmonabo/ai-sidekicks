@@ -430,7 +430,7 @@ function scanLineContent(state, lines, index, text) {
 //
 // Exported ONLY so that equality can be asserted rather than asserted-in-prose.
 // This file cannot import the shared module at the engines floor: `preflight.mjs`
-// runs under bare `node` (SKILL.md Phase 0.2), and on Node 22.12 — the
+// runs under bare `node` (SKILL.md Phase 0.2), and on Node 22.14 — the
 // `package.json` engines minimum — loading a `.ts` source fails outright with
 // ERR_UNKNOWN_FILE_EXTENSION. (Node 22.18+ strips types by default, so this is
 // a statement about the floor the skill must support, not about every Node.)

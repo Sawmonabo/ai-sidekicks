@@ -37,7 +37,7 @@ env:
   DO_NOT_TRACK: 1
 
 jobs:
-  # Tier-1 (Node 22.12 — daemon + Electron renderer + shared packages per ADR-022
+  # Tier-1 (Node 22.14 — daemon + Electron renderer + shared packages per ADR-022
   # §Decision row 8). Runs the full repo-wide lint + format check + build +
   # typecheck + lint + test against the daemon-tier Node version.
   test-node22:
@@ -71,7 +71,7 @@ jobs:
         # macos-15-intel is the last x86_64 macOS runner (supported through Aug 2027).
         # PR #1 keeps the matrix small (one OS, one node tier) until later PRs widen it.
         os: [ubuntu-latest]
-        node: ["22.12"]
+        node: ["22.14"]
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -93,6 +93,87 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # ADR-022 §Decision Log 2026-09-01 / Spec-015 §Driver Pin: the daemon's
+      # `better-sqlite3` 13.0.3 must come from the tarball's bundled Node-API
+      # prebuild, never from a source compile. This asserts PROVENANCE in two
+      # conjuncts rather than absence in one:
+      #
+      #   (a) the binding the daemon actually resolves — the file `lib/binding.js`
+      #       selects, read back off `require.cache` after a real `new Database()`
+      #       so a prebuild that resolves but will not load also fails here —
+      #       lives under `prebuilds/<platform>-<arch>.node`; and
+      #   (b) the package's `build/Release/` holds no `.node`, the one location a
+      #       source build writes and, with `prebuild-install` gone from the 13.x
+      #       line, the only writer left.
+      #
+      # `node-gyp` does not run at all for this package. 13.0.3 declares no
+      # install script, so the only candidate is the implicit `node-gyp rebuild`
+      # npm synthesizes for a package shipping a `binding.gyp`, and
+      # `pnpm-workspace.yaml` denies it (`allowBuilds: better-sqlite3: false`).
+      # Upstream writes that `binding.gyp` to no-op when a host prebuild exists,
+      # but CONFIGURE runs before gyp evaluates the condition, and on
+      # `windows-latest` node-gyp 11.5.0 cannot parse the image's Visual Studio
+      # 18 install — so approving the build fails `pnpm install` outright on a
+      # platform whose prebuild is sitting in the tarball. Denying it is also
+      # what makes conjunct (b) absolute: `build/Release/` cannot hold a `.node`
+      # if no build ever runs. Conjunct (b) alone was ambiguous on the 12.x line,
+      # which downloaded its prebuild INTO `build/Release/`; on 13.x it is not.
+      #
+      # This step and the `native-prebuilds` job below are not duplicates. They
+      # answer different questions on purpose: this one asserts provenance under
+      # the FULL workspace install every other job in this file performs, on the
+      # one platform this matrix runs; that one asserts it under a scoped install
+      # on each of the five ADR-022 target platforms and additionally exercises
+      # the `Spec-015 §Pragmas` readback the prebuild has to actually support.
+      - name: Assert better-sqlite3 loads a bundled Node-API prebuild
+        shell: bash
+        run: |
+          cat > "${RUNNER_TEMP}/assert-better-sqlite3-prebuild.mjs" <<'NODE'
+          import { createRequire } from "node:module";
+          import { existsSync, readdirSync } from "node:fs";
+          import path from "node:path";
+          import { pathToFileURL } from "node:url";
+
+          // `pathToFileURL`, not a `file://` template: a Windows cwd is
+          // `D:\a\...` and `file://D:\a\...` is not a valid file URL. This job's
+          // matrix is Linux-only, but the `native-prebuilds` job below runs the
+          // same resolution on `windows-latest`, so the two forms must not drift.
+          const daemonRequire = createRequire(
+            new URL("packages/runtime-daemon/package.json", pathToFileURL(`${process.cwd()}/`)),
+          );
+
+          const DatabaseConstructor = daemonRequire("better-sqlite3");
+          new DatabaseConstructor(":memory:").close();
+
+          const loadedBindings = Object.keys(daemonRequire.cache).filter((entry) =>
+            entry.endsWith(".node"),
+          );
+          if (loadedBindings.length !== 1) {
+            throw new Error(
+              `expected exactly one loaded .node binding, saw ${JSON.stringify(loadedBindings)}`,
+            );
+          }
+          const [loadedBinding] = loadedBindings;
+          if (!/[/\\]prebuilds[/\\](darwin|linux|linuxmusl|win32)-(x64|arm64)\.node$/.test(loadedBinding)) {
+            throw new Error(`better-sqlite3 did not load a tarball prebuild: ${loadedBinding}`);
+          }
+
+          const packageRoot = path.dirname(daemonRequire.resolve("better-sqlite3/package.json"));
+          const releaseDirectory = path.join(packageRoot, "build", "Release");
+          const compiledArtifacts = existsSync(releaseDirectory)
+            ? readdirSync(releaseDirectory).filter((entry) => entry.endsWith(".node"))
+            : [];
+          if (compiledArtifacts.length > 0) {
+            throw new Error(
+              `build/Release holds compiled artifacts (a source build ran): ${JSON.stringify(compiledArtifacts)}`,
+            );
+          }
+
+          console.log(`loaded prebuild: ${loadedBinding}`);
+          console.log(`build/Release holds no .node: ${releaseDirectory}`);
+          NODE
+          node "${RUNNER_TEMP}/assert-better-sqlite3-prebuild.mjs"
+
       # Backs Turborepo's remote cache with the GitHub Actions cache (no
       # third-party service, no spend). SHA-pinned per ADR-023 §Axis 4.
       #
@@ -107,7 +188,30 @@ jobs:
       - name: Turborepo remote cache (GitHub Actions cache backend)
         uses: rharkor/caching-for-turbo@2238fae6eb9a9936f92356f54cb3660200d105e7 # v2.5.1
 
-      # Electron 41 on Ubuntu 24.04 GitHub Actions runners requires the
+      # Electron 44 ships NO install script, so `pnpm install` alone leaves no
+      # `dist/` — see `apps/desktop/scripts/materialize-electron.ts` for the
+      # measurement and the reasoning. `apps/desktop`'s `postinstall` runs that
+      # script, so by this point the binary is normally already present and
+      # this step is a fast verification plus the path extraction the SUID step
+      # below needs.
+      #
+      # It runs the SAME script rather than a second acquisition path: if the
+      # postinstall was skipped (or a later step deleted `dist/`), this repairs
+      # it, and a download failure is still its own red step rather than a test
+      # timeout. `node -p` runs afterwards against a populated `dist/`, so it
+      # prints only the path — the script's own progress output goes to the log
+      # rather than into the captured value.
+      - name: Materialize the Electron binary
+        id: electron
+        working-directory: apps/desktop
+        run: |
+          node --experimental-strip-types scripts/materialize-electron.ts
+          executable=$(node -p "require('electron')")
+          [ -x "$executable" ] || { echo "::error::electron did not resolve to an executable: '$executable'"; exit 1; }
+          echo "executable=$executable" >> "$GITHUB_OUTPUT"
+          ls -l "$executable"
+
+      # Electron 44.x on Ubuntu 24.04 GitHub Actions runners requires the
       # SUID sandbox helper (`chrome-sandbox`) to be owned by root and have
       # mode 4755 for the renderer's Linux namespace sandbox to initialize.
       # pnpm install cannot run the Electron post-install step under root,
@@ -120,14 +224,17 @@ jobs:
       # attempts to access `require`, `process`, or `global` return
       # `undefined`").
       #
-      # The `find -print -quit` form returns the first match without
-      # walking the whole tree; the guard fails fast if the binary is
-      # missing (which would mean pnpm install changed the layout).
+      # The helper is taken from beside the executable the step above
+      # resolved, not searched for under `.pnpm`: a tree that holds two
+      # Electron versions (a stale one and the pinned one) has two
+      # `chrome-sandbox` files, and `find -print -quit` would return whichever
+      # it walked into first. The guard fails fast if it is absent, which
+      # would mean the `dist/` layout changed.
       - name: Configure Electron SUID sandbox helper (Linux)
         if: runner.os == 'Linux'
         run: |
-          sandbox=$(find node_modules/.pnpm -name chrome-sandbox -path '*/electron/dist/*' -print -quit)
-          [ -n "$sandbox" ] || { echo "::error::chrome-sandbox not found under node_modules/.pnpm/.../electron/dist/ — pnpm layout drift?"; exit 1; }
+          sandbox="$(dirname "${{ steps.electron.outputs.executable }}")/chrome-sandbox"
+          [ -f "$sandbox" ] || { echo "::error::chrome-sandbox not beside the resolved Electron executable — dist layout drift?"; exit 1; }
           sudo chown root:root "$sandbox"
           sudo chmod 4755 "$sandbox"
           ls -l "$sandbox"
@@ -338,7 +445,7 @@ jobs:
       # no hardcoded list to drift as packages are added. This step validates the
       # Node 22 tier (floor < 24); the matching step in the Node 24 job validates
       # floor >= 24. minVersion (not the first numeric token) is used so reordered
-      # OR-ranges like "^24 || >=22.12.0" bucket by their true minimum (22), not a
+      # OR-ranges like "^24 || >=22.14.0" bucket by their true minimum (22), not a
       # higher leading clause. The split mirrors the build-filter partition above
       # (control-plane is carved to Node 24 for the same engines.node reason), so a
       # new library is validated on the tier it is built on. apps/* are
@@ -380,7 +487,8 @@ jobs:
       # trip it while a collapse to one file still does.
       #
       # The pattern stays in glob form, now resolved by the wrapper rather than by Node:
-      # on this repo's Node 22.12 floor `node --test <dir>` treats a bare directory arg as
+      # on Node 22.12 — this repo's floor when the behavior was measured, since moved to
+      # 22.14 — `node --test <dir>` treats a bare directory arg as
       # a module specifier and fails it as a test (`not ok 1 - <dir>`, ERR_TEST_FAILURE,
       # "Cannot find module") — measured on an empty dir, a dir holding a .test.mjs, and a
       # dir holding a non-test file alike. That form is loud, not silent; the silent shapes
@@ -458,7 +566,17 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: "pnpm"
 
+      # `ELECTRON_SKIP_BINARY_DOWNLOAD` because this job never launches Electron.
+      # `apps/desktop`'s `postinstall` materializes the binary (Electron 44
+      # publishes no install script of its own), and a full workspace install
+      # runs that script — so without this every install here would pull ~100 MB
+      # this job has no use for. `electron-vite build` needs only the package's
+      # `version` field, verified 2026-09-01 by building with `dist/` absent.
+      # 44.1.0's own `install.js` no longer honours this variable (41.6.1's did);
+      # `apps/desktop/scripts/materialize-electron.ts` is what honours it now.
       - name: Install dependencies
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
         run: pnpm install --frozen-lockfile
 
       # Backs Turborepo's remote cache with the GitHub Actions cache (no
@@ -532,7 +650,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: "22.12"
+          node-version: "22.14"
           # This job never installs dependencies; without this, setup-node@v5
           # sees `packageManager: pnpm` in package.json and fails looking for
           # a pnpm binary that is deliberately absent here.
@@ -576,13 +694,22 @@ jobs:
           version: 10.33.2
           run_install: false
 
-      - name: Setup Node.js 22.12
+      - name: Setup Node.js 22.14
         uses: actions/setup-node@v5
         with:
-          node-version: "22.12"
+          node-version: "22.14"
           cache: "pnpm"
 
+      # `ELECTRON_SKIP_BINARY_DOWNLOAD` because this job never launches Electron:
+      # the desktop package's `test:coverage` is `vitest run --project=renderer`,
+      # a jsdom project, and the `main` (smoke) project — the only one that
+      # spawns the binary — is not in the coverage set. Without this the
+      # `apps/desktop` postinstall would pull ~100 MB this job cannot use.
+      # 44.1.0's own `install.js` no longer honours this variable (41.6.1's did);
+      # `scripts/materialize-electron.ts` is what honours it now.
       - name: Install dependencies
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
         run: pnpm install --frozen-lockfile
 
       - name: Coverage (Node 22 tier — excluding control-plane)
@@ -602,7 +729,7 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: "24"
-          # Dependencies are already installed under the 22.12 step above; this
+          # Dependencies are already installed under the 22.14 step above; this
           # step only swaps the runtime, so re-priming the pnpm store cache here
           # would be wasted work.
           package-manager-cache: false
@@ -641,10 +768,217 @@ jobs:
           retention-days: 90
           if-no-files-found: error
 
+  # ADR-022 §Decision Log 2026-09-01 / Spec-015 §Driver Pin — Plan-023 T-023p-1B-4.
+  #
+  # The daemon's `better-sqlite3` 13.0.3 must load the tarball's bundled Node-API
+  # prebuild on EVERY platform V1 ships to, not just the one the tier-1 matrix
+  # happens to run. Before this job the provenance assertion covered linux-x64
+  # alone: `test-node22` is `ubuntu-latest`, `hook-tests-macos` installs nothing,
+  # and there is no Windows job at all. A missing or unloadable prebuild on the
+  # other four targets would have surfaced first on a developer's machine or in
+  # a release build, as a silent source compile or a `SIGSEGV` at first open.
+  #
+  # Matrix = the five ADR-022 targets, on labels GitHub documents as generally
+  # available for public repositories (checked against GitHub's hosted-runner
+  # reference 2026-09-01; none of the five is a preview or deprecated image):
+  #   ubuntu-latest    → linux-x64
+  #   ubuntu-24.04-arm → linux-arm64    (arm64 Linux, free for public repos)
+  #   macos-latest     → darwin-arm64   (Apple silicon)
+  #   macos-15-intel   → darwin-x64     (the last Intel macOS image)
+  #   windows-latest   → win32-x64
+  # `win32-arm64` and the two `linuxmusl-*` prebuilds ship in the same tarball
+  # and are deliberately NOT covered: `windows-11-arm` is outside the ADR-022
+  # target set, and no hosted musl runner exists — a musl assertion would need a
+  # container leg, which is its own task rather than a widened matrix here.
+  #
+  # The install is scoped to the daemon and its workspace dependencies rather
+  # than the whole repo: this job's question is where one binding comes from,
+  # and a full install would additionally download an Electron binary per leg
+  # for nothing. `--frozen-lockfile` still applies, so a lockfile drift fails
+  # here exactly as it does everywhere else.
+  native-prebuilds:
+    name: native prebuild (${{ matrix.prebuild }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            prebuild: linux-x64
+          - os: ubuntu-24.04-arm
+            prebuild: linux-arm64
+          - os: macos-latest
+            prebuild: darwin-arm64
+          - os: macos-15-intel
+            prebuild: darwin-x64
+          - os: windows-latest
+            prebuild: win32-x64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        # SHA-pinned per ADR-023 §Axis 4; Renovate's helpers:pinGitHubActionDigests
+        # preset (renovate.json5) keeps this current.
+        uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
+        with:
+          version: 10.33.2
+          run_install: false
+
+      # 22.14.0 is the tier-1 floor ADR-022 §Decision Log moved to on 2026-09-01,
+      # and it is the floor BECAUSE of this binding: the 13.x prebuilds are
+      # Node-API 10, and a Node-API-9 host (22.12, 22.13) dies `SIGSEGV` with no
+      # diagnostic at the first `new Database()`. Asserting the prebuild on any
+      # other version would not be asserting the shipped configuration.
+      - name: Setup Node.js 22.14
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22.14"
+          cache: "pnpm"
+
+      - name: Install (runtime-daemon and its workspace dependencies only)
+        run: pnpm install --frozen-lockfile --filter "@ai-sidekicks/runtime-daemon..."
+
+      - name: Assert prebuild provenance and the Spec-015 pragma readback
+        shell: bash
+        env:
+          EXPECTED_PREBUILD: ${{ matrix.prebuild }}
+        run: |
+          cat > "${RUNNER_TEMP}/assert-native-prebuild.mjs" <<'NODE'
+          import { createRequire } from "node:module";
+          import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+          import os from "node:os";
+          import path from "node:path";
+          import { pathToFileURL } from "node:url";
+
+          const expectedPrebuild = process.env["EXPECTED_PREBUILD"];
+          if (expectedPrebuild === undefined || expectedPrebuild === "") {
+            throw new Error("EXPECTED_PREBUILD is unset — the matrix leg names the platform");
+          }
+
+          // `pathToFileURL`, not a `file://` template: a Windows cwd is
+          // `D:\a\...`, which is not a valid file URL.
+          const daemonRequire = createRequire(
+            new URL("packages/runtime-daemon/package.json", pathToFileURL(`${process.cwd()}/`)),
+          );
+
+          const DatabaseConstructor = daemonRequire("better-sqlite3");
+
+          // Conjunct (a): the binding the daemon RESOLVES, read back off
+          // `require.cache` after a real open, so a prebuild that resolves but
+          // will not load fails here too.
+          const probeDirectory = mkdtempSync(path.join(os.tmpdir(), "sidekicks-prebuild-"));
+          const databasePath = path.join(probeDirectory, "probe.db");
+          try {
+            const seedDatabase = new DatabaseConstructor(databasePath);
+            seedDatabase.pragma("journal_mode = wal");
+            seedDatabase.exec("CREATE TABLE probe (id INTEGER PRIMARY KEY)");
+            seedDatabase.close();
+
+            const loadedBindings = Object.keys(daemonRequire.cache).filter((entry) =>
+              entry.endsWith(".node"),
+            );
+            if (loadedBindings.length !== 1) {
+              throw new Error(
+                `expected exactly one loaded .node binding, saw ${JSON.stringify(loadedBindings)}`,
+              );
+            }
+            const [loadedBinding] = loadedBindings;
+            if (
+              !/[/\\]prebuilds[/\\](darwin|linux|linuxmusl|win32)-(x64|arm64)\.node$/.test(
+                loadedBinding,
+              )
+            ) {
+              throw new Error(`better-sqlite3 did not load a tarball prebuild: ${loadedBinding}`);
+            }
+            // ...and it is THIS platform's prebuild. Without this the assertion
+            // would pass on a leg that silently loaded the wrong architecture.
+            const loadedName = path.basename(loadedBinding, ".node");
+            if (loadedName !== expectedPrebuild) {
+              throw new Error(
+                `expected the ${expectedPrebuild} prebuild, loaded ${loadedName} (${loadedBinding})`,
+              );
+            }
+
+            // Conjunct (b): `build/Release/` holds no `.node` — the one location
+            // a source build writes and, with `prebuild-install` gone from the
+            // 13.x line, the only writer left.
+            const packageRoot = path.dirname(daemonRequire.resolve("better-sqlite3/package.json"));
+            const releaseDirectory = path.join(packageRoot, "build", "Release");
+            const compiledArtifacts = existsSync(releaseDirectory)
+              ? readdirSync(releaseDirectory).filter((entry) => entry.endsWith(".node"))
+              : [];
+            if (compiledArtifacts.length > 0) {
+              throw new Error(
+                `build/Release holds compiled artifacts (a source build ran): ${JSON.stringify(compiledArtifacts)}`,
+              );
+            }
+
+            // `Spec-015 §Pragmas`, on the REOPEN path — the only path that tests
+            // the override. A freshly created database is in delete mode and
+            // reads `synchronous = 2` from `SQLITE_DEFAULT_SYNCHRONOUS`, which
+            // says nothing about the WAL default the override exists for. A
+            // connection opening an ALREADY-WAL database reads
+            // `SQLITE_DEFAULT_WAL_SYNCHRONOUS`, and Spec-015's durability
+            // posture is that this must be raised, not inherited.
+            const database = new DatabaseConstructor(databasePath);
+            const compileOptions = database.pragma("compile_options").map((row) => row.compile_options);
+            const walSynchronousDefault = database.pragma("synchronous", { simple: true });
+            if (walSynchronousDefault !== 1) {
+              throw new Error(
+                `expected the WAL default synchronous = 1 (NORMAL) before the override, read ${String(walSynchronousDefault)}`,
+              );
+            }
+
+            database.pragma("journal_mode = wal");
+            database.pragma("synchronous = FULL");
+            database.pragma("foreign_keys = ON");
+            database.pragma("busy_timeout = 5000");
+
+            const sqliteVersion = database.prepare("SELECT sqlite_version() AS version").get().version;
+            const readback = {
+              journal_mode: database.pragma("journal_mode", { simple: true }),
+              synchronous: database.pragma("synchronous", { simple: true }),
+              foreign_keys: database.pragma("foreign_keys", { simple: true }),
+              busy_timeout: database.pragma("busy_timeout", { simple: true }),
+            };
+            const expectedReadback = {
+              journal_mode: "wal",
+              synchronous: 2,
+              foreign_keys: 1,
+              busy_timeout: 5000,
+            };
+            for (const [pragmaName, expectedValue] of Object.entries(expectedReadback)) {
+              if (readback[pragmaName] !== expectedValue) {
+                throw new Error(
+                  `pragma ${pragmaName}: expected ${String(expectedValue)}, read ${String(readback[pragmaName])}`,
+                );
+              }
+            }
+            database.close();
+
+            console.log(`platform:            ${process.platform}-${process.arch}`);
+            console.log(`node:                ${process.version} (Node-API ${process.versions.napi})`);
+            console.log(`loaded prebuild:     ${loadedBinding}`);
+            console.log(`build/Release .node: none (${releaseDirectory})`);
+            console.log(`better-sqlite3:      ${daemonRequire("better-sqlite3/package.json").version}`);
+            console.log(`embedded sqlite:     ${sqliteVersion}`);
+            console.log(
+              `wal synchronous default: ${String(walSynchronousDefault)} (SQLITE_DEFAULT_WAL_SYNCHRONOUS present: ${String(compileOptions.includes("DEFAULT_WAL_SYNCHRONOUS=1"))})`,
+            );
+            console.log(`pragma readback:     ${JSON.stringify(readback)}`);
+          } finally {
+            rmSync(probeDirectory, { recursive: true, force: true });
+          }
+          NODE
+          node "${RUNNER_TEMP}/assert-native-prebuild.mjs"
+
   ci-gate:
     name: ci-gate
     runs-on: ubuntu-latest
-    needs: [test-node22, test-node24, hook-tests-macos]
+    needs: [test-node22, test-node24, hook-tests-macos, native-prebuilds]
     if: always()
     steps:
       - name: Aggregate required-checks status
@@ -663,6 +997,10 @@ jobs:
           fi
           if [[ "${{ needs.hook-tests-macos.result }}" != "success" ]]; then
             echo "ci-gate: required job 'hook-tests-macos' did not succeed (result=${{ needs.hook-tests-macos.result }})"
+            fail=1
+          fi
+          if [[ "${{ needs.native-prebuilds.result }}" != "success" ]]; then
+            echo "ci-gate: required job 'native-prebuilds' did not succeed (result=${{ needs.native-prebuilds.result }})"
             fail=1
           fi
           if [[ $fail -ne 0 ]]; then

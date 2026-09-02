@@ -279,7 +279,7 @@ Peer invocation and definition management are authorized as the named operation 
 - **Integration** — attach-by-reference end to end against a live migration; snapshot isolation under definition edit and delete; peer invocation producing an admitted child run with the expected link type; depth refusal from inside a peer-invoked run; cost-receipt rows landing on the child under the target's account.
 - **Manual** — create a definition in the desktop editor, attach it in two sessions, edit it, and confirm both attached sidekicks are unchanged.
 - **Adversarial-Tampering Boundary** — caller-supplied `definitionId` and timestamps rejected at intake; a `name` differing only by ASCII case or by trailing whitespace rejected at both the service and the index, and one differing only by a non-ASCII case mapping rejected at both layers as well, since the index arbitrates the stored full-Unicode `name_folded` key rather than an ASCII collation (I-030-7); a tool-allowlist payload carrying a non-string member rejected at the parser rather than at spawn; a peer-invocation target naming a provider, a model, an account, or a node rejected before admission; a definition row hand-edited to carry a composed posture failing the T1.3 conformance suite rather than reaching the spawn path.
-- **CI-Pinned Tool Versions** — verification commands name the CI-pinned toolchain (`pnpm@10.33.2`, Node `>=22.12.0` per [ADR-022](../decisions/022-v1-toolchain-selection.md)) so local drift surfaces at plan-authoring time.
+- **CI-Pinned Tool Versions** — verification commands name the CI-pinned toolchain (`pnpm@10.33.2`, Node `>=22.14.0` per [ADR-022](../decisions/022-v1-toolchain-selection.md)) so local drift surfaces at plan-authoring time.
 
 ## Implementation Phase Sequence
 

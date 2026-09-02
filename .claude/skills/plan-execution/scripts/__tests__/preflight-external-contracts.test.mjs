@@ -32,7 +32,7 @@ const REPO_ROOT = resolve(SCRIPTS_DIR, "../../../..");
 // ---------------------------------------------------------------------------
 
 // preflight.mjs cannot import the shared module — it runs under bare `node`
-// per SKILL.md Phase 0.2, and on Node 22.12 (the `package.json` engines
+// per SKILL.md Phase 0.2, and on Node 22.14 (the `package.json` engines
 // minimum) loading a `.ts` source fails with ERR_UNKNOWN_FILE_EXTENSION. The
 // duplication is forced. What is NOT forced is leaving the two copies
 // unchecked.
@@ -387,8 +387,8 @@ function enumerateGraph(entry) {
     // so this child cannot answer whether the graph runs at the floor.
     //
     // FLOOR AUTHORITY IS CI, and it already covers this test. The `test-node22`
-    // job in `.github/workflows/ci.yml` pins `node: ["22.12"]`, surfacing as the
-    // required check `test (ubuntu-latest / node 22.12)`, and its "Run
+    // job in `.github/workflows/ci.yml` pins `node: ["22.14"]`, surfacing as the
+    // check `test (ubuntu-latest / node 22.14)`, and its "Run
     // plan-execution skill tests (Layer 1 + Layer 2)" step runs this file. The
     // graph is therefore enumerated by an actual engines-floor binary on every
     // PR, which is what catches an API-availability divergence.

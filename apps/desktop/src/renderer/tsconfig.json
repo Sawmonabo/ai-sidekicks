@@ -25,10 +25,27 @@
     "module": "esnext",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
-    "outDir": "../../out/renderer",
-    "rootDir": ".",
+    "outDir": "../../out",
+    // `rootDir` is `src/`, not `src/renderer/`, so the renderer may import
+    // `../shared/**` — a subtree BOTH processes compile (see
+    // `src/shared/auxiliary-routes.ts` for why the auxiliary-route manifest has
+    // to be shared rather than main-process-only). With `rootDir: "."` the first
+    // such import is TS6059 ("file is not under rootDir"), which would make the
+    // shared module importable in principle and a compile error in practice.
+    // Paired with the widened `outDir`, every renderer file still emits to
+    // exactly `out/renderer/<same relative path>` as before — `rootDir` and
+    // `outDir` both moved up one level, so the quotient is unchanged — and the
+    // shared subtree emits alongside it at `out/shared/`. The renderer BUNDLE is
+    // built by `electron-vite`, not by this project's emit, so nothing about the
+    // shipped tree depends on either path.
+    "rootDir": "..",
     "tsBuildInfoFile": "./.tsbuildinfo"
   },
-  "include": ["**/*"],
+  // `../shared/**/*` is listed explicitly because a composite project must list
+  // every file in its program (TS6307) — widening `rootDir` alone makes the
+  // import legal but still unlisted. The renderer imports the shared
+  // auxiliary-route manifest; main compiles the same subtree under the package
+  // root config.
+  "include": ["**/*", "../shared/**/*"],
   "exclude": ["**/__tests__/**", "**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx"]
 }

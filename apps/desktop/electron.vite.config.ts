@@ -11,8 +11,8 @@
 // system choice per target was decided empirically:
 //
 //   • main:    `format: "es"` (entryFileNames: index.js). The package root
-//              has `"type": "module"`; Electron 41 supports ESM main process
-//              (since v28). Keeping main as ESM matches the rest of the
+//              has `"type": "module"`; Electron supports ESM main process
+//              since v28, so the 44.x pin carries it too. Keeping main as ESM matches the rest of the
 //              monorepo's module system. `app.requestSingleInstanceLock()`
 //              and `app.exit()` work identically in ESM context (empirically
 //              verified at T-023p-1-7).
@@ -20,7 +20,8 @@
 //   • preload: `format: "cjs"` (entryFileNames: index.cjs). Electron's
 //              sandboxed preload runtime (`sandbox: true`, locked by
 //              `src/main/window.ts`) ONLY supports CommonJS — verified
-//              empirically with Electron 41.6.1: an ESM preload fails to
+//              empirically with Electron 41.6.1 and unchanged on the 44.x
+//              pin: an ESM preload fails to
 //              register with `"SyntaxError: Cannot use import statement
 //              outside a module"`. The `.cjs` extension (not `.js`) is
 //              load-bearing: under our `"type": "module"` package, Node

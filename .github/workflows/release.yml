@@ -103,7 +103,7 @@ jobs:
 
       - name: Setup Node.js (24.x — Trusted Publishing requires npm CLI >= 11.5.1)
         # Per ADR-023 §Axis 3 resolution: release CI runs on Node 24 (control-plane
-        # tier per ADR-022 §Decision row 8); the daemon's engines.node: 22.12+ is
+        # tier per ADR-022 §Decision row 8); the daemon's engines.node: 22.14+ is
         # unchanged. The release-CI Node version is independent of engines.node for
         # the published package.
         uses: actions/setup-node@v5
@@ -112,7 +112,17 @@ jobs:
           registry-url: https://registry.npmjs.org/
           cache: "pnpm"
 
+      # `ELECTRON_SKIP_BINARY_DOWNLOAD` because this job never launches Electron.
+      # `apps/desktop`'s `postinstall` materializes the binary (Electron 44
+      # publishes no install script of its own), and a full workspace install
+      # runs that script — so without this every install here would pull ~100 MB
+      # this job has no use for. `electron-vite build` needs only the package's
+      # `version` field, verified 2026-09-01 by building with `dist/` absent.
+      # 44.1.0's own `install.js` no longer honours this variable (41.6.1's did);
+      # `apps/desktop/scripts/materialize-electron.ts` is what honours it now.
       - name: Install dependencies
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
         run: pnpm install --frozen-lockfile
 
       - name: Build
@@ -173,7 +183,17 @@ jobs:
           node-version: "24"
           cache: "pnpm"
 
+      # `ELECTRON_SKIP_BINARY_DOWNLOAD` because this job never launches Electron.
+      # `apps/desktop`'s `postinstall` materializes the binary (Electron 44
+      # publishes no install script of its own), and a full workspace install
+      # runs that script — so without this every install here would pull ~100 MB
+      # this job has no use for. `electron-vite build` needs only the package's
+      # `version` field, verified 2026-09-01 by building with `dist/` absent.
+      # 44.1.0's own `install.js` no longer honours this variable (41.6.1's did);
+      # `apps/desktop/scripts/materialize-electron.ts` is what honours it now.
       - name: Install dependencies
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
         run: pnpm install --frozen-lockfile
 
       - name: Build

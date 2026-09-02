@@ -123,6 +123,7 @@ import type {
   SessionId,
 } from "@ai-sidekicks/contracts";
 
+import { normalizeWireRejection } from "../../../shared/wire-errors.js";
 import { CapabilityDeclaration } from "./CapabilityDeclaration.js";
 
 // The `window.sidekicks` ambient type lives in the renderer-wide
@@ -322,8 +323,21 @@ export function AttachFlow({ sessionId, attachDraft }: AttachFlowProps): React.J
         setAttachViewState({ kind: "resolved", response: attachmentResponse });
       } catch (bridgeError: unknown) {
         // Tier-3 production branch at the Tier-1 bridge — see
-        // `normalizeAttachError` below for the envelope handling.
-        setAttachViewState({ kind: "rejected", error: normalizeAttachError(bridgeError) });
+        // `normalizeWireRejection` (shared, `src/shared/wire-errors.ts`) does
+        // the envelope handling: a typed refusal —
+        // `runtimenode.attach_conflict`, the single-active-attachment
+        // (Plan-003 §Invariants I-003-5) refusal, or
+        // `runtimenode.attach_revoked` — is rebuilt with the wire `code` as
+        // `Error.name`, so this branch renders WHICH refusal occurred rather
+        // than a generic class name. The BARE (non-`total`) wrap is correct
+        // here: this is a bridge CATCH binding, so the rejection came off the
+        // IPC surface where a ToPrimitive-failing shape is not reachable.
+        // DELIBERATELY no below-floor (`version.floor_exceeded`) recognizer,
+        // in contrast to NodeRoster's: a below-floor daemon is ADMITTED at
+        // attach — read-only, never refused (`Spec-003 §Required Behavior`;
+        // I-003-1 admit-not-eject) — so `VERSION_FLOOR_EXCEEDED` is a verdict
+        // on SUBSEQUENT version-sensitive writes, never on this call.
+        setAttachViewState({ kind: "rejected", error: normalizeWireRejection(bridgeError) });
       }
     })();
   };
@@ -425,7 +439,7 @@ export function AttachFlow({ sessionId, attachDraft }: AttachFlowProps): React.J
   // Rejected — role="alert" so assistive tech announces the failure; the
   // envelope renders `name: message` (the Tier-1 `NotImplementedAtTier1Error`
   // is the production-observable case; a typed wire envelope renders its wire
-  // `code` as the name — see `normalizeAttachError`). Unlike T6.1's TERMINAL
+  // `code` as the name — see `normalizeWireRejection`). Unlike T6.1's TERMINAL
   // rejected branch (retrying a single-use invite token is not safely
   // re-armable), attach is retryable: the server treats a re-attach as the
   // single-active-attachment upsert (Plan-003 §Invariants I-003-5), so the
@@ -447,50 +461,3 @@ export function AttachFlow({ sessionId, attachDraft }: AttachFlowProps): React.J
 // Wire error envelope — the code+message-only refusal shape the
 // `runtimenode.*` typed refusals carry (error.ts:103-110: "code+message-only
 // (no Details/Schema) per the registry-only 409 convention"), e.g.
-// `runtimenode.attach_conflict` — the single-active-attachment (Plan-003
-// §Invariants I-003-5) refusal — or `runtimenode.attach_revoked`
-// (error.ts:111-114). The recognizer is SHAPE-generic (any string `code` +
-// string `message`), deliberately NOT bound to specific code literals: this
-// branch's job is to render WHICH typed refusal occurred (`code: message`),
-// not to branch behavior per code — no acceptance criterion of this view
-// distinguishes refusal causes (that starts at T5.3, where the below-floor
-// write refusal gets dedicated surfacing). The check is structural, not
-// identity-based, so it matches a plain wire object and an `Error` subclass
-// carrying the code (the SDK's `RuntimeNodeControlPlaneError` shape) alike —
-// the same shape-not-identity stance as NodeRoster's recognizer.
-function isWireErrorEnvelope(value: unknown): value is { code: string; message: string } {
-  if (typeof value !== "object" || value === null) return false;
-  const candidate = value as { code?: unknown; message?: unknown };
-  return typeof candidate.code === "string" && typeof candidate.message === "string";
-}
-
-// Normalizes an attach rejection into a render-ready `Error` (hoisted out of
-// the handler per the NodeRoster `normalizeRosterReadError` precedent):
-//   • A typed wire envelope (or an `Error` carrying a wire `code`) is rebuilt
-//     as a fresh `Error` with the wire `code` as `Error.name`, so the
-//     rendered envelope reads `runtimenode.attach_conflict: …` rather than a
-//     generic class name — or `[object Object]` for a plain-object rejection.
-//     Checked FIRST so an SDK-style Error-with-code renders its code (the
-//     same ordering as NodeRoster's normalization).
-//   • Any other `Error` passes through unchanged — the Tier-1
-//     `NotImplementedAtTier1Error` (which carries no `code` property, so it
-//     never matches the envelope check) is the production-observable case
-//     today.
-//   • Anything else is wrapped via `String(...)` so the render branch always
-//     holds a real `Error` instance.
-// DELIBERATELY NO below-floor (`version.floor_exceeded`) recognizer here, in
-// contrast to NodeRoster's: a below-floor daemon is ADMITTED at attach —
-// read-only, never refused (`Spec-003 §Required Behavior`; I-003-1 admit-not-eject) — so
-// `VERSION_FLOOR_EXCEEDED` is a verdict on SUBSEQUENT version-sensitive
-// writes, never on this call. The below-floor outcome on THIS path is the
-// RESOLVED branch's `readOnly: true`, rendered verbatim; labeling a floor
-// code on an attach rejection would dignify a contract-violating response as
-// an expected state.
-function normalizeAttachError(rejection: unknown): Error {
-  if (isWireErrorEnvelope(rejection)) {
-    const envelopeError = new Error(rejection.message);
-    envelopeError.name = rejection.code;
-    return envelopeError;
-  }
-  return rejection instanceof Error ? rejection : new Error(String(rejection));
-}
