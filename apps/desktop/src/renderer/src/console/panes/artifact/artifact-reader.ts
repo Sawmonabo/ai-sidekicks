@@ -177,6 +177,13 @@ export class ArtifactPaneReader {
    * served answer is used for the only thing it can be: it REPLACES the listed row,
    * member for member, and any refusal standing against that row clears, because the
    * read just answered for it.
+   *
+   * A SUPERSEDED RE-READ IS DROPPED HERE, AND THAT ASYMMETRY WITH `deleteArtifact`
+   * IS DELIBERATE. This read establishes what one row currently SAYS, and the
+   * refresh that superseded it is already re-reading that same row from the list —
+   * so the answer that lands is the fresher one either way and there is nothing to
+   * reconcile. A delete establishes that the row is GONE, which no in-flight list
+   * read can discover, which is why that one reconciles instead of returning.
    */
   public async readManifest(artifactId: string): Promise<ArtifactRowActOutcome> {
     const generation = this.#generation;
@@ -214,15 +221,34 @@ export class ArtifactPaneReader {
    * The re-read is `terminal-event` because that is what it is: an act completed
    * and what it changed is what the next read will say. It is the same reason
    * `repos/repo-mounts-reader.ts` gives its post-mutation re-read.
+   *
+   * A SERVED DELETE NEVER RETURNS WITHOUT RECONCILING, WHICH IS WHY DISPOSAL AND
+   * SUPERSESSION ARE ASKED SEPARATELY HERE. `#generation` answers both questions at
+   * once, and for this act they have opposite answers. A participant who confirms
+   * Delete and then presses "Read again" bumps the generation, and the list read
+   * that press starts can easily have observed the artifact BEFORE the daemon
+   * destroyed it — so returning early on the bumped stamp left the destroyed
+   * manifest on screen, republished by the racing read and still carrying its
+   * controls, until somebody refreshed by hand. Disposal is `#disposed` and is the
+   * only reason to publish nothing: no pane is behind this reader. A live reader
+   * whose stamp merely moved still applies the removal and still schedules the
+   * re-read, because the fact the answer established is true regardless of which
+   * refresh was in flight, and that re-read is the thing that takes the row back
+   * off the screen the racing list put it on.
    */
   public async deleteArtifact(artifactId: string): Promise<ArtifactRowActOutcome> {
     const generation = this.#generation;
     const answer = await this.#bridge.growth.artifactDelete({ artifactId });
-    if (generation !== this.#generation) {
-      return { status: "superseded" };
-    }
     if (answer.status === "unavailable") {
-      return this.#recordRowRefusal(artifactId, answer);
+      // A refusal records an act that did NOT happen, so a stamp that moved under it
+      // means the row it was about has since been re-read and the refusal has nothing
+      // left to stand beside.
+      return generation === this.#generation
+        ? this.#recordRowRefusal(artifactId, answer)
+        : { status: "superseded" };
+    }
+    if (this.#disposed) {
+      return { status: "superseded" };
     }
     this.#publish({
       ...this.#reading,
@@ -230,7 +256,7 @@ export class ArtifactPaneReader {
       refusalByArtifactId: withoutRowRefusal(this.#reading.refusalByArtifactId, artifactId),
     });
     this.#scheduler.request("terminal-event");
-    return { status: "settled" };
+    return generation === this.#generation ? { status: "settled" } : { status: "reconciling" };
   }
 
   /** Terminal. No later completion can publish behind a pane that unmounted. */

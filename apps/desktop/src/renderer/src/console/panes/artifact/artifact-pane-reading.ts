@@ -46,13 +46,23 @@ export interface ArtifactPaneReading {
 /**
  * How one act on a row settled, for the sentence the pane announces.
  *
- * `superseded` is its own arm rather than folded into `settled`: an act whose answer
- * arrived after a refresh had already re-read the list changed nothing on screen, and
- * announcing a settlement for it would report work the participant cannot see.
+ * FOUR ARMS BECAUSE A LATE ANSWER SPLITS TWO WAYS, AND ONLY ONE OF THEM IS SILENT.
+ *
+ * `superseded` is an act whose answer changed nothing on screen and never will —
+ * the reader was disposed under it, or the act itself was refused after a refresh
+ * had already re-read the row it was about. Announcing a settlement for one of
+ * those would report work the participant cannot see.
+ *
+ * `reconciling` is the other half, and it is NOT silent: the act was SERVED while a
+ * refresh was in flight, so the fact it established holds — the reader applied it
+ * and scheduled the read that re-establishes the rest. It is not `settled` because
+ * the racing read may put the row back for the interval before that read lands, and
+ * a reader cannot vouch for a screen it does not yet own.
  */
 export type ArtifactRowActOutcome =
   | { readonly status: "settled" }
   | { readonly status: "refused"; readonly refusal: ConsoleRefusal }
+  | { readonly status: "reconciling" }
   | { readonly status: "superseded" };
 
 const NO_ROW_REFUSALS: ReadonlyMap<string, ConsoleRefusal> = new Map();

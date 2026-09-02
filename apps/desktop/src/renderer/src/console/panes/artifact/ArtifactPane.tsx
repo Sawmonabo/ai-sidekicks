@@ -94,7 +94,12 @@ export function ArtifactPane(props: ArtifactPaneProps): React.JSX.Element {
   // announces nothing, because nothing settled.
   const announceOutcome = useCallback(
     (outcome: ArtifactRowActOutcome, settledSentence: string) => {
-      if (outcome.status === "settled") {
+      // `reconciling` speaks in the settled sentence because that sentence is true of
+      // it: the act was served, the reader applied it, and the list is being read
+      // again. What the two arms disagree about is whether a refresh was already in
+      // flight underneath — which is the reader's business and not the participant's.
+      // Only `superseded` stays silent, because on that arm nothing happened at all.
+      if (outcome.status === "settled" || outcome.status === "reconciling") {
         announce(settledSentence);
         return;
       }
