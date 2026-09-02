@@ -7,6 +7,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
+import { lossyStringify } from "../../../../shared/wire-errors.js";
 import { ConsoleRefusalError, ManualClock, refuse } from "../core/index.js";
 import { PUSH_DRIVEN_READ_FAILURE_CODES, PushDrivenRead } from "./push-driven-read.js";
 
@@ -167,6 +168,65 @@ describe("push-driven read — no flicker and no swallowed failure", () => {
     expect(harness.model.state).toStrictEqual({
       kind: "failed",
       refusal: { code: "read-failed", detail: "socket closed", origin: "test-read" },
+    });
+  });
+
+  it("keeps a daemon envelope's own code rather than flattening it", async () => {
+    // Most rejections reach this console as a wire envelope rather than as a
+    // `ConsoleRefusalError`. Rendered as `read-failed`, a permission denial, a
+    // missing session and a dead transport all read identically — and the code is
+    // the one part of a refusal a person pastes into a search.
+    const clock = new ManualClock();
+    const harness = buildRead({
+      clock,
+      read: () =>
+        Promise.reject({
+          code: "permission_denied",
+          message: "You are not a member of that session.",
+        }),
+    });
+    harness.model.start();
+    clock.advance(200);
+    await settle();
+    expect(harness.model.state).toStrictEqual({
+      kind: "failed",
+      refusal: {
+        code: "permission_denied",
+        detail: "You are not a member of that session.",
+        origin: "test-read",
+      },
+    });
+  });
+
+  it("negative control: a rejection with no string code still takes this module's own", async () => {
+    // Guards the envelope arm from over-reaching: a value carrying a `code` that is
+    // not a wire code is not an envelope, and treating it as one would render a
+    // number as the machine-readable reason and retire both fallback codes.
+    const clock = new ManualClock();
+    const harness = buildRead({ clock, read: () => Promise.reject({ code: 7, message: "no" }) });
+    harness.model.start();
+    clock.advance(200);
+    await settle();
+    expect(harness.model.state.kind).toBe("failed");
+    expect(harness.model.state).toMatchObject({ refusal: { code: "read-failed" } });
+  });
+
+  it("says what the rejection was when it cannot be converted to a string at all", async () => {
+    // `String(value)` runs ToPrimitive, which THROWS for a null-prototype object
+    // carrying no `toString`. The throw escapes the `catch` that was converting it
+    // and lands in the scheduler's error handler, which converts it AGAIN — so the
+    // surface used to render the console's own TypeError as though it were the
+    // daemon's answer. The detail is the assertion, not the arm: settling `failed`
+    // was already true of the wrong sentence.
+    const clock = new ManualClock();
+    const hostile = Object.create(null) as object;
+    const harness = buildRead({ clock, read: () => Promise.reject(hostile) });
+    harness.model.start();
+    clock.advance(200);
+    await settle();
+    expect(harness.model.state).toStrictEqual({
+      kind: "failed",
+      refusal: { code: "read-failed", detail: lossyStringify(hostile), origin: "test-read" },
     });
   });
 });

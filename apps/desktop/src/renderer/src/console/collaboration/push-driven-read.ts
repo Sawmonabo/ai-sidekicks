@@ -53,6 +53,7 @@ import {
   type ConsoleClock,
   type ConsoleRefusal,
 } from "../core/index.js";
+import { isWireErrorEnvelope, normalizeWireRejection } from "../../../../shared/wire-errors.js";
 import { RefreshScheduler, type RefreshReason } from "../store/index.js";
 
 /**
@@ -230,7 +231,14 @@ export class PushDrivenRead<TValue> {
  *
  * A free function rather than a private method because a MUTATION's rejection needs
  * exactly this translation and has no read to route through: a second copy of these
- * four lines is the duplicate refusal constructor `apps/desktop/AGENTS.md` forbids.
+ * lines is the duplicate refusal constructor `apps/desktop/AGENTS.md` forbids.
+ *
+ * A DAEMON ENVELOPE KEEPS ITS OWN CODE, and that arm is not a nicety. Most of this
+ * console's rejections arrive as `{ code, message }` off the bridge rather than as
+ * a `ConsoleRefusalError`, and folding them into `read-failed` threw away the one
+ * thing a person needs — WHICH refusal it was — while rendering the same generic
+ * code for a permission denial, a missing session, and a broken transport. The
+ * check is structural, so an SDK error subclass carrying a wire code matches too.
  *
  * `fallbackCode` names WHICH of this module's two failures produced it, for a
  * rejection that carried no code of its own. The read failing and the subscription
@@ -248,8 +256,14 @@ export function consoleRefusalFrom(
   if (isConsoleRefusal(error)) {
     return error;
   }
-  const detail = error instanceof Error ? error.message : String(error);
-  return refuse(origin, fallbackCode, detail);
+  if (isWireErrorEnvelope(error)) {
+    return refuse(origin, error.code, error.message);
+  }
+  // Through the repository's one rejection normalizer rather than `String(error)`,
+  // which is not total: a null-prototype value carrying no `toString` throws inside
+  // the very expression that exists to say that something failed, and the throw
+  // lands in a `catch` that has already been left.
+  return refuse(origin, fallbackCode, normalizeWireRejection(error, { total: true }).message);
 }
 
 /**
