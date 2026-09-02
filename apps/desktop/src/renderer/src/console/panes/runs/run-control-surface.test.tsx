@@ -15,6 +15,7 @@
 
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { RunControlAckSchema } from "@ai-sidekicks/contracts";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { RunControlDispatcher, type RunControlOutcome } from "./run-control-dispatch.js";
@@ -47,11 +48,16 @@ function recordingBridge(calls: RecordedCall[]): ConsoleBridge {
   } as unknown as ConsoleBridge;
 }
 
-/** A settlement the surface can record without the wire being involved. */
+/**
+ * A settlement the surface can record without the wire being involved.
+ *
+ * Parsed through the registered acknowledgment schema rather than cast, so the canned
+ * answer is one the daemon could have sent.
+ */
 const ACKNOWLEDGED: RunControlOutcome = {
   kind: "acknowledged",
   control: "interrupt",
-  ack: { runId: RUN_ID, currentState: "paused", runVersion: 7 },
+  ack: RunControlAckSchema.parse({ runId: RUN_ID, currentState: "paused", runVersion: 7 }),
 };
 
 describe("one control per run is in flight at a time", () => {
