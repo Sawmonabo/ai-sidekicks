@@ -52,6 +52,11 @@ export { createFixtureBridge } from "./fixture-bridge.js";
 export { growthUnavailable } from "./growth-port.js";
 export type { GrowthPort } from "./growth-port.js";
 export type { GrowthSessionSummary } from "./growth-values.js";
+// The manifest envelope a served `artifactList` answers with. Through this door
+// because the repos family's artifact model reads one into a row, and a family
+// reaching past a barrel into `growth-values.js` would be the deep import the
+// structure rules exist to prevent.
+export type { GrowthArtifactSummary } from "./growth-values.js";
 export type { GrowthUnavailable } from "./growth-outcome.js";
 
 // The boot-time scenario decision. Exported through this door because the

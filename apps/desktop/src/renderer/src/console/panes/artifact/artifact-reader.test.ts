@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { ATTACHMENT_ALLOWLIST_DEFAULT } from "../../repos/attachment-model.js";
-import { ARTIFACT_LIST_SHAPE_UNMAPPED_CODE, ArtifactPaneReader } from "./artifact-reader.js";
+import { ArtifactPaneReader } from "./artifact-reader.js";
 
 interface PortScript {
   readonly listAnswer: unknown;
@@ -24,6 +24,23 @@ function bridgeAnswering(script: PortScript): ConsoleBridge {
     },
   } as unknown as ConsoleBridge;
 }
+
+/** One manifest row as the growth port serves it, with every member populated. */
+const SERVED_SUMMARY = {
+  artifactId: "019b7b30-0280-7c11-8420-b1a5c0de2201",
+  sessionId: "session-1",
+  runId: "019b7b30-0280-7c11-8420-b1a5c0de2202",
+  createdBy: "019b7b30-0280-7c11-8420-b1a5c0de2203",
+  artifactType: "diff",
+  digest: "sha256:2b4c",
+  size: 4096,
+  annotations: { "org.opencontainers.image.title": "rate-limit-wiring.patch" },
+  visibility: "shared",
+  state: "published",
+  replicationStatus: "pinned",
+  metadata: { mediaType: "text/x-patch", turnOrdinal: 12 },
+  createdAt: "2026-09-02T07:00:00.000Z",
+};
 
 const REFUSAL = {
   status: "unavailable",
@@ -58,7 +75,7 @@ describe("artifact pane reader — before anything is asked", () => {
   });
 });
 
-describe("artifact pane reader — the refusals", () => {
+describe("artifact pane reader — a refused read and a served one", () => {
   it("carries the port's refusal verbatim rather than reporting an empty list", async () => {
     const reader = new ArtifactPaneReader({
       bridge: bridgeAnswering({ listAnswer: REFUSAL, allowlistAnswer: REFUSAL }),
@@ -71,15 +88,10 @@ describe("artifact pane reader — the refusals", () => {
     expect(state.kind === "refused" ? state.refusal.code : undefined).toBe("wire-unregistered");
   });
 
-  it("refuses a served list whose shape cannot become a manifest row", async () => {
+  it("reads a served manifest summary as a row, member for member", async () => {
     const reader = new ArtifactPaneReader({
       bridge: bridgeAnswering({
-        listAnswer: {
-          status: "served",
-          value: [
-            { artifactId: "artifact-1", name: "a.md", byteLength: 10, contentType: "text/plain" },
-          ],
-        },
+        listAnswer: { status: "served", value: [SERVED_SUMMARY] },
         allowlistAnswer: REFUSAL,
       }),
       sessionId: "session-1",
@@ -87,29 +99,45 @@ describe("artifact pane reader — the refusals", () => {
     reader.start();
     await settle();
     const state = reader.snapshot.artifacts;
-    expect(state.kind === "refused" ? state.refusal.code : undefined).toBe(
-      ARTIFACT_LIST_SHAPE_UNMAPPED_CODE,
-    );
+    expect(state.kind).toBe("listed");
+    expect(state.kind === "listed" ? state.rows : []).toStrictEqual([
+      {
+        id: "019b7b30-0280-7c11-8420-b1a5c0de2201",
+        sessionId: "session-1",
+        runId: "019b7b30-0280-7c11-8420-b1a5c0de2202",
+        createdBy: "019b7b30-0280-7c11-8420-b1a5c0de2203",
+        artifactType: "diff",
+        digest: "sha256:2b4c",
+        size: 4096,
+        annotations: { "org.opencontainers.image.title": "rate-limit-wiring.patch" },
+        subject: undefined,
+        visibility: "shared",
+        state: "published",
+        replicationStatus: "pinned",
+        // Freeform provenance is typed `unknown` on the wire and drawn as a string, so
+        // a non-string value is rendered in its own form rather than dropped.
+        metadata: { mediaType: "text/x-patch", turnOrdinal: "12" },
+        createdAt: "2026-09-02T07:00:00.000Z",
+      },
+    ]);
   });
 
-  it("negative control: a served list is not silently rendered as one row", async () => {
-    // Without this, the case above would pass over a reader that ALSO published rows,
-    // which is exactly the fabrication it exists to prevent.
+  it("distinguishes a read that found none from a read nobody made", async () => {
+    // Negative control for the case above: a reader that published `not-checked` for
+    // an empty served list would pass every member assertion and still be wrong about
+    // the one thing an empty list says.
     const reader = new ArtifactPaneReader({
       bridge: bridgeAnswering({
-        listAnswer: {
-          status: "served",
-          value: [
-            { artifactId: "artifact-1", name: "a.md", byteLength: 10, contentType: "text/plain" },
-          ],
-        },
+        listAnswer: { status: "served", value: [] },
         allowlistAnswer: REFUSAL,
       }),
       sessionId: "session-1",
     });
     reader.start();
     await settle();
-    expect(reader.snapshot.artifacts.kind).not.toBe("listed");
+    const state = reader.snapshot.artifacts;
+    expect(state.kind).toBe("listed");
+    expect(state.kind === "listed" ? state.rows : undefined).toStrictEqual([]);
   });
 });
 
