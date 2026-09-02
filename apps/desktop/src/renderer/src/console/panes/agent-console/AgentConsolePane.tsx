@@ -19,10 +19,10 @@
 //     needs the models and hooks cannot be called conditionally.
 //   • **Machines** — the shipped runtime-node roster, absorbed rather than
 //     re-authored: it is the only caller of the node-attach reads that exists, and a
-//     second one beside it would be two implementations of one job. It reads the
-//     installed bridge directly, so under the fixture the frame says the question was
-//     not put rather than answering from the live daemon in a window showing fixture
-//     data.
+//     second one beside it would be two implementations of one job. It is handed the
+//     roster read and the presence subscription this pane's own bridge serves, so it
+//     answers from whichever bridge this window resolved and never from a second one
+//     beside it.
 //   • **Definition** — the seat for a body another plan authors.
 //   • **Peers and linkage** — the session-scoped peer-invocation grant, and what this
 //     agent's newest run started or was refused.
@@ -36,7 +36,7 @@ import {
   useAgentConsoleModels,
   type AgentConsoleModels,
 } from "../../agents/index.js";
-import type { ConsoleBridge, ConsoleBridgeSource } from "../../bridge/index.js";
+import type { ConsoleBridge } from "../../bridge/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
 import { consoleRefusalFrom, usePushDrivenRead } from "../../collaboration/push-driven-read.js";
 import { renderAbsorbedNodeRoster } from "../../frame/legacy-surfaces.js";
@@ -61,8 +61,14 @@ export interface AgentConsolePaneProps {
    * here with no agent named. The pane says which half it is missing.
    */
   readonly agentId: string | undefined;
-  readonly bridgeSource: ConsoleBridgeSource;
-  /** Absent where the mount could not resolve one; the binding column says so. */
+  /**
+   * Absent where the mount could not resolve one; the columns that need it say so.
+   *
+   * There is no second `bridgeSource` prop beside this. Both mounts pass the whole
+   * bridge and the bridge names its own source, so a separate source prop would be
+   * a second answer to a question this one already answers — and the machines
+   * column, which was the only reader of that answer, now takes the bridge itself.
+   */
   readonly bridge?: ConsoleBridge | undefined;
   /** Absent on a bare route, which both mount contexts admit. */
   readonly sessionStore?: SessionStore | undefined;
@@ -103,7 +109,7 @@ export function AgentConsolePane(props: AgentConsolePaneProps): React.JSX.Elemen
 
         <div className="meridian-agent-console__column" aria-label="Machines">
           <h3 className="meridian-agent-console__column-title">Machines</h3>
-          {renderAbsorbedNodeRoster(props.bridgeSource, props.sessionId)}
+          {renderAbsorbedNodeRoster(props.bridge, props.sessionId)}
         </div>
 
         <div className="meridian-agent-console__column" aria-label="Definition">

@@ -12,11 +12,11 @@
 // `runtime-node-attach/` … wholesale and with every tripwire intact: no collapsed
 // health scalar, no filter that hides a node, no loading flash on re-read, and the
 // out-of-order read guard." The absorbed mount is `frame/legacy-surfaces.ts`'s —
-// it carries the fixture guard those views need because they read the installed
-// bridge directly rather than taking one from context — and this page composes it
-// rather than reaching for the component, exactly as the agent console does.
-// Restyling is Meridian tokens over the same structure, so this file adds chrome
-// and no second projection of `state`, `healthState`, or `readOnly`.
+// it hands the view the roster read and the presence subscription this page's own
+// bridge serves — and this page composes it rather than reaching for the
+// component, exactly as the agent console does. Restyling is Meridian tokens over
+// the same structure, so this file adds chrome and no second projection of
+// `state`, `healthState`, or `readOnly`.
 //
 // WHAT THIS PAGE CANNOT OFFER, AND WHY IT SAYS SO
 //
@@ -66,7 +66,7 @@ export function RuntimeNodesPage(props: { readonly context: SettingsPageContext 
             detail="Open a session from the Sessions list and its nodes render here. Nothing was asked of the control plane for a session nobody named."
           />
         ) : (
-          renderAbsorbedNodeRoster(bridge.source, activeSessionId)
+          renderAbsorbedNodeRoster(bridge, activeSessionId)
         )}
       </section>
 
