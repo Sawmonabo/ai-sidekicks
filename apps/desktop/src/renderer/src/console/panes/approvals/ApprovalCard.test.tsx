@@ -40,6 +40,28 @@ function engageRememberOptIn(): void {
   fireEvent.click(screen.getByText("Remember my approval for this category"));
 }
 
+/** The optional narrowing field, by its label rather than by its markup. */
+function patternField(): HTMLInputElement {
+  const field = screen.getByLabelText("Narrow it to a pattern (optional)");
+  if (!(field instanceof HTMLInputElement)) {
+    throw new Error("the narrowing control is not a text field");
+  }
+  return field;
+}
+
+/**
+ * Whether a sentence promises a matching grammar the corpus has not registered.
+ *
+ * The registered contract says one thing about the pattern — it is matched against
+ * the resource within the boundary — and registers no per-category syntax, so copy
+ * that names one is copy making a promise the daemon never made.
+ */
+function namesAMatchingSyntax(copy: string): boolean {
+  return ["glob", "wildcard", "regex", "prefix", "*", "://"].some((token) =>
+    copy.toLowerCase().includes(token),
+  );
+}
+
 function renderCard(record: ApprovalRecord, isResolving = false): ApprovalResolveRequest[] {
   const requests: ApprovalResolveRequest[] = [];
   render(
@@ -104,6 +126,58 @@ describe("the remembered-scope opt-in", () => {
     engageRememberOptIn();
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     expect(requests[0]?.rememberedScope).toStrictEqual({ kind: "run" });
+  });
+
+  it("omits `pattern` entirely when the field was left empty", () => {
+    const requests = renderCard(pendingRecord());
+    engageRememberOptIn();
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    const remembered = requests[0]?.rememberedScope;
+    expect(remembered).toStrictEqual({ kind: "run" });
+    // The key has to be ABSENT rather than falsy: an absent pattern means
+    // category-wide on the wire and an empty string means nothing at all there.
+    expect(remembered !== undefined && "pattern" in remembered).toBe(false);
+  });
+
+  it("sends what was typed verbatim, whitespace included", () => {
+    const requests = renderCard(pendingRecord());
+    engageRememberOptIn();
+    fireEvent.change(patternField(), { target: { value: "  packages/contracts  " } });
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    // Trimming would send the daemon something other than what was typed, and what
+    // a pattern matches is the daemon's to decide.
+    expect(requests[0]?.rememberedScope).toStrictEqual({
+      kind: "run",
+      pattern: "  packages/contracts  ",
+    });
+  });
+
+  it("never sends a pattern on the reject path", () => {
+    const requests = renderCard(pendingRecord());
+    engageRememberOptIn();
+    fireEvent.change(patternField(), { target: { value: "packages/contracts" } });
+    fireEvent.click(screen.getByRole("button", { name: "Reject" }));
+    expect(requests[0]?.rememberedScope).toBeUndefined();
+  });
+
+  it("leaves the pattern unreachable until the opt-in is engaged", () => {
+    renderCard(pendingRecord());
+    fireEvent.click(screen.getByRole("button", { name: "Remember this answer" }));
+    // Negative control on the assertion above: the field exists and is refused,
+    // rather than being absent and vacuously unreachable.
+    expect(patternField().disabled).toBe(true);
+    fireEvent.click(screen.getByText("Remember my approval for this category"));
+    expect(patternField().disabled).toBe(false);
+  });
+
+  it("promises no matching syntax anywhere in its copy", () => {
+    renderCard(pendingRecord());
+    fireEvent.click(screen.getByRole("button", { name: "Remember this answer" }));
+    const note = screen.getByText(/matched against the resource/u);
+    expect(namesAMatchingSyntax(note.textContent ?? "")).toBe(false);
+    // Negative control on the checker itself: copy that DOES promise a grammar has
+    // to be caught, or the assertion above passes on any string at all.
+    expect(namesAMatchingSyntax("Use a glob like packages/**")).toBe(true);
   });
 
   it("never widens the scope beyond what was requested", () => {
