@@ -18,7 +18,7 @@ import { describe, expect, it } from "vitest";
 import { registerConsoleFamilies } from "./families.js";
 import { CONSOLE_SURFACE_SLOTS, ConsoleSurfaceRegistry } from "./frame/surface-registry.js";
 import { ConsoleEntityProjectorRegistry, consoleEntityProjectorRegistry } from "./store/index.js";
-import { ConsolePaneRegistry, consolePaneRegistry } from "./workspace/index.js";
+import { ConsolePaneRegistry, consolePaneRegistry } from "./seats/index.js";
 
 declare global {
   interface ImportMeta {
@@ -136,7 +136,7 @@ describe("console families — the pane board a composition writes into", () => 
     // module does not import it. A value import would be a default waiting to be
     // reintroduced.
     expect(seatBoardSource).not.toContain("registerConsolePanes(consolePaneRegistry)");
-    expect(seatBoardSource).toContain('import type { ConsolePaneRegistry } from "./workspace');
+    expect(seatBoardSource).toContain('import type { ConsolePaneRegistry } from "./seats');
   });
 
   it("forwards the projector board it was handed and reaches for no singleton", () => {

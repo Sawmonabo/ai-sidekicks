@@ -74,7 +74,7 @@ import { useActiveSessionStore, useSessionStoreRegistry } from "./session-lifecy
 import { useUiStateStore } from "./ui-state-lifecycle.js";
 import { parseRoute, railDestinationFor } from "../routing/index.js";
 import { consoleSurfaceRegistry, type ConsoleSurfaceContext } from "./surface-registry.js";
-import { consolePaneRegistry } from "../workspace/index.js";
+import { consolePaneRegistry } from "../seats/index.js";
 
 // Composition, at module scope, before any window renders.
 //

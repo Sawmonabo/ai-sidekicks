@@ -59,7 +59,7 @@ export { createFixtureBridge } from "./fixture-bridge.js";
 // answers for a wire the corpus has not registered.
 export { growthUnavailable } from "./growth-port.js";
 export type { GrowthPort } from "./growth-port.js";
-export type { GrowthSessionSummary } from "./growth-values.js";
+export type { GrowthSessionSummary } from "./growth-values/index.js";
 export type { GrowthUnavailable } from "./growth-outcome.js";
 
 // The boot-time scenario decision. Exported through this door because the

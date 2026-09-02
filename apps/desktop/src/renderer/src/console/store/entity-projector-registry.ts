@@ -15,7 +15,7 @@
 // arrives as a second source of truth for state the log already orders.
 //
 // SO THE TABLE BECOMES A REGISTRY, on the same construction pattern as the deck's
-// pane board (`workspace/seats/pane-registry.ts`) and the frame's surface board: a
+// pane board (`seats/pane-registry.ts`) and the frame's surface board: a
 // `KeyedRegistry` with `duplicatePolicy: "owner-scoped"`, so a family re-registering
 // its own claim replaces (a hot reload re-runs its module) and a DIFFERENT family
 // claiming a taken event kind is refused by an error naming both owners. Never

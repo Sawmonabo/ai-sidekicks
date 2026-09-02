@@ -18,7 +18,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ConsolePaneRegistry } from "../workspace/index.js";
+import { ConsolePaneRegistry } from "../seats/index.js";
 import { registerConsolePanes } from "./index.js";
 
 declare global {

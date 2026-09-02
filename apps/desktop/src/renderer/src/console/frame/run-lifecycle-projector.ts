@@ -82,23 +82,26 @@
 // spread, so a present-but-undefined key ERASES what the last transition
 // established.
 //
-// AND IT IS WRITTEN ONLY WHERE THE PAYLOAD AGREES WITH THE KIND. A `run.running`
-// beat carrying `newState: "failed"` reports two states at once, and nothing above
-// this fold rejects it: `SessionEventSchema` registers no run-lifecycle payload
-// variant, so the strict layer never sees the pair, and the envelope schema is
-// deliberately payload-tolerant. Stored, it puts a failed run under a kind the
-// timeline renders as running — two surfaces reading one event and disagreeing.
-// So a disagreement yields NO mutation, on the same terms as a payload that names
-// no `runId`: the beat is still admitted and the timeline still records it, and
-// what the projector declines to do is pick one of the two readings. The kind's
-// announced state is `bridge/session-event-streams.ts`'s
+// AND A RECOGNIZED TRANSITION MUST SUPPLY THE STATE IT ANNOUNCES — equality, not
+// merely non-contradiction. `statedStateFailsKind` below states the rule and the
+// two readings it refuses to choose between: the loud one, a `run.running` beat
+// carrying `newState: "failed"`, and the quiet one, the same beat carrying no
+// readable state at all, which upserted the run while PRESERVING the state its last
+// transition established. Nothing above the fold catches either.
+//
+// The kind's announced state is `bridge/session-event-streams.ts`'s
 // `runStateForTransitionKind`, read rather than re-derived — that module is the
 // one authority on which kind announces which state, and a second copy here is
 // exactly the drift it was written to end. Its domain is the eight transitions the
-// state stream carries, so the check is scoped to those: the creation kind and the
-// three forward, non-state rows are not transitions, that mapping deliberately
+// state stream carries, so the requirement is scoped to those: the creation kind and
+// the three forward, non-state rows are not transitions, that mapping deliberately
 // claims none of them, and inventing a state for them here to widen the check
 // would be minting the second mapping this reads one to avoid.
+//
+// AND THE PAYLOAD IS HELD TO THE ENVELOPE'S SESSION, once at the fold's entry and
+// for every kind at once, because they all key one partition off one envelope and a
+// per-arm check is how the fourteenth kind arrives without one.
+// `payloadNamesThisSession` below states that rule and why nothing above can.
 //
 // A PROJECTOR IS PURE, AND THAT DECIDES THE MALFORMED CASE. It may read the event
 // and nothing else — no store, no clock, no tripwire — because the apply path
@@ -270,19 +273,26 @@ const WIRE_MEMBER_READERS: Readonly<Record<WireMemberReaderName, (value: unknown
  * Fold one run-lifecycle event into the run it names.
  *
  * Pure and total: it reads the event and answers with mutations, and every path
- * through it answers — a payload it cannot key on, and a payload that contradicts
- * its own kind, each answer with none.
+ * through it answers — a payload naming another session, a payload it cannot key
+ * on, and a payload that does not carry the state its kind announces, each answer
+ * with none.
  */
 export const projectRunLifecycleEvent: EntityProjector = (
   event: ConsoleSessionEvent,
 ): readonly EntityMutation[] => {
   const payload = event.payload;
+  // First, and for every kind at once: the beat is folded into the store it was
+  // delivered into, so a payload that names another session names an entity this
+  // store must not hold.
+  if (!payloadNamesThisSession(payload, event.sessionId)) {
+    return [];
+  }
   const runId = readWireString(payload, "runId");
   if (runId === undefined) {
     return [];
   }
   const newState = readWireString(payload, "newState");
-  if (statedStateContradictsKind(event.kind, newState)) {
+  if (statedStateFailsKind(event.kind, newState)) {
     return [];
   }
   const body = readRunEntityBody(event.kind, payload);
@@ -388,7 +398,7 @@ function undeclaredMemberReadersFor(
 }
 
 /**
- * Does this payload report a different run state than its own kind announces?
+ * Does this payload fail to carry the run state its own kind announces?
  *
  * The one cross-member rule in the fold, and it is here because nothing above it
  * can be: `SessionEventSchema` registers no run-lifecycle payload variant, so the
@@ -396,20 +406,47 @@ function undeclaredMemberReadersFor(
  * payload-tolerant by design. A `run.running` beat carrying `newState: "failed"`
  * therefore arrives well-formed and reports two states at once.
  *
+ * EQUALITY, NOT NON-CONTRADICTION. A missing or wrong-typed `newState` reaches this
+ * function as absence, and absence used to pass — which let a `run.running` beat
+ * carrying no state at all upsert the run with the state its LAST transition
+ * established. That is the same disagreement as the loud case and harder to see: the
+ * timeline reports the new kind while the partition still reports the old state, and
+ * a preserved reading is indistinguishable from a fresh one. So a recognized kind
+ * demands its own state, spelled as a string and equal to what the kind announces.
+ *
  * SCOPED TO THE KINDS THE MAPPING CLAIMS, which is the eight transitions
  * `run.subscribeState` carries. A kind it answers nothing for announces no
  * transition — the creation row and the three forward, non-state rows — and
  * deciding what those "should" say would mean minting the second kind-to-state
- * mapping this function reads one to avoid.
- *
- * An absent or wrong-typed `newState` is not a contradiction: the reader has
- * already turned it into absence, and absence is what a non-state row carries.
+ * mapping this function reads one to avoid. Those kinds still carry whatever state
+ * they spell, or none, exactly as before.
  */
-function statedStateContradictsKind(eventKind: string, statedState: string | undefined): boolean {
+function statedStateFailsKind(eventKind: string, statedState: string | undefined): boolean {
   const announcedState = runStateForTransitionKind(eventKind);
-  return (
-    announcedState !== undefined && statedState !== undefined && statedState !== announcedState
-  );
+  return announcedState !== undefined && statedState !== announcedState;
+}
+
+/**
+ * Does this payload name the session its envelope was delivered on?
+ *
+ * `sessionId` is a registered member of the durable `run_lifecycle` row, so a beat
+ * that omits it is malformed rather than terse, and one that names a different
+ * session is a claim about another store. Neither may key a mutation here: the fold
+ * writes into the run partition of the store the envelope was routed to, so either
+ * would land session B's run in session A's partition, and no layer above rejects
+ * either — the envelope schema admits the payload whole and the strict event union
+ * registers no run-lifecycle variant at all.
+ *
+ * The comparison is against the raw member rather than a read one, so a payload
+ * naming a non-string `sessionId` fails here instead of being read as absence.
+ * `bridge/run-stream-projection.ts` holds the rollback payload to the same rule for
+ * the same reason; this is that rule applied to the durable fold.
+ */
+function payloadNamesThisSession(
+  payload: Readonly<Record<string, unknown>> | undefined,
+  envelopeSessionId: string,
+): boolean {
+  return payload?.["sessionId"] === envelopeSessionId;
 }
 
 /** One string member, read through the same reader the body walk uses. */

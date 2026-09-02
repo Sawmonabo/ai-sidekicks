@@ -9,7 +9,7 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { DuplicateRegistrationError } from "../../core/index.js";
+import { DuplicateRegistrationError } from "../core/index.js";
 import {
   TIMELINE_ROW_DENSITIES,
   registerTimelineRowRenderer,

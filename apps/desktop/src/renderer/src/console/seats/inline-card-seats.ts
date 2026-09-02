@@ -26,8 +26,8 @@
 // `InlineCardAttachmentRef` below is deleted and the contract type imported in its
 // place — one edit, in the PR that removes the slate rows.
 
-import { ConsoleRefusalError, KeyedRegistry, refuse } from "../../core/index.js";
-import { type ConsoleEntityRef } from "../../store/index.js";
+import { ConsoleRefusalError, KeyedRegistry, refuse } from "../core/index.js";
+import { type ConsoleEntityRef } from "../store/index.js";
 
 /** The subsystem an inline-card refusal names as its author. */
 const INLINE_CARD_ORIGIN = "inline-card-seats";

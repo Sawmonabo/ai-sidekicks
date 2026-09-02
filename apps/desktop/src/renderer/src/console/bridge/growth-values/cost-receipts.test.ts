@@ -1,6 +1,6 @@
 // The one growth value whose vocabulary the console does not own.
 //
-// Every other closed set in `growth-values.ts` is the console's, because the corpus
+// Every other closed set under `growth-values/` is the console's, because the corpus
 // registers it in a document and no code package carries it. `billingMode` is the
 // exception: `@ai-sidekicks/contracts` ships `BillingMode` and its runtime
 // enumeration, and this file is what holds the receipt row to them.
@@ -18,7 +18,7 @@
 import { BILLING_MODES, type BillingMode } from "@ai-sidekicks/contracts";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
-import type { GrowthCostReceiptAccountRow } from "./growth-values.js";
+import type { GrowthCostReceiptAccountRow } from "./index.js";
 
 /** The member under test, named once so every case reads the same declaration. */
 type ReceiptBillingMode = GrowthCostReceiptAccountRow["billingMode"];

@@ -51,8 +51,8 @@
 // two read identically at a call site, and only the first makes "this pane takes
 // no entity" a fact the compiler holds.
 
-import { refuse, type ConsoleRefusal } from "../../core/index.js";
-import { type ConsoleEntityRef } from "../../store/index.js";
+import { refuse, type ConsoleRefusal } from "../core/index.js";
+import { type ConsoleEntityRef } from "../store/index.js";
 import { PANE_KINDS, isPaneKind, type PaneKind } from "./pane-kinds.js";
 
 /** The subsystem a pane-address refusal names as its author. */

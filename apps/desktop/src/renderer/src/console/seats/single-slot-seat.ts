@@ -16,7 +16,7 @@
 // caller outside this family that wanted a single-slot seat would be minting a
 // seam, and minting seams is what this family is for.
 
-import { KeyedRegistry } from "../../core/index.js";
+import { KeyedRegistry } from "../core/index.js";
 
 /**
  * What a single-slot seat holds: who registered it, and what they render.

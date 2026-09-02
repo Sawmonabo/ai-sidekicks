@@ -29,9 +29,9 @@
 // banner is room-wide attention, while the section is the sidebar's own
 // independently loaded read of what this session is waiting on.
 
-import { KeyedRegistry } from "../../core/index.js";
-import { type ConsoleBridge } from "../../bridge/index.js";
-import { type SessionStore } from "../../store/index.js";
+import { KeyedRegistry } from "../core/index.js";
+import { type ConsoleBridge } from "../bridge/index.js";
+import { type SessionStore } from "../store/index.js";
 import { type ConsolePaneOpener } from "./pane-registry.js";
 
 // Consumed by T-023p-1C-3
