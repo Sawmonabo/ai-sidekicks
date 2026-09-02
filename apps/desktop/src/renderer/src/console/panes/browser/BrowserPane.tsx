@@ -27,13 +27,20 @@
 // module rather than through `browser/index.js`, which re-exports this component — a
 // barrel import here would close a cycle the layering gate refuses.
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 
 import { BudgetMeter } from "../../browser/BudgetMeter.js";
 import {
   PaneGeometryPublisher,
   type PaneGeometryOutcome,
 } from "../../browser/geometry-publisher.js";
+import {
+  addressFieldSubmission,
+  addressFieldValue,
+  editingAddressField,
+  FOLLOWING_ADDRESS_FIELD,
+  type AddressFieldState,
+} from "../../browser/address-field-model.js";
 import { describeChordEvent, isCloseTabChord } from "../../browser/keyboard-handback.js";
 import {
   isFilesystemDestination,
@@ -43,59 +50,101 @@ import {
 import { consoleOcclusionRegistry } from "../../browser/occlusion-registry.js";
 import { resolvePaneViewHost } from "../../browser/view-host.js";
 import { ConsoleRefusalError, RealClock, refuse, type ConsoleRefusal } from "../../core/index.js";
-import {
-  Glyph,
-  HOST_CHORD_PLATFORM,
-  Nothing,
-  RefusalBanner,
-  type GlyphName,
-} from "../../primitives/index.js";
+import { HOST_CHORD_PLATFORM, Nothing, RefusalBanner } from "../../primitives/index.js";
 import { tokenReference } from "../../tokens/index.js";
+import { ChromeControl } from "./ChromeControl.js";
 import type { ConsolePaneContext } from "../../workspace/index.js";
 
 /** The subsystem name every refusal this pane raises itself carries. */
 const BROWSER_PANE_REFUSAL_ORIGIN = "browser-pane";
 
+/**
+ * What a REJECTED bridge promise renders as.
+ *
+ * Every call this pane makes crosses the preload boundary, and a boundary that fails
+ * — a torn-down transport, a preload that never installed — rejects rather than
+ * answering with a refusal. Left unhandled that is an unhandled rejection in the
+ * renderer and a pane still showing whatever was on screen before the click, which
+ * is the failure mode a refusal exists to replace.
+ *
+ * A refusal the bridge itself raised travels through untouched, because it already
+ * names its own origin and code; anything else becomes this pane's sentence. Hoisted
+ * out of the two call sites that now share it rather than written twice: two
+ * normalizers drift, and the second one to drift is the one nobody reads.
+ */
+function bridgeRejectionRefusal(failure: unknown, code: string, detail: string): ConsoleRefusal {
+  return failure instanceof ConsoleRefusalError
+    ? failure.refusal
+    : refuse(BROWSER_PANE_REFUSAL_ORIGIN, code, detail);
+}
+
 /** The pane region's accessible name. The tab strip's own labels arrive with it. */
 const BROWSER_PANE_LABEL = "Browser";
-
-const CONTROL_GLYPH_SIZE = 13;
 
 /** Carries this pane's attribution hue into the shell's inline-start edge. */
 interface PaneAttributionStyle extends React.CSSProperties {
   readonly "--meridian-browser-pane-hue": string;
 }
 
+/** One publisher over the host this window actually has. Pure: it arms nothing. */
+function createGeometryPublisher(): PaneGeometryPublisher {
+  return new PaneGeometryPublisher({
+    host: resolvePaneViewHost({}),
+    clock: new RealClock(),
+    occlusion: consoleOcclusionRegistry,
+  });
+}
+
 /**
- * Publish this pane's rectangle for the life of the mount. The publisher is built in
- * the effect and disposed with it, so a pane that unmounts mid-stream leaves no
- * listener behind — and on the unavailable host it has today, `observe` arms nothing
- * and hands back the sentence the viewport renders.
+ * Publish this pane's rectangle for the life of the mount, and RENDER what the host
+ * said back.
+ *
+ * The outcome is subscribed rather than copied. `observe` only queues the first
+ * write, so a value read straight after it is `undefined` by construction — and
+ * everything after it, the `pane-gone` rejection above all, would then land in the
+ * publisher and reach nobody, leaving the viewport saying "no page yet" over a host
+ * that has said this pane is destroyed. `useSyncExternalStore` rather than a
+ * `useState` an effect writes into, for `LiveAnnouncerProvider`'s reason: an outcome
+ * recorded between this component's render and its subscription is missed by the
+ * effect shape, and a missed refusal is silent by construction.
+ *
+ * The publisher is minted in a `useState` initializer and RE-MINTED when the state
+ * holds a disposed one, which is `frame/ui-state-lifecycle.ts`'s shape for the same
+ * hazard: React's double-mount runs the cleanup and then mounts the same component
+ * instance again, so the second mount would otherwise be handed the corpse the first
+ * one's teardown just disposed. Asking the publisher rather than remembering is what
+ * makes that arm correct without a second flag beside it — and the effect's only
+ * dependency is the publisher, so a self-disposal after a rejection does NOT re-mint:
+ * that arm is terminal on purpose.
  */
 function useGeometryPublisher(): {
   readonly hostRef: React.RefObject<HTMLDivElement | null>;
   readonly outcome: PaneGeometryOutcome | undefined;
 } {
   const hostRef = useRef<HTMLDivElement | null>(null);
-  const [outcome, setOutcome] = useState<PaneGeometryOutcome | undefined>(undefined);
+  const [publisher, setPublisher] = useState<PaneGeometryPublisher>(createGeometryPublisher);
+  const subscribe = useCallback(
+    (onOutcome: () => void) => publisher.subscribeToOutcomes(onOutcome),
+    [publisher],
+  );
+  const readOutcome = useCallback(() => publisher.lastOutcome(), [publisher]);
+  const outcome = useSyncExternalStore(subscribe, readOutcome, readOutcome);
 
   useEffect(() => {
+    if (publisher.isDisposed) {
+      setPublisher(createGeometryPublisher());
+      return undefined;
+    }
     const hostElement = hostRef.current;
     if (hostElement === null) {
       return undefined;
     }
-    const publisher = new PaneGeometryPublisher({
-      host: resolvePaneViewHost({}),
-      clock: new RealClock(),
-      occlusion: consoleOcclusionRegistry,
-    });
     const detach = publisher.observe(hostElement);
-    setOutcome(publisher.lastOutcome());
     return () => {
       detach();
       publisher.dispose();
     };
-  }, []);
+  }, [publisher]);
 
   return { hostRef, outcome };
 }
@@ -104,18 +153,31 @@ export function BrowserPane(context: ConsolePaneContext): React.JSX.Element {
   const { bridge, paneId, focusHue } = context;
   const navigation = useReportedNavigation(bridge, paneId);
   const geometry = useGeometryPublisher();
-  const [destination, setDestination] = useState("");
+  const [addressField, setAddressField] = useState<AddressFieldState>(FOLLOWING_ADDRESS_FIELD);
   const [actRefusal, setActRefusal] = useState<ConsoleRefusal | undefined>(undefined);
   const addressFieldId = useId();
+  const reported = navigation.state;
+  const reportedUrl = reported?.url;
 
   const refuseLocally = useCallback((code: string, detail: string): void => {
     setActRefusal(refuse(BROWSER_PANE_REFUSAL_ORIGIN, code, detail));
   }, []);
 
   const dispatch = useCallback((act: () => Promise<NavigationActOutcome>): void => {
-    void act().then((outcome) => {
-      setActRefusal(outcome.status === "unavailable" ? outcome : undefined);
-    });
+    void act().then(
+      (outcome) => {
+        setActRefusal(outcome.status === "unavailable" ? outcome : undefined);
+      },
+      (failure: unknown) => {
+        setActRefusal(
+          bridgeRejectionRefusal(
+            failure,
+            "navigation-call-failed",
+            "The page could not be reached from this window, because the call into the browser never answered.",
+          ),
+        );
+      },
+    );
   }, []);
 
   const onCloseTabChord = useCallback(
@@ -134,7 +196,7 @@ export function BrowserPane(context: ConsolePaneContext): React.JSX.Element {
   );
 
   const openInSystemBrowser = useCallback((): void => {
-    const url = navigation.state?.url;
+    const url = reportedUrl;
     if (url === undefined) {
       refuseLocally(
         "no-current-page",
@@ -148,34 +210,45 @@ export function BrowserPane(context: ConsolePaneContext): React.JSX.Element {
       },
       (failure: unknown) => {
         setActRefusal(
-          failure instanceof ConsoleRefusalError
-            ? failure.refusal
-            : refuse(
-                BROWSER_PANE_REFUSAL_ORIGIN,
-                "open-external-failed",
-                "The system browser could not be reached from this window.",
-              ),
+          bridgeRejectionRefusal(
+            failure,
+            "open-external-failed",
+            "The system browser could not be reached from this window.",
+          ),
         );
       },
     );
-  }, [bridge, navigation.state?.url, refuseLocally]);
+  }, [bridge, refuseLocally, reportedUrl]);
 
   const submitDestination = useCallback(
     (event: React.FormEvent<HTMLFormElement>): void => {
       event.preventDefault();
-      if (isFilesystemDestination(destination)) {
+      const submitted = addressFieldSubmission(addressField, reportedUrl);
+      if (isFilesystemDestination(submitted)) {
+        // The draft is KEPT so the person can correct it. Returning to following
+        // here would replace what they typed with the location they are still on,
+        // which reads as the field having silently eaten the destination.
         refuseLocally(
           "filesystem-destination",
           "The address field takes web destinations only. A local file opens through the file control, which runs the boundary check the page cannot.",
         );
         return;
       }
-      dispatch(() => bridge.growth.browserNavigate({ paneId, url: destination.trim() }));
+      setAddressField(FOLLOWING_ADDRESS_FIELD);
+      dispatch(() => bridge.growth.browserNavigate({ paneId, url: submitted }));
     },
-    [bridge, destination, dispatch, paneId, refuseLocally],
+    [addressField, bridge, dispatch, paneId, refuseLocally, reportedUrl],
   );
 
-  const reported = navigation.state;
+  /** Escape abandons the edit. The field goes back to reporting where the page is. */
+  const onAddressKeyDown = useCallback((event: React.KeyboardEvent<HTMLInputElement>): void => {
+    if (event.key !== "Escape") {
+      return;
+    }
+    event.preventDefault();
+    setAddressField(FOLLOWING_ADDRESS_FIELD);
+  }, []);
+
   const isLoading = reported?.isLoading ?? false;
 
   // Rule 2: the hue answers "who", and it is a different colour on every pane — so
@@ -231,11 +304,12 @@ export function BrowserPane(context: ConsolePaneContext): React.JSX.Element {
           id={addressFieldId}
           type="text"
           inputMode="url"
-          value={destination}
-          placeholder={reported?.url ?? "Type a destination"}
+          value={addressFieldValue(addressField, reportedUrl)}
+          placeholder="Type a destination"
           onChange={(event) => {
-            setDestination(event.target.value);
+            setAddressField(editingAddressField(event.target.value));
           }}
+          onKeyDown={onAddressKeyDown}
           className="meridian-browser-chrome__address"
         />
         {/* Present on every page regardless of anything else in this chapter: it is
@@ -299,39 +373,5 @@ function viewportDetail(
   return (
     navigationRefusal?.detail ??
     "This pane has not been told which page it holds, so it reports its rectangle and shows nothing."
-  );
-}
-
-/**
- * One chrome control. `disabled` comes in from the view's REPORTED state and is never
- * computed here — 12.2: "The chrome never derives navigability." Absent state disables
- * the control, which is the fail-closed direction: an enabled control that cannot act
- * is a lie.
- *
- * The label is TEXT rather than an icon for the history controls, because the console's
- * closed glyph family carries no directional arrow and no reload mark, and inventing
- * one at a call site is what `tokens/glyphs.ts` exists to prevent.
- *
- * It wears the family's own `meridian-browser-action`, not a chrome-only button style:
- * three of these sit beside the settings page's and the cards', and a second button
- * shape for the same act is how two surfaces in one family stop looking like one.
- */
-function ChromeControl(props: {
-  readonly label: string;
-  /** `| undefined` explicitly: the reload/stop slot passes one arm without a glyph. */
-  readonly glyph?: GlyphName | undefined;
-  readonly disabled?: boolean;
-  readonly onActivate: () => void;
-}): React.JSX.Element {
-  return (
-    <button
-      type="button"
-      className="meridian-browser-action"
-      disabled={props.disabled === true}
-      onClick={props.onActivate}
-    >
-      {props.glyph === undefined ? null : <Glyph name={props.glyph} size={CONTROL_GLYPH_SIZE} />}
-      {props.label}
-    </button>
   );
 }

@@ -10,79 +10,22 @@
 //
 // The address guard and the close-tab chord get adversarial cases rather than happy
 // ones, because each has exactly one catastrophic failure — a page navigated to a
-// local file, and a chord that closes the operator's window instead of a tab.
+// local file, and a chord that closes the operator's window instead of a tab. What
+// the field does ACROSS readings is its own suite next door, and so is what happens
+// when a bridge call does not answer.
 
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { BROWSER_SCENARIO } from "../../bridge/scenarios/browser.js";
-import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import { DraftStore, UiStateStore } from "../../persistence/index.js";
+import { createFixtureBridge } from "../../bridge/index.js";
 import { HOST_CHORD_PLATFORM } from "../../primitives/index.js";
-import { FrameStore } from "../../store/index.js";
-import type { ConsolePaneContext } from "../../workspace/index.js";
-import { BrowserPane } from "./BrowserPane.js";
-
-/**
- * The refusal banner the pane raises — a plain group, since the frame's announcer
- * owns the announcement — read by that role and scoped by the banner's own class,
- * so an unrelated group in the pane can never satisfy the query. Awaited through
- * `waitFor` because the port settles a refusal asynchronously and a bare role
- * query would answer before it lands.
- */
-function queryRefusalBanner(): HTMLElement | null {
-  return (
-    screen
-      .queryAllByRole("group")
-      .find((element) => element.classList.contains("meridian-refusal--banner")) ?? null
-  );
-}
-
-async function findRefusalBanner(): Promise<HTMLElement> {
-  return waitFor(() => {
-    const banner = queryRefusalBanner();
-    expect(banner).not.toBeNull();
-    return banner as HTMLElement;
-  });
-}
-
-function paneContext(bridge: ConsoleBridge = createFixtureBridge({ scenario: BROWSER_SCENARIO })): {
-  readonly context: ConsolePaneContext;
-  readonly bridge: ConsoleBridge;
-} {
-  return {
-    bridge,
-    context: {
-      kind: "browser",
-      entity: undefined,
-      paneId: "pane-browser-1",
-      bridge,
-      frameStore: new FrameStore(),
-      sessionStore: undefined,
-      uiStateStore: UiStateStore.opening(),
-      draftStore: new DraftStore(),
-      focusHue: undefined,
-    },
-  };
-}
-
-/**
- * Mount the pane and let its navigation subscription settle.
- *
- * The `await act` is not ceremony: the subscription resolves in a microtask after the
- * render, and a test that asserted before it landed would be asserting against a pane
- * one state transition younger than the one an operator ever sees.
- */
-async function renderBrowserPane(bridge?: ConsoleBridge): Promise<{
-  readonly region: HTMLElement;
-  readonly bridge: ConsoleBridge;
-}> {
-  const built = paneContext(bridge);
-  await act(async () => {
-    render(<BrowserPane {...built.context} />);
-  });
-  return { region: screen.getByRole("region", { name: "Browser" }), bridge: built.bridge };
-}
+import {
+  addressField,
+  findRefusalBanner,
+  queryRefusalBanner,
+  renderBrowserPane,
+} from "./BrowserPane.test-support.js";
 
 /** The platform modifier that closes a tab, as an event initializer. */
 const CLOSE_TAB_MODIFIER = HOST_CHORD_PLATFORM === "darwin" ? { metaKey: true } : { ctrlKey: true };
@@ -158,11 +101,13 @@ describe("browser pane address field", () => {
     const bridge = createFixtureBridge({ scenario: BROWSER_SCENARIO });
     const navigate = vi.spyOn(bridge.growth, "browserNavigate");
     await renderBrowserPane(bridge);
-    const field = screen.getByLabelText("Destination");
+    const field = addressField();
     fireEvent.change(field, { target: { value: "/etc/hosts" } });
     fireEvent.submit(field.closest("form") as HTMLFormElement);
     expect(navigate).not.toHaveBeenCalled();
     expect((await findRefusalBanner()).textContent).toContain("takes web destinations only");
+    // The draft survives the refusal, because the person has to be able to fix it.
+    expect(addressField().value).toBe("/etc/hosts");
   });
 
   it("negative control: a web destination does reach the port", async () => {
