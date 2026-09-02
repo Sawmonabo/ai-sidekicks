@@ -225,11 +225,21 @@ export class AttachmentIngestClient {
     if (entry.ingestId !== undefined) {
       return true;
     }
+    // A `File` off a picker or a drop carries an EMPTY `type` when the browser could not
+    // place it, which is the same situation as a source that declared nothing and is
+    // reported the same way: as an absent member.
+    const declared = entry.declared.declaredMediaType;
+    const declaredMediaType = declared === undefined || declared === "" ? undefined : declared;
     const answer: PortAnswer<{ readonly ingestId: string }> =
       await this.#bridge.growth.artifactIngestBegin({
         sessionId: this.#sessionId,
-        name: entry.declared.declaredName,
-        byteLength: entry.declared.byteLength,
+        fileName: entry.declared.declaredName,
+        // Spread rather than assigned, so a source that declared nothing sends a request
+        // with no `mediaType` key at all. The contract makes absence a first-class state
+        // and the daemon reads presence, so a key carrying `undefined` — or an empty
+        // string — would be this console declaring a type it was never told.
+        ...(declaredMediaType === undefined ? {} : { mediaType: declaredMediaType }),
+        declaredSizeBytes: entry.declared.byteLength,
       });
     const settled = this.#ledger.currentIfUnchanged(localId, stamp);
     if (settled === undefined) {
