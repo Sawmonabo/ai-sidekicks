@@ -59,11 +59,11 @@ function stubBridge(calls: RecordedCall[], answer: ScriptedAnswer): ConsoleBridg
   } as unknown as ConsoleBridge;
 }
 
-function runAt(state: RunState) {
+function runAt(state: RunState, runVersion = 8) {
   const fold = new RunStateProjection();
   fold.accept({
     runId: RUN_ID,
-    runVersion: 8,
+    runVersion,
     previousState: "queued",
     currentState: state,
     timestamp: "2026-01-01T16:00:00.000Z",
@@ -324,5 +324,54 @@ describe("the composer outlives its dispatch", () => {
       form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     });
     expect(calls).toHaveLength(1);
+  });
+});
+
+describe("the comparand is the newer of the two readings", () => {
+  // One bridge for the surface's whole life, so the dispatcher's cache survives a
+  // rerender; the composer itself is remounted (keyed) each time the stream's
+  // reading of the run moves. The applied answer reports version 9, which the
+  // dispatcher caches; the stream then reports 10.
+  function StableHarness(props: {
+    readonly bridge: ConsoleBridge;
+    readonly runVersion: number;
+  }): React.JSX.Element {
+    const surface = useRunControlSurface(props.bridge);
+    return (
+      <RunInterventionComposer
+        key={props.runVersion}
+        run={runAt("paused", props.runVersion)}
+        control="rollback"
+        surface={surface}
+        onDismiss={() => undefined}
+      />
+    );
+  }
+
+  async function rewindAt(container: HTMLElement): Promise<void> {
+    typeInto(container.querySelector(".meridian-run-composer__position"), "4");
+    await submit(container);
+  }
+
+  it("sends the stream's version once it has moved past the cached settlement", async () => {
+    const calls: RecordedCall[] = [];
+    const bridge = stubBridge(calls, APPLIED_ROLLBACK);
+    const { container, rerender } = render(<StableHarness bridge={bridge} runVersion={8} />);
+    await rewindAt(container);
+    expect(calls[0]?.params).toMatchObject({ expectedRunVersion: 8 });
+    rerender(<StableHarness bridge={bridge} runVersion={10} />);
+    await rewindAt(container);
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.params).toMatchObject({ expectedRunVersion: 10 });
+  });
+
+  it("negative control: the cached settlement still wins over a stream that is behind it", async () => {
+    const calls: RecordedCall[] = [];
+    const bridge = stubBridge(calls, APPLIED_ROLLBACK);
+    const { container, rerender } = render(<StableHarness bridge={bridge} runVersion={8} />);
+    await rewindAt(container);
+    rerender(<StableHarness bridge={bridge} runVersion={8} />);
+    await rewindAt(container);
+    expect(calls[1]?.params).toMatchObject({ expectedRunVersion: 9 });
   });
 });

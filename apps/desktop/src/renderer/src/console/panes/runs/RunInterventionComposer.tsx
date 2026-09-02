@@ -92,7 +92,7 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
   const [pendingDispatch, setPendingDispatch] = useState<PendingDispatch | undefined>(undefined);
   const bodyId = useId();
   const positionId = useId();
-  const comparand = surface.dispatcher.freshComparandFor(run.runId) ?? run.runVersion;
+  const comparand = surface.dispatcher.comparandFor(run.runId, run.runVersion);
 
   // The dispatcher's answer, read off the record the surface appended for it. The
   // baseline is what makes "the answer to THIS dispatch" exact: records are appended
