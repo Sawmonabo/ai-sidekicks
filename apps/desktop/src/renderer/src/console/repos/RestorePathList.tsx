@@ -13,12 +13,15 @@
 // IS the shared implementation, and a hand-written wrapper over it would be a
 // second abstraction with two callers and no behaviour in common.
 //
-// THE HEIGHT COMES FROM TYPESCRIPT, NOT FROM THE SHEET. A window needs a bounded
-// scroll container, and the bound is `RESTORE_PATH_VISIBLE_ROW_CAP` rows of
-// `RESTORE_PATH_ROW_HEIGHT_PX` — set inline, on the same precedent the diff pane
-// sets its own height cap from: a length that the window arithmetic also reads has
-// one home, and a copy of it in the stylesheet is a second owner that can move
-// alone.
+// THE HEIGHT COMES FROM TYPESCRIPT, NOT FROM THE SHEET — AND ONLY THE HEIGHT. A
+// window needs a bounded scroll container, and the bound is
+// `RESTORE_PATH_VISIBLE_ROW_CAP` rows of `RESTORE_PATH_ROW_HEIGHT_PX` — set inline,
+// on the same precedent the diff pane sets its own height cap from: a length that the
+// window arithmetic also reads has one home, and a copy of it in the stylesheet is a
+// second owner that can move alone. That reason reaches the bound and the row offset
+// and nothing else, so everything this list presents that is NOT computed — the
+// scroll, the overscroll containment, and the two sheet rules the windowed mode drops
+// — lives in `repos.css` beside the rules it belongs with.
 //
 // THE RESIDUAL. Rows are placed at the height they MEASURE, so a wrapped path is
 // spaced correctly; what the windowed mode gives up is the sheet's inter-row gap,
@@ -106,7 +109,10 @@ function WindowedRestorePathList(props: RestorePathListProps): React.JSX.Element
       role="group"
       aria-label={props.label}
       tabIndex={0}
-      style={{ maxBlockSize: RESTORE_PATH_WINDOW_MAX_BLOCK_SIZE_PX, overflowY: "auto" }}
+      // Only the bound is inline: it is the same constant the virtualizer measures
+      // against, so the window and its arithmetic keep one home. The scroll and the
+      // overscroll containment are the sheet's.
+      style={{ maxBlockSize: RESTORE_PATH_WINDOW_MAX_BLOCK_SIZE_PX }}
     >
       {/* Two boxes rather than absolute positioning, so the rendered rows stay in
           the document's own flow: the content box holds the whole list's height so
@@ -114,15 +120,11 @@ function WindowedRestorePathList(props: RestorePathListProps): React.JSX.Element
           the offset of its first row. */}
       <div style={{ blockSize: virtualizer.getTotalSize() }}>
         <ul
-          className="meridian-restore-disclosure__paths"
-          // The gap and the leading padding the sheet gives this list are space the
-          // window arithmetic does not account for, so the windowed mode drops both
-          // and its rows stack at the heights they measured.
-          style={{
-            gap: 0,
-            paddingBlockStart: 0,
-            transform: `translateY(${String(virtualRows[0]?.start ?? 0)}px)`,
-          }}
+          // The modifier drops the gap and the leading padding — space the window
+          // arithmetic does not account for — in the sheet, beside the rules it
+          // overrides. Only the offset is inline, because only the offset is computed.
+          className="meridian-restore-disclosure__paths meridian-restore-disclosure__paths--windowed"
+          style={{ transform: `translateY(${String(virtualRows[0]?.start ?? 0)}px)` }}
         >
           {virtualRows.map((virtualRow) => {
             const path = props.paths[virtualRow.index];

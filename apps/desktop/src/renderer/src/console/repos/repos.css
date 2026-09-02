@@ -1297,6 +1297,39 @@
 }
 
 /*
+ * The windowed enumeration's scroller.
+ *
+ * The two rules here are the ones that do not depend on the window arithmetic, so
+ * they belong in the sheet rather than on the element: scrolling is what a scroller
+ * IS, and `overscroll-behavior: contain` keeps a flick that reaches the end of this
+ * list from carrying on into the pane behind it — which on a disclosure nested inside
+ * a scrolling section reads as the surface jumping while a person is still reading
+ * the list they opened.
+ *
+ * `max-block-size` stays inline, and that is the seam rather than an inconsistency:
+ * the same constant is the virtualizer's `initialRect` height, so the window's bound
+ * and the arithmetic computed against it have one home in the module that owns both.
+ */
+.meridian-restore-disclosure__path-scroller {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/*
+ * What the windowed mode gives up.
+ *
+ * The gap and the leading padding the sheet gives this list are space the window
+ * arithmetic does not account for, so the windowed rows stack at the heights they
+ * measured. A modifier rather than an inline pair, because it is a variant of this
+ * list's own presentation and the rules it overrides are two lines above it — the
+ * two read as one decision here and read as nothing at all when they are apart.
+ */
+.meridian-restore-disclosure__paths--windowed {
+  gap: 0;
+  padding-block-start: 0;
+}
+
+/*
  * The sentence that stops an empty pair reading as an all-clear. Amber, because both
  * of its two readings are a person's to resolve and neither is a clean result.
  */

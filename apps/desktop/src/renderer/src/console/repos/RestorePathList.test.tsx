@@ -123,6 +123,35 @@ describe("restore path list — past the threshold it holds a window", () => {
     // the operators cannot read.
     expect(scroller?.getAttribute("tabindex")).toBe("0");
   });
+
+  it("carries the windowed modifier, which is where the dropped spacing lives", () => {
+    // The gap and the leading padding the windowed arithmetic cannot account for are
+    // dropped by a class rather than by an inline pair, so the sheet holds the rules
+    // beside the ones they override. The class is what a test can see — happy-dom
+    // applies no stylesheet — and it is the half that would go missing in a rename.
+    const paths = enumeratedPaths(RESTORE_PATH_VIRTUALIZATION_THRESHOLD);
+    const { container } = render(
+      <RestorePathList label="Overwritten ignored paths" paths={paths} onOpenPath={undefined} />,
+    );
+    const list = container.querySelector(".meridian-restore-disclosure__paths");
+    expect(list?.classList.contains("meridian-restore-disclosure__paths--windowed")).toBe(true);
+    // Only the computed offset stays inline; the two dropped rules do not.
+    expect((list as HTMLElement | null)?.style.gap).toBe("");
+    expect((list as HTMLElement | null)?.style.paddingBlockStart).toBe("");
+  });
+
+  it("negative control: the plain list carries the modifier on neither", () => {
+    // Without this, the case above would pass over a list that applied the windowed
+    // modifier unconditionally — which would take the sheet's inter-row gap away from
+    // a three-path enumeration that never windows and never needed to lose it.
+    const paths = enumeratedPaths(RESTORE_PATH_VIRTUALIZATION_THRESHOLD - 1);
+    const { container } = render(
+      <RestorePathList label="Divergent gitlinks" paths={paths} onOpenPath={undefined} />,
+    );
+    const list = container.querySelector(".meridian-restore-disclosure__paths");
+    expect(list).not.toBeNull();
+    expect(list?.classList.contains("meridian-restore-disclosure__paths--windowed")).toBe(false);
+  });
 });
 
 describe("restore path list — a windowed row is still a path row", () => {
