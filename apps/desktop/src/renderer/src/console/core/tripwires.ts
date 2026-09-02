@@ -39,6 +39,7 @@
 
 import { TRIPWIRE_REPORT_CAP } from "./constants.js";
 import { Emitter, type Unsubscribe } from "./emitter.js";
+import { TRIPWIRE_FIXTURE_GLOBAL } from "./fixture-globals.js";
 
 /**
  * Every runtime tripwire. Closed — adding one is a deliberate edit to this tuple.
@@ -185,15 +186,17 @@ export const consoleTripwires: TripwireRegistry = new TripwireRegistry({
   throwOnReport: import.meta.env.DEV,
 });
 
-/**
+/*
  * The property a fixture build hangs the registry on, for the endurance tier.
  *
- * Named as a constant rather than written inline so the driving test imports the
- * string instead of re-typing it — a typo on either side would make the tier's
- * assertion silently vacuous, which is the failure mode that matters most for a
- * check whose whole job is to report nothing most of the time.
+ * Declared in `core/fixture-globals.ts` and re-exported here, so the module that
+ * INSTALLS the handle and the release-absence sweep that proves it absent read one
+ * string. Re-exported rather than only imported because the two Electron tiers
+ * reach this module by name for it, and a typo on either side would make an
+ * assertion silently vacuous — the failure mode that matters most for a check
+ * whose whole job is to report nothing most of the time.
  */
-export const TRIPWIRE_FIXTURE_GLOBAL = "__sidekicksConsoleTripwires__";
+export { TRIPWIRE_FIXTURE_GLOBAL };
 
 /*
  * Expose the registry to the page under the fixture define, and only there.

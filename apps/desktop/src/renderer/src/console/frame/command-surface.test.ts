@@ -14,12 +14,15 @@
 import { describe, expect, it } from "vitest";
 
 import { DuplicateRegistrationError } from "../core/index.js";
+import { RAIL_DESTINATIONS } from "../routing/index.js";
 import {
   FRAME_KEY_BINDINGS,
   FRAME_WHEN_CLAUSE_KEYS,
+  RAIL_NAVIGATION_DETAILS,
   consoleCommands,
   registerConsoleCommand,
   registerConsoleCommands,
+  type FrameKeyBinding,
   type FrameWhenClauseContext,
 } from "./command-surface.js";
 
@@ -28,8 +31,27 @@ const NO_CONTEXT: FrameWhenClauseContext = {
   sessionActive: false,
   onSessions: false,
   onWorkspace: false,
+  onWorkflows: false,
   onSettings: false,
   inAuxiliaryWindow: false,
+};
+
+/**
+ * The compile-time control for the vocabulary.
+ *
+ * The frame binds no SCOPED chord today — its three rail destinations are
+ * unconditional — so a runtime loop over scoped bindings would be a check with
+ * nothing to check. The claim that matters holds anyway, one level up: a binding's
+ * `when` is typed to the published vocabulary, so an unpublished key is a compile
+ * error at the author's keyboard rather than a clause that quietly evaluates false
+ * and hides the command. If the type were ever widened to `string`, the suppressed
+ * error would stop occurring and this directive would itself become the error.
+ */
+const BINDING_THE_COMPILER_REJECTS: FrameKeyBinding = {
+  chord: "$mod+9",
+  commandId: "frame.goToSessions",
+  // @ts-expect-error — `sessionActiveish` is not a key the frame publishes.
+  when: "sessionActiveish",
 };
 
 describe("command surface — the door families contribute through", () => {
@@ -103,17 +125,30 @@ describe("command surface — the published when-clause vocabulary", () => {
     expect([...FRAME_WHEN_CLAUSE_KEYS].sort()).toStrictEqual(Object.keys(NO_CONTEXT).sort());
   });
 
-  it("binds every frame chord to a key from that vocabulary", () => {
-    const scopedChords = FRAME_KEY_BINDINGS.filter((binding) => binding.when !== undefined);
-    // Non-empty, or the loop below proves nothing about anything.
-    expect(scopedChords.length).toBeGreaterThan(0);
-    for (const binding of scopedChords) {
-      expect(FRAME_WHEN_CLAUSE_KEYS).toContain(binding.when);
-    }
-  });
-
   it("negative control: a key nobody publishes is not in the vocabulary", () => {
+    // Reads the object the `@ts-expect-error` above suppressed, so the directive
+    // is a claim this file executes rather than a comment nobody runs.
+    expect(FRAME_WHEN_CLAUSE_KEYS).not.toContain(BINDING_THE_COMPILER_REJECTS.when);
     expect(FRAME_WHEN_CLAUSE_KEYS).not.toContain("sessionActiveish");
     expect(Object.keys(NO_CONTEXT)).not.toContain("sessionActiveish");
+  });
+});
+
+describe("command surface — the chords the frame binds", () => {
+  it("binds one chord per rail destination, in rail order, and nothing besides", () => {
+    // The defect this pins is a chord table hand-written beside the destination
+    // set: it kept a `$mod+2` for a Workspace destination the rail does not draw
+    // and left the spec's workflows destination with no chord at all.
+    expect(FRAME_KEY_BINDINGS.map((binding) => binding.commandId)).toStrictEqual(
+      RAIL_DESTINATIONS.map((destination) => RAIL_NAVIGATION_DETAILS[destination].commandId),
+    );
+  });
+
+  it("negative control: no two destinations answer to one chord", () => {
+    // Without this, a table that gave every destination `$mod+1` would satisfy the
+    // case above and leave two of the three chords dead — `keybinding-conflicts.ts`
+    // would refuse the install, which is a raise at mount rather than an answer.
+    const chords = FRAME_KEY_BINDINGS.map((binding) => binding.chord);
+    expect(new Set(chords).size).toBe(chords.length);
   });
 });

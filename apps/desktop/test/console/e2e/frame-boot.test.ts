@@ -71,27 +71,31 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", (
       const railButtonCount = await consoleWindow.locator(".meridian-rail__button").count();
       expect(railButtonCount).toBeGreaterThan(0);
 
-      // The sessions destination has an owner — the shipped session-bootstrap
-      // family, absorbed by the console — so the registry resolves and the
-      // owner's own render runs. What that render PRODUCES here is a refusal, and
-      // deliberately: this window is a fixture build, that family reads the
-      // installed bridge directly, and the console says the question was not put
-      // rather than answering from the live daemon beside fixture data. So the
-      // claim is not "no absence" — it is that the absence is the OWNER's and not
-      // the frame's reserved-slot arm.
-      //
-      // Read off the kind rather than the wrapper. Both producers compose through
-      // `SurfaceAbsence`, because a whole-surface absence is centred whoever
-      // raised it; the wrapper therefore says only "something is absent here",
-      // and the kind is what says which. Reading it off the wrapper is what an
-      // earlier form of this test did, and it passed only while the owner's
-      // refusal rendered as a bare line at the pane's top-left corner — the
-      // half-painted-page shape `SurfaceAbsence` exists to prevent.
+      // The sessions destination has an owner — the frame's own all-sessions
+      // surface, which creates nothing on mount and builds the absorbed
+      // session-bootstrap probe only when a participant presses "Start a
+      // session". The claim is that the OWNER rendered and the frame's
+      // reserved-slot arm did not fire: the owner's section is present and the
+      // frame's composed absence wrapper is not.
       await consoleWindow.locator(".meridian-frame").waitFor({ state: "visible" });
-      await consoleWindow
-        .locator(".meridian-frame__absence .meridian-nothing--not-checked")
-        .waitFor({ state: "visible" });
+      await consoleWindow.locator(".meridian-sessions").waitFor({ state: "visible" });
+      expect(await consoleWindow.locator(".meridian-frame__absence").count()).toBe(0);
       expect(await consoleWindow.locator(".meridian-nothing--empty").count()).toBe(0);
+
+      // And the list has rows in it. A fixture build serves the growth port's
+      // session directory read, so the scenario's session is offered here — which
+      // is what this destination could not do in any build before that read had a
+      // producer, when the only session set the renderer could name was the set
+      // this window happened to have opened, and a fresh window had opened none.
+      // Waited for rather than counted immediately: the read is asynchronous, and
+      // a bare count would race it and pass by rendering the absence instead.
+      await consoleWindow
+        .locator(".meridian-choice-list__choice")
+        .first()
+        .waitFor({ state: "visible" });
+      expect(await consoleWindow.locator(".meridian-choice-list__choice").count()).toBeGreaterThan(
+        0,
+      );
 
       // Reserved, not stubbed, on a destination that genuinely has no owner. This
       // is the half of the pair that makes the other half mean something: without

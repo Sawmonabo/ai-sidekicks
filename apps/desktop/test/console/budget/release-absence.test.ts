@@ -17,13 +17,23 @@
 // that produces one. A grep that finds nothing because it was pointed at nothing
 // is the exact false pass this file exists to prevent, which is also why the
 // positive control below is not optional decoration.
+//
+// WHAT IT SWEEPS FOR, AND WHY IT DOES NOT NAME THE STRINGS ITSELF. The subject is
+// `FIXTURE_GLOBAL_NAMES` — the closed tuple in `console/core/fixture-globals.ts`
+// that every `define`-gated installer takes its own name from. Reading the same
+// tuple the producers read is what keeps the set from going stale in the one
+// direction that is invisible here: a fourth fixture global this file had never
+// heard of would pass the sweep exactly as an absent one does. The leaf is
+// imported directly rather than through `core/index.js` because a name is all this
+// tier needs, and the three installers live in three families whose graphs reach
+// React and the DOM — neither of which this Node-context project compiles with.
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { TRIPWIRE_FIXTURE_GLOBAL } from "../../../src/renderer/src/console/core/index.js";
+import { FIXTURE_GLOBAL_NAMES } from "../../../src/renderer/src/console/core/fixture-globals.js";
 import { DEFAULT_RENDERER_OUTPUT_DIRECTORY } from "../../../scripts/budget/measure-bundle.mjs";
 
 /**
@@ -94,13 +104,13 @@ describe("release bundle — the fixture surface is absent, not merely unreachab
     ).toBeGreaterThan(0);
   });
 
-  it("does not ship the tripwire registry handle", () => {
+  it.each(FIXTURE_GLOBAL_NAMES)("does not ship the fixture handle %s", (fixtureGlobalName) => {
     const carriers = builtFiles
-      .filter((file) => file.text.includes(TRIPWIRE_FIXTURE_GLOBAL))
+      .filter((file) => file.text.includes(fixtureGlobalName))
       .map((file) => file.relativePath);
     expect(
       carriers,
-      `"${TRIPWIRE_FIXTURE_GLOBAL}" reached the built tree. Either the assignment left its ` +
+      `"${fixtureGlobalName}" reached the built tree. Either the assignment left its ` +
         "`__SIDEKICKS_CONSOLE_FIXTURES__` guard, or `out/renderer` currently holds a " +
         "fixtures build — `pnpm build:fixtures` and `pnpm build` write the same directory. " +
         "Re-run `pnpm --filter @ai-sidekicks/desktop build` and try again.",

@@ -25,6 +25,10 @@
 // the code that will actually discover it. It costs about two hundred
 // milliseconds and no browser is launched: the projects are resolved, never run.
 //
+// That resolution is `test/console/vitest-projects.ts` rather than a call here,
+// because `ci-tier-coverage.test.ts` needs the same real project set to ask its
+// own question of it — which project set is wired into a required check.
+//
 // The project list is therefore never written down here, and neither are the
 // globs. Adding a fourteenth project changes nothing in this file.
 
@@ -33,11 +37,11 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createVitest, type Vitest } from "vitest/node";
+
+import { resolveVitestProjects, type ResolvedVitestProjects } from "../vitest-projects.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = resolve(HERE, "..", "..", "..");
-const VITEST_CONFIG_PATH = join(PACKAGE_ROOT, "vitest.config.ts");
 
 /**
  * What a test file is NAMED, independent of any project's opinion.
@@ -106,18 +110,13 @@ function discoverTestFiles(): readonly string[] {
     .sort();
 }
 
-let vitest: Vitest;
+let resolvedProjects: ResolvedVitestProjects;
 let matchers: readonly ProjectMatcher[];
 let testFiles: readonly string[];
 
 beforeAll(async () => {
-  vitest = await createVitest("test", {
-    watch: false,
-    run: true,
-    root: PACKAGE_ROOT,
-    config: VITEST_CONFIG_PATH,
-  });
-  matchers = vitest.projects.map((project) => ({
+  resolvedProjects = await resolveVitestProjects();
+  matchers = resolvedProjects.projects.map((project) => ({
     name: project.name,
     claims: (absolutePath: string) => project.matchesTestGlob(absolutePath),
   }));
@@ -125,7 +124,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(async () => {
-  await vitest.close();
+  await resolvedProjects.close();
 });
 
 describe("vitest projects — every test file has exactly one owner", () => {

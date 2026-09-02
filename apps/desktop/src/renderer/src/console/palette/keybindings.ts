@@ -259,6 +259,18 @@ export class KeyBindingTable {
    * Attach THE listener. Returns a disposer; calling `install` twice without
    * disposing is a wiring bug and throws, because two live listeners would run
    * every command twice per press.
+   *
+   * EACH DISPOSER DETACHES ITS OWN INSTALLATION AND CLEARS THE FIELD ONLY WHILE
+   * IT STILL OWNS IT. A disposer outlives its installation — a React effect's
+   * cleanup is held for as long as the closure that captured it — so a stale one
+   * can be called after the table has been installed again. Clearing the field
+   * unconditionally let that call report the table uninstalled while the NEWER
+   * listener was still attached: the next `install` was then admitted, two live
+   * listeners ran every command twice per press, and the disposer for the
+   * orphaned one had already been dropped. The identity check is what makes
+   * `installed` and the guard above true statements about the CURRENT
+   * installation, and it makes each disposer idempotent for free —
+   * `removeEventListener` is a no-op for a listener already removed.
    */
   public install(target: KeyBindingTarget): () => void {
     if (this.#detachListener !== undefined) {
@@ -274,7 +286,9 @@ export class KeyBindingTable {
     target.addEventListener("keydown", listener, { capture: true });
     const detach = (): void => {
       target.removeEventListener("keydown", listener, { capture: true });
-      this.#detachListener = undefined;
+      if (this.#detachListener === detach) {
+        this.#detachListener = undefined;
+      }
     };
     this.#detachListener = detach;
     return detach;

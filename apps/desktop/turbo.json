@@ -2,21 +2,34 @@
   "$schema": "../../node_modules/turbo/schema.json",
   "extends": ["//"],
   "tasks": {
+    // --- The three build flavours ------------------------------------------
+    //
+    // All three write `out/**` and differ in exactly the `define` that decides
+    // what the console talks to and whether the main process carries its test
+    // probes. All three are therefore `cache: false`, and that is a correctness
+    // requirement rather than a preference: a Turborepo cache HIT restores the
+    // files it saved and does not empty the directory first, while a real run of
+    // `electron-vite build` does (Vite's `emptyOutDir`). So a cached restore
+    // layered over a sibling flavour's output leaves that sibling's
+    // content-hashed chunks in place beside the restored ones — measured
+    // 2026-09-02, where `test:console-bundle` replayed a cached `build` over a
+    // fixtures tree and `release-absence.test.ts` correctly found the fixture
+    // tripwire handle in the orphaned chunk. Running the build is what makes the
+    // flavour switch total.
     "build": {
       "inputs": ["src/**", "build/**", "electron.vite.config.ts", "tsconfig*.json", "package.json"],
-      "outputs": ["out/**", "dist/**", ".tsbuildinfo"]
+      "outputs": ["out/**", "dist/**", ".tsbuildinfo"],
+      "cache": false
     },
     "build:smoke": {
       "dependsOn": ["^build"],
       "inputs": ["src/**", "build/**", "electron.vite.config.ts", "tsconfig*.json", "package.json"],
-      "outputs": ["out/**", "dist/**"]
+      "outputs": ["out/**", "dist/**"],
+      "cache": false
     },
     "build:fixtures": {
       // The console with its fixture bridge compiled in, for the two Electron
-      // tiers. `cache: false` because this and the two sibling builds all write
-      // `out/**`: a cached restore of one would hand a later task the wrong
-      // bundle, and the three differ in exactly the define that decides what the
-      // console talks to.
+      // tiers.
       "dependsOn": ["^build"],
       "inputs": ["src/**", "build/**", "electron.vite.config.ts", "tsconfig*.json", "package.json"],
       "outputs": ["out/**", "dist/**"],
@@ -151,7 +164,21 @@
     "test:console-architecture": {
       // Reads source text rather than importing it, so it takes no build edge —
       // but it reads ALL of `src`, not just the files it asserts about.
-      "inputs": ["src/**", "test/console/architecture/**", "vitest.config.*"],
+      //
+      // `package.json` and the shared project resolver join the set because
+      // `ci-tier-coverage.test.ts` reads the package's own scripts and resolves
+      // the real Vitest projects through it. That tier also reads
+      // `.github/workflows/ci.yml`, which is outside this package and so cannot
+      // be named here; `cache: false` is what keeps that honest — a workflow edit
+      // can never be hidden behind a hash this list does not cover, because
+      // nothing here is ever restored from a cache.
+      "inputs": [
+        "src/**",
+        "test/console/architecture/**",
+        "test/console/vitest-projects.ts",
+        "vitest.config.*",
+        "package.json"
+      ],
       "outputs": [],
       "cache": false
     },
@@ -217,9 +244,10 @@
       "cache": false
     },
     "test:console-endurance": {
-      // Same bundle, tens of seconds rather than milliseconds. Kept off the
-      // `test` aggregate and off the end-to-end task so the fast gate stays fast
-      // — a tier a person stops running is a tier that gates nothing.
+      // Same bundle, tens of seconds rather than milliseconds. Its own task
+      // rather than a slow file inside the end-to-end tier, so `test:console-e2e`
+      // stays a fast gate a person will run before pushing and the slow one is
+      // named separately — both are on the `test` aggregate, in its last group.
       "dependsOn": ["build:fixtures"],
       "inputs": [
         "src/renderer/src/console/**",
@@ -273,11 +301,31 @@
       "cache": false
     },
     "test": {
-      // The tiers that need only a source tree. The three browser-mode tiers
-      // want a downloaded Chromium, the bundle tier wants a production build,
-      // and the bench tier gates nothing — each is run by name, and by its own
-      // CI job, rather than from here.
-      "dependsOn": ["build:smoke"],
+      // Every tier a desktop PR is gated on, in the order the three build
+      // flavours allow, and the same order `.github/workflows/ci.yml` runs them
+      // in — a developer's `pnpm test` and the required check answer the same
+      // question. `ci-tier-coverage.test.ts` fails if the two sets drift.
+      //
+      // The ORDER is load-bearing and is why the script is a chain of `turbo run`
+      // invocations rather than one. `build`, `build:smoke`, and `build:fixtures`
+      // all write `out/**` and differ in the `define` that decides what the
+      // console talks to, so a single invocation would schedule them
+      // concurrently and hand a tier the wrong bundle: the bundle tier would
+      // measure a fixture build against a release budget, and its
+      // release-absence assertions would read a tree that legitimately contains
+      // what they refuse. Sequencing runs the source-only tiers first, then the
+      // browser-mode pair (which builds nothing), then release, smoke, and
+      // fixtures each with its own consumers.
+      //
+      // Two projects are deliberately absent and both are named, with their
+      // reason, in `ci-tier-coverage.test.ts`: `console-screenshot`, whose
+      // references are committed per platform and which runs in the pinned
+      // `console-screenshot-macos` job, and `console-bench`, which records
+      // timings into a ledger and gates nothing.
+      //
+      // No `dependsOn` of its own: every enumerated task declares the build edge
+      // it needs, and an aggregate-level edge would run a build outside the
+      // sequence above rather than inside it.
       "outputs": [],
       "cache": false
     }

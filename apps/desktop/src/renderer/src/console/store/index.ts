@@ -17,10 +17,34 @@
 export type { ConsoleEntityRef, ConsoleSessionEvent } from "./entities.js";
 
 export { SessionStore } from "./session-store.js";
+// The base state a read establishes. Exported because the composition root now
+// builds one — the adapter over the growth port's session read lives there, which
+// is where a family that may reach the bridge is allowed to be.
+export type { SessionSnapshot } from "./session-store.js";
 
 export type { FrameBanner } from "./frame-store.js";
 export { FrameStore } from "./frame-store.js";
 
-export { SessionStoreRegistry, type SessionSnapshotReader } from "./session-store-registry.js";
+// `SessionSnapshotRead` and `SessionSnapshotReader` now leave the family, because
+// the producer they were held back for exists: the composition root builds a reader
+// over the growth port's session read, and says so at the call site with a type
+// rather than by convention.
+export { SessionStoreRegistry } from "./session-store-registry.js";
+// `SessionSnapshotReader` stays inside the family: what a caller above needs to
+// SAY is what the registry takes, and the reader is one arm of that union rather
+// than a type anything outside names.
+export type { SessionSnapshotRead } from "./session-store-registry.js";
 
-export { useFrameStore, useLocationHash, useOpenSessionStore } from "./hooks.js";
+// The partition and initialisation reads leave the family with their first
+// surface caller: the auxiliary window's agent step reads a session's agents,
+// which is one entity kind's map plus the fact that the store has a base state to
+// read it from. Both go through this door rather than a deep import, so the
+// family's one subscription path stays the only one.
+export {
+  useFrameStore,
+  useLocationHash,
+  useOpenSessionIds,
+  useOpenSessionStore,
+  useSessionInitialised,
+  useSessionPartition,
+} from "./hooks.js";

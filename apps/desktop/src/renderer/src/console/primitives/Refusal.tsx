@@ -97,12 +97,12 @@ export function RefusalBanner(props: RefusalBannerProps): React.JSX.Element {
   return (
     <div
       className="meridian-refusal meridian-refusal--banner"
-      role="status"
-      // Polite, never assertive: an assertive region interrupts a screen reader
-      // mid-sentence, and a refusal is a fact about a control the operator just
-      // used, not an emergency. Assertive here would talk over the very message
-      // it is announcing.
-      aria-live="polite"
+      // Not a live region. The banner is inserted already carrying its text, which
+      // most screen readers never announce, and the frame announces every raise
+      // through the one `LiveAnnouncer` (`frame/banner-announcements.ts`). A
+      // `role="status"` here would be a second, unreliable read of the same
+      // sentence; the banner stays in the tree as a plain group carrying the code.
+      role="group"
     >
       <Glyph name="alert" size={REFUSAL_GLYPH_SIZE} />
       <div className="meridian-refusal__body">
