@@ -1077,7 +1077,7 @@ jobs:
   # The install is scoped to the desktop package and its workspace dependencies:
   # this job runs one browser-mode Vitest project and needs nothing else built.
   # `playwright install` is required because browser mode drives a real Chromium
-  # and no other job on this workflow provisions one.
+  # and the tier-1 job's own Chromium install does not reach this runner.
   console-screenshot-macos:
     name: console screenshot tier (macos-15)
     runs-on: macos-15
