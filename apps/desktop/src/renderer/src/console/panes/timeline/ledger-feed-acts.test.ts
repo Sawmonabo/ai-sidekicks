@@ -169,20 +169,24 @@ describe("the ledger's acts — what each one reaches", () => {
     expect(trace).toStrictEqual(["jumpToTail"]);
   });
 
-  it("jumps to the next seam through the replay engine", () => {
+  it("reveals the dock before jumping to the next seam", () => {
+    // The jump scrubs, and a scrub promotes an idle engine to `paused`, which
+    // withholds rows. Without the reveal that happened behind a hidden dock.
     const trace: ActTrace = [];
     buildLedgerStructureActs(actInputs(trace)).jumpToNextSeam();
-    expect(trace).toStrictEqual(["jumpToNextSeam"]);
+    expect(trace).toStrictEqual(["reveal", "jumpToNextSeam"]);
   });
 
-  it("pauses a playing replay and resumes every other arm", () => {
+  it("reveals the dock on every arm that starts or resumes, and on none that pauses", () => {
     // The four-state union read through one discriminator: `paused` and `at-tail`
     // both resume and `idle` starts, so a second boolean would have been a second
-    // record of the same fact.
+    // record of the same fact. The reveal rides the resuming arms only — the pause
+    // arm is its own negative control, since a pause is reachable only from a
+    // playing engine whose dock is already up.
     for (const state of REPLAY_STATES) {
       const trace: ActTrace = [];
       buildLedgerStructureActs(actInputs(trace, { replayState: state })).toggleReplay();
-      expect(trace).toStrictEqual([state === "playing" ? "pause" : "play"]);
+      expect(trace).toStrictEqual(state === "playing" ? ["pause"] : ["reveal", "play"]);
     }
   });
 

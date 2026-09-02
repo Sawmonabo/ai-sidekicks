@@ -438,6 +438,29 @@ describe("the ledger feed — the palette acts on the mounted feed", () => {
     expect(feed.querySelector(".meridian-find")).not.toBeNull();
   });
 
+  it("reveals the replay dock when the palette starts playback", () => {
+    // Playing from idle parks the position at zero, so the ledger collapses to the
+    // rows sharing the window's first instant. Behind a hidden dock there is no
+    // visible control to undo that.
+    withLaidOutViewport();
+    contributeLedgerCommands();
+    const feed = renderFeed(openSessionStoreWithLog(REPLAY_LOG_EVENT_COUNT));
+    expect(replayDockHarness(feed).dock.hidden).toBe(true);
+    dispatchConsoleCommand("ledger.toggleReplay");
+    expect(replayDockHarness(feed).dock.hidden).toBe(false);
+  });
+
+  it("reveals the replay dock when the palette jumps to the next seam", () => {
+    // The seam jump scrubs, and a scrub promotes idle to paused — engaged, so rows
+    // are withheld exactly as a play withholds them.
+    withLaidOutViewport();
+    contributeLedgerCommands();
+    const feed = renderFeed(openSessionStoreWithLog(REPLAY_LOG_EVENT_COUNT));
+    expect(replayDockHarness(feed).dock.hidden).toBe(true);
+    dispatchConsoleCommand("ledger.jumpToNextSeam");
+    expect(replayDockHarness(feed).dock.hidden).toBe(false);
+  });
+
   it("states the seat's refusal when the same row is run with no ledger up", () => {
     // Which is the other half of the seam: the command is contributed for the
     // window's whole life and the feed is not, so the press has to say so rather
