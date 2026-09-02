@@ -26,8 +26,12 @@
 // caller's claim as the server's finding.
 //
 // WHAT THIS MODULE REFUSES TO MODEL, from §10.8's own Never list:
-//   • No payload bytes, in any field. An attachment reference is a typed, ordered list
-//     of artifact ids and never bytes.
+//   • No payload bytes, in any field. An attachment REFERENCE is a typed, ordered list
+//     of artifact ids and never bytes, and no shape here carries a manifest's content.
+//     The source below holds the participant's own `Blob` — a handle the browser owns,
+//     which the ingest client reads one bounded slice at a time — because a stream with
+//     no byte source can only describe a file it never sends. A handle is not a copy:
+//     nothing in this module reads it, and no field anywhere holds a whole payload.
 //   • No client-side type gate. The allow-list below is a HINT for the picker and the
 //     default stated where the effective list cannot be read; a hard block here would
 //     make the console wrong about an operator-widened deployment it cannot see.
@@ -38,61 +42,22 @@
 //     reading node's own manifest row and mapped to copy here, never to a fresher
 //     answer.
 
-import { reportTripwire } from "../core/index.js";
+import {
+  INGEST_STALL_DISCLOSURE_MS,
+  INGEST_STREAM_LIFETIME_CEILING_MS,
+  reportTripwire,
+} from "../core/index.js";
 
-// --- Bounds ---------------------------------------------------------------
+// --- Where the bounds live -----------------------------------------------
 //
-// `Spec-014 §Bounds (normative defaults; operator-tunable)`. Every one of these is a
-// figure a PARTICIPANT can hit, which is why the console carries them at all — the
-// daemon enforces them and the console explains them ahead of time. Three are operator
-// tunable and are therefore rendered as DEFAULTS wherever the effective value cannot be
-// read; the chunk size is fixed because the frame ceiling it derives from is.
-
-/**
- * Decoded bytes one attachment may carry, at the shipped default.
- *
- * Deliberately equal to the per-artifact relay cap so an accepted attachment is
- * relay-pinnable by construction. Operator-tunable over a 1 MB – 1 GB range, so every
- * surface that shows it says "default" until `artifactAllowlistRead` answers.
- */
-export const ATTACHMENT_BYTE_CAP_DEFAULT: number = 100 * 1024 * 1024;
-
-/**
- * Attachments one carrier may name, at the shipped default.
- *
- * Derived from the quota envelope rather than picked: one maximally-sized carrier
- * exactly saturates the per-session relay budget. Bound on the CARRIER and never on an
- * ingest stream, which carries exactly one payload and has no count to cap.
- */
-export const ATTACHMENTS_PER_CARRIER_CAP_DEFAULT = 10;
-
-/**
- * Decoded bytes in one chunk. Fixed, not operator-tunable.
- *
- * The largest raw chunk whose base64 form plus the JSON-RPC envelope fits the 1 MB
- * frame ceiling with headroom. The ceiling it derives from is not tunable, so neither
- * is this.
- */
-export const ATTACHMENT_CHUNK_BYTE_CAP: number = 512 * 1024;
-
-/**
- * Wall-clock ceiling on one ingest stream, measured from its first call.
- *
- * The abandoned-spool reaper clocks file modification time, which a trickle of chunks
- * refreshes forever, so live-stream tenure needs its own clock. Surfaced on a stalled
- * upload because it is the one bound whose expiry a participant cannot otherwise see
- * coming.
- */
-export const INGEST_STREAM_LIFETIME_CEILING_MS: number = 6 * 60 * 60 * 1000;
-
-/**
- * Silence after which an in-flight upload discloses the stream ceiling.
- *
- * A minute: long enough that a chunk round trip on a slow uplink is not called a stall,
- * short enough that a participant learns the stream is bounded while there is still
- * time to act on it.
- */
-export const INGEST_STALL_DISCLOSURE_MS = 60_000;
+// NOT HERE. The attachment byte cap, the carrier cap, the chunk cap, the stream
+// lifetime, and the stall disclosure are behavioural limits three families spend —
+// this model, the ingest client, and the artifact pane — and four of the five mirror a
+// bound `Spec-014 §Bounds (normative defaults; operator-tunable)` registers on the
+// wire. A view-family model holding them would make this module a configuration
+// authority its neighbours had to import to learn a number the daemon owns, so they
+// sit in `core/constants.ts` with their rationales and their wire sources, and the two
+// this file's own arithmetic spends are imported above like any other consumer's.
 
 // --- The default allow-list ----------------------------------------------
 //
@@ -276,10 +241,52 @@ export interface AttachmentSource {
   readonly localId: string;
   /** The caller's filename. Metadata only — never a path component, never rebuilt. */
   readonly declaredName: string;
-  /** Decoded bytes. Every bound in this file counts these and never an encoded length. */
+  /**
+   * The bytes themselves, by reference.
+   *
+   * A `Blob` — which a `File` off a picker or a drop already is — so the payload
+   * stays wherever the browser is keeping it and the ingest client reads one
+   * chunk-capped slice at a time. Nothing copies it, and nothing here reads it.
+   */
+  readonly payload: Blob;
+  /**
+   * Decoded bytes. Every bound in this file counts these and never an encoded length.
+   *
+   * Always the payload's own size, because `attachmentSourceFrom` is what mints a
+   * source and takes it from there — a separately-supplied length could disagree
+   * with the bytes the stream actually sends, and every progress figure, every
+   * bound, and the daemon's own spool reservation are all counted against it.
+   */
   readonly byteLength: number;
   /** The caller's claim about the type. Advisory input, never a trusted fact. */
   readonly declaredMediaType?: string | undefined;
+}
+
+/** What a picker, a drop, or a paste hands over. The length is not among it. */
+export interface AttachmentSourceInput {
+  readonly localId: string;
+  readonly declaredName: string;
+  readonly payload: Blob;
+  readonly declaredMediaType?: string | undefined;
+}
+
+/**
+ * Mint one source from the payload a participant chose.
+ *
+ * The only way to make an `AttachmentSource`, so the declared length and the bytes
+ * cannot come from two places. `Spec-014 §Required Behavior` makes the declared size
+ * advisory to the daemon, which derives its own at completion — but it is also the
+ * stream's spool RESERVATION, so a console that declared one number and sent another
+ * would have the daemon refuse a stream it had already admitted.
+ */
+export function attachmentSourceFrom(input: AttachmentSourceInput): AttachmentSource {
+  return {
+    localId: input.localId,
+    declaredName: input.declaredName,
+    payload: input.payload,
+    byteLength: input.payload.size,
+    declaredMediaType: input.declaredMediaType,
+  };
 }
 
 /** What the daemon found once it had the bytes. This replaces the declaration. */

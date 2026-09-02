@@ -9,17 +9,17 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { consoleTripwires } from "../core/index.js";
+import { INGEST_STREAM_LIFETIME_CEILING_MS, consoleTripwires } from "../core/index.js";
 import {
   ATTACHMENT_ALLOWLIST_DEFAULT,
   INGEST_CAPACITY_EXHAUSTED_CODE,
   INGEST_DISPOSITION_COPY,
   INGEST_REFUSAL_DISPOSITIONS,
   INGEST_STREAM_INVALID_CODE,
-  INGEST_STREAM_LIFETIME_CEILING_MS,
   UNRESOLVED_ATTACHMENT_CAUSES,
   UNRESOLVED_ATTACHMENT_PRESENTATION,
   advanceReceivedBytes,
+  attachmentSourceFrom,
   ingestCeilingRemainingMs,
   ingestRefusalDisposition,
   isIngestStalled,
@@ -29,7 +29,11 @@ import {
 /** One entry that has sent nothing, declaring a decoded total of 300 bytes. */
 function entryDeclaring(byteLength: number, receivedBytes = 0): AttachmentIngestEntry {
   return {
-    declared: { localId: "attachment-1", declaredName: "notes.md", byteLength },
+    declared: attachmentSourceFrom({
+      localId: "attachment-1",
+      declaredName: "notes.md",
+      payload: new Blob([new Uint8Array(byteLength)]),
+    }),
     state: "ingesting",
     receivedBytes,
     ingestId: "ingest-1",

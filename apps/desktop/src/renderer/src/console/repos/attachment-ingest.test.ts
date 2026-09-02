@@ -1,26 +1,65 @@
-// The ingest client: the three calls, the ledger, the replay, and the abandonment.
+// The ingest client: the three calls, the replay, and the abandonment.
 //
 // The client is driven directly — never a local re-implementation of it — against a
-// bridge whose growth port is scripted. A scripted COLLABORATOR is what makes the
-// replay case checkable at all: the point of retry-in-place is that a second attempt
-// re-sends the chunk at the SAME offset, and only the port can witness that.
+// bridge whose growth port is scripted, and the port both records and HOLDS: only a
+// collaborator on the other side of the seam can witness that a retry re-sent one
+// sequence number with identical bytes, and only one that can be held mid-call can put
+// an abandonment inside an await.
 
+import { MAX_MESSAGE_BYTES } from "@ai-sidekicks/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { ConsoleBridge } from "../bridge/index.js";
-import { consoleTripwires } from "../core/index.js";
+import { ATTACHMENT_CHUNK_BYTE_CAP, consoleTripwires, encodeBase64 } from "../core/index.js";
 import { AttachmentIngestClient } from "./attachment-ingest.js";
 import {
-  ATTACHMENT_CHUNK_BYTE_CAP,
   INGEST_CAPACITY_EXHAUSTED_CODE,
   INGEST_STREAM_INVALID_CODE,
+  attachmentSourceFrom,
+  type AttachmentSource,
 } from "./attachment-model.js";
 
-/** One recorded chunk call, so the replay assertion reads offsets rather than counts. */
-interface RecordedChunk {
+/**
+ * One recorded chunk call: exactly the members `AttachmentIngestChunkRequest` names.
+ *
+ * The recorder types the REGISTERED shape rather than whatever the client happens to
+ * send, so a request that went back to describing an offset would not compile here.
+ */
+type RecordedChunk = {
   readonly ingestId: string;
-  readonly offset: number;
-  readonly byteLength: number;
+  readonly sequenceNumber: number;
+  readonly chunk: string;
+};
+
+/** Bytes that differ at every position, so a concatenation check can actually fail. */
+function patternedBytes(byteLength: number): Uint8Array<ArrayBuffer> {
+  const bytes = new Uint8Array(byteLength);
+  for (let index = 0; index < byteLength; index += 1) {
+    bytes[index] = (index * 7 + 13) % 251;
+  }
+  return bytes;
+}
+
+/** A promise the case opens by hand, so a call can be caught mid-flight. */
+function manualGate(): { readonly promise: Promise<void>; readonly open: () => void } {
+  let release = (): void => {};
+  const promise = new Promise<void>((settle) => {
+    release = (): void => {
+      settle();
+    };
+  });
+  return {
+    promise,
+    open: (): void => {
+      release();
+    },
+  };
+}
+
+/** Whether one recorded request actually carried bytes, rather than describing them. */
+function carriesAPayload(request: Readonly<Record<string, unknown>>): boolean {
+  const chunk = request["chunk"];
+  return typeof chunk === "string" && chunk.length > 0;
 }
 
 /**
@@ -34,6 +73,8 @@ class ScriptedGrowthPort {
   readonly abortedIngestIds: string[] = [];
   #chunkRefusalCode: string | undefined;
   #completeRefusalCode: string | undefined;
+  #beginGate: Promise<void> | undefined;
+  #chunkGate: Promise<void> | undefined;
 
   public refuseChunksWith(code: string | undefined): void {
     this.#chunkRefusalCode = code;
@@ -43,11 +84,29 @@ class ScriptedGrowthPort {
     this.#completeRefusalCode = code;
   }
 
+  /** Hold the next `begin` until the returned gate is opened; later calls run free. */
+  public holdBegin(): { readonly open: () => void } {
+    const gate = manualGate();
+    this.#beginGate = gate.promise;
+    return gate;
+  }
+
+  /** Hold the next chunk until the returned gate is opened; later calls run free. */
+  public holdChunks(): { readonly open: () => void } {
+    const gate = manualGate();
+    this.#chunkGate = gate.promise;
+    return gate;
+  }
+
   public asBridge(): ConsoleBridge {
     const port = {
-      artifactIngestBegin: async () => ({ status: "served", value: { ingestId: "ingest-1" } }),
+      artifactIngestBegin: async () => {
+        await this.#beginGate;
+        return { status: "served", value: { ingestId: "ingest-1" } };
+      },
       artifactIngestWriteChunk: async (request: RecordedChunk) => {
         this.chunkCalls.push(request);
+        await this.#chunkGate;
         return this.#chunkRefusalCode === undefined
           ? { status: "served", value: undefined }
           : { status: "unavailable", code: this.#chunkRefusalCode, detail: "scripted refusal" };
@@ -83,12 +142,16 @@ function clientOver(port: ScriptedGrowthPort): AttachmentIngestClient {
   return new AttachmentIngestClient({ bridge: port.asBridge(), sessionId: "session-1" });
 }
 
-const SMALL_SOURCE = {
-  localId: "attachment-1",
-  declaredName: "notes.md",
-  byteLength: 300,
-  declaredMediaType: "text/plain",
-} as const;
+/** One source over bytes the test can recognise on the other side of the wire. */
+function sourceOver(localId: string, declaredName: string, byteLength: number): AttachmentSource {
+  return attachmentSourceFrom({
+    localId,
+    declaredName,
+    payload: new Blob([patternedBytes(byteLength)]),
+  });
+}
+
+const SMALL_SOURCE = sourceOver("attachment-1", "notes.md", 300);
 
 beforeEach(() => {
   consoleTripwires.setThrowOnReport(false);
@@ -108,7 +171,9 @@ describe("ingest client — the happy stream", () => {
     await Promise.resolve();
     await new Promise((settle) => setTimeout(settle, 0));
 
-    expect(port.chunkCalls).toStrictEqual([{ ingestId: "ingest-1", offset: 0, byteLength: 300 }]);
+    expect(port.chunkCalls.map((call) => call.ingestId)).toStrictEqual(["ingest-1"]);
+    expect(port.chunkCalls.map((call) => call.sequenceNumber)).toStrictEqual([0]);
+    expect(port.chunkCalls[0]?.chunk).toBe(encodeBase64(patternedBytes(300)));
     const [entry] = client.snapshot;
     expect(entry?.state).toBe("complete");
     expect(entry?.receivedBytes).toBe(300);
@@ -132,22 +197,6 @@ describe("ingest client — the happy stream", () => {
     expect(client.attachmentArtifactIds()).toStrictEqual(["artifact-9"]);
   });
 
-  it("bounds a chunk at the fixed chunk cap rather than sending one frame", async () => {
-    const port = new ScriptedGrowthPort();
-    const client = clientOver(port);
-    client.attach({
-      localId: "attachment-big",
-      declaredName: "dump.log",
-      byteLength: ATTACHMENT_CHUNK_BYTE_CAP + 10,
-    });
-    await new Promise((settle) => setTimeout(settle, 0));
-
-    expect(port.chunkCalls.map((call) => call.byteLength)).toStrictEqual([
-      ATTACHMENT_CHUNK_BYTE_CAP,
-      10,
-    ]);
-  });
-
   it("negative control: nothing is sent for an attachment nobody attached", async () => {
     // Without this, every assertion above would pass over a port that recorded calls
     // the client never made.
@@ -158,8 +207,58 @@ describe("ingest client — the happy stream", () => {
   });
 });
 
+describe("ingest client — the payload reaches the daemon", () => {
+  it("sends the file as cap-sized slices, in order, inside the frame ceiling", async () => {
+    const port = new ScriptedGrowthPort();
+    const client = clientOver(port);
+    const byteLength = ATTACHMENT_CHUNK_BYTE_CAP * 2 + 7;
+    const payload = patternedBytes(byteLength);
+    client.attach(sourceOver("attachment-three", "capture.bin", byteLength));
+    await new Promise((settle) => setTimeout(settle, 0));
+
+    // Three requests, consecutively numbered from zero, each carrying exactly the slice
+    // at its own offset — the chunks tile the file with nothing dropped, repeated, or
+    // reordered. The expectation is built with the encoder rather than read back through
+    // a decoder, because what is under test is WHICH bytes went; that the encoding is
+    // RFC 4648 is `core/base64.test.ts`'s claim, made there against the platform's own.
+    expect(port.chunkCalls.map((call) => call.sequenceNumber)).toStrictEqual([0, 1, 2]);
+    expect(port.chunkCalls.every((call) => carriesAPayload(call))).toBe(true);
+    expect(port.chunkCalls.map((call) => call.chunk)).toStrictEqual([
+      encodeBase64(payload.subarray(0, ATTACHMENT_CHUNK_BYTE_CAP)),
+      encodeBase64(payload.subarray(ATTACHMENT_CHUNK_BYTE_CAP, ATTACHMENT_CHUNK_BYTE_CAP * 2)),
+      encodeBase64(payload.subarray(ATTACHMENT_CHUNK_BYTE_CAP * 2)),
+    ]);
+    for (const call of port.chunkCalls) {
+      // The cap binds the decoded bytes and the ceiling binds what is written, which is
+      // why the cap sits where it does rather than at the ceiling.
+      expect(call.chunk.length).toBeLessThan(MAX_MESSAGE_BYTES);
+    }
+    expect(client.snapshot[0]?.state).toBe("complete");
+  });
+
+  it("negative control: an offset and a claimed length carry no payload", () => {
+    // The shape this client sent before — the daemon could not have received one byte
+    // of the file from it. Without this control, the assertion above would pass over a
+    // predicate that answered true for anything at all.
+    expect(carriesAPayload({ ingestId: "ingest-1", offset: 0, byteLength: 300 })).toBe(false);
+    expect(carriesAPayload({ ingestId: "ingest-1", sequenceNumber: 0, chunk: "" })).toBe(false);
+  });
+
+  it("stops the stream at the refusal rather than sending the rest", async () => {
+    const port = new ScriptedGrowthPort();
+    const client = clientOver(port);
+    port.refuseChunksWith(INGEST_CAPACITY_EXHAUSTED_CODE);
+    client.attach(sourceOver("attachment-three", "capture.bin", ATTACHMENT_CHUNK_BYTE_CAP * 2 + 7));
+    await new Promise((settle) => setTimeout(settle, 0));
+
+    expect(port.chunkCalls).toHaveLength(1);
+    expect(client.snapshot[0]?.state).toBe("refused");
+    expect(client.snapshot[0]?.refusal?.code).toBe(INGEST_CAPACITY_EXHAUSTED_CODE);
+  });
+});
+
 describe("ingest client — retry replays, and one refusal restarts", () => {
-  it("re-sends the same offset after a lost response", async () => {
+  it("re-sends the same chunk after a lost response", async () => {
     const port = new ScriptedGrowthPort();
     const client = clientOver(port);
     port.refuseChunksWith("wire-unregistered");
@@ -171,10 +270,11 @@ describe("ingest client — retry replays, and one refusal restarts", () => {
     client.retry("attachment-1");
     await new Promise((settle) => setTimeout(settle, 0));
 
-    // Two chunk calls at the SAME offset: the replay, not a restart. The daemon
-    // acknowledges a replayed chunk without re-appending it, which is what makes this
-    // the cheap answer to a lost response.
-    expect(port.chunkCalls.map((call) => call.offset)).toStrictEqual([0, 0]);
+    // Two chunk calls at the SAME sequence number carrying the SAME bytes: the replay,
+    // not a restart. That pair is exactly what the daemon acknowledges without
+    // re-appending, which is what makes this the cheap answer to a lost response.
+    expect(port.chunkCalls.map((call) => call.sequenceNumber)).toStrictEqual([0, 0]);
+    expect(port.chunkCalls[0]?.chunk).toBe(port.chunkCalls[1]?.chunk);
     expect(client.snapshot[0]?.state).toBe("complete");
   });
 
@@ -219,7 +319,7 @@ describe("ingest client — retry replays, and one refusal restarts", () => {
   });
 });
 
-describe("ingest client — abandonment and declared order", () => {
+describe("ingest client — abandonment, including mid-call", () => {
   it("stops sending and asks for the spool back", async () => {
     const port = new ScriptedGrowthPort();
     const client = clientOver(port);
@@ -244,28 +344,60 @@ describe("ingest client — abandonment and declared order", () => {
     expect(port.abortedIngestIds).toStrictEqual([]);
   });
 
-  it("round-trips a participant's reordering, which the reference must preserve", async () => {
+  it("stops a stream abandoned while its first call was in flight", async () => {
     const port = new ScriptedGrowthPort();
     const client = clientOver(port);
-    client.attach({ localId: "first", declaredName: "a.md", byteLength: 1 });
-    client.attach({ localId: "second", declaredName: "b.md", byteLength: 1 });
+    const gate = port.holdBegin();
+    client.attach(SMALL_SOURCE);
     await new Promise((settle) => setTimeout(settle, 0));
 
-    client.reorder("second", 0);
-    expect(client.snapshot.map((entry) => entry.declared.localId)).toStrictEqual([
-      "second",
-      "first",
-    ]);
+    // Abandoned before the daemon answered: nothing in the ledger names a stream yet.
+    client.abandon("attachment-1");
+    expect(port.abortedIngestIds).toStrictEqual([]);
+    gate.open();
+    await new Promise((settle) => setTimeout(settle, 0));
+
+    // The continuation neither resumed the abandoned entry nor sent a chunk, and it
+    // asked for the spool of the stream the daemon opened underneath it — the one call
+    // that could, since that id reached no entry for `abandon` to find.
+    expect(client.snapshot[0]?.state).toBe("abandoned");
+    expect(port.chunkCalls).toStrictEqual([]);
+    expect(port.abortedIngestIds).toStrictEqual(["ingest-1"]);
   });
 
-  it("negative control: removing takes the position with it", async () => {
+  it("sends no further chunk after an abandonment mid-chunk", async () => {
     const port = new ScriptedGrowthPort();
     const client = clientOver(port);
-    client.attach({ localId: "first", declaredName: "a.md", byteLength: 1 });
-    client.attach({ localId: "second", declaredName: "b.md", byteLength: 1 });
+    const gate = port.holdChunks();
+    client.attach(sourceOver("attachment-three", "capture.bin", ATTACHMENT_CHUNK_BYTE_CAP * 2));
+    await new Promise((settle) => setTimeout(settle, 0));
+    expect(port.chunkCalls).toHaveLength(1);
+
+    client.abandon("attachment-three");
+    gate.open();
     await new Promise((settle) => setTimeout(settle, 0));
 
-    client.remove("first");
-    expect(client.snapshot.map((entry) => entry.declared.localId)).toStrictEqual(["second"]);
+    // One chunk in flight, one abandonment, and no second chunk. The abort rode the
+    // abandonment itself, because the stream identity was in the ledger by then.
+    expect(port.chunkCalls).toHaveLength(1);
+    expect(client.snapshot[0]?.state).toBe("abandoned");
+    expect(port.abortedIngestIds).toStrictEqual(["ingest-1"]);
+  });
+
+  it("negative control: an unabandoned stream in flight runs to completion", async () => {
+    // Without this, both cases above would pass over a client that stopped after one
+    // chunk whatever the participant did.
+    const port = new ScriptedGrowthPort();
+    const client = clientOver(port);
+    const gate = port.holdChunks();
+    client.attach(sourceOver("attachment-three", "capture.bin", ATTACHMENT_CHUNK_BYTE_CAP * 2));
+    await new Promise((settle) => setTimeout(settle, 0));
+
+    gate.open();
+    await new Promise((settle) => setTimeout(settle, 0));
+
+    expect(port.chunkCalls).toHaveLength(2);
+    expect(client.snapshot[0]?.state).toBe("complete");
+    expect(port.abortedIngestIds).toStrictEqual([]);
   });
 });

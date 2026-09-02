@@ -12,6 +12,7 @@ import { AttachmentCard } from "./AttachmentCard.js";
 import {
   INGEST_STREAM_INVALID_CODE,
   UNRESOLVED_ATTACHMENT_PRESENTATION,
+  attachmentSourceFrom,
   type AttachmentIngestEntry,
 } from "./attachment-model.js";
 
@@ -19,12 +20,12 @@ const NOW_MILLISECONDS = 1_000;
 
 function entry(overrides: Partial<AttachmentIngestEntry> = {}): AttachmentIngestEntry {
   return {
-    declared: {
+    declared: attachmentSourceFrom({
       localId: "attachment-1",
       declaredName: "../../etc/passwd",
-      byteLength: 300,
+      payload: new Blob([new Uint8Array(300)]),
       declaredMediaType: "text/plain",
-    },
+    }),
     state: "ingesting",
     receivedBytes: 128,
     ingestId: "ingest-1",

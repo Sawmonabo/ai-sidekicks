@@ -1,20 +1,30 @@
-// The ingest client: three calls, a decoded-byte ledger, and a retry that replays.
+// The ingest client: three calls, a bounded slice of the payload on each one, a
+// decoded-byte ledger, and a retry that replays.
 //
 // `Spec-023 §Console Design (Meridian)` §10.8 puts the chunking, the decoded-byte
 // accounting, and the replay-safe retry on the console's own side of the seam and says
 // why: all three are CONTRACT behaviour, and a generic upload library would obscure
 // every one of them. So this is own-built, and it is a class with private fields rather
 // than a hook holding four `useState`s, because a stream is state with a lifecycle and
-// a component is a render.
+// a component is a render. The carrier's own record — which attachments there are, in
+// which order, and where each one stands — is `attachment-ingest-ledger.ts` next door;
+// this module owns the protocol and nothing else.
 //
 // WHAT IT CALLS, AND WHAT ANSWERS TODAY. The trio `AttachmentIngestInit`,
 // `AttachmentIngestChunk`, `AttachmentIngestComplete` is typed in the corpus and
 // registers NO method string anywhere, so every leg goes through
 // `bridge/growth-port.ts` and comes back `wire-unregistered` against the
-// `artifact-ingest-and-crud` slate row. That is not a stub: the chunk loop runs, the
-// ledger advances on whatever is acknowledged, and the refusal renders where the
-// progress would have. When the wire lands, the port's methods stop refusing and this
-// file does not change.
+// `artifact-ingest-and-crud` slate row. That is not a stub: the chunk loop runs, every
+// request carries exactly the members the registered shape names, the ledger advances
+// on whatever is acknowledged, and the refusal renders where the progress would have.
+// When the wire lands, the port's methods stop refusing and this file does not change.
+//
+// THE BYTES ARE SENT, NOT DESCRIBED. Each chunk carries the base64 of one slice read
+// out of the participant's own `Blob`. A request that described a size and carried no
+// payload would let this client advance its ledger and call Complete over a stream the
+// daemon received nothing on — minting an empty artifact rather than the file. The
+// slice is what bounds memory too: `ATTACHMENT_CHUNK_BYTE_CAP` raw bytes are read and
+// encoded at a time, so a hundred-megabyte upload never holds more than one chunk.
 //
 // CANCEL IS ABANDONMENT, AND THE COPY SAYS SO. There is no cancel call in the trio. A
 // participant who stops an upload stops SENDING; the daemon's abandoned-spool reaper
@@ -23,11 +33,20 @@
 // best-effort and states the honest outcome either way.
 //
 // RETRY REPLAYS, IT DOES NOT RESTART. Every call of the trio is retry-safe: a replayed
-// chunk is acknowledged without being re-appended and a replayed completion replays its
-// original response verbatim while the stream entry lives. So a lost response resumes
-// at the current offset. The two codes whose disposition differs are named in
-// `attachment-model.ts` and classified there; this file acts on the classification and
-// invents no policy of its own.
+// chunk — same sequence number, same bytes — is acknowledged without being re-appended,
+// and a replayed completion replays its original response verbatim while the stream
+// entry lives. So a lost response resumes at the current offset. The two codes whose
+// disposition differs are named in `attachment-model.ts` and classified there; this
+// file acts on the classification and invents no policy of its own.
+//
+// A PARTICIPANT CAN ACT WHILE A CALL IS IN FLIGHT, so every continuation re-reads the
+// ledger after its await and proceeds only if the entry still stands where it stood.
+// Abandonment is the case that makes this load-bearing: an upload stopped while Init
+// was in flight would otherwise be resumed by the continuation writing its captured
+// entry back, and one stopped mid-chunk would stream on to completion. A stale
+// continuation writes nothing and leaves the abandoned state exactly as it found it.
+// The one thing it does do is abort the stream the daemon opened underneath it, which
+// nobody else can: that ingest id reached no ledger entry, so `abandon` never saw it.
 //
 // NO TIMER, ANYWHERE. The client performs work when a participant asks it to — attach,
 // retry, abandon — and at no other moment. There is no interval, no backoff timer, and
@@ -36,9 +55,15 @@
 // problem it exists to report.
 
 import type { ConsoleBridge } from "../bridge/index.js";
-import { Emitter, RealClock, type ConsoleClock, type Unsubscribe } from "../core/index.js";
 import {
   ATTACHMENT_CHUNK_BYTE_CAP,
+  RealClock,
+  encodeBase64,
+  type ConsoleClock,
+  type Unsubscribe,
+} from "../core/index.js";
+import { AttachmentIngestLedger } from "./attachment-ingest-ledger.js";
+import {
   advanceReceivedBytes,
   ingestRefusalDisposition,
   type AttachmentIngestEntry,
@@ -60,25 +85,14 @@ export interface AttachmentIngestClientOptions {
   readonly clock?: ConsoleClock;
 }
 
-/**
- * Every attachment a participant has handed this carrier, in the order they chose.
- *
- * ORDER IS PARTICIPANT-DECLARED AND PRESERVED END TO END, which `Spec-014 §Required
- * Behavior` requires of the reference and this client is the first place it can be
- * lost. So the order lives in an explicit array of local ids rather than in a `Map`'s
- * insertion order, and `reorder` moves a member inside it — a drag round-trips because
- * the array is the record, not a rendering of one.
- */
+/** Every attachment a participant has handed this carrier, in the order they chose. */
 export class AttachmentIngestClient {
   readonly #bridge: ConsoleBridge;
   readonly #sessionId: string;
   readonly #clock: ConsoleClock;
-  readonly #entriesByLocalId = new Map<string, AttachmentIngestEntry>();
-  readonly #declaredOrder: string[] = [];
+  readonly #ledger = new AttachmentIngestLedger();
   readonly #runningLocalIds = new Set<string>();
-  readonly #changes = new Emitter<readonly AttachmentIngestEntry[]>("attachment ingest");
 
-  #snapshot: readonly AttachmentIngestEntry[] = [];
   #disposed = false;
 
   public constructor(options: AttachmentIngestClientOptions) {
@@ -89,11 +103,11 @@ export class AttachmentIngestClient {
 
   /** The carrier, in declared order. Stable identity between publishes. */
   public get snapshot(): readonly AttachmentIngestEntry[] {
-    return this.#snapshot;
+    return this.#ledger.snapshot;
   }
 
   public subscribe(sink: (entries: readonly AttachmentIngestEntry[]) => void): Unsubscribe {
-    return this.#changes.subscribe(sink);
+    return this.#ledger.subscribe(sink);
   }
 
   /**
@@ -106,21 +120,10 @@ export class AttachmentIngestClient {
    * raises the bound. The count is rendered against its cap and the daemon decides.
    */
   public attach(source: AttachmentSource): void {
-    if (this.#disposed || this.#entriesByLocalId.has(source.localId)) {
+    if (this.#disposed || this.#ledger.holds(source.localId)) {
       return;
     }
-    this.#declaredOrder.push(source.localId);
-    this.#write(source.localId, {
-      declared: source,
-      state: "declared",
-      receivedBytes: 0,
-      ingestId: undefined,
-      derived: undefined,
-      refusal: undefined,
-      disposition: undefined,
-      openedAtMilliseconds: undefined,
-      lastProgressAtMilliseconds: undefined,
-    });
+    this.#ledger.declare(source);
     void this.#drive(source.localId);
   }
 
@@ -133,12 +136,12 @@ export class AttachmentIngestClient {
    * whole upload.
    */
   public retry(localId: string): void {
-    const entry = this.#entriesByLocalId.get(localId);
+    const entry = this.#ledger.current(localId);
     if (entry === undefined || this.#runningLocalIds.has(localId)) {
       return;
     }
     const restarting = entry.disposition === "restart";
-    this.#write(localId, {
+    this.#ledger.write(localId, {
       ...entry,
       state: "declared",
       refusal: undefined,
@@ -158,63 +161,37 @@ export class AttachmentIngestClient {
    * why the copy states the reaper rather than promising an instant reclaim.
    */
   public abandon(localId: string): void {
-    const entry = this.#entriesByLocalId.get(localId);
+    const entry = this.#ledger.current(localId);
     if (entry === undefined || entry.state === "complete") {
       return;
     }
-    this.#write(localId, { ...entry, state: "abandoned", disposition: undefined });
-    if (entry.ingestId !== undefined) {
-      void this.#bridge.growth.artifactIngestAbort({ ingestId: entry.ingestId });
-    }
+    this.#ledger.write(localId, { ...entry, state: "abandoned", disposition: undefined });
+    this.#abort(entry.ingestId);
   }
 
   /** Take one attachment out of the carrier entirely, position included. */
   public remove(localId: string): void {
-    const position = this.#declaredOrder.indexOf(localId);
-    if (position < 0) {
+    if (!this.#ledger.holds(localId)) {
       return;
     }
     this.abandon(localId);
-    this.#declaredOrder.splice(position, 1);
-    this.#entriesByLocalId.delete(localId);
-    this.#publish();
+    this.#ledger.remove(localId);
   }
 
   /** Move one attachment to a new declared position, clamped inside the carrier. */
   public reorder(localId: string, toPosition: number): void {
-    const fromPosition = this.#declaredOrder.indexOf(localId);
-    if (fromPosition < 0) {
-      return;
-    }
-    const clamped = Math.max(0, Math.min(this.#declaredOrder.length - 1, toPosition));
-    this.#declaredOrder.splice(fromPosition, 1);
-    this.#declaredOrder.splice(clamped, 0, localId);
-    this.#publish();
+    this.#ledger.reorder(localId, toPosition);
   }
 
-  /**
-   * The reference a carrier would carry: artifact ids, ordered, and nothing else.
-   *
-   * Only completed ingests contribute, because an artifact id is what an ingest MINTS —
-   * there is nothing to name before then. The result is exactly the typed
-   * `ArtifactId[]` shape `Spec-014` specifies, held as strings because the console
-   * never mints an identity of its own.
-   */
+  /** The reference a carrier would carry: artifact ids, ordered, and nothing else. */
   public attachmentArtifactIds(): readonly string[] {
-    const artifactIds: string[] = [];
-    for (const localId of this.#declaredOrder) {
-      const artifactId = this.#entriesByLocalId.get(localId)?.derived?.artifactId;
-      if (artifactId !== undefined) {
-        artifactIds.push(artifactId);
-      }
-    }
-    return artifactIds;
+    return this.#ledger.artifactIds();
   }
 
   public dispose(): void {
     this.#disposed = true;
     this.#runningLocalIds.clear();
-    this.#changes.clear();
+    this.#ledger.dispose();
   }
 
   /** Begin or resume one stream: open it if it is not open, chunk it, then complete it. */
@@ -240,8 +217,9 @@ export class AttachmentIngestClient {
 
   /** `AttachmentIngestInit`. Skipped when the stream is already open, which is what makes retry a replay. */
   async #openStream(localId: string): Promise<boolean> {
-    const entry = this.#current(localId);
-    if (entry === undefined) {
+    const entry = this.#ledger.current(localId);
+    const stamp = this.#ledger.stamp(localId);
+    if (entry === undefined || stamp === undefined) {
       return false;
     }
     if (entry.ingestId !== undefined) {
@@ -253,12 +231,20 @@ export class AttachmentIngestClient {
         name: entry.declared.declaredName,
         byteLength: entry.declared.byteLength,
       });
-    if (answer.status !== "served" || answer.value === undefined) {
-      this.#refuse(localId, answer);
+    const settled = this.#ledger.currentIfUnchanged(localId, stamp);
+    if (settled === undefined) {
+      // Abandoned, removed, or disposed while Init was in flight. The daemon opened a
+      // stream whose id never reached the ledger, so this is the only place that can
+      // ask for its spool back.
+      this.#abort(answer.value?.ingestId);
       return false;
     }
-    this.#write(localId, {
-      ...entry,
+    if (answer.status !== "served" || answer.value === undefined) {
+      this.#refuse(localId, settled, answer);
+      return false;
+    }
+    this.#ledger.write(localId, {
+      ...settled,
       state: "ingesting",
       ingestId: answer.value.ingestId,
       openedAtMilliseconds: this.#clock.now(),
@@ -268,41 +254,50 @@ export class AttachmentIngestClient {
   }
 
   /**
-   * `AttachmentIngestChunk`, one bounded chunk at a time from the current offset.
+   * `AttachmentIngestChunk`, one bounded slice at a time from the current offset.
    *
-   * The offset is the ledger, so a resumed stream sends the chunk that was in flight
-   * when the response was lost and the daemon acknowledges it without re-appending. The
-   * chunk length is the decoded remainder bounded by the fixed chunk cap — never an
-   * encoded length, and `advanceReceivedBytes` is what makes that checkable rather than
-   * merely intended.
+   * The ledger IS the offset, so a resumed stream re-reads and re-sends the slice that
+   * was in flight when the response was lost and the daemon acknowledges it without
+   * re-appending. Which is also why the sequence number is derived from the ledger
+   * rather than counted in a field of its own: every chunk but the last is exactly one
+   * cap wide and the loop ends on the last, so the count of acknowledged chunks is the
+   * offset divided by the cap — and a replay recomputes the same number from the same
+   * offset, which is exactly what the daemon's idempotent acknowledgement matches on.
    */
   async #streamChunks(localId: string): Promise<boolean> {
     for (;;) {
-      const entry = this.#current(localId);
-      if (entry === undefined || entry.ingestId === undefined) {
+      const entry = this.#ledger.current(localId);
+      const stamp = this.#ledger.stamp(localId);
+      if (entry === undefined || stamp === undefined || entry.ingestId === undefined) {
         return false;
       }
-      const remaining = entry.declared.byteLength - entry.receivedBytes;
-      if (remaining <= 0) {
+      const offset = entry.receivedBytes;
+      if (entry.declared.payload.size - offset <= 0) {
         return true;
       }
-      const chunkByteLength = Math.min(ATTACHMENT_CHUNK_BYTE_CAP, remaining);
+      const slice = entry.declared.payload.slice(offset, offset + ATTACHMENT_CHUNK_BYTE_CAP);
+      const bytes = new Uint8Array(await slice.arrayBuffer());
+      if (this.#ledger.currentIfUnchanged(localId, stamp) === undefined) {
+        return false;
+      }
       const answer: PortAnswer<void> = await this.#bridge.growth.artifactIngestWriteChunk({
         ingestId: entry.ingestId,
-        offset: entry.receivedBytes,
-        byteLength: chunkByteLength,
+        sequenceNumber: Math.floor(offset / ATTACHMENT_CHUNK_BYTE_CAP),
+        chunk: encodeBase64(bytes),
       });
+      const settled = this.#ledger.currentIfUnchanged(localId, stamp);
+      if (settled === undefined) {
+        // Abandoned or removed mid-chunk. `abandon` already asked for this spool back,
+        // because the ingest id was in the ledger for it to find.
+        return false;
+      }
       if (answer.status !== "served") {
-        this.#refuse(localId, answer);
+        this.#refuse(localId, settled, answer);
         return false;
       }
-      const stillCurrent = this.#current(localId);
-      if (stillCurrent === undefined) {
-        return false;
-      }
-      this.#write(localId, {
-        ...stillCurrent,
-        receivedBytes: advanceReceivedBytes(stillCurrent, chunkByteLength),
+      this.#ledger.write(localId, {
+        ...settled,
+        receivedBytes: advanceReceivedBytes(settled, bytes.byteLength),
         lastProgressAtMilliseconds: this.#clock.now(),
       });
     }
@@ -310,8 +305,9 @@ export class AttachmentIngestClient {
 
   /** `AttachmentIngestComplete`. The derived truth replaces the declaration here and nowhere else. */
   async #completeStream(localId: string): Promise<void> {
-    const entry = this.#current(localId);
-    if (entry === undefined || entry.ingestId === undefined) {
+    const entry = this.#ledger.current(localId);
+    const stamp = this.#ledger.stamp(localId);
+    if (entry === undefined || stamp === undefined || entry.ingestId === undefined) {
       return;
     }
     const answer: PortAnswer<{
@@ -320,12 +316,16 @@ export class AttachmentIngestClient {
       readonly derivedMediaType: string;
       readonly derivedSizeBytes: number;
     }> = await this.#bridge.growth.artifactIngestComplete({ ingestId: entry.ingestId });
-    if (answer.status !== "served" || answer.value === undefined) {
-      this.#refuse(localId, answer);
+    const settled = this.#ledger.currentIfUnchanged(localId, stamp);
+    if (settled === undefined) {
       return;
     }
-    this.#write(localId, {
-      ...entry,
+    if (answer.status !== "served" || answer.value === undefined) {
+      this.#refuse(localId, settled, answer);
+      return;
+    }
+    this.#ledger.write(localId, {
+      ...settled,
       state: "complete",
       derived: {
         artifactId: answer.value.artifactId,
@@ -337,41 +337,27 @@ export class AttachmentIngestClient {
     });
   }
 
-  /** The entry as it stands, or `undefined` once a participant removed it mid-stream. */
-  #current(localId: string): AttachmentIngestEntry | undefined {
-    return this.#disposed ? undefined : this.#entriesByLocalId.get(localId);
+  /** Ask for a spool back, best-effort, for a stream the daemon actually opened. */
+  #abort(ingestId: string | undefined): void {
+    if (ingestId !== undefined) {
+      void this.#bridge.growth.artifactIngestAbort({ ingestId });
+    }
   }
 
-  /** Record a refusal verbatim, with the disposition that decides what the control offers. */
-  #refuse(localId: string, answer: PortAnswer<unknown>): void {
-    const entry = this.#entriesByLocalId.get(localId);
-    if (entry === undefined) {
-      return;
-    }
+  /**
+   * Record a refusal verbatim, with the disposition that decides what the control offers.
+   *
+   * Takes the entry its caller re-read after the await rather than reading one itself,
+   * so a refusal can never be written over a state a participant moved meanwhile.
+   */
+  #refuse(localId: string, entry: AttachmentIngestEntry, answer: PortAnswer<unknown>): void {
     const code = answer.code ?? "attachment.ingest_rejected";
-    this.#write(localId, {
+    this.#ledger.write(localId, {
       ...entry,
       state: "refused",
       refusal: { code, detail: answer.detail ?? "The ingest call was refused." },
       disposition: ingestRefusalDisposition(code),
     });
-  }
-
-  #write(localId: string, entry: AttachmentIngestEntry): void {
-    this.#entriesByLocalId.set(localId, entry);
-    this.#publish();
-  }
-
-  #publish(): void {
-    const entries: AttachmentIngestEntry[] = [];
-    for (const localId of this.#declaredOrder) {
-      const entry = this.#entriesByLocalId.get(localId);
-      if (entry !== undefined) {
-        entries.push(entry);
-      }
-    }
-    this.#snapshot = entries;
-    this.#changes.emit(this.#snapshot);
   }
 }
 
