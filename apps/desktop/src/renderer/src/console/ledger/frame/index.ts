@@ -1,5 +1,5 @@
 // The ledger frame's door — the scroll chokepoint, the reading anchor, the reveal
-// engine, the row window, the window cap, and the error slots.
+// engine, the virtualized row window, the window cap, and the error slots.
 //
 // WHAT "FRAME" MEANS HERE. Not the console's application frame (`console/frame/`),
 // which is the shell a route mounts into. This is the ledger's own frame: the
@@ -10,7 +10,8 @@
 //
 // The pieces here are separately testable and jointly useless, which is why
 // `viewport-controller.ts` exists and why it is the only module that holds the four
-// the feed needs at once — the chokepoint, the anchor, the row window, and the cap.
+// the feed needs at once — the chokepoint, the anchor, the measurement ledger, and
+// the cap, with `@tanstack/react-virtual` bound underneath them all.
 // A surface that wanted, say, the reading anchor without the chokepoint would be
 // asking to decide where a reader is standing and then be unable to keep them
 // there. The reveal engine and the error slots are the two that stand alone: one
@@ -37,9 +38,10 @@ export * from "./rope-smoother.js"; // one lane's text, as parts and a cursor
 export * from "./scroll-quantization.js"; // whether this display rounds a written offset
 export * from "./scroll-chokepoint.js"; // the console's only scroll writer, and its geometry
 export * from "./reading-anchor.js"; // following, reading, and the rows a reader is holding
-export * from "./row-window.js"; // which rows are mounted, and where they sit
+export * from "./row-measurement-ledger.js"; // the residuals the virtualizer does not cover
 export * from "./window-cap.js"; // what the log keeps, and when it may let go
 export * from "./reveal-engine.js"; // N lanes streaming on one frame budget
 export * from "./ErrorSlot.js"; // ranked per-kind slots and the row-group boundary
-export * from "./viewport-controller.js"; // the wiring, and the hook a view reads it through
+export * from "./viewport-controller.js"; // the wiring, and every seam the library reaches out through
+export * from "./viewport-binding.js"; // the virtualizer, and the hook a view reads it through
 export * from "./LedgerViewport.js"; // the feed itself
