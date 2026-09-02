@@ -212,6 +212,71 @@ describe("the flagship scenario's run, folded", () => {
   });
 });
 
+describe("the projector on a payload that contradicts its own kind", () => {
+  /** One synthetic run beat, so a case can drive a pair no scenario scripts. */
+  function runBeat(kind: string, newState: string): ConsoleSessionEvent {
+    return {
+      id: "019b79ee-0280-7ea1-8110-e5e0d1150804",
+      sessionId: "019b79ee-0280-75e5-8510-ada11a5a11a5",
+      sequence: 1,
+      kind,
+      occurredAt: "2026-01-01T14:20:00.500Z",
+      payload: { runId: "run-1", runVersion: 5, newState },
+    };
+  }
+
+  it("answers with no mutation when the payload names a state the kind does not", () => {
+    // The beat reports two states at once and nothing above the fold rejects it:
+    // no run-lifecycle payload variant is registered, so the strict layer never
+    // sees the pair. Storing the payload's reading would put a failed run under a
+    // kind the timeline renders as running — one event, two surfaces, two answers.
+    expect(projectRunLifecycleEvent(runBeat("run.running", "failed"))).toStrictEqual([]);
+  });
+
+  it("projects the same beat when the two agree", () => {
+    // The control that keeps the case above from holding over a projector that
+    // refused every run beat.
+    const mutations = projectRunLifecycleEvent(runBeat("run.running", "running"));
+
+    expect(mutations).toHaveLength(1);
+    const [mutation] = mutations;
+    if (mutation?.operation !== "upsert") {
+      throw new Error("the projector answered no upsert for an agreeing beat");
+    }
+    expect(mutation.entity.state).toBe("running");
+  });
+
+  it("leaves the store undegraded — the contradicted beat is still admitted", () => {
+    // Omission and not a raise, for the reason a payload with no `runId` is
+    // omitted: the projector is pure and replayed, the event really did arrive,
+    // and the timeline is the ledger that records it.
+    const contradicted = runBeat("run.running", "failed");
+    const store = new SessionStore({
+      sessionId: contradicted.sessionId,
+      projectors: RUN_LIFECYCLE_PROJECTORS,
+    });
+    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+
+    const outcome = store.applyBatch([contradicted]);
+
+    expect(outcome.admitted).toBe(1);
+    expect(outcome.projectionFailures).toBe(0);
+    expect(store.snapshot().partitions.run).toStrictEqual({});
+    expect(store.snapshot().timeline.length).toBe(1);
+    expect(store.snapshot().degradedCause).toBeUndefined();
+  });
+
+  it("keeps the creation row, which announces a state by a kind no transition carries", () => {
+    // `run.queued` is the run's creation, and the mapping the guard reads claims
+    // no state for it — deliberately, because it is the destination of no row in
+    // the transition table. A guard that treated "the mapping answers nothing" as
+    // a contradiction would drop the only beat that tells a surface the run exists.
+    const mutations = projectRunLifecycleEvent(runBeat("run.queued", "queued"));
+
+    expect(mutations).toHaveLength(1);
+  });
+});
+
 describe("the projector on a payload it cannot key on", () => {
   const eventWithoutRunIdentity: ConsoleSessionEvent = {
     id: "019b79ee-0280-7ea1-8110-e5e0d1150801",

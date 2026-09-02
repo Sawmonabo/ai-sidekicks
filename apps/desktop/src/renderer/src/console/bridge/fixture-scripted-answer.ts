@@ -22,6 +22,16 @@ import { settleScriptedReply } from "./scripted-reply.js";
  * of answer, and the mapping is the whole reason this helper exists rather than four
  * inline arms per operation:
  *
+ * THE REQUEST TRAVELS WITH THE CALL, and it is a parameter rather than an option
+ * because forgetting it is not a degraded answer but a wrong one. `settleScriptedReply`
+ * hands the request to a scenario's `resultFor`, which is how a scenario answers an
+ * ENTITY-scoped operation per entity; a helper that accepted none called it with
+ * `undefined`, so a session holding two worktrees asked for both branch contexts and
+ * every scripted reply was computed about no worktree at all — answering the
+ * unscripted fallback for both, or throwing while reading a request that was not
+ * there. Required and positional, so a handler that serves an entity-scoped operation
+ * cannot quietly omit it: the compiler asks for it at every call site.
+ *
  *   • **Unscripted** is not a failure on this port. Every operation the fixture serves
  *     has an honest answer of its own for a scenario that scripts nothing — the branch
  *     read's is that this workspace has no branch context — so the caller supplies it
@@ -48,9 +58,10 @@ export async function answerFromScriptedReply<TValue>(
   engine: ScenarioEngine,
   call: string,
   operationId: GrowthOperationId,
+  request: unknown,
   whenUnscripted: () => TValue,
 ): Promise<GrowthOutcome<TValue>> {
-  const settlement = await settleScriptedReply(engine, call);
+  const settlement = await settleScriptedReply(engine, call, request);
   switch (settlement.status) {
     case "unscripted":
       return { status: "served", value: whenUnscripted() };

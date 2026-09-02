@@ -192,8 +192,7 @@ export interface GrowthArtifactSummary {
 export type GrowthArtifactPayloadEncoding = "utf8" | "base64";
 
 /**
- * What an artifact read answers with: the manifest, and the payload where one was asked
- * for and fits.
+ * What an artifact read answers with: the manifest, and a way to reach the bytes.
  *
  * Mirrored member-for-member from the registered `ArtifactReadResponse` in
  * `docs/architecture/contracts/api-payload-contracts.md` — all four members, and the
@@ -207,23 +206,53 @@ export type GrowthArtifactPayloadEncoding = "utf8" | "base64";
  * carry the answer the second was unrepresentable — a surface could ask for bytes and
  * had nowhere to receive them.
  *
- * THE THREE ARE OPTIONAL FOR THREE DIFFERENT REASONS, none of them convenience.
- * `payloadHandle` is the deferred-retrieval key, which a reply carrying the bytes
- * inline has no need to mint. `payload` is present only when the caller asked AND the
- * encoded member plus its envelope fit the wire's frame ceiling — so "I asked for the
- * bytes and did not get them" is a real served answer a surface has to draw, not a
- * refusal. And `payloadEncoding` is present exactly when `payload` is, which is what
- * makes the switch-never-sniff rule performable: an encoding with no payload beside it
- * describes nothing, and a payload with no encoding cannot be decoded at all.
+ * WHY IT IS CORRELATED ARMS AND NOT THREE INDEPENDENT OPTIONALS. Three optionals admit
+ * eight combinations and the contract registers two. The other six are replies a pane
+ * would compile against and could not act on: a bare manifest with neither a handle nor
+ * inline content leaves the served path with no way to REACH the bytes, a `payload`
+ * with no `payloadEncoding` leaves it with no way to DECODE them, and a
+ * `payloadEncoding` with no payload describes bytes that are not there. The contract
+ * says both halves of this — `Spec-014 §Interfaces And Contracts` requires a read to
+ * return "manifest plus retrievable payload handle or inline content", and the
+ * registered response comments the encoding as "present when payload is" — so the arms
+ * below are the registration read as it is written rather than a console tightening.
+ *
+ * TWO ARMS, NOT THREE. Deferred is a handle and no bytes; inline is the bytes with the
+ * encoding to read them by. The metadata read — `includePayload` absent — lands on the
+ * DEFERRED arm rather than in an arm of its own: the handle is the CAS key, which a
+ * manifest read has already resolved and which costs nothing to return, and a third
+ * arm carrying neither would be exactly the unreachable reply this union exists to
+ * refuse. "I asked for the bytes and did not get them inline" — the caller asked and
+ * the encoded member would not fit the wire's frame ceiling — is that same arm, and it
+ * is a real served answer a surface has to draw rather than a refusal.
+ *
+ * The inline arm leaves `payloadHandle` OPTIONAL rather than forbidding it, because the
+ * contract does not: a reply may hand back both, and a union that refused the pair
+ * would be the console deciding something the wire has not.
  */
-export interface GrowthArtifactRead {
+export type GrowthArtifactRead = GrowthArtifactReadDeferred | GrowthArtifactReadInline;
+
+/** What both arms carry: the envelope the read is about. */
+interface GrowthArtifactReadBase {
   readonly manifest: GrowthArtifactSummary;
-  /** The CAS key or URL for deferred retrieval, where the reply defers rather than inlines. */
+}
+
+/** The reply that hands back a key to fetch the bytes with, rather than the bytes. */
+export interface GrowthArtifactReadDeferred extends GrowthArtifactReadBase {
+  /** The CAS key or URL for deferred retrieval. Required on this arm: it IS this arm. */
+  readonly payloadHandle: string;
+  readonly payload?: never;
+  readonly payloadEncoding?: never;
+}
+
+/** The reply that carries the bytes, and the encoding a reader switches on. */
+export interface GrowthArtifactReadInline extends GrowthArtifactReadBase {
+  /** Permitted beside the bytes, because the registered response permits it. */
   readonly payloadHandle?: string;
-  /** The bytes, present only when `includePayload` was set and the size permits. */
-  readonly payload?: string;
+  /** The bytes, present when `includePayload` was set and the size permitted. */
+  readonly payload: string;
   /** Present exactly when `payload` is. Read, never sniffed from the bytes. */
-  readonly payloadEncoding?: GrowthArtifactPayloadEncoding;
+  readonly payloadEncoding: GrowthArtifactPayloadEncoding;
 }
 
 /**

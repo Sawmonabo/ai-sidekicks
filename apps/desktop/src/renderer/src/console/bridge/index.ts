@@ -29,10 +29,18 @@ export { consoleClockFor } from "./console-bridge.js";
 // The subscribe seam's own vocabulary. Exported because the binder one family up
 // passes it to `daemon.subscribe` and the fixture answers it — two sides of one
 // seam reading one declaration rather than two spellings of one string. The two
-// `run.*` streams beside it in that table are NOT re-exported: their consumers so
-// far are in this family, which reaches them directly, and a barrel specifier no
-// cross-family import uses is a dead export rather than a convenience.
+// `run.*` stream NAMES beside it in that table are still not re-exported: their
+// consumers so far are in this family, which reaches them directly, and a barrel
+// specifier no cross-family import uses is a dead export rather than a convenience.
 export { SESSION_EVENT_STREAM } from "./session-event-streams.js";
+
+// Which run state a `run.*` transition kind announces — the same table, on the
+// same rule, now that it has a cross-family consumer: the run-lifecycle projector
+// one family up checks a durable payload's `newState` against it before storing a
+// state. That check has to read THIS mapping rather than re-derive one, or the
+// console would hold two answers to which state a kind announces and the fold
+// would be measured against the wrong one.
+export { runStateForTransitionKind } from "./session-event-streams.js";
 
 export {
   SidekicksBridgeProvider,

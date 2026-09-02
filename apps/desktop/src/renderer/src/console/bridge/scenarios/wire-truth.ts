@@ -46,6 +46,13 @@
 //     is the leg that refuses it, on the same terms as the transition table: a rule
 //     the shipped schemas do not carry, checked against the one module that owns
 //     the mapping rather than against a second reading of it here.
+//   • The run kind's own announced state. The same shape one family over: a
+//     `run.running` beat carrying `newState: "failed"` names a registered kind and
+//     a registered state and passes every leg above, because the strict layer
+//     registers no run-lifecycle variant to hold the pair to. It reports two states
+//     at once, and the fold that consumes it would store the one the payload names
+//     under the kind the timeline renders. Read off the same module the queue leg
+//     reads, for the same reason.
 //
 // WHY THE PROBE IS A WHOLE ENVELOPE, AND WHOSE ENVELOPE IT IS. The strict layer is
 // declared per EVENT, not per payload — there is no exported payload-only schema to
@@ -77,7 +84,7 @@ import {
 
 import { composeScenarioEventEnvelope } from "../scenario-envelope.js";
 import type { ConsoleScenario, ScenarioBeat } from "../scenario.js";
-import { runQueueStreamStateFor } from "../session-event-streams.js";
+import { runQueueStreamStateFor, runStateForTransitionKind } from "../session-event-streams.js";
 
 /**
  * One way a scenario contradicts the shipped wire contract.
@@ -141,6 +148,10 @@ function describeBeatDefect(beat: ScenarioBeat): string | undefined {
   const queueState = describeQueueStateDefect(beat);
   if (queueState !== undefined) {
     return queueState;
+  }
+  const runState = describeRunStateDefect(beat);
+  if (runState !== undefined) {
+    return runState;
   }
   const envelope = composeScenarioEventEnvelope(beat.event);
   const carried = EventEnvelopeSchema.safeParse(envelope);
@@ -237,6 +248,44 @@ function describeQueueStateDefect(beat: ScenarioBeat): string | undefined {
     );
   }
   return undefined;
+}
+
+/**
+ * A run beat whose payload names a different state than its kind announces.
+ *
+ * The transition-table leg above catches a beat that claims a run moved to the
+ * state it was already in; this one catches the beat that claims two states at
+ * once. `run.running` carrying `newState: "failed"` names a registered kind and a
+ * registered state, passes the census, passes the envelope, and passes the strict
+ * layer — which registers no run-lifecycle payload variant to hold it to — so
+ * before this leg the only thing that read the pair was the projector consuming
+ * it, which would have stored the run as failed under a kind the timeline renders
+ * as running.
+ *
+ * The mapping is `session-event-streams.ts`'s and is read rather than restated,
+ * for the queue leg's reason exactly: that module is what routes these beats onto
+ * the run-state stream, and a second copy of the table would let a scenario pass
+ * here and fail the fold that consumes it. A kind it does not claim announces no
+ * transition — the creation row, the rollback row, the three forward, non-state
+ * rows — and is not this leg's business.
+ */
+function describeRunStateDefect(beat: ScenarioBeat): string | undefined {
+  const announcedState = runStateForTransitionKind(beat.event.kind);
+  if (announcedState === undefined) {
+    return undefined;
+  }
+  const statedState = beat.event.payload?.["newState"];
+  if (statedState === undefined || statedState === announcedState) {
+    return undefined;
+  }
+  return (
+    `this beat announces "${announcedState}" by its kind and ` +
+    `${JSON.stringify(statedState)} as its \`newState\`, so it reports two run states at ` +
+    "once. Nothing the contracts package ships rejects the pair — no payload variant is " +
+    "registered for the run-lifecycle kinds — so the fold that consumes it would store the " +
+    "state the payload names under the kind the timeline renders. Script the transition this " +
+    "beat means."
+  );
 }
 
 /** One Zod issue as a sentence fragment: where it is, and what it says. */

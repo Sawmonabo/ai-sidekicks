@@ -38,16 +38,30 @@
 import { registerLegacySurfaces } from "./frame/legacy-surfaces.js";
 import type { ConsoleSurfaceRegistry } from "./frame/surface-registry.js";
 import { registerConsolePanes } from "./panes/index.js";
-import { consolePaneRegistry } from "./workspace/index.js";
+import type { ConsolePaneRegistry } from "./workspace/index.js";
 
 /**
- * Register every shipped view family against a registry.
+ * Register every shipped view family against the two registries a composition owns.
  *
- * Takes the registry rather than reaching for the module-scope singleton so a test
- * can compose the same families into a registry it owns, and so an auxiliary
- * window can compose a different subset without a second code path.
+ * BOTH ARE PARAMETERS, and the second one is the whole of this signature's history.
+ * The surface registry was passed in from the start so a test could compose into a
+ * registry it owns and an auxiliary window could compose a subset; the pane board
+ * beside it reached for the module-scope singleton, so a caller composing its own
+ * family set still registered panes into the production one. That is inert only
+ * while every pane seat is still reserved — the moment the first family registers a
+ * body, an independent composition mutates the running console's deck, two
+ * compositions leak registrations into each other, and an auxiliary window cannot
+ * select a different pane subset however carefully it asks.
+ *
+ * Required rather than defaulted to the singleton, because a default is the same
+ * hard-coding one parameter along: a caller that forgets it still writes into
+ * production. Naming both at the one composition site is what makes a composition
+ * legible as a whole.
  */
-export function registerConsoleFamilies(registry: ConsoleSurfaceRegistry): void {
+export function registerConsoleFamilies(
+  registry: ConsoleSurfaceRegistry,
+  paneRegistry: ConsolePaneRegistry,
+): void {
   // The three shipped Tier-1 families come first, because they were mounted
   // before any of the seats below existed. A family filling a seat that one of
   // them currently holds REPLACES it — delete that line, do not add beside it.
@@ -57,9 +71,10 @@ export function registerConsoleFamilies(registry: ConsoleSurfaceRegistry): void 
   registerLegacySurfaces(registry);
   // The deck's pane bodies have their own seat board, keyed by pane kind
   // rather than by surface slot. It is composed here so one call reaches the
-  // whole console, and it takes the module-scope pane registry because the
-  // pane table is not the surface table this function was handed.
-  registerConsolePanes(consolePaneRegistry);
+  // whole console, and it takes the pane registry this function was HANDED —
+  // the pane table is not the surface table, and it is not the caller's
+  // business twice over which of the two a composition is allowed to own.
+  registerConsolePanes(paneRegistry);
   // T-023p-1C-2 ledger
   // T-023p-1C-3 composer
   // T-023p-1C-4 collaboration
