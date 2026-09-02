@@ -27,6 +27,12 @@
 // store's flag is still consumed at that first focus, so a window tells one composer
 // and no other repeats it.
 //
+// THE HISTORY WALK IS PER ADDRESS FOR THE SAME REASON. One history for the life of
+// the mounted bar carried an address's sent messages, and any walk in progress, into
+// the next address the bar was rebound to. `AddressedDirectiveHistories` keys them
+// on the same draft key, so the composer walks the history of the target it is
+// addressed to and no other.
+//
 // THE RESEND OFFER CARRIES ITS ADDRESSING. The tripwire card offers the last sent
 // body so a neutralized turn can be retried without retyping, and that body used to
 // be a bare string that outlived the address it was written for: sending to one
@@ -56,7 +62,7 @@ import type { CommandExecutor } from "./command-executor.js";
 import { composerDraftKey } from "./draft-key.js";
 import { composerRefusal } from "./send-refusals.js";
 import {
-  DirectiveHistory,
+  AddressedDirectiveHistories,
   caretAtEnd,
   caretAtStart,
   composeDirectivePlaceholder,
@@ -179,7 +185,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
   // A ref rather than state: the walk's own cursor is not rendered, and putting it
   // in state would re-render the whole bar on a keystroke that changed nothing a
   // person can see.
-  const historyRef = useRef<DirectiveHistory>(new DirectiveHistory());
+  const historiesRef = useRef<AddressedDirectiveHistories>(new AddressedDirectiveHistories());
   // Set before the await and cleared in `finally`, so every settlement — sent,
   // intercepted, refused, or a rejection the router turned into a refusal — releases
   // it on exactly one path rather than on the arms an author remembered.
@@ -204,6 +210,10 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     [draftStore, draftKey],
   );
   const text = useSyncExternalStore(subscribeToDraft, readDraftText, readDraftText);
+  // Asked on every pass rather than in an effect, so a keystroke arriving before an
+  // effect could run still walks this address's own history. Idempotent for an
+  // address already current, which is what makes asking here safe.
+  const history = historiesRef.current.forAddress(draftKey);
 
   const changeText = useCallback(
     (next: string) => {
@@ -229,7 +239,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
         const outcome = await router.send(body, target);
         switch (outcome.status) {
           case "sent":
-            historyRef.current.recordSent(body);
+            history.recordSent(body);
             setResendOffer({ draftKey, body });
             draftStore.clear(draftKey);
             setRefusal(undefined);
@@ -264,7 +274,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
         setStatus("idle");
       }
     },
-    [router, target, draftStore, draftKey, commandExecutor],
+    [router, target, draftStore, draftKey, commandExecutor, history],
   );
 
   const send = useCallback(async () => {
@@ -288,14 +298,14 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
       if (!caretAtStart(caret)) {
         return false;
       }
-      const recalled = historyRef.current.recallOlder(readDraftText());
+      const recalled = history.recallOlder(readDraftText());
       if (recalled === undefined) {
         return false;
       }
       draftStore.write(draftKey, recalled);
       return true;
     },
-    [draftStore, draftKey, readDraftText],
+    [draftStore, draftKey, readDraftText, history],
   );
 
   const recallNewer = useCallback(
@@ -303,14 +313,14 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
       if (!caretAtEnd(caret)) {
         return false;
       }
-      const recalled = historyRef.current.recallNewer();
+      const recalled = history.recallNewer();
       if (recalled === undefined) {
         return false;
       }
       draftStore.write(draftKey, recalled);
       return true;
     },
-    [draftStore, draftKey],
+    [draftStore, draftKey, history],
   );
 
   const acknowledgeRestartNotice = useCallback(() => {

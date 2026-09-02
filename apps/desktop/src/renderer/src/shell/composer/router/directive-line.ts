@@ -17,7 +17,7 @@
 // (older) or the very end (newer) of the text, which is the one position where the
 // arrow has nothing else to do.
 
-import { COMPOSER_HISTORY_RECALL_CAP } from "../composer-bounds.js";
+import { COMPOSER_HISTORY_RECALL_CAP, COMPOSER_RETAINED_ADDRESS_CAP } from "../composer-bounds.js";
 import type { ComposerTarget } from "../chips/chip-models.js";
 import type { ComposerSendResolution } from "./send-resolutions.js";
 
@@ -176,5 +176,69 @@ export class DirectiveHistory {
   public reset(): void {
     this.#recallIndex = -1;
     this.#stashedDraft = "";
+  }
+}
+
+/**
+ * One recall history per composer address, so a walk never crosses a rebinding.
+ *
+ * The composer is rebound rather than remounted when a person moves between agents
+ * and channels, and a single history for the life of the mounted bar carried the
+ * whole of one address's sent messages — and any walk in progress — into the next.
+ * ArrowUp under the new target copied participant-authored text written for the old
+ * one into the line, and ArrowDown restored a draft stashed before the switch.
+ *
+ * A MAP RATHER THAN A RESET. Coming back to an address and finding its own history
+ * intact is what a person expects; a reset on every rebinding would have destroyed
+ * it to fix a leak between addresses. What a map costs is growth, so the retained
+ * addresses are bounded and the least recently addressed is evicted — the histories
+ * are per window and never persisted, and unbounded growth is a budget failure.
+ *
+ * THE CURSOR IS AT REST FOR AN ADDRESS THAT HAS JUST BECOME CURRENT. Walking is a
+ * gesture within one line; a switch away and back cannot land mid-walk, so becoming
+ * current resets the walk without touching what the address has sent.
+ */
+export class AddressedDirectiveHistories {
+  /** Insertion order is the recency order the eviction reads. */
+  readonly #byAddress = new Map<string, DirectiveHistory>();
+  #currentAddress: string | undefined = undefined;
+
+  /** How many addresses are retained. Bounded by the cap; read by tests. */
+  public get retainedAddressCount(): number {
+    return this.#byAddress.size;
+  }
+
+  /**
+   * The history for this address, made current.
+   *
+   * Idempotent for an address that is already current, so a caller free to ask on
+   * every render neither re-orders the map nor disturbs a walk in progress.
+   */
+  public forAddress(address: string): DirectiveHistory {
+    const existing = this.#byAddress.get(address);
+    const history = existing ?? new DirectiveHistory();
+    if (existing !== undefined) {
+      // Re-inserted so the map's own iteration order stays the recency order the
+      // eviction below reads, rather than a separate list that could disagree.
+      this.#byAddress.delete(address);
+    }
+    this.#byAddress.set(address, history);
+    if (this.#currentAddress !== address) {
+      this.#currentAddress = address;
+      history.reset();
+    }
+    this.#evictBeyondCap();
+    return history;
+  }
+
+  /** Drop the least recently addressed histories past the retained-address cap. */
+  #evictBeyondCap(): void {
+    while (this.#byAddress.size > COMPOSER_RETAINED_ADDRESS_CAP) {
+      const leastRecent = this.#byAddress.keys().next();
+      if (leastRecent.done === true) {
+        return;
+      }
+      this.#byAddress.delete(leastRecent.value);
+    }
   }
 }
