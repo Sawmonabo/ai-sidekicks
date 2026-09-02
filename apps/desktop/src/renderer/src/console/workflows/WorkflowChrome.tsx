@@ -21,6 +21,8 @@
 // room can do with that run. The inline shape belongs on a control that was pressed
 // and stays; when this family grows those controls, they render their own.
 
+import { useId } from "react";
+
 import { Glyph, Nothing, RefusalBanner, type GlyphName } from "../primitives/index.js";
 import type { WorkflowChromeState } from "./chrome-state.js";
 
@@ -54,9 +56,20 @@ export interface WorkflowChromeProps {
  * repeating it, so the two cannot disagree — a label that drifts from the visible
  * heading is a surface that announces itself as something a sighted reader cannot
  * find.
+ *
+ * THE NAME IS THE HEADING'S TEXT AND THE ID IS THE INSTANCE'S. Derived from the text,
+ * the id was a fact about the copy rather than about this chrome: a deck holding two
+ * `workflow-run` panes rendered the same id twice, which is invalid markup, and both
+ * `aria-labelledby` references then resolved to whichever heading came first — so the
+ * second pane was announced with the first pane's name. `useId` is minted per
+ * component instance, which is exactly the scope the reference needs, and it is what
+ * `LedgerRow` and `OperatorControls` already use for the same job. The pane identity
+ * would have worked too and is deliberately not reached for: the chrome is handed
+ * none, and taking one would give this component a second input for a problem the
+ * hook solves with no input at all.
  */
 export function WorkflowChrome(props: WorkflowChromeProps): React.JSX.Element {
-  const headingId = `meridian-workflow-heading-${props.heading.replaceAll(/\W+/gu, "-").toLowerCase()}`;
+  const headingId = useId();
   return (
     <section className="meridian-workflow" aria-labelledby={headingId}>
       <header className="meridian-workflow__header">
