@@ -37,6 +37,7 @@ import { startGcProbe } from "./probes/gc-probe.js";
 import { installReadinessBreadcrumbs, runSmokeProbe } from "./probes/smoke-probe.js";
 import { installRendererProtocol, registerRendererScheme } from "./protocol.js";
 import { createMainWindow } from "./window.js";
+import { installActivationPolicy } from "./window-reveal.js";
 import { registerSidecarLifecycle } from "./sidecar-lifecycle.js";
 
 // The `electron-vite` output layout puts the main bundle at `out/main/index.js`
@@ -195,6 +196,11 @@ if (!gotTheLock) {
   app
     .whenReady()
     .then(() => {
+      // Test builds only, and only when the launching harness asked for it: the
+      // macOS accessory activation policy has to be in place before the first
+      // reveal could activate the application. A release bundle folds the call
+      // to nothing. See `./window-reveal.ts`.
+      installActivationPolicy(app);
       // BEFORE any window: a `BrowserWindow` constructed ahead of the handler
       // could begin a load against an unhandled scheme.
       installRendererProtocol(RENDERER_ROOT);

@@ -6,13 +6,21 @@
 // the scroll controller's veto and the anchor's pin, that a pruned row's prior is
 // forgotten with it, and that holding a reading position is one glide named for its
 // caller. Where a pixel is the claim, the case lives in `scroll-chokepoint.test.ts`
-// or `row-window.test.ts`, which drive their subjects without a DOM at all.
+// or `row-measurement-ledger.test.ts`, which drive their subjects without a DOM.
 
 import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "../../core/index.js";
+import { countingSurface } from "./scroll-surface-fixture.js";
 import { LedgerViewportController } from "./viewport-controller.js";
 import type { LedgerViewportRow } from "./viewport-controller.js";
+
+/**
+ * A surface whose scroll listeners can be counted, at fixed geometry.
+ *
+ * Structural rather than an element because `happy-dom` answers zero for every
+ * geometry read, and a rect of zeroes would make the replay assertions vacuous.
+ */
 
 function syntheticRows(count: number, chapterKey?: string): readonly LedgerViewportRow[] {
   return Array.from({ length: count }, (_unused, index) => ({
@@ -71,9 +79,9 @@ describe("the viewport controller — reconcile", () => {
     controller.reconcile({ rows: syntheticRows(4000), ...CALM });
     const pruned = controller.snapshot().lastPrune?.prunedKeys[0];
     expect(pruned).toBeDefined();
-    controller.rowWindow.measure("row-0", 300);
+    controller.measurements.acceptedHeight("row-0", 300);
     controller.reconcile({ rows: syntheticRows(4000), ...CALM });
-    expect(controller.rowWindow.measuredRowCount).toBe(0);
+    expect(controller.measurements.measuredRowCount).toBe(0);
   });
 
   it("counts rows appended after the reader left the tail", () => {
@@ -155,15 +163,67 @@ describe("the viewport controller — holding the reading position", () => {
   });
 });
 
+describe("the viewport controller — what a scroll does NOT cost", () => {
+  it("notifies nothing for a scroll that changes only where the reader is", () => {
+    // The budget claim, driven rather than asserted: a snapshot that carried the
+    // anchor point or the raw geometry would notify React on every pixel, which is
+    // exactly the render `directDomUpdates` exists to avoid — and, because a render
+    // re-runs the virtualizer's layout effects, one turn of a loop that would not
+    // settle.
+    const surface = countingSurface();
+    const controller = new LedgerViewportController({ clock: new ManualClock() });
+    controller.attach(surface);
+    controller.reconcile({ rows: syntheticRows(40), ...CALM });
+    let notifications = 0;
+    controller.subscribe(() => {
+      notifications += 1;
+    });
+    for (let tick = 0; tick < 20; tick += 1) {
+      surface.moveTo(40 + tick * 17);
+    }
+    expect(notifications).toBe(0);
+    expect(controller.anchor.state.anchorPoint).toBeDefined();
+  });
+
+  it("negative control: a scroll that changes a RENDERED fact does notify", () => {
+    const surface = countingSurface();
+    const controller = new LedgerViewportController({ clock: new ManualClock() });
+    controller.attach(surface);
+    controller.reconcile({ rows: syntheticRows(40), ...CALM });
+    let notifications = 0;
+    controller.subscribe(() => {
+      notifications += 1;
+    });
+    // Reaching the tail is a mode change, and the mode is on screen.
+    surface.moveTo(surface.scrollHeight - surface.clientHeight);
+    expect(notifications).toBeGreaterThan(0);
+    expect(controller.snapshot().reading.mode).toBe("following");
+  });
+
+  it("does not re-anchor to a position the ledger itself just wrote", () => {
+    // Anchoring to the result of a glide discards the position the glide was
+    // performed to preserve.
+    const surface = countingSurface();
+    const controller = new LedgerViewportController({ clock: new ManualClock() });
+    controller.attach(surface);
+    controller.reconcile({ rows: syntheticRows(40), ...CALM });
+    surface.moveTo(220);
+    const capturedByTheReader = controller.anchor.state.anchorPoint;
+    expect(capturedByTheReader).toBeDefined();
+    controller.scroll.glideTo("deep-link", 900);
+    expect(controller.anchor.state.anchorPoint).toBe(capturedByTheReader);
+  });
+});
+
 describe("the viewport controller — teardown", () => {
   it("disposes terminally, and arms nothing afterwards", () => {
     const { controller, clock } = attachedController();
-    controller.measureRow("row-0", 240);
+    controller.schedulePublish();
     expect(clock.pendingCount).toBe(1);
     controller.dispose();
     expect(controller.isDisposed).toBe(true);
     expect(clock.pendingCount).toBe(0);
-    controller.measureRow("row-1", 300);
+    controller.schedulePublish();
     expect(clock.pendingCount).toBe(0);
   });
 });

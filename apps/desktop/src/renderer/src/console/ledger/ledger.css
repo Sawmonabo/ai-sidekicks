@@ -215,28 +215,29 @@
 }
 
 /* Carries the whole log's height so the scrollbar is honest about how much there
-   is, while only the rows near the fold exist in the document. */
+   is, while only the rows near the fold exist in the document. The height is written
+   by the virtualizer directly, so it is deliberately absent from this rule. */
 .meridian-ledger-viewport__sizer {
   position: relative;
   width: 100%;
 }
 
 /*
- * Translated to the first mounted row's offset. A transform rather than `top`
- * because it composites: moving the slice does not invalidate layout for anything
- * that did not move, which is what keeps a four-lane stream inside the frame budget.
+ * Each mounted row is anchored at the top of the sizer and translated to its own
+ * offset. A transform rather than `top` because it composites: moving a row does not
+ * invalidate layout for anything that did not move, which is what keeps a four-lane
+ * stream inside the frame budget.
+ *
+ * The transform itself is written by the virtualizer under `directDomUpdates`, so no
+ * `transform` declaration belongs here: a value in this rule would be overwritten on
+ * the first scroll tick and would read as the row's position until then.
  */
-.meridian-ledger-viewport__slice {
-  display: flex;
-  flex-direction: column;
+.meridian-ledger-viewport__row {
+  display: block;
   position: absolute;
   inset-inline: 0;
   top: 0;
   will-change: transform;
-}
-
-.meridian-ledger-viewport__row {
-  display: block;
 }
 
 /*
@@ -333,6 +334,310 @@
 .meridian-ledger-retry:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
+}
+
+/* --- The provenance rail (§5.4) ----------------------------------------- */
+
+/*
+ * The strip is the hit target and the canvas is the ink. §5.4 fixes the strip at
+ * ≥32 px with a dead gutter, and the gutter is what the difference between the two
+ * widths IS: a pointer aimed a little wide still lands on the rail rather than on
+ * the pane behind it, and a pointer aimed at the pane is not stolen by the rail.
+ *
+ * The width is set inline from `RAIL_HIT_STRIP_WIDTH_PX`, so the number lives in
+ * the constants module and this sheet never restates it.
+ */
+.meridian-rail {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.meridian-rail__strip {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  cursor: pointer;
+  /* The ink is centred in the strip; the remainder either side is the dead
+     gutter, which is pointer-active but paints nothing. */
+  display: flex;
+  justify-content: center;
+}
+
+.meridian-rail__strip:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: -2px;
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-rail__canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/*
+ * The unloaded extent, drawn as a dotted segment at the head of the rail — §5.4's
+ * clip honesty. A gradient rather than a border so the dotting reads at any height
+ * without the segment's own box being a second element to keep in step.
+ */
+.meridian-rail__unloaded {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+  width: 2px;
+  height: var(--meridian-space-6);
+  background-image: linear-gradient(
+    to bottom,
+    var(--meridian-edge-strong) 0 2px,
+    transparent 2px 6px
+  );
+  background-size: 100% 6px;
+  pointer-events: none;
+}
+
+/* The viewport thumb: where the reading position is, not what it contains. */
+.meridian-rail__thumb {
+  position: absolute;
+  inset-inline: 2px;
+  background: color-mix(in oklch, var(--meridian-text-muted) 18%, transparent);
+  border-radius: var(--meridian-radius-sm);
+  pointer-events: none;
+}
+
+/* The live marker at the tail, drawn only while the ledger is following. */
+.meridian-rail__live {
+  position: absolute;
+  inset-block-end: 0;
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--meridian-accent);
+  pointer-events: none;
+}
+
+.meridian-rail__load-earlier {
+  flex: 0 0 auto;
+  padding: var(--meridian-space-1);
+  border: 0;
+  background: transparent;
+  color: var(--meridian-accent-text);
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+}
+
+.meridian-rail__load-earlier:focus-visible,
+.meridian-find__load-earlier:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--meridian-radius-sm);
+}
+
+/*
+ * The hover preview. One card at a time and pointer-inert, so moving toward it
+ * never re-targets the rail underneath — the card is a reading, not a control.
+ */
+.meridian-rail__preview {
+  position: absolute;
+  inset-inline-end: calc(100% + var(--meridian-space-2));
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  max-width: 22rem;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-xs);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.meridian-rail__preview-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- The replay dock (§5.5) --------------------------------------------- */
+
+/*
+ * Docked over the rail and hidden until reached — §5.5's density rule. `hidden`
+ * is the mechanism, so the control is inert to the pointer and to assistive
+ * technology at once; the base rule below styles it only when it is shown.
+ */
+.meridian-replay {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-raised);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-replay__primary,
+.meridian-replay__seam,
+.meridian-replay__speed {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 var(--meridian-space-1);
+  border: 0;
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+}
+
+.meridian-replay__primary:hover,
+.meridian-replay__seam:hover,
+.meridian-replay__speed:hover {
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text);
+}
+
+.meridian-replay__primary:focus-visible,
+.meridian-replay__seam:focus-visible,
+.meridian-replay__speed:focus-visible,
+.meridian-replay__scrub:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: -2px;
+}
+
+/* The chosen speed is marked by `aria-pressed`, so the styling reads the same
+   attribute assistive technology does and there is no second "is selected" class. */
+.meridian-replay__speed[aria-pressed="true"] {
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-accent-text);
+}
+
+.meridian-replay__speeds {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.meridian-replay__scrub {
+  flex: 1 1 auto;
+  min-width: 6rem;
+  accent-color: var(--meridian-accent);
+}
+
+.meridian-replay__granularity {
+  color: var(--meridian-text-faint);
+  white-space: nowrap;
+}
+
+/* --- Find in ledger (§5.15) --------------------------------------------- */
+
+.meridian-find {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border-bottom: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface-sunken);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+  flex-wrap: wrap;
+}
+
+.meridian-find__field {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+/* The label names the field for assistive technology and is not repeated on
+   screen beside a search glyph that already says it. */
+.meridian-find__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.meridian-find__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+  font: inherit;
+}
+
+.meridian-find__input:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: -1px;
+}
+
+.meridian-find__step,
+.meridian-find__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+}
+
+.meridian-find__step:disabled {
+  color: var(--meridian-text-faint);
+  cursor: default;
+}
+
+.meridian-find__step:focus-visible,
+.meridian-find__close:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: -2px;
+}
+
+/* The boundary sentence and its escape hatch, together on one line so the
+   affordance is read as part of the statement rather than as a stray control. */
+.meridian-find__scope {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  color: var(--meridian-text-faint);
+}
+
+.meridian-find__load-earlier {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--meridian-accent-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.meridian-find__empty {
+  margin: 0;
+  color: var(--meridian-text-faint);
 }
 
 /* --- Cards: the code palette -------------------------------------------- */
