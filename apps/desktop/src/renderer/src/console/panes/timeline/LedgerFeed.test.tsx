@@ -273,6 +273,60 @@ describe("the ledger feed — replay reveals", () => {
   });
 });
 
+/** The rail wrapper, the control it reveals, and the two focusable ends of a tab. */
+function replayDockHarness(feed: HTMLElement): {
+  readonly dock: HTMLElement;
+  readonly railSlider: HTMLElement;
+  readonly dockButton: HTMLElement;
+} {
+  const dock = feed.querySelector<HTMLElement>(".meridian-replay");
+  const railSlider = feed.querySelector<HTMLElement>('[role="slider"]');
+  const dockButton = feed.querySelector<HTMLElement>(".meridian-replay__primary");
+  if (dock === null || railSlider === null || dockButton === null) {
+    throw new Error("the feed rendered no rail wrapper, slider, or replay dock");
+  }
+  return { dock, railSlider, dockButton };
+}
+
+describe("the ledger feed — the dock stays up while focus is still in the rail", () => {
+  it("does not conceal when a tab moves focus from the slider into the dock", () => {
+    withLaidOutViewport();
+    const feed = renderFeed(openSessionStoreWithLog(REPLAY_LOG_EVENT_COUNT));
+    const { dock, railSlider, dockButton } = replayDockHarness(feed);
+    fireEvent.focusIn(railSlider);
+    expect(dock.hidden).toBe(false);
+    // `focusout` bubbles, so this reaches the wrapper even though focus never left
+    // it. Concealing here made the dock's own controls vanish mid-tab.
+    fireEvent.focusOut(railSlider, { relatedTarget: dockButton });
+    expect(dock.hidden).toBe(false);
+  });
+
+  it("negative control: focus leaving the wrapper conceals", () => {
+    // Without this the case above would pass over a wrapper that had stopped
+    // concealing at all, which is a dock that never closes.
+    withLaidOutViewport();
+    const feed = renderFeed(openSessionStoreWithLog(REPLAY_LOG_EVENT_COUNT));
+    const { dock, railSlider } = replayDockHarness(feed);
+    fireEvent.focusIn(railSlider);
+    expect(dock.hidden).toBe(false);
+    const elsewhere = feed.querySelector<HTMLElement>(".meridian-ledger-viewport__surface");
+    expect(elsewhere).not.toBeNull();
+    fireEvent.focusOut(railSlider, { relatedTarget: elsewhere });
+    expect(dock.hidden).toBe(true);
+  });
+
+  it("negative control: focus leaving the document conceals too", () => {
+    // A null related target is focus leaving the window, not an intra-wrapper move.
+    // Exempting it would leave the dock open under a window nobody is in.
+    withLaidOutViewport();
+    const feed = renderFeed(openSessionStoreWithLog(REPLAY_LOG_EVENT_COUNT));
+    const { dock, railSlider } = replayDockHarness(feed);
+    fireEvent.focusIn(railSlider);
+    fireEvent.focusOut(railSlider, { relatedTarget: null });
+    expect(dock.hidden).toBe(true);
+  });
+});
+
 const OVER_CAP_EVENT_COUNT = LEDGER_WINDOW_ROW_CAP + 50;
 
 /** A log of general rows, so no chapter is open and the cap may actually apply. */

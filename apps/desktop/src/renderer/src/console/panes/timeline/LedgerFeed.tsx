@@ -153,6 +153,28 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
     [find, jumpToRow],
   );
 
+  const concealReplayDock = replay.conceal;
+  const concealReplayDockOnFocusLeaving = useCallback(
+    (event: React.FocusEvent<HTMLDivElement>) => {
+      // React backs `onBlur` with `focusout`, which BUBBLES, so tabbing from the
+      // rail's slider to a dock button reaches this wrapper although focus never
+      // left it — and concealing there makes the dock's controls vanish or be
+      // skipped mid-tab. A related target this wrapper contains is that move.
+      //
+      // A NULL related target is focus leaving the document, and that IS a conceal
+      // rather than an exemption: reading it as one would leave the dock open under
+      // a window nobody is in. Do not "fix" this into a leak.
+      if (
+        event.relatedTarget instanceof Node &&
+        event.currentTarget.contains(event.relatedTarget)
+      ) {
+        return;
+      }
+      concealReplayDock();
+    },
+    [concealReplayDock],
+  );
+
   // The palette's chords and the cast bar's chips both act on whichever ledger is
   // mounted when they fire, and neither can import this component. Both seats are
   // claimed here for the mount's lifetime; what each act does is `ledger-feed-acts.ts`'.
@@ -183,9 +205,13 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
         <div
           className="meridian-ledger__rail"
           onPointerEnter={replay.reveal}
+          // Unguarded, unlike the focus pair: React's leave events do not fire for
+          // a pointer move between two elements inside this subtree.
           onPointerLeave={replay.conceal}
+          // Reveal needs no guard of its own — it is idempotent, and a focus move
+          // arriving from anywhere is a reason for the dock to be on screen.
           onFocus={replay.reveal}
-          onBlur={replay.conceal}
+          onBlur={concealReplayDockOnFocusLeaving}
         >
           <ProvenanceRail
             model={visible.railModel}
