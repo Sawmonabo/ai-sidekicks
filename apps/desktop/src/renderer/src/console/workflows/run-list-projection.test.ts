@@ -1,22 +1,21 @@
 // The projection's three claims, each with the control that would catch it being
 // vacuous.
 //
-// The claim that matters most is the one that cannot be seen by looking at a screen:
-// a park is read from `parkReason` and never from a phase's `state`. So the fixtures
-// below deliberately put a park on a `running` phase and a `parkCause` on a phase
-// with no reason — the two shapes a `state`-reading projection gets wrong in
-// opposite directions.
+// The park discriminator itself is asserted next door, on the module that owns it
+// (`run-list-rows.test.ts`); what is asserted here is what the LIST reads off a set of
+// runs — the band a status lands in, the order the bands come out in, the parks a row
+// folds, and the frozen pin. The band table is total over the substrate's status set
+// by TYPE rather than by count, so a seventh status stops this file compiling instead
+// of silently going untested.
 
 import { describe, expect, it } from "vitest";
 
-import {
-  RunListProjection,
-  WORKFLOW_PHASE_RUN_STATES,
-  WORKFLOW_RUN_STATES,
-  phasePark,
-  type WorkflowPhaseStateRow,
-  type WorkflowRunSnapshot,
-} from "./run-list-projection.js";
+import { RunListProjection, type WorkflowRunAttentionBand } from "./run-list-projection.js";
+import type {
+  WorkflowPhaseStateRow,
+  WorkflowRunSnapshot,
+  WorkflowRunState,
+} from "./run-list-rows.js";
 
 function phase(overrides: Partial<WorkflowPhaseStateRow> = {}): WorkflowPhaseStateRow {
   return { phaseId: "phase-1", phaseName: "Draft", state: "running", ...overrides };
@@ -34,50 +33,49 @@ function run(overrides: Partial<WorkflowRunSnapshot> = {}): WorkflowRunSnapshot 
   };
 }
 
-describe("the phase-run status union", () => {
-  it("stays at five values, so the park never gets a status arm of its own", () => {
-    expect(WORKFLOW_PHASE_RUN_STATES).toHaveLength(5);
-    expect([...WORKFLOW_PHASE_RUN_STATES]).not.toContain("suspended");
+describe("the band a run status lands in", () => {
+  /**
+   * The expected band per status, as a TOTAL record.
+   *
+   * `Record<WorkflowRunState, …>` and not a list of the interesting cases: the type
+   * is the control. A status added to `bridge/workflow-projection.ts` fails to
+   * compile here — and in the projection's own table — rather than quietly reaching
+   * neither.
+   */
+  const BAND_BY_RUN_STATE: Readonly<Record<WorkflowRunState, WorkflowRunAttentionBand>> = {
+    pending: "active",
+    running: "active",
+    suspended: "parked",
+    completed: "settled",
+    failed: "settled",
+    cancelled: "settled",
+  };
+
+  /**
+   * The record's keys, typed.
+   *
+   * `Object.keys` widens to `string[]` by design, because an object may carry keys
+   * its type does not name. This one cannot: the literal above IS the whole set, so
+   * the narrowing states a fact about this value rather than a hope about it.
+   */
+  const RUN_STATES = Object.keys(BAND_BY_RUN_STATE) as readonly WorkflowRunState[];
+
+  it.each(RUN_STATES)("bands a `%s` run with no parks by its status alone", (state) => {
+    const projection = new RunListProjection([run({ state, phaseStates: [] })]);
+    expect(projection.rows[0]?.attentionBand).toBe(BAND_BY_RUN_STATE[state]);
   });
 
-  it("negative control: the RUN status union does carry `suspended`", () => {
-    // Without this the case above would pass over a membership check that was
-    // simply always false — a misspelled needle, or a set that held nothing.
-    expect([...WORKFLOW_RUN_STATES]).toContain("suspended");
-    expect(WORKFLOW_RUN_STATES).toHaveLength(6);
-  });
-});
-
-describe("the park discriminator", () => {
-  it("reads a park off `parkReason` even on a phase whose state says running", () => {
-    const park = phasePark(
-      phase({ state: "running", parkReason: "waiting-human", parkCause: "Approval needed." }),
-    );
-    expect(park?.parkReason).toBe("waiting-human");
-  });
-
-  it("negative control: a phase carrying a cause and no reason is not parked", () => {
-    // A projection that keyed on any of the other three members would call this
-    // parked. `parkCause` is the trap, because the producer emits it whenever it
-    // emits a reason, so it looks interchangeable and is not.
-    expect(phasePark(phase({ parkCause: "Approval needed." }))).toBeUndefined();
-  });
-
-  it("negative control: a phase with no park members at all is not parked", () => {
-    expect(phasePark(phase({ state: "pending" }))).toBeUndefined();
-  });
-
-  it("carries the armed schedule and the attention key through untouched", () => {
-    const park = phasePark(
-      phase({
-        parkReason: "provider-usage-limited",
-        parkCause: "Account allowance spent until 11:30.",
-        autoResumeAt: "2026-09-01T11:30:00.000Z",
-        parkAttentionKey: "account-7",
+  it("negative control: a park overrides the status band", () => {
+    // Without this, every case above would pass over a projection that read only the
+    // status and never looked at a phase — which is the reading `Spec-017` keeps the
+    // status union coarse to prevent.
+    const projection = new RunListProjection([
+      run({
+        state: "running",
+        phaseStates: [phase({ parkReason: "waiting-human", parkCause: "Sign-off needed." })],
       }),
-    );
-    expect(park?.autoResumeAt).toBe("2026-09-01T11:30:00.000Z");
-    expect(park?.parkAttentionKey).toBe("account-7");
+    ]);
+    expect(projection.rows[0]?.attentionBand).toBe("parked");
   });
 });
 

@@ -6,7 +6,7 @@
 // per surface. So they are answered here, once, as a value:
 //
 //   1. **Is anything parked, and why?** Not from the phase's `state`. The phase-run
-//      status union is FIVE values and carries no suspended arm — that is deliberate
+//      status union carries no suspended arm — that is deliberate
 //      (`Spec-017 §Park surfacing on the read model (SA-44)`), and the park instead
 //      rides four additive-optional members that a daemon emits for exactly those
 //      phases parked when the response was built. So `parkReason` PRESENCE is the
@@ -29,150 +29,29 @@
 // authority on a question the daemon owns. What it computes is what the operator can
 // SEE: a park, its shape, and a pin that has fallen behind.
 //
-// WIRE STATUS — READ THIS BEFORE ADDING A CALLER. `packages/contracts` registers no
-// `workflow.*` method, no `workflow.*` event type, and none of these shapes; the
-// wire registry carries thirteen workflow operations and none of them enumerates
-// runs. The types below are therefore the CONSOLE's consumption shapes, mirroring
-// the `PhaseState` and `WorkflowRunReadResponse` declarations in
-// `docs/architecture/contracts/api-payload-contracts.md`, on the same footing as the
-// growth port's own signature table: what a surface needs, not a claim about a wire.
-// They are fixture-fed until the `workflow-event-registration` slate row lands, and
-// a caller wiring them to a live bridge before then is a review rejection.
+// THE SHAPES ARE NEXT DOOR AND THE VOCABULARY IS ON THE SUBSTRATE. `run-list-rows.ts`
+// derives the run and phase rows from `bridge/workflow-projection.ts`, which is where
+// the statuses and park reasons are declared; this module holds the reading — bands,
+// order, and the counts a header shows — and declares exactly one closed set of its
+// own, the attention band, because a band is a reading of a status rather than a
+// status. The four row symbols below are re-exported because their readers — the park
+// badge and the run pane — read a run ROW through the module that projects a run
+// LIST, and a second import edge into the family for the same fact is the thing that
+// drifts.
 
-/**
- * The five phase-run statuses, and exactly five.
- *
- * The tuple is the declaration and the union derives from it, so widening the set
- * is one edit a reviewer sees rather than two that agree until they do not. This
- * particular set is load-bearing beyond the usual reason: `Spec-017` keeps it at
- * five ON PURPOSE and routes the park around it, so a sixth arm added here would
- * silently undo the producer rule the park's whole readability rests on.
- */
-export const WORKFLOW_PHASE_RUN_STATES = [
-  "pending",
-  "running",
-  "completed",
-  "failed",
-  "skipped",
-] as const;
+import {
+  phasePark,
+  type WorkflowParkedPhase,
+  type WorkflowRunSnapshot,
+  type WorkflowRunState,
+} from "./run-list-rows.js";
 
-/** One phase-run status. Derived from the tuple, never restated. */
-export type WorkflowPhaseRunState = (typeof WORKFLOW_PHASE_RUN_STATES)[number];
-
-/** The six run statuses, in the order the contract declares them. */
-export const WORKFLOW_RUN_STATES = [
-  "pending",
-  "running",
-  "suspended",
-  "completed",
-  "failed",
-  "cancelled",
-] as const;
-
-/** One run status. Derived from the tuple, never restated. */
-export type WorkflowRunState = (typeof WORKFLOW_RUN_STATES)[number];
-
-/** The two park reasons V1 defines. Widening is an amendment, never a comment. */
-export const WORKFLOW_PARK_REASONS = ["waiting-human", "provider-usage-limited"] as const;
-
-/** One park reason. Derived from the tuple, never restated. */
-export type WorkflowParkReason = (typeof WORKFLOW_PARK_REASONS)[number];
-
-/**
- * A park, as a value that exists only when there IS one.
- *
- * The wire carries four independent optional members; this carries a park or
- * nothing. The difference matters at every call site downstream: a renderer handed
- * four optionals has to re-derive "is this parked" from the right one of them, and
- * the wrong one is `parkCause`, which is present whenever `parkReason` is and
- * therefore looks like it would do. Narrowing once here means no surface repeats
- * the discriminator rule, and no surface gets it wrong.
- */
-export interface WorkflowPhasePark {
-  readonly parkReason: WorkflowParkReason;
-  /** The engine's own bounded sentence about the wait. Rendered verbatim. */
-  readonly parkCause: string;
-  /**
-   * RFC 3339 UTC. Present only where the park armed a schedule.
-   *
-   * Spelled `| undefined` rather than merely optional because this shape is
-   * CONSTRUCTED from four wire members rather than written as a literal, and under
-   * `exactOptionalPropertyTypes` "the key is absent" and "the key holds undefined"
-   * are different types. The wire rows below keep the plain optional form, since a
-   * caller omits those keys outright.
-   */
-  readonly autoResumeAt?: string | undefined;
-  /** The provider-account key concurrently parked phases fold by. */
-  readonly parkAttentionKey?: string | undefined;
-}
-
-/** One phase's projected state, with the park members exactly as the wire carries them. */
-export interface WorkflowPhaseStateRow {
-  readonly phaseId: string;
-  /**
-   * The phase's own name, for a park a person has to act on — where anything
-   * carries one.
-   *
-   * Optional because no registered read does. The run read projects phases by
-   * `phaseId` and nothing else names them, so a row built from the wire has an
-   * opaque identity and no label; a projection that required a name would force its
-   * caller to invent one, and an invented phase name is indistinguishable on screen
-   * from an authored one. A surface without it shows the id as the wire value it is.
-   */
-  readonly phaseName?: string;
-  readonly state: WorkflowPhaseRunState;
-  readonly parkReason?: WorkflowParkReason;
-  readonly parkCause?: string;
-  readonly autoResumeAt?: string;
-  readonly parkAttentionKey?: string;
-}
-
-/** One run, as the console holds it: the run header plus its phase projection. */
-export interface WorkflowRunSnapshot {
-  readonly workflowRunId: string;
-  readonly state: WorkflowRunState;
-  /** The immutable version this run is pinned to. Opaque; passed through, never parsed. */
-  readonly workflowVersionId: string;
-  readonly startedAt: string;
-  readonly endedAt?: string;
-  /** Also the cancellation reason on a `cancelled` run, per the contract's own split. */
-  readonly failureReason?: string;
-  readonly phaseStates: readonly WorkflowPhaseStateRow[];
-  /**
-   * The definition's name, so a run row reads as something other than an id —
-   * where the caller holds one.
-   *
-   * Optional for the reason `phaseName` is: the run read carries the pinned
-   * `workflowVersionId` and no name, the definition enumeration carries names and
-   * is keyed by definition, and no registered read joins the two. A caller that has
-   * both may pass it; one that has only the run passes nothing and the row shows
-   * the run's own identity rather than a name nobody sent.
-   */
-  readonly definitionName?: string;
-  /**
-   * The definition's newest version id, when the caller holds it.
-   *
-   * Optional because a run read alone does not carry it — it comes from the
-   * definition enumeration beside it. Absent, the frozen-pin state is UNKNOWN and
-   * the projection reports `false` rather than guessing, which is the fail-closed
-   * direction: claiming a run is current is a smaller error than claiming it is
-   * stale and inviting a repair the daemon would refuse.
-   */
-  readonly definitionLatestWorkflowVersionId?: string;
-}
-
-/** A parked phase, paired with the park that made it one. */
-export interface WorkflowParkedPhase {
-  readonly phaseId: string;
-  /**
-   * Spelled `| undefined` rather than merely optional, on this file's own stated
-   * rule: the shape is CONSTRUCTED from a row rather than written as a literal, and
-   * under `exactOptionalPropertyTypes` an absent key and a key holding `undefined`
-   * are different types.
-   */
-  readonly phaseName?: string | undefined;
-  readonly park: WorkflowPhasePark;
-}
+export { phasePark } from "./run-list-rows.js";
+export type {
+  WorkflowParkReason,
+  WorkflowPhasePark,
+  WorkflowRunSnapshot,
+} from "./run-list-rows.js";
 
 /**
  * The three bands a run sits in, in the order the list shows them.
@@ -187,6 +66,28 @@ export const WORKFLOW_RUN_ATTENTION_BANDS = ["parked", "active", "settled"] as c
 
 /** One attention band. Derived from the tuple, never restated. */
 export type WorkflowRunAttentionBand = (typeof WORKFLOW_RUN_ATTENTION_BANDS)[number];
+
+/**
+ * The band each run status reads as, before its parks are looked at.
+ *
+ * TOTAL over the substrate's status set, and that totality is this module's own
+ * compile-time control: a seventh status added to `bridge/workflow-projection.ts`
+ * fails here until this table places it, where the `pending || running ? … : …`
+ * expression it replaces would have banded it `settled` in silence and hidden a live
+ * run under the finished ones.
+ *
+ * `suspended` bands `parked` on its own, with no phase carrying park members: an
+ * older daemon emits none of the four, and the run status still says something is
+ * waiting.
+ */
+const RUN_STATE_ATTENTION_BANDS = {
+  pending: "active",
+  running: "active",
+  suspended: "parked",
+  completed: "settled",
+  failed: "settled",
+  cancelled: "settled",
+} as const satisfies Record<WorkflowRunState, WorkflowRunAttentionBand>;
 
 /** One run's row in the list: the snapshot, plus everything read off it once. */
 export interface WorkflowRunListRow {
@@ -212,27 +113,6 @@ export interface WorkflowRunListRow {
   readonly attentionBand: WorkflowRunAttentionBand;
 }
 
-/**
- * The park a phase carries, or nothing.
- *
- * The one place the discriminator rule is written. `parkReason` present means parked
- * now; `parkCause` accompanies it by the producer's own requirement, so a reason
- * without a cause is a malformed response rather than a park with no explanation —
- * and this returns nothing for it rather than rendering a park with an empty
- * sentence, which would read as an engine that had no reason.
- */
-export function phasePark(phase: WorkflowPhaseStateRow): WorkflowPhasePark | undefined {
-  if (phase.parkReason === undefined || phase.parkCause === undefined) {
-    return undefined;
-  }
-  return {
-    parkReason: phase.parkReason,
-    parkCause: phase.parkCause,
-    autoResumeAt: phase.autoResumeAt,
-    parkAttentionKey: phase.parkAttentionKey,
-  };
-}
-
 /** Sorts an unparseable instant last rather than poisoning the comparison with `NaN`. */
 function instantOrder(iso: string): number {
   const milliseconds = Date.parse(iso);
@@ -244,10 +124,7 @@ function attentionBandFor(
   run: WorkflowRunSnapshot,
   parkedPhases: readonly WorkflowParkedPhase[],
 ): WorkflowRunAttentionBand {
-  if (parkedPhases.length > 0 || run.state === "suspended") {
-    return "parked";
-  }
-  return run.state === "pending" || run.state === "running" ? "active" : "settled";
+  return parkedPhases.length > 0 ? "parked" : RUN_STATE_ATTENTION_BANDS[run.state];
 }
 
 /** The soonest armed resume among a run's parks, or nothing when none armed one. */
