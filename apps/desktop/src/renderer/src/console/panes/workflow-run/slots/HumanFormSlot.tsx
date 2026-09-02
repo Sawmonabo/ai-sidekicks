@@ -53,7 +53,17 @@ export interface HumanFormMount {
   readonly formRevision: number;
 }
 
-/** The body Plan-017 authors, and the signature the pane will call it with. */
+/**
+ * The body Plan-017 authors: a COMPONENT this pane renders, never a function it
+ * calls.
+ *
+ * The distinction is React's, not a preference. `owner-slots.ts` states it once for
+ * all five slots; the short of it is that a called body's hooks join the WRAPPER's
+ * hook list, and a wrapper that calls conditionally changes that list between
+ * renders. A supplied body must therefore be a stable reference — a component
+ * composed inline on each render is a different type each time, and React remounts
+ * it.
+ */
 export type HumanFormBody = (mount: HumanFormMount) => React.ReactNode;
 
 export interface HumanFormSlotProps {
@@ -71,14 +81,20 @@ export interface HumanFormSlotProps {
 
 /** The human phase's form, or the honest statement that it is reserved and unbuilt. */
 export function HumanFormSlot(props: HumanFormSlotProps): React.JSX.Element {
+  const { phase, body: HumanFormBodyComponent } = props;
   return (
     <WorkflowSlotMount
       slot={{
         contract: WORKFLOW_HUMAN_FORM_SLOT.contract,
-        // No phase means no body call, and never a body called with a placeholder:
-        // a form rendered against a phase nobody resolved would be answerable in
-        // appearance and unsubmittable in fact.
-        body: props.phase === undefined ? undefined : props.body?.(props.phase),
+        // No phase means no body, and never a body rendered against a placeholder: a
+        // form composed against a phase nobody resolved would be answerable in
+        // appearance and unsubmittable in fact. The element is CONSTRUCTED here and
+        // rendered by the mount, so the body keeps its own hook boundary across this
+        // conditional.
+        body:
+          phase === undefined || HumanFormBodyComponent === undefined ? undefined : (
+            <HumanFormBodyComponent {...phase} />
+          ),
       }}
       title="The form a waiting phase needs is not built yet."
       detail="A phase waiting on a person opens its prompt and fields here; until then the phase is readable and not answerable."

@@ -58,7 +58,10 @@ export interface NodeGraphMount {
   readonly uiStateStore: UiStateStore;
 }
 
-/** The body Plan-017 authors, and the signature this pane will call it with. */
+/**
+ * The body Plan-017 authors: a COMPONENT this pane renders, never a function it
+ * calls. `owner-slots.ts` states the reason once for all five slots.
+ */
 export type NodeGraphBody = (mount: NodeGraphMount) => React.ReactNode;
 
 export interface NodeGraphSlotProps extends NodeGraphMount {
@@ -75,10 +78,14 @@ export interface NodeGraphSlotProps extends NodeGraphMount {
 
 /** The node graph, or the honest statement that it is reserved and unbuilt. */
 export function NodeGraphSlot(props: NodeGraphSlotProps): React.JSX.Element {
-  const { body, ...mount } = props;
+  const { body: NodeGraphBodyComponent, ...mount } = props;
   return (
     <WorkflowSlotMount
-      slot={{ contract: WORKFLOW_GRAPH_SLOT.contract, body: body?.(mount) }}
+      slot={{
+        contract: WORKFLOW_GRAPH_SLOT.contract,
+        body:
+          NodeGraphBodyComponent === undefined ? undefined : <NodeGraphBodyComponent {...mount} />,
+      }}
       title="The node graph is not built yet."
       detail="Phases, their gates and the sequence edges between them are drawn here once the workflow engine's own canvas ships."
     />

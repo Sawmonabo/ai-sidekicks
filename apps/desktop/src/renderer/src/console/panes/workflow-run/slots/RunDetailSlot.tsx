@@ -38,7 +38,10 @@ export interface RunDetailMount {
   readonly workflowRunId: string;
 }
 
-/** The body Plan-017 authors, and the signature this pane will call it with. */
+/**
+ * The body Plan-017 authors: a COMPONENT this pane renders, never a function it
+ * calls. `owner-slots.ts` states the reason once for all five slots.
+ */
 export type RunDetailBody = (mount: RunDetailMount) => React.ReactNode;
 
 export interface RunDetailSlotProps extends RunDetailMount {
@@ -55,10 +58,14 @@ export interface RunDetailSlotProps extends RunDetailMount {
 
 /** The run detail, or the honest statement that it is reserved and unbuilt. */
 export function RunDetailSlot(props: RunDetailSlotProps): React.JSX.Element {
-  const { body, ...mount } = props;
+  const { body: RunDetailBodyComponent, ...mount } = props;
   return (
     <WorkflowSlotMount
-      slot={{ contract: WORKFLOW_RUN_DETAIL_SLOT.contract, body: body?.(mount) }}
+      slot={{
+        contract: WORKFLOW_RUN_DETAIL_SLOT.contract,
+        body:
+          RunDetailBodyComponent === undefined ? undefined : <RunDetailBodyComponent {...mount} />,
+      }}
       title="The run detail is not built yet."
       detail="Phase sections, their retries, pool waits and completed outputs render here once the workflow engine's own view ships."
     />

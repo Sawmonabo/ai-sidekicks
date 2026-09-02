@@ -14,6 +14,19 @@
 // the literal fact: nobody has filled the slot, so the mount renders its own
 // reserved-not-stubbed absence rather than a shape that reads as a broken feature.
 //
+// A BODY IS A COMPONENT, NEVER A CALL — the one rule every slot wrapper shares, and
+// the reason it is written here rather than five times. React attributes a hook to
+// whichever component is RENDERING when the hook runs, so a wrapper that invokes
+// `body(mount)` inside its own render puts the body's hooks into the wrapper's hook
+// list. Every one of these mounts is conditional — no phase, no run, no session, no
+// body — so that list would grow on the render where the branch is first taken, which
+// is React's hook-order error and a crash the day a body uses a hook at all. So each
+// wrapper CONSTRUCTS an element and lets the mount render it: the body gets its own
+// boundary, and a body that is `undefined` is an absence rather than a call skipped.
+// The reciprocal obligation is the caller's: the body must be a stable reference,
+// because a component composed inline on each render is a new type each time and
+// React remounts it, losing whatever state it held.
+//
 // WHY ONE MODULE RATHER THAN A CONSTANT BESIDE EACH MOUNT. Two of the five are
 // mounted by the run pane, two by the builder pane, and one by both — the human
 // form opens from a parked phase in the run view and from the phase inspector in
