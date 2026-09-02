@@ -9,10 +9,12 @@
 // defects the substrate's own two scenarios shipped with must fail, and it does,
 // without that family or its reviewer having to know this module exists.
 //
-// WHAT WIRE TRUTH IS HERE. `packages/contracts/src/event.ts` ships three things a
-// scenario is measured against, and every beat meets all three — then a fourth leg
-// the contracts package does not carry at all, because the run state machine lives
-// in `docs/domain/` and nothing compiles it:
+// WHAT WIRE TRUTH IS HERE. `packages/contracts/src/event.ts` ships three schemas a
+// scenario is measured against, and every beat meets all three — then the rules those
+// schemas do not carry, because the run state machine is prose in `docs/domain/` and
+// the run-lifecycle payloads have no registered variant at all. Not one of the latter
+// is restated here: each is read off the single module in this tree that already owns
+// it, so a beat this predicate admits is a beat the consumer of that rule admits too:
 //
 //   • `SESSION_EVENT_CATEGORY_BY_TYPE` — the census. Its keys are every event type
 //     the taxonomy registers, so a `kind` that is not a key is a type no daemon
@@ -46,25 +48,34 @@
 //     is the leg that refuses it, on the same terms as the transition table: a rule
 //     the shipped schemas do not carry, checked against the one module that owns
 //     the mapping rather than against a second reading of it here.
-//   • The run kind's own announced state. The same shape one family over: a
-//     `run.running` beat carrying `newState: "failed"` names a registered kind and
-//     a registered state and passes every leg above, because the strict layer
-//     registers no run-lifecycle variant to hold the pair to. It reports two states
-//     at once, and the fold that consumes it would store the one the payload names
-//     under the kind the timeline renders. A beat that names NO `newState` passed
-//     the same way, and is refused on the queue leg's terms: the tolerant envelope
-//     accepts the omission, so the beat reached delivery and was refused there as
-//     unprojectable while the run-lifecycle projector dropped its mutation — green
-//     here and rendering nothing. Read off the same module the queue leg reads,
-//     for the same reason.
-//   • The rollback payload's own session. `run.rolled_back` is the one run-lifecycle
-//     payload that carries `sessionId`, and it carries it because the durable row is
-//     what the timeline's boundary entry refines against the envelope — outer
-//     attribution and payload cannot disagree. The strict layer registers no variant
-//     for it either, so a beat that omits the member, or names another session,
-//     passes every leg above. Refused here so the scenario pass rejects exactly what
-//     `run-stream-projection.ts` would refuse at delivery, rather than letting a
-//     fixture ship a defect that only surfaces one stream later.
+//   • The projection the run-lifecycle stream delivers. The strict layer registers no
+//     variant for ANY run-lifecycle kind, so every rule about one of those payloads
+//     has to come from somewhere other than the schemas above — and there is exactly
+//     one place it already lives in full: `run-stream-projection.ts`, which is what
+//     the fixture runs to build the `RunStateChangeEvent` or `RunRolledBackEvent` a
+//     `run.subscribeState` subscriber receives. This leg calls that projection and
+//     reports its refusal. It is not a second reading of the run payloads; it is the
+//     first one, borrowed. What it catches: a beat carrying `{newState: "starting"}`
+//     and nothing else names a registered kind, announces a registered state, and
+//     passes every leg above — while the fixture refuses it at delivery as
+//     unprojectable for want of `sessionId`, `runId`, `runVersion`, and
+//     `previousState`, and the run-lifecycle projector, which yields no mutation for
+//     a payload naming no `runId`, drops it too. Green gate, nothing on screen, on
+//     both consumers at once. Two narrower legs used to stand here — one for the
+//     state the kind announces, one for the rollback payload's own session — and each
+//     was a partial copy of a rule that module owned whole. A partial copy is exactly
+//     what lets a scenario pass this predicate and fail at delivery, so both are
+//     retired into the call.
+//
+// WHY THE QUEUE LEG IS NOT THE SAME CALL. The queue arm of that module projects a
+// `QueueItemSummary`, which carries `priority` and `createdAt` — row members no queue
+// EVENT carries, sourced from the scenario's own `run.queueList` reply. Routing the
+// queue kinds through it would make this predicate refuse every scenario that scripts
+// a queue beat without also scripting that reply, which is a claim about a scenario's
+// replies rather than about a beat. The beat-scoped half of the queue rule is the leg
+// above; the row-read half is the delivery tier's
+// (`test/console/architecture/scenario-delivery-shape.test.ts`), where a scenario is
+// actually played.
 //
 // WHY THE PROBE IS A WHOLE ENVELOPE, AND WHOSE ENVELOPE IT IS. The strict layer is
 // declared per EVENT, not per payload — there is no exported payload-only schema to
@@ -83,8 +94,22 @@
 // inside that branch, under `payload` or beside it. So a failure whose every issue
 // sits on the discriminator means the strict layer registers nothing for this kind
 // — Plan-006 registers sixteen of the census's types today and the rest arrive with
-// their owning plans — and the beat is held to the census leg alone. Any other
-// failure is the beat's.
+// their owning plans — and the beat is held to the legs that do not need one. Any
+// other failure is the beat's.
+//
+// AND WHAT THAT ESCAPE IS NOW SCOPED TO. It no longer means "held to the census and
+// nothing else": it means "held to whatever OTHER registered shape exists for this
+// kind", and the set of kinds for which there is none is DERIVED rather than listed.
+// A kind reaches the escape and stops there only when `session-event-streams.ts`
+// claims it on neither narrowed stream — `runStateStreamArmFor` and
+// `runQueueStreamStateFor` both answering `undefined`. Those two tables are declared
+// `satisfies Record<<census-derived union>, …>`, so their key sets are compile-time
+// facts: the run-state arms are the census filtered to the `run.` root, intersected
+// with the registered `RunState` vocabulary, less the initial state, plus the
+// rollback row; the queue states are the census filtered to the `queue_item.` root.
+// A run-lifecycle or queue kind therefore cannot fall into the escape by being
+// forgotten here — it would have to be removed from the stream that carries it, which
+// is a compile error in that module.
 
 import {
   EventEnvelopeSchema,
@@ -94,11 +119,12 @@ import {
   type SessionEventType,
 } from "@ai-sidekicks/contracts";
 
+import { projectRunStreamDelivery } from "../run-stream-projection.js";
 import { composeScenarioEventEnvelope } from "../scenario-envelope.js";
 import type { ConsoleScenario, ScenarioBeat } from "../scenario.js";
 import {
+  RUN_STATE_EVENT_STREAM,
   runQueueStreamStateFor,
-  runStateForTransitionKind,
   runStateStreamArmFor,
 } from "../session-event-streams.js";
 
@@ -165,13 +191,9 @@ function describeBeatDefect(beat: ScenarioBeat): string | undefined {
   if (queueState !== undefined) {
     return queueState;
   }
-  const runState = describeRunStateDefect(beat);
-  if (runState !== undefined) {
-    return runState;
-  }
-  const rollbackSession = describeRollbackSessionDefect(beat);
-  if (rollbackSession !== undefined) {
-    return rollbackSession;
+  const runStreamProjection = describeRunStreamProjectionDefect(beat);
+  if (runStreamProjection !== undefined) {
+    return runStreamProjection;
   }
   const envelope = composeScenarioEventEnvelope(beat.event);
   const carried = EventEnvelopeSchema.safeParse(envelope);
@@ -271,97 +293,58 @@ function describeQueueStateDefect(beat: ScenarioBeat): string | undefined {
 }
 
 /**
- * A run beat that names no state, or names a different one than its kind announces.
+ * A run-lifecycle beat the stream that carries it cannot project, or `undefined`
+ * when the projection builds a delivery out of it.
  *
- * The transition-table leg above catches a beat that claims a run moved to the
- * state it was already in; this one catches the beat that claims two states at
- * once, and the one that claims none. `run.running` carrying `newState: "failed"` names a registered kind and a
- * registered state, passes the census, passes the envelope, and passes the strict
- * layer — which registers no run-lifecycle payload variant to hold it to — so
- * before this leg the only thing that read the pair was the projector consuming
- * it, which would have stored the run as failed under a kind the timeline renders
- * as running.
+ * THE COMPLETE REGISTERED SHAPE, AND ONLY ONE READING OF IT. `SessionEventSchema`
+ * registers no payload variant for any run-lifecycle kind, so a `run.starting` beat
+ * carrying `{newState: "starting"}` and nothing else passes the census, passes the
+ * canonical envelope, and takes the strict layer's discriminator escape. What it does
+ * not pass is delivery: `run-stream-projection.ts` refuses it as unprojectable for
+ * want of `sessionId`, `runId`, `runVersion`, and `previousState`, and the
+ * run-lifecycle projector yields no mutation for a payload naming no `runId`. Both
+ * consumers render nothing while this predicate stays green, which is the one outcome
+ * it exists to prevent.
  *
- * The mapping is `session-event-streams.ts`'s and is read rather than restated,
- * for the queue leg's reason exactly: that module is what routes these beats onto
- * the run-state stream, and a second copy of the table would let a scenario pass
- * here and fail the fold that consumes it. A kind it does not claim announces no
- * transition — the creation row, the rollback row, the three forward, non-state
- * rows — and is not this leg's business.
+ * THE RULE IS THAT MODULE'S, CALLED RATHER THAN COPIED. It composes the candidate the
+ * fixture composes, parses it through the shape the corpus registers for the arm
+ * (`RunStateChangeEventSchema` or `RunRolledBackEventSchema`), and makes the two
+ * cross-checks no schema can — the kind against the state the payload names, and the
+ * envelope's session against the payload's — so the beats admitted here are exactly
+ * the beats a subscriber can be handed. Two narrower legs stood in this place before,
+ * one for the announced state and one for the rollback payload's session, and each
+ * restated a fragment of a rule that module owned whole. A fragment is what lets a
+ * scenario pass this predicate and fail one stream later, which is the shape of defect
+ * this whole file was written against.
+ *
+ * Scoped by the routing table rather than by a kind list, exactly as the queue leg
+ * above is: `runStateStreamArmFor` is what decides a beat reaches `run.subscribeState`
+ * at all, so a kind it does not claim has no registered projection to be held to.
+ * Those are the creation row `run.queued`, whose subscriber is `session.subscribe`,
+ * and the three forward, non-state run rows — each held to the legs that need no
+ * registered variant.
+ *
+ * The refusal is reported in the projection's own words. It already names the beat,
+ * the member, and what to script instead, and rephrasing it here would be a second
+ * voice for one rule and a second thing to keep in step with the delivery path.
  */
-function describeRunStateDefect(beat: ScenarioBeat): string | undefined {
-  const announcedState = runStateForTransitionKind(beat.event.kind);
-  if (announcedState === undefined) {
+function describeRunStreamProjectionDefect(beat: ScenarioBeat): string | undefined {
+  if (runStateStreamArmFor(beat.event.kind) === undefined) {
     return undefined;
   }
-  const statedState = beat.event.payload?.["newState"];
-  if (statedState === announcedState) {
+  // The subscription name is the registered constant this module and the projection
+  // both read, so the `undefined` arm — "this subscription registers no projection" —
+  // is unreachable from here. It is handled rather than asserted away because the one
+  // way to reach it is those two readings drifting apart, and an assertion would turn
+  // that into a thrown fixture error where every other defect is a reported one.
+  const projected = projectRunStreamDelivery(RUN_STATE_EVENT_STREAM, beat.event);
+  if (projected === undefined || projected.status === "projected") {
     return undefined;
-  }
-  if (statedState === undefined) {
-    // Absence is a defect, on the queue leg's terms exactly. The tolerant envelope
-    // accepts a run-lifecycle payload with no `newState` and the strict layer
-    // registers no variant to reject it, so this beat passed every leg above —
-    // and then `run-stream-projection.ts` refuses it as `beat-unprojectable` at
-    // delivery while the run-lifecycle projector drops its mutation. A scenario
-    // that passes the gate and produces nothing on either consumer is the exact
-    // shape this predicate exists to keep off a family branch.
-    return (
-      "this beat names no `newState`, which is the member the run-state stream " +
-      "projects into the registered `currentState` and the member the run-lifecycle " +
-      "projector folds. Name the state this run moved to — " +
-      `\`"${announcedState}"\`, which is what its kind announces.`
-    );
   }
   return (
-    `this beat announces "${announcedState}" by its kind and ` +
-    `${JSON.stringify(statedState)} as its \`newState\`, so it reports two run states at ` +
-    "once. Nothing the contracts package ships rejects the pair — no payload variant is " +
-    "registered for the run-lifecycle kinds — so the fold that consumes it would store the " +
-    "state the payload names under the kind the timeline renders. Script the transition this " +
-    "beat means."
+    `the \`${RUN_STATE_EVENT_STREAM}\` projection refuses this beat, so the stream that ` +
+    `carries it would deliver nothing for it: ${projected.detail}`
   );
-}
-
-/**
- * A rollback beat that names no session, or names one its envelope contradicts.
- *
- * `Spec-006 §Run Lifecycle (run_lifecycle)` fixes the per-type `run.rolled_back`
- * payload at `{sessionId, runId, runVersion, channelId?, targetPosition}` — the one
- * run-lifecycle payload carrying a session, and it carries one because the same
- * payload is the durable row the timeline's boundary entry refines against the
- * envelope: `sessionId === payload.sessionId`, so outer attribution and payload
- * cannot disagree. `SessionEventSchema` registers no variant for this kind, so both
- * halves of that rule are enforced by nothing the contracts package ships.
- *
- * The arm is read off `session-event-streams.ts` rather than compared against a
- * literal kind, exactly as the two legs above read their tables: that module is what
- * routes this beat onto the rollback arm of the run-state stream, and a second copy
- * of the mapping here would let a scenario pass this leg and fail the projection that
- * consumes it. Every other kind travels an arm with no session member and is not this
- * leg's business.
- */
-function describeRollbackSessionDefect(beat: ScenarioBeat): string | undefined {
-  if (runStateStreamArmFor(beat.event.kind) !== "rollback") {
-    return undefined;
-  }
-  const statedSessionId = beat.event.payload?.["sessionId"];
-  if (statedSessionId === undefined) {
-    return (
-      "this beat names no `sessionId`, which is a required member of every rollback " +
-      "payload the daemon emits — and the member the timeline's boundary entry refines " +
-      `against the envelope. Name the session this beat is delivered on, \`"${beat.event.sessionId}"\`.`
-    );
-  }
-  if (statedSessionId !== beat.event.sessionId) {
-    return (
-      `this beat is delivered on session "${beat.event.sessionId}" and names ` +
-      `${JSON.stringify(statedSessionId)} in its payload, so its outer attribution and its ` +
-      "payload disagree about which session was rolled back. One of the two is the session " +
-      "this beat means; script that one in both places."
-    );
-  }
-  return undefined;
 }
 
 /** One Zod issue as a sentence fragment: where it is, and what it says. */

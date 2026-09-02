@@ -54,6 +54,43 @@ const CONTROL_RUN_ID = "019b79ee-0280-740e-8110-d1a4c1159901";
 /** A queue row the queue-state controls below are about. */
 const CONTROL_QUEUE_ITEM_ID = "019b79ee-0280-7c11-8110-d1a4c1159902";
 
+/** The instant a control scenario starts, which every beat's tick is measured from. */
+const CONTROL_STARTED_AT = "2026-01-01T00:00:00.000Z";
+
+/**
+ * One run-transition beat, complete as the stream that carries it projects it.
+ *
+ * The ordering and carrier controls below are about a POSITION or an envelope member,
+ * so their run payloads have to be beats the predicate would otherwise accept: a
+ * `run.*` beat is measured against `RunStateChangeEvent` through the same projection
+ * the fixture delivers it by, and a bare `{newState}` would report a second defect of
+ * its own and stop each of those controls varying exactly one thing.
+ */
+function runControlBeat(
+  atMs: number,
+  sequence: number,
+  previousState: string,
+  newState: string,
+): ConsoleScenario["beats"][number] {
+  return {
+    atMs,
+    event: {
+      id: CONTROL_EVENT_ID,
+      sessionId: CONTROL_SESSION_ID,
+      sequence,
+      kind: `run.${newState}`,
+      occurredAt: new Date(Date.parse(CONTROL_STARTED_AT) + atMs).toISOString(),
+      payload: {
+        sessionId: CONTROL_SESSION_ID,
+        runId: CONTROL_RUN_ID,
+        runVersion: sequence,
+        previousState,
+        newState,
+      },
+    },
+  };
+}
+
 /** One queue beat, over whatever payload the control under test wants to plant. */
 function queueControlBeat(
   eventKind: string,
@@ -80,7 +117,7 @@ function controlScenario(overrides: Partial<ConsoleScenario>): ConsoleScenario {
     purpose: "Drives the shipped wire-truth predicate with one deliberate defect.",
     sessionId: CONTROL_SESSION_ID,
     participantIdsInJoinOrder: [],
-    startedAtIso: "2026-01-01T00:00:00.000Z",
+    startedAtIso: CONTROL_STARTED_AT,
     beats: [],
     replies: [],
     ...overrides,
@@ -322,22 +359,10 @@ describe("scenario wire truth — the controls", () => {
     // the system arm (which omits the key), so the delivery would be counted
     // unreadable and dropped, which in a fixture reads as a beat that renders
     // nothing.
+    const carrierDefectBeat = runControlBeat(0, 1, "queued", "starting");
     const defects = findScenarioWireTruthDefects([
       controlScenario({
-        beats: [
-          {
-            atMs: 0,
-            event: {
-              id: CONTROL_EVENT_ID,
-              sessionId: CONTROL_SESSION_ID,
-              sequence: 1,
-              kind: "run.starting",
-              occurredAt: "2026-01-01T00:00:00.000Z",
-              actorId: "",
-              payload: { newState: "starting" },
-            },
-          },
-        ],
+        beats: [{ ...carrierDefectBeat, event: { ...carrierDefectBeat.event, actorId: "" } }],
       }),
     ]);
 
@@ -353,28 +378,8 @@ describe("scenario wire truth — the controls", () => {
     const defects = findScenarioWireTruthDefects([
       controlScenario({
         beats: [
-          {
-            atMs: 200,
-            event: {
-              id: CONTROL_EVENT_ID,
-              sessionId: CONTROL_SESSION_ID,
-              sequence: 1,
-              kind: "run.starting",
-              occurredAt: "2026-01-01T00:00:00.200Z",
-              payload: { newState: "starting" },
-            },
-          },
-          {
-            atMs: 20,
-            event: {
-              id: CONTROL_EVENT_ID,
-              sessionId: CONTROL_SESSION_ID,
-              sequence: 2,
-              kind: "run.running",
-              occurredAt: "2026-01-01T00:00:00.020Z",
-              payload: { newState: "running" },
-            },
-          },
+          runControlBeat(200, 1, "queued", "starting"),
+          runControlBeat(20, 2, "starting", "running"),
         ],
       }),
     ]);
@@ -393,28 +398,8 @@ describe("scenario wire truth — the controls", () => {
     const defects = findScenarioWireTruthDefects([
       controlScenario({
         beats: [
-          {
-            atMs: 0,
-            event: {
-              id: CONTROL_EVENT_ID,
-              sessionId: CONTROL_SESSION_ID,
-              sequence: 1,
-              kind: "run.starting",
-              occurredAt: "2026-01-01T00:00:00.000Z",
-              payload: { newState: "starting" },
-            },
-          },
-          {
-            atMs: 20,
-            event: {
-              id: CONTROL_EVENT_ID,
-              sessionId: CONTROL_SESSION_ID,
-              sequence: 3,
-              kind: "run.running",
-              occurredAt: "2026-01-01T00:00:00.020Z",
-              payload: { newState: "running" },
-            },
-          },
+          runControlBeat(0, 1, "queued", "starting"),
+          runControlBeat(20, 3, "starting", "running"),
         ],
       }),
     ]);
@@ -435,28 +420,8 @@ describe("scenario wire truth — the controls", () => {
     const defects = findScenarioWireTruthDefects([
       controlScenario({
         beats: [
-          {
-            atMs: 0,
-            event: {
-              id: CONTROL_EVENT_ID,
-              sessionId: CONTROL_SESSION_ID,
-              sequence: 1,
-              kind: "run.starting",
-              occurredAt: "2026-01-01T00:00:00.000Z",
-              payload: { newState: "starting" },
-            },
-          },
-          {
-            atMs: 20,
-            event: {
-              id: CONTROL_EVENT_ID,
-              sessionId: CONTROL_SESSION_ID,
-              sequence: 1,
-              kind: "run.running",
-              occurredAt: "2026-01-01T00:00:00.020Z",
-              payload: { newState: "running" },
-            },
-          },
+          runControlBeat(0, 1, "queued", "starting"),
+          runControlBeat(20, 1, "starting", "running"),
         ],
       }),
     ]);
@@ -474,28 +439,8 @@ describe("scenario wire truth — the controls", () => {
     const defects = findScenarioWireTruthDefects([
       controlScenario({
         beats: [
-          {
-            atMs: 40,
-            event: {
-              id: CONTROL_EVENT_ID,
-              sessionId: CONTROL_SESSION_ID,
-              sequence: 1,
-              kind: "run.starting",
-              occurredAt: "2026-01-01T00:00:00.040Z",
-              payload: { newState: "starting" },
-            },
-          },
-          {
-            atMs: 40,
-            event: {
-              id: CONTROL_EVENT_ID,
-              sessionId: CONTROL_SESSION_ID,
-              sequence: 2,
-              kind: "run.running",
-              occurredAt: "2026-01-01T00:00:00.040Z",
-              payload: { newState: "running" },
-            },
-          },
+          runControlBeat(40, 1, "queued", "starting"),
+          runControlBeat(40, 2, "starting", "running"),
         ],
       }),
     ]);
@@ -510,28 +455,8 @@ describe("scenario wire truth — the controls", () => {
     const defects = findScenarioWireTruthDefects([
       controlScenario({
         beats: [
-          {
-            atMs: 40,
-            event: {
-              id: CONTROL_EVENT_ID,
-              sessionId: CONTROL_SESSION_ID,
-              sequence: 1,
-              kind: "run.starting",
-              occurredAt: "2026-01-01T00:00:00.040Z",
-              payload: { newState: "starting" },
-            },
-          },
-          {
-            atMs: 40,
-            event: {
-              id: CONTROL_EVENT_ID,
-              sessionId: CONTROL_SESSION_ID,
-              sequence: 2,
-              kind: "run.running",
-              occurredAt: "2026-01-01T00:00:00.040Z",
-              payload: { newState: "running" },
-            },
-          },
+          runControlBeat(40, 1, "queued", "starting"),
+          runControlBeat(40, 2, "starting", "running"),
         ],
       }),
     ]);
@@ -629,20 +554,11 @@ describe("scenario wire truth — the controls", () => {
               payload: validSessionCreatedPayload(),
             },
           },
-          {
-            atMs: 10,
-            event: {
-              id: CONTROL_EVENT_ID,
-              sessionId: CONTROL_SESSION_ID,
-              sequence: 2,
-              // A registered type the strict layer has no payload variant for yet.
-              // It is held to the census leg and no further, which is what keeps
-              // this test from demanding schemas Plan-006 has not shipped.
-              kind: "run.starting",
-              occurredAt: "2026-01-01T00:00:00.010Z",
-              payload: { runId: CONTROL_SESSION_ID, runVersion: 1, newState: "starting" },
-            },
-          },
+          // A registered type the strict layer has no payload variant for. It is
+          // held instead to the shape `run.subscribeState` projects it into, which
+          // is a rule the corpus already ships rather than a schema Plan-006 has
+          // not — so this beat carries the whole registered transition.
+          runControlBeat(10, 2, "queued", "starting"),
         ],
         replies: [{ call: "agent.list", result: { agents: [] } }],
       }),

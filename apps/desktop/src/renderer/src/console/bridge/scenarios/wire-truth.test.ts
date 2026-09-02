@@ -113,7 +113,8 @@ describe("scenario wire truth — a run beat that reports two states at once", (
 
     expect(defects).toHaveLength(1);
     expect(defects[0]?.subject).toContain("run.starting");
-    expect(defects[0]?.reason).toContain("two run states");
+    // The projection's own words, because the projection is what makes the call.
+    expect(defects[0]?.reason).toContain("two current states");
   });
 
   it("negative control: the same beat naming the state its kind announces is clean", () => {
@@ -160,6 +161,106 @@ describe("scenario wire truth — a run beat that reports two states at once", (
 
     expect(queuedBeat?.event.payload?.["newState"]).toBe("queued");
     expect(findScenarioWireTruthDefects([FLAGSHIP_SCENARIO])).toStrictEqual([]);
+  });
+});
+
+describe("scenario wire truth — a run beat held to the whole shape its stream projects", () => {
+  /**
+   * The flagship's own `run.starting` beat, carrying exactly the payload named.
+   *
+   * A replacement rather than a spread, unlike the state-pair cases above: what these
+   * cases vary is which members are PRESENT, and a spread would supply the ones the
+   * beat is meant to be missing.
+   */
+  function scenarioWithStartingBeatPayload(
+    scenarioId: string,
+    payload: Readonly<Record<string, unknown>>,
+  ): ConsoleScenario {
+    return {
+      ...FLAGSHIP_SCENARIO,
+      id: scenarioId,
+      beats: FLAGSHIP_SCENARIO.beats.map((beat) =>
+        beat.event.kind === "run.starting" ? { ...beat, event: { ...beat.event, payload } } : beat,
+      ),
+    };
+  }
+
+  /**
+   * The flagship's own `run.starting` payload — a complete registered transition.
+   *
+   * Read off the shipped beat rather than written out again, so a case that varies one
+   * member varies it against the payload the seat board actually carries.
+   */
+  function shippedStartingPayload(): Readonly<Record<string, unknown>> {
+    const payload = FLAGSHIP_SCENARIO.beats.find((beat) => beat.event.kind === "run.starting")
+      ?.event.payload;
+    if (payload === undefined) {
+      throw new Error("the flagship scenario plays no `run.starting` beat to read a payload from");
+    }
+    return payload;
+  }
+
+  it("reports a beat carrying nothing but the state its kind announces", () => {
+    // The finding and its negative control at once: on the old walk this answered NO
+    // defect. The announced state matched, the tolerant envelope carried the payload,
+    // and the strict layer's discriminator escape covered the rest — while the fixture
+    // refused the very same beat at delivery and the run-lifecycle projector, which
+    // needs a `runId`, produced no mutation for it. Green gate, nothing on screen.
+    const defects = findScenarioWireTruthDefects([
+      scenarioWithStartingBeatPayload("names-only-its-state", { newState: "starting" }),
+    ]);
+
+    expect(defects).toHaveLength(1);
+    expect(defects[0]?.subject).toContain("run.starting");
+    expect(defects[0]?.reason).toContain("run.subscribeState");
+    expect(defects[0]?.reason).toContain("sessionId");
+  });
+
+  it("names every member the registered transition shape is still missing", () => {
+    // With the session supplied the refusal reaches the parse, which reports each
+    // absent member by its own path rather than stopping at the first — so a scenario
+    // author fixes the beat in one pass instead of one member per run.
+    const defects = findScenarioWireTruthDefects([
+      scenarioWithStartingBeatPayload("names-its-session-and-no-more", {
+        sessionId: FLAGSHIP_SCENARIO.sessionId,
+        newState: "starting",
+      }),
+    ]);
+
+    expect(defects).toHaveLength(1);
+    const reason = defects[0]?.reason ?? "";
+    expect(reason).toContain("runId");
+    expect(reason).toContain("runVersion");
+    expect(reason).toContain("previousState");
+  });
+
+  it("reports a transition beat whose payload names a session it is not delivered on", () => {
+    // The rollback arm used to carry this check alone, which left the two state arms
+    // as the ones that could hide the mismatch: neither registered stream shape carries
+    // a `sessionId` member at all, so the disagreeing value is dropped by the projection
+    // and the subscriber receives a valid-looking update about a session nobody asked
+    // about, with nothing on the delivered payload left to notice it by.
+    const defects = findScenarioWireTruthDefects([
+      scenarioWithStartingBeatPayload("transition-names-another-session", {
+        ...shippedStartingPayload(),
+        sessionId: STRANGER_SESSION_ID,
+      }),
+    ]);
+
+    expect(defects).toHaveLength(1);
+    expect(defects[0]?.reason).toContain(STRANGER_SESSION_ID);
+    expect(defects[0]?.reason).toContain("disagree");
+  });
+
+  it("negative control: the complete transition the seat board ships is clean", () => {
+    // Without it every case above would hold over a leg that refused every run beat,
+    // and no family could script a transition at all. The payload is the shipped one,
+    // handed back through the same replacement the cases above use.
+    expect(
+      findScenarioWireTruthDefects([
+        scenarioWithStartingBeatPayload("names-the-shipped-payload", shippedStartingPayload()),
+      ]),
+    ).toStrictEqual([]);
   });
 });
 
