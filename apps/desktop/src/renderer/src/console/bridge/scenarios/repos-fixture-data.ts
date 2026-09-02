@@ -63,8 +63,8 @@ export interface ReposScenarioAgent {
   readonly driverName: string;
   readonly modelId: string;
   readonly worktreeId: string;
+  /** When the attach beat fires, in scenario time. Its wire stamp is derived from it. */
   readonly attachedAtMs: number;
-  readonly attachedAtIso: string;
 }
 
 export const REPOS_AGENTS: readonly ReposScenarioAgent[] = [
@@ -75,7 +75,6 @@ export const REPOS_AGENTS: readonly ReposScenarioAgent[] = [
     modelId: "claude-sonnet-5",
     worktreeId: IMPLEMENTER_WORKTREE_ID,
     attachedAtMs: 80,
-    attachedAtIso: "2026-01-01T09:05:00.080Z",
   },
   {
     agentId: AGENT_REVIEWER,
@@ -84,7 +83,6 @@ export const REPOS_AGENTS: readonly ReposScenarioAgent[] = [
     modelId: "gpt-5.6-sol",
     worktreeId: REVIEWER_WORKTREE_ID,
     attachedAtMs: 120,
-    attachedAtIso: "2026-01-01T09:05:00.120Z",
   },
 ];
 
@@ -103,8 +101,8 @@ export const REPOS_AGENTS: readonly ReposScenarioAgent[] = [
 export interface ReposScenarioAttachment {
   readonly artifactId: string;
   readonly replicationStatus: string;
+  /** When the publish beat fires, in scenario time. Its wire stamp is derived from it. */
   readonly atMs: number;
-  readonly occurredAt: string;
 }
 
 export const REPOS_ATTACHMENTS: readonly ReposScenarioAttachment[] = [
@@ -112,19 +110,16 @@ export const REPOS_ATTACHMENTS: readonly ReposScenarioAttachment[] = [
     artifactId: PINNED_ATTACHMENT_ID,
     replicationStatus: "pinned",
     atMs: 1360,
-    occurredAt: "2026-01-01T09:05:01.360Z",
   },
   {
     artifactId: REPLICATING_ATTACHMENT_ID,
     replicationStatus: "pending_replication",
     atMs: 1400,
-    occurredAt: "2026-01-01T09:05:01.400Z",
   },
   {
     artifactId: EXPIRED_ATTACHMENT_ID,
     replicationStatus: "expired",
     atMs: 1440,
-    occurredAt: "2026-01-01T09:05:01.440Z",
   },
 ];
 
