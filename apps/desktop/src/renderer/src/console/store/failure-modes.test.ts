@@ -18,7 +18,11 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { PRE_INITIALISATION_BUFFER_CAP, consoleTripwires } from "../core/index.js";
+import {
+  MAX_REPAIRABLE_SEQUENCE_GAP,
+  PRE_INITIALISATION_BUFFER_CAP,
+  consoleTripwires,
+} from "../core/index.js";
 import type { ConsoleSessionEvent } from "./entities.js";
 import { SessionStore } from "./session-store.js";
 
@@ -30,6 +34,20 @@ beforeEach(() => {
   consoleTripwires.reset();
 });
 
+/**
+ * A stable wire timestamp per sequence.
+ *
+ * Separate from `eventAt` because several cases below deliver sequences `Date`
+ * cannot represent at all — `NaN`, an infinity, a value far past the millisecond
+ * range — and a helper that threw on them would fail the test before the store
+ * ever saw the event it is supposed to refuse.
+ */
+function occurredAtFor(sequence: number): string {
+  const startOfDay = Date.UTC(2026, 0, 1);
+  const secondsIntoDay = Number.isSafeInteger(sequence) ? Math.min(Math.abs(sequence), 86_399) : 0;
+  return new Date(startOfDay + secondsIntoDay * 1000).toISOString();
+}
+
 function eventAt(
   sequence: number,
   overrides: Partial<ConsoleSessionEvent> = {},
@@ -38,7 +56,7 @@ function eventAt(
     sessionId: "session-1",
     sequence,
     kind: "run.starting",
-    occurredAt: new Date(Date.UTC(2026, 0, 1, 0, 0, sequence)).toISOString(),
+    occurredAt: occurredAtFor(sequence),
     ...overrides,
   };
 }
@@ -59,7 +77,7 @@ describe("failure matrix — a bridge event arrives before the store is initiali
     // could only heal with a full re-pull.
     const timeline = store.snapshot().timeline;
     expect(timeline.map((event) => event.sequence)).toStrictEqual([2, 3]);
-    expect(store.snapshot().gapSequences).toStrictEqual([]);
+    expect(store.snapshot().gaps).toStrictEqual([]);
     expect(store.snapshot().cursor).toBe(3);
   });
 
@@ -81,7 +99,7 @@ describe("failure matrix — a bridge event arrives before the store is initiali
     const outcome = store.applyBatch([eventAt(1), eventAt(4)]);
 
     expect(outcome.gapDetected).toBe(true);
-    expect(store.snapshot().gapSequences).toStrictEqual([2, 3]);
+    expect(store.snapshot().gaps).toStrictEqual([{ fromSequence: 2, toSequence: 3 }]);
   });
 });
 
@@ -144,7 +162,7 @@ describe("failure matrix — the repair read answers at the cursor the store alr
   it("admits an equal-cursor snapshot into a degraded store and clears the gap", () => {
     const store = degradedAtCursorSeven();
     expect(store.snapshot().degradedCause).toBe("sequence-gap");
-    expect(store.snapshot().gapSequences).toStrictEqual([6]);
+    expect(store.snapshot().gaps).toStrictEqual([{ fromSequence: 6, toSequence: 6 }]);
 
     store.initialise({
       cursor: 7,
@@ -157,7 +175,7 @@ describe("failure matrix — the repair read answers at the cursor the store alr
     // projection and the banner stuck until unrelated later activity happened to
     // push the session past 7 — a degraded state nothing on the wire can clear.
     expect(store.snapshot().degradedCause).toBeUndefined();
-    expect(store.snapshot().gapSequences).toStrictEqual([]);
+    expect(store.snapshot().gaps).toStrictEqual([]);
     expect(store.snapshot().timeline.map((event) => event.sequence)).toStrictEqual([6, 7]);
   });
 
@@ -229,7 +247,7 @@ describe("failure matrix — events arrive before initialisation and the read ne
     expect(store.pendingPreInitialisationCount).toBe(0);
     // The dropped sequences are named rather than guessed at: the drain runs the
     // same gap detection every other admission does.
-    expect(store.snapshot().gapSequences).toStrictEqual([1, 2, 3]);
+    expect(store.snapshot().gaps).toStrictEqual([{ fromSequence: 1, toSequence: 3 }]);
     expect(store.snapshot().degradedCause).toBe("sequence-gap");
   });
 
@@ -244,7 +262,257 @@ describe("failure matrix — events arrive before initialisation and the read ne
     store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
 
     expect(store.snapshot().timeline).toHaveLength(PRE_INITIALISATION_BUFFER_CAP);
-    expect(store.snapshot().gapSequences).toStrictEqual([]);
+    expect(store.snapshot().gaps).toStrictEqual([]);
+    expect(store.snapshot().degradedCause).toBeUndefined();
+  });
+});
+
+describe("failure matrix — a delivered sequence the store cannot reconcile", () => {
+  // The per-case timeout below is part of the claim: a store that enumerated the
+  // jump would spend far longer than two seconds before producing any answer.
+  it("settles a jump of a billion into the repair path instead of enumerating it", () => {
+    const store = new SessionStore({ sessionId: "session-1" });
+    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+
+    const outcome = store.applyBatch([eventAt(1_000_000_000)]);
+
+    // Nothing is admitted and nothing is enumerated: a hole a billion wide is
+    // not a hole this store can fill, and walking it to say so would cost the
+    // renderer the frame budget for the whole session before it could refuse.
+    expect(outcome.refusedDivergedSequence).toBe(1);
+    expect(outcome.admitted).toBe(0);
+    expect(store.snapshot().gaps).toStrictEqual([]);
+    expect(store.snapshot().timeline).toHaveLength(0);
+    // The cursor stays where an authoritative read can still answer at or ahead
+    // of it. Advancing it to a billion would make every real repair a rewind.
+    expect(store.snapshot().cursor).toBe(0);
+    expect(store.snapshot().degradedCause).toBe("stream-diverged");
+  }, 2000);
+
+  it("refuses a sequence too large to increment reliably rather than poisoning the cursor", () => {
+    const store = new SessionStore({ sessionId: "session-1" });
+    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+
+    const outcome = store.applyBatch([
+      eventAt(Number.MAX_SAFE_INTEGER),
+      eventAt(Number.MAX_SAFE_INTEGER + 2),
+      eventAt(Number.NaN),
+      eventAt(Number.POSITIVE_INFINITY),
+      eventAt(1.5),
+    ]);
+
+    expect(outcome.refusedDivergedSequence).toBe(5);
+    expect(outcome.admitted).toBe(0);
+    // The cursor is still a number a later comparison can act on. One `NaN`
+    // through `Math.max` would have made every guard in the class evaluate false
+    // for the rest of the session's life.
+    expect(store.snapshot().cursor).toBe(0);
+    expect(store.snapshot().degradedCause).toBe("stream-diverged");
+  });
+
+  it("orders the rest of a batch normally even with an unusable sequence in it", () => {
+    // The batch order is decided by a comparator, and the obvious subtraction
+    // answers `NaN` here — which leaves the sort order of every well-formed event
+    // beside it undefined. One hostile sequence must not decide where the real
+    // ones land.
+    const store = new SessionStore({ sessionId: "session-1" });
+    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+
+    const outcome = store.applyBatch([eventAt(3), eventAt(Number.NaN), eventAt(1)]);
+
+    expect(outcome.refusedDivergedSequence).toBe(1);
+    expect(outcome.admitted).toBe(2);
+    // Ordered, and the hole named once. Under the subtracting comparator this
+    // exact batch sorts to `[3, NaN, 1]`, which appends 3 before 1 and records a
+    // gap at 1–2 that the same batch then fills without saying so.
+    expect(store.snapshot().timeline.map((event) => event.sequence)).toStrictEqual([1, 3]);
+    expect(store.snapshot().gaps).toStrictEqual([{ fromSequence: 2, toSequence: 2 }]);
+  });
+
+  it("refuses an unusable sequence before it is buffered, on a store with no base state", () => {
+    // The pre-initialisation buffer exists to hold events until a base state can
+    // make them applicable. No base state makes `NaN` applicable, so buffering it
+    // would only defer the same refusal behind a drain.
+    const store = new SessionStore({ sessionId: "session-1" });
+
+    const outcome = store.applyBatch([eventAt(Number.NaN), eventAt(2)]);
+
+    expect(outcome.refusedDivergedSequence).toBe(1);
+    expect(outcome.buffered).toBe(1);
+    expect(store.pendingPreInitialisationCount).toBe(1);
+  });
+
+  it("bounds the total loss it will carry, not merely one jump", () => {
+    // One-wide holes, repeated. Each of them is individually repairable and the
+    // arithmetic of the class is what fails: a bound on a single jump would let
+    // the range list grow one entry per hole for the life of the session.
+    const store = new SessionStore({ sessionId: "session-1" });
+    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+
+    const strided = Array.from({ length: MAX_REPAIRABLE_SEQUENCE_GAP + 8 }, (_unused, index) =>
+      eventAt(index * 2 + 2),
+    );
+    const outcome = store.applyBatch(strided);
+
+    expect(outcome.refusedDivergedSequence).toBeGreaterThan(0);
+    expect(store.snapshot().degradedCause).toBe("stream-diverged");
+    // A range is at least one sequence wide, so bounding the accumulated loss
+    // bounds the list that records it.
+    expect(store.snapshot().gaps.length).toBeLessThanOrEqual(MAX_REPAIRABLE_SEQUENCE_GAP);
+  });
+
+  it("negative control: a gap inside the bound still records a range and still repairs", () => {
+    // Without this the cases above would pass over a store that had simply stopped
+    // admitting anything with a hole in front of it.
+    const store = new SessionStore({ sessionId: "session-1" });
+    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+
+    const outcome = store.applyBatch([eventAt(1), eventAt(MAX_REPAIRABLE_SEQUENCE_GAP + 1)]);
+
+    expect(outcome.refusedDivergedSequence).toBe(0);
+    expect(outcome.admitted).toBe(2);
+    expect(outcome.gapDetected).toBe(true);
+    expect(store.snapshot().gaps).toStrictEqual([
+      { fromSequence: 2, toSequence: MAX_REPAIRABLE_SEQUENCE_GAP },
+    ]);
+    expect(store.snapshot().degradedCause).toBe("sequence-gap");
+
+    store.initialise({
+      cursor: MAX_REPAIRABLE_SEQUENCE_GAP + 1,
+      entities: [],
+      participantJoinLog: [],
+    });
+
+    expect(store.snapshot().degradedCause).toBeUndefined();
+    expect(store.snapshot().gaps).toStrictEqual([]);
+  });
+});
+
+describe("failure matrix — dedupe memory over a long-lived session", () => {
+  it("releases the sequences the cursor already refuses, so the set stays a batch wide", () => {
+    const store = new SessionStore({ sessionId: "session-1" });
+    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+
+    const batchSize = 100;
+    const batchCount = 50;
+    for (let batch = 0; batch < batchCount; batch += 1) {
+      store.applyBatch(
+        Array.from({ length: batchSize }, (_unused, index) =>
+          eventAt(batch * batchSize + index + 1),
+        ),
+      );
+    }
+
+    expect(store.snapshot().cursor).toBe(batchSize * batchCount);
+    // Every one of those sequences is at or below the cursor, and the cursor test
+    // refuses them without help. Retaining them would have grown this set by one
+    // number per event for as long as the session stayed open — behind a timeline
+    // the cap had already trimmed.
+    expect(store.retainedDedupeSequenceCount).toBe(0);
+  });
+
+  it("negative control: an in-batch duplicate is still rejected", () => {
+    // The set's whole remaining job. A release that cleared it mid-batch would
+    // admit the second copy of a sequence the same batch already carried.
+    const store = new SessionStore({ sessionId: "session-1" });
+    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+
+    const outcome = store.applyBatch([eventAt(1), eventAt(1), eventAt(2)]);
+
+    expect(outcome.admitted).toBe(2);
+    expect(outcome.duplicates).toBe(1);
+    expect(store.snapshot().timeline.map((event) => event.sequence)).toStrictEqual([1, 2]);
+  });
+
+  it("negative control: a replay below the cursor is still rejected", () => {
+    const store = new SessionStore({ sessionId: "session-1" });
+    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    store.applyBatch([eventAt(1), eventAt(2), eventAt(3)]);
+
+    const replay = store.applyBatch([eventAt(2), eventAt(3)]);
+
+    expect(replay.duplicates).toBe(2);
+    expect(replay.admitted).toBe(0);
+    expect(store.snapshot().timeline.map((event) => event.sequence)).toStrictEqual([1, 2, 3]);
+  });
+});
+
+describe("failure matrix — a registered projector throws on an event", () => {
+  const REJECTED_SEQUENCE = 3;
+
+  function storeWithProjectorThrowingAt(sequence: number): SessionStore {
+    return new SessionStore({
+      sessionId: "session-1",
+      projectors: {
+        "run.starting": (event) => {
+          if (event.sequence === sequence) {
+            throw new TypeError("the payload was not the shape this projector claims");
+          }
+          return [
+            {
+              operation: "upsert",
+              entity: { kind: "run", id: `run-${String(event.sequence)}` },
+            },
+          ];
+        },
+      },
+    });
+  }
+
+  it("costs the event its entity contribution, never the batch and never the process", () => {
+    const store = storeWithProjectorThrowingAt(REJECTED_SEQUENCE);
+    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+
+    const outcome = store.applyBatch([1, 2, 3, 4, 5].map((sequence) => eventAt(sequence)));
+
+    expect(outcome.projectionFailures).toBe(1);
+    expect(outcome.admitted).toBe(5);
+    // The batch survives whole: the four events whose projection succeeded are
+    // projected, the timeline holds all five, and the loss is NAMED rather than
+    // absorbed, because only a re-pull can supply the mutation that did not run.
+    expect(store.snapshot().timeline.map((event) => event.sequence)).toStrictEqual([1, 2, 3, 4, 5]);
+    expect(Object.keys(store.snapshot().partitions.run).sort()).toStrictEqual([
+      "run-1",
+      "run-2",
+      "run-4",
+      "run-5",
+    ]);
+    expect(store.snapshot().degradedCause).toBe("projection-failed");
+  });
+
+  it("applies a failing event's mutations all or not at all", () => {
+    // A projector that returns a good mutation and then a malformed one. Merging
+    // the first before the second threw would leave a partition holding half of a
+    // transition nothing will ever complete.
+    const store = new SessionStore({
+      sessionId: "session-1",
+      projectors: {
+        "run.starting": () => [
+          { operation: "upsert", entity: { kind: "run", id: "run-half-applied" } },
+          {
+            operation: "upsert",
+            entity: { kind: "not-a-kind" as never, id: "run-unmergeable" },
+          },
+        ],
+      },
+    });
+    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+
+    const outcome = store.applyBatch([eventAt(1)]);
+
+    expect(outcome.projectionFailures).toBe(1);
+    expect(store.snapshot().partitions.run).toStrictEqual({});
+    expect(store.snapshot().degradedCause).toBe("projection-failed");
+  });
+
+  it("negative control: a projector that returns cleanly still projects and leaves no cause", () => {
+    const store = storeWithProjectorThrowingAt(Number.NaN);
+    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+
+    const outcome = store.applyBatch([eventAt(1), eventAt(2)]);
+
+    expect(outcome.projectionFailures).toBe(0);
+    expect(Object.keys(store.snapshot().partitions.run).sort()).toStrictEqual(["run-1", "run-2"]);
     expect(store.snapshot().degradedCause).toBeUndefined();
   });
 });

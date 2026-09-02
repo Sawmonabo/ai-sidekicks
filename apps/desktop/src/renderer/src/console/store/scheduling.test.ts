@@ -287,3 +287,141 @@ describe("RefreshScheduler — one read per burst, and one under a stream", () =
     expect(performCount).toBe(1);
   });
 });
+
+describe("ApplyQueue — a drain that throws", () => {
+  /** A drain that fails its first N calls and then succeeds. The defect models a
+   *  projector rejecting a malformed payload, which is the only way the console's
+   *  own drain can raise at all. */
+  class FailingDrainRecorder {
+    readonly drainedBatches: (readonly ConsoleSessionEvent[])[] = [];
+    readonly failures: unknown[] = [];
+    #remainingFailures: number;
+
+    public constructor(failureCount: number) {
+      this.#remainingFailures = failureCount;
+    }
+
+    public readonly drain = (events: readonly ConsoleSessionEvent[]): void => {
+      if (this.#remainingFailures > 0) {
+        this.#remainingFailures -= 1;
+        throw new TypeError("the store refused this batch");
+      }
+      this.drainedBatches.push(events);
+    };
+
+    public readonly recordError = (error: unknown): void => {
+      this.failures.push(error);
+    };
+  }
+
+  it("keeps the batch, names the failure, and lets the clock finish its pass", () => {
+    const clock = new ManualClock(0);
+    const recorder = new FailingDrainRecorder(1);
+    const queue = new ApplyQueue({
+      clock,
+      drain: recorder.drain,
+      onDrainError: recorder.recordError,
+      coalesceMs: 0,
+    });
+    let laterFrameRan = false;
+    clock.scheduleFrame(() => {
+      laterFrameRan = true;
+    });
+
+    queue.enqueueAll([eventAt(1), eventAt(2), eventAt(3)]);
+    expect(() => {
+      clock.runFrame();
+    }).not.toThrow();
+
+    // Nothing is lost: the three events are still queued, and the drain is not
+    // counted as one that happened.
+    expect(queue.pendingCount).toBe(3);
+    expect(queue.drainCount).toBe(0);
+    expect(queue.failedDrainCount).toBe(1);
+    expect(recorder.failures).toHaveLength(1);
+    expect(recorder.failures[0]).toBeInstanceOf(TypeError);
+    // And the exception did not escape into the clock's own pass, where it would
+    // have taken every other pending callback — every other session's drain — with
+    // it. `runFrame` removes its entries before invoking them, so a throw there
+    // does not merely defer the rest, it drops them.
+    expect(laterFrameRan).toBe(true);
+  });
+
+  it("drains the retained batch ahead of what arrived after it, on the next window", () => {
+    const clock = new ManualClock(0);
+    const recorder = new FailingDrainRecorder(1);
+    const queue = new ApplyQueue({
+      clock,
+      drain: recorder.drain,
+      onDrainError: recorder.recordError,
+      coalesceMs: 0,
+    });
+
+    queue.enqueueAll([eventAt(1), eventAt(2)]);
+    clock.runFrame();
+    queue.enqueue(eventAt(3));
+    clock.runFrame();
+
+    expect(recorder.drainedBatches).toHaveLength(1);
+    // The retained events lead: they are older than what arrived while the failed
+    // drain was running, and the store's own sequencing reads a batch in order.
+    expect(recorder.drainedBatches[0]?.map((event) => event.sequence)).toStrictEqual([1, 2, 3]);
+    expect(queue.pendingCount).toBe(0);
+    expect(queue.drainCount).toBe(1);
+  });
+
+  it("does not re-arm on the failure itself, so a drain that always throws cannot spin", () => {
+    const clock = new ManualClock(0);
+    const recorder = new FailingDrainRecorder(Number.POSITIVE_INFINITY);
+    const queue = new ApplyQueue({
+      clock,
+      drain: recorder.drain,
+      onDrainError: recorder.recordError,
+      coalesceMs: 0,
+    });
+
+    queue.enqueue(eventAt(1));
+    clock.runFrame();
+
+    // One failure, and nothing armed to produce a second on its own. The retry
+    // rides the next enqueue rather than a timer the queue re-arms for itself.
+    expect(queue.failedDrainCount).toBe(1);
+    expect(clock.pendingCount).toBe(0);
+  });
+
+  it("swallows nothing when no error sink is supplied — it still keeps the batch", () => {
+    const clock = new ManualClock(0);
+    const recorder = new FailingDrainRecorder(1);
+    const queue = new ApplyQueue({ clock, drain: recorder.drain, coalesceMs: 0 });
+
+    queue.enqueue(eventAt(1));
+    expect(() => {
+      clock.runFrame();
+    }).not.toThrow();
+
+    expect(queue.failedDrainCount).toBe(1);
+    expect(queue.pendingCount).toBe(1);
+  });
+
+  it("negative control: a clean batch drains and counts as before", () => {
+    // Without this, a `flush` that had stopped calling its drain at all would pass
+    // every case above — nothing lost, nothing thrown, and nothing delivered.
+    const clock = new ManualClock(0);
+    const recorder = new FailingDrainRecorder(0);
+    const queue = new ApplyQueue({
+      clock,
+      drain: recorder.drain,
+      onDrainError: recorder.recordError,
+      coalesceMs: 0,
+    });
+
+    queue.enqueueAll([eventAt(1), eventAt(2)]);
+    clock.runFrame();
+
+    expect(recorder.drainedBatches[0]?.map((event) => event.sequence)).toStrictEqual([1, 2]);
+    expect(queue.drainCount).toBe(1);
+    expect(queue.failedDrainCount).toBe(0);
+    expect(queue.pendingCount).toBe(0);
+    expect(recorder.failures).toHaveLength(0);
+  });
+});

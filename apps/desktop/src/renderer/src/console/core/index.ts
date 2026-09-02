@@ -11,6 +11,7 @@
 export { ManualClock, RealClock, type ConsoleClock, type ScheduledHandle } from "./clock.js";
 export {
   APPLY_COALESCE_MS,
+  MAX_REPAIRABLE_SEQUENCE_GAP,
   PALETTE_RECENTS_CAP,
   PALETTE_RESULT_CAP,
   PERSISTENCE_QUOTA_PRESSURE_RATIO,

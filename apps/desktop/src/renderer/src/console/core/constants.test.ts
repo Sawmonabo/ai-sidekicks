@@ -15,11 +15,13 @@ import { describe, expect, it } from "vitest";
 import {
   APPLY_COALESCE_MS,
   CAST_BAR_CHIP_CAP,
+  MAX_REPAIRABLE_SEQUENCE_GAP,
   PALETTE_RECENTS_CAP,
   PALETTE_RESULT_CAP,
   PERSISTENCE_QUOTA_PRESSURE_RATIO,
   PERSISTENCE_RECORD_BYTE_CAP,
   PERSISTENCE_SESSION_PARTITION_CAP,
+  PRE_INITIALISATION_BUFFER_CAP,
   REFRESH_DEBOUNCE_MS,
   REFRESH_MAX_WAIT_MS,
   SCENARIO_PENDING_REPLY_CAP,
@@ -38,6 +40,8 @@ const COUNTING_BOUNDS: readonly (readonly [string, number])[] = [
   ["CAST_BAR_CHIP_CAP", CAST_BAR_CHIP_CAP],
   ["TRIPWIRE_REPORT_CAP", TRIPWIRE_REPORT_CAP],
   ["SCENARIO_PENDING_REPLY_CAP", SCENARIO_PENDING_REPLY_CAP],
+  ["PRE_INITIALISATION_BUFFER_CAP", PRE_INITIALISATION_BUFFER_CAP],
+  ["MAX_REPAIRABLE_SEQUENCE_GAP", MAX_REPAIRABLE_SEQUENCE_GAP],
 ];
 
 function isWholeCount(value: number): boolean {
@@ -103,6 +107,17 @@ describe("console bounds — the fixture tick names one frame", () => {
 
   it("is a whole number of milliseconds, because scripts are expressed in whole ticks", () => {
     expect(Number.isInteger(SCENARIO_TICK_MS)).toBe(true);
+  });
+});
+
+describe("console bounds — the two sequence bounds describe one store", () => {
+  it("repairs a gap at least as wide as the pre-initialisation buffer can shed", () => {
+    // A store whose read never lands sheds its oldest buffered events, and the
+    // drain re-derives that loss as one gap. At or below the buffer's own cap the
+    // ordinary overflow path would report the stream DIVERGED — refusing the very
+    // events the buffer kept — so the repairable bound has to sit above it, and
+    // the relation is what says so rather than the two numbers happening to.
+    expect(MAX_REPAIRABLE_SEQUENCE_GAP).toBeGreaterThan(PRE_INITIALISATION_BUFFER_CAP);
   });
 });
 
