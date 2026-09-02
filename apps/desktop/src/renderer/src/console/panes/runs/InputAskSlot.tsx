@@ -7,7 +7,7 @@
 // is where the card is mounted — and the card itself is authored by the plan that
 // owns it.
 //
-// `console/workspace/seats/owner-slot.ts` says why this is a type and not a
+// `console/seats/owner-slot.ts` says why this is a type and not a
 // component: a slot is rendered by the family that mounts it, in that family's own
 // layout, with that family's own empty-state treatment. What is shared is the
 // declaration of the three facts a slot has to answer, and this file answers them.

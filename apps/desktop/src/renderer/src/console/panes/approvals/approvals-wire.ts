@@ -16,7 +16,7 @@
 //   • `approval.requestCreate` is the fifth registered method and is daemon-raised.
 //     The console never raises an approval, so it holds no constant for one.
 //
-// The two brand widenings are `console/bridge/daemon-call.ts`'s, not a third copy.
+// The two brand widenings are `console/bridge/daemon-calls.ts`'s, not a third copy.
 
 import { callDaemon, type ConsoleBridge } from "../../bridge/index.js";
 import {
