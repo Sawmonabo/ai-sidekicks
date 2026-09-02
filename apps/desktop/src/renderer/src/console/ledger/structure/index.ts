@@ -36,4 +36,5 @@ export * from "./ReplayControls.js"; // the docked scrub-and-play control
 export * from "./filters.js"; // participant and family narrowing, and the jumps
 export * from "./find-model.js"; // the matcher, and the boundary it states
 export * from "./FindInLedger.js"; // the find field itself
+export * from "./mounted-ledger.js"; // which mounted ledger a command acts on
 export * from "./structure-commands.js"; // what all of it contributes to the palette

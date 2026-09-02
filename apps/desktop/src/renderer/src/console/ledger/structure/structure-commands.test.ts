@@ -6,14 +6,23 @@
 // every assertion about the command LIST while doing exactly the thing forbidden, so
 // the acts are counted before anything is run as well as after.
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
-import { CommandRegistry, type ConsoleCommand } from "../../palette/index.js";
+import type { ConsoleRefusal } from "../../core/index.js";
+import {
+  consoleCommandSurface,
+  consoleCommands,
+  consoleKeyBindings,
+  publishConsoleActRefusalSink,
+} from "../../frame/command-surface.js";
+import { CommandRegistry, KeyBindingTable, type ConsoleCommand } from "../../palette/index.js";
+import { MountedLedgerSeat, type LedgerStructureActs } from "./mounted-ledger.js";
 import {
   LEDGER_COMMAND_GROUP,
+  LEDGER_COMMAND_OWNER,
   LEDGER_KEY_BINDINGS,
   ledgerStructureCommands,
-  type LedgerStructureActs,
+  registerLedgerCommands,
 } from "./structure-commands.js";
 
 /** The acts, each recording that it and only it fired. */
@@ -162,5 +171,112 @@ describe("ledger commands — the chords", () => {
   it("claims no chord twice", () => {
     const chords = LEDGER_KEY_BINDINGS.map((binding) => binding.chord);
     expect(new Set(chords).size).toBe(chords.length);
+  });
+});
+
+describe("ledger commands — the contribution reaches the palette and the keyboard", () => {
+  /** Contributing an empty set is how a window is left with none of this family's rows. */
+  function withdrawLedgerContribution(): void {
+    consoleCommandSurface.contribute({
+      owner: LEDGER_COMMAND_OWNER,
+      commands: [],
+      keyBindings: [],
+    });
+  }
+
+  afterEach(() => {
+    withdrawLedgerContribution();
+  });
+
+  /** A table over the window's real registry and its real chord list. */
+  function keyBindingTable(): KeyBindingTable {
+    const table = new KeyBindingTable({
+      registry: consoleCommands,
+      readContext: () => ({ sessionActive: true }),
+    });
+    table.setBindings(consoleKeyBindings());
+    return table;
+  }
+
+  /**
+   * Press one chord. `$mod` is Cmd on macOS and Ctrl elsewhere and this case does
+   * not care which host it is running on, so the other modifier is tried only when
+   * the first press was not consumed.
+   */
+  function pressModifiedKey(table: KeyBindingTable, key: string, shiftKey = false): boolean {
+    return (
+      table.handleKeyDown(new KeyboardEvent("keydown", { key, ctrlKey: true, shiftKey })) ||
+      table.handleKeyDown(new KeyboardEvent("keydown", { key, metaKey: true, shiftKey }))
+    );
+  }
+
+  it("puts every act in the window's palette once the family is composed", () => {
+    registerLedgerCommands(consoleCommandSurface);
+    const offered = consoleCommands
+      .commandsFor({ sessionActive: true })
+      .map((command) => command.id);
+    for (const command of ledgerStructureCommands(recordingActs([]))) {
+      expect(offered).toContain(command.id);
+    }
+  });
+
+  it("opens find on the ledger that is mounted when the chord is pressed", () => {
+    // The whole seam in one case: contributed at composition, resolved at press.
+    const fired: string[] = [];
+    const seat = new MountedLedgerSeat();
+    registerLedgerCommands(consoleCommandSurface, seat);
+    const release = seat.adopt(recordingActs(fired));
+    expect(pressModifiedKey(keyBindingTable(), "f")).toBe(true);
+    expect(fired).toStrictEqual(["openFind"]);
+    release();
+  });
+
+  it("walks the matches from the keyboard, forward and back", () => {
+    const fired: string[] = [];
+    const seat = new MountedLedgerSeat();
+    registerLedgerCommands(consoleCommandSurface, seat);
+    const release = seat.adopt(recordingActs(fired));
+    const table = keyBindingTable();
+    pressModifiedKey(table, "g");
+    pressModifiedKey(table, "g", true);
+    expect(fired).toStrictEqual(["stepFindNext", "stepFindPrevious"]);
+    release();
+  });
+
+  it("states a refusal where a person can read it when no ledger is mounted", () => {
+    // Not a silent press: the act has no surface of its own, so it takes rule 9's
+    // banner — which is exactly what a ledger chord from the settings page needs.
+    const raised: ConsoleRefusal[] = [];
+    const withdrawSink = publishConsoleActRefusalSink((refusal) => raised.push(refusal));
+    registerLedgerCommands(consoleCommandSurface, new MountedLedgerSeat());
+    expect(pressModifiedKey(keyBindingTable(), "f")).toBe(true);
+    expect(raised).toHaveLength(1);
+    expect(raised[0]?.code).toBe("ledger.no_mounted_ledger");
+    expect(raised[0]?.origin).toBe("ledger");
+    withdrawSink();
+  });
+
+  it("replaces its own rows when the console is composed twice", () => {
+    // Composition runs at module scope in production and repeatedly in a test, and
+    // the command registry refuses a duplicate id — so a second pass must replace.
+    registerLedgerCommands(consoleCommandSurface);
+    const afterFirst = consoleCommands.size;
+    expect(() => {
+      registerLedgerCommands(consoleCommandSurface);
+    }).not.toThrow();
+    expect(consoleCommands.size).toBe(afterFirst);
+  });
+
+  it("negative control: nothing of this family is offered or bound before it composes", () => {
+    // Every case above passes over a console that had these rows all along, which is
+    // precisely what this family did NOT have.
+    withdrawLedgerContribution();
+    expect(consoleCommands.has("ledger.find")).toBe(false);
+    expect(consoleKeyBindings().map((binding) => binding.commandId)).not.toContain("ledger.find");
+    const fired: string[] = [];
+    const seat = new MountedLedgerSeat();
+    seat.adopt(recordingActs(fired));
+    expect(pressModifiedKey(keyBindingTable(), "f")).toBe(false);
+    expect(fired).toStrictEqual([]);
   });
 });

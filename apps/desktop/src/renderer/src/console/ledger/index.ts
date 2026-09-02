@@ -33,6 +33,7 @@
 
 import { createElement, type ReactNode } from "react";
 
+import { consoleCommandSurface } from "../frame/command-surface.js";
 import { SurfaceAbsence } from "../frame/RouteSurface.js";
 import {
   type ConsoleSurfaceContext,
@@ -42,13 +43,14 @@ import {
 import { Nothing } from "../primitives/index.js";
 import { Workspace, consolePaneRegistry, type ConsolePaneContext } from "../workspace/index.js";
 import { registerFixtureShellRows } from "./cards/FixtureShellRows.js";
+import { registerLedgerCommands } from "./structure/structure-commands.js";
 
 import "./ledger.css";
 
-// This door carries the family's two REGISTRATIONS and no pieces.
+// This door carries the family's REGISTRATIONS and no pieces.
 //
-// `registerLedger` claims the surfaces, and `registerFixtureShellRows` fills the
-// row seat on its own — which a caller mounting the pane without the surfaces
+// `registerLedger` claims the surfaces and contributes the family's palette rows
+// and chords, and `registerFixtureShellRows` fills the row seat on its own — which a caller mounting the pane without the surfaces
 // around it needs, and which the accessibility tier is. Both are acts rather than
 // parts, which is what makes them the door's business.
 //
@@ -105,6 +107,16 @@ export function registerLedger(registry: ConsoleSurfaceRegistry): void {
   // in the same diff. A shell left registered beside the real row does not render
   // both — it refuses the real one by name, at import time.
   registerFixtureShellRows();
+  // And the family's palette rows and chords, through the frame's contribution
+  // door rather than through this function's argument: the surface registry it was
+  // handed is the SURFACE table, and the commands go in the command table. Both
+  // claims are owner-scoped, so composing this family twice replaces its rows in
+  // each of them.
+  //
+  // What the commands act on is resolved when one is pressed, from whichever ledger
+  // is mounted then (`structure/mounted-ledger.ts`) — a command contributed here
+  // cannot close over a feed, because composition happens before any window has one.
+  registerLedgerCommands(consoleCommandSurface);
   for (const descriptor of LEDGER_SURFACES) {
     registry.register(descriptor);
   }
