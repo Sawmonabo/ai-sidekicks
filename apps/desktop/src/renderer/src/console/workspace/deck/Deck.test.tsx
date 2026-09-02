@@ -13,6 +13,7 @@ import { ConsolePaneRegistry, type ConsolePaneContext } from "../seats/index.js"
 import { Deck } from "./Deck.js";
 import { DeckLayout } from "./deck-layout.js";
 import type { DeckPane } from "./deck-model.js";
+import { separatorValueBoundsAreOrdered } from "./separator-aria.js";
 
 function emptyLayout(): DeckLayout {
   return new DeckLayout({ restoredPaneCap: DECK_RESTORED_PANE_CAP });
@@ -60,6 +61,18 @@ function renderDeck(layout: DeckLayout, registry: ConsolePaneRegistry): HTMLElem
     throw new Error("Deck rendered no deck element");
   }
   return deck;
+}
+
+/** Three panes side by side — the arrangement the library's ARIA defect shows on. */
+function threePaneDeck(): HTMLElement {
+  const layout = emptyLayout();
+  layout.open({ kind: "timeline", entity: undefined });
+  layout.open({ kind: "runs", entity: undefined });
+  layout.open({ kind: "approvals", entity: undefined });
+  return renderDeck(
+    layout,
+    registryWith({ kind: "timeline" }, { kind: "runs" }, { kind: "approvals" }),
+  );
 }
 
 describe("the deck's mount door", () => {
@@ -120,17 +133,40 @@ describe("the deck's panes", () => {
   });
 
   it("puts a separator between panes and none before the first", () => {
-    const layout = emptyLayout();
-    layout.open({ kind: "timeline", entity: undefined });
-    layout.open({ kind: "runs", entity: undefined });
-    layout.open({ kind: "approvals", entity: undefined });
-    const deck = renderDeck(
-      layout,
-      registryWith({ kind: "timeline" }, { kind: "runs" }, { kind: "approvals" }),
-    );
-    const separators = deck.querySelectorAll('[role="separator"]');
-    expect(separators).toHaveLength(2);
-    expect(separators[0]?.getAttribute("aria-valuemax")).toBe("1000");
+    const deck = threePaneDeck();
+    expect(deck.querySelectorAll('[role="separator"]')).toHaveLength(2);
+    expect(deck.querySelectorAll("[data-panel]")).toHaveLength(3);
+  });
+
+  it("gives every separator the window-splitter role the library provides", () => {
+    // The ARIA is the library's, which is the reason the row adopts it rather than
+    // keeping the own-built bar: a focusable `role="separator"` carrying a live
+    // `aria-valuenow` is what makes resizing operable without a pointer.
+    const deck = threePaneDeck();
+    for (const separator of deck.querySelectorAll('[role="separator"]')) {
+      // The SEPARATOR is vertical inside a horizontal group — the bar stands up
+      // between two panes that sit side by side.
+      expect(separator.getAttribute("aria-orientation")).toBe("vertical");
+      expect(separator.getAttribute("tabindex")).toBe("0");
+    }
+  });
+
+  it("announces a range the right way round on a three-pane deck", () => {
+    // Upstream issue #740 crosses `aria-valuemin` and `aria-valuemax` on every
+    // separator after the first at the pinned 4.12.3, so the deck corrects them
+    // after each commit. The predicate here is the correction's own.
+    expect(separatorValueBoundsAreOrdered(threePaneDeck())).toBe(true);
+  });
+
+  it("negative control: the same assertion FAILS when the swap is simulated", () => {
+    // Without this the case above would pass over a predicate that cannot see the
+    // defect at all — the swap is invisible on screen, so nothing else would.
+    const deck = threePaneDeck();
+    const separator = deck.querySelector('[role="separator"]');
+    expect(separator).not.toBeNull();
+    separator?.setAttribute("aria-valuemin", "90");
+    separator?.setAttribute("aria-valuemax", "10");
+    expect(separatorValueBoundsAreOrdered(deck)).toBe(false);
   });
 
   it("says the deck is empty rather than rendering an unexplained blank", () => {

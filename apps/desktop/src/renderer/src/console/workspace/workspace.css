@@ -169,10 +169,21 @@
 
 .meridian-deck {
   display: flex;
-  align-items: stretch;
+  flex-direction: column;
   min-width: 0;
   min-height: 0;
-  overflow-x: auto;
+}
+
+/*
+ * The panel group itself. `react-resizable-panels` fixes `display`,
+ * `flex-direction`, `flex-wrap`, and `overflow` on this element and documents that
+ * they cannot be overridden, so nothing here tries: the group is the row, and the
+ * deck's own frame above carries anything that would have fought it.
+ */
+.meridian-deck__group {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
 }
 
 .meridian-deck__refusals {
@@ -183,21 +194,17 @@
 }
 
 /*
- * One pane's frame. `flex-grow` carries the pane's permille share and `min-width`
- * carries the density preset's floor, so the two halves of the layout maths meet
- * in the layout engine rather than in a resize listener.
+ * One pane's frame. The panel owns the width — `flex-grow` is the library's, and
+ * the density floor rides its `minSize` — so what is left here is the pane's own
+ * chrome and the marks a person reads off it.
  */
 .meridian-deck__pane {
   display: flex;
   flex-direction: column;
-  flex-basis: 0;
   min-width: 0;
   min-height: 0;
+  position: relative;
   border-inline-start: 1px solid transparent;
-}
-
-.meridian-deck__pane:first-child {
-  border-inline-start-color: transparent;
 }
 
 /*
@@ -205,17 +212,42 @@
  * neighbours: a deck where the unfocused panes fade reads as a deck where they
  * have stopped working.
  */
-.meridian-deck__pane[data-focused="true"] {
+.meridian-deck__pane--focused {
   border-inline-start-color: var(--meridian-accent);
 }
 
 /*
- * The separator is a real widget: focusable, arrow-operable, and wide enough to
- * hit. It is drawn as a hairline and hit as a bar — the padding is the target and
- * the background is the line.
+ * The drop indicator: a bar on the edge the pane would land against.
+ *
+ * Own-built, because the drag library ships no CSS and no indicator by design. Drawn
+ * as a pseudo-element so it costs no node and no React render — the class changes,
+ * and the class is set only when the target or the edge actually changes.
+ */
+.meridian-deck__pane--drop-before::after,
+.meridian-deck__pane--drop-after::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  width: 2px;
+  background: var(--meridian-accent);
+  pointer-events: none;
+}
+
+.meridian-deck__pane--drop-before::after {
+  inset-inline-start: 0;
+}
+
+.meridian-deck__pane--drop-after::after {
+  inset-inline-end: 0;
+}
+
+/*
+ * The separator is the library's widget wearing our chrome: it arrives focusable,
+ * arrow-operable, and carrying the window-splitter ARIA, and every line below is
+ * paint. It is drawn as a hairline and hit as a bar — the width is the target and
+ * the gradient is the line.
  */
 .meridian-deck__separator {
-  flex: 0 0 auto;
   width: var(--meridian-space-2);
   border: 0;
   background: linear-gradient(
@@ -225,7 +257,6 @@
     transparent 60%
   );
   cursor: col-resize;
-  touch-action: none;
 }
 
 .meridian-deck__separator:hover,
