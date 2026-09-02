@@ -35,6 +35,37 @@
 // They assert how this tier behaves when a reference is absent, which is a claim
 // about the runner rather than about pixels, and it holds on every platform — so
 // the tier still proves something where it cannot compare.
+//
+// WHO MINTS A REFERENCE
+//
+// `darwin` is not one machine. The committed images are the ones GitHub's
+// `macos-15` runner renders, and that runner is the AUTHORITY: `ci.yml`'s
+// `console-screenshot-macos` job compares against them there, so a reference
+// minted anywhere else is one no CI run will reproduce. They are refreshed by
+// dispatching `.github/workflows/console-screenshot-baselines.yml` with
+// `mode: regenerate` on the branch that changes them, reading every image in the
+// artifact it uploads, and committing that tree.
+//
+// A developer Mac is a LATER macOS with a different system UI face — the console's
+// sans stack names IBM Plex Sans first, nothing self-hosts it yet, and the fallback
+// is whatever `system-ui` resolves to on the host. So a local run is ADVISORY. It
+// is a genuine check of everything above the rasteriser — a moved control, a
+// changed colour, a command that appeared or vanished — and it is not a verdict on
+// the last few pixels of a glyph edge. What keeps it usable rather than merely
+// permitted is the tier's measured pixel budget, declared beside its evidence in
+// `vitest.config.ts` (`SCREENSHOT_TIER_MATCH_OPTIONS`).
+//
+// MEASUREMENTS THIS TIER'S NUMBERS COME FROM (2026-09-02, PR #416 lane)
+//
+//   • Runner (`macos-15`) against references minted on macOS 26.6.1, both at the
+//     pre-pin 0.8 iframe scale: frame-first-run-light 3 px, frame-first-run-dark
+//     2 px, of 829 440. The same two comparisons were byte-exact on the machine
+//     that minted them, which is what identifies the residue as cross-host
+//     rasterisation rather than run-to-run noise.
+//   • `palette-open-light` differed by 26 016 px on the runner and 26 015 px on
+//     the minting machine — a STALE reference, not a rendering difference: the
+//     palette had gained a two-command Help group since it was captured. That is
+//     the tier working, and it is the regression scale the budget sits under.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { TestContext } from "vitest";

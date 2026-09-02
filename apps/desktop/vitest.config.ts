@@ -36,7 +36,7 @@
 //   • `renderer`'s `src/renderer/**/__tests__/**` is unchanged, but its
 //     `exclude` now names the console subtree so a console test co-located
 //     under `src/renderer/src/console/**` belongs to `console-unit` alone.
-import { playwright } from "@vitest/browser-playwright";
+import { playwright, type PlaywrightProviderOptions } from "@vitest/browser-playwright";
 import { defineConfig } from "vitest/config";
 
 import { sharedCoverageOptions } from "../../vitest.shared";
@@ -106,7 +106,7 @@ const BROWSER_MODE_VIEWPORT = { width: 1440, height: 900 };
  * is supposed to read. The screenshot tier still writes its own actual/diff pair on
  * a mismatch, which is the capture that is worth having.
  */
-function browserModeOptions(): {
+function browserModeOptions(providerOptions?: PlaywrightProviderOptions): {
   enabled: true;
   provider: ReturnType<typeof playwright>;
   headless: true;
@@ -116,13 +116,78 @@ function browserModeOptions(): {
 } {
   return {
     enabled: true,
-    provider: playwright(),
+    provider: playwright(providerOptions),
     headless: true,
     screenshotFailures: false,
     viewport: { ...BROWSER_MODE_VIEWPORT },
     instances: [{ browser: "chromium" }],
   };
 }
+
+/**
+ * The rendering conditions the screenshot tier's references are minted under.
+ *
+ * Everything here is a value the tier ALREADY depended on and did not state, which
+ * is the whole reason it is stated: a reference image is only a gate if the next
+ * run renders under the same conditions, and a condition inherited from a library
+ * default is one an upgrade can move without anyone editing this repository.
+ *
+ * `viewport` is the load-bearing one, and it is not the same knob as
+ * `BROWSER_MODE_VIEWPORT`. That one sizes the TESTER IFRAME; this one sizes the
+ * Playwright page the iframe lives in, and the provider deliberately does not
+ * derive the second from the first. Vitest then fits the iframe into the page with
+ * `scale = min(1, pageWidth / iframeWidth, pageHeight / iframeHeight)` and applies
+ * it as a CSS `transform: scale()`. Against Playwright's own 1280×720 default that
+ * resolved to 0.8, so a console laid out at 1440×900 was captured through a
+ * fractional downscale — every border and glyph resampled off the pixel grid, which
+ * is exactly the operation two Skia/CoreText builds disagree about, and a 1152×720
+ * reference for a tier whose comment says it measures 1440×900. Matching the page
+ * to the iframe makes the scale exactly 1 and the capture 1:1.
+ *
+ * The other three are Playwright's current defaults, restated so they are pinned by
+ * this file rather than by the version range: `deviceScaleFactor` because it
+ * multiplies straight into the reference's dimensions (`screenshotOptions.scale` is
+ * `"device"`), and the two media emulations because the console's generated base
+ * stylesheet branches on `prefers-reduced-motion` and Chromium branches on forced
+ * colors. `colorScheme` is deliberately ABSENT: the harness drives that per test
+ * through `Emulation.setEmulatedMedia`, and a context-level value would be a second
+ * writer of the same emulated media state.
+ */
+const SCREENSHOT_TIER_PROVIDER_OPTIONS: PlaywrightProviderOptions = {
+  contextOptions: {
+    viewport: { ...BROWSER_MODE_VIEWPORT },
+    deviceScaleFactor: 1,
+    reducedMotion: "no-preference",
+    forcedColors: "none",
+  },
+};
+
+/**
+ * How close a capture has to be to its reference to count as the same image.
+ *
+ * Vitest's default is ZERO allowed mismatched pixels, and after the pins above the
+ * only thing left that a byte-exact rule catches is the residue of two hosts
+ * rasterising the same glyph outlines through different Skia/CoreText builds. That
+ * residue is measured, not assumed: the run this number was derived from is
+ * recorded in `test/console/screenshot/frame.test.tsx`'s header beside the runner
+ * that minted the references.
+ *
+ * `allowedMismatchedPixels` rather than `allowedMismatchedPixelRatio` because the
+ * quantity being bounded is a per-glyph-edge count, which does not scale with the
+ * image — a ratio would silently grant the palette reference (1440×900) a bigger
+ * budget than a frame-scoped one for the same physical smudge.
+ *
+ * The budget is deliberately far below anything a person could see. The smallest
+ * real regression this tier has actually caught — two command rows appearing in the
+ * palette — moved 26 016 pixels, three orders of magnitude above this. pixelmatch's
+ * own `threshold` and `includeAA` defaults (0.1, AA pixels excluded) are left alone:
+ * they discount antialiasing per pixel, and raising either is how a tolerance stops
+ * being a tolerance and starts being a blindfold.
+ */
+const SCREENSHOT_TIER_MATCH_OPTIONS = {
+  comparatorName: "pixelmatch",
+  comparatorOptions: { allowedMismatchedPixels: 48 },
+} as const;
 
 export default defineConfig({
   test: {
@@ -305,7 +370,10 @@ export default defineConfig({
           name: "console-screenshot",
           include: ["test/console/screenshot/**/*.test.{ts,tsx}"],
           globals: true,
-          browser: browserModeOptions(),
+          browser: {
+            ...browserModeOptions(SCREENSHOT_TIER_PROVIDER_OPTIONS),
+            expect: { toMatchScreenshot: SCREENSHOT_TIER_MATCH_OPTIONS },
+          },
         },
       },
       {

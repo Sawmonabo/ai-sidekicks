@@ -1,0 +1,135 @@
+# `Spec-023 §Console Test Tiers` — minting and re-verifying the console
+# screenshot tier's committed reference images, on the runner that owns them.
+#
+# WHY A WORKFLOW AND NOT A LOCAL COMMAND
+#
+# A reference PNG is a rendering, and the console's sans stack falls through to
+# the platform UI face, so the image a developer's Mac produces is the image
+# THAT Mac produces. `ci.yml`'s `console-screenshot-macos` job compares against
+# the `macos-15` image, which makes that runner the only authority on what the
+# committed set should contain. Regenerating locally and committing the result
+# hands the gate a reference no CI run will ever reproduce; regenerating here
+# and committing the artifact hands it the one it will.
+#
+# `workflow_dispatch` only, deliberately. Nothing about this is automatic: a
+# reference is rewritten because a person looked at the candidate and decided it
+# is correct, which is the same gesture `vitest -u` encodes. A schedule or a
+# push trigger would turn "the baseline is whatever the runner last rendered"
+# into the rule, and the tier would stop gating anything.
+#
+# THE TWO MODES
+#
+#   regenerate — runs the tier with `UPDATE_SNAPSHOT=all`, which is `-u`: BOTH a
+#                missing and a MISMATCHING reference are rewritten and the run
+#                passes. This is the only mode that refreshes a reference that
+#                already exists, which is why it is not `new` — `new` writes
+#                only missing ones, and the tier's own fail-closed guard asserts
+#                against `new` precisely because it is Vitest's off-CI default
+#                and would mint an unreviewed baseline behind a green run. The
+#                rewritten `__screenshots__` tree is uploaded; the author
+#                downloads it, looks at every image, and commits it.
+#   verify     — runs the tier exactly as the gate does, through the same
+#                package script, with no update mode of its own. Use it to
+#                confirm the committed set is the one this runner renders
+#                without waiting for a full CI pass.
+#
+# Every step below other than the `run:` line is the `console-screenshot-macos`
+# job's, copied so the two mint and compare under one environment. If that job's
+# setup moves, this one moves with it.
+name: console screenshot baselines
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "regenerate — rewrite the references and upload them; verify — compare against the committed set"
+        required: true
+        type: choice
+        default: verify
+        options:
+          - verify
+          - regenerate
+
+concurrency:
+  # Keyed by ref AND mode: two regenerations of one branch would race to define
+  # what that branch's references are, and the loser's artifact would be a set
+  # nobody asked for.
+  group: console-screenshot-baselines-${{ github.ref }}-${{ inputs.mode }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  TURBO_TELEMETRY_DISABLED: 1
+  DO_NOT_TRACK: 1
+
+jobs:
+  baselines:
+    name: console screenshot baselines (${{ inputs.mode }}, macos-15)
+    runs-on: macos-15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        # SHA-pinned per ADR-023 §Axis 4; Renovate's helpers:pinGitHubActionDigests
+        # preset (renovate.json5) keeps this current.
+        uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
+        with:
+          version: 10.33.2
+          run_install: false
+
+      - name: Setup Node.js 22.14
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22.14"
+          cache: "pnpm"
+
+      - name: Install (desktop and its workspace dependencies only)
+        run: pnpm install --frozen-lockfile --filter "@ai-sidekicks/desktop..."
+
+      - name: Install the Chromium build browser mode drives
+        run: pnpm --filter @ai-sidekicks/desktop exec playwright install chromium
+
+      # The same script the gate runs, so a verified set is verified under the
+      # gate's own snapshot mode and not a looser one.
+      - name: Verify the committed references
+        if: inputs.mode == 'verify'
+        run: pnpm --filter @ai-sidekicks/desktop run test:console-screenshot
+
+      # `UPDATE_SNAPSHOT` is read straight from the environment by Vitest, and
+      # `all` is what `-u` resolves to. It is set here rather than added to a
+      # package script on purpose: a script that can rewrite references is a
+      # script somebody runs by accident.
+      - name: Regenerate the references
+        if: inputs.mode == 'regenerate'
+        env:
+          UPDATE_SNAPSHOT: all
+        run: pnpm --filter @ai-sidekicks/desktop exec vitest run --project=console-screenshot
+
+      # The whole committed tree, not just what changed: the author commits this
+      # directory's contents over the repository's, so a partial upload would
+      # leave a stale reference standing beside fresh ones.
+      - name: Upload the regenerated references
+        if: inputs.mode == 'regenerate'
+        uses: actions/upload-artifact@v4
+        with:
+          name: console-screenshot-baselines
+          path: apps/desktop/test/console/screenshot/__screenshots__/
+          retention-days: 7
+          if-no-files-found: error
+
+      # Same hidden-directory caveat as `ci.yml`'s: every path here begins with a
+      # dot, so without `include-hidden-files` the step reports finding nothing.
+      - name: Upload screenshot diffs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: console-screenshot-baselines-diffs
+          path: apps/desktop/.vitest-attachments/
+          include-hidden-files: true
+          retention-days: 7
+          if-no-files-found: ignore
