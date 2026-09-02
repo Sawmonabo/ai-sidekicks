@@ -1,0 +1,160 @@
+// Layering gate for `apps/desktop` (`Spec-023 §Console Libraries`, structure-enforcement row).
+//
+// It answers one question the type system cannot: which module is allowed to import which.
+// ESLint's `no-restricted-imports` already owns the renderer-untrusted specifier bans, and it
+// keeps them — a `files`-scoped specifier ban is exactly what that rule is for. What it cannot
+// express is an ORDERING over N families, because flat config replaces a rule's options at the
+// last matching block, so every family would have to restate the whole list of families above
+// it. That table lives here instead.
+//
+// Resolution runs through `enhanced-resolve` with an explicit extension list, NOT through
+// `--ts-config`. dependency-cruiser resolves a tsconfig's `extends` chain against the process
+// directory rather than against the tsconfig's own directory, so a tsconfig whose `extends`
+// climbs above its package only loads when the cruise runs from that exact directory — and this
+// tree declares no path aliases, so the flag would buy a working-directory constraint and
+// nothing else. The extension list is what makes this tree's `./foo.js` specifiers resolve to
+// `foo.ts` sources.
+//
+// Paths are relative to `apps/desktop`; run it through `pnpm structure:layering`.
+
+/** Console family homes, low to high. A family may import any home below it and none above. */
+const CONSOLE = "^src/renderer/src/console";
+
+// `core/` is the DAG floor: `constants.ts`, `tripwires.ts`, `keyed-registry.ts`, `refusal.ts`,
+// `emitter.ts`, `clock.ts`. Nothing below it, so its rule below is the only one that forbids
+// every other family at once.
+const CORE = `${CONSOLE}/core/`;
+const TOKENS = `${CONSOLE}/tokens/`;
+const ROUTING = `${CONSOLE}/routing/`;
+const PRIMITIVES = `${CONSOLE}/primitives/`;
+const STATE = `${CONSOLE}/(store|persistence)/`;
+const BRIDGE = `${CONSOLE}/bridge/`;
+const PALETTE = `${CONSOLE}/palette/`;
+const FRAME = `${CONSOLE}/frame/`;
+
+/** Everything strictly above each family, as one alternation. */
+const ABOVE_CORE = [TOKENS, ROUTING, PRIMITIVES, STATE, BRIDGE, PALETTE, FRAME];
+const ABOVE_TOKENS = [ROUTING, PRIMITIVES, STATE, BRIDGE, PALETTE, FRAME];
+const ABOVE_ROUTING = [PRIMITIVES, STATE, BRIDGE, PALETTE, FRAME];
+const ABOVE_PRIMITIVES = [STATE, BRIDGE, PALETTE, FRAME];
+const ABOVE_STATE = [BRIDGE, PALETTE, FRAME];
+const ABOVE_BRIDGE = [PALETTE, FRAME];
+const ABOVE_PALETTE = [FRAME];
+
+/** One forbidden rule per family: an edge from that family to anything above it. */
+function upwardEdge(family, fromPath, toPaths) {
+  return {
+    name: `console-layering-${family}`,
+    comment:
+      `\`console/${family}\` sits below the families it imported. Hoist the symbol down to the ` +
+      `lowest family that needs it; never deep-import around the edge.`,
+    severity: "error",
+    from: { path: fromPath },
+    to: { path: toPaths },
+  };
+}
+
+export default {
+  forbidden: [
+    {
+      name: "no-circular",
+      comment:
+        "A cycle makes module initialisation order load-bearing and un-reviewable. Break it by " +
+        "hoisting the shared symbol into the lower family, not by deep-importing past a barrel.",
+      severity: "error",
+      from: {},
+      to: { circular: true },
+    },
+    {
+      name: "no-orphans",
+      comment:
+        "A module with no dependents AND no dependencies is connected to nothing. This is a " +
+        "narrower claim than the dead-code gate's: `knip` owns reachability from the entry " +
+        "points, this owns total disconnection, and neither subsumes the other. Ambient " +
+        "declarations, stylesheets, and tool configuration are roots, not orphans.",
+      severity: "error",
+      from: {
+        orphan: true,
+        pathNot: [
+          "\\.d\\.(ts|mts)$",
+          "\\.css$",
+          "\\.json$",
+          "(^|/)[^/]+\\.config\\.(ts|mjs|cjs|js)$",
+        ],
+      },
+      to: {},
+    },
+    {
+      name: "renderer-not-main",
+      comment:
+        "The renderer is untrusted. It reaches the main process only across the context bridge; " +
+        "a value both sides need lives in `src/shared/`.",
+      severity: "error",
+      from: { path: "^src/renderer/" },
+      to: { path: "^src/(main|preload)/" },
+    },
+    {
+      name: "main-not-renderer",
+      comment:
+        "Main and preload never import renderer source. A value both sides need lives in " +
+        "`src/shared/` and is imported by both, never mirrored by hand.",
+      severity: "error",
+      from: { path: "^src/(main|preload)/" },
+      to: { path: "^src/renderer/" },
+    },
+    {
+      name: "shared-imports-nothing",
+      comment:
+        "`src/shared/` is the one cross-process leaf: types and pure functions main, preload, " +
+        "and the renderer all need. It may import the contracts package and nothing else — an " +
+        "`electron`, `node:*`, or React import there would make it unimportable by one of its " +
+        "three consumers.",
+      severity: "error",
+      from: { path: "^src/shared/" },
+      // Both spellings of the one allowed target, and both are reachable: the contracts
+      // package resolves into `node_modules/@ai-sidekicks/contracts/` once it has been built
+      // and carries its bare specifier as its path when it has not, so the shape of this edge
+      // depends on the build state of a sibling package. Measured both ways — the graph grows
+      // by the resolved package's modules and the violation set does not move.
+      to: {
+        pathNot: "^(src/shared/|node_modules/@ai-sidekicks/contracts|@ai-sidekicks/contracts)",
+      },
+    },
+    {
+      name: "console-not-plan-subtree",
+      comment:
+        "A plan-owned subtree whose owner MOUNTS INTO the console reaches the frame by calling " +
+        "`registerConsoleSurface`, which is a call and not an import — so the console imports " +
+        "it through no path, and this rule takes no exception. It is deliberately not a ban on " +
+        "every sibling subtree: Plan-023's Phase-1C rule has the console absorb the shipped " +
+        "Tier-1 components (`session-bootstrap/`, `session-members/`, `runtime-node-attach/`) " +
+        "by import, and a gate stricter than its own plan is a defect. A later plan whose page " +
+        "mounts into the console adds its subtree to this list.",
+      severity: "error",
+      from: { path: `${CONSOLE}/` },
+      to: {
+        path:
+          "^src/renderer/src/(timeline|usage-meters|run-controls|provider-accounts|" +
+          "sidekick-definitions|mcp-governance)/",
+      },
+    },
+    upwardEdge("core", CORE, ABOVE_CORE),
+    upwardEdge("tokens", TOKENS, ABOVE_TOKENS),
+    upwardEdge("routing", ROUTING, ABOVE_ROUTING),
+    upwardEdge("primitives", PRIMITIVES, ABOVE_PRIMITIVES),
+    upwardEdge("store-persistence", STATE, ABOVE_STATE),
+    upwardEdge("bridge", BRIDGE, ABOVE_BRIDGE),
+    upwardEdge("palette", PALETTE, ABOVE_PALETTE),
+  ],
+  options: {
+    doNotFollow: { path: "node_modules" },
+    // Test files are not subjects of the layering DAG: a `console-unit` test legitimately
+    // reaches across families to drive the module it covers, and reaches both process trees to
+    // assert the boundary between them.
+    exclude: { path: "\\.(test|bench)\\.(ts|tsx)$|__tests__/" },
+    tsPreCompilationDeps: true,
+    enhancedResolveOptions: {
+      extensions: [".ts", ".tsx", ".mts", ".js", ".jsx", ".mjs", ".cjs", ".json"],
+    },
+  },
+};

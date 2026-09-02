@@ -31,6 +31,9 @@
     "test:console-bench": "vitest run --project=console-bench",
     "budget:bundle": "node --experimental-strip-types scripts/budget/measure-bundle.mts",
     "budget:heap": "node --experimental-strip-types scripts/budget/measure-heap.mts",
+    "structure:dead-code": "knip --directory ../.. --config apps/desktop/knip.json --workspace apps/desktop --treat-config-hints-as-errors",
+    "structure:layering": "depcruise src build scripts --config .dependency-cruiser.mjs --output-type err",
+    "structure": "pnpm run structure:dead-code && pnpm run structure:layering",
     "test": "turbo run test:renderer test:main-unit test:smoke test:console-unit test:console-architecture test:console-assets --filter=@ai-sidekicks/desktop"
   },
   "dependencies": {
@@ -53,9 +56,11 @@
     "@vitest/browser-playwright": "catalog:testing",
     "@vitest/coverage-v8": "catalog:testing",
     "axe-core": "4.13.0",
+    "dependency-cruiser": "18.2.0",
     "electron": "44.1.0",
     "electron-vite": "^5.0.0",
     "happy-dom": "^19.0.0",
+    "knip": "6.34.0",
     "vitest": "catalog:testing"
   }
 }
