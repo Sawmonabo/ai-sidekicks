@@ -182,6 +182,11 @@ function HeldSessions(props: {
   const sessionEntities = useSessionPartition(props.sessionStore, "session");
   const participantEntities = useSessionPartition(props.sessionStore, "participant");
   const { attention } = props;
+  // Read rather than subscribed: a store's session is fixed for its whole life, so
+  // there is nothing here to notify about. It is needed because a store projects
+  // participants for ITS session, and a row for some other session that this store
+  // merely heard about must not be attributed the wrong people.
+  const projectedSessionId = props.sessionStore.sessionId;
 
   const rows = useMemo<readonly SessionListRow[]>(() => {
     const participantIds = Object.keys(participantEntities);
@@ -189,11 +194,11 @@ function HeldSessions(props: {
       sessionId: entity.id,
       state: entity.state,
       touchedAtIso: entity.touchedAt,
-      participantIds,
+      participantIds: entity.id === projectedSessionId ? participantIds : [],
       attentionSeverity:
         attention.phase === "read" ? attention.plane.severityFor(entity.id) : undefined,
     }));
-  }, [sessionEntities, participantEntities, attention]);
+  }, [sessionEntities, participantEntities, projectedSessionId, attention]);
 
   if (rows.length === 0) {
     return <NoHeldSessions action={props.startControl} />;
