@@ -187,7 +187,8 @@
 }
 
 .meridian-attach__submit:disabled,
-.meridian-attach__arm:disabled {
+.meridian-attach__arm:disabled,
+.meridian-switch__apply:disabled {
   cursor: not-allowed;
   color: var(--meridian-text-faint);
 }
@@ -346,7 +347,8 @@
   min-width: 0;
 }
 
-.meridian-switch__supersedes {
+.meridian-switch__supersedes,
+.meridian-switch__driver-move {
   margin: 0;
   font-size: var(--meridian-text-xs);
   color: var(--meridian-amber-text);

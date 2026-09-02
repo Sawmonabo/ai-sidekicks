@@ -41,6 +41,36 @@ function editProviderAccount(container: HTMLElement, value: string): void {
   fireEvent.change(input as HTMLInputElement, { target: { value } });
 }
 
+/** The combobox field carrying one label, found by the label a person reads. */
+function axisField(container: HTMLElement, label: string): HTMLElement | undefined {
+  return [...container.querySelectorAll(".meridian-axis-field")].find(
+    (field) => field.querySelector(".meridian-axis-field__label")?.textContent === label,
+  ) as HTMLElement | undefined;
+}
+
+/** Opens one axis's popup and chooses a published option, the way a person does. */
+function chooseAxisValue(container: HTMLElement, label: string, value: string): void {
+  const field = axisField(container, label);
+  expect(field).not.toBeUndefined();
+  fireEvent.click(field?.querySelector(".meridian-axis-field__trigger") as HTMLElement);
+  const option = [...document.querySelectorAll(".meridian-axis-field__option")].find(
+    (candidate) => candidate.textContent === value,
+  );
+  expect(option).not.toBeUndefined();
+  fireEvent.click(option as HTMLElement);
+}
+
+/** What one combobox currently shows, which is the draft's own answer for that axis. */
+function axisValueOf(container: HTMLElement, label: string): string {
+  return (
+    axisField(container, label)?.querySelector(".meridian-axis-field__trigger")?.textContent ?? ""
+  );
+}
+
+function applyActions(container: HTMLElement): HTMLButtonElement[] {
+  return [...container.querySelectorAll(".meridian-switch__apply")] as HTMLButtonElement[];
+}
+
 describe("provider switch — before the vocabularies are known", () => {
   it("names the read that is in flight and offers no axis to set", () => {
     const { container } = render(
@@ -167,6 +197,114 @@ describe("provider switch — what each apply action submits", () => {
     editProviderAccount(container, "account-2");
     editProviderAccount(container, "");
     expect(container.querySelectorAll(".meridian-switch__apply").length).toBe(0);
+  });
+});
+
+describe("provider switch — a driver move clears the axes that driver governs", () => {
+  it("clears the model and effort the previous driver published", () => {
+    const { container } = render(
+      <ProviderSwitch
+        agent={{ ...ON_CLAUDE, config: { effort: "high" } }}
+        catalog={LOADED}
+        onApply={() => {}}
+      />,
+    );
+    expect(axisValueOf(container, "Model")).toBe("claude-sonnet");
+
+    chooseAxisValue(container, "Driver", "codex");
+
+    // The previous driver's model was never in the target's catalog, and an effort
+    // level is the MODEL's own vocabulary, so neither survives the move.
+    expect(axisValueOf(container, "Model")).toBe("");
+    expect(axisValueOf(container, "Effort")).toBe("");
+  });
+
+  it("holds both actions until a model in the target driver's catalog is named", () => {
+    const { container } = render(
+      <ProviderSwitch agent={ON_CLAUDE} catalog={LOADED} onApply={() => {}} />,
+    );
+    chooseAxisValue(container, "Driver", "codex");
+
+    const held = applyActions(container);
+    expect(held.length).toBe(2);
+    expect(held.every((action) => action.disabled)).toBe(true);
+    expect(container.textContent ?? "").toContain("has to name the model it moves to");
+  });
+
+  it("submits the driver AND the model once one is chosen", () => {
+    // The defect: a driver move alone submitted `{ driverName }`, and an omitted
+    // axis is unchanged, so the daemon validated the OLD model against the NEW
+    // driver and refused the most ordinary cross-provider switch there is.
+    const onApply = vi.fn();
+    const { container } = render(
+      <ProviderSwitch agent={ON_CLAUDE} catalog={LOADED} onApply={onApply} />,
+    );
+    chooseAxisValue(container, "Driver", "codex");
+    chooseAxisValue(container, "Model", "gpt-5.6");
+
+    const [deferred] = applyActions(container);
+    expect(deferred?.disabled).toBe(false);
+    fireEvent.click(deferred as HTMLButtonElement);
+    expect(onApply).toHaveBeenCalledWith({ driverName: "codex", modelId: "gpt-5.6" }, false);
+  });
+
+  it("negative control: staying on the agent's own driver holds nothing back", () => {
+    // Without this, the cases above would pass over a form that disabled its
+    // actions for every edit, which is a different defect wearing the same green.
+    const onApply = vi.fn();
+    const { container } = render(
+      <ProviderSwitch agent={ON_CLAUDE} catalog={LOADED} onApply={onApply} />,
+    );
+    chooseAxisValue(container, "Model", "claude-haiku");
+
+    const [deferred] = applyActions(container);
+    expect(deferred?.disabled).toBe(false);
+    expect(container.textContent ?? "").not.toContain("has to name the model it moves to");
+    fireEvent.click(deferred as HTMLButtonElement);
+    expect(onApply).toHaveBeenCalledWith({ modelId: "claude-haiku" }, false);
+  });
+
+  it("drops an output speed the target driver declares no axis for", () => {
+    // `codex` declares no speed vocabulary, and a dispatch against a driver that
+    // declares the flag false refuses outright — so the axis is dropped rather
+    // than submitted, and there is no control on screen showing it either.
+    const onApply = vi.fn();
+    const { container } = render(
+      <ProviderSwitch agent={ON_CLAUDE} catalog={LOADED} onApply={onApply} />,
+    );
+    chooseAxisValue(container, "Output speed", "fast");
+    chooseAxisValue(container, "Driver", "codex");
+    chooseAxisValue(container, "Model", "gpt-5.6");
+
+    fireEvent.click(applyActions(container)[0] as HTMLButtonElement);
+    expect(onApply).toHaveBeenCalledWith({ driverName: "codex", modelId: "gpt-5.6" }, false);
+  });
+
+  it("negative control: the declaring driver does submit the speed it published", () => {
+    // Without this, the case above would pass over a form that never submitted the
+    // speed axis at all.
+    const onApply = vi.fn();
+    const { container } = render(
+      <ProviderSwitch agent={ON_CLAUDE} catalog={LOADED} onApply={onApply} />,
+    );
+    chooseAxisValue(container, "Output speed", "fast");
+
+    fireEvent.click(applyActions(container)[0] as HTMLButtonElement);
+    expect(onApply).toHaveBeenCalledWith({ outputSpeed: "fast" }, false);
+  });
+
+  it("drops an effort the target model's own vocabulary does not publish", () => {
+    // `claude-haiku` publishes no effort surface, so an effort chosen against its
+    // sibling is not a value this model can be given.
+    const onApply = vi.fn();
+    const { container } = render(
+      <ProviderSwitch agent={ON_CLAUDE} catalog={LOADED} onApply={onApply} />,
+    );
+    chooseAxisValue(container, "Effort", "low");
+    chooseAxisValue(container, "Model", "claude-haiku");
+
+    fireEvent.click(applyActions(container)[0] as HTMLButtonElement);
+    expect(onApply).toHaveBeenCalledWith({ modelId: "claude-haiku" }, false);
   });
 });
 
