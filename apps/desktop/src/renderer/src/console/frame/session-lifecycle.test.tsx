@@ -29,7 +29,7 @@ import {
 } from "../bridge/index.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { createLiveBridge } from "../bridge/live-bridge.js";
-import type { ScenarioEngine } from "../bridge/scenario.js";
+import type { ScenarioEngine } from "../bridge/scenario-engine.js";
 import { APPLY_COALESCE_MS, ManualClock } from "../core/index.js";
 import {
   SessionStoreRegistry,

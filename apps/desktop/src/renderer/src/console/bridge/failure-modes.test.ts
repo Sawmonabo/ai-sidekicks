@@ -32,7 +32,7 @@ import {
   mapSlateRowCoverage,
   type ConsoleScenarioManifest,
 } from "./scenario-manifest.js";
-import { ScenarioEngine } from "./scenario.js";
+import { ScenarioEngine } from "./scenario-engine.js";
 import { FIRST_RUN_SCENARIO } from "./scenarios/first-run.js";
 
 // Tripwires throw in development so a breach is impossible to ignore. Under test

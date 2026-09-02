@@ -30,7 +30,8 @@ import { describe, expect, it } from "vitest";
 import type { DaemonEvent, DaemonMethod } from "@ai-sidekicks/contracts";
 
 import { createFixtureBridge, FixtureBridgeError } from "./fixture-bridge.js";
-import type { ConsoleScenario, ScenarioEngine } from "./scenario.js";
+import type { ScenarioEngine } from "./scenario-engine.js";
+import type { ConsoleScenario } from "./scenario.js";
 import { FLAGSHIP_SCENARIO } from "./scenarios/flagship.js";
 import {
   RUN_QUEUE_EVENT_STREAM,
