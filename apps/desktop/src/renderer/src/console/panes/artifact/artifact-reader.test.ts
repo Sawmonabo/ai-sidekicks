@@ -16,7 +16,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { ATTACHMENT_ALLOWLIST_DEFAULT } from "../../repos/attachment-model.js";
-import { ArtifactPaneReader, type ArtifactPaneReading } from "./artifact-reader.js";
+import type { ArtifactPaneReading } from "./artifact-pane-reading.js";
+import { ArtifactPaneReader } from "./artifact-reader.js";
 
 interface PortScript {
   readonly listAnswer: unknown;

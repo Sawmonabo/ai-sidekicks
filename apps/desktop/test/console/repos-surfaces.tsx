@@ -285,19 +285,30 @@ export async function mountDiffPane(): Promise<MountedFamilySurface> {
  * not serve, so what this pins is the pane carrying the port's typed refusal beside
  * the shipped-default allow-list hint — which is the composition a person on this
  * build actually sees, and the one a mapped list would replace.
+ *
+ * WAITED ON TWICE, AND THE SECOND WAIT IS THE ONE THAT MATTERS. The panel's own root
+ * is in the DOM from the first frame on every arm, so waiting for it alone would pin
+ * whichever side of the read the runner happened to reach — and the pane's reads run
+ * through the console's refresh scheduler, which coalesces before it calls. The
+ * refusal card is what the settled arm renders, so that is what is waited for.
+ *
+ * The announcer is the pane's environment, on the section's rule and for its reason:
+ * an act announces its own settlement, `useAnnounce` throws outside the provider on
+ * purpose, and a frozen clock keeps a standing message from clearing mid-capture.
  */
 export async function mountArtifactPane(): Promise<MountedFamilySurface> {
   const { bridge, sessionStore } = scenarioCollaborators();
   const ArtifactPaneBody = paneBodyComponent("artifact");
   const { container } = await renderSettled(
-    <>
+    <LiveAnnouncerProvider clock={new ManualClock()}>
       {ArtifactPaneBody(
         paneContext({ kind: "artifact", paneId: "pane-artifact-surface", bridge, sessionStore }),
       )}
-    </>,
+    </LiveAnnouncerProvider>,
   );
   const region = requireLabelledRegion(container, "Artifact");
   await waitForWithin(region, ".meridian-artifacts");
+  await waitForWithin(region, ".meridian-refusal--card");
   return { element: region, bridge };
 }
 
