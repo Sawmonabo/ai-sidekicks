@@ -19,7 +19,11 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { refuse } from "../core/index.js";
-import { useCallerMembershipRole, type CallerParticipantReader } from "./hooks.js";
+import {
+  CALLER_IDENTITY_READ_FAILED,
+  useCallerMembershipRole,
+  type CallerParticipantReader,
+} from "./hooks.js";
 import { SessionStore } from "./session-store.js";
 
 /** A store whose roster holds exactly the participants given, with their roles. */
@@ -163,6 +167,96 @@ describe("useCallerMembershipRole — the caller read chained to the roster", ()
     const refusal = refuse("growth-port", "wire-unregistered", "Not checked on this build.");
     const { answer } = await renderCaller(() => Promise.resolve(refusal), store);
     expect(answer()).not.toContain("read|");
+  });
+});
+
+describe("useCallerMembershipRole — a reader that rejects rather than refusing", () => {
+  /**
+   * Every rejection Node saw nothing handle while the body ran.
+   *
+   * The escaped-rejection half of this failure is invisible to `render`: React does
+   * not route a rejected effect promise to an error boundary, so the only witness is
+   * the process's own report. Listeners are added and removed around each body rather
+   * than for the file, so a rejection another case raises cannot be counted here.
+   */
+  async function unhandledRejectionsDuring(body: () => Promise<void>): Promise<readonly string[]> {
+    const escaped: string[] = [];
+    const record = (reason: unknown): void => {
+      escaped.push(String(reason));
+    };
+    process.on("unhandledRejection", record);
+    try {
+      await body();
+      // An unhandled rejection is reported a macrotask after the microtask queue
+      // drains, so a body that only awaited microtasks would report clean either way.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    } finally {
+      process.off("unhandledRejection", record);
+    }
+    return escaped;
+  }
+
+  it("answers the refused arm with a stable code when the read rejects", async () => {
+    const store = storeWithRoster({ "participant-1": "owner" });
+    const { answer } = await renderCaller(
+      () => Promise.reject(new Error("the identity call never reached the daemon")),
+      store,
+    );
+    expect(answer()).toBe(`refused|${CALLER_IDENTITY_READ_FAILED}`);
+  });
+
+  it("answers the refused arm when the reader throws before it returns a promise", async () => {
+    // A synchronous throw is the same failure arriving one tick earlier, and the
+    // `try` has to cover the CALL and not only the `await` for it to be caught.
+    const store = storeWithRoster({ "participant-1": "owner" });
+    const { answer } = await renderCaller(() => {
+      throw new Error("the reader was constructed against a bridge that is gone");
+    }, store);
+    expect(answer()).toBe(`refused|${CALLER_IDENTITY_READ_FAILED}`);
+  });
+
+  it("negative control: the rejection reaches no unhandled-rejection report", async () => {
+    // The half `answer()` cannot see. On the old effect the rejection escaped the
+    // detached async body, this listener recorded it, and the hook additionally sat
+    // in `not-loaded` for the life of the pane.
+    const store = storeWithRoster({ "participant-1": "owner" });
+    let rendered = "";
+    const escaped = await unhandledRejectionsDuring(async () => {
+      const { answer } = await renderCaller(
+        () => Promise.reject(new Error("the identity call never reached the daemon")),
+        store,
+      );
+      rendered = answer();
+    });
+    expect(escaped).toEqual([]);
+    expect(rendered).not.toBe("not-loaded|");
+  });
+
+  it("sets nothing when the rejection lands after the inputs moved on", async () => {
+    // The abandonment guard, on the failure arm. Settling the refusal here would
+    // overwrite an answer the CURRENT inputs produced with one about inputs that are
+    // gone — the same defect the settled arm's guard exists for.
+    let rejectFirstRead: (reason: Error) => void = () => undefined;
+    const firstRead: CallerParticipantReader = () =>
+      new Promise((_resolve, reject) => {
+        rejectFirstRead = reject;
+      });
+    const firstStore = storeWithRoster({ "participant-1": "owner" });
+    const secondStore = storeWithRoster({ "participant-2": "owner" });
+    const { answer, rerender } = await renderCaller(firstRead, firstStore);
+    expect(answer()).toBe("not-loaded|");
+
+    rerender({ read: () => Promise.resolve("participant-2"), store: secondStore });
+    await act(async () => undefined);
+    expect(answer()).toBe("read|participant-2:owner");
+
+    const escaped = await unhandledRejectionsDuring(async () => {
+      await act(async () => {
+        rejectFirstRead(new Error("the abandoned read failed long after it stopped mattering"));
+      });
+    });
+    expect(answer()).toBe("read|participant-2:owner");
+    expect(escaped).toEqual([]);
   });
 });
 

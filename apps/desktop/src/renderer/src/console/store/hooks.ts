@@ -30,7 +30,7 @@ import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 
 import { useStore } from "zustand";
 import type { MembershipRole } from "@ai-sidekicks/contracts";
 
-import { isConsoleRefusal, type ConsoleRefusal } from "../core/index.js";
+import { isConsoleRefusal, refuse, type ConsoleRefusal } from "../core/index.js";
 import type { ConsoleEntity, ConsoleEntityKind, ConsoleEntityRef } from "./entities.js";
 import type { FrameStore, FrameStoreState } from "./frame-store.js";
 import { membershipRoleOf } from "./selectors.js";
@@ -136,6 +136,44 @@ export function useSessionEntity(
 export type CallerParticipantReader = () => Promise<string | ConsoleRefusal>;
 
 /**
+ * The subsystem name this family's refusals carry, spelled once.
+ *
+ * `core/refusal.ts` gives `origin` as the field that lets a refusal surfacing three
+ * layers from where it was raised still name its author, and the `persistence/`
+ * family already writes its own down this way rather than at each site.
+ */
+export const STORE_REFUSAL_ORIGIN = "store";
+
+/**
+ * The code a reader's REJECTION becomes.
+ *
+ * Not a bridge code, and the DAG is why: the codes a bridge failure carries are
+ * declared in `bridge/`, a family above this one, so naming one here would be the
+ * upward edge `structure:layering` refuses. It is also the honest name — the reader
+ * is injected, so what this family knows is that the read did not answer, not what
+ * went wrong underneath. The producer that HAS that knowledge keeps returning its
+ * own `ConsoleRefusal`, which travels through the same arm untouched.
+ */
+export const CALLER_IDENTITY_READ_FAILED = "caller-identity-read-failed";
+
+/**
+ * The whole refusal, built once.
+ *
+ * A rejected reader is not a served answer and it is not "still loading" either: a
+ * hook that let the rejection escape produced an unhandled rejection no React error
+ * boundary can see and then sat in `not-loaded` for the life of the pane, so every
+ * role-gated control stayed in its loading state with nothing on screen saying why.
+ * One frozen value rather than a fresh literal per rejection, on `NOT_LOADED_IDENTITY`'s
+ * reasoning: a consumer keying a `useMemo` on the result should not see the answer
+ * change identity because the same failure happened twice.
+ */
+const CALLER_IDENTITY_READ_FAILURE: ConsoleRefusal = refuse(
+  STORE_REFUSAL_ORIGIN,
+  CALLER_IDENTITY_READ_FAILED,
+  "Could not read which participant this window is. Reopen the pane to ask again.",
+);
+
+/**
  * What this window's own membership role is, or why it is not known.
  *
  * Three arms rather than a bare `MembershipRole | undefined`, because a surface
@@ -191,7 +229,18 @@ export function useCallerMembershipRole(
   useEffect(() => {
     let abandoned = false;
     void (async () => {
-      const answer = await readCallerParticipant();
+      // The reader is injected, so its failure mode is whatever the composition root
+      // handed us — an IPC call that never reaches the daemon rejects before it can
+      // build a refusal. Caught HERE rather than with a `.catch` on the effect's
+      // promise, so the abandonment check below governs the failure arm exactly as it
+      // governs the settled one: a rejection that lands after unmount or after the
+      // inputs changed sets nothing.
+      let answer: string | ConsoleRefusal;
+      try {
+        answer = await readCallerParticipant();
+      } catch {
+        answer = CALLER_IDENTITY_READ_FAILURE;
+      }
       if (abandoned) {
         return;
       }
