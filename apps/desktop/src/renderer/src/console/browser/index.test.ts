@@ -1,11 +1,21 @@
 // The browser family's registration terms, and the fixture it is registered against.
 //
 // Two claims, and neither is about what the pane looks like — that is
-// `panes/browser/BrowserPane.test.tsx`'s. Here: the deck holds the pane on the
-// terms the descriptor states, and the scenario the fixture plays names no wire the
+// `panes/browser/BrowserPane.test.tsx`'s. Here: the deck holds the pane on the terms
+// the descriptor states, and the scenario the fixture plays calls no method the
 // corpus has not registered. The second is the one worth a test rather than a
-// review: a fabricated method string or event type in a fixture is invisible until
-// the day the real one lands and disagrees with it.
+// review: a fabricated method string in a fixture is invisible until the day the
+// real one lands and disagrees with it.
+//
+// WHAT THIS FILE NO LONGER CLAIMS, AND WHO CLAIMS IT NOW. It carried a hand-copied
+// list of the event kinds this fixture may script and its own beat-ordering check.
+// Both are legs of `bridge/scenarios/wire-truth.ts`, the single predicate every
+// scenario on the seat board is measured through, and it reads the compiled
+// `SESSION_EVENT_CATEGORY_BY_TYPE` census rather than a copy — which matters, because
+// the copy had already gone stale once, carrying `participant.joined`, a name the
+// taxonomy does not register at all. The call names below survive because nothing
+// else censuses them: wire truth walks the replies for duplicates and spendable
+// latency and never asks what a call is named.
 
 import { describe, expect, it } from "vitest";
 
@@ -14,34 +24,13 @@ import { ConsolePaneRegistry } from "../seats/index.js";
 import { registerBrowserPanes } from "./index.js";
 
 /**
- * Event kinds and call names this fixture is allowed to script.
+ * The daemon methods this fixture is allowed to call.
  *
- * Every entry is registered somewhere in the corpus today: the session, membership,
- * agent, run, and artifact types in `Spec-006`'s taxonomy, and the two opening reads
- * `first-run.ts` already scripts. The browser namespace is on
- * `Plan-023 §Console growth slate` and is deliberately absent, which is what this
- * list exists to hold it to.
- *
- * The list is a hand copy, and a hand copy is only as fresh as its last editor — it
- * carried `participant.joined`, which the taxonomy does not register at all (the
- * canonical first-joined event is `membership.created`). The stronger check now runs
- * beside the scenario in `bridge/scenarios/scenarios.test.ts`, against the compiled
- * `SESSION_EVENT_CATEGORY_BY_TYPE` map rather than against a copy of it; this list
- * survives as the browser family's own statement of what its fixture may script.
+ * Both are registered reads `first-run.ts` already scripts. The browser namespace is
+ * on `Plan-023 §Console growth slate` and is deliberately absent, which is what this
+ * list exists to hold the fixture to: a scenario answering `browser.act` would read
+ * as scripted behaviour and be a promise the wire has not made.
  */
-const REGISTERED_EVENT_KINDS: readonly string[] = [
-  "session.created",
-  "session.activated",
-  "membership.created",
-  "agent.attached",
-  "run.queued",
-  "run.starting",
-  "run.running",
-  "run.completed",
-  "artifact.published",
-  "artifact.superseded",
-];
-
 const REGISTERED_CALL_NAMES: readonly string[] = ["session.list", "agent.list"];
 
 describe("browser family — claiming the deck's browser pane", () => {
@@ -87,7 +76,7 @@ describe("browser family — claiming the deck's browser pane", () => {
   });
 });
 
-describe("browser scenario — scripted only against registered wires", () => {
+describe("browser scenario — scripted only against registered methods", () => {
   it("is the scenario the seat board names", () => {
     expect(BROWSER_SCENARIO.id).toBe(BROWSER_SCENARIO_ID);
     // Non-empty, or every quantified case below is a claim about nothing.
@@ -95,26 +84,15 @@ describe("browser scenario — scripted only against registered wires", () => {
     expect(BROWSER_SCENARIO.replies.length).toBeGreaterThan(0);
   });
 
-  it("scripts no event kind and no call the corpus has not registered", () => {
-    for (const beat of BROWSER_SCENARIO.beats) {
-      expect(REGISTERED_EVENT_KINDS).toContain(beat.event.kind);
-    }
+  it("calls no method the corpus has not registered", () => {
     for (const reply of BROWSER_SCENARIO.replies) {
       expect(REGISTERED_CALL_NAMES).toContain(reply.call);
     }
   });
 
-  it("delivers its beats in sequence order, at non-decreasing ticks", () => {
-    const sequences = BROWSER_SCENARIO.beats.map((beat) => beat.event.sequence);
-    expect(sequences).toStrictEqual([...sequences].sort((left, right) => left - right));
-    const ticks = BROWSER_SCENARIO.beats.map((beat) => beat.atMs);
-    expect(ticks).toStrictEqual([...ticks].sort((left, right) => left - right));
-  });
-
   it("negative control: an unregistered browser wire would be caught", () => {
-    // The two cases above would pass over allow-lists that contained everything.
-    // These are the exact strings the browser pane wants and does not have.
-    expect(REGISTERED_EVENT_KINDS).not.toContain("browser.page_opened");
+    // The case above would pass over an allow-list that contained everything. This
+    // is the exact string the browser pane wants and does not have.
     expect(REGISTERED_CALL_NAMES).not.toContain("browser.act");
   });
 });

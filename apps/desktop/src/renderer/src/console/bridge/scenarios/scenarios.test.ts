@@ -1,43 +1,38 @@
 // What the browser and terminal scenarios promise the panes built against them.
 //
 // ONE FILE FOR TWO MODULES, DELIBERATELY. Both are scenario DATA in one directory,
-// and every check below is the same check run against two scripts — wire truth,
-// ordering, closed-vocabulary reachability. Splitting them would mean writing the
-// registered-event-type oracle twice, and a helper written twice is the thing
-// `apps/desktop/AGENTS.md` §Shared code names first. It stays here rather than
-// moving to `test/console/<tier>/` because it needs no harness, no DOM, and no
-// spawn: it reads two exported constants and a contracts map.
+// and the claims below are the same claims run against two scripts. It stays here
+// rather than moving to `test/console/<tier>/` because it needs no harness, no DOM,
+// and no spawn: it reads two exported constants and their replies.
 //
-// THE ORACLE IS THE CONTRACTS PACKAGE, NOT A LIST IN THIS FILE. A scenario's whole
-// value is that it is shape-identical to something real, so the strongest thing a
-// test can say about one is that every event kind it scripts is a kind the wire
-// registers. `SESSION_EVENT_CATEGORY_BY_TYPE` is the compiled `Spec-006` taxonomy,
-// so a beat naming a plausible-but-unregistered type — `run.started`,
-// `participant.joined` — fails here rather than at the first pane that subscribes.
-// That is why the check lives beside the data and not beside a pane: a hand-copied
-// allow-list is only ever as fresh as the last person who edited it.
+// WIRE TRUTH IS NOT HERE, AND DELIBERATELY SO. `bridge/scenarios/wire-truth.ts` is
+// the one predicate every scenario on the seat board is measured through — the
+// `Spec-006` census, the canonical envelope, the log position and tick each beat
+// takes, one scripted answer per call, the memberships a scenario declares — and
+// both scripts below sit on that board, so every one of those legs already runs
+// against them. This file once carried its own census, its own ordering rule, and
+// its own duplicate-call check. Each was a second implementation of a rule that
+// module owns, which `apps/desktop/AGENTS.md` §Tests rejects, and the ordering copy
+// was also the weaker one: it demanded a first beat at sequence 1, where the shipped
+// rule demands the log position the fixture's own session read leaves off at.
 //
-// WHAT THIS FILE DELIBERATELY DOES NOT RE-CHECK. `console/terminal/index.test.ts`
-// already holds the terminal scenario to reaching all five `pty.control_changed`
-// reasons and to the present-and-null holder member; repeating either here would be
-// the second implementation `AGENTS.md` §Tests rejects. What is here is what nothing
-// else covers.
+// WHAT IS HERE IS WHAT NOTHING ELSE COVERS. The two reply timings a loading state
+// and a settled opening frame need — `wire-truth/reply-walk.ts` holds a latency to
+// being spendable, not to being present — the artifact states a row renders, and the
+// lease the terminal script has to end on. `console/terminal/index.test.ts` already
+// holds that scenario to reaching all five `pty.control_changed` reasons and to the
+// present-and-null holder member; repeating either here would be the same second
+// implementation.
 //
 // Every clean assertion below has a negative control that fails, because a
 // predicate that accepted everything would satisfy the positive half of all of
 // them.
 
-import { SESSION_EVENT_CATEGORY_BY_TYPE, type SessionEventType } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import { BROWSER_SCENARIO } from "./browser.js";
 import { TERMINAL_SCENARIO } from "./terminal.js";
 import type { ConsoleScenario, ScenarioBeat } from "../scenario.js";
-
-/** Whether the wire registers this event type. */
-function isRegisteredEventType(kind: string): boolean {
-  return SESSION_EVENT_CATEGORY_BY_TYPE.has(kind as SessionEventType);
-}
 
 /** Every payload member value the beats of one kind carry under one member name. */
 function payloadValuesOf(scenario: ConsoleScenario, kind: string, member: string): string[] {
@@ -47,66 +42,12 @@ function payloadValuesOf(scenario: ConsoleScenario, kind: string, member: string
     .filter((value): value is string => typeof value === "string");
 }
 
-/** Numbered from one, and never moving backwards in time. */
-function beatsInPlayableOrder(beats: readonly ScenarioBeat[]): boolean {
-  return beats.every(
-    (beat, index) =>
-      beat.event.sequence === index + 1 &&
-      (index === 0 || beat.atMs >= (beats[index - 1]?.atMs ?? 0)),
-  );
-}
-
 const BOTH_SCENARIOS = [
   [BROWSER_SCENARIO.id, BROWSER_SCENARIO],
   [TERMINAL_SCENARIO.id, TERMINAL_SCENARIO],
 ] as const;
 
-describe("scenario scripts stay wire-true", () => {
-  it.each(BOTH_SCENARIOS)("%s scripts only registered Spec-006 event types", (_id, scenario) => {
-    const unregistered = scenario.beats
-      .map((beat) => beat.event.kind)
-      .filter((kind) => !isRegisteredEventType(kind));
-    expect(unregistered).toStrictEqual([]);
-  });
-
-  it("rejects the plausible names the taxonomy does not carry", () => {
-    // The negative control, and not a hypothetical one: `run.started` and
-    // `participant.joined` are both names a reader expects to exist and neither is
-    // registered — the taxonomy spells them `run.starting` and `membership.created`.
-    // Without this the check above would be vacuous over an oracle that said yes.
-    expect(isRegisteredEventType("run.started")).toBe(false);
-    expect(isRegisteredEventType("participant.joined")).toBe(false);
-    expect(isRegisteredEventType("browser.page_opened")).toBe(false);
-  });
-
-  it.each(BOTH_SCENARIOS)(
-    "%s numbers its beats from one and never moves backwards in time",
-    (_id, scenario) => {
-      expect(beatsInPlayableOrder(scenario.beats)).toBe(true);
-    },
-  );
-
-  it("fails an out-of-order script", () => {
-    expect(beatsInPlayableOrder([...TERMINAL_SCENARIO.beats].reverse())).toBe(false);
-  });
-
-  it.each(BOTH_SCENARIOS)(
-    "%s scripts each call at most once, so no reply is silently dead",
-    (_id, scenario) => {
-      // `ScenarioEngine.replyFor` returns the FIRST match, so a second entry for one
-      // call is unreachable data that reads like scripted behaviour.
-      const calls = scenario.replies.map((reply) => reply.call);
-      expect(calls).toHaveLength(new Set(calls).size);
-    },
-  );
-
-  it("would catch a duplicated call", () => {
-    const calls = [...TERMINAL_SCENARIO.replies, ...TERMINAL_SCENARIO.replies].map(
-      (reply) => reply.call,
-    );
-    expect(calls.length).not.toBe(new Set(calls).size);
-  });
-
+describe("scenario scripts leave both reply timings reachable", () => {
   it.each(BOTH_SCENARIOS)(
     "%s delays at least one reply, so a loading state is reachable",
     (_id, scenario) => {
