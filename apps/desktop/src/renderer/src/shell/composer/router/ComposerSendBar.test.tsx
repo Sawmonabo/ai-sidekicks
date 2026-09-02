@@ -201,6 +201,154 @@ describe("ComposerSendBar — the store's restart disclosure, once", () => {
   });
 });
 
+describe("ComposerSendBar — a resend offer belongs to the target it was written for", () => {
+  const FIRST_AGENT_ID = "agent-ada";
+  const SECOND_AGENT_ID = "agent-grace";
+  const FIRST_RUN_ID = "2c3d4e5f-6071-4182-8293-a4b5c6d7e8f0";
+  const SECOND_RUN_ID = "3d4e5f60-7182-4293-83a4-b5c6d7e8f001";
+  // The fixed form `neutralization-tripwire.ts` reads, which is what puts the card
+  // on screen at all. Both agents carry one, so re-addressing moves between two
+  // tripped targets rather than between a tripped one and no card.
+  const TRIPWIRE_DETAIL = "driver.text_neutralization_failed origin=participant_text";
+
+  /** A store holding two agents, each with a steerable run that has tripped. */
+  function storeWithTwoTrippedAgents(): SessionStore {
+    const sessionStore = new SessionStore({ sessionId: SESSION_ID });
+    sessionStore.initialise({
+      cursor: 0,
+      entities: [
+        { kind: "agent", id: FIRST_AGENT_ID, body: { name: "Ada", driverName: "claude" } },
+        { kind: "agent", id: SECOND_AGENT_ID, body: { name: "Grace", driverName: "claude" } },
+        {
+          kind: "run",
+          id: FIRST_RUN_ID,
+          state: "paused",
+          body: {
+            agentId: FIRST_AGENT_ID,
+            runVersion: 3,
+            providerFailureDetail: TRIPWIRE_DETAIL,
+          },
+        },
+        {
+          kind: "run",
+          id: SECOND_RUN_ID,
+          state: "paused",
+          body: {
+            agentId: SECOND_AGENT_ID,
+            runVersion: 5,
+            providerFailureDetail: TRIPWIRE_DETAIL,
+          },
+        },
+      ],
+      participantJoinLog: ["participant-you"],
+    });
+    return sessionStore;
+  }
+
+  function paneFor(agentId: string): ConsolePaneAddress {
+    return { kind: "agent-console", entity: { kind: "agent", id: agentId } };
+  }
+
+  /** One mounted bar whose focused pane the case moves, without remounting it. */
+  function mountAddressable(bridge: ConsoleBridge) {
+    const draftStore = new DraftStore({ restartNoticePending: false });
+    const sessionStore = storeWithTwoTrippedAgents();
+    const enumeration = new ProviderCommandEnumeration();
+    const barFor = (agentId: string): React.JSX.Element => (
+      <ComposerSendBar
+        sessionStore={sessionStore}
+        bridge={bridge}
+        draftStore={draftStore}
+        route={DEFAULT_ROUTE}
+        focusedPane={paneFor(agentId)}
+        commandEnumeration={enumeration}
+      />
+    );
+    const result = render(barFor(FIRST_AGENT_ID));
+    return {
+      result,
+      address: (agentId: string) => {
+        result.rerender(barFor(agentId));
+      },
+      line: (): HTMLTextAreaElement => {
+        const line = result.container.querySelector("textarea");
+        if (!(line instanceof HTMLTextAreaElement)) {
+          throw new Error("the send bar rendered no directive line");
+        }
+        return line;
+      },
+      resend: (): HTMLButtonElement | null => {
+        const offer = result.container.querySelector(".meridian-composer__resend");
+        return offer instanceof HTMLButtonElement ? offer : null;
+      },
+    };
+  }
+
+  it("withholds the offer under a target the body was not written for", async () => {
+    // The defect: the last sent body outlived the address it was sent under, so the
+    // second agent's tripwire card offered the first agent's words — and pressing
+    // "Send again" sent them there. The card itself still renders; only the offer is
+    // gone, which is what `ResendOffer` already does with no body.
+    const calls: string[] = [];
+    const bar = mountAddressable(
+      stubBridge(async (_method, params) => {
+        calls.push(JSON.stringify(params));
+        return undefined;
+      }),
+    );
+
+    fireEvent.change(bar.line(), { target: { value: "keep going on the parser" } });
+    await act(async () => {
+      fireEvent.keyDown(bar.line(), { key: "Enter" });
+    });
+    expect(bar.resend()).not.toBeNull();
+
+    bar.address(SECOND_AGENT_ID);
+    expect(bar.result.container.textContent).toContain("driver.text_neutralization_failed");
+    expect(bar.resend()).toBeNull();
+  });
+
+  it("restores the offer on returning to the address that holds it", async () => {
+    // The negative control for the case above: the guard withholds by ADDRESS rather
+    // than by "any re-address clears it", so a body is not lost by looking away.
+    const bar = mountAddressable(stubBridge(async () => undefined));
+
+    fireEvent.change(bar.line(), { target: { value: "keep going on the parser" } });
+    await act(async () => {
+      fireEvent.keyDown(bar.line(), { key: "Enter" });
+    });
+    bar.address(SECOND_AGENT_ID);
+    expect(bar.resend()).toBeNull();
+
+    bar.address(FIRST_AGENT_ID);
+    expect(bar.resend()).not.toBeNull();
+  });
+
+  it("resends that body to its own target, once", async () => {
+    const sent: unknown[] = [];
+    const bar = mountAddressable(
+      stubBridge(async (_method, params) => {
+        sent.push(params);
+        return undefined;
+      }),
+    );
+
+    fireEvent.change(bar.line(), { target: { value: "keep going on the parser" } });
+    await act(async () => {
+      fireEvent.keyDown(bar.line(), { key: "Enter" });
+    });
+    await act(async () => {
+      bar.resend()?.click();
+    });
+
+    expect(sent).toHaveLength(2);
+    expect(sent[1]).toMatchObject({
+      targetRunId: FIRST_RUN_ID,
+      content: "keep going on the parser",
+    });
+  });
+});
+
 describe("ComposerSendBar — one send in flight", () => {
   it("dispatches once for two Enter presses inside one frame", async () => {
     // Both presses run before React re-renders, so both read `status === "idle"`.

@@ -27,6 +27,16 @@
 // store's flag is still consumed at that first focus, so a window tells one composer
 // and no other repeats it.
 //
+// THE RESEND OFFER CARRIES ITS ADDRESSING. The tripwire card offers the last sent
+// body so a neutralized turn can be retried without retyping, and that body used to
+// be a bare string that outlived the address it was written for: sending to one
+// agent and then focusing another whose run had tripped offered the first agent's
+// words, and pressing the offer sent them to the second. So the offer is held WITH
+// the draft key it was sent under and is exposed only while that key is still the
+// current one. The draft key is already this composer's address identity, so the
+// guard is the same notion of "same target" the draft store keys on rather than a
+// second one beside it.
+//
 // THE UNSENT BODY LIVES IN THE SUPPLIED `DraftStore` AND NOWHERE ELSE. The
 // workspace hands the composer seat a window-lifetime store, keyed per address; a
 // `useState` string here would be a second home for the same text, and the two
@@ -69,6 +79,12 @@ export type SendControllerStatus = "idle" | "sending";
  */
 const NO_EXECUTOR_DETAIL =
   "That command was recognised but nothing here can run it, so nothing happened. Your message is still in the line.";
+
+/** The last sent body, held under the composer address it was sent to. */
+interface AddressedResendOffer {
+  readonly draftKey: string;
+  readonly body: string;
+}
 
 /** What the composer is built from. One object, so a new dependency is one edit. */
 export interface SendControllerDependencies {
@@ -115,7 +131,11 @@ export interface SendController {
   readonly status: SendControllerStatus;
   /** The last refusal, composer-side or daemon-side, until the person types again. */
   readonly refusal: ConsoleRefusal | undefined;
-  /** The most recent sent message, so a tripped run can be resent without retyping. */
+  /**
+   * The most recent message sent to THIS address, so a tripped run can be resent
+   * without retyping. `undefined` once the composer is re-addressed, because a body
+   * written for one target is not an offer to send it to another.
+   */
   readonly resendableText: string | undefined;
   /**
    * The store's restart disclosure, while it is armed and there is text to lose.
@@ -166,7 +186,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
   const isDispatchInFlight = useRef(false);
   const [status, setStatus] = useState<SendControllerStatus>("idle");
   const [refusal, setRefusal] = useState<ConsoleRefusal | undefined>(undefined);
-  const [resendableText, setResendableText] = useState<string | undefined>(undefined);
+  const [resendOffer, setResendOffer] = useState<AddressedResendOffer | undefined>(undefined);
   // Armed by the first focus of this composer, and only where the store still owed
   // the disclosure. The store stays the source of whether one is owed at all; this
   // hook decides nothing except when the sentence has something to be about.
@@ -210,7 +230,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
         switch (outcome.status) {
           case "sent":
             historyRef.current.recordSent(body);
-            setResendableText(body);
+            setResendOffer({ draftKey, body });
             draftStore.clear(draftKey);
             setRefusal(undefined);
             return;
@@ -311,7 +331,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     pathLabel: directivePathLabel(resolution),
     status,
     refusal,
-    resendableText,
+    resendableText: resendOffer?.draftKey === draftKey ? resendOffer.body : undefined,
     restartNotice:
       isRestartNoticeArmed && text.length > 0 ? draftStore.restartNoticeText : undefined,
     changeText,
