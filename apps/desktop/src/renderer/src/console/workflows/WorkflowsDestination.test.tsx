@@ -8,6 +8,7 @@
 // retained session is a fact one of them owns.
 
 import { act, fireEvent, render } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "../bridge/index.js";
@@ -22,6 +23,7 @@ import type { GrowthPort } from "../bridge/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { FrameStore, SessionStoreRegistry } from "../store/index.js";
 import type { ConsolePaneAddress } from "../workspace/index.js";
+import { FOLLOWING_WINDOW_RETENTION, type WorkflowsScopeState } from "./destination-scope.js";
 import { WorkflowsDestination } from "./WorkflowsDestination.js";
 
 /**
@@ -56,6 +58,25 @@ function emptyRegistry(): SessionStoreRegistry {
   return new SessionStoreRegistry({ read: () => Promise.resolve(undefined) });
 }
 
+/**
+ * The one thing the destination stopped owning: which arm the scope is on.
+ *
+ * The surface is controlled, because the host above it hands the same answer to a
+ * pane it opens. So a case that presses "choose a different session" needs somewhere
+ * for that arm to live — and it lives HERE, holding the arm and nothing else. The
+ * resolution from arm to session id stays in the component under test, so no case
+ * below re-implements the rule it is checking.
+ */
+function ScopeHolder(props: {
+  readonly children: (
+    scope: WorkflowsScopeState,
+    onScopeChange: (next: WorkflowsScopeState) => void,
+  ) => React.JSX.Element;
+}): React.JSX.Element {
+  const [scope, setScope] = useState<WorkflowsScopeState>(FOLLOWING_WINDOW_RETENTION);
+  return props.children(scope, setScope);
+}
+
 function renderDestination(
   growth: GrowthPort,
   frameStore: FrameStore,
@@ -72,14 +93,20 @@ function renderDestination(
   const openedAddresses: ConsolePaneAddress[] = [];
   const element = (
     <LiveAnnouncerProvider>
-      <WorkflowsDestination
-        growth={growth}
-        frameStore={frameStore}
-        sessionStoreRegistry={registry}
-        openPane={(address) => {
-          openedAddresses.push(address);
-        }}
-      />
+      <ScopeHolder>
+        {(scope, onScopeChange) => (
+          <WorkflowsDestination
+            growth={growth}
+            frameStore={frameStore}
+            sessionStoreRegistry={registry}
+            scope={scope}
+            onScopeChange={onScopeChange}
+            openPane={(address) => {
+              openedAddresses.push(address);
+            }}
+          />
+        )}
+      </ScopeHolder>
     </LiveAnnouncerProvider>
   );
   const { container, rerender } = render(element);

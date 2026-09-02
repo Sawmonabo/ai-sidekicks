@@ -28,6 +28,15 @@
 // who has opened one, so the control did nothing for exactly the people most likely to
 // press it. Asking is its own arm, and it outranks retention.
 //
+// WHY THE ARM IS A PROP AND NOT THIS COMPONENT'S STATE. The pane a person opens from
+// these lists has to be handed the store of the session those lists were read from,
+// and the address it is opened at names a definition or a run and never a session. So
+// the answer to "which session" is needed by the surface ABOVE this one as well as by
+// this one, and a copy held here would be the copy that is right — while the one the
+// pane was built from was the window's retention. `WorkflowsPaneHost.tsx` holds the
+// arm and this component renders it; the resolution both of them read is
+// `destination-scope.ts`'s one function, so the two cannot disagree about it.
+//
 // WHY THE CHOICE IS NOT PERSISTED. `persistence/value-classes.ts` would admit it —
 // the `selection` class takes a record of identifier-shaped strings and a session id
 // is one — and it is still held for the mount, on `FrameStore`'s own recorded
@@ -57,7 +66,7 @@
 // because they are separate questions with separate absences — a session can have
 // definitions and no runs — and one of them refusing must not silence the other.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 
 import "./workflows-destination.css";
 
@@ -67,7 +76,6 @@ import { useFrameStore, type FrameStore, type SessionStoreRegistry } from "../st
 import type { ConsolePaneOpener } from "../workspace/index.js";
 import {
   AWAITING_SESSION_CHOICE,
-  FOLLOWING_WINDOW_RETENTION,
   chosenScope,
   scopeSessionIdFor,
   type WorkflowsScopeState,
@@ -92,6 +100,13 @@ export interface WorkflowsDestinationProps {
   /** This window's open sessions, for the picker's half of what it can offer. */
   readonly sessionStoreRegistry: SessionStoreRegistry;
   /**
+   * Which of the three arms the scope is on. Controlled, for the header's reason:
+   * the surface above needs this same answer to hand an opened pane its store.
+   */
+  readonly scope: WorkflowsScopeState;
+  /** Where a person's pick and their "choose again" go. */
+  readonly onScopeChange: (scope: WorkflowsScopeState) => void;
+  /**
    * Where an opened pane goes. Required, not optional: this destination's specified
    * job includes opening the builder, so a mount that supplied no opener would be a
    * surface that can display definitions and open none of them — which is the state
@@ -102,12 +117,10 @@ export interface WorkflowsDestinationProps {
 
 /** The workflows destination, scoped to the session it reads from. */
 export function WorkflowsDestination(props: WorkflowsDestinationProps): React.JSX.Element {
-  // Held for the mount and not written anywhere durable — the header says why. The
-  // model is next door because it is a rule rather than a render: three arms, one
-  // resolution, and a test that pins the arm the old fold could not express.
-  const [scope, setScope] = useState<WorkflowsScopeState>(FOLLOWING_WINDOW_RETENTION);
+  // The arm is the caller's and the resolution is the model's — three arms, one
+  // function, and a test that pins the arm the old fold could not express.
   const retainedSessionId = useFrameStore(props.frameStore, (state) => state.lastOpenedSessionId);
-  const sessionId = scopeSessionIdFor(scope, retainedSessionId);
+  const sessionId = scopeSessionIdFor(props.scope, retainedSessionId);
   useScopeSettlementAnnouncement(sessionId);
 
   if (sessionId === undefined) {
@@ -117,7 +130,7 @@ export function WorkflowsDestination(props: WorkflowsDestinationProps): React.JS
           growth={props.growth}
           registry={props.sessionStoreRegistry}
           onChoose={(chosenSessionId) => {
-            setScope(chosenScope(chosenSessionId));
+            props.onScopeChange(chosenScope(chosenSessionId));
           }}
         />
       </div>
@@ -135,7 +148,7 @@ export function WorkflowsDestination(props: WorkflowsDestinationProps): React.JS
             // To the question, and not to the absence of a choice. Those were the same
             // value under the old fold, so this control put the surface straight back
             // on the session the person had just asked to leave.
-            setScope(AWAITING_SESSION_CHOICE);
+            props.onScopeChange(AWAITING_SESSION_CHOICE);
           }}
         >
           Choose a different session
