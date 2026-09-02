@@ -288,6 +288,14 @@ export class XtermTerminalAdapter {
       // Watch mode is the default, so the emulator starts unable to accept input
       // and is opened up only by a lease the log established.
       disableStdin: !this.#isWriteEnabled,
+      // THE ONLY TEXTUAL OUTPUT THIS SURFACE HAS. The grid is a canvas under the
+      // WebGL renderer and a wall of positioned spans under the DOM one, and
+      // neither is readable; xterm.js builds the accessible row list and the live
+      // region that make it readable ONLY under this option, whose default is off.
+      // `XtermHost.tsx` names the region and deliberately announces nothing of its
+      // own, so with this off a screen reader reaches a named group with no
+      // contents — the shell would be unreadable rather than merely unlabelled.
+      screenReaderMode: true,
       convertEol: true,
       linkHandler: {
         // The library's own gate: a non-HTTP link never reaches `activate`.

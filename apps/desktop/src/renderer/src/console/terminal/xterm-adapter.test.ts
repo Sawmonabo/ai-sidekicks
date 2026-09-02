@@ -13,6 +13,7 @@
 // worth exercising by default. The pool's own accounting is asserted directly,
 // because it is arithmetic over ids rather than anything a renderer decides.
 
+import { Terminal } from "@xterm/xterm";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { TERMINAL_DEFAULT_SCROLLBACK_LINES } from "./constants.js";
@@ -281,6 +282,41 @@ describe("the context ledger, through the adapter", () => {
     // without bound while the ledger never rose.
     expect(pool.releasedTerminalIds).toStrictEqual(["torn-down"]);
     expect(pool.reclaimedTerminalIds).toStrictEqual(["torn-down"]);
+  });
+});
+
+describe("the accessible view of the grid", () => {
+  it("builds the row list and the live region a screen reader reads", async () => {
+    const { adapter, host } = mountedAdapter();
+    await writeText(adapter, "the shell printed this\n");
+
+    // The grid itself is a canvas under the WebGL renderer and positioned spans
+    // under the DOM one, and neither is readable. This is the readable form, and
+    // the library builds it only when it is asked to.
+    expect(host.querySelector(".xterm-accessibility")).not.toBeNull();
+    const rowList = host.querySelector(".xterm-accessibility-tree");
+    expect(rowList?.getAttribute("role")).toBe("list");
+    expect(rowList?.querySelectorAll('[role="listitem"]').length).toBeGreaterThan(0);
+    expect(host.querySelector('[aria-live="assertive"]')).not.toBeNull();
+  });
+
+  it("negative control: the library builds none of it under its own default", () => {
+    // Driven against the library directly, because the wrapper no longer has the
+    // shape that produced this. `screenReaderMode` defaults to off, and with it
+    // off a screen reader reaches the named group `XtermHost` renders and finds
+    // nothing inside it to read.
+    const host = document.createElement("div");
+    document.body.append(host);
+    liveHosts.push(host);
+    const defaultOptionsTerminal = new Terminal({});
+    try {
+      defaultOptionsTerminal.open(host);
+      expect(host.querySelector(".xterm-accessibility")).toBeNull();
+      expect(host.querySelector(".xterm-accessibility-tree")).toBeNull();
+      expect(host.querySelector('[aria-live="assertive"]')).toBeNull();
+    } finally {
+      defaultOptionsTerminal.dispose();
+    }
   });
 });
 
