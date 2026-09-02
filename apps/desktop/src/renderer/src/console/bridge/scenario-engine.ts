@@ -222,9 +222,23 @@ export class ScenarioEngine {
       return;
     }
     const target = this.#elapsedMs + deltaMs;
-    const due = this.#scenario.beats
-      .slice(this.#deliveredBeatCount)
-      .filter((beat) => beat.atMs <= target);
+    // The CONTIGUOUS due prefix, and contiguity is the whole of it. A filter over
+    // the remainder picked up a later entry that happened to be due while leaving
+    // an earlier undelivered one in front of it, then advanced the count as though
+    // a prefix had been consumed — so the next advance sliced PAST the entry it had
+    // skipped and re-emitted the one it had already sent. Stopping at the first
+    // entry that is not yet due makes `deliveredBeatCount` and the set actually
+    // delivered the same claim, whatever order the script is written in.
+    //
+    // Scripts are held to nondecreasing `atMs` by `scenarios/wire-truth.ts`, so a
+    // shipped scenario reaches here already ordered. This is the runtime half of
+    // that pair rather than a restatement of it: the check reports an author error
+    // before the scenario ships, and this makes the error cost a late beat instead
+    // of a duplicated and a dropped one.
+    const remainingBeats = this.#scenario.beats.slice(this.#deliveredBeatCount);
+    const firstNotYetDueIndex = remainingBeats.findIndex((beat) => beat.atMs > target);
+    const due =
+      firstNotYetDueIndex === -1 ? remainingBeats : remainingBeats.slice(0, firstNotYetDueIndex);
     this.#elapsedMs = target;
     if (this.#clock.advance !== undefined) {
       this.#clock.advance(deltaMs);

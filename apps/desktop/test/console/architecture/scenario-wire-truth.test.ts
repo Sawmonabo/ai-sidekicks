@@ -24,6 +24,10 @@
 // THE PREDICATE IS IMPORTED, NEVER RESTATED. `bridge/scenarios/wire-truth.ts` owns
 // it, and the negative controls below drive that same function: a test carrying its
 // own copy of the rule would go green against a copy nobody ships.
+//
+// WHAT IS NOT HERE. What a subscriber RECEIVES when a scenario plays is
+// `scenario-delivery-shape.test.ts`'s: a different claim, measured through the
+// real bridge rather than over the declared beats.
 
 import { describe, expect, it } from "vitest";
 
@@ -225,6 +229,111 @@ describe("scenario wire truth — the controls", () => {
 
     expect(defects).toHaveLength(1);
     expect(defects[0]?.reason).toContain("rejects this beat");
+  });
+
+  it("reports a beat the canonical carrier rejects, on a kind the strict layer skips", () => {
+    // The carrier leg's own control, and it is planted where only that leg reaches:
+    // `run.starting` has no registered payload variant, so the strict layer reports
+    // nothing but the unmatched discriminator and this beat used to pass silently.
+    // A negative `sequence` is not a position any event can occupy — the store's
+    // cursor and gap detection key on it — so the delivery would be counted
+    // unreadable and dropped, which in a fixture reads as a beat that renders
+    // nothing.
+    const defects = findScenarioWireTruthDefects([
+      controlScenario({
+        beats: [
+          {
+            atMs: 0,
+            event: {
+              id: CONTROL_EVENT_ID,
+              sessionId: CONTROL_SESSION_ID,
+              sequence: -1,
+              kind: "run.starting",
+              occurredAt: "2026-01-01T00:00:00.000Z",
+              payload: {},
+            },
+          },
+        ],
+      }),
+    ]);
+
+    expect(defects).toHaveLength(1);
+    expect(defects[0]?.reason).toContain("the canonical envelope rejects this beat");
+  });
+
+  it("reports a beat due before the beat in front of it", () => {
+    // `beats` is an ordered script, and the engine consumes the contiguous prefix
+    // that has fallen due — so an entry written behind a later-due one is
+    // delivered later than the tick it names. It used to pass silently, and the
+    // screenshot and endurance tiers pin frames by advancing to an exact tick.
+    const defects = findScenarioWireTruthDefects([
+      controlScenario({
+        beats: [
+          {
+            atMs: 200,
+            event: {
+              id: CONTROL_EVENT_ID,
+              sessionId: CONTROL_SESSION_ID,
+              sequence: 1,
+              kind: "run.starting",
+              occurredAt: "2026-01-01T00:00:00.200Z",
+              payload: {},
+            },
+          },
+          {
+            atMs: 20,
+            event: {
+              id: CONTROL_EVENT_ID,
+              sessionId: CONTROL_SESSION_ID,
+              sequence: 2,
+              kind: "run.running",
+              occurredAt: "2026-01-01T00:00:00.020Z",
+              payload: {},
+            },
+          },
+        ],
+      }),
+    ]);
+
+    expect(defects).toHaveLength(1);
+    expect(defects[0]?.subject).toBe("beat 1 (run.running)");
+    expect(defects[0]?.reason).toContain("before the beat in front of it");
+  });
+
+  it("accepts two beats scripted at one tick, which is ordinary rather than a defect", () => {
+    // The other arm: nondecreasing, not strictly increasing. Without this the case
+    // above could be a blanket refusal of equal ticks, which every scenario that
+    // scripts an event and the transition it triggers would then fail.
+    const defects = findScenarioWireTruthDefects([
+      controlScenario({
+        beats: [
+          {
+            atMs: 40,
+            event: {
+              id: CONTROL_EVENT_ID,
+              sessionId: CONTROL_SESSION_ID,
+              sequence: 1,
+              kind: "run.starting",
+              occurredAt: "2026-01-01T00:00:00.040Z",
+              payload: {},
+            },
+          },
+          {
+            atMs: 40,
+            event: {
+              id: CONTROL_EVENT_ID,
+              sessionId: CONTROL_SESSION_ID,
+              sequence: 2,
+              kind: "run.running",
+              occurredAt: "2026-01-01T00:00:00.040Z",
+              payload: {},
+            },
+          },
+        ],
+      }),
+    ]);
+
+    expect(defects).toStrictEqual([]);
   });
 
   it("reports a second reply for a call another reply already claims", () => {

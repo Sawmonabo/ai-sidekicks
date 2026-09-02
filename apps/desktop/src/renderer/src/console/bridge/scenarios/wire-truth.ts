@@ -9,10 +9,10 @@
 // defects the substrate's own two scenarios shipped with must fail, and it does,
 // without that family or its reviewer having to know this module exists.
 //
-// WHAT WIRE TRUTH IS HERE. `packages/contracts/src/event.ts` ships two layers, and
-// a scenario is measured against both — then against a third leg the contracts
-// package does not carry at all, because the run state machine lives in
-// `docs/domain/` and nothing compiles it:
+// WHAT WIRE TRUTH IS HERE. `packages/contracts/src/event.ts` ships three things a
+// scenario is measured against, and every beat meets all three — then a fourth leg
+// the contracts package does not carry at all, because the run state machine lives
+// in `docs/domain/` and nothing compiles it:
 //
 //   • `SESSION_EVENT_CATEGORY_BY_TYPE` — the census. Its keys are every event type
 //     the taxonomy registers, so a `kind` that is not a key is a type no daemon
@@ -20,6 +20,13 @@
 //     exactly like a real event and is not one (`run.starting` is), and a fixture
 //     that plays it produces frames, screenshots, and end-to-end results about a
 //     wire that does not exist.
+//   • `EventEnvelopeSchema` — the version-tolerant carrier. It fixes the canonical
+//     membership for EVERY kind, registered payload variant or not, and it is the
+//     schema the console's own decode boundary parses each delivery with
+//     (`frame/session-event-payload.ts`). This is the leg that says the fixture can
+//     deliver this beat at all: a beat that fails here is one the console would
+//     count as an unreadable delivery and drop, which in a fixture reads as a
+//     scenario that plays a beat nothing renders.
 //   • `SessionEventSchema` — the strict layer. It registers a payload variant for
 //     some of those types and not others, so where one exists the beat has to
 //     satisfy it. This is the leg that catches an invented MEMBER, which is the
@@ -34,16 +41,16 @@
 //     registers no variant for the run-lifecycle kinds at all, and the machine is
 //     prose in `docs/domain/run-state-machine.md`.
 //
-// WHY THE PROBE IS A WHOLE ENVELOPE. The strict layer is declared per EVENT, not
-// per payload — there is no exported payload-only schema to reach for, and the one
-// place the two are paired is inside the discriminated union. So the check presents
-// each beat as the wire event it claims to be: the scenario's own `id`,
-// `sessionId`, `sequence`, `occurredAt`, and actor, the census's own category, and
-// the beat's own payload, with only the wire-contract `version` supplied by this
-// module. That makes the leg STRONGER than a payload-only parse rather than weaker
-// — a scenario whose `sessionId` is not the UUID the contract declares is caught
-// here too, and so is one whose envelope `id` is empty, which this module used to
-// hide by supplying a fixed probe id of its own.
+// WHY THE PROBE IS A WHOLE ENVELOPE, AND WHOSE ENVELOPE IT IS. The strict layer is
+// declared per EVENT, not per payload — there is no exported payload-only schema to
+// reach for, and the one place the two are paired is inside the discriminated union.
+// So the check presents each beat as the wire event it claims to be. It does not
+// compose that envelope itself: `../scenario-envelope.ts` composes it, and that is
+// the same function `fixture-bridge.ts` delivers through. Two compositions would be
+// two answers to "what does this beat travel as", and this check would then be
+// validating a record no subscriber ever receives — which is the shape of the defect
+// that made the console's decode boundary and the fixture agree with each other and
+// with nothing the daemon sends.
 //
 // HOW "NO VARIANT REGISTERED" IS TOLD FROM "VARIANT REJECTED THE BEAT". A Zod
 // discriminated union that matches no branch never enters one: it reports a single
@@ -55,12 +62,14 @@
 // failure is the beat's.
 
 import {
+  EventEnvelopeSchema,
   MembershipRoleSchema,
   SESSION_EVENT_CATEGORY_BY_TYPE,
   SessionEventSchema,
   type SessionEventType,
 } from "@ai-sidekicks/contracts";
 
+import { composeScenarioEventEnvelope } from "../scenario-envelope.js";
 import type { ConsoleScenario, ScenarioBeat } from "../scenario.js";
 
 /**
@@ -78,18 +87,6 @@ export interface ScenarioWireTruthDefect {
   readonly reason: string;
 }
 
-/**
- * The wire-contract version the probe supplies.
- *
- * `"MAJOR.MINOR"` per ADR-018; the strict layer only checks the shape. It is the
- * one canonical member the console's projection does not carry — `ADR-018` binds
- * it into the signature and no renderer reads it — so supplying it is the probe's
- * business rather than a scenario's. The envelope `id` is NOT in that position:
- * every beat carries its own, and the probe presents it rather than standing in
- * for it.
- */
-const PROBE_ENVELOPE_VERSION = "1.0";
-
 /** Every wire-truth defect across the given scenarios. Empty is the passing state. */
 export function findScenarioWireTruthDefects(
   scenarios: readonly ConsoleScenario[],
@@ -106,6 +103,7 @@ export function findScenarioWireTruthDefects(
         });
       }
     }
+    defects.push(...findBeatOrderDefects(scenario));
     defects.push(...findDuplicateReplyCalls(scenario));
     const viewerDefect = describeViewerDefect(scenario);
     if (viewerDefect !== undefined) {
@@ -118,8 +116,11 @@ export function findScenarioWireTruthDefects(
 
 /** What is wrong with one beat, or `undefined` when the wire could have emitted it. */
 function describeBeatDefect(beat: ScenarioBeat): string | undefined {
-  const category = SESSION_EVENT_CATEGORY_BY_TYPE.get(beat.event.kind as SessionEventType);
-  if (category === undefined) {
+  if (SESSION_EVENT_CATEGORY_BY_TYPE.get(beat.event.kind as SessionEventType) === undefined) {
+    // First, and separately from the two parses, because it is the one defect
+    // whose remedy is a NAME. Reported by either schema it would surface as a
+    // missing category or an unmatched discriminator, which says nothing about the
+    // kind the author meant to script.
     return (
       `"${beat.event.kind}" is not a registered event type, so no daemon emits it. ` +
       "Script the registered type this beat means instead — the census is " +
@@ -130,25 +131,21 @@ function describeBeatDefect(beat: ScenarioBeat): string | undefined {
   if (selfTransition !== undefined) {
     return selfTransition;
   }
-  const parsed = SessionEventSchema.safeParse({
-    id: beat.event.id,
-    sessionId: beat.event.sessionId,
-    sequence: beat.event.sequence,
-    occurredAt: beat.event.occurredAt,
-    category,
-    type: beat.event.kind,
-    ...(beat.event.actorParticipantId === undefined
-      ? {}
-      : { actor: beat.event.actorParticipantId }),
-    payload: beat.event.payload,
-    version: PROBE_ENVELOPE_VERSION,
-  });
+  const envelope = composeScenarioEventEnvelope(beat.event);
+  const carried = EventEnvelopeSchema.safeParse(envelope);
+  if (!carried.success) {
+    return (
+      "the canonical envelope rejects this beat, so the console's decode boundary " +
+      `would count it unreadable and drop it: ${carried.error.issues.map(describeIssue).join("; ")}.`
+    );
+  }
+  const parsed = SessionEventSchema.safeParse(envelope);
   if (parsed.success) {
     return undefined;
   }
   if (parsed.error.issues.every((issue) => issue.path[0] === "type")) {
-    // The strict layer registers no variant for this kind yet. The census leg
-    // above has already passed, which is the whole of what can be checked here.
+    // The strict layer registers no variant for this kind yet. The two legs above
+    // have already passed, which is the whole of what can be checked here.
     return undefined;
   }
   return (
@@ -282,6 +279,43 @@ function findMembershipRoleDefects(scenario: ConsoleScenario): readonly Scenario
           "went unread rather than as anything wrong. Use one of the registered roles.",
       });
     }
+  }
+  return defects;
+}
+
+/**
+ * Beats scripted out of the order the clock reaches them in.
+ *
+ * `beats` is an ORDERED script, not a set: the engine advances a frozen clock and
+ * consumes the contiguous prefix that has fallen due, so an entry whose `atMs` is
+ * earlier than the entry in front of it is a beat the author wrote in one order
+ * and the clock delivers in another. Nondecreasing rather than strictly
+ * increasing, because beats sharing a tick are ordinary — a session event and the
+ * run transition it triggers land together, and their array order is the order
+ * they reach a subscriber in.
+ *
+ * The engine no longer duplicates or drops a beat over this, so the defect costs a
+ * late delivery rather than a corrupted stream; it is still reported, because a
+ * scenario whose beats arrive in an order the author did not write is a fixture
+ * that rehearses a sequence no session produces, and the screenshot and endurance
+ * tiers pin frames by advancing to an exact tick.
+ */
+function findBeatOrderDefects(scenario: ConsoleScenario): readonly ScenarioWireTruthDefect[] {
+  const defects: ScenarioWireTruthDefect[] = [];
+  for (const [beatIndex, beat] of scenario.beats.entries()) {
+    const previousBeat = scenario.beats[beatIndex - 1];
+    if (previousBeat === undefined || previousBeat.atMs <= beat.atMs) {
+      continue;
+    }
+    defects.push({
+      scenarioId: scenario.id,
+      subject: `beat ${String(beatIndex)} (${beat.event.kind})`,
+      reason:
+        `it is due at ${String(beat.atMs)}ms, before the beat in front of it at ` +
+        `${String(previousBeat.atMs)}ms. The engine consumes beats in array order as the ` +
+        "frozen clock reaches them, so this one is delivered later than it is scripted for. " +
+        "Order the beats by `atMs`, or change the tick this beat is due at.",
+    });
   }
   return defects;
 }

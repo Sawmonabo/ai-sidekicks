@@ -1,4 +1,4 @@
-// The session stream's decoder: one delivered wire payload in, one console event
+// The session stream's decoder: one delivered wire envelope in, one console event
 // out, or a refusal.
 //
 // `store/entities.ts` says where this belongs: `ConsoleSessionEvent` is a
@@ -15,80 +15,65 @@
 // owns a GRAMMAR, and is wrong when a payload the console could have projected is
 // refused, or when one it could not is admitted. Nothing here holds state, and
 // nothing here can reach the registry or the bridge.
+//
+// WHAT ARRIVES HERE. `session.subscribe` is registered as a long-lived consumer of
+// the canonical `EventEnvelope`, so the delivery is that envelope and this module
+// parses it with the registered schema rather than with a hand-written reader. The
+// two mappings below are the whole of the translation, and both were the defect
+// that made this module worth rewriting: the wire's event type is `type` and this
+// projection calls it `kind`, and the wire's attribution is `actor` where this
+// projection calls it `actorParticipantId`. A reader that looked for the console's
+// own names found neither, refused every live delivery as unreadable, and agreed
+// perfectly with a fixture that was handing it the console's shape to begin with.
+// `bridge/scenario-envelope.ts` closes the second half of that: the fixture now
+// composes the same registered envelope, so this parse is the one door both bridges
+// deliver through.
+
+import { EventEnvelopeSchema } from "@ai-sidekicks/contracts";
 
 import type { ConsoleSessionEvent } from "../store/index.js";
 
-/** The members read off a delivered payload, before anything is known about them. */
-interface DeliveredPayloadShape {
-  readonly id?: unknown;
-  readonly sessionId?: unknown;
-  readonly sequence?: unknown;
-  readonly kind?: unknown;
-  readonly occurredAt?: unknown;
-  readonly actorParticipantId?: unknown;
-  readonly payload?: unknown;
-}
-
 /**
- * Narrow a wire payload into the console's own event shape, or refuse it.
+ * Narrow a delivered wire envelope into the console's own event shape, or refuse it.
  *
- * It narrows and it does not TRANSLATE. Where a delivered payload names its fields
- * differently the answer is a refusal, not a guess: a mapping invented here would
- * put wire member names in a module that has no contract to check them against,
- * and a mis-mapped field renders as confidently as a correct one.
+ * The parse is the registered `EventEnvelopeSchema` — the version-TOLERANT carrier
+ * layer, deliberately, because a session log carries event types whose payload
+ * variants this console does not know and the strict layer would refuse every one
+ * of them. The carrier still fixes the canonical membership and validates every
+ * member the console goes on to hold: `id` non-empty (it is the handle every later
+ * read of this event's body is keyed by, and an empty one resolves to nothing),
+ * `sessionId` a branded session identifier, `sequence` a non-negative integer (the
+ * store's dedupe set, cursor, and gap detection all key on it, and a fractional one
+ * would make `cursor + 1` name a position no event can occupy), `occurredAt` an ISO
+ * instant, and `payload` a keyed record rather than an array.
  *
- * `sequence` must be an integer because the store's dedupe set, cursor, and gap
- * detection all key on it — a fractional sequence would make `cursor + 1` name a
- * position no event can ever occupy, and the session would be permanently
- * degraded by a gap that never closes.
- *
- * `id` must be a non-empty string for a different reason: it is `EventEnvelope`'s
- * own opaque identifier, the handle every later read of this event's body is keyed
- * by, and an empty one resolves to nothing. A payload without it is not an event
- * envelope, so admitting it would put a row in the store that no surface could ever
- * open — and refusing here is what keeps the alternative (composing an id out of
- * the members that are present) from being reachable at all.
+ * The two renames are the only translation, and each is a rename rather than a
+ * reading: `type` is carried to `kind` verbatim, and `actor` to
+ * `actorParticipantId` verbatim. The wire supplies no discriminator on `actor` —
+ * the contract registers it as a participant id, an agent id, or `null` for a
+ * system-emitted event — so this boundary carries whichever id the daemon named and
+ * turns both no-value states, present-`null` and absent, into `undefined`. Guessing
+ * which of the two id kinds is in hand would be inventing an arm the wire does not
+ * send; dropping the member instead would leave every event in the store
+ * unattributed.
  */
 export function readConsoleSessionEvent(
-  deliveredPayload: unknown,
+  deliveredEnvelope: unknown,
 ): ConsoleSessionEvent | undefined {
-  if (typeof deliveredPayload !== "object" || deliveredPayload === null) {
+  const parsed = EventEnvelopeSchema.safeParse(deliveredEnvelope);
+  if (!parsed.success) {
     return undefined;
   }
-  const { id, sessionId, sequence, kind, occurredAt, actorParticipantId, payload } =
-    deliveredPayload as DeliveredPayloadShape;
-  if (
-    typeof id !== "string" ||
-    id.length === 0 ||
-    typeof sessionId !== "string" ||
-    typeof sequence !== "number" ||
-    !Number.isInteger(sequence) ||
-    typeof kind !== "string" ||
-    typeof occurredAt !== "string"
-  ) {
-    return undefined;
-  }
-  if (actorParticipantId !== undefined && typeof actorParticipantId !== "string") {
-    return undefined;
-  }
-  if (
-    payload !== undefined &&
-    (typeof payload !== "object" || payload === null || Array.isArray(payload))
-  ) {
-    // An array is `typeof "object"` and is not a keyed payload. Admitting one
-    // would hand every projector a value whose named members are all `undefined`
-    // at a type that says they are readable.
-    return undefined;
-  }
+  const envelope = parsed.data;
   return {
-    id,
-    sessionId,
-    sequence,
-    kind,
-    occurredAt,
-    ...(actorParticipantId === undefined ? {} : { actorParticipantId }),
-    // The one cast: the checks above establish a non-null object, which is all a
-    // projector may assume about a payload it has not claimed a kind for.
-    ...(payload === undefined ? {} : { payload: payload as Readonly<Record<string, unknown>> }),
+    id: envelope.id,
+    sessionId: envelope.sessionId,
+    sequence: envelope.sequence,
+    kind: envelope.type,
+    occurredAt: envelope.occurredAt,
+    ...(envelope.actor === undefined || envelope.actor === null
+      ? {}
+      : { actorParticipantId: envelope.actor }),
+    payload: envelope.payload,
   };
 }

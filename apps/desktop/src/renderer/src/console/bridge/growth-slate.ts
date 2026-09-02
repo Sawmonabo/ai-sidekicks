@@ -302,7 +302,7 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     id: "hydrated-event-read",
     wire: "the hydrated event read that pairs a verified event row with its opened machine-authored body, and the participant-text body no arm of that read opens",
     owningDocument:
-      "Spec-006 §Canonical Event Envelope; Plan-006 Phase 3B (the HydratedSessionEvent projection over session_events.content_payload, which the daemon builds and no bridge namespace serves; the participant half rides session_events.pii_payload under the same document and has no read projection at all)",
+      "Spec-006 §Assistant Output (assistant_output); Plan-006 §Phase 3B — Machine-authored content column (explicit-label supplement) (the HydratedSessionEvent projection over session_events.content_payload, which the daemon builds and no bridge namespace serves; the participant half rides session_events.pii_payload under the same document and has no read projection at all)",
     consumingSurface: "timeline pane, ledger rows",
     wireRegistered: false,
   },
