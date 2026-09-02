@@ -1,6 +1,6 @@
 // The growth port: the console's single fixture-only seam.
 //
-// `Plan-023 §Console growth slate` names twenty-five wires the console builds
+// `Plan-023 §Console growth slate` names twenty-six wires the console builds
 // against and does not yet have. Those rows are not methods — one bundles a whole
 // namespace plus two settings plus a pane-kind declaration, several describe type
 // semantics on replies that already exist. So the port is keyed by OPERATION, not
@@ -30,6 +30,7 @@
 
 import { refuse } from "../core/index.js";
 import type { SessionSnapshot } from "../store/index.js";
+import type { AttentionProjection } from "./attention-projection.js";
 import type { GrowthOperationId } from "./growth-entry.js";
 import { GROWTH_OPERATIONS } from "./growth-operations.js";
 import {
@@ -109,6 +110,22 @@ export interface GrowthImportProgress {
   readonly importId: string;
   readonly turnsSeen: number;
   readonly state: string;
+}
+
+/**
+ * One notification preference, as both the read reply and the update request carry it.
+ *
+ * `Spec-019 §Interfaces And Contracts` requires the preference pair to "support
+ * per-surface preferences", and `Spec-019 §Resolved Questions and V1 Scope Decisions`
+ * scopes the store itself to global-per-participant in V1 — so the console's shape is
+ * an opaque keyed value rather than an enumeration of surfaces, and stays that way
+ * until a document names the keys. Read and update share one declaration because they
+ * are the two sides of one record: two copies would let the reply and the request
+ * disagree about what a preference IS, which is a disagreement nothing here can catch.
+ */
+export interface GrowthAttentionPreference {
+  readonly key: string;
+  readonly value: Readonly<Record<string, unknown>>;
 }
 
 interface GrowthOperationSignatures {
@@ -207,6 +224,20 @@ interface GrowthOperationSignatures {
   providerSessionImportSubscribe: {
     request: { readonly importId: string };
     value: GrowthStream<GrowthImportProgress>;
+  };
+  // The registered request also carries a `scope` / `runId` narrowing pair. It is
+  // deliberately absent here: the console reads a session's whole projection — the
+  // run-scoped items and the session aggregate arrive together and are told apart by
+  // the presence of `runId` on each item — so a narrowing member would be a request
+  // field with no caller, minted ahead of its reader.
+  attentionProjectionRead: { request: { readonly sessionId: string }; value: AttentionProjection };
+  attentionPreferenceRead: {
+    request: { readonly participantId: string };
+    value: { readonly preferences: readonly GrowthAttentionPreference[] };
+  };
+  attentionPreferenceUpdate: {
+    request: GrowthAttentionPreference & { readonly participantId: string };
+    value: { readonly updatedAt: string };
   };
 }
 
@@ -311,5 +342,8 @@ export function createRefusingGrowthPort(): GrowthPort {
     windowSubscribePaneErrors: async () => growthUnavailable("windowSubscribePaneErrors"),
     providerSessionImportBegin: async () => growthUnavailable("providerSessionImportBegin"),
     providerSessionImportSubscribe: async () => growthUnavailable("providerSessionImportSubscribe"),
+    attentionProjectionRead: async () => growthUnavailable("attentionProjectionRead"),
+    attentionPreferenceRead: async () => growthUnavailable("attentionPreferenceRead"),
+    attentionPreferenceUpdate: async () => growthUnavailable("attentionPreferenceUpdate"),
   };
 }

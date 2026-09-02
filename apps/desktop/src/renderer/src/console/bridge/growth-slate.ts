@@ -40,7 +40,8 @@ export type GrowthSlateRowId =
   | "approval-amendment-arm"
   | "session-search"
   | "window-control-namespace"
-  | "provider-session-import";
+  | "provider-session-import"
+  | "attention-plane";
 
 export interface GrowthSlateRow {
   readonly id: GrowthSlateRowId;
@@ -249,6 +250,14 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "provider-session import ingest",
     owningDocument: "a new spec",
     consumingSurface: "import flow",
+    wireRegistered: false,
+  },
+  "attention-plane": {
+    id: "attention-plane",
+    wire: "the attention projection read and the notification preference pair, with the `AttentionItem` trigger and severity domains they carry",
+    owningDocument:
+      "Spec-019 §Interfaces And Contracts (the three operations); Plan-019 (the `packages/contracts/src/attention/` schemas, which no code package carries)",
+    consumingSurface: "notification centre, icon-rail attention marker",
     wireRegistered: false,
   },
 };

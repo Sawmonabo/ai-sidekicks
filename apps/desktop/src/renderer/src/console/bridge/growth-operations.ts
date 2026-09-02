@@ -290,6 +290,27 @@ export const GROWTH_OPERATIONS: Readonly<Record<GrowthOperationId, GrowthOperati
     "subscription",
     "progress for a running provider-session import",
   ),
+  attentionProjectionRead: op(
+    "attentionProjectionRead",
+    "attention-plane",
+    "method",
+    "read a session's actionable and informational attention, run-scoped items and the session aggregate together, over the daemon JSON-RPC transport",
+    "attention.projectionRead",
+  ),
+  attentionPreferenceRead: op(
+    "attentionPreferenceRead",
+    "attention-plane",
+    "method",
+    "read the participant's global notification preferences, over the control-plane transport",
+    "attention.preferenceRead",
+  ),
+  attentionPreferenceUpdate: op(
+    "attentionPreferenceUpdate",
+    "attention-plane",
+    "method",
+    "set one global notification preference, over the control-plane transport",
+    "attention.preferenceUpdate",
+  ),
 };
 
 function op(
