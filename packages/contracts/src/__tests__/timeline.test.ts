@@ -74,6 +74,9 @@
 //
 //   MUST FAIL — frame safety, ordering, and lineage (§"category", §"lineage", §"paged")
 //     F55  general arm carrying `run_lifecycle` ...... refuses (run event with no run identity)
+//     F63  general arm carrying a run-scoped TYPE ..... refuses (category alone is not enough)
+//     F63  general arm whose payload names a run ...... refuses (per-row, for optional-run types)
+//     F64  run arm whose payload contradicts the row .. refuses (two attributions, one row)
 //     F56  boundary arm carrying another category .... refuses (its event is registered one way)
 //     F57  runId === parentRunId ..................... refuses (cyclic lineage), summary + expansion
 //     F58  entries out of sequence order ............. refuses (oldest-to-newest)
@@ -137,7 +140,9 @@ import {
   TIMELINE_ROLLBACK_BOUNDARY_TYPE,
   TIMELINE_ROW_KINDS,
   TIMELINE_ROW_SUMMARY_MAX_LEN,
+  TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS,
   TIMELINE_RUN_LIFECYCLE_CATEGORY,
+  TIMELINE_RUN_SCOPED_EVENT_TYPES,
   TIMELINE_SUBSCRIBE_METHOD,
   TimelineReadRequestSchema,
   TimelineReadResponseSchema,
@@ -1267,6 +1272,163 @@ describe("row category is pinned where the event is", () => {
       expect(result.error.issues.some((issue) => issue.path.join(".") === "category")).toBe(true);
     }
     expect(TimelineRowSchema.safeParse(rollbackBoundaryRow).success).toBe(true);
+  });
+});
+
+describe("run attribution is refused where it cannot be read, and pinned where it can", () => {
+  it("F63 — the run-scoped type census is DERIVED from the taxonomy, and its size is pinned", () => {
+    // The count is pinned so a taxonomy growth that should change this set
+    // fails here instead of changing it silently. Re-derive it by reading
+    // `Spec-006`'s per-category payload shapes when it moves — do not simply
+    // re-pin the number.
+    //
+    // 34 = 13 `run_lifecycle` + 2 `assistant_output` + 7 `tool_activity`
+    //    + 10 `interactive_request` (6 `intervention.*` carrying required
+    //      `targetRunId`, 4 `driver_ask.*` carrying required `runId`)
+    //    + 2 `usage_telemetry` (`context_compacted`, `model_rerouted`, the two
+    //      whose per-type shapes pin `runId` required).
+    expect(TIMELINE_RUN_SCOPED_EVENT_TYPES.size).toBe(34);
+    // Membership spot-checks across all five contributing categories, so the
+    // count is not carried by one category swelling while another emptied.
+    for (const runScopedType of [
+      "run.completed",
+      "assistant.message",
+      "tool.result",
+      "subagent.started",
+      "intervention.applied",
+      "driver_ask.requested",
+      "usage.context_compacted",
+      "usage.model_rerouted",
+    ]) {
+      expect(TIMELINE_RUN_SCOPED_EVENT_TYPES.has(runScopedType)).toBe(true);
+    }
+    // NEGATIVE CONTROLS — the exclusions are the whole reason this is a census
+    // and not a category list. Each of these is genuinely session-scoped on at
+    // least some rows, so admitting it would refuse a correct projection.
+    for (const notAlwaysRunScoped of [
+      // Queue events: the target run lives in the `queue_items` row, never in
+      // the event payload.
+      "queue_item.created",
+      "queue_item.admitted",
+      // `runId?` optional — a message accepted before any run exists is
+      // session-scoped.
+      "user.message",
+      // Account-plane, bound to the node-scope sentinel session; no run at all.
+      "usage.rate_limit_update",
+      // `runId?` optional across the whole `artifact_publication` family.
+      "artifact.published",
+      "diff.created",
+      // `runId?` optional in the shared usage shape.
+      "usage.budget_warning",
+      "usage.token_count",
+      // Not run-attributed in any form.
+      "session.created",
+      "membership.created",
+    ]) {
+      expect(TIMELINE_RUN_SCOPED_EVENT_TYPES.has(notAlwaysRunScoped)).toBe(false);
+    }
+  });
+
+  it("F63 — the general arm REFUSES a run-scoped canonical type, whatever its category", () => {
+    // The category leg alone was not enough: `assistant_output`,
+    // `tool_activity`, and the run-scoped part of `interactive_request` are
+    // every bit as run-attributed as `run_lifecycle`, and a `general` row of
+    // one of those types carries no outer runId / position / epoch — so
+    // rollback projection can never reach it and it renders as permanently
+    // current.
+    for (const runScopedType of ["assistant.message", "tool.result", "driver_ask.requested"]) {
+      const misfiled = {
+        ...generalRow,
+        category: "assistant_output",
+        type: runScopedType,
+      };
+      const result = TimelineRowSchema.safeParse(misfiled);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues.some((issue) => issue.path.join(".") === "type")).toBe(true);
+      }
+    }
+    // POSITIVE CONTROL: the same category with a type outside the census
+    // parses, so the refusal is the type and not the category.
+    expect(
+      TimelineRowSchema.safeParse({
+        ...generalRow,
+        category: "artifact_publication",
+        type: "artifact.published",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("F63 — the general arm REFUSES a payload that names a run, under either key", () => {
+    // The per-row leg. `artifact.published` is legitimately session-scoped on
+    // one row and run-scoped on the next, because its registered `runId` is
+    // optional — so the type cannot decide and the payload must.
+    expect(TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS).toStrictEqual(["runId", "targetRunId"]);
+    for (const runKey of TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS) {
+      const runCarrying = {
+        ...generalRow,
+        category: "artifact_publication",
+        type: "artifact.published",
+        payload: { detail: "opaque", [runKey]: RUN_ID },
+      };
+      const result = TimelineRowSchema.safeParse(runCarrying);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(
+          result.error.issues.some((issue) => issue.path.join(".") === `payload.${runKey}`),
+        ).toBe(true);
+      }
+    }
+    // POSITIVE CONTROL: the same row without the run key parses.
+    expect(
+      TimelineRowSchema.safeParse({
+        ...generalRow,
+        category: "artifact_publication",
+        type: "artifact.published",
+        payload: { detail: "opaque" },
+      }).success,
+    ).toBe(true);
+  });
+
+  it("F64 — the run arm REFUSES a payload whose attribution contradicts the row", () => {
+    // A run row can state its identity twice — once in the outer triple every
+    // consumer filters on, once in the payload the detail view and canonical
+    // provenance are read from. Nothing forced agreement, so a row filed under
+    // run A could be sourced from run B, permanently and silently.
+    const disagreements = [
+      { payloadKey: "runId", payloadValue: "99999999-8888-4777-8666-555555555555" },
+      { payloadKey: "sourceEpoch", payloadValue: runScopedRow.epoch + 1 },
+      { payloadKey: "sourcePosition", payloadValue: runScopedRow.position + 1 },
+    ] as const;
+    for (const { payloadKey, payloadValue } of disagreements) {
+      const contradicted = {
+        ...runScopedRow,
+        payload: { detail: "opaque", [payloadKey]: payloadValue },
+      };
+      const result = TimelineRowSchema.safeParse(contradicted);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(
+          result.error.issues.some((issue) => issue.path.join(".") === `payload.${payloadKey}`),
+        ).toBe(true);
+      }
+    }
+    // POSITIVE CONTROLS. Agreement parses — the check is on disagreement, not
+    // on the keys being present…
+    expect(
+      TimelineRowSchema.safeParse({
+        ...runScopedRow,
+        payload: {
+          detail: "opaque",
+          runId: runScopedRow.runId,
+          sourceEpoch: runScopedRow.epoch,
+          sourcePosition: runScopedRow.position,
+        },
+      }).success,
+    ).toBe(true);
+    // …and ABSENCE parses, because a projection may summarize a payload down
+    // to nothing and `Spec-013` requires no particular payload content.
+    expect(TimelineRowSchema.safeParse(runScopedRow).success).toBe(true);
   });
 });
 

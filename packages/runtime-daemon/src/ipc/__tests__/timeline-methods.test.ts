@@ -42,10 +42,17 @@ import {
   TIMELINE_SUBSCRIBE_METHOD,
 } from "@ai-sidekicks/contracts";
 
+// THROUGH THE BARREL, deliberately. `handlers/index.js` is the surface the
+// bootstrap orchestrator wires from, and its own header states that
+// convention. A test that reached past it into `timeline-methods.js` would
+// pass while the bootstrap could still register only three of the four
+// methods — which is exactly the gap that made `registerTimelineSubscription`
+// reachable from nowhere but this file.
 import {
   registerTimelineMethod,
   registerTimelineSubscription,
-} from "../handlers/timeline-methods.js";
+  TimelineSubscriptionScopeError,
+} from "../handlers/index.js";
 import {
   isCanonicalMethodName,
   MethodRegistryImpl,
@@ -77,6 +84,10 @@ const TRANSPORT_ID = 7;
 const dispatchContext: HandlerContext = { transportId: TRANSPORT_ID };
 
 const SESSION_ID: SessionId = "6f1c9a6e-1f2b-4a3c-8d5e-0a1b2c3d4e5f" as SessionId;
+/** A second, unrelated session — the one a cross-scope reply leaks rows from. */
+const OTHER_SESSION_ID: SessionId = "abcdef01-2345-4678-89ab-cdef01234567" as SessionId;
+/** A second, unrelated run — the one a cross-scope expansion answers about. */
+const OTHER_RUN_ID: RunId = "99999999-8888-4777-8666-555555555555" as RunId;
 const RUN_ID: RunId = "11111111-2222-4333-8444-555555555555" as RunId;
 const PARENT_RUN_ID: RunId = "33333333-4444-4555-8666-777777777777" as RunId;
 
@@ -522,6 +533,162 @@ describe("timeline method-name registration (Plan-013 T1.4)", () => {
       // the refusal above is the value and not a producer that rejects
       // everything. It must be a fresh one — the bad emission canceled this
       // subscription, and a canceled producer is a documented no-op.
+      let secondProducer: LocalSubscriptionProducer<TimelineRow> | null = null;
+      const secondRegistry = new MethodRegistryImpl();
+      registerTimelineSubscription(secondRegistry, {
+        streamingPrimitive,
+        attachProjection: (_request, producer) => {
+          secondProducer = producer;
+        },
+      });
+      await secondRegistry.dispatch(
+        TIMELINE_SUBSCRIBE_METHOD,
+        { sessionId: SESSION_ID },
+        dispatchContext,
+      );
+      await settleAckBarrier();
+      (secondProducer as unknown as LocalSubscriptionProducer<TimelineRow>).next(timelineRow);
+      await settleAckBarrier();
+      expect(sentFrames).toHaveLength(1);
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
+  });
+
+  it("the handler barrel exposes BOTH binders, so a bootstrap can register all four", () => {
+    // The query binder is typed to refuse `timeline.subscribe`, and the
+    // subscription's per-emission schema is consumed nowhere but its own
+    // binder. A barrel carrying only the first would let a bootstrap that
+    // follows the declared convention register three of the four methods and
+    // force a reach past the barrel for the fourth — the convention silently
+    // broken by the surface meant to state it.
+    expect(typeof registerTimelineMethod).toBe("function");
+    expect(typeof registerTimelineSubscription).toBe("function");
+    // Registering all four THROUGH the barrel imports above is the claim: if
+    // either binder were missing from `handlers/index.ts` this file would not
+    // have compiled.
+    const registry = new MethodRegistryImpl();
+    registerAllTimelineMethods(registry);
+    for (const method of TIMELINE_METHOD_NAMES) {
+      expect(registry.has(method)).toBe(true);
+    }
+  });
+
+  it("a read answering with ANOTHER session's rows is refused as an internal error", async () => {
+    // The registry validates a result against the response schema and never
+    // sees the parsed request, so a page of rows that are each a valid
+    // `TimelineRow` from a different session passes every schema check and
+    // reaches the client under its own request id. The caller cannot tell:
+    // the reply is well-formed and correlated, it is simply about someone
+    // else's session.
+    const registry = new MethodRegistryImpl();
+    const foreignRow: TimelineRow = { ...timelineRow, sessionId: OTHER_SESSION_ID };
+    registerTimelineMethod(registry, {
+      method: TIMELINE_READ_METHOD,
+      handler: async () => ({ entries: [foreignRow], hasMore: false }),
+    });
+
+    let caught: unknown = null;
+    try {
+      await registry.dispatch(TIMELINE_READ_METHOD, { sessionId: SESSION_ID }, dispatchContext);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(RegistryDispatchError);
+    if (caught instanceof RegistryDispatchError) {
+      // `invalid_result`, not `invalid_params`: the caller asked a well-formed
+      // question and the daemon assembled an answer about another subject, so
+      // this maps to `-32603` and blames the daemon.
+      expect(caught.registryCode).toBe("invalid_result");
+      expect(caught.issues?.[0]).toMatchObject({ path: ["entries", 0, "sessionId"] });
+    }
+
+    // NEGATIVE CONTROL: the same handler shape answering about the REQUESTED
+    // session resolves, so the refusal is the scope and not the wrapper
+    // rejecting every page.
+    const scopedRegistry = new MethodRegistryImpl();
+    registerTimelineMethod(scopedRegistry, {
+      method: TIMELINE_READ_METHOD,
+      handler: async () => ({ entries: [timelineRow], hasMore: false }),
+    });
+    await expect(
+      scopedRegistry.dispatch(TIMELINE_READ_METHOD, { sessionId: SESSION_ID }, dispatchContext),
+    ).resolves.toStrictEqual({ entries: [timelineRow], hasMore: false });
+  });
+
+  it("an expansion answering about ANOTHER run is refused as an internal error", async () => {
+    // The response schema pins every entry to the run the RESPONSE names, so
+    // an expansion of the wrong run is internally consistent and passes. The
+    // one fact no schema can check is that the run it names is the run that
+    // was asked for.
+    const registry = new MethodRegistryImpl();
+    registerTimelineMethod(registry, {
+      method: TIMELINE_CHILD_RUN_EXPAND_METHOD,
+      handler: async () => ({ ...childRunExpandResponse, runId: OTHER_RUN_ID }),
+    });
+
+    let caught: unknown = null;
+    try {
+      await registry.dispatch(TIMELINE_CHILD_RUN_EXPAND_METHOD, { runId: RUN_ID }, dispatchContext);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(RegistryDispatchError);
+    if (caught instanceof RegistryDispatchError) {
+      expect(caught.registryCode).toBe("invalid_result");
+      expect(caught.issues?.[0]).toMatchObject({ path: ["runId"] });
+    }
+
+    // NEGATIVE CONTROL: the expansion of the requested run resolves.
+    const scopedRegistry = new MethodRegistryImpl();
+    registerTimelineMethod(scopedRegistry, {
+      method: TIMELINE_CHILD_RUN_EXPAND_METHOD,
+      handler: async () => childRunExpandResponse,
+    });
+    await expect(
+      scopedRegistry.dispatch(TIMELINE_CHILD_RUN_EXPAND_METHOD, { runId: RUN_ID }, dispatchContext),
+    ).resolves.toStrictEqual(childRunExpandResponse);
+  });
+
+  it("an emission from ANOTHER session never reaches the wire", async () => {
+    // `TimelineRowSchema` accepts it — a row of a different session is a
+    // perfectly valid row — so validation alone would forward another
+    // session's history into this client's live view under a subscription id
+    // it trusts. The gate is the request's own `sessionId`, and it takes the
+    // wrong-shape posture: cancel, log a prefixed tripwire, write nothing.
+    const registry = new MethodRegistryImpl();
+    const { streamingPrimitive, sentFrames } = buildStreamingPrimitive();
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    let capturedProducer: LocalSubscriptionProducer<TimelineRow> | null = null;
+    registerTimelineSubscription(registry, {
+      streamingPrimitive,
+      attachProjection: (_request, producer) => {
+        capturedProducer = producer;
+      },
+    });
+
+    try {
+      await registry.dispatch(
+        TIMELINE_SUBSCRIBE_METHOD,
+        { sessionId: SESSION_ID },
+        dispatchContext,
+      );
+      await settleAckBarrier();
+      const producer = capturedProducer as unknown as LocalSubscriptionProducer<TimelineRow>;
+      producer.next({ ...timelineRow, sessionId: OTHER_SESSION_ID });
+      expect(sentFrames).toHaveLength(0);
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+      expect(String(consoleErrorSpy.mock.calls[0]?.[0])).toContain(
+        `[${TIMELINE_SUBSCRIBE_METHOD}]`,
+      );
+      // Naming the class keeps the test honest about WHY nothing was written:
+      // a scope refusal, not a schema failure that happens to look the same.
+      expect(consoleErrorSpy.mock.calls[0]?.[1]).toBeInstanceOf(TimelineSubscriptionScopeError);
+
+      // NEGATIVE CONTROL on a FRESH subscription — the cross-session emission
+      // canceled this one, and a canceled producer is a documented no-op, so
+      // reusing it would prove nothing. The same row for the SUBSCRIBED
+      // session does go out.
       let secondProducer: LocalSubscriptionProducer<TimelineRow> | null = null;
       const secondRegistry = new MethodRegistryImpl();
       registerTimelineSubscription(secondRegistry, {

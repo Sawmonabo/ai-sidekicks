@@ -82,7 +82,13 @@
 // shipped: it would put a method on the wire that answers nothing, which a
 // client cannot distinguish from a method that answers wrongly.
 
-import { TIMELINE_METHOD_DESCRIPTORS, TIMELINE_SUBSCRIBE_METHOD } from "@ai-sidekicks/contracts";
+import {
+  TIMELINE_CHILD_RUN_EXPAND_METHOD,
+  TIMELINE_METHOD_DESCRIPTORS,
+  TIMELINE_READ_METHOD,
+  TIMELINE_REASONING_SURFACE_READ_METHOD,
+  TIMELINE_SUBSCRIBE_METHOD,
+} from "@ai-sidekicks/contracts";
 import type {
   Handler,
   HandlerContext,
@@ -97,7 +103,148 @@ import type {
   ZodType,
 } from "@ai-sidekicks/contracts";
 
-import { createSubscriptionAckBarrier } from "../subscription-ack-barrier.js";
+import { RegistryDispatchError } from "../registry.js";
+import {
+  createSubscriptionAckBarrier,
+  type AckBarrierProducer,
+} from "../subscription-ack-barrier.js";
+
+// ----------------------------------------------------------------------------
+// Request scope: the check no schema can perform
+// ----------------------------------------------------------------------------
+//
+// The registry validates a handler's resolved value against the response
+// schema and NOTHING ELSE — it never shows the schema the parsed request. That
+// is the right boundary for the registry (a schema that needed the request
+// would stop being a schema), and it leaves exactly one class of defect
+// unreachable from inside the contracts package: a self-consistent reply about
+// the WRONG SUBJECT. A `timeline.read` for session A can return a page of rows
+// every one of which is a valid `TimelineRow` from session B; a
+// `timeline.childRunExpand` for run A can return a response naming run B whose
+// entries all agree with the run it names. Both parse. Both reach the client,
+// which has no way to tell that the aggregate answers a question it did not
+// ask — the request id it correlates on says the reply is its own.
+//
+// The refusal is therefore an INTERNAL error and not a client error: the caller
+// asked a well-formed question, and the daemon assembled an answer about
+// something else. It reuses the registry's own `invalid_result` code, which is
+// exactly the condition ("the handler returned a value that does not match what
+// this method may return") one step further out than the registry can see —
+// mapping to `-32603` with `data.type: "invalid_result"` and the offending
+// coordinates in `data.fields.issues`, indistinguishable in shape from a
+// schema-side result failure. No new error code is minted.
+
+/**
+ * One scope disagreement, shaped like a Zod issue so it rides
+ * `data.fields.issues` identically to a schema-side result-validation failure
+ * and a client reading that field needs no second parser.
+ */
+interface ScopeViolation {
+  readonly code: "custom";
+  readonly path: readonly (string | number)[];
+  readonly message: string;
+}
+
+/**
+ * The per-method scope check, keyed by method so each arm is typed against its
+ * own request and response rather than against the four-way union.
+ *
+ * The mapped type is indexed by the same generic the binder carries, so the
+ * lookup in {@link registerTimelineMethod} correlates without a cast — the
+ * same property `TIMELINE_METHOD_DESCRIPTORS` relies on.
+ */
+type TimelineScopeCheck<MethodName extends TimelineQueryMethodName> = (
+  request: TimelineMethodRequest<MethodName>,
+  result: TimelineMethodResponse<MethodName>,
+) => readonly ScopeViolation[];
+
+/**
+ * SHAPE FIRST, SCOPE SECOND — and this check owns only the second.
+ *
+ * The scope check runs inside the handler wrapper, which is one step BEFORE
+ * the registry validates the result against the response schema, so it is
+ * handed values that may not be a response at all: a handler that resolved a
+ * sibling operation's shape, or `undefined`. Reading `result.entries.length`
+ * off one of those throws a `TypeError` out of the dispatch promise and turns
+ * a clean `invalid_result` envelope into an unmapped internal failure — the
+ * check would have destroyed the diagnostic it exists beside.
+ *
+ * So every arm below tests the shape it reads and returns NO violations when
+ * that shape is absent. This is not defensiveness for its own sake: a result
+ * that does not match the response schema is the registry's finding to report,
+ * with the offending path and the real reason, one step later. Two reporters
+ * for one defect would leave the worse message on the wire.
+ *
+ * BOUNDED REPORTING. A read page holds up to `TIMELINE_READ_LIMIT_MAX` rows,
+ * and every one of them could be cross-scope. Reporting each would put an
+ * unbounded issue array on an error frame that the framer bounds absolutely —
+ * an oversized error reply is the one failure the substrate cannot report, so
+ * a diagnostic that grows with the defect is the wrong shape. The first
+ * offending entry is reported with its index, and the message states how many
+ * entries disagreed in total, which is what an operator needs to tell a single
+ * stray row from a whole page from the wrong session.
+ */
+const TIMELINE_SCOPE_CHECKS: {
+  readonly [MethodName in TimelineQueryMethodName]: TimelineScopeCheck<MethodName>;
+} = {
+  [TIMELINE_READ_METHOD]: (request, result) => {
+    if (!Array.isArray(result?.entries)) {
+      return [];
+    }
+    const firstOffendingIndex = result.entries.findIndex(
+      (entry) => entry.sessionId !== request.sessionId,
+    );
+    if (firstOffendingIndex === -1) {
+      return [];
+    }
+    const offendingCount = result.entries.filter(
+      (entry) => entry.sessionId !== request.sessionId,
+    ).length;
+    const firstOffendingEntry = result.entries[firstOffendingIndex];
+    return [
+      {
+        code: "custom",
+        path: ["entries", firstOffendingIndex, "sessionId"],
+        message:
+          `entry sessionId ${JSON.stringify(firstOffendingEntry?.sessionId)} does not match the ` +
+          `requested session ${JSON.stringify(request.sessionId)} (${String(offendingCount)} of ` +
+          `${String(result.entries.length)} entries disagree): the reply is a valid page of ` +
+          "another session's history, which the caller cannot distinguish from its own",
+      },
+    ];
+  },
+  // The reasoning surface has NOTHING to cross-check, and the omission is
+  // deliberate rather than overlooked: `ReasoningSurfaceReadResponse` carries
+  // no `runId` and no `sessionId` on any of its four states — it is a
+  // reasoning body plus an availability verdict — so there is no member on the
+  // reply that could disagree with the request. Adding one purely to check it
+  // would mint a wire member whose only reader is this guard.
+  [TIMELINE_REASONING_SURFACE_READ_METHOD]: () => [],
+  [TIMELINE_CHILD_RUN_EXPAND_METHOD]: (request, result) => {
+    if (typeof result?.runId !== "string") {
+      return [];
+    }
+    if (result.runId === request.runId) {
+      // Entry-level run attribution needs no separate check here: the response
+      // schema already pins every run-scoped entry to `result.runId`
+      // (`requireEntriesToBelongToRun`), so pinning `result.runId` to the
+      // request pins the entries transitively. Two checks over one fact would
+      // be a second source of truth for it.
+      return [];
+    }
+    return [
+      {
+        code: "custom",
+        path: ["runId"],
+        message:
+          `response runId ${JSON.stringify(result.runId)} does not match the expanded run ` +
+          `${JSON.stringify(request.runId)}: the reply is a self-consistent expansion of a ` +
+          "different run, and its entries were validated against the run it names rather than " +
+          "the run that was asked for",
+      },
+    ];
+  },
+};
 
 /**
  * What a caller supplies to bind one `timeline.*` method: the NAME, and a
@@ -158,6 +305,27 @@ export function registerTimelineMethod<MethodName extends TimelineQueryMethodNam
   registration: TimelineMethodRegistration<MethodName>,
 ): void {
   const descriptor = TIMELINE_METHOD_DESCRIPTORS[registration.method];
+  const enforceRequestScope = TIMELINE_SCOPE_CHECKS[registration.method];
+  // The scoped handler. It is what gets registered, so the check runs on the
+  // caller's own request BEFORE the registry sees the value — the only place
+  // both are in scope at once.
+  const scopedHandler: Handler<
+    TimelineMethodRequest<MethodName>,
+    TimelineMethodResponse<MethodName>
+  > = async (request, context) => {
+    const result = await registration.handler(request, context);
+    const violations = enforceRequestScope(request, result);
+    if (violations.length > 0) {
+      throw new RegistryDispatchError(
+        "invalid_result",
+        `${descriptor.method}: handler returned a result outside the request's scope ` +
+          "(the daemon assembled a well-formed answer about a different subject; the client is " +
+          "not at fault)",
+        violations,
+      );
+    }
+    return result;
+  };
   // The one reconciliation point. `descriptor` is correctly typed per key, but
   // TypeScript cannot correlate a generic indexed access across three argument
   // positions at once, so it widens each to the four-way union. The cast asserts
@@ -169,9 +337,41 @@ export function registerTimelineMethod<MethodName extends TimelineQueryMethodNam
     descriptor.method,
     descriptor.requestSchema,
     descriptor.responseSchema,
-    registration.handler as Handler<unknown, unknown>,
+    scopedHandler as Handler<unknown, unknown>,
     { mutating: descriptor.mutating },
   );
+}
+
+/**
+ * Raised when a subscription producer emits a row belonging to a session other
+ * than the one the subscribe request named.
+ *
+ * WHY THIS IS NOT A `RegistryDispatchError`. The query-side scope refusal has
+ * a wire envelope to land in — the reply has not been sent yet. This one does
+ * not: the init ack settled the moment the subscription was accepted, and an
+ * emission arrives on a `$/subscription/notify` frame that carries no error
+ * channel at all. So the failure takes the barrier's posture for a bad
+ * emission instead — cancel the subscription, log a prefixed tripwire, stop —
+ * which is the same treatment a row that fails `TimelineRowSchema` already
+ * gets, and for the same reason: the value is a daemon-side defect, the wire
+ * client is innocent, and the transport's other subscriptions must keep
+ * working. It is thrown from inside the producer the barrier drives precisely
+ * so that posture applies without restating it here.
+ */
+export class TimelineSubscriptionScopeError extends Error {
+  readonly emittedSessionId: string;
+  readonly subscribedSessionId: string;
+
+  constructor(emittedSessionId: string, subscribedSessionId: string) {
+    super(
+      `emitted row sessionId ${JSON.stringify(emittedSessionId)} does not match the subscribed ` +
+        `session ${JSON.stringify(subscribedSessionId)}: forwarding it would mix another ` +
+        "session's history into this client's live view under a subscription id it trusts",
+    );
+    this.name = "TimelineSubscriptionScopeError";
+    this.emittedSessionId = emittedSessionId;
+    this.subscribedSessionId = subscribedSessionId;
+  }
 }
 
 /**
@@ -234,6 +434,16 @@ export interface TimelineSubscriptionRegistration {
  * `$/subscription/notify` and is validated against the descriptor's
  * `emissionSchema` inside `producer.next(...)` before the frame is written.
  *
+ * SCOPE IS THIS BINDER'S TOO. Every emitted row must name the session the
+ * subscribe request named. `TimelineRowSchema` cannot enforce that — it never
+ * sees the request — so a projection that accidentally attached to the wrong
+ * session emits structurally valid rows that pass validation and then travel
+ * under a subscription id the client trusts, mixing another session's history
+ * into its live view with nothing anywhere reporting a fault. The gate sits
+ * below the barrier so a cross-session row is refused with the same
+ * cancel-log-stop posture a schema-invalid row gets; see
+ * {@link TimelineSubscriptionScopeError} for why it cannot be a wire error.
+ *
  * ORDERING IS THIS BINDER'S, NOT THE CALLER'S. I-007-10 requires the init ack
  * to land before the first notification for that subscription. The producer
  * handed to `attachProjection` is a GATED facade over the real one: every
@@ -277,7 +487,33 @@ export function registerTimelineSubscription(
       transportId,
       descriptor.emissionSchema,
     );
-    const barrier = createSubscriptionAckBarrier(producer, descriptor.method);
+    // The scope gate sits BELOW the barrier rather than beside it: the barrier
+    // drives this producer, so a cross-session row throws from inside the
+    // barrier's own try/catch and takes the identical cancel-log-stop posture a
+    // schema-invalid row takes. Placing the check above the barrier instead
+    // would let the throw escape into whichever turn the upstream event source
+    // runs on — an unhandled rejection on the live path, and a check-phase
+    // throw on the replay flush.
+    const scopedProducer: AckBarrierProducer<TimelineRow> = {
+      subscriptionId: producer.subscriptionId,
+      next(row: TimelineRow): void {
+        // SHAPE FIRST, SCOPE SECOND, for the same reason the query-side check
+        // gives: a value carrying no `sessionId` string is not a `TimelineRow`
+        // at all, and the descriptor's emission schema inside `producer.next`
+        // is what says so — with the offending path and the real reason.
+        // Comparing `undefined` against the subscribed session here would
+        // report every malformed emission as a scope violation and bury the
+        // schema failure that actually explains it.
+        if (typeof row?.sessionId === "string" && row.sessionId !== request.sessionId) {
+          throw new TimelineSubscriptionScopeError(row.sessionId, request.sessionId);
+        }
+        producer.next(row);
+      },
+      cancel(): void {
+        producer.cancel();
+      },
+    };
+    const barrier = createSubscriptionAckBarrier(scopedProducer, descriptor.method);
     // The gated facade. `next` and `complete` are ordered against the ack;
     // `cancel` and `onCancel` pass straight through, because teardown must not
     // wait on a response the caller may never get — a projection that fails

@@ -3845,7 +3845,17 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // none of which is a `Verifies invariant:` row. Spec-007, Spec-013,
     // api-payload-contracts.md, and cross-plan-dependencies.md carry no
     // marker blocks. The legacy compact-inline channel is unchanged.
-    bold: { resolved: 1034, noneArm: 159, parentResolved: 0 },
+    // 1034/159 -> 1035/158 (2026-09-01, NS-98 Codex round-5 fold — PR #410):
+    // request scope mints Plan-013's I-013-13 and assigns it to T1.4, which
+    // was the plan's one `none`-arm task (registering method strings verifies
+    // no invariant — until those registrations began enforcing one). So the
+    // bold count rises by one and the none arm falls by one in the same
+    // motion: this is a MOVE off `none`, not a birth. The round's other legs
+    // move no marker — I-013-1 and I-013-3 have their statements extended in
+    // place, which changes no `Verifies invariant:` row, and T1.1 already
+    // named both. Spec-013 and cross-plan-dependencies.md carry no marker
+    // blocks, and Plan-007 is not edited in this round at all.
+    bold: { resolved: 1035, noneArm: 158, parentResolved: 0 },
     legacy: { resolved: 64, noneArm: 3, parentResolved: 1 },
   });
 });

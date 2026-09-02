@@ -53,7 +53,17 @@
 // which are one row per accepted rollback rather than one per delivery.
 import { z } from "zod";
 
-import { EVENT_ENVELOPE_SEQUENCE_MAX, EVENT_FIELD_MAX_LEN, EventCategorySchema } from "../event.js";
+import {
+  ASSISTANT_OUTPUT_EVENT_TYPES,
+  EVENT_ENVELOPE_SEQUENCE_MAX,
+  EVENT_FIELD_MAX_LEN,
+  EventCategorySchema,
+  INTERACTIVE_REQUEST_EVENT_TYPES,
+  RUN_LIFECYCLE_EVENT_TYPES,
+  SOURCE_EPOCH_PAYLOAD_KEY,
+  SOURCE_POSITION_PAYLOAD_KEY,
+  TOOL_ACTIVITY_EVENT_TYPES,
+} from "../event.js";
 import type { EventCategory } from "../event.js";
 import { RunIdSchema, type RunId } from "../provider-driver.js";
 import { RunRolledBackEventSchema, type RunRolledBackEvent } from "../runControl.js";
@@ -91,6 +101,108 @@ export const TIMELINE_ROLLBACK_BOUNDARY_TYPE = "run.rolled_back" as const;
  * outright — see {@link refuseRunLifecycleOnNonRunArm}.
  */
 export const TIMELINE_RUN_LIFECYCLE_CATEGORY = "run_lifecycle" as const;
+
+/**
+ * The payload key a projected row uses to name a run, and the key the
+ * intervention family uses instead.
+ *
+ * TWO KEYS, NOT ONE. `Spec-006` spells run identity `runId` on every
+ * run-attributed family except interventions, whose registered shape is
+ * `{sessionId, interventionId, targetRunId, …}` — the same fact under a name
+ * that says which side of the relationship the run is on. A guard that read
+ * only `runId` would let every intervention row through the general arm, so
+ * both spellings are checked and neither is treated as the canonical one.
+ */
+export const TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS: readonly string[] = Object.freeze([
+  "runId",
+  "targetRunId",
+] as const);
+
+/**
+ * The `interactive_request` types whose registered payload names NO run.
+ *
+ * `Spec-006 §Queue and Intervention (interactive_request)` gives that category
+ * four subfamilies with three different shapes, so it is the one run-scoped
+ * category that cannot be taken wholesale:
+ *
+ *   * queue events — `{sessionId, queueItemId, channelId?, state}`. A queue
+ *     item's target run lives in the `queue_items` row, NOT in the event, so
+ *     these five carry no run identity a projection could read.
+ *   * `user.message` — `{sessionId, queueItemId?, runId?, …}`. Its run
+ *     identity is OPTIONAL: a message accepted before any run exists is
+ *     legitimately session-scoped, so the type alone cannot decide and the
+ *     payload-key leg decides per row.
+ *
+ * Everything else in the category — the six `intervention.*` (required
+ * `targetRunId`) and the four `driver_ask.*` (required `runId`) — is
+ * unconditionally run-attributed, so the set below is derived by SUBTRACTING
+ * these six from the category array rather than by re-listing the ten. A type
+ * added to that category therefore lands INSIDE the run-scoped set by default,
+ * which is the fail-closed direction: an unknown interactive-request type is
+ * refused from the attribution-free arm rather than silently admitted to it.
+ */
+const INTERACTIVE_REQUEST_TYPES_WITHOUT_REQUIRED_RUN: ReadonlySet<string> = new Set([
+  "queue_item.created",
+  "queue_item.admitted",
+  "queue_item.superseded",
+  "queue_item.canceled",
+  "queue_item.expired",
+  "user.message",
+]);
+
+/**
+ * The two `usage_telemetry` types whose per-type payload pins `runId`
+ * REQUIRED, listed positively because their category's shared shape does not.
+ *
+ * `Spec-006 §Usage Telemetry (usage_telemetry)` declares
+ * `{sessionId, runId?, …}` for the family, so the category cannot be taken
+ * wholesale in either direction: `usage.rate_limit_update` is account-plane
+ * and binds to the node-scope sentinel session with no run anywhere in its
+ * shape, while `usage.context_compacted` and `usage.model_rerouted` each
+ * re-list `runId` as required in their own per-type shapes. The five that
+ * stay optional (`token_count`, `cost_update`, `context_window_update`,
+ * `budget_warning`, `api_retry`) are decided per row by the payload-key leg —
+ * a session-scoped budget warning is a real row and must keep its arm.
+ *
+ * `artifact_publication` is absent from this file for the same reason with no
+ * exceptions at all: its shared shape is `{sessionId, artifactId?, runId?, …}`
+ * and every one of its six types leaves the run optional, so the payload-key
+ * leg is the only correct decider there.
+ */
+const USAGE_TELEMETRY_TYPES_WITH_REQUIRED_RUN: readonly string[] = Object.freeze([
+  "usage.context_compacted",
+  "usage.model_rerouted",
+] as const);
+
+/**
+ * Every canonical event type whose registered `Spec-006` payload names a run
+ * UNCONDITIONALLY — the type-side leg of the general arm's refusal.
+ *
+ * DERIVED, NOT TRANSCRIBED. The members come from Plan-006's own per-category
+ * arrays in `../event.js`, so a type added to `run_lifecycle`,
+ * `assistant_output`, `tool_activity`, or `interactive_request` enters this
+ * set by growing the taxonomy rather than by anyone remembering to mirror it
+ * here. The count is pinned in `../__tests__/timeline.test.ts` precisely so a
+ * taxonomy growth that SHOULD change this set fails a test instead of
+ * changing it silently.
+ *
+ * WHY A TYPE LEG AT ALL, GIVEN THE PAYLOAD LEG. `payload` on a projected row
+ * is the projector's own open record, not the canonical event payload
+ * verbatim — a summary projection may carry three keys of a fifteen-key
+ * payload. So a row can be a `tool.result` and carry no `runId` in the
+ * projection at all; the type is then the only surviving evidence that it
+ * belongs to a run. The two legs cover different failures and neither
+ * subsumes the other.
+ */
+export const TIMELINE_RUN_SCOPED_EVENT_TYPES: ReadonlySet<string> = new Set<string>([
+  ...RUN_LIFECYCLE_EVENT_TYPES,
+  ...ASSISTANT_OUTPUT_EVENT_TYPES,
+  ...TOOL_ACTIVITY_EVENT_TYPES,
+  ...INTERACTIVE_REQUEST_EVENT_TYPES.filter(
+    (eventType) => !INTERACTIVE_REQUEST_TYPES_WITHOUT_REQUIRED_RUN.has(eventType),
+  ),
+  ...USAGE_TELEMETRY_TYPES_WITH_REQUIRED_RUN,
+]);
 
 /**
  * The single-field superseded marker (I-013-3). Present exactly when the row's
@@ -353,32 +465,59 @@ const requireMarkerToOutrankRow = (
 };
 
 /**
- * The non-run arm refuses the run-scoped category.
+ * The non-run arm refuses every row a correct projection would have stamped
+ * `kind: "run"`, on three independent legs.
  *
  * `kind: "general"` is structurally the NON-RUN arm: it carries no `runId`,
  * `position`, or `epoch`, and `.strict()` refuses a row that smuggles them on.
- * But `category` is the base's open `EventCategory` enum on that arm, so a
- * projector that stamped `kind` wrong could deliver a `run_lifecycle` row with
- * its whole attribution triple structurally absent — and it would parse.
+ * But `category` and `type` are both OPEN on that arm — the enum and a
+ * free-form string — so a projector that stamped `kind` wrong delivers a
+ * run-attributed row with its whole attribution triple structurally absent,
+ * and it parses.
  *
- * That is I-013-1's failure by the back door. The invariant's guarantee is
- * all-or-none attribution enforced by arm selection: a run-scoped row missing
- * any of the triple fails ITS OWN arm. A misclassified row never reaches that
- * arm at all, so the check never runs, and a consumer narrowing on `kind` sees
- * a legitimately attribution-free row where the session holds a run event.
+ * That is I-013-1's failure by the back door, and the consequence is not
+ * cosmetic: a row with no outer `runId` / `position` / `epoch` cannot be
+ * reached by rollback projection or by a run filter, so a superseded turn
+ * renders as PERMANENTLY CURRENT and a run-scoped read silently omits it. The
+ * invariant's guarantee is all-or-none attribution enforced by arm selection —
+ * a run-scoped row missing any of the triple fails ITS OWN arm — and a
+ * misclassified row never reaches that arm for the check to run.
  *
- * The refusal is safe because the category is CLOSED on the run-scoped side:
- * `Spec-006 §Run Lifecycle (run_lifecycle)` registers thirteen
- * `run_lifecycle` types, the nine state transitions carry a required `runId`
- * through their shared payload shape and the four non-state rows each re-list
- * it, so there is no `run_lifecycle` event a correct projection could
- * legitimately deliver without run identity. See {@link TIMELINE_RUN_LIFECYCLE_CATEGORY}.
+ * The three legs, in the order they fire:
+ *
+ *   1. **Category.** `run_lifecycle` is closed on the run-scoped side —
+ *      thirteen registered types, every one carrying a required `runId` — so
+ *      the category alone is decisive and stays decisive for a type this
+ *      build's census has never seen (`ADR-018`'s higher-MINOR tolerance
+ *      means `type` is an open vocabulary). See
+ *      {@link TIMELINE_RUN_LIFECYCLE_CATEGORY}.
+ *   2. **Canonical type.** Four more categories carry run-attributed types —
+ *      `assistant_output`, `tool_activity`, the run-scoped part of
+ *      `interactive_request`, and two `usage_telemetry` types — and their
+ *      categories are NOT decisive, because three of them
+ *      (`usage_telemetry`, `artifact_publication`, and the queue and
+ *      user-message parts of `interactive_request`) also hold legitimately
+ *      session-scoped rows. So the decision is per type, against the derived
+ *      {@link TIMELINE_RUN_SCOPED_EVENT_TYPES} census.
+ *   3. **Payload attribution.** The types whose run identity is OPTIONAL —
+ *      every `artifact_publication` type, five `usage_telemetry` types, and
+ *      `user.message` — cannot be decided by their name, because the same
+ *      type is run-scoped on one row and session-scoped on the next. They are
+ *      decided by the row in hand: a payload naming a run
+ *      ({@link TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS}) belongs to the run arm
+ *      whatever its type.
+ *
+ * Leg 3 also catches what leg 2 cannot see and vice versa: a projected
+ * `payload` is the projector's own summary record rather than the canonical
+ * payload verbatim, so a `tool.result` row may carry no `runId` key at all
+ * (leg 2 catches it), while a type outside the census may still carry one
+ * (leg 3 catches it).
  *
  * Scoped to `general` alone: `run` and `legacy_stub` are the arms that SHOULD
- * carry this category, and the boundary arm pins it.
+ * carry run attribution, and the boundary arm pins its own.
  */
-const refuseRunLifecycleOnNonRunArm = (
-  row: { category: EventCategory },
+const refuseRunScopedRowOnGeneralArm = (
+  row: { category: EventCategory; type: string; payload: Record<string, unknown> },
   issueContext: z.RefinementCtx,
 ): void => {
   if (row.category === TIMELINE_RUN_LIFECYCLE_CATEGORY) {
@@ -389,6 +528,102 @@ const refuseRunLifecycleOnNonRunArm = (
         `every ${TIMELINE_RUN_LIFECYCLE_CATEGORY} event is run-scoped, so a row in that ` +
         "category belongs to the run arm and carries the full attribution triple; delivering " +
         "one under the general kind would present a run event as having no run identity",
+    });
+    return;
+  }
+  if (TIMELINE_RUN_SCOPED_EVENT_TYPES.has(row.type)) {
+    issueContext.addIssue({
+      code: "custom",
+      path: ["type"],
+      message:
+        `the canonical event type ${JSON.stringify(row.type)} names a run in every registered ` +
+        "form of its payload, so a row of that type belongs to the run arm and carries the " +
+        "full attribution triple; delivering one under the general kind would leave a " +
+        "run-scoped row unreachable by run filtering and permanently current under rollback " +
+        "projection",
+    });
+    return;
+  }
+  const carriedRunKey = TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS.find(
+    (payloadKey) => row.payload[payloadKey] !== undefined,
+  );
+  if (carriedRunKey !== undefined) {
+    issueContext.addIssue({
+      code: "custom",
+      path: ["payload", carriedRunKey],
+      message:
+        `this row's payload names a run under ${JSON.stringify(carriedRunKey)}, so the row is ` +
+        "run-attributed whatever its type; the general kind carries no outer runId, position, " +
+        "or epoch, so the attribution would survive only inside an opaque payload that no " +
+        "filter or rollback projection reads",
+    });
+  }
+};
+
+/**
+ * The run arm refuses a row whose payload contradicts its own outer
+ * attribution.
+ *
+ * A run row states its identity TWICE when the projection echoes canonical
+ * keys into `payload`: once in the outer `runId` / `epoch` / `position` that
+ * every consumer keys filtering and superseded treatment on, and once in the
+ * payload's own `runId` / {@link SOURCE_EPOCH_PAYLOAD_KEY} /
+ * {@link SOURCE_POSITION_PAYLOAD_KEY}, which is where the row's detail view
+ * and its canonical provenance are read from. Nothing forced the two to
+ * agree. A row carrying outer attribution for run A and a payload naming run
+ * B parses today, and the two readers then disagree permanently and silently:
+ * the timeline files the row under A, the detail pane sources it from B.
+ *
+ * The check is CONDITIONAL on presence, not a requirement that the keys be
+ * echoed. A projection is free to summarize a payload down to nothing, and
+ * `Spec-013` requires no particular payload content. What it may not do is
+ * carry a value that disagrees — so absence passes and disagreement fails,
+ * with the issue path naming the payload key rather than the outer field,
+ * because the outer triple is the arm's own required contract and the payload
+ * copy is the derived one.
+ *
+ * `sourceEpoch` and `sourcePosition` are the canonical spellings Plan-006
+ * registers for a row's origin coordinates; they are imported rather than
+ * spelled here so a rename in the taxonomy reaches this guard.
+ */
+const requirePayloadAttributionToAgree = (
+  row: { runId: RunId; epoch: number; position: number; payload: Record<string, unknown> },
+  issueContext: z.RefinementCtx,
+): void => {
+  const payloadRunId = row.payload["runId"];
+  if (payloadRunId !== undefined && payloadRunId !== row.runId) {
+    issueContext.addIssue({
+      code: "custom",
+      path: ["payload", "runId"],
+      message:
+        `payload runId ${JSON.stringify(payloadRunId)} disagrees with the row's own runId ` +
+        `${JSON.stringify(row.runId)}: consumers filter and mark superseded on the outer ` +
+        "value while the row's detail and provenance read the payload, so a row that states " +
+        "two run identities is filed under one run and sourced from another",
+    });
+  }
+  const payloadEpoch = row.payload[SOURCE_EPOCH_PAYLOAD_KEY];
+  if (payloadEpoch !== undefined && payloadEpoch !== row.epoch) {
+    issueContext.addIssue({
+      code: "custom",
+      path: ["payload", SOURCE_EPOCH_PAYLOAD_KEY],
+      message:
+        `payload ${SOURCE_EPOCH_PAYLOAD_KEY} ${JSON.stringify(payloadEpoch)} disagrees with ` +
+        `the row's own epoch ${String(row.epoch)}: the superseded marker is interpreted at the ` +
+        "row's epoch, so a disagreeing origin epoch makes the rewind cutoff apply to a " +
+        "different lineage than the one the row claims",
+    });
+  }
+  const payloadPosition = row.payload[SOURCE_POSITION_PAYLOAD_KEY];
+  if (payloadPosition !== undefined && payloadPosition !== row.position) {
+    issueContext.addIssue({
+      code: "custom",
+      path: ["payload", SOURCE_POSITION_PAYLOAD_KEY],
+      message:
+        `payload ${SOURCE_POSITION_PAYLOAD_KEY} ${JSON.stringify(payloadPosition)} disagrees ` +
+        `with the row's own position ${String(row.position)}: the superseded marker compares ` +
+        "the rewind cutoff against the outer position, so a disagreeing origin position " +
+        "decides supersession for a turn other than the one the payload describes",
     });
   }
 };
@@ -402,7 +637,7 @@ const timelineGeneralArmSchema = z
   .strict()
   .superRefine((generalRow, issueContext) => {
     refuseBoundaryTypeOnNonBoundaryArm(generalRow, issueContext);
-    refuseRunLifecycleOnNonRunArm(generalRow, issueContext);
+    refuseRunScopedRowOnGeneralArm(generalRow, issueContext);
   });
 
 const runScopedTimelineArmSchema = z
@@ -419,6 +654,7 @@ const runScopedTimelineArmSchema = z
   .superRefine((runRow, issueContext) => {
     refuseBoundaryTypeOnNonBoundaryArm(runRow, issueContext);
     requireMarkerToOutrankRow(runRow, issueContext);
+    requirePayloadAttributionToAgree(runRow, issueContext);
   });
 
 const legacyStubTimelineArmSchema = z
