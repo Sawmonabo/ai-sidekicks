@@ -45,11 +45,10 @@
         "canonicalValue": 16.7,
         "canonicalUnit": "ms"
       },
-      "status": "n/a",
+      "status": "enforced",
       "producedBy": "T-023p-1C-2",
-      "measuredBy": null,
-      "notMeasurableReason": "There is no four-lane streaming scenario to measure. The flagship scenario, the ledger frame, the reveal engine, and the cast bar are T-023p-1C-2's; until they land there is no render path whose frames could be sampled, and a synthetic stand-in would measure the harness rather than the console.",
-      "notes": "Hardware-dependent: gates on the pinned CI runner class only, per `measurementProtocol.hardwareDependent`."
+      "measuredBy": "apps/desktop/test/console/endurance/frame-time.test.ts",
+      "notes": "Hardware-dependent: gates on the pinned CI runner class only, per `measurementProtocol.hardwareDependent`. Off that class the harness still runs and prints the figure — the instrument is exercised everywhere and the comparison is withheld — which `test/console/endurance/pinned-runner-class.ts` decides for the whole tier. The reading is the median of three fresh launches' p95, each sampling 300 `requestAnimationFrame` intervals with a warm-up discarded, taken by nearest rank; the warm-up is a frame count rather than the protocol's ten seconds because a frozen clock walked for ten seconds would deliver the whole script before the first sample, which the harness states in full. No runner-calibrated threshold is recorded yet, so the comparison is against this row's own product limit. The flagship scenario is the four-lane session and at this revision its script is the skeleton — eight beats attaching four agents and opening a run — so the sampled window covers that delivery and the settled console after it; the run asserts the delivery happened inside the window. Measured a 9.0 ms median on an eight-core laptop at 120 Hz — individual launches 8.5–10.6 ms across three runs of the tier — where the row gates nothing."
     },
     {
       "id": "renderer-heap-at-rest",
@@ -159,11 +158,10 @@
         "canonicalValue": 800,
         "canonicalUnit": "ms"
       },
-      "status": "n/a",
+      "status": "enforced",
       "producedBy": "T-023p-1C-2",
-      "measuredBy": null,
-      "notMeasurableReason": "There is no ledger row to paint. The ledger frame, its row primitives, and the flagship scenario the launch path replays are all T-023p-1C-2's.",
-      "notes": "Deterministic against the fixture's frozen clock, so it gates on any runner once the ledger exists — it is not one of the two hardware-dependent budgets."
+      "measuredBy": "apps/desktop/test/console/endurance/first-ledger-row.test.ts",
+      "notes": "Deterministic against the fixture's frozen clock, so it gates on any runner once the ledger exists — it is not one of the two hardware-dependent budgets. Window show is read as the renderer's own `first-contentful-paint` entry: `revealWindow` is called from `ready-to-show`, which Electron emits once the page has been rendered, and on macOS an automated launch deliberately never reveals the window at all — so there is no `show` timestamp to read and no wall clock is read in either process. The interval ends at the animation frame after the first row element is laid out, and the whole of it is measured inside one page function, so the only harness cost inside it is the gap between the launch handshake settling and that function starting, which the report prints separately rather than subtracting. Measured 43–46 ms of an 800 ms ceiling on an eight-core laptop across three runs of the tier, 13–22 ms of it that handshake."
     }
   ]
 }

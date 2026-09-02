@@ -42,6 +42,7 @@
 
 import { expect } from "vitest";
 
+import { APPLY_COALESCE_MS } from "../../../src/renderer/src/console/core/index.js";
 import type { ConsoleApplication } from "../electron-harness.js";
 import {
   SCENARIO_FIXTURE_GLOBAL,
@@ -76,6 +77,16 @@ export const SETTINGS_SURFACE_SELECTOR: string =
  * than the arrival of content, which is what a churn cycle needs it to observe.
  */
 export const WORKSPACE_SURFACE_SELECTOR: string = ".meridian-frame__surface .meridian-ledger__body";
+
+/**
+ * One ledger row, anchored under the frame's surface.
+ *
+ * The BODY says the workspace mounted; a ROW says the projection, the window
+ * fold and the viewport's reconcile have all run and something is on screen. The
+ * two budget readings in this tier need the second claim and the churn loop needs
+ * the first, so both selectors live here and neither tier spells one itself.
+ */
+export const LEDGER_ROW_SELECTOR: string = ".meridian-frame__surface .meridian-ledger-row";
 
 /**
  * How long a route transition may take before the run is called failed.
@@ -279,6 +290,38 @@ export async function churnOnce(
 const SCENARIO_DELIVERY_STEP_COUNT = 20;
 const SCENARIO_DRAIN_STEP_COUNT = 5;
 
+/** How the frozen clock is walked over the flagship script, and how far. */
+export interface ScenarioDeliverySchedule {
+  readonly stepMilliseconds: number;
+  readonly stepCount: number;
+}
+
+/**
+ * The walk that puts the whole flagship script in and leaves nothing queued.
+ *
+ * One derivation rather than three: this tier walks the script from the driver
+ * process and the two budget readings walk it from INSIDE the renderer, where a
+ * round trip per advance would be the thing being measured. All three ask for the
+ * same walk, and a copy of this arithmetic in each would be three places for a
+ * beat to be left queued behind a deadline nothing reaches.
+ *
+ * The step is floored at one coalescing window, so every step also drains the
+ * batch the step before it delivered. Today's script makes that floor inert — a
+ * 400 ms span over twenty steps is 20 ms against a 16 ms window — and it is stated
+ * anyway, because a shorter script would otherwise deliver beats no advance in the
+ * loop ever released, and the failure would be a quiet one.
+ */
+export function flagshipDeliverySchedule(): ScenarioDeliverySchedule {
+  const scriptSpanMs = FLAGSHIP_SCENARIO.beats.at(-1)?.atMs ?? 0;
+  return {
+    stepMilliseconds: Math.max(
+      APPLY_COALESCE_MS + 1,
+      Math.ceil(scriptSpanMs / SCENARIO_DELIVERY_STEP_COUNT),
+    ),
+    stepCount: SCENARIO_DELIVERY_STEP_COUNT + SCENARIO_DRAIN_STEP_COUNT,
+  };
+}
+
 /**
  * Play the flagship script to its end and let the stores settle on it.
  *
@@ -289,11 +332,10 @@ const SCENARIO_DRAIN_STEP_COUNT = 5;
 export async function deliverWholeScenario(
   consoleApplication: ConsoleApplication,
 ): Promise<number | null> {
-  const scriptSpanMs = FLAGSHIP_SCENARIO.beats.at(-1)?.atMs ?? 0;
-  const stepMs = Math.max(1, Math.ceil(scriptSpanMs / SCENARIO_DELIVERY_STEP_COUNT));
+  const { stepMilliseconds, stepCount } = flagshipDeliverySchedule();
   let deliveredBeatCount: number | null = null;
-  for (let step = 0; step < SCENARIO_DELIVERY_STEP_COUNT + SCENARIO_DRAIN_STEP_COUNT; step += 1) {
-    deliveredBeatCount = await advanceScenario(consoleApplication, stepMs);
+  for (let step = 0; step < stepCount; step += 1) {
+    deliveredBeatCount = await advanceScenario(consoleApplication, stepMilliseconds);
   }
   return deliveredBeatCount;
 }
