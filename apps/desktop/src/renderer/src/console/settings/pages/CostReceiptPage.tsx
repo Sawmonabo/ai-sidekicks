@@ -143,12 +143,12 @@ const ACCOUNT_COLUMNS: readonly PartitionColumn<CostReceiptAccountRow>[] = [
 ];
 
 export function CostReceiptPage(props: { readonly context: SettingsPageContext }): ReactNode {
-  const { bridge, activeSessionId } = props.context;
+  const { bridge, retainedSessionId } = props.context;
   const announce = useAnnounce();
   const [outcome, setOutcome] = useState<CostReceiptOutcome | undefined>(undefined);
 
   useEffect(() => {
-    if (activeSessionId === undefined) {
+    if (retainedSessionId === undefined) {
       return undefined;
     }
     let isAttached = true;
@@ -157,7 +157,7 @@ export function CostReceiptPage(props: { readonly context: SettingsPageContext }
     // answer was to a question nobody is asking any more.
     setOutcome(undefined);
     void bridge.growth
-      .orchestrationCostReceiptRead({ sessionId: activeSessionId })
+      .orchestrationCostReceiptRead({ sessionId: retainedSessionId })
       .then((result) => {
         if (!isAttached) {
           return;
@@ -169,7 +169,7 @@ export function CostReceiptPage(props: { readonly context: SettingsPageContext }
     return () => {
       isAttached = false;
     };
-  }, [bridge, activeSessionId, announce]);
+  }, [bridge, retainedSessionId, announce]);
 
   return (
     <div className="meridian-settings-page">
@@ -185,7 +185,7 @@ export function CostReceiptPage(props: { readonly context: SettingsPageContext }
         <Chip tone="neutral" label="One session" glyph="sessions" />
       </div>
 
-      <ReceiptBody sessionId={activeSessionId} outcome={outcome} />
+      <ReceiptBody sessionId={retainedSessionId} outcome={outcome} />
 
       <section className="meridian-settings-page__block" aria-label="How the figure is split">
         <h3 className="meridian-settings-page__block-title">How the figure is split</h3>
@@ -224,8 +224,8 @@ function ReceiptBody(props: {
       <Nothing
         kind="empty"
         placement="surface"
-        title="The receipt belongs to a session, and this address names none."
-        detail="Open a session from the Sessions list and its receipt renders here. Nothing was asked of the accountant for a session nobody named."
+        title="The receipt belongs to a session, and this window has opened none."
+        detail="Open a session from the Sessions list and its receipt renders here. Nothing was asked of the accountant for a session nobody has opened."
       />
     );
   }

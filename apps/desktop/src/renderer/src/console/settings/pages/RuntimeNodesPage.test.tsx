@@ -7,11 +7,11 @@ import { describe, expect, it } from "vitest";
 import { RuntimeNodesPage, registerRuntimeNodesPage } from "./RuntimeNodesPage.js";
 import { SettingsPageRegistry, type SettingsPageContext } from "../settings-page-registry.js";
 
-function contextFor(activeSessionId: string | undefined): SettingsPageContext {
+function contextFor(retainedSessionId: string | undefined): SettingsPageContext {
   return {
     bridge: { source: "fixture" },
     openSection: () => undefined,
-    activeSessionId,
+    retainedSessionId,
   } as unknown as SettingsPageContext;
 }
 
@@ -23,7 +23,7 @@ describe("runtime nodes page", () => {
     expect(text).toContain("Heartbeat presence");
   });
 
-  it("says the roster belongs to a session when the address names none", () => {
+  it("says the roster belongs to a session when this window has opened none", () => {
     const { container } = render(<RuntimeNodesPage context={contextFor(undefined)} />);
     expect(container.textContent ?? "").toContain("belongs to a session");
   });

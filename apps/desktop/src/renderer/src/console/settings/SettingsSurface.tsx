@@ -29,6 +29,7 @@
 import { useMemo, useState } from "react";
 
 import { Glyph, Nothing } from "../primitives/index.js";
+import { useFrameStore } from "../store/index.js";
 import type { ConsoleSurfaceContext } from "../frame/surface-registry.js";
 import {
   SETTINGS_SECTION_IDS,
@@ -66,18 +67,26 @@ export function SettingsSurface(props: SettingsSurfaceProps): React.JSX.Element 
   const requestedPage = route.kind === "settings" ? route.page : undefined;
   const selectedSection = requestedSection(requestedPage);
   const [searchQuery, setSearchQuery] = useState("");
+  // SUBSCRIBED, not snapshotted. A getter read during render answers whatever the
+  // store held on that pass and nothing re-renders when it changes, so a session
+  // opened in another destination would reach these pages only on the next
+  // unrelated render. The frame's own readers subscribe through this hook and so
+  // does this one, which is also why the settings family holds no copy of the id.
+  const retainedSessionId = useFrameStore(context.frameStore, (state) => state.lastOpenedSessionId);
 
   const openSection = (section: SettingsSectionId): void => {
     context.frameStore.navigate({ kind: "settings", page: section });
   };
 
-  // The session comes off the frame store, which projects it from the route rather
-  // than recording it a second time. On a `#/settings` address there is none, and a
-  // session-scoped page renders that as an absence it ASKED for.
+  // The RETAINED session, never the route's projection. Every settings address is
+  // `kind: "settings"` and names no session, so the projection is `undefined` on all
+  // of them, and a session-scoped page handed it would render its no-session arm in
+  // every window that had ever opened one. A window that has opened none still hands
+  // `undefined`, and a page renders that as an absence it ASKED for.
   const pageContext: SettingsPageContext = {
     bridge: context.bridge,
     openSection,
-    activeSessionId: context.frameStore.activeSessionId,
+    retainedSessionId,
   };
 
   // Memoised on the registry and the query: the registry is composed once by the

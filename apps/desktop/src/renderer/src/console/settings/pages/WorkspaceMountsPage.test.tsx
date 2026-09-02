@@ -54,7 +54,7 @@ function contextReading(options: {
   readonly clock: ManualClock;
   readonly mountIds: readonly string[];
   readonly mountOverrides?: Readonly<Record<string, Partial<RepoMountReadResponse>>>;
-  readonly activeSessionId?: string | undefined;
+  readonly retainedSessionId?: string | undefined;
   /** Counts what the page asked for, so a refresh can be proved rather than assumed. */
   readonly onCall?: (method: string) => void;
   /** Makes the enumerating read reject, which is the list's own refused arm. */
@@ -81,7 +81,7 @@ function contextReading(options: {
       },
     },
     openSection: () => undefined,
-    activeSessionId: "activeSessionId" in options ? options.activeSessionId : "session-1",
+    retainedSessionId: "retainedSessionId" in options ? options.retainedSessionId : "session-1",
   } as unknown as SettingsPageContext;
 }
 
@@ -171,11 +171,11 @@ describe("workspace mounts page", () => {
     expect(container.querySelectorAll(".meridian-mount-list__item")).toHaveLength(2);
   });
 
-  it("says the address names no session rather than reading for one", async () => {
+  it("says this window has opened no session rather than reading for one", async () => {
     const clock = new ManualClock();
     const { page: container } = await renderSettledPage(
       clock,
-      contextReading({ clock, mountIds: ["mount-a"], activeSessionId: undefined }),
+      contextReading({ clock, mountIds: ["mount-a"], retainedSessionId: undefined }),
     );
     expect(container.textContent ?? "").toContain("Mounts belong to a session");
     expect(container.querySelector(".meridian-mount-list")).toBeNull();

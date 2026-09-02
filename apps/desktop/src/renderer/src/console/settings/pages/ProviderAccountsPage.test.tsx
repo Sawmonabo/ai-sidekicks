@@ -21,7 +21,7 @@ import { SettingsPageRegistry, type SettingsPageContext } from "../settings-page
 const CONTEXT = {
   bridge: undefined as never,
   openSection: () => undefined,
-  activeSessionId: undefined,
+  retainedSessionId: undefined,
 } satisfies SettingsPageContext;
 
 function renderedText(): string {

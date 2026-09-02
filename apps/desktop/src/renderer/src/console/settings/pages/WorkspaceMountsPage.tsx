@@ -61,7 +61,7 @@ import type { SettingsPageContext, SettingsPageRegistry } from "../settings-page
 const OWNER = "collaboration-settings-mounts";
 
 export function WorkspaceMountsPage(props: { readonly context: SettingsPageContext }): ReactNode {
-  const { bridge, activeSessionId } = props.context;
+  const { bridge, retainedSessionId } = props.context;
   return (
     <div className="meridian-settings-page">
       <p className="meridian-settings-page__lede">
@@ -73,15 +73,15 @@ export function WorkspaceMountsPage(props: { readonly context: SettingsPageConte
 
       <section className="meridian-settings-page__block" aria-label="Mounted repositories">
         <h3 className="meridian-settings-page__block-title">Mounted repositories</h3>
-        {activeSessionId === undefined ? (
+        {retainedSessionId === undefined ? (
           <Nothing
             kind="empty"
             placement="surface"
-            title="Mounts belong to a session, and this address names none."
-            detail="Open a session from the Sessions list and the repositories it has mounted render here. Nothing was asked of this machine for a session nobody named."
+            title="Mounts belong to a session, and this window has opened none."
+            detail="Open a session from the Sessions list and the repositories it has mounted render here. Nothing was asked of this machine for a session nobody has opened."
           />
         ) : (
-          <MountInventoryList bridge={bridge} sessionId={activeSessionId} />
+          <MountInventoryList bridge={bridge} sessionId={retainedSessionId} />
         )}
       </section>
 
