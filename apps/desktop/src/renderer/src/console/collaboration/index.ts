@@ -28,14 +28,27 @@
 // the same way and for the same reason. The rule that cross-family imports go
 // through a barrel holds everywhere the barrel is not itself the composition root.
 
+import "./collaboration.css";
+
 import type { ConsoleSurfaceRegistry } from "../frame/surface-registry.js";
 import { registerAgentConsoleSurface } from "../panes/agent-console/index.js";
 import { registerSessionsSurface } from "../sessions/index.js";
 import { registerSettingsSurface } from "../settings/index.js";
+import { registerCollaborationSections } from "./sections.js";
 
-/** Claim every surface slot this family owns. */
+/**
+ * Claim every surface slot this family owns, and fill the sidebar sections it fills.
+ *
+ * Two registries, because they are two different seats: a surface slot is a whole
+ * destination the frame mounts, and a sidebar section is a body inside a sidebar
+ * another family owns. The sections registrar takes no argument because the sidebar
+ * seat carries its own process-wide registry — the one place the console keeps a
+ * registry a caller does not supply — so this file passes it nothing rather than
+ * inventing a parameter to pass.
+ */
 export function registerCollaborationFamily(registry: ConsoleSurfaceRegistry): void {
   registerSessionsSurface(registry);
   registerSettingsSurface(registry);
   registerAgentConsoleSurface(registry);
+  registerCollaborationSections();
 }
