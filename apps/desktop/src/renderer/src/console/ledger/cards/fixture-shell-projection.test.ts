@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { TimelineRowSchema } from "@ai-sidekicks/contracts";
 
 import { type ConsoleSessionEvent } from "../../store/index.js";
+import { deriveSupersededBands } from "../structure/index.js";
 import { projectFixtureShellRows } from "./fixture-shell-projection.js";
 
 const SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a5";
@@ -23,6 +24,26 @@ function event(
 
 function runEvent(sequence: number, runId: string, kind = "run.running"): ConsoleSessionEvent {
   return event({ sequence, kind, payload: { sessionId: SESSION_ID, runId } });
+}
+
+function rollbackEvent(
+  sequence: number,
+  runId: string,
+  targetPosition: number,
+): ConsoleSessionEvent {
+  return event({
+    sequence,
+    kind: "run.rolled_back",
+    actorParticipantId: PARTICIPANT,
+    payload: { sessionId: SESSION_ID, runId, runVersion: sequence, targetPosition },
+  });
+}
+
+/** Every run row's `(position, epoch)`, in log order. Boundaries and general rows omitted. */
+function runOrdinals(
+  rows: ReturnType<typeof projectFixtureShellRows>["rows"],
+): readonly (readonly [number, number])[] {
+  return rows.flatMap((row) => (row.kind === "run" ? [[row.position, row.epoch] as const] : []));
 }
 
 describe("the fixture shell's row projection", () => {
@@ -132,5 +153,77 @@ describe("the fixture shell's row projection", () => {
 
   it("projects an empty log into no rows and no drops", () => {
     expect(projectFixtureShellRows([])).toStrictEqual({ rows: [], unprojectableEventCount: 0 });
+  });
+});
+
+describe("counting through a rewind", () => {
+  it("returns the count to the anchor the rollback landed on", () => {
+    const projection = projectFixtureShellRows([
+      runEvent(1, RUN_ONE),
+      runEvent(2, RUN_ONE),
+      runEvent(3, RUN_ONE),
+      runEvent(4, RUN_ONE),
+      runEvent(5, RUN_ONE),
+      rollbackEvent(6, RUN_ONE, 3),
+      runEvent(7, RUN_ONE),
+      runEvent(8, RUN_ONE),
+    ]);
+
+    // Five rows at 0–4 in epoch 0, then the rewind, then the re-execution counting
+    // from the anchor again — in the epoch the rewind opened.
+    expect(runOrdinals(projection.rows)).toStrictEqual([
+      [0, 0],
+      [1, 0],
+      [2, 0],
+      [3, 0],
+      [4, 0],
+      [3, 1],
+      [4, 1],
+    ]);
+  });
+
+  it("bands a second rewind over its own epoch's rows and no others", () => {
+    // The consequence the ordinals exist for. A count that ran on through the first
+    // rewind would put the new epoch's rows at 5 and 6, and this second rewind — to
+    // the same anchor — would find BOTH of them above its cutoff and dim a whole
+    // re-execution that nothing rewound past.
+    const projection = projectFixtureShellRows([
+      runEvent(1, RUN_ONE),
+      runEvent(2, RUN_ONE),
+      runEvent(3, RUN_ONE),
+      runEvent(4, RUN_ONE),
+      runEvent(5, RUN_ONE),
+      rollbackEvent(6, RUN_ONE, 3),
+      runEvent(7, RUN_ONE),
+      runEvent(8, RUN_ONE),
+      rollbackEvent(9, RUN_ONE, 3),
+    ]);
+
+    const secondEpochBands = deriveSupersededBands(projection.rows).filter(
+      (band) => band.epoch === 1,
+    );
+    expect(secondEpochBands).toHaveLength(1);
+    expect(secondEpochBands[0]?.rowIds).toStrictEqual([`${SESSION_ID}:8`]);
+  });
+
+  it("negative control: a rewind in one run leaves another run's count alone", () => {
+    // Without this, a fix that reset a shared counter rather than the rewound run's
+    // own would pass both cases above and renumber every other run in the window.
+    const projection = projectFixtureShellRows([
+      runEvent(1, RUN_ONE),
+      runEvent(2, RUN_TWO),
+      runEvent(3, RUN_TWO),
+      rollbackEvent(4, RUN_ONE, 0),
+      runEvent(5, RUN_TWO),
+    ]);
+
+    const secondRunOrdinals = projection.rows.flatMap((row) =>
+      row.kind === "run" && row.runId === RUN_TWO ? [[row.position, row.epoch] as const] : [],
+    );
+    expect(secondRunOrdinals).toStrictEqual([
+      [0, 0],
+      [1, 0],
+      [2, 0],
+    ]);
   });
 });

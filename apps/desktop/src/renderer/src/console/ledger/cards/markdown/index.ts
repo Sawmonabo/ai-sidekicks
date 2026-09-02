@@ -24,6 +24,9 @@ export * from "./markdown-parse.js"; // micromark + mdast, once per settled bloc
 export * from "./block-segmenter.js"; // committed prefix, volatile tail
 export * from "./footnote-registry.js"; // definitions, keyed by source
 export * from "./footnote-collection.js"; // finding them without rendering them
+export * from "./footnote-popover-context.js"; // where a marker finds its host
 export * from "./CodeBlock.js"; // the own span renderer
 export * from "./MathBlock.js"; // the one dangerouslySetInnerHTML site
+export * from "./FootnoteReference.js"; // the marker, and the control it becomes
 export * from "./MarkdownNodes.js"; // the mapper
+export * from "./FootnotePopoverHost.js"; // one popup per body, and the uncited names

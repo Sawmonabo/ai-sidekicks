@@ -34,4 +34,46 @@ describe("a formula that does not typeset", () => {
     });
     expect(container.textContent).not.toContain("ParseError");
   });
+
+  it("takes the source arm and says so, rather than a formula-shaped blank", async () => {
+    // The failure this case exists for is invisible by construction: under a KaTeX told
+    // not to throw, a parse error comes back AS MARKUP, so the component records it as
+    // typeset and the reader is shown KaTeX's own error rendering — coloured away to
+    // nothing, in the arrangement this replaces. Nothing on screen would say the formula
+    // failed, and the source would never appear.
+    const { container } = render(<MathBlock source={String.raw`\frac{1`} isDisplayMode />);
+
+    await waitFor(() => {
+      expect(container.querySelector(".meridian-math--source")).not.toBeNull();
+    });
+    expect(container.querySelector("code")?.textContent).toBe(String.raw`\frac{1`);
+    expect(container.textContent).toContain("could not be typeset");
+    expect(container.querySelector("math")).toBeNull();
+  });
+
+  it("negative control: a formula that typesets shows no notice and no source", async () => {
+    // Without this, a component that took the source arm unconditionally would pass
+    // every case above and stop typesetting anything at all.
+    const { container } = render(<MathBlock source="a^2 + b^2 = c^2" isDisplayMode />);
+
+    await waitFor(() => {
+      expect(container.querySelector("math")).not.toBeNull();
+    });
+    expect(container.querySelector(".meridian-math--source")).toBeNull();
+    expect(container.textContent).not.toContain("could not be typeset");
+  });
+
+  it("negative control: a formula KaTeX only warns about still typesets", async () => {
+    // `strict: false` is a separate constraint from throwing on a parse error, and this
+    // is where the two are told apart: a Unicode character in math mode is a strict
+    // WARNING, and a participant's slip inside a formula is not the console's error to
+    // raise. A fix that reached the source arm through KaTeX's strict mode rather than
+    // through a parse failure would fail here.
+    const { container } = render(<MathBlock source="é = mc^2" isDisplayMode />);
+
+    await waitFor(() => {
+      expect(container.querySelector("math")).not.toBeNull();
+    });
+    expect(container.textContent).not.toContain("could not be typeset");
+  });
 });

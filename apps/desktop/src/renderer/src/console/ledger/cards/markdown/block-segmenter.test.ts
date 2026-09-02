@@ -77,3 +77,57 @@ describe("splitting a stream into settled blocks and a volatile tail", () => {
     expect(segmentation.volatileTail).toContain("three");
   });
 });
+
+/**
+ * What the tail keeps and what it drops, in the one place the two are confusable.
+ *
+ * The separator ahead of the tail is the previous block's, and dropping it is all the
+ * tail owes. The first content line's own indentation is the AUTHOR's, and in
+ * commonmark it is syntax rather than layout.
+ */
+const LEADING_WHITESPACE_CASES: readonly {
+  readonly what: string;
+  readonly source: string;
+  readonly expectedTail: string;
+}[] = [
+  {
+    what: "a four-space indented code block, whose indentation is what makes it code",
+    source: "    command --flag",
+    expectedTail: "    command --flag",
+  },
+  {
+    what: "a tab-indented block, which opens the same construct",
+    source: "\tcommand --flag",
+    expectedTail: "\tcommand --flag",
+  },
+  {
+    what: "blank separator lines before a paragraph, which are the previous block's",
+    source: "\n\nafter the blanks",
+    expectedTail: "after the blanks",
+  },
+  {
+    what: "separator lines — one of them holding spaces — before an indented block",
+    source: "\n \n    command --flag",
+    expectedTail: "    command --flag",
+  },
+];
+
+describe("what the volatile tail strips from its own head", () => {
+  it.each(LEADING_WHITESPACE_CASES)("keeps $what", ({ source, expectedTail }) => {
+    expect(new MarkdownBlockSegmenter().segment(source).volatileTail).toBe(expectedTail);
+  });
+
+  it("negative control: the separator itself is still removed", () => {
+    // Without this, a segmenter that stripped NOTHING would pass every case above and
+    // hand the parser a tail opening on blank lines. The run of blanks here is longer
+    // than the one the commit consumed, so the lagged block the tail is joined from
+    // begins on one — which is the only way the tail ever does.
+    const segmentation = new MarkdownBlockSegmenter().segment(
+      "one\n\n\n\ntwo\n\nthree\n\nfour\n\nfive",
+    );
+
+    expect(segmentation.volatileTail.startsWith("\n")).toBe(false);
+    expect(segmentation.volatileTail).toContain("two");
+    expect(segmentation.volatileTail).toContain("five");
+  });
+});

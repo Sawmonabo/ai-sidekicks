@@ -98,6 +98,19 @@ describe("structure", () => {
     expect(
       withoutBody.querySelector(".meridian-markdown__footnote")?.getAttribute("data-defined"),
     ).toBe("false");
+    // And a marker with no body to open is a marker, not a control. A disabled button
+    // would still tell a reader something is there and send a keyboard walk to it.
+    expect(withoutBody.querySelector(".meridian-markdown__footnote")?.tagName).toBe("SUP");
+    expect(withoutBody.querySelector("button")).toBeNull();
+  });
+
+  it("negative control: a reference offers no control with no host around it", () => {
+    // Without this, a mapper that always rendered the button form would pass the case
+    // above and put a control on the screen that opens into nothing — the mapper alone
+    // has no popover host, and the card is what supplies one.
+    const container = renderMarkdown("cite[^1]\n\n[^1]: the note\n", ["1"]);
+    expect(container.querySelector(".meridian-markdown__footnote")?.tagName).toBe("SUP");
+    expect(container.querySelector("button")).toBeNull();
   });
 
   it("renders a footnote DEFINITION nowhere, so its text is not on screen twice", () => {

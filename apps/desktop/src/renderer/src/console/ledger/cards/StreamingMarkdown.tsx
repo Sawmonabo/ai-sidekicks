@@ -21,14 +21,29 @@
 // comparison is a pointer check that skips the whole subtree. Under
 // `Spec-023 §References` D.2's measurements that is the difference between 0.30–1.31 ms
 // per frame and a re-parse linear in the whole message.
+//
+// THE KEY RULE, WHICH THE MEMOISATION RESTS ON. A settled block is keyed by its POSITION
+// in the committed prefix together with its own text. The position is what makes the key
+// unique — a message that repeats a paragraph or a command snippet, which is the ordinary
+// case for logs, would otherwise give two siblings one key and React would warn and reuse
+// one subtree for both. The text is what makes it CONTENT-ADDRESSED, so a rebase, which
+// re-derives the whole prefix from a different history, remounts rather than pouring new
+// content into the old message's elements.
+//
+// AND THE PROPERTY BOTH HALVES BUY: a settled block's key never changes as blocks move
+// from the volatile tail into the prefix. The prefix is append-only — the segmenter grows
+// `#completeBlocks` at the end and slices from the front — so block N stays at index N for
+// as long as the message does, and the settling of a later block moves nothing.
 
 import type { RootContent } from "mdast";
 import { memo, useEffect, useMemo, useRef } from "react";
 
 import {
+  FootnotePopoverHost,
   MarkdownBlockSegmenter,
   MarkdownNodes,
   collectFootnoteDefinitions,
+  collectFootnoteReferences,
   parseSettledBlock,
   parseVolatileTail,
   type FootnoteRegistry,
@@ -44,6 +59,9 @@ import {
  * `apps/desktop/AGENTS.md` rejects.
  */
 const NO_NODES: readonly RootContent[] = Object.freeze([]);
+
+/** No uncited definitions, once — a streaming body allocates none asking. */
+const NO_IDENTIFIERS: readonly string[] = Object.freeze([]);
 
 export interface StreamingMarkdownProps {
   /**
@@ -91,6 +109,18 @@ export function StreamingMarkdown(props: StreamingMarkdownProps): React.JSX.Elem
     [props.publishedText, volatileNodes],
   );
 
+  // Asked of a FINISHED body only. On a streaming one a definition ahead of its own
+  // reference is the ordinary case, so the answer would be wrong — and the walk is deep,
+  // unlike the definition walk beside it, so asking per frame would be the re-parse the
+  // committed-and-volatile split exists to avoid.
+  const uncitedFootnoteIdentifiers = useMemo(
+    () =>
+      props.isComplete ? uncitedIdentifiersOf(settledNodeLists, volatileNodes) : NO_IDENTIFIERS,
+    // `settledNodeLists` is rebuilt per render from a cache and is deliberately not a
+    // dependency, for the reason the registration effect below gives.
+    [props.publishedText, volatileNodes, props.isComplete],
+  );
+
   const settledContext = useMemo<MarkdownRenderContext>(
     () => ({ isSettled: true, definedFootnoteIdentifiers }),
     [definedFootnoteIdentifiers],
@@ -119,19 +149,36 @@ export function StreamingMarkdown(props: StreamingMarkdownProps): React.JSX.Elem
   }, [props.publishedText, volatileNodes, footnotes, sourceId, settledNodeLists]);
 
   return (
-    <div className="meridian-markdown">
-      {segmentation.settledBlocks.map((block, index) => (
-        <SettledBlock
-          key={block}
-          nodes={settledNodeLists[index] ?? NO_NODES}
-          context={settledContext}
-        />
-      ))}
-      {volatileNodes.length === 0 ? null : (
-        <MarkdownNodes nodes={volatileNodes} context={volatileContext} />
-      )}
-    </div>
+    <FootnotePopoverHost
+      sourceId={props.sourceId}
+      footnotes={props.footnotes}
+      uncitedIdentifiers={uncitedFootnoteIdentifiers}
+    >
+      <div className="meridian-markdown">
+        {segmentation.settledBlocks.map((block, index) => (
+          <SettledBlock
+            key={settledBlockKey(block, index)}
+            nodes={settledNodeLists[index] ?? NO_NODES}
+            context={settledContext}
+          />
+        ))}
+        {volatileNodes.length === 0 ? null : (
+          <MarkdownNodes nodes={volatileNodes} context={volatileContext} />
+        )}
+      </div>
+    </FootnotePopoverHost>
   );
+}
+
+/**
+ * One settled block's identity among its siblings. See this file's header for the rule.
+ *
+ * The position comes first so the cheap half of the comparison decides most of them: two
+ * keys differ at their first character unless the blocks are at the same index, and only
+ * then does the block's own text have to be walked.
+ */
+function settledBlockKey(block: string, positionInPrefix: number): string {
+  return `${String(positionInPrefix)}:${block}`;
 }
 
 /**
@@ -148,6 +195,30 @@ function useBlockSegmentation(
   const segmenterRef = useRef<MarkdownBlockSegmenter | undefined>(undefined);
   segmenterRef.current ??= new MarkdownBlockSegmenter();
   return segmenterRef.current.segment(publishedText);
+}
+
+/**
+ * The definitions this body declared that nothing in it points at.
+ *
+ * Both halves are read from the same nodes in one pass over the body, so the two sets
+ * can never be answers about different snapshots — which is the same reason the
+ * definitions and the defined-identifier set are collected by one walk.
+ */
+function uncitedIdentifiersOf(
+  settledNodeLists: readonly (readonly RootContent[])[],
+  volatileNodes: readonly RootContent[],
+): readonly string[] {
+  const defined = collectDefinedIdentifiers(settledNodeLists, volatileNodes);
+  if (defined.size === 0) {
+    return NO_IDENTIFIERS;
+  }
+  const referenced = new Set<string>();
+  for (const nodes of [...settledNodeLists, volatileNodes]) {
+    for (const identifier of collectFootnoteReferences(nodes)) {
+      referenced.add(identifier);
+    }
+  }
+  return [...defined].filter((identifier) => !referenced.has(identifier));
 }
 
 /** Every footnote identifier defined anywhere in this body. */

@@ -31,10 +31,21 @@
 //     so this component never sees a prefix. Half a formula is not a formula, and KaTeX
 //     asked to render one throws or renders something the next frame contradicts.
 //
-// AND ONE MORE THAT IS NOT NEGOTIABLE: `throwOnError: false`, with KaTeX's own error
-// rendering off. An unparseable formula renders as its SOURCE, in mono, beside a named
-// absence — never as KaTeX's red error text, which is a stranger's voice in the ledger,
-// and never as nothing, which would read as the author having written nothing.
+// AND ONE MORE THAT IS NOT NEGOTIABLE: an unparseable formula renders as its SOURCE, in
+// mono, beside a named absence — never as KaTeX's red error text, which is a stranger's
+// voice in the ledger, and never as nothing, which would read as the author having
+// written nothing.
+//
+// WHICH IS WHY `throwOnError` IS TRUE HERE AND THE CALL SITS IN A `try`. Under
+// `throwOnError: false` KaTeX does not report a parse failure at all: it RESOLVES,
+// returning its own error rendering as the markup, so the `unrenderable` arm below is
+// unreachable and the source is never shown. Colouring that rendering away — the
+// `errorColor: "transparent"` this file used to pass — does not restore the arm; it
+// paints the stranger's voice invisible and leaves a sighted reader an empty box where a
+// formula was. Throwing is the only way this component learns the difference between a
+// formula KaTeX typeset and one it gave up on, so the failure is caught and named
+// instead. `strict: false` still stands, and is a different question: a WARNING renders,
+// a parse error does not.
 
 import { useEffect, useState } from "react";
 
@@ -103,14 +114,22 @@ function useKatexMarkup(source: string, isDisplayMode: boolean): MathRenderState
           output: "mathml",
           trust: false,
           strict: false,
-          throwOnError: false,
-          errorColor: "transparent",
+          // See this file's header. `renderToString` throws on a formula it cannot
+          // parse, which is the only signal that distinguishes one from a formula it
+          // typeset — and `errorColor` is deliberately not passed, because the only
+          // thing it could colour is a rendering this component never accepts.
+          throwOnError: true,
         });
         if (isMounted) {
           setState({ status: "rendered", mathMarkup });
         }
       })
       .catch(() => {
+        // ONE ARM FOR BOTH CAUSES, and deliberately: whether KaTeX would not load or
+        // would not parse this formula, the reader is in the same position and the
+        // console's answer is the same one — the source, exactly as it was written,
+        // under an absence that says it was not typeset. A fourth state would be a
+        // distinction the reader cannot act on.
         if (isMounted) {
           setState({ status: "unrenderable" });
         }

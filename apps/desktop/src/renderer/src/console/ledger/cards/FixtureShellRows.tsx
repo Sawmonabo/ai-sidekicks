@@ -53,9 +53,15 @@ export const FIXTURE_SHELL_OWNER = "ledger fixture shell";
 export function FixtureShellRow(props: TimelineRowSlotProps): React.JSX.Element {
   const [footnotes] = useState(() => new FootnoteRegistry());
   const [openOverride, setOpenOverride] = useState<boolean | undefined>(undefined);
+  const isOpenByList = props.density === "expanded";
+  // THE TOGGLE INVERTS WHAT IS ON SCREEN, not what the override happens to hold. An
+  // untouched row has no override at all, and the density it is showing is the list's
+  // — so the first press has to read the list's answer to know what it is reversing.
+  // Substituting `false` there instead would store `true` for a row the list had
+  // already opened, which reads as a press that did nothing and needs a second one.
   const toggleDensity = useCallback(() => {
-    setOpenOverride((current) => !(current ?? false));
-  }, []);
+    setOpenOverride((current) => !(current ?? isOpenByList));
+  }, [isOpenByList]);
 
   const family = classifyCardFamily(props.row);
   // The list owns density; the shell STANDS IN for the list, so it may override what it
