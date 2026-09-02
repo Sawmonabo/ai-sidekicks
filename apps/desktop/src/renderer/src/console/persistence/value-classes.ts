@@ -24,6 +24,15 @@
 // the CLASS shapes instead: no class below has a field that takes a path. Both
 // conjuncts are load-bearing.
 //
+// A RECORD IS A VALUE AND AN ADDRESS, and both halves come through here. The
+// partition and the key are written verbatim, so validating the value alone would
+// leave a caller free to persist a sentence or a path in the key while handing
+// the value check an ordinary boolean. `validatePersistedAddress` applies the same
+// grammar to both components — minus the path separator, which the value side is
+// only safe to admit because it has a class shape behind it and an address has
+// none — and `measureRecordByteLength` is the one byte measurement every cap in
+// this family counts through, over the whole record rather than over its value.
+//
 // Drafts are absent from this enumeration on purpose. Composer text, form values,
 // paths, and code a participant typed and did not send are participant-authored
 // content, and the only durable homes the corpus gives such content are the
@@ -77,8 +86,33 @@ export function isIdentifierShaped(value: string): boolean {
   return value.length <= IDENTIFIER_MAX_LENGTH && IDENTIFIER_PATTERN.test(value);
 }
 
+/**
+ * The one character an ADDRESS excludes that a value string may carry.
+ *
+ * The charset above admits `/` deliberately, and the header says why: a
+ * path-shaped VALUE is excluded by the class shapes instead, because no admitted
+ * class has a field that takes a path. An address has no class shape behind it —
+ * `partition` and `key` are two bare strings the caller chooses — so the
+ * exclusion the value side gets from its shape has to be made at the address
+ * itself. The Windows separator needs no entry: `\` is outside the charset, so
+ * `isIdentifierShaped` already refuses it.
+ */
+const PATH_SEPARATOR = "/";
+
+/**
+ * True when a string may name half of a record's address.
+ *
+ * Derived from the one grammar rather than declared as a second one: an address
+ * component is an identifier that is additionally not path-shaped, so the charset
+ * and the length ceiling are still written in exactly one place.
+ */
+function isAddressComponentShaped(component: string): boolean {
+  return isIdentifierShaped(component) && !component.includes(PATH_SEPARATOR);
+}
+
 /** Why the chokepoint refused a write. Rendered verbatim; never swallowed. */
 export const PERSISTENCE_REFUSAL_CODES = [
+  "address-not-identifier-shaped",
   "value-class-unknown",
   "value-shape-invalid",
   "value-not-identifier-shaped",
@@ -332,4 +366,81 @@ export function validatePersistedValue(
     return shapeRefusal;
   }
   return everyStringIsIdentifierShaped(value, valueClass);
+}
+
+/**
+ * The chokepoint's OTHER validator: the record's address.
+ *
+ * `partition` and `key` are written to the record verbatim, so a caller that
+ * derived either from participant- or machine-authored input would put prose, a
+ * path, or a name into durable storage while handing the value check a perfectly
+ * ordinary boolean. Validating one half of a record and copying the other half
+ * through is not a chokepoint, it is a chokepoint on one field.
+ *
+ * A code of its own rather than a reuse of `value-not-identifier-shaped`: the
+ * store counts refusals BY CODE for the diagnostics surface, and an operator
+ * reading a count that named values while every one of them was an address would
+ * go and audit the wrong half of every write.
+ *
+ * Neither component is echoed, only its length and which half it is — the
+ * discipline `notIdentifier` already keeps, because a refusal that quotes the
+ * prose it refused has carried that prose one layer further out than the store
+ * that stopped it.
+ */
+export function validatePersistedAddress(
+  partition: string,
+  key: string,
+): PersistenceRefusal | undefined {
+  const components = [
+    ["partition", partition],
+    ["key", key],
+  ] as const;
+  for (const [component, value] of components) {
+    if (!isAddressComponentShaped(value)) {
+      return refusePersistence(
+        "address-not-identifier-shaped",
+        `the record ${component} is not identifier-shaped (${String(value.length)} chars, ceiling ${String(IDENTIFIER_MAX_LENGTH)}, no path separator). A record address is an identifier; participant- and machine-authored content has no durable home in the renderer.`,
+      );
+    }
+  }
+  return undefined;
+}
+
+/**
+ * THE byte measurement. Every cap the chokepoint applies is counted through this
+ * one function, over the whole record rather than over its value alone.
+ *
+ * The address counts because it is stored: a cap that measured only the value
+ * would let a caller spend the entire ceiling on the value and then a further
+ * unbounded amount on the key beside it, and the key is the part an index holds a
+ * second copy of.
+ *
+ * UTF-8 bytes rather than `String.length`, which counts UTF-16 code units. Today
+ * every string that reaches here has already passed the ASCII-only identifier
+ * grammar, so the two agree — which is exactly why the cheaper one would go
+ * unnoticed if the charset ever widened, and a ceiling described in bytes would
+ * quietly start admitting several times what it claims.
+ */
+export function measureRecordByteLength(
+  partition: string,
+  key: string,
+  valueClass: string,
+  value: PersistableValue,
+): number {
+  return (
+    measureUtf8ByteLength(partition) +
+    measureUtf8ByteLength(key) +
+    measureUtf8ByteLength(valueClass) +
+    measureUtf8ByteLength(JSON.stringify(value) ?? "")
+  );
+}
+
+/**
+ * The encoder the measurement above runs on. Stateless, so one serves the module
+ * rather than one being minted per write.
+ */
+const UTF8_ENCODER = new TextEncoder();
+
+function measureUtf8ByteLength(text: string): number {
+  return UTF8_ENCODER.encode(text).length;
 }

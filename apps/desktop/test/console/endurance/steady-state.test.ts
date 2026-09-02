@@ -43,12 +43,30 @@
 // first-run scenario, whose script is one beat long by design. And it advances the
 // frozen clock on every churn cycle through the fixture-only handle the bridge
 // provider installs, by a budget derived from the script's own length so the whole
-// run walks it about once. Two counts are then read back and asserted to GROW —
-// the beats the engine delivered, and the events the session store ADMITTED —
-// because they fail apart: a console whose subscription never bound delivers every
-// beat and applies none, and a run that never moved the clock applies nothing while
-// looking exactly as busy. Together they are the evidence that the workload was a
+// run walks it about once. The beats the engine delivered are then read back and
+// asserted to GROW, because a run that never moved the clock looks exactly as busy
+// while delivering nothing — that count is the evidence the workload was a
 // workload.
+//
+// The second reading is the session store's, and it is asserted to GROW. The
+// fixture bridge serves the growth port's session read, so a store this window
+// opens reaches a base state, the binder takes the wire subscription, and the
+// scenario's beats travel the whole path a daemon's would: subscription, apply
+// chokepoint, store. That is what makes this a workload rather than a navigation
+// loop — a console left open for a working day is one with events landing in
+// stores, and the leaks worth catching live in that machinery.
+//
+// The reading is taken THREE times — after the warm-up, half way, and at the end —
+// and each is asserted strictly greater than the last. One end-to-end comparison
+// would pass over a run that delivered its whole script inside the warm-up cycle
+// and then sat idle for two hundred, which is the shape a leak hides in most
+// comfortably. `SCENARIO_ADVANCE_MS_PER_CYCLE` is derived from the script's own
+// span for exactly this reason: the run walks the script about once, so its beats
+// fall across the cycles rather than at the front of them, and the mid-run reading
+// is what proves it.
+//
+// Absence is still a failure and never a skip: the diagnostics handle is installed
+// on both arms, and a build without it would make every reading below vacuous.
 
 import process from "node:process";
 
@@ -191,8 +209,8 @@ async function readPlayingScenarioId(
  *
  * Admitted to the apply chokepoint, which is a different number from the beats
  * the engine delivered and from anything a timeline is long. That is why both are
- * read: a run whose events stopped at the bridge — no subscription, or a binder
- * that never opened the session — still delivers beats and applies none.
+ * read: they answer different questions, and this one answers whether a stream
+ * reached this window's stores at all.
  */
 async function readAppliedEventCount(
   consoleApplication: ConsoleApplication,
@@ -207,6 +225,18 @@ async function readAppliedEventCount(
     },
     [SESSION_DIAGNOSTICS_FIXTURE_GLOBAL, sessionId] as [string, string],
   );
+}
+
+/** Sessions this window holds a wire subscription for, or `null` with no handle. */
+async function readBoundSessionIds(
+  consoleApplication: ConsoleApplication,
+): Promise<readonly string[] | null> {
+  return consoleApplication.window.evaluate((globalName: string) => {
+    const sessions = (
+      globalThis as unknown as Record<string, ConsoleSessionDiagnostics | undefined>
+    )[globalName];
+    return sessions === undefined ? null : [...sessions.boundSessionIds()];
+  }, SESSION_DIAGNOSTICS_FIXTURE_GLOBAL);
 }
 
 /**
@@ -272,8 +302,15 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
       const baselineHeapBytes = await readSettledHeapBytes(consoleApplication);
 
       let beatsDelivered = beatsAfterWarmUp;
+      let appliedEventsAtMidRun: number | null = null;
       for (let cycle = 0; cycle < CHURN_CYCLE_COUNT; cycle += 1) {
         beatsDelivered = await churnOnce(consoleApplication);
+        if (cycle === Math.floor(CHURN_CYCLE_COUNT / 2)) {
+          appliedEventsAtMidRun = await readAppliedEventCount(
+            consoleApplication,
+            FLAGSHIP_SESSION_ID,
+          );
+        }
       }
 
       const finalHeapBytes = await readSettledHeapBytes(consoleApplication);
@@ -295,7 +332,8 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
           `(${String(perCycleBytes)} B/cycle); beats ${String(beatsAfterWarmUp)} → ` +
           `${String(beatsDelivered)} of ${String(FLAGSHIP_SCENARIO.beats.length)} at ` +
           `${String(SCENARIO_ADVANCE_MS_PER_CYCLE)} ms/cycle; events applied ` +
-          `${String(appliedEventsAfterWarmUp)} → ${String(appliedEventCount)}\n`,
+          `${String(appliedEventsAfterWarmUp)} → ${String(appliedEventsAtMidRun)} → ` +
+          `${String(appliedEventCount)}\n`,
       );
 
       // The workload moved. Both halves are load-bearing: the first says the
@@ -307,17 +345,35 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
 
       expect(growthBytes).toBeLessThanOrEqual(STEADY_HEAP_GROWTH_CEILING_BYTES);
 
-      // Beats delivered by the engine are not the same claim as events reaching
-      // the store, and the second is the one an idle run hides behind: a console
-      // whose subscription never bound churns a projection nothing writes to.
-      // Absence is a failure here for the same reason it is for the tripwire
+      // Beats delivered by the engine are not the same claim as events reaching a
+      // store. Absence is a failure here for the same reason it is for the tripwire
       // registry below — a build without the handle would make this check vacuous.
       expect(
         appliedEventCount,
-        `${SESSION_DIAGNOSTICS_FIXTURE_GLOBAL} is not exposed by this build, so the workload's events cannot be shown to reach the store`,
+        `${SESSION_DIAGNOSTICS_FIXTURE_GLOBAL} is not exposed by this build, so nothing can be shown about where the workload's events went`,
       ).not.toBeNull();
       expect(appliedEventsAfterWarmUp).not.toBeNull();
-      expect(Number(appliedEventCount)).toBeGreaterThan(Number(appliedEventsAfterWarmUp));
+      expect(appliedEventsAtMidRun).not.toBeNull();
+
+      // The events kept arriving for the whole run rather than in a burst at the
+      // front of it. Both comparisons are strict, and both are load-bearing: the
+      // first says the workload was still delivering at the half-way point, the
+      // second that it was still delivering at the end.
+      expect(
+        Number(appliedEventsAtMidRun),
+        "the scenario stopped delivering into the store before the run was half over",
+      ).toBeGreaterThan(Number(appliedEventsAfterWarmUp));
+      expect(
+        Number(appliedEventCount),
+        "the scenario stopped delivering into the store part-way through the run",
+      ).toBeGreaterThan(Number(appliedEventsAtMidRun));
+
+      // And they reached a store through a real subscription rather than a
+      // side channel. This is what fails the day the console goes back to binding
+      // nothing — the reading that was zero in every build before the session read
+      // had a producer, which made this whole tier an idle loop wearing a
+      // workload's name.
+      expect(await readBoundSessionIds(consoleApplication)).toContain(FLAGSHIP_SESSION_ID);
     } finally {
       await consoleApplication.close();
     }

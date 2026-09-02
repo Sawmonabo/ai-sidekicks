@@ -39,6 +39,10 @@ export function createLiveBridge(sidekicks: SidekicksBridge): ConsoleBridge {
   return {
     sidekicks,
     growth: createRefusingGrowthPort(),
+    // Empty, and built fresh rather than shared: a frozen module-level set would
+    // be a singleton the console's own rules reject, and the allocation is one
+    // empty set per window.
+    growthServedOperations: new Set(),
     source: "live",
     scenarioEngine: undefined,
   };

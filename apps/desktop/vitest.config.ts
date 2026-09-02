@@ -37,7 +37,7 @@
 //     `exclude` now names the console and shell subtrees so a test co-located
 //     under `src/renderer/src/console/**` or `src/renderer/src/shell/**`
 //     belongs to `console-unit` alone.
-import { playwright } from "@vitest/browser-playwright";
+import { playwright, type PlaywrightProviderOptions } from "@vitest/browser-playwright";
 import { defineConfig } from "vitest/config";
 
 import { sharedCoverageOptions } from "../../vitest.shared";
@@ -107,7 +107,7 @@ const BROWSER_MODE_VIEWPORT = { width: 1440, height: 900 };
  * is supposed to read. The screenshot tier still writes its own actual/diff pair on
  * a mismatch, which is the capture that is worth having.
  */
-function browserModeOptions(): {
+function browserModeOptions(providerOptions?: PlaywrightProviderOptions): {
   enabled: true;
   provider: ReturnType<typeof playwright>;
   headless: true;
@@ -117,13 +117,96 @@ function browserModeOptions(): {
 } {
   return {
     enabled: true,
-    provider: playwright(),
+    provider: playwright(providerOptions),
     headless: true,
     screenshotFailures: false,
     viewport: { ...BROWSER_MODE_VIEWPORT },
     instances: [{ browser: "chromium" }],
   };
 }
+
+/**
+ * The rendering conditions the screenshot tier's references are minted under.
+ *
+ * Everything here is a value the tier ALREADY depended on and did not state, which
+ * is the whole reason it is stated: a reference image is only a gate if the next
+ * run renders under the same conditions, and a condition inherited from a library
+ * default is one an upgrade can move without anyone editing this repository.
+ *
+ * `viewport` is the load-bearing one, and it is not the same knob as
+ * `BROWSER_MODE_VIEWPORT`. That one sizes the TESTER IFRAME; this one sizes the
+ * Playwright page the iframe lives in, and the provider deliberately does not
+ * derive the second from the first. Vitest then fits the iframe into the page with
+ * `scale = min(1, pageWidth / iframeWidth, pageHeight / iframeHeight)` and applies
+ * it as a CSS `transform: scale()`. Against Playwright's own 1280×720 default that
+ * resolved to 0.8, so a console laid out at 1440×900 was captured through a
+ * fractional downscale — every border and glyph resampled off the pixel grid, which
+ * is exactly the operation two Skia/CoreText builds disagree about, and a 1152×720
+ * reference for a tier whose comment says it measures 1440×900. Matching the page
+ * to the iframe makes the scale exactly 1 and the capture 1:1.
+ *
+ * The other three are Playwright's current defaults, restated so they are pinned by
+ * this file rather than by the version range: `deviceScaleFactor` because it
+ * multiplies straight into the reference's dimensions (`screenshotOptions.scale` is
+ * `"device"`), and the two media emulations because the console's generated base
+ * stylesheet branches on `prefers-reduced-motion` and Chromium branches on forced
+ * colors. `colorScheme` is deliberately ABSENT: the harness drives that per test
+ * through `Emulation.setEmulatedMedia`, and a context-level value would be a second
+ * writer of the same emulated media state.
+ */
+const SCREENSHOT_TIER_PROVIDER_OPTIONS: PlaywrightProviderOptions = {
+  contextOptions: {
+    viewport: { ...BROWSER_MODE_VIEWPORT },
+    deviceScaleFactor: 1,
+    reducedMotion: "no-preference",
+    forcedColors: "none",
+  },
+};
+
+/**
+ * How close a capture has to be to its reference to count as the same image.
+ *
+ * ZERO, which is Vitest's default — pinned here rather than inherited, and pinned
+ * on measurement rather than on caution. The measurements are worth carrying,
+ * because they are what refuses a tolerance rather than what sizes one.
+ *
+ * After the pins above, this tier's residue is exactly SIX pixels: one in
+ * `frame-first-run-light`, six in `palette-open-light`, none in
+ * `frame-first-run-dark`, comparing a macOS 26.6.1 host against references minted
+ * on GitHub's `macos-15` image (2026-09-02). Every one of them sits on the corner
+ * of a `⌘` keycap glyph — (645,552) in the frame, (992..993, 493..533) in the
+ * palette — which is the one character on these surfaces no stack in
+ * `tokens/palette.ts` supplies: nothing self-hosts IBM Plex yet, so `system-ui`
+ * and `ui-monospace` resolve to the host's own face and its outline moves with the
+ * operating system. So the residue is real and it is bounded and it is six.
+ *
+ * A budget above it would have to fit UNDER the smallest change worth catching,
+ * and that ceiling was measured too, by planting regressions and reading the count
+ * at zero: a one-pixel rail move (`52px` → `53px`) is 3 690 and 4 594 pixels; the
+ * stale palette reference this lane found — a two-command Help group that had
+ * appeared since the capture — is 26 016; but a SINGLE changed glyph in a palette
+ * label is **20**. Six and twenty is a window 3.3× wide, and a punctuation glyph
+ * is smaller than a letter, so any budget inside it is a coin-flip on both edges.
+ * There is no number here that is both useful and safe, so the tier takes none.
+ *
+ * What that costs is named rather than hidden: a developer Mac running this tier
+ * goes red on those six pixels. That is the advisory status
+ * `test/console/screenshot/frame.test.tsx`'s header describes, and the fix for a
+ * reference that genuinely needs to move is to regenerate it on the runner that
+ * owns it — never to widen this.
+ *
+ * pixelmatch's own `threshold` and `includeAA` defaults (0.1, AA pixels excluded)
+ * are left alone, and one consequence of `threshold` is worth stating because it is
+ * NOT this budget's doing: a 3% lightness change to `surface-raised` — the token
+ * that paints the whole palette dialog — registers zero mismatched pixels here,
+ * while a 20% one registers 257 070. This tier sees geometry and text far more
+ * sharply than it sees a small colour delta, and lowering `threshold` to change
+ * that would have to be paid for in residue.
+ */
+const SCREENSHOT_TIER_MATCH_OPTIONS = {
+  comparatorName: "pixelmatch",
+  comparatorOptions: { allowedMismatchedPixels: 0 },
+} as const;
 
 export default defineConfig({
   test: {
@@ -313,14 +396,19 @@ export default defineConfig({
           name: "console-screenshot",
           include: ["test/console/screenshot/**/*.test.{ts,tsx}"],
           globals: true,
-          browser: browserModeOptions(),
+          browser: {
+            ...browserModeOptions(SCREENSHOT_TIER_PROVIDER_OPTIONS),
+            expect: { toMatchScreenshot: SCREENSHOT_TIER_MATCH_OPTIONS },
+          },
         },
       },
       {
         // Tier: accessibility. `axe-core` runs INSIDE the browser-mode page
         // rather than through `@axe-core/playwright`, which needs a
-        // `@playwright/test` `Page` handle that Vitest browser mode does not
-        // hand out. Same engine, same rule set, one less indirection.
+        // `@playwright/test` `Page` handle that Vitest browser mode hands only to
+        // server-side custom commands, never to test code — and that handle is
+        // the orchestrator page, not the tester iframe. Same engine, same rule
+        // set, one less indirection.
         define: { __SIDEKICKS_CONSOLE_FIXTURES__: "true" },
         resolve: { conditions: WORKSPACE_SOURCE_CONDITIONS, dedupe: BROWSER_MODE_DEDUPE },
         optimizeDeps: BROWSER_MODE_OPTIMIZE_DEPS,
@@ -332,20 +420,31 @@ export default defineConfig({
         },
       },
       {
-        // Tier: architecture. The tripwires, as lint tests over the source text.
-        // Node environment: these read files, they do not render.
+        // Tier: architecture. Structural claims about the console — most of them
+        // read source as text; `scenario-wire-truth.test.ts` IMPORTS it, because
+        // the rule it asserts is a shipped predicate and a test carrying its own
+        // copy of a rule proves nothing about the copy that ships. Node
+        // environment either way: nothing here renders.
         //
-        // The define is carried even though this tier reads source rather than
-        // importing it, and that is the point: `core/tripwires.ts` guards its
-        // fixture-only assignment at MODULE scope, so the first architecture test
-        // to import a console module instead of reading it would abort at import
-        // with a bare `ReferenceError` naming an identifier that is not a variable
-        // in any process. `false`, on the bundle tier's reasoning — the process
-        // doing the reading is not a build — so such a test reports its own
-        // assertion instead of the tier's configuration.
+        // The define was carried before any test imported a console module, and
+        // that anticipation is now load-bearing: `core/tripwires.ts` guards its
+        // fixture-only assignment at MODULE scope, so an importing test would
+        // otherwise abort at import with a bare `ReferenceError` naming an
+        // identifier that is not a variable in any process. `false`, on the bundle
+        // tier's reasoning — the process doing the reading is not a build — so such
+        // a test reports its own assertion instead of the tier's configuration.
+        //
+        // The source conditions arrive with that first importing test, for the
+        // reason the `main-unit` block above states: without them a workspace
+        // VALUE import resolves against `dist/`, which is stale or absent, and the
+        // tier fails to resolve `@ai-sidekicks/contracts` at all. Its files are
+        // typechecked by `tsconfig.console-architecture-test.json`, which exists
+        // for the other half of the same change.
         define: {
           __SIDEKICKS_CONSOLE_FIXTURES__: "false",
         },
+        resolve: { conditions: WORKSPACE_SOURCE_CONDITIONS },
+        ssr: { resolve: { conditions: WORKSPACE_SOURCE_CONDITIONS } },
         test: {
           name: "console-architecture",
           environment: "node",

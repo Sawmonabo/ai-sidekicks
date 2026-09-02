@@ -284,20 +284,3 @@
   display: flex;
   gap: var(--meridian-space-3);
 }
-
-/*
- * The live region. Visually hidden but never `display: none` and never removed —
- * Base UI's `Combobox.Status` announces by mutating its own text, and a node that
- * is unmounted or hidden announces nothing on several screen readers.
- */
-.console-palette__status {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  border: 0;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}

@@ -120,6 +120,19 @@ export const GROWTH_OPERATIONS: Readonly<Record<GrowthOperationId, GrowthOperati
     "method",
     "reactivate an archived session",
   ),
+  sessionRead: op(
+    "sessionRead",
+    "session-directory-read",
+    "method",
+    "read one session's snapshot, so its store can reach a base state and project the stream bound to it",
+    "session.read",
+  ),
+  sessionList: op(
+    "sessionList",
+    "session-directory-read",
+    "method",
+    "list the sessions on this node, so a surface can offer more than the set this window happens to have open",
+  ),
   daemonStatusRead: op(
     "daemonStatusRead",
     "daemon-control-methods",
@@ -190,7 +203,7 @@ export const GROWTH_OPERATIONS: Readonly<Record<GrowthOperationId, GrowthOperati
     "gitflow-actions",
     "method",
     "run a git action from the repos and diffs surfaces",
-    "gitActionExecute",
+    "gitflow.gitActionExecute",
   ),
   artifactIngestBegin: op(
     "artifactIngestBegin",
@@ -276,6 +289,157 @@ export const GROWTH_OPERATIONS: Readonly<Record<GrowthOperationId, GrowthOperati
     "provider-session-import",
     "subscription",
     "progress for a running provider-session import",
+  ),
+  attentionProjectionRead: op(
+    "attentionProjectionRead",
+    "attention-plane",
+    "method",
+    "read a session's actionable and informational attention, run-scoped items and the session aggregate together, over the daemon JSON-RPC transport",
+    "attention.projectionRead",
+  ),
+  attentionPreferenceRead: op(
+    "attentionPreferenceRead",
+    "attention-plane",
+    "method",
+    "read the participant's global notification preferences, over the control-plane transport",
+    "attention.preferenceRead",
+  ),
+  attentionPreferenceUpdate: op(
+    "attentionPreferenceUpdate",
+    "attention-plane",
+    "method",
+    "set one global notification preference, over the control-plane transport",
+    "attention.preferenceUpdate",
+  ),
+  // workflow — nine of the thirteen rows of the registered method registry, in that
+  // registry's own order. The four it does not carry are named in the slate row's
+  // own wire text: the two authoring writes and the version read no console surface
+  // on this substrate calls, and the draft save, which is declared with no handler
+  // to reach.
+  workflowDefinitionList: op(
+    "workflowDefinitionList",
+    "workflow-run-control",
+    "method",
+    "enumerate the workflow definitions visible here, resolved most-specific-first, so the builder can name one it does not already hold an id for",
+    "workflow.definitionList",
+  ),
+  workflowRunStart: op(
+    "workflowRunStart",
+    "workflow-run-control",
+    "method",
+    "start a run against a pinned definition version",
+    "workflow.runStart",
+  ),
+  workflowRunRead: op(
+    "workflowRunRead",
+    "workflow-run-control",
+    "method",
+    "read one run's header and its per-phase projection, park surface included, so the pane renders a parked run from this one call",
+    "workflow.runRead",
+  ),
+  workflowRunCancel: op(
+    "workflowRunCancel",
+    "workflow-run-control",
+    "method",
+    "cancel a run, the operator control that is the only named producer of the cancelled status",
+    "workflow.runCancel",
+  ),
+  workflowRunResume: op(
+    "workflowRunResume",
+    "workflow-run-control",
+    "method",
+    "resume a parked run, carrying the explicit version re-pin as a request member rather than an operation of its own",
+    "workflow.runResume",
+  ),
+  workflowPhaseOutputRead: op(
+    "workflowPhaseOutputRead",
+    "workflow-run-control",
+    "method",
+    "read one phase's durable outputs, which stay addressable after the run ends",
+    "workflow.phaseOutputRead",
+  ),
+  workflowGateResolve: op(
+    "workflowGateResolve",
+    "workflow-run-control",
+    "method",
+    "resolve a phase-boundary gate and read back the appended chain row's anchor",
+    "workflow.gateResolve",
+  ),
+  workflowHumanFormSubmit: op(
+    "workflowHumanFormSubmit",
+    "workflow-run-control",
+    "method",
+    "submit a human phase's form under optimistic concurrency, so a stale submission is refused rather than silently overwriting",
+    "workflow.humanFormSubmit",
+  ),
+  workflowGateChainVerify: op(
+    "workflowGateChainVerify",
+    "workflow-run-control",
+    "method",
+    "verify a run's gate-resolution hash chain and report the first divergent sequence",
+    "workflow.gateChainVerify",
+  ),
+  // gitflow
+  gitflowBranchContextRead: op(
+    "gitflowBranchContextRead",
+    "gitflow-actions",
+    "method",
+    "read the base, head, upstream, and worktree association a writable run executes against, for the repos surface's branch-context summary",
+    "gitflow.branchContextRead",
+  ),
+  gitflowPrPrepare: op(
+    "gitflowPrPrepare",
+    "gitflow-actions",
+    "method",
+    "prepare a reviewable pull-request proposal from the recorded branch context, before any remote mutation",
+    "gitflow.prPrepare",
+  ),
+  // identity, and the callback-tool registry the approvals pane reads. Neither row
+  // registers a method string anywhere, so neither entry names one — the corpus has
+  // the daemon RESOLVE a caller's principal and never return it, and has the
+  // callback-tool registry ride spawn with no read seam at all.
+  callerParticipantRead: op(
+    "callerParticipantRead",
+    "caller-participant-identity",
+    "method",
+    "read which of a session's participants this window is, so a members surface can address the sender and an approvals control can resolve the caller's own role rather than treating an unread one as read-only",
+  ),
+  callbackToolRegistryRead: op(
+    "callbackToolRegistryRead",
+    "callback-tool-registry-read",
+    "method",
+    "read the callback tools registered into a session, so the approvals pane can name what an agent may call rather than only what it has already been seen calling",
+  ),
+  // sidekick — four of the five registered pairs, in the registry's own order. The
+  // fifth, the per-session peer-invocation opt-in, is not here: it is session state
+  // rather than a definition, and no surface on this substrate sets it.
+  sidekickDefinitionList: op(
+    "sidekickDefinitionList",
+    "sidekick-definition-registry",
+    "method",
+    "list this node's saved sidekick definitions, unfiltered — the registry returns full records, so there is no separate read verb to pair with it",
+    "sidekick.definitionList",
+  ),
+  sidekickDefinitionCreate: op(
+    "sidekickDefinitionCreate",
+    "sidekick-definition-registry",
+    "method",
+    "save a new definition, every axis but the name optional and an omitted axis stored as the inherit state rather than as today's default materialised",
+    "sidekick.definitionCreate",
+  ),
+  sidekickDefinitionUpdate: op(
+    "sidekickDefinitionUpdate",
+    "sidekick-definition-registry",
+    "method",
+    "patch a definition, an absent key leaving the stored value alone and an explicit null clearing it back to the inherit state",
+    "sidekick.definitionUpdate",
+  ),
+  sidekickDefinitionDelete: op(
+    "sidekickDefinitionDelete",
+    "sidekick-definition-registry",
+    "method",
+    "delete a definition, which never touches an agent attached from it because attach copies rather than references",
+    "sidekick.definitionDelete",
   ),
 };
 

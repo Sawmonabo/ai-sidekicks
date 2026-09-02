@@ -33,11 +33,11 @@ import {
 // @ts-expect-error — deliberately missing `settings`; totality is the property.
 const TABLE_THE_COMPILER_REJECTS: Readonly<Record<RailDestination, RailEntryTemplate>> = {
   sessions: { label: "Sessions", glyph: "sessions" },
-  workspace: { label: "Workspace", glyph: "workspace" },
+  workflows: { label: "Workflows", glyph: "workflow" },
 };
 
 /** A table missing an entry at runtime, for the control cases below. */
-const TABLE_MISSING_WORKSPACE: Partial<Record<RailDestination, RailEntryTemplate>> = {
+const TABLE_MISSING_WORKFLOWS: Partial<Record<RailDestination, RailEntryTemplate>> = {
   sessions: RAIL_ENTRY_TEMPLATES.sessions,
   settings: RAIL_ENTRY_TEMPLATES.settings,
 };
@@ -50,7 +50,7 @@ function destinationsWithoutEntry(
 }
 
 function entryFor(destination: RailDestination): RailEntry {
-  return { destination, ...RAIL_ENTRY_TEMPLATES[destination], isAvailable: true };
+  return { destination, ...RAIL_ENTRY_TEMPLATES[destination] };
 }
 
 describe("the rail's entry table — one entry per declared destination", () => {
@@ -59,7 +59,7 @@ describe("the rail's entry table — one entry per declared destination", () => 
   });
 
   it("negative control: the same check names the destination when an entry is gone", () => {
-    expect(destinationsWithoutEntry(TABLE_MISSING_WORKSPACE)).toStrictEqual(["workspace"]);
+    expect(destinationsWithoutEntry(TABLE_MISSING_WORKFLOWS)).toStrictEqual(["workflows"]);
   });
 
   it("negative control: the table the compiler rejects is short at runtime too", () => {
@@ -89,18 +89,20 @@ describe("IconRail — absent, never disabled", () => {
     expect(labels).toStrictEqual(entries.map((entry) => entry.label));
   });
 
-  it("renders no button at all for an unavailable destination", () => {
-    const entries = RAIL_DESTINATIONS.map((destination) => ({
-      ...entryFor(destination),
-      isAvailable: destination !== "workspace",
-    }));
+  it("renders no button at all for a destination it was not handed", () => {
+    // "Absent, not disabled" is structural here rather than conditional: the rail
+    // carries no availability flag, so a destination a caller leaves out has no
+    // greyed-out shape to render and no way to acquire one.
+    const entries = RAIL_DESTINATIONS.filter((destination) => destination !== "workflows").map(
+      entryFor,
+    );
     const { container } = render(
       <IconRail entries={entries} current="sessions" onSelect={() => undefined} />,
     );
     const labels = [...container.querySelectorAll("button")].map((button) =>
       button.getAttribute("aria-label"),
     );
-    expect(labels).not.toContain(RAIL_ENTRY_TEMPLATES.workspace.label);
+    expect(labels).not.toContain(RAIL_ENTRY_TEMPLATES.workflows.label);
     expect(labels).toContain(RAIL_ENTRY_TEMPLATES.sessions.label);
   });
 });

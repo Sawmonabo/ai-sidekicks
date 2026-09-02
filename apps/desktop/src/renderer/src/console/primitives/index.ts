@@ -23,12 +23,23 @@ export { Glyph } from "./Glyph.js";
 
 export { ChordHint } from "./ChordHint.js";
 
+// Rule 4's mono provenance signature. Through the door because the frame renders
+// session ids with it, and a surface that reached for its own mono span would be
+// the second rendering of the one claim this primitive exists to make.
+export { WireFigure } from "./Figure.js";
+
 export type { ChordPlatform } from "./chord-format.js";
 export {
   HOST_CHORD_PLATFORM,
   decodeChordKeyToken,
   formatChordForPlatform,
 } from "./chord-format.js";
+
+// The console's ONE live announcer. Through this door rather than deep-imported,
+// because the whole point of the primitive is that there is a single pair of
+// regions per window: a family that reached past the barrel for its own would be
+// the second speaker this module exists to prevent.
+export { LiveAnnouncerProvider, useAnnounce } from "./LiveAnnouncerProvider.js";
 
 export { Nothing } from "./Nothing.js";
 
@@ -68,7 +79,7 @@ export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   WireFigureProps,
 } from "./Figure.js";
-export { DerivedFigure, WireFigure } from "./Figure.js";
+export { DerivedFigure } from "./Figure.js";
 
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
