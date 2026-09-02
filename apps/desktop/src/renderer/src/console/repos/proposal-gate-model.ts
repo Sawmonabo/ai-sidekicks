@@ -38,12 +38,16 @@ export const PROPOSAL_GATE_REFUSAL_ORIGIN = "proposal-gate";
 /**
  * Why an act failed on the console's side of the wire.
  *
- * Two members, closed, and neither overlaps a growth-port or a daemon code — those
- * travel verbatim. These name the two failures that are the reader's own to describe:
- * an act pressed with no served context behind it, and an act the daemon answered
- * without accepting.
+ * Closed, and no member overlaps a growth-port or a daemon code — those travel
+ * verbatim. These name the failures that are the reader's own to describe: an act
+ * pressed with no served context behind it, an act the daemon answered without
+ * accepting, and an act pressed while another one is still unanswered.
  */
-export const PROPOSAL_GATE_REFUSAL_CODES = ["no-served-context", "action-not-accepted"] as const;
+export const PROPOSAL_GATE_REFUSAL_CODES = [
+  "no-served-context",
+  "action-not-accepted",
+  "action-in-flight",
+] as const;
 
 /** One reader-side refusal code. Derived, so the vocabulary is declared exactly once. */
 export type ProposalGateRefusalCode = (typeof PROPOSAL_GATE_REFUSAL_CODES)[number];

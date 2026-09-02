@@ -112,6 +112,7 @@ function WorktreeProposalGate(props: {
         state={reading.state}
         onRequestAction={requestAction}
         actionRefusals={reading.actionRefusals}
+        inFlightAction={reading.inFlightAction}
       />
     </details>
   );

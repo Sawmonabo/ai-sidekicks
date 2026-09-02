@@ -70,7 +70,11 @@ import {
   type PreparedProposal,
   type ProposalContextKey,
 } from "./prepared-proposal.js";
-import { PROPOSAL_ACTION_HEAD_EFFECT, type ProposalAction } from "./proposal-actions.js";
+import {
+  PROPOSAL_ACTION_HEAD_EFFECT,
+  PROPOSAL_ACTION_PRESENTATION,
+  type ProposalAction,
+} from "./proposal-actions.js";
 import type { ProposalGateState } from "./proposal-gate-state.js";
 import { RepoRefreshTriggers } from "./repo-refresh-triggers.js";
 
@@ -96,6 +100,16 @@ export interface ProposalGateReading {
    */
   readonly actionRefusals: ReadonlyMap<ProposalAction, ConsoleRefusal>;
   /**
+   * The act this gate is waiting on the bridge for, or `undefined` where none is.
+   *
+   * ONE AT A TIME IS A PROPERTY OF THE READER, not of the surface that draws it. Two
+   * preparations settling out of order let the older proposal overwrite the newer one,
+   * and two commits confirmed against one payload are two commits. The surface renders
+   * this member by holding its controls; the rule is enforced here, where a second
+   * request is refused whatever pressed it.
+   */
+  readonly inFlightAction: ProposalAction | undefined;
+  /**
    * One sentence naming what this gate settled on, or `undefined` before it has.
    *
    * Composed here rather than in the component so the announcement and the arm cannot
@@ -109,8 +123,22 @@ const NOTHING_ASKED: ProposalGateReading = {
   state: { kind: "not-checked" },
   refusal: undefined,
   actionRefusals: new Map(),
+  inFlightAction: undefined,
   settlement: undefined,
 };
+
+/**
+ * One act awaiting the bridge, and the identity that tells it from its successor.
+ *
+ * The id is what makes a settlement attributable. `#inFlight` alone answers "is one
+ * pending"; a continuation coming back from its await also has to answer "is the
+ * pending one MINE", because a response for a request the register has moved past
+ * must be dropped rather than written over the newer answer.
+ */
+interface InFlightProposalAction {
+  readonly action: ProposalAction;
+  readonly requestId: number;
+}
 
 export interface ProposalGateReaderOptions {
   readonly bridge: ConsoleBridge;
@@ -142,6 +170,10 @@ export class ProposalGateReader {
   #proposalPreparedFor: ProposalContextKey | undefined;
   /** `preparing` is entered once. A refresh redraws the answer, never the wait. */
   #hasEnteredPreparing = false;
+  /** The act awaiting the bridge. One at a time, and the gate says which. */
+  #inFlight: InFlightProposalAction | undefined;
+  /** Monotonic, so a superseded continuation can never match the standing request. */
+  #nextActionRequestId = 1;
   #started = false;
   #disposed = false;
 
@@ -212,6 +244,24 @@ export class ProposalGateReader {
    * re-reads, because what the act changed is what the next read will say.
    */
   public async requestAction(action: ProposalAction): Promise<void> {
+    const pending = this.#inFlight;
+    if (pending !== undefined) {
+      // ONE ACT AT A TIME, AND THE SECOND PRESS IS REFUSED RATHER THAN QUEUED OR
+      // DROPPED. Two overlapping preparations can settle out of order and the older
+      // proposal then overwrites the newer one; two overlapping commits are two
+      // commits. Refused rather than ignored, because a press that produced nothing
+      // at all is the silent no-op rule 8 forbids — the sentence names the act the
+      // gate is actually waiting on.
+      this.#recordActionRefusal(
+        action,
+        refuse(
+          PROPOSAL_GATE_REFUSAL_ORIGIN,
+          "action-in-flight" satisfies ProposalGateRefusalCode,
+          `${PROPOSAL_ACTION_PRESENTATION[pending.action].label} has been sent and the daemon has not answered yet. Nothing else is sent until it settles.`,
+        ),
+      );
+      return;
+    }
     // WHAT THE LAST PRESS PRODUCED IS CLEARED WHEN THE NEXT ONE IS ISSUED, not when it
     // settles: every later publish spreads `actionRefusals` forward, so a refusal used
     // to stand beside its control for the life of the reader even after the same act
@@ -222,8 +272,7 @@ export class ProposalGateReader {
     const context = this.#context;
     if (context === undefined) {
       // Structurally unreachable from the gate, which offers acts only on the
-      // `prepared` arm — and recorded rather than dropped, because a press that
-      // produced nothing at all is the silent no-op rule 8 forbids.
+      // `prepared` arm — and recorded rather than dropped, for the same reason.
       this.#recordActionRefusal(
         action,
         refuse(
@@ -234,29 +283,71 @@ export class ProposalGateReader {
       );
       return;
     }
-    if (action === "prepare-proposal") {
-      await this.#prepareProposal(context);
+    const request: InFlightProposalAction = { action, requestId: this.#nextActionRequestId };
+    this.#nextActionRequestId += 1;
+    this.#holdFor(request);
+    try {
+      if (action === "prepare-proposal") {
+        await this.#prepareProposal(context, request);
+        return;
+      }
+      await this.#executeGitAction(action, request);
+    } finally {
+      this.#release(request);
+    }
+  }
+
+  /** Take the register for one act, and redraw so the gate holds its controls. */
+  #holdFor(request: InFlightProposalAction): void {
+    this.#inFlight = request;
+    this.#publish({ ...this.#reading, inFlightAction: request.action });
+  }
+
+  /**
+   * Give the register back, but only where it is still this request's to give.
+   *
+   * A disposal clears the register out from under a continuation, and a request that
+   * no longer holds it must not clear a successor's — which is the same identity check
+   * the settle paths make before they write.
+   */
+  #release(request: InFlightProposalAction): void {
+    if (this.#inFlight?.requestId !== request.requestId) {
       return;
     }
-    await this.#executeGitAction(action);
+    this.#inFlight = undefined;
+    this.#publish({ ...this.#reading, inFlightAction: undefined });
+  }
+
+  /** Whether a settled call still speaks for the act the register is holding. */
+  #stillStandingFor(request: InFlightProposalAction): boolean {
+    return !this.#disposed && this.#inFlight?.requestId === request.requestId;
   }
 
   /** Terminal. No later event can re-arm a read behind a gate that unmounted. */
   public dispose(): void {
     this.#disposed = true;
+    // Cleared so a call still in flight settles into nothing rather than into a
+    // register whose surface has gone.
+    this.#inFlight = undefined;
     this.#scheduler.dispose();
     this.#triggers.dispose();
     this.#changes.clear();
   }
 
-  async #prepareProposal(context: BranchContextReading): Promise<void> {
+  async #prepareProposal(
+    context: BranchContextReading,
+    request: InFlightProposalAction,
+  ): Promise<void> {
     const outcome = await this.#bridge.growth.gitflowPrPrepare({
       branchContextId: context.branchContextId,
       // The context's own base branch, never a selection: there is no parameter on
       // this class through which one could arrive.
       targetBranch: context.baseBranch,
     });
-    if (this.#disposed) {
+    // SETTLED BY REQUEST IDENTITY, not merely by liveness. A reply for a request the
+    // register has moved past describes a proposal a later act has already superseded,
+    // and writing it would put the older payload back on the arm.
+    if (!this.#stillStandingFor(request)) {
       return;
     }
     if (outcome.status === "unavailable") {
@@ -276,12 +367,12 @@ export class ProposalGateReader {
     this.#scheduler.request("terminal-event");
   }
 
-  async #executeGitAction(action: ProposalAction): Promise<void> {
+  async #executeGitAction(action: ProposalAction, request: InFlightProposalAction): Promise<void> {
     const outcome = await this.#bridge.growth.gitActionExecute({
       workspaceId: this.#subject.workspaceId,
       action,
     });
-    if (this.#disposed) {
+    if (!this.#stillStandingFor(request)) {
       return;
     }
     if (outcome.status === "unavailable") {

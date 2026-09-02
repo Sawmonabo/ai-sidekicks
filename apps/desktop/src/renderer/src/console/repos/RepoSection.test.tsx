@@ -11,7 +11,7 @@ import { render, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "../bridge/index.js";
-import type { ConsoleScenario } from "../bridge/scenario.js";
+import type { ConsoleScenario, ScenarioReply } from "../bridge/scenario.js";
 import { REPOS_SCENARIO } from "../bridge/scenarios/repos.js";
 import { ManualClock } from "../core/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
@@ -30,6 +30,12 @@ const ROOT_CARD_SELECTOR = ".meridian-root-card";
 
 /** One card per mount. Read from the container, since the list has no element of its own. */
 const MOUNT_CARD_SELECTOR = ".meridian-mount-card";
+
+/** A root read that answered and named nothing — the lawful two-empty-arrays reply. */
+const SERVED_EMPTY_ROOT_READ: ScenarioReply = {
+  call: "repo.worktreeStatusRead",
+  result: { worktrees: [], ephemeralClones: [] },
+};
 
 /**
  * The section, open, over one scenario, inside the window's announcer.
@@ -159,11 +165,13 @@ describe("RepoSection — the clone list stands on its own read", () => {
     const container = renderSection({
       ...REPOS_SCENARIO,
       id: "repos-no-clones",
-      replies: REPOS_SCENARIO.replies.map((reply) =>
-        reply.call === "repo.worktreeStatusRead"
-          ? { ...reply, result: { worktrees: [], ephemeralClones: [] } }
-          : reply,
-      ),
+      replies: [
+        ...REPOS_SCENARIO.replies.filter((reply) => reply.call !== "repo.worktreeStatusRead"),
+        // Rebuilt rather than spread over the scripted row: `ScenarioReply` is a union
+        // whose arms exclude each other's members, so a spread would carry a `refusal`
+        // key the resolving arm forbids.
+        SERVED_EMPTY_ROOT_READ,
+      ],
     });
     const list = await cloneList(container);
 

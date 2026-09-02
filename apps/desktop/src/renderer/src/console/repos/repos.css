@@ -1214,6 +1214,12 @@
   color: var(--meridian-amber-text);
 }
 
+.meridian-proposal-gate__in-flight {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
 .meridian-proposal-gate__withheld-act {
   margin: 0;
   font-size: var(--meridian-text-xs);

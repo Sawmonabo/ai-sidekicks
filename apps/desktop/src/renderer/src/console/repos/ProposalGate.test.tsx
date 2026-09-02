@@ -330,6 +330,48 @@ describe("ProposalGate — a draft proposal is drawn and cannot be sent", () => 
   });
 });
 
+describe("ProposalGate — the acts are held while one is unanswered", () => {
+  it("holds every control and names the act being waited on", () => {
+    const { container } = render(
+      <ProposalGate state={PREPARED_STATE} onRequestAction={vi.fn()} inFlightAction="commit" />,
+    );
+    const acts = within(within(container).getByRole("group", { name: "Git actions" }));
+    for (const button of acts.getAllByRole("button")) {
+      expect(button).toHaveProperty("disabled", true);
+    }
+    // A row that stopped responding with nothing saying why reads as a broken surface.
+    expect(container.textContent).toContain("Commit was sent");
+  });
+
+  it("withdraws an open confirm rather than leaving it pressable", () => {
+    // The confirm's own button is not in the disabled outer row, so a confirm opened
+    // before the act started would stay pressable and issue the second request the
+    // holder is there to refuse.
+    const { container, rerender } = render(
+      <ProposalGate state={PREPARED_STATE} onRequestAction={vi.fn()} />,
+    );
+    fireEvent.click(within(container).getByRole("button", { name: "Push" }));
+    expect(within(container).getByRole("button", { name: "Push now" })).toBeDefined();
+
+    rerender(
+      <ProposalGate state={PREPARED_STATE} onRequestAction={vi.fn()} inFlightAction="push" />,
+    );
+
+    expect(within(container).queryByRole("button", { name: "Push now" })).toBeNull();
+  });
+
+  it("negative control: with nothing in flight the same acts are offered and pressable", () => {
+    // Without this the two cases above would pass against a gate that never offered a
+    // usable control at all.
+    const { container } = render(<ProposalGate state={PREPARED_STATE} onRequestAction={vi.fn()} />);
+    const acts = within(within(container).getByRole("group", { name: "Git actions" }));
+    for (const button of acts.getAllByRole("button")) {
+      expect(button).toHaveProperty("disabled", false);
+    }
+    expect(container.textContent).not.toContain("was sent");
+  });
+});
+
 describe("ProposalGate — the incompatible checkout is a blocking choice", () => {
   const conflict = {
     reason: "The checkout has uncommitted changes on a different branch.",

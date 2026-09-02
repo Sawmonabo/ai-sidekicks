@@ -557,6 +557,105 @@ describe("ProposalGateReader — what an accepted act leaves of the proposal", (
   });
 });
 
+describe("ProposalGateReader — one act at a time", () => {
+  /** A port whose preparation the case releases by hand, so a press can be caught mid-call. */
+  interface HeldPreparation {
+    readonly bridge: ConsoleBridge;
+    readonly prepareCallCount: () => number;
+    readonly answer: () => void;
+  }
+
+  function bridgeHoldingPreparation(): HeldPreparation {
+    let calls = 0;
+    let release = (): void => {};
+    const held = new Promise<void>((settle) => {
+      release = (): void => {
+        settle();
+      };
+    });
+    return {
+      bridge: {
+        growth: {
+          gitflowBranchContextRead: async () => SERVED_CONTEXT,
+          gitflowPrPrepare: async () => {
+            calls += 1;
+            await held;
+            return SERVED_PREPARATION;
+          },
+          gitActionExecute: async () => ({ status: "served", value: { accepted: true } }),
+        },
+      } as unknown as ConsoleBridge,
+      prepareCallCount: () => calls,
+      answer: release,
+    };
+  }
+
+  /** A gate on the served context with one preparation held open on the wire. */
+  async function openWithHeldPreparation(): Promise<{
+    reader: ProposalGateReader;
+    clock: ManualClock;
+    port: HeldPreparation;
+  }> {
+    const clock = new ManualClock();
+    const port = bridgeHoldingPreparation();
+    const reader = openReader(port.bridge, clock);
+    reader.start();
+    await settle(clock, reader);
+    void reader.requestAction("prepare-proposal");
+    await Promise.resolve();
+    return { reader, clock, port };
+  }
+
+  it("names the act it is waiting on while the bridge has not answered", async () => {
+    const { reader } = await openWithHeldPreparation();
+    expect(reader.snapshot.inFlightAction).toBe("prepare-proposal");
+  });
+
+  it("refuses a second act while one is unanswered, and issues no second call", async () => {
+    // Two preparations can settle out of order and the older proposal then overwrites
+    // the newer one; two commits confirmed against one payload are two commits.
+    const { reader, clock, port } = await openWithHeldPreparation();
+
+    await reader.requestAction("commit");
+
+    expect(reader.snapshot.actionRefusals.get("commit")?.code).toBe("action-in-flight");
+    // The refusal names the act actually being waited on, not the one pressed.
+    expect(reader.snapshot.actionRefusals.get("commit")?.detail).toContain("Prepare proposal");
+    expect(port.prepareCallCount()).toBe(1);
+
+    port.answer();
+    await settleAct(clock, reader);
+    expect(reader.snapshot.inFlightAction).toBeUndefined();
+  });
+
+  it("negative control: the same act pressed after the first settles is admitted", async () => {
+    // Without this the rule above would pass against a reader that refused every act
+    // after the first one, which would make the gate single-use.
+    const { reader, clock, port } = await openWithHeldPreparation();
+    port.answer();
+    await settleAct(clock, reader);
+
+    await reader.requestAction("prepare-proposal");
+    await settleAct(clock, reader);
+
+    expect(reader.snapshot.actionRefusals.has("prepare-proposal")).toBe(false);
+    expect(port.prepareCallCount()).toBe(2);
+  });
+
+  it("drops a settlement for a request the register has moved past", async () => {
+    // A disposal moves the register out from under a call still on the wire. A
+    // continuation that wrote anyway would publish onto a gate that has unmounted.
+    const { reader, clock, port } = await openWithHeldPreparation();
+    const readingBeforeDisposal = reader.snapshot;
+
+    reader.dispose();
+    port.answer();
+    await settleAct(clock, reader);
+
+    expect(reader.snapshot).toStrictEqual(readingBeforeDisposal);
+  });
+});
+
 describe("ProposalGateReader — the reasons it reads again", () => {
   it("re-reads when the session's projection is repaired", async () => {
     // The reconnect refresh reason, which the gate had none of: a daemon that
