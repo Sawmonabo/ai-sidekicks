@@ -55,21 +55,11 @@
 
 import type { Unsubscribe } from "../core/index.js";
 import { SESSION_DIAGNOSTICS_FIXTURE_GLOBAL, reportTripwire } from "../core/index.js";
-import type { ConsoleBridge } from "../bridge/index.js";
+import { SESSION_EVENT_STREAM, type ConsoleBridge } from "../bridge/index.js";
 import type { ConsoleSessionEvent, SessionStoreRegistry } from "../store/index.js";
 
 /** The site every tripwire this module reports names. */
 const SITE = "console/frame/session-event-binder.ts";
-
-/**
- * The registered daemon stream a console session is projected from.
- *
- * `session.subscribe` is the replay-then-tail event stream the method registry
- * already carries, named here verbatim rather than invented: a console that
- * subscribed to a string the daemon does not serve would get silence that is
- * indistinguishable from a quiet session.
- */
-const SESSION_EVENT_STREAM = "session.subscribe";
 
 /**
  * The subscribe call, with the one brand bypass this module makes.

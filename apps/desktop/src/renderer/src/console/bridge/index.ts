@@ -20,6 +20,11 @@
 
 export type { ConsoleBridge, ConsoleBridgeSource } from "./console-bridge.js";
 
+// The subscribe seam's own vocabulary. Exported because the binder one family up
+// passes it to `daemon.subscribe` and the fixture answers it — two sides of one
+// seam reading one declaration rather than two spellings of one string.
+export { SESSION_EVENT_STREAM } from "./console-bridge.js";
+
 export {
   SidekicksBridgeProvider,
   useBridgeResolution,
