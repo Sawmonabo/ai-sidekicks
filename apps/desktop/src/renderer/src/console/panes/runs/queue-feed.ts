@@ -34,6 +34,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   QueueItemListResponseSchema,
   QueueItemSummarySchema,
+  RunQueueSubscribeRequestSchema,
   type QueueItemSummary,
 } from "@ai-sidekicks/contracts";
 
@@ -124,14 +125,36 @@ export function useQueueFeed(bridge: ConsoleBridge, sessionId: string): QueueFee
     setPhase("reading");
     setReadRefusal(undefined);
 
-    const unsubscribe = subscribeDaemon(bridge, QUEUE_SUBSCRIBE_STREAM, (payload) => {
-      const parsed = QueueItemSummarySchema.safeParse(payload);
-      if (!parsed.success || !isMounted.current) {
-        return;
-      }
-      order.merge(parsed.data);
-      setItems(order.items());
-    });
+    // The stream's own registered request, parsed here rather than assembled at
+    // the wrapper: an id the wire's `SessionId` brand refuses is a refusal this
+    // surface renders, not an unscoped subscription it opens anyway.
+    const subscribeRequest = RunQueueSubscribeRequestSchema.safeParse({ sessionId });
+    if (!subscribeRequest.success) {
+      setPhase("refused");
+      setReadRefusal(
+        refuse(
+          QUEUE_REFUSAL_ORIGIN,
+          "session-unreadable",
+          "The queue stream is session-scoped and this pane's session did not match the registered request shape, so the console did not open it.",
+        ),
+      );
+      return () => {
+        isMounted.current = false;
+      };
+    }
+
+    const unsubscribe = subscribeDaemon(
+      bridge,
+      { method: QUEUE_SUBSCRIBE_STREAM, request: subscribeRequest.data },
+      (payload) => {
+        const parsed = QueueItemSummarySchema.safeParse(payload);
+        if (!parsed.success || !isMounted.current) {
+          return;
+        }
+        order.merge(parsed.data);
+        setItems(order.items());
+      },
+    );
 
     void callDaemon(bridge, QUEUE_LIST_METHOD, { sessionId })
       .then((reply) => {

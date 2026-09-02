@@ -30,7 +30,8 @@
 
 import { useCallback, useState } from "react";
 
-import { Nothing } from "../../primitives/index.js";
+import type { ConsoleRefusal } from "../../core/index.js";
+import { InlineRefusal, Nothing } from "../../primitives/index.js";
 import { type ConsolePaneContext } from "../../workspace/index.js";
 import { ConsolePaneChrome, paneScopeCrumbs } from "../pane-chrome.js";
 import { QueueContents } from "./QueueContents.js";
@@ -107,7 +108,7 @@ function RunsPaneBody(props: {
     <div className="meridian-runs">
       <section className="meridian-runs__section" aria-label="Runs in this session">
         {stateFeed.runs.length === 0 ? (
-          <NoRuns hasRead={stateFeed.hasRead} />
+          <NoRuns hasRead={stateFeed.hasRead} openRefusal={stateFeed.openRefusal} />
         ) : (
           <div className="meridian-runs__rows" role="feed" aria-label="Runs in this session">
             {stateFeed.runs.map((run) => (
@@ -143,13 +144,20 @@ function RunsPaneBody(props: {
 }
 
 /**
- * Two different absences, told apart by whether the stream has spoken.
+ * Two different absences, told apart by whether the stream has spoken — and, ahead
+ * of both, the refusal that says the stream was never opened.
  *
  * `empty` is only reachable once something was delivered — until then the honest
  * answer is that a read is in flight, and a skeleton says so without claiming the
  * session has no runs.
  */
-function NoRuns(props: { readonly hasRead: boolean }): React.JSX.Element {
+function NoRuns(props: {
+  readonly hasRead: boolean;
+  readonly openRefusal: ConsoleRefusal | undefined;
+}): React.JSX.Element {
+  if (props.openRefusal !== undefined) {
+    return <InlineRefusal code={props.openRefusal.code} detail={props.openRefusal.detail} />;
+  }
   if (!props.hasRead) {
     return (
       <Nothing kind="not-loaded" placement="surface" title="Reading the runs in this session." />

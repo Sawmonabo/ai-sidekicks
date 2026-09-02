@@ -15,9 +15,12 @@
 // class is the whole parse, and mounting a component to reach it would put a React
 // tree between the assertion and the rule it is asserting.
 
+import { createElement, useEffect } from "react";
+import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { RunStateProjection } from "./run-state-feed.js";
+import type { ConsoleBridge } from "../../bridge/index.js";
+import { RunStateProjection, useRunStateFeed, type RunStateFeed } from "./run-state-feed.js";
 
 /** Canonical UUIDs: both registered schemas brand their ids and refuse anything else. */
 const RUN_ID = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
@@ -89,5 +92,69 @@ describe("the run-state feed refuses the whole-session envelope", () => {
     const projection = new RunStateProjection();
     expect(projection.accept(ENVELOPE_SHAPED_DELIVERY.payload)).toBe(true);
     expect(projection.runCount).toBe(1);
+  });
+});
+
+/** A bridge that records which stream name reached `daemon.subscribe`. */
+function recordingBridge(): { bridge: ConsoleBridge; openedStreams: string[] } {
+  const openedStreams: string[] = [];
+  const bridge = {
+    sidekicks: {
+      daemon: {
+        call: async (): Promise<unknown> => undefined,
+        subscribe: (stream: string) => {
+          openedStreams.push(stream);
+          return () => undefined;
+        },
+      },
+    },
+    growth: {},
+    growthServedOperations: new Set(),
+    source: "fixture",
+    scenarioEngine: undefined,
+  } as unknown as ConsoleBridge;
+  return { bridge, openedStreams };
+}
+
+/**
+ * Open the feed for one session and report what it answered.
+ *
+ * Composed with `createElement` rather than JSX so the module's own tests stay in
+ * one file: everything else here drives the fold directly and needs no tree.
+ */
+async function openStateFeed(sessionId: string): Promise<{
+  readonly openedStreams: readonly string[];
+  readonly feed: RunStateFeed;
+}> {
+  const { bridge, openedStreams } = recordingBridge();
+  let held: RunStateFeed | undefined;
+  function StateFeedProbe(): null {
+    const feed = useRunStateFeed(bridge, sessionId);
+    useEffect(() => {
+      held = feed;
+    }, [feed]);
+    return null;
+  }
+  render(createElement(StateFeedProbe));
+  await act(async () => {
+    await Promise.resolve();
+  });
+  if (held === undefined) {
+    throw new Error("the run-state feed reported nothing, so there is no reading to assert");
+  }
+  return { openedStreams, feed: held };
+}
+
+describe("the run-state stream is opened with its registered request", () => {
+  it("opens the stream for a session the registered request shape accepts", async () => {
+    const opened = await openStateFeed(SESSION_ID);
+    expect(opened.openedStreams).toStrictEqual(["run.subscribeState"]);
+    expect(opened.feed.openRefusal).toBeUndefined();
+  });
+
+  it("refuses rather than opening an unscoped stream when the session does not parse", async () => {
+    const opened = await openStateFeed("not-a-session");
+    expect(opened.openedStreams).toStrictEqual([]);
+    expect(opened.feed.openRefusal?.code).toBe("session-unreadable");
   });
 });

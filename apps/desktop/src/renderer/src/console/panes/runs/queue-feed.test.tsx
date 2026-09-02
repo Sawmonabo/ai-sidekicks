@@ -43,13 +43,19 @@ const ENVELOPE_SHAPED_DELIVERY = {
 };
 
 /** A bridge that hands the test the subscription handler and an empty snapshot. */
-function stubBridge(): { bridge: ConsoleBridge; deliver: (payload: unknown) => void } {
+function stubBridge(snapshot: readonly unknown[] = []): {
+  bridge: ConsoleBridge;
+  deliver: (payload: unknown) => void;
+  openedStreams: string[];
+} {
   let deliverToFeed: (payload: unknown) => void = () => undefined;
+  const openedStreams: string[] = [];
   const bridge = {
     sidekicks: {
       daemon: {
-        call: async (): Promise<unknown> => ({ items: [] }),
-        subscribe: (_stream: string, handler: (payload: unknown) => void) => {
+        call: async (): Promise<unknown> => ({ items: snapshot }),
+        subscribe: (stream: string, handler: (payload: unknown) => void) => {
+          openedStreams.push(stream);
           deliverToFeed = handler;
           return () => undefined;
         },
@@ -60,15 +66,16 @@ function stubBridge(): { bridge: ConsoleBridge; deliver: (payload: unknown) => v
     source: "fixture",
     scenarioEngine: undefined,
   } as unknown as ConsoleBridge;
-  return { bridge, deliver: (payload) => deliverToFeed(payload) };
+  return { bridge, deliver: (payload) => deliverToFeed(payload), openedStreams };
 }
 
 /** Reports the feed out of the tree, so a case reads the hook's own answer. */
 function QueueFeedProbe(props: {
   readonly bridge: ConsoleBridge;
+  readonly sessionId: string;
   readonly onFeed: (feed: QueueFeed) => void;
 }): null {
-  const feed = useQueueFeed(props.bridge, SESSION_ID);
+  const feed = useQueueFeed(props.bridge, props.sessionId);
   const { onFeed } = props;
   useEffect(() => {
     onFeed(feed);
@@ -76,13 +83,22 @@ function QueueFeedProbe(props: {
   return null;
 }
 
-async function openFeed(): Promise<{
+async function openFeed(
+  options: { readonly snapshot?: readonly unknown[]; readonly sessionId?: string } = {},
+): Promise<{
   deliver: (payload: unknown) => void;
   latest: () => QueueFeed;
+  openedStreams: readonly string[];
 }> {
-  const { bridge, deliver } = stubBridge();
+  const { bridge, deliver, openedStreams } = stubBridge(options.snapshot ?? []);
   let held: QueueFeed | undefined;
-  render(<QueueFeedProbe bridge={bridge} onFeed={(feed) => (held = feed)} />);
+  render(
+    <QueueFeedProbe
+      bridge={bridge}
+      sessionId={options.sessionId ?? SESSION_ID}
+      onFeed={(feed) => (held = feed)}
+    />,
+  );
   await act(async () => {
     await Promise.resolve();
   });
@@ -98,6 +114,7 @@ async function openFeed(): Promise<{
       }
       return held;
     },
+    openedStreams,
   };
 }
 
@@ -124,5 +141,20 @@ describe("the queue feed ignores the whole-session envelope", () => {
     const { deliver, latest } = await openFeed();
     deliver(ENVELOPE_SHAPED_DELIVERY.payload);
     expect(latest().items).toHaveLength(1);
+  });
+});
+
+describe("the queue stream is opened with its registered request", () => {
+  it("opens the stream for a session the registered request shape accepts", async () => {
+    const { openedStreams, latest } = await openFeed();
+    expect(openedStreams).toStrictEqual(["run.subscribeQueue"]);
+    expect(latest().readRefusal).toBeUndefined();
+  });
+
+  it("refuses rather than opening an unscoped stream when the session does not parse", async () => {
+    const { openedStreams, latest } = await openFeed({ sessionId: "not-a-session" });
+    expect(openedStreams).toStrictEqual([]);
+    expect(latest().phase).toBe("refused");
+    expect(latest().readRefusal?.code).toBe("session-unreadable");
   });
 });

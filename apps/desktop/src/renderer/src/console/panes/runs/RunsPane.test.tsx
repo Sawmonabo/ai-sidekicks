@@ -22,7 +22,9 @@ import { RunStateProjection } from "./run-state-feed.js";
 import { useRunControlSurface } from "./run-control-surface.js";
 
 const RUN_ID = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
-const SESSION_ID = "session-runs";
+// A canonical UUID: both `run.*` streams parse their registered request through
+// the wire's `SessionId` brand before opening, so a non-UUID id refuses.
+const SESSION_ID = "019b7a22-2200-75e5-8510-ada11a5a44a5";
 
 /** One transition on the wire's own shape. */
 function transition(previousState: RunState, currentState: RunState, runVersion: number): unknown {
