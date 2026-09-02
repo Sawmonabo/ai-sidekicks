@@ -35,6 +35,8 @@ import {
 } from "@atlaskit/pragmatic-drag-and-drop/adapter/element-adapter";
 
 import { Emitter, type Unsubscribe } from "../../core/index.js";
+import { type Announce, type AnnouncementPoliteness } from "../../primitives/index.js";
+import { type PaneKind } from "../seats/index.js";
 import type { DeckLayout } from "./deck-layout.js";
 
 /**
@@ -100,6 +102,104 @@ export function dropPosition(
   }
   const insertion = edge === "before" ? over : over + 1;
   return insertion > from ? insertion - 1 : insertion;
+}
+
+/** What a settled drop is said out loud as, and in which of the two lanes. */
+export interface PaneDropAnnouncement {
+  readonly message: string;
+  readonly politeness: AnnouncementPoliteness;
+}
+
+/**
+ * What a settled drop is announced as.
+ *
+ * `Spec-023 §Console Libraries`, row "Layout, panes, drag", keeps the live-region
+ * strings own-built, and this is where they are built. The outcome of a drop is
+ * invisible to a person who is not watching the deck move, and the LIBRARY says
+ * nothing: it reports that a drag ended, not whether the deck changed.
+ *
+ * A move is POLITE and a drop that changed nothing is ASSERTIVE. That looks
+ * backwards until the lanes are read as `live-announcer.ts` defines them — the
+ * assertive lane is for "the thing you tried did not happen", which is exactly a
+ * drop released over empty space or back onto the position it started from. A move
+ * that landed is the ordinary outcome and waits its turn.
+ *
+ * The position is stated one-based and against the deck's own count, because
+ * "position 2" alone is a number a person has to hold the deck's size in their head
+ * to use.
+ */
+export function paneDropAnnouncement(
+  paneKind: PaneKind,
+  fromPosition: number,
+  toPosition: number,
+  paneCount: number,
+): PaneDropAnnouncement {
+  if (fromPosition === toPosition) {
+    return { message: `The ${paneKind} pane was not moved.`, politeness: "assertive" };
+  }
+  return {
+    message: `Moved the ${paneKind} pane to position ${String(toPosition + 1)} of ${String(paneCount)}.`,
+    politeness: "polite",
+  };
+}
+
+/**
+ * Settle one drop: commit the reorder the indicator names, and say what happened.
+ *
+ * A function rather than a body inside the monitor's callback, because this is the
+ * only place the outcome exists and the library's callback cannot be driven at all
+ * in the `console-unit` tier — jsdom implements neither `DragEvent` nor
+ * `DataTransfer`. An announcement no test can reach is an announcement that goes
+ * silently stale, which is the same class of defect as not raising one.
+ *
+ * `announce` is a PARAMETER and not a `useAnnounce()` call here. The hook context is
+ * read once, by the deck component that mounts this monitor; a second read inside
+ * the drag seam would make every host of this module a host of the announcer too.
+ *
+ * WHETHER THE PANE MOVED IS MEASURED, NOT ASSUMED. `dropPosition` can answer with a
+ * position the deck is already in — dropping "before the pane on my right" is the
+ * position the dragged pane already holds — and `DeckLayout.reorderPane` clamps and
+ * then no-ops. So the announcement reads the pane's index before and after rather
+ * than trusting that a defined drop position means a changed deck.
+ */
+export function commitPaneDrop(
+  layout: DeckLayout,
+  draggedPaneId: string | undefined,
+  indicator: PaneDropIndicator | undefined,
+  announce: Announce,
+): void {
+  if (draggedPaneId === undefined) {
+    return;
+  }
+  const before = layout.snapshot().panes;
+  const fromPosition = before.findIndex((pane) => pane.paneId === draggedPaneId);
+  const draggedPane = before[fromPosition];
+  if (draggedPane === undefined) {
+    // A drag whose pane left the deck while it was in the air. Nothing to move and
+    // nothing to name, so nothing is said — an announcement about a pane that is
+    // gone is worse than silence.
+    return;
+  }
+  if (indicator !== undefined) {
+    const position = dropPosition(
+      before.map((pane) => pane.paneId),
+      draggedPaneId,
+      indicator.overPaneId,
+      indicator.edge,
+    );
+    if (position !== undefined) {
+      layout.reorderPane(draggedPaneId, position);
+    }
+  }
+  const after = layout.snapshot().panes;
+  const toPosition = after.findIndex((pane) => pane.paneId === draggedPaneId);
+  const announcement = paneDropAnnouncement(
+    draggedPane.kind,
+    fromPosition,
+    toPosition,
+    after.length,
+  );
+  announce(announcement.message, announcement.politeness);
 }
 
 /**
@@ -248,9 +348,17 @@ export function usePaneDropTarget(
  * which edge — and a per-target handler would each have to re-derive it. The
  * monitor also runs for a drag that ends over nothing, which is the case that has
  * to clear the indicator and commit nothing; a per-target handler never fires there
- * at all.
+ * at all. That case is also the one a person gets no feedback from unless it is
+ * SAID — the deck looks the same as it did — so it reaches `commitPaneDrop` like
+ * every other drop rather than returning early.
+ *
+ * @param announce The window's announcer, read from the context by the deck.
  */
-export function useDeckDragMonitor(coordinator: DeckDragCoordinator, layout: DeckLayout): void {
+export function useDeckDragMonitor(
+  coordinator: DeckDragCoordinator,
+  layout: DeckLayout,
+  announce: Announce,
+): void {
   useEffect(
     () =>
       monitorForElements({
@@ -259,20 +367,9 @@ export function useDeckDragMonitor(coordinator: DeckDragCoordinator, layout: Dec
           const draggedPaneId = paneIdFromDragData(source.data);
           const indicator = coordinator.snapshot();
           coordinator.clear();
-          if (draggedPaneId === undefined || indicator === undefined) {
-            return;
-          }
-          const position = dropPosition(
-            layout.snapshot().panes.map((pane) => pane.paneId),
-            draggedPaneId,
-            indicator.overPaneId,
-            indicator.edge,
-          );
-          if (position !== undefined) {
-            layout.reorderPane(draggedPaneId, position);
-          }
+          commitPaneDrop(layout, draggedPaneId, indicator, announce);
         },
       }),
-    [coordinator, layout],
+    [announce, coordinator, layout],
   );
 }

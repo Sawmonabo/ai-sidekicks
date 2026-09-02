@@ -40,6 +40,10 @@ export {
 // regions per window: a family that reached past the barrel for its own would be
 // the second speaker this module exists to prevent.
 export { LiveAnnouncerProvider, useAnnounce } from "./LiveAnnouncerProvider.js";
+// The sink's own type, for a surface that settles an outcome somewhere other than
+// where it read the context — the deck reads `useAnnounce` in its component and
+// hands the result to the drag monitor, which is a hook and cannot read it twice.
+export type { Announce, AnnouncementPoliteness } from "./live-announcer.js";
 
 export { Nothing } from "./Nothing.js";
 

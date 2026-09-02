@@ -51,7 +51,7 @@ import { Fragment, memo, useCallback, useMemo, useRef, useState } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 
 import { RealClock, type ConsoleRefusal } from "../../core/index.js";
-import { InlineRefusal, Nothing } from "../../primitives/index.js";
+import { InlineRefusal, Nothing, useAnnounce } from "../../primitives/index.js";
 import {
   type ConsolePaneContext,
   type ConsolePaneRegistry,
@@ -105,8 +105,12 @@ export function Deck(props: DeckProps): React.JSX.Element {
   usePaneRectSources(tracker, containerReference, state.revision);
   useSeparatorValueBoundsCorrection(containerReference, state.revision);
 
+  // Read HERE and not inside the drag seam: this is the component with the
+  // context, and a deck mounted outside `LiveAnnouncerProvider` throws on this line
+  // rather than reordering panes in a silence nobody watching can detect.
+  const announce = useAnnounce();
   const dragCoordinator = useDeckDragCoordinator();
-  useDeckDragMonitor(dragCoordinator, layout);
+  useDeckDragMonitor(dragCoordinator, layout, announce);
   const dropIndicator = useDeckDropIndicator(dragCoordinator);
 
   /**

@@ -9,12 +9,22 @@
 // calls, never against a copy of it: the off-by-one in "drop after a pane that sits
 // to my right" is the whole of the rule, and a second implementation of it in a test
 // would agree with itself and with nothing else.
+//
+// AND THE SETTLEMENT IS DRIVEN DIRECTLY, through `commitPaneDrop`. The library's
+// gesture cannot be driven in this tier at all — jsdom implements neither
+// `DragEvent` nor `DataTransfer` — so a test that went through the monitor would be
+// testing nothing. What a drop announces is invisible to everyone who can see the
+// deck, so it is the half most likely to rot unwatched.
 
 import { describe, expect, it } from "vitest";
 
+import { DECK_RESTORED_PANE_CAP } from "../../core/index.js";
+import type { Announce, AnnouncementPoliteness } from "../../primitives/index.js";
+import { DeckLayout } from "./deck-layout.js";
 import {
   DECK_PANE_DRAG_KEY,
   DeckDragCoordinator,
+  commitPaneDrop,
   dropEdgeFor,
   dropPosition,
   paneIdFromDragData,
@@ -111,5 +121,109 @@ describe("the drag coordinator", () => {
 
     expect(coordinator.snapshot()).toBeUndefined();
     expect(coordinator.draggedPaneId).toBeUndefined();
+  });
+});
+
+interface RecordedAnnouncement {
+  readonly message: string;
+  readonly politeness: AnnouncementPoliteness;
+}
+
+/**
+ * A sink shaped exactly like the announcer's.
+ *
+ * The default politeness is repeated here rather than assumed, because the sink has
+ * to record what the settlement ASKED FOR: a caller that passed no lane at all and
+ * one that passed `polite` are the same to a reader and must not be the same to
+ * this test, or the assertive cases would pass over a settlement that never chose.
+ */
+function recordingAnnounce(): { announce: Announce; recorded: RecordedAnnouncement[] } {
+  const recorded: RecordedAnnouncement[] = [];
+  const announce: Announce = (message, politeness = "polite") => {
+    recorded.push({ message, politeness });
+  };
+  return { announce, recorded };
+}
+
+/** Three panes in order — `pane-1`, `pane-2`, `pane-3` — so a drop has room to move. */
+function threePaneLayout(): DeckLayout {
+  const layout = new DeckLayout({ restoredPaneCap: DECK_RESTORED_PANE_CAP });
+  layout.open({ kind: "timeline", entity: undefined });
+  layout.open({ kind: "runs", entity: undefined });
+  layout.open({ kind: "approvals", entity: undefined });
+  return layout;
+}
+
+describe("what a settled drop says out loud", () => {
+  it("names where the pane landed, politely, and moves it there", () => {
+    const layout = threePaneLayout();
+    const { announce, recorded } = recordingAnnounce();
+
+    commitPaneDrop(layout, "pane-1", { overPaneId: "pane-3", edge: "after" }, announce);
+
+    expect(layout.snapshot().panes.map((pane) => pane.paneId)).toStrictEqual([
+      "pane-2",
+      "pane-3",
+      "pane-1",
+    ]);
+    expect(recorded).toStrictEqual([
+      { message: "Moved the timeline pane to position 3 of 3.", politeness: "polite" },
+    ]);
+  });
+
+  it("says a drop released over nothing moved nothing, in the lane that interrupts", () => {
+    // The outcome with no visual trace at all: the deck looks exactly as it did, so
+    // silence here is indistinguishable from a move nobody saw.
+    const layout = threePaneLayout();
+    const { announce, recorded } = recordingAnnounce();
+
+    commitPaneDrop(layout, "pane-1", undefined, announce);
+
+    expect(layout.snapshot().panes.map((pane) => pane.paneId)).toStrictEqual([
+      "pane-1",
+      "pane-2",
+      "pane-3",
+    ]);
+    expect(recorded).toStrictEqual([
+      { message: "The timeline pane was not moved.", politeness: "assertive" },
+    ]);
+  });
+
+  it("calls a drop onto the position it already held a non-move, not a move", () => {
+    // "Before the pane on my right" resolves to the index the dragged pane is
+    // already at, so `dropPosition` answers with a number and the reorder no-ops.
+    // A settlement that read the defined position as proof of a move would announce
+    // a rearrangement that never happened.
+    const layout = threePaneLayout();
+    const { announce, recorded } = recordingAnnounce();
+
+    commitPaneDrop(layout, "pane-1", { overPaneId: "pane-2", edge: "before" }, announce);
+
+    expect(layout.snapshot().panes.map((pane) => pane.paneId)).toStrictEqual([
+      "pane-1",
+      "pane-2",
+      "pane-3",
+    ]);
+    expect(recorded).toStrictEqual([
+      { message: "The timeline pane was not moved.", politeness: "assertive" },
+    ]);
+  });
+
+  it("negative control: a drag that is not a pane of this deck's says nothing at all", () => {
+    // Without this, the cases above would pass over a settlement that announced on
+    // every drag end on the page — including somebody else's draggable, which it
+    // could not name a pane for, and a pane closed while it was in the air.
+    const layout = threePaneLayout();
+    const { announce, recorded } = recordingAnnounce();
+
+    commitPaneDrop(layout, undefined, { overPaneId: "pane-2", edge: "after" }, announce);
+    commitPaneDrop(layout, "pane-9", { overPaneId: "pane-2", edge: "after" }, announce);
+
+    expect(recorded).toStrictEqual([]);
+    expect(layout.snapshot().panes.map((pane) => pane.paneId)).toStrictEqual([
+      "pane-1",
+      "pane-2",
+      "pane-3",
+    ]);
   });
 });

@@ -124,14 +124,20 @@ export const RAIL_TICK_BINDINGS: Readonly<Record<RailTickKind, RailTickBinding>>
     wireTypes: [],
     seamKinds: ["rollback"],
     tone: "actor",
-    glyph: "clock",
+    // The rewind mark, which `tokens/glyphs.ts` draws for exactly this: an open
+    // ring whose gap is the part of the conversation being given up. A clock
+    // would say "this took time", which is the one thing a rollback is not about.
+    glyph: "rewind",
   },
   compaction: {
     kind: "compaction",
     wireTypes: [],
     seamKinds: ["compaction"],
     tone: "actor",
-    glyph: "chevron-down",
+    // The fold mark: two chevrons closing onto a rule. A bare `chevron-down`
+    // points AWAY from the boundary and is the disclosure chevron everywhere else
+    // in the console, so on the rail it would read as "expand me".
+    glyph: "fold",
   },
   "provider-switch": {
     kind: "provider-switch",

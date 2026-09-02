@@ -35,6 +35,10 @@ describe("PaneHeader — the glyph table", () => {
 
 describe("PaneHeader — the breadcrumb", () => {
   it("renders the address it was given, in order, and leaves out what it was not", () => {
+    // Every crumb carries a DISTINCT id on purpose. Two crumbs sharing a string
+    // cannot witness "in order" — the assertion holds over either arrangement —
+    // and the breadcrumb keys each crumb by its own text, so a repeated one is
+    // also a duplicate React key.
     const header = renderHeader(
       <PaneHeader
         kind="inspector"
@@ -42,12 +46,12 @@ describe("PaneHeader — the breadcrumb", () => {
         headingId="heading-1"
         sessionId="session-1"
         runId="run-01"
-        entity={{ kind: "run", id: "run-01" }}
+        entity={{ kind: "agent", id: "agent-01" }}
       />,
     );
     expect(
       [...header.querySelectorAll(".meridian-pane__crumb")].map((c) => c.textContent),
-    ).toStrictEqual(["session-1", "run-01", "run-01"]);
+    ).toStrictEqual(["session-1", "run-01", "agent-01"]);
   });
 
   it("says the address names nothing rather than rendering an empty strip", () => {
