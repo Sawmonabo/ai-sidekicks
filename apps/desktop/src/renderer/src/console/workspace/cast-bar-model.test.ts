@@ -1,21 +1,22 @@
 // The cast bar's derivation, and the claim that makes it honest.
 //
-// The first case is the load-bearing one: every key in the verb table and every
-// member of the attention set is checked against the contracts package's own event
-// census. Without it this module could put a verb on a chip for a kind the wire
-// does not have, which is exactly the invented verb §4.1 forbids — and no rendering
-// test would ever notice, because the fixture would simply never produce that kind.
+// The first case is the load-bearing one: every key in the verb table is checked
+// against the contracts package's own event census. Without it this module could put
+// a verb on a chip for a kind the wire does not have, which is exactly the invented
+// verb §4.1 forbids — and no rendering test would ever notice, because the fixture
+// would simply never produce that kind.
+//
+// Attention is no longer a second kind table here: it is folded by each ask's own
+// lifecycle in `outstanding-asks.ts`, whose co-located test makes the same census
+// claim over the kinds that fold. The case below is the seam — that this derivation
+// reads that fold rather than the newest row.
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { ConsoleSessionEvent } from "../store/index.js";
 import { ParticipantHueAllocator } from "../tokens/index.js";
-import {
-  CAST_ATTENTION_EVENT_KINDS,
-  CAST_VERB_BY_EVENT_KIND,
-  deriveCastBar,
-} from "./cast-bar-model.js";
+import { CAST_VERB_BY_EVENT_KIND, deriveCastBar } from "./cast-bar-model.js";
 
 const REGISTERED_EVENT_TYPES: ReadonlySet<string> = new Set<string>(
   SESSION_EVENT_CATEGORY_BY_TYPE.keys(),
@@ -39,16 +40,14 @@ function event(sequence: number, actorParticipantId: string, kind: string): Cons
   };
 }
 
+/** The same event, carrying the run identity an ask's lifecycle correlates on. */
+function withRun(base: ConsoleSessionEvent, runId: string): ConsoleSessionEvent {
+  return { ...base, payload: { runId } };
+}
+
 describe("the verb vocabulary — wire truth", () => {
   it("names only event kinds the contracts package registers", () => {
     const unregistered = Object.keys(CAST_VERB_BY_EVENT_KIND).filter(
-      (kind) => !REGISTERED_EVENT_TYPES.has(kind),
-    );
-    expect(unregistered).toStrictEqual([]);
-  });
-
-  it("marks as needing attention only kinds the contracts package registers", () => {
-    const unregistered = CAST_ATTENTION_EVENT_KINDS.filter(
       (kind) => !REGISTERED_EVENT_TYPES.has(kind),
     );
     expect(unregistered).toStrictEqual([]);
@@ -170,6 +169,47 @@ describe("deriveCastBar — the fold and the all-clear line", () => {
     });
     expect(model.foldedMemberCount).toBeGreaterThan(0);
     expect(model.isAllClear).toBe(false);
+  });
+
+  it("keeps a chip amber while its own run is blocked, whatever a parallel run does", () => {
+    // The defect: attention was read off each participant's NEWEST row, so an agent
+    // waiting on an approval in one run and working in another looked clear, and the
+    // bar said "Nothing needs you" over a run that was still blocked.
+    const wheel = wheelFor(["participant-you", "agent-architect"]);
+    const model = deriveCastBar({
+      assignments: wheel.assignments(),
+      timeline: [
+        withRun(event(1, "agent-architect", "run.waiting_for_approval"), "run-a"),
+        withRun(event(2, "agent-architect", "run.running"), "run-b"),
+        withRun(event(3, "agent-architect", "tool.invoked"), "run-b"),
+      ],
+      isDegraded: false,
+      chipCap: 8,
+    });
+    expect(model.isAllClear).toBe(false);
+    expect(model.members[1]?.needsAttention).toBe(true);
+    // The verb still comes from the newest row: what the actor is DOING and what is
+    // outstanding are two questions, and this chip answers both without conflating
+    // them.
+    expect(model.members[1]?.verb).toBe("running a tool");
+  });
+
+  it("negative control: the block clears once that run itself moves on", () => {
+    // Without this, the case above would pass over a fold that never cleared
+    // anything, which would leave the bar permanently amber.
+    const wheel = wheelFor(["participant-you", "agent-architect"]);
+    const model = deriveCastBar({
+      assignments: wheel.assignments(),
+      timeline: [
+        withRun(event(1, "agent-architect", "run.waiting_for_approval"), "run-a"),
+        withRun(event(2, "agent-architect", "run.running"), "run-b"),
+        withRun(event(3, "agent-architect", "run.running"), "run-a"),
+      ],
+      isDegraded: false,
+      chipCap: 8,
+    });
+    expect(model.isAllClear).toBe(true);
+    expect(model.members[1]?.needsAttention).toBe(false);
   });
 
   it("refuses to claim all-clear over an incomplete projection", () => {
