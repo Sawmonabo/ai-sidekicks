@@ -14,7 +14,10 @@
 // `readable.ts` narrows a `zustand` store to the two methods a consumer needs, so
 // nothing outside this family holds a handle that can also WRITE.
 
-export type { ConsoleEntityRef, ConsoleSessionEvent } from "./entities.js";
+// `ConsoleEntity` joins its ref on the door with `useSessionPartition` below: a
+// partition is a map OF entities, so a consumer that can subscribe to one and
+// cannot name what it holds would have to restate the shape to read it.
+export type { ConsoleEntity, ConsoleEntityRef, ConsoleSessionEvent } from "./entities.js";
 
 export { SessionStore } from "./session-store.js";
 
@@ -23,4 +26,14 @@ export { FrameStore } from "./frame-store.js";
 
 export { SessionStoreRegistry, type SessionSnapshotReader } from "./session-store-registry.js";
 
-export { useFrameStore, useLocationHash, useOpenSessionStore } from "./hooks.js";
+// `useSessionPartition` joins the door with its first cross-family consumer: the
+// composer reads the `agent`, `run`, and `channel` partitions to resolve what a
+// send is addressed to. It is the partitioned subscription rule 6 asks for — a
+// surface that reached for `useSessionStore` with a selector of its own would be
+// the second subscription path this module exists to prevent.
+export {
+  useFrameStore,
+  useLocationHash,
+  useOpenSessionStore,
+  useSessionPartition,
+} from "./hooks.js";

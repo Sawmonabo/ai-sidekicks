@@ -40,7 +40,6 @@ export {
   registerConsolePane,
   /** @consumedBy T-023p-1C-2, T-023p-1C-8 */
   registeredPaneKinds,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ConsolePaneAddress,
   type ConsolePaneContext,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */

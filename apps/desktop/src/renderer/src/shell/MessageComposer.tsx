@@ -13,8 +13,11 @@
 // of those is a zone behind its own barrel, filled by its own lane, so three lanes
 // edit three directories instead of one file three ways.
 //
-// It reads no wire. Every zone below renders the absence of a read rather than a
-// guess at its answer, which is the whole of what this lane claims.
+// It reads no wire itself. The two zones that address a message — the chip rail and
+// the send bar — are handed the seat's own props and resolve the address from the
+// session store; the accessory rail takes none yet, because nothing in it is
+// addressed. Every zone renders the absence of a read rather than a guess at its
+// answer.
 
 import { useId } from "react";
 
@@ -43,8 +46,8 @@ export function MessageComposer(props: ComposerSeatProps): React.JSX.Element {
       <p className="meridian-visually-hidden" id={descriptionId}>
         Composing in session {props.sessionStore.sessionId}.
       </p>
-      <ComposerChipRail />
-      <ComposerSendBar />
+      <ComposerChipRail {...props} />
+      <ComposerSendBar {...props} />
       <ComposerAccessoryRail />
     </section>
   );

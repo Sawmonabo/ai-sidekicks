@@ -1,25 +1,24 @@
-// The composer's chip rail — reserved, not stubbed.
+// The composer's chip rail: where a message is going, and under what posture.
 //
-// The rail is where the composer says WHERE a message is going and UNDER WHAT
-// POSTURE it will run: the target chip and the posture chip, each a projection of
-// daemon state that the renderer never derives for itself. Both are the send
-// router's siblings and land with it.
+// Two chips, each a projection of daemon state the renderer never derives for
+// itself. The rail owns their order and their accessible grouping and nothing else —
+// each chip decides what it can honestly say from the model it is handed, including
+// saying that it was told nothing.
 //
-// Nothing here fabricates either chip. A chip drawn from a guess would be the one
-// failure this surface cannot afford — a person reading "session" while the send
-// resolves to an agent, or a posture chip that says what the daemon has not said.
-// So the rail holds its place and says so.
+// The order is deliberate: the target first, because it is the fact that changes what
+// Send does, and the posture second, because it qualifies the run the target names.
 
-import { Nothing } from "../../../console/primitives/index.js";
+import { type ComposerSeatProps } from "../../../console/workspace/index.js";
+import { useComposerAddress } from "../composer-address.js";
+import { PostureChip } from "./PostureChip.js";
+import { TargetChip } from "./TargetChip.js";
 
-export function ComposerChipRail(): React.JSX.Element {
+export function ComposerChipRail(props: ComposerSeatProps): React.JSX.Element {
+  const address = useComposerAddress(props.sessionStore, props.focusedPane);
   return (
     <div className="meridian-composer__chips">
-      <Nothing
-        kind="not-checked"
-        title="The composer has not been told where this message goes."
-        detail="The target and the execution posture are projections of daemon state, and both arrive with the send router."
-      />
+      <TargetChip model={address.targetChip} />
+      <PostureChip model={address.postureChip} />
     </div>
   );
 }
