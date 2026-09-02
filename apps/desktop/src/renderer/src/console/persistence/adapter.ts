@@ -17,7 +17,8 @@
 // report a silent nothing where a degradation belongs.
 
 import { ConsoleRefusalError } from "../core/index.js";
-import type { PersistedValueClass, PersistenceRefusal } from "./value-classes.js";
+import type { PersistenceRefusal } from "./refusals.js";
+import type { PersistedValueClass } from "./value-classes.js";
 
 /** Which adapter is serving the store. Rendered; never inferred from behaviour. */
 export type PersistenceAdapterKind = "indexeddb" | "memory";
