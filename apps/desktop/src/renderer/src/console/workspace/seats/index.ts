@@ -44,6 +44,18 @@ export {
 } from "./pane-registry.js";
 
 export {
+  actorFollowHandler,
+  registerActorFollowHandler,
+  unregisterActorFollowHandler,
+  /** @consumedBy T-023p-1C-2 */
+  type ActorFollowHandler,
+  /** @consumedBy T-023p-1C-2 */
+  type ActorFollowOutcome,
+  /** @consumedBy T-023p-1C-2 */
+  type ActorFollowRequest,
+} from "./actor-follow-seat.js";
+
+export {
   composerSeatRenderer,
   /** @consumedBy T-023p-1C-3 */
   registerComposerSeat,
