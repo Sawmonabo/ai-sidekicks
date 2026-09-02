@@ -18,6 +18,15 @@
 // missing `payloadDisposition` has to be refused, because rendering it as "reclaimed"
 // is a claim about the operator's disk that nothing checked.
 //
+// AND THE ARMS ARE THE SUBJECT, NOT THREE OPTIONALS. The read's payload members are
+// correlated: a reply hands back a handle to fetch the bytes with, or the bytes with
+// the encoding to read them by. Three independent optionals admitted eight combinations
+// where the contract registers two, and the six they let through were replies a pane
+// could compile against and not act on — no way to reach the bytes, no way to decode
+// them, or an encoding describing bytes that are not there. Each of those three has a
+// case below, and the control beside them proves the union still admits the two shapes
+// the wire really sends.
+//
 // AND THE ABSENCES ARE ASSERTED TOO. The manifest carries no content-type member and
 // no expiry member, which is a fact about the registered envelope rather than an
 // omission here, so it is checked rather than left to a doc comment nobody re-reads: a
@@ -49,13 +58,19 @@ const MANIFEST: GrowthArtifactSummary = {
 };
 
 /**
- * The read a pane's manifest fetch takes: the envelope, and no payload members at all.
+ * The read a pane's manifest fetch takes: the envelope, and the key to fetch the bytes
+ * with.
  *
- * The construction IS the assertion — this only compiles while all three payload
- * members are optional, which is what makes "I did not ask for the bytes" a served
- * answer rather than a reply with three holes in it.
+ * The construction IS the assertion — it compiles because the deferred arm is exactly
+ * this, which is what makes "I did not ask for the bytes" a served answer rather than a
+ * reply a pane cannot act on. The handle is the CAS key the manifest read has already
+ * resolved; returning it costs the daemon nothing and is what keeps every served read
+ * reachable.
  */
-const MANIFEST_ONLY_READ: GrowthArtifactRead = { manifest: MANIFEST };
+const MANIFEST_ONLY_READ: GrowthArtifactRead = {
+  manifest: MANIFEST,
+  payloadHandle: "cas/sha256-0000",
+};
 
 /**
  * The read a pane's payload fetch takes: the same envelope, the bytes, and the encoding
@@ -87,8 +102,9 @@ describe("the artifact read — one method, the pane's two reads", () => {
     >().toEqualTypeOf<GrowthArtifactRead>();
   });
 
-  it("carries the manifest alone when the caller did not ask for bytes", () => {
+  it("carries the manifest and a handle when the caller did not ask for bytes", () => {
     expect(MANIFEST_ONLY_READ.manifest.artifactId).toBe("artifact-1");
+    expect(MANIFEST_ONLY_READ.payloadHandle).toBe("cas/sha256-0000");
     expect(MANIFEST_ONLY_READ.payload).toBeUndefined();
     expect(MANIFEST_ONLY_READ.payloadEncoding).toBeUndefined();
   });
@@ -118,6 +134,60 @@ describe("negative control — the shapes the registration now refuses", () => {
     const stale: GrowthArtifactRead = MANIFEST;
 
     expect(Object.keys(stale)).toContain("artifactId");
+  });
+
+  it("refuses a bare manifest, which leaves a pane no way to reach the bytes", () => {
+    // The first of the three impossible shapes three independent optionals admitted.
+    // `Spec-014 §Interfaces And Contracts` requires a read to answer with "manifest
+    // plus retrievable payload handle or inline content", so a reply carrying neither
+    // is one a pane enters its served path holding and can do nothing with.
+    // @ts-expect-error — neither arm: the deferred one requires a handle, the inline
+    // one requires the bytes.
+    const unreachable: GrowthArtifactRead = { manifest: MANIFEST };
+
+    expect(unreachable.payloadHandle).toBeUndefined();
+  });
+
+  it("refuses inline bytes with no encoding, which leaves no way to decode them", () => {
+    // The second. The encoding is what a reader SWITCHES on — the contract says
+    // callers never sniff — so bytes arriving without one cannot be read at all, and
+    // a pane that guessed would be doing the sniffing the contract forbids.
+    // @ts-expect-error — `payloadEncoding` is required on the arm that carries bytes.
+    const undecodable: GrowthArtifactRead = { manifest: MANIFEST, payload: "aGVsbG8=" };
+
+    expect(undecodable.payloadEncoding).toBeUndefined();
+  });
+
+  it("refuses an encoding with no payload, which describes bytes that are not there", () => {
+    // The third, and the mirror of the second: an encoding is a fact ABOUT a payload,
+    // so one standing alone is a reading of nothing.
+    // @ts-expect-error — the deferred arm forbids the encoding and the inline arm
+    // requires the bytes beside it.
+    const describesNothing: GrowthArtifactRead = {
+      manifest: MANIFEST,
+      payloadHandle: "cas/sha256-0000",
+      payloadEncoding: "base64",
+    };
+
+    expect(describesNothing.payload).toBeUndefined();
+  });
+
+  it("negative control: the two shapes the contract does register still compile", () => {
+    // Without this the three refusals above would hold over a union that refused every
+    // reply, including the two the wire actually sends.
+    const deferred: GrowthArtifactRead = { manifest: MANIFEST, payloadHandle: "cas/sha256-0000" };
+    const inline: GrowthArtifactRead = {
+      manifest: MANIFEST,
+      payloadHandle: "cas/sha256-0000",
+      payload: "aGVsbG8gd29ybGQ=",
+      payloadEncoding: "utf8",
+    };
+
+    expect(deferred.payload).toBeUndefined();
+    // Both together is admitted deliberately: the registered response permits a reply
+    // to hand back a handle beside the bytes, and refusing the pair would be the
+    // console deciding something the wire has not.
+    expect(inline.payloadHandle).toBe("cas/sha256-0000");
   });
 
   it("refuses an encoding outside the wire's closed pair", () => {
