@@ -188,10 +188,13 @@ function invalid(detail: string): PersistenceRefusal {
   return refusePersistence("value-shape-invalid", detail);
 }
 
+// The rule the detail states is Spec-022's (participant- and machine-authored
+// content has no durable home in the renderer); the identifier stays here, in a
+// comment, because a governance ID never rides a runtime string.
 function notIdentifier(where: string, value: string): PersistenceRefusal {
   return refusePersistence(
     "value-not-identifier-shaped",
-    `${where} holds a string that is not identifier-shaped (${String(value.length)} chars). UI state carries identifiers; participant- and machine-authored content has no durable home in the renderer (Spec-022).`,
+    `${where} holds a string that is not identifier-shaped (${String(value.length)} chars). UI state carries identifiers; participant- and machine-authored content has no durable home in the renderer.`,
   );
 }
 
@@ -204,17 +207,36 @@ function isPlainObject(
 /**
  * Walk a value and refuse the first string that is not identifier-shaped. Object
  * KEYS are checked too: a key is as good a smuggling channel as a value.
+ *
+ * `ancestors` holds the containers on the current descent, so a value that
+ * reaches back into itself is refused as a shape fault rather than overflowing
+ * the stack. The type says a persisted value is a tree, but this walk runs
+ * before any other check on whatever an untyped boundary handed in, and a
+ * cyclic object would otherwise take the whole renderer down inside a write
+ * refusal. A container reached twice by two different paths — a shared leaf, no
+ * cycle — is walked twice and admitted, which is why this is a descent stack and
+ * not a visited set.
  */
 function everyStringIsIdentifierShaped(
   value: PersistableValue,
   path: string,
+  ancestors: ReadonlySet<object> = new Set(),
 ): PersistenceRefusal | undefined {
   if (typeof value === "string") {
     return isIdentifierShaped(value) ? undefined : notIdentifier(path, value);
   }
+  if (typeof value !== "object" || value === null) {
+    return undefined;
+  }
+  if (ancestors.has(value)) {
+    return invalid(
+      `${path} reaches back into one of its own containers; a persisted value is a tree`,
+    );
+  }
+  const descent: ReadonlySet<object> = new Set(ancestors).add(value);
   if (Array.isArray(value)) {
     for (const [index, element] of value.entries()) {
-      const refusal = everyStringIsIdentifierShaped(element, `${path}[${String(index)}]`);
+      const refusal = everyStringIsIdentifierShaped(element, `${path}[${String(index)}]`, descent);
       if (refusal !== undefined) {
         return refusal;
       }
@@ -226,7 +248,7 @@ function everyStringIsIdentifierShaped(
       if (!isIdentifierShaped(key)) {
         return notIdentifier(`${path}.<key>`, key);
       }
-      const refusal = everyStringIsIdentifierShaped(member, `${path}.${key}`);
+      const refusal = everyStringIsIdentifierShaped(member, `${path}.${key}`, descent);
       if (refusal !== undefined) {
         return refusal;
       }
