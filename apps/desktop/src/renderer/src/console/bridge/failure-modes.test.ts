@@ -137,11 +137,14 @@ describe("failure matrix — a growth-slate row lands and the port still claims 
     }
   });
 
-  it("names the owning document in every refusal, so a reader knows who owes the wire", () => {
+  it("names the owning document on every refusal's ledger member, never in its sentence", () => {
+    // The structured member is for the ledger; the sentence is what a person reads,
+    // and a governance document's name is not product vocabulary.
     for (const operationId of Object.keys(GROWTH_OPERATIONS)) {
       const refusal = growthUnavailable(operationId as keyof typeof GROWTH_OPERATIONS);
       expect(refusal.owningDocument.length).toBeGreaterThan(0);
-      expect(refusal.detail).toContain("not registered yet");
+      expect(refusal.detail).toContain("not registered on this build yet");
+      expect(refusal.detail).not.toContain(refusal.owningDocument);
     }
   });
 });

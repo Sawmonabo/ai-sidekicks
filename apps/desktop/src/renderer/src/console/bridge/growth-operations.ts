@@ -14,6 +14,15 @@
 // id, and the compiler — not a reviewer — is what should guarantee a new id gets an
 // entry. A `Record` keyed by `GrowthOperationId` makes a missing entry and an
 // unknown key both compile errors; an array beside the union would make neither.
+//
+// THIS MODULE IS A DECLARED DATA TABLE, AND ITS LENGTH IS ITS ROW COUNT. The
+// package's "a file over about 400 lines is doing two jobs" rule is a heuristic for
+// a module that grew a second job; this one has exactly one — declare the operation
+// half of the growth ledger — and its size is the number of wires the console does
+// not yet have, one entry each. There is no second responsibility here to lift out:
+// splitting the record would split one closed set across two files and lose the
+// exhaustiveness the `Record<GrowthOperationId, …>` type is here to get. It shrinks
+// when a slate row lands and its operations stop being growth.
 
 import type {
   GrowthOperationEntry,
