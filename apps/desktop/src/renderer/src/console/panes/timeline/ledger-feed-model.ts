@@ -48,6 +48,25 @@ import {
 } from "../../ledger/structure/index.js";
 import { type LedgerWindowModel } from "./ledger-window.js";
 
+/**
+ * Whether a "load earlier" affordance may be offered. It may not.
+ *
+ * Settled against the wire rather than against a wish. The console reaches the
+ * daemon through one live subscription plus a whole-session snapshot read, and
+ * neither takes a cursor or a sequence bound: `sessionRead` is keyed by session and
+ * `hydratedEventRead` by a single event id, whose own registration says a range
+ * read "would be a batching decision made ahead of the surface that would need it".
+ * `timeline.read` is registered in the corpus and on no bridge namespace and on no
+ * growth-slate row, so this console cannot call it.
+ *
+ * Both structural controls draw their "load earlier" button from this flag, so the
+ * honest value makes the button ABSENT — and the feed states the two real gaps, the
+ * rows the cap took and the sequences that never arrived, in words that say which
+ * read is missing. A control whose press cannot do anything is the one shape rule 8
+ * refuses.
+ */
+const NO_HISTORY_READ_EXISTS = false;
+
 /** The window the viewport is showing, and what fell outside it. */
 export interface VisibleLedgerWindow {
   /** The projected rows the viewport holds, in log order. */
@@ -80,7 +99,12 @@ export function useVisibleLedgerWindow(
     return {
       rows,
       prunedAwayRows,
-      railModel: new ProvenanceRailModel({ rows, hasEarlierRows: ledgerWindow.hasEarlierRows }),
+      // `false`, and it is a claim about this console rather than about this log:
+      // the rail's unloaded extent is also what draws its "load earlier" control,
+      // and no read the console can perform returns rows before the window's head.
+      // The rows the cap took are named in words by the feed instead, which is the
+      // honest half of what the dotted segment was standing in for.
+      railModel: new ProvenanceRailModel({ rows, hasEarlierRows: NO_HISTORY_READ_EXISTS }),
     };
   }, [ledgerWindow, viewportRows]);
 }
@@ -114,8 +138,8 @@ export function useLedgerFind(visible: VisibleLedgerWindow): LedgerFindState {
   const result = useMemo(
     () =>
       query.trim().length === 0
-        ? emptyFindResult(visible.rows.length, visible.prunedAwayRows.length > 0)
-        : findInLedger(visible.rows, query, visible.prunedAwayRows.length > 0),
+        ? emptyFindResult(visible.rows.length, NO_HISTORY_READ_EXISTS)
+        : findInLedger(visible.rows, query, NO_HISTORY_READ_EXISTS),
     [visible, query],
   );
 

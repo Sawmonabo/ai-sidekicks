@@ -61,8 +61,15 @@ export interface LedgerWindowModel {
   readonly rows: readonly TimelineRow[];
   /** Events the registered census carries no category for. Rendered, never hidden. */
   readonly unprojectableEventCount: number;
-  /** Whether the store knows of rows it has not got. Drives the rail's dotted head. */
-  readonly hasEarlierRows: boolean;
+  /**
+   * Whether the store recorded sequences it never received.
+   *
+   * A HOLE in what arrived, which is not the same fact as "rows exist before this
+   * window's head" and is deliberately no longer used as one: the console holds one
+   * live subscription and no range read, so the head of the window is the head of
+   * everything it can reach. The feed names the hole in words instead.
+   */
+  readonly hasUnreceivedEntries: boolean;
   /** A run is mid-flight, so the viewport defers pruning rather than moving rows. */
   readonly hasActiveTurn: boolean;
 }
@@ -125,7 +132,7 @@ export function densityFor(
  */
 export function deriveLedgerWindow(
   timeline: readonly ConsoleSessionEvent[],
-  hasEarlierRows: boolean,
+  hasUnreceivedEntries: boolean,
 ): LedgerWindowModel {
   const projection = projectFixtureShellRows(timeline);
   const { rows } = projection;
@@ -158,7 +165,7 @@ export function deriveLedgerWindow(
     seams: seamIndex.seams(rows),
     rows,
     unprojectableEventCount: projection.unprojectableEventCount,
-    hasEarlierRows,
+    hasUnreceivedEntries,
     // A chapter with no terminal is a run the log has not seen end. That is the
     // same question the viewport asks before it prunes, and it is answered from the
     // fold that already exists rather than from a second read of the run partition.
@@ -176,8 +183,11 @@ export function deriveLedgerWindow(
  */
 export function useLedgerWindow(sessionStore: SessionStore): LedgerWindowModel {
   const timeline = useSessionStore(sessionStore, readTimeline);
-  const hasEarlierRows = useSessionStore(sessionStore, readHasGaps);
-  return useMemo(() => deriveLedgerWindow(timeline, hasEarlierRows), [timeline, hasEarlierRows]);
+  const hasUnreceivedEntries = useSessionStore(sessionStore, readHasGaps);
+  return useMemo(
+    () => deriveLedgerWindow(timeline, hasUnreceivedEntries),
+    [timeline, hasUnreceivedEntries],
+  );
 }
 
 /** The log this window holds. A named function, so the selector identity is stable. */

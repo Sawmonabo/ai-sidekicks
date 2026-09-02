@@ -17,6 +17,7 @@ import { fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SidekicksBridgeProvider, createFixtureBridge } from "../../bridge/index.js";
+import { LEDGER_WINDOW_ROW_CAP } from "../../ledger/frame/frame-bounds.js";
 import { LEDGER_QUIET_SCENARIO } from "../../bridge/scenarios/ledger-quiet.js";
 import { SessionStore } from "../../store/index.js";
 import { ParticipantHueAllocator } from "../../tokens/index.js";
@@ -245,5 +246,69 @@ describe("the ledger feed — replay reveals", () => {
     expect(feed.querySelectorAll(".meridian-ledger-viewport__row")).toHaveLength(
       REPLAY_LOG_EVENT_COUNT,
     );
+  });
+});
+
+const OVER_CAP_EVENT_COUNT = LEDGER_WINDOW_ROW_CAP + 50;
+
+/** A log of general rows, so no chapter is open and the cap may actually apply. */
+function openSessionStoreWithGeneralLog(count: number): SessionStore {
+  const sessionStore = new SessionStore({ sessionId: SESSION_ID });
+  sessionStore.initialise({ cursor: -1, entities: [], participantJoinLog: [] });
+  sessionStore.applyBatch(
+    Array.from({ length: count }, (_unused, index) => ({
+      sessionId: SESSION_ID,
+      sequence: index,
+      kind: "user.message",
+      occurredAt: new Date(Date.UTC(2026, 0, 1, 11, 0, index)).toISOString(),
+      payload: {},
+    })),
+  );
+  return sessionStore;
+}
+
+describe("the ledger feed — what it does not hold", () => {
+  it("offers no load-earlier control, and names the rows the cap took", () => {
+    withLaidOutViewport();
+    const feed = renderFeed(openSessionStoreWithGeneralLog(OVER_CAP_EVENT_COUNT));
+    // No read this console can perform returns rows before the window's head, so
+    // the affordance is absent rather than drawn over an act nobody can complete.
+    expect(feed.querySelector(".meridian-rail__load-earlier")).toBeNull();
+    expect(feed.querySelector(".meridian-find__load-earlier")).toBeNull();
+    expect(feed.textContent).toContain("Older entries are no longer in this window.");
+  });
+
+  it("names entries the stream numbered and never delivered", () => {
+    withLaidOutViewport();
+    const sessionStore = new SessionStore({ sessionId: SESSION_ID });
+    sessionStore.initialise({ cursor: -1, entities: [], participantJoinLog: [] });
+    sessionStore.applyBatch([
+      {
+        sessionId: SESSION_ID,
+        sequence: 0,
+        kind: "user.message",
+        occurredAt: "2026-01-01T11:00:00.000Z",
+        payload: {},
+      },
+      {
+        sessionId: SESSION_ID,
+        sequence: 4,
+        kind: "user.message",
+        occurredAt: "2026-01-01T11:00:04.000Z",
+        payload: {},
+      },
+    ]);
+    const feed = renderFeed(sessionStore);
+    expect(feed.textContent).toContain("Some entries never arrived.");
+    expect(feed.querySelector(".meridian-rail__load-earlier")).toBeNull();
+  });
+
+  it("negative control: a whole log under the cap claims nothing is missing", () => {
+    // Without this the two cases above would pass over a feed that always said
+    // something was missing, which is its own kind of lie about a complete session.
+    withLaidOutViewport();
+    const feed = renderFeed(openSessionStoreWithGeneralLog(5));
+    expect(feed.textContent).not.toContain("Older entries are no longer in this window.");
+    expect(feed.textContent).not.toContain("Some entries never arrived.");
   });
 });

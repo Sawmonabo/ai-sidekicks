@@ -173,18 +173,27 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
           />
         </div>
       </div>
-      <LedgerUnprojectableNotice count={ledgerWindow.unprojectableEventCount} />
+      <LedgerWindowAbsences
+        unprojectableEventCount={ledgerWindow.unprojectableEventCount}
+        droppedRowCount={visible.prunedAwayRows.length}
+        hasUnreceivedEntries={ledgerWindow.hasUnreceivedEntries}
+      />
     </div>
   );
 }
 
 /**
- * What "load earlier" does while the console holds no timeline read.
+ * The "load earlier" handler both controls require, and neither can reach.
  *
- * A named no-op rather than an inline arrow, so the two call sites share one and a
- * reader meets the reason once: this console subscribes and never pages, so there is
- * nothing earlier to fetch. The control still renders — `hasEarlierRows` is what
- * says whether anything is missing, and it is derived from the store's gap list.
+ * The control it belongs to is not rendered: `NO_HISTORY_READ_EXISTS` in
+ * `ledger-feed-model.ts` is what both the rail's clip and the find result carry, and
+ * both draw their button only when that is true. So this is the argument a required
+ * prop demands rather than a control's behaviour, and the case in this component's
+ * test file is what keeps that true — it asserts neither button is in the document
+ * over a log the cap has already pruned.
+ *
+ * It stays a no-op rather than becoming a refusal for the same reason: a refusal is
+ * something a person is shown, and there is nothing here for them to press.
  */
 function NO_EARLIER_ROWS_TO_LOAD(): void {
   // Intentionally empty; see this function's own contract above.
@@ -207,17 +216,61 @@ function LedgerMatchesOutsideWindowNotice(props: {
   );
 }
 
-/** Events the contract package registers no category for, named rather than hidden. */
-function LedgerUnprojectableNotice(props: { readonly count: number }): React.JSX.Element | null {
-  if (props.count === 0) {
+interface LedgerWindowAbsencesProps {
+  /** Events the contract package registers no category for. */
+  readonly unprojectableEventCount: number;
+  /** Rows the log holds and this window does not, because the cap took them. */
+  readonly droppedRowCount: number;
+  /** The store recorded sequences it never received. */
+  readonly hasUnreceivedEntries: boolean;
+}
+
+/**
+ * The three ways this window is not the whole session, each said out loud.
+ *
+ * Three separate sentences because a person's next move differs for each: an
+ * unrecognised type is this build's limit, a dropped row is the window's cap, and a
+ * sequence that never arrived is the stream's. Collapsing any two would tell
+ * somebody the console failed where it merely stopped holding, or the reverse.
+ *
+ * Each of them names the read that is missing rather than offering a control for
+ * it, which is what replaced the "load earlier" button: this console holds one live
+ * subscription and a whole-session snapshot read, and neither takes a cursor.
+ */
+function LedgerWindowAbsences(props: LedgerWindowAbsencesProps): React.JSX.Element | null {
+  if (
+    props.unprojectableEventCount === 0 &&
+    props.droppedRowCount === 0 &&
+    !props.hasUnreceivedEntries
+  ) {
     return null;
   }
   return (
-    <Nothing
-      kind="not-checked"
-      placement="surface"
-      title="Some entries could not be placed."
-      detail={`${String(props.count)} event${props.count === 1 ? "" : "s"} arrived with a type this build does not recognise, so they are not shown.`}
-    />
+    <>
+      {props.unprojectableEventCount === 0 ? null : (
+        <Nothing
+          kind="not-checked"
+          placement="surface"
+          title="Some entries could not be placed."
+          detail={`${String(props.unprojectableEventCount)} event${props.unprojectableEventCount === 1 ? "" : "s"} arrived with a type this build does not recognise, so they are not shown.`}
+        />
+      )}
+      {props.droppedRowCount === 0 ? null : (
+        <Nothing
+          kind="not-loaded"
+          placement="surface"
+          title="Older entries are no longer in this window."
+          detail={`${String(props.droppedRowCount)} entr${props.droppedRowCount === 1 ? "y" : "ies"} left the window as the session grew. This console subscribes to the log and holds no read that fetches a range of it, so there is nothing to press here.`}
+        />
+      )}
+      {props.hasUnreceivedEntries ? (
+        <Nothing
+          kind="not-loaded"
+          placement="surface"
+          title="Some entries never arrived."
+          detail="The session numbered entries this window did not receive. They come back only when the whole session is read again, which the store asks for on its own; no read here fetches a range."
+        />
+      ) : null}
+    </>
   );
 }
