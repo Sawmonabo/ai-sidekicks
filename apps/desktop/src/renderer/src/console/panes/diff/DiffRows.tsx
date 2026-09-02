@@ -63,13 +63,32 @@ export interface DiffRowViewProps {
   readonly showWhitespaceChanges: boolean;
   /** Reveal one more band of this row's gap. Only a `gap` row calls it. */
   readonly onExpandGap: (fileIndex: number, hunkIndex: number) => void;
+  /**
+   * The virtualizer's measurement callback, in wrap mode only.
+   *
+   * Absent, the row is left to the fixed estimate the sheet also paints it at.
+   * Present, the row reports its own height — which is what a wrapped line three
+   * lines tall has to do for the offsets below it to be true. It is one stable
+   * function for the life of the virtualizer, so the memo above still holds.
+   */
+  readonly rowElementRef?: ((element: HTMLDivElement | null) => void) | undefined;
 }
 
 export const DiffRowView: React.MemoExoticComponent<
   (props: DiffRowViewProps) => React.JSX.Element
 > = memo(function DiffRowView(props: DiffRowViewProps): React.JSX.Element {
   const { row, index, rowIndex } = props;
-  const rowProps = { role: "row", "aria-rowindex": rowIndex + 1 } as const;
+  // `data-index` is the virtualizer's own contract for a measured node: it reads
+  // the row's index back off the element it was handed, so the attribute rides
+  // every row rather than only the wrapped ones — an attribute that appears and
+  // disappears with a view toggle is one more thing to get wrong, and it paints
+  // nothing either way.
+  const rowProps = {
+    role: "row",
+    "aria-rowindex": rowIndex + 1,
+    "data-index": rowIndex,
+    ref: props.rowElementRef,
+  } as const;
 
   if (row.kind === "file-header") {
     const file = index.model.files[row.fileIndex];

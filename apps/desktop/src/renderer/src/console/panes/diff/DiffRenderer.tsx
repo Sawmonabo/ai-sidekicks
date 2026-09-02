@@ -24,23 +24,47 @@
 //     overflows on both axes and the wrap toggle is the other answer; §10.6 names
 //     the clipped-line case as the one that must not happen.
 //
-// THE WINDOW IS A COMPUTATION, NOT AN EFFECT. `hunk-virtualization.ts` answers
-// which rows a scroll position needs; this file measures the scroller and asks.
-// The measurement is the only stateful thing here and it lives in a hook, because
-// a render body that read `scrollTop` would be reading a value React had not
-// caused and could not re-render for.
+// THE WINDOW IS THE ADOPTED VIRTUALIZER'S, AND THE FLATTENING IS OURS.
+// `Spec-023 §Console Libraries` ADOPTs `@tanstack/react-virtual` with constraints,
+// and this is the seam it is adopted at. `hunk-virtualization.ts` still answers
+// WHICH ROWS EXIST — a diff is a nested structure and no virtualizer's contract
+// starts from anything but a flat count — and the virtualizer answers which of
+// them a scroll position needs. The console carried both halves once, and the
+// half it wrote had a fixed row height baked into it, which is the defect below.
+//
+// WHY MEASUREMENT IS BOUND TO THE WRAP TOGGLE AND NOT ALWAYS ON. With wrap off,
+// the sheet gives every row `block-size: var(--meridian-diff-row-height)` and the
+// row height is a FACT: the estimate is exact, nothing is measured, and no
+// measurement pass can drift the offsets a hair off the painted rows. With wrap
+// on, the sheet releases that height (`block-size: auto`) and a long line becomes
+// three rows tall — so the estimate stops being the truth and every rendered row
+// reports its own measured height through `measureElement`. A fixed-height window
+// over auto-height rows is exactly the state where the offsets and the DOM
+// diverge and content jumps as it scrolls.
+//
+// The measured sizes belong to ONE wrap mode, which is why the toggle drops them:
+// turning wrap off would otherwise leave the tall measurements cached and space
+// unwrapped rows at wrapped heights.
+//
+// ONE SCROLL WRITE EXISTS AND IT IS THE LIBRARY'S, in wrap mode only. When a row
+// ABOVE the fold settles from its estimate to a taller measurement, the
+// virtualizer compensates the scroll offset by the delta so the reader's place
+// does not slide out from under them. That is layout anchoring rather than a
+// commanded scroll — the console's scroll chokepoint owns "take me to X", and
+// nothing here asks for one.
 
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useVirtualizer, type Virtualizer } from "@tanstack/react-virtual";
+import { useLayoutEffect, useMemo, useRef } from "react";
 
 import { Nothing } from "../../primitives/index.js";
-import { DIFF_ROW_HEIGHT_PX, DIFF_VIEWPORT_FALLBACK_HEIGHT_PX } from "./diff-bounds.js";
+import {
+  DIFF_ROW_HEIGHT_PX,
+  DIFF_VIEWPORT_FALLBACK_HEIGHT_PX,
+  DIFF_WINDOW_OVERSCAN_ROWS,
+} from "./diff-bounds.js";
 import type { ConsoleDiffModel, DiffViewMode } from "./diff-model.js";
 import { DiffRowView } from "./DiffRows.js";
-import {
-  DiffRowIndex,
-  type DiffGapExpansion,
-  type DiffViewportMetrics,
-} from "./hunk-virtualization.js";
+import { DiffRowIndex, type DiffGapExpansion } from "./hunk-virtualization.js";
 
 export interface DiffRendererProps {
   readonly model: ConsoleDiffModel;
@@ -53,6 +77,14 @@ export interface DiffRendererProps {
    */
   readonly showWhitespaceChanges: boolean;
   readonly expansion: DiffGapExpansion;
+  /**
+   * Show only this file of the model, by its wire-verbatim path.
+   *
+   * A narrowing rather than a smaller model, so `fileIndex` on every row this
+   * renderer hands back — and on every `onExpandGap` call — still addresses
+   * `model.files`. The pane narrows; the card shows the whole change set.
+   */
+  readonly shownFilePath?: string | undefined;
   readonly onExpandGap: (fileIndex: number, hunkIndex: number) => void;
   /**
    * Height the scroller is capped at, in CSS pixels. The inline card supplies
@@ -64,74 +96,62 @@ export interface DiffRendererProps {
 }
 
 /**
- * Measure a scroller, and keep measuring it.
+ * Drop the measured row heights whenever the wrap toggle moves.
  *
- * A `ResizeObserver` rather than a window listener: the pane is resized by the
- * deck's splitter and by a window move between displays, and neither raises a
- * window resize. The observer is created once, disconnected on unmount, and never
- * writes `scrollTop` — the console's scroll chokepoint owns programmatic scroll
- * and this hook only ever reads.
+ * Measured sizes belong to ONE wrap mode: turning wrap off would otherwise leave
+ * the tall measurements cached and space unwrapped rows at wrapped heights, which
+ * is the drift this renderer exists to have none of. Turning wrap on clears them
+ * too and the rows re-measure, because the measurement ref they are handed
+ * changes identity in that direction and React calls the new one with the node.
+ *
+ * NOT ON MOUNT, and that is the whole reason this is a guarded hook rather than
+ * an effect with the toggle in its dependency list. The rows are measured as they
+ * attach, which happens in the first commit — BEFORE a parent's layout effect
+ * runs — so an unguarded reset would wipe exactly the measurements it was meant
+ * to protect, and nothing would re-take them until a row resized.
  */
-function useDiffViewport(): {
-  readonly scrollerRef: React.RefObject<HTMLDivElement | null>;
-  /**
-   * What the scroller currently measures. One state rather than two, so a scroll
-   * and a resize landing in one frame produce one render — the reason the store
-   * coalesces its applies.
-   */
-  readonly viewport: DiffViewportMetrics;
-  readonly onScroll: () => void;
-} {
-  const scrollerRef = useRef<HTMLDivElement | null>(null);
-  const [viewport, setViewport] = useState<DiffViewportMetrics>({
-    scrollTopPx: 0,
-    viewportHeightPx: DIFF_VIEWPORT_FALLBACK_HEIGHT_PX,
-  });
-
-  const measure = useCallback(() => {
-    const scroller = scrollerRef.current;
-    if (scroller === null) {
+function useMeasurementsScopedToWrap(
+  virtualizer: Virtualizer<HTMLDivElement, HTMLDivElement>,
+  wrapLongLines: boolean,
+): void {
+  const measuredUnderWrap = useRef(wrapLongLines);
+  useLayoutEffect(() => {
+    if (measuredUnderWrap.current === wrapLongLines) {
       return;
     }
-    const scrollTopPx = scroller.scrollTop;
-    const viewportHeightPx = scroller.clientHeight;
-    setViewport((previous) =>
-      previous.scrollTopPx === scrollTopPx && previous.viewportHeightPx === viewportHeightPx
-        ? previous
-        : { scrollTopPx, viewportHeightPx },
-    );
-  }, []);
-
-  useLayoutEffect(() => {
-    const scroller = scrollerRef.current;
-    if (scroller === null) {
-      return undefined;
-    }
-    measure();
-    // `ResizeObserver` is absent in no environment this console runs in, and the
-    // test environments provide it; a guard here would be a branch nothing takes
-    // and nothing covers.
-    const observer = new ResizeObserver(measure);
-    observer.observe(scroller);
-    return () => {
-      observer.disconnect();
-    };
-  }, [measure]);
-
-  return { scrollerRef, viewport, onScroll: measure };
+    measuredUnderWrap.current = wrapLongLines;
+    virtualizer.measure();
+  }, [virtualizer, wrapLongLines]);
 }
 
 export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
-  const { scrollerRef, viewport, onScroll } = useDiffViewport();
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
 
   // Re-flattened only when the diff or its expansion changes, never per scroll
   // tick: the index is what a scroll READS and a scroll changes neither of its
   // inputs.
   const index = useMemo(
-    () => new DiffRowIndex(props.model, props.expansion),
-    [props.model, props.expansion],
+    () => new DiffRowIndex(props.model, props.expansion, props.shownFilePath),
+    [props.model, props.expansion, props.shownFilePath],
   );
-  const rowWindow = useMemo(() => index.windowFor(viewport), [index, viewport]);
+
+  const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
+    count: index.rowCount,
+    getScrollElement: () => scrollerRef.current,
+    estimateSize: () => DIFF_ROW_HEIGHT_PX,
+    overscan: DIFF_WINDOW_OVERSCAN_ROWS,
+    // A first paint happens before any layout callback runs, so the window has
+    // to be computed against something; this bound says which something, and
+    // the observed rect replaces it on the very next tick.
+    initialRect: { width: 0, height: DIFF_VIEWPORT_FALLBACK_HEIGHT_PX },
+    // React 19 warns when a virtualizer flushes synchronously from a lifecycle
+    // method, and the console has no frame where a scroll tick must land in the
+    // same commit as the event that caused it.
+    useFlushSync: false,
+  });
+
+  const { wrapLongLines } = props;
+  useMeasurementsScopedToWrap(virtualizer, wrapLongLines);
 
   if (index.rowCount === 0) {
     return (
@@ -146,22 +166,24 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
     );
   }
 
+  const virtualRows = virtualizer.getVirtualItems();
   const rows: React.JSX.Element[] = [];
-  for (let rowIndex = rowWindow.startIndex; rowIndex < rowWindow.endIndex; rowIndex += 1) {
-    const row = index.rowAt(rowIndex);
+  for (const virtualRow of virtualRows) {
+    const row = index.rowAt(virtualRow.index);
     if (row === undefined) {
       continue;
     }
     rows.push(
       <DiffRowView
-        key={rowIndex}
-        rowIndex={rowIndex}
+        key={virtualRow.index}
+        rowIndex={virtualRow.index}
         row={row}
         index={index}
         viewMode={props.viewMode}
         showAttributionMarks={props.showAttributionMarks}
         showWhitespaceChanges={props.showWhitespaceChanges}
         onExpandGap={props.onExpandGap}
+        rowElementRef={wrapLongLines ? virtualizer.measureElement : undefined}
       />,
     );
   }
@@ -169,7 +191,7 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
   const className = [
     "meridian-diff",
     `meridian-diff--${props.viewMode}`,
-    props.wrapLongLines ? "meridian-diff--wrap" : "",
+    wrapLongLines ? "meridian-diff--wrap" : "",
   ]
     .filter((part) => part !== "")
     .join(" ");
@@ -178,7 +200,6 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
     <div
       className={className}
       ref={scrollerRef}
-      onScroll={onScroll}
       // A scroller is only keyboard-reachable if it can take focus, and a diff
       // that can be read with a mouse and not with a keyboard is a diff half the
       // operators cannot read.
@@ -201,11 +222,13 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
           diff, and the leading spacer puts the rendered window at its true
           offset. Two boxes rather than absolute positioning: a positioned row
           would leave the rows out of the document's own flow, which is what makes
-          a virtualized list unreadable to a screen reader that walks it. */}
-      <div className="meridian-diff__content" style={{ blockSize: rowWindow.totalHeightPx }}>
+          a virtualized list unreadable to a screen reader that walks it. The
+          rendered rows are contiguous and stack at the heights the virtualizer
+          measured them at, so the flow and the offsets are the same arithmetic. */}
+      <div className="meridian-diff__content" style={{ blockSize: virtualizer.getTotalSize() }}>
         <div
           className="meridian-diff__window"
-          style={{ transform: `translateY(${String(rowWindow.leadingSpacerPx)}px)` }}
+          style={{ transform: `translateY(${String(virtualRows[0]?.start ?? 0)}px)` }}
         >
           {rows}
         </div>

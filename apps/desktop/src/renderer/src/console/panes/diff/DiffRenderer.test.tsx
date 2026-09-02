@@ -1,40 +1,110 @@
-// The renderer's claims, and the two it would be worst to get wrong.
+// The renderer's claims, and the three it would be worst to get wrong.
 //
 // The ordinary ones are that the rows arrive, that both layouts draw what each
-// layout should, and that a long line is never clipped. The two that matter more
-// are the ones a reviewer cannot see by looking at a screenshot: that the row
-// count on screen is bounded by the WINDOW and not by the diff, which is the only
-// reason a five-thousand-line change set is openable at all; and that no line
-// kind is painted amber or red, which is the two-hue rule and is exactly the rule
-// a diff renderer is most likely to break.
+// layout should, and that a long line is never clipped. The three that matter
+// more are the ones a reviewer cannot see by looking at a screenshot: that the
+// row count on screen is bounded by the WINDOW and not by the diff, which is the
+// only reason a five-thousand-line change set is openable at all; that with wrap
+// ON the window is placed at the heights the rows were MEASURED at rather than at
+// the height they were estimated at, which is the case the sheet's
+// `block-size: auto` creates and a fixed-height window silently gets wrong; and
+// that no line kind is painted amber or red, which is the two-hue rule and is
+// exactly the rule a diff renderer is most likely to break.
+//
+// HOW A ROW GETS A HEIGHT HERE. happy-dom has no layout engine, so every box it
+// reports is zero and a window measured against one would be measured against
+// nothing. `diff-layout-fixture.ts` supplies the heights at the seam the library
+// reads them from, and every case here installs it. Nothing about the window is
+// reimplemented: the library computes it from the numbers a browser would have
+// given it.
 
-import { render } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { DIFF_ROW_HEIGHT_PX, DIFF_WINDOW_OVERSCAN_ROWS } from "./diff-bounds.js";
 import { ENDURANCE_DIFF_SHAPE, SMALL_DIFF_SHAPE, buildDiffFixture } from "./diff-fixture.js";
+import {
+  DIFF_FIXTURE_VIEWPORT_HEIGHT_PX,
+  DiffLayoutFixture,
+  type DiffGrownRow,
+} from "./diff-layout-fixture.js";
 import { DiffRenderer } from "./DiffRenderer.js";
 import { expandGap, type DiffGapExpansion } from "./hunk-virtualization.js";
 
 const SMALL_DIFF = buildDiffFixture(SMALL_DIFF_SHAPE);
 const NO_EXPANSION: DiffGapExpansion = new Map();
 
+/**
+ * The rendered-row ceiling one window may reach.
+ *
+ * Derived from the bounds rather than picked: the viewport's own rows plus
+ * overscan on both sides, plus the boundary row. A window that returned more than
+ * this is a virtualizer that is not virtualizing.
+ */
+const MAXIMUM_WINDOW_ROW_COUNT =
+  Math.ceil(DIFF_FIXTURE_VIEWPORT_HEIGHT_PX / DIFF_ROW_HEIGHT_PX) +
+  DIFF_WINDOW_OVERSCAN_ROWS * 2 +
+  2;
+
+/** The row the wrapped cases grow, and how tall a three-line wrap makes it. */
+const WRAPPED_ROW: DiffGrownRow = { rowIndex: 3, heightPx: DIFF_ROW_HEIGHT_PX * 3 };
+
+const layout = new DiffLayoutFixture();
+
+beforeEach(() => {
+  layout.install({ viewportHeightPx: DIFF_FIXTURE_VIEWPORT_HEIGHT_PX });
+});
+
+afterEach(() => {
+  layout.restore();
+});
+
+/** The offset the rendered window is placed at, in CSS pixels. */
+function windowOffsetPx(container: HTMLElement): number {
+  const transform = container.querySelector<HTMLElement>(".meridian-diff__window")?.style.transform;
+  return Number(/translateY\((?<offset>-?[\d.]+)px\)/u.exec(transform ?? "")?.groups?.["offset"]);
+}
+
+/** The index of the first row the window rendered. */
+function firstRenderedRowIndex(container: HTMLElement): number {
+  return Number(container.querySelector(".meridian-diff__row")?.getAttribute("data-index"));
+}
+
+/** The row count the scroller reports for the whole diff. */
+function reportedRowCount(container: HTMLElement): number {
+  return Number(container.querySelector(".meridian-diff")?.getAttribute("aria-rowcount"));
+}
+
+/** The height the scroller holds open for the whole diff, in CSS pixels. */
+function contentHeightPx(container: HTMLElement): number {
+  return Number(
+    container
+      .querySelector<HTMLElement>(".meridian-diff__content")
+      ?.style.blockSize.replace("px", ""),
+  );
+}
+
+/** The renderer's props for a case, with whatever that case cares about replaced. */
+function diffRendererProps(
+  overrides: Partial<React.ComponentProps<typeof DiffRenderer>> = {},
+): React.ComponentProps<typeof DiffRenderer> {
+  return {
+    model: SMALL_DIFF,
+    viewMode: "unified",
+    showAttributionMarks: true,
+    wrapLongLines: false,
+    showWhitespaceChanges: true,
+    expansion: NO_EXPANSION,
+    onExpandGap: () => undefined,
+    label: "Diff, main to feat/rate-limit-wiring",
+    ...overrides,
+  };
+}
+
 function renderDiff(
   overrides: Partial<React.ComponentProps<typeof DiffRenderer>> = {},
 ): HTMLElement {
-  const { container } = render(
-    <DiffRenderer
-      model={SMALL_DIFF}
-      viewMode="unified"
-      showAttributionMarks
-      wrapLongLines={false}
-      showWhitespaceChanges
-      expansion={NO_EXPANSION}
-      onExpandGap={() => undefined}
-      label="Diff, main to feat/rate-limit-wiring"
-      {...overrides}
-    />,
-  );
-  return container;
+  return render(<DiffRenderer {...diffRendererProps(overrides)} />).container;
 }
 
 describe("diff renderer — the rows", () => {
@@ -66,12 +136,14 @@ describe("diff renderer — the rows", () => {
 
   it("renders only a window of a five-thousand-line change set", () => {
     // The claim the whole module exists for. A renderer that drew every row would
-    // pass every other case in this file and cost about 6,600 DOM rows here.
+    // pass every other case in this file and cost about 6,600 DOM rows here. The
+    // ceiling is derived from the bounds against a real viewport height, so it
+    // holds the window to the pane it is drawn in rather than to a round number.
     const bigDiff = buildDiffFixture(ENDURANCE_DIFF_SHAPE);
     const container = renderDiff({ model: bigDiff });
     const renderedRowCount = container.querySelectorAll(".meridian-diff__row").length;
     expect(renderedRowCount).toBeGreaterThan(0);
-    expect(renderedRowCount).toBeLessThan(100);
+    expect(renderedRowCount).toBeLessThanOrEqual(MAXIMUM_WINDOW_ROW_COUNT);
   });
 
   it("negative control: the big diff really is big, so the bound above is not vacuous", () => {
@@ -177,6 +249,80 @@ describe("diff renderer — the view controls it is handed", () => {
       renderDiff({ wrapLongLines: true }).querySelector(".meridian-diff--wrap"),
     ).not.toBeNull();
     expect(renderDiff({ wrapLongLines: false }).querySelector(".meridian-diff--wrap")).toBeNull();
+  });
+});
+
+describe("diff renderer — a wrapped row and the offsets under it", () => {
+  const bigDiff = buildDiffFixture(ENDURANCE_DIFF_SHAPE);
+  const grownByPx = WRAPPED_ROW.heightPx - DIFF_ROW_HEIGHT_PX;
+
+  beforeEach(() => {
+    layout.install({
+      viewportHeightPx: DIFF_FIXTURE_VIEWPORT_HEIGHT_PX,
+      grownRow: WRAPPED_ROW,
+    });
+  });
+
+  it("holds the scroller open at the height the rows measured, not the height they were estimated at", () => {
+    // One row three lines tall, and the whole diff is that much taller. With the
+    // sheet at `block-size: auto` this is what the scrollbar has to report; a
+    // window that multiplied a row count by a constant would report the estimate
+    // and scroll past the end of the content.
+    const container = renderDiff({ model: bigDiff, wrapLongLines: true });
+    expect(contentHeightPx(container)).toBe(
+      reportedRowCount(container) * DIFF_ROW_HEIGHT_PX + grownByPx,
+    );
+  });
+
+  it("negative control: with wrap off nothing is measured and the estimate is the height", () => {
+    // The same stub, the same grown row, and the unwrapped path must ignore it —
+    // which is what keeps the unwrapped pane pixel-for-pixel what it was before a
+    // virtualizer was adopted at all.
+    const container = renderDiff({ model: bigDiff, wrapLongLines: false });
+    expect(contentHeightPx(container)).toBe(reportedRowCount(container) * DIFF_ROW_HEIGHT_PX);
+  });
+
+  it("forgets the measured heights when wrap is turned back off", () => {
+    // The one direction the reset is for. The rows are already mounted, so their
+    // measurement refs do not fire again and nothing re-takes a height; without
+    // the reset the unwrapped diff would keep spacing itself at wrapped heights.
+    const props = diffRendererProps({ model: bigDiff, wrapLongLines: true });
+    const { container, rerender } = render(<DiffRenderer {...props} />);
+    const rowCount = reportedRowCount(container);
+    expect(contentHeightPx(container)).toBe(rowCount * DIFF_ROW_HEIGHT_PX + grownByPx);
+
+    rerender(<DiffRenderer {...props} wrapLongLines={false} />);
+    expect(contentHeightPx(container)).toBe(rowCount * DIFF_ROW_HEIGHT_PX);
+  });
+
+  it("places the window below a wrapped row at the offset that row was measured at", () => {
+    // Scroll past the grown row, then ask where the window was put. Every row
+    // above the first rendered one is one row tall except the grown one, so the
+    // offset is the row count times the row height PLUS what that one row grew
+    // by — and the case is only worth anything if the scroll actually cleared it.
+    const container = renderDiff({ model: bigDiff, wrapLongLines: true });
+    const scroller = container.querySelector<HTMLElement>(".meridian-diff");
+    expect(scroller).not.toBeNull();
+    scroller!.scrollTop = 4_000;
+    fireEvent.scroll(scroller!);
+
+    const firstRowIndex = firstRenderedRowIndex(container);
+    expect(firstRowIndex).toBeGreaterThan(WRAPPED_ROW.rowIndex);
+    expect(windowOffsetPx(container)).toBe(firstRowIndex * DIFF_ROW_HEIGHT_PX + grownByPx);
+  });
+
+  it("negative control: the constant-height offset is not the offset it lands on", () => {
+    // Without this the case above would pass over a window still placed at
+    // `index x row height` whenever the grown row happened to add nothing — which
+    // is exactly what the replaced arithmetic did on every scroll.
+    const container = renderDiff({ model: bigDiff, wrapLongLines: true });
+    const scroller = container.querySelector<HTMLElement>(".meridian-diff");
+    scroller!.scrollTop = 4_000;
+    fireEvent.scroll(scroller!);
+
+    expect(windowOffsetPx(container)).not.toBe(
+      firstRenderedRowIndex(container) * DIFF_ROW_HEIGHT_PX,
+    );
   });
 });
 

@@ -1,9 +1,11 @@
-// The flattening and the window, which are the two claims the diff surfaces rest
-// on and the two nothing else in the console can check.
+// The flattening, which is the claim the diff surfaces rest on and the one
+// nothing else in the console can check.
 //
-// Every case here runs without a DOM, because the arithmetic is separable from
+// Every case here runs without a DOM, because the addressing is separable from
 // the rendering — which is the property that lets the endurance tier measure a
-// five-thousand-line change set at all.
+// five-thousand-line change set at all. The WINDOW is no longer this module's:
+// `@tanstack/react-virtual` computes it, and the claims about it are asserted
+// against the DOM in `DiffRenderer.test.tsx`, where a measured row can exist.
 
 import { describe, expect, it } from "vitest";
 
@@ -94,6 +96,42 @@ describe("hunk virtualization — flattening", () => {
   });
 });
 
+describe("hunk virtualization — narrowing to one file", () => {
+  const secondFilePath = SMALL_DIFF.files[1]?.path ?? "";
+
+  it("keeps the model's own file index on every row it hands out", () => {
+    // The whole point of narrowing rather than filtering. A renumbered index
+    // would call the shown file zero, and the host resolving how much context a
+    // gap holds would resolve the FIRST file's.
+    const narrowed = new DiffRowIndex(SMALL_DIFF, new Map(), secondFilePath);
+    expect(narrowed.rowAt(0)).toStrictEqual({ kind: "file-header", fileIndex: 1 });
+    expect(narrowed.rowAt(1)).toStrictEqual({
+      kind: "gap",
+      fileIndex: 1,
+      hunkIndex: 0,
+      hiddenLineCount: SMALL_DIFF_SHAPE.precedingContextPerHunk,
+    });
+  });
+
+  it("holds only the named file's rows, and reports the whole model unchanged", () => {
+    const narrowed = new DiffRowIndex(SMALL_DIFF, new Map(), secondFilePath);
+    expect(narrowed.rowCount).toBe(expectedRowCount(0) / SMALL_DIFF_SHAPE.fileCount);
+    // The model is not narrowed with the rows — a row's `fileIndex` addresses it,
+    // and a smaller model would make that address mean something else.
+    expect(narrowed.model.files).toHaveLength(SMALL_DIFF_SHAPE.fileCount);
+    expect(narrowed.rowIndexOfFile(1)).toBe(0);
+    expect(narrowed.rowIndexOfFile(0)).toBeUndefined();
+  });
+
+  it("negative control: unnarrowed, the same row indices address the first file", () => {
+    // Without this the case above would pass over an index that ignored the path
+    // and always started at the file it was given first.
+    const whole = new DiffRowIndex(SMALL_DIFF);
+    expect(whole.rowAt(0)).toStrictEqual({ kind: "file-header", fileIndex: 0 });
+    expect(whole.rowIndexOfFile(0)).toBe(0);
+  });
+});
+
 describe("hunk virtualization — gap expansion with predecessor retention", () => {
   it("reveals one band, and the gap row survives while anything is hidden", () => {
     const expansion = expandGap(new Map(), 0, 0, SMALL_DIFF_SHAPE.precedingContextPerHunk);
@@ -161,58 +199,13 @@ describe("hunk virtualization — gap expansion with predecessor retention", () 
   });
 });
 
-describe("hunk virtualization — the window", () => {
-  it("renders the viewport plus overscan, not the whole diff", () => {
-    const index = new DiffRowIndex(buildDiffFixture(ENDURANCE_DIFF_SHAPE));
-    const viewportHeightPx = 400;
-    const rowWindow = index.windowFor({ scrollTopPx: 0, viewportHeightPx });
-    const visibleRowCount = Math.ceil(viewportHeightPx / DIFF_ROW_HEIGHT_PX);
-    expect(rowWindow.startIndex).toBe(0);
-    expect(rowWindow.endIndex).toBe(visibleRowCount + DIFF_WINDOW_OVERSCAN_ROWS + 1);
-    expect(rowWindow.endIndex).toBeLessThan(index.rowCount);
-  });
-
-  it("offsets the window by the rows it skipped, and holds the full height open", () => {
-    const index = new DiffRowIndex(buildDiffFixture(ENDURANCE_DIFF_SHAPE));
-    const rowWindow = index.windowFor({ scrollTopPx: 10_000, viewportHeightPx: 400 });
-    expect(rowWindow.leadingSpacerPx).toBe(rowWindow.startIndex * DIFF_ROW_HEIGHT_PX);
-    expect(rowWindow.totalHeightPx).toBe(index.rowCount * DIFF_ROW_HEIGHT_PX);
-  });
-
-  it("clamps a scroll position past the content instead of asking for rows that do not exist", () => {
-    const index = new DiffRowIndex(SMALL_DIFF);
-    const rowWindow = index.windowFor({ scrollTopPx: 10_000_000, viewportHeightPx: 400 });
-    expect(rowWindow.startIndex).toBeLessThan(index.rowCount);
-    expect(rowWindow.endIndex).toBeLessThanOrEqual(index.rowCount);
-    expect(rowWindow.endIndex).toBeGreaterThanOrEqual(rowWindow.startIndex);
-  });
-
-  it("answers an empty diff without a window at all", () => {
-    const empty = new DiffRowIndex({ ...SMALL_DIFF, files: [] });
-    expect(empty.windowFor({ scrollTopPx: 0, viewportHeightPx: 400 })).toStrictEqual({
-      startIndex: 0,
-      endIndex: 0,
-      leadingSpacerPx: 0,
-      totalHeightPx: 0,
-    });
-  });
-
-  it("negative control: the window moves when the scroll position does", () => {
-    // Without this, a `windowFor` that ignored `scrollTopPx` and always answered
-    // from the top would satisfy every bound above.
-    const index = new DiffRowIndex(buildDiffFixture(ENDURANCE_DIFF_SHAPE));
-    const top = index.windowFor({ scrollTopPx: 0, viewportHeightPx: 400 });
-    const lower = index.windowFor({ scrollTopPx: 10_000, viewportHeightPx: 400 });
-    expect(lower.startIndex).toBeGreaterThan(top.startIndex);
-  });
-});
-
 describe("hunk virtualization — the bounds it spends", () => {
-  it("overscans in both directions and caps a card above one row", () => {
+  it("overscans in both directions and estimates a row above zero", () => {
     // The bounds are a table of numbers, and a table of numbers is only a
     // decision while the relations between them hold. An overscan of zero would
-    // expose the unrendered band on every flick; a height cap below one row would
-    // render a card with nothing in it.
+    // expose the unrendered band on every flick, and a row height of zero would
+    // hand the virtualizer an estimate under which every row sits at the same
+    // offset.
     expect(DIFF_WINDOW_OVERSCAN_ROWS).toBeGreaterThan(0);
     expect(DIFF_GAP_EXPANSION_LINE_COUNT).toBeGreaterThan(0);
     expect(DIFF_ROW_HEIGHT_PX).toBeGreaterThan(0);

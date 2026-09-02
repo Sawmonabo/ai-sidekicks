@@ -14,14 +14,14 @@
 /**
  * The height of one rendered diff row, in CSS pixels.
  *
- * A fixed row height rather than a measured one, and that is the design decision
- * this file's virtualization rests on: measured rows need a `ResizeObserver` per
- * row and a re-layout pass whenever one settles, which is the cost the console's
- * frame budget cannot absorb over a forty-file change set. Every row this family
- * renders — file header, hunk header, gap, and line — is one line of mono text at
- * the same leading, so the height is a fact rather than an estimate, and a long
- * line overflows horizontally (or wraps into its own scroller) instead of growing
- * the row.
+ * Spent twice, and the two spendings are the same number for a reason. The sheet
+ * paints every unwrapped row at exactly this height — file header, hunk header,
+ * gap, and line are each one line of mono text at the same leading — and the
+ * virtualizer takes it as the size it ESTIMATES an unmeasured row at. With wrap
+ * off the estimate is therefore exact and nothing is ever measured, which is what
+ * keeps the offsets and the painted rows in step to the pixel; with wrap on the
+ * sheet releases the height, a long line grows the row, and the rows report their
+ * measured heights instead. One value under one owner, so the two cannot drift.
  */
 export const DIFF_ROW_HEIGHT_PX = 20;
 
@@ -63,10 +63,11 @@ export const INLINE_DIFF_CARD_HEIGHT_CAP_PX = 300;
  * measured.
  *
  * A first paint happens before any layout callback runs, so the window has to be
- * computed against something. Deliberately generous rather than minimal: too
- * small and the first frame paints a short strip that grows a beat later, which
- * reads as a paint that did not finish. Too large costs one frame of extra rows
- * and nothing else, which is the cheaper error.
+ * computed against something — the virtualizer's `initialRect`, which its own
+ * rect observer replaces on the next tick. Deliberately generous rather than
+ * minimal: too small and the first frame paints a short strip that grows a beat
+ * later, which reads as a paint that did not finish. Too large costs one frame of
+ * extra rows and nothing else, which is the cheaper error.
  */
 export const DIFF_VIEWPORT_FALLBACK_HEIGHT_PX = 640;
 
