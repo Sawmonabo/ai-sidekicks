@@ -70,6 +70,30 @@ const AGENT_PARTICIPANT_ID = "019b7b30-0280-7a6e-8100-d1a4c1150034";
  */
 const TERMINAL_HOST_NODE_ID = "node-workstation";
 
+/**
+ * The scenario's cast, by role, for the surfaces that render one of them.
+ *
+ * `participantIdsInJoinOrder` carries the same three ids, and a caller indexing it
+ * gets `string | undefined` — so every consumer would either widen its own types or
+ * write a presence check for a fact this module already knows. Naming them here
+ * gives the family's tests the wire-declared id AND the role it plays, which an
+ * index does not, and keeps the ids declared exactly once.
+ */
+export interface TerminalScenarioCast {
+  /** The session's owner. Holds the lease first, and holds it at the end. */
+  readonly owner: string;
+  /** The collaborator the lease changes hands to. Never a viewer — see above. */
+  readonly collaborator: string;
+  /** The attached agent, whose run's idling is one of the five release reasons. */
+  readonly agent: string;
+}
+
+export const TERMINAL_SCENARIO_CAST: TerminalScenarioCast = {
+  owner: HUMAN_PARTICIPANT_ID,
+  collaborator: SECOND_HUMAN_PARTICIPANT_ID,
+  agent: AGENT_PARTICIPANT_ID,
+};
+
 export const TERMINAL_SCENARIO: ConsoleScenario = {
   id: TERMINAL_SCENARIO_ID,
   label: "Lease changing hands",

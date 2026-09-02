@@ -16,7 +16,7 @@ import { fireEvent, render, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
-import { TERMINAL_SCENARIO } from "../bridge/scenarios/terminal.js";
+import { TERMINAL_SCENARIO, TERMINAL_SCENARIO_CAST } from "../bridge/scenarios/terminal.js";
 import { LeaseLine, type TerminalParticipantMark } from "./LeaseLine.js";
 import {
   UNREAD_TERMINAL_LEASE,
@@ -24,8 +24,17 @@ import {
   type TerminalLeaseTransition,
 } from "./lease-model.js";
 
-const HOLDER = "participant-priya";
-const VIEWER = "participant-you";
+/**
+ * The holder and the viewer, read off the scenario's join log rather than invented.
+ *
+ * `lease-model.test.ts`'s reason: a readable placeholder here would be a participant
+ * id no daemon could emit, sitting beside a fixture whose own beats are wire-declared
+ * UUIDs. The cast names the role each one plays, which an index into the join log
+ * does not. The line renders the id verbatim when no roster supplies a name, so the
+ * cases below assert against the same string the pane would show.
+ */
+const VIEWER = TERMINAL_SCENARIO_CAST.owner;
+const HOLDER = TERMINAL_SCENARIO_CAST.collaborator;
 
 function refusingBridge(): ConsoleBridge {
   return createFixtureBridge({ scenario: TERMINAL_SCENARIO });

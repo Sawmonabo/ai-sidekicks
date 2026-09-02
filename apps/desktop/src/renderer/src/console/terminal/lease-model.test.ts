@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 
+import { TERMINAL_SCENARIO_CAST } from "../bridge/scenarios/terminal.js";
 import type { ConsoleSessionEvent } from "../store/index.js";
 import { TERMINAL_LEASE_LEDGER_CAP } from "./constants.js";
 import {
@@ -22,8 +23,17 @@ import {
   type TerminalLeaseTransitionReason,
 } from "./lease-model.js";
 
-const VIEWER = "participant-you";
-const OTHER = "participant-priya";
+/**
+ * Two participants, taken from the scenario rather than written down.
+ *
+ * The fold treats a participant id as an opaque string, so a readable placeholder
+ * would pass every case here — and would be the one participant id in this family
+ * that no daemon could ever emit, sitting beside beats the scenario deliberately
+ * moved onto wire-declared UUIDs. Reading them off the join log keeps the family's
+ * fixtures saying one thing about what a participant id is.
+ */
+const VIEWER = TERMINAL_SCENARIO_CAST.owner;
+const OTHER = TERMINAL_SCENARIO_CAST.collaborator;
 
 function transitionEvent(
   sequence: number,

@@ -17,7 +17,7 @@ import { render, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import { TERMINAL_SCENARIO } from "../../bridge/scenarios/terminal.js";
+import { TERMINAL_SCENARIO, TERMINAL_SCENARIO_CAST } from "../../bridge/scenarios/terminal.js";
 import { SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
 import { TerminalPane } from "./TerminalPane.js";
 
@@ -99,7 +99,10 @@ describe("terminal pane — bound to a session", () => {
     // Through the first transition: a `taken` by the first participant to join.
     const region = renderPane(storeThrough(1));
     expect(region.textContent).toContain("Held by");
-    expect(region.textContent).toContain(TERMINAL_SCENARIO.participantIdsInJoinOrder[0]);
+    // The owner by ROLE rather than by position in the join log: the assertion is
+    // that the pane shows the participant the log's first `taken` named, and a
+    // beat inserted ahead of that one would silently move an index.
+    expect(region.textContent).toContain(TERMINAL_SCENARIO_CAST.owner);
   });
 
   it("renders the free lease the log's next transition establishes", () => {
