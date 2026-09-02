@@ -1,4 +1,4 @@
-// Route in, surface out — and three ways of having nothing to show.
+// Route in, surface out — and four ways of having nothing to show.
 //
 // Resolution happens DURING RENDER, deliberately: the registry is composed at module
 // scope by the console's entry point, so a descriptor is there to be looked up on the

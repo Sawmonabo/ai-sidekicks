@@ -1,4 +1,5 @@
-// A bare auxiliary route offers what this window has and what the node reports.
+// A bare auxiliary route offers what this window has and what the node reports,
+// never a read in flight — and a reserved slot says so rather than painting nothing.
 //
 // The case this file exists for: `#/window/timeline` with no session id is the one
 // route the context picker is FOR, and it is exactly the route on which the picker
@@ -21,17 +22,24 @@ import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { FrameStore, SessionStoreRegistry } from "../store/index.js";
 import type { ConsoleRoute } from "../routing/index.js";
 import { RouteSurface } from "./RouteSurface.js";
-import type { ConsoleSurfaceContext } from "./surface-registry.js";
+import {
+  consoleSurfaceRegistry,
+  registerConsoleSurface,
+  type ConsoleSurfaceContext,
+} from "./surface-registry.js";
 
 /** The bare auxiliary address a Window-menu open lands on. */
 const BARE_TIMELINE_ROUTE: ConsoleRoute = { kind: "auxiliary", route: "timeline" };
 
+/** The rail's middle destination, whose family (T-023p-1C-6) ships separately. */
+const WORKFLOWS_ROUTE: ConsoleRoute = { kind: "workflows" };
+
 /**
  * A registry with real sessions open, and a reader that answers nothing.
  *
- * `undefined` is the reader the frame actually supplies — the console has no
- * session-read wire — so a test that supplied a snapshot would be asserting
- * against a console that does not exist.
+ * The picker reads its candidates off the registry's open set and the directory
+ * read, never a session snapshot, so a reader that answers `undefined` keeps these
+ * cases about the two sources the picker actually consults.
  */
 function registryWithOpenSessions(...sessionIds: readonly string[]): SessionStoreRegistry {
   const registry = new SessionStoreRegistry({ read: () => Promise.resolve(undefined) });
@@ -171,5 +179,47 @@ describe("RouteSurface — the picker on a bare auxiliary route", () => {
     const { container } = render(<RouteSurface context={context} />);
 
     expect(container.textContent).not.toContain("Which session should this timeline follow?");
+  });
+});
+
+describe("RouteSurface — a declared slot with no registrant", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("says the workflows surface is reserved rather than rendering nothing", () => {
+    // The rail's middle destination is reachable before the family that fills it
+    // has shipped, which is exactly the state "reserved, not stubbed" is for: the
+    // frame names the slot and says nobody has built it, and the alternative — an
+    // empty pane — reads as a feature that is broken rather than absent.
+    const { context } = contextFor(WORKFLOWS_ROUTE, registryWithOpenSessions());
+
+    const { container } = render(<RouteSurface context={context} />);
+
+    expect(container.querySelector(".meridian-frame__absence")).not.toBeNull();
+    expect(container.textContent).toContain("This surface has not been built yet.");
+    expect(container.textContent).toContain("workflows");
+    expect(container.querySelector("[aria-busy='true']")).toBeNull();
+  });
+
+  it("negative control: the same route mounts the family once one claims the slot", () => {
+    // Without this, a frame that had stopped resolving the registry at all would
+    // satisfy the case above by rendering the absence for every route forever.
+    const owner = "route-surface-test";
+    try {
+      registerConsoleSurface({
+        slot: "workflows",
+        owner,
+        render: () => <p>the workflow builder rendered</p>,
+      });
+      const { context } = contextFor(WORKFLOWS_ROUTE, registryWithOpenSessions());
+
+      const { container } = render(<RouteSurface context={context} />);
+
+      expect(container.textContent).toContain("the workflow builder rendered");
+      expect(container.querySelector(".meridian-frame__absence")).toBeNull();
+    } finally {
+      consoleSurfaceRegistry.unregister("workflows");
+    }
   });
 });

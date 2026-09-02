@@ -2,16 +2,17 @@
 //
 // Both halves are the FRAME's decisions rather than the rail's. `IconRail` renders
 // the entries it is handed and knows nothing about sessions; the routing family
-// knows nothing about a rail. This module is the one place the two meet, which is
-// why the availability rule ("workspace is absent until this window has a session
-// to go back to") lives here and not in either of them.
+// knows nothing about a rail. This module is the one place the two meet.
 //
-// AVAILABILITY IS NOT READ OFF THE ROUTE. It used to be, and that made the
-// Workspace entry vanish the moment a person opened a session and then went to
-// Settings — the new route named no session, so the rule read false while the
-// session was still open and still the one Workspace meant. Both functions take the
-// window's retained session id instead, and they take the SAME one: an entry that is
-// shown is an entry `routeForDestination` can route, because one value answers both.
+// THE DESTINATIONS ARE UNCONDITIONAL. `Spec-023 §Console Design (Meridian)` §The
+// surface set gives the main window three destinations — sessions, workflows,
+// settings — and every one of them is reachable from every main-window route, so
+// the entries are a constant rather than a function of window state. They used to
+// be neither: a fourth entry, Workspace, was shown or hidden on whether this window
+// had a session in hand. The session workspace is reached from the sessions
+// destination instead, which is why `railDestinationFor` maps a workspace route
+// onto `sessions` and why the palette's "Go to Workspace" — an act, not a
+// destination — lives beside these rather than among them.
 //
 // RENDER ORDER COMES FROM THE TUPLE. `RAIL_DESTINATIONS` declares the destinations
 // in rail order and `RAIL_ENTRY_TEMPLATES` says what each one shows; walking the
@@ -23,41 +24,33 @@ import { RAIL_DESTINATIONS, type ConsoleRoute, type RailDestination } from "../r
 import { RAIL_ENTRY_TEMPLATES, type RailEntry } from "./IconRail.js";
 
 /**
- * The rail's contents.
+ * The rail's contents, built once.
  *
- * `lastOpenedSessionId` is the session this window has in hand — `FrameStore` keeps
- * it across a route that names none — and Workspace is absent until there is one.
+ * A module constant rather than a builder called per render: nothing about it
+ * varies with the window, so a function would hand `AppFrame` a new array on every
+ * pass and re-render the console's most-seen surface for a value that never
+ * changed.
  */
-export function buildRailEntries(lastOpenedSessionId: string | undefined): readonly RailEntry[] {
-  return RAIL_DESTINATIONS.map((destination) => ({
-    destination,
-    ...RAIL_ENTRY_TEMPLATES[destination],
-    isAvailable: destination === "workspace" ? lastOpenedSessionId !== undefined : true,
-  }));
-}
+export const RAIL_ENTRIES: readonly RailEntry[] = RAIL_DESTINATIONS.map((destination) => ({
+  destination,
+  ...RAIL_ENTRY_TEMPLATES[destination],
+}));
 
 /**
  * Where a rail click goes.
  *
- * Workspace with no session at all resolves to the sessions list rather than to a
- * workspace route with no session to name. The rail hides that destination in
- * exactly that case, so the arm is unreachable through the rail — and it is written
- * anyway, because the alternative is a total function that cannot be made total: a
- * `workspace` route requires a session id, and inventing one would be worse than
- * landing somewhere real.
+ * Total and argument-free by construction: each destination is a top-level context
+ * that needs nothing of the window to be entered. `railDestinationFor` is the
+ * inverse on every arm — a click lands on a route the rail reports as that same
+ * destination — and `rail-navigation.test.ts` holds the pair to it.
  */
-export function routeForDestination(
-  destination: RailDestination,
-  lastOpenedSessionId: string | undefined,
-): ConsoleRoute {
+export function routeForDestination(destination: RailDestination): ConsoleRoute {
   switch (destination) {
     case "sessions":
       return { kind: "sessions" };
+    case "workflows":
+      return { kind: "workflows" };
     case "settings":
       return { kind: "settings", page: undefined };
-    case "workspace":
-      return lastOpenedSessionId === undefined
-        ? { kind: "sessions" }
-        : { kind: "workspace", sessionId: lastOpenedSessionId };
   }
 }

@@ -30,6 +30,7 @@ import type { ConsoleRoute } from "../routing/index.js";
 export const CONSOLE_SURFACE_SLOTS = [
   "sessions",
   "workspace",
+  "workflows",
   "settings",
   "timeline",
   "agent-console",
@@ -105,6 +106,8 @@ export function surfaceSlotFor(route: ConsoleRoute): ConsoleSurfaceSlot | undefi
       return "sessions";
     case "workspace":
       return "workspace";
+    case "workflows":
+      return "workflows";
     case "settings":
       return "settings";
     case "auxiliary":

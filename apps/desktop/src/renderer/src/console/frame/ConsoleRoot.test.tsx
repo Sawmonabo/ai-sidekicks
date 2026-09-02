@@ -13,9 +13,15 @@
 //   • **The palette's bridge-backed acts are mounted.** They are built by the
 //     palette and registered by nobody, which reads exactly like a palette whose
 //     Help group is simply empty.
-//   • **A workspace stays reachable after a person leaves it.** The registry keeps
-//     the session open; the rail and the router are what had stopped being able to
-//     name it, and only a driven window shows the two disagreeing.
+//   • **The rail names the three destinations and highlights where the window is.**
+//     The destination set is the routing family's and the highlight is the rail's;
+//     only a driven window shows them agreeing, and only a driven window shows a
+//     session workspace sitting under the sessions destination rather than under
+//     an icon that is not drawn.
+//   • **A modal overlay makes the frame's background inert.** The palette's open
+//     state lives in this file, so this file is the only one that can hand it to
+//     the frame — `AppFrame` proves the attribute follows the prop, and nothing
+//     below proves the prop is ever passed.
 //   • **The window's database connection is closed with the window.** Nothing below
 //     this file knows when the console is finished, so nothing below it can be the
 //     one to close.
@@ -46,6 +52,8 @@ const SESSIONS_HASH = "#/sessions";
 const WORKSPACE_HASH = "#/session/session-alpha";
 
 const SETTINGS_HASH = "#/settings";
+
+const WORKFLOWS_HASH = "#/workflows";
 
 const BRIDGE_COMMAND_IDS = ["bridge.copyBuildDetails", "bridge.checkForUpdates"] as const;
 
@@ -103,6 +111,39 @@ async function clickRailDestination(mounted: RenderResult, label: string): Promi
     fireEvent.click(button);
     await Promise.resolve();
   });
+}
+
+/**
+ * Press the palette's chord, whichever modifier `$mod` resolves to on this host.
+ *
+ * Both presses are dispatched and exactly one can match: tinykeys resolves `$mod`
+ * to `Meta` on a Mac user agent and `Control` everywhere else, and a press whose
+ * modifiers do not match the parsed chord reaches the listener and is dropped. So
+ * this is one press from the palette's point of view, and the test does not have
+ * to re-derive the platform rule the chord parser already owns. The browser tier
+ * drives the same chord the same way.
+ */
+async function pressPaletteChord(): Promise<void> {
+  await act(async () => {
+    fireEvent.keyDown(window, { key: "k", code: "KeyK", ctrlKey: true });
+    fireEvent.keyDown(window, { key: "k", code: "KeyK", metaKey: true });
+    await Promise.resolve();
+  });
+}
+
+/** The wrapper the frame inerts. Absent means the frame stopped rendering one. */
+function backgroundOf(mounted: RenderResult): HTMLElement {
+  const background = mounted.container.querySelector<HTMLElement>(".meridian-frame__background");
+  if (background === null) {
+    throw new Error("the frame rendered no background wrapper to inert");
+  }
+  return background;
+}
+
+/** Which destination the rail is showing as current, by its accessible name. */
+function currentRailDestination(mounted: RenderResult): string | null {
+  const current = mounted.container.querySelector("[aria-current='page']");
+  return current === null ? null : current.getAttribute("aria-label");
 }
 
 describe("ConsoleRoot — the window opens at the address it was given", () => {
@@ -227,11 +268,12 @@ describe("ConsoleRoot — the palette's bridge-backed acts are mounted", () => {
     await mountConsole();
 
     expect(consoleCommands.has("frame.goToSessions")).toBe(true);
+    expect(consoleCommands.has("frame.goToWorkflows")).toBe(true);
     expect(consoleCommands.has("bridge.copyBuildDetails")).toBe(true);
   });
 });
 
-describe("ConsoleRoot — a workspace stays reachable after leaving it", () => {
+describe("ConsoleRoot — the rail's three destinations, and where the window is", () => {
   beforeEach(() => {
     window.location.hash = WORKSPACE_HASH;
   });
@@ -241,29 +283,95 @@ describe("ConsoleRoot — a workspace stays reachable after leaving it", () => {
     window.location.hash = SESSIONS_HASH;
   });
 
-  it("keeps the Workspace rail entry after the route moves to Settings, and goes back to the same session", async () => {
-    // The defect: the entry was built from the CURRENT route, so leaving the
-    // workspace hid the destination while `SessionStoreRegistry` still held that
-    // session open — a live session with no control that reaches it.
+  it("offers sessions, workflows, and settings, and nothing else", async () => {
+    // The defect: the rail shipped a Workspace destination where `Spec-023
+    // §Console Design (Meridian)` §The surface set names Workflows, so the
+    // destination that opens the workflow builder could not be reached at all and
+    // one that has no address of its own carried an icon.
     const mounted = await mountConsole();
-    expect(mounted.getByLabelText("Workspace")).toBeDefined();
+
+    const labels = [...mounted.container.querySelectorAll(".meridian-rail__button")].map((button) =>
+      button.getAttribute("aria-label"),
+    );
+    expect(labels).toStrictEqual(["Sessions", "Workflows", "Settings"]);
+  });
+
+  it("puts a session workspace under the sessions destination", async () => {
+    // A window opened straight into a session is INSIDE the sessions destination,
+    // which is where a person got there from. Highlighting nothing — the answer a
+    // rail gives when the route names a destination it does not draw — reads as
+    // the console losing track of where it is.
+    const mounted = await mountConsole();
+
+    expect(currentRailDestination(mounted)).toBe("Sessions");
+  });
+
+  it("navigates to the workflows destination and highlights it", async () => {
+    const mounted = await mountConsole();
+
+    await clickRailDestination(mounted, "Workflows");
+
+    expect(window.location.hash).toBe(WORKFLOWS_HASH);
+    expect(currentRailDestination(mounted)).toBe("Workflows");
+    // Reserved, not stubbed: T-023p-1C-6 claims this slot on its own branch, so
+    // the frame says the surface has not been built rather than rendering blank.
+    expect(mounted.container.querySelector(".meridian-frame__absence")).not.toBeNull();
+  });
+
+  it("keeps the session this window opened after the route leaves it", async () => {
+    // `SessionStoreRegistry` does not close a session when the route moves on, so
+    // the way back has to survive the move. It is read from the frame store rather
+    // than from the route, which is the distinction the retained id exists for.
+    let observed: string | undefined;
+    const mounted = await mountConsole((context) => {
+      observed = context.frameStore.lastOpenedSessionId;
+    });
 
     await clickRailDestination(mounted, "Settings");
     expect(window.location.hash).toBe(SETTINGS_HASH);
 
-    expect(mounted.queryByLabelText("Workspace")).not.toBeNull();
-
-    await clickRailDestination(mounted, "Workspace");
-    expect(window.location.hash).toBe(WORKSPACE_HASH);
+    expect(observed).toBe("session-alpha");
   });
 
-  it("negative control: a window that has opened no session offers no Workspace entry", async () => {
-    // Without this, a rail that showed the destination unconditionally would
-    // satisfy the case above while offering a control that routes nowhere.
+  it("negative control: a window that has opened no session retains none", async () => {
+    // Without this, a store that returned a constant id would satisfy the case
+    // above and offer a way back into a session this window was never in.
     window.location.hash = SESSIONS_HASH;
-    const mounted = await mountConsole();
+    let observed: string | undefined = "not-read";
+    await mountConsole((context) => {
+      observed = context.frameStore.lastOpenedSessionId;
+    });
 
-    expect(mounted.queryByLabelText("Workspace")).toBeNull();
+    expect(observed).toBeUndefined();
+  });
+});
+
+describe("ConsoleRoot — a modal overlay inerts the frame's background", () => {
+  beforeEach(() => {
+    window.location.hash = SESSIONS_HASH;
+  });
+
+  afterEach(() => {
+    cleanup();
+    window.location.hash = SESSIONS_HASH;
+  });
+
+  it("carries inert for exactly as long as the palette is open", async () => {
+    // `AppFrame` proves the attribute follows its prop and `PaletteOverlay` proves
+    // the chord toggles the state; nothing below this file proves the two are
+    // joined, and they were not — the prop existed, the palette opened, and the
+    // rail and the whole surface stayed in the accessibility tree underneath it.
+    const mounted = await mountConsole();
+    expect(backgroundOf(mounted).hasAttribute("inert")).toBe(false);
+
+    await pressPaletteChord();
+    expect(backgroundOf(mounted).hasAttribute("inert")).toBe(true);
+
+    // Negative control on the same instrument: the chord toggles, so a frame that
+    // inerted on any keystroke — or never cleared — fails here rather than passing
+    // the case above and leaving the console permanently unreachable.
+    await pressPaletteChord();
+    expect(backgroundOf(mounted).hasAttribute("inert")).toBe(false);
   });
 });
 

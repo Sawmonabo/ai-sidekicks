@@ -26,7 +26,7 @@ import { AppFrame } from "./AppFrame.js";
 import { RAIL_ENTRY_TEMPLATES, type RailEntry } from "./IconRail.js";
 
 const RAIL_ENTRIES: readonly RailEntry[] = [
-  { destination: "sessions", ...RAIL_ENTRY_TEMPLATES.sessions, isAvailable: true },
+  { destination: "sessions", ...RAIL_ENTRY_TEMPLATES.sessions },
 ];
 
 const RENDER_FAILURE_MESSAGE = "the sessions list could not render this row";
