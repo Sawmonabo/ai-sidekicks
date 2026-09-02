@@ -9,7 +9,8 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { refuse } from "../core/index.js";
-import { WORKFLOW_DEFINITION_SCOPES, WorkflowsSurface } from "./WorkflowsSurface.js";
+import { WORKFLOW_DEFINITION_SCOPES } from "./DefinitionsBrowser.js";
+import { WorkflowsSurface } from "./WorkflowsSurface.js";
 import { refusedWorkflowChrome, unaskedWorkflowChrome } from "./chrome-state.js";
 
 function renderSurface(element: React.JSX.Element): HTMLElement {
