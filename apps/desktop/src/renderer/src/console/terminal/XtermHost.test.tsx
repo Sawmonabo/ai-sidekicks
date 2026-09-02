@@ -2,15 +2,17 @@
 // it, and a name that carries the write gate.
 //
 // WHAT THIS FILE IS FOR AND WHAT IT IS NOT. The emulator's behaviour is
-// `xterm-adapter.test.ts`'s subject; this one owns the four things the COMPONENT
+// `xterm-adapter.test.ts`'s subject; this one owns the five things the COMPONENT
 // decides — that the emulator's code is fetched rather than statically linked, so
 // the box stands in as a read-in-flight absence until it lands; that an adapter is
 // built once per mount and never in a render pass; that unmounting disposes it
-// (which is what returns the pooled renderer slot); and that a lease change
-// forwards the write gate without tearing the emulator down. Each is asserted
-// through an observable consequence rather than by reading the component's
-// internals: the pool's own slot count answers two of them, the absence primitive's
-// own class answers the first, and the region's accessible name answers the last.
+// (which is what gives up its hold on the renderer); that the emulator's lifetime
+// belongs to the terminal id rather than to the identities of the callbacks the
+// parent hands down; and that a lease change forwards the write gate without
+// tearing the emulator down. Each is asserted through an observable consequence
+// rather than by reading the component's internals: the ledger's own readings, the
+// emulator's own first child, the absence primitive's class, and the region's
+// accessible name.
 //
 // THE LOADER IS THE REAL ONE. A stub that resolved the adapter synchronously would
 // test a component that does not exist — the whole point of the change under test
@@ -25,13 +27,39 @@ import { TerminalRendererPool, terminalRendererPool } from "./renderer-pool.js";
 import { XtermHost } from "./XtermHost.js";
 
 afterEach(() => {
-  // The page pool is module state the component reaches through the adapter's
-  // default. A leaked slot here would silently narrow every later case, so the
-  // sweep is unconditional rather than per-case.
+  // The page ledger is module state the component reaches through the adapter's
+  // default. A leaked hold here would silently narrow every later case, so the
+  // sweep is unconditional rather than per-case — and it RECLAIMS rather than
+  // releases, because this environment has no WebGL2 and so never made a context
+  // for a stale hold to stand for.
   for (const terminalId of ["host-1", "host-2"]) {
-    terminalRendererPool.release(terminalId);
+    terminalRendererPool.reclaim(terminalId);
   }
 });
+
+/**
+ * The hidden textarea xterm.js listens on: the emulator's one input surface.
+ * Resolved once, because both readings below are about that same element.
+ */
+function emulatorInputOf(surface: HTMLElement): HTMLTextAreaElement {
+  const textarea = surface.querySelector("textarea");
+  if (!(textarea instanceof HTMLTextAreaElement)) {
+    throw new Error("the emulator rendered no input");
+  }
+  return textarea;
+}
+
+/**
+ * Type one character, the way the library's own listener sees it. xterm.js turns a
+ * keydown on that textarea into a data event, which is the only path a keystroke
+ * takes to `onKeystroke` — so dispatching here makes the assertion about the wiring
+ * rather than about a function reference the test already holds.
+ */
+function typeOneCharacter(surface: HTMLElement): void {
+  emulatorInputOf(surface).dispatchEvent(
+    new KeyboardEvent("keydown", { key: "a", keyCode: 65, bubbles: true, cancelable: true }),
+  );
+}
 
 function surfaceOf(container: HTMLElement): HTMLElement {
   const surface = container.querySelector(".meridian-terminal-host__surface");
@@ -66,11 +94,7 @@ async function settleEmulatorLoad(): Promise<void> {
  * what makes "the gate reached the emulator" a claim a test can hold.
  */
 function isEmulatorAcceptingInput(surface: HTMLElement): boolean {
-  const textarea = surface.querySelector("textarea");
-  if (!(textarea instanceof HTMLTextAreaElement)) {
-    throw new Error("the emulator rendered no input");
-  }
-  return !textarea.readOnly;
+  return !emulatorInputOf(surface).readOnly;
 }
 
 /** Render a host and wait until its emulator is on screen. */
@@ -196,6 +220,104 @@ describe("the mount point — one adapter per mount", () => {
     expect(surface.childElementCount).toBe(0);
     expect(pool.heldSlotCount).toBe(0);
     expect(terminalRendererPool.holds("host-1")).toBe(false);
+  });
+});
+
+describe("the emulator outlives the parent's callback identities", () => {
+  it("keeps the same instance when a parent hands it fresh callbacks", async () => {
+    const observedAtMount = vi.fn();
+    const { container, rerender } = await mountHost(
+      <XtermHost
+        terminalId="host-1"
+        isWriteEnabled
+        label="Terminal output"
+        onKeystroke={() => undefined}
+        onActivateLink={() => undefined}
+        onRendererMode={observedAtMount}
+      />,
+    );
+    const emulatorBefore = surfaceOf(container).firstElementChild;
+
+    const observedAfterRerender = vi.fn();
+    act(() => {
+      rerender(
+        <XtermHost
+          terminalId="host-1"
+          isWriteEnabled
+          label="Terminal output"
+          onKeystroke={() => undefined}
+          onActivateLink={() => undefined}
+          onRendererMode={observedAfterRerender}
+        />,
+      );
+    });
+
+    // Three new functions and the same terminal. A mount effect that depended on
+    // their identities would have disposed this emulator and built another, taking
+    // the operator's scrollback and everything the shell had printed with it.
+    expect(surfaceOf(container).firstElementChild).toBe(emulatorBefore);
+    expect(observedAtMount).toHaveBeenCalledTimes(1);
+    expect(observedAfterRerender).not.toHaveBeenCalled();
+  });
+
+  it("sends a keystroke to the callback the parent passed most recently", async () => {
+    const firstKeystrokeHandler = vi.fn();
+    const latestKeystrokeHandler = vi.fn();
+    const { container, rerender } = await mountHost(
+      <XtermHost
+        terminalId="host-1"
+        isWriteEnabled
+        label="Terminal output"
+        onKeystroke={firstKeystrokeHandler}
+      />,
+    );
+    act(() => {
+      rerender(
+        <XtermHost
+          terminalId="host-1"
+          isWriteEnabled
+          label="Terminal output"
+          onKeystroke={latestKeystrokeHandler}
+        />,
+      );
+    });
+
+    typeOneCharacter(surfaceOf(container));
+
+    // Keeping the emulator is only half of it: an adapter still holding the mount
+    // pass's function would send keystrokes to a handler the parent has replaced,
+    // which is a keystroke silently going nowhere.
+    expect(latestKeystrokeHandler).toHaveBeenCalledWith("a");
+    expect(firstKeystrokeHandler).not.toHaveBeenCalled();
+  });
+
+  it("negative control: a different terminal DOES get a different emulator", async () => {
+    // Without this the first case would pass against a component whose mount
+    // effect never re-ran at all, which is a different bug and not a fix.
+    const { container, rerender } = await mountHost(
+      <XtermHost terminalId="host-1" isWriteEnabled label="Terminal output" />,
+    );
+    const emulatorBefore = surfaceOf(container).firstElementChild;
+    act(() => {
+      rerender(<XtermHost terminalId="host-2" isWriteEnabled label="Terminal output" />);
+    });
+    expect(surfaceOf(container).firstElementChild).not.toBe(emulatorBefore);
+  });
+
+  it("negative control: a watcher's keystroke reaches nobody", async () => {
+    // And without this the case above would pass against a wrapper that forwarded
+    // every keystroke regardless of the gate the adapter reads.
+    const watcherKeystrokeHandler = vi.fn();
+    const { container } = await mountHost(
+      <XtermHost
+        terminalId="host-2"
+        isWriteEnabled={false}
+        label="Terminal output"
+        onKeystroke={watcherKeystrokeHandler}
+      />,
+    );
+    typeOneCharacter(surfaceOf(container));
+    expect(watcherKeystrokeHandler).not.toHaveBeenCalled();
   });
 });
 
