@@ -39,6 +39,9 @@
 // No logic lands here. If this file ever needs a condition, a try, or a value of
 // its own, the thing it is deciding belongs in the family that owns the decision.
 
+import { registerApprovalsPane } from "./approvals/index.js";
+import { registerInspectorPane } from "./inspector/index.js";
+import { registerRunsPane } from "./runs/index.js";
 import type { ConsolePaneRegistry } from "../workspace/index.js";
 
 /**
@@ -49,16 +52,11 @@ import type { ConsolePaneRegistry } from "../workspace/index.js";
  * registry it owns, and an auxiliary window composes a different subset without a
  * second code path.
  */
-/* eslint-disable-next-line @typescript-eslint/no-unused-vars --
-   Unused until the first family lands, and named `registry` rather than
-   `_registry` deliberately: every reserved line below becomes
-   `register…Panes(registry)`, so the underscore form would have to be renamed by
-   whichever family arrives first — an edit to the one line every other family
-   also edits, which is the conflict this whole file exists to avoid. The
-   directive is deleted by that same first family, when the parameter is read. */
 export function registerConsolePanes(registry: ConsolePaneRegistry): void {
   // T-023p-1C-2 timeline
-  // T-023p-1C-3 runs approvals inspector
+  registerRunsPane(registry);
+  registerApprovalsPane(registry);
+  registerInspectorPane(registry);
   // T-023p-1C-4 agent-console
   // T-023p-1C-5 diff artifact
   // T-023p-1C-6 workflow-run workflow-builder

@@ -1,0 +1,72 @@
+/* The session sidebar. Quiet chrome: the sections are a list of names until one is
+   opened, so the eye lands on the work rather than on the navigation. */
+
+.meridian-sidebar {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+  background: var(--meridian-surface-sunken);
+  border-right: 1px solid var(--meridian-edge);
+}
+
+.meridian-sidebar__sections {
+  margin: 0;
+  padding: var(--meridian-space-2);
+  list-style: none;
+}
+
+.meridian-sidebar__section + .meridian-sidebar__section {
+  margin-top: var(--meridian-space-1);
+}
+
+/* The heading carries the outline level; the button carries the interaction. Both
+   are needed: a bare button is unreachable by heading navigation, and a heading
+   with a click handler is unreachable by keyboard. */
+.meridian-sidebar__heading {
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+.meridian-sidebar__disclosure {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  width: 100%;
+  padding: var(--meridian-space-2);
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+  font-family: var(--meridian-font-sans);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--meridian-radius-sm);
+  cursor: pointer;
+  transition: background var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-sidebar__disclosure:hover {
+  color: var(--meridian-text);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-sidebar__disclosure:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: -2px;
+}
+
+.meridian-sidebar__disclosure[aria-expanded="true"] {
+  color: var(--meridian-text);
+}
+
+.meridian-sidebar__label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.meridian-sidebar__body {
+  padding: 0 var(--meridian-space-2) var(--meridian-space-2)
+    calc(var(--meridian-space-2) + var(--meridian-space-5));
+}

@@ -1,0 +1,84 @@
+/* The deck's pane frame. One sheet for every pane kind, imported by
+   `pane-chrome.tsx` — the single edge into it — rather than by the seat board six
+   concurrent branches each replace one line in. */
+
+.meridian-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--meridian-surface);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-lg);
+}
+
+/* Quiet chrome: the frame is a boundary, not a title bar. It reads at the small
+   size and the muted weight so the body it wraps is what the eye lands on. */
+.meridian-pane__head {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border-bottom: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-pane__kind {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-pane__breadcrumb {
+  min-width: 0;
+}
+
+.meridian-pane__crumbs {
+  display: flex;
+  gap: var(--meridian-space-1);
+  align-items: baseline;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-pane__crumb {
+  overflow: hidden;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The separator is drawn rather than typed, so no crumb string can contain one and
+   no screen reader announces a punctuation mark between two names. */
+.meridian-pane__crumb + .meridian-pane__crumb::before {
+  content: "›";
+  margin-right: var(--meridian-space-1);
+  color: var(--meridian-text-faint);
+}
+
+.meridian-pane__crumb[aria-current="page"] {
+  color: var(--meridian-text);
+  font-weight: 500;
+}
+
+.meridian-pane__body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  padding: var(--meridian-space-3);
+  overflow: auto;
+}
+
+/* Rule 2: the hue answers "who" — a pane focused while attributed to a participant
+   rings in that participant's colour, and an unattributed one takes the neutral
+   ring rather than borrowing someone else's. */
+.meridian-pane:focus-visible {
+  outline: 2px solid var(--meridian-pane-hue, var(--meridian-focus-ring));
+  outline-offset: -2px;
+}
