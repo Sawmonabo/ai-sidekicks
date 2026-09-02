@@ -67,7 +67,12 @@ import {
   type ProposalGateRefusalCode,
   type ProposalGateSubject,
 } from "./proposal-gate-model.js";
-import type { PreparedProposal } from "./prepared-proposal.js";
+import {
+  proposalContextKeyOf,
+  proposalContextKeysMatch,
+  type PreparedProposal,
+  type ProposalContextKey,
+} from "./prepared-proposal.js";
 import type { ProposalAction } from "./proposal-actions.js";
 import type { ProposalGateState } from "./proposal-gate-state.js";
 import { RepoRefreshTriggers } from "./repo-refresh-triggers.js";
@@ -131,6 +136,8 @@ export class ProposalGateReader {
    */
   #context: BranchContextReading | undefined;
   #proposal: PreparedProposal | undefined;
+  /** The context the held proposal was prepared AGAINST. `prepared-proposal.ts` says why. */
+  #proposalPreparedFor: ProposalContextKey | undefined;
   /** `preparing` is entered once. A refresh redraws the answer, never the wait. */
   #hasEnteredPreparing = false;
   #started = false;
@@ -253,6 +260,7 @@ export class ProposalGateReader {
       state: outcome.value.state,
       blob: outcome.value.proposalBlob,
     };
+    this.#proposalPreparedFor = proposalContextKeyOf(context);
     // Re-read rather than publish the proposal beside a context this call did not
     // re-establish: one read is the source of the arm, so the proposal joins the arm
     // the next read publishes and the console holds no second copy of the context.
@@ -304,7 +312,7 @@ export class ProposalGateReader {
 
     if (outcome.status === "unavailable") {
       this.#context = undefined;
-      this.#proposal = undefined;
+      this.#discardProposal();
       // The port's two refusal classes are two different facts and get two different
       // arms. `wire-unregistered` means the question could not be put at all, which
       // is `not-checked` — and that arm carries no message, so the refusal travels
@@ -331,7 +339,7 @@ export class ProposalGateReader {
     const branchContext = outcome.value.branchContext;
     if (branchContext === undefined) {
       this.#context = undefined;
-      this.#proposal = undefined;
+      this.#discardProposal();
       this.#publish({
         ...this.#reading,
         state: { kind: "no-context", executionMode: this.#subject.executionMode },
@@ -343,6 +351,16 @@ export class ProposalGateReader {
 
     const context = branchContextReadingFrom(branchContext, this.#subject.executionMode);
     this.#context = context;
+    // A REFRESHED CONTEXT NEVER CARRIES A PROPOSAL PREPARED FOR A DIFFERENT ONE. An
+    // external checkout or a repair can move the base or the head between reads, and a
+    // proposal on this arm is exactly what offers the remote act — so a mismatch
+    // discards it rather than publishing it beside a context it was not built against.
+    if (
+      this.#proposalPreparedFor !== undefined &&
+      !proposalContextKeysMatch(this.#proposalPreparedFor, context)
+    ) {
+      this.#discardProposal();
+    }
     const proposal = this.#proposal;
     this.#publish({
       ...this.#reading,
@@ -357,6 +375,12 @@ export class ProposalGateReader {
           ? GATE_SETTLEMENT_COPY.prepared
           : GATE_SETTLEMENT_COPY["prepared-with-proposal"],
     });
+  }
+
+  /** Drop the held proposal and the context it was prepared for, which are one fact. */
+  #discardProposal(): void {
+    this.#proposal = undefined;
+    this.#proposalPreparedFor = undefined;
   }
 
   #recordActionRefusal(action: ProposalAction, refusal: ConsoleRefusal): void {

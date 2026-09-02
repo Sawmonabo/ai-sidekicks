@@ -19,6 +19,8 @@ import {
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../core/index.js";
 import { SessionStore } from "../store/index.js";
 import { ProposalGateReader, type ProposalGateReading } from "./proposal-gate-reader.js";
+import { offeredProposalActions } from "./proposal-actions.js";
+import type { ProposalContextKey } from "./prepared-proposal.js";
 import type { ProposalGateSubject } from "./proposal-gate-model.js";
 
 const readers: ProposalGateReader[] = [];
@@ -76,6 +78,27 @@ interface PortScript {
   readonly gitAction?: unknown;
 }
 
+/** A preparation the port serves, so a case can hold a proposal and then move the context. */
+const SERVED_PREPARATION = {
+  status: "served",
+  value: {
+    prPreparationId: "019b7b30-0280-7c11-8420-b1a5c0de2401",
+    state: "ready",
+    proposalBlob: { summary: "the rate limiter" },
+  },
+} as const;
+
+/** One served context, with whichever of the pairing members a case wants moved. */
+function servedContext(overrides: Partial<ProposalContextKey>): {
+  status: "served";
+  value: { branchContext: Record<string, unknown> };
+} {
+  return {
+    status: "served",
+    value: { branchContext: { ...SERVED_CONTEXT.value.branchContext, ...overrides } },
+  };
+}
+
 /**
  * A bridge whose growth port answers exactly what a case scripts.
  *
@@ -91,6 +114,31 @@ function bridgeAnswering(script: PortScript): ConsoleBridge {
       gitActionExecute: async () => script.gitAction,
     },
   } as unknown as ConsoleBridge;
+}
+
+/**
+ * A bridge whose context reply a case can MOVE between reads.
+ *
+ * The retention rule is about two reads answering differently, which a fixed script
+ * cannot express: the first read establishes the context a proposal is prepared
+ * against, and the second is where the discard is decided.
+ */
+function bridgeWithMovingContext(prepare: unknown): {
+  bridge: ConsoleBridge;
+  serveContext: (answer: unknown) => void;
+} {
+  let branchContext: unknown = SERVED_CONTEXT;
+  return {
+    bridge: {
+      growth: {
+        gitflowBranchContextRead: async () => branchContext,
+        gitflowPrPrepare: async () => prepare,
+      },
+    } as unknown as ConsoleBridge,
+    serveContext: (answer: unknown) => {
+      branchContext = answer;
+    },
+  };
 }
 
 function openReader(
@@ -329,6 +377,61 @@ describe("ProposalGateReader — the acts", () => {
 
     expect(reader.performCount).toBe(2);
     expect(reader.snapshot.actionRefusals.size).toBe(0);
+  });
+});
+
+describe("ProposalGateReader — the proposal and the context it was prepared for", () => {
+  /** Prepare a proposal, then serve `nextContext` and let the re-read land. */
+  async function prepareThenRefresh(nextContext: unknown): Promise<ProposalGateReader> {
+    const clock = new ManualClock();
+    const { bridge, serveContext } = bridgeWithMovingContext(SERVED_PREPARATION);
+    const reader = openReader(bridge, clock);
+    reader.start();
+    await settle(clock, reader);
+
+    await reader.requestAction("prepare-proposal");
+    await settleAct(clock, reader);
+
+    serveContext(nextContext);
+    window.dispatchEvent(new Event("focus"));
+    await settle(clock, reader);
+    return reader;
+  }
+
+  /** The proposal the published arm carries, or `undefined` where it carries none. */
+  function publishedProposal(reader: ProposalGateReader): unknown {
+    const { state } = reader.snapshot;
+    if (state.kind !== "prepared") {
+      throw new Error(`a served context leaves the gate on \`prepared\`, not \`${state.kind}\``);
+    }
+    return state.proposal;
+  }
+
+  it("keeps the proposal when the refreshed context is the same one", async () => {
+    const reader = await prepareThenRefresh(SERVED_CONTEXT);
+
+    expect(publishedProposal(reader)).toBeDefined();
+    // The whole point of retaining it: the remote act stays offered.
+    expect(offeredProposalActions(reader.snapshot.state)).toContain("push");
+  });
+
+  it("drops the proposal when the refreshed context is a different context row", async () => {
+    const reader = await prepareThenRefresh(
+      servedContext({ branchContextId: "019b7b30-0280-7c11-8420-b1a5c0de2399" }),
+    );
+
+    expect(publishedProposal(reader)).toBeUndefined();
+    // Push is what a stale proposal would have authorised, so this is the claim.
+    expect(offeredProposalActions(reader.snapshot.state)).not.toContain("push");
+  });
+
+  it("drops the proposal when the head branch moved under the same context row", async () => {
+    // The id-only check would pass this one: a repair re-establishes the row over a
+    // moved head, and the proposal was built against the branch that is gone.
+    const reader = await prepareThenRefresh(servedContext({ headBranch: "feat/something-else" }));
+
+    expect(publishedProposal(reader)).toBeUndefined();
+    expect(offeredProposalActions(reader.snapshot.state)).not.toContain("push");
   });
 });
 

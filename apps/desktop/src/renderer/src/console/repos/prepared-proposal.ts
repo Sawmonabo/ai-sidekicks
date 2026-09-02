@@ -90,6 +90,51 @@ export const PROPOSAL_MEMBER_UNSUPPLIED_COPY: Readonly<Record<ProposalMemberNotO
     changedPaths: "No file list came with this preparation.",
   };
 
+/**
+ * The three members that decide whether a prepared proposal still belongs to a context.
+ *
+ * Kept BESIDE `PreparedProposal` rather than on it: that shape is what
+ * `ProposalSummary` draws, no registered reply carries a context key, and a member on
+ * the display type would be one the wire does not have. Whether a held proposal is
+ * still current is the holder's question, and this is the vocabulary it asks in.
+ *
+ * THE ID ALONE IS NOT ENOUGH. A workspace repair can re-establish the same context row
+ * over a moved head, and a proposal built against the old head would then be offered
+ * for sending under the new one — which is the case the branches are here for.
+ */
+export interface ProposalContextKey {
+  readonly branchContextId: string;
+  readonly baseBranch: string;
+  readonly headBranch: string;
+}
+
+/**
+ * The key a context supplies, narrowed to the three members that decide the pairing.
+ *
+ * Typed on `ProposalContextKey` rather than on the branch-context reading, so this
+ * module states what it needs and takes no dependency on the model that happens to
+ * carry it.
+ */
+export function proposalContextKeyOf(context: ProposalContextKey): ProposalContextKey {
+  return {
+    branchContextId: context.branchContextId,
+    baseBranch: context.baseBranch,
+    headBranch: context.headBranch,
+  };
+}
+
+/** Whether a proposal prepared under `key` is still current under `context`. */
+export function proposalContextKeysMatch(
+  key: ProposalContextKey,
+  context: ProposalContextKey,
+): boolean {
+  return (
+    key.branchContextId === context.branchContextId &&
+    key.baseBranch === context.baseBranch &&
+    key.headBranch === context.headBranch
+  );
+}
+
 /** One inert row read out of the untyped proposal blob. Both halves are display text. */
 export interface ProposalBlobRow {
   readonly key: string;
