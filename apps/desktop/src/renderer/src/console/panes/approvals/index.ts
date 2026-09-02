@@ -14,6 +14,12 @@ import { createElement } from "react";
 import { type ConsolePaneRegistry } from "../../workspace/index.js";
 import { ApprovalsPane } from "./ApprovalsPane.js";
 
+// The sheet is imported here, at the pane's single door, for the reason
+// `pane-chrome.tsx` gives for its own: every body behind this door renders through
+// the registration below, so a body cannot arrive without its CSS, and the seat
+// board six branches each replace one line in is never touched.
+import "./approvals.css";
+
 /**
  * Claim the `approvals` kind.
  *
