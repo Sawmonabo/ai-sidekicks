@@ -24,6 +24,7 @@ import type { ExecutionPosture } from "@ai-sidekicks/contracts";
 
 import type { ConsoleEntity, ConsoleEntityRef } from "../../../console/store/index.js";
 import type { ConsolePaneAddress } from "../../../console/workspace/index.js";
+import { resolveAddressedRun } from "./addressed-run.js";
 
 /**
  * The two paths a composed message can travel (§Channel and provider paths).
@@ -135,15 +136,18 @@ export interface ComposerTargetInput {
  * Resolve what this send is addressed to.
  *
  * The provider-bound path is taken ONLY when the focused pane names an agent AND
- * that agent has a run this store has actually seen — the two conditions the design
- * states as "never sends a message with no target; never guesses the target run".
- * Everything else is the channel path, which is the session's own default and needs
- * no guess to reach.
+ * that agent has a run this store has seen whose state still admits a steer — the
+ * two conditions the design states as "never sends a message with no target; never
+ * guesses the target run". Everything else is the channel path, which is the
+ * session's own default and needs no guess to reach.
+ *
+ * `addressed-run.ts` owns the second condition and says why an agent whose only
+ * runs have settled addresses the channel rather than a run nothing can be sent to.
  */
 export function resolveComposerTarget(input: ComposerTargetInput): ComposerTarget {
   const agentRef = focusedRefOfKind(input.focusedPane, "agent");
   const agent = agentRef === undefined ? undefined : input.agents[agentRef.id];
-  const run = agentRef === undefined ? undefined : newestRunForAgent(input.runs, agentRef.id);
+  const run = agentRef === undefined ? undefined : resolveAddressedRun(input.runs, agentRef.id);
   if (agentRef !== undefined && run !== undefined) {
     return {
       path: "provider-bound",
@@ -210,31 +214,6 @@ function focusedRefOfKind(
 ): ConsoleEntityRef | undefined {
   const entity = pane?.entity;
   return entity !== undefined && entity.kind === kind ? entity : undefined;
-}
-
-/**
- * The newest run this store holds for one agent, by `touchedAt`.
- *
- * Newest rather than "the running one": a steer of a run that has just left
- * `running` is refused by the daemon on the state it is actually in, and picking a
- * run by a state the renderer read a moment ago would be the renderer deciding
- * eligibility. Ties keep the first seen, so the order is total rather than
- * dependent on object-key order.
- */
-function newestRunForAgent(
-  runs: Readonly<Record<string, ConsoleEntity>>,
-  agentId: string,
-): ConsoleEntity | undefined {
-  let newest: ConsoleEntity | undefined;
-  for (const run of Object.values(runs)) {
-    if (readWireString(run.body, "agentId") !== agentId) {
-      continue;
-    }
-    if (newest === undefined || (run.touchedAt ?? "") > (newest.touchedAt ?? "")) {
-      newest = run;
-    }
-  }
-  return newest;
 }
 
 /** The binding clause, or `undefined` when the wire supplied no axis at all. */
