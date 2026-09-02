@@ -15,6 +15,8 @@ import { describe, expect, it } from "vitest";
 import {
   APPLY_COALESCE_MS,
   CAST_BAR_CHIP_CAP,
+  LIVE_ANNOUNCEMENT_HOLD_MS,
+  LIVE_ANNOUNCEMENT_QUEUE_CAP,
   MAX_REPAIRABLE_SEQUENCE_GAP,
   PALETTE_RECENTS_CAP,
   PALETTE_RESULT_CAP,
@@ -42,6 +44,7 @@ const COUNTING_BOUNDS: readonly (readonly [string, number])[] = [
   ["SCENARIO_PENDING_REPLY_CAP", SCENARIO_PENDING_REPLY_CAP],
   ["PRE_INITIALISATION_BUFFER_CAP", PRE_INITIALISATION_BUFFER_CAP],
   ["MAX_REPAIRABLE_SEQUENCE_GAP", MAX_REPAIRABLE_SEQUENCE_GAP],
+  ["LIVE_ANNOUNCEMENT_QUEUE_CAP", LIVE_ANNOUNCEMENT_QUEUE_CAP],
 ];
 
 function isWholeCount(value: number): boolean {
@@ -86,6 +89,16 @@ describe("console bounds — the refresh scheduler's two windows", () => {
     expect(REFRESH_DEBOUNCE_MS).toBeGreaterThan(0);
     expect(REFRESH_MAX_WAIT_MS).toBeGreaterThan(0);
     expect(APPLY_COALESCE_MS).toBeGreaterThan(0);
+  });
+});
+
+describe("console bounds — the live announcer's hold window", () => {
+  it("holds a message for longer than the console calls one frame", () => {
+    // A live region whose text is set and reverted inside a frame announces
+    // nothing: the observer never sees a settled string. `APPLY_COALESCE_MS` is
+    // this console's own name for one frame, so the hold has to sit above it, and
+    // the relation is what says so rather than 500 happening to be bigger than 16.
+    expect(LIVE_ANNOUNCEMENT_HOLD_MS).toBeGreaterThan(APPLY_COALESCE_MS);
   });
 });
 

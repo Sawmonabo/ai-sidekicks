@@ -35,6 +35,12 @@ export {
   formatChordForPlatform,
 } from "./chord-format.js";
 
+// The console's ONE live announcer. Through this door rather than deep-imported,
+// because the whole point of the primitive is that there is a single pair of
+// regions per window: a family that reached past the barrel for its own would be
+// the second speaker this module exists to prevent.
+export { LiveAnnouncerProvider, useAnnounce } from "./LiveAnnouncerProvider.js";
+
 export { Nothing } from "./Nothing.js";
 
 export { RefusalBanner } from "./Refusal.js";
