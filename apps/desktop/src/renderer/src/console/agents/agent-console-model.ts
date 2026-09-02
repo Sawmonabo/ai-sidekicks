@@ -182,6 +182,17 @@ export class AgentConsoleModels {
  * each leaving a subscription behind it. `undefined` in either argument is a real
  * state — an auxiliary address that named no session — and answers `undefined`, which
  * the surfaces render as the absence it is.
+ *
+ * A MODEL NEVER BELONGS TO A SESSION IT IS NOT FOR. State replaced from an effect
+ * lags its own inputs by one committed frame, so a console moving directly from one
+ * open session to another renders once with the previous session's models under the
+ * new session's store. That frame is not merely a stale roster: the binding column
+ * would dispatch `agent.attach`, `agent.configUpdate`, and `agent.detach` through the
+ * session the console has LEFT while naming the agent of the one it arrived at. So
+ * the held set is answered only while it matches the store it was asked about, and
+ * the mismatched frame answers `undefined` — the absence every consumer already
+ * renders, and the one honest thing to say about a session nothing has been read for
+ * yet.
  */
 export function useAgentConsoleModels(
   bridge: ConsoleBridge | undefined,
@@ -202,7 +213,10 @@ export function useAgentConsoleModels(
     };
   }, [bridge, sessionStore]);
 
-  return models;
+  // Inline rather than hoisted: the collaboration family applies the same rule to
+  // its own holder, and one shared guard would put a single symbol under two
+  // owners for a comparison that is one expression at each site.
+  return models !== undefined && models.sessionId === sessionStore?.sessionId ? models : undefined;
 }
 
 /** The roster read, refreshed by the three registered lifecycle events. */
