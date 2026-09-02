@@ -3855,7 +3855,67 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // place, which changes no `Verifies invariant:` row, and T1.1 already
     // named both. Spec-013 and cross-plan-dependencies.md carry no marker
     // blocks, and Plan-007 is not edited in this round at all.
-    bold: { resolved: 1035, noneArm: 158, parentResolved: 0 },
+    // 1035/158 -> 1038/158 (2026-09-01, NS-99 WebAuthn per-platform-strategy
+    // amendment): Plan-023's Phase 4 gains T-023r-4-5 (the Windows
+    // `webauthn.dll` binding) and T-023r-4-6 (the Linux `libfido2` binding),
+    // each with a `Verifies invariant:` row naming the new I-023-15, and the
+    // rewritten T-023r-4-3 row names I-023-15 beside the I-023-1 it already
+    // carried — three more bold resolved references. No none-arm row is added,
+    // removed, or reworded, and the legacy compact-inline channel is untouched.
+    // 1038/158 -> 1041/158 (2026-09-01, the same amendment's Codex round-1
+    // fold): I-023-16 is minted for the WebAuthn ceremony-input trust boundary
+    // and is named on two existing marker lines (T-023r-2-5, which narrows the
+    // bridge surface, and T-023r-4-3, which consumes the validated options),
+    // and the new T-023r-4-7 — the password-derived KEK custody leg on the
+    // no-PRF path — carries a marker line naming I-023-1. Three more bold
+    // resolved references; the none-arm and legacy channels are again
+    // untouched, since every added marker resolves to a declared invariant.
+    // 1041/158 -> 1043/158 (2026-09-01, the same amendment's Codex round-2
+    // fold): T-023r-4-7 gains the secret-entry window that makes its
+    // password-derived KEK reachable at all, so its single marker line grows
+    // from naming I-023-1 alone to naming I-023-1, I-023-2 (the window carries
+    // the locked `webPreferences` block) and I-023-12 (whose subject widens in
+    // the same fold from "every auxiliary window" to every non-main window, so
+    // that this one is covered). Two more bold resolved references on one
+    // existing marker line; no marker line is added or removed, no none-arm row
+    // moves, and the legacy compact-inline channel is untouched.
+    // 1043/158 -> 1052/158 (2026-09-01, the same amendment's Codex round-4
+    // fold): Plan-018 gains Phase 6 — the WebAuthn ceremony's relying-party
+    // half — whose four tasks carry four marker lines naming the three new
+    // I-018-15..I-018-17 (T6.1 names two, T6.2 and T6.3 name three each, T6.4
+    // names one), nine more bold resolved references. Every one resolves to an
+    // invariant declared in the same diff's `## Invariants` table, so no
+    // none-arm row is added and the legacy compact-inline channel is untouched;
+    // Plan-023's own marker lines do not move in this fold.
+    // 1052/158 -> 1063/158 (2026-09-01, the same amendment's Codex round-5
+    // fold): four new invariants are named on six existing marker lines.
+    // Plan-018 mints I-018-18 (the minted-once PRF evaluation input) and
+    // I-018-19 (the row-locked signature-counter advance), added to T6.1 (+2),
+    // T6.2 (+1), and T6.3 (+2); Plan-023 mints I-023-17 (PRF material stays
+    // provisional until the relying party's verdict) and I-023-18 (per-binding
+    // single-flight plus terminal cancellation), added to T-023r-4-3,
+    // T-023r-4-5, and T-023r-4-6 (+2 each). Eleven more bold resolved
+    // references on marker lines that already existed, so no marker line is
+    // added or removed, no none-arm row moves, and the legacy compact-inline
+    // channel is untouched.
+    // 1063/158 -> 1064/158 (2026-09-01, the same amendment's Codex round-6
+    // fold): three offsetting changes on the bold channel. Plan-018 T6.1 drops
+    // I-018-18 (-1) with the `prf_eval_input` column the round-5 form needed,
+    // that invariant being restated as the relying party minting no evaluation
+    // input at all, which T6.1 no longer has a leg in. Plan-023 mints I-023-19
+    // (envelopes are wrapped under the installation's custody root, never under
+    // a credential's KEK), named on the new task T-023r-4-8 (+1, one added
+    // marker line) and on the existing T-023r-4-7 marker (+1). Net +1, with the
+    // none-arm, parent-resolved, and legacy compact-inline channels untouched.
+    // 1064/158 -> 1068/158 (2026-09-01, the same amendment's Codex round-7
+    // fold): four more bold resolved references. Plan-018 mints I-018-20 (the
+    // RFC 9449 token-request DPoP proof the verify leg validates) and I-018-21
+    // (a revoked credential completes no ceremony), both named on the existing
+    // T6.3 marker (+2), with I-018-21 also on the new revocation task T6.5
+    // (+1, one added marker line). Plan-023 mints I-023-20 (the DPoP proof key
+    // held outside the custody root) on the existing T-023r-4-3 marker (+1).
+    // No none-arm row moves and the legacy compact-inline channel is untouched.
+    bold: { resolved: 1068, noneArm: 158, parentResolved: 0 },
     legacy: { resolved: 64, noneArm: 3, parentResolved: 1 },
   });
 });
