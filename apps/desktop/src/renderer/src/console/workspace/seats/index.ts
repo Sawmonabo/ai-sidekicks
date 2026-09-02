@@ -31,7 +31,6 @@ export {
   PANE_KINDS,
   /** @consumedBy T-023p-1C-2 */
   isPaneKind,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   type PaneKind,
 } from "./pane-kinds.js";
 
@@ -44,7 +43,6 @@ export {
   registeredPaneKinds,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ConsolePaneAddress,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   type ConsolePaneContext,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   type ConsolePaneDescriptor,
@@ -70,13 +68,10 @@ export {
   SIDEBAR_SECTION_IDS,
   /** @consumedBy T-023p-1C-3 */
   SidebarSectionRegistry,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   registerSidebarSection,
-  /** @consumedBy T-023p-1C-3 */
   sidebarSectionRegistry,
   /** @consumedBy T-023p-1C-3 */
   sidebarSectionRenderer,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   type SidebarSectionContext,
   /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   type SidebarSectionDescriptor,

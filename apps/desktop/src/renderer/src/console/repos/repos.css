@@ -1,0 +1,106 @@
+/*
+ * The repos family's sheet — the sidebar section, and the frame both of the
+ * family's panes are read inside.
+ *
+ * ONE SHEET FOR THREE DIRECTORIES. `repos/`, `panes/diff/`, and `panes/artifact/`
+ * are one family (`repos/index.ts` says why), so they carry one stylesheet,
+ * imported from that family's one door. Three sheets would land three times in the
+ * graph and their cascade order would depend on which door the bundler reached
+ * first.
+ *
+ * NO LITERAL VALUES. Every length is on the space scale, every size on the type
+ * scale, and every colour is read back out of a custom property — the rule
+ * `primitives.css` states and the reason there is a token layer at all.
+ *
+ * `Spec-023 §Console Design (Meridian)`:
+ *   • rule 4 — mono is the signature that a figure came from the wire, which is
+ *              what the pane subject is: an entity id, rendered verbatim.
+ *   • rule 7 — density: the chrome is quiet so the content is not.
+ *   • rule 8 — the absences render themselves; nothing here restyles them.
+ */
+
+/* ------------------------------------------------------------- pane chrome */
+
+.meridian-repos-pane {
+  display: flex;
+  flex-direction: column;
+  block-size: 100%;
+  min-block-size: 0;
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+}
+
+.meridian-repos-pane__header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--meridian-space-3);
+  padding: var(--meridian-space-3) var(--meridian-space-4);
+  border-block-end: 1px solid var(--meridian-edge);
+}
+
+.meridian-repos-pane__heading {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-sm);
+  font-weight: 600;
+  color: var(--meridian-text);
+}
+
+/*
+ * The entity the pane is a view of. Mono because it is a wire value, and truncated
+ * at the measure rather than shortened in the string: the full id stays in the
+ * element's title, so a reader can always recover it and two ids that differ only
+ * in their tail never render identically without a way to tell them apart.
+ */
+.meridian-repos-pane__subject {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-repos-pane__body {
+  flex: 1 1 auto;
+  min-block-size: 0;
+  overflow: auto;
+  padding: var(--meridian-space-4);
+}
+
+/* --------------------------------------------------------- sidebar section */
+
+.meridian-repo-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+/*
+ * A collapsed section's one line. It carries the same absence the open section
+ * carries, in the badge shape, because a collapsed section has one line of room and
+ * the alternative — saying nothing — reads as a section with nothing in it.
+ */
+.meridian-repo-section__summary {
+  margin: 0;
+  padding: 0 var(--meridian-space-3);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/*
+ * Where the mount cards land, one per mount. A column at one gap rather than a
+ * bordered box: the cards carry their own edges, and a container edge around them
+ * would draw a second boundary around every single-mount session.
+ */
+.meridian-repo-section__mounts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: 0 var(--meridian-space-3) var(--meridian-space-2);
+}
