@@ -15,6 +15,8 @@
 import { describe, expect, it } from "vitest";
 
 import { findScenariosNaming, fixturePort } from "./fixture-growth-port.test-support.js";
+import { createFixtureBridge } from "./fixture-bridge.js";
+import type { GrowthBranchContext } from "./growth-values.js";
 import type { ConsoleScenario } from "./scenario.js";
 import { CONSOLE_SCENARIOS } from "./scenarios/index.js";
 import { FLAGSHIP_SCENARIO } from "./scenarios/flagship.js";
@@ -45,6 +47,30 @@ const BRANCH_NAMING_MEMBERS = [
  * prepare a proposal from in the first place.
  */
 const PR_PREPARATION_NAMING_MEMBERS = ["prPreparationId", "proposalBlob", "targetBranch"] as const;
+
+/**
+ * Two branch contexts in one workspace, keyed by the worktree each belongs to.
+ *
+ * Two rather than one, because one cannot tell a read that threads its request from
+ * a read that answers whatever it has: both look identical when there is only one
+ * answer to give.
+ */
+const BRANCH_CONTEXT_BY_WORKTREE_ID: Readonly<Record<string, GrowthBranchContext>> = {
+  "worktree-1": {
+    branchContextId: "branch-context-1",
+    workspaceId: "workspace-1",
+    worktreeId: "worktree-1",
+    baseBranch: "develop",
+    headBranch: "feature/first",
+  },
+  "worktree-2": {
+    branchContextId: "branch-context-2",
+    workspaceId: "workspace-1",
+    worktreeId: "worktree-2",
+    baseBranch: "develop",
+    headBranch: "feature/second",
+  },
+};
 
 describe("the fixture's gitflow reads — one answers nothing, the other refuses", () => {
   it("plays no scenario that states a branch, which is what makes the absence honest", () => {
@@ -107,6 +133,80 @@ describe("the fixture's gitflow reads — one answers nothing, the other refuses
       expect(outcome.owningDocument).toContain("Spec-011");
     }
     expect(outcome).not.toHaveProperty("value");
+  });
+
+  it("answers a scripted branch context per worktree, which is what the request is for", async () => {
+    // The read is ENTITY-scoped: it names a workspace and a worktree. A scenario
+    // answering it through `resultFor` is handed the request the caller sent, so a
+    // session holding two worktrees gets each worktree's own context — which is the
+    // whole point of the computed arm. Before the request was threaded, `resultFor`
+    // was invoked with `undefined` and this scenario answered the same way twice.
+    const port = createFixtureBridge({
+      scenario: {
+        ...FLAGSHIP_SCENARIO,
+        id: "scripts-two-branch-contexts",
+        replies: [
+          {
+            call: "gitflow.branchContextRead",
+            resultFor: (request) => {
+              const { worktreeId } = request as { readonly worktreeId: string };
+              return { branchContext: BRANCH_CONTEXT_BY_WORKTREE_ID[worktreeId] };
+            },
+          },
+        ],
+      },
+    }).growth;
+
+    const first = await port.gitflowBranchContextRead({
+      workspaceId: "workspace-1",
+      worktreeId: "worktree-1",
+    });
+    const second = await port.gitflowBranchContextRead({
+      workspaceId: "workspace-1",
+      worktreeId: "worktree-2",
+    });
+
+    expect(first.status).toBe("served");
+    expect(second.status).toBe("served");
+    if (first.status !== "served" || second.status !== "served") {
+      throw new Error("the fixture refused a branch-context read its scenario scripts");
+    }
+    expect(first.value.branchContext?.headBranch).toBe("feature/first");
+    expect(second.value.branchContext?.headBranch).toBe("feature/second");
+  });
+
+  it("negative control: an unscripted worktree takes the absence, never another's context", async () => {
+    // The half that proves the case above is about the request rather than about
+    // call order. A worktree the scenario answers for by name gets its context; one
+    // it does not gets the served absence, because `resultFor` answering `undefined`
+    // settles as unscripted and the port supplies its own honest answer. A helper
+    // that discarded the request could not tell these two apart at all.
+    const port = createFixtureBridge({
+      scenario: {
+        ...FLAGSHIP_SCENARIO,
+        id: "scripts-one-branch-context",
+        replies: [
+          {
+            call: "gitflow.branchContextRead",
+            resultFor: (request) =>
+              (request as { readonly worktreeId: string }).worktreeId === "worktree-1"
+                ? { branchContext: BRANCH_CONTEXT_BY_WORKTREE_ID["worktree-1"] }
+                : undefined,
+          },
+        ],
+      },
+    }).growth;
+
+    const unscripted = await port.gitflowBranchContextRead({
+      workspaceId: "workspace-1",
+      worktreeId: "worktree-2",
+    });
+
+    expect(unscripted.status).toBe("served");
+    if (unscripted.status !== "served") {
+      throw new Error("the fixture refused the unscripted worktree rather than answering it");
+    }
+    expect(unscripted.value.branchContext).toBeUndefined();
   });
 
   it("plays no scenario that states a prepared proposal, which is what makes the refusal honest", () => {

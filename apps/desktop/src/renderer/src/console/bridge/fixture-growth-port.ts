@@ -209,7 +209,7 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
             { items: [] },
     }),
     // gitflow
-    gitflowBranchContextRead: async () =>
+    gitflowBranchContextRead: async (request) =>
       // Routed through the scripted-reply seam so a repos scenario that DOES script
       // `gitflow.branchContextRead` is answered from the script, on the frozen clock,
       // with the loading window and the two non-arrival refusals a real read has. No
@@ -218,10 +218,17 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
       // refusal: the operation IS answered here and what it found is nothing, whereas
       // a refusal would say the wire is missing, which under this bridge is not what
       // happened.
+      //
+      // The REQUEST travels with the call because this operation is entity-scoped:
+      // it names a workspace and a worktree, and a scenario answering it per worktree
+      // reads exactly that. Discarded, every branch-context read in a session was
+      // computed about no worktree, so a two-worktree session got one answer twice or
+      // none at all.
       answerFromScriptedReply(
         engine,
         "gitflow.branchContextRead",
         "gitflowBranchContextRead",
+        request,
         () => ({
           branchContext: undefined,
         }),
