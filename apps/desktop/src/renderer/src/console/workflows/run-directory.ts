@@ -37,18 +37,21 @@
 
 import { useEffect, useState } from "react";
 
-// The snapshot the PORT answers with, which is the bridge's declaration rather than
-// the list projection's. A hook that retyped the answer would be asserting a shape
-// the wire never promised, and the projection accepts what the bridge sends because
-// it is the reader, not the source.
-import type { GrowthPort, WorkflowRunSnapshot } from "../bridge/index.js";
+// The ENTRY the port answers with, which is the bridge's declaration rather than the
+// list projection's. A hook that retyped the answer would be asserting a shape the
+// wire never promised, and the projection accepts what the bridge sends because it is
+// the reader, not the source. `WorkflowRunListEntry` and not the run READ's snapshot:
+// the enumeration carries each run's definition name and that definition's newest
+// version id, which is what lets a row read as more than an id and lets the frozen
+// pin be an inequality rather than a guess.
+import type { GrowthPort, WorkflowRunListEntry } from "../bridge/index.js";
 import { settleGrowthRead, type SettledReadRefusal } from "./read-settlement.js";
 
 /** What a runs surface knows about the runs this session holds, at one moment. */
 export type WorkflowRunDirectoryState =
   | { readonly status: "unasked" }
   | { readonly status: "reading" }
-  | { readonly status: "served"; readonly runs: readonly WorkflowRunSnapshot[] }
+  | { readonly status: "served"; readonly runs: readonly WorkflowRunListEntry[] }
   | { readonly status: "unavailable"; readonly refusal: SettledReadRefusal };
 
 /**

@@ -25,7 +25,6 @@ import { type ConsoleEntityRef, type FrameStore, type SessionStore } from "../..
 import { type DraftStore, type UiStateStore } from "../../persistence/index.js";
 import { PANE_KINDS, type PaneKind } from "./pane-kinds.js";
 
-// Consumed by T-023p-1C-2, T-023p-1C-3
 /**
  * Which pane, over which entity — the address a pane is opened at.
  *
@@ -40,7 +39,6 @@ export interface ConsolePaneAddress {
   readonly entity: ConsoleEntityRef | undefined;
 }
 
-// Consumed by T-023p-1C-2, T-023p-1C-3
 /**
  * The call the sidebar and the palette make to open a pane.
  *

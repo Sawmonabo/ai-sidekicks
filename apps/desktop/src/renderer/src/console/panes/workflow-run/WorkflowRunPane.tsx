@@ -50,7 +50,8 @@ import type { WorkflowPhaseState } from "../../bridge/index.js";
 import { Nothing, RefusalBanner } from "../../primitives/index.js";
 import { WorkflowChrome } from "../../workflows/WorkflowChrome.js";
 import { ParkBadge } from "../../workflows/ParkBadge.js";
-import { phasePark } from "../../workflows/run-list-projection.js";
+import { phasePark, parkSchedule } from "../../workflows/run-list-projection.js";
+import type { WorkflowParkedPhase } from "../../workflows/run-list-projection.js";
 import type { ConsolePaneContext } from "../../workspace/index.js";
 import { OperatorControls } from "./OperatorControls.js";
 import { unregisteredRunControl } from "./run-controls.js";
@@ -168,9 +169,15 @@ function RunPhaseGraph(props: {
  * is waiting on anyone" is the answer an operator opened this pane for.
  */
 function RunParks(props: { readonly phases: readonly WorkflowPhaseState[] }): React.JSX.Element {
-  const parked = props.phases.flatMap((phase) => {
+  const parked = props.phases.flatMap<WorkflowParkedPhase>((phase) => {
     const park = phasePark(phase);
-    return park === undefined ? [] : [{ phaseId: phase.phaseId, park }];
+    // Classified through the projection's own `parkSchedule` rather than by handing
+    // the badge four wire members: whether a park resumes itself is not
+    // `autoResumeAt`'s presence, and a second derivation of it here would be the
+    // second authority the badge stopped being.
+    return park === undefined
+      ? []
+      : [{ phaseId: phase.phaseId, park, schedule: parkSchedule(park) }];
   });
   if (parked.length === 0) {
     return (
@@ -188,7 +195,7 @@ function RunParks(props: { readonly phases: readonly WorkflowPhaseState[] }): Re
         // Keyed by the phase, which is the run's own identity for it. No phase name
         // reaches the console from any registered read, so the badge is given none
         // rather than one composed here.
-        <ParkBadge key={entry.phaseId} park={entry.park} />
+        <ParkBadge key={entry.phaseId} parked={entry} />
       ))}
     </div>
   );

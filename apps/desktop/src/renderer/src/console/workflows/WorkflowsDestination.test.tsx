@@ -13,11 +13,24 @@ import { describe, expect, it } from "vitest";
 import { createFixtureBridge } from "../bridge/index.js";
 import { createRefusingGrowthPort } from "../bridge/growth-port.js";
 import { WORKFLOWS_SCENARIO } from "../bridge/scenarios/workflows.js";
-import { WORKFLOWS_SESSION_ID } from "../bridge/scenarios/workflow-fixture-data.js";
+import {
+  WORKFLOWS_PARKED_RUN,
+  WORKFLOWS_SCENARIO_DEFINITIONS,
+  WORKFLOWS_SESSION_ID,
+} from "../bridge/scenarios/workflow-fixture-data.js";
 import type { GrowthPort } from "../bridge/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { FrameStore, SessionStoreRegistry } from "../store/index.js";
+import type { ConsolePaneAddress } from "../workspace/index.js";
 import { WorkflowsDestination } from "./WorkflowsDestination.js";
+
+/**
+ * The first definition the browser lists, which is the first name a person can press.
+ *
+ * Read off the fixture's own table rather than written as a literal, so the case that
+ * asserts the opened address cannot drift from the row it pressed.
+ */
+const RELEASE_CHECKS_ID = WORKFLOWS_SCENARIO_DEFINITIONS[0]?.id ?? "";
 
 /** The fixture's port, which serves both the session directory and the enumeration. */
 function fixtureGrowthPort(): GrowthPort {
@@ -47,19 +60,32 @@ function renderDestination(
   growth: GrowthPort,
   frameStore: FrameStore,
   registry: SessionStoreRegistry = emptyRegistry(),
-): { readonly container: HTMLElement; readonly rerender: () => void } {
+): {
+  readonly container: HTMLElement;
+  readonly rerender: () => void;
+  /** Every address this surface asked for a pane at, in the order it asked. */
+  readonly openedAddresses: readonly ConsolePaneAddress[];
+} {
+  // A recording opener rather than a real host: what this surface owes is the exact
+  // address per act, and where an opened pane lands is the mounting surface's answer
+  // and not this one's.
+  const openedAddresses: ConsolePaneAddress[] = [];
   const element = (
     <LiveAnnouncerProvider>
       <WorkflowsDestination
         growth={growth}
         frameStore={frameStore}
         sessionStoreRegistry={registry}
+        openPane={(address) => {
+          openedAddresses.push(address);
+        }}
       />
     </LiveAnnouncerProvider>
   );
   const { container, rerender } = render(element);
   return {
     container,
+    openedAddresses,
     rerender: () => {
       rerender(element);
     },
@@ -163,6 +189,53 @@ describe("the workflows destination — the session it reads from", () => {
     expect(definitionNames(container)).toContain("Release checks");
   });
 
+  it("shows the picker when a person asks to choose, with a session already in hand", async () => {
+    // The path the control exists for, end to end: this window has been in a session,
+    // so the destination is scoped without anyone choosing anything, and the button is
+    // the only way back to the question. Under the fold this replaced, pressing it
+    // resolved to the retained session again and the surface did not move.
+    const { container } = renderDestination(
+      fixtureGrowthPort(),
+      frameStoreRetaining(WORKFLOWS_SESSION_ID),
+    );
+    await settle();
+    const rescope = container.querySelector(".meridian-workflows-destination__rescope");
+    if (!(rescope instanceof HTMLElement)) {
+      throw new Error("the scoped destination offered no way to choose again");
+    }
+
+    fireEvent.click(rescope);
+    await settle();
+
+    expect(container.textContent).toContain("Which session's workflows should this show?");
+    expect(scopeLine(container)).toBeNull();
+  });
+
+  it("scopes to the session picked after asking again, and stops following retention", async () => {
+    // The other half of the same control: choosing from the picker it opened settles
+    // the scope, so the button is a round trip rather than a one-way door.
+    const { container } = renderDestination(
+      fixtureGrowthPort(),
+      frameStoreRetaining(WORKFLOWS_SESSION_ID),
+    );
+    await settle();
+    const rescope = container.querySelector(".meridian-workflows-destination__rescope");
+    if (!(rescope instanceof HTMLElement)) {
+      throw new Error("the scoped destination offered no way to choose again");
+    }
+    fireEvent.click(rescope);
+    await settle();
+    const choice = container.querySelector(".meridian-choice-list__choice");
+    if (!(choice instanceof HTMLElement)) {
+      throw new Error("the picker offered no session to choose");
+    }
+
+    fireEvent.click(choice);
+    await settle();
+
+    expect(scopeLine(container)?.textContent).toContain(WORKFLOWS_SESSION_ID);
+  });
+
   it("says the directory was not checked when the port refuses and nothing is open", async () => {
     // "Not checked", never "none": the live bridge refuses the directory read, so the
     // console has not learned that this node has no sessions — it has learned nothing.
@@ -172,6 +245,85 @@ describe("the workflows destination — the session it reads from", () => {
     expect(container.textContent).toContain("This window has no session open.");
     expect(container.querySelector(".meridian-choice-list")).toBeNull();
     expect(container.textContent).not.toContain("There are no sessions on this node yet.");
+  });
+});
+
+describe("the workflows destination — what its lists open", () => {
+  it("opens the builder on the definition a person pressed", async () => {
+    // Before this the name rendered as a plain span: the surface supplied no open
+    // action, so the pane kind this family claims was reachable from its own tests
+    // and from nowhere a person could reach.
+    const { container, openedAddresses } = renderDestination(
+      fixtureGrowthPort(),
+      frameStoreRetaining(WORKFLOWS_SESSION_ID),
+    );
+    await settle();
+    const name = container.querySelector(".meridian-definition-row__open");
+    if (!(name instanceof HTMLElement)) {
+      throw new Error("no definition name was pressable");
+    }
+
+    fireEvent.click(name);
+
+    expect(openedAddresses).toStrictEqual([
+      { kind: "workflow-builder", entity: { kind: "workflow-definition", id: RELEASE_CHECKS_ID } },
+    ]);
+  });
+
+  it("opens the builder with no entity for a definition that does not exist yet", async () => {
+    // The pane's own new-definition arm. No id is minted here: a definition the
+    // daemon has not saved has none, and inventing one would be the console deciding
+    // an identity the save decides.
+    const { container, openedAddresses } = renderDestination(
+      fixtureGrowthPort(),
+      frameStoreRetaining(WORKFLOWS_SESSION_ID),
+    );
+    await settle();
+    const action = [...container.querySelectorAll(".meridian-workflow__action")].find(
+      (button) => button.textContent === "New definition",
+    );
+    if (!(action instanceof HTMLElement)) {
+      throw new Error("the browser offered no way to author a definition");
+    }
+
+    fireEvent.click(action);
+
+    expect(openedAddresses).toStrictEqual([{ kind: "workflow-builder", entity: undefined }]);
+  });
+
+  it("opens the run pane on the run a person pressed", async () => {
+    // The parked run leads the list, which is the run an operator is most likely to
+    // press — and the one that had no route to the controls that lift its park.
+    const { container, openedAddresses } = renderDestination(
+      fixtureGrowthPort(),
+      frameStoreRetaining(WORKFLOWS_SESSION_ID),
+    );
+    await settle();
+    const name = container.querySelector(".meridian-run-row__open");
+    if (!(name instanceof HTMLElement)) {
+      throw new Error("no run name was pressable");
+    }
+
+    fireEvent.click(name);
+
+    expect(openedAddresses).toStrictEqual([
+      {
+        kind: "workflow-run",
+        entity: { kind: "workflow-run", id: WORKFLOWS_PARKED_RUN.workflowRunId },
+      },
+    ]);
+  });
+
+  it("negative control: nothing is opened until something is pressed", async () => {
+    // Without this every case above would pass over a surface that opened a pane on
+    // mount, which is a different defect wearing the same assertions.
+    const { openedAddresses } = renderDestination(
+      fixtureGrowthPort(),
+      frameStoreRetaining(WORKFLOWS_SESSION_ID),
+    );
+    await settle();
+
+    expect(openedAddresses).toStrictEqual([]);
   });
 });
 

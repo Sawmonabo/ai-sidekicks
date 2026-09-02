@@ -47,7 +47,7 @@ import type { ConsoleSurfaceRegistry } from "../frame/surface-registry.js";
 import { WorkflowBuilderPane } from "../panes/workflow-builder/index.js";
 import { WorkflowRunPane } from "../panes/workflow-run/index.js";
 import type { ConsolePaneDescriptor, ConsolePaneRegistry } from "../workspace/index.js";
-import { WorkflowsDestination } from "./WorkflowsDestination.js";
+import { WorkflowsPaneHost } from "./WorkflowsPaneHost.js";
 
 /**
  * The family's owner string, as the pane registry's duplicate policy reads it.
@@ -114,22 +114,19 @@ export function registerWorkflowSurfaces(registry: ConsoleSurfaceRegistry): void
   registry.register({
     slot: "workflows",
     owner: WORKFLOWS_OWNER,
-    // The destination rather than the browser directly, and the difference is the
-    // whole of this seat: `#/workflows` is a BARE route, so `context.sessionStore` is
-    // `undefined` on it by construction, while the definition enumeration's request
-    // carries a required session id. Handed the browser, this seat could only ever
-    // mount a surface whose read was permanently unasked. The destination resolves
-    // the session first — the one this window last opened, or the one a person picks
-    // — and hands it down unchanged.
+    // The host rather than the destination or the browser, and each step of that is
+    // the seat's own reasoning. `#/workflows` is a BARE route, so `context.sessionStore`
+    // is `undefined` on it by construction while the definition enumeration's request
+    // carries a required session id — handed the browser, this seat could only mount a
+    // surface whose read was permanently unasked, so the destination resolves the
+    // session first. And the destination opens panes rather than owning them: the two
+    // pane kinds this family claims are what its lists lead to, and the slot needs a
+    // place to put one, which `WorkflowsPaneHost.tsx` is.
     //
-    // Three inputs and no more of the context than that: handing the whole surface
-    // context down would make every later member of it reachable from a surface that
-    // needs a port, a window store, and this window's open sessions.
-    render: (context) =>
-      createElement(WorkflowsDestination, {
-        growth: context.bridge.growth,
-        frameStore: context.frameStore,
-        sessionStoreRegistry: context.sessionStoreRegistry,
-      }),
+    // The whole context, because a pane body is composed from it: a bridge, both
+    // stores, the window store, and the pane's own address. Handing the host three
+    // inputs would mean handing it six the day it composes that context, which is
+    // today.
+    render: (context) => createElement(WorkflowsPaneHost, { context }),
   });
 }

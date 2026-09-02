@@ -852,11 +852,18 @@ describe("the fixture's workflow reads — answered from the script, never inven
 
     expect(outcome.status).toBe("served");
     if (outcome.status === "served") {
-      // Identity again, and unsorted: the attention ordering is the console's fold,
-      // so a port that sorted on the way out would hide a fold that had stopped
-      // working behind data that arrived already correct.
-      expect(outcome.value.runs).toStrictEqual(WORKFLOWS_SCENARIO_RUNS);
-      expect(outcome.value.runs).toContain(WORKFLOWS_PARKED_RUN);
+      // Unsorted: the attention ordering is the console's fold, so a port that sorted
+      // on the way out would hide a fold that had stopped working behind data that
+      // arrived already correct. Asserted by run id rather than by identity, because
+      // the enumeration answers with each run WIDENED by the definition facts a run
+      // read does not carry — the scenario's own suite holds that pairing.
+      expect(outcome.value.runs.map((run) => run.workflowRunId)).toStrictEqual(
+        WORKFLOWS_SCENARIO_RUNS.map((run) => run.workflowRunId),
+      );
+      const parked = outcome.value.runs.find(
+        (run) => run.workflowRunId === WORKFLOWS_PARKED_RUN.workflowRunId,
+      );
+      expect(parked?.phaseStates).toBe(WORKFLOWS_PARKED_RUN.phaseStates);
     }
   });
 

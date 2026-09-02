@@ -81,8 +81,76 @@ import {
   WORKFLOWS_SESSION_ID,
 } from "./workflow-fixture-data.js";
 import type { ConsoleScenario } from "../scenario.js";
+import type { WorkflowDefinitionSummary, WorkflowRunListEntry } from "../workflow-projection.js";
 
 export const WORKFLOWS_SCENARIO_ID = "workflows";
+
+/**
+ * Which definition each scripted run was started from, by the version it is pinned to.
+ *
+ * The pairing lives HERE, on the reply, rather than on the run rows next door,
+ * because it is a fact about what the ENUMERATION answers with: `workflow.runRead`
+ * carries a run's pinned version and nothing about its definition, and no registered
+ * read maps a version id back to a definition — so a daemon serving a run list joins
+ * the two rows and a fixture has to do the same work.
+ *
+ * Keyed by version id rather than by run id or by position: three of the four runs
+ * are pinned to their definition's own latest, so their key is the value the
+ * definition table already publishes, and the fourth is the deliberately frozen pin —
+ * version 1 of `Ship pipeline` — which is exactly the case no derivation can recover.
+ * `runListEntries` refuses a run this table does not name, so a version id edited in
+ * the data file next door fails the scenario's own test loudly instead of quietly
+ * dropping a run's definition.
+ */
+const DEFINITION_NAME_BY_RUN_VERSION: Readonly<Record<string, string>> = {
+  // `Release checks`, at its own latest — the working run.
+  "019b7a10-0280-7d22-8100-be5100150004": "Release checks",
+  // `Ship pipeline`, at its own latest — the parked run.
+  "019b7a10-0280-7d22-8100-be5100150003": "Ship pipeline",
+  // `Incident triage`, at its own latest — the cancelled run.
+  "019b7a10-0280-7d22-8100-be5100150002": "Incident triage",
+  // `Ship pipeline` version 1, whose definition has since moved to version 3 — the
+  // frozen pin, and the only run whose definition no match against the definition
+  // table's latest ids could find.
+  "019b7a10-0280-7d22-8100-be5100150001": "Ship pipeline",
+};
+
+/**
+ * The definition a run's name resolves to, most-specific-first as the daemon would.
+ *
+ * Two definitions share each of two names in this fixture, which is what makes the
+ * browser's resolution mark say anything — so a name alone does not identify a row,
+ * and the entry takes the one the enumeration marked as resolving here. That is the
+ * definition a run started from this context would have been pinned to.
+ */
+function resolvedDefinitionNamed(name: string): WorkflowDefinitionSummary {
+  const resolved = WORKFLOWS_SCENARIO_DEFINITIONS.find(
+    (definition) => definition.name === name && definition.resolvesAtThisContext,
+  );
+  if (resolved === undefined) {
+    throw new Error(`the workflows fixture names no resolving definition called ${name}`);
+  }
+  return resolved;
+}
+
+/**
+ * The four runs as the ENUMERATION answers with them: each run's own row plus the
+ * definition facts a list needs and a single-run read never carries.
+ */
+function runListEntries(): readonly WorkflowRunListEntry[] {
+  return WORKFLOWS_SCENARIO_RUNS.map((run) => {
+    const definitionName = DEFINITION_NAME_BY_RUN_VERSION[run.workflowVersionId];
+    if (definitionName === undefined) {
+      throw new Error(`the workflows fixture pairs no definition with run ${run.workflowRunId}`);
+    }
+    const definition = resolvedDefinitionNamed(definitionName);
+    return {
+      ...run,
+      definitionName: definition.name,
+      definitionLatestWorkflowVersionId: definition.latestWorkflowVersionId,
+    };
+  });
+}
 
 /** The sequence the first `agent.attached` beat takes. One beat precedes it. */
 const FIRST_AGENT_SEQUENCE = 2;
@@ -253,7 +321,7 @@ export const WORKFLOWS_SCENARIO: ConsoleScenario = {
       // performs, and a projection bug would be invisible behind fixture data that
       // had already done the work.
       call: "workflow.runList",
-      result: { runs: WORKFLOWS_SCENARIO_RUNS },
+      result: { runs: runListEntries() },
     },
     {
       call: "workflow.runRead",

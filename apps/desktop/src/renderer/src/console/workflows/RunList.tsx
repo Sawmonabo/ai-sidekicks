@@ -117,7 +117,7 @@ const RunListItem = memo(function RunListItem(props: RunListItemProps): React.JS
         <ul className="meridian-run-row__parks">
           {row.parkedPhases.map((parked) => (
             <li key={parked.phaseId}>
-              <ParkBadge park={parked.park} phaseName={parked.phaseName} />
+              <ParkBadge parked={parked} />
             </li>
           ))}
         </ul>

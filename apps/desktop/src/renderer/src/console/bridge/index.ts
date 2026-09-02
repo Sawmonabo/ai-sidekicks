@@ -63,6 +63,7 @@ export { WORKFLOW_DEFINITION_SCOPES } from "./workflow-projection.js";
 export type {
   WorkflowDefinitionScope,
   WorkflowPhaseState,
+  WorkflowRunListEntry,
   WorkflowRunSnapshot,
 } from "./workflow-projection.js";
 
