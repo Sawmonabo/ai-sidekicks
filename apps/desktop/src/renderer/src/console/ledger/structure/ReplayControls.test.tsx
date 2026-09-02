@@ -46,6 +46,7 @@ function renderControls(overrides: Partial<ReplayPosition> = {}, isRevealed = tr
       onSpeedChange={(speed) => acts.push(`speed:${String(speed)}`)}
       onScrub={(elapsedMs) => acts.push(`scrub:${String(elapsedMs)}`)}
       onJumpToNextSeam={() => acts.push("seam")}
+      onReplayFromRowInView={() => acts.push("from-here")}
     />,
   );
   // Selected by attribute rather than by role, because the harness has to reach
@@ -189,5 +190,27 @@ describe("replay dock — the granularity sentence is the engine's reading, not 
     const { dock } = renderControls({ granularity: "stream" });
     expect(dock.textContent).toContain("Replay, stream granularity");
     expect(dock.textContent).not.toContain("turn granularity");
+  });
+});
+
+describe("the replay dock — replay from the row in view", () => {
+  it("runs the caller's act", () => {
+    // The engine's `replayFrom` had no production caller at all: the dock's whole
+    // prop surface was play, pause, speed, scrub and next-seam, and the row seat
+    // carries no callback for any renderer to hang one on.
+    const { dock, acts } = renderControls();
+    const control = dock.querySelector<HTMLElement>(".meridian-replay__from-here");
+    if (control === null) {
+      throw new Error("the dock drew no replay-from-here control");
+    }
+    fireEvent.click(control);
+    expect(acts).toStrictEqual(["from-here"]);
+  });
+
+  it("negative control: it does not appear as a second scrubber", () => {
+    // A second range input would be a second record of where the replay is, and the
+    // two would disagree the first time playback ended on its own.
+    const { dock } = renderControls();
+    expect(dock.querySelectorAll('input[type="range"]')).toHaveLength(1);
   });
 });

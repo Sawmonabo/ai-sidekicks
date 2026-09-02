@@ -402,6 +402,16 @@ export interface LedgerReplayState {
   readonly setSpeed: (speed: ReplaySpeed) => void;
   readonly scrub: (elapsedMs: number) => void;
   readonly jumpToNextSeam: () => void;
+  /**
+   * Scrub to where one row sits on the replay clock — the design's "replay from
+   * here".
+   *
+   * Answers whether the engine could place the row, so a caller renders the
+   * absence rather than reporting a move that did not happen. The engine's window
+   * and the viewport's are not the same set: the cap can drop a row between a
+   * caller reading its id and pressing.
+   */
+  readonly replayFromRow: (rowId: string) => boolean;
 }
 
 export function useLedgerReplay(ledgerWindow: LedgerWindowModel): LedgerReplayState {
@@ -464,7 +474,37 @@ export function useLedgerReplay(ledgerWindow: LedgerWindowModel): LedgerReplaySt
     jumpToNextSeam: useCallback(() => {
       engine.jumpToNextSeam(ledgerWindow.seams);
     }, [engine, ledgerWindow]),
+    replayFromRow: useCallback((rowId: string) => engine.replayFrom(rowId), [engine]),
   };
+}
+
+/**
+ * The row a "replay from here" starts at — the one at the top of the box.
+ *
+ * WHY THE VIEWPORT AND NOT A ROW CONTROL. "Here" is a row, and the row a person
+ * means is the one they are looking at. A per-row button would say it more
+ * directly, and this console cannot draw one: a row's body is the timeline row
+ * seat's, whose props are the row and three list decisions with no callback among
+ * them, and the seat belongs to another plan. So the anchor is read from the
+ * surface this family does own — the range the virtualizer reports the box
+ * intersects, off the same reading `useRailGeometry` sizes the rail's thumb from.
+ *
+ * FIRST VISIBLE, not the middle or the last: the first row is the one under the
+ * reader's eye at the top edge, and it is the row a scroll position names.
+ *
+ * `undefined` for a box nothing has measured or a window with no rows — which the
+ * act refuses on rather than substituting the window's head, because replaying from
+ * the beginning is a different act with its own control on the dock.
+ */
+export function useReplayAnchorRowId(
+  visibleRange: LedgerVisibleRowRange | undefined,
+  viewportRows: readonly LedgerViewportRow[],
+): string | undefined {
+  const firstIndex = visibleRange?.startIndex;
+  return useMemo(
+    () => (firstIndex === undefined ? undefined : viewportRows[firstIndex]?.key),
+    [firstIndex, viewportRows],
+  );
 }
 
 /**

@@ -9,13 +9,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   REPLAY_LOG_EVENT_COUNT,
+  contributeLedgerCommands,
+  dispatchConsoleCommand,
   openSessionStoreWithLog,
   renderFeed,
   replayDockHarness,
   withLaidOutViewport,
+  withdrawLedgerCommands,
 } from "./ledger-feed-fixtures.js";
 
 afterEach(() => {
+  withdrawLedgerCommands();
   vi.restoreAllMocks();
 });
 
@@ -112,5 +116,55 @@ describe("the ledger feed — the dock stays up while focus is still in the rail
     fireEvent.focusIn(railSlider);
     fireEvent.focusOut(railSlider, { relatedTarget: null });
     expect(dock.hidden).toBe(true);
+  });
+});
+
+describe("the ledger feed — replay from the row in view", () => {
+  /** The dock's own control for it. Refuses rather than answering null. */
+  function replayFromHereControl(feed: HTMLElement): HTMLElement {
+    const control = feed.querySelector<HTMLElement>(".meridian-replay__from-here");
+    if (control === null) {
+      throw new Error("the dock drew no replay-from-here control");
+    }
+    return control;
+  }
+
+  it("scrubs the replay to the anchored row and reveals the dock", () => {
+    // `ReplayEngine.replayFrom` had no production caller anywhere: three hits
+    // repo-wide, one declaration and two assertions in its own test. The viewport
+    // is parked at the head, so the row in view is the window's first — and the
+    // engine holding at its instant is what makes the rows behind it withheld.
+    withLaidOutViewport();
+    const feed = renderFeed(openSessionStoreWithLog(REPLAY_LOG_EVENT_COUNT));
+    const { dock } = replayDockHarness(feed);
+    expect(dock.hasAttribute("hidden")).toBe(true);
+
+    fireEvent.click(replayFromHereControl(feed));
+
+    expect(feed.querySelectorAll(".meridian-ledger-viewport__row")).toHaveLength(1);
+    // Engaging replay behind a hidden dock leaves a reader holding a control they
+    // cannot see to undo, which is why the act reveals before it scrubs.
+    expect(dock.hasAttribute("hidden")).toBe(false);
+  });
+
+  it("does the same from the keyboard, through the palette's own row", () => {
+    withLaidOutViewport();
+    const feed = renderFeed(openSessionStoreWithLog(REPLAY_LOG_EVENT_COUNT));
+    contributeLedgerCommands();
+
+    dispatchConsoleCommand("ledger.replayFromRowInView");
+
+    expect(feed.querySelectorAll(".meridian-ledger-viewport__row")).toHaveLength(1);
+    expect(replayDockHarness(feed).dock.hasAttribute("hidden")).toBe(false);
+  });
+
+  it("negative control: the window is whole until the control is pressed", () => {
+    // Without this the cases above would pass over a feed that withheld rows for
+    // some other reason — a replay nobody started, say.
+    withLaidOutViewport();
+    const feed = renderFeed(openSessionStoreWithLog(REPLAY_LOG_EVENT_COUNT));
+    expect(feed.querySelectorAll(".meridian-ledger-viewport__row")).toHaveLength(
+      REPLAY_LOG_EVENT_COUNT,
+    );
   });
 });

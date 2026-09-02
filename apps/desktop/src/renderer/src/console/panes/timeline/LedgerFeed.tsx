@@ -85,6 +85,7 @@ import {
   useLedgerFind,
   useLedgerReplay,
   useRailGeometry,
+  useReplayAnchorRowId,
   useReplayRevealedRows,
   useVisibleLedgerWindow,
 } from "./ledger-feed-model.js";
@@ -223,6 +224,9 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   );
 
   const geometry = useRailGeometry(viewport.visibleRange, viewport.snapshot.rows.length);
+  // "Here", for a console that cannot draw a per-row control: the row at the top of
+  // the box, off the same range the rail's thumb is sized from.
+  const replayAnchorRowId = useReplayAnchorRowId(viewport.visibleRange, viewport.snapshot.rows);
   const jumpToRow = viewport.jumpToRow;
   const onStepFind = useCallback(
     (direction: "next" | "previous") => {
@@ -273,13 +277,14 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   const collapseAllTerminalChapters = useCallback(() => {
     collapseAllTerminal([...ledgerWindow.chapterByHeaderKey.values()]);
   }, [collapseAllTerminal, ledgerWindow]);
-  useLedgerStructureActs({
+  const structureActs = useLedgerStructureActs({
     find,
     replay,
     jumpToRow,
     jumpToTail: viewport.jumpToTail,
     collapseAllTerminalChapters,
     ledgerFilter,
+    replayAnchorRowId,
   });
   useActorFollowSeat({ visibleRows: visible.rows, jumpToRow });
 
@@ -341,6 +346,10 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
             onSpeedChange={replay.setSpeed}
             onScrub={replay.scrub}
             onJumpToNextSeam={replay.jumpToNextSeam}
+            // THE SAME ACT THE PALETTE RUNS, not a second copy: the refusal for an
+            // absent anchor lives inside it, so a control with its own callback
+            // would be a second place this console decides what to say.
+            onReplayFromRowInView={structureActs.replayFromRowInView}
           />
         </div>
       </div>

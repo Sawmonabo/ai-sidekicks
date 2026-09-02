@@ -532,6 +532,7 @@
 
 .meridian-replay__primary,
 .meridian-replay__seam,
+.meridian-replay__from-here,
 .meridian-replay__speed {
   display: inline-flex;
   align-items: center;
@@ -549,6 +550,7 @@
 
 .meridian-replay__primary:hover,
 .meridian-replay__seam:hover,
+.meridian-replay__from-here:hover,
 .meridian-replay__speed:hover {
   background: var(--meridian-surface-sunken);
   color: var(--meridian-text);
@@ -556,6 +558,7 @@
 
 .meridian-replay__primary:focus-visible,
 .meridian-replay__seam:focus-visible,
+.meridian-replay__from-here:focus-visible,
 .meridian-replay__speed:focus-visible,
 .meridian-replay__scrub:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);

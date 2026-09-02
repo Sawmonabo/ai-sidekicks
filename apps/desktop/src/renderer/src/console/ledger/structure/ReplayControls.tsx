@@ -35,6 +35,18 @@ export interface ReplayControlsProps {
   readonly onSpeedChange: (speed: ReplaySpeed) => void;
   readonly onScrub: (elapsedMs: number) => void;
   readonly onJumpToNextSeam: () => void;
+  /**
+   * Start the replay at the row the reader is looking at — the design's "replay
+   * from here", reached from the dock rather than from a row.
+   *
+   * A ROW-ANCHORED ACT ON A CONTROL THAT IS NOT A ROW, and the reason is ownership
+   * rather than taste: a row's body belongs to the timeline row seat, whose props
+   * are the row and three list decisions with no callback among them. The dock and
+   * the palette are the two surfaces this family owns, and both can name the row in
+   * view. The caller resolves which row that is and answers a refusal when there is
+   * none, so this control neither reads a window nor decides anything.
+   */
+  readonly onReplayFromRowInView: () => void;
 }
 
 const REPLAY_GLYPH_SIZE = 14;
@@ -117,6 +129,18 @@ export function ReplayControls(props: ReplayControlsProps): React.JSX.Element {
         aria-label="Jump to the next seam"
       >
         <Glyph name="chevron-right" size={REPLAY_GLYPH_SIZE} />
+      </button>
+
+      {/* A button and deliberately not a second scrubber: the position has one
+          writer on this control, and a second range input would be a second
+          record of where the replay is. */}
+      <button
+        type="button"
+        className="meridian-replay__from-here"
+        onClick={props.onReplayFromRowInView}
+        aria-label="Replay from the row in view"
+      >
+        <Glyph name="rewind" size={REPLAY_GLYPH_SIZE} />
       </button>
 
       <span className="meridian-replay__granularity">{granularityNote(position)}</span>

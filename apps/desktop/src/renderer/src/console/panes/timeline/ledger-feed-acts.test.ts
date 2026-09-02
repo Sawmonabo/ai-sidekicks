@@ -24,6 +24,7 @@ import {
 import { type ConsoleSessionEvent } from "../../store/index.js";
 import {
   LEDGER_NOTHING_FILTERED_REFUSAL,
+  LEDGER_NO_REPLAY_ANCHOR_REFUSAL,
   buildActorFollowHandler,
   buildLedgerStructureActs,
   type LedgerFeedActInputs,
@@ -79,7 +80,11 @@ function recordingFindState(trace: ActTrace, walkedRowId?: string): LedgerFindSt
 }
 
 /** A replay state parked in one of the four arms, recording what it was asked to do. */
-function recordingReplayState(state: ReplayState, trace: ActTrace): LedgerReplayState {
+function recordingReplayState(
+  state: ReplayState,
+  trace: ActTrace,
+  placeableRowIds?: readonly string[],
+): LedgerReplayState {
   return {
     position: {
       state,
@@ -112,6 +117,10 @@ function recordingReplayState(state: ReplayState, trace: ActTrace): LedgerReplay
     jumpToNextSeam: () => {
       trace.push("jumpToNextSeam");
     },
+    replayFromRow: (rowId) => {
+      trace.push(`replayFromRow:${rowId}`);
+      return placeableRowIds === undefined || placeableRowIds.includes(rowId);
+    },
   };
 }
 
@@ -122,11 +131,13 @@ function actInputs(
     readonly replayState?: ReplayState;
     readonly walkedRowId?: string;
     readonly isFiltered?: boolean;
+    readonly replayAnchorRowId?: string;
+    readonly placeableRowIds?: readonly string[];
   } = {},
 ): LedgerFeedActInputs {
   return {
     find: recordingFindState(trace, options.walkedRowId),
-    replay: recordingReplayState(options.replayState ?? "idle", trace),
+    replay: recordingReplayState(options.replayState ?? "idle", trace, options.placeableRowIds),
     jumpToRow: (rowId) => {
       trace.push(`jumpToRow:${rowId}`);
     },
@@ -137,6 +148,7 @@ function actInputs(
       trace.push("collapseAllTerminalChapters");
     },
     ledgerFilter: recordingFilterState(options.isFiltered ?? false, trace),
+    replayAnchorRowId: options.replayAnchorRowId,
   };
 }
 
@@ -202,6 +214,16 @@ describe("the ledger's acts — what each one reaches", () => {
     expect(trace).toStrictEqual(["jumpToTail"]);
   });
 
+  it("replays from the row in view, revealing the dock first", () => {
+    // The engine has implemented this since it was written and no caller reached
+    // it: three hits repo-wide, one declaration and two assertions in its own test.
+    const trace: ActTrace = [];
+    buildLedgerStructureActs(
+      actInputs(trace, { replayAnchorRowId: "row-in-view" }),
+    ).replayFromRowInView();
+    expect(trace).toStrictEqual(["reveal", "replayFromRow:row-in-view"]);
+  });
+
   it("reveals the dock before jumping to the next seam", () => {
     // The jump scrubs, and a scrub promotes an idle engine to `paused`, which
     // withholds rows. Without the reveal that happened behind a hidden dock.
@@ -245,6 +267,31 @@ describe("the ledger's acts — the one that refuses", () => {
     expect(raised).toStrictEqual([LEDGER_NOTHING_FILTERED_REFUSAL]);
     expect(raised[0]?.code).toBe("ledger.nothing_filtered");
     expect(raised[0]?.origin).toBe("ledger");
+  });
+
+  it("says there is no row in view rather than replaying from the beginning", () => {
+    // Substituting the window's head would be a different act — the dock's own
+    // primary control already offers it — reported as the one that was asked for.
+    const trace: ActTrace = [];
+    const { raised, withdraw } = collectRaisedRefusals();
+    withdrawSink = withdraw;
+    buildLedgerStructureActs(actInputs(trace)).replayFromRowInView();
+    expect(raised).toStrictEqual([LEDGER_NO_REPLAY_ANCHOR_REFUSAL]);
+    expect(raised[0]?.code).toBe("ledger.no_replay_anchor");
+    expect(trace).toStrictEqual([]);
+  });
+
+  it("negative control: a row the engine cannot place refuses rather than scrubbing", () => {
+    // The window can move under a reader between the anchor being read and the
+    // press. Without this the act would have taken the engine's `false` for a move.
+    const trace: ActTrace = [];
+    const { raised, withdraw } = collectRaisedRefusals();
+    withdrawSink = withdraw;
+    buildLedgerStructureActs(
+      actInputs(trace, { replayAnchorRowId: "row-the-cap-took", placeableRowIds: [] }),
+    ).replayFromRowInView();
+    expect(trace).toStrictEqual(["reveal", "replayFromRow:row-the-cap-took"]);
+    expect(raised).toStrictEqual([LEDGER_NO_REPLAY_ANCHOR_REFUSAL]);
   });
 
   it("clears a narrowed ledger rather than refusing over a surface that now exists", () => {

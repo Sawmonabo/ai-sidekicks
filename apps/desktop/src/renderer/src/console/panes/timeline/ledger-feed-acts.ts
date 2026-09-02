@@ -1,4 +1,4 @@
-// What the feed offers the rest of the console: the palette's eight acts, and the
+// What the feed offers the rest of the console: the palette's nine acts, and the
 // workspace's follow seat.
 //
 // WHY THESE TWO LIVE IN ONE MODULE. They are the same shape of thing — a caller
@@ -14,15 +14,15 @@
 // the viewport binding's, and the replay engine is the replay state's. That is what
 // lets the whole set be driven by a test with no render at all.
 //
-// TWO OF THE EIGHT TOUCH THE REPLAY ENGINE, AND BOTH REVEAL THE DOCK BEFORE THEY
-// ACT. Engaging replay withholds rows, and the only other paths to the dock are the
+// THREE OF THE NINE TOUCH THE REPLAY ENGINE, AND ALL THREE REVEAL THE DOCK BEFORE
+// THEY ACT. Engaging replay withholds rows, and the only other paths to the dock are the
 // rail's hover and its focus — so a chord that started playback left the ledger
 // collapsed to the window's first instant with no visible control to undo it. The
 // dock's own density rule already names a chord among its triggers, so this is
 // honouring that rather than adding a third one; conceal is unchanged, and the next
 // pointer-leave or focus-out concludes it.
 //
-// ONE OF THE EIGHT REFUSES, AND IT REFUSES A STATE RATHER THAN AN ABSENCE.
+// TWO OF THE NINE CAN REFUSE, AND NEITHER REFUSES AN ABSENT SURFACE.
 // "Clear ledger filters" USED TO answer that this ledger had no filter surface at
 // all, which was true while `filters.ts` had no caller: the model was complete and
 // unreachable, so the press could only pretend. The facet bar reaches it now, so the
@@ -74,6 +74,21 @@ export const LEDGER_NOTHING_FILTERED_REFUSAL: ConsoleRefusal = refuse(
   "This ledger is not narrowed. Every loaded entry is already showing, so there is nothing to clear.",
 );
 
+/**
+ * What "replay from the row in view" answers when it has no row to start from.
+ *
+ * Two ways to get here and one sentence for both, because the next move is the
+ * same: nothing has measured the box yet, or the window moved under the reader
+ * between the anchor being read and the press. Substituting the window's head
+ * instead would replay from the beginning — an act with its own control on the
+ * dock, and not the one that was asked for.
+ */
+export const LEDGER_NO_REPLAY_ANCHOR_REFUSAL: ConsoleRefusal = refuse(
+  "ledger",
+  "ledger.no_replay_anchor",
+  "There is no row in view to replay from. Scroll to the entry you want to re-watch and try again.",
+);
+
 /** The state one window's acts are built over. */
 export interface LedgerFeedActInputs {
   readonly find: LedgerFindState;
@@ -85,6 +100,14 @@ export interface LedgerFeedActInputs {
   readonly collapseAllTerminalChapters: () => void;
   /** The narrowing the facet bar writes, and the one act that widens it back. */
   readonly ledgerFilter: LedgerFilterState;
+  /**
+   * The row a "replay from here" starts at, or `undefined` for an unmeasured box.
+   *
+   * Read rather than passed as a callback because the act must be able to REFUSE
+   * over an absent anchor, and a callback that answered nothing would leave the
+   * press silent — which is the shape this whole module exists to prevent.
+   */
+  readonly replayAnchorRowId: string | undefined;
 }
 
 /**
@@ -139,18 +162,48 @@ export function buildLedgerStructureActs(inputs: LedgerFeedActInputs): LedgerStr
       inputs.replay.reveal();
       inputs.replay.jumpToNextSeam();
     },
+    replayFromRowInView: () => {
+      const anchorRowId = inputs.replayAnchorRowId;
+      if (anchorRowId === undefined) {
+        raiseConsoleActRefusal(LEDGER_NO_REPLAY_ANCHOR_REFUSAL);
+        return;
+      }
+      // Revealed BEFORE the scrub, like the seam jump: the scrub engages replay and
+      // starts withholding rows, and doing that behind a hidden dock leaves a reader
+      // holding a control they cannot see to undo.
+      inputs.replay.reveal();
+      if (!inputs.replay.replayFromRow(anchorRowId)) {
+        // The engine could not place the row, so nothing moved. Said out loud rather
+        // than scrubbed to a neighbour, which would move a reader to a row they did
+        // not name and report it as the one they did.
+        raiseConsoleActRefusal(LEDGER_NO_REPLAY_ANCHOR_REFUSAL);
+      }
+    },
   };
 }
 
 /**
- * Hold the palette's seat for as long as the feed is mounted.
+ * Hold the palette's seat for as long as the feed is mounted, and hand the set back.
  *
  * The `useMemo` is what keeps the acts object stable across a render that changed
  * none of its inputs; the seat reads through its own ref either way, so this is a
  * cost the feed avoids rather than a correctness the seat depends on.
+ *
+ * RETURNED, because one act now has a control on screen as well as a chord. The
+ * dock's "replay from the row in view" and the palette's row must be the same act
+ * or they are two answers to one question — and the refusal is inside it, so a
+ * second copy would be a second place the console decides what to say.
  */
-export function useLedgerStructureActs(inputs: LedgerFeedActInputs): void {
-  const { find, replay, jumpToRow, jumpToTail, collapseAllTerminalChapters, ledgerFilter } = inputs;
+export function useLedgerStructureActs(inputs: LedgerFeedActInputs): LedgerStructureActs {
+  const {
+    find,
+    replay,
+    jumpToRow,
+    jumpToTail,
+    collapseAllTerminalChapters,
+    ledgerFilter,
+    replayAnchorRowId,
+  } = inputs;
   const acts = useMemo(
     () =>
       buildLedgerStructureActs({
@@ -160,10 +213,20 @@ export function useLedgerStructureActs(inputs: LedgerFeedActInputs): void {
         jumpToTail,
         collapseAllTerminalChapters,
         ledgerFilter,
+        replayAnchorRowId,
       }),
-    [find, replay, jumpToRow, jumpToTail, collapseAllTerminalChapters, ledgerFilter],
+    [
+      find,
+      replay,
+      jumpToRow,
+      jumpToTail,
+      collapseAllTerminalChapters,
+      ledgerFilter,
+      replayAnchorRowId,
+    ],
   );
   useMountedLedger(acts);
+  return acts;
 }
 
 /** What the follow handler resolves a request against. */
