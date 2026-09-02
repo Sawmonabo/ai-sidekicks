@@ -13,12 +13,12 @@ import { describe, expect, it } from "vitest";
 
 import { ConsoleRefusalError, ManualClock, isConsoleRefusal, refuse } from "../core/index.js";
 import type { ConsoleSessionEvent, EntityProjectorRegistry } from "./entities.js";
+import type { SessionSnapshotReader } from "./open-session-entry.js";
 import type { RefreshReason } from "./scheduling.js";
 import {
   SESSION_REGISTRY_ORIGIN,
   SessionStoreRegistry,
   type SessionRegistryChange,
-  type SessionSnapshotReader,
 } from "./session-store-registry.js";
 import type { SessionSnapshot } from "./session-store.js";
 
