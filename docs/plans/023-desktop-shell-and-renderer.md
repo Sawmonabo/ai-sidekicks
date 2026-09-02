@@ -810,6 +810,172 @@ shipped:
     spec_coverage: []
     notes: |
       Backfill (BL-110 Gate 6 baseline reconciliation, 2026-07-06): follow-up PR shipped outside a plan-execution run; descriptive task label, not a DAG task id. BL-101 Tier 1 Partial substrate carve-out; seeded apps/desktop/src/index.ts.
+  - phase: 1
+    task: [T-023p-1B-1, T-023p-1B-2, T-023p-1B-3, T-023p-1B-4]
+    pr: 415
+    sha: 0ae91660
+    merged_at: 2026-09-02
+    files:
+      - .claude/skills/plan-execution/scripts/__tests__/plan-done-checklist-corpus.test.mjs
+      - .claude/skills/plan-execution/scripts/__tests__/preflight-external-contracts.test.mjs
+      - .claude/skills/plan-execution/scripts/preflight.mjs
+      - .github/workflows/ci.yml
+      - .github/workflows/docs-corpus.yml
+      - .github/workflows/release.yml
+      - .npmrc
+      - .nvmrc
+      - CLAUDE.md
+      - CONTRIBUTING.md
+      - apps/desktop/build/assert-webprefs.test.ts
+      - apps/desktop/build/assert-webprefs.ts
+      - apps/desktop/electron.vite.config.ts
+      - apps/desktop/eslint.config.mjs
+      - apps/desktop/package.json
+      - apps/desktop/scripts/materialize-electron.ts
+      - apps/desktop/src/main/auxiliary-window.test.ts
+      - apps/desktop/src/main/auxiliary-window.ts
+      - apps/desktop/src/main/index.ts
+      - apps/desktop/src/main/load-failure-document.test.ts
+      - apps/desktop/src/main/load-failure-document.ts
+      - apps/desktop/src/main/menu.test.ts
+      - apps/desktop/src/main/menu.ts
+      - apps/desktop/src/main/navigation.test.ts
+      - apps/desktop/src/main/navigation.ts
+      - apps/desktop/src/main/probes/gc-probe.ts
+      - apps/desktop/src/main/probes/smoke-probe.ts
+      - apps/desktop/src/main/protocol.test.ts
+      - apps/desktop/src/main/protocol.ts
+      - apps/desktop/src/main/renderer-assets.test.ts
+      - apps/desktop/src/main/renderer-assets.ts
+      - apps/desktop/src/main/renderer-scheme.test.ts
+      - apps/desktop/src/main/renderer-scheme.ts
+      - apps/desktop/src/main/startup-order.test.ts
+      - apps/desktop/src/main/tsconfig.json
+      - apps/desktop/src/main/window-load-failure.test.ts
+      - apps/desktop/src/main/window-load-failure.ts
+      - apps/desktop/src/main/window-navigation.test.ts
+      - apps/desktop/src/main/window.test.ts
+      - apps/desktop/src/main/window.ts
+      - apps/desktop/src/preload/tsconfig.json
+      - apps/desktop/src/renderer/index.html
+      - apps/desktop/src/renderer/src/main.tsx
+      - apps/desktop/src/renderer/src/runtime-node-attach/AttachFlow.tsx
+      - apps/desktop/src/renderer/src/runtime-node-attach/CapabilityDeclaration.tsx
+      - apps/desktop/src/renderer/src/runtime-node-attach/MixedVersionStatus.tsx
+      - apps/desktop/src/renderer/src/runtime-node-attach/NodeRoster.tsx
+      - apps/desktop/src/renderer/tsconfig.json
+      - apps/desktop/src/shared/auxiliary-routes.ts
+      - apps/desktop/src/shared/wire-errors.ts
+      - apps/desktop/test/helpers/electron-mock.ts
+      - apps/desktop/test/helpers/electron-probe.ts
+      - apps/desktop/test/helpers/window-test-harness.ts
+      - apps/desktop/test/launch.smoke.test.ts
+      - apps/desktop/test/lifecycle.gc.test.ts
+      - apps/desktop/tsconfig.build.json
+      - apps/desktop/tsconfig.json
+      - apps/desktop/turbo.json
+      - apps/desktop/vitest.config.ts
+      - docs/architecture/component-architecture-local-daemon.md
+      - docs/architecture/data-architecture.md
+      - docs/decisions/022-v1-toolchain-selection.md
+      - docs/decisions/023-v1-ci-cd-and-release-automation.md
+      - docs/decisions/024-electron-main-process-window-retention.md
+      - docs/plans/023-desktop-shell-and-renderer.md
+      - docs/plans/030-sidekick-definitions-and-peer-invocation.md
+      - docs/specs/015-persistence-recovery-and-replay.md
+      - docs/specs/023-desktop-shell-and-renderer.md
+      - package.json
+      - packages/client-sdk/package.json
+      - packages/contracts/package.json
+      - packages/crypto-paseto/package.json
+      - packages/runtime-daemon/package.json
+      - packages/runtime-daemon/src/provider/mcp-task-handle-recorder.ts
+      - packages/runtime-daemon/src/session/__tests__/migration-shape.test.ts
+      - packages/runtime-daemon/src/session/__tests__/session-service.test.ts
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - tools/__tests__/entry-guard.test.mjs
+    verifies_invariant: [I-023-1, I-023-2, I-023-4, I-023-6, I-023-11, I-023-12]
+    spec_coverage:
+      [
+        "Spec-023 §Security Hardening Baseline",
+        "Spec-023 §Renderer Bundle",
+        "Spec-023 §Main Process Responsibilities",
+        "Spec-023 §Console Design (Meridian)",
+        "Spec-023 §Electron Version And Support Window",
+        "Spec-023 §Acceptance Criteria",
+      ]
+    notes: |
+      Phase 1B closes: T-023p-1B-1..4 are all recorded, so every task the supplement
+      declares is shipped and Phase 1C — whose only precondition is
+      `external_plan_phase_merged` on Plan-023 Phase 1B — becomes dispatchable.
+      Verified: `classifyPhaseShipment(source, "1B", { shippedAcrossEveryPhaseKey:
+      true })` returns `fully_shipped` after this row and returned
+      `partially_shipped` with all four tasks missing before it. `phase: 1` because
+      `validateEntry` forces a positive integer and the label `1B` can never BE a
+      manifest phase key; supplement dispatch sources its shipped set from the
+      whole-manifest union per the supplement-target rule in
+      `.claude/skills/plan-execution/references/preflight-contract.md`, so the
+      integer key is bookkeeping and the task ids carry the assertion.
+      Shipped, by task. T-023p-1B-1 registers `sidekicks-renderer://` privileged
+      (`standard: true` / `secure: true`) at module top level ahead of
+      `app.whenReady()` and installs the bundle handler before the first window —
+      raw-URL scanning rather than `URL.pathname`, `fs.realpath` symlink containment
+      with an inside-the-root symlink as the negative control, empty path-free 403 /
+      404, an unconditional 404 on `.map`, a closed ten-entry content-type map,
+      bodies streamed through `net.fetch`, and the `Spec-023 §Security Hardening
+      Baseline` CSP as a response header — the shipped `index.html` carries no meta
+      tag, so the header is its only carrier. T-023p-1B-2 lands the main-window
+      load, the route-discriminated auxiliary-window factory over a
+      main-process-validated launch descriptor, `menu.ts` with its
+      `registerMenuSection` seam and the static `IMPLEMENTED_AUXILIARY_ROUTES`
+      manifest (empty in 1B, so the shipped menu renders no auxiliary entry and no
+      leading separator), the `will-navigate` + `will-redirect` +
+      `setWindowOpenHandler` policy classifying on protocol and host rather than
+      `URL.origin`, and the generated load-failure document with its
+      destroy-and-exit terminal. T-023p-1B-3 registers the `main-unit` Vitest
+      project with its `test:main-unit` script and Turbo task and — after the Codex
+      round-4 finding — the CI step that makes it a required check rather than a
+      `pnpm test`-only project. T-023p-1B-4 moves `electron` to exact `44.1.0` and
+      `better-sqlite3` to exact `13.0.3` in one commit per ADR-022's ordering rule,
+      moves the tier-1 `engines.node` floor `>=22.12.0` → `>=22.14.0` with them,
+      carries the `Spec-015 §Driver Pin` amendment in-swap, and adds the
+      five-target `native-prebuilds` CI job.
+      `verifies_invariant` is the union of the four tasks' declared invariants
+      (T-023p-1B-1 I-023-2 + I-023-11; T-023p-1B-2 I-023-2 + I-023-12; T-023p-1B-3
+      I-023-1 + I-023-4 + I-023-6 + I-023-11 + I-023-12; T-023p-1B-4 I-023-2 +
+      I-023-11), and it matches the §Invariants table's own Phase-1B mentions
+      exactly. I-023-3, I-023-5, I-023-7, I-023-8, I-023-9, I-023-10, I-023-13, and
+      I-023-14 bind in Phase 1C and Phases 2-8 and are deliberately not claimed.
+      No cross-plan substrate row is owed — this is NOT the PR #410 shape that gave
+      Plan-007 one. Every non-Plan-023 file in the diff is a floor sweep or a pin no
+      plan owns: `packages/runtime-daemon/package.json` is the `better-sqlite3` move
+      this phase's own Gate names as its one cross-package touch; the three daemon
+      files and the three plan-execution tooling files carry `22.12` → `22.14`
+      comment sweeps only; and `tools/__tests__/entry-guard.test.mjs` lists
+      `apps/desktop/build/assert-webprefs.ts` in the guarded-CLI fixture set that
+      file joined when T-023p-1B-2 gave it a path argument. None of them ships
+      another plan's task or states an invariant on another plan, so no
+      descriptive-label row is warranted. Spec-015, ADR-016, ADR-022, ADR-023,
+      ADR-024, and Plan-030 take doc edits only: specs and ADRs carry no
+      `### Shipment Manifest` block at all, and Plan-030's touch is a one-token
+      Node-floor sweep in prose.
+      One landed deviation is recorded on the plan rather than here. T-023p-1B-4's
+      body names exact `44.1.1` and the landed pin is exact `44.1.0`, because
+      `minimumReleaseAge: 1440` refuses every 44.1.1 specifier — exact or ranged —
+      until 2026-09-02T18:25Z; that task body already carries the landed-pin fact,
+      edited in PR #415 itself.
+      `post-merge-housekeeper.mjs` was run (`415 --candidate-ns NS-97 --plan 023
+      --phase 1 --touched-files-path … --squash-sha 0ae91660 --merged-at
+      2026-09-02`) and exits 2 with `type_signature_unknown_type`, emitting no
+      `proposed_manifest_entry` and making no edit. Nothing is owed on the §6 side
+      either way: NS-97 landed born-`completed` in the console-design swap with no
+      `PRs:` block, so this entry is hand-authored through `lib/manifest.mjs`'s
+      `appendManifestEntry`, exactly as PR #408 and PR #419 did.
+      `merged_at: 2026-09-02` is the UTC merge date, the value
+      `rebuild-shipment-manifest.mjs` derives (`mergedAt.split("T")[0]`); the
+      local-time date reads 2026-09-01. Review: three Codex rounds plus a round-4
+      finding folded in-PR; CI green on the squash head.
 ```
 
 ### Notes
