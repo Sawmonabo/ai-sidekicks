@@ -13,7 +13,8 @@
 import { memo, useCallback, useMemo, useState } from "react";
 import { Panel } from "react-resizable-panels";
 
-import { Nothing } from "../../primitives/index.js";
+import { InlineRefusal, Nothing } from "../../primitives/index.js";
+import { type ConsoleRefusal } from "../../core/index.js";
 import {
   type ConsolePaneContext,
   type ConsolePaneRegistry,
@@ -41,6 +42,12 @@ export interface DeckPaneSlotProps {
   readonly onFocus: (paneId: string) => void;
   readonly onClose: (paneId: string) => void;
   readonly onOpenInWindow?: (pane: DeckPane) => void;
+  /** True while this pane's body is showing in a window of its own (§4.5). */
+  readonly isDetached: boolean;
+  readonly onFocusDetachedWindow?: (paneId: string) => void;
+  readonly onReturnToDeck?: (paneId: string) => void;
+  /** Why the crashed-window signal is not being received, where it is not. */
+  readonly detachedSignalRefusal?: ConsoleRefusal;
   readonly trackElement: (paneId: string, element: Element) => void;
   readonly untrackElement: (paneId: string) => void;
 }
@@ -126,7 +133,20 @@ export const DeckPaneSlot: React.NamedExoticComponent<DeckPaneSlotProps> = memo(
         onFocusCapture={onFocusCapture}
       >
         <PaneControlsContext.Provider value={controls}>
-          {descriptor === undefined ? (
+          {props.isDetached ? (
+            <DetachedPaneBody
+              paneId={pane.paneId}
+              {...(props.onFocusDetachedWindow === undefined
+                ? {}
+                : { onFocusWindow: props.onFocusDetachedWindow })}
+              {...(props.onReturnToDeck === undefined
+                ? {}
+                : { onReturnToDeck: props.onReturnToDeck })}
+              {...(props.detachedSignalRefusal === undefined
+                ? {}
+                : { signalRefusal: props.detachedSignalRefusal })}
+            />
+          ) : descriptor === undefined ? (
             <MissingPaneBody kind={pane.kind} />
           ) : (
             descriptor.render(props.paneContextFor(pane))
@@ -136,6 +156,67 @@ export const DeckPaneSlot: React.NamedExoticComponent<DeckPaneSlotProps> = memo(
     );
   },
 );
+
+/**
+ * The pane whose body is somewhere else.
+ *
+ * A named absence rather than an empty rectangle, and two controls rather than none:
+ * §4.5 keeps the SLOT while the aux window shows the projection, so the widths and
+ * the order survive the window's whole life and the pane goes back exactly where it
+ * was. Closing the pane instead — which is what this replaced — deleted the position
+ * the window's own close would have needed to restore.
+ *
+ * The signal refusal renders HERE, in the slot it is about. A build that cannot
+ * subscribe to the crashed-window signal cannot notice a window that died, and a
+ * placeholder that showed nothing would be claiming that none has.
+ */
+function DetachedPaneBody(props: {
+  readonly paneId: string;
+  readonly onFocusWindow?: (paneId: string) => void;
+  readonly onReturnToDeck?: (paneId: string) => void;
+  readonly signalRefusal?: ConsoleRefusal;
+}): React.JSX.Element {
+  const { onFocusWindow, onReturnToDeck, paneId } = props;
+  return (
+    <div className="meridian-deck__detached">
+      <Nothing
+        kind="empty"
+        placement="surface"
+        title="This pane is open in a window of its own."
+        detail="Its contents are shown there, and never in two places at once."
+        action={
+          <>
+            {onFocusWindow === undefined ? null : (
+              <button
+                type="button"
+                className="meridian-deck__detached-control"
+                onClick={() => {
+                  onFocusWindow(paneId);
+                }}
+              >
+                Bring its window forward
+              </button>
+            )}
+            {onReturnToDeck === undefined ? null : (
+              <button
+                type="button"
+                className="meridian-deck__detached-control"
+                onClick={() => {
+                  onReturnToDeck(paneId);
+                }}
+              >
+                Return it to the deck
+              </button>
+            )}
+          </>
+        }
+      />
+      {props.signalRefusal === undefined ? null : (
+        <InlineRefusal code={props.signalRefusal.code} detail={props.signalRefusal.detail} />
+      )}
+    </div>
+  );
+}
 
 /**
  * A pane kind the deck holds and no family has a body for.

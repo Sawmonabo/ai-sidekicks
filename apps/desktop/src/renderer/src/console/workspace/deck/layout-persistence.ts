@@ -19,6 +19,13 @@
 // the newest arrangement, never a stale one — with no timer to arm, cancel, or
 // leak, and nothing for a test to advance.
 //
+// AND THE PARTITION RIDES THE REQUEST, NOT THE CALLER'S CURRENT STATE. A request
+// names the session its snapshot belongs to, and the single pending slot carries
+// both, so the pump writes what the request named however long it waited. The
+// alternative — reading the caller's current session inside the write callback —
+// files a queued arrangement under whichever session the person navigated to while
+// it waited, which overwrites that session's saved deck with another one's.
+//
 // AND THERE IS NOTHING TO DISPOSE, WHICH IS THE POINT. This class arms no timer,
 // holds no subscription, and reaches no DOM node, so it owns no resource a pane's
 // unmount has to reclaim. A `dispose()` here would either be a no-op that reads as
@@ -30,16 +37,25 @@
 import type { DeckSnapshotRecord } from "./deck-snapshot.js";
 
 export interface DeckLayoutWriterOptions {
-  /** Performs one durable write. A refusal is the caller's to render. */
-  readonly write: (snapshot: DeckSnapshotRecord) => Promise<void>;
+  /**
+   * Performs one durable write, under the partition the request named. A refusal
+   * is the caller's to render.
+   */
+  readonly write: (partition: string, snapshot: DeckSnapshotRecord) => Promise<void>;
   /** A write that rejected outright, as opposed to one the store refused. */
   readonly onFailed: (error: unknown) => void;
 }
 
+/** One arrangement, and the session it belongs to. The two travel together. */
+interface PendingDeckLayoutWrite {
+  readonly partition: string;
+  readonly snapshot: DeckSnapshotRecord;
+}
+
 export class DeckLayoutWriter {
-  readonly #write: (snapshot: DeckSnapshotRecord) => Promise<void>;
+  readonly #write: (partition: string, snapshot: DeckSnapshotRecord) => Promise<void>;
   readonly #onFailed: (error: unknown) => void;
-  #pending: DeckSnapshotRecord | undefined;
+  #pending: PendingDeckLayoutWrite | undefined;
   #inFlight = false;
   #writeCount = 0;
 
@@ -59,14 +75,17 @@ export class DeckLayoutWriter {
   }
 
   /**
-   * Save this arrangement.
+   * Save this arrangement, under the session it belongs to.
    *
-   * The newest snapshot REPLACES an unsent one rather than joining a queue: the
+   * The newest request REPLACES an unsent one rather than joining a queue: the
    * layout is a single current value, and writing an arrangement the person has
-   * already moved past would put a stale record on disk and then correct it.
+   * already moved past would put a stale record on disk and then correct it. The
+   * partition travels with the snapshot for the same reason it exists at all — a
+   * queued write settles later than the act that queued it, and by then the caller's
+   * own idea of the current session may have moved on.
    */
-  public request(snapshot: DeckSnapshotRecord): void {
-    this.#pending = snapshot;
+  public request(partition: string, snapshot: DeckSnapshotRecord): void {
+    this.#pending = { partition, snapshot };
     this.#pump();
   }
 
@@ -74,11 +93,11 @@ export class DeckLayoutWriter {
     if (this.#inFlight || this.#pending === undefined) {
       return;
     }
-    const snapshot = this.#pending;
+    const { partition, snapshot } = this.#pending;
     this.#pending = undefined;
     this.#inFlight = true;
     this.#writeCount += 1;
-    void this.#write(snapshot)
+    void this.#write(partition, snapshot)
       .catch((error: unknown) => {
         this.#onFailed(error);
       })

@@ -26,6 +26,17 @@
 // `store/scheduling.ts`' reasoning: a frozen clock is what lets a test assert that
 // the write did NOT happen during the callback and DID happen on the next frame.
 // Nothing here arms an interval.
+//
+// AND THE VISIBLE CLIP IS COMPUTED SYNCHRONOUSLY, NOT OBSERVED. The obvious answer
+// to "is this pane actually on screen" is `IntersectionObserver`, and it is the
+// wrong tool four times over: it delivers asynchronously off a frame this module
+// does not own, so its reading arrives after the write it should have decided; it
+// cannot be driven by the injected clock, so the frozen-clock assertions above stop
+// being possible; it reports THRESHOLD CROSSINGS rather than geometry, and a host
+// setting bounds needs the rectangle and not the fact that a ratio moved; and it
+// offers no on-demand read, while `invalidate` needs a value inside its own read
+// phase. So the clip is walked here, one style read per ancestor per pass. This
+// paragraph is why a later simplification to an observer is a regression.
 
 import { useEffect, useRef, useState } from "react";
 
@@ -52,12 +63,116 @@ export const RECT_INVALIDATION_SOURCES = [
   "window-resize",
   "ancestor-scroll",
   "layout-mover",
+  // Its own member rather than a fifth reason folded into `layout-mover`: an overlay
+  // opening changes NO layout — the palette does not lock document scroll and the
+  // inert carrier is `display: contents` — so counting it as a layout move would make
+  // the per-source counter, whose whole job is telling one source firing four times
+  // apart from four sources firing once, report something untrue.
+  "airspace",
 ] as const;
+
+/**
+ * The computed `overflow` values that clip a descendant.
+ *
+ * Declared once and matched positively rather than testing `!== "visible"`: a
+ * computed value this environment does not serve is not evidence of a clip, and
+ * treating every unreadable ancestor as a clipping one would report a pane hidden
+ * because its style could not be read.
+ */
+const CLIPPING_OVERFLOW_VALUES: ReadonlySet<string> = new Set([
+  "hidden",
+  "scroll",
+  "auto",
+  "clip",
+  "overlay",
+]);
+
+/** A rectangle in viewport coordinates. The one shape the clip walk passes around. */
+interface ViewportBox {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+/**
+ * The part of `element` a person can actually see, in viewport coordinates.
+ *
+ * `getBoundingClientRect` reports the border box whether or not an ancestor clips
+ * it, and a native view is composited by the host rather than laid out by the DOM —
+ * so it is not clipped by the ancestor that clips the pane, and a pane scrolled half
+ * out of the frame surface would have its view drawn over whatever is beside it.
+ * The intersection is the only rectangle a bounds setter can act on, so it is what
+ * this module publishes.
+ *
+ * One `getComputedStyle` per ancestor per pass, and the walk stops at the document:
+ * the cost is the read, and the read is the thing that makes the answer true.
+ */
+function visibleClipOf(element: Element): ViewportBox {
+  const box = element.getBoundingClientRect();
+  let clip = intersectBoxes(
+    { x: box.x, y: box.y, width: box.width, height: box.height },
+    { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight },
+  );
+  // `?? null` on both reads rather than a bare `!== null` test: an element standing
+  // in for a host in a test carries no `parentElement` at all, and walking into
+  // `undefined` would read a style off nothing.
+  let ancestor: Element | null = element.parentElement ?? null;
+  while (ancestor !== null && clip.width > 0 && clip.height > 0) {
+    if (isClippingAncestor(ancestor)) {
+      const ancestorBox = ancestor.getBoundingClientRect();
+      clip = intersectBoxes(clip, {
+        x: ancestorBox.x,
+        y: ancestorBox.y,
+        width: ancestorBox.width,
+        height: ancestorBox.height,
+      });
+    }
+    ancestor = ancestor.parentElement ?? null;
+  }
+  return clip;
+}
+
+/**
+ * Whether this ancestor clips what is inside it.
+ *
+ * Both axes AND the shorthand, because an environment that does not expand
+ * `overflow` into its two long-hand properties would report neither axis and the
+ * walk would step straight past a real scroller.
+ */
+function isClippingAncestor(ancestor: Element): boolean {
+  const style = window.getComputedStyle(ancestor);
+  return (
+    CLIPPING_OVERFLOW_VALUES.has(style.overflowX) ||
+    CLIPPING_OVERFLOW_VALUES.has(style.overflowY) ||
+    CLIPPING_OVERFLOW_VALUES.has(style.overflow)
+  );
+}
+
+/** Two boxes overlaid, floored at zero so a disjoint pair reports no extent. */
+function intersectBoxes(first: ViewportBox, second: ViewportBox): ViewportBox {
+  const left = Math.max(first.x, second.x);
+  const top = Math.max(first.y, second.y);
+  const right = Math.min(first.x + first.width, second.x + second.width);
+  const bottom = Math.min(first.y + first.height, second.y + second.height);
+  return {
+    x: left,
+    y: top,
+    width: Math.max(0, right - left),
+    height: Math.max(0, bottom - top),
+  };
+}
 
 /** One invalidation source. Derived, so the vocabulary is declared once. */
 export type RectInvalidationSource = (typeof RECT_INVALIDATION_SOURCES)[number];
 
-/** One measured rect, in CSS pixels, plus whether it is worth compositing. */
+/**
+ * One pane's VISIBLE CLIP, in CSS pixels, plus whether it is worth compositing.
+ *
+ * The clip and not the border box: a host that hands these bounds to a native view
+ * has a bounds setter and no clip API, so the intersection with the viewport and
+ * every clipping ancestor is the only rectangle it can act on.
+ */
 export interface TrackedRect {
   readonly paneId: string;
   readonly x: number;
@@ -108,10 +223,20 @@ export class AirspaceRegistry {
   readonly #occupants = new Set<string>();
   readonly #changes = new Emitter<boolean>("airspace change");
 
-  /** Claim the airspace. The returned function is the only way to release it. */
+  /**
+   * Claim the airspace. The returned function is the only way to release it.
+   *
+   * Emits on the false→true TRANSITION only, matching the release side, which
+   * already emits only where the delete removed something. A second overlay opening
+   * above the first changes nothing a subscriber would act on, and emitting for it
+   * would spend a re-measure of every tracked pane on an answer that cannot differ.
+   */
   public claim(overlayId: string): Unsubscribe {
+    const wasOccupied = this.#occupants.size > 0;
     this.#occupants.add(overlayId);
-    this.#changes.emit(true);
+    if (!wasOccupied) {
+      this.#changes.emit(true);
+    }
     return () => {
       if (this.#occupants.delete(overlayId)) {
         this.#changes.emit(this.#occupants.size > 0);
@@ -143,6 +268,7 @@ export class PaneRectTracker {
   readonly #pendingByPaneId = new Map<string, TrackedRect>();
   readonly #lastKeyByPaneId = new Map<string, string>();
   readonly #invalidationCountBySource = new Map<RectInvalidationSource, number>();
+  readonly #releaseAirspace: Unsubscribe | undefined;
   #armedHandle: ScheduledHandle | undefined;
   #flushCount = 0;
   #writesDuringMeasurement = 0;
@@ -152,6 +278,15 @@ export class PaneRectTracker {
     this.#clock = options.clock;
     this.#onFlush = options.onFlush;
     this.#airspace = options.airspace;
+    // Subscribed HERE rather than sampled at each invalidation, because an overlay
+    // opening fires none of the other four sources: the palette deliberately does not
+    // lock document scroll and its inert carrier is `display: contents`, so nothing
+    // about one appearing changes layout. Visibility is part of the dedupe key, so
+    // without this the last flushed value simply stood — a native view composited over
+    // a dialog that had just opened, or hidden after one had closed.
+    this.#releaseAirspace = options.airspace?.subscribe(() => {
+      this.invalidate("airspace");
+    });
   }
 
   /** Flushes performed. One per frame that held a changed rect; the dedupe assertion. */
@@ -211,15 +346,16 @@ export class PaneRectTracker {
     );
     const isAirspaceOccupied = this.#airspace?.isOccupied === true;
     for (const [paneId, element] of this.#elementsByPaneId) {
-      const box = element.getBoundingClientRect();
+      const clip = visibleClipOf(element);
       const isLargeEnough =
-        box.width >= NATIVE_VIEW_MINIMUM_VISIBLE_PX && box.height >= NATIVE_VIEW_MINIMUM_VISIBLE_PX;
+        clip.width >= NATIVE_VIEW_MINIMUM_VISIBLE_PX &&
+        clip.height >= NATIVE_VIEW_MINIMUM_VISIBLE_PX;
       this.#pendingByPaneId.set(paneId, {
         paneId,
-        x: box.x,
-        y: box.y,
-        width: box.width,
-        height: box.height,
+        x: clip.x,
+        y: clip.y,
+        width: clip.width,
+        height: clip.height,
         isVisible: isLargeEnough && !isAirspaceOccupied,
       });
     }
@@ -263,6 +399,9 @@ export class PaneRectTracker {
   /** Drop everything armed. Terminal: a later invalidation measures nothing. */
   public dispose(): void {
     this.#disposed = true;
+    // Released before anything else, and safe against a racing emit either way:
+    // `invalidate` early-returns once disposed.
+    this.#releaseAirspace?.();
     if (this.#armedHandle !== undefined) {
       this.#clock.cancel(this.#armedHandle);
       this.#armedHandle = undefined;

@@ -25,6 +25,12 @@
 //     to the deck and renders inside it; what a detach or a save refused changes
 //     what the whole surface can do and takes the workspace banner — §4.1's
 //     placement for a refusal of that reach.
+//   • **A detached pane keeps its slot.** §4.5's main window "never keeps a duplicate
+//     projection alive while the aux window shows it" suppresses the BODY, not the
+//     pane: closing the pane would delete its width and its position, and the window
+//     closing or crashing would then have nowhere to put it back. So the hand-off's
+//     detached set is subscribed to here and passed down, and the slot draws a
+//     placeholder with a focus control and a way back.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -133,6 +139,8 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
     [props.bridge, props.frameStore, props.sessionStore, props.uiStateStore, props.draftStore],
   );
 
+  const detached = useDetachedPanes(handoff);
+
   const onOpenInWindow = useCallback(
     (pane: DeckPane) => {
       void (async () => {
@@ -144,14 +152,37 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
         });
         if (outcome.outcome === "refused") {
           raise(outcome.refusal);
-          return;
         }
-        // §4.5: the main window never keeps a duplicate projection alive while the
-        // window shows it, so the pane leaves the deck rather than staying behind it.
-        layout.close(pane.paneId);
+        // The pane STAYS, with its body suppressed. §4.5 forbids a duplicate
+        // projection, not the slot: a closed pane loses its width and its position,
+        // and the window closing would then have nowhere to put the pane back.
       })();
     },
-    [handoff, layout, raise, sessionId],
+    [handoff, raise, sessionId],
+  );
+
+  const onFocusDetachedWindow = useCallback(
+    (paneId: string) => {
+      void (async () => {
+        const refusal = await handoff.focus(paneId);
+        if (refusal !== undefined) {
+          raise(refusal);
+        }
+      })();
+    },
+    [handoff, raise],
+  );
+
+  const onReturnToDeck = useCallback(
+    (paneId: string) => {
+      void (async () => {
+        const refusal = await handoff.returnToDeck(paneId);
+        if (refusal !== undefined) {
+          raise(refusal);
+        }
+      })();
+    },
+    [handoff, raise],
   );
 
   const onFollow = useCallback(
@@ -213,6 +244,12 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
         paneContextFor={paneContextFor}
         onOpenInWindow={onOpenInWindow}
         restoreRefusals={restoreRefusals}
+        detachedPaneIds={detached.paneIds}
+        onFocusDetachedWindow={onFocusDetachedWindow}
+        onReturnToDeck={onReturnToDeck}
+        {...(detached.signalRefusal === undefined
+          ? {}
+          : { detachedSignalRefusal: detached.signalRefusal })}
       />
       {composer === undefined || props.sessionStore === undefined ? null : (
         <div className="meridian-workspace__composer">
@@ -227,6 +264,54 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
       )}
     </div>
   );
+}
+
+/** Which panes are showing in windows of their own, and what the signal refused. */
+interface DetachedPaneProjection {
+  readonly paneIds: readonly string[];
+  readonly signalRefusal: ConsoleRefusal | undefined;
+}
+
+/**
+ * Follow the hand-off's detached set, and watch the crashed-window signal while it
+ * is non-empty.
+ *
+ * The signal is opened on the first detach and closed when the last pane comes back,
+ * rather than held for the surface's lifetime: a subscription over an empty set can
+ * report nothing, and its refusal would sit on screen as a permanent notice about a
+ * hazard this window does not currently have.
+ */
+function useDetachedPanes(handoff: AuxiliaryHandoff): DetachedPaneProjection {
+  const [projection, setProjection] = useState<DetachedPaneProjection>({
+    paneIds: [],
+    signalRefusal: undefined,
+  });
+
+  useEffect(() => {
+    const read = (): void => {
+      setProjection({
+        paneIds: handoff.detached().map((pane) => pane.paneId),
+        signalRefusal: handoff.paneErrorRefusal,
+      });
+    };
+    const unsubscribe = handoff.subscribe(read);
+    read();
+    return () => {
+      unsubscribe();
+      handoff.stopWatchingPaneErrors();
+    };
+  }, [handoff]);
+
+  const hasDetachedPane = projection.paneIds.length > 0;
+  useEffect(() => {
+    if (!hasDetachedPane) {
+      handoff.stopWatchingPaneErrors();
+      return;
+    }
+    void handoff.watchPaneErrors();
+  }, [handoff, hasDetachedPane]);
+
+  return projection;
 }
 
 /** The focused pane's address, for the composer's send router. */
@@ -258,24 +343,16 @@ function useDeckPersistence(options: DeckPersistenceOptions): readonly ConsoleRe
   const { layout, uiStateStore, sessionId, onSaveRefused } = options;
   const [restoreRefusals, setRestoreRefusals] = useState<readonly ConsoleRefusal[]>([]);
 
-  // The session the writer files under, read at WRITE time rather than captured at
-  // construction: the writer outlives a navigation between sessions, and a captured
-  // id would file the new session's layout under the old one's partition.
-  const [sessionIdHolder] = useState<{ current: string | undefined }>(() => ({
-    current: sessionId,
-  }));
-  useEffect(() => {
-    sessionIdHolder.current = sessionId;
-  }, [sessionIdHolder, sessionId]);
-
+  // The partition rides the REQUEST rather than being read here. A writer coalesces,
+  // so a queued arrangement settles after the act that queued it — and this component
+  // survives a navigation between two already-open sessions, because the shell opens
+  // session stores and never closes them. Reading a mutable current-session holder at
+  // write time filed the older session's arrangement under the newer one's partition
+  // and overwrote a deck the person had not touched.
   const [writer] = useState(
     () =>
       new DeckLayoutWriter({
-        write: async (snapshot) => {
-          const partition = sessionIdHolder.current;
-          if (partition === undefined) {
-            return;
-          }
+        write: async (partition, snapshot) => {
           const result = await uiStateStore.write(
             partition,
             DECK_LAYOUT_RECORD_KEY,
@@ -323,13 +400,14 @@ function useDeckPersistence(options: DeckPersistenceOptions): readonly ConsoleRe
     };
   }, [layout, sessionId, uiStateStore]);
 
-  useEffect(
-    () =>
-      layout.subscribe(() => {
-        writer.request(layout.toSnapshot());
-      }),
-    [layout, writer],
-  );
+  useEffect(() => {
+    if (sessionId === undefined) {
+      return;
+    }
+    return layout.subscribe(() => {
+      writer.request(sessionId, layout.toSnapshot());
+    });
+  }, [layout, writer, sessionId]);
 
   return restoreRefusals;
 }

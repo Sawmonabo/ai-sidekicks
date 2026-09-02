@@ -58,7 +58,12 @@ import { DECK_TOTAL_PERMILLE, toPaneSizePercentages, type DeckPane } from "./dec
 import { minimumPaneWidthPx, type DeckDensity } from "./density.js";
 import { useDeckDragCoordinator, useDeckDragMonitor, useDeckDropIndicator } from "./pane-drag.js";
 import { DeckPaneSlot } from "./DeckPaneSlot.js";
-import { usePaneRectSources, usePaneRectTracker, type TrackedRect } from "./rect-discipline.js";
+import {
+  usePaneRectSources,
+  usePaneRectTracker,
+  type AirspaceRegistry,
+  type TrackedRect,
+} from "./rect-discipline.js";
 import { useSeparatorValueBoundsCorrection } from "./separator-aria.js";
 
 export interface DeckProps {
@@ -72,8 +77,28 @@ export interface DeckProps {
   readonly onOpenInWindow?: (pane: DeckPane) => void;
   /** What the layout restore refused, rendered rather than swallowed. */
   readonly restoreRefusals?: readonly ConsoleRefusal[];
+  /**
+   * Panes whose body is showing in a window of its own (§4.5).
+   *
+   * The slot stays and the projection is suppressed, so widths and order survive the
+   * window's whole life and the pane goes back where it was.
+   */
+  readonly detachedPaneIds?: readonly string[];
+  readonly onFocusDetachedWindow?: (paneId: string) => void;
+  readonly onReturnToDeck?: (paneId: string) => void;
+  /** Why the crashed-window signal is not being received, where it is not. */
+  readonly detachedSignalRefusal?: ConsoleRefusal;
   /** Where measured pane rects go, for a body that hosts a native view (§4.3). */
   readonly onPaneRects?: (rects: readonly TrackedRect[]) => void;
+  /**
+   * Which overlays are up, so a pane's rect yields while one is.
+   *
+   * Passed rather than constructed here: an overlay registers on the registry its own
+   * window owns (I-023-12's no-shared-state property), and a deck that made its own
+   * would be tracking an airspace nothing claims. The tracker has taken this option
+   * since it was written; until now no component could supply it.
+   */
+  readonly airspace?: AirspaceRegistry;
 }
 
 export function Deck(props: DeckProps): React.JSX.Element {
@@ -84,6 +109,7 @@ export function Deck(props: DeckProps): React.JSX.Element {
   const tracker = usePaneRectTracker({
     clock,
     ...(props.onPaneRects === undefined ? {} : { onRects: props.onPaneRects }),
+    ...(props.airspace === undefined ? {} : { airspace: props.airspace }),
   });
   usePaneRectSources(tracker, containerReference, state.revision);
   useSeparatorValueBoundsCorrection(containerReference, state.revision);
@@ -210,6 +236,7 @@ export function Deck(props: DeckProps): React.JSX.Element {
   }, [tracker]);
 
   const refusals = props.restoreRefusals ?? [];
+  const detachedPaneIds = props.detachedPaneIds ?? [];
   const defaultLayout = useMemo(() => toPaneSizePercentages(state.panes), [state.panes]);
 
   return (
@@ -267,9 +294,19 @@ export function Deck(props: DeckProps): React.JSX.Element {
                 }
                 onFocus={focusPane}
                 onClose={closePane}
+                isDetached={detachedPaneIds.includes(pane.paneId)}
                 {...(props.onOpenInWindow === undefined
                   ? {}
                   : { onOpenInWindow: props.onOpenInWindow })}
+                {...(props.onFocusDetachedWindow === undefined
+                  ? {}
+                  : { onFocusDetachedWindow: props.onFocusDetachedWindow })}
+                {...(props.onReturnToDeck === undefined
+                  ? {}
+                  : { onReturnToDeck: props.onReturnToDeck })}
+                {...(props.detachedSignalRefusal === undefined
+                  ? {}
+                  : { detachedSignalRefusal: props.detachedSignalRefusal })}
                 trackElement={trackElement}
                 untrackElement={untrackElement}
               />

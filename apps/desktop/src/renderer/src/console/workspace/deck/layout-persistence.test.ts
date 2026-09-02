@@ -10,22 +10,31 @@ import { describe, expect, it } from "vitest";
 import { DeckLayoutWriter } from "./layout-persistence.js";
 import type { DeckSnapshotRecord } from "./deck-snapshot.js";
 
+const SESSION_A = "session-a";
+const SESSION_B = "session-b";
+
 function snapshotAt(position: number): DeckSnapshotRecord {
   return { $deck: { version: 1, density: "standard" }, "pane-1": { position, kind: "timeline" } };
 }
 
+/** One write as the writer performed it: the partition it named, and what it held. */
+interface PerformedWrite {
+  readonly partition: string;
+  readonly snapshot: DeckSnapshotRecord;
+}
+
 /** A write whose settlement the test decides. */
 function heldWrite(): {
-  readonly write: (snapshot: DeckSnapshotRecord) => Promise<void>;
-  readonly seen: DeckSnapshotRecord[];
+  readonly write: (partition: string, snapshot: DeckSnapshotRecord) => Promise<void>;
+  readonly seen: PerformedWrite[];
   settle: () => void;
 } {
-  const seen: DeckSnapshotRecord[] = [];
+  const seen: PerformedWrite[] = [];
   let release: (() => void) | undefined;
   return {
     seen,
-    write: (snapshot) => {
-      seen.push(snapshot);
+    write: (partition, snapshot) => {
+      seen.push({ partition, snapshot });
       return new Promise<void>((resolve) => {
         release = resolve;
       });
@@ -47,9 +56,9 @@ describe("DeckLayoutWriter — coalescing", () => {
       },
     });
 
-    writer.request(snapshotAt(1));
-    writer.request(snapshotAt(2));
-    writer.request(snapshotAt(3));
+    writer.request(SESSION_A, snapshotAt(1));
+    writer.request(SESSION_A, snapshotAt(2));
+    writer.request(SESSION_A, snapshotAt(3));
     expect(writer.writeCount).toBe(1);
 
     held.settle();
@@ -59,16 +68,16 @@ describe("DeckLayoutWriter — coalescing", () => {
     expect(writer.writeCount).toBe(2);
     // The second write carries position 3 and never 2: an arrangement the person
     // has already moved past must not reach the disk and then be corrected.
-    expect(held.seen[1]?.["pane-1"]?.["position"]).toBe(3);
+    expect(held.seen[1]?.snapshot["pane-1"]?.["position"]).toBe(3);
   });
 
   it("negative control: three requests that each settle are three writes", async () => {
     // Without this, the case above would pass over a writer that performed one
     // write and then stopped forever.
-    const seen: DeckSnapshotRecord[] = [];
+    const seen: PerformedWrite[] = [];
     const writer = new DeckLayoutWriter({
-      write: async (snapshot) => {
-        seen.push(snapshot);
+      write: async (partition, snapshot) => {
+        seen.push({ partition, snapshot });
       },
       onFailed: () => {
         throw new Error("no write should have failed");
@@ -76,13 +85,13 @@ describe("DeckLayoutWriter — coalescing", () => {
     });
 
     for (const position of [1, 2, 3]) {
-      writer.request(snapshotAt(position));
+      writer.request(SESSION_A, snapshotAt(position));
       await Promise.resolve();
       await Promise.resolve();
     }
 
     expect(writer.writeCount).toBe(3);
-    expect(seen.map((snapshot) => snapshot["pane-1"]?.["position"])).toStrictEqual([1, 2, 3]);
+    expect(seen.map((write) => write.snapshot["pane-1"]?.["position"])).toStrictEqual([1, 2, 3]);
   });
 
   it("reports a rejected write rather than letting it reject unhandled", async () => {
@@ -96,7 +105,7 @@ describe("DeckLayoutWriter — coalescing", () => {
       },
     });
 
-    writer.request(snapshotAt(1));
+    writer.request(SESSION_A, snapshotAt(1));
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
@@ -116,13 +125,58 @@ describe("DeckLayoutWriter — coalescing", () => {
       onFailed: () => undefined,
     });
 
-    writer.request(snapshotAt(1));
+    writer.request(SESSION_A, snapshotAt(1));
     await settle();
-    writer.request(snapshotAt(2));
+    writer.request(SESSION_A, snapshotAt(2));
     await settle();
 
     expect(writer.writeCount).toBe(2);
     expect(writer.isIdle).toBe(true);
+  });
+});
+
+describe("DeckLayoutWriter — which session an arrangement is filed under", () => {
+  it("writes a queued arrangement under the session that requested it, not the newest one", async () => {
+    // The defect this binding exists for: the writer coalesces, so a request settles
+    // later than the act that made it. A writer that read the caller's current session
+    // at write time filed session A's arrangement under session B's partition the
+    // moment a person navigated between two sessions the shell already had open.
+    const held = heldWrite();
+    const writer = new DeckLayoutWriter({
+      write: held.write,
+      onFailed: () => {
+        throw new Error("no write should have failed");
+      },
+    });
+
+    writer.request(SESSION_A, snapshotAt(1));
+    // Queued behind the in-flight write, exactly as a drag's later frames are.
+    writer.request(SESSION_A, snapshotAt(2));
+    held.settle();
+    await settle();
+
+    expect(held.seen.map((write) => write.partition)).toStrictEqual([SESSION_A, SESSION_A]);
+  });
+
+  it("negative control: a later request naming another session is written under that one", async () => {
+    // Without this, the case above would pass over a writer that hard-coded the
+    // first partition it ever saw, which files every later session under the first.
+    const held = heldWrite();
+    const writer = new DeckLayoutWriter({
+      write: held.write,
+      onFailed: () => {
+        throw new Error("no write should have failed");
+      },
+    });
+
+    writer.request(SESSION_A, snapshotAt(1));
+    held.settle();
+    await settle();
+    writer.request(SESSION_B, snapshotAt(2));
+    held.settle();
+    await settle();
+
+    expect(held.seen.map((write) => write.partition)).toStrictEqual([SESSION_A, SESSION_B]);
   });
 });
 

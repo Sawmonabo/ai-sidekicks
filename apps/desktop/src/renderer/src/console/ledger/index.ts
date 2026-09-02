@@ -41,6 +41,7 @@ import {
   type ConsoleSurfaceRegistry,
 } from "../frame/surface-registry.js";
 import { Nothing } from "../primitives/index.js";
+import { routeSessionId } from "../routing/index.js";
 import { Workspace, consolePaneRegistry, type ConsolePaneContext } from "../workspace/index.js";
 import { registerFixtureShellRows } from "./cards/FixtureShellRows.js";
 import { registerLedgerCommands } from "./structure/structure-commands.js";
@@ -127,12 +128,23 @@ export function registerLedger(registry: ConsoleSurfaceRegistry): void {
  *
  * The wrapper keeps the surface's full-height grid, which is what lets the deck
  * inside it be the thing that scrolls rather than the window.
+ *
+ * WHY THE KEY, AND WHY A KEY IS THE RIGHT INSTRUMENT. The workspace holds per-session
+ * state that nothing else resets: the deck's arrangement, and the record of which
+ * panes are showing in windows of their own. The shell deliberately OPENS session
+ * stores and never closes them on navigation, so moving from one already-open session
+ * to another re-renders this position rather than unmounting it — and every one of
+ * those pieces would carry the first session's panes and windows into the second. A
+ * key on the session is what makes the subtree's lifetime match the thing it holds
+ * state about; the alternative is a reset effect per piece, which is the same rule
+ * written once per field and forgotten on the next one.
  */
 function mountWorkspace(context: ConsoleSurfaceContext): ReactNode {
   return createElement(
     "div",
     { className: "meridian-ledger-surface" },
     createElement(Workspace, {
+      key: routeSessionId(context.route) ?? "no-session",
       bridge: context.bridge,
       frameStore: context.frameStore,
       sessionStore: context.sessionStore,
