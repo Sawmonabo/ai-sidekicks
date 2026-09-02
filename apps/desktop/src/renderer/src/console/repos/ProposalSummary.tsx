@@ -22,7 +22,7 @@ import {
   PROPOSAL_MEMBER_UNSUPPLIED_COPY,
   proposalBlobRows,
   type PreparedProposal,
-} from "./proposal-model.js";
+} from "./prepared-proposal.js";
 
 /**
  * The prepared proposal, rendered before any remote mutation.

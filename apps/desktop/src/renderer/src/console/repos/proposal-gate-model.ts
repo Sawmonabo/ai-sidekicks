@@ -2,7 +2,7 @@
 // says out loud, and how a wire branch context becomes one the summary can draw.
 //
 // Split from `proposal-gate-reader.ts` on the seam this family already uses twice —
-// `proposal-model.ts` beside `ProposalGate.tsx`, `worktree-model.ts` beside
+// `prepared-proposal.ts` beside `ProposalGate.tsx`, `worktree-model.ts` beside
 // `WorktreeCard.tsx`: what a value IS, against the object that fetches and holds it.
 // Everything here is a pure function or a closed table, so a test can hold the
 // announcement vocabulary and the wire mapping without constructing a reader, a

@@ -60,7 +60,7 @@ import { LiveAnnouncerProvider } from "../../src/renderer/src/console/primitives
 import { ProposalGate } from "../../src/renderer/src/console/repos/ProposalGate.js";
 import { registerRepos, registerReposPanes } from "../../src/renderer/src/console/repos/index.js";
 import type { BranchContextReading } from "../../src/renderer/src/console/repos/branch-context-model.js";
-import type { ProposalGateState } from "../../src/renderer/src/console/repos/proposal-model.js";
+import type { ProposalGateState } from "../../src/renderer/src/console/repos/proposal-gate-state.js";
 import { FrameStore, SessionStore } from "../../src/renderer/src/console/store/index.js";
 import {
   ConsolePaneRegistry,

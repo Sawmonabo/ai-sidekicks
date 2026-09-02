@@ -19,7 +19,7 @@
 //    and a preparation state naming it, and neither exists on a reply whose state
 //    vocabulary is `draft | ready`. So the reader never publishes that arm, the gate
 //    still draws it for a caller that can state it, and nothing here invents the
-//    difference. `proposal-model.ts` carries the same note beside the arm itself.
+//    difference. `proposal-gate-state.ts` carries the same note beside the arm itself.
 //
 // 2. NOTHING HERE DECIDES WHO MAY ACT. `docs/architecture/contracts/error-contracts.md`
 //    registers no `gitflow` namespace, so a failed action arrives as an ordinary
@@ -57,23 +57,27 @@ import type { ConsoleRefusal } from "../core/index.js";
 import { BranchContextSummary } from "./BranchContextSummary.js";
 import { ProposalSummary } from "./ProposalSummary.js";
 import { BRANCH_CONTEXT_UNREAD_REASON, NO_BRANCH_CONTEXT_REASON } from "./branch-context-model.js";
+import type { CheckoutConflict } from "./checkout-conflict.js";
 import {
-  ACTION_FAILURE_COPY,
   CHANGE_REQUEST_STATE_PRESENTATION,
   CHECK_STATUS_PRESENTATION,
-  HOSTING_UNAVAILABLE_COPY,
   MERGEABILITY_PRESENTATION,
   NO_REVIEW_DECISION_COPY,
-  ONE_CUMULATIVE_PROPOSAL_COPY,
-  PROPOSAL_ACTIONS,
-  PROPOSAL_ACTION_PRESENTATION,
   REVIEW_DECISION_PRESENTATION,
   checkRollup,
-  type CheckoutConflict,
-  type ProposalAction,
-  type ProposalGateState,
   type ProposalStatusReading,
-} from "./proposal-model.js";
+} from "./hosting-status.js";
+import { ONE_CUMULATIVE_PROPOSAL_COPY } from "./prepared-proposal.js";
+import {
+  PROPOSAL_ACTIONS,
+  PROPOSAL_ACTION_PRESENTATION,
+  type ProposalAction,
+} from "./proposal-actions.js";
+import {
+  ACTION_FAILURE_COPY,
+  HOSTING_UNAVAILABLE_COPY,
+  type ProposalGateState,
+} from "./proposal-gate-state.js";
 
 export interface ProposalGateProps {
   readonly state: ProposalGateState;

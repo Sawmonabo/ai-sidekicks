@@ -12,13 +12,9 @@ import { describe, expect, it, vi } from "vitest";
 import { refuse } from "../core/index.js";
 import { ProposalGate } from "./ProposalGate.js";
 import type { BranchContextReading } from "./branch-context-model.js";
-import {
-  ONE_CUMULATIVE_PROPOSAL_COPY,
-  PROPOSAL_ACTIONS,
-  type PreparedProposal,
-  type ProposalAction,
-  type ProposalGateState,
-} from "./proposal-model.js";
+import { ONE_CUMULATIVE_PROPOSAL_COPY, type PreparedProposal } from "./prepared-proposal.js";
+import { PROPOSAL_ACTIONS, type ProposalAction } from "./proposal-actions.js";
+import type { ProposalGateState } from "./proposal-gate-state.js";
 
 const BRANCH_CONTEXT: BranchContextReading = {
   branchContextId: "branch-context-01",
