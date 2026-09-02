@@ -6,15 +6,35 @@
 // sentence is the thing the session is blocked on, which is the moment the composer
 // matters most.
 //
-// The beats carry wire-verbatim event kinds and nothing else. A scenario is data,
-// so an invented kind here would be an invented kind everywhere it is projected.
-// `scenarios/wire-truth.ts` holds this file to the census
-// (`SESSION_EVENT_CATEGORY_BY_TYPE`) and to the strict payload layer
-// (`SessionEventSchema`), both in `packages/contracts/src/event.ts`, which is why
-// the identifiers below are the UUIDs the branded id types declare, `session.created`
-// carries `{sessionId, config, metadata}` rather than a title, a person joining is
-// `membership.created` rather than a `participant.*` type the census does not carry,
-// and a run reaching a state is the event named for that state.
+// EVERY BEAT IS A REGISTERED EVENT, CARRYING THE REGISTERED PAYLOAD, and every
+// identifier is the UUID its branded id type declares. `scenarios/wire-truth.ts`
+// holds this file to the census (`SESSION_EVENT_CATEGORY_BY_TYPE`) and to the strict
+// payload layer (`SessionEventSchema`), both in `packages/contracts/src/event.ts`.
+// Three consequences a reader will notice first:
+//
+//   • **`agent.attached` carries `name`.** `displayName` is not a member of that
+//     payload anywhere in the corpus.
+//     `Spec-006 §Channel and Agent Lifecycle (session_lifecycle)` registers the full
+//     persona plus the daemon-resolved resulting state, so the `agents` projection
+//     rebuilds from the log alone.
+//   • **A `run.*` beat is a STATE TRANSITION.** Its payload is
+//     `{sessionId, runId, runVersion, previousState, newState, …}` and not a bare
+//     `{runId}` — `previousState` is absent only on `run.queued`, where the run is
+//     being born and no document names the state it came from.
+//   • **Nothing scripts `session.list`.** No method registry in the corpus carries
+//     that name. The session directory reaches a surface through the growth
+//     operation `sessionList`, which `bridge/fixture-growth-port.ts` already serves
+//     from this scenario's own `sessionId` — so a scripted reply here would be a
+//     second, unreachable answer to a question the fixture already answers.
+//
+// WHICH CALLS ARE SCRIPTED, AND WHY ONLY THOSE. `fixture-bridge.ts` refuses an
+// unscripted call as `reply-unscripted`, which is the fixture's authoring error and
+// a state some surfaces are built to render. So a reply is scripted here exactly
+// when a composer-family surface issues that call: `agent.list` for the roster, and
+// the two the composer's own accessories dispatch — `run.pause` from the step-in
+// control and `driver.compactContext` from the compaction control. The approval
+// reads are deliberately NOT scripted: this scenario is what makes the approvals
+// pane's refusal arm reachable.
 
 import type { ConsoleScenario } from "../scenario.js";
 
@@ -28,18 +48,56 @@ const AGENT_IMPLEMENTER = "019b7a11-1100-7a6e-8110-d1a4c1150301";
 const AGENT_REVIEWER = "019b7a11-1100-7a6e-8120-d1a4c1150302";
 const RUN_ID = "019b7a11-1100-740e-8110-d1a4c1150311";
 
+/**
+ * The two agents, as one table feeding both the beats and the `agent.list` reply.
+ *
+ * The flagship scenario's rule, applied here: the `agent.attached` payload and the
+ * `agent.list` row are two views of one record, and two hand-written copies of one
+ * agent drift in exactly the direction nothing catches. The drivers are mixed on
+ * purpose — a composer whose whole cast runs one provider cannot show what a
+ * two-provider target chip looks like, and that is the chip this scenario is for.
+ */
+const COMPOSER_AGENTS = [
+  {
+    agentId: AGENT_IMPLEMENTER,
+    name: "Implementer",
+    driverName: "claude",
+    modelId: "claude-sonnet-5",
+    attachedAtMs: 120,
+    attachedAtIso: "2026-01-01T11:05:00.120Z",
+  },
+  {
+    agentId: AGENT_REVIEWER,
+    name: "Reviewer",
+    driverName: "codex",
+    modelId: "gpt-5.6-sol",
+    attachedAtMs: 180,
+    attachedAtIso: "2026-01-01T11:05:00.180Z",
+  },
+] as const;
+
+/** The sequence the first `agent.attached` beat takes. Two beats precede it. */
+const FIRST_AGENT_SEQUENCE = 3;
+
 export const COMPOSER_SCENARIO: ConsoleScenario = {
   id: "composer",
   label: "Awaiting a reply",
   purpose:
     "A session whose newest run is blocked on a person's next message — the state the composer's target, posture, and send resolution are read against.",
   sessionId: SESSION_ID,
+  // Join order IS hue order (`Spec-023 §Console Design (Meridian)` rule 2): the two
+  // people who joined, then the agents in the order they were attached.
   participantIdsInJoinOrder: [
     PARTICIPANT_YOU,
     PARTICIPANT_PRIYA,
     AGENT_IMPLEMENTER,
     AGENT_REVIEWER,
   ],
+  // Which of the four this window is. Stated rather than read off the head of the
+  // join order — that entry is whoever opened the session, on whichever machine, and
+  // a surface handed a fabricated identity renders a role gate as though it had been
+  // checked. The fixture answers `callerParticipantRead` from this field alone.
+  viewingParticipantId: PARTICIPANT_YOU,
   startedAtIso: "2026-01-01T11:05:00.000Z",
   beats: [
     {
@@ -74,28 +132,27 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
         },
       },
     },
-    {
-      atMs: 120,
+    ...COMPOSER_AGENTS.map((agent, agentIndex) => ({
+      atMs: agent.attachedAtMs,
       event: {
         sessionId: SESSION_ID,
-        sequence: 3,
+        sequence: FIRST_AGENT_SEQUENCE + agentIndex,
         kind: "agent.attached",
-        occurredAt: "2026-01-01T11:05:00.120Z",
-        actorParticipantId: AGENT_IMPLEMENTER,
-        payload: { agentId: AGENT_IMPLEMENTER, displayName: "Implementer" },
+        occurredAt: agent.attachedAtIso,
+        // The person who attached the agent, not the agent. An agent does not attach
+        // itself, and the envelope actor is who acted.
+        actorParticipantId: PARTICIPANT_YOU,
+        payload: {
+          sessionId: SESSION_ID,
+          agentId: agent.agentId,
+          name: agent.name,
+          driverName: agent.driverName,
+          modelId: agent.modelId,
+          state: "ready",
+          actor: PARTICIPANT_YOU,
+        },
       },
-    },
-    {
-      atMs: 180,
-      event: {
-        sessionId: SESSION_ID,
-        sequence: 4,
-        kind: "agent.attached",
-        occurredAt: "2026-01-01T11:05:00.180Z",
-        actorParticipantId: AGENT_REVIEWER,
-        payload: { agentId: AGENT_REVIEWER, displayName: "Reviewer" },
-      },
-    },
+    })),
     {
       atMs: 260,
       event: {
@@ -103,8 +160,15 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
         sequence: 5,
         kind: "run.queued",
         occurredAt: "2026-01-01T11:05:00.260Z",
-        actorParticipantId: AGENT_IMPLEMENTER,
-        payload: { runId: RUN_ID, agentId: AGENT_IMPLEMENTER },
+        actorParticipantId: PARTICIPANT_YOU,
+        // `previousState` is absent here and only here: a queued run is being born.
+        payload: {
+          sessionId: SESSION_ID,
+          runId: RUN_ID,
+          runVersion: 1,
+          newState: "queued",
+          agentId: AGENT_IMPLEMENTER,
+        },
       },
     },
     {
@@ -114,39 +178,91 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
         sequence: 6,
         kind: "run.starting",
         occurredAt: "2026-01-01T11:05:00.320Z",
-        actorParticipantId: AGENT_IMPLEMENTER,
-        payload: { runId: RUN_ID },
+        // No actor: the daemon moves a run out of `queued`, and a participant id
+        // here would attribute a system transition to a person.
+        payload: {
+          sessionId: SESSION_ID,
+          runId: RUN_ID,
+          runVersion: 2,
+          previousState: "queued",
+          newState: "starting",
+        },
+      },
+    },
+    {
+      atMs: 400,
+      event: {
+        sessionId: SESSION_ID,
+        sequence: 7,
+        kind: "run.running",
+        occurredAt: "2026-01-01T11:05:00.400Z",
+        payload: {
+          sessionId: SESSION_ID,
+          runId: RUN_ID,
+          runVersion: 3,
+          previousState: "starting",
+          newState: "running",
+        },
       },
     },
     {
       atMs: 480,
       event: {
         sessionId: SESSION_ID,
-        sequence: 7,
+        sequence: 8,
         // Waiting is not pausing: this run is blocked on someone, and the composer
         // is where that someone answers.
         kind: "run.waiting_for_input",
         occurredAt: "2026-01-01T11:05:00.480Z",
-        actorParticipantId: AGENT_IMPLEMENTER,
-        payload: { runId: RUN_ID },
+        payload: {
+          sessionId: SESSION_ID,
+          runId: RUN_ID,
+          runVersion: 4,
+          previousState: "running",
+          newState: "waiting_for_input",
+        },
       },
     },
   ],
   replies: [
     {
-      call: "session.list",
+      call: "agent.list",
       result: {
-        sessions: [{ sessionId: SESSION_ID, title: "Composer addressing", state: "active" }],
+        agents: COMPOSER_AGENTS.map((agent) => ({
+          agentId: agent.agentId,
+          name: agent.name,
+          driverName: agent.driverName,
+          modelId: agent.modelId,
+          config: {},
+          // `AgentState` is the four-state lifecycle — `configured` / `ready` /
+          // `disabled` / `archived`. A run being blocked is a RUN state and is read
+          // from the run, never folded into the agent row.
+          state: "ready",
+          createdAt: agent.attachedAtIso,
+        })),
       },
     },
     {
-      call: "agent.list",
-      result: {
-        agents: [
-          { agentId: AGENT_IMPLEMENTER, displayName: "Implementer", state: "waiting_for_input" },
-          { agentId: AGENT_REVIEWER, displayName: "Reviewer", state: "idle" },
-        ],
-      },
+      // The step-in control's dispatch. `RunControlAck` is `.strict()` and carries
+      // exactly these three members, so the reply is the post-pause reading of the
+      // run above rather than a fresh invention: `runVersion` advances by one and
+      // `currentState` is the state the verb reached.
+      call: "run.pause",
+      result: { runId: RUN_ID, currentState: "paused", runVersion: 5 },
+    },
+    {
+      // The compaction control's dispatch. `DriverCompactionResult` is a
+      // discriminated union whose `applied` arm REQUIRES `boundaryPosition`, typed
+      // `number | null` — null being the positive statement that the provider's
+      // frame carried no position, which is a different fact from a driver that
+      // forgot to report one. This scenario reports a position, so the boundary the
+      // compaction landed on is renderable.
+      call: "driver.compactContext",
+      // A scripted latency, so the in-flight half of the control is reachable: a
+      // compaction that settled instantly would let a surface ship without ever
+      // rendering the state a person actually watches.
+      afterMs: 200,
+      result: { status: "applied", boundaryPosition: 8 },
     },
   ],
 };
