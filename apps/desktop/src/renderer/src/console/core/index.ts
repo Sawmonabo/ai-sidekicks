@@ -22,6 +22,13 @@ export {
   WHEN_CLAUSE_MAX_DEPTH,
 } from "./constants.js";
 export { Emitter, type EmitterSink, type Unsubscribe } from "./emitter.js";
+// The two fixture-global names whose installers live ABOVE this family and so
+// reach them through this door. The tripwire registry's name is not re-exported
+// here because its installer is `core/tripwires.js` itself, and the closed
+// `FIXTURE_GLOBAL_NAMES` tuple is not either because its one consumer is the
+// release-absence sweep, which imports the leaf directly — a barrel line no
+// importer reaches is a dead export the structure gate reports.
+export { SCENARIO_FIXTURE_GLOBAL, SESSION_DIAGNOSTICS_FIXTURE_GLOBAL } from "./fixture-globals.js";
 export { DuplicateRegistrationError, KeyedRegistry } from "./keyed-registry.js";
 export { ConsoleRefusalError, isConsoleRefusal, refuse, type ConsoleRefusal } from "./refusal.js";
-export { TRIPWIRE_FIXTURE_GLOBAL, consoleTripwires, reportTripwire } from "./tripwires.js";
+export { consoleTripwires, reportTripwire } from "./tripwires.js";
