@@ -28,6 +28,12 @@
 // roster, which is a second read and a pairing rule for a relation the reply does not
 // state.
 //
+// THE CLONE LIST IS NOT GATED ON THE MOUNT READ, because the two are different calls.
+// `repo.mountRead` is per mount and `repo.worktreeStatusRead` is per session, so one
+// mount failing to probe leaves the session's execution roots entirely readable — and
+// suppressing the list on that refusal took valid roots off the screen for a reason that
+// was not about them. Which absence the list may report is its own reading's to decide.
+//
 // THE READ RUNS WHILE COLLAPSED, AND THAT IS THE POINT. The sidebar's open/collapsed
 // rule is decided by whether a section carries an amber or red item, which a section
 // that had not read cannot know. So the reader starts on mount and the collapsed line
@@ -117,7 +123,15 @@ export function RepoSection(props: RepoSectionProps): React.JSX.Element {
           onCopy={copyCanonicalRoot}
           onSelect={requestModeSelection}
         />
-        {reading.refusal === undefined ? <EphemeralCloneList reading={reading} /> : null}
+        {/*
+          DRAWN WHATEVER THE MOUNT READ DID. The clone list comes off
+          `repo.worktreeStatusRead`, which is a different call with a different scope:
+          one `repo.mountRead` failing sets the section's refusal and says nothing at
+          all about the roots this session holds. Gating the list on that refusal took
+          valid execution roots off the screen because an unrelated mount could not be
+          probed. What the list is allowed to say is decided by its OWN reading below.
+        */}
+        <EphemeralCloneList reading={reading} />
       </div>
     </div>
   );
@@ -184,6 +198,20 @@ function renderCloneRows(reading: RepoMountsReading): React.JSX.Element {
         placement="surface"
         title="Ephemeral clones have not been read."
         detail="The execution-root read was refused, so which clones this session holds is unknown."
+      />
+    );
+  }
+  if (reading.worktreeReadPosition === "not-made") {
+    // A DIFFERENT ABSENCE FROM THE ONE ABOVE, and it is the one a settled section can
+    // otherwise mistake for `empty`: the workspace list refused, so the burst stopped
+    // before the root read and there is no refusal of its own to report. The section's
+    // own refusal card names what failed; this says what that leaves unknown.
+    return (
+      <Nothing
+        kind="not-checked"
+        placement="surface"
+        title={CLONES_NOT_READ_TITLE}
+        detail="The section's read stopped before the execution-root call, so which clones this session holds was never asked."
       />
     );
   }

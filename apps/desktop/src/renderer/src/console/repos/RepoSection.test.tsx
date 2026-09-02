@@ -108,6 +108,74 @@ describe("RepoSection — the ephemeral clones the root read named", () => {
   });
 });
 
+describe("RepoSection — the clone list stands on its own read", () => {
+  it("draws the clones a served root read named even where a mount read refused", async () => {
+    // `repo.mountRead` is per mount and `repo.worktreeStatusRead` is per session. One
+    // mount that could not be probed says nothing about the roots this session holds,
+    // and gating the list on it took valid execution roots off the screen.
+    const container = renderSection({
+      ...REPOS_SCENARIO,
+      id: "repos-mount-read-refused-clones-served",
+      replies: REPOS_SCENARIO.replies.filter((reply) => reply.call !== "repo.mountRead"),
+    });
+    const list = await cloneList(container);
+
+    await waitFor(
+      () => {
+        expect(list.querySelectorAll(ROOT_CARD_SELECTOR)).toHaveLength(1);
+      },
+      { timeout: READ_TIMEOUT_MS },
+    );
+    // The mount failure is still reported — it is drawn beside the mounts, not instead
+    // of the clones.
+    expect(container.querySelector(".meridian-refusal--card")).not.toBeNull();
+  });
+
+  it("says nobody asked when the read burst stopped before the root call", async () => {
+    // The workspace list is what the burst opens with, so a refused one never reaches
+    // the root read: there is no refusal of its own to report and no served empty
+    // either. `empty` here would claim this session holds no clone.
+    const container = renderSection({
+      ...REPOS_SCENARIO,
+      id: "repos-workspace-list-refused",
+      replies: REPOS_SCENARIO.replies.filter((reply) => reply.call !== "repo.workspaceList"),
+    });
+    const list = await cloneList(container);
+
+    await waitFor(
+      () => {
+        // The DETAIL rather than the title: the pre-read frame carries the same title,
+        // so a case that waited on it would settle before the burst it is about.
+        expect(within(list).getByText(/stopped before the execution-root call/u)).toBeDefined();
+      },
+      { timeout: READ_TIMEOUT_MS },
+    );
+    expect(list.querySelectorAll(ROOT_CARD_SELECTOR)).toHaveLength(0);
+  });
+
+  it("negative control: a fully served section still says there is no clone where there is none", async () => {
+    // Without this, a list that answered `not-checked` for every settled read would
+    // pass both cases above and never report a served empty session at all.
+    const container = renderSection({
+      ...REPOS_SCENARIO,
+      id: "repos-no-clones",
+      replies: REPOS_SCENARIO.replies.map((reply) =>
+        reply.call === "repo.worktreeStatusRead"
+          ? { ...reply, result: { worktrees: [], ephemeralClones: [] } }
+          : reply,
+      ),
+    });
+    const list = await cloneList(container);
+
+    await waitFor(
+      () => {
+        expect(within(list).getByText("This session holds no ephemeral clone.")).toBeDefined();
+      },
+      { timeout: READ_TIMEOUT_MS },
+    );
+  });
+});
+
 describe("RepoSection — the mounts this session actually holds", () => {
   it("draws a card per mount, each carrying its own health verdict", async () => {
     const container = renderSection(REPOS_SCENARIO);
