@@ -158,34 +158,6 @@ describe("the absence a group shows", () => {
   });
 });
 
-describe("refusals", () => {
-  const denied = refuse(
-    "workflows-test",
-    "workflow.control_denied",
-    "You are not admitted to author at the shared scope on this node.",
-  );
-
-  it("renders the daemon's code and its message verbatim, on the scope it belongs to", () => {
-    const list = renderBrowser(
-      <DefinitionsBrowser definitions={[]} scopeRefusals={{ shared: denied }} />,
-    );
-    const shared = groupFor(list, "shared");
-    expect(shared.textContent).toContain("workflow.control_denied");
-    expect(shared.textContent).toContain(denied.detail);
-    expect(groupFor(list, "session").textContent).not.toContain("workflow.control_denied");
-  });
-
-  it("keeps the group's rows under the refusal, because nothing was withdrawn", () => {
-    const list = renderBrowser(
-      <DefinitionsBrowser
-        definitions={[definition({ id: "shared-one", name: "Shared one", scope: "shared" })]}
-        scopeRefusals={{ shared: denied }}
-      />,
-    );
-    expect(rowNames(groupFor(list, "shared"))).toStrictEqual(["Shared one"]);
-  });
-});
-
 describe("the controls", () => {
   it("draws no control at all while its caller supplies none", () => {
     const list = renderBrowser(<DefinitionsBrowser definitions={[definition({ id: "one" })]} />);

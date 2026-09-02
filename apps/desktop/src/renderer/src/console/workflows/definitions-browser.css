@@ -132,3 +132,26 @@
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-faint);
 }
+
+/* ------------------------------------------------------- the continuation */
+
+/*
+ * The handle to the next page, and the refusal a refused page leaves beside it.
+ *
+ * A region of this surface rather than a sheet of its own: the continuation is the
+ * browser's own last row, `DefinitionsBrowser.tsx` renders it beside the groups
+ * above, and a second stylesheet for one rule of one surface would be two files a
+ * reader has to find before knowing how this surface is laid out.
+ *
+ * The rule exists because the browser's parent is a stretching flex column: a bare
+ * button there would span the surface, which reads as a primary action rather than
+ * as the quiet handle to one more page. Column rather than row so the refusal
+ * sentence sits above the control it belongs to and neither is truncated at a narrow
+ * width; `flex-start` keeps the button at its own intrinsic size.
+ */
+.meridian-definitions-continuation {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  align-items: flex-start;
+}

@@ -23,6 +23,7 @@ import {
 } from "../bridge/scenarios/workflow-fixture-data.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
+import { READ_REJECTED_REFUSAL_CODE } from "./read-settlement.js";
 import { WorkflowRuns } from "./WorkflowRuns.js";
 
 /** The fixture port for one scenario, which is what a fixture console runs on. */
@@ -142,6 +143,25 @@ describe("the runs the session holds", () => {
     expect(refusal?.textContent ?? "").toContain("workflow.run_list_denied");
     expect(refusal?.textContent ?? "").toContain("This session is not yours.");
     expect(container.querySelector(".meridian-nothing--not-loaded")).toBeNull();
+  });
+
+  it("names a rejection carrying no daemon envelope under the settlement's own code", async () => {
+    // The other side of the case above, and the control on it: a read that broke
+    // before it produced an answer is not the daemon refusing, and the shared
+    // settlement says so under a code of its own rather than attributing a fault to
+    // an author who never answered.
+    const served = growthFor(WORKFLOWS_SCENARIO);
+    const breaking: GrowthPort = {
+      ...served,
+      workflowRunList: () => Promise.reject(new Error("the bridge closed mid-read")),
+    };
+    const { container } = renderRuns(breaking);
+    await settle();
+
+    const refusal = container.querySelector(".meridian-refusal");
+
+    expect(refusal?.textContent ?? "").toContain(READ_REJECTED_REFUSAL_CODE);
+    expect(refusal?.textContent ?? "").toContain("the bridge closed mid-read");
   });
 
   it("asks once per mount, and a re-render asks nothing more", async () => {

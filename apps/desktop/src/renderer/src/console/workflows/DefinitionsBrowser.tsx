@@ -25,7 +25,11 @@
 //     Ten `workflow.*` codes are registered against twenty-two refusal points, and
 //     fifteen of those points carry no code of their own — on those the code alone
 //     is not diagnostic, so the daemon's message text is the surface and the console
-//     paraphrases none of it.
+//     paraphrases none of it. One refusal reaches this component and it is the
+//     continuation's: the enumeration answers the three scopes in a single reply, so
+//     a refused FIRST page is the whole surface's and is drawn by the chrome above,
+//     never distributed across three groups that would each then assert an empty
+//     result the daemon never gave.
 //
 // DENSITY IS A BUDGET, AND THIS IS THE CHEAP SIDE OF IT. The list shows the name, the
 // scope, the latest version, and the resolution mark. The version chain, the content
@@ -47,8 +51,6 @@
 // declaration in `docs/architecture/contracts/api-payload-contracts.md` as the
 // console's own consumption shape, on the growth port's precedent. Rows reach this
 // component from its caller and are fixture-fed until the wire registers.
-
-import "./definitions-continuation.css";
 
 import { memo } from "react";
 
@@ -173,7 +175,6 @@ const DefinitionListItem = memo(function DefinitionListItem(
 interface DefinitionScopeGroupProps {
   readonly scope: WorkflowDefinitionScope;
   readonly definitions: readonly WorkflowDefinitionRow[];
-  readonly refusal: ConsoleRefusal | undefined;
   readonly isPending: boolean;
   readonly onOpenDefinition: OpenDefinition | undefined;
   /** The group's own escape hatch, when its caller supplies one. */
@@ -189,15 +190,6 @@ function DefinitionScopeGroup(props: DefinitionScopeGroupProps): React.JSX.Eleme
       {props.scope === "shared" ? (
         <p className="meridian-workflow__scope-consequence">{SHARED_SCOPE_CONSEQUENCE}</p>
       ) : null}
-      {/*
-        The refusal sits above whatever the group did manage to show, and the group
-        keeps its rows: a `shared`-target create refused by operator authorization
-        changed nothing about what is readable here, so hiding the list under it
-        would be the console withdrawing a surface the daemon never withdrew.
-      */}
-      {props.refusal === undefined ? null : (
-        <InlineRefusal code={props.refusal.code} detail={props.refusal.detail} />
-      )}
       {renderScopeBody(props)}
     </li>
   );
@@ -250,10 +242,6 @@ export interface DefinitionsBrowserProps {
   readonly definitions: readonly WorkflowDefinitionRow[];
   /** Scopes whose page is still in flight, so their absence reads as a wait. */
   readonly pendingScopes?: readonly WorkflowDefinitionScope[] | undefined;
-  /** A daemon refusal that belongs to one scope, rendered with its message verbatim. */
-  readonly scopeRefusals?:
-    | Readonly<Partial<Record<WorkflowDefinitionScope, ConsoleRefusal>>>
-    | undefined;
   /** Opens one definition's detail. Absent while nothing can open one. */
   readonly onOpenDefinition?: OpenDefinition | undefined;
   /** Reads a definition file in and submits it. Absent while nothing can import one. */
@@ -314,7 +302,6 @@ export function DefinitionsBrowser(props: DefinitionsBrowserProps): React.JSX.El
             key={scope}
             scope={scope}
             definitions={props.definitions.filter((definition) => definition.scope === scope)}
-            refusal={props.scopeRefusals?.[scope]}
             isPending={pendingScopes.includes(scope)}
             onOpenDefinition={props.onOpenDefinition}
             emptyAction={

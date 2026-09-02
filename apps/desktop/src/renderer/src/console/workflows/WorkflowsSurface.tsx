@@ -44,10 +44,6 @@ export interface WorkflowsSurfaceProps {
   readonly definitions?: readonly WorkflowDefinitionRow[] | undefined;
   /** Scopes whose page is still in flight, so their absence reads as a wait. */
   readonly pendingScopes?: readonly WorkflowDefinitionScope[] | undefined;
-  /** A daemon refusal belonging to one scope, rendered with its message verbatim. */
-  readonly scopeRefusals?:
-    | Readonly<Partial<Record<WorkflowDefinitionScope, ConsoleRefusal>>>
-    | undefined;
   /** Opens the builder on a new definition. Absent while nothing can author one. */
   readonly onNewDefinition?: () => void;
   /** Reads a definition file in and submits it. Absent while nothing can import one. */
@@ -86,7 +82,6 @@ export function WorkflowsSurface(props: WorkflowsSurfaceProps): React.JSX.Elemen
       <DefinitionsBrowser
         definitions={props.definitions ?? []}
         pendingScopes={props.pendingScopes}
-        scopeRefusals={props.scopeRefusals}
         onOpenDefinition={props.onOpenDefinition}
         onImportDefinition={props.onImportDefinition}
         onContinueReading={props.onContinueReading}
