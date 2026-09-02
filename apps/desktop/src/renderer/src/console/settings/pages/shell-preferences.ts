@@ -32,6 +32,7 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import {
+  AttemptGeneration,
   ConsoleRefusalError,
   Emitter,
   isConsoleRefusal,
@@ -121,12 +122,11 @@ export class ShellPreferenceStore {
   #started = false;
   #disposed = false;
   /**
-   * Which write is current, so a settled call that is no longer the latest writes
-   * nothing. A generation counter rather than an `AbortController`: the port
-   * exposes no cancellation, so the honest claim is that a superseded reply is
-   * ignored, not that its call was stopped.
+   * The writes this store has attempted. Each one supersedes the one before it, so
+   * a settled call that is no longer the latest writes nothing. Being DISPOSED is a
+   * separate flag above, because that fact is terminal and this one is not.
    */
-  #generation = 0;
+  readonly #writes = new AttemptGeneration();
 
   public constructor(bridge: ConsoleBridge) {
     this.#bridge = bridge;
@@ -170,7 +170,7 @@ export class ShellPreferenceStore {
    * supersedes it rather than queueing behind it.
    */
   public async choose(key: ShellPreferenceKey, enabled: boolean): Promise<void> {
-    const generation = (this.#generation += 1);
+    const write = this.#writes.begin();
     this.#publish({
       ...this.#snapshot,
       pendingKey: key,
@@ -182,7 +182,7 @@ export class ShellPreferenceStore {
     });
     try {
       const outcome = await this.#bridge.growth.shellConfigWrite({ key, enabled });
-      if (this.#disposed || generation !== this.#generation) {
+      if (this.#disposed || !this.#writes.isCurrent(write)) {
         return;
       }
       if (outcome.status === "unavailable") {
@@ -204,7 +204,7 @@ export class ShellPreferenceStore {
         revision: this.#snapshot.revision + 1,
       });
     } catch (rejection: unknown) {
-      if (this.#disposed || generation !== this.#generation) {
+      if (this.#disposed || !this.#writes.isCurrent(write)) {
         return;
       }
       // A present carrier that rejected. The stored value stands and the code

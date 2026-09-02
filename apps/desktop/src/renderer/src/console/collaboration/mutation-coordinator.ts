@@ -32,7 +32,13 @@
 import { useCallback, useSyncExternalStore } from "react";
 
 import { normalizeWireRejection } from "../../../../shared/wire-errors.js";
-import { Emitter, refuse, type ConsoleRefusal, type Unsubscribe } from "../core/index.js";
+import {
+  AttemptGeneration,
+  Emitter,
+  refuse,
+  type ConsoleRefusal,
+  type Unsubscribe,
+} from "../core/index.js";
 import type { ConsoleBridge } from "../bridge/index.js";
 import { callDaemonMethod } from "./wire-access.js";
 
@@ -75,13 +81,8 @@ export class WireMutationCoordinator<TRequest, TResponse> {
   readonly #describeWhat: string;
   readonly #changes = new Emitter<WireMutationSnapshot>("wire mutation change");
   #snapshot: WireMutationSnapshot = NOTHING_IN_FLIGHT;
-  /**
-   * Which attempt is current, so a settled call that is no longer the latest
-   * writes nothing. A generation counter rather than an `AbortController`: the
-   * bridge exposes no cancellation, so the honest claim is that a superseded
-   * reply is IGNORED, not that its call was stopped.
-   */
-  #generation = 0;
+  /** The attempts this coordinator has made. Each supersedes the one before it. */
+  readonly #attempts = new AttemptGeneration();
 
   public constructor(options: {
     readonly perform: WireMutation<TRequest, TResponse>;
@@ -110,7 +111,7 @@ export class WireMutationCoordinator<TRequest, TResponse> {
    * class holds no copy of the subject it mutated.
    */
   public async run(key: string, request: TRequest): Promise<TResponse | undefined> {
-    const generation = (this.#generation += 1);
+    const attempt = this.#attempts.begin();
     this.#publish({
       pendingKey: key,
       // The prior refusal for THIS subject is dropped on the attempt rather than
@@ -121,7 +122,7 @@ export class WireMutationCoordinator<TRequest, TResponse> {
     });
     try {
       const response = await this.#perform(request);
-      if (generation === this.#generation) {
+      if (this.#attempts.isCurrent(attempt)) {
         this.#publish({
           pendingKey: undefined,
           refusalByKey: this.#snapshot.refusalByKey,
@@ -130,7 +131,7 @@ export class WireMutationCoordinator<TRequest, TResponse> {
       }
       return response;
     } catch (rejection: unknown) {
-      if (generation === this.#generation) {
+      if (this.#attempts.isCurrent(attempt)) {
         this.#publish({
           pendingKey: undefined,
           refusalByKey: {

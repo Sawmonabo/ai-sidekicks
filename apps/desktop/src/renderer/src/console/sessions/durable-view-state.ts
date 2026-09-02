@@ -33,7 +33,12 @@
 // DID settle and a remount must not re-ask; what is discarded is the value, not the
 // fact that the question was answered.
 
-import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../core/index.js";
+import {
+  AttemptGeneration,
+  Emitter,
+  type ConsoleRefusal,
+  type Unsubscribe,
+} from "../core/index.js";
 import type { UiStateStore } from "../persistence/index.js";
 
 /** The chokepoint's closed value-class union, taken from the chokepoint. */
@@ -73,11 +78,12 @@ export class DurableViewState<TValue extends PersistedValue> {
   #hydrated = false;
   #lastRefusal: ConsoleRefusal | undefined;
   /**
-   * How many local acts have installed a value, so a hydration that started before
-   * one of them can tell that it is answering an older question. A counter rather
-   * than a timestamp: two acts inside one clock tick are still two acts.
+   * The rounds local acts have opened, so a hydration that started before one of
+   * them can tell that it is answering an older question. Here the read is what is
+   * superseded and the act is what supersedes it, which is why `commit` invalidates
+   * and `hydrate` only captures.
    */
-  #mutationGeneration = 0;
+  readonly #localActs = new AttemptGeneration();
 
   public constructor(options: DurableViewStateOptions<TValue>) {
     this.#store = options.store;
@@ -124,10 +130,10 @@ export class DurableViewState<TValue extends PersistedValue> {
     if (this.#hydrated) {
       return;
     }
-    const generationAtRead = this.#mutationGeneration;
+    const actsAtRead = this.#localActs.current();
     const record = await this.#store.readGlobal(this.#key);
     this.#hydrated = true;
-    if (generationAtRead !== this.#mutationGeneration) {
+    if (!this.#localActs.isCurrent(actsAtRead)) {
       return;
     }
     const narrowed = record === undefined ? undefined : this.#narrow(record.value);
@@ -139,7 +145,7 @@ export class DurableViewState<TValue extends PersistedValue> {
 
   /** Replace the value and write it. The refusal is recorded and returned. */
   public async commit(next: TValue): Promise<PersistenceWriteOutcome> {
-    this.#mutationGeneration += 1;
+    this.#localActs.supersedeAll();
     this.#value = next;
     this.#changes.emit();
     const outcome = await this.#store.writeGlobal(this.#key, this.#valueClass, next);
