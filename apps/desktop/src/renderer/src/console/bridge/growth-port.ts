@@ -1,6 +1,6 @@
 // The growth port: the console's single fixture-only seam.
 //
-// `Plan-023 §Console growth slate` names thirty wires the console builds
+// `Plan-023 §Console growth slate` names thirty-two wires the console builds
 // against and does not yet have. Those rows are not methods — one bundles a whole
 // namespace plus two settings plus a pane-kind declaration, several describe type
 // semantics on replies that already exist. So the port is keyed by OPERATION, not
@@ -40,6 +40,7 @@ import {
 } from "./growth-outcome.js";
 import type { GrowthOperationSignatures } from "./growth-signatures.js";
 import { growthSlateRow } from "./growth-slate.js";
+import type { ScriptedReplyRefusalCode } from "./scripted-reply.js";
 
 /**
  * The port. One method per operation, derived from the signature table so the
@@ -60,26 +61,64 @@ export type GrowthPort = {
  * deliberately-`string` parameter widens away.
  */
 export function growthUnavailable(operationId: GrowthOperationId): GrowthUnavailable {
+  const row = growthSlateRow(GROWTH_OPERATIONS[operationId].slateRow);
+  return buildGrowthUnavailable(
+    operationId,
+    "wire-unregistered",
+    // Product vocabulary only: the owning document travels as the structured
+    // `owningDocument` member for the ledger, never inside the sentence a person
+    // reads, which names the wire and the fact that this build does not carry it.
+    `Not checked — ${row.wire} is not registered on this build yet.`,
+  );
+}
+
+/**
+ * Build the refusal a FIXTURE operation returns when its scripted reply never came.
+ *
+ * A second entry point rather than a widened `growthUnavailable`, because the two
+ * refusals are reached from opposite sides: the wire-unregistered one composes its
+ * own sentence from the slate row and takes no caller input, while this one carries
+ * the seam's diagnosis verbatim (`scripted-reply.ts` composes it, and the fixture
+ * bridge renders the same words). Folding them into one signature would make the
+ * message optional on a builder whose whole job is to say WHY, and would let a caller
+ * hand `wire-unregistered` a sentence that contradicts the slate row.
+ *
+ * The `code` parameter is the seam's own type, not the port's full vocabulary: the
+ * only codes reachable here are the two a parked reply can fail with, so passing
+ * `wire-unregistered` through this door is a compile error rather than a convention.
+ */
+export function growthScriptedReplyUnavailable(
+  operationId: GrowthOperationId,
+  code: ScriptedReplyRefusalCode,
+  detail: string,
+): GrowthUnavailable {
+  return buildGrowthUnavailable(operationId, code, detail);
+}
+
+/**
+ * The one construction both refusals share: `core`'s refusal, widened with what a
+ * growth refusal knows.
+ *
+ * `code` is bound once and read twice — `refuse` takes it as a `string` and the
+ * spread has to re-narrow it, so the value is needed in two positions, and two
+ * independent literals could drift apart with nothing to catch it since one feeds a
+ * parameter that accepts anything. One binding makes them the same value by
+ * construction, and the parameter's annotation holds it inside the closed vocabulary
+ * `GROWTH_PORT_REFUSAL_CODES` declares.
+ */
+function buildGrowthUnavailable(
+  operationId: GrowthOperationId,
+  code: GrowthPortRefusalCode,
+  detail: string,
+): GrowthUnavailable {
   const entry = GROWTH_OPERATIONS[operationId];
-  const row = growthSlateRow(entry.slateRow);
-  // Bound once, then read twice. `refuse` takes `code` as a `string` and the spread
-  // has to re-narrow it, so the value is needed in two positions — and two
-  // independent literals could drift apart with nothing to catch it, since one feeds
-  // a `string` parameter that accepts anything. One binding makes them the same
-  // value by construction, and the annotation holds it inside the closed vocabulary
-  // `GROWTH_PORT_REFUSAL_CODES` declares.
-  const code: GrowthPortRefusalCode = "wire-unregistered";
   return {
-    ...refuse(
-      GROWTH_PORT_REFUSAL_ORIGIN,
-      code,
-      `Not checked — ${row.wire} is not registered yet (${row.owningDocument} owns it).`,
-    ),
+    ...refuse(GROWTH_PORT_REFUSAL_ORIGIN, code, detail),
     code,
     status: "unavailable",
     operationId,
     slateRow: entry.slateRow,
-    owningDocument: row.owningDocument,
+    owningDocument: growthSlateRow(entry.slateRow).owningDocument,
   };
 }
 
@@ -166,5 +205,9 @@ export function createRefusingGrowthPort(): GrowthPort {
     sidekickDefinitionCreate: async () => growthUnavailable("sidekickDefinitionCreate"),
     sidekickDefinitionUpdate: async () => growthUnavailable("sidekickDefinitionUpdate"),
     sidekickDefinitionDelete: async () => growthUnavailable("sidekickDefinitionDelete"),
+    // event content, and the session cost plane
+    hydratedEventRead: async () => growthUnavailable("hydratedEventRead"),
+    orchestrationCostReceiptRead: async () => growthUnavailable("orchestrationCostReceiptRead"),
+    orchestrationBudgetRead: async () => growthUnavailable("orchestrationBudgetRead"),
   };
 }

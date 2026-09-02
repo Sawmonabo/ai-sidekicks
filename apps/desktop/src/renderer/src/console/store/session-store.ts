@@ -323,8 +323,8 @@ export class SessionStore {
         partitions = projected;
       }
 
-      if (event.actorParticipantId !== undefined) {
-        this.#hueAllocator.admit(event.actorParticipantId);
+      if (event.actorId !== undefined) {
+        this.#hueAllocator.admit(event.actorId);
       }
       appended ??= [...current.timeline];
       appended.push(event);

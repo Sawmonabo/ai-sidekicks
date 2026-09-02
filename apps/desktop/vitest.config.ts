@@ -34,12 +34,14 @@
 //     environment. It becomes `test/*.test.ts`, which is exactly the three
 //     root-level smoke tests it has always meant.
 //   • `renderer`'s `src/renderer/**/__tests__/**` is unchanged, but its
-//     `exclude` now names the console subtree so a console test co-located
-//     under `src/renderer/src/console/**` belongs to `console-unit` alone.
+//     `exclude` now names the console and shell subtrees so a test co-located
+//     under `src/renderer/src/console/**` or `src/renderer/src/shell/**`
+//     belongs to `console-unit` alone.
 import { playwright, type PlaywrightProviderOptions } from "@vitest/browser-playwright";
 import { defineConfig } from "vitest/config";
 
 import { sharedCoverageOptions } from "../../vitest.shared";
+import { BROWSER_MODE_OPTIMIZE_DEPS_INCLUDE } from "./test/console/browser-mode-deps";
 
 /**
  * Conditions that resolve workspace *value* imports to TS source rather than a
@@ -50,27 +52,14 @@ const WORKSPACE_SOURCE_CONDITIONS = ["@ai-sidekicks/source", "import", "default"
 
 /**
  * Everything a browser-mode tier renders through, pre-bundled in ONE optimizer
- * pass and deduplicated.
- *
- * Without this the optimizer discovers `react` twice — once as a dependency of
- * `@testing-library/react`, once as a dependency of `@base-ui/react` reached later
- * through the console's own graph — and emits two chunks under different `?v=`
- * hashes. Two React module instances share no context, so the first Base UI
- * component to call `useContext` reads `null` and the entire tree fails to render.
- * Listing them together makes one pass see all of them; `dedupe` keeps a single
- * copy resolved from the package root.
+ * pass and deduplicated. The list lives in `test/console/browser-mode-deps.ts`
+ * so the architecture tier can hold it against the Base UI entries the source
+ * tree imports: the optimizer keys on the exact specifier, so a subpath the list
+ * does not name is discovered lazily on a cold cache, starts a second pass, and
+ * leaves the tier with two React copies — the first Base UI `useContext` then
+ * reads `null` and the whole tree fails to render.
  */
-const BROWSER_MODE_OPTIMIZE_DEPS = {
-  include: [
-    "react",
-    "react/jsx-dev-runtime",
-    "react-dom",
-    "react-dom/client",
-    "@base-ui/react",
-    "@testing-library/react",
-    "axe-core",
-  ],
-};
+const BROWSER_MODE_OPTIMIZE_DEPS = { include: [...BROWSER_MODE_OPTIMIZE_DEPS_INCLUDE] };
 
 /** The one React copy every browser-mode tier resolves. */
 const BROWSER_MODE_DEDUPE = ["react", "react-dom"];
@@ -335,8 +324,8 @@ export default defineConfig({
           // and `packages/client-sdk` (renderer is its own composite TS
           // project; its tests live inside that project's source tree).
           include: ["src/renderer/**/__tests__/**/*.test.{ts,tsx}"],
-          // The console owns its own tier; a console test never runs here.
-          exclude: ["src/renderer/src/console/**"],
+          // The console owns its own tier; a console or shell test never runs here.
+          exclude: ["src/renderer/src/console/**", "src/renderer/src/shell/**"],
           // `globals: true` populates `vi`, `expect`, `describe`, `it`,
           // `afterEach` etc. on the global scope so the test file can rely
           // on `vitest/globals` types (configured in
@@ -362,6 +351,10 @@ export default defineConfig({
           include: [
             "src/renderer/src/console/**/*.test.{ts,tsx}",
             "src/renderer/src/console/**/__tests__/**/*.test.{ts,tsx}",
+            // The shell subtree (Plan-023's own; it hosts the composer seat) composes
+            // console seats and so needs the fixture define — it is a console tier.
+            "src/renderer/src/shell/**/*.test.{ts,tsx}",
+            "src/renderer/src/shell/**/__tests__/**/*.test.{ts,tsx}",
           ],
           globals: true,
         },

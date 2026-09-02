@@ -17,9 +17,16 @@
 //     decorative rule to 3:1 would produce a console that looks like a spreadsheet.
 
 import { describe, expect, it } from "vitest";
-import { contrastRatio, isOklchInsideSrgbGamut } from "./color.js";
+import {
+  contrastRatio,
+  isOklchInsideSrgbGamut,
+  oklchToSrgb,
+  srgbContrastRatio,
+  type SrgbColor,
+} from "./color.js";
 import { PARTICIPANT_HUE_STEPS } from "./palette.js";
 import {
+  ACCENT_FILL_PAIRS,
   CONSOLE_SCHEMES,
   GROUND_TOKEN_NAMES,
   NON_TEXT_CONTRAST_FLOOR,
@@ -90,6 +97,74 @@ describe("Meridian palette — tinted grounds hold the text floor for their own 
   }
 });
 
+describe("Meridian palette — a filled accent control holds the text floor for its label", () => {
+  for (const scheme of CONSOLE_SCHEMES) {
+    for (const [inkToken, fillToken] of ACCENT_FILL_PAIRS) {
+      it(`${scheme}: ${inkToken} on ${fillToken}`, () => {
+        // A primary action's whole face is the accent, so its label is text on
+        // that fill and carries 1.4.3's floor like any other text. Measured rather
+        // than asserted, for this file's reason: the pair is the one place in the
+        // console where a foreground sits on a saturated mid-lightness field, which
+        // is where an eyeballed choice is most likely to be wrong.
+        const ratio = contrastRatio(schemeColor(inkToken, scheme), schemeColor(fillToken, scheme));
+        expect(ratio).toBeGreaterThanOrEqual(TEXT_CONTRAST_FLOOR);
+      });
+    }
+  }
+
+  it("negative control: the accent's own text token fails on the accent fill", () => {
+    // This is the pair the console would otherwise have reached for, and the
+    // reason `accent-ink` exists at all. Without this case, `ACCENT_FILL_PAIRS`
+    // would pass over any ink whatsoever — including the one that is wrong — and
+    // the assertion above would prove only that some number was computed.
+    for (const scheme of CONSOLE_SCHEMES) {
+      const ratio = contrastRatio(
+        schemeColor("accent-text", scheme),
+        schemeColor("accent", scheme),
+      );
+      expect(ratio).toBeLessThan(TEXT_CONTRAST_FLOOR);
+    }
+  });
+
+  it("negative control: darkening the whole control with a filter drops it below", () => {
+    // The treatment the pressed token replaced. A `filter` scales foreground and
+    // background together, and scaling does not preserve a contrast ratio: relative
+    // luminance carries a 0.05 offset that a multiplication does not distribute
+    // over. Measured on the LIGHT scheme, where the resting pair clears the floor by
+    // about 5% and a 6% channel darkening costs it about 10% of its ratio, because
+    // luminance follows the channel through the sRGB transfer function rather than
+    // linearly.
+    //
+    // Without this case, the pressed pair above would prove only that some second
+    // fill token exists — not that the state it replaced was unmeasurable in the
+    // way that let this through.
+    const filtered = srgbContrastRatio(
+      oklchToSrgb(schemeColor("accent-ink", "light")),
+      scaleBrightness(oklchToSrgb(schemeColor("accent", "light")), PRESS_FILTER_BRIGHTNESS),
+    );
+    expect(filtered).toBeLessThan(TEXT_CONTRAST_FLOOR);
+    // And the token that replaced it clears the floor at the same press.
+    expect(
+      contrastRatio(schemeColor("accent-ink", "light"), schemeColor("accent-pressed", "light")),
+    ).toBeGreaterThanOrEqual(TEXT_CONTRAST_FLOOR);
+  });
+
+  it("keeps the hover lift, which raises the ratio rather than spending it", () => {
+    // The hover treatment IS still a filter, and this is why that is safe rather
+    // than lucky: the ink is dark in both schemes, so brightening the fill moves
+    // the pair apart. Asserted rather than assumed, because the claim is about the
+    // same mechanism the case above rejects and the difference is only its
+    // direction.
+    for (const scheme of CONSOLE_SCHEMES) {
+      const ink = oklchToSrgb(schemeColor("accent-ink", scheme));
+      const resting = oklchToSrgb(schemeColor("accent", scheme));
+      const hovered = scaleBrightness(resting, HOVER_FILTER_BRIGHTNESS);
+      expect(srgbContrastRatio(ink, hovered)).toBeGreaterThan(srgbContrastRatio(ink, resting));
+      expect(srgbContrastRatio(ink, hovered)).toBeGreaterThanOrEqual(TEXT_CONTRAST_FLOOR);
+    }
+  });
+});
+
 describe("Meridian palette — non-text boundaries clear WCAG 2.2 AA (3:1)", () => {
   for (const scheme of CONSOLE_SCHEMES) {
     for (const groundToken of GROUND_TOKEN_NAMES) {
@@ -126,6 +201,33 @@ describe("Meridian palette — every participant hue is findable on every ground
     }
   }
 });
+
+/**
+ * The `brightness()` amount `primitives.css` still spends on hover.
+ *
+ * Transcribed from that rule rather than imported: a filter amount is a paint
+ * instruction with no token, and the two cases that read it are the only things in
+ * the console that need to know it. Both fail loudly if the sheet's value moves
+ * away from this one — the hover case by measuring a ratio that no longer matches
+ * what the sheet paints.
+ */
+const HOVER_FILTER_BRIGHTNESS = 1.06;
+
+/** The amount the pressed state used to spend, before it became a measured token. */
+const PRESS_FILTER_BRIGHTNESS = 0.94;
+
+/**
+ * A CSS `brightness()` over a displayed triple.
+ *
+ * The CSS filter shorthands are defined with `color-interpolation-filters: sRGB`,
+ * so the amount multiplies the gamma-encoded channels and the result is clamped
+ * into the display range — which is why this models the browser rather than
+ * approximating it.
+ */
+function scaleBrightness(color: SrgbColor, amount: number): SrgbColor {
+  const scale = (channel: number): number => Math.min(1, Math.max(0, channel * amount));
+  return { red: scale(color.red), green: scale(color.green), blue: scale(color.blue) };
+}
 
 describe("Meridian palette — the measurement itself is not vacuous", () => {
   it("reports a low ratio for a pair that genuinely fails", () => {

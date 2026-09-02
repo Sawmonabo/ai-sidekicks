@@ -1,4 +1,4 @@
-// Scenarios: what the fixture bridge serves, and the engine that plays them.
+// A scenario: the script the fixture bridge plays, held as DATA.
 //
 // `Spec-023 §Console Design (Meridian)` §The fixture bridge: "the fixture bridge
 // serves scripted scenarios over async generators with a frozen clock … the fixture
@@ -10,31 +10,17 @@
 // (the screenshot tier pins a frame by advancing to an exact tick), and a scenario
 // that cannot reach the network or the clock cannot accidentally become flaky.
 //
-// The engine's one sharp edge is teardown. A pane that unmounts mid-scenario leaves
-// the engine disposed while a timer callback is still in flight; delivering into a
-// torn-down subscriber would either throw inside a React commit or write into a
-// store that no longer has a consumer. So `dispose()` is final: every later tick is
-// dropped and reported on the tripwire rather than delivered.
-//
-// The engine holds ONE more thing than the script: the replies a scripted latency
-// has parked. A `ScenarioReply` carrying `afterMs` is a request that has not been
-// answered yet, and on a frozen clock the only thing that can answer it is the
-// caller moving that clock. Holding them here rather than in the bridge is what
-// keeps the frozen clock the single source of scenario time — a bridge that spent
-// the delay itself would be a second clock, and the one property this whole file
-// exists for is that there is only one.
+// WHAT IS NOT HERE. The engine that plays one, which is `scenario-engine.ts`. The
+// two were one file until it grew past the ~400-line rule `apps/desktop/AGENTS.md`
+// sets, and the seam that growth was crossing is exactly this one — WHAT a scenario
+// is, against HOW it is played. The split is load-bearing rather than tidy: a seat
+// board, the scenario manifest, and the architecture tier that holds every scenario
+// to the wire's own truth all DESCRIBE scenarios and play none, so they stop here
+// and never reach the engine's teardown rules or its held-reply queue.
 
-import {
-  Emitter,
-  ManualClock,
-  SCENARIO_PENDING_REPLY_CAP,
-  SCENARIO_TICK_MS,
-  reportTripwire,
-  type ConsoleClock,
-  type EmitterSink,
-  type Unsubscribe,
-} from "../core/index.js";
-import { type ConsoleSessionEvent } from "../store/index.js";
+import type { MembershipRole } from "@ai-sidekicks/contracts";
+
+import type { ConsoleSessionEvent } from "../store/index.js";
 import type { WireErrorEnvelope } from "../../../../shared/wire-errors.js";
 
 /** One scripted event and the tick it is due at, measured from scenario start. */
@@ -63,6 +49,7 @@ interface ScenarioReplyBase {
 export interface ScenarioResolvingReply extends ScenarioReplyBase {
   readonly result: unknown;
   readonly refusal?: never;
+  readonly resultFor?: never;
 }
 
 /**
@@ -84,19 +71,45 @@ export interface ScenarioResolvingReply extends ScenarioReplyBase {
 export interface ScenarioRejectingReply extends ScenarioReplyBase {
   readonly refusal: WireErrorEnvelope;
   readonly result?: never;
+  readonly resultFor?: never;
+}
+
+/**
+ * A canned reply the scenario COMPUTES from the request the caller actually sent.
+ *
+ * `replyFor` matches on the method NAME, which is right for a session-scoped read and
+ * wrong for an entity-scoped one: a session holding two repo mounts asked
+ * `repo.mountRead` twice and got the same mount back both times, so the second mount
+ * and every state only it carried were unreachable — in the fixture and in every
+ * capture taken from it — while the surfaces above read as though both had answered.
+ *
+ * Returning `undefined` means the scenario scripts no answer for THAT request and
+ * settles exactly as an unscripted method does: refused by name, never resolved with
+ * an absence, which renders as a claim about the session nothing checked.
+ *
+ * A COMPUTATION, NEVER A SECOND SCRIPT — no state, no mutation, called once per
+ * settled reply, so a scenario stays replayable tick-for-tick on the frozen clock.
+ * The request is typed `unknown` and is READ rather than destructured: this seam
+ * reports settlements and throws none, so an exception raised in here leaves past
+ * every refusal arm as itself.
+ */
+export interface ScenarioComputedReply extends ScenarioReplyBase {
+  readonly resultFor: (request: unknown) => unknown;
+  readonly result?: never;
+  readonly refusal?: never;
 }
 
 /**
  * A canned reply for one request/response call the scenario expects.
  *
- * Exactly one of `result` / `refusal`, enforced by the `?: never` member on each
- * arm rather than by two independent optionals — the two-arm-union idiom the
+ * Exactly one of `result` / `refusal` / `resultFor`, enforced by the `?: never`
+ * member on each arm rather than by independent optionals — the arm-union idiom the
  * corpus already uses for `AgentAttachRequest` in
- * `docs/architecture/contracts/api-payload-contracts.md`. Two optionals would
- * admit both at once (a reply that resolves AND refuses) and neither at all (a
- * reply that settles no way), which are the two shapes nothing can serve.
+ * `docs/architecture/contracts/api-payload-contracts.md`. Independent optionals would
+ * admit two at once (a reply that resolves AND refuses) and none at all (a reply that
+ * settles no way), which are the two shapes nothing can serve.
  */
-export type ScenarioReply = ScenarioResolvingReply | ScenarioRejectingReply;
+export type ScenarioReply = ScenarioResolvingReply | ScenarioRejectingReply | ScenarioComputedReply;
 
 export interface ConsoleScenario {
   readonly id: string;
@@ -107,286 +120,52 @@ export interface ConsoleScenario {
   readonly sessionId: string;
   /** Participants in join order — the hue allocator's input (rule 2). */
   readonly participantIdsInJoinOrder: readonly string[];
+  /**
+   * Which of those participants this window IS, where the scenario states one.
+   *
+   * OPTIONAL, and the optionality is the point: join order is who opened the session
+   * and who followed, on any machine, so reading its head as "me" is a fabrication —
+   * and a surface handed a fabricated identity renders a role gate as though it had
+   * been checked. A scenario that does not say leaves this absent and the fixture
+   * refuses the caller-identity read, which is the honest "not checked" answer.
+   *
+   * When present it must be a member of `participantIdsInJoinOrder`: an identity
+   * outside the roster is a viewer of some other session, and every surface that
+   * resolves a role would look it up and find nothing. `scenarios/wire-truth.ts`
+   * holds every scenario to that, the substrate's own two included.
+   */
+  readonly viewingParticipantId?: string;
+  /**
+   * The membership role each MEMBER of the roster holds, keyed by participant id.
+   *
+   * The fact `viewingParticipantId` is useless without. An identity read answers
+   * WHICH entry of the roster this window is; every role-gated control then resolves
+   * the role by looking that id up in the session's participant projection
+   * (`store/selectors.ts`'s `membershipRoleOf`) — so a scenario that states a viewer
+   * and no roles serves a successful identity read into a roster that holds nothing,
+   * and every owner- and collaborator-gated control renders closed for a reason
+   * nothing checked. That is indistinguishable, on screen, from a member who simply
+   * has no elevated role.
+   *
+   * NOT A SECOND COPY OF THE ROSTER. `participantIdsInJoinOrder` stays the sole home
+   * of the ORDER, which is what the hue allocator consumes; this is a different fact
+   * about the same people, and `scenarios/wire-truth.ts` holds every key in it to
+   * that list. Keyed rather than ordered for exactly that reason — an ordered second
+   * list would be the order declared twice.
+   *
+   * PARTIAL ON PURPOSE, and the partiality carries meaning. A scenario's join order
+   * holds everything that gets a hue, agents included, and an agent is attached
+   * rather than admitted: it holds no membership and no role. So the members of the
+   * session are exactly the keys here, and an id in the join order with no entry is
+   * something the fixture does not claim to know the membership of.
+   *
+   * `MembershipRole` is the contract's, imported: it is the union
+   * `MembershipRoleSchema` parses on the way back out, so a role stated here and a
+   * role read there cannot be two vocabularies.
+   */
+  readonly membershipRoleByParticipantId?: Readonly<Record<string, MembershipRole>>;
   readonly beats: readonly ScenarioBeat[];
   readonly replies: readonly ScenarioReply[];
   /** Wall-clock instant the frozen clock reports as "now" at tick zero. */
   readonly startedAtIso: string;
-}
-
-/** Where a scenario's playback has got to. Rendered by the fixture picker. */
-export interface ScenarioProgress {
-  readonly scenarioId: string;
-  readonly elapsedMs: number;
-  readonly deliveredBeatCount: number;
-  readonly totalBeatCount: number;
-  readonly isComplete: boolean;
-}
-
-/**
- * A subscriber to delivered beats.
- *
- * `core/emitter.ts`'s sink type rather than a fourth hand-written one — that module
- * names the engine's flat sink `Set` as one of the three copies it exists to
- * replace, and the alias keeps the engine's own vocabulary readable at call sites.
- */
-export type ScenarioSink = EmitterSink<readonly ConsoleSessionEvent[]>;
-
-/**
- * How a held reply ended.
- *
- * Three outcomes rather than a promise that resolves or hangs, because two of
- * them are refusals the caller has to render: an engine torn down under a request
- * and a backlog that is already full both leave the caller with nothing to show,
- * and a promise that never settles leaves a surface loading for the life of the
- * window. The engine reports which; naming the refusal belongs to the bridge.
- */
-export type ScenarioReplyOutcome = "due" | "abandoned" | "backlog-full";
-
-/** One reply parked until the frozen clock reaches its tick. */
-interface HeldScenarioReply {
-  readonly dueAtMs: number;
-  readonly settle: (outcome: ScenarioReplyOutcome) => void;
-}
-
-/**
- * The replies a scenario is holding, and the bound on how many.
- *
- * Its own class rather than an array field on the engine because it owns a rule
- * the engine does not otherwise have: entries leave in DUE order, not in call
- * order, so two calls made together with different scripted latencies settle in
- * the order a real transport would settle them. Keeping that in one place is what
- * stops `advance` from growing a second sort.
- */
-class HeldReplyQueue {
-  readonly #held: HeldScenarioReply[] = [];
-  readonly #cap: number;
-
-  public constructor(cap: number) {
-    this.#cap = cap;
-  }
-
-  public get heldCount(): number {
-    return this.#held.length;
-  }
-
-  /** Park one reply. `false` when the queue is already at its cap. */
-  public hold(dueAtMs: number, settle: (outcome: ScenarioReplyOutcome) => void): boolean {
-    if (this.#held.length >= this.#cap) {
-      return false;
-    }
-    this.#held.push({ dueAtMs, settle });
-    return true;
-  }
-
-  /**
-   * Settle every reply due at or before `elapsedMs`, earliest first.
-   *
-   * The entries are removed BEFORE any of them is settled, so a continuation that
-   * issues another delayed call cannot be released by the same pass that released
-   * the call it came from. `sort` is stable, so replies sharing a due tick settle
-   * in the order they were made.
-   */
-  public releaseThrough(elapsedMs: number): void {
-    if (this.#held.length === 0) {
-      // The common case by far — every advance of a scenario that scripts no
-      // latency reaches here — and it allocates nothing.
-      return;
-    }
-    const due: HeldScenarioReply[] = [];
-    const stillHeld: HeldScenarioReply[] = [];
-    for (const reply of this.#held) {
-      (reply.dueAtMs <= elapsedMs ? due : stillHeld).push(reply);
-    }
-    if (due.length === 0) {
-      return;
-    }
-    this.#held.length = 0;
-    this.#held.push(...stillHeld);
-    due.sort((left, right) => left.dueAtMs - right.dueAtMs);
-    for (const reply of due) {
-      reply.settle("due");
-    }
-  }
-
-  /** Settle every held reply as abandoned. For teardown, and final. */
-  public abandonAll(): void {
-    const abandoned = this.#held.splice(0, this.#held.length);
-    for (const reply of abandoned) {
-      reply.settle("abandoned");
-    }
-  }
-}
-
-export interface ScenarioEngineOptions {
-  readonly scenario: ConsoleScenario;
-  /** Defaults to a `ManualClock`, which is what makes the fixture deterministic. */
-  readonly clock?: ConsoleClock & { advance?: (deltaMs: number) => void };
-  /** How far each `tick()` moves the frozen clock. */
-  readonly tickMs?: number;
-}
-
-export class ScenarioEngine {
-  readonly #scenario: ConsoleScenario;
-  readonly #clock: ConsoleClock & { advance?: (deltaMs: number) => void };
-  readonly #tickMs: number;
-  // The subscribe / emit / unsubscribe idiom is `core/emitter.ts`'s. Two of its
-  // behaviours matter here specifically: delivery iterates a SNAPSHOT, so a pane
-  // that unsubscribes during a beat cannot make a sibling pane miss the beat it was
-  // still subscribed for; and a throwing sink does not silence the others, so one
-  // broken surface does not stop a scenario delivering to the rest.
-  readonly #beats = new Emitter<readonly ConsoleSessionEvent[]>("scenario beat");
-  readonly #heldReplies = new HeldReplyQueue(SCENARIO_PENDING_REPLY_CAP);
-  #elapsedMs = 0;
-  #deliveredBeatCount = 0;
-  #disposed = false;
-  #droppedTickCount = 0;
-
-  public constructor(options: ScenarioEngineOptions) {
-    this.#scenario = options.scenario;
-    this.#clock = options.clock ?? new ManualClock(Date.parse(options.scenario.startedAtIso));
-    this.#tickMs = options.tickMs ?? SCENARIO_TICK_MS;
-  }
-
-  public get scenario(): ConsoleScenario {
-    return this.#scenario;
-  }
-
-  /** The frozen clock. Every console subsystem in fixture mode reads this one. */
-  public get clock(): ConsoleClock {
-    return this.#clock;
-  }
-
-  public get progress(): ScenarioProgress {
-    return {
-      scenarioId: this.#scenario.id,
-      elapsedMs: this.#elapsedMs,
-      deliveredBeatCount: this.#deliveredBeatCount,
-      totalBeatCount: this.#scenario.beats.length,
-      isComplete: this.#deliveredBeatCount >= this.#scenario.beats.length,
-    };
-  }
-
-  /** Ticks refused because the engine was already torn down. Asserted by tests. */
-  public get droppedTickCount(): number {
-    return this.#droppedTickCount;
-  }
-
-  public get isDisposed(): boolean {
-    return this.#disposed;
-  }
-
-  /** Subscribe to delivered beats. Returns an idempotent unsubscribe. */
-  public subscribe(sink: ScenarioSink): Unsubscribe {
-    return this.#beats.subscribe(sink);
-  }
-
-  /** Advance one tick. A no-op after teardown, reported rather than silent. */
-  public tick(): void {
-    this.advance(this.#tickMs);
-  }
-
-  /**
-   * Advance the frozen clock and deliver every beat that falls due.
-   *
-   * After `dispose()` this drops the advance and fires the tripwire: a scenario
-   * timer that outlives its pane is a real bug (the pane's store is gone), and a
-   * silent no-op would let it live in the codebase forever.
-   */
-  public advance(deltaMs: number): void {
-    if (this.#disposed) {
-      this.#droppedTickCount += 1;
-      reportTripwire(
-        "apply-chokepoint-bypass",
-        `ScenarioEngine(${this.#scenario.id})`,
-        `a scenario tick of ${String(deltaMs)}ms arrived after teardown; the engine dropped it rather than delivering into a disposed store`,
-      );
-      return;
-    }
-    const target = this.#elapsedMs + deltaMs;
-    const due = this.#scenario.beats
-      .slice(this.#deliveredBeatCount)
-      .filter((beat) => beat.atMs <= target);
-    this.#elapsedMs = target;
-    if (this.#clock.advance !== undefined) {
-      this.#clock.advance(deltaMs);
-    }
-    // Held replies are released BEFORE the beats they share this advance with.
-    // Settling a promise only queues a continuation, so the beats still reach
-    // their sinks first; what the order buys is that a caller cannot observe a
-    // beat delivered by an advance whose own reply it is still waiting on.
-    this.#heldReplies.releaseThrough(this.#elapsedMs);
-    if (due.length === 0) {
-      return;
-    }
-    this.#deliveredBeatCount += due.length;
-    this.#beats.emit(due.map((beat) => beat.event));
-  }
-
-  /**
-   * Hold one scripted reply until the frozen clock has moved `afterMs` further.
-   *
-   * This is what makes a scripted latency a LATENCY. The engine used to be
-   * advanced by the call itself, which spent the delay on the calling turn: the
-   * promise was never pending for the scripted duration, so the loading state the
-   * latency exists to make reachable could not be observed, and every beat inside
-   * the delay was delivered as a side effect of a request. Here the request parks
-   * and the clock stays exactly where the caller left it.
-   *
-   * Never rejects. The outcome carries the refusal, because the vocabulary a
-   * surface renders belongs to the bridge and not to the engine — and that holds
-   * for a scripted REFUSAL too: the release says only that the reply came due,
-   * and `fixture-bridge.ts` is what turns a due `ScenarioRejectingReply` into a
-   * rejection. An engine that rejected here would have to know the wire's error
-   * shape, which is the bridge boundary's vocabulary and not the playback
-   * engine's.
-   */
-  public holdReply(afterMs: number): Promise<ScenarioReplyOutcome> {
-    if (this.#disposed) {
-      return Promise.resolve("abandoned");
-    }
-    const dueAtMs = this.#elapsedMs + afterMs;
-    return new Promise<ScenarioReplyOutcome>((resolve) => {
-      if (!this.#heldReplies.hold(dueAtMs, resolve)) {
-        resolve("backlog-full");
-      }
-    });
-  }
-
-  /** Replies parked on the clock right now. Asserted by tests, read by diagnostics. */
-  public get pendingReplyCount(): number {
-    return this.#heldReplies.heldCount;
-  }
-
-  /** Advance until every beat has been delivered. The screenshot tier's entry point. */
-  public runToCompletion(): void {
-    const lastBeat = this.#scenario.beats.at(-1);
-    if (lastBeat === undefined) {
-      return;
-    }
-    this.advance(Math.max(0, lastBeat.atMs - this.#elapsedMs));
-  }
-
-  /** The canned reply for one call, or `undefined` if the scenario scripts none. */
-  public replyFor(call: string): ScenarioReply | undefined {
-    return this.#scenario.replies.find((reply) => reply.call === call);
-  }
-
-  /** How many sinks are attached. Read by tests and by the diagnostics surface. */
-  public get sinkCount(): number {
-    return this.#beats.sinkCount;
-  }
-
-  /**
-   * Final. Later ticks are dropped and counted; sinks and held replies released.
-   *
-   * The held replies are ABANDONED rather than left alone, and that is the half
-   * that is easy to miss: a sink dropped on teardown simply stops being called,
-   * but a reply dropped on teardown is a promise nobody can ever settle, and the
-   * surface awaiting it renders its loading state for the life of the window.
-   */
-  public dispose(): void {
-    this.#disposed = true;
-    this.#beats.clear();
-    this.#heldReplies.abandonAll();
-  }
 }

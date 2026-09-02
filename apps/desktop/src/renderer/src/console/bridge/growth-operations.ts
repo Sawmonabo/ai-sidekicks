@@ -14,6 +14,15 @@
 // id, and the compiler — not a reviewer — is what should guarantee a new id gets an
 // entry. A `Record` keyed by `GrowthOperationId` makes a missing entry and an
 // unknown key both compile errors; an array beside the union would make neither.
+//
+// THIS MODULE IS A DECLARED DATA TABLE, AND ITS LENGTH IS ITS ROW COUNT. The
+// package's "a file over about 400 lines is doing two jobs" rule is a heuristic for
+// a module that grew a second job; this one has exactly one — declare the operation
+// half of the growth ledger — and its size is the number of wires the console does
+// not yet have, one entry each. There is no second responsibility here to lift out:
+// splitting the record would split one closed set across two files and lose the
+// exhaustiveness the `Record<GrowthOperationId, …>` type is here to get. It shrinks
+// when a slate row lands and its operations stop being growth.
 
 import type {
   GrowthOperationEntry,
@@ -233,9 +242,14 @@ export const GROWTH_OPERATIONS: Readonly<Record<GrowthOperationId, GrowthOperati
     "artifactRead",
     "artifact-ingest-and-crud",
     "method",
-    "read one artifact's metadata",
+    "read one artifact — the pane's manifest read, which takes the envelope alone, and its payload fetch, which asks for the bytes and takes them beside the envelope with the encoding to read them by",
   ),
-  artifactDelete: op("artifactDelete", "artifact-ingest-and-crud", "method", "delete an artifact"),
+  artifactDelete: op(
+    "artifactDelete",
+    "artifact-ingest-and-crud",
+    "method",
+    "delete an artifact and read back the receipt the call settles — where the payload's bytes went, and whether the destroyed relay key has foreclosed re-publish",
+  ),
   artifactAllowlistRead: op(
     "artifactAllowlistRead",
     "artifact-allowlist-and-abort",
@@ -398,6 +412,13 @@ export const GROWTH_OPERATIONS: Readonly<Record<GrowthOperationId, GrowthOperati
   // registers a method string anywhere, so neither entry names one — the corpus has
   // the daemon RESOLVE a caller's principal and never return it, and has the
   // callback-tool registry ride spawn with no read seam at all.
+  //
+  // THERE IS NO `participant-role-read` ROW, AND THERE WILL NOT BE ONE. The role is
+  // a lookup, not a read: `store/selectors.ts`'s `membershipRoleOf` answers it from
+  // the roster this session's own store already holds, and `store/hooks.ts`'s
+  // `useCallerMembershipRole` chains this operation to it. A slate row for the role
+  // would be asking a second wire for a fact a shipped partition owns, and the two
+  // could disagree with nothing able to say which was right.
   callerParticipantRead: op(
     "callerParticipantRead",
     "caller-participant-identity",
@@ -440,6 +461,34 @@ export const GROWTH_OPERATIONS: Readonly<Record<GrowthOperationId, GrowthOperati
     "method",
     "delete a definition, which never touches an agent attached from it because attach copies rather than references",
     "sidekick.definitionDelete",
+  ),
+  // The hydrated event read. It names no wire method for the same reason the two
+  // identity rows above name none: the projection is built daemon-side and reaches
+  // no bridge namespace, so an invented string here would be traceable to nothing.
+  hydratedEventRead: op(
+    "hydratedEventRead",
+    "hydrated-event-read",
+    "method",
+    "open one event's machine-authored body — the assistant and tool prose the taxonomy records the existence of and the event payload does not carry — so a ledger row renders what was said rather than only that something was",
+  ),
+  // The session cost plane. Both ids are the registered method's TAIL without its
+  // root, unlike the workflow and sidekick blocks above: the console calls exactly
+  // these two verbs of a plane whose other pairs it never reaches, so a root folded
+  // into both ids would lengthen every call site and disambiguate nothing. The
+  // entry still names the method in full, so the transcription stays checkable.
+  orchestrationCostReceiptRead: op(
+    "orchestrationCostReceiptRead",
+    "cost-receipt-read",
+    "method",
+    "read the committed-spend fold decomposed along its per-run, per-caused-by, and per-paying-account axes, each a partition of the same session figure rather than a second computation of it",
+    "orchestration.costReceiptRead",
+  ),
+  orchestrationBudgetRead: op(
+    "orchestrationBudgetRead",
+    "cost-receipt-read",
+    "method",
+    "read the session's limits and the committed-spend figure admission compares against, served from the same accountant accessor the receipt is, so the two can never disagree",
+    "orchestration.budgetRead",
   ),
 };
 

@@ -135,13 +135,13 @@ export function oklchToSrgb(color: OklchColor): SrgbColor {
 }
 
 /**
- * WCAG 2.2 relative luminance of a color as it would be displayed — measured
- * through the clamped sRGB triple, not through the unclamped linear one, because
- * a channel the display cannot show contributes the luminance of the channel it
+ * WCAG 2.2 relative luminance of a displayed sRGB triple.
+ *
+ * The triple is what the display shows, not the unclamped linear one, because a
+ * channel the display cannot show contributes the luminance of the channel it
  * shows instead.
  */
-export function relativeLuminance(color: OklchColor): number {
-  const displayed = oklchToSrgb(color);
+function srgbRelativeLuminance(displayed: SrgbColor): number {
   return (
     0.2126 * decodeSrgbChannel(displayed.red) +
     0.7152 * decodeSrgbChannel(displayed.green) +
@@ -149,13 +149,28 @@ export function relativeLuminance(color: OklchColor): number {
   );
 }
 
-/** WCAG 2.2 contrast ratio between two colors; 1 (identical) to 21 (black on white). */
-export function contrastRatio(foreground: OklchColor, background: OklchColor): number {
-  const foregroundLuminance = relativeLuminance(foreground);
-  const backgroundLuminance = relativeLuminance(background);
+/**
+ * WCAG 2.2 contrast ratio between two colors already in sRGB; 1 (identical) to 21
+ * (black on white).
+ *
+ * The sRGB entry point exists because a CSS `filter` is defined over sRGB channels
+ * and has no OKLCH form: measuring what a filtered control really shows means
+ * measuring the triple the filter produced. Scaling both of a pair's channels does
+ * NOT preserve their ratio — relative luminance carries a 0.05 offset that a
+ * multiplication does not distribute over — so a filtered treatment is only
+ * checkable this way.
+ */
+export function srgbContrastRatio(foreground: SrgbColor, background: SrgbColor): number {
+  const foregroundLuminance = srgbRelativeLuminance(foreground);
+  const backgroundLuminance = srgbRelativeLuminance(background);
   const lighter = Math.max(foregroundLuminance, backgroundLuminance);
   const darker = Math.min(foregroundLuminance, backgroundLuminance);
   return (lighter + 0.05) / (darker + 0.05);
+}
+
+/** WCAG 2.2 contrast ratio between two colors; 1 (identical) to 21 (black on white). */
+export function contrastRatio(foreground: OklchColor, background: OklchColor): number {
+  return srgbContrastRatio(oklchToSrgb(foreground), oklchToSrgb(background));
 }
 
 /**

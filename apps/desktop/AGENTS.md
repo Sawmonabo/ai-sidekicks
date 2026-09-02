@@ -13,9 +13,13 @@ Two commands, two disjoint claims. Both run in CI on every desktop PR, on the ti
 
 `pnpm --filter @ai-sidekicks/desktop structure` runs both locally; CI runs them as two Turbo tasks with `--continue`, so one red leg never hides the other's findings. Neither claim subsumes the other: a dead module can be perfectly layered, and a layering violation can sit on a fully reachable path.
 
-Config: `knip.json` (run from the workspace root — a package-scoped run cannot see the pnpm catalog or the root tooling manifest) and `.dependency-cruiser.mjs`. Both refuse a stale config: knip runs with `--treat-config-hints-as-errors`, so a pattern that matches nothing or duplicates a default fails the gate.
+Config: `knip.json` (run from the workspace root — a package-scoped run cannot see the pnpm catalog or the root tooling manifest) and `.dependency-cruiser.mjs`. Both refuse a stale config: knip runs with `--treat-config-hints-as-errors`, so a pattern that matches nothing or duplicates a default fails the gate, and with `--treat-tag-hints-as-errors`, so a per-symbol exemption that outlived its consumer fails it too.
 
-A knip `ignore` entry is allowed for exactly one thing: a symbol that carries the comment `// Consumed by T-023p-1C-<n>` naming the task that will import it. Nothing else in this tree gets an ignore entry. `ignoreBinaries` and `ignoreDependencies` are not that lever and are not used; if a dependency looks unused, it is unused.
+The one exemption the dead-code gate admits is per SYMBOL, through knip's `tags` option: `knip.json` sets `"tags": ["-consumedBy"]`, and an export carrying the JSDoc tag `@consumedBy T-023p-1C-<n>` — naming the task, or the comma-separated tasks, that will import it — is excluded. A symbol no task will name is dead code and is deleted, not tagged.
+
+That marker has two halves, and they are deleted together in the PR that imports the symbol. The tag sits where knip reports the finding, which for a barrelled symbol is the BARREL's own export specifier — measured, not assumed: knip reads per-specifier tags on an `export { … } from`, while a tag on the re-exported declaration suppresses nothing there and instead raises an unused-tag hint, because that declaration is referenced by the barrel. The declaration carries the same claim as a one-line `// Consumed by T-023p-1C-<n>` comment, so the symbol names its consumer where a reader meets it. `--treat-tag-hints-as-errors` is what makes the deletion mandatory: the moment a consumer imports the symbol, the surviving tag fails the run.
+
+No other exemption is used. `ignore` and `ignoreIssues` are file-scoped — they exempt every export a file ever grows, not the one symbol that is early — so neither appears here, and no file is exempted. `ignoreDependencies` is not used at all: if a dependency looks unused, it is unused. `ignoreBinaries` carries exactly one entry, `xdpyinfo`, an X11 host utility the Xvfb probe spawns on Linux runners: the CI job's apt step installs it and no manifest could list it. A second entry meets that same standard — a host binary, or nothing.
 
 ## Layout — what belongs in each directory
 
@@ -36,10 +40,13 @@ There is exactly one shared layer. `src/renderer/src/shared/` is not created; a 
 
 - Renderer source never imports `electron`, `electron/*`, `node:*`, bare Node builtins, `@ai-sidekicks/runtime-daemon`, `@ai-sidekicks/control-plane`, or any path under `main/` or `preload/`. Declared in `eslint.config.mjs`; add a new ban there, never in a test.
 - Main and preload never import from `src/renderer/`. A value both sides need goes in `src/shared/` and is imported by both — never mirrored by hand.
-- The console families form a DAG, low to high: `core → tokens → routing → primitives → store / persistence → bridge → palette → frame → view families`. A family imports any family below it and none above it. An upward edge fails `structure:layering`; hoist the symbol down to the lowest family that needs it, never deep-import around it.
+- The console families form a DAG, low to high: `core → tokens → routing → primitives → store / persistence → bridge → seats → palette → frame → view families`. A family imports any family below it and none above it. An upward edge fails `structure:layering`; hoist the symbol down to the lowest family that needs it, never deep-import around it.
   - `core/` holds `constants.ts`, `tripwires.ts`, `keyed-registry.ts`, `refusal.ts`, `emitter.ts`, `clock.ts`, `fixture-globals.ts`.
   - `routing/` holds `ConsoleRoute`, `parseRoute`, `formatRoute`, `railDestinationFor`.
   - Chord formatting lives in `primitives/chord-format.ts`; the palette consumes it.
+  - `seats/` holds the contracts through which view families hand each other bodies — the pane registry with its kinds and addresses, the composer seat, sidebar sections, the timeline row slot, the inline-card seats. Nothing there renders. It sits directly above `bridge/` because that is the highest family a seat imports, and below `palette/` and `frame/` because the frame composes the pane-registry singleton.
+  - A VIEW family is any console directory that is none of the layer families above and neither of the two composition sites (`families.ts`, `panes/`). The layering gate states that as the complement rather than as a list, so a family added by a branch is covered the moment its directory exists — no ladder to remember, and no silent hole when one is forgotten. `workspace/`, `ledger/`, `collaboration/`, `repos/`, `workflows/`, `browser/`, `terminal/`, and their siblings are view families.
+  - View families are SIBLINGS, not a ladder: one view family never imports another. `collaboration/` → `repos/` fails `structure:layering` under `console-view-family-isolation` exactly as an upward edge does — hoist the shared contract into `seats/`, or into the lowest layer family that needs it. Only the two composition sites name more than one view family.
 - Console code reaches the bridge only through `console/bridge/BridgeProvider.tsx`; `window.sidekicks` appears in no other renderer file.
 - The console imports no plan-owned renderer subtree whose owner mounts into it — `timeline/`, `usage-meters/`, `run-controls/`, `provider-accounts/`, `sidekick-definitions/`, `mcp-governance/`. Those reach the frame by calling `registerConsoleSurface`, which is a call and not an import, so the rule takes no exception; a later mounted page joins the list in `.dependency-cruiser.mjs`. The three shipped Tier-1 components — `session-bootstrap/`, `session-members/`, `runtime-node-attach/` — are absorbed by import and are not on it.
 - The console never re-authors or moves a body another plan owns.
@@ -60,7 +67,8 @@ There is exactly one shared layer. `src/renderer/src/shared/` is not created; a 
 ## Module shape
 
 - Named exports only. `export default` is for tool configuration at the package root only — `*.config.{ts,mjs}` and `.dependency-cruiser.mjs`, which their tools load by default export.
-- Every console family carries exactly one `index.ts`. Cross-family imports go through it; intra-family imports are deep. A barrel re-exports only its own family — no re-export chains.
+- Every console family carries exactly one `index.ts` — its family door. Cross-family imports go through it; intra-family imports are deep. A barrel re-exports only its own family — no re-export chains, enforced by `console-no-barrel-chain` in `.dependency-cruiser.mjs`: an `index.ts` under `console/` that carries an `export … from` reaching another `index.ts` under `console/` fails `structure:layering`.
+  - A sub-module directory inside a family (`bridge/growth-values/`, `bridge/scenarios/`) may carry its own `index.ts`. That is a sub-module door, not a second family door: it publishes to its own family only, it is reached by deep intra-family specifiers, and the family door re-exports a symbol from the module that DECLARES it, never through the inner barrel. A sub-module door that would be reached from outside its family is not a sub-module — promote the directory to a family and give it a place on the DAG.
 - A family's CSS is imported from that family's barrel and from nowhere else.
 - `.tsx` files are PascalCase, one component each; `.ts` modules are kebab-case, named for the noun they own (`-store`, `-registry`, `-adapter`), matching `packages/runtime-daemon/src/`.
 - A file over about 400 lines is doing two jobs. Split it before pushing.
@@ -79,7 +87,7 @@ There is exactly one shared layer. `src/renderer/src/shared/` is not created; a 
 
 ## Tests
 
-- Co-located `*.test.{ts,tsx}` beside the module for `console/` and `src/main/**`. No new `__tests__/`; the three legacy renderer families keep theirs and are not converted.
+- Co-located `*.test.{ts,tsx}` beside the module for `console/`, `src/renderer/src/shell/` (a `console-unit` resident, since it composes console seats), and `src/main/**`. No new `__tests__/`; the three legacy renderer families keep theirs and are not converted.
 - The console tiers live under `test/console/<tier>/`, one Vitest project each, globs disjoint.
 - Shared scaffolding lives once, and one home per role. Cross-process roles go in `test/helpers/` — the `vi.mock("electron")` factory in `test/helpers/electron-mock.ts`, and any second one is rejected. Console roles go in `test/console/`: `console-harness.tsx` (render harness) and `electron-harness.ts` (spawn-and-scan) are the residents; a temp-directory helper, a script runner, and a path resolver take `temp-dir.ts`, `run-script.ts`, and `paths.ts` there when first needed. A tier that hand-rolls a role another tier already has is rejected.
 - A test never reimplements the rule it checks and never drives a local stand-in for the module under test; import the real one. Every clean result has a negative control that fails.
