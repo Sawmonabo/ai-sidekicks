@@ -37,18 +37,25 @@ const DEFINITION = { definitionId: "definition-1", name: "Reviewer" };
  */
 class HeldAttachDaemon {
   #attachCallCount = 0;
+  #attachRequest: unknown;
   #release: ((reading: unknown) => void) | undefined;
 
   public get attachCallCount(): number {
     return this.#attachCallCount;
   }
 
-  public readonly call = async (method: string): Promise<unknown> => {
+  /** What the column actually put on the wire, not what the form believed. */
+  public get attachRequest(): unknown {
+    return this.#attachRequest;
+  }
+
+  public readonly call = async (method: string, params?: unknown): Promise<unknown> => {
     if (method === "sidekick.definitionList") {
       return { definitions: [DEFINITION] };
     }
     if (method === "agent.attach") {
       this.#attachCallCount += 1;
+      this.#attachRequest = params;
       return await new Promise<unknown>((resolve) => {
         this.#release = resolve;
       });
@@ -113,10 +120,24 @@ function currentSubmitControl(): HTMLButtonElement {
   return submit as HTMLButtonElement;
 }
 
-/** Open the dialog, choose the definition arm, and pick the one definition. */
-async function openReadyAttachForm(container: HTMLElement): Promise<HTMLButtonElement> {
+/**
+ * Open the dialog, name the agent, choose the definition arm, pick the definition.
+ *
+ * The name is typed rather than assumed: the registered request requires it of both
+ * arms, so a form that skipped it would never reach its ready state at all.
+ */
+async function openReadyAttachForm(
+  container: HTMLElement,
+  agentName = "Scout",
+): Promise<HTMLButtonElement> {
   await act(async () => {
     fireEvent.click(container.querySelector(".meridian-agent-card__action") as HTMLElement);
+  });
+  const nameInput = document.querySelector(
+    ".meridian-attach__popup .meridian-axis-field__text",
+  ) as HTMLInputElement;
+  await act(async () => {
+    fireEvent.change(nameInput, { target: { value: agentName } });
   });
   const armButton = [...document.querySelectorAll(".meridian-attach__arm")].find(
     (candidate) => candidate.textContent === "From a definition",
@@ -148,6 +169,54 @@ describe("agent binding column — attaching a sidekick", () => {
     });
 
     expect(daemon.attachCallCount).toBe(1);
+  });
+
+  it("puts the session and the typed name on the wire, not just the arm's axes", async () => {
+    const daemon = new HeldAttachDaemon();
+    const bridge = bridgeCalling(daemon);
+    const { container } = render(
+      <AgentBindingColumn models={modelsOver(bridge)} agentId={undefined} />,
+    );
+    await settleReads(bridge);
+
+    const submit = await openReadyAttachForm(container, "Reviewer");
+    await act(async () => {
+      fireEvent.click(submit);
+    });
+
+    expect(daemon.attachRequest).toMatchObject({
+      sessionId: "session-9",
+      name: "Reviewer",
+      definitionId: "definition-1",
+    });
+  });
+
+  it("negative control: an unnamed form never becomes submittable at all", async () => {
+    // The pre-fix form was ready on the definition id alone and composed a request
+    // carrying neither the session nor a name.
+    const daemon = new HeldAttachDaemon();
+    const bridge = bridgeCalling(daemon);
+    const { container } = render(
+      <AgentBindingColumn models={modelsOver(bridge)} agentId={undefined} />,
+    );
+    await settleReads(bridge);
+
+    await act(async () => {
+      fireEvent.click(container.querySelector(".meridian-agent-card__action") as HTMLElement);
+    });
+    const armButton = [...document.querySelectorAll(".meridian-attach__arm")].find(
+      (candidate) => candidate.textContent === "From a definition",
+    );
+    await act(async () => {
+      fireEvent.click(armButton as HTMLElement);
+    });
+    await act(async () => {
+      fireEvent.click(document.querySelector(".meridian-attach__definition-button") as HTMLElement);
+    });
+
+    expect(currentSubmitControl().disabled).toBe(true);
+    expect(document.body.textContent ?? "").toContain("Still needed: a name");
+    expect(daemon.attachCallCount).toBe(0);
   });
 
   it("negative control: the control re-arms, so a press after settlement asks again", async () => {

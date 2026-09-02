@@ -45,6 +45,8 @@ export interface AttachSidekickProps {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
   readonly form: AttachSidekickForm;
+  /** The session the agent joins. Required by both arms of the registered request. */
+  readonly sessionId: string;
   readonly catalog: PushDrivenReadState<DriverCatalogReading>;
   readonly definitions: PushDrivenReadState<SidekickDefinitionListReading>;
   readonly onSubmit: () => void;
@@ -69,7 +71,7 @@ export interface AttachSidekickProps {
 
 export function AttachSidekick(props: AttachSidekickProps): React.JSX.Element {
   const { form, catalog, definitions } = props;
-  const readiness = form.readiness();
+  const readiness = form.readiness(props.sessionId);
   const catalogValue = catalog.kind === "loaded" ? catalog.value : undefined;
   const driverName = form.effectiveValue("driverName");
   const modelId = form.effectiveValue("modelId");
@@ -85,6 +87,24 @@ export function AttachSidekick(props: AttachSidekickProps): React.JSX.Element {
         <Dialog.Backdrop className="meridian-attach__backdrop" />
         <Dialog.Popup className="meridian-attach__popup" aria-label="Attach a sidekick">
           <h3 className="meridian-attach__title">Attach a sidekick</h3>
+
+          {/* Above the arms because it belongs to neither: the registered request
+              requires a name of both, and no definition supplies one — the name on a
+              definition row is the definition's. So this is typed, never filled in,
+              and a placeholder is as far as the form goes. */}
+          <label className="meridian-axis-field">
+            <span className="meridian-axis-field__label">Name</span>
+            <input
+              className="meridian-axis-field__text"
+              value={form.name}
+              placeholder="What this agent is called here"
+              onChange={(event) => form.setName(event.target.value)}
+            />
+            <span className="meridian-axis-field__advisory">
+              Required on both arms. This is the agent&rsquo;s own name — a definition&rsquo;s name
+              stays the definition&rsquo;s.
+            </span>
+          </label>
 
           <div className="meridian-attach__arms" role="group" aria-label="How to attach">
             {ATTACH_ARMS.map((arm) => (

@@ -5,6 +5,11 @@
 // exactly one thing, a request naming neither a definition nor a driver-and-model
 // pair. Everything else is a field.
 //
+// TWO MEMBERS ARE REQUIRED ON BOTH ARMS — the session the agent joins and the name it
+// is called by — because the registered request base requires them of every arm. They
+// are not axes and neither is definition-resolved, so neither joins the override
+// machinery below: the session is bound by the caller and the name is typed.
+//
 // THE OVERRIDE MARK IS THE POINT OF THE DEFINITION ARM. An explicitly present member
 // wins FOR THAT FIELD ONLY, so the form pre-fills from the definition and sends only
 // what the caller actually edited. That is why this class tracks presence rather
@@ -32,8 +37,18 @@ export type AttachArm = (typeof ATTACH_ARMS)[number];
 export const ATTACH_FIELDS = ["driverName", "modelId", "providerAccountId", "effort"] as const;
 export type AttachField = (typeof ATTACH_FIELDS)[number];
 
-/** What the form would send, once it is complete. */
+/**
+ * What the form would send, once it is complete.
+ *
+ * `sessionId` and `name` are required on BOTH arms because the registered request
+ * base requires them, and a request missing either is refused by any conforming
+ * daemon whatever else it carries. The session is not the form's to know — it is
+ * bound by the caller at {@link AttachSidekickForm.readiness} — and the name is the
+ * AGENT's rather than the definition's, which is why no arm ever fills it in.
+ */
 export interface AttachRequest {
+  readonly sessionId: string;
+  readonly name: string;
   readonly definitionId?: string | undefined;
   readonly driverName?: string | undefined;
   readonly modelId?: string | undefined;
@@ -50,6 +65,7 @@ export class AttachSidekickForm {
   #arm: AttachArm = "inline";
   #definition: SidekickDefinitionSummary | undefined;
   #entered = new Map<AttachField, string>();
+  #name = "";
 
   /** Subscribe to edits. Returns an idempotent unsubscribe. */
   public onChange(listener: () => void): Unsubscribe {
@@ -62,6 +78,26 @@ export class AttachSidekickForm {
 
   public get definition(): SidekickDefinitionSummary | undefined {
     return this.#definition;
+  }
+
+  /** What the agent will be called. Its own field, on neither arm's merge path. */
+  public get name(): string {
+    return this.#name;
+  }
+
+  /**
+   * Name the agent.
+   *
+   * Never pre-filled from the chosen definition. The daemon resolves nothing for
+   * this member — a definition's name is the DEFINITION's — so a value put here by
+   * the form would be the console asserting a choice nobody made.
+   */
+  public setName(value: string): void {
+    if (this.#name === value) {
+      return;
+    }
+    this.#name = value;
+    this.#changes.emit();
   }
 
   /**
@@ -140,16 +176,30 @@ export class AttachSidekickForm {
    * The definition arm sends the id plus ONLY the fields the caller entered, which is
    * what makes the merge per-field at the daemon rather than a whole-record replace
    * composed here.
+   *
+   * The session is an ARGUMENT rather than a field: this form is opened over whatever
+   * session the surface is showing, and a copy held here would be a second answer to
+   * a question the models already own.
    */
-  public readiness(): AttachReadiness {
+  public readiness(sessionId: string): AttachReadiness {
+    const name = this.#name.trim();
+    const missing: string[] = [];
+    if (name === "") {
+      missing.push("a name");
+    }
     if (this.#arm === "definition") {
       const definitionId = this.#definition?.definitionId;
       if (definitionId === undefined) {
-        return { status: "incomplete", missing: ["a definition"] };
+        missing.push("a definition");
+      }
+      if (name === "" || definitionId === undefined) {
+        return { status: "incomplete", missing };
       }
       return {
         status: "ready",
         request: {
+          sessionId,
+          name,
           definitionId,
           driverName: this.#entered.get("driverName"),
           modelId: this.#entered.get("modelId"),
@@ -160,19 +210,20 @@ export class AttachSidekickForm {
     }
     const driverName = this.#entered.get("driverName");
     const modelId = this.#entered.get("modelId");
-    const missing: string[] = [];
     if (driverName === undefined) {
       missing.push("a driver");
     }
     if (modelId === undefined) {
       missing.push("a model");
     }
-    if (driverName === undefined || modelId === undefined) {
+    if (name === "" || driverName === undefined || modelId === undefined) {
       return { status: "incomplete", missing };
     }
     return {
       status: "ready",
       request: {
+        sessionId,
+        name,
         driverName,
         modelId,
         providerAccountId: this.#entered.get("providerAccountId"),

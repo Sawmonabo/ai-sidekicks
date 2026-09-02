@@ -75,7 +75,9 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
   // `submit` is a no-op in flight, so a double click costs one request and the
   // confirmation shown is the settled reply's rather than whichever landed last.
   const submitAttach = useCallback((): void => {
-    const readiness = attachForm.readiness();
+    // The session is bound HERE rather than in the form: the models own it, and a
+    // second copy inside the form would be a second answer to the same question.
+    const readiness = attachForm.readiness(models.sessionId);
     if (readiness.status !== "ready") {
       return;
     }
@@ -154,6 +156,7 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
         open={isAttachOpen}
         onOpenChange={setAttachOpen}
         form={attachForm}
+        sessionId={models.sessionId}
         catalog={catalogState}
         definitions={definitionsState}
         onSubmit={submitAttach}
