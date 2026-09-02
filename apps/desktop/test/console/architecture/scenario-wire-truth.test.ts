@@ -317,8 +317,9 @@ describe("scenario wire truth — the controls", () => {
     // The carrier leg's own control, and it is planted where only that leg reaches:
     // `run.starting` has no registered payload variant, so the strict layer reports
     // nothing but the unmatched discriminator and this beat used to pass silently.
-    // A negative `sequence` is not a position any event can occupy — the store's
-    // cursor and gap detection key on it — so the delivery would be counted
+    // The defect is on `actor`, which is a canonical envelope member no run payload
+    // carries and no ordering rule reads — an empty one is neither a participant nor
+    // the system arm (which omits the key), so the delivery would be counted
     // unreadable and dropped, which in a fixture reads as a beat that renders
     // nothing.
     const defects = findScenarioWireTruthDefects([
@@ -329,9 +330,10 @@ describe("scenario wire truth — the controls", () => {
             event: {
               id: CONTROL_EVENT_ID,
               sessionId: CONTROL_SESSION_ID,
-              sequence: -1,
+              sequence: 1,
               kind: "run.starting",
               occurredAt: "2026-01-01T00:00:00.000Z",
+              actorId: "",
               payload: { newState: "starting" },
             },
           },
@@ -426,6 +428,10 @@ describe("scenario wire truth — the controls", () => {
     // The other direction, and the louder one: the reconciler reads it as a
     // divergence rather than a gap. Reported separately because the two produce
     // different store behaviour and a scenario author fixes them differently.
+    //
+    // Both beats sit at position 1 rather than at 2 and 1, so the script still opens
+    // where a session's first delivery has to open and the only thing wrong is the
+    // second beat's position — one defect, from one rule.
     const defects = findScenarioWireTruthDefects([
       controlScenario({
         beats: [
@@ -434,7 +440,7 @@ describe("scenario wire truth — the controls", () => {
             event: {
               id: CONTROL_EVENT_ID,
               sessionId: CONTROL_SESSION_ID,
-              sequence: 2,
+              sequence: 1,
               kind: "run.starting",
               occurredAt: "2026-01-01T00:00:00.000Z",
               payload: { newState: "starting" },
