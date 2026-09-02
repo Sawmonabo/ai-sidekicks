@@ -82,6 +82,34 @@ describe("standing in for the list's density decision", () => {
       container.querySelector(".meridian-tool-card__disclosure")?.getAttribute("aria-expanded"),
     ).toBe("true");
   });
+
+  it("closes a row the list opened on the first press, not the second", () => {
+    // The override inverts the EFFECTIVE density. An untouched row is showing the
+    // list's answer, so one press on an open row closes it — a shell that treated an
+    // unset override as closed would store "open" here and leave the row exactly as
+    // it was, which reads as a control that does nothing.
+    const { container } = render(
+      <FixtureShellRow {...slotProps(sampleRunRow({ type: "tool.invoked" }))} density="expanded" />,
+    );
+
+    fireEvent.click(container.querySelector(".meridian-tool-card__disclosure") as Element);
+    expect(
+      container.querySelector(".meridian-tool-card__disclosure")?.getAttribute("aria-expanded"),
+    ).toBe("false");
+  });
+
+  it("negative control: a second press on the same row opens it again", () => {
+    // Without this, an override that inverted the PROP on every press rather than the
+    // state it is now holding would pass the case above and then refuse to reopen.
+    const { container } = render(
+      <FixtureShellRow {...slotProps(sampleRunRow({ type: "tool.invoked" }))} density="expanded" />,
+    );
+    const disclosureSelector = ".meridian-tool-card__disclosure";
+
+    fireEvent.click(container.querySelector(disclosureSelector) as Element);
+    fireEvent.click(container.querySelector(disclosureSelector) as Element);
+    expect(container.querySelector(disclosureSelector)?.getAttribute("aria-expanded")).toBe("true");
+  });
 });
 
 describe("claiming the seat", () => {
