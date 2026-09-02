@@ -218,6 +218,34 @@
   padding: var(--meridian-space-2) var(--meridian-space-4);
 }
 
+/* The pane whose body is showing in a window of its own. The slot stays and
+   only the projection is suppressed, so this is the absence plus its two ways back.
+   The controls take the shipped `.meridian-new-session__open` shape verbatim — same
+   padding, edge, radius, and `cursor: default` — because a control one pixel
+   different reads as a different KIND of control. */
+
+.meridian-deck__detached {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+}
+
+.meridian-deck__detached-control {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+  font: inherit;
+  cursor: default;
+}
+
+.meridian-deck__detached-control:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
 /*
  * One pane's frame. The panel owns the width — `flex-grow` is the library's, and
  * the density floor rides its `minSize` — so what is left here is the pane's own
