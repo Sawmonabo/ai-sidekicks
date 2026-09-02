@@ -245,13 +245,37 @@
   letter-spacing: -0.01em;
 }
 
+/* The session already chosen, shown while the second step asks for the agent, so
+   the window never asks about a subject it has not named. */
+.meridian-context-picker__subject {
+  margin: 0 0 var(--meridian-space-4);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-context-picker__back {
+  margin-top: var(--meridian-space-4);
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+  font: inherit;
+  cursor: default;
+}
+
+.meridian-context-picker__back:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
 /* --- Open-session list -------------------------------------------------- */
 
-/* One list, two surfaces: the picker asks which session an auxiliary window should
-   follow, and the sessions destination offers the same set to open in place. Both
-   render the identical row, so the row is styled once. */
+/* One list, three surfaces: the sessions destination offers sessions to open in
+   place, and the auxiliary picker asks first which session a window should follow
+   and then which agent inside it. All three render the identical row, so the row
+   is styled once. */
 
-.meridian-open-sessions {
+.meridian-choice-list {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-2);
@@ -260,7 +284,7 @@
   list-style: none;
 }
 
-.meridian-open-sessions__choice {
+.meridian-choice-list__choice {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-1);
@@ -276,11 +300,11 @@
   transition: border-color var(--meridian-motion-quick) var(--meridian-ease-settle);
 }
 
-.meridian-open-sessions__choice:hover {
+.meridian-choice-list__choice:hover {
   border-color: var(--meridian-edge-strong);
 }
 
-.meridian-open-sessions__choice:focus-visible {
+.meridian-choice-list__choice:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
 }
@@ -306,7 +330,7 @@
 
 /* The list is the one block that fills the measure; everything else on this
    surface sits at its start edge. */
-.meridian-sessions .meridian-open-sessions {
+.meridian-sessions .meridian-choice-list {
   align-self: stretch;
 }
 

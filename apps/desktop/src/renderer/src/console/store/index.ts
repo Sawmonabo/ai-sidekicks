@@ -35,4 +35,16 @@ export { SessionStoreRegistry } from "./session-store-registry.js";
 // than a type anything outside names.
 export type { SessionSnapshotRead } from "./session-store-registry.js";
 
-export { useFrameStore, useLocationHash, useOpenSessionIds, useOpenSessionStore } from "./hooks.js";
+// The partition and initialisation reads leave the family with their first
+// surface caller: the auxiliary window's agent step reads a session's agents,
+// which is one entity kind's map plus the fact that the store has a base state to
+// read it from. Both go through this door rather than a deep import, so the
+// family's one subscription path stays the only one.
+export {
+  useFrameStore,
+  useLocationHash,
+  useOpenSessionIds,
+  useOpenSessionStore,
+  useSessionInitialised,
+  useSessionPartition,
+} from "./hooks.js";

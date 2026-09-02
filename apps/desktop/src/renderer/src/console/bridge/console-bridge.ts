@@ -13,6 +13,7 @@
 // exactly what the preload gives, `growth` is exactly what it does not.
 
 import type { SidekicksBridge } from "@ai-sidekicks/contracts";
+import { RealClock, type ConsoleClock } from "../core/index.js";
 import type { GrowthOperationId } from "./growth-entry.js";
 import type { GrowthPort } from "./growth-port.js";
 import type { ScenarioEngine } from "./scenario.js";
@@ -74,4 +75,26 @@ export interface ConsoleBridge {
   readonly source: ConsoleBridgeSource;
   /** Present only under the fixture, so a surface can drive playback in a story. */
   readonly scenarioEngine: ScenarioEngine | undefined;
+}
+
+/**
+ * The clock every subsystem this bridge feeds has to run on.
+ *
+ * `Spec-023 §Console Design (Meridian)` §The fixture bridge: "the fixture clock is
+ * the only clock the renderer reads in fixture mode". A window whose stores kept
+ * their own `RealClock` broke that sentence without looking like it — apply
+ * coalescing and every refresh deadline ran on wall time while scenario beats
+ * advanced on frozen time, so a screenshot or an endurance step taken straight
+ * after `advance()` could observe either side of a drain depending on how fast the
+ * runner happened to be.
+ *
+ * It reads the running engine rather than the source tag, because the engine is
+ * what OWNS the frozen clock: a bridge tagged `fixture` with no engine has no
+ * frozen time to share, and answering with one would be an invented reading. The
+ * real arm mints a fresh `RealClock` per caller, which is not a second time base —
+ * every instance reads the same wall clock — and matches what each subsystem
+ * defaulted to before this seam existed.
+ */
+export function consoleClockFor(bridge: ConsoleBridge): ConsoleClock {
+  return bridge.scenarioEngine?.clock ?? new RealClock();
 }

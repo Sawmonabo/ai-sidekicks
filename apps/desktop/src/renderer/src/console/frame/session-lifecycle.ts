@@ -50,7 +50,12 @@
 import { useEffect, useState } from "react";
 
 import { ConsoleRefusalError } from "../core/index.js";
-import { growthUnavailable, useConsoleBridge, type ConsoleBridge } from "../bridge/index.js";
+import {
+  consoleClockFor,
+  growthUnavailable,
+  useConsoleBridge,
+  type ConsoleBridge,
+} from "../bridge/index.js";
 import {
   SessionStoreRegistry,
   useOpenSessionStore,
@@ -150,9 +155,20 @@ export function useActiveSessionStore(
  * `SessionStoreRegistry.canInitialiseSessionStores` and takes no subscription at
  * all on that arm. The binder is still MINTED and attached on it — it is what
  * installs the window's session diagnostics.
+ *
+ * THE CLOCK COMES FROM THE BRIDGE, and it has to. The registry gives every apply
+ * queue and refresh scheduler it opens one clock, and left to its own default that
+ * clock is the wall clock — so under the fixture, coalescing windows and refresh
+ * deadlines ran on `setTimeout` while the scenario's beats moved on frozen time.
+ * A screenshot or an endurance step taken straight after `advance()` could then
+ * observe either side of a drain depending on how fast the runner happened to be,
+ * which is the one property a frozen clock exists to remove.
  */
 function createWindowSessionPlumbing(bridge: ConsoleBridge): WindowSessionPlumbing {
-  const registry = new SessionStoreRegistry({ read: createSessionSnapshotRead(bridge) });
+  const registry = new SessionStoreRegistry({
+    read: createSessionSnapshotRead(bridge),
+    clock: consoleClockFor(bridge),
+  });
   return { registry, binder: new SessionEventBinder({ registry, bridge }) };
 }
 

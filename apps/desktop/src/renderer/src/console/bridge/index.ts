@@ -20,6 +20,12 @@
 
 export type { ConsoleBridge, ConsoleBridgeSource } from "./console-bridge.js";
 
+// The one answer to "which clock does this window run on". Exported because the
+// two composition roots that build a clocked subsystem — the session registry and
+// the durable UI-state store — both ask it, and two readings of the bridge's
+// engine would be two clocks the moment one of them forgot the fixture arm.
+export { consoleClockFor } from "./console-bridge.js";
+
 // The subscribe seam's own vocabulary. Exported because the binder one family up
 // passes it to `daemon.subscribe` and the fixture answers it — two sides of one
 // seam reading one declaration rather than two spellings of one string.

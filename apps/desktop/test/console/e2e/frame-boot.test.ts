@@ -90,12 +90,12 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", (
       // Waited for rather than counted immediately: the read is asynchronous, and
       // a bare count would race it and pass by rendering the absence instead.
       await consoleWindow
-        .locator(".meridian-open-sessions__choice")
+        .locator(".meridian-choice-list__choice")
         .first()
         .waitFor({ state: "visible" });
-      expect(
-        await consoleWindow.locator(".meridian-open-sessions__choice").count(),
-      ).toBeGreaterThan(0);
+      expect(await consoleWindow.locator(".meridian-choice-list__choice").count()).toBeGreaterThan(
+        0,
+      );
 
       // Reserved, not stubbed, on a destination that genuinely has no owner. This
       // is the half of the pair that makes the other half mean something: without

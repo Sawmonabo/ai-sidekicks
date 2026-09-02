@@ -40,7 +40,7 @@ import { useState, type ReactNode } from "react";
 import type { GrowthPort } from "../bridge/index.js";
 import { Nothing } from "../primitives/index.js";
 import { useOpenSessionIds, type FrameStore, type SessionStoreRegistry } from "../store/index.js";
-import { OpenSessionList } from "./OpenSessionList.js";
+import { WireChoiceList } from "./WireChoiceList.js";
 import {
   offeredSessionIds,
   useSessionDirectory,
@@ -101,8 +101,8 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
         <SessionsAbsence directory={directory} action={startControl} />
       ) : (
         <>
-          <OpenSessionList
-            sessionIds={sessionIds}
+          <WireChoiceList
+            values={sessionIds}
             onSelect={(sessionId) => {
               props.frameStore.navigate({ kind: "workspace", sessionId });
             }}
