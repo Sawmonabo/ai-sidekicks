@@ -84,6 +84,83 @@ async function renderBrowserPane(bridge?: ConsoleBridge): Promise<{
   return { region: screen.getByRole("region", { name: "Browser" }), bridge: built.bridge };
 }
 
+/** The address field itself, read by its label so the query names what a person sees. */
+function addressField(): HTMLInputElement {
+  return screen.getByLabelText("Destination") as HTMLInputElement;
+}
+
+type SubscribeOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["browserSubscribeNavigation"]>>;
+type NavigationStream = Extract<SubscribeOutcome, { readonly status: "served" }>["value"];
+type NavigationEvent =
+  NavigationStream["events"] extends AsyncIterable<infer Event> ? Event : never;
+
+/** One reading, with the fields a case does not care about held at their quiet value. */
+function reportedState(url: string, overrides: Partial<NavigationEvent> = {}): NavigationEvent {
+  return {
+    url,
+    title: url,
+    isLoading: false,
+    canGoBack: false,
+    canGoForward: false,
+    ...overrides,
+  };
+}
+
+/**
+ * A bridge whose navigation subscription is SERVED, with the readings pushed one at
+ * a time by the test.
+ *
+ * The pushing is the point rather than a convenience: what the address field owes is
+ * a behaviour ACROSS two readings — a second one arriving while somebody is typing,
+ * and the same one arriving while nobody is — and a stream that yields its whole
+ * script before the first assertion cannot tell those apart. `browserNavigate` is
+ * left as the fixture port's own refusing arm, because a submit's job here is to
+ * return the field to following whether the navigation lands or not.
+ */
+function navigationReportingBridge(): {
+  readonly bridge: ConsoleBridge;
+  readonly report: (state: NavigationEvent) => void;
+} {
+  const base = createFixtureBridge({ scenario: BROWSER_SCENARIO });
+  const queued: NavigationEvent[] = [];
+  let wake: (() => void) | undefined;
+  let closed = false;
+  const stream: NavigationStream = {
+    events: {
+      async *[Symbol.asyncIterator](): AsyncGenerator<NavigationEvent> {
+        while (!closed) {
+          const next = queued.shift();
+          if (next === undefined) {
+            await new Promise<void>((resolve) => {
+              wake = resolve;
+            });
+            continue;
+          }
+          yield next;
+        }
+      },
+    },
+    close: () => {
+      closed = true;
+      wake?.();
+    },
+  };
+  return {
+    report: (state) => {
+      queued.push(state);
+      wake?.();
+      wake = undefined;
+    },
+    bridge: {
+      ...base,
+      growth: {
+        ...base.growth,
+        browserSubscribeNavigation: async () => ({ status: "served" as const, value: stream }),
+      },
+    },
+  };
+}
+
 /** The platform modifier that closes a tab, as an event initializer. */
 const CLOSE_TAB_MODIFIER = HOST_CHORD_PLATFORM === "darwin" ? { metaKey: true } : { ctrlKey: true };
 
@@ -158,11 +235,13 @@ describe("browser pane address field", () => {
     const bridge = createFixtureBridge({ scenario: BROWSER_SCENARIO });
     const navigate = vi.spyOn(bridge.growth, "browserNavigate");
     await renderBrowserPane(bridge);
-    const field = screen.getByLabelText("Destination");
+    const field = addressField();
     fireEvent.change(field, { target: { value: "/etc/hosts" } });
     fireEvent.submit(field.closest("form") as HTMLFormElement);
     expect(navigate).not.toHaveBeenCalled();
     expect((await findRefusalBanner()).textContent).toContain("takes web destinations only");
+    // The draft survives the refusal, because the person has to be able to fix it.
+    expect(addressField().value).toBe("/etc/hosts");
   });
 
   it("negative control: a web destination does reach the port", async () => {
@@ -212,5 +291,104 @@ describe("browser pane close-tab chord", () => {
     fireEvent(region, event);
     expect(event.defaultPrevented).toBe(false);
     expect(queryRefusalBanner()).toBeNull();
+  });
+});
+
+// What the address field says the page is, against what the page says it is.
+//
+// One field, two jobs that pull opposite ways: it reports where the page is, and it
+// takes where a person wants to go. Held as a single string it can only do the
+// second, and the first fails silently — the chrome keeps asserting the destination
+// somebody submitted while the page is somewhere else, submitting it again goes back
+// there, and the location the page is actually on can be neither selected nor copied.
+//
+// So every case below names both inputs at once: which state the field is in, and
+// what the view has reported since. The submit and Escape cases are the controls —
+// each is the exact moment the old single-string field stopped following and never
+// started again.
+describe("browser pane address field follows reported navigation", () => {
+  const FIRST = "https://example.invalid/page";
+  const AFTER_REDIRECT = "https://example.invalid/after-redirect";
+
+  it("shows the reported URL, so the current location is selectable and copyable", async () => {
+    const { bridge, report } = navigationReportingBridge();
+    await renderBrowserPane(bridge);
+    report(reportedState(FIRST));
+    await waitFor(() => {
+      expect(addressField().value).toBe(FIRST);
+    });
+  });
+
+  it("follows a redirect the page took on its own", async () => {
+    const { bridge, report } = navigationReportingBridge();
+    await renderBrowserPane(bridge);
+    report(reportedState(FIRST));
+    await waitFor(() => {
+      expect(addressField().value).toBe(FIRST);
+    });
+    report(reportedState(AFTER_REDIRECT));
+    await waitFor(() => {
+      expect(addressField().value).toBe(AFTER_REDIRECT);
+    });
+  });
+
+  it("holds a draft against a navigation that lands mid-edit", async () => {
+    const { bridge, report } = navigationReportingBridge();
+    await renderBrowserPane(bridge);
+    report(reportedState(FIRST));
+    await waitFor(() => {
+      expect(addressField().value).toBe(FIRST);
+    });
+    fireEvent.change(addressField(), { target: { value: "example.invalid/half-typ" } });
+    // The second reading carries `canGoBack`, so the Back control is the witness that
+    // it actually landed — otherwise this case would pass against a stream that
+    // delivered nothing at all.
+    report(reportedState(AFTER_REDIRECT, { canGoBack: true }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Back" })).toHaveProperty("disabled", false);
+    });
+    expect(addressField().value).toBe("example.invalid/half-typ");
+  });
+
+  it("returns to following on submit, so a refused navigation shows where the page is", async () => {
+    // The old field kept the submitted string forever. Here the navigation is
+    // refused — every navigation is, until the browser namespace is registered — and
+    // the field goes back to reporting the location the page never left.
+    const { bridge, report } = navigationReportingBridge();
+    await renderBrowserPane(bridge);
+    report(reportedState(FIRST));
+    await waitFor(() => {
+      expect(addressField().value).toBe(FIRST);
+    });
+    fireEvent.change(addressField(), { target: { value: "example.invalid/typed" } });
+    fireEvent.submit(addressField().closest("form") as HTMLFormElement);
+    await waitFor(() => {
+      expect(addressField().value).toBe(FIRST);
+    });
+    expect((await findRefusalBanner()).textContent).toContain("wire-unregistered");
+  });
+
+  it("returns to following on Escape, which abandons the edit", async () => {
+    const { bridge, report } = navigationReportingBridge();
+    await renderBrowserPane(bridge);
+    report(reportedState(FIRST));
+    await waitFor(() => {
+      expect(addressField().value).toBe(FIRST);
+    });
+    fireEvent.change(addressField(), { target: { value: "example.invalid/abandoned" } });
+    expect(addressField().value).toBe("example.invalid/abandoned");
+    fireEvent.keyDown(addressField(), { key: "Escape" });
+    expect(addressField().value).toBe(FIRST);
+  });
+
+  it("negative control: with nothing reported the field is empty and takes typing", async () => {
+    // Every case above would hold vacuously against a field that ignored the person
+    // entirely and only ever mirrored the wire — which would make the chrome unable
+    // to navigate anywhere at all.
+    await renderBrowserPane();
+    expect(addressField().value).toBe("");
+    expect(addressField().placeholder).toBe("Type a destination");
+    fireEvent.change(addressField(), { target: { value: "example.invalid" } });
+    expect(addressField().value).toBe("example.invalid");
   });
 });

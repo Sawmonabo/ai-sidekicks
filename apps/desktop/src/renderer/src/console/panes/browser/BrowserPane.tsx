@@ -34,6 +34,13 @@ import {
   PaneGeometryPublisher,
   type PaneGeometryOutcome,
 } from "../../browser/geometry-publisher.js";
+import {
+  addressFieldSubmission,
+  addressFieldValue,
+  editingAddressField,
+  FOLLOWING_ADDRESS_FIELD,
+  type AddressFieldState,
+} from "../../browser/address-field-model.js";
 import { describeChordEvent, isCloseTabChord } from "../../browser/keyboard-handback.js";
 import {
   isFilesystemDestination,
@@ -104,9 +111,11 @@ export function BrowserPane(context: ConsolePaneContext): React.JSX.Element {
   const { bridge, paneId, focusHue } = context;
   const navigation = useReportedNavigation(bridge, paneId);
   const geometry = useGeometryPublisher();
-  const [destination, setDestination] = useState("");
+  const [addressField, setAddressField] = useState<AddressFieldState>(FOLLOWING_ADDRESS_FIELD);
   const [actRefusal, setActRefusal] = useState<ConsoleRefusal | undefined>(undefined);
   const addressFieldId = useId();
+  const reported = navigation.state;
+  const reportedUrl = reported?.url;
 
   const refuseLocally = useCallback((code: string, detail: string): void => {
     setActRefusal(refuse(BROWSER_PANE_REFUSAL_ORIGIN, code, detail));
@@ -134,7 +143,7 @@ export function BrowserPane(context: ConsolePaneContext): React.JSX.Element {
   );
 
   const openInSystemBrowser = useCallback((): void => {
-    const url = navigation.state?.url;
+    const url = reportedUrl;
     if (url === undefined) {
       refuseLocally(
         "no-current-page",
@@ -158,24 +167,37 @@ export function BrowserPane(context: ConsolePaneContext): React.JSX.Element {
         );
       },
     );
-  }, [bridge, navigation.state?.url, refuseLocally]);
+  }, [bridge, refuseLocally, reportedUrl]);
 
   const submitDestination = useCallback(
     (event: React.FormEvent<HTMLFormElement>): void => {
       event.preventDefault();
-      if (isFilesystemDestination(destination)) {
+      const submitted = addressFieldSubmission(addressField, reportedUrl);
+      if (isFilesystemDestination(submitted)) {
+        // The draft is KEPT so the person can correct it. Returning to following
+        // here would replace what they typed with the location they are still on,
+        // which reads as the field having silently eaten the destination.
         refuseLocally(
           "filesystem-destination",
           "The address field takes web destinations only. A local file opens through the file control, which runs the boundary check the page cannot.",
         );
         return;
       }
-      dispatch(() => bridge.growth.browserNavigate({ paneId, url: destination.trim() }));
+      setAddressField(FOLLOWING_ADDRESS_FIELD);
+      dispatch(() => bridge.growth.browserNavigate({ paneId, url: submitted }));
     },
-    [bridge, destination, dispatch, paneId, refuseLocally],
+    [addressField, bridge, dispatch, paneId, refuseLocally, reportedUrl],
   );
 
-  const reported = navigation.state;
+  /** Escape abandons the edit. The field goes back to reporting where the page is. */
+  const onAddressKeyDown = useCallback((event: React.KeyboardEvent<HTMLInputElement>): void => {
+    if (event.key !== "Escape") {
+      return;
+    }
+    event.preventDefault();
+    setAddressField(FOLLOWING_ADDRESS_FIELD);
+  }, []);
+
   const isLoading = reported?.isLoading ?? false;
 
   // Rule 2: the hue answers "who", and it is a different colour on every pane — so
@@ -231,11 +253,12 @@ export function BrowserPane(context: ConsolePaneContext): React.JSX.Element {
           id={addressFieldId}
           type="text"
           inputMode="url"
-          value={destination}
-          placeholder={reported?.url ?? "Type a destination"}
+          value={addressFieldValue(addressField, reportedUrl)}
+          placeholder="Type a destination"
           onChange={(event) => {
-            setDestination(event.target.value);
+            setAddressField(editingAddressField(event.target.value));
           }}
+          onKeyDown={onAddressKeyDown}
           className="meridian-browser-chrome__address"
         />
         {/* Present on every page regardless of anything else in this chapter: it is
