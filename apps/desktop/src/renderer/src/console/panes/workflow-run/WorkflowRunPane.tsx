@@ -55,7 +55,7 @@ import type { ConsolePaneContext } from "../../workspace/index.js";
 import { OperatorControls } from "./OperatorControls.js";
 import { unregisteredRunControl } from "./run-controls.js";
 import { PhaseGraph } from "./phase-graph/PhaseGraph.js";
-import type { PhaseGraphNode } from "./phase-graph/phase-sequence-layout.js";
+import type { PhaseGraphNode } from "./phase-graph/phase-topology.js";
 import { useWorkflowRunSnapshot, type WorkflowRunSnapshotState } from "./run-snapshot.js";
 import { ChatStartSlot } from "./slots/ChatStartSlot.js";
 import { HumanFormSlot, type HumanFormMount } from "./slots/HumanFormSlot.js";
@@ -132,11 +132,33 @@ function RunReadState(props: { readonly snapshot: WorkflowRunSnapshotState }): R
 /**
  * The run's phases as a picture, in the order the run read carried them.
  *
- * THE LABEL IS THE PHASE ID AND NOT A NAME, because no registered read carries a
- * name: it lives in the definition body one of the workflow methods the growth row
- * does not carry would serve. A graph that composed a readable label from the id
- * would be inventing exactly the fact this family renders the absence of, and an
- * invented name is indistinguishable on screen from an authored one.
+ * NO TOPOLOGY IS HANDED OVER, SO NO EDGE IS DRAWN, and that is a fact about what this
+ * console can read rather than a choice about what to show. `workflow.runRead`
+ * answers with an ordered `phaseStates` array, a `workflowVersionId`, and no
+ * dependencies at all; the sequence edges, the fan-out and the joins live on the
+ * pinned definition's `dependsOn` lists. NO registered read reachable from here
+ * yields that definition:
+ *
+ *   • `workflow.definitionRead` and `workflow.versionRead` are the two that serve a
+ *     definition BODY, and they are among the four registered workflow methods the
+ *     growth row does not carry — neither is on the port, so neither can be called.
+ *   • `workflow.definitionList` IS on the port, and its entries carry no phase
+ *     definitions at all. Its `latestWorkflowVersionId` also matches a run's pin only
+ *     while the run is on the latest version, which is false for exactly the
+ *     frozen-pin runs whose topology an operator most needs to see.
+ *   • The run enumeration answers with the same run shape as the read, so it carries
+ *     no definition reference to resolve either.
+ *
+ * So the only way to draw a connector today is to infer one from array order, which
+ * is what this pane used to do and what presented a parallel run as a serial chain.
+ * The graph draws the states and captions the absence instead; the day a definition
+ * read lands on the port, this is the one call site that grows a `topology` prop.
+ *
+ * THE LABEL IS THE PHASE ID AND NOT A NAME, for the same reason at one remove: the
+ * name lives in that same unreachable definition body. A graph that composed a
+ * readable label from the id would be inventing exactly the fact this family renders
+ * the absence of, and an invented name is indistinguishable on screen from an
+ * authored one.
  *
  * THE PARK IS READ FROM `parkReason` AND NEVER FROM A PHASE'S STATE, the same rule
  * the park banner beneath obeys: the status union has no suspended arm, and the park

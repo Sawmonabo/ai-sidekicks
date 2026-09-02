@@ -100,6 +100,22 @@ describe("workflow run pane — the arms and what each offers", () => {
     expect(section.querySelector(".meridian-refusal--banner")).toBeNull();
   });
 
+  it("captions the graph rather than inferring a topology no read carries", async () => {
+    // The run read answers with an ordered phase array and no dependencies, and no
+    // registered read this console can put yields the pinned definition that has
+    // them. So the pane hands the graph no topology, the graph draws no connector,
+    // and the caption says which of those two facts a person is looking at — where
+    // before, an edge per adjacent pair drew a parallel run as a serial chain.
+    const section = renderPane(paneContext(PARKED, answeringBridge()));
+
+    await waitFor(() => {
+      expect(section.querySelector(".meridian-phase-graph__caption")).not.toBeNull();
+    });
+    expect(section.querySelector(".meridian-phase-graph__caption")?.textContent ?? "").toContain(
+      "has not been read here",
+    );
+  });
+
   it("offers no start affordance beside a run it already names", async () => {
     // Negative control for the first case: both would pass over a pane that mounted
     // the same regions on every arm. The addressed arm mounts the run detail and the

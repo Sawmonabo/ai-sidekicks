@@ -66,6 +66,22 @@
   block-size: 100%;
 }
 
+/*
+ * What the canvas cannot say for itself: that it is drawing states and not a graph.
+ *
+ * A run read carries no dependencies, so a graph mounted without its definition
+ * paints disconnected boxes — which looks exactly like a workflow whose phases
+ * genuinely depend on nothing. The caption is the difference, so it is ordinary
+ * readable prose in the muted text role rather than a decoration: it is read every
+ * time the picture is incomplete, which on a build with no definition read is every
+ * time.
+ */
+.meridian-phase-graph__caption {
+  margin: var(--meridian-space-2) 0 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+}
+
 .meridian-phase-graph__canvas {
   flex: 1;
   min-block-size: var(--meridian-phase-graph-min-block-size);

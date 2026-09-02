@@ -19,7 +19,7 @@ import { describe, expect, it } from "vitest";
 
 import { PhaseGraph } from "./PhaseGraph.js";
 import { phaseGraphLoader } from "./phase-graph-loader.js";
-import type { PhaseGraphNode } from "./phase-sequence-layout.js";
+import type { PhaseGraphNode, PhaseTopology } from "./phase-topology.js";
 
 function phase(overrides: Partial<PhaseGraphNode> & { readonly phaseId: string }): PhaseGraphNode {
   return {
@@ -34,6 +34,12 @@ function phase(overrides: Partial<PhaseGraphNode> & { readonly phaseId: string }
 const TWO_PHASES: readonly PhaseGraphNode[] = [
   phase({ phaseId: "plan", label: "Plan", state: "completed", gateState: "open" }),
   phase({ phaseId: "build", label: "Build", state: "running", isParked: true }),
+];
+
+/** The definition those two phases were run from, for the arm that has one. */
+const TWO_PHASE_TOPOLOGY: PhaseTopology = [
+  { phaseId: "plan", dependsOn: [] },
+  { phaseId: "build", dependsOn: ["plan"] },
 ];
 
 /**
@@ -151,6 +157,37 @@ describe("the drawn graph", () => {
     // nor selectable — rather than that there are no nodes at all.
     expect(container.querySelectorAll(".react-flow__node.draggable")).toHaveLength(0);
     expect(container.querySelectorAll(".react-flow__node.selectable")).toHaveLength(0);
+  });
+
+  it("says in words that it is drawing states rather than a graph", async () => {
+    // A run read carries no dependencies, so a graph mounted without its definition
+    // paints disconnected boxes — which on screen is indistinguishable from a
+    // workflow whose phases genuinely depend on nothing. The caption is the only
+    // thing that tells those two apart.
+    const { container } = render(<PhaseGraph phases={TWO_PHASES} label="Phase sequence" />);
+    await settleGraphLoad();
+
+    // The caption and not the edge count, on this file's own rule: the shim returns
+    // zero for every rect and the library draws no edge element under it, so the
+    // edge SET is asserted over values in the layout and topology suites beside this
+    // one. What this tier can see is whether the surface tells a person which
+    // picture they are looking at.
+    expect(container.querySelector(".meridian-phase-graph__caption")?.textContent ?? "").toContain(
+      "has not been read here",
+    );
+  });
+
+  it("negative control: a graph handed a definition captions nothing", async () => {
+    // Without this the case above would pass over a component that captioned every
+    // picture, which would tell a person their definition had not been read on the
+    // one surface where it had.
+    const { container } = render(
+      <PhaseGraph phases={TWO_PHASES} topology={TWO_PHASE_TOPOLOGY} label="Phase sequence" />,
+    );
+    await settleGraphLoad();
+
+    expect(container.querySelector(".meridian-phase-graph__caption")).toBeNull();
+    expect(container.querySelectorAll(".react-flow__node")).toHaveLength(TWO_PHASES.length);
   });
 
   it("prints the same words it announces", async () => {

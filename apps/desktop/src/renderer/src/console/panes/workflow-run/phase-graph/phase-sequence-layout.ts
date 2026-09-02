@@ -8,12 +8,19 @@
 // sequence produce byte-identical positions, which is the property a shared session
 // needs and the one a measured or annealed layout cannot promise.
 //
-// WHY THE RANK IS THE INDEX. The sole edge kind this surface draws is the sequence
-// edge — phase N to phase N+1 — so the longest-path rank of every node IS its
-// position in the run's own order, and computing it any other way would be an
-// algorithm dressing up an array index. That is a fact about today's edge set, not
-// a shortcut: the day a second edge kind exists, `rankOf` below is the one function
-// that changes and every position follows from it.
+// EDGES ARE NOT THIS MODULE'S. `phase-topology.ts` beside it owns which phases
+// connect, because `workflow.runRead` carries an ordered array and no topology and
+// the answer has to come off the pinned definition's `dependsOn` lists. This module
+// asks that one for edges and places the phases; when there are none it says which
+// of the two reasons applies and hands that on, so the surface can put the picture's
+// incompleteness in words rather than showing a run with no dependencies at all.
+//
+// WHY THE RANK IS STILL THE INDEX. Placement is the run's own order, one phase per
+// rank down a single column, and that is a READING order rather than a claim about
+// the graph: it is the order the run read carried and the order the pane scrolls.
+// Ranking by longest path and standing parallel branches side by side is a different
+// picture and a bigger change than this one; what matters first is that the
+// connectors say what actually depends on what, which they now do.
 //
 // WHY A REPEATED PHASE ID REFUSES RATHER THAN DEDUPES. Node identity on the canvas
 // is the phase id. Two phases arriving under one id would collide — one would
@@ -28,23 +35,13 @@
 // fetch a renderer at all — and a static edge from here into `@xyflow/react` would
 // pull the chunk the whole lazy arrangement exists to keep out.
 
-/**
- * One phase of a run, as the caller reports it.
- *
- * Every member is the caller's: this module derives geometry from the ORDER of
- * these entries and reads nothing else into them. In particular the label is
- * supplied rather than composed — a phase's display name is a fact about the run,
- * and a graph that invented one would be asserting something it never read.
- */
-export interface PhaseGraphNode {
-  readonly phaseId: string;
-  /** What a person reads on the node. The caller decides; this file never invents one. */
-  readonly label: string;
-  readonly state: "pending" | "running" | "completed" | "failed" | "skipped";
-  readonly gateState: "closed" | "open" | "bypassed";
-  /** True exactly while the phase is parked right now. */
-  readonly isParked: boolean;
-}
+import {
+  declaredEdges,
+  type PhaseGraphNode,
+  type PhaseSequenceEdge,
+  type PhaseTopology,
+  type PhaseTopologyAbsence,
+} from "./phase-topology.js";
 
 /**
  * The node box, in CSS pixels at the 16 px root.
@@ -80,20 +77,20 @@ export interface PositionedPhaseNode {
   readonly y: number;
 }
 
-/** One sequence edge: this phase, then the next. The only edge kind this surface draws. */
-export interface PhaseSequenceEdge {
-  readonly edgeId: string;
-  readonly sourcePhaseId: string;
-  readonly targetPhaseId: string;
-  /** The target's label, so an edge can name where it leads without a second lookup. */
-  readonly targetLabel: string;
-}
-
 /** A sequence that can be drawn, with every phase placed and every edge derived. */
 export interface DrawnPhaseSequence {
   readonly status: "drawn";
   readonly nodes: readonly PositionedPhaseNode[];
   readonly edges: readonly PhaseSequenceEdge[];
+  /**
+   * Absent exactly when the edges above are the definition's own.
+   *
+   * Present means there are none and names which of the two reasons, so the surface
+   * can say in words that the picture is a set of states rather than a graph. A
+   * caller that ignored it would show a run with no dependencies at all, which is a
+   * claim about the workflow rather than about what was read.
+   */
+  readonly topologyAbsence?: PhaseTopologyAbsence;
 }
 
 /**
@@ -129,13 +126,21 @@ function repeatedPhaseIds(phases: readonly PhaseGraphNode[]): readonly string[] 
 }
 
 /**
- * Place a run's phases, or refuse.
+ * Place a run's phases and draw the definition's dependencies over them, or refuse.
  *
- * Deterministic and allocation-flat: one pass for the identity check and one for the
- * placement, no sorting, no comparison of anything but string identity — so the
- * result depends on the input order and on nothing about the machine it ran on.
+ * `topology` absent is the ordinary case on a build with no definition read: the
+ * phases are placed and NO edge is drawn, which is the whole of this fold. It is not
+ * a degraded mode to be papered over — a run's dependencies are a fact about the
+ * definition, and a graph that invented them would be drawing a different workflow.
+ *
+ * Deterministic and allocation-flat: no sorting, no comparison of anything but string
+ * identity — so the result depends on the inputs and on nothing about the machine it
+ * ran on.
  */
-export function layoutPhaseSequence(phases: readonly PhaseGraphNode[]): PhaseSequenceLayout {
+export function layoutPhaseSequence(
+  phases: readonly PhaseGraphNode[],
+  topology?: PhaseTopology,
+): PhaseSequenceLayout {
   const repeated = repeatedPhaseIds(phases);
   if (repeated.length > 0) {
     return { status: "malformed", repeatedPhaseIds: repeated };
@@ -150,22 +155,13 @@ export function layoutPhaseSequence(phases: readonly PhaseGraphNode[]): PhaseSeq
     y: rankOf(index) * PHASE_RANK_PITCH_PX,
   }));
 
-  const edges: PhaseSequenceEdge[] = [];
-  for (let index = 1; index < phases.length; index += 1) {
-    const source = phases[index - 1];
-    const target = phases[index];
-    if (source === undefined || target === undefined) {
-      continue;
-    }
-    edges.push({
-      edgeId: `${source.phaseId}->${target.phaseId}`,
-      sourcePhaseId: source.phaseId,
-      targetPhaseId: target.phaseId,
-      targetLabel: target.label,
-    });
+  if (topology === undefined) {
+    return { status: "drawn", nodes, edges: [], topologyAbsence: "not-supplied" };
   }
-
-  return { status: "drawn", nodes, edges };
+  const edges = declaredEdges(phases, topology);
+  return edges === undefined
+    ? { status: "drawn", nodes, edges: [], topologyAbsence: "not-drawable" }
+    : { status: "drawn", nodes, edges };
 }
 
 /**
@@ -175,9 +171,16 @@ export function layoutPhaseSequence(phases: readonly PhaseGraphNode[]): PhaseSeq
  * themselves: the tuple names the five members the layout and the node visuals read,
  * so a caller that grows its phase objects a sixth member does not silently start
  * invalidating a memo that has nothing to recompute.
+ *
+ * The topology is part of the signature because it is part of the picture: a graph
+ * whose definition arrives one commit after its run would otherwise hold the
+ * edgeless layout it computed first and never draw the dependencies at all.
  */
-export function phaseSequenceSignature(phases: readonly PhaseGraphNode[]): string {
-  return JSON.stringify(
+export function phaseSequenceSignature(
+  phases: readonly PhaseGraphNode[],
+  topology?: PhaseTopology,
+): string {
+  return JSON.stringify([
     phases.map((phase) => [
       phase.phaseId,
       phase.label,
@@ -185,7 +188,8 @@ export function phaseSequenceSignature(phases: readonly PhaseGraphNode[]): strin
       phase.gateState,
       phase.isParked,
     ]),
-  );
+    topology?.map((declaration) => [declaration.phaseId, declaration.dependsOn ?? null]) ?? null,
+  ]);
 }
 
 /**
@@ -207,16 +211,19 @@ export class PhaseSequenceLayoutCache {
   #layout: PhaseSequenceLayout | undefined;
 
   /**
-   * The layout for `phases`, recomputed only when the sequence's content moved.
+   * The layout for `phases` under `topology`, recomputed only when either moved.
    * The returned object is reference-stable across calls that describe one run.
    */
-  public layoutFor(phases: readonly PhaseGraphNode[]): PhaseSequenceLayout {
-    const signature = phaseSequenceSignature(phases);
+  public layoutFor(
+    phases: readonly PhaseGraphNode[],
+    topology?: PhaseTopology,
+  ): PhaseSequenceLayout {
+    const signature = phaseSequenceSignature(phases, topology);
     const held = this.#layout;
     if (held !== undefined && this.#signature === signature) {
       return held;
     }
-    const layout = layoutPhaseSequence(phases);
+    const layout = layoutPhaseSequence(phases, topology);
     this.#signature = signature;
     this.#layout = layout;
     return layout;

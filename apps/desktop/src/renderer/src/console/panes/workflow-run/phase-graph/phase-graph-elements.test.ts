@@ -12,9 +12,9 @@ import {
   PHASE_NODE_HEIGHT_PX,
   PHASE_NODE_WIDTH_PX,
   type DrawnPhaseSequence,
-  type PhaseGraphNode,
   layoutPhaseSequence,
 } from "./phase-sequence-layout.js";
+import type { PhaseGraphNode, PhaseTopology } from "./phase-topology.js";
 import {
   PHASE_NODE_TYPE,
   phaseNodeAccessibleName,
@@ -38,8 +38,23 @@ const SEQUENCE: readonly PhaseGraphNode[] = [
   phase({ phaseId: "build", label: "Build", state: "running" }),
 ];
 
-function drawnSequence(phases: readonly PhaseGraphNode[] = SEQUENCE): DrawnPhaseSequence {
-  const layout = layoutPhaseSequence(phases);
+/**
+ * The definition those two phases were run from.
+ *
+ * Supplied rather than left out, because edges exist only where a definition
+ * declares them: a translation test driven off a run alone would have no edge to
+ * translate and would pass while saying nothing.
+ */
+const SEQUENCE_TOPOLOGY: PhaseTopology = [
+  { phaseId: "plan", dependsOn: [] },
+  { phaseId: "build", dependsOn: ["plan"] },
+];
+
+function drawnSequence(
+  phases: readonly PhaseGraphNode[] = SEQUENCE,
+  topology: PhaseTopology = SEQUENCE_TOPOLOGY,
+): DrawnPhaseSequence {
+  const layout = layoutPhaseSequence(phases, topology);
   if (layout.status !== "drawn") {
     throw new Error(`expected a drawn sequence, got ${layout.status}`);
   }
