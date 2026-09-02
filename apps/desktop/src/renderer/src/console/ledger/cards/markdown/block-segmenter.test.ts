@@ -67,6 +67,48 @@ describe("splitting a stream into settled blocks and a volatile tail", () => {
     expect(rebased.volatileTail).not.toContain("one");
   });
 
+  it("settles every block and empties the tail once the body is final", () => {
+    // Both reasons this class holds text back are reasons about a LATER character, and
+    // a final body has none. Held back, these blocks never reach the settled cache and
+    // stay on the `remend`ed path — a complete body's text rewritten as if it were a
+    // prefix.
+    const segmenter = new MarkdownBlockSegmenter();
+    const segmentation = segmenter.segment(FIVE_PARAGRAPHS, { isFinal: true });
+    expect(segmentation.volatileTail).toBe("");
+    expect(segmentation.settledBlocks.join("")).toBe(FIVE_PARAGRAPHS);
+    expect(segmentation.settledBlocks).toHaveLength(5);
+  });
+
+  it("commits an unterminated final line rather than holding it as a remainder", () => {
+    const segmentation = new MarkdownBlockSegmenter().segment("only a paragraph", {
+      isFinal: true,
+    });
+    expect(segmentation.settledBlocks).toStrictEqual(["only a paragraph"]);
+    expect(segmentation.volatileTail).toBe("");
+  });
+
+  it("keeps a final unclosed fence in one block rather than splitting its interior", () => {
+    // A complete body whose author left a fence open is still one block: the parser
+    // closes it at the end of the document, and splitting on the blank line inside it
+    // would render half the code as prose.
+    const segmentation = new MarkdownBlockSegmenter().segment(
+      "```ts\nconst a = 1;\n\nconst b = 2;",
+      {
+        isFinal: true,
+      },
+    );
+    expect(segmentation.settledBlocks).toHaveLength(1);
+    expect(segmentation.settledBlocks[0]).toContain("const b = 2;");
+  });
+
+  it("negative control: the same snapshot still holds the lag while the body is in flight", () => {
+    // Without this, a segmenter that ignored the flag and settled everything would pass
+    // the three cases above and settle blocks the next character could still reopen.
+    const segmentation = new MarkdownBlockSegmenter().segment(FIVE_PARAGRAPHS);
+    expect(segmentation.settledBlocks).toHaveLength(3 - MARKDOWN_SETTLE_LAG_BLOCKS);
+    expect(segmentation.volatileTail).toContain("five");
+  });
+
   it("negative control: a blank run at the end of the snapshot commits nothing", () => {
     // Without this, a segmenter that split on any blank run would pass every case above
     // and settle a block the very next character could still extend.
@@ -75,6 +117,80 @@ describe("splitting a stream into settled blocks and a volatile tail", () => {
     expect(segmenter.completeBlockCount).toBe(1);
     expect(segmentation.volatileTail).toContain("two");
     expect(segmentation.volatileTail).toContain("three");
+  });
+});
+
+/**
+ * Blocks whose interior blank line is content, not a boundary.
+ *
+ * Each source ends in a further paragraph so the container's own commit is proved: the
+ * assertion is that the container is ONE block, not that the scan committed nothing.
+ */
+const CONTAINER_CASES: readonly {
+  readonly what: string;
+  readonly source: string;
+  readonly expectedFirstBlock: string;
+}[] = [
+  {
+    what: "a list item's second paragraph, which is what makes the list loose",
+    source: "- first\n\n  second paragraph\n\nafter\n\ntail\n\nlast\n\nend",
+    expectedFirstBlock: "- first\n\n  second paragraph\n\n",
+  },
+  {
+    what: "a sibling item after a blank line, which is one loose list and not two tight ones",
+    source: "- a\n\n- b\n\nafter\n\ntail\n\nlast\n\nend",
+    expectedFirstBlock: "- a\n\n- b\n\n",
+  },
+  {
+    what: "an ordered item's continuation, whose indent is the marker's width and not one",
+    source: "1. first\n\n   second paragraph\n\nafter\n\ntail\n\nlast\n\nend",
+    expectedFirstBlock: "1. first\n\n   second paragraph\n\n",
+  },
+  {
+    what: "an indented code block holding a blank line between two commands",
+    source: "    one --flag\n\n    two --flag\n\nafter\n\ntail\n\nlast\n\nend",
+    expectedFirstBlock: "    one --flag\n\n    two --flag\n\n",
+  },
+];
+
+describe("a blank line inside a container", () => {
+  it.each(CONTAINER_CASES)("keeps $what in one block", ({ source, expectedFirstBlock }) => {
+    expect(new MarkdownBlockSegmenter().segment(source).settledBlocks[0]).toBe(expectedFirstBlock);
+  });
+
+  it("negative control: a paragraph still ends at its blank line", () => {
+    // Without this, a segmenter that never committed at all would pass every case above
+    // and hold the whole message volatile forever.
+    const segmentation = new MarkdownBlockSegmenter().segment(
+      "first paragraph\n\nsecond paragraph\n\nafter\n\ntail\n\nlast\n\nend",
+    );
+    expect(segmentation.settledBlocks[0]).toBe("first paragraph\n\n");
+  });
+
+  it("negative control: a list that opens after a paragraph is its own block", () => {
+    // And without this, a segmenter that read the container from the line AFTER the
+    // blank run rather than from the line the block opened on would pass the cases above
+    // and glue a paragraph onto the list that follows it.
+    const segmentation = new MarkdownBlockSegmenter().segment(
+      "a paragraph\n\n- an item\n\nafter\n\ntail\n\nlast\n\nend",
+    );
+    expect(segmentation.settledBlocks[0]).toBe("a paragraph\n\n");
+  });
+
+  it("negative control: a differently marked list is a different list", () => {
+    // Commonmark starts a new list when the bullet character changes, so these two are
+    // not siblings and the boundary between them is real.
+    const segmentation = new MarkdownBlockSegmenter().segment(
+      "- a\n\n* b\n\nafter\n\ntail\n\nlast\n\nend",
+    );
+    expect(segmentation.settledBlocks[0]).toBe("- a\n\n");
+  });
+
+  it("negative control: a paragraph at column zero ends the list above it", () => {
+    const segmentation = new MarkdownBlockSegmenter().segment(
+      "- an item\n\nback at the margin\n\nafter\n\ntail\n\nlast\n\nend",
+    );
+    expect(segmentation.settledBlocks[0]).toBe("- an item\n\n");
   });
 });
 

@@ -29,19 +29,6 @@ import { MarkdownNodes, type MarkdownRenderContext } from "./MarkdownNodes.js";
 /** How far the popup sits off the marker it belongs to. */
 const FOOTNOTE_POPUP_SIDE_OFFSET = 6;
 
-/**
- * The context a definition body is mapped under.
- *
- * Settled, because a definition the registry holds was parsed from a block that had
- * already settled; and with no defined identifiers, because a footnote inside a footnote
- * is not a construct GFM nests — a marker in there is a reference to something this body
- * did not declare, and renders inert, which is exactly right.
- */
-const DEFINITION_RENDER_CONTEXT: MarkdownRenderContext = {
-  isSettled: true,
-  definedFootnoteIdentifiers: new Set<string>(),
-};
-
 export interface FootnotePopoverHostProps {
   /** The row this body belongs to — the registry's first key half. */
   readonly sourceId: string;
@@ -49,6 +36,11 @@ export interface FootnotePopoverHostProps {
   readonly footnotes: FootnoteRegistry;
   /** Identifiers this body defined that nothing in it refers to. Empty while streaming. */
   readonly uncitedIdentifiers: readonly string[];
+  /**
+   * Which footnote identifiers this message defined — the same set the body renders
+   * under, so a marker means the same thing inside a definition as outside one.
+   */
+  readonly definedFootnoteIdentifiers: ReadonlySet<string>;
   /** The body itself. Every marker inside it opens into this host. */
   readonly children: React.ReactNode;
 }
@@ -61,6 +53,20 @@ export function FootnotePopoverHost(props: FootnotePopoverHostProps): React.JSX.
   const binding = useMemo<FootnoteHostBinding>(
     () => ({ sourceId: props.sourceId, popupId, handle }),
     [props.sourceId, popupId, handle],
+  );
+
+  // THE CONTEXT A DEFINITION BODY IS MAPPED UNDER, and it carries the source's real
+  // defined set. A footnote body CAN hold a reference to another note — GFM parses one,
+  // and `footnote-collection.test.ts` asserts a pair of notes citing each other are both
+  // collected — so mapping the body under an empty set rendered every such marker as an
+  // inert `<sup>`, and the chained-reference navigation the registry and the marker both
+  // exist for could not happen even though the host is mounted right here around it.
+  //
+  // Settled, because a definition the registry holds was parsed from a block that had
+  // already settled.
+  const definitionContext = useMemo<MarkdownRenderContext>(
+    () => ({ isSettled: true, definedFootnoteIdentifiers: props.definedFootnoteIdentifiers }),
+    [props.definedFootnoteIdentifiers],
   );
 
   return (
@@ -78,6 +84,7 @@ export function FootnotePopoverHost(props: FootnotePopoverHostProps): React.JSX.
                       ? undefined
                       : props.footnotes.resolve(props.sourceId, identifier)?.bodyNodes
                   }
+                  context={definitionContext}
                 />
               </Popover.Popup>
             </Popover.Positioner>
@@ -95,9 +102,15 @@ export function FootnotePopoverHost(props: FootnotePopoverHostProps): React.JSX.
  * a marker is only a button once the message has declared one — so reaching this arm
  * means the definition left the registry between the press and the render, which is what
  * the bound eviction can do to the oldest entries. Saying so beats an empty popup.
+ *
+ * A marker inside this body opens the SAME popup, because the host provider is above it
+ * and the payload is the identifier alone: pressing `[^b]` inside `[^a]` swaps the popup
+ * to `b`, and pressing `[^a]` inside `[^a]` re-opens `a` — a note that cites itself
+ * shows itself, which is the honest answer and needs no special case.
  */
 function DefinitionBody(props: {
   readonly bodyNodes: readonly RootContent[] | undefined;
+  readonly context: MarkdownRenderContext;
 }): React.JSX.Element {
   if (props.bodyNodes === undefined) {
     return (
@@ -108,7 +121,7 @@ function DefinitionBody(props: {
       />
     );
   }
-  return <MarkdownNodes nodes={props.bodyNodes} context={DEFINITION_RENDER_CONTEXT} />;
+  return <MarkdownNodes nodes={props.bodyNodes} context={props.context} />;
 }
 
 /**

@@ -200,6 +200,101 @@ const CITED_FOOTNOTE = "cite[^1] here\n\n[^1]: the note body\n";
 /** A definition the message declares and never points at. */
 const UNCITED_FOOTNOTE = "[^1]: the note body\n\nordinary prose\n";
 
+/**
+ * A citation far enough ahead of its definition that the citing block settles first.
+ *
+ * The filler is what makes this the ordinary long-message case rather than a contrived
+ * one: with two blocks of settle lag, the citing block is committed and parsed as its
+ * own document long before `[^1]: …` arrives at the end of the body.
+ */
+const CROSS_BLOCK_FOOTNOTE =
+  "cite[^1] here\n\nfiller one\n\nfiller two\n\nfiller three\n\n[^1]: the note body\n";
+
+describe("a footnote whose definition settles in another block", () => {
+  it("is a real reference and opens into the card's popover host", () => {
+    render(
+      <StreamingMarkdown
+        publishedText={CROSS_BLOCK_FOOTNOTE}
+        sourceId="event-30"
+        footnotes={new FootnoteRegistry()}
+        isComplete
+      />,
+    );
+
+    // Parsed block-by-block with nothing else in scope, `[^1]` is literal text: no node,
+    // no marker, no control. The whole body's definitions are restated ahead of each
+    // block precisely so this marker exists to be pressed.
+    const marker = screen.getByRole("button", { name: "Footnote 1" });
+    fireEvent.click(marker);
+    expect(screen.getByText("the note body")).toBeTruthy();
+  });
+
+  it("counts as a citation, so its definition is not reported uncited", () => {
+    // The second symptom of the same defect: a reference that never became a node is a
+    // reference the uncited walk cannot see, so the console accused the author of
+    // leaving a note dangling under a message that cites it.
+    const { container } = render(
+      <StreamingMarkdown
+        publishedText={CROSS_BLOCK_FOOTNOTE}
+        sourceId="event-31"
+        footnotes={new FootnoteRegistry()}
+        isComplete
+      />,
+    );
+    expect(container.textContent).not.toContain("Defined and never referred to");
+  });
+
+  it("negative control: an identifier the body never defines stays literal", () => {
+    // Without this, a preamble built from anything other than the body's own
+    // definitions — every identifier ever seen, say — would pass the cases above and
+    // mint markers for notes that do not exist.
+    const { container } = render(
+      <StreamingMarkdown
+        publishedText={"cite[^99] here\n\nfiller one\n\nfiller two\n\nfiller three\n"}
+        sourceId="event-32"
+        footnotes={new FootnoteRegistry()}
+        isComplete
+      />,
+    );
+    expect(container.querySelector(".meridian-markdown__footnote")).toBeNull();
+    expect(container.textContent).toContain("[^99]");
+  });
+});
+
+/** A construct whose author never closed it — bold that opens and simply stops. */
+const UNCLOSED_EMPHASIS = "a settled paragraph\n\nthis is **bold";
+
+describe("a body the sender has finished", () => {
+  it("keeps every block settled, so nothing complete is rewritten by the mender", () => {
+    // `remend` exists for a PREFIX. Run over a finished body it closes what the author
+    // deliberately left open, and the reader is shown emphasis nobody wrote.
+    const { container } = render(
+      <StreamingMarkdown
+        publishedText={UNCLOSED_EMPHASIS}
+        sourceId="event-33"
+        footnotes={new FootnoteRegistry()}
+        isComplete
+      />,
+    );
+    expect(container.querySelector("strong")).toBeNull();
+    expect(container.textContent).toContain("**bold");
+  });
+
+  it("negative control: the same text mid-stream is still mended", () => {
+    // Without this, a component that simply stopped mending would pass the case above
+    // and reflow every half-typed construct on the screen as it arrived.
+    const { container } = render(
+      <StreamingMarkdown
+        publishedText={UNCLOSED_EMPHASIS}
+        sourceId="event-34"
+        footnotes={new FootnoteRegistry()}
+        isComplete={false}
+      />,
+    );
+    expect(container.querySelector("strong")).not.toBeNull();
+  });
+});
+
 describe("a footnote's definition", () => {
   it("opens into the card's own popover host when its marker is pressed", () => {
     render(
