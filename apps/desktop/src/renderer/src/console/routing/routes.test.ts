@@ -1,10 +1,10 @@
 // Routes as values: parsed, rendered back, compared, and classified.
 //
-// `FAILURE-MATRIX.test.ts` already drives the malformed-input arms — an unknown
+// `failure-modes.test.ts` already drives the malformed-input arms — an unknown
 // window route, too many segments, a bare auxiliary route, an escaped session id,
-// an empty hash. This file covers what that one does not: the round trip for the
-// main-window grammar, and the four readers a surface asks about a route it
-// already holds.
+// a malformed percent-escape, an empty path segment, an empty hash. This file
+// covers what that one does not: the round trip for the main-window grammar, and
+// the four readers a surface asks about a route it already holds.
 //
 // The round trip is the load-bearing case. `parseRoute` and `formatRoute` are two
 // hand-written grammars over one shape, and nothing in the compiler makes them
