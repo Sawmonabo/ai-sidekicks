@@ -23,14 +23,25 @@
 // construction can be paired with the disposal. The one extra render that costs is
 // paid once per mount and buys a teardown that cannot leak a context.
 //
-// WHY THE HOST BOX IS `aria-hidden` AND THE LIVE TEXT IS NOT HERE. xterm.js draws
+// WHY THE CALLBACKS ARE REACHED THROUGH A REF AND ARE NOT DEPENDENCIES. A parent
+// that builds `onKeystroke` in its own render body hands this component a new
+// function on every pass, and an effect that depended on that identity would
+// dispose the adapter and build a fresh emulator for a re-render that changed
+// nothing — silently dropping the operator's scrollback, and with it whatever the
+// shell had printed. The emulator's lifetime belongs to the terminal id, so the
+// functions live in a ref the adapter reads at call time. What DOES stay in the
+// dependency list is whether each callback is present at all: a surface that
+// gains the ability to write to the wire is built differently, and the adapter's
+// own gate is the absence of the option rather than a check inside it.
+//
+// WHY THE HOST BOX IS ONLY NAMED AND THE LIVE TEXT IS NOT HERE. xterm.js draws
 // a grid of spans (or a WebGL canvas), and its own accessibility layer exposes rows
 // through an `aria-live="assertive"` region with a twenty-row flood guard. That
 // region is the terminal's; announcing the grid a second time from outside it would
 // read every cell twice. So this component names the region and lets the emulator
 // own what is inside it.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { Nothing } from "../primitives/index.js";
 import {
@@ -62,6 +73,13 @@ export function XtermHost(props: XtermHostProps): React.JSX.Element {
   const emulator = useTerminalEmulator(terminalEmulatorLoader);
 
   const { terminalId, isWriteEnabled, onKeystroke, onActivateLink, onRendererMode } = props;
+  const callbacksRef = useLatestRef({ onKeystroke, onActivateLink, onRendererMode });
+  // What the surface CAN do, rather than which functions were passed this pass.
+  // Gaining or losing a capability changes how the emulator is built and is worth
+  // a rebuild; a freshly created function for a capability the surface already had
+  // is not.
+  const canWriteToWire = onKeystroke !== undefined;
+  const canActivateLinks = onActivateLink !== undefined;
 
   useEffect(() => {
     const hostElement = hostElementRef.current;
@@ -72,21 +90,29 @@ export function XtermHost(props: XtermHostProps): React.JSX.Element {
     }
     const adapter = new emulator.module.XtermTerminalAdapter({
       terminalId,
-      onKeystroke,
-      onActivateLink,
+      onKeystroke: canWriteToWire
+        ? (data: string): void => {
+            callbacksRef.current.onKeystroke?.(data);
+          }
+        : undefined,
+      onActivateLink: canActivateLinks
+        ? (url: string): void => {
+            callbacksRef.current.onActivateLink?.(url);
+          }
+        : undefined,
     });
     adapterRef.current = adapter;
     adapter.attach(hostElement);
     setRendererMode(adapter.rendererMode);
-    onRendererMode?.(adapter.rendererMode);
+    callbacksRef.current.onRendererMode?.(adapter.rendererMode);
     return () => {
       adapterRef.current = undefined;
-      // Final, not `detach()`. The pane is going away, so the emulator's pooled
-      // renderer slot has to go back — a detach would keep the instance alive for
+      // Final, not `detach()`. The pane is going away, so the emulator's hold on
+      // its renderer has to go back — a detach would keep the instance alive for
       // a remount that is never coming.
       adapter.dispose();
     };
-  }, [emulator, terminalId, onKeystroke, onActivateLink, onRendererMode]);
+  }, [emulator, terminalId, canWriteToWire, canActivateLinks, callbacksRef]);
 
   // Separate from the mount effect on purpose: the lease changes far more often
   // than the pane mounts, and folding the two would tear down an emulator every
@@ -117,6 +143,25 @@ export function XtermHost(props: XtermHostProps): React.JSX.Element {
       )}
     </div>
   );
+}
+
+/**
+ * Hold the newest value where a long-lived consumer can read it, without making
+ * that consumer depend on the value's identity.
+ *
+ * A `useLayoutEffect` rather than an assignment in the render body: a render pass
+ * React discards must not be able to move what a live emulator will call, and a
+ * layout effect runs on the commit that stuck and before the browser can deliver
+ * the next keystroke. Local to this file on `apps/desktop/AGENTS.md`'s hoist-on-
+ * the-second-use rule — the console has one consumer today, and the home for a
+ * second one is `primitives/`.
+ */
+function useLatestRef<Value>(value: Value): { readonly current: Value } {
+  const ref = useRef(value);
+  useLayoutEffect(() => {
+    ref.current = value;
+  });
+  return ref;
 }
 
 /** The adapter instance type, taken from the class the loader resolves. */
