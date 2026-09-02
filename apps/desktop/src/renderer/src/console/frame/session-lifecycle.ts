@@ -1,10 +1,18 @@
-// Who owns the session stores this window renders from.
+// Who owns the session stores this window renders from, and what feeds them.
 //
 // `SessionStoreRegistry` owns a session store's life — its apply queue, its refresh
-// scheduler, and the rule that two opens of one session are one store. This module
-// owns the REGISTRY's life, which is the composition root's question and nobody
-// else's: one registry per window, sessions kept open for as long as the window is
-// up, everything disposed when it goes away.
+// scheduler, and the rule that two opens of one session are one store.
+// `SessionEventBinder` owns the wire subscription in front of that apply queue.
+// This module owns BOTH their lives, which is the composition root's question and
+// nobody else's: one registry and one binder per window, sessions kept open for as
+// long as the window is up, everything disposed when it goes away.
+//
+// The two are minted and disposed together rather than separately, because neither
+// is correct alone. A registry with no binder is a set of stores nothing ever
+// writes to — which is exactly what this window had before the binder existed, and
+// it renders as a live session that never changes. A binder with no registry has
+// nowhere to deliver. Holding them in one piece of state makes "one without the
+// other" unrepresentable rather than merely unlikely.
 //
 // Two rules from `Spec-023 §Console Design (Meridian)` decide the shape here, and
 // both are about the render phase:
@@ -28,16 +36,20 @@
 // result is never recomputed — unlike `useMemo`, which may be — and a registry that
 // is built and discarded owns nothing: no timer, no subscription, no store until
 // something opens one. The construction that had to leave the render phase is the
-// STORE's, and it has.
+// STORE's, and it has. The binder is built beside it and ATTACHED in the effect,
+// which is the same distinction one level up: constructing it costs nothing, and
+// subscribing is the side effect that must not happen during render.
 
 import { useEffect, useState } from "react";
 
+import { useConsoleBridge, type ConsoleBridge } from "../bridge/index.js";
 import {
   SessionStoreRegistry,
   useOpenSessionStore,
   type SessionSnapshotReader,
   type SessionStore,
 } from "../store/index.js";
+import { SessionEventBinder } from "./session-event-binder.js";
 
 /**
  * The read every open session's refresh scheduler performs.
@@ -50,6 +62,12 @@ import {
  */
 const READS_NOTHING_YET: SessionSnapshotReader = () => Promise.resolve(undefined);
 
+/** This window's session plumbing: the stores, and the one thing that feeds them. */
+interface WindowSessionPlumbing {
+  readonly registry: SessionStoreRegistry;
+  readonly binder: SessionEventBinder;
+}
+
 /**
  * This window's session-store registry, disposed when the console unmounts.
  *
@@ -57,20 +75,39 @@ const READS_NOTHING_YET: SessionSnapshotReader = () => Promise.resolve(undefined
  * StrictMode double-mount is the one that does it today, and the Tier-8 opt-in is
  * named in `main.tsx`. The cleanup has already disposed the registry by then, and a
  * disposed registry refuses every open, so the second mount takes a fresh one
- * rather than a corpse.
+ * rather than a corpse. The binder is re-minted with it for the same reason: it is
+ * disposed in the same cleanup, and a disposed binder subscribes to nothing.
+ *
+ * The binder is not returned. Nothing above this hook reads it — its whole surface
+ * is the subscription it owns — and handing it out would invite a second caller to
+ * attach or dispose it out from under this window.
  */
 export function useSessionStoreRegistry(): SessionStoreRegistry {
-  const [registry, setRegistry] = useState<SessionStoreRegistry>(createSessionStoreRegistry);
+  // Resolved from context rather than taken as an argument, so every caller of this
+  // hook gets the same bridge the rest of the frame renders against and no surface
+  // has to thread one through. `Spec-023`'s "the bridge is provided, never reached
+  // for" is the same rule one layer down.
+  const bridge = useConsoleBridge();
+  const [plumbing, setPlumbing] = useState<WindowSessionPlumbing>(() =>
+    createWindowSessionPlumbing(bridge),
+  );
   useEffect(() => {
-    if (registry.isDisposed) {
-      setRegistry(createSessionStoreRegistry());
+    if (plumbing.registry.isDisposed) {
+      setPlumbing(createWindowSessionPlumbing(bridge));
       return;
     }
+    plumbing.binder.attach();
     return () => {
-      registry.disposeAll();
+      // The binder first, and the order is load-bearing. It holds the registry's
+      // change subscription, and `disposeAll` closes every open session — so a
+      // registry disposed first would call back into a binder that is about to be
+      // torn down, unbinding subscriptions during a teardown that is already
+      // unbinding them.
+      plumbing.binder.dispose();
+      plumbing.registry.disposeAll();
     };
-  }, [registry]);
-  return registry;
+  }, [plumbing, bridge]);
+  return plumbing.registry;
 }
 
 /**
@@ -97,6 +134,7 @@ export function useActiveSessionStore(
   return useOpenSessionStore(registry, activeSessionId);
 }
 
-function createSessionStoreRegistry(): SessionStoreRegistry {
-  return new SessionStoreRegistry({ read: READS_NOTHING_YET });
+function createWindowSessionPlumbing(bridge: ConsoleBridge): WindowSessionPlumbing {
+  const registry = new SessionStoreRegistry({ read: READS_NOTHING_YET });
+  return { registry, binder: new SessionEventBinder({ registry, bridge }) };
 }
