@@ -150,3 +150,236 @@
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
 }
+
+/* ------------------------------------------------------ the scope consequence */
+
+/*
+ * The copy-on-write sentence on the `shared` group. It is a warning about what an
+ * edit does and not an error, so it reads as prose on the group's own ground rather
+ * than borrowing the amber a person-needed state owns (rule 3).
+ */
+.meridian-workflow__scope-consequence {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+  border-inline-start: 2px solid var(--meridian-edge-strong);
+  padding-inline-start: var(--meridian-space-3);
+}
+
+/* ------------------------------------------------------------ definition rows */
+
+.meridian-definition-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/*
+ * A row is one line at rest: name, scope, version, and the resolution mark. The
+ * marked row carries the accent on its leading edge rather than as a background —
+ * a tint behind the name would put colour under text, which rule 3 forbids, and the
+ * edge says "this one" at the same glance.
+ */
+.meridian-definition-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: baseline;
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border-inline-start: 2px solid transparent;
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-definition-row[aria-current="true"] {
+  border-inline-start-color: var(--meridian-accent);
+  background: var(--meridian-surface);
+}
+
+.meridian-definition-row__name {
+  flex: 1;
+  min-inline-size: 0;
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+  text-align: start;
+}
+
+/*
+ * The open control is the name itself. A separate button beside it would be the
+ * second visible control rule 7 keeps off the row, and a name that is not the way in
+ * is a name a person clicks anyway.
+ */
+.meridian-definition-row__open {
+  padding: 0;
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+
+.meridian-definition-row__open:hover {
+  color: var(--meridian-accent-text);
+}
+
+.meridian-definition-row__open:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-definition-row__version {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}
+
+/* ----------------------------------------------------------------- run list */
+
+.meridian-run-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+}
+
+.meridian-run-list__summary {
+  display: flex;
+  gap: var(--meridian-space-4);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}
+
+.meridian-run-list__summary-item {
+  display: inline-flex;
+  gap: var(--meridian-space-1);
+  align-items: baseline;
+}
+
+.meridian-run-list__rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-run-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  background: var(--meridian-surface-sunken);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+}
+
+.meridian-run-row__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: baseline;
+}
+
+.meridian-run-row__name {
+  flex: 1;
+  min-inline-size: 0;
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-sm);
+  font-weight: 600;
+  color: var(--meridian-text);
+  text-align: start;
+}
+
+.meridian-run-row__open {
+  padding: 0;
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+
+.meridian-run-row__open:hover {
+  color: var(--meridian-accent-text);
+}
+
+.meridian-run-row__open:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-run-row__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-3);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}
+
+.meridian-run-row__pin {
+  display: inline-flex;
+  gap: var(--meridian-space-1);
+  align-items: baseline;
+}
+
+.meridian-run-row__parks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/*
+ * The failure reason is the daemon's sentence, so it renders as prose on the red
+ * text colour rather than inside a refusal shape: a run that failed is a fact the
+ * list is reporting, not a control the operator just pressed (rule 9).
+ */
+.meridian-run-row__failure {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-red-text);
+}
+
+/* --------------------------------------------------------------- park badge */
+
+.meridian-park {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  background: var(--meridian-surface);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-park__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: baseline;
+}
+
+.meridian-park__phase {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/*
+ * The engine's own sentence, verbatim. Prose rather than mono: it is bounded at 8 KiB
+ * at its source and a paragraph set in mono is a paragraph nobody reads — the same
+ * asymmetry rule 9 fixes between a refusal's code and its message.
+ */
+.meridian-park__cause {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+}
+
+.meridian-park__schedule {
+  display: flex;
+  gap: var(--meridian-space-1);
+  align-items: baseline;
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}

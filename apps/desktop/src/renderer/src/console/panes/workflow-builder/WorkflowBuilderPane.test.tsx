@@ -8,7 +8,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { WORKFLOW_DEFINITION_SCOPES } from "../../workflows/WorkflowsSurface.js";
+import { WORKFLOW_DEFINITION_SCOPES } from "../../workflows/DefinitionsBrowser.js";
 import type { ConsolePaneContext } from "../../workspace/index.js";
 import { WorkflowBuilderPane } from "./WorkflowBuilderPane.js";
 
