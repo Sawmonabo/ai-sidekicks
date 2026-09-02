@@ -14,7 +14,7 @@ import { act, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ApprovalsPane } from "./ApprovalsPane.js";
-import { REFRESH_DEBOUNCE_MS } from "../../core/index.js";
+import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { APPROVALS_SCENARIO } from "../../bridge/scenarios/approvals.js";
 import { COMPOSER_SCENARIO } from "../../bridge/scenarios/composer.js";
@@ -211,5 +211,107 @@ describe("the session goal", () => {
     expect(within(goal).getByText("No goal set")).not.toBeNull();
     // Eligibility is never derived: an unread role is treated exactly as read-only.
     expect(within(goal).queryByRole("button")).toBeNull();
+  });
+});
+
+// A queue that GROWS, which the shipped scenarios cannot do: a scripted reply is
+// looked up per call and answers the same rows every time, so the case that matters
+// here — a card arriving while older ones are already on screen — is only reachable
+// against a stub whose answer changes between reads.
+class ScriptedApprovalReads {
+  #admitsThird = false;
+
+  /** Let the next read carry the arriving record. */
+  public admitThird(): void {
+    this.#admitsThird = true;
+  }
+
+  public reply(): unknown {
+    const shown = this.#admitsThird ? WAITING_APPROVAL_IDS : WAITING_APPROVAL_IDS.slice(0, 2);
+    return { requests: shown.map(waitingRecord) };
+  }
+}
+
+const WAITING_APPROVAL_IDS = [
+  "019b7a33-3300-7f01-8210-d1a4c1150601",
+  "019b7a33-3300-7f01-8220-d1a4c1150602",
+  "019b7a33-3300-7f01-8230-d1a4c1150603",
+] as const;
+
+function waitingRecord(approvalRequestId: string): Record<string, string> {
+  return {
+    approvalRequestId,
+    category: "file_write",
+    state: "pending",
+    requestedBy: "019b7a33-3300-7a6e-8110-d1a4c1150501",
+    requestedScope: "run",
+  };
+}
+
+function stubApprovalsBridge(reads: ScriptedApprovalReads): ConsoleBridge {
+  const clock = new ManualClock();
+  return {
+    sidekicks: {
+      daemon: {
+        call: async (method: string): Promise<unknown> => {
+          if (method === "approval.ruleList") {
+            return { rules: [] };
+          }
+          if (method === "approval.projectionRead") {
+            return reads.reply();
+          }
+          throw { code: "reply-unscripted", message: `nothing scripts ${method}` };
+        },
+        subscribe: () => () => undefined,
+      },
+    },
+    growth: {},
+    source: "fixture",
+    // Shaped so the frozen-clock helper above drives this stub unchanged: the reader
+    // resolves its clock off the scenario engine, and the tier has exactly one way
+    // to move time.
+    scenarioEngine: { clock, advance: (deltaMs: number) => clock.advance(deltaMs) },
+  } as unknown as ConsoleBridge;
+}
+
+/** A composer holding focus, which is the precondition the focus rule is gated on. */
+function composerHoldingFocus(): HTMLElement {
+  const composer = document.createElement("div");
+  composer.className = "meridian-composer";
+  const field = document.createElement("button");
+  composer.append(field);
+  document.body.append(composer);
+  field.focus();
+  return composer;
+}
+
+describe("focus lands in the card that arrived", () => {
+  it("focuses the arriving record's own action, not the first one on the page", async () => {
+    const reads = new ScriptedApprovalReads();
+    const bridge = stubApprovalsBridge(reads);
+    await act(async () => {
+      render(<ApprovalsPane {...paneContext(bridge, boundStore())} />);
+    });
+    await settle(bridge);
+    const waiting = within(section("Waiting on a decision")).getAllByRole("article");
+    expect(waiting).toHaveLength(2);
+
+    const composer = composerHoldingFocus();
+    reads.admitThird();
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await settle(bridge);
+
+    const arrived = WAITING_APPROVAL_IDS[2];
+    const focusedCard = document.activeElement?.closest("[data-approval-id]");
+    expect(focusedCard?.getAttribute("data-approval-id")).toBe(arrived);
+    // The negative control on the selector this replaces: the first action in DOM
+    // order belongs to a card that was already on screen, so a document-wide query
+    // would have taken the caret to a request the announcement did not name.
+    expect(document.querySelector(".meridian-approval-card__action")).not.toBe(
+      document.activeElement,
+    );
+    composer.remove();
   });
 });

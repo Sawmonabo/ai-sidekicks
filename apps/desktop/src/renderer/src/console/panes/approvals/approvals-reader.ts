@@ -133,9 +133,9 @@ export class ApprovalsReader {
   /**
    * Ask for a read.
    *
-   * `subscribe` on mount, `window-focus` when the window regains it, and
-   * `terminal-event` for a lifecycle signal — the three reasons §The eight rules
-   * names, with no fourth and no interval.
+   * `subscribe` on mount, `window-focus` when the window regains it, `reconnect`
+   * when the session store's degraded flag clears, and `terminal-event` for a
+   * lifecycle signal — the four reasons §The eight rules names, and no interval.
    */
   public requestRead(reason: RefreshReason): void {
     if (this.#disposed) {

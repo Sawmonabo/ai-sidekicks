@@ -8,6 +8,11 @@
 // The dispatch path is driven through the real surface hook against a stub bridge,
 // so a request that did go out is observable as a recorded wire call rather than as
 // a spy on a function the component was handed.
+//
+// The third claim is what the form does AFTER it dispatched: it closes on a
+// settlement that landed and stays open, with the body intact, on every arm that did
+// not. Both are driven by scripting what the stub answers with, so the arm under
+// test is the daemon's own answer rather than a state the component was handed.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -25,19 +30,25 @@ interface RecordedCall {
   readonly params: unknown;
 }
 
-function stubBridge(calls: RecordedCall[]): ConsoleBridge {
+/** What the stub daemon answers one call with. Throwing is the refusal arm. */
+type ScriptedAnswer = () => unknown;
+
+/** The applied settlement every case that is not about settlement rides on. */
+const APPLIED_ROLLBACK: ScriptedAnswer = () => ({
+  interventionId: "d5f2c3e4-6071-4182-ac93-1e4f50617283",
+  interventionType: "rollback",
+  state: "applied",
+  runVersion: 9,
+  result: { disposition: "conversation-only" },
+});
+
+function stubBridge(calls: RecordedCall[], answer: ScriptedAnswer): ConsoleBridge {
   return {
     sidekicks: {
       daemon: {
         call: async (method: string, params: unknown): Promise<unknown> => {
           calls.push({ method, params });
-          return {
-            interventionId: "d5f2c3e4-6071-4182-ac93-1e4f50617283",
-            interventionType: "rollback",
-            state: "applied",
-            runVersion: 9,
-            result: { disposition: "conversation-only" },
-          };
+          return answer();
         },
         subscribe: () => () => undefined,
       },
@@ -67,25 +78,49 @@ function runAt(state: RunState) {
 function ComposerHarness(props: {
   readonly control: ComposedControl;
   readonly calls: RecordedCall[];
+  readonly answer: ScriptedAnswer;
+  readonly onDismiss: () => void;
 }): React.JSX.Element {
-  const surface = useRunControlSurface(stubBridge(props.calls));
+  const surface = useRunControlSurface(stubBridge(props.calls, props.answer));
   return (
     <RunInterventionComposer
       run={runAt("paused")}
       control={props.control}
       surface={surface}
-      onDismiss={() => undefined}
+      onDismiss={props.onDismiss}
     />
   );
 }
 
-function renderComposer(control: ComposedControl): {
+function renderComposer(
+  control: ComposedControl,
+  answer: ScriptedAnswer = APPLIED_ROLLBACK,
+): {
   container: HTMLElement;
   calls: RecordedCall[];
+  dismissCount: () => number;
 } {
   const calls: RecordedCall[] = [];
-  const { container } = render(<ComposerHarness control={control} calls={calls} />);
-  return { container, calls };
+  let dismissals = 0;
+  const { container } = render(
+    <ComposerHarness
+      control={control}
+      calls={calls}
+      answer={answer}
+      onDismiss={() => {
+        dismissals += 1;
+      }}
+    />,
+  );
+  return { container, calls, dismissCount: () => dismissals };
+}
+
+function bodyValue(container: HTMLElement): string {
+  const body = container.querySelector(".meridian-run-composer__body");
+  if (!(body instanceof HTMLTextAreaElement)) {
+    throw new Error("the composer drew no body field");
+  }
+  return body.value;
 }
 
 function typeInto(element: Element | null, value: string): void {
@@ -135,12 +170,22 @@ describe("preview is consent", () => {
   });
 });
 
-describe("the two refusals raised before the wire", async () => {
+describe("the refusals raised before the wire", async () => {
   it("refuses a rewind with no target position, and sends nothing", async () => {
     const { container, calls } = renderComposer("rollback");
     await submit(container);
     expect(calls).toHaveLength(0);
     expect(container.textContent).toContain("target-position-unnamed");
+  });
+
+  it("refuses a target that is not a whole position, and sends nothing", async () => {
+    // The prefix parse this replaces read `4oops` as 4 and dispatched a destructive
+    // rewind to a position nobody typed.
+    const { container, calls } = renderComposer("rollback");
+    typeInto(container.querySelector(".meridian-run-composer__position"), "4oops");
+    await submit(container);
+    expect(calls).toHaveLength(0);
+    expect(container.textContent).toContain("target-position-unreadable");
   });
 
   it("refuses a composite whose replacement is only whitespace, and sends nothing", async () => {
@@ -192,5 +237,74 @@ describe("the composite says what it did", () => {
       type: "rollback",
       replacementSend: { content: "try this instead" },
     });
+  });
+});
+
+describe("the composer outlives its dispatch", () => {
+  const REJECTED_ROLLBACK: ScriptedAnswer = () => ({
+    interventionId: "d5f2c3e4-6071-4182-ac93-1e4f50617283",
+    interventionType: "rollback",
+    state: "rejected",
+    rejectionReason: "target-position-not-a-boundary",
+    runVersion: 9,
+  });
+
+  const TRANSPORT_REJECTION: ScriptedAnswer = () => {
+    throw { code: "run.invalid_transition", message: "the run is not in a rewindable state" };
+  };
+
+  it("keeps the replacement text when the dispatch is refused at transport", async () => {
+    const { container, dismissCount } = renderComposer("rollback", TRANSPORT_REJECTION);
+    typeInto(container.querySelector(".meridian-run-composer__position"), "4");
+    typeInto(container.querySelector(".meridian-run-composer__body"), "try this instead");
+    await submit(container);
+    // The one thing the participant cannot reproduce is the one thing that used to
+    // be dropped: the form closed the moment the dispatch STARTED.
+    expect(dismissCount()).toBe(0);
+    expect(bodyValue(container)).toBe("try this instead");
+    expect(container.textContent).toContain("run.invalid_transition");
+  });
+
+  it("keeps the text and shows the daemon's own reason when the intervention is rejected", async () => {
+    const { container, dismissCount } = renderComposer("rollback", REJECTED_ROLLBACK);
+    typeInto(container.querySelector(".meridian-run-composer__position"), "4");
+    typeInto(container.querySelector(".meridian-run-composer__body"), "try this instead");
+    await submit(container);
+    expect(dismissCount()).toBe(0);
+    expect(bodyValue(container)).toBe("try this instead");
+    expect(container.textContent).toContain("target-position-not-a-boundary");
+  });
+
+  it("keeps a refused steer's directive rather than dropping it", async () => {
+    const { container, dismissCount } = renderComposer("steer", TRANSPORT_REJECTION);
+    typeInto(container.querySelector(".meridian-run-composer__body"), "stop editing that file");
+    await submit(container);
+    expect(dismissCount()).toBe(0);
+    expect(bodyValue(container)).toBe("stop editing that file");
+  });
+
+  it("negative control: a settlement that landed closes the composer", async () => {
+    // Without this the three cases above would pass over a form that never closed at
+    // all, which would leave a landed rewind sitting behind its own composer.
+    const { container, dismissCount } = renderComposer("rollback");
+    typeInto(container.querySelector(".meridian-run-composer__position"), "4");
+    await submit(container);
+    expect(dismissCount()).toBe(1);
+  });
+
+  it("latches the confirm while the dispatch is in flight, so one body sends once", async () => {
+    // A never-settling answer holds the form in its sending state; the second submit
+    // arrives the way a keyboard one does, through the form rather than the button.
+    const { container, calls } = renderComposer("rollback", () => new Promise(() => undefined));
+    typeInto(container.querySelector(".meridian-run-composer__position"), "4");
+    await submit(container);
+    const form = container.querySelector(".meridian-run-composer");
+    if (!(form instanceof HTMLFormElement)) {
+      throw new Error("the composer drew no form");
+    }
+    await act(async () => {
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    expect(calls).toHaveLength(1);
   });
 });
