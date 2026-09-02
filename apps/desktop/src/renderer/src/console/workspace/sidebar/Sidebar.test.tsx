@@ -23,7 +23,7 @@ import {
   SIDEBAR_SECTION_IDS,
   SidebarSectionRegistry,
   type SidebarSectionContext,
-} from "../seats/index.js";
+} from "../../seats/index.js";
 import { SIDEBAR_MIN_WIDTH_PX } from "./sidebar-constants.js";
 import { Sidebar } from "./Sidebar.js";
 
@@ -82,10 +82,15 @@ describe("Sidebar — the sections host", () => {
     const { sidebar } = renderSidebar();
     const labels = disclosures(sidebar).map((button) => button.textContent);
     expect(labels).toHaveLength(SIDEBAR_SECTION_IDS.length);
-    // Declaration order is render order, so the runs section — third in the tuple
-    // — is third on screen.
-    expect(labels[2]).toContain("Runs");
-    expect(labels[0]).toContain("Channels");
+    // Declaration order is render order, so each label sits at its own id's index
+    // in the seat's tuple. Read off the tuple rather than pinned at two positions:
+    // a pinned index says nothing about the sections either side of it, and it goes
+    // stale silently the day the seat gains one — which is how `goal` and
+    // `approvals` arrived.
+    expect(labels[SIDEBAR_SECTION_IDS.indexOf("goal")]).toContain("Goal");
+    expect(labels[SIDEBAR_SECTION_IDS.indexOf("channels")]).toContain("Channels");
+    expect(labels[SIDEBAR_SECTION_IDS.indexOf("runs")]).toContain("Runs");
+    expect(labels[SIDEBAR_SECTION_IDS.indexOf("members")]).toContain("Members");
   });
 
   it("starts every section collapsed and its body hidden", () => {
@@ -196,7 +201,9 @@ describe("Sidebar — the filter is one field over every section", () => {
     });
     const expanded = disclosures(sidebar).map((button) => button.getAttribute("aria-expanded"));
     // Exactly the one the person opened, and nothing the filter opened on the way.
-    expect(expanded).toStrictEqual(["true", "false", "false", "false", "false", "false"]);
+    // Composed from the seat's own length rather than written out, so a section
+    // added there does not turn this into a claim about a shorter sidebar.
+    expect(expanded).toStrictEqual(["true", ...SIDEBAR_SECTION_IDS.slice(1).map(() => "false")]);
   });
 });
 

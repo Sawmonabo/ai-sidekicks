@@ -46,7 +46,7 @@
 import { useMemo } from "react";
 import { useDriverCapabilities, useQueueFeed } from "../../../console/bridge/index.js";
 import { RealClock } from "../../../console/core/index.js";
-import type { ComposerSeatProps } from "../../../console/workspace/index.js";
+import type { ComposerSeatProps } from "../../../console/seats/index.js";
 import {
   useSessionStore,
   type ConsoleSessionEvent,

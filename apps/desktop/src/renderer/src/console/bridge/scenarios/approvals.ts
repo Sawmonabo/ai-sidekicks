@@ -84,28 +84,39 @@ export const APPROVALS_SCENARIO: ConsoleScenario = {
   // an approvals surface that guessed its viewer would render an approve control for
   // whoever happens to be first in the join log.
   viewingParticipantId: PARTICIPANT_YOU,
+  // The membership each PERSON in the roster holds. The two agents in the join order
+  // take no entry: an agent is attached rather than admitted, so it holds no
+  // membership and the fixture does not claim to know one. Without this, the viewer's
+  // identity read succeeds into a roster carrying no role and every owner- and
+  // collaborator-gated control renders closed for a reason nothing checked.
+  membershipRoleByParticipantId: {
+    [PARTICIPANT_YOU]: "owner",
+    [PARTICIPANT_AWAY]: "collaborator",
+  },
   startedAtIso: "2026-01-01T13:30:00.000Z",
   beats: [
     {
       atMs: 0,
       event: {
+        id: "019b7a33-3300-7e00-8110-e5e0c3350001",
         sessionId: SESSION_ID,
         sequence: 1,
         kind: "session.created",
         occurredAt: "2026-01-01T13:30:00.000Z",
-        actorParticipantId: PARTICIPANT_YOU,
+        actorId: PARTICIPANT_YOU,
         payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
       },
     },
     {
       atMs: 40,
       event: {
+        id: "019b7a33-3300-7e00-8110-e5e0c3350002",
         sessionId: SESSION_ID,
         sequence: 2,
         kind: "agent.attached",
         occurredAt: "2026-01-01T13:30:00.040Z",
         // The person who attached the agent, not the agent.
-        actorParticipantId: PARTICIPANT_YOU,
+        actorId: PARTICIPANT_YOU,
         payload: {
           sessionId: SESSION_ID,
           agentId: AGENT_IMPLEMENTER,
@@ -120,11 +131,12 @@ export const APPROVALS_SCENARIO: ConsoleScenario = {
     {
       atMs: 200,
       event: {
+        id: "019b7a33-3300-7e00-8110-e5e0c3350003",
         sessionId: SESSION_ID,
         sequence: 3,
         kind: "approval.requested",
         occurredAt: "2026-01-01T13:30:00.200Z",
-        actorParticipantId: AGENT_IMPLEMENTER,
+        actorId: AGENT_IMPLEMENTER,
         payload: {
           sessionId: SESSION_ID,
           runId: RUN_ID,
@@ -140,11 +152,12 @@ export const APPROVALS_SCENARIO: ConsoleScenario = {
     {
       atMs: 420,
       event: {
+        id: "019b7a33-3300-7e00-8110-e5e0c3350004",
         sessionId: SESSION_ID,
         sequence: 4,
         kind: "approval.approved",
         occurredAt: "2026-01-01T13:30:00.420Z",
-        actorParticipantId: PARTICIPANT_YOU,
+        actorId: PARTICIPANT_YOU,
         // The resolution events carry the approver and the scope that took effect.
         // `effectiveScope` is never broader than what was requested.
         payload: {
@@ -161,11 +174,12 @@ export const APPROVALS_SCENARIO: ConsoleScenario = {
     {
       atMs: 600,
       event: {
+        id: "019b7a33-3300-7e00-8110-e5e0c3350005",
         sessionId: SESSION_ID,
         sequence: 5,
         kind: "approval.requested",
         occurredAt: "2026-01-01T13:30:00.600Z",
-        actorParticipantId: AGENT_IMPLEMENTER,
+        actorId: AGENT_IMPLEMENTER,
         payload: {
           sessionId: SESSION_ID,
           runId: RUN_ID,
@@ -181,6 +195,7 @@ export const APPROVALS_SCENARIO: ConsoleScenario = {
     {
       atMs: 780,
       event: {
+        id: "019b7a33-3300-7e00-8110-e5e0c3350006",
         sessionId: SESSION_ID,
         sequence: 6,
         // Expiry never auto-approves, at any tier and any posture. The console
@@ -199,11 +214,12 @@ export const APPROVALS_SCENARIO: ConsoleScenario = {
     {
       atMs: 900,
       event: {
+        id: "019b7a33-3300-7e00-8110-e5e0c3350007",
         sessionId: SESSION_ID,
         sequence: 7,
         kind: "approval.requested",
         occurredAt: "2026-01-01T13:30:00.900Z",
-        actorParticipantId: AGENT_IMPLEMENTER,
+        actorId: AGENT_IMPLEMENTER,
         payload: {
           sessionId: SESSION_ID,
           runId: RUN_ID,
@@ -222,6 +238,7 @@ export const APPROVALS_SCENARIO: ConsoleScenario = {
     {
       atMs: 1_100,
       event: {
+        id: "019b7a33-3300-7e00-8110-e5e0c3350008",
         sessionId: SESSION_ID,
         sequence: 8,
         // The second pending request, and the one that arrived as a provider
@@ -229,7 +246,7 @@ export const APPROVALS_SCENARIO: ConsoleScenario = {
         // is what routes this record to the ask card rather than the plain one.
         kind: "approval.requested",
         occurredAt: "2026-01-01T13:30:01.100Z",
-        actorParticipantId: AGENT_IMPLEMENTER,
+        actorId: AGENT_IMPLEMENTER,
         payload: {
           sessionId: SESSION_ID,
           runId: RUN_ID,

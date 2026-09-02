@@ -39,7 +39,7 @@
 
 import { SCENARIO_FIXTURE_GLOBAL, refuse, type ConsoleRefusal } from "../core/index.js";
 import { CONSOLE_SCENARIOS } from "./scenario-manifest.js";
-import type { ScenarioEngine } from "./scenario.js";
+import type { ScenarioEngine } from "./scenario-engine.js";
 import { FIRST_RUN_SCENARIO_ID } from "./scenarios/first-run.js";
 
 /** The document-URL query parameter a fixture build carries its scenario id on. */

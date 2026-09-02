@@ -12,7 +12,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { PANE_KINDS } from "../workspace/index.js";
+import { PANE_KINDS } from "../seats/index.js";
 import { ConsolePaneChrome, paneScopeCrumbs } from "./pane-chrome.js";
 
 function renderChrome(element: React.JSX.Element): HTMLElement {

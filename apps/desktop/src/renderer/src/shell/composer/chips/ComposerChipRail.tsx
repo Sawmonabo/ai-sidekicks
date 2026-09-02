@@ -8,7 +8,7 @@
 // The order is deliberate: the target first, because it is the fact that changes what
 // Send does, and the posture second, because it qualifies the run the target names.
 
-import { type ComposerSeatProps } from "../../../console/workspace/index.js";
+import { type ComposerSeatProps } from "../../../console/seats/index.js";
 import { useComposerAddress } from "../composer-address.js";
 import { PostureChip } from "./PostureChip.js";
 import { TargetChip } from "./TargetChip.js";

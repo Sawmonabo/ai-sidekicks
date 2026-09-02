@@ -22,7 +22,7 @@ import { consoleCommands } from "../../../console/frame/command-surface.js";
 import { RUN_LIFECYCLE_PROJECTORS } from "../../../console/frame/run-lifecycle-projector.js";
 import { DraftStore } from "../../../console/persistence/index.js";
 import { SessionStore, type ConsoleSessionEvent } from "../../../console/store/index.js";
-import type { ConsolePaneAddress } from "../../../console/workspace/index.js";
+import type { ConsolePaneAddress } from "../../../console/seats/index.js";
 import { MessageComposer } from "../../MessageComposer.js";
 
 const TEST_COMMAND_ID = "composer-discovery-test.act";

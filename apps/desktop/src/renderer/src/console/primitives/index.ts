@@ -23,11 +23,6 @@ export { Glyph } from "./Glyph.js";
 
 export { ChordHint } from "./ChordHint.js";
 
-// Rule 4's mono provenance signature. Through the door because the frame renders
-// session ids with it, and a surface that reached for its own mono span would be
-// the second rendering of the one claim this primitive exists to make.
-export { WireFigure } from "./Figure.js";
-
 export type { ChordPlatform } from "./chord-format.js";
 export {
   HOST_CHORD_PLATFORM,
@@ -74,7 +69,15 @@ export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   WireFigureProps,
 } from "./Figure.js";
-export { DerivedFigure } from "./Figure.js";
+// Rule 4's mono provenance signature. Through the door because the frame renders
+// session ids with it, and a surface that reached for its own mono span would be
+// the second rendering of the one claim this primitive exists to make.
+// Neither name carries a marker any more: `WireFigure` is rendered by
+// `frame/ContextPicker.tsx` and `frame/WireChoiceList.tsx`, and `DerivedFigure` by
+// the runs, approvals, and inspector panes, so a surviving tag would be the half of
+// the marker an importing change owed and did not pay — which
+// `--treat-tag-hints-as-errors` reports.
+export { DerivedFigure, WireFigure } from "./Figure.js";
 
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */

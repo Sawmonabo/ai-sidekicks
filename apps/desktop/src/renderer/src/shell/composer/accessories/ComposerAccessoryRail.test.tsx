@@ -23,7 +23,7 @@ import {
   type ConsoleEntity,
   type ConsoleSessionEvent,
 } from "../../../console/store/index.js";
-import type { ConsolePaneAddress } from "../../../console/workspace/index.js";
+import type { ConsolePaneAddress } from "../../../console/seats/index.js";
 import { ComposerAccessoryRail } from "./ComposerAccessoryRail.js";
 import { CONTEXT_WINDOW_EVENT_KIND } from "./usage-readings.js";
 
@@ -69,6 +69,9 @@ function mountRail(
 
 function contextWindowEvent(sequence: number): ConsoleSessionEvent {
   return {
+    // The event's own identifier, composed from the position so two rows of one
+    // session never share one.
+    id: `event-${String(sequence)}`,
     sessionId: SESSION_ID,
     sequence,
     kind: CONTEXT_WINDOW_EVENT_KIND,

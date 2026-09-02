@@ -12,7 +12,7 @@
 // are the sidebar's, and a decoder that also owned them would be a second place
 // the bounds live.
 
-import { SIDEBAR_SECTION_IDS, type SidebarSectionId } from "../seats/index.js";
+import { SIDEBAR_SECTION_IDS, type SidebarSectionId } from "../../seats/index.js";
 
 /** The `layout` value's shape: one named surface, one named measurement. */
 export type SidebarLayoutValue = Readonly<Record<string, Readonly<Record<string, number>>>>;

@@ -20,7 +20,7 @@ import {
   type ConsolePaneAddress,
   type SidebarSectionAttention,
   type SidebarSectionContext,
-} from "../../seats/index.js";
+} from "../../../seats/index.js";
 import { RunsSection } from "./RunsSection.js";
 
 const SESSION_ID = "session-runs-section";
@@ -191,9 +191,9 @@ describe("RunsSection — opening a pane", () => {
     act(() => {
       (open as HTMLButtonElement).click();
     });
-    expect(openedPanes).toStrictEqual([
-      { kind: "inspector", entity: { kind: "run", id: "run-1" } },
-    ]);
+    // The session's runs pane, with no entity member on the address: no pane kind
+    // is a view of one run, so the row opens the surface that holds them all.
+    expect(openedPanes).toStrictEqual([{ kind: "runs" }]);
   });
 });
 

@@ -35,22 +35,27 @@ import {
   type ConsolePaneAddress,
   type ConsolePaneOpener,
   type SidebarSectionId,
-} from "../seats/index.js";
+} from "../../seats/index.js";
 import { type SidebarModel } from "./sidebar-model.js";
 
 /**
  * The pane a section header opens on `Enter`, where the section names one.
  *
- * Partial on purpose, and it is the honest shape: `runs` is the one section whose
- * subject has a SESSION-scoped pane kind. `artifacts` and `repos` open panes over
- * one artifact or one worktree — a row's act, reached through the section body's
- * own `openPane` — and a header that opened an entity pane with no entity would
- * be the deck guessing which one. A section with no entry here expands instead,
- * which is the other half of what the cursor's `Enter` means.
+ * Partial on purpose, and it is the honest shape: `runs` and `approvals` are the
+ * sections whose subject has a SESSION-scoped pane kind, and only `runs` has a body
+ * on this branch. `artifacts` and `repos` open panes over one artifact or one
+ * worktree — a row's act, reached through the section body's own `openPane` — and a
+ * header that opened an entity pane with no entity would be the deck guessing which
+ * one. A section with no entry here expands instead, which is the other half of what
+ * the cursor's `Enter` means.
+ *
+ * The `runs` address carries no `entity` member at all rather than one holding
+ * `undefined`: that kind's arm of `ConsolePaneAddress` has none, which is how the
+ * seat states that the pane is a view of the session and not of a row.
  */
 const PANE_ADDRESS_BY_SECTION_ID: Partial<Readonly<Record<SidebarSectionId, ConsolePaneAddress>>> =
   {
-    runs: { kind: "runs", entity: undefined },
+    runs: { kind: "runs" },
   };
 
 /** Command ids the sidebar contributes. Namespaced by surface, as the registry requires. */

@@ -59,11 +59,11 @@ import {
 import {
   SessionStoreRegistry,
   useOpenSessionStore,
+  type ConsoleEntityProjectorRegistry,
   type SessionSnapshot,
   type SessionSnapshotRead,
   type SessionStore,
 } from "../store/index.js";
-import { RUN_LIFECYCLE_PROJECTORS } from "./run-lifecycle-projector.js";
 import { SessionEventBinder } from "./session-event-binder.js";
 
 /** This window's session plumbing: the stores, and the one thing that feeds them. */
@@ -86,18 +86,20 @@ interface WindowSessionPlumbing {
  * is the subscription it owns — and handing it out would invite a second caller to
  * attach or dispose it out from under this window.
  */
-export function useSessionStoreRegistry(): SessionStoreRegistry {
+export function useSessionStoreRegistry(
+  projectorRegistry: ConsoleEntityProjectorRegistry,
+): SessionStoreRegistry {
   // Resolved from context rather than taken as an argument, so every caller of this
   // hook gets the same bridge the rest of the frame renders against and no surface
   // has to thread one through. `Spec-023`'s "the bridge is provided, never reached
   // for" is the same rule one layer down.
   const bridge = useConsoleBridge();
   const [plumbing, setPlumbing] = useState<WindowSessionPlumbing>(() =>
-    createWindowSessionPlumbing(bridge),
+    createWindowSessionPlumbing(bridge, projectorRegistry),
   );
   useEffect(() => {
     if (plumbing.registry.isDisposed) {
-      setPlumbing(createWindowSessionPlumbing(bridge));
+      setPlumbing(createWindowSessionPlumbing(bridge, projectorRegistry));
       return;
     }
     plumbing.binder.attach();
@@ -110,7 +112,7 @@ export function useSessionStoreRegistry(): SessionStoreRegistry {
       plumbing.binder.dispose();
       plumbing.registry.disposeAll();
     };
-  }, [plumbing, bridge]);
+  }, [plumbing, bridge, projectorRegistry]);
   return plumbing.registry;
 }
 
@@ -165,7 +167,10 @@ export function useActiveSessionStore(
  * observe either side of a drain depending on how fast the runner happened to be,
  * which is the one property a frozen clock exists to remove.
  */
-function createWindowSessionPlumbing(bridge: ConsoleBridge): WindowSessionPlumbing {
+function createWindowSessionPlumbing(
+  bridge: ConsoleBridge,
+  projectorRegistry: ConsoleEntityProjectorRegistry,
+): WindowSessionPlumbing {
   const registry = new SessionStoreRegistry({
     read: createSessionSnapshotRead(bridge),
     clock: consoleClockFor(bridge),
@@ -177,7 +182,17 @@ function createWindowSessionPlumbing(bridge: ConsoleBridge): WindowSessionPlumbi
     // HERE and only here, so every store this window opens folds the same events
     // the same way; a surface that registered its own would be a second projection
     // of one stream.
-    projectors: RUN_LIFECYCLE_PROJECTORS,
+    //
+    // A SNAPSHOT OF THE REGISTRY, not the frame's own constant. The constant was a
+    // table closed at build time by one family, so every other partition
+    // `store/entities.ts` declares had no possible producer — and the families that
+    // own those surfaces would have had to read the wire a second time to fill them.
+    // Taking the snapshot HERE also fixes the composition order: families register
+    // at module scope, before any window renders, and a store opens with whatever
+    // that composition claimed. A snapshot rather than the registry itself, because
+    // a store folds for as long as its session is open and a table that changed
+    // underneath it would fold two events of one kind two ways.
+    projectors: projectorRegistry.snapshot(),
   });
   return { registry, binder: new SessionEventBinder({ registry, bridge }) };
 }

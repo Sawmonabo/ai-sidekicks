@@ -47,7 +47,7 @@ import {
   useSessionPartition,
   type ConsoleEntity,
 } from "../../../store/index.js";
-import { type SidebarSectionContext } from "../../seats/index.js";
+import { type SidebarSectionContext } from "../../../seats/index.js";
 
 /**
  * Which group a run's state sorts into, total over the registered union.
@@ -176,7 +176,13 @@ export function RunsSection(context: SidebarSectionContext): React.JSX.Element {
                     type="button"
                     className="meridian-sidebar-runs__open"
                     onClick={() => {
-                      context.openPane({ kind: "inspector", entity: { kind: "run", id: run.id } });
+                      // The session's runs pane, not an inspector over this row. No
+                      // pane kind is a view of one run — `seats/pane-address.ts`
+                      // settles which entity kinds each kind admits, and the
+                      // inspector's are the five sidebar-card kinds the spec
+                      // enumerates — so a row opens the surface that holds every run
+                      // rather than an address the deck would have to refuse.
+                      context.openPane({ kind: "runs" });
                     }}
                   >
                     <span className="meridian-sidebar-runs__id">{run.id}</span>

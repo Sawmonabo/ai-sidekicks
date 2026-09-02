@@ -11,8 +11,9 @@ import { describe, expect, it } from "vitest";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { DraftStore, UiStateStore } from "../../persistence/index.js";
-import { FrameStore, SessionStore, type ConsoleEntityRef } from "../../store/index.js";
-import { ConsolePaneRegistry, type ConsolePaneContext } from "../../workspace/index.js";
+import { FrameStore, SessionStore } from "../../store/index.js";
+import { ConsolePaneRegistry, isDetachablePaneKind } from "../../seats/index.js";
+import { type PaneContextOf } from "../pane-chrome.js";
 import { registerInspectorPane } from "./index.js";
 import { InspectorPane } from "./InspectorPane.js";
 
@@ -21,14 +22,24 @@ const SESSION_ID = "session-inspector";
 /** A bridge the pane never touches: the inspector reads the store, not the wire. */
 const UNUSED_BRIDGE = {} as unknown as ConsoleBridge;
 
+/**
+ * The entity an inspector is addressed at.
+ *
+ * Read off the address union rather than widened to `ConsoleEntityRef`: the
+ * inspector's arm admits the five sidebar-card kinds the spec enumerates, so a run
+ * or a channel reference is refused at the address and never reaches this pane.
+ */
+type InspectedRef = PaneContextOf<"inspector">["entity"];
+
 function paneContext(
-  entity: ConsoleEntityRef | undefined,
+  entity: InspectedRef,
   sessionStore: SessionStore | undefined,
-): ConsolePaneContext {
+): PaneContextOf<"inspector"> {
   return {
     kind: "inspector",
     entity,
     paneId: "pane-inspector",
+    linkedSourcePaneId: undefined,
     bridge: UNUSED_BRIDGE,
     frameStore: new FrameStore(),
     sessionStore,
@@ -40,36 +51,27 @@ function paneContext(
   };
 }
 
-function renderPane(
-  entity: ConsoleEntityRef | undefined,
-  sessionStore: SessionStore | undefined,
-): HTMLElement {
+function renderPane(entity: InspectedRef, sessionStore: SessionStore | undefined): HTMLElement {
   const { container } = render(<InspectorPane {...paneContext(entity, sessionStore)} />);
   return container;
 }
 
-describe("the inspector's two boundary absences", () => {
-  it("says so when the deck opened it with no entity", () => {
-    const container = renderPane(undefined, new SessionStore({ sessionId: SESSION_ID }));
-    expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
-    expect(container.textContent).toContain("without an entity to inspect");
-  });
-
-  it("says a different thing when there is an entity and no session to read it from", () => {
-    const container = renderPane({ kind: "run", id: "run-1" }, undefined);
+describe("the inspector's one boundary absence", () => {
+  // There is no case for an inspector opened with no entity, and that is the
+  // address union's doing: the inspector's arm REQUIRES one, so the refusal lives
+  // at `parseConsolePaneAddress` — where an untyped layout row or route is read —
+  // and this body is never reached without it.
+  it("says so when there is an entity and no session to read it from", () => {
+    const container = renderPane({ kind: "worktree", id: "worktree-1" }, undefined);
     expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
     expect(container.textContent).toContain("outside a session");
   });
 
-  it("negative control: neither absence is the record's own", () => {
-    // Both arms above are `not-checked` — nothing was asked. If either rendered
-    // the record's `not-loaded` or `empty` instead, the pane would be claiming a
-    // read is in flight, or that the entity does not exist, over a question it
-    // never put.
-    const withoutEntity = renderPane(undefined, new SessionStore({ sessionId: SESSION_ID }));
-    expect(withoutEntity.querySelector(".meridian-nothing--not-loaded")).toBeNull();
-    expect(withoutEntity.querySelector(".meridian-nothing--empty")).toBeNull();
-    const withoutSession = renderPane({ kind: "run", id: "run-1" }, undefined);
+  it("negative control: that absence is not the record's own", () => {
+    // The arm above is `not-checked` — nothing was asked. Rendering the record's
+    // `not-loaded` or `empty` instead would have the pane claiming a read is in
+    // flight, or that the entity does not exist, over a question it never put.
+    const withoutSession = renderPane({ kind: "worktree", id: "worktree-1" }, undefined);
     expect(withoutSession.querySelector(".meridian-nothing--not-loaded")).toBeNull();
     expect(withoutSession.querySelector(".meridian-nothing--empty")).toBeNull();
   });
@@ -80,27 +82,32 @@ describe("the inspector with an entity and a session", () => {
     const store = new SessionStore({ sessionId: SESSION_ID });
     store.initialise({
       cursor: 1,
-      entities: [{ kind: "run", id: "run-1", state: "running" }],
+      entities: [{ kind: "worktree", id: "worktree-1", state: "dirty" }],
       participantJoinLog: [],
     });
-    const container = renderPane({ kind: "run", id: "run-1" }, store);
-    expect(container.querySelector(".meridian-entity-record")?.textContent).toContain("Run");
+    const container = renderPane({ kind: "worktree", id: "worktree-1" }, store);
+    expect(container.querySelector(".meridian-entity-record")?.textContent).toContain("Worktree");
     expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
   });
 
   it("wears the pane chrome, with the entity in the breadcrumb", () => {
     const store = new SessionStore({ sessionId: SESSION_ID });
-    const pane = renderPane({ kind: "run", id: "run-1" }, store).querySelector(".meridian-pane");
-    expect(pane?.getAttribute("aria-label")).toContain("run run-1");
+    const pane = renderPane({ kind: "worktree", id: "worktree-1" }, store).querySelector(
+      ".meridian-pane",
+    );
+    expect(pane?.getAttribute("aria-label")).toContain("worktree worktree-1");
     expect(pane?.getAttribute("aria-label")).toContain("Inspector");
   });
 });
 
 describe("the pane's registration", () => {
-  it("claims the inspector kind and may be torn off into a window", () => {
+  it("claims the inspector kind, and the window model refuses it a tear-off", () => {
     const registry = new ConsolePaneRegistry();
     registerInspectorPane(registry);
-    expect(registry.descriptorFor("inspector")?.openInWindow).toBe(true);
+    expect(registry.descriptorFor("inspector")?.owner).toBe("inspector-pane");
+    // The descriptor advertises no detach: `isDetachablePaneKind` is derived from
+    // the auxiliary-route set, and the inspector is not one of the two it names.
+    expect(isDetachablePaneKind("inspector")).toBe(false);
   });
 
   it("negative control: it claims nothing else", () => {

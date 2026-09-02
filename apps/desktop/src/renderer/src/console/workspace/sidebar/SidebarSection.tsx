@@ -28,25 +28,36 @@ import {
   type SidebarSectionAttention,
   type SidebarSectionContext,
   type SidebarSectionId,
-} from "../seats/index.js";
+} from "../../seats/index.js";
 import { type SidebarModel } from "./sidebar-model.js";
 
-/** What each section is called. Total over the closed set, so a seventh id fails here. */
+/**
+ * What each section is called. Total over the closed set, so an id added to
+ * `seats/sidebar-sections.ts` fails to compile here until it is named — which is
+ * how `goal` and `approvals` arrived rather than rendering as blank rows.
+ *
+ * The order is the seat's order and not this table's: the sidebar iterates
+ * `SIDEBAR_SECTION_IDS`, and a record is unordered.
+ */
 const LABEL_BY_SECTION_ID: Readonly<Record<SidebarSectionId, string>> = {
+  goal: "Goal",
   channels: "Channels",
-  agents: "Agents",
   runs: "Runs",
+  agents: "Agents",
   repos: "Repos and worktrees",
+  approvals: "Approvals",
   artifacts: "Artifacts",
   members: "Members",
 };
 
 /** The glyph each section wears. Total for `LABEL_BY_SECTION_ID`'s reason. */
 const GLYPH_BY_SECTION_ID: Readonly<Record<SidebarSectionId, GlyphName>> = {
+  goal: "goal",
   channels: "channel",
-  agents: "agent",
   runs: "run",
+  agents: "agent",
   repos: "repo",
+  approvals: "approval",
   artifacts: "artifact",
   members: "member",
 };

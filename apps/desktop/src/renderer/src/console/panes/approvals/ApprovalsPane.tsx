@@ -32,8 +32,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Nothing, formatCount } from "../../primitives/index.js";
 import { type ConsoleRefusal } from "../../core/index.js";
 import { useSessionStore, type SessionStore, type SessionStoreState } from "../../store/index.js";
-import { type ConsolePaneContext } from "../../workspace/index.js";
-import { ConsolePaneChrome, paneScopeCrumbs } from "../pane-chrome.js";
+import { ConsolePaneChrome, paneScopeCrumbs, type PaneContextOf } from "../pane-chrome.js";
 import { ApprovalCard, findApprovalCardAction } from "./ApprovalCard.js";
 import { ExecutionPostureChip } from "./ExecutionPosture.js";
 import { CallbackTools } from "./CallbackTools.js";
@@ -48,12 +47,12 @@ import { foldSessionGoal } from "./session-goal.js";
 /** The composer's root class. Focus moves to a new card only from inside it. */
 const COMPOSER_ROOT_SELECTOR = ".meridian-composer";
 
-export function ApprovalsPane(context: ConsolePaneContext): React.JSX.Element {
+export function ApprovalsPane(context: PaneContextOf<"approvals">): React.JSX.Element {
   const { sessionStore } = context;
   return (
     <ConsolePaneChrome
       kind="approvals"
-      leadingCrumbs={paneScopeCrumbs(context.entity)}
+      leadingCrumbs={paneScopeCrumbs()}
       focusHue={context.focusHue}
     >
       {sessionStore === undefined ? (
@@ -71,7 +70,7 @@ export function ApprovalsPane(context: ConsolePaneContext): React.JSX.Element {
 }
 
 interface ApprovalsPaneBodyProps {
-  readonly bridgeContext: ConsolePaneContext;
+  readonly bridgeContext: PaneContextOf<"approvals">;
   readonly sessionStore: SessionStore;
 }
 

@@ -15,22 +15,25 @@ import { createElement } from "react";
 // pane's rule, for the runs pane's reason.
 import "./inspector.css";
 
-import { type ConsolePaneRegistry } from "../../workspace/index.js";
+import { type ConsolePaneRegistry } from "../../seats/index.js";
+import { paneBodyForKind } from "../pane-chrome.js";
 import { InspectorPane } from "./InspectorPane.js";
 
 /**
  * Claim the `inspector` kind.
  *
- * `openInWindow: true` — the inspector is a read over one entity, so a torn-off
- * inspector is the same pane in another window and nothing follows it.
+ * The descriptor makes no claim about being torn off — `isDetachablePaneKind` is
+ * the one answer, read off the window model rather than advertised here, and the
+ * inspector is not among the kinds it admits.
  */
 export function registerInspectorPane(registry: ConsolePaneRegistry): void {
   registry.register({
     kind: "inspector",
     owner: "inspector-pane",
-    // `createElement` rather than JSX: this is a `.ts` module, and the naming rule
-    // reserves `.tsx` for a single PascalCase component per file.
-    render: (context) => createElement(InspectorPane, context),
-    openInWindow: true,
+    // Narrowed to this kind's own address arm before the body sees it, so the body
+    // reads the entity its kind admits and nothing else. `createElement` rather than
+    // JSX: this is a `.ts` module, and the naming rule reserves `.tsx` for a single
+    // PascalCase component per file.
+    render: paneBodyForKind("inspector", (context) => createElement(InspectorPane, context)),
   });
 }

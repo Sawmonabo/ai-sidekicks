@@ -20,7 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { consoleTripwires } from "../../core/index.js";
 import { MemoryPersistenceAdapter, UiStateStore } from "../../persistence/index.js";
-import { SIDEBAR_SECTION_IDS, type SidebarSectionId } from "../seats/index.js";
+import { SIDEBAR_SECTION_IDS, type SidebarSectionId } from "../../seats/index.js";
 import {
   SIDEBAR_COLLAPSED_SECTIONS_KEY,
   SIDEBAR_DEFAULT_WIDTH_PX,
@@ -34,6 +34,18 @@ const SESSION_ID = "session-sidebar-model";
 
 function openSections(model: SidebarModel): readonly SidebarSectionId[] {
   return SIDEBAR_SECTION_IDS.filter((id) => model.isSectionOpen(id));
+}
+
+/**
+ * Every section except the named ones, in the seat's own declaration order.
+ *
+ * Derived rather than written out, because the section set is closed by
+ * `seats/sidebar-sections.ts` and every hand-written list here would be a second
+ * copy of it — one that goes stale silently the day the seat gains a section, which
+ * is exactly what happened when `goal` and `approvals` landed.
+ */
+function everySectionExcept(...excluded: readonly SidebarSectionId[]): readonly SidebarSectionId[] {
+  return SIDEBAR_SECTION_IDS.filter((id) => !excluded.includes(id));
 }
 
 // The refused-write case fires the persistence tripwire on purpose. Tripwires
@@ -66,7 +78,7 @@ describe("SidebarModel — collapse as an inverted set", () => {
     ]);
     const model = new SidebarModel({ sessionId: SESSION_ID, uiStateStore });
     await model.restore();
-    expect(openSections(model)).toStrictEqual(["runs", "repos", "artifacts", "members"]);
+    expect(openSections(model)).toStrictEqual(everySectionExcept("channels", "agents"));
   });
 
   it("negative control: a stored set naming every section leaves none open", async () => {
@@ -90,8 +102,8 @@ describe("SidebarModel — collapse as an inverted set", () => {
     await vi.waitFor(async () => {
       const record = await uiStateStore.read(SESSION_ID, SIDEBAR_COLLAPSED_SECTIONS_KEY);
       // `runs` is the one NOT in the set: the stored value is what is shut, and
-      // toggling opened it.
-      expect(record?.value).toStrictEqual(["agents", "artifacts", "channels", "members", "repos"]);
+      // toggling opened it. Sorted, which is the order the model writes in.
+      expect(record?.value).toStrictEqual([...everySectionExcept("runs")].sort());
       expect(record?.valueClass).toBe("expansion");
     });
 
@@ -150,9 +162,9 @@ describe("SidebarModel — the durable read fills in, it does not override", () 
     model.toggleSection("runs");
     await restoring;
 
-    // `runs` keeps the person's decision, `members` keeps the disk's, and the
-    // four nobody touched come back the way they were left.
-    expect(openSections(model)).toStrictEqual(["channels", "agents", "runs", "repos", "artifacts"]);
+    // `runs` keeps the person's decision, `members` keeps the disk's, and every
+    // section nobody touched comes back the way it was left.
+    expect(openSections(model)).toStrictEqual(everySectionExcept("members"));
   });
 
   it("negative control: with no toggle in that window the stored set wins", async () => {
@@ -165,7 +177,7 @@ describe("SidebarModel — the durable read fills in, it does not override", () 
     ]);
     const model = new SidebarModel({ sessionId: SESSION_ID, uiStateStore });
     await model.restore();
-    expect(openSections(model)).toStrictEqual(["channels", "agents", "repos", "artifacts"]);
+    expect(openSections(model)).toStrictEqual(everySectionExcept("runs", "members"));
   });
 
   it("keeps a section attention opened in that window", async () => {

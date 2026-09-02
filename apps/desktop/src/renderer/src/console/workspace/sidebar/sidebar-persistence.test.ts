@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { SIDEBAR_SECTION_IDS } from "../seats/index.js";
+import { SIDEBAR_SECTION_IDS } from "../../seats/index.js";
 import {
   decodeCollapsedSectionIds,
   decodeSidebarWidth,

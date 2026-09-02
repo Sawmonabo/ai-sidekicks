@@ -18,7 +18,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import { Glyph, Nothing } from "../../../console/primitives/index.js";
-import type { OwnerSlotContract, OwnerSlotProps } from "../../../console/workspace/index.js";
+import type { OwnerSlotContract, OwnerSlotProps } from "../../../console/seats/index.js";
 import type { ConsoleBridge } from "../../../console/bridge/index.js";
 import { AttachmentPickerSeat } from "./AttachmentPickerSeat.js";
 

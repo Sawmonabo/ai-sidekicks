@@ -14,7 +14,8 @@ import {
   type RunState,
 } from "@ai-sidekicks/contracts";
 
-import { ConsolePaneRegistry } from "../../workspace/index.js";
+import { ConsolePaneRegistry, isDetachablePaneKind } from "../../seats/index.js";
+import { type PaneContextOf } from "../pane-chrome.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { SessionStore } from "../../store/index.js";
 import { FrameStore } from "../../store/index.js";
@@ -64,11 +65,16 @@ function scriptedBridge(deliveries: readonly unknown[]): ConsoleBridge {
   } as unknown as ConsoleBridge;
 }
 
-function paneContext(bridge: ConsoleBridge, sessionStore: SessionStore | undefined) {
+function paneContext(
+  bridge: ConsoleBridge,
+  sessionStore: SessionStore | undefined,
+): PaneContextOf<"runs"> {
   return {
-    kind: "runs" as const,
-    entity: undefined,
+    // No `entity` member: the runs pane is session-scoped, and its arm of the address
+    // union carries none.
+    kind: "runs",
     paneId: "pane-runs",
+    linkedSourcePaneId: undefined,
     bridge,
     frameStore: new FrameStore(),
     sessionStore,
@@ -354,11 +360,14 @@ describe("a partial stream is visible, and is neither an absence nor a refusal",
 });
 
 describe("the pane's registration", () => {
-  it("claims the runs kind through the registry's one door", () => {
+  it("claims the runs kind through the registry's one door, and no tear-off with it", () => {
     const registry = new ConsolePaneRegistry();
     registerRunsPane(registry);
     expect(registry.registeredPaneKinds()).toStrictEqual(["runs"]);
-    expect(registry.descriptorFor("runs")?.openInWindow).toBe(true);
+    // Whether a kind may be torn off is the window model's answer and never a
+    // claim on the descriptor, so the registration asserts the body and the
+    // predicate asserts the window.
+    expect(isDetachablePaneKind("runs")).toBe(false);
   });
 
   it("negative control: a registry nobody registered into claims nothing", () => {

@@ -22,7 +22,7 @@
 // task T4.8, handed to this console under the obligation that pairs with it.
 
 import { Nothing } from "../../../console/primitives/index.js";
-import type { OwnerSlotContract, OwnerSlotProps } from "../../../console/workspace/index.js";
+import type { OwnerSlotContract, OwnerSlotProps } from "../../../console/seats/index.js";
 
 /** The three facts this seat answers. Developer-facing; never rendered. */
 export const EDIT_RESEND_SLOT_CONTRACT: OwnerSlotContract = {

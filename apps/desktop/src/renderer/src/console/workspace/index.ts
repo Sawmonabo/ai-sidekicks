@@ -1,38 +1,33 @@
 // The workspace family's door.
 //
-// The family holds the session workspace's shared vocabulary — today, the seats
-// through which the six view families hand each other panes, a composer, sidebar
-// sections, timeline rows, and inline cards. A barrel and nothing else: the
-// declarations live in `seats/`, which has its own barrel because a caller
-// reaching for a seat is reaching for the seam and should say so in the import
-// path.
+// The family holds the session sidebar — this family's own body, and the one view
+// family surface the composer authors inside `console/`. The seats it renders
+// through live one layer down, in `console/seats/`: a section is filled by whoever
+// owns it, and a consumer reaching the sidebar through this door acquires no edge
+// to a section's owner.
 //
-// The family sits above `bridge/` and below the view families in the console's
-// DAG, and it imports nothing from `frame/` or `palette/` — a seat that needed the
-// frame would be a mount rather than a seam.
-
-export * from "./seats/index.js";
-
-// The session sidebar's frame. It is the composer family's body, and the workspace
-// family's door is where it belongs: the sidebar renders sections four families
-// own, so a consumer reaching it through a view family's barrel would acquire an
-// edge to a sibling.
+// WHY THE SIDEBAR IS HERE AND NOT IN A FAMILY OF ITS OWN. The sidebar renders
+// sections three families own. A family of its own would be one more view family
+// the other two had to import, which `console-view-family-isolation` forbids and
+// which is exactly what the seats exist to make unnecessary.
 //
-// The dead-code exemption rides EVERY hop of the re-export, this one and the
-// sidebar's own barrel: knip reports the unconsumed export at whichever specifier
-// is the last one nothing reads through, so a tag on one hop alone moves the
-// finding rather than answering it. Both are deleted by the task that imports the
-// symbol.
+// NO BARREL CHAIN. Every specifier below names the module that DECLARES the symbol
+// rather than a second `index.ts` — `console-no-barrel-chain` reports the second
+// hop, and a door that published a name it never declared would make a symbol's
+// home a matter of following two files instead of reading one line.
+
+// The dead-code exemption names the task that will import the symbol, on the terms
+// `apps/desktop/AGENTS.md` sets: the deck that mounts the sidebar has not landed.
+// The tag is deleted by that task, in the PR that does the importing.
 export {
   /** @consumedBy T-023p-1C-2 */
   Sidebar,
   /** @consumedBy T-023p-1C-2 */
   type SidebarProps,
-} from "./sidebar/index.js";
+} from "./sidebar/Sidebar.js";
 
 // The one sidebar section this family owns, filled through the seat like every
-// other. It ships through this door for the same reason `Sidebar` does — the
-// composition root that calls it sits outside the console and reaches a family
-// through its barrel — and it is a CALL rather than a module side effect, so
-// importing anything here fills no seat.
-export { registerComposerSidebarSections } from "./sidebar/sections/index.js";
+// other. It ships through this door because the composition root that calls it sits
+// outside the console and reaches a family through its barrel — and it is a CALL
+// rather than a module side effect, so importing anything here fills no seat.
+export { registerComposerSidebarSections } from "./sidebar/sections/section-registration.js";

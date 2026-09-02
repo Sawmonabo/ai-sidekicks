@@ -55,16 +55,23 @@ export const RUNS_SCENARIO: ConsoleScenario = {
   // refuses the caller-identity read and every control resolving a role from it renders
   // as though the role had been checked and found absent.
   viewingParticipantId: PARTICIPANT_YOU,
+  // The membership each PERSON in the roster holds. The two agents in the join order
+  // take no entry: an agent is attached rather than admitted, so it holds no
+  // membership and the fixture does not claim to know one. Without this, the viewer's
+  // identity read succeeds into a roster carrying no role and every owner- and
+  // collaborator-gated control renders closed for a reason nothing checked.
+  membershipRoleByParticipantId: { [PARTICIPANT_YOU]: "owner" },
   startedAtIso: "2026-01-01T16:00:00.000Z",
   beats: [
     {
       atMs: 0,
       event: {
+        id: "019b7a22-2200-7e00-8110-e5e0c2250001",
         sessionId: SESSION_ID,
         sequence: 1,
         kind: "session.created",
         occurredAt: "2026-01-01T16:00:00.000Z",
-        actorParticipantId: PARTICIPANT_YOU,
+        actorId: PARTICIPANT_YOU,
         // The registered shape, verbatim: a session's display name reaches the console
         // from the session read, and this payload's `.strict()` schema rejects a title.
         payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
@@ -73,11 +80,12 @@ export const RUNS_SCENARIO: ConsoleScenario = {
     {
       atMs: 40,
       event: {
+        id: "019b7a22-2200-7e00-8110-e5e0c2250002",
         sessionId: SESSION_ID,
         sequence: 2,
         kind: "agent.attached",
         occurredAt: "2026-01-01T16:00:00.040Z",
-        actorParticipantId: PARTICIPANT_YOU, // The person who attached it, not the agent.
+        actorId: PARTICIPANT_YOU, // The person who attached it, not the agent.
         payload: {
           sessionId: SESSION_ID,
           agentId: AGENT_IMPLEMENTER,
@@ -92,11 +100,12 @@ export const RUNS_SCENARIO: ConsoleScenario = {
     {
       atMs: 100,
       event: {
+        id: "019b7a22-2200-7e00-8110-e5e0c2250003",
         sessionId: SESSION_ID,
         sequence: 3,
         kind: "run.queued",
         occurredAt: "2026-01-01T16:00:00.100Z",
-        actorParticipantId: PARTICIPANT_YOU,
+        actorId: PARTICIPANT_YOU,
         payload: {
           sessionId: SESSION_ID,
           runId: RUN_ID,
@@ -109,19 +118,21 @@ export const RUNS_SCENARIO: ConsoleScenario = {
     {
       atMs: 130,
       event: {
+        id: "019b7a22-2200-7e00-8110-e5e0c2250004",
         sessionId: SESSION_ID,
         sequence: 4,
         // The queue's first row. `Spec-006 §Queue Events` registers the payload as
         // `{sessionId, queueItemId, channelId?, state}` — the ITEM's state, not the run's.
         kind: "queue_item.created",
         occurredAt: "2026-01-01T16:00:00.130Z",
-        actorParticipantId: PARTICIPANT_YOU,
+        actorId: PARTICIPANT_YOU,
         payload: { sessionId: SESSION_ID, queueItemId: QUEUE_ITEM_ADMITTED, state: "queued" },
       },
     },
     {
       atMs: 160,
       event: {
+        id: "019b7a22-2200-7e00-8110-e5e0c2250005",
         sessionId: SESSION_ID,
         sequence: 5,
         kind: "run.starting",
@@ -138,6 +149,7 @@ export const RUNS_SCENARIO: ConsoleScenario = {
     {
       atMs: 190,
       event: {
+        id: "019b7a22-2200-7e00-8110-e5e0c2250006",
         sessionId: SESSION_ID,
         sequence: 6,
         // The head item is taken. A queue row is durable and never deleted — drained but
@@ -150,6 +162,7 @@ export const RUNS_SCENARIO: ConsoleScenario = {
     {
       atMs: 230,
       event: {
+        id: "019b7a22-2200-7e00-8110-e5e0c2250007",
         sessionId: SESSION_ID,
         sequence: 7,
         kind: "run.running",
@@ -166,6 +179,7 @@ export const RUNS_SCENARIO: ConsoleScenario = {
     {
       atMs: 300,
       event: {
+        id: "019b7a22-2200-7e00-8110-e5e0c2250008",
         sessionId: SESSION_ID,
         sequence: 8,
         kind: "run.waiting_for_approval",
@@ -182,26 +196,28 @@ export const RUNS_SCENARIO: ConsoleScenario = {
     {
       atMs: 410,
       event: {
+        id: "019b7a22-2200-7e00-8110-e5e0c2250009",
         sessionId: SESSION_ID,
         sequence: 9,
         // A second row lands while the run is blocked — the ordinary way a queue
         // grows: the person kept typing.
         kind: "queue_item.created",
         occurredAt: "2026-01-01T16:00:00.410Z",
-        actorParticipantId: PARTICIPANT_YOU,
+        actorId: PARTICIPANT_YOU,
         payload: { sessionId: SESSION_ID, queueItemId: QUEUE_ITEM_WAITING, state: "queued" },
       },
     },
     {
       atMs: 520,
       event: {
+        id: "019b7a22-2200-7e00-8110-e5e0c2250010",
         sessionId: SESSION_ID,
         sequence: 10,
         // The unblock is the run reaching `running` again: the census has no separate
         // unblock verb, and inventing one would name a wire nobody serves.
         kind: "run.running",
         occurredAt: "2026-01-01T16:00:00.520Z",
-        actorParticipantId: PARTICIPANT_YOU,
+        actorId: PARTICIPANT_YOU,
         payload: {
           sessionId: SESSION_ID,
           runId: RUN_ID,
@@ -214,22 +230,24 @@ export const RUNS_SCENARIO: ConsoleScenario = {
     {
       atMs: 640,
       event: {
+        id: "019b7a22-2200-7e00-8110-e5e0c2250011",
         sessionId: SESSION_ID,
         sequence: 11,
         kind: "queue_item.created",
         occurredAt: "2026-01-01T16:00:00.640Z",
-        actorParticipantId: PARTICIPANT_YOU,
+        actorId: PARTICIPANT_YOU,
         payload: { sessionId: SESSION_ID, queueItemId: QUEUE_ITEM_EXPIRING, state: "queued" },
       },
     },
     {
       atMs: 700,
       event: {
+        id: "019b7a22-2200-7e00-8110-e5e0c2250012",
         sessionId: SESSION_ID,
         sequence: 12,
         kind: "run.paused",
         occurredAt: "2026-01-01T16:00:00.700Z",
-        actorParticipantId: PARTICIPANT_YOU,
+        actorId: PARTICIPANT_YOU,
         payload: {
           sessionId: SESSION_ID,
           runId: RUN_ID,
@@ -242,6 +260,7 @@ export const RUNS_SCENARIO: ConsoleScenario = {
     {
       atMs: 820,
       event: {
+        id: "019b7a22-2200-7e00-8110-e5e0c2250013",
         sessionId: SESSION_ID,
         sequence: 13,
         // The third row ages out while the run is paused. `expired` is a wire state,
@@ -254,6 +273,7 @@ export const RUNS_SCENARIO: ConsoleScenario = {
     {
       atMs: 880,
       event: {
+        id: "019b7a22-2200-7e00-8110-e5e0c2250014",
         sessionId: SESSION_ID,
         sequence: 14,
         // The resume, likewise: a resumed run is a run that is `running`. The pause
@@ -261,7 +281,7 @@ export const RUNS_SCENARIO: ConsoleScenario = {
         // them distinguishable without a verb the wire does not have.
         kind: "run.running",
         occurredAt: "2026-01-01T16:00:00.880Z",
-        actorParticipantId: PARTICIPANT_YOU,
+        actorId: PARTICIPANT_YOU,
         payload: {
           sessionId: SESSION_ID,
           runId: RUN_ID,
@@ -274,6 +294,7 @@ export const RUNS_SCENARIO: ConsoleScenario = {
     {
       atMs: 980,
       event: {
+        id: "019b7a22-2200-7e00-8110-e5e0c2250015",
         sessionId: SESSION_ID,
         sequence: 15,
         // The rewind: the second arm of the `run.subscribeState` stream, FORWARD and
@@ -284,7 +305,7 @@ export const RUNS_SCENARIO: ConsoleScenario = {
         // version still advances, so a stale comparand's next guarded control refuses.
         kind: "run.rolled_back",
         occurredAt: "2026-01-01T16:00:00.980Z",
-        actorParticipantId: PARTICIPANT_YOU,
+        actorId: PARTICIPANT_YOU,
         payload: {
           sessionId: SESSION_ID,
           runId: RUN_ID,

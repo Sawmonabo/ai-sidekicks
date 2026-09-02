@@ -34,7 +34,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { InlineRefusal, Nothing, WireFigure } from "../../../console/primitives/index.js";
-import { type ComposerSeatProps } from "../../../console/workspace/index.js";
+import { type ComposerSeatProps } from "../../../console/seats/index.js";
 import { useComposerAddress } from "../composer-address.js";
 import type { CommandOutcome } from "../router/command-executor.js";
 import { createClientCommandExecutor } from "./client-command-executor.js";

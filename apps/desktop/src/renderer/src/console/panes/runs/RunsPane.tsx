@@ -42,8 +42,7 @@ import { useDriverCapabilities, useQueueFeed } from "../../bridge/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
 import { DerivedFigure, formatCount, InlineRefusal, Nothing } from "../../primitives/index.js";
 import { useSessionPartition, type SessionStore } from "../../store/index.js";
-import { type ConsolePaneContext } from "../../workspace/index.js";
-import { ConsolePaneChrome, paneScopeCrumbs } from "../pane-chrome.js";
+import { ConsolePaneChrome, paneScopeCrumbs, type PaneContextOf } from "../pane-chrome.js";
 import { QueueContents } from "./QueueContents.js";
 import { RunInterventionComposer, type ComposedControl } from "./RunInterventionComposer.js";
 import { RunRow } from "./RunRow.js";
@@ -56,13 +55,9 @@ interface ComposerTarget {
   readonly control: ComposedControl;
 }
 
-export function RunsPane(context: ConsolePaneContext): React.JSX.Element {
+export function RunsPane(context: PaneContextOf<"runs">): React.JSX.Element {
   return (
-    <ConsolePaneChrome
-      kind="runs"
-      leadingCrumbs={paneScopeCrumbs(context.entity)}
-      focusHue={context.focusHue}
-    >
+    <ConsolePaneChrome kind="runs" leadingCrumbs={paneScopeCrumbs()} focusHue={context.focusHue}>
       {context.sessionStore === undefined ? (
         <Nothing
           kind="not-checked"
@@ -85,7 +80,7 @@ export function RunsPane(context: ConsolePaneContext): React.JSX.Element {
  * is what keeps every subscription's lifetime the same as this component's.
  */
 function RunsPaneBody(props: {
-  readonly context: ConsolePaneContext;
+  readonly context: PaneContextOf<"runs">;
   readonly sessionStore: SessionStore;
 }): React.JSX.Element {
   const { context, sessionStore } = props;

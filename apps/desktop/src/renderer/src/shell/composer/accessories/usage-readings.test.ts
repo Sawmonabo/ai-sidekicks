@@ -30,6 +30,9 @@ function event(
   payload: Readonly<Record<string, unknown>>,
 ): ConsoleSessionEvent {
   return {
+    // The event's own identifier, composed from the position so two rows of one
+    // session never share one.
+    id: `event-${String(sequence)}`,
     sessionId: SESSION_ID,
     sequence,
     kind,

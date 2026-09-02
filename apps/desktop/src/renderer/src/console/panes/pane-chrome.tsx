@@ -24,8 +24,8 @@
 // primitive can.
 
 import { type ConsoleEntityRef } from "../store/index.js";
-import { type PaneKind } from "../workspace/index.js";
-import { Glyph, type GlyphName } from "../primitives/index.js";
+import { type ConsolePaneContext, type PaneKind } from "../seats/index.js";
+import { Glyph, InlineRefusal, type GlyphName } from "../primitives/index.js";
 
 import "./pane-chrome.css";
 
@@ -74,13 +74,55 @@ const TITLE_BY_PANE_KIND: Readonly<Record<PaneKind, string>> = {
 /**
  * The crumbs leading to a pane, from what the deck addressed it with.
  *
- * Shared rather than spelled per pane: `ConsolePaneAddress.entity` is `undefined`
- * for the session-scoped kinds, and three panes each writing their own conditional
- * is three chances to render "undefined undefined" in a breadcrumb. The identifier
- * is wire-verbatim — it is a string, so it is rendered as received.
+ * Shared rather than spelled per pane: three panes each writing their own
+ * conditional is three chances to render "undefined undefined" in a breadcrumb. The
+ * identifier is wire-verbatim — it is a string, so it is rendered as received.
+ *
+ * The parameter is OPTIONAL because a session-scoped pane kind has no `entity`
+ * member on its address at all — not a member holding `undefined` — so the call it
+ * makes is the argument-less one, and a required parameter would have every such
+ * pane passing a literal `undefined` that reads as a value it failed to resolve.
  */
-export function paneScopeCrumbs(entity: ConsoleEntityRef | undefined): readonly string[] {
+export function paneScopeCrumbs(entity?: ConsoleEntityRef): readonly string[] {
   return entity === undefined ? ["Session"] : ["Session", `${entity.kind} ${entity.id}`];
+}
+
+/** The context a body of one pane kind is handed, narrowed to that kind's arm. */
+export type PaneContextOf<TKind extends PaneKind> = Extract<ConsolePaneContext, { kind: TKind }>;
+
+/** The subsystem a pane-composition refusal names as its author. */
+const PANE_COMPOSITION_ORIGIN = "pane-composition";
+
+/**
+ * Adapt a body written for ONE pane kind into the render the registry stores.
+ *
+ * `ConsolePaneDescriptor.render` takes the whole `ConsolePaneContext` union, because
+ * one registry holds every kind. A body does not: an inspector reads an entity the
+ * runs pane's arm does not carry, which is the property the kind-scoped address union
+ * exists to hold. So the narrowing happens once, here, rather than three times in
+ * three families with three different answers for the arm that cannot be served.
+ *
+ * A MISMATCH IS A RENDERED REFUSAL AND NEVER A THROW. The deck looks a body up BY
+ * kind and hands it a context addressed at that kind, so the arm below is
+ * unreachable through the deck — but the two untyped boundaries (a restored layout
+ * row, a typed route) are where an address arrives without the compiler, and
+ * `core/refusal.ts`'s rule is that one bad row loses that row rather than the deck.
+ * A throw here would take the whole window down for a pane; the refusal keeps the
+ * frame and names what was asked for.
+ */
+export function paneBodyForKind<TKind extends PaneKind>(
+  kind: TKind,
+  renderBody: (context: PaneContextOf<TKind>) => React.ReactNode,
+): (context: ConsolePaneContext) => React.ReactNode {
+  return (context) =>
+    context.kind === kind ? (
+      renderBody(context as PaneContextOf<TKind>)
+    ) : (
+      <InlineRefusal
+        code={`${PANE_COMPOSITION_ORIGIN}.pane-kind-mismatch`}
+        detail={`the ${TITLE_BY_PANE_KIND[kind]} pane was mounted at a "${context.kind}" address, which it is not a view of`}
+      />
+    );
 }
 
 /** Carries the pane's attributed hue into the focus ring, as `LedgerRow` does. */

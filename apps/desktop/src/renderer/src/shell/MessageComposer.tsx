@@ -35,7 +35,7 @@
 
 import { useId, useMemo, useRef } from "react";
 
-import { type ComposerSeatProps } from "../console/workspace/index.js";
+import { type ComposerSeatProps } from "../console/seats/index.js";
 import { ComposerAccessoryRail } from "./composer/accessories/index.js";
 import { ComposerChipRail } from "./composer/chips/index.js";
 import { ProviderCommandAutocomplete } from "./composer/commands/index.js";

@@ -11,7 +11,8 @@
 
 import { createElement } from "react";
 
-import { type ConsolePaneRegistry } from "../../workspace/index.js";
+import { type ConsolePaneRegistry } from "../../seats/index.js";
+import { paneBodyForKind } from "../pane-chrome.js";
 import { ApprovalsPane } from "./ApprovalsPane.js";
 
 // The sheet is imported here, at the pane's single door, for the reason
@@ -23,17 +24,20 @@ import "./approvals.css";
 /**
  * Claim the `approvals` kind.
  *
- * `openInWindow: true` — an approvals queue is one of the two things a person
- * most wants beside the work rather than on top of it, and the pane holds only a
- * read and two answers, neither of which is bound to this window.
+ * The descriptor makes no claim about being torn off. Whether a kind may move into
+ * an auxiliary window is `isDetachablePaneKind`'s single answer, derived from the
+ * window model rather than advertised by whoever owns the body — and it answers no
+ * for this one, because the two auxiliary windows the shell opens are named
+ * elsewhere and neither is an approvals queue.
  */
 export function registerApprovalsPane(registry: ConsolePaneRegistry): void {
   registry.register({
     kind: "approvals",
     owner: "approvals-pane",
-    // `createElement` rather than JSX: this is a `.ts` module, and the naming rule
-    // reserves `.tsx` for a single PascalCase component per file.
-    render: (context) => createElement(ApprovalsPane, context),
-    openInWindow: true,
+    // Narrowed to this kind's own address arm before the body sees it, so the body
+    // reads the entity its kind admits and nothing else. `createElement` rather than
+    // JSX: this is a `.ts` module, and the naming rule reserves `.tsx` for a single
+    // PascalCase component per file.
+    render: paneBodyForKind("approvals", (context) => createElement(ApprovalsPane, context)),
   });
 }

@@ -1,13 +1,13 @@
 // Which detail renders which entity kind. Total over the closed set, by type.
 //
 // `Record<ConsoleEntityKind, …>` rather than a lookup with a fallback: the entity
-// kinds are declared once in `store/entities.ts`, and a thirteenth added there
+// kinds are declared once in `store/entities.ts`, and one added there
 // should fail to compile HERE — where somebody has to decide what its record says —
 // rather than reach a deck that renders it as a blank pane. There is no default
 // arm for the same reason: a default is a body that claims to know a kind nobody
 // wrote a record for.
 //
-// The table is the only module that imports all twelve details, and none of them
+// The table is the only module that imports every detail, and none of them
 // imports it. That is what keeps the shared vocabulary (`entity-facets.ts`) below
 // both, and it is why `EntityDetailProps` lives there rather than here.
 
@@ -17,7 +17,9 @@ import { ApprovalEntityDetail } from "./ApprovalEntityDetail.js";
 import { ArtifactEntityDetail } from "./ArtifactEntityDetail.js";
 import { BrowserPageEntityDetail } from "./BrowserPageEntityDetail.js";
 import { ChannelEntityDetail } from "./ChannelEntityDetail.js";
+import { InviteEntityDetail } from "./InviteEntityDetail.js";
 import { ParticipantEntityDetail } from "./ParticipantEntityDetail.js";
+import { RepoEntityDetail } from "./RepoEntityDetail.js";
 import { RunEntityDetail } from "./RunEntityDetail.js";
 import { SessionEntityDetail } from "./SessionEntityDetail.js";
 import { WorkflowDefinitionEntityDetail } from "./WorkflowDefinitionEntityDetail.js";
@@ -43,4 +45,6 @@ export const ENTITY_DETAIL_BY_KIND: Readonly<Record<ConsoleEntityKind, EntityDet
   "workflow-definition": WorkflowDefinitionEntityDetail,
   "workflow-run": WorkflowRunEntityDetail,
   "browser-page": BrowserPageEntityDetail,
+  repo: RepoEntityDetail,
+  invite: InviteEntityDetail,
 };

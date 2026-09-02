@@ -32,7 +32,7 @@
 import { useCallback, useId } from "react";
 
 import { InlineRefusal, RefusalCard } from "../../../console/primitives/index.js";
-import { type ComposerSeatProps } from "../../../console/workspace/index.js";
+import { type ComposerSeatProps } from "../../../console/seats/index.js";
 import { COMPOSER_DIRECTIVE_LINE_MAX_ROWS } from "../composer-bounds.js";
 import { useComposerAddress } from "../composer-address.js";
 import { readTextNeutralization } from "../neutralization-tripwire.js";

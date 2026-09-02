@@ -100,9 +100,15 @@ function initialisedStore(sessionId = SESSION_ID): SessionStore {
   return store;
 }
 
-/** One lifecycle signal, at the local position a relayed event would take. */
+/**
+ * One lifecycle signal, at the local position a relayed event would take.
+ *
+ * The row id is composed from the position rather than fixed, because it is the
+ * event's own identifier and two rows of one session never share one.
+ */
 function lifecycleEvent(sessionId: string, sequence: number): ConsoleSessionEvent {
   return {
+    id: `event-${String(sequence)}`,
     sessionId,
     sequence,
     kind: "approval.requested",

@@ -51,7 +51,7 @@ import {
   SIDEBAR_SECTION_IDS,
   type SidebarSectionAttention,
   type SidebarSectionId,
-} from "../seats/index.js";
+} from "../../seats/index.js";
 import {
   SIDEBAR_COLLAPSED_SECTIONS_KEY,
   SIDEBAR_DEFAULT_WIDTH_PX,

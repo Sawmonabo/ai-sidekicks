@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 
 import { type UiStateStore } from "../../persistence/index.js";
-import { type SidebarSectionId } from "../seats/index.js";
+import { type SidebarSectionId } from "../../seats/index.js";
 import { SidebarKeyboard, type SidebarCommandTargets } from "./sidebar-commands.js";
 import { SidebarModel, type SidebarSnapshot } from "./sidebar-model.js";
 

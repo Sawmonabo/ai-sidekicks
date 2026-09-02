@@ -55,7 +55,7 @@ import {
   type ConsolePaneAddress,
   type ConsolePaneContext,
   type PaneKind,
-} from "../../src/renderer/src/console/workspace/index.js";
+} from "../../src/renderer/src/console/seats/index.js";
 
 /** The element a tier reads, and the bridge it was mounted against. */
 export interface MountedFamilySurface {
@@ -175,7 +175,7 @@ export async function mountRunsPane(): Promise<MountedFamilySurface> {
     <RunsPaneBody
       kind="runs"
       paneId="pane-runs-surface"
-      entity={undefined}
+      linkedSourcePaneId={undefined}
       bridge={bridge}
       sessionStore={new SessionStore({ sessionId: RUNS_SCENARIO.sessionId })}
       frameStore={new FrameStore()}

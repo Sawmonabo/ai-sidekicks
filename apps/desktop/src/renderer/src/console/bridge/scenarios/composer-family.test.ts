@@ -20,7 +20,8 @@
 import { describe, expect, it } from "vitest";
 
 import { createFixtureGrowthPort } from "../fixture-growth-port.js";
-import { ScenarioEngine, type ConsoleScenario } from "../scenario.js";
+import { ScenarioEngine } from "../scenario-engine.js";
+import { type ConsoleScenario } from "../scenario.js";
 import {
   RUN_QUEUE_EVENT_STREAM,
   RUN_STATE_EVENT_STREAM,
@@ -94,6 +95,7 @@ describe("the composer family's three scenarios are wire-true", () => {
           {
             atMs: 0,
             event: {
+              id: "019b7a11-1100-7e00-8110-e5e0c115c001",
               sessionId: COMPOSER_SCENARIO.sessionId,
               sequence: 1,
               kind: "session.created",

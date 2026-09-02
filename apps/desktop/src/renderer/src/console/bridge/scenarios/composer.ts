@@ -67,6 +67,10 @@ const RUN_ID = "019b7a11-1100-740e-8110-d1a4c1150311";
  * agent drift in exactly the direction nothing catches. The drivers are mixed on
  * purpose — a composer whose whole cast runs one provider cannot show what a
  * two-provider target chip looks like, and that is the chip this scenario is for.
+ *
+ * `eventId` is the daemon's opaque row id for the attach event the entry produces —
+ * carried here rather than composed at the beat, so the two beats the map emits are
+ * distinct rows rather than one id repeated.
  */
 const COMPOSER_AGENTS = [
   {
@@ -76,6 +80,7 @@ const COMPOSER_AGENTS = [
     modelId: "claude-sonnet-5",
     attachedAtMs: 120,
     attachedAtIso: "2026-01-01T11:05:00.120Z",
+    eventId: "019b7a11-1100-7e00-8110-e5e0c1150003",
   },
   {
     agentId: AGENT_REVIEWER,
@@ -84,6 +89,7 @@ const COMPOSER_AGENTS = [
     modelId: "gpt-5.6-sol",
     attachedAtMs: 180,
     attachedAtIso: "2026-01-01T11:05:00.180Z",
+    eventId: "019b7a11-1100-7e00-8120-e5e0c1150004",
   },
 ] as const;
 
@@ -109,16 +115,26 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
   // a surface handed a fabricated identity renders a role gate as though it had been
   // checked. The fixture answers `callerParticipantRead` from this field alone.
   viewingParticipantId: PARTICIPANT_YOU,
+  // The membership each PERSON in the roster holds. The two agents in the join order
+  // take no entry: an agent is attached rather than admitted, so it holds no
+  // membership and the fixture does not claim to know one. Without this, the viewer's
+  // identity read succeeds into a roster carrying no role and every owner- and
+  // collaborator-gated control renders closed for a reason nothing checked.
+  membershipRoleByParticipantId: {
+    [PARTICIPANT_YOU]: "owner",
+    [PARTICIPANT_PRIYA]: "collaborator",
+  },
   startedAtIso: "2026-01-01T11:05:00.000Z",
   beats: [
     {
       atMs: 0,
       event: {
+        id: "019b7a11-1100-7e00-8110-e5e0c1150001",
         sessionId: SESSION_ID,
         sequence: 1,
         kind: "session.created",
         occurredAt: "2026-01-01T11:05:00.000Z",
-        actorParticipantId: PARTICIPANT_YOU,
+        actorId: PARTICIPANT_YOU,
         // The registered shape, verbatim. A session's display name reaches the
         // console from the session read; the creation event carries no title, and
         // its `.strict()` payload rejects one.
@@ -128,13 +144,14 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
     {
       atMs: 60,
       event: {
+        id: "019b7a11-1100-7e00-8110-e5e0c1150002",
         sessionId: SESSION_ID,
         sequence: 2,
         // A person joining a session is a membership event: `participant.*` is not
         // in the census at all.
         kind: "membership.created",
         occurredAt: "2026-01-01T11:05:00.060Z",
-        actorParticipantId: PARTICIPANT_PRIYA,
+        actorId: PARTICIPANT_PRIYA,
         payload: {
           membershipId: MEMBERSHIP_PRIYA,
           participantId: PARTICIPANT_PRIYA,
@@ -146,13 +163,14 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
     ...COMPOSER_AGENTS.map((agent, agentIndex) => ({
       atMs: agent.attachedAtMs,
       event: {
+        id: agent.eventId,
         sessionId: SESSION_ID,
         sequence: FIRST_AGENT_SEQUENCE + agentIndex,
         kind: "agent.attached",
         occurredAt: agent.attachedAtIso,
         // The person who attached the agent, not the agent. An agent does not attach
         // itself, and the envelope actor is who acted.
-        actorParticipantId: PARTICIPANT_YOU,
+        actorId: PARTICIPANT_YOU,
         payload: {
           sessionId: SESSION_ID,
           agentId: agent.agentId,
@@ -167,11 +185,12 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
     {
       atMs: 260,
       event: {
+        id: "019b7a11-1100-7e00-8110-e5e0c1150003",
         sessionId: SESSION_ID,
         sequence: 5,
         kind: "run.queued",
         occurredAt: "2026-01-01T11:05:00.260Z",
-        actorParticipantId: PARTICIPANT_YOU,
+        actorId: PARTICIPANT_YOU,
         // `previousState` is absent here and only here: a queued run is being born.
         payload: {
           sessionId: SESSION_ID,
@@ -185,6 +204,7 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
     {
       atMs: 320,
       event: {
+        id: "019b7a11-1100-7e00-8110-e5e0c1150004",
         sessionId: SESSION_ID,
         sequence: 6,
         kind: "run.starting",
@@ -203,6 +223,7 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
     {
       atMs: 400,
       event: {
+        id: "019b7a11-1100-7e00-8110-e5e0c1150005",
         sessionId: SESSION_ID,
         sequence: 7,
         kind: "run.running",
@@ -219,6 +240,7 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
     {
       atMs: 480,
       event: {
+        id: "019b7a11-1100-7e00-8110-e5e0c1150006",
         sessionId: SESSION_ID,
         sequence: 8,
         // Waiting is not pausing: this run is blocked on someone, and the composer

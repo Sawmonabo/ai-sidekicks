@@ -23,7 +23,7 @@
 import type { ExecutionPosture } from "@ai-sidekicks/contracts";
 
 import type { ConsoleEntity, ConsoleEntityRef } from "../../../console/store/index.js";
-import type { ConsolePaneAddress } from "../../../console/workspace/index.js";
+import type { ConsolePaneAddress } from "../../../console/seats/index.js";
 import { resolveAddressedRun } from "./addressed-run.js";
 
 /**
@@ -218,12 +218,23 @@ export function resolvePostureChipModel(
   return { stamped: readStampedPosture(runs[target.targetRunId]?.body) };
 }
 
-/** The entity of one kind a focused pane names, or `undefined` when it names another. */
+/**
+ * The entity of one kind a focused pane names, or `undefined` when it names another.
+ *
+ * The `in` check is the narrowing and not a defensive guard: `ConsolePaneAddress` is
+ * a union over pane kind, and a session-scoped arm carries no `entity` MEMBER at all
+ * rather than one holding `undefined`. So a pane addressed at `runs`, `approvals`,
+ * `browser`, or `terminal` names no entity by construction, and this reads that fact
+ * off the address rather than dereferencing a member three arms do not have.
+ */
 function focusedRefOfKind(
   pane: ConsolePaneAddress | undefined,
   kind: ConsoleEntityRef["kind"],
 ): ConsoleEntityRef | undefined {
-  const entity = pane?.entity;
+  if (pane === undefined || !("entity" in pane)) {
+    return undefined;
+  }
+  const { entity } = pane;
   return entity !== undefined && entity.kind === kind ? entity : undefined;
 }
 

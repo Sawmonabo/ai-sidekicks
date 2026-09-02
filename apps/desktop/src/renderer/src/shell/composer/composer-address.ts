@@ -15,7 +15,7 @@
 import { useMemo } from "react";
 
 import { useSessionPartition, type SessionStore } from "../../console/store/index.js";
-import type { ConsolePaneAddress } from "../../console/workspace/index.js";
+import type { ConsolePaneAddress } from "../../console/seats/index.js";
 import {
   resolveComposerTarget,
   resolvePostureChipModel,

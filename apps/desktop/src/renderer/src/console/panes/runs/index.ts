@@ -17,7 +17,8 @@
 
 import { createElement } from "react";
 
-import { type ConsolePaneRegistry } from "../../workspace/index.js";
+import { type ConsolePaneRegistry } from "../../seats/index.js";
+import { paneBodyForKind } from "../pane-chrome.js";
 import { RunsPane } from "./RunsPane.js";
 
 import "./runs.css";
@@ -25,17 +26,18 @@ import "./runs.css";
 /**
  * Claim the `runs` kind.
  *
- * `openInWindow: true` — the runs list is a read over session state with no
- * main-process view and no process lease behind it, so it follows a tear-off
- * without its owning plan having to say how.
+ * The descriptor makes no claim about being torn off — `isDetachablePaneKind` is
+ * the one answer, read off the window model rather than advertised here, and the
+ * runs list is not among the kinds it admits.
  */
 export function registerRunsPane(registry: ConsolePaneRegistry): void {
   registry.register({
     kind: "runs",
     owner: "runs-pane",
-    // `createElement` rather than JSX: this is a `.ts` module, and the naming rule
-    // reserves `.tsx` for a single PascalCase component per file.
-    render: (context) => createElement(RunsPane, context),
-    openInWindow: true,
+    // Narrowed to this kind's own address arm before the body sees it, so the body
+    // reads the entity its kind admits and nothing else. `createElement` rather than
+    // JSX: this is a `.ts` module, and the naming rule reserves `.tsx` for a single
+    // PascalCase component per file.
+    render: paneBodyForKind("runs", (context) => createElement(RunsPane, context)),
   });
 }

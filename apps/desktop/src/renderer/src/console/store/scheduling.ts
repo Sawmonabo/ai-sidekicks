@@ -43,13 +43,26 @@ import {
 } from "../core/index.js";
 import type { ConsoleSessionEvent } from "./entities.js";
 
-/** Why a refresh was requested. Rendered in diagnostics; never inferred. */
+/**
+ * Why a refresh was requested. Rendered in diagnostics; never inferred.
+ *
+ * `participant-request` is the one a person caused: somebody pressed the control that
+ * reads again. It is its own member rather than borrowed from a neighbour, and the rule
+ * is that a press is a reason of its own — never disguised as a subscription, which
+ * says a surface has just opened, and never as a terminal event, which says the wire
+ * delivered something. Both of those are claims about the SYSTEM, and a diagnostics
+ * trail that recorded a person's press as either would report a read nobody asked for
+ * beside the reads nobody did, with no way afterwards to tell which was which. The
+ * scheduler treats it exactly as it treats the rest — it coalesces, it does not jump a
+ * queue — because a reason names why a read happened and never how urgent it was.
+ */
 export type RefreshReason =
   | "subscribe"
   | "window-focus"
   | "reconnect"
   | "terminal-event"
-  | "gap-repull";
+  | "gap-repull"
+  | "participant-request";
 
 /** The read a scheduler performs. Rejections are surfaced, never swallowed. */
 export type RefreshPerformer = (reasons: readonly RefreshReason[]) => Promise<void>;

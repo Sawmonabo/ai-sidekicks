@@ -20,16 +20,18 @@ import { APPROVALS_SCENARIO } from "../../bridge/scenarios/approvals.js";
 import { COMPOSER_SCENARIO } from "../../bridge/scenarios/composer.js";
 import { DraftStore, MemoryPersistenceAdapter, UiStateStore } from "../../persistence/index.js";
 import { FrameStore, SessionStore } from "../../store/index.js";
-import { type ConsolePaneContext } from "../../workspace/index.js";
+import { type PaneContextOf } from "../pane-chrome.js";
 
 function paneContext(
   bridge: ConsoleBridge,
   sessionStore: SessionStore | undefined,
-): ConsolePaneContext {
+): PaneContextOf<"approvals"> {
   return {
+    // No `entity` member: the approvals pane is session-scoped, and its arm of the
+    // address union carries none.
     kind: "approvals",
-    entity: undefined,
     paneId: "pane-approvals",
+    linkedSourcePaneId: undefined,
     bridge,
     frameStore: new FrameStore(),
     sessionStore,

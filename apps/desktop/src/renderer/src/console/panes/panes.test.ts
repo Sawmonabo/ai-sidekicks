@@ -18,7 +18,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ConsolePaneRegistry, type PaneKind } from "../workspace/index.js";
+import { ConsolePaneRegistry, type PaneKind } from "../seats/index.js";
 import { registerConsolePanes } from "./index.js";
 
 declare global {
@@ -124,12 +124,7 @@ describe("pane seat board — composing it today", () => {
     expect(registry.registeredPaneKinds()).not.toContain("timeline");
     // And the registry does report a kind once someone claims it, so the absence
     // above is a fact about the seat board rather than about the registry.
-    registry.register({
-      kind: "timeline",
-      owner: "panes-test",
-      render: () => null,
-      openInWindow: true,
-    });
+    registry.register({ kind: "timeline", owner: "panes-test", render: () => null });
     expect(registry.registeredPaneKinds()).toContain("timeline");
   });
 });

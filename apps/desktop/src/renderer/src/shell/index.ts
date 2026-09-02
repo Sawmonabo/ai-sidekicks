@@ -18,10 +18,8 @@
 
 import { createElement } from "react";
 
-import {
-  registerComposerSeat,
-  registerComposerSidebarSections,
-} from "../console/workspace/index.js";
+import { registerComposerSeat } from "../console/seats/index.js";
+import { registerComposerSidebarSections } from "../console/workspace/index.js";
 import { MessageComposer } from "./MessageComposer.js";
 
 import "./composer.css";
@@ -35,8 +33,8 @@ import "./composer.css";
  */
 export function registerComposerFamily(): void {
   registerComposerSeat("composer", (props) => createElement(MessageComposer, props));
-  // The sidebar frame is this family's too, and so is exactly one of the six
-  // sections it renders. The other five are the collaboration and repos
+  // The sidebar frame is this family's too, and so is exactly one of the eight
+  // sections it renders. The other seven are the collaboration and repos
   // families', registered from their own composition for the same reason.
   registerComposerSidebarSections();
 }

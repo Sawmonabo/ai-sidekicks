@@ -20,7 +20,7 @@ import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../../console/bridge/index.js";
 import type { ConsoleScenario } from "../../../console/bridge/scenario.js";
-import type { OwnerSlotContract } from "../../../console/workspace/index.js";
+import type { OwnerSlotContract } from "../../../console/seats/index.js";
 import { CompactionSlot, COMPACTION_SLOT_CONTRACT, type CompactionBody } from "./CompactionSlot.js";
 import {
   ContextMeterSlot,

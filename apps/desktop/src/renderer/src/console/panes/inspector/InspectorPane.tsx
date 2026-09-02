@@ -22,11 +22,10 @@
 // truth `Spec-023 §Pitfalls To Avoid` names.
 
 import { Nothing } from "../../primitives/index.js";
-import { type ConsolePaneContext } from "../../workspace/index.js";
-import { ConsolePaneChrome, paneScopeCrumbs } from "../pane-chrome.js";
+import { ConsolePaneChrome, paneScopeCrumbs, type PaneContextOf } from "../pane-chrome.js";
 import { InspectedEntity } from "./entity-detail/InspectedEntity.js";
 
-export function InspectorPane(context: ConsolePaneContext): React.JSX.Element {
+export function InspectorPane(context: PaneContextOf<"inspector">): React.JSX.Element {
   return (
     <ConsolePaneChrome
       kind="inspector"
@@ -48,18 +47,14 @@ export function InspectorPane(context: ConsolePaneContext): React.JSX.Element {
  * exists on the record already, so the link renders the moment the deck supplies
  * one — and until then the record simply does not claim to be linked.
  */
-function InspectorPaneBody(props: { readonly context: ConsolePaneContext }): React.JSX.Element {
+function InspectorPaneBody(props: {
+  readonly context: PaneContextOf<"inspector">;
+}): React.JSX.Element {
   const { context } = props;
-  if (context.entity === undefined) {
-    return (
-      <Nothing
-        kind="not-checked"
-        placement="surface"
-        title="The inspector was opened without an entity to inspect."
-        detail="An inspector is a read over one entity. Open one from the sidebar, from a run row, or from the palette, and its record lands here."
-      />
-    );
-  }
+  // There is no arm for a missing entity, and that is the seat's doing rather than an
+  // omission: `seats/pane-address.ts` makes the inspector's address REQUIRE one, so an
+  // address with none is refused as `pane-entity-required` at the two untyped
+  // boundaries — a restored layout row and a typed route — and never reaches a body.
   if (context.sessionStore === undefined) {
     return (
       <Nothing

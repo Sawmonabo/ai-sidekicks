@@ -12,7 +12,7 @@ import type { ConsoleBridge } from "../../../console/bridge/index.js";
 import { DEFAULT_ROUTE } from "../../../console/routing/index.js";
 import { DraftStore } from "../../../console/persistence/index.js";
 import { SessionStore } from "../../../console/store/index.js";
-import type { ConsolePaneAddress } from "../../../console/workspace/index.js";
+import type { ConsolePaneAddress } from "../../../console/seats/index.js";
 import { ProviderCommandEnumeration } from "../commands/provider-command-holder.js";
 import { ComposerSendBar } from "./ComposerSendBar.js";
 

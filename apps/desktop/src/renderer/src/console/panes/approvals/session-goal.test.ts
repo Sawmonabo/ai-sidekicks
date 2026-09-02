@@ -36,6 +36,9 @@ function event(
   occurredAt = "2026-01-01T00:00:00.000Z",
 ): ConsoleSessionEvent {
   return {
+    // The event's own identifier, composed from the position so two rows of one
+    // session never share one.
+    id: `event-${String(sequence)}`,
     sessionId: "session-one",
     sequence,
     kind,

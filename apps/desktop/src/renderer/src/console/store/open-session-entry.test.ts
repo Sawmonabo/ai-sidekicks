@@ -17,6 +17,7 @@ import { OpenSessionEntry } from "./open-session-entry.js";
 
 function eventAt(sequence: number): ConsoleSessionEvent {
   return {
+    id: `event-${String(sequence)}`,
     sessionId: "session-1",
     sequence,
     kind: "run.starting",

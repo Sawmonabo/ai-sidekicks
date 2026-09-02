@@ -18,7 +18,7 @@
 // would synthesise a state the daemon never served.
 
 import { Nothing } from "../../primitives/index.js";
-import { type OwnerSlotContract, type OwnerSlotProps } from "../../workspace/index.js";
+import { type OwnerSlotContract, type OwnerSlotProps } from "../../seats/index.js";
 
 /**
  * Who owns the body, what this pane owes it, and where the shell dies.

@@ -42,7 +42,7 @@ import {
   type ConsolePaneOpener,
   type SidebarSectionId,
   type SidebarSectionRegistry,
-} from "../seats/index.js";
+} from "../../seats/index.js";
 import { SidebarResizeHandle } from "./SidebarResizeHandle.js";
 import { SidebarSection } from "./SidebarSection.js";
 import { useSidebarKeyboard, useSidebarModel, useSidebarSnapshot } from "./sidebar-hooks.js";

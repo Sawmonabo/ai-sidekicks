@@ -23,6 +23,7 @@ import { SessionStore } from "./session-store.js";
 
 function eventAt(sequence: number): ConsoleSessionEvent {
   return {
+    id: `event-${String(sequence)}`,
     sessionId: "session-1",
     sequence,
     kind: "run.starting",

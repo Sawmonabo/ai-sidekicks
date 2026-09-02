@@ -14,7 +14,7 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { SIDEBAR_SECTION_IDS, type ConsolePaneAddress } from "../seats/index.js";
+import { SIDEBAR_SECTION_IDS, type ConsolePaneAddress } from "../../seats/index.js";
 import { SIDEBAR_COMMAND_IDS, SidebarKeyboard, sidebarCommands } from "./sidebar-commands.js";
 import { SidebarModel } from "./sidebar-model.js";
 
@@ -77,7 +77,7 @@ describe("sidebar chords — the DOM-free cursor", () => {
     // `runs` is the one section whose subject has a session-scoped pane kind.
     model.setCursor("runs");
     press(container, "Enter", "Enter");
-    expect(openedPanes).toStrictEqual([{ kind: "runs", entity: undefined }]);
+    expect(openedPanes).toStrictEqual([{ kind: "runs" }]);
   });
 
   it("expands rather than opening a pane where the section names none", () => {
