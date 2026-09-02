@@ -28,7 +28,7 @@ import type { ConsoleBridge } from "../bridge/index.js";
 import { Nothing, RefusalCard, useAnnounce } from "../primitives/index.js";
 import { ProposalGate } from "./ProposalGate.js";
 import { WorktreeCard } from "./WorktreeCard.js";
-import { useProposalGate } from "./proposal-gate-reader.js";
+import { useProposalGate } from "./proposal-gate-binding.js";
 import type { ProposalGateSubject } from "./proposal-gate-model.js";
 import type { ProposalGateState } from "./proposal-gate-state.js";
 import type { WorktreeStatusRecord } from "./worktree-model.js";

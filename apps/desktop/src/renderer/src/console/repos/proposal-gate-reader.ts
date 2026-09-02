@@ -1,8 +1,9 @@
 // What one worktree's change-proposal gate knows, who asked for it, and when it asks
 // again.
 //
-// `ProposalGate.tsx` renders and does not read; this is the half that reads. One
-// reader holds one worktree's gate state, so the two roots of a two-agent session
+// `ProposalGate.tsx` renders and does not read; this is the half that reads, and
+// `proposal-gate-binding.ts` is the half that holds one of these beside a component.
+// One reader holds one worktree's gate state, so the two roots of a two-agent session
 // carry two independent gates and neither can publish the other's refusal.
 //
 // EVERY READ GOES THROUGH THE CONSOLE'S ONE SCHEDULER. `Spec-023 §Console Design
@@ -40,8 +41,6 @@
 // `targetBranch` is therefore read off the served context's `baseBranch` and there is
 // no parameter on this class through which a selection could reach it — the same
 // prohibition `ProposalGate.tsx` makes structural on its own side.
-
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import type { ConsoleBridge } from "../bridge/index.js";
 import {
@@ -370,50 +369,4 @@ export class ProposalGateReader {
 /** What a thrown read says, without asserting a shape the throw may not have. */
 function rejectionText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-/** What the hook hands a surface: the reading, and the one act it sends. */
-export interface ProposalGateBinding {
-  readonly reading: ProposalGateReading;
-  readonly requestAction: (action: ProposalAction) => void;
-}
-
-/**
- * Bind one worktree's gate to its reader.
- *
- * The reader is constructed in a hook and never in a render body, subscribed through
- * `useSyncExternalStore` so a publish is a single transition, and disposed on unmount
- * — the three properties `apps/desktop/AGENTS.md` requires of anything holding state
- * beside a component. The subject is destructured into the dependency list rather
- * than depended on as an object, because a caller composing it inline would otherwise
- * mint a new reader on every render.
- */
-export function useProposalGate(
-  bridge: ConsoleBridge,
-  subject: ProposalGateSubject,
-): ProposalGateBinding {
-  const { workspaceId, worktreeId, executionMode } = subject;
-  const reader = useMemo(
-    () => new ProposalGateReader({ bridge, subject: { workspaceId, worktreeId, executionMode } }),
-    [bridge, workspaceId, worktreeId, executionMode],
-  );
-  useEffect(() => {
-    reader.start();
-    return () => {
-      reader.dispose();
-    };
-  }, [reader]);
-  const subscribe = useCallback(
-    (onReadingChange: () => void) => reader.subscribe(onReadingChange),
-    [reader],
-  );
-  const read = useCallback(() => reader.snapshot, [reader]);
-  const reading = useSyncExternalStore(subscribe, read, read);
-  const requestAction = useCallback(
-    (action: ProposalAction) => {
-      void reader.requestAction(action);
-    },
-    [reader],
-  );
-  return { reading, requestAction };
 }
