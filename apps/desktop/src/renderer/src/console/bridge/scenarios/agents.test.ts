@@ -16,7 +16,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ProviderOutputSpeedStateSchema } from "@ai-sidekicks/contracts";
+import { DECLARED_LOSS_KINDS, ProviderOutputSpeedStateSchema } from "@ai-sidekicks/contracts";
 
 import { AGENTS_SCENARIO } from "./agents.js";
 import {
@@ -65,6 +65,20 @@ describe("the agents scenario", () => {
     // asserts that nothing was dropped — neither is the case this scenario exists
     // to make reachable.
     expect(settlement.declaredLosses?.length).toBeGreaterThan(0);
+    // And every member is a kind the vocabulary registers. An unregistered string
+    // parses fine and renders as an UNNAMED loss, so the settlement surface would
+    // be shown a response no daemon may emit.
+    for (const loss of settlement.declaredLosses ?? []) {
+      expect(DECLARED_LOSS_KINDS).toContain(loss);
+    }
+  });
+
+  it("negative control: the invented pair the fixture used to script is unregistered", () => {
+    // The two strings this file shipped before, kept only here. Neither is in the
+    // vocabulary, and the assertion above is what now says so.
+    for (const loss of ["reasoning_dropped", "tool_results_summarized"]) {
+      expect(DECLARED_LOSS_KINDS).not.toContain(loss);
+    }
   });
 
   it("gives the mutation a latency, so the in-flight rendering is reachable", () => {
