@@ -97,6 +97,8 @@ import type {
   ZodType,
 } from "@ai-sidekicks/contracts";
 
+import { createSubscriptionAckBarrier } from "../subscription-ack-barrier.js";
+
 /**
  * What a caller supplies to bind one `timeline.*` method: the NAME, and a
  * handler whose types follow from it.
@@ -232,13 +234,19 @@ export interface TimelineSubscriptionRegistration {
  * `$/subscription/notify` and is validated against the descriptor's
  * `emissionSchema` inside `producer.next(...)` before the frame is written.
  *
- * ORDERING IS THE CALLER'S, NOT THIS BINDER'S. I-007-10 requires the init ack
- * to land before the first notification for that subscription, and
- * `registerSessionSubscribe` buffers a synchronous replay burst across a
- * `setImmediate` boundary to hold that line. This binder does not impose that
- * buffering, because it does not know whether a given projection replays
- * synchronously — the obligation belongs to `attachProjection`, which does,
- * and is stated on that member rather than silently assumed here.
+ * ORDERING IS THIS BINDER'S, NOT THE CALLER'S. I-007-10 requires the init ack
+ * to land before the first notification for that subscription. The producer
+ * handed to `attachProjection` is a GATED facade over the real one: every
+ * `next` and `complete` routes through the shared subscribe-init barrier
+ * (`../subscription-ack-barrier.ts`), which buffers until the ack has been
+ * written. Placing the barrier here rather than obliging `attachProjection` to
+ * hold the line is deliberate — a projection cannot observe when its own
+ * subscribe response reached the socket, so an obligation stated on that
+ * member would be unverifiable by the party asked to meet it, and the failure
+ * it guards is SILENT: a pre-ack frame hits the SDK's unknown-id drop branch,
+ * so the rows vanish with no error raised anywhere. The facade also means a
+ * Phase-2 projection cannot bypass the barrier by holding the producer it was
+ * given.
  *
  * @throws RegistryRegistrationError synchronously on a duplicate registration
  *   (I-007-6) or a name that fails the canonical format (I-007-9).
@@ -269,15 +277,42 @@ export function registerTimelineSubscription(
       transportId,
       descriptor.emissionSchema,
     );
+    const barrier = createSubscriptionAckBarrier(producer, descriptor.method);
+    // The gated facade. `next` and `complete` are ordered against the ack;
+    // `cancel` and `onCancel` pass straight through, because teardown must not
+    // wait on a response the caller may never get — a projection that fails
+    // during setup has to be able to drain the entry it allocated.
+    const gatedProducer: LocalSubscriptionProducer<TimelineRow> = {
+      subscriptionId: producer.subscriptionId,
+      next(row: TimelineRow): void {
+        barrier.emit(row);
+      },
+      complete(): void {
+        barrier.deferUntilAck(() => {
+          producer.complete();
+        });
+      },
+      cancel(): void {
+        producer.cancel();
+      },
+      onCancel(fn: () => void): void {
+        producer.onCancel(fn);
+      },
+    };
     try {
-      await registration.attachProjection(request, producer, context);
+      await registration.attachProjection(request, gatedProducer, context);
     } catch (attachFailure) {
       // Atomicity: drain the entry this call allocated before the failure
       // escapes, so a refused subscribe leaves nothing behind on the
-      // primitive's per-transport index.
+      // primitive's per-transport index. The barrier is never released on this
+      // path, so nothing it buffered is ever scheduled or emitted.
       producer.cancel();
       throw attachFailure;
     }
+    // Release AFTER a successful attach and BEFORE the return: the flush is
+    // scheduled onto the check phase, which runs after the microtask that
+    // writes this response.
+    barrier.release();
     return { subscriptionId: producer.subscriptionId };
   };
   registry.register(

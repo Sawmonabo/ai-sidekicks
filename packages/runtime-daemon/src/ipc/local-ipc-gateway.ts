@@ -67,6 +67,8 @@ import type {
 } from "@ai-sidekicks/contracts";
 import {
   ENVELOPE_PROTOCOL_VERSION_EXEMPT_METHODS,
+  isJsonRpcIdWithinBound,
+  JSON_RPC_ID_MAX_BYTES,
   JSONRPC_VERSION,
   MAX_MESSAGE_BYTES,
   PROTOCOL_VERSION_REGEX,
@@ -99,6 +101,25 @@ import { mapJsonRpcError } from "./jsonrpc-error-mapping.js";
  * Spec-007 update per F-007p-2-11.
  */
 export { MAX_MESSAGE_BYTES };
+
+/**
+ * The ceiling on a JSON-RPC `id`, in JSON-encoded bytes.
+ *
+ * Declared in `@ai-sidekicks/contracts` (`jsonrpc.ts`) beside
+ * `MAX_MESSAGE_BYTES` and re-exported here for the same reason: the value has
+ * a second reader outside the substrate (a paged reply subtracts it from its
+ * own budget), while the ACCEPT/REFUSE decision lives here and only here.
+ *
+ * Enforcement is two-sited and both sites are required. `#dispatchFrame`
+ * refuses an over-bound id as `-32600 Invalid Request` before dispatch, so a
+ * well-formed request carrying one never reaches a handler. `extractIdSafely`
+ * independently drops an over-bound id to `null`, because the earlier
+ * envelope gates (`jsonrpc`, `method`) answer BEFORE the id-shape gate runs
+ * and would otherwise echo the oversized id into their own error frame — the
+ * exact frame that cannot be sent. Per JSON-RPC §5 an id that could not be
+ * recovered is reported as Null, which is what both sites do.
+ */
+export { JSON_RPC_ID_MAX_BYTES };
 
 /**
  * The LSP-style framing header name. Lower-cased compare on receive
@@ -1077,6 +1098,29 @@ export class LocalIpcGateway {
         this.#sendEnvelope(state, mapJsonRpcError(wrapped, null));
         return;
       }
+      // Step 3a: bound the id. The substrate echoes `id` verbatim, so it is
+      // the one response member the CALLER sizes. An id that fits the inbound
+      // frame can still make every reply to it un-encodable: the send path
+      // cannot transmit the reply that failed to encode, so it destroys the
+      // socket (F-007p-2-05 / `#sendEnvelope`). Without this gate a caller
+      // could drop its own session with a request the substrate accepted, and
+      // no response schema could prevent it — a schema bounds what the
+      // RESPONSE chooses, and the response does not choose its own id.
+      //
+      // Refused as -32600 Invalid Request, the same class as the shape
+      // violation above: an id outside the wire's declared bound is not a
+      // valid Request object. The error frame carries id Null rather than the
+      // offending value — echoing it back is precisely the write this gate
+      // exists to prevent, and JSON-RPC §5 mandates Null whenever the id
+      // could not be recovered.
+      if (!isJsonRpcIdWithinBound(idCandidate)) {
+        const wrapped = new FramingError(
+          "invalid_envelope",
+          `invalid JSON-RPC envelope: id exceeds ${JSON_RPC_ID_MAX_BYTES} bytes once encoded`,
+        );
+        this.#sendEnvelope(state, mapJsonRpcError(wrapped, null));
+        return;
+      }
     }
     const requestId: JsonRpcId = isNotification ? null : extractIdSafely(envelope);
     const params = envelope["params"];
@@ -1291,7 +1335,15 @@ export class LocalIpcGateway {
 function extractIdSafely(envelope: Record<string, unknown>): JsonRpcId {
   const candidate = envelope["id"];
   if (typeof candidate === "string" || typeof candidate === "number" || candidate === null) {
-    return candidate;
+    // An id past `JSON_RPC_ID_MAX_BYTES` is treated as unrecoverable rather
+    // than echoed. Every caller of this helper is building an ERROR frame for
+    // an envelope that failed an earlier gate (`jsonrpc`, `method`), and those
+    // gates answer before `#dispatchFrame`'s id-bound refusal runs — so
+    // without this branch the one frame guaranteed to be small would be the
+    // one carrying an oversized echo, and the connection would close on a
+    // malformed request instead of the client being told it sent one.
+    // JSON-RPC §5 mandates Null when the id cannot be detected or recovered.
+    return isJsonRpcIdWithinBound(candidate) ? candidate : null;
   }
   return null;
 }

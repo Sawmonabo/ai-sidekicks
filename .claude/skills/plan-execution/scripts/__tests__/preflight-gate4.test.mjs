@@ -3831,7 +3831,21 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // Target-Areas line, neither a marker block; Spec-013 and
     // cross-plan-dependencies.md carry no marker blocks. The legacy
     // compact-inline channel is unchanged.
-    bold: { resolved: 1033, noneArm: 159, parentResolved: 0 },
+    // 1033/159 -> 1034/159 (2026-09-01, NS-98 Codex round-4 fold — PR #410):
+    // the fold's only marker-block change is Plan-007's new `### Phase 2B`
+    // explicit-label supplement, whose single task T-007p-2B-1 (the
+    // daemon-resolved calling principal stamped on `HandlerContext`) is born
+    // with `Verifies invariant: I-007-21` — one more bold resolved reference,
+    // and none-arm-neutral because the task is born resolved rather than
+    // moved off `none`. The round's other three legs move no marker: the
+    // request-id bound mints I-007-22 but is verified by shipped gateway
+    // tests rather than by a task row on an unmerged phase, the barrier
+    // extraction is CP-007-16 prose, and Plan-013's growth is a CP row, a
+    // born-unchecked Preconditions box, and body text on T1.5 / T3.2 —
+    // none of which is a `Verifies invariant:` row. Spec-007, Spec-013,
+    // api-payload-contracts.md, and cross-plan-dependencies.md carry no
+    // marker blocks. The legacy compact-inline channel is unchanged.
+    bold: { resolved: 1034, noneArm: 159, parentResolved: 0 },
     legacy: { resolved: 64, noneArm: 3, parentResolved: 1 },
   });
 });

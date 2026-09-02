@@ -113,13 +113,17 @@ import { TimelineRowSchema, type TimelineRow } from "./row.js";
  *
  *   * JSON-RPC response envelope `{"jsonrpc":"2.0","id":…,"result":…}` —
  *     33 bytes of punctuation and keys.
- *   * The echoed request `id` — 256 bytes allowed. JSON-RPC 2.0 §4 permits a
- *     string id and the substrate echoes it verbatim without interpreting it,
- *     so this is an allowance rather than a bound: a caller that mints a
- *     megabyte-long id displaces the page, and no RESPONSE schema can bound a
- *     member the response does not choose. That is the framer's concern
- *     (`local-ipc-gateway.ts`), which sees the whole body; it is named here so
- *     the omission is a decision rather than an oversight.
+ *   * The echoed request `id` — `JSON_RPC_ID_MAX_BYTES` (`../jsonrpc.js`), 256 bytes.
+ *     JSON-RPC 2.0 §4 permits a string id and the substrate echoes it verbatim
+ *     without interpreting it, so this is the one response member the CALLER
+ *     sizes and no RESPONSE schema can bound it. It is an ENFORCED bound
+ *     rather than an assumed allowance: the gateway refuses an over-bound id
+ *     as `-32600 Invalid Request` before dispatch, and drops one to Null
+ *     rather than echo it on the earlier envelope-gate paths, so a reply this
+ *     budget sized can never be displaced by an id the substrate accepted.
+ *     Enforcement lives there (it is an accept/refuse rule on an inbound
+ *     request); the number lives beside the frame cap so this subtraction and
+ *     that refusal cannot disagree.
  *   * The widest non-paged result member set, `ChildRunExpandResponse` on its
  *     continuing arm — `runId` 46, `parentRunId` 53, `state` 41, the
  *     `"entries":[…]` key 11, `"hasMore":true` 15, and `nextCursor` 1552
@@ -229,9 +233,16 @@ const requirePageToRideOneFrame = (
  * make it a parse failure for a projection to emit two rows from one event,
  * and no section of Spec-013 forbids that. The rule here is the one the spec
  * states: the order never reverses.
+ *
+ * Applies to every ordered page this module returns, not to timeline rows
+ * alone. `ReasoningEntry` carries the same `sequence` and this spec's ordering
+ * sentence is written about the surface rather than about one member, so the
+ * reasoning page is held to the identical rule; `memberName` exists so the
+ * issue path names the member the caller actually sent.
  */
 const requireNondecreasingSequence = (
   entries: readonly { sequence: number }[],
+  memberName: string,
   issueContext: z.RefinementCtx,
 ): void => {
   for (let index = 1; index < entries.length; index += 1) {
@@ -243,10 +254,10 @@ const requireNondecreasingSequence = (
     if (current.sequence < previous.sequence) {
       issueContext.addIssue({
         code: "custom",
-        path: ["entries", index, "sequence"],
+        path: [memberName, index, "sequence"],
         message:
-          `timeline entries run oldest-to-newest: sequence ${String(current.sequence)} follows ` +
-          `${String(previous.sequence)}, so this window is out of order`,
+          `${memberName} run oldest-to-newest: sequence ${String(current.sequence)} follows ` +
+          `${String(previous.sequence)}, so this page is out of order`,
       });
     }
   }
@@ -366,7 +377,7 @@ export const TimelineReadResponseSchema: z.ZodType<TimelineReadResponse> = z
   ])
   .superRefine((response, issueContext) => {
     requirePageToRideOneFrame(response.entries, "entries", issueContext);
-    requireNondecreasingSequence(response.entries, issueContext);
+    requireNondecreasingSequence(response.entries, "entries", issueContext);
   });
 
 // ---------------------------------------------------------------------------
@@ -557,6 +568,11 @@ const reasoningAvailableArmSchema = z
   ])
   .superRefine((availableResponse, issueContext) => {
     requirePageToRideOneFrame(availableResponse.reasoningEntries, "reasoningEntries", issueContext);
+    requireNondecreasingSequence(
+      availableResponse.reasoningEntries,
+      "reasoningEntries",
+      issueContext,
+    );
   });
 
 export const ReasoningSurfaceReadResponseSchema: z.ZodType<ReasoningSurfaceReadResponse> =
@@ -694,7 +710,7 @@ export const ChildRunExpandResponseSchema: z.ZodType<ChildRunExpandResponse> = z
   ])
   .superRefine((response, issueContext) => {
     requirePageToRideOneFrame(response.entries, "entries", issueContext);
-    requireNondecreasingSequence(response.entries, issueContext);
+    requireNondecreasingSequence(response.entries, "entries", issueContext);
     requireEntriesToBelongToRun(response.runId, response.entries, issueContext);
     // The same self-parenting refusal `ChildRunSummary` carries, applied to
     // the expansion's own identity pair — the two shapes state the same

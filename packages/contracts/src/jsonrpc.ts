@@ -136,6 +136,57 @@ export function jsonUtf8ByteLength(value: unknown): number {
 }
 
 /**
+ * The maximum size, in bytes, of a JSON-RPC `id` once JSON-encoded.
+ *
+ * WHY A BOUND EXISTS AT ALL. The `id` is opaque to the substrate and echoed
+ * back verbatim (see {@link JsonRpcId}), so a caller chooses how many bytes of
+ * every response it authors. Without a bound that choice is only limited by
+ * the inbound frame: a 900 KB id inside a well-formed 950 KB request is a
+ * valid request today, and the reply echoing it exceeds
+ * {@link MAX_MESSAGE_BYTES} no matter how small the result is. That failure
+ * lands on the SEND side, where the reply that cannot be encoded is the very
+ * thing that would have carried the error — so the substrate closes the
+ * connection instead of answering (F-007p-2-05). A caller could therefore
+ * drop its own session with a request the substrate accepted.
+ *
+ * WHY IT IS ENFORCED ON THE REQUEST, NOT SUBTRACTED FROM THE REPLY. No
+ * response schema can bound a member the response does not choose. Sizing
+ * replies around an unenforced allowance would leave the guarantee resting on
+ * a caller's restraint. Bounding the id where it arrives makes the reserve a
+ * paged reply subtracts a derivation from an enforced rule.
+ *
+ * WHY 256. It is the same ceiling this package puts on every other opaque
+ * correlation string on the wire, and it is far above what any client in this
+ * repo mints: the SDK's ids are monotonic integers, and a UUID id encodes to
+ * 38 bytes. A caller needing more than 256 bytes of correlation state is
+ * carrying state the substrate should not be storing in an echo field.
+ *
+ * The bound is on the JSON-ENCODED form, which is what rides the frame, so it
+ * covers escaping rather than counting characters and applies uniformly to
+ * the string, number, and null arms.
+ *
+ * DECLARED HERE, ENFORCED IN THE SUBSTRATE — the same split
+ * {@link MAX_MESSAGE_BYTES} takes, and for the same reason: the gateway
+ * refuses an over-bound id before dispatch, and this package's page budgets
+ * subtract it. Changing the value requires a Plan-007 amendment, since it is
+ * an accept/refuse rule on the wire.
+ */
+export const JSON_RPC_ID_MAX_BYTES = 256;
+
+/**
+ * Whether `candidate` encodes within {@link JSON_RPC_ID_MAX_BYTES}.
+ *
+ * Shape-blind on purpose: it answers only the size question, so a caller that
+ * has already established the id is a string, number, or null gets one rule
+ * rather than three. A value that cannot be serialized measures
+ * `POSITIVE_INFINITY` and is therefore out of bound, which is the correct
+ * verdict for the same reason {@link jsonUtf8ByteLength} gives.
+ */
+export function isJsonRpcIdWithinBound(candidate: unknown): boolean {
+  return jsonUtf8ByteLength(candidate) <= JSON_RPC_ID_MAX_BYTES;
+}
+
+/**
  * Methods exempt from the substrate's envelope-level `protocolVersion`
  * gate. `Spec-007 §Wire Format` mandates that every request carries an ISO 8601
  * `YYYY-MM-DD` `protocolVersion` field on the JSON-RPC envelope; the
@@ -175,6 +226,11 @@ export const ENVELOPE_PROTOCOL_VERSION_EXEMPT_METHODS: ReadonlySet<string> = new
  * The ID is opaque to the substrate: it is echoed back in the response
  * verbatim. Its only contract is round-trip equality between request and
  * response. The registry (T-3) and dispatcher (T-2) do not interpret it.
+ *
+ * Opaque is not unbounded. Because the substrate echoes it, the id is the
+ * one response member the CALLER sizes, so it is bounded at the request
+ * boundary by {@link JSON_RPC_ID_MAX_BYTES} — see that constant for why an
+ * unbounded id is a self-inflicted disconnect rather than a large reply.
  */
 export type JsonRpcId = string | number | null;
 

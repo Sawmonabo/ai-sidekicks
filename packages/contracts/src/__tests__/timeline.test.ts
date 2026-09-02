@@ -77,6 +77,7 @@
 //     F56  boundary arm carrying another category .... refuses (its event is registered one way)
 //     F57  runId === parentRunId ..................... refuses (cyclic lineage), summary + expansion
 //     F58  entries out of sequence order ............. refuses (oldest-to-newest)
+//     F62  reasoning entries out of sequence order ... refuses (same rule, same surface)
 //     F59  expansion entry from another run .......... refuses (general arm exempt)
 //     F60  page over the frame byte budget ........... refuses — including a page AT the row cap
 //     F61  paged `available` without its cursor ...... refuses; unpaged states carry no `hasMore`
@@ -1353,6 +1354,49 @@ describe("paged replies are ordered, run-scoped, and frame-safe (T1.3)", () => {
         hasMore: false,
       }).success,
     ).toBe(false);
+  });
+
+  it("F62 — a reasoning page whose entries go backwards is refused", () => {
+    // The ordering rule is written about the SURFACE, not about one member.
+    // `ReasoningEntry` carries the same `sequence`, its own doc comment says
+    // the entries are "ordered by its originating `sequence`", and a reasoning
+    // page arriving scrambled is the same defect with the same consequence —
+    // a consumer that does not re-sort renders a run's thinking out of order.
+    const reasoningAt = (sequence: number): unknown => ({
+      sequence,
+      content: "considered the alternatives",
+      timestamp: "2026-09-01T00:00:00.000Z",
+    });
+    const result = ReasoningSurfaceReadResponseSchema.safeParse({
+      availability: "available",
+      reasoningEntries: [reasoningAt(10), reasoningAt(3)],
+      hasMore: false,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      // The issue path names the member the caller actually sent, not the
+      // timeline window's `entries` — a path pointing at a member that is not
+      // on this response would send a producer looking in the wrong place.
+      expect(
+        result.error.issues.some((issue) => issue.path.join(".") === "reasoningEntries.1.sequence"),
+      ).toBe(true);
+    }
+    // Positive controls, matching F58's: ascending parses and so does a
+    // repeated sequence, because the rule is nondecreasing on both surfaces.
+    expect(
+      ReasoningSurfaceReadResponseSchema.safeParse({
+        availability: "available",
+        reasoningEntries: [reasoningAt(3), reasoningAt(10)],
+        hasMore: false,
+      }).success,
+    ).toBe(true);
+    expect(
+      ReasoningSurfaceReadResponseSchema.safeParse({
+        availability: "available",
+        reasoningEntries: [reasoningAt(3), reasoningAt(3)],
+        hasMore: false,
+      }).success,
+    ).toBe(true);
   });
 
   it("F59 — an expansion carries only the expanded run's rows", () => {

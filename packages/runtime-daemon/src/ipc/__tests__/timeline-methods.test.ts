@@ -54,6 +54,25 @@ import {
 } from "../registry.js";
 import { StreamingPrimitive, StreamingValidationError } from "../streaming-primitive.js";
 
+/**
+ * Cross one `setImmediate` boundary — the check phase the subscribe-init
+ * barrier flushes on.
+ *
+ * Awaiting a promise only drains microtasks, and the barrier deliberately
+ * schedules past those (a microtask queued from the handler body drains ahead
+ * of the dispatch resolution, so it cannot cross the response). A test that
+ * asserted on `sentFrames` without this would be asserting on the pre-flush
+ * state and calling it the post-flush one.
+ */
+const settleAckBarrier = (): Promise<void> =>
+  new Promise((resolve) => {
+    setImmediate(resolve);
+  });
+
+/** The `$/subscription/notify` params shape the streaming primitive writes. */
+const notifiedRowIds = (frames: readonly JsonRpcNotification<unknown>[]): string[] =>
+  frames.map((frame) => (frame.params as { value: TimelineRow }).value.id);
+
 const TRANSPORT_ID = 7;
 const dispatchContext: HandlerContext = { transportId: TRANSPORT_ID };
 
@@ -400,17 +419,73 @@ describe("timeline method-name registration (Plan-013 T1.4)", () => {
     expect((ack as { subscriptionId: string }).subscriptionId).toBe(producer.subscriptionId);
 
     producer.next(timelineRow);
+    // The producer handed to a projection is gated by the subscribe-init
+    // barrier, so an emission is never written in the caller's own turn. Here
+    // the barrier has already been released by the successful dispatch, and
+    // the frame lands one event-loop phase later.
+    await settleAckBarrier();
     expect(sentFrames).toHaveLength(1);
     expect(sentFrames[0]?.method).toBe("$/subscription/notify");
   });
 
-  it("a wrong-shape emission is refused before any frame is written", () => {
+  it("rows emitted DURING setup are held until after the ack, and arrive in order", async () => {
+    // I-007-10, and the reason the barrier lives in the binder rather than in
+    // an obligation on the projection. A projection that replays synchronously
+    // emits before the handler has returned, let alone before the gateway has
+    // written `{ subscriptionId }`. A pre-ack notify frame is not an error the
+    // client sees — the SDK registers the subscription only once the init
+    // response settles, so an early frame hits the unknown-id silent-drop
+    // branch and the rows simply vanish.
+    const registry = new MethodRegistryImpl();
+    const { streamingPrimitive, sentFrames } = buildStreamingPrimitive();
+    const replayedRows: TimelineRow[] = [
+      { ...timelineRow, id: "evt-replay-1", sequence: 1 },
+      { ...timelineRow, id: "evt-replay-2", sequence: 2 },
+    ];
+    registerTimelineSubscription(registry, {
+      streamingPrimitive,
+      attachProjection: (_request, producer) => {
+        // Synchronous replay burst, inside the handler body.
+        for (const row of replayedRows) {
+          producer.next(row);
+        }
+        // The claim: not one of these reached the transport yet.
+        expect(sentFrames).toHaveLength(0);
+      },
+    });
+
+    const ack = await registry.dispatch(
+      TIMELINE_SUBSCRIBE_METHOD,
+      { sessionId: SESSION_ID },
+      dispatchContext,
+    );
+    // Still nothing on the wire at the moment the ack is produced — this is
+    // the assertion the old binder could not make.
+    expect(sentFrames).toHaveLength(0);
+    expect((ack as { subscriptionId: string }).subscriptionId).toBeTypeOf("string");
+
+    await settleAckBarrier();
+    expect(sentFrames).toHaveLength(2);
+    expect(notifiedRowIds(sentFrames)).toEqual(["evt-replay-1", "evt-replay-2"]);
+  });
+
+  it("a wrong-shape emission is refused before any frame is written", async () => {
     // The claim the subscription binder exists for. The producer's schema is
     // the descriptor's `emissionSchema` and the handler never chose it, so a
     // projection that pushes a non-`TimelineRow` value is stopped at
     // `next(...)` — not accepted onto the wire under a passing ack.
+    //
+    // The refusal is no longer a synchronous throw into the projection, and
+    // that is the barrier's doing rather than a weakening: the emission is
+    // ordered past the ack, so by the time the schema rejects it the
+    // projection's frame is long gone and there is nobody to throw to. The
+    // barrier therefore takes the posture `session.subscribe` has always
+    // taken on this path — cancel the subscription so no entry orphans, log a
+    // prefixed tripwire, and keep the daemon alive. What does NOT change is
+    // the guarantee under test: nothing reaches the wire.
     const registry = new MethodRegistryImpl();
     const { streamingPrimitive, sentFrames } = buildStreamingPrimitive();
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     let capturedProducer: LocalSubscriptionProducer<TimelineRow> | null = null;
     registerTimelineSubscription(registry, {
       streamingPrimitive,
@@ -419,25 +494,54 @@ describe("timeline method-name registration (Plan-013 T1.4)", () => {
       },
     });
 
-    return registry
-      .dispatch(TIMELINE_SUBSCRIBE_METHOD, { sessionId: SESSION_ID }, dispatchContext)
-      .then(() => {
-        const producer = capturedProducer as unknown as LocalSubscriptionProducer<TimelineRow>;
-        // The cast stands in for a Phase-2 projection wired to the wrong shape.
-        // Without it this is a compile error, which is the binder's first line
-        // of defence; the runtime backstop can only be exercised by defeating
-        // the type check deliberately. The value below is the subscribe ACK —
-        // the exact shape a handler that confused the two schemas would emit.
-        expect(() => {
-          producer.next({ subscriptionId: "not-a-row" } as unknown as TimelineRow);
-        }).toThrow(StreamingValidationError);
-        expect(sentFrames).toHaveLength(0);
+    try {
+      await registry.dispatch(
+        TIMELINE_SUBSCRIBE_METHOD,
+        { sessionId: SESSION_ID },
+        dispatchContext,
+      );
+      await settleAckBarrier();
+      const producer = capturedProducer as unknown as LocalSubscriptionProducer<TimelineRow>;
+      // The cast stands in for a Phase-2 projection wired to the wrong shape.
+      // Without it this is a compile error, which is the binder's first line
+      // of defence; the runtime backstop can only be exercised by defeating
+      // the type check deliberately. The value below is the subscribe ACK —
+      // the exact shape a handler that confused the two schemas would emit.
+      producer.next({ subscriptionId: "not-a-row" } as unknown as TimelineRow);
+      expect(sentFrames).toHaveLength(0);
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+      expect(String(consoleErrorSpy.mock.calls[0]?.[0])).toContain(
+        `[${TIMELINE_SUBSCRIBE_METHOD}]`,
+      );
+      // The value that was refused is what `StreamingValidationError` names —
+      // asserting the class here keeps the test honest about WHY nothing was
+      // written, rather than passing on any failure at all.
+      expect(consoleErrorSpy.mock.calls[0]?.[1]).toBeInstanceOf(StreamingValidationError);
 
-        // Negative control on the same producer: a real row does go out, so the
-        // refusal above is the value and not a producer that rejects everything.
-        producer.next(timelineRow);
-        expect(sentFrames).toHaveLength(1);
+      // Negative control: a real row on a FRESH subscription does go out, so
+      // the refusal above is the value and not a producer that rejects
+      // everything. It must be a fresh one — the bad emission canceled this
+      // subscription, and a canceled producer is a documented no-op.
+      let secondProducer: LocalSubscriptionProducer<TimelineRow> | null = null;
+      const secondRegistry = new MethodRegistryImpl();
+      registerTimelineSubscription(secondRegistry, {
+        streamingPrimitive,
+        attachProjection: (_request, producer) => {
+          secondProducer = producer;
+        },
       });
+      await secondRegistry.dispatch(
+        TIMELINE_SUBSCRIBE_METHOD,
+        { sessionId: SESSION_ID },
+        dispatchContext,
+      );
+      await settleAckBarrier();
+      (secondProducer as unknown as LocalSubscriptionProducer<TimelineRow>).next(timelineRow);
+      await settleAckBarrier();
+      expect(sentFrames).toHaveLength(1);
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
   });
 
   it("subscribing without a transport identity is refused", async () => {
