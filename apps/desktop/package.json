@@ -23,7 +23,7 @@
     "test:console-architecture": "vitest run --project=console-architecture",
     "test:console-assets": "vitest run --project=console-assets",
     "test:console-browser": "vitest run --project=console-browser",
-    "test:console-screenshot": "vitest run --project=console-screenshot",
+    "test:console-screenshot": "UPDATE_SNAPSHOT=none vitest run --project=console-screenshot",
     "test:console-accessibility": "vitest run --project=console-accessibility",
     "test:console-e2e": "vitest run --project=console-e2e",
     "test:console-endurance": "vitest run --project=console-endurance",
