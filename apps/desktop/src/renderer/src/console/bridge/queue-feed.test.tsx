@@ -20,6 +20,7 @@ import { describe, expect, it } from "vitest";
 
 import { QueueItemSummarySchema, type QueueItemSummary } from "@ai-sidekicks/contracts";
 
+import { ConsoleRefusalError, refuse } from "../core/index.js";
 import type { ConsoleBridge } from "./console-bridge.js";
 import { QueueOrder, useQueueFeed, type QueueFeed } from "./queue-feed.js";
 
@@ -262,6 +263,78 @@ describe("the queue stream is opened with its registered request", () => {
     expect(openedStreams).toStrictEqual([]);
     expect(latest().phase).toBe("refused");
     expect(latest().readRefusal?.code).toBe("session-unreadable");
+  });
+});
+
+describe("an unopenable queue stream is a refusal, not a crash", () => {
+  /** A bridge whose subscription throws synchronously, as the shipped live one does. */
+  function bridgeRefusingTheStream(thrown: unknown): {
+    bridge: ConsoleBridge;
+    calledMethods: string[];
+  } {
+    const calledMethods: string[] = [];
+    const bridge = {
+      sidekicks: {
+        daemon: {
+          call: async (method: string): Promise<unknown> => {
+            calledMethods.push(method);
+            return { items: [] };
+          },
+          subscribe: () => {
+            throw thrown;
+          },
+        },
+      },
+      growth: {},
+      growthServedOperations: new Set(),
+      source: "fixture",
+      scenarioEngine: undefined,
+    } as unknown as ConsoleBridge;
+    return { bridge, calledMethods };
+  }
+
+  it("settles refused with the thrown refusal's own code and lets nothing escape", async () => {
+    // The negative control is the code this replaces: the unguarded `#open` let the
+    // throw unwind out of `render`, so this case failed as an uncaught exception
+    // rather than as an assertion — a mounted surface rendered nothing at all.
+    const refusal = refuse("console-daemon-stream", "stream-unavailable", "The daemon is a stub.");
+    const { bridge, calledMethods } = bridgeRefusingTheStream(new ConsoleRefusalError(refusal));
+    let held: QueueFeed | undefined;
+    render(
+      <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={(feed) => (held = feed)} />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(held?.phase).toBe("refused");
+    expect(held?.readRefusal?.code).toBe("stream-unavailable");
+    expect(held?.readRefusal?.origin).toBe("console-daemon-stream");
+    // The snapshot is not attempted: the tail is what keeps the list current, so a
+    // list read off a bridge that cannot stream would stop being true immediately.
+    expect(calledMethods).toStrictEqual([]);
+  });
+
+  it("normalizes a rejection that carries no refusal of its own", async () => {
+    const { bridge } = bridgeRefusingTheStream(new Error("the preload is a stub"));
+    let held: QueueFeed | undefined;
+    render(
+      <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={(feed) => (held = feed)} />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(held?.phase).toBe("refused");
+    expect(held?.readRefusal?.origin).toBe("session-queue");
+    expect(held?.readRefusal?.detail).toContain("the preload is a stub");
+  });
+
+  it("negative control: a bridge whose stream opens reads the snapshot and lands read", async () => {
+    // Without this the two cases above would pass over a feed that refused every
+    // open, which would hide a live queue behind a permanent refusal.
+    const { openedStreams, latest } = await openFeed();
+    expect(openedStreams).toStrictEqual(["run.subscribeQueue"]);
+    expect(latest().phase).toBe("read");
+    expect(latest().readRefusal).toBeUndefined();
   });
 });
 
