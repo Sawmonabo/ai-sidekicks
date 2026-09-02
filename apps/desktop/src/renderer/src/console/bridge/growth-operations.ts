@@ -441,6 +441,34 @@ export const GROWTH_OPERATIONS: Readonly<Record<GrowthOperationId, GrowthOperati
     "delete a definition, which never touches an agent attached from it because attach copies rather than references",
     "sidekick.definitionDelete",
   ),
+  // The hydrated event read. It names no wire method for the same reason the two
+  // identity rows above name none: the projection is built daemon-side and reaches
+  // no bridge namespace, so an invented string here would be traceable to nothing.
+  hydratedEventRead: op(
+    "hydratedEventRead",
+    "hydrated-event-read",
+    "method",
+    "open one event's machine-authored body — the assistant and tool prose the taxonomy records the existence of and the event payload does not carry — so a ledger row renders what was said rather than only that something was",
+  ),
+  // The session cost plane. Both ids are the registered method's TAIL without its
+  // root, unlike the workflow and sidekick blocks above: the console calls exactly
+  // these two verbs of a plane whose other pairs it never reaches, so a root folded
+  // into both ids would lengthen every call site and disambiguate nothing. The
+  // entry still names the method in full, so the transcription stays checkable.
+  costReceiptRead: op(
+    "costReceiptRead",
+    "cost-receipt-read",
+    "method",
+    "read the committed-spend fold decomposed along its per-run, per-caused-by, and per-paying-account axes, each a partition of the same session figure rather than a second computation of it",
+    "orchestration.costReceiptRead",
+  ),
+  budgetRead: op(
+    "budgetRead",
+    "cost-receipt-read",
+    "method",
+    "read the session's limits and the committed-spend figure admission compares against, served from the same accountant accessor the receipt is, so the two can never disagree",
+    "orchestration.budgetRead",
+  ),
 };
 
 function op(

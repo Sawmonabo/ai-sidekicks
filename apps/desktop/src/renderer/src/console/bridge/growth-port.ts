@@ -1,6 +1,6 @@
 // The growth port: the console's single fixture-only seam.
 //
-// `Plan-023 §Console growth slate` names thirty wires the console builds
+// `Plan-023 §Console growth slate` names thirty-two wires the console builds
 // against and does not yet have. Those rows are not methods — one bundles a whole
 // namespace plus two settings plus a pane-kind declaration, several describe type
 // semantics on replies that already exist. So the port is keyed by OPERATION, not
@@ -166,5 +166,9 @@ export function createRefusingGrowthPort(): GrowthPort {
     sidekickDefinitionCreate: async () => growthUnavailable("sidekickDefinitionCreate"),
     sidekickDefinitionUpdate: async () => growthUnavailable("sidekickDefinitionUpdate"),
     sidekickDefinitionDelete: async () => growthUnavailable("sidekickDefinitionDelete"),
+    // event content, and the session cost plane
+    hydratedEventRead: async () => growthUnavailable("hydratedEventRead"),
+    costReceiptRead: async () => growthUnavailable("costReceiptRead"),
+    budgetRead: async () => growthUnavailable("budgetRead"),
   };
 }

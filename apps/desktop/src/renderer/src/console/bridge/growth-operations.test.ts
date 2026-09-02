@@ -152,6 +152,60 @@ describe("the growth ledger's sidekick block — four of the registry's five pai
   });
 });
 
+describe("the growth ledger's session-cost row — two reads of one fold", () => {
+  const COST_SLATE_ROW: GrowthSlateRowId = "cost-receipt-read";
+
+  it("attributes two operations to the row, both RPC methods on one registered root", () => {
+    const costOperationIds = operationsServingRow(COST_SLATE_ROW);
+
+    // Two of the plan's sixteen registered pairs. Stated rather than derived
+    // because it is the claim: the console reads the fold and never writes it, so
+    // the budget UPDATE and every other pair on that root are deliberately absent,
+    // and a third operation appearing here is the drift worth failing on.
+    expect(costOperationIds).toHaveLength(2);
+    for (const operationId of costOperationIds) {
+      expect(GROWTH_OPERATIONS[operationId].kind, operationId).toBe("method");
+    }
+  });
+
+  it("names the two registered methods, each on its own operation", () => {
+    // Written out rather than folded from the ids, because these two ids
+    // deliberately do NOT carry their root — the entry's own comment says why — so
+    // the id-to-method fold the workflow and sidekick blocks check does not apply
+    // and the literal is what there is to check.
+    expect(GROWTH_OPERATIONS.costReceiptRead.expectedWireMethod).toBe(
+      "orchestration.costReceiptRead",
+    );
+    expect(GROWTH_OPERATIONS.budgetRead.expectedWireMethod).toBe("orchestration.budgetRead");
+  });
+
+  it("names no write verb, the console reading this plane and never moving it", () => {
+    // The omission is the decision, so it is asserted rather than left to the count
+    // above: `orchestration.budgetUpdate` is a registered method on the same root
+    // and its absence from the ledger is what says the console meant to leave it.
+    const methods = operationsServingRow(COST_SLATE_ROW).map(
+      (operationId) => GROWTH_OPERATIONS[operationId].expectedWireMethod,
+    );
+
+    expect(methods).not.toContain("orchestration.budgetUpdate");
+    expect(new Set(methods).size).toBe(methods.length);
+  });
+});
+
+describe("the growth ledger's hydrated-event row — a projection with no namespace", () => {
+  it("carries one operation, and it names no wire method", () => {
+    // The read is built daemon-side and reaches no bridge namespace, so it is in
+    // the same position as the two identity-and-registry rows below rather than in
+    // the workflow block's: an invented method string would be a wire fact
+    // traceable to nothing.
+    const operationIds = operationsServingRow("hydrated-event-read");
+
+    expect(operationIds).toStrictEqual(["hydratedEventRead"]);
+    expect(GROWTH_OPERATIONS.hydratedEventRead.expectedWireMethod).toBeUndefined();
+    expect(GROWTH_OPERATIONS.hydratedEventRead.kind).toBe("method");
+  });
+});
+
 describe("the growth ledger's two identity-and-registry rows — no method to name", () => {
   it("carries one operation each, and neither names a wire method", () => {
     // The counterpart of the workflow and sidekick blocks, and the reason those

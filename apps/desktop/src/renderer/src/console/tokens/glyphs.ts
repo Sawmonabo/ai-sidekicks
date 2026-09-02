@@ -107,6 +107,11 @@ export const GLYPH_PATHS = {
   alert: "M8 2.5 14 13H2ZM8 6.5v3M8 11.5h.01",
   check: "M3.25 8.5 6.25 11.5l6.5-7",
   dot: "M5.5 8a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0",
+  // Two chevrons closing onto a rule: the mark a compaction boundary carries. The
+  // line is what the exchanges above and below it were folded down to, and the two
+  // chevrons point AT it rather than away, because the boundary is where a
+  // transcript got shorter and not where it was cut in two.
+  fold: "M2.5 8h11M5 2.75 8 5.75 11 2.75M5 13.25 8 10.25 11 13.25",
   // --- Control verbs and navigation.
   search: "M2.75 7a4.25 4.25 0 1 0 8.5 0a4.25 4.25 0 1 0-8.5 0M10.25 10.25 13.5 13.5",
   close: "M4 4 12 12M12 4 4 12",
@@ -115,6 +120,11 @@ export const GLYPH_PATHS = {
   pause: "M6 3.75v8.5M10 3.75v8.5",
   play: "M5.5 3.5 12.25 8 5.5 12.5Z",
   stop: "M4 4h8v8H4Z",
+  // A counter-clockwise arrow: rewind to an earlier turn. Drawn as an open ring
+  // with the head on the arc's own start point rather than as a `play` mirrored,
+  // because the verb is not "run the other way" — it is "put the conversation back
+  // where it was", and the gap in the ring is the part being given up.
+  rewind: "M6.66 4.33 4.82 4.82 5.31 2.99M4.82 4.82A4.5 4.5 0 1 1 3.5 8",
   copy: "M5.5 5.5h8v8h-8ZM10.5 5.5v-3h-8v8h3",
   pencil: "M11.25 2.5 13.5 4.75 5.5 12.75 2.5 13.5 3.25 10.5ZM9.75 4 12 6.25",
   external:
