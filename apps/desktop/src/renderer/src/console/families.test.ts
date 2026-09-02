@@ -17,6 +17,7 @@ import { describe, expect, it } from "vitest";
 
 import { registerConsoleFamilies } from "./families.js";
 import { CONSOLE_SURFACE_SLOTS, ConsoleSurfaceRegistry } from "./frame/surface-registry.js";
+import { ConsoleEntityProjectorRegistry, consoleEntityProjectorRegistry } from "./store/index.js";
 import { ConsolePaneRegistry, consolePaneRegistry } from "./workspace/index.js";
 
 declare global {
@@ -40,12 +41,17 @@ const seatBoardSources = import.meta.glob("./families.ts", {
 /** The composition root's own source. One entry, keyed by the glob's resolved path. */
 const seatBoardSource: string = Object.values(seatBoardSources).join("");
 
-/** A registry pair a case owns outright, so nothing it composes reaches production. */
+/** The three boards a case owns outright, so nothing it composes reaches production. */
 function ownedRegistries(): {
   readonly surfaces: ConsoleSurfaceRegistry;
   readonly panes: ConsolePaneRegistry;
+  readonly projectors: ConsoleEntityProjectorRegistry;
 } {
-  return { surfaces: new ConsoleSurfaceRegistry(), panes: new ConsolePaneRegistry() };
+  return {
+    surfaces: new ConsoleSurfaceRegistry(),
+    panes: new ConsolePaneRegistry(),
+    projectors: new ConsoleEntityProjectorRegistry(),
+  };
 }
 
 describe("console families — composing every shipped family", () => {
@@ -53,15 +59,15 @@ describe("console families — composing every shipped family", () => {
     // The registry throws `DuplicateRegistrationError` naming the slot when two
     // owners claim one, so "does not throw" is a real assertion here rather than
     // the absence of one: the raise is the mechanism being checked.
-    const { surfaces, panes } = ownedRegistries();
+    const { surfaces, panes, projectors } = ownedRegistries();
     expect(() => {
-      registerConsoleFamilies(surfaces, panes);
+      registerConsoleFamilies(surfaces, panes, projectors);
     }).not.toThrow();
   });
 
   it("claims at least one slot, and only declared ones", () => {
-    const { surfaces, panes } = ownedRegistries();
-    registerConsoleFamilies(surfaces, panes);
+    const { surfaces, panes, projectors } = ownedRegistries();
+    registerConsoleFamilies(surfaces, panes, projectors);
     const slots = surfaces.registeredSlots();
     // Non-empty, or "only declared ones" below is a claim about nothing and the
     // case passes over a composition root that silently registered no family.
@@ -77,9 +83,9 @@ describe("console families — composing every shipped family", () => {
     // module-scope singleton would leave this one empty while still "working".
     const first = ownedRegistries();
     const second = ownedRegistries();
-    registerConsoleFamilies(first.surfaces, first.panes);
+    registerConsoleFamilies(first.surfaces, first.panes, first.projectors);
     expect(second.surfaces.registeredSlots()).toStrictEqual([]);
-    registerConsoleFamilies(second.surfaces, second.panes);
+    registerConsoleFamilies(second.surfaces, second.panes, second.projectors);
     expect(second.surfaces.registeredSlots()).toStrictEqual(first.surfaces.registeredSlots());
   });
 
@@ -87,10 +93,10 @@ describe("console families — composing every shipped family", () => {
     // Same owners re-claiming the same slots: the owner-scoped policy replaces.
     // A family that changed its owner string between composes would raise here,
     // which is the correct answer — the owner is what the policy is about.
-    const { surfaces, panes } = ownedRegistries();
-    registerConsoleFamilies(surfaces, panes);
+    const { surfaces, panes, projectors } = ownedRegistries();
+    registerConsoleFamilies(surfaces, panes, projectors);
     const afterFirst = surfaces.registeredSlots();
-    registerConsoleFamilies(surfaces, panes);
+    registerConsoleFamilies(surfaces, panes, projectors);
     expect(surfaces.registeredSlots()).toStrictEqual(afterFirst);
   });
 
@@ -111,10 +117,12 @@ describe("console families — the pane board a composition writes into", () => 
   // rather than about today's empty board, because today's empty board is exactly
   // what makes a behavioural assertion alone pass over the defect.
 
-  it("takes both registries, so a composition names the deck it writes into", () => {
-    // Arity, asserted directly. Under the old signature this reads 1 and there is
-    // no pane registry a caller could pass, which is the defect in one number.
-    expect(registerConsoleFamilies).toHaveLength(2);
+  it("takes all three registries, so a composition names every board it writes into", () => {
+    // Arity, asserted directly. Under the first signature this reads 1 and there was
+    // no pane registry a caller could pass; under the second it reads 2 and the fold
+    // a store opens with was a constant no family could add to. Each defect is one
+    // number.
+    expect(registerConsoleFamilies).toHaveLength(3);
   });
 
   it("forwards the pane registry it was handed and reaches for no singleton", () => {
@@ -131,17 +139,42 @@ describe("console families — the pane board a composition writes into", () => 
     expect(seatBoardSource).toContain('import type { ConsolePaneRegistry } from "./workspace');
   });
 
-  it("leaves the production deck untouched when a caller composes its own", () => {
+  it("forwards the projector board it was handed and reaches for no singleton", () => {
+    // The seam that makes a family able to project its own event category at all.
+    // Read behaviourally rather than off the source, because unlike the pane board
+    // this one has a producer today: the frame claims the run-lifecycle kinds
+    // through the composition, so a registrar reaching for the module-scope board
+    // would leave the caller's empty while still "working".
+    const { surfaces, panes, projectors } = ownedRegistries();
+
+    registerConsoleFamilies(surfaces, panes, projectors);
+
+    expect(Object.keys(projectors.snapshot()).length).toBeGreaterThan(0);
+    expect(projectors.ownerOf("run.running")).toBe("frame");
+  });
+
+  it("negative control: a board no composition wrote into stays empty", () => {
+    // Without it the case above would pass over a board that reported claims nobody
+    // registered — which is how a snapshot assertion goes vacuous.
+    expect(new ConsoleEntityProjectorRegistry().snapshot()).toStrictEqual({});
+  });
+
+  it("leaves the production boards untouched when a caller composes its own", () => {
     // The behavioural half, and the probe is what keeps it from being vacuous: the
     // caller's registry really does record a body, and the singleton really is
     // asked about that same kind, so the instrument is shown to work on the one
     // registry a composition is allowed to write into.
-    const { surfaces, panes } = ownedRegistries();
+    const { surfaces, panes, projectors } = ownedRegistries();
     panes.register({ kind: "terminal", owner: "families.test", render: () => null });
 
-    registerConsoleFamilies(surfaces, panes);
+    registerConsoleFamilies(surfaces, panes, projectors);
 
     expect(panes.registeredPaneKinds()).toContain("terminal");
     expect(consolePaneRegistry.registeredPaneKinds()).not.toContain("terminal");
+    // Same claim for the projector board, and it needs no probe: the frame's own
+    // registration is the body, so a composition writing into the singleton would
+    // show up here as a production board that has been claimed by this test's run.
+    expect(projectors.ownerOf("run.running")).toBe("frame");
+    expect(consoleEntityProjectorRegistry.ownerOf("run.running")).toBeUndefined();
   });
 });

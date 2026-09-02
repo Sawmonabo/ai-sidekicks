@@ -28,8 +28,25 @@
 // `bridge/scenario-envelope.ts` closes the second half of that: the fixture now
 // composes the same registered envelope, so this parse is the one door both bridges
 // deliver through.
+//
+// WHAT THE TOLERANT CARRIER DOES NOT CHECK, AND WHY THIS MODULE HAS TO. The
+// contracts package splits the two layers on purpose: the ENVELOPE layer is the
+// version-tolerant carrier, and the STRICT layer is "the interpretation surface,
+// where unknown types and category/type mismatches fail loud at parse time". Only
+// the first of those runs here. So an envelope pairing `run.running` with
+// `membership_change` parses — both members are individually registered — and this
+// boundary used to drop `category` on the floor, after which every projector routes
+// on `kind` alone and mutates the run partition off a pair the strict layer rejects.
+// The census is exported for exactly this: `SESSION_EVENT_CATEGORY_BY_TYPE` is
+// published so "consumers (projectors, replay machinery, integrity verifiers in
+// Plan-006) can assert category/type consistency without re-parsing the schema", and
+// that is the check below.
 
-import { EventEnvelopeSchema } from "@ai-sidekicks/contracts";
+import {
+  EventEnvelopeSchema,
+  SESSION_EVENT_CATEGORY_BY_TYPE,
+  type SessionEventType,
+} from "@ai-sidekicks/contracts";
 
 import type { ConsoleSessionEvent } from "../store/index.js";
 
@@ -56,6 +73,17 @@ import type { ConsoleSessionEvent } from "../store/index.js";
  * which of the two id kinds is in hand would be inventing an arm the wire does not
  * send; dropping the member instead would leave every event in the store
  * unattributed.
+ *
+ * `category` is then checked and NOT carried. Checked, because for a type the
+ * census knows there is exactly one registered category and a delivery naming any
+ * other is one the strict layer refuses — so this boundary refuses it too, with the
+ * one refusal shape it has. Not carried, because no reader of `ConsoleSessionEvent`
+ * reads a category: every projector above routes on `kind`, and a member minted
+ * ahead of its reader is what this package's structure rules forbid. For a type the
+ * census does NOT know the check does not apply and tolerance stands unchanged —
+ * forward compatibility is the whole reason the tolerant carrier was chosen here,
+ * and refusing an unregistered pairing would refuse exactly the higher-MINOR
+ * deliveries the tolerant layer exists to let through.
  */
 export function readConsoleSessionEvent(
   deliveredEnvelope: unknown,
@@ -65,6 +93,14 @@ export function readConsoleSessionEvent(
     return undefined;
   }
   const envelope = parsed.data;
+  // The census is keyed to the `SessionEventType` union and the envelope's `type` is
+  // a bounded free-form string, so the lookup is cast at the call: a `ReadonlyMap`
+  // resolves an unregistered key — prototype-chain names included — to `undefined`,
+  // which is the "census does not know this type" arm and never a truthy answer.
+  const registeredCategory = SESSION_EVENT_CATEGORY_BY_TYPE.get(envelope.type as SessionEventType);
+  if (registeredCategory !== undefined && envelope.category !== registeredCategory) {
+    return undefined;
+  }
   return {
     id: envelope.id,
     sessionId: envelope.sessionId,

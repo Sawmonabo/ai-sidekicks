@@ -227,12 +227,37 @@ function projectRollback(event: ConsoleSessionEvent): RunStreamProjection {
   if (payload === undefined) {
     return unprojectableFor(event, "carries no payload at all");
   }
+  // The cross-check this arm owes, in the same shape and for the same reason as the
+  // state arm's kind-against-`newState` check above: a fact about this BEAT that no
+  // schema can make. `sessionId` is a member of this payload and of no sibling stream
+  // shape precisely because "this same payload is the durable `run.rolled_back` row
+  // the Plan-013 timeline consumes, where the boundary entry refines
+  // `runId === payload.runId`, `sessionId === payload.sessionId`, and
+  // `position === payload.targetPosition`, so outer attribution and payload cannot
+  // disagree". This module used to OVERWRITE the payload's member with the envelope's
+  // before parsing, which made that rule unenforceable here: a beat that named no
+  // session, or named a different one, was rewritten into a rollback that passed
+  // `RunRolledBackEventSchema` and reached subscribers as valid.
+  const statedSessionId = payload["sessionId"];
+  if (statedSessionId === undefined) {
+    return unprojectableFor(
+      event,
+      "names no `sessionId`, which the registered rollback payload requires and which no other member of this shape can stand in for",
+    );
+  }
+  if (statedSessionId !== event.sessionId) {
+    return unprojectableFor(
+      event,
+      `is delivered on session "${event.sessionId}" and names ${JSON.stringify(statedSessionId)} in its payload; outer attribution and payload cannot disagree about which session was rolled back`,
+    );
+  }
   const channelId = readWireString(payload, "channelId");
   return projectThroughRegisteredShape(RunRolledBackEventSchema, event, {
-    // The ENVELOPE's session, not the payload's. Outer attribution and payload
-    // cannot disagree by the registration's own rule, and the envelope member is
-    // the one a beat always carries.
-    sessionId: event.sessionId,
+    // The PAYLOAD's session, checked equal to the envelope's just above and then
+    // carried untouched. Copying the envelope's here instead would make that check
+    // vacuous — the value delivered would agree with the envelope by construction
+    // rather than because the beat said so.
+    sessionId: statedSessionId,
     runId: payload["runId"],
     runVersion: payload["runVersion"],
     ...(channelId === undefined ? {} : { channelId }),

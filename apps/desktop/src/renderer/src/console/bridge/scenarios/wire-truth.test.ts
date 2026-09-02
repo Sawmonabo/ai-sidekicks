@@ -26,6 +26,9 @@ import type { ConsoleScenario } from "../scenario.js";
 /** Someone this session never joins, spelled as the branded id type declares. */
 const STRANGER_PARTICIPANT_ID = "019b79ee-0280-79a4-8110-cca0117a9999";
 
+/** A session the branded schema accepts that is not the one the flagship's beats travel on. */
+const STRANGER_SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a7777";
+
 /** The flagship's stated viewer, which the misdeclared-role case declares against. */
 const FLAGSHIP_VIEWER = FLAGSHIP_SCENARIO.viewingParticipantId ?? "";
 
@@ -130,6 +133,78 @@ describe("scenario wire truth — a run beat that reports two states at once", (
 
     expect(queuedBeat?.event.payload?.["newState"]).toBe("queued");
     expect(findScenarioWireTruthDefects([FLAGSHIP_SCENARIO])).toStrictEqual([]);
+  });
+});
+
+describe("scenario wire truth — a rollback beat whose payload names the wrong session", () => {
+  /**
+   * The flagship's own `run.starting` beat, re-kinded as the rollback row.
+   *
+   * Built from a shipped beat for the reason the state-pair cases above are: every
+   * envelope member is one the seat board already carries and the predicate already
+   * accepts, so what the case is about is the payload's session and nothing else. The
+   * transition members go with the state kind — the rollback row registers none.
+   */
+  function scenarioWithRollbackBeat(
+    scenarioId: string,
+    payloadSessionId: string | undefined,
+  ): ConsoleScenario {
+    return {
+      ...FLAGSHIP_SCENARIO,
+      id: scenarioId,
+      beats: FLAGSHIP_SCENARIO.beats.map((beat) =>
+        beat.event.kind === "run.starting"
+          ? {
+              ...beat,
+              event: {
+                ...beat.event,
+                kind: "run.rolled_back",
+                payload: {
+                  ...(payloadSessionId === undefined ? {} : { sessionId: payloadSessionId }),
+                  runId: beat.event.payload?.["runId"],
+                  runVersion: beat.event.payload?.["runVersion"],
+                  targetPosition: 1,
+                },
+              },
+            }
+          : beat,
+      ),
+    };
+  }
+
+  it("reports a rollback beat that carries no session at all", () => {
+    // The member is required by the registered per-type payload and enforced by
+    // nothing the contracts package ships — no strict-layer variant is registered for
+    // this kind — so before this leg the beat passed every check and the projection
+    // that consumes it stamped the envelope's session on in its place.
+    const defects = findScenarioWireTruthDefects([
+      scenarioWithRollbackBeat("rollback-names-no-session", undefined),
+    ]);
+
+    expect(defects).toHaveLength(1);
+    expect(defects[0]?.subject).toContain("run.rolled_back");
+    expect(defects[0]?.reason).toContain("sessionId");
+  });
+
+  it("reports a rollback beat whose payload session is not the one it is delivered on", () => {
+    const defects = findScenarioWireTruthDefects([
+      scenarioWithRollbackBeat("rollback-names-another-session", STRANGER_SESSION_ID),
+    ]);
+
+    expect(defects).toHaveLength(1);
+    expect(defects[0]?.reason).toContain(STRANGER_SESSION_ID);
+    expect(defects[0]?.reason).toContain("disagree");
+  });
+
+  it("negative control: the same beat naming its own session is clean", () => {
+    // Without it both cases above would hold over a leg that reported every rollback
+    // beat — and the seat-board case at the top of this file would be all that stood
+    // between that and a predicate no scenario carrying a rollback could satisfy.
+    expect(
+      findScenarioWireTruthDefects([
+        scenarioWithRollbackBeat("rollback-names-its-own-session", FLAGSHIP_SCENARIO.sessionId),
+      ]),
+    ).toStrictEqual([]);
   });
 });
 

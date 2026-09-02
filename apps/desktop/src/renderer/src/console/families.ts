@@ -36,31 +36,42 @@
 // its own, the thing it is deciding belongs in the family that owns the decision.
 
 import { registerLegacySurfaces } from "./frame/legacy-surfaces.js";
+import { registerRunLifecycleProjectors } from "./frame/run-lifecycle-projector.js";
 import type { ConsoleSurfaceRegistry } from "./frame/surface-registry.js";
 import { registerConsolePanes } from "./panes/index.js";
+import type { ConsoleEntityProjectorRegistry } from "./store/index.js";
 import type { ConsolePaneRegistry } from "./workspace/index.js";
 
 /**
- * Register every shipped view family against the two registries a composition owns.
+ * Register every shipped view family against the three registries a composition owns.
  *
- * BOTH ARE PARAMETERS, and the second one is the whole of this signature's history.
- * The surface registry was passed in from the start so a test could compose into a
- * registry it owns and an auxiliary window could compose a subset; the pane board
- * beside it reached for the module-scope singleton, so a caller composing its own
- * family set still registered panes into the production one. That is inert only
+ * ALL THREE ARE PARAMETERS, and the second and third are this signature's whole
+ * history. The surface registry was passed in from the start so a test could compose
+ * into a registry it owns and an auxiliary window could compose a subset; the pane
+ * board beside it reached for the module-scope singleton, so a caller composing its
+ * own family set still registered panes into the production one. That is inert only
  * while every pane seat is still reserved — the moment the first family registers a
  * body, an independent composition mutates the running console's deck, two
  * compositions leak registrations into each other, and an auxiliary window cannot
  * select a different pane subset however carefully it asks.
  *
- * Required rather than defaulted to the singleton, because a default is the same
+ * The projector board is the third for the same reason and a sharper one: the session
+ * store's fold used to be a CONSTANT decided in the frame, so no family could project
+ * its own event category into the partition it owns. A family that cannot do that
+ * reads the wire twice — once through its own read and again through a subscription
+ * it should not need — and keeps the result beside the store instead of in it. It is
+ * a parameter here so a test and an auxiliary window compose their own fold, exactly
+ * as they compose their own surfaces and panes.
+ *
+ * Required rather than defaulted to the singletons, because a default is the same
  * hard-coding one parameter along: a caller that forgets it still writes into
- * production. Naming both at the one composition site is what makes a composition
- * legible as a whole.
+ * production. Naming all three at the one composition site is what makes a
+ * composition legible as a whole.
  */
 export function registerConsoleFamilies(
   registry: ConsoleSurfaceRegistry,
   paneRegistry: ConsolePaneRegistry,
+  projectorRegistry: ConsoleEntityProjectorRegistry,
 ): void {
   // The three shipped Tier-1 families come first, because they were mounted
   // before any of the seats below existed. A family filling a seat that one of
@@ -75,6 +86,15 @@ export function registerConsoleFamilies(
   // the pane table is not the surface table, and it is not the caller's
   // business twice over which of the two a composition is allowed to own.
   registerConsolePanes(paneRegistry);
+  // The frame's own projector claim, on the same terms as any family's. It is a
+  // registration and not a constant handed downstream, because the fold a store is
+  // opened with is what decides which family can own which partition — and it takes
+  // the projector board this function was HANDED, so a composition writes its fold
+  // where it writes its surfaces and its panes.
+  registerRunLifecycleProjectors(projectorRegistry);
+  // Each seat below receives all three boards. A family claims a surface slot, a
+  // pane kind, and the event kinds whose fold it owns — through its own
+  // `register<Family>` entry point, never by editing a shared spine.
   // T-023p-1C-2 ledger
   // T-023p-1C-3 composer
   // T-023p-1C-4 collaboration

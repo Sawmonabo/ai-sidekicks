@@ -115,6 +115,7 @@ import type {
 } from "@ai-sidekicks/contracts";
 
 import { runStateForTransitionKind } from "../bridge/index.js";
+import type { ConsoleEntityProjectorRegistry } from "../store/index.js";
 import type {
   ConsoleSessionEvent,
   EntityMutation,
@@ -310,6 +311,28 @@ export const projectRunLifecycleEvent: EntityProjector = (
  * fourteenth gets a subtly different one.
  */
 export const RUN_LIFECYCLE_PROJECTORS: EntityProjectorRegistry = buildRunLifecycleProjectors();
+
+/** The name this family claims its event kinds under, so a conflict names it. */
+const RUN_LIFECYCLE_PROJECTOR_OWNER = "frame";
+
+/**
+ * The frame's own claim on the run-lifecycle kinds.
+ *
+ * Called from the seat board beside `registerLegacySurfaces` and
+ * `registerConsolePanes`, and for their reason: a composition names every board it
+ * writes into at one site. The frame is a family here like any other — it happens to
+ * be the family that has a projector today, and the registry has no notion of a
+ * privileged one.
+ *
+ * Registration rather than a constant handed to the store plumbing is the whole
+ * change: with a constant, `approval`, `workflow-run`, `browser-page`, `artifact`
+ * and every other partition `store/entities.ts` declares could be projected by
+ * nobody, because the table was closed one family below the families that own those
+ * surfaces.
+ */
+export function registerRunLifecycleProjectors(registry: ConsoleEntityProjectorRegistry): void {
+  registry.registerAll(RUN_LIFECYCLE_PROJECTORS, RUN_LIFECYCLE_PROJECTOR_OWNER);
+}
 
 function buildRunLifecycleProjectors(): EntityProjectorRegistry {
   const projectors: Record<string, EntityProjector> = {};

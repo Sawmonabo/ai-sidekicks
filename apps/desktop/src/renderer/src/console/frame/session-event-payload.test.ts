@@ -16,6 +16,8 @@
 
 import { describe, expect, it } from "vitest";
 
+import { SESSION_EVENT_CATEGORY_BY_TYPE, type EventCategory } from "@ai-sidekicks/contracts";
+
 import { readConsoleSessionEvent } from "./session-event-payload.js";
 
 /** A session id the branded schema accepts. */
@@ -28,6 +30,41 @@ const EVENT_ID = "019b79ee-0280-7ea1-8110-e5e0d1159901";
 const PARTICIPANT_ID = "019b79ee-0280-79a4-8110-cca0117a0110";
 
 const OCCURRED_AT = "2026-01-01T14:20:00.500Z";
+
+/** The census-known type every envelope below carries unless a case says otherwise. */
+const REGISTERED_TYPE = "run.running";
+
+/** A type spelled like a real one that the census does not register. */
+const UNREGISTERED_TYPE = "run.teleported";
+
+/** The one category the census pairs {@link REGISTERED_TYPE} with, read rather than written. */
+const REGISTERED_CATEGORY = registeredCategoryOf(REGISTERED_TYPE);
+
+/** The census entry for one type, or a failure saying the type is not registered at all. */
+function registeredCategoryOf(eventType: typeof REGISTERED_TYPE): EventCategory {
+  const category = SESSION_EVENT_CATEGORY_BY_TYPE.get(eventType);
+  if (category === undefined) {
+    throw new Error(`"${eventType}" is not a registered event type, so it pairs with no category`);
+  }
+  return category;
+}
+
+/**
+ * Some registered category that is not the given one.
+ *
+ * Derived from the census rather than written down, so the mismatch cases below stay
+ * about the PAIRING: a taxonomy that grows a category, or moves this type between two,
+ * moves this value with it instead of leaving a literal that quietly stops being wrong.
+ */
+function categoryOtherThan(ownCategory: EventCategory): EventCategory {
+  const foreign = [...SESSION_EVENT_CATEGORY_BY_TYPE.values()].find(
+    (candidate) => candidate !== ownCategory,
+  );
+  if (foreign === undefined) {
+    throw new Error("the census registers one category, so no mismatched pairing can be planted");
+  }
+  return foreign;
+}
 
 /**
  * One canonical envelope, spelled as `packages/contracts` declares it.
@@ -45,8 +82,8 @@ function registeredEnvelope(
     sessionId: SESSION_ID,
     sequence: 7,
     occurredAt: OCCURRED_AT,
-    category: "run_lifecycle",
-    type: "run.running",
+    category: REGISTERED_CATEGORY,
+    type: REGISTERED_TYPE,
     payload: { runId: SESSION_ID, newState: "running" },
     version: "1.0",
     ...overrides,
@@ -85,6 +122,61 @@ describe("readConsoleSessionEvent — the registered envelope", () => {
     const decoded = readConsoleSessionEvent(registeredEnvelope());
 
     expect(decoded?.actorId).toBeUndefined();
+  });
+});
+
+describe("readConsoleSessionEvent — the census pairing of type and category", () => {
+  it("refuses a census-known type carrying a category the registry does not pair it with", () => {
+    // THE case this leg exists for, and the one the tolerant carrier cannot make:
+    // `EventEnvelopeSchema` admits any registered category beside any bounded type
+    // string, and the strict layer — where a category/type mismatch fails loud — is
+    // not the layer that runs here. Before this leg the pair parsed, `category` was
+    // dropped, and every projector above routed on `kind` alone, mutating the run
+    // partition off a combination the interpretation surface refuses outright.
+    const decoded = readConsoleSessionEvent(
+      registeredEnvelope({ category: categoryOtherThan(REGISTERED_CATEGORY) }),
+    );
+
+    expect(decoded).toBeUndefined();
+  });
+
+  it("admits the same type carrying the category the registry does pair it with", () => {
+    // The control that keeps the case above from holding over a boundary that refused
+    // every delivery: this is the pairing the census itself declares, so a decoder
+    // reading the registry backwards, or refusing whenever it finds an entry, fails
+    // here while still passing the mismatch case.
+    const decoded = readConsoleSessionEvent(registeredEnvelope({ category: REGISTERED_CATEGORY }));
+
+    expect(decoded?.kind).toBe(REGISTERED_TYPE);
+  });
+
+  it("admits a type the census does not register, whatever category it names", () => {
+    // Forward compatibility, which is the whole reason the tolerant carrier is the
+    // schema this boundary parses with: a higher-MINOR producer may send a type this
+    // console has no entry for, and the console persists it rather than dropping it.
+    // There is no registered pairing to check such a delivery against, so every
+    // category the taxonomy carries is admitted beside it — swept rather than sampled,
+    // so a leg that refused one category would be caught.
+    expect(SESSION_EVENT_CATEGORY_BY_TYPE.has(UNREGISTERED_TYPE as never)).toBe(false);
+
+    for (const category of new Set(SESSION_EVENT_CATEGORY_BY_TYPE.values())) {
+      const decoded = readConsoleSessionEvent(
+        registeredEnvelope({ type: UNREGISTERED_TYPE, category }),
+      );
+
+      expect(decoded?.kind).toBe(UNREGISTERED_TYPE);
+    }
+  });
+
+  it("carries no category onto the console event, which no reader above reads", () => {
+    // The pairing is CHECKED here and travels no further: every projector routes on
+    // `kind`, so a `category` member on `ConsoleSessionEvent` would be minted ahead of
+    // its reader. Asserted on the whole decoded value in the first case of this file;
+    // pinned here as the claim rather than as a side effect of that assertion.
+    const decoded = readConsoleSessionEvent(registeredEnvelope());
+
+    expect(decoded).toBeDefined();
+    expect(decoded === undefined ? [] : Object.keys(decoded)).not.toContain("category");
   });
 });
 
