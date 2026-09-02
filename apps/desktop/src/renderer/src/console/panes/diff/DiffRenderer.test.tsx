@@ -56,7 +56,11 @@ describe("diff renderer — the rows", () => {
     expect(container.querySelector(".meridian-diff__row--gap")?.textContent).toContain(
       "Expand 4 hidden lines",
     );
-    expect(container.querySelector(".meridian-diff__row--hunk")?.textContent).toContain("@@ -1,3");
+    // The header the patch declared, per side: a three-line hunk of one context,
+    // one deletion, and one insertion is two lines on each side, not three on both.
+    expect(container.querySelector(".meridian-diff__row--hunk")?.textContent).toContain(
+      "@@ -1,2 +1,2 @@",
+    );
     expect(container.querySelectorAll(".meridian-diff__row--line").length).toBeGreaterThan(0);
   });
 
