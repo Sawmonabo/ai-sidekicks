@@ -78,6 +78,61 @@ describe("scenario wire truth — the memberships a scenario declares", () => {
   });
 });
 
+describe("scenario wire truth — a run beat that reports two states at once", () => {
+  /**
+   * The flagship's own `run.starting` beat, with its `newState` replaced.
+   *
+   * Built from the shipped beat rather than from a synthetic one so the case is
+   * about the state pair and nothing else: every other member is the beat the
+   * seat board already ships and the predicate already accepts.
+   */
+  function scenarioWithStartingBeatState(scenarioId: string, newState: string): ConsoleScenario {
+    return {
+      ...FLAGSHIP_SCENARIO,
+      id: scenarioId,
+      beats: FLAGSHIP_SCENARIO.beats.map((beat) =>
+        beat.event.kind === "run.starting"
+          ? { ...beat, event: { ...beat.event, payload: { ...beat.event.payload, newState } } }
+          : beat,
+      ),
+    };
+  }
+
+  it("reports a beat whose payload names a state its kind does not announce", () => {
+    // The defect the strict layer cannot see: `run.starting` and `"failed"` are
+    // both registered, the census admits the kind, the envelope carries the beat,
+    // and no payload variant is registered for the run-lifecycle kinds — so before
+    // this leg the pair reached the fold unchallenged.
+    const defects = findScenarioWireTruthDefects([
+      scenarioWithStartingBeatState("reports-two-run-states", "failed"),
+    ]);
+
+    expect(defects).toHaveLength(1);
+    expect(defects[0]?.subject).toContain("run.starting");
+    expect(defects[0]?.reason).toContain("two run states");
+  });
+
+  it("negative control: the same beat naming the state its kind announces is clean", () => {
+    // Without this the case above would hold over a leg that reported every run
+    // beat, and the seat-board case at the top of this file would be the only
+    // thing standing between that and a predicate nothing can satisfy.
+    expect(
+      findScenarioWireTruthDefects([scenarioWithStartingBeatState("names-one-state", "starting")]),
+    ).toStrictEqual([]);
+  });
+
+  it("leaves the kinds the run-state stream does not carry to the other legs", () => {
+    // `run.queued` is the run's creation rather than a transition, and the mapping
+    // this leg reads claims no state for it — so the shipped creation beat, which
+    // names `newState: "queued"` and no state it came from, is not this leg's
+    // business and stays clean.
+    const queuedBeat = FLAGSHIP_SCENARIO.beats.find((beat) => beat.event.kind === "run.queued");
+
+    expect(queuedBeat?.event.payload?.["newState"]).toBe("queued");
+    expect(findScenarioWireTruthDefects([FLAGSHIP_SCENARIO])).toStrictEqual([]);
+  });
+});
+
 describe("every shipped scenario that names its viewer names that viewer's role", () => {
   it("declares a role for the identity the fixture answers with", () => {
     expect(scenariosNamingARolelessViewer(CONSOLE_SCENARIOS)).toStrictEqual([]);

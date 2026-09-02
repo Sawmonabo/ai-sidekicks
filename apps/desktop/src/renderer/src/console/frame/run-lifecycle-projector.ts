@@ -82,6 +82,24 @@
 // spread, so a present-but-undefined key ERASES what the last transition
 // established.
 //
+// AND IT IS WRITTEN ONLY WHERE THE PAYLOAD AGREES WITH THE KIND. A `run.running`
+// beat carrying `newState: "failed"` reports two states at once, and nothing above
+// this fold rejects it: `SessionEventSchema` registers no run-lifecycle payload
+// variant, so the strict layer never sees the pair, and the envelope schema is
+// deliberately payload-tolerant. Stored, it puts a failed run under a kind the
+// timeline renders as running — two surfaces reading one event and disagreeing.
+// So a disagreement yields NO mutation, on the same terms as a payload that names
+// no `runId`: the beat is still admitted and the timeline still records it, and
+// what the projector declines to do is pick one of the two readings. The kind's
+// announced state is `bridge/session-event-streams.ts`'s
+// `runStateForTransitionKind`, read rather than re-derived — that module is the
+// one authority on which kind announces which state, and a second copy here is
+// exactly the drift it was written to end. Its domain is the eight transitions the
+// state stream carries, so the check is scoped to those: the creation kind and the
+// three forward, non-state rows are not transitions, that mapping deliberately
+// claims none of them, and inventing a state for them here to widen the check
+// would be minting the second mapping this reads one to avoid.
+//
 // A PROJECTOR IS PURE, AND THAT DECIDES THE MALFORMED CASE. It may read the event
 // and nothing else — no store, no clock, no tripwire — because the apply path
 // replays prefixes and a side effect there would fire twice. A run event whose
@@ -96,6 +114,7 @@ import type {
   SessionEventType,
 } from "@ai-sidekicks/contracts";
 
+import { runStateForTransitionKind } from "../bridge/index.js";
 import type {
   ConsoleSessionEvent,
   EntityMutation,
@@ -250,7 +269,8 @@ const WIRE_MEMBER_READERS: Readonly<Record<WireMemberReaderName, (value: unknown
  * Fold one run-lifecycle event into the run it names.
  *
  * Pure and total: it reads the event and answers with mutations, and every path
- * through it answers — a payload it cannot key on answers with none.
+ * through it answers — a payload it cannot key on, and a payload that contradicts
+ * its own kind, each answer with none.
  */
 export const projectRunLifecycleEvent: EntityProjector = (
   event: ConsoleSessionEvent,
@@ -261,6 +281,9 @@ export const projectRunLifecycleEvent: EntityProjector = (
     return [];
   }
   const newState = readWireString(payload, "newState");
+  if (statedStateContradictsKind(event.kind, newState)) {
+    return [];
+  }
   const body = readRunEntityBody(event.kind, payload);
   return [
     {
@@ -339,6 +362,31 @@ function undeclaredMemberReadersFor(
   return Object.hasOwn(UNDECLARED_RUN_BODY_MEMBER_READERS, eventKind)
     ? UNDECLARED_RUN_BODY_MEMBER_READERS[eventKind as RunKindWithUndeclaredMembers]
     : NO_UNDECLARED_MEMBERS;
+}
+
+/**
+ * Does this payload report a different run state than its own kind announces?
+ *
+ * The one cross-member rule in the fold, and it is here because nothing above it
+ * can be: `SessionEventSchema` registers no run-lifecycle payload variant, so the
+ * strict layer never sees the pair at all, and the envelope schema is
+ * payload-tolerant by design. A `run.running` beat carrying `newState: "failed"`
+ * therefore arrives well-formed and reports two states at once.
+ *
+ * SCOPED TO THE KINDS THE MAPPING CLAIMS, which is the eight transitions
+ * `run.subscribeState` carries. A kind it answers nothing for announces no
+ * transition — the creation row and the three forward, non-state rows — and
+ * deciding what those "should" say would mean minting the second kind-to-state
+ * mapping this function reads one to avoid.
+ *
+ * An absent or wrong-typed `newState` is not a contradiction: the reader has
+ * already turned it into absence, and absence is what a non-state row carries.
+ */
+function statedStateContradictsKind(eventKind: string, statedState: string | undefined): boolean {
+  const announcedState = runStateForTransitionKind(eventKind);
+  return (
+    announcedState !== undefined && statedState !== undefined && statedState !== announcedState
+  );
 }
 
 /** One string member, read through the same reader the body walk uses. */
