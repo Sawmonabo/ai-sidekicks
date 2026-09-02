@@ -15,10 +15,9 @@ import {
   LedgerSeamIndex,
   SEAM_WIRE_BINDINGS,
   SWITCH_CONTINUITY_MEMO,
-  SupersededIndex,
-  deriveSupersededBands,
   type LedgerSeam,
 } from "./seams.js";
+import { SupersededIndex, deriveSupersededBands } from "./superseded-bands.js";
 
 function classifyOne(row: TimelineRow): LedgerSeam {
   const seam = new LedgerSeamIndex().classify(row);

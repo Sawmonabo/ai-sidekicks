@@ -48,7 +48,9 @@
 //     run that was never rewound is epoch zero, which is also what it would be.
 //   • `summary`. The row's own wire type, restated — and that is the whole of it.
 //     No registered payload carries a summary; the daemon composes one and serves
-//     it through a read this console does not have. The member is REQUIRED and
+//     it through a read this console does not have. The growth slate's
+//     `hydrated-event-read` row is where that missing read is written down, so the
+//     absence is a registered fact rather than a claim made here. The member is REQUIRED and
 //     non-empty by contract (`wireFreeFormString` layers `.min(1)`), so leaving it
 //     blank is not open either: the contract's own validator refuses the row. So
 //     the shell restates the one human-readable string the delivered envelope
