@@ -117,6 +117,43 @@ function readString(source: Readonly<Record<string, unknown>>, member: string): 
 }
 
 /**
+ * What an OPTIONAL member answered — three values, because two would lose one.
+ *
+ * `readString` above answers `undefined` for a member that is absent, empty, or not
+ * a string at all, which is exactly right for a REQUIRED member (the conjunction
+ * below rejects the item either way) and exactly wrong for an optional one: it
+ * converts "the producer sent something this console cannot read" into "the
+ * producer sent nothing", and absence is a meaningful value on both optional
+ * members here.
+ */
+type OptionalStringReading =
+  | { readonly presence: "absent" }
+  | { readonly presence: "present"; readonly value: string }
+  | { readonly presence: "invalid" };
+
+/**
+ * Read an optional string member without flattening invalid onto absent.
+ *
+ * `undefined` is absence and nothing else is: a JSON producer omits an optional
+ * member rather than sending a null, so `null`, `""`, and every non-string answer
+ * `invalid` and the item is dropped. That is the fail-closed arm — the alternative
+ * is a console that reads `resolvedAt: null` as "still outstanding" and offers a
+ * person work the daemon already closed.
+ */
+function readOptionalString(
+  source: Readonly<Record<string, unknown>>,
+  member: string,
+): OptionalStringReading {
+  const value = source[member];
+  if (value === undefined) {
+    return { presence: "absent" };
+  }
+  return typeof value === "string" && value !== ""
+    ? { presence: "present", value }
+    : { presence: "invalid" };
+}
+
+/**
  * Narrow one projection member, or drop it.
  *
  * The one boundary between whatever a reader produced and everything above. Every
@@ -124,6 +161,12 @@ function readString(source: Readonly<Record<string, unknown>>, member: string): 
  * its set; anything else answers `undefined` and the item never reaches a render.
  * Dropping is the fail-closed arm: a half-narrowed item would put a blank summary
  * or an unstyled trigger on a surface whose whole job is to be trusted.
+ *
+ * An OPTIONAL member that is present and unreadable drops the item too, on the same
+ * arm and for the same reason. Absence carries meaning on both of them — no
+ * `runId` is the session-scoped aggregate, no `resolvedAt` is still outstanding —
+ * so admitting a malformed one as absent would not be tolerance, it would be the
+ * console asserting a scope or a resolution state the producer never sent.
  */
 export function narrowAttentionItem(candidate: unknown): AttentionItem | undefined {
   if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) {
@@ -147,18 +190,21 @@ export function narrowAttentionItem(candidate: unknown): AttentionItem | undefin
   ) {
     return undefined;
   }
-  const runId = readString(source, "runId");
-  const resolvedAt = readString(source, "resolvedAt");
+  const runId = readOptionalString(source, "runId");
+  const resolvedAt = readOptionalString(source, "resolvedAt");
+  if (runId.presence === "invalid" || resolvedAt.presence === "invalid") {
+    return undefined;
+  }
   return {
     id,
     sessionId,
-    ...(runId === undefined ? {} : { runId }),
+    ...(runId.presence === "absent" ? {} : { runId: runId.value }),
     trigger,
     severity,
     summary,
     sourceEventId,
     createdAt,
-    ...(resolvedAt === undefined ? {} : { resolvedAt }),
+    ...(resolvedAt.presence === "absent" ? {} : { resolvedAt: resolvedAt.value }),
   };
 }
 
