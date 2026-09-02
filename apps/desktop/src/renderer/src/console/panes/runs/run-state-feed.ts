@@ -32,7 +32,7 @@
 // timer of any kind: elapsed is measured between two instants the WIRE supplied, so
 // the pane never needs to know what time it is now.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   RunRolledBackEventSchema,
   RunStateChangeEventSchema,
@@ -48,6 +48,7 @@ import {
   type ConsoleBridge,
 } from "../../bridge/index.js";
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
+import { useSessionInitialised, type SessionStore } from "../../store/index.js";
 import { PROJECTED_RUN_CAP, RUN_STATUS_ROW_CAP } from "./runs-bounds.js";
 import { runStatusSubtypeFor, type RunStatusSubtype, type RunStopTrigger } from "./run-status.js";
 
@@ -288,8 +289,15 @@ export function runElapsedMilliseconds(run: RunProjection): number | undefined {
  * and the rendered snapshot is state so a delivery re-renders. Deliveries after
  * unmount are dropped rather than written into a torn-down component, which is the
  * same close-race posture the session binder takes one layer down.
+ *
+ * TAKES THE STORE AND NOT A BARE SESSION ID, because two different reads answer two
+ * different questions here. This stream answers "what has happened to the runs";
+ * the store's snapshot answers "has the read that says which runs exist landed", and
+ * only the second can ever say "there are none" — see `RunStateFeed.hasRead`.
  */
-export function useRunStateFeed(bridge: ConsoleBridge, sessionId: string): RunStateFeed {
+export function useRunStateFeed(bridge: ConsoleBridge, sessionStore: SessionStore): RunStateFeed {
+  const sessionId = sessionStore.sessionId;
+  const hasReadSnapshot = useSessionInitialised(sessionStore);
   const projection = useRef<RunStateProjection>(new RunStateProjection());
   const [feed, setFeed] = useState<RunStateFeed>(EMPTY_FEED);
 
@@ -327,7 +335,9 @@ export function useRunStateFeed(bridge: ConsoleBridge, sessionId: string): RunSt
         }
         setFeed({
           runs: fold.runs(),
-          hasRead: true,
+          // Kept `false` here and supplied below from the store: a delivery proves
+          // a run exists, not that the read which enumerates them has completed.
+          hasRead: false,
           unreadableDeliveryCount: fold.unreadableDeliveryCount,
           openRefusal: undefined,
         });
@@ -339,7 +349,7 @@ export function useRunStateFeed(bridge: ConsoleBridge, sessionId: string): RunSt
     };
   }, [bridge, sessionId]);
 
-  return feed;
+  return useMemo(() => ({ ...feed, hasRead: hasReadSnapshot }), [feed, hasReadSnapshot]);
 }
 
 /** The reading before anything has been delivered. Frozen so no caller mutates it. */

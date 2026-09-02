@@ -20,6 +20,7 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
+import { SessionStore } from "../../store/index.js";
 import { RunStateProjection, useRunStateFeed, type RunStateFeed } from "./run-state-feed.js";
 
 /** Canonical UUIDs: both registered schemas brand their ids and refuse anything else. */
@@ -122,14 +123,19 @@ function recordingBridge(): { bridge: ConsoleBridge; openedStreams: string[] } {
  * Composed with `createElement` rather than JSX so the module's own tests stay in
  * one file: everything else here drives the fold directly and needs no tree.
  */
-async function openStateFeed(sessionId: string): Promise<{
+async function openStateFeed(
+  sessionId: string,
+  seed?: (store: SessionStore) => void,
+): Promise<{
   readonly openedStreams: readonly string[];
   readonly feed: RunStateFeed;
 }> {
   const { bridge, openedStreams } = recordingBridge();
+  const sessionStore = new SessionStore({ sessionId });
+  seed?.(sessionStore);
   let held: RunStateFeed | undefined;
   function StateFeedProbe(): null {
-    const feed = useRunStateFeed(bridge, sessionId);
+    const feed = useRunStateFeed(bridge, sessionStore);
     useEffect(() => {
       held = feed;
     }, [feed]);
@@ -158,3 +164,85 @@ describe("the run-state stream is opened with its registered request", () => {
     expect(opened.feed.openRefusal?.code).toBe("session-unreadable");
   });
 });
+
+describe("an empty read completes", () => {
+  it("is not read until the session's snapshot lands", async () => {
+    const opened = await openStateFeed(SESSION_ID);
+    expect(opened.feed.hasRead).toBe(false);
+    expect(opened.feed.runs).toHaveLength(0);
+  });
+
+  it("reads complete on a snapshot that names no run at all", async () => {
+    // The state the old rule could not reach: `hasRead` true with an empty list, so
+    // a session that has never run anything can say so instead of reading forever.
+    const opened = await openStateFeed(SESSION_ID, (store) => {
+      store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    });
+    expect(opened.feed.hasRead).toBe(true);
+    expect(opened.feed.runs).toHaveLength(0);
+  });
+
+  it("reads complete on a snapshot that names runs", async () => {
+    const opened = await openStateFeed(SESSION_ID, (store) => {
+      store.initialise({
+        cursor: 3,
+        entities: [{ kind: "run", id: RUN_ID, state: "running" }],
+        participantJoinLog: [],
+      });
+    });
+    expect(opened.feed.hasRead).toBe(true);
+  });
+
+  it("negative control: a delivery alone does not complete the read", async () => {
+    // The old rule flipped `hasRead` on exactly this, which is what made
+    // `hasRead && runs.length === 0` unreachable.
+    const { bridge, deliverToFeed } = deliveringBridge([STATE_CHANGE_DELIVERY]);
+    const sessionStore = new SessionStore({ sessionId: SESSION_ID });
+    let held: RunStateFeed | undefined;
+    function StateFeedProbe(): null {
+      const feed = useRunStateFeed(bridge, sessionStore);
+      useEffect(() => {
+        held = feed;
+      }, [feed]);
+      return null;
+    }
+    render(createElement(StateFeedProbe));
+    await act(async () => {
+      deliverToFeed();
+      await Promise.resolve();
+    });
+    expect(held?.runs).toHaveLength(1);
+    expect(held?.hasRead).toBe(false);
+  });
+});
+
+/** A bridge that replays a script into the run-state subscription on demand. */
+function deliveringBridge(deliveries: readonly unknown[]): {
+  bridge: ConsoleBridge;
+  deliverToFeed: () => void;
+} {
+  let handleDelivery: (payload: unknown) => void = () => undefined;
+  const bridge = {
+    sidekicks: {
+      daemon: {
+        call: async (): Promise<unknown> => undefined,
+        subscribe: (_stream: string, handler: (payload: unknown) => void) => {
+          handleDelivery = handler;
+          return () => undefined;
+        },
+      },
+    },
+    growth: {},
+    growthServedOperations: new Set(),
+    source: "fixture",
+    scenarioEngine: undefined,
+  } as unknown as ConsoleBridge;
+  return {
+    bridge,
+    deliverToFeed: () => {
+      for (const delivery of deliveries) {
+        handleDelivery(delivery);
+      }
+    },
+  };
+}

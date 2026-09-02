@@ -32,6 +32,7 @@ import { useCallback, useState } from "react";
 
 import type { ConsoleRefusal } from "../../core/index.js";
 import { InlineRefusal, Nothing } from "../../primitives/index.js";
+import { useSessionPartition, type SessionStore } from "../../store/index.js";
 import { type ConsolePaneContext } from "../../workspace/index.js";
 import { ConsolePaneChrome, paneScopeCrumbs } from "../pane-chrome.js";
 import { QueueContents } from "./QueueContents.js";
@@ -63,7 +64,7 @@ export function RunsPane(context: ConsolePaneContext): React.JSX.Element {
           detail="Runs belong to a session, so there is nothing to read here. Open a session and the pane reads its runs, its queue, and the interventions raised against them."
         />
       ) : (
-        <RunsPaneBody context={context} sessionId={context.sessionStore.sessionId} />
+        <RunsPaneBody context={context} sessionStore={context.sessionStore} />
       )}
     </ConsolePaneChrome>
   );
@@ -78,11 +79,16 @@ export function RunsPane(context: ConsolePaneContext): React.JSX.Element {
  */
 function RunsPaneBody(props: {
   readonly context: ConsolePaneContext;
-  readonly sessionId: string;
+  readonly sessionStore: SessionStore;
 }): React.JSX.Element {
-  const { context, sessionId } = props;
-  const stateFeed = useRunStateFeed(context.bridge, sessionId);
-  const queueFeed = useQueueFeed(context.bridge, sessionId);
+  const { context, sessionStore } = props;
+  const stateFeed = useRunStateFeed(context.bridge, sessionStore);
+  const queueFeed = useQueueFeed(context.bridge, sessionStore.sessionId);
+  // Which runs the session HAS, as its snapshot established them. The stream
+  // describes what has happened to a run and says nothing about a run nothing has
+  // happened to yet, so this is what keeps "the stream has told us nothing" from
+  // rendering as "the session has no runs".
+  const knownRuns = useSessionPartition(sessionStore, "run");
   const capabilities = useDeclaredCapabilities(context.bridge);
   const surface = useRunControlSurface(context.bridge);
   const [composerTarget, setComposerTarget] = useState<ComposerTarget | undefined>(undefined);
@@ -108,7 +114,11 @@ function RunsPaneBody(props: {
     <div className="meridian-runs">
       <section className="meridian-runs__section" aria-label="Runs in this session">
         {stateFeed.runs.length === 0 ? (
-          <NoRuns hasRead={stateFeed.hasRead} openRefusal={stateFeed.openRefusal} />
+          <NoRuns
+            hasRead={stateFeed.hasRead}
+            knownRunCount={Object.keys(knownRuns).length}
+            openRefusal={stateFeed.openRefusal}
+          />
         ) : (
           <div className="meridian-runs__rows" role="feed" aria-label="Runs in this session">
             {stateFeed.runs.map((run) => (
@@ -144,21 +154,24 @@ function RunsPaneBody(props: {
 }
 
 /**
- * Two different absences, told apart by whether the stream has spoken — and, ahead
+ * Two different absences, told apart by whether the read has completed — and, ahead
  * of both, the refusal that says the stream was never opened.
  *
- * `empty` is only reachable once something was delivered — until then the honest
- * answer is that a read is in flight, and a skeleton says so without claiming the
- * session has no runs.
+ * `empty` is reachable only once the session's snapshot has landed AND the snapshot
+ * itself named no run. Both conjuncts are needed: without the first the pane would
+ * claim a session has no runs before anything had been read, and without the second
+ * it would claim it for a session whose snapshot lists runs the live tail has not
+ * yet described — a skeleton is the honest shape in both windows.
  */
 function NoRuns(props: {
   readonly hasRead: boolean;
+  readonly knownRunCount: number;
   readonly openRefusal: ConsoleRefusal | undefined;
 }): React.JSX.Element {
   if (props.openRefusal !== undefined) {
     return <InlineRefusal code={props.openRefusal.code} detail={props.openRefusal.detail} />;
   }
-  if (!props.hasRead) {
+  if (!props.hasRead || props.knownRunCount > 0) {
     return (
       <Nothing kind="not-loaded" placement="surface" title="Reading the runs in this session." />
     );

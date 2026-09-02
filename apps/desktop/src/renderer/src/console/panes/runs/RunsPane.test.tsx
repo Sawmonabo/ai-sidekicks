@@ -76,8 +76,15 @@ function paneContext(bridge: ConsoleBridge, sessionStore: SessionStore | undefin
   };
 }
 
-async function renderPane(bridge: ConsoleBridge, withSession: boolean): Promise<HTMLElement> {
+async function renderPane(
+  bridge: ConsoleBridge,
+  withSession: boolean,
+  seed?: (store: SessionStore) => void,
+): Promise<HTMLElement> {
   const sessionStore = withSession ? new SessionStore({ sessionId: SESSION_ID }) : undefined;
+  if (sessionStore !== undefined) {
+    seed?.(sessionStore);
+  }
   const { container } = render(<RunsPane {...paneContext(bridge, sessionStore)} />);
   await act(async () => {
     await Promise.resolve();
@@ -91,11 +98,35 @@ describe("the runs pane's three absences", () => {
     expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
   });
 
-  it("shows a read in flight before the stream has spoken, never an empty session", async () => {
+  it("shows a read in flight before the session's snapshot has landed, never an empty session", async () => {
     // `not-loaded` and `empty` are different facts: one says the console is
     // asking, the other says there is nothing. Conflating them would report a
-    // session with no runs before the first delivery.
+    // session with no runs before the read that enumerates them completed.
     const container = await renderPane(scriptedBridge([]), true);
+    expect(container.querySelector(".meridian-nothing--not-loaded")).not.toBeNull();
+    expect(container.querySelector(".meridian-nothing--empty")).toBeNull();
+  });
+
+  it("says the session has no runs once its snapshot lands naming none", async () => {
+    // The arm the old rule could not reach at all: `hasRead` only ever flipped on a
+    // projected run, so a session with no runs read "Reading the runs" forever.
+    const container = await renderPane(scriptedBridge([]), true, (store) => {
+      store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    });
+    expect(container.querySelector(".meridian-nothing--empty")).not.toBeNull();
+    expect(container.querySelector(".meridian-nothing--not-loaded")).toBeNull();
+  });
+
+  it("keeps the skeleton while the snapshot names runs the stream has not described", async () => {
+    // Read complete, list still empty, and the session is known to have a run — so
+    // "there are none" would be false. The skeleton is the honest shape.
+    const container = await renderPane(scriptedBridge([]), true, (store) => {
+      store.initialise({
+        cursor: 4,
+        entities: [{ kind: "run", id: RUN_ID, state: "running" }],
+        participantJoinLog: [],
+      });
+    });
     expect(container.querySelector(".meridian-nothing--not-loaded")).not.toBeNull();
     expect(container.querySelector(".meridian-nothing--empty")).toBeNull();
   });
