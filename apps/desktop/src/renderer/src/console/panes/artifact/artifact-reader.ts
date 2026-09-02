@@ -149,35 +149,38 @@ export class ArtifactPaneReader {
    * the coalescing window costs no second read pair and a press made while a read is
    * outstanding becomes the NEXT read rather than a parallel one.
    *
-   * THE REASON IS `subscribe` BECAUSE THE SET HAS NO BETTER MEMBER. `RefreshReason`
-   * (`store/scheduling.ts`) is a closed five-member set — subscribe, window-focus,
-   * reconnect, terminal-event, gap-repull — and a participant-requested re-read is
-   * none of them. `subscribe` is the one whose meaning is not FALSE here: the press
-   * asks for the same whole-pane read the subscription asked for. Naming it
-   * `terminal-event` would fabricate a diagnostics reason, which that module's own
-   * doc forbids.
+   * THE REASON IS `participant-request`, WHICH THE SET NOW NAMES. `RefreshReason`
+   * (`store/scheduling.ts`) is a closed SIX-member set — subscribe, window-focus,
+   * reconnect, terminal-event, gap-repull, participant-request — and the last of
+   * those is exactly this press. This call used to request `subscribe`, because at
+   * the time the set had five members and none of them was true: `subscribe` was the
+   * one whose meaning was not FALSE, since the press asks for the same whole-pane
+   * read the subscription asked for. That reasoning ends the moment the honest member
+   * exists, and it has to end here rather than merely read oddly: a diagnostics trail
+   * that recorded a person's press as a subscription would report a surface opening
+   * that never opened, which is the fabricated reason that module's own doc forbids.
    */
   public refresh(): void {
     if (this.#disposed || this.#sessionId === undefined) {
       return;
     }
-    this.#scheduler.request("subscribe");
+    this.#scheduler.request("participant-request");
   }
 
   /**
    * Re-read one artifact's manifest, and put what came back on its row.
    *
-   * THE READ SERVES A MANIFEST AND NOT BYTES, WHICH IS WHY THIS IS NOT A DOWNLOAD.
-   * `bridge/growth-signatures.ts` registers `artifactRead` as answering one
-   * `GrowthArtifactSummary` — the same envelope `artifactList` answers with — with no
-   * request member that could ask for a payload and no reply member that could carry
-   * one. The wire's own read does carry `payloadHandle` / `payload` /
-   * `payloadEncoding` behind an `includePayload` request member
-   * (`api-payload-contracts.md §Plan-014`, `ArtifactReadResponse`); none of those four
-   * is on the console's port, and a port entry is not this family's to add. So the
-   * served answer is used for the only thing it can be: it REPLACES the listed row,
-   * member for member, and any refusal standing against that row clears, because the
-   * read just answered for it.
+   * THIS ASKS FOR NO BYTES, WHICH IS WHY IT IS NOT A DOWNLOAD. `artifactRead` now
+   * answers a `GrowthArtifactRead` — the manifest NESTED beside a way to reach the
+   * payload — and takes an `includePayload` request member, so the two halves of
+   * `api-payload-contracts.md §Plan-014`'s `ArtifactReadResponse` are both on the
+   * port. This call omits that member, which lands the reply on the DEFERRED arm: a
+   * handle and no bytes. Fetching them is a second act with its own affordance and
+   * its own bound, and this one is a re-read of what a row SAYS.
+   *
+   * So the served answer is used for the only thing this surface wants from it: the
+   * `manifest` REPLACES the listed row, member for member, and any refusal standing
+   * against that row clears, because the read just answered for it.
    *
    * A SUPERSEDED RE-READ IS DROPPED HERE, AND THAT ASYMMETRY WITH `deleteArtifact`
    * IS DELIBERATE. This read establishes what one row currently SAYS, and the
