@@ -177,11 +177,12 @@ export function ProvenanceRail(props: ProvenanceRailProps): React.JSX.Element {
     (event: React.KeyboardEvent<HTMLDivElement>) => {
       const ticks = railModel.ticks;
       const from = focusedSequence ?? -1;
-      const walkKind = kindWalkedBy(event.key);
+      const walkKind = kindWalkedBy(event.code);
       if (walkKind !== undefined) {
-        // Shift plus a digit walks one KIND, which is §5.4's "next / previous tick
-        // of a kind" — the plain arrows walk every tick, because that is what a
-        // person reaches for first.
+        // Shift plus a digit walks one KIND — the previous tick of it, the digit
+        // alone the next — while the plain arrows walk every tick, because that is
+        // what a person reaches for first. The digit is read off the PHYSICAL key,
+        // for the reason `kindWalkedBy` states.
         event.preventDefault();
         walkTo(model.tickOfKind(walkKind, from, event.shiftKey ? "previous" : "next"));
         return;
@@ -261,18 +262,34 @@ export function ProvenanceRail(props: ProvenanceRailProps): React.JSX.Element {
 const RAIL_PREVIEW_GLYPH_SIZE = 12;
 
 /**
+ * The physical digit-row keys the kind walk binds.
+ *
+ * `Numpad1`–`Numpad9` are deliberately absent: with NumLock off those codes still
+ * report while `key` reads `"End"` / `"Home"`, so binding them would hijack numpad
+ * navigation away from the walk the arrows and the ends already offer.
+ */
+const KIND_WALK_DIGIT_CODE = /^Digit([1-9])$/;
+
+/**
  * Which tick kind a keypress walks.
+ *
+ * Read from the event's `code` — the physical key — and never from its `key`,
+ * because the previous-kind walk is Shift plus a digit and a shifted digit row
+ * reports punctuation: Shift+1 is `"!"` on a US layout, and even unshifted the
+ * digit row reports `"&"` on AZERTY. There is no `key` fallback, on purpose: it
+ * would re-admit the `{ key: "1", shiftKey: true }` combination no browser
+ * produces and leave the negative control below unable to discriminate.
  *
  * Digits 1 through 9 name the first nine kinds in declaration order. The mapping
  * is derived from `RAIL_TICK_KINDS` rather than written out, so a kind added to
  * that tuple is walkable without a second table being edited.
  */
-function kindWalkedBy(key: string): RailTickKind | undefined {
-  const digit = Number.parseInt(key, 10);
-  if (!Number.isInteger(digit) || digit < 1) {
+function kindWalkedBy(code: string): RailTickKind | undefined {
+  const digit = KIND_WALK_DIGIT_CODE.exec(code)?.[1];
+  if (digit === undefined) {
     return undefined;
   }
-  return RAIL_TICK_KINDS[digit - 1];
+  return RAIL_TICK_KINDS[Number(digit) - 1];
 }
 
 /** What a screen reader hears at the rail's current position. */

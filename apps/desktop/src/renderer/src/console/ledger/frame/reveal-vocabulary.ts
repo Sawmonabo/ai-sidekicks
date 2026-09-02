@@ -55,7 +55,16 @@ export interface RevealDelta {
 /** What a lane looks like from outside. */
 export interface RevealLaneState {
   readonly laneId: string;
-  /** The text a consumer may render. Never shorter than it was last frame. */
+  /**
+   * The text a consumer may render.
+   *
+   * Never shorter than it was last frame, with one declared exception: an
+   * out-of-band rebase, where the producer withdrew text it had already published
+   * and the lane fell back to the prefix both sources agree on. That retraction is
+   * real rather than a bookkeeping artefact, so it is announced — the
+   * `out-of-band-source-change` diagnostic carries how many characters went — and
+   * never papered over by holding a cursor whose text no longer matches.
+   */
   readonly publishedText: string;
   readonly pendingCharacterCount: number;
   /** True while the lane is taking more than its fair share to catch up. */

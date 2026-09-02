@@ -77,3 +77,71 @@ describe("the rope smoother", () => {
     expect(smoother.isPrefixOf("The run")).toBe(false);
   });
 });
+
+/** One code point, two UTF-16 code units — the shape a code-unit budget can cut. */
+const GRINNING_FACE = "😀";
+
+/** Every prefix of `text` that ends on a code-point boundary, shortest first. */
+function codePointBoundaryPrefixes(text: string): ReadonlySet<string> {
+  const prefixes = new Set<string>();
+  let built = "";
+  prefixes.add(built);
+  for (const character of text) {
+    built += character;
+    prefixes.add(built);
+  }
+  return prefixes;
+}
+
+describe("the rope smoother — a frame never cuts a character in half", () => {
+  it("publishes the whole non-BMP character or stops before it, at every cut offset", () => {
+    const source = `ab${GRINNING_FACE}cd`;
+    const allowed = codePointBoundaryPrefixes(source);
+    for (let budget = 0; budget <= source.length; budget += 1) {
+      const smoother = fedWith([source]);
+      smoother.advance(budget);
+      expect(allowed.has(smoother.revealedText())).toBe(true);
+    }
+  });
+
+  it("negative control: the code-unit cut at that offset WOULD have split the pair", () => {
+    // `slice(0, 3)` is the cut the budget used to make, and it ends on the pair's
+    // lead half. The guard's own return value is what says it extended rather than
+    // retreated: three units of budget move four, and the character is whole.
+    const source = `ab${GRINNING_FACE}cd`;
+    expect(codePointBoundaryPrefixes(source).has(source.slice(0, 3))).toBe(false);
+    const smoother = fedWith([source]);
+    expect(smoother.advance(3)).toBe(4);
+    expect(smoother.revealedText()).toBe(`ab${GRINNING_FACE}`);
+  });
+
+  it("snaps across a part boundary, where the halves arrived in separate appends", () => {
+    // The check walks the parts from the cursor, so a pair split across two appends
+    // is the same pair — reading it through a materialised source is what the rope
+    // exists to avoid.
+    const smoother = fedWith(["ab", GRINNING_FACE.slice(0, 1), `${GRINNING_FACE.slice(1)}cd`]);
+    expect(smoother.advance(3)).toBe(4);
+    expect(smoother.revealedText()).toBe(`ab${GRINNING_FACE}`);
+  });
+
+  it("publishes a producer-split lone surrogate at the source end rather than stalling", () => {
+    // The source, not the budget, cut this one. Withholding it would hold the lane
+    // on text that may never arrive; publishing it self-heals on the next append.
+    const smoother = fedWith([`ab${GRINNING_FACE.slice(0, 1)}`]);
+    expect(smoother.advance(100)).toBe(3);
+    expect(smoother.isSettled).toBe(true);
+    smoother.append(`${GRINNING_FACE.slice(1)}cd`);
+    smoother.advance(100);
+    expect(smoother.revealedText()).toBe(`ab${GRINNING_FACE}cd`);
+  });
+
+  it("negative control: pure ASCII spends its budget exactly, unchanged", () => {
+    // The snap must be reachable only by a pair. If it fired on ordinary text the
+    // per-frame counts every budget claim rests on would drift by one.
+    const smoother = fedWith(["abcdefghij"]);
+    expect(smoother.advance(3)).toBe(3);
+    expect(smoother.revealedText()).toBe("abc");
+    expect(smoother.advance(4)).toBe(4);
+    expect(smoother.revealedText()).toBe("abcdefg");
+  });
+});
