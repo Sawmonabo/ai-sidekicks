@@ -3,24 +3,28 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import {
+  fixtureBridgeWithGrowth,
+  growthRefusing,
+  unscriptedScenario,
+} from "../../bridge/fixture-bridge-overrides.test-support.js";
 import { CrashReportingPage } from "./CrashReportingPage.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 
-const CARRIER_UNAVAILABLE = {
-  status: "unavailable",
-  code: "wire-unregistered",
-  detail: "not registered",
-  origin: "growth-port",
-};
+const SCENARIO = unscriptedScenario("crash-reporting-page-test");
 
+/**
+ * The shipped fixture bridge with the preference carrier refusing.
+ *
+ * The refusal is the port's own rather than a literal written out here, so the
+ * "held in this window" arm this block renders is reached by the same value a
+ * release build produces.
+ */
 function bridge(): ConsoleBridge {
-  return {
-    source: "fixture",
-    growth: {
-      shellConfigRead: () => Promise.resolve(CARRIER_UNAVAILABLE),
-      shellConfigWrite: () => Promise.resolve(CARRIER_UNAVAILABLE),
-    },
-  } as unknown as ConsoleBridge;
+  return fixtureBridgeWithGrowth(SCENARIO, {
+    shellConfigRead: growthRefusing("shellConfigRead"),
+    shellConfigWrite: growthRefusing("shellConfigWrite"),
+  });
 }
 
 describe("crash reporting", () => {

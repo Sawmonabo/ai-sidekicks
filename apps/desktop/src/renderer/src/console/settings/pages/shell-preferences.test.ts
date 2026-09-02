@@ -8,42 +8,46 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  fixtureBridgeWithGrowth,
+  growthRefusing,
+  growthServing,
+  unscriptedScenario,
+} from "../../bridge/fixture-bridge-overrides.test-support.js";
+import {
   SHELL_PREFERENCE_DEFAULTS,
   ShellPreferenceStore,
   effectivePreference,
 } from "./shell-preferences.js";
-import type { ConsoleBridge } from "../../bridge/index.js";
-
-/** The port's refusal, in the two fields the store reads off it. */
-const CARRIER_UNAVAILABLE = {
-  status: "unavailable",
-  code: "wire-unregistered",
-  detail: "Not checked — the shell-config preference carrier is not registered yet.",
-  origin: "growth-port",
-};
+import type { GrowthPort } from "../../bridge/index.js";
 
 /**
- * A bridge whose growth port answers however the case needs.
+ * The scenario behind every bridge below.
  *
- * A stub COLLABORATOR, not a stand-in for the store: every assertion below drives
- * the real `ShellPreferenceStore`, and what is faked is the wire it talks to, which
- * is the only part a unit test cannot have.
+ * Nothing is scripted, and nothing needs to be: the store reaches the growth port
+ * alone, and each case replaces exactly the two operations it exercises. What the
+ * scenario buys is that every OTHER namespace is the shipped fixture's rather than a
+ * cast object literal, so a store that started reading a third seam would find a real
+ * answer rather than `undefined`.
  */
-function bridgeWith(port: {
-  readonly shellConfigRead: () => Promise<unknown>;
-  readonly shellConfigWrite: (request: { key: string; enabled: boolean }) => Promise<unknown>;
-}): ConsoleBridge {
-  return { growth: port } as unknown as ConsoleBridge;
-}
+const SCENARIO = unscriptedScenario("shell-preferences-test");
 
-const refusingCarrier = {
-  shellConfigRead: () => Promise.resolve(CARRIER_UNAVAILABLE),
-  shellConfigWrite: () => Promise.resolve(CARRIER_UNAVAILABLE),
+/**
+ * The carrier nobody has registered: both operations answer the port's own refusal.
+ *
+ * A stub COLLABORATOR, not a stand-in for the store: every assertion below drives the
+ * real `ShellPreferenceStore`, and what is replaced is the wire it talks to, which is
+ * the only part a unit test cannot have. The refusal is built by the shipped
+ * `growthUnavailable` rather than written out here, so what the store is asserted
+ * against is what a release build actually returns.
+ */
+const REFUSING_CARRIER: Partial<GrowthPort> = {
+  shellConfigRead: growthRefusing("shellConfigRead"),
+  shellConfigWrite: growthRefusing("shellConfigWrite"),
 };
 
 describe("shell preferences — a carrier nobody asked", () => {
   it("reads as unavailable rather than as an empty preference set", async () => {
-    const store = new ShellPreferenceStore(bridgeWith(refusingCarrier));
+    const store = new ShellPreferenceStore(fixtureBridgeWithGrowth(SCENARIO, REFUSING_CARRIER));
     store.start();
     await Promise.resolve();
     await Promise.resolve();
@@ -51,7 +55,7 @@ describe("shell preferences — a carrier nobody asked", () => {
   });
 
   it("holds a choice the carrier never took, and says which window holds it", async () => {
-    const store = new ShellPreferenceStore(bridgeWith(refusingCarrier));
+    const store = new ShellPreferenceStore(fixtureBridgeWithGrowth(SCENARIO, REFUSING_CARRIER));
     await store.choose("updates.automatic", false);
     const snapshot = store.snapshot();
     expect(effectivePreference(snapshot, "updates.automatic")).toBe(false);
@@ -63,7 +67,7 @@ describe("shell preferences — a carrier nobody asked", () => {
   it("negative control: an untouched key answers its default, not the last choice", () => {
     // Without this, the case above would pass over a store that flipped every key
     // whenever any key was chosen.
-    const store = new ShellPreferenceStore(bridgeWith(refusingCarrier));
+    const store = new ShellPreferenceStore(fixtureBridgeWithGrowth(SCENARIO, REFUSING_CARRIER));
     expect(effectivePreference(store.snapshot(), "updates.automatic")).toBe(
       SHELL_PREFERENCE_DEFAULTS["updates.automatic"],
     );
@@ -76,10 +80,9 @@ describe("shell preferences — a carrier nobody asked", () => {
 describe("shell preferences — a carrier that answers", () => {
   it("prefers the carrier's stored value over the default", async () => {
     const store = new ShellPreferenceStore(
-      bridgeWith({
-        shellConfigRead: () =>
-          Promise.resolve({ status: "served", value: { "diagnostics.crashReports": false } }),
-        shellConfigWrite: () => Promise.resolve({ status: "served", value: undefined }),
+      fixtureBridgeWithGrowth(SCENARIO, {
+        shellConfigRead: growthServing({ "diagnostics.crashReports": false }),
+        shellConfigWrite: growthServing(undefined),
       }),
     );
     store.start();
@@ -89,10 +92,10 @@ describe("shell preferences — a carrier that answers", () => {
   });
 
   it("applies a served write into the carrier's own record, holding nothing locally", async () => {
-    const write = vi.fn(() => Promise.resolve({ status: "served", value: undefined }));
+    const write = vi.fn(growthServing(undefined));
     const store = new ShellPreferenceStore(
-      bridgeWith({
-        shellConfigRead: () => Promise.resolve({ status: "served", value: {} }),
+      fixtureBridgeWithGrowth(SCENARIO, {
+        shellConfigRead: growthServing({}),
         shellConfigWrite: write,
       }),
     );
@@ -108,9 +111,8 @@ describe("shell preferences — a carrier that answers", () => {
 
   it("leaves the stored value and renders the code when a present carrier refuses", async () => {
     const store = new ShellPreferenceStore(
-      bridgeWith({
-        shellConfigRead: () =>
-          Promise.resolve({ status: "served", value: { "updates.automatic": true } }),
+      fixtureBridgeWithGrowth(SCENARIO, {
+        shellConfigRead: growthServing({ "updates.automatic": true }),
         shellConfigWrite: () => Promise.reject(new Error("the preference store is read-only")),
       }),
     );
@@ -132,8 +134,8 @@ describe("shell preferences — a carrier that answers", () => {
     // Without this, the case above would pass over a store that both refused AND
     // applied — which would show the new position beside the reason it was rejected.
     const store = new ShellPreferenceStore(
-      bridgeWith({
-        shellConfigRead: () => Promise.resolve({ status: "served", value: {} }),
+      fixtureBridgeWithGrowth(SCENARIO, {
+        shellConfigRead: growthServing({}),
         shellConfigWrite: () => Promise.reject(new Error("no")),
       }),
     );

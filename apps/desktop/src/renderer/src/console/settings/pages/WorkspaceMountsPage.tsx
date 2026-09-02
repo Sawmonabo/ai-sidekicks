@@ -44,9 +44,17 @@ import {
   WireFigure,
   formatClockTime,
   formatCount,
+  useSettlementAnnouncement,
 } from "../../primitives/index.js";
-import { usePushDrivenRead } from "../../collaboration/push-driven-read.js";
-import { createMountInventoryRead, type MountReading } from "./mount-inventory.js";
+import {
+  usePushDrivenRead,
+  type PushDrivenReadState,
+} from "../../collaboration/push-driven-read.js";
+import {
+  createMountInventoryRead,
+  type MountInventory,
+  type MountReading,
+} from "./mount-inventory.js";
 import type { SettingsPageContext, SettingsPageRegistry } from "../settings-page-registry.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
@@ -144,6 +152,11 @@ function MountInventoryList(props: {
   }, [inventoryRead]);
 
   const state = usePushDrivenRead(inventoryRead);
+  // Said once, when the inventory lands — and once more only if a later refresh
+  // settles differently. The focus refresh above re-reads this list every time the
+  // window comes back, so the sentence deliberately names the counts and nothing
+  // that moves on its own; an unchanged inventory read again says nothing again.
+  useSettlementAnnouncement(mountSettlementSentence(state));
 
   if (state.kind === "not-loaded") {
     return <Nothing kind="not-loaded" placement="surface" title="Reading this session's mounts." />;
@@ -186,6 +199,34 @@ function MountInventoryList(props: {
       ) : null}
     </>
   );
+}
+
+/**
+ * The one sentence this list announces, or `undefined` while the read is in flight.
+ *
+ * The counts are what a person cannot get any other way: on screen the rows ARE the
+ * count, and spoken they are not. The unread tail is named in the same sentence rather
+ * than dropped, for the reason the aside beside it exists — a bounded read that said
+ * only what it opened would report a smaller session than the one it found.
+ *
+ * A refused read speaks the refusal's own detail, never a sentence of this console's
+ * own: the card on screen renders those words, and the announcement is the spoken half
+ * of the same fact rather than a second, friendlier account of it.
+ */
+function mountSettlementSentence(state: PushDrivenReadState<MountInventory>): string | undefined {
+  if (state.kind === "not-loaded") {
+    return undefined;
+  }
+  if (state.kind === "failed") {
+    return state.refusal.detail;
+  }
+  const { readings, unreadMountCount } = state.value;
+  if (readings.length === 0) {
+    return "Mounts read for this session: it has mounted no repositories.";
+  }
+  return unreadMountCount === 0
+    ? `Mounts read for this session: ${formatCount(readings.length)}.`
+    : `Mounts read for this session: ${formatCount(readings.length)}, with ${formatCount(unreadMountCount)} more not read.`;
 }
 
 /** One row: the path, the two axes, and whatever the read had to say about it. */

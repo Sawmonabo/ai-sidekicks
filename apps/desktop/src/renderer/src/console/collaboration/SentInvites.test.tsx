@@ -10,11 +10,14 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { createFixtureBridge, growthUnavailable, type ConsoleBridge } from "../bridge/index.js";
+import {
+  fixtureBridgeWithGrowth,
+  growthRefusing,
+  growthServing,
+  unscriptedScenario,
+} from "../bridge/fixture-bridge-overrides.test-support.js";
+import type { ConsoleBridge } from "../bridge/index.js";
 import { SentInvites, type SentInvite } from "./SentInvites.js";
-
-type FixtureScenario = Parameters<typeof createFixtureBridge>[0]["scenario"];
-type InvitesListOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["invitesList"]>>;
 
 /**
  * A scenario with nothing scripted.
@@ -22,16 +25,7 @@ type InvitesListOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["invitesLis
  * The point is that it scripts NO reply: the fixture bridge then refuses every
  * `daemon.call`, which is exactly the arm the revoke control has to render.
  */
-const EMPTY_SCENARIO: FixtureScenario = {
-  id: "collaboration-invites-test",
-  label: "Invites, with nothing scripted",
-  purpose: "Drives the sent-invite ledger against a bridge that scripts no reply.",
-  sessionId: "session-collaboration",
-  participantIdsInJoinOrder: [],
-  beats: [],
-  replies: [],
-  startedAtIso: "2026-01-01T10:05:00.000Z",
-};
+const EMPTY_SCENARIO = unscriptedScenario("collaboration-invites-test");
 
 function invite(overrides: Partial<SentInvite> = {}): SentInvite {
   return {
@@ -52,24 +46,14 @@ function invite(overrides: Partial<SentInvite> = {}): SentInvite {
  * so what this asserts is what a release build actually produces.
  */
 function bridgeRefusingInvites(): ConsoleBridge {
-  const fixture = createFixtureBridge({ scenario: EMPTY_SCENARIO });
-  return {
-    ...fixture,
-    growth: {
-      ...fixture.growth,
-      invitesList: async () => await Promise.resolve(growthUnavailable("invitesList")),
-    },
-  };
+  return fixtureBridgeWithGrowth(EMPTY_SCENARIO, {
+    invitesList: growthRefusing("invitesList"),
+  });
 }
 
 /** The real fixture bridge, with the one growth operation this surface reads served. */
 function bridgeServing(invites: readonly SentInvite[]): ConsoleBridge {
-  const fixture = createFixtureBridge({ scenario: EMPTY_SCENARIO });
-  const served: InvitesListOutcome = { status: "served", value: invites };
-  return {
-    ...fixture,
-    growth: { ...fixture.growth, invitesList: async () => await Promise.resolve(served) },
-  };
+  return fixtureBridgeWithGrowth(EMPTY_SCENARIO, { invitesList: growthServing(invites) });
 }
 
 /** Let the one-shot read and the effects it schedules land. */
@@ -101,7 +85,7 @@ describe("sent invites — the read", () => {
   });
 
   it("says nothing was asked when the section holds no session", async () => {
-    const bridge = createFixtureBridge({ scenario: EMPTY_SCENARIO });
+    const bridge = fixtureBridgeWithGrowth(EMPTY_SCENARIO, {});
     const { container } = render(<SentInvites bridge={bridge} sessionId={undefined} />);
     await settle();
     expect(container.textContent ?? "").toContain("has not asked");

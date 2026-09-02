@@ -5,7 +5,9 @@ import type { RepoMountReadResponse, WorkspaceListResponse } from "@ai-sidekicks
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ManualClock } from "../../core/index.js";
+import { MOUNT_INVENTORY_READ_CAP } from "../../collaboration/constants.js";
+import { LIVE_ANNOUNCEMENT_HOLD_MS, ManualClock } from "../../core/index.js";
+import { LiveAnnouncer, LiveAnnouncerProvider } from "../../primitives/index.js";
 import { WorkspaceMountsPage, registerWorkspaceMountsPage } from "./WorkspaceMountsPage.js";
 import { SettingsPageRegistry, type SettingsPageContext } from "../settings-page-registry.js";
 
@@ -53,6 +55,10 @@ function contextReading(options: {
   readonly mountIds: readonly string[];
   readonly mountOverrides?: Readonly<Record<string, Partial<RepoMountReadResponse>>>;
   readonly activeSessionId?: string | undefined;
+  /** Counts what the page asked for, so a refresh can be proved rather than assumed. */
+  readonly onCall?: (method: string) => void;
+  /** Makes the enumerating read reject, which is the list's own refused arm. */
+  readonly rejectWith?: string;
 }): SettingsPageContext {
   return {
     bridge: {
@@ -61,6 +67,10 @@ function contextReading(options: {
       sidekicks: {
         daemon: {
           call: async (method: string, request: unknown): Promise<unknown> => {
+            options.onCall?.(method);
+            if (options.rejectWith !== undefined) {
+              throw new Error(options.rejectWith);
+            }
             if (method === "repo.workspaceList") {
               return workspaceListWith(options.mountIds);
             }
@@ -83,24 +93,52 @@ function contextReading(options: {
  * because the number of ticks a fan-out takes is a function of how many mounts the
  * fixture named.
  */
+/** The page's own element, so a case never reads the announcer's regions by accident. */
+function mountsPageOf(root: HTMLElement): HTMLElement {
+  const page = root.querySelector<HTMLElement>(".meridian-settings-page");
+  if (page === null) {
+    throw new Error("the mounts page did not render");
+  }
+  return page;
+}
+
 async function renderSettledPage(
   clock: ManualClock,
   context: SettingsPageContext,
-): Promise<HTMLElement> {
-  const { container } = render(<WorkspaceMountsPage context={context} />);
-  await act(async () => {
-    clock.advance(500);
-    await new Promise((resolve) => {
-      setTimeout(resolve, 0);
+): Promise<{
+  readonly page: HTMLElement;
+  readonly politeText: () => string;
+  readonly settle: () => Promise<void>;
+}> {
+  // One announcer, on the page's own frozen clock — the resolution `AppFrame` makes
+  // in a window. A second time base here would make "was it said again" a question
+  // about the runner rather than about the read.
+  const announcer = new LiveAnnouncer({ clock });
+  const { container } = render(
+    <LiveAnnouncerProvider announcer={announcer}>
+      <WorkspaceMountsPage context={context} />
+    </LiveAnnouncerProvider>,
+  );
+  const settle = async (): Promise<void> => {
+    await act(async () => {
+      clock.advance(500);
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
     });
-  });
-  return container;
+  };
+  await settle();
+  return {
+    page: mountsPageOf(container),
+    politeText: () => container.querySelector('[data-live-region="polite"]')?.textContent ?? "",
+    settle,
+  };
 }
 
 describe("workspace mounts page", () => {
   it("renders the mount's path and both health axes, never folded together", async () => {
     const clock = new ManualClock();
-    const container = await renderSettledPage(
+    const { page: container } = await renderSettledPage(
       clock,
       contextReading({
         clock,
@@ -120,7 +158,7 @@ describe("workspace mounts page", () => {
 
   it("keeps an unreachable mount listed rather than hiding it", async () => {
     const clock = new ManualClock();
-    const container = await renderSettledPage(
+    const { page: container } = await renderSettledPage(
       clock,
       contextReading({
         clock,
@@ -135,7 +173,7 @@ describe("workspace mounts page", () => {
 
   it("says the address names no session rather than reading for one", async () => {
     const clock = new ManualClock();
-    const container = await renderSettledPage(
+    const { page: container } = await renderSettledPage(
       clock,
       contextReading({ clock, mountIds: ["mount-a"], activeSessionId: undefined }),
     );
@@ -145,14 +183,17 @@ describe("workspace mounts page", () => {
 
   it("reports an empty session as empty and not as unread", async () => {
     const clock = new ManualClock();
-    const container = await renderSettledPage(clock, contextReading({ clock, mountIds: [] }));
+    const { page: container } = await renderSettledPage(
+      clock,
+      contextReading({ clock, mountIds: [] }),
+    );
     expect(container.querySelector(".meridian-nothing--empty")).not.toBeNull();
     expect(container.textContent ?? "").toContain("mounted no repositories");
   });
 
   it("offers no detach control and no control at all on a row", async () => {
     const clock = new ManualClock();
-    const container = await renderSettledPage(
+    const { page: container } = await renderSettledPage(
       clock,
       contextReading({ clock, mountIds: ["mount-a"] }),
     );
@@ -176,5 +217,76 @@ describe("workspace mounts page", () => {
     const descriptor = registry.descriptorFor("mounts");
     expect(descriptor?.label).toBe("Workspace mounts");
     expect(descriptor?.keywords).toContain("repository");
+  });
+});
+
+describe("workspace mounts page — the read says it landed, once", () => {
+  it("announces what was read and how many", async () => {
+    const clock = new ManualClock();
+    const { politeText } = await renderSettledPage(
+      clock,
+      contextReading({ clock, mountIds: ["mount-a", "mount-b"] }),
+    );
+    expect(politeText()).toBe("Mounts read for this session: 2.");
+  });
+
+  it("names the tail it did not open rather than reporting a smaller session", async () => {
+    const clock = new ManualClock();
+    const overCap = Array.from(
+      { length: MOUNT_INVENTORY_READ_CAP + 3 },
+      (_unused, index) => `mount-${String(index).padStart(2, "0")}`,
+    );
+    const { politeText } = await renderSettledPage(
+      clock,
+      contextReading({ clock, mountIds: overCap }),
+    );
+    expect(politeText()).toBe(
+      `Mounts read for this session: ${String(MOUNT_INVENTORY_READ_CAP)}, with 3 more not read.`,
+    );
+  });
+
+  it("announces a refused read in the words the refusal arrived in", async () => {
+    const clock = new ManualClock();
+    const { page, politeText } = await renderSettledPage(
+      clock,
+      contextReading({ clock, mountIds: ["mount-a"], rejectWith: "that node is not attached" }),
+    );
+    expect(politeText()).toBe("that node is not attached");
+    // The card on screen carries the same words, so the announcement is the spoken
+    // half of one fact rather than a second account of it.
+    expect(page.textContent ?? "").toContain("that node is not attached");
+  });
+
+  it("negative control: a focus refresh finding the same mounts says nothing again", async () => {
+    // Without this, a page that announced on every settlement would speak the same
+    // sentence every time the window regained focus.
+    const clock = new ManualClock();
+    const methodsAsked: string[] = [];
+    const { politeText, settle } = await renderSettledPage(
+      clock,
+      contextReading({
+        clock,
+        mountIds: ["mount-a", "mount-b"],
+        onCall: (method) => methodsAsked.push(method),
+      }),
+    );
+    expect(politeText()).toBe("Mounts read for this session: 2.");
+    const askedOnFirstRead = methodsAsked.length;
+
+    await act(async () => {
+      clock.advance(LIVE_ANNOUNCEMENT_HOLD_MS);
+      await Promise.resolve();
+    });
+    expect(politeText()).toBe("");
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await settle();
+
+    // The refresh really happened, so the silence is the announcement rule's doing
+    // rather than a read that never ran.
+    expect(methodsAsked.length).toBeGreaterThan(askedOnFirstRead);
+    expect(politeText()).toBe("");
   });
 });
