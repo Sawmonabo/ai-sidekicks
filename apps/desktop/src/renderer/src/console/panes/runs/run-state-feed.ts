@@ -116,7 +116,11 @@ export interface RunStateFeed {
    * them current.
    */
   readonly hasRead: boolean;
-  /** Deliveries that parsed as neither arm. Counted, never guessed at. */
+  /**
+   * Deliveries that parsed as neither arm. Counted, never guessed at, and RENDERED:
+   * a live feed that is also partial is neither an absence nor a refusal, and the
+   * pane says so beside the rows rather than in place of them.
+   */
   readonly unreadableDeliveryCount: number;
   /** Why the stream could not be opened at all. Rendered rather than swallowed. */
   readonly openRefusal: ConsoleRefusal | undefined;
@@ -357,8 +361,13 @@ export function useRunStateFeed(bridge: ConsoleBridge, sessionStore: SessionStor
         bridge,
         { method: RUN_STATE_SUBSCRIBE_STREAM, request: subscribeRequest.data },
         (payload) => {
-          const wasReadable = fold.accept(payload);
-          if (!isMounted || !wasReadable) {
+          // EVERY delivery publishes, readable or not. An unreadable one raises the
+          // fold's counter, and a counter that never reached a render could not be
+          // shown at all — leaving an old reading presented as current with nothing
+          // on screen saying the stream is incomplete. `runs` is rebuilt from the
+          // same fold either way, so an unreadable delivery changes no row.
+          fold.accept(payload);
+          if (!isMounted) {
             return;
           }
           setFeed({

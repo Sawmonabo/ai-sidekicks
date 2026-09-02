@@ -18,6 +18,12 @@
 //     beside it. This is the one arm that may say "there are none", and it is
 //     reachable only after the stream has spoken.
 //
+// And one thing that is none of the three: a stream that is open and answering
+// while some of what it answered parsed as neither registered arm. That is not an
+// absence and not a refusal — the feed is live and partial at once — so it renders
+// as a sentence BESIDE the rows rather than in place of them, and settles nothing,
+// which is why it announces nothing.
+//
 // The three are `Spec-023`'s five kinds of nothing applied as they are meant to be:
 // "we have not asked", "we are asking", and "there is none" are three facts and the
 // pane never lets one stand in for another.
@@ -32,7 +38,7 @@ import { useCallback, useState } from "react";
 
 import { useDriverCapabilities, useQueueFeed } from "../../bridge/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
-import { InlineRefusal, Nothing } from "../../primitives/index.js";
+import { DerivedFigure, formatCount, InlineRefusal, Nothing } from "../../primitives/index.js";
 import { useSessionPartition, type SessionStore } from "../../store/index.js";
 import { type ConsolePaneContext } from "../../workspace/index.js";
 import { ConsolePaneChrome, paneScopeCrumbs } from "../pane-chrome.js";
@@ -121,6 +127,18 @@ function RunsPaneBody(props: {
             detail={driverCapabilities.readRefusal.detail}
           />
         )}
+        {stateFeed.unreadableDeliveryCount > 0 ? (
+          // Live and partial at once, which is neither an absence nor a refusal:
+          // the stream is open and answering, and some of what it answered this
+          // build could not read. Said beside the list rather than in place of it,
+          // so a reading that is behind is never presented as a current one.
+          <p className="meridian-runs__incomplete-stream">
+            The run-state stream has carried{" "}
+            <DerivedFigure text={formatCount(stateFeed.unreadableDeliveryCount)} />{" "}
+            {stateFeed.unreadableDeliveryCount === 1 ? "delivery" : "deliveries"} this build could
+            not read, so what is shown here may be behind what the daemon has sent.
+          </p>
+        ) : null}
         {stateFeed.runs.length === 0 ? (
           <NoRuns
             hasRead={stateFeed.hasRead}

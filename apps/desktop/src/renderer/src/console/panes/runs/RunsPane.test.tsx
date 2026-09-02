@@ -316,6 +316,43 @@ describe("controls are a fail-closed projection, never a local decision", () => 
   });
 });
 
+describe("a partial stream is visible, and is neither an absence nor a refusal", () => {
+  /** A delivery that matches neither registered arm — a protocol-version mismatch. */
+  const UNREADABLE_DELIVERY = { runId: RUN_ID, state: "running", version: 7 };
+
+  it("says the stream is incomplete, with the count, once a delivery could not be read", async () => {
+    const container = await renderPane(scriptedBridge([UNREADABLE_DELIVERY]), true);
+    expect(container.textContent).toContain("could not read");
+    expect(container.querySelector(".meridian-runs__incomplete-stream")?.textContent).toContain(
+      "1 delivery",
+    );
+  });
+
+  it("keeps saying so once a later delivery reads cleanly", async () => {
+    // The point of the indication: the rows are current for what was readable and
+    // still behind for what was not, and one readable delivery does not undo that.
+    const container = await renderPane(
+      scriptedBridge([UNREADABLE_DELIVERY, transition("queued", "running", 2)]),
+      true,
+    );
+    expect(container.textContent).toContain(RUN_ID);
+    expect(container.querySelector(".meridian-runs__incomplete-stream")).not.toBeNull();
+  });
+
+  it("says nothing about the stream when every delivery read cleanly", async () => {
+    const container = await renderPane(scriptedBridge([transition("queued", "running", 2)]), true);
+    expect(container.querySelector(".meridian-runs__incomplete-stream")).toBeNull();
+  });
+
+  it("negative control: the same delivery is what the fold refuses to read", async () => {
+    // Without this the cases above would pass over a delivery the fold accepted and
+    // would prove nothing about an unreadable one reaching a render.
+    const fold = new RunStateProjection();
+    expect(fold.accept(UNREADABLE_DELIVERY)).toBe(false);
+    expect(fold.unreadableDeliveryCount).toBe(1);
+  });
+});
+
 describe("the pane's registration", () => {
   it("claims the runs kind through the registry's one door", () => {
     const registry = new ConsolePaneRegistry();
