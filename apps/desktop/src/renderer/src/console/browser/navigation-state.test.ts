@@ -14,7 +14,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { BROWSER_SCENARIO } from "../bridge/scenarios/browser.js";
 import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
-import type { ConsoleRefusal } from "../core/index.js";
+import { refuse, type ConsoleRefusal } from "../core/index.js";
 import {
   isFilesystemDestination,
   useReportedNavigation,
@@ -326,5 +326,78 @@ describe("useReportedNavigation — a subscription that ends", () => {
 
     expect(subscription.close).toHaveBeenCalledTimes(1);
     expect(result.current.status).toBe("reported");
+  });
+});
+
+// What a rejecting subscription refuses AS.
+//
+// The hook normalizes through `core/refusal.ts`'s `refusalFromRejection`, which is
+// the console's one rejection normalizer, and supplies only the pair that names this
+// failure's own remedy. A second mapping stood in this module and re-derived three of
+// that function's four arms; the case it was missing is the first one below, and it
+// is what makes this block a control on the dedup rather than a restatement of it.
+describe("useReportedNavigation — a subscription that rejects", () => {
+  /** The refusal the hook settles on for a rejection, however the rejection arrived. */
+  async function refusalForRejection(failure: unknown): Promise<ConsoleRefusal> {
+    const subscription = deferredSubscription();
+    const { result } = renderHook(() =>
+      useReportedNavigation(subscription.bridge, "pane-browser-1"),
+    );
+
+    subscription.reject(failure);
+
+    await waitFor(() => {
+      expect(refusalOf(result.current)).toBeDefined();
+    });
+    const settled = refusalOf(result.current);
+    if (settled === undefined) {
+      throw new Error("the hook settled on no refusal after the subscription rejected");
+    }
+    return settled;
+  }
+
+  it("passes a refusal that travelled as a rejection through untouched", async () => {
+    // The arm the retired mapping did not have: a refusal already names its own
+    // author and code, and re-coding it here replaced the one a person would paste
+    // into an issue with this module's generic pair.
+    const raised = refuse("browser-view-host", "view-host-gone", "The host view was torn down.");
+
+    expect(await refusalForRejection(raised)).toStrictEqual(raised);
+  });
+
+  it("keeps a typed wire envelope's own code and message", async () => {
+    // Flattening `browser.pane_not_found` into this module's code would throw away
+    // the only actionable half — a missing pane and a dead transport are different
+    // next moves.
+    expect(
+      await refusalForRejection({ code: "browser.pane_not_found", message: "No such pane." }),
+    ).toStrictEqual({
+      code: "browser.pane_not_found",
+      detail: "No such pane.",
+      origin: "browser-navigation",
+    });
+  });
+
+  it("refuses an untyped rejection under this module's own pair", async () => {
+    const refusal = await refusalForRejection(new Error("the preload went away"));
+
+    expect(refusal.code).toBe("navigation-subscription-failed");
+    expect(refusal.origin).toBe("browser-navigation");
+    // The sentence names the remedy for a subscription that stopped, which is a
+    // different remedy from retrying one control.
+    expect(refusal.detail).toContain("Closing the pane and opening it again");
+  });
+
+  it("negative control: the three arms do not all answer the same refusal", async () => {
+    // Every case above reads one field of one arm, and all of them would pass over a
+    // normalizer that answered a single constant. This is the case that fails on one.
+    const codes = [
+      (await refusalForRejection(refuse("browser-view-host", "view-host-gone", "Torn down."))).code,
+      (await refusalForRejection({ code: "browser.pane_not_found", message: "No such pane." }))
+        .code,
+      (await refusalForRejection(new Error("the preload went away"))).code,
+    ];
+
+    expect(new Set(codes).size).toBe(codes.length);
   });
 });

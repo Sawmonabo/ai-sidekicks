@@ -15,25 +15,15 @@
 
 import { useEffect, useState } from "react";
 
-import { isWireErrorEnvelope, normalizeWireRejection } from "../../../../shared/wire-errors.js";
 import type { ConsoleBridge } from "../bridge/index.js";
-import { ConsoleRefusalError, refuse, type ConsoleRefusal } from "../core/index.js";
+import { refusalFromRejection, type ConsoleRefusal } from "../core/index.js";
 
 /** The subsystem name every refusal this module raises itself carries. */
 const NAVIGATION_REFUSAL_ORIGIN = "browser-navigation";
 
 /**
- * The code a broken subscription refuses under, when the failure carries none.
- *
- * Distinct from the pane's `navigation-call-failed`, which is one act that did not
- * answer: this is the READING going away, and the difference is what a person needs
- * to know. A retry of a control is a different remedy from a pane that has stopped
- * being told anything at all.
- */
-const SUBSCRIPTION_FAILED_CODE = "navigation-subscription-failed";
-
-/**
- * What a broken navigation subscription renders as.
+ * What a broken navigation subscription refuses under, when the failure carries no
+ * code of its own.
  *
  * The subscription crosses the preload boundary, and a boundary that fails — a
  * torn-down transport, a preload that never installed, a producer that dies
@@ -42,27 +32,27 @@ const SUBSCRIPTION_FAILED_CODE = "navigation-subscription-failed";
  * before any read answers: no reading and no refusal, so every history control stayed
  * disabled and nothing on screen said why.
  *
- * A refusal the bridge itself raised travels through untouched, because it already
- * names its own origin and code. A typed wire envelope keeps its own code too, since
- * flattening `browser.pane_not_found` into this module's generic one would throw away
- * the only actionable half. Everything else becomes this module's code, and every arm
- * carries the thrown message verbatim in the sentence — `normalizeWireRejection` is
- * the console's one wire-rejection reader, `total` because a rejection reaching a
- * renderer is arbitrary `unknown` and a stringify that threw here would replace the
- * refusal with a crash.
+ * The code is distinct from the pane's `navigation-call-failed`, which is one act
+ * that did not answer: this is the READING going away, and the difference is what a
+ * person needs to know. A retry of a control is a different remedy from a pane that
+ * has stopped being told anything at all — which is why the sentence names the
+ * remedy for THIS failure rather than repeating the thrown value's message.
+ *
+ * It is a fallback and not a mapping. `refusalFromRejection` is the console's one
+ * rejection normalizer, and it is what runs here: a refusal the bridge itself raised
+ * travels through untouched because it already names its own author, and a typed wire
+ * envelope keeps its own code and message, since flattening `browser.pane_not_found`
+ * into this module's generic one would throw away the only actionable half. This pair
+ * is reached only where neither of those applies. A second mapping stood here and
+ * re-derived three of that function's four arms, which is one arm short of it — a
+ * bare `ConsoleRefusal` travelling as a rejection was re-coded under this module's
+ * own name.
  */
-function navigationSubscriptionRefusal(failure: unknown): ConsoleRefusal {
-  if (failure instanceof ConsoleRefusalError) {
-    return failure.refusal;
-  }
-  const code = isWireErrorEnvelope(failure) ? failure.code : SUBSCRIPTION_FAILED_CODE;
-  const reported = normalizeWireRejection(failure, { total: true }).message;
-  return refuse(
-    NAVIGATION_REFUSAL_ORIGIN,
-    code,
-    `The page's navigation state is no longer being reported to this window: ${reported}`,
-  );
-}
+const SUBSCRIPTION_FAILURE_FALLBACK = {
+  code: "navigation-subscription-failed",
+  detail:
+    "The page's navigation state is no longer being reported to this window. Closing the pane and opening it again starts a new subscription.",
+};
 
 /** The subscription's own outcome type, and the three shapes read out of it. */
 type NavigationOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["browserSubscribeNavigation"]>>;
@@ -164,7 +154,14 @@ export function useReportedNavigation(bridge: ConsoleBridge, paneId: string): Na
         // has gone publishes nothing — there is no surface left to read it.
         closeStream();
         if (!cancelled) {
-          setReading({ status: "refused", refusal: navigationSubscriptionRefusal(failure) });
+          setReading({
+            status: "refused",
+            refusal: refusalFromRejection(
+              NAVIGATION_REFUSAL_ORIGIN,
+              failure,
+              SUBSCRIPTION_FAILURE_FALLBACK,
+            ),
+          });
         }
       }
     })();
