@@ -10,7 +10,11 @@
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createFixtureBridge, growthUnavailable, type ConsoleBridge } from "../../bridge/index.js";
+import { growthUnavailable, type ConsoleBridge, type GrowthPort } from "../../bridge/index.js";
+import {
+  fixtureBridgeWithGrowth,
+  unscriptedScenario,
+} from "../../bridge/fixture-bridge-overrides.test-support.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { NotificationsPage, registerNotificationsPage } from "./NotificationsPage.js";
 import type {
@@ -20,9 +24,6 @@ import type {
 } from "./attention-preference-model.js";
 import { SettingsPageRegistry, type SettingsPageContext } from "../settings-page-registry.js";
 
-type FixtureScenario = Parameters<typeof createFixtureBridge>[0]["scenario"];
-type GrowthPortOverrides = Partial<ConsoleBridge["growth"]>;
-
 const SESSION_ID = "session-notifications";
 const PARTICIPANT_ID = "participant-ana";
 
@@ -31,16 +32,7 @@ afterEach(() => {
 });
 
 /** A scenario that scripts nothing: the growth overrides are what these cases drive. */
-const EMPTY_SCENARIO: FixtureScenario = {
-  id: "collaboration-notifications-test",
-  label: "Notifications, with nothing scripted",
-  purpose: "Drives the stored preference set against overridden attention reads.",
-  sessionId: SESSION_ID,
-  participantIdsInJoinOrder: [],
-  beats: [],
-  replies: [],
-  startedAtIso: "2026-01-01T10:05:00.000Z",
-};
+const SCENARIO = unscriptedScenario("collaboration-notifications-test");
 
 const SERVED_PARTICIPANT: CallerParticipantOutcome = {
   status: "served",
@@ -48,9 +40,8 @@ const SERVED_PARTICIPANT: CallerParticipantOutcome = {
 };
 
 /** The real fixture bridge, with only the operations a case drives overridden. */
-function bridgeWith(growthOverrides: GrowthPortOverrides): ConsoleBridge {
-  const fixture = createFixtureBridge({ scenario: EMPTY_SCENARIO });
-  return { ...fixture, growth: { ...fixture.growth, ...growthOverrides } };
+function bridgeWith(growthOverrides: Partial<GrowthPort>): ConsoleBridge {
+  return fixtureBridgeWithGrowth(SCENARIO, growthOverrides);
 }
 
 function servedPreferences(
@@ -108,6 +99,21 @@ function storedSwitches(container: HTMLElement): HTMLElement[] {
       ".meridian-attention-preferences .meridian-settings-row__switch",
     ),
   ];
+}
+
+/** One rendered record, by position. Throws rather than casting an absent one. */
+function storedRecordAt(container: HTMLElement, index: number): HTMLElement {
+  const record = container.querySelectorAll<HTMLElement>(".meridian-attention-preferences__row")[
+    index
+  ];
+  if (record === undefined) {
+    throw new Error(`no stored preference record was rendered at position ${String(index)}`);
+  }
+  return record;
+}
+
+function switchesIn(record: HTMLElement): HTMLElement[] {
+  return [...record.querySelectorAll<HTMLElement>(".meridian-settings-row__switch")];
 }
 
 function storedLabels(container: HTMLElement): string[] {
@@ -352,22 +358,83 @@ describe("the notifications page — what a switch sends", () => {
   });
 
   it("stops the switch taking presses while its write is in flight", async () => {
-    const read = vi.fn(
-      async () =>
-        await Promise.resolve(servedPreferences([{ key: "attention", value: { mentions: true } }])),
-    );
-    const container = await renderSettledPage(
-      bridgeWith({
-        callerParticipantRead: async () => await Promise.resolve(SERVED_PARTICIPANT),
-        attentionPreferenceRead: read,
-        attentionPreferenceUpdate: async () => await new Promise<never>(() => undefined),
-      }),
-    );
+    const held = bridgeHoldingItsWrite([{ key: "attention", value: { mentions: true } }]);
+    const container = await renderSettledPage(held.bridge);
     await act(async () => {
       storedSwitches(container)[0]?.click();
       await Promise.resolve();
     });
     expect(storedSwitches(container)[0]?.hasAttribute("data-disabled")).toBe(true);
+  });
+});
+
+/** Serves the identity and the set, and never answers the write it is given. */
+function bridgeHoldingItsWrite(preferences: readonly AttentionPreference[]): {
+  readonly bridge: ConsoleBridge;
+  readonly update: ReturnType<typeof vi.fn>;
+} {
+  const update = vi.fn(async () => await new Promise<never>(() => undefined));
+  return {
+    bridge: bridgeWith({
+      callerParticipantRead: async () => await Promise.resolve(SERVED_PARTICIPANT),
+      attentionPreferenceRead: async () => await Promise.resolve(servedPreferences(preferences)),
+      attentionPreferenceUpdate: update,
+    }),
+    update,
+  };
+}
+
+describe("the notifications page — one write per record at a time", () => {
+  const TWO_SWITCHES: readonly AttentionPreference[] = [
+    { key: "attention", value: { mentions: true, runs: false } },
+  ];
+
+  it("locks the whole record while one of its switches is being written", async () => {
+    const held = bridgeHoldingItsWrite(TWO_SWITCHES);
+    const container = await renderSettledPage(held.bridge);
+    await press(storedSwitches(container)[0]);
+
+    const record = storedRecordAt(container, 0);
+    expect(record.getAttribute("aria-busy")).toBe("true");
+    expect(
+      switchesIn(record).map((control) => control.hasAttribute("data-disabled")),
+    ).toStrictEqual([true, true]);
+  });
+
+  it("negative control: the record's other switch cannot send a second whole-record write", async () => {
+    // The finding itself. The update carries the WHOLE record, so a second write
+    // composed while the first is still out is built from the same starting value and
+    // undoes the member the first one flipped. Without the record-wide lock the
+    // sibling switch is live and does exactly that.
+    const held = bridgeHoldingItsWrite(TWO_SWITCHES);
+    const container = await renderSettledPage(held.bridge);
+    await press(storedSwitches(container)[0]);
+    await press(storedSwitches(container)[1]);
+
+    expect(held.update).toHaveBeenCalledTimes(1);
+    expect(held.update).toHaveBeenCalledWith({
+      participantId: PARTICIPANT_ID,
+      key: "attention",
+      value: { mentions: false, runs: false },
+    });
+  });
+
+  it("negative control: a record nobody is writing keeps its switches", async () => {
+    // Without this, a page that disabled every switch on the screen while any write
+    // was out would satisfy the case above by locking preferences the write cannot
+    // touch — the whole record is the scope, and nothing wider is.
+    const held = bridgeHoldingItsWrite([
+      ...TWO_SWITCHES,
+      { key: "digest", value: { weekly: true } },
+    ]);
+    const container = await renderSettledPage(held.bridge);
+    await press(storedSwitches(container)[0]);
+
+    const untouched = storedRecordAt(container, 1);
+    expect(untouched.getAttribute("aria-busy")).toBe("false");
+    expect(
+      switchesIn(untouched).map((control) => control.hasAttribute("data-disabled")),
+    ).toStrictEqual([false]);
   });
 });
 
