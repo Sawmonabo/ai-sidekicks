@@ -11,10 +11,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import { refuse } from "../core/index.js";
 import { ProposalGate } from "./ProposalGate.js";
+import type { BranchContextReading } from "./branch-context-model.js";
 import {
   ONE_CUMULATIVE_PROPOSAL_COPY,
   PROPOSAL_ACTIONS,
-  type BranchContextReading,
   type PreparedProposal,
   type ProposalAction,
   type ProposalGateState,

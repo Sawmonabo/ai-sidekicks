@@ -45,25 +45,22 @@ import {
   formatCount,
 } from "../primitives/index.js";
 import type { ConsoleRefusal } from "../core/index.js";
+import { BranchContextSummary } from "./BranchContextSummary.js";
+import { ProposalSummary } from "./ProposalSummary.js";
+import { BRANCH_CONTEXT_UNREAD_REASON, NO_BRANCH_CONTEXT_REASON } from "./branch-context-model.js";
 import {
   ACTION_FAILURE_COPY,
-  BRANCH_CONTEXT_UNREAD_REASON,
   CHANGE_REQUEST_STATE_PRESENTATION,
   CHECK_STATUS_PRESENTATION,
   HOSTING_UNAVAILABLE_COPY,
   MERGEABILITY_PRESENTATION,
-  NO_BRANCH_CONTEXT_REASON,
   NO_REVIEW_DECISION_COPY,
   ONE_CUMULATIVE_PROPOSAL_COPY,
   PROPOSAL_ACTIONS,
   PROPOSAL_ACTION_PRESENTATION,
   REVIEW_DECISION_PRESENTATION,
-  branchContextAssociationReading,
   checkRollup,
-  proposalBlobRows,
-  type BranchContextReading,
   type CheckoutConflict,
-  type PreparedProposal,
   type ProposalAction,
   type ProposalGateState,
   type ProposalStatusReading,
@@ -199,58 +196,6 @@ function renderGateBody(props: ProposalGateProps): React.JSX.Element {
 }
 
 /**
- * The four named values and the association.
- *
- * Every one of them is a wire string in mono: base and head are branch names the
- * daemon resolved, and a renderer that normalised or shortened either would be showing
- * a branch the host does not have.
- */
-function BranchContextSummary(props: {
-  readonly context: BranchContextReading;
-}): React.JSX.Element {
-  const association = branchContextAssociationReading(props.context);
-  return (
-    <dl className="meridian-proposal-gate__context">
-      <div className="meridian-proposal-gate__pair">
-        <dt>Base</dt>
-        <dd>
-          <WireFigure value={props.context.baseBranch} />
-        </dd>
-      </div>
-      <div className="meridian-proposal-gate__pair">
-        <dt>Head</dt>
-        <dd>
-          <WireFigure value={props.context.headBranch} />
-        </dd>
-      </div>
-      <div className="meridian-proposal-gate__pair">
-        <dt>Upstream</dt>
-        <dd>
-          {props.context.upstreamRef === undefined ? (
-            <Nothing kind="empty" placement="inline" title="No upstream set." />
-          ) : (
-            <WireFigure value={props.context.upstreamRef} />
-          )}
-        </dd>
-      </div>
-      <div className="meridian-proposal-gate__pair">
-        <dt>{association.label}</dt>
-        <dd>
-          {association.boundId === undefined ? (
-            // `in-place` binds no separate root, and a `worktree`-mode context whose
-            // id did not arrive is a hole the type says cannot exist. Both say what
-            // they are rather than rendering an empty cell.
-            <DerivedFigure text={association.meaning} />
-          ) : (
-            <WireFigure value={association.boundId} title={association.meaning} />
-          )}
-        </dd>
-      </div>
-    </dl>
-  );
-}
-
-/**
  * The three trichotomies, always visible, because they are the decision.
  *
  * The check rollup opens as counts rather than as a list: §10.7's density note puts
@@ -305,101 +250,6 @@ function StatusRollup(props: { readonly status: ProposalStatusReading }): React.
         </details>
       )}
     </div>
-  );
-}
-
-/**
- * The prepared proposal, rendered before any remote mutation.
- *
- * Title, base, head, and state are on the face; body, trailers, the file list, and the
- * untyped blob are one click away — §10.7's density split exactly.
- */
-function ProposalSummary(props: {
-  readonly proposal: PreparedProposal;
-  readonly onOpenChangedPath: ((path: string) => void) | undefined;
-}): React.JSX.Element {
-  const { proposal } = props;
-  const blobRows = proposalBlobRows(proposal.blob);
-  return (
-    <article className="meridian-proposal" aria-label="Prepared proposal">
-      <div className="meridian-proposal__face">
-        <Chip label={proposal.state} mono glyph="workflow" />
-        <h4 className="meridian-proposal__title">{proposal.title}</h4>
-        <span className="meridian-proposal__range">
-          <WireFigure value={proposal.headBranch} /> into <WireFigure value={proposal.baseBranch} />
-        </span>
-      </div>
-      <p className="meridian-proposal__lineage">{ONE_CUMULATIVE_PROPOSAL_COPY}</p>
-
-      <details className="meridian-proposal-gate__detail">
-        <summary className="meridian-proposal-gate__detail-summary">Body and trailers</summary>
-        <p className="meridian-proposal__body">{proposal.body}</p>
-        {proposal.trailers.length === 0 ? (
-          <Nothing kind="empty" placement="inline" title="No attribution trailers." />
-        ) : (
-          <ul className="meridian-proposal__trailers">
-            {proposal.trailers.map((trailer) => (
-              <li key={trailer}>
-                <WireFigure value={trailer} />
-              </li>
-            ))}
-          </ul>
-        )}
-      </details>
-
-      <details className="meridian-proposal-gate__detail">
-        <summary className="meridian-proposal-gate__detail-summary">
-          Files <DerivedFigure text={formatCount(proposal.changedPaths.length)} />
-        </summary>
-        {proposal.changedPaths.length === 0 ? (
-          <Nothing kind="empty" placement="inline" title="No file changes in this proposal." />
-        ) : (
-          <ul className="meridian-proposal__paths">
-            {proposal.changedPaths.map((path) => (
-              <li key={path}>
-                {props.onOpenChangedPath === undefined ? (
-                  <WireFigure value={path} />
-                ) : (
-                  <button
-                    type="button"
-                    className="meridian-proposal__path-link"
-                    onClick={() => props.onOpenChangedPath?.(path)}
-                  >
-                    <WireFigure value={path} />
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </details>
-
-      {blobRows.length === 0 ? null : (
-        <details className="meridian-proposal-gate__detail">
-          <summary className="meridian-proposal-gate__detail-summary">
-            Everything else the host was given
-          </summary>
-          {/*
-            Inert display data, and the model is what makes it inert: every value
-            arrives here already stringified, so nothing in this list can be a handler,
-            a URL the console follows, or markup. A key called `action` renders as the
-            text of its value and as nothing else.
-          */}
-          <dl className="meridian-proposal__blob">
-            {blobRows.map((row) => (
-              <div className="meridian-proposal-gate__pair" key={row.key}>
-                <dt>
-                  <WireFigure value={row.key} />
-                </dt>
-                <dd>
-                  <WireFigure value={row.text} />
-                </dd>
-              </div>
-            ))}
-          </dl>
-        </details>
-      )}
-    </article>
   );
 }
 

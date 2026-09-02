@@ -3,20 +3,17 @@
 //
 // `Spec-023 §Console Design (Meridian)` §10.7's job for this surface: "Show exactly
 // what will be sent to the git host, and let a participant approve it before anything
-// leaves the machine." Four of those words are decisions, and each is made here once
-// so the gate never makes it twice: what the branch context ASSOCIATES with, what the
-// three status trichotomies MEAN, how a check list ROLLS UP, and how an untyped
-// proposal blob is turned into rows that are display data rather than instructions.
+// leaves the machine." Three of those words are decisions this module makes once so
+// the gate never makes them twice: what the three status trichotomies MEAN, how a
+// check list ROLLS UP, and how an untyped proposal blob is turned into rows that are
+// display data rather than instructions. The fourth — what the branch context is bound
+// to — is `branch-context-model.ts`'s, because a context outlives any one proposal.
 //
 // EVERY SHAPE BELOW IS THE CONSOLE'S OWN, AND SAYS SO. `packages/contracts` registers
-// no `gitflow` module: there is no `baseBranch`, no `headBranch`, no `upstreamRef`, no
-// `ChangeRequest`, and no proposal type anywhere in the workspace — only
-// `BranchContextId`, a branded scalar `worktree.ts` mints and `ExecutionRootPrepareResponse`
-// carries. So these are the shapes the SURFACE needs, derived from what §10.7 says it
+// no `gitflow` module: there is no `ChangeRequest` and no proposal type anywhere in the
+// workspace. So these are the shapes the SURFACE needs, derived from what §10.7 says it
 // renders, exactly as `bridge/growth-port.ts` derives its request and value types: they
-// are not a claim about the eventual wire, which `Spec-011` owns. The one vocabulary
-// imported rather than invented is `ExecutionMode`, because the mode is what decides
-// whether a writable context exists at all and the contract already closes it at four.
+// are not a claim about the eventual wire, which `Spec-011` owns.
 //
 // THE THREE TRICHOTOMIES ARE NORMALIZED HERE AND NOWHERE ELSE. §10.7 fixes their
 // members, and two of them carry a reading a host-shaped string would lose:
@@ -25,119 +22,18 @@
 // in the tables below, so a renderer cannot restate either one differently.
 //
 // NEVER, from the same section, and each is a property of THIS file:
-//   • No base or head inferred from a pane, a tab, or a focused view. Both are fields
-//     on the context, and nothing here computes either.
 //   • No fourth action. `PROPOSAL_ACTIONS` is closed at the three `Spec-011 §Required
 //     Behavior` names, so an action the console could send is an edit to that tuple.
 //   • No parse of a git action's `output`. There is no function here that reads it; it
 //     is diagnostic text the gate renders and the console never scrapes.
 //   • No stacked proposals, and no second host adapter. One cumulative proposal per run
-//     lineage is what `ONE_CUMULATIVE_PROPOSAL_COPY` says out loud, and the detected host
-//     arrives as a wire string this file never picks.
+//     lineage is what `ONE_CUMULATIVE_PROPOSAL_COPY` says out loud, and the detected
+//     host arrives as a wire string this file never picks.
 
 import type { ExecutionMode } from "@ai-sidekicks/contracts";
 
 import type { ChipTone } from "../primitives/index.js";
-
-// --- The branch context -----------------------------------------------------
-
-/**
- * The four named values §10.7 requires, plus the association that makes them
- * actionable.
- *
- * `branchContextId` is spelled as a plain string rather than as the contract's
- * `BranchContextId` brand for the reason `repo-reads.ts` records about `SessionId`:
- * the console never MINTS one, it forwards the opaque value it was handed, and a
- * brand on a display shape would claim this file validated something it did not.
- */
-export interface BranchContextReading {
-  readonly branchContextId: string;
-  /** Where the change lands. Wire-verbatim; never inferred from the selected pane. */
-  readonly baseBranch: string;
-  /** What is proposed. Wire-verbatim; never inferred from the selected pane. */
-  readonly headBranch: string;
-  /** The tracking ref, where one is set. Absence means no upstream, not an unread field. */
-  readonly upstreamRef?: string | undefined;
-  /** The workspace's selected mode, which decides which association below is lawful. */
-  readonly executionMode: ExecutionMode;
-  readonly worktreeId?: string | undefined;
-  readonly ephemeralCloneId?: string | undefined;
-}
-
-/**
- * What a branch context is bound to. Closed at three, and the third is the one that
- * is easy to render wrong: `branch` mode carries NEITHER id, and drawing an empty
- * association slot beside it would read as a missing value rather than as the mode's
- * own answer.
- */
-export const BRANCH_CONTEXT_ASSOCIATIONS = ["worktree", "ephemeral-clone", "in-place"] as const;
-
-/** One association. Derived, so the vocabulary is declared exactly once. */
-export type BranchContextAssociation = (typeof BRANCH_CONTEXT_ASSOCIATIONS)[number];
-
-/**
- * One association, ready to draw: which kind, the id where the kind has one, and the
- * sentence that says what the binding means.
- */
-export interface BranchContextAssociationReading {
-  readonly association: BranchContextAssociation;
-  readonly label: string;
-  /** The bound id, wire-verbatim. Absent on `in-place`, which binds no separate root. */
-  readonly boundId?: string | undefined;
-  readonly meaning: string;
-}
-
-/**
- * Read a context's association off the mode and the two ids.
- *
- * MODE FIRST, ids second. The ids are plain-optional on the wire because which set is
- * lawful depends on the selected mode and no schema can see it, so reading the ids
- * first would let a stale `worktreeId` on a re-selected `branch`-mode context decide
- * the answer. Reading the mode first makes the mode the answer and the id the detail.
- */
-export function branchContextAssociationReading(
-  context: BranchContextReading,
-): BranchContextAssociationReading {
-  if (context.executionMode === "worktree") {
-    return {
-      association: "worktree",
-      label: "Worktree",
-      boundId: context.worktreeId,
-      meaning: "This context executes in a dedicated checkout on this node.",
-    };
-  }
-  if (context.executionMode === "ephemeral clone") {
-    return {
-      association: "ephemeral-clone",
-      label: "Ephemeral clone",
-      boundId: context.ephemeralCloneId,
-      meaning: "This context executes in a clone the daemon disposes of on its own schedule.",
-    };
-  }
-  return {
-    association: "in-place",
-    label: "In place",
-    meaning: "This context executes in the mount's own checkout and binds no separate root.",
-  };
-}
-
-/**
- * Why a workspace has no writable branch context, per mode.
- *
- * Only `read-only` appears, and its absence for the other three is the point:
- * `Spec-011 §Required Behavior` puts a branch context on every writable run in
- * `branch`, `worktree`, or `ephemeral clone` mode, so a writable mode with no context
- * is a read that has not happened rather than a mode that produces none. A table over
- * all four would have had to invent three sentences that are never true.
- */
-export const NO_BRANCH_CONTEXT_REASON: Readonly<Partial<Record<ExecutionMode, string>>> = {
-  "read-only":
-    "This workspace is read-only, so it produces no writable branch context and no preparation side effects. Selecting a writable execution mode on the workspace is what changes that.",
-};
-
-/** What the gate says when a writable mode carries no context yet. */
-export const BRANCH_CONTEXT_UNREAD_REASON =
-  "This workspace's execution mode is writable, so it has a branch context. None has been read for it yet, so nothing here is reporting that it has none.";
+import type { BranchContextReading } from "./branch-context-model.js";
 
 // --- The prepared proposal --------------------------------------------------
 
