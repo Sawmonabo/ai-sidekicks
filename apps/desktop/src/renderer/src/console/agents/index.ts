@@ -1,8 +1,13 @@
 // The agents family's door.
 //
-// Today it holds exactly one thing: the seat for a body another plan authors.
+// WHAT IS BEHIND IT
 //
-// WHY THE SEAT LIVES IN THIS FAMILY AND NOT WHERE IT IS MOUNTED
+// The agent card and its binding vocabulary, the two forms that move a binding
+// (attach and the provider-axis switch), the settlement projection those replies are
+// read through, the peer-invocation grant, the child-run linkage view, and the seat
+// for a body another plan authors.
+//
+// WHY THE DEFINITION-EDITOR SEAT LIVES IN THIS FAMILY AND NOT WHERE IT IS MOUNTED
 //
 // The editor is about an agent's DEFINITION — its instructions, its goal, its tool
 // allowlist, its execution posture. That vocabulary is this family's, and the
@@ -11,8 +16,11 @@
 // re-declared at the second one, and two declarations of one contract is exactly
 // what `workspace/seats/owner-slot.ts` exists to prevent.
 //
-// The agent card, the roster read, and the lifecycle vocabulary they render are the
-// roster lane's and land beside this file.
+// THE STYLESHEET IS IMPORTED HERE AND NOWHERE ELSE, so a surface can never render one
+// of these components without the CSS that makes it legible, and the bundler sees one
+// edge into the sheet rather than one per component.
+
+import "./agents.css";
 
 import type { OwnerSlotProps } from "../workspace/index.js";
 
@@ -43,3 +51,25 @@ export const SIDEKICK_DEFINITION_EDITOR_SLOT: OwnerSlotProps<SidekickDefinitionE
   },
   body: undefined,
 };
+
+// --- WHAT LEAVES THIS FAMILY -------------------------------------------
+//
+// Only the symbols a surface outside `agents/` composes. The vocabulary tuples,
+// the reading shapes, the catalog selectors, and the settlement projection are
+// this family's own and are reached deeply from inside it — a barrel entry for
+// one of them would be an export nothing outside can name.
+
+export {
+  AgentConsoleModels,
+  newestRunIdForAgent,
+  useAgentConsoleModels,
+} from "./agent-console-model.js";
+
+export type { AgentAttachReading, AgentSwitchSettlement, ProviderAxis } from "./agent-wire.js";
+
+export { AgentCard, AgentRosterEmpty } from "./AgentCard.js";
+export { AttachSidekick } from "./AttachSidekick.js";
+export { AttachSidekickForm } from "./attach-model.js";
+export { PeerInvocation } from "./PeerInvocation.js";
+export { ProviderSwitch } from "./ProviderSwitch.js";
+export { RunLinkage } from "./RunLinkage.js";

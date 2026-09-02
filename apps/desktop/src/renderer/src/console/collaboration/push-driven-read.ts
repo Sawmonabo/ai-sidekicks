@@ -171,25 +171,33 @@ export class PushDrivenRead<TValue> {
     this.#changes.emit();
   }
 
-  /**
-   * The daemon's own refusal where there is one, and a named one where there is not.
-   *
-   * A `ConsoleRefusalError` already carries a code and a message the daemon or the
-   * fixture wrote, and rule 9 says the console renders those verbatim rather than
-   * paraphrasing. Anything else becomes a refusal naming this read, with the
-   * thrown message as its detail — still the author's words, never the console's
-   * guess at what went wrong.
-   */
   #refusalFor(error: unknown): ConsoleRefusal {
-    if (error instanceof ConsoleRefusalError) {
-      return error.refusal;
-    }
-    if (isConsoleRefusal(error)) {
-      return error;
-    }
-    const detail = error instanceof Error ? error.message : String(error);
-    return refuse(this.#options.origin, "read-failed", detail);
+    return consoleRefusalFrom(error, this.#options.origin);
   }
+}
+
+/**
+ * The daemon's own refusal where there is one, and a named one where there is not.
+ *
+ * A `ConsoleRefusalError` already carries a code and a message the daemon or the
+ * fixture wrote, and rule 9 says the console renders those verbatim rather than
+ * paraphrasing. Anything else becomes a refusal naming the caller, with the thrown
+ * message as its detail — still the author's words, never the console's guess at
+ * what went wrong.
+ *
+ * A free function rather than a private method because a MUTATION's rejection needs
+ * exactly this translation and has no read to route through: a second copy of these
+ * four lines is the duplicate refusal constructor `apps/desktop/AGENTS.md` forbids.
+ */
+export function consoleRefusalFrom(error: unknown, origin: string): ConsoleRefusal {
+  if (error instanceof ConsoleRefusalError) {
+    return error.refusal;
+  }
+  if (isConsoleRefusal(error)) {
+    return error;
+  }
+  const detail = error instanceof Error ? error.message : String(error);
+  return refuse(origin, "read-failed", detail);
 }
 
 /**
