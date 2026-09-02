@@ -75,9 +75,20 @@ export interface OpenConsoleDatabaseOptions {
   readonly databaseName?: string;
   readonly openTimeoutMs?: number;
   /**
-   * The factory whose PRESENCE decides whether a durable open is attempted at
-   * all; defaults to the global. Passing `undefined` explicitly is how a test or
-   * a non-window host drives the `no-indexeddb-global` arm.
+   * The factory whose PRESENCE — the property's, not the value's — decides
+   * whether a durable open is attempted at all.
+   *
+   * Omitting the key falls back to the ambient `indexedDB` global. Supplying
+   * `undefined` EXPLICITLY means "this host has none" and drives the
+   * `no-indexeddb-global` arm, which is why `resolveIndexedDbFactory` asks
+   * whether the key is there rather than coalescing its value: `?? indexedDB`
+   * substitutes the ambient factory for an explicit `undefined`, so that arm
+   * would be unreachable on any host that HAS a global — which is every browser,
+   * and every test that installs one.
+   *
+   * The `| undefined` in the type is load-bearing rather than decorative: under
+   * `exactOptionalPropertyTypes` it is what makes `{ indexedDbFactory: undefined }`
+   * a call the compiler admits at all.
    *
    * Deliberately not the handle the open runs against: `idb`'s `openDB` reads the
    * global itself and exposes no factory parameter, so this option gates the
@@ -101,14 +112,27 @@ export interface OpenConsoleDatabaseOptions {
 }
 
 /**
+ * The factory this open is gated on, distinguishing an OMITTED option from one
+ * explicitly supplied as `undefined`.
+ *
+ * See `OpenConsoleDatabaseOptions.indexedDbFactory` for why the distinction is the
+ * contract rather than a nicety.
+ */
+function resolveIndexedDbFactory(options: OpenConsoleDatabaseOptions): IDBFactory | undefined {
+  if ("indexedDbFactory" in options) {
+    return options.indexedDbFactory;
+  }
+  return typeof indexedDB === "undefined" ? undefined : indexedDB;
+}
+
+/**
  * Attempt the durable open. Never throws: the failure modes above are outcomes the
  * caller renders, not exceptions it swallows.
  */
 export async function openConsoleDatabase(
   options: OpenConsoleDatabaseOptions = {},
 ): Promise<DatabaseOpenOutcome> {
-  const indexedDbFactory =
-    options.indexedDbFactory ?? (typeof indexedDB === "undefined" ? undefined : indexedDB);
+  const indexedDbFactory = resolveIndexedDbFactory(options);
   if (indexedDbFactory === undefined) {
     return { outcome: "unavailable", reason: "no-indexeddb-global" };
   }
