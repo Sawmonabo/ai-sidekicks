@@ -13,11 +13,12 @@
 // one reserved line per page lane, replaced only by that lane, so four branches
 // produce four one-line diffs at four distinct positions.
 //
-// A page lane never edits `settings-page-registry.ts`: the section set is fixed by
-// `Spec-023 §Console Design (Meridian)` and widening it is a spec amendment, not a
-// console change. It reaches the vocabulary and the descriptor shape by importing
-// that module DEEP, which is what an intra-family import is — this door carries
-// only what crosses the family boundary, which is the two registrars below.
+// A page lane reaches the section vocabulary and the descriptor shape by importing
+// `settings-page-registry.ts` DEEP, which is what an intra-family import is — this
+// door carries only what crosses the family boundary, which is the two registrars
+// below. A lane edits that module for one reason only: the design placed a page in
+// settings and named no section id for it, which is why `sidekicks` is there and
+// why the other twelve are the design's own.
 
 import "./settings.css";
 
@@ -27,6 +28,7 @@ import type { ConsoleSurfaceRegistry } from "../frame/surface-registry.js";
 import { registerApplicationPage } from "./pages/ApplicationPage.js";
 import { registerNotificationsPage } from "./pages/NotificationsPage.js";
 import { registerRuntimeNodesPage } from "./pages/RuntimeNodesPage.js";
+import { registerSidekicksPage } from "./pages/sidekicks-page.js";
 import { SettingsPageRegistry, registerReservedSettingsPages } from "./settings-page-registry.js";
 import { SettingsSurface } from "./SettingsSurface.js";
 
@@ -45,6 +47,8 @@ export function registerSettingsPages(registry: SettingsPageRegistry): void {
   registerRuntimeNodesPage(registry);
   registerNotificationsPage(registry);
   registerApplicationPage(registry);
+  // The sidekicks page: this seam's entry, the agents family's body.
+  registerSidekicksPage(registry);
   // T-023p-1C-4 L4.7 keyboard, appearance, mounts
   // T-023p-1C-4 L4.8 diagnostics, data, browser, cost
 }

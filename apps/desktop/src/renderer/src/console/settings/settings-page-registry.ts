@@ -8,7 +8,7 @@
 //
 // WHY A REGISTRY RATHER THAN A SWITCH
 //
-// The twelve sections are built by four lanes at once and three of them are bodies
+// The thirteen sections are built by four lanes at once and three of them are bodies
 // this repository does not author at all. A `switch` over section ids would be one
 // file every lane edits — the conflict the console's seat boards exist to avoid,
 // one level down. A page claims its section through {@link registerSettingsPage}
@@ -33,15 +33,22 @@ import type { OwnerSlotProps } from "../workspace/index.js";
 /**
  * Every settings section, in rail order.
  *
- * Verbatim from `Spec-023 §Console Design (Meridian)` §The settings surface and in
- * its order, so the rail a person reads is this tuple. The union is derived from
- * the tuple for the reason `frame/surface-registry.ts` gives about its own slots: a
- * union written beside a hand-repeated array is two closed sets that agree until
- * one of them is widened.
+ * The twelve the design enumerates, in its order, plus `sidekicks`. The rail a
+ * person reads is this tuple, and the union is derived from it for the reason
+ * `frame/surface-registry.ts` gives about its own slots: a union written beside a
+ * hand-repeated array is two closed sets that agree until one of them is widened.
+ *
+ * `sidekicks` is the one id that is this console's own rather than the design's.
+ * The design puts the saved-sidekick page IN settings and reaches it from the
+ * in-session attach picker, but its section enumeration names no id for it, so a
+ * page that exists and a rail that cannot reach it was the alternative. An id
+ * carries no wire and asserts nothing about the daemon, which is why it can be
+ * decided here; a PAGE with no body still could not be, and this one has one.
  */
 export const SETTINGS_SECTION_IDS = [
   "accounts",
   "mcp-servers",
+  "sidekicks",
   "cost",
   "nodes",
   "notifications",
@@ -60,13 +67,14 @@ export type SettingsSectionId = (typeof SETTINGS_SECTION_IDS)[number];
 /**
  * The rail's label for each section, in one place.
  *
- * A TOTAL record, so a thirteenth section is a compile error here until its label
+ * A TOTAL record, so a fourteenth section is a compile error here until its label
  * is decided — the label cannot silently default to the id, which is how a rail
  * grows an entry reading `mcp-servers`.
  */
 export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsSectionId, string>> = {
   accounts: "Accounts",
   "mcp-servers": "MCP servers",
+  sidekicks: "Sidekicks",
   cost: "Cost",
   nodes: "Nodes",
   notifications: "Notifications",

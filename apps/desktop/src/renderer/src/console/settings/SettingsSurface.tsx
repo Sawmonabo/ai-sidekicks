@@ -9,7 +9,7 @@
 // THREE RULES THIS FILE IS THE ENFORCEMENT OF
 //
 //   • **No entry is hidden because its wire is unavailable.** The rail is the
-//     closed section tuple, always all twelve. A section whose page has not landed
+//     closed section tuple, always all thirteen. A section whose page has not landed
 //     renders its own reservation in the PANE; a section whose page landed and
 //     whose wire refused renders that refusal in the pane. Neither ever costs a
 //     rail entry, because a rail that shrinks when a daemon is unreachable is a

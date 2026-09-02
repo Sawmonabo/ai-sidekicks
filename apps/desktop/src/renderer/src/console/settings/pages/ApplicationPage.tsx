@@ -3,14 +3,14 @@
 //
 // WHY THIS PAGE EXISTS AND THE OTHER TWO ARE BLOCKS
 //
-// `Spec-023 §Console Design (Meridian)` fixes the settings section set at twelve ids
-// and neither `updates` nor `crash-reporting` is one of them, while the design's own
-// §Application updates and §Crash reporting sections are each one row plus a line
-// ("One row plus its state line"; "One row, copy inline, no disclosure"). Two rows
-// about the application itself are one page, so this module claims the `application`
-// section and composes them; splitting them into two registrations would need two
-// sections that the closed set does not have, and widening that set is a spec
-// amendment rather than a console change.
+// The design enumerates the settings sections and neither `updates` nor
+// `crash-reporting` is one of them, while its own §Application updates and §Crash
+// reporting sections are each one row plus a line ("One row plus its state line";
+// "One row, copy inline, no disclosure"). Two rows about the application itself are
+// one page, so this module claims the `application` section and composes them.
+// Splitting them into two registrations would need two ids the design does not name
+// for two rows it already places on one page — the opposite of the `sidekicks` case,
+// which is a page the design places in settings with no id to reach it by.
 //
 // THE BUILD FACTS ARE WIRE-VERBATIM
 //
