@@ -51,7 +51,7 @@
 import { InlineRefusal, Nothing } from "../../primitives/index.js";
 import { WorkflowChrome } from "../../workflows/WorkflowChrome.js";
 import { refusedWorkflowChrome } from "../../workflows/chrome-state.js";
-import type { ConsolePaneContext } from "../../workspace/index.js";
+import type { ConsolePaneContext } from "../../seats/index.js";
 import {
   WORKFLOW_BUILDER_PRIMARY_ACT,
   WORKFLOW_BUILDER_SUBJECT_KIND,
@@ -81,7 +81,15 @@ export interface WorkflowBuilderPaneProps {
 
 /** The builder pane's chrome. The canvas and the inspector inside it are Plan-017's. */
 export function WorkflowBuilderPane(props: WorkflowBuilderPaneProps): React.JSX.Element {
-  const { entity, uiStateStore, draftStore } = props.context;
+  const { uiStateStore, draftStore } = props.context;
+  // Read through the address's own discriminant, because that is what carries the
+  // entity: `ConsolePaneAddress` is a kind-scoped union, so a session-scoped arm has
+  // no `entity` member at all and only the arms that take one publish it. The two
+  // guards below are the FAIL-CLOSED PROJECTION of that union rather than a
+  // substitute for it — a pane address is also PARSED, out of a persisted layout an
+  // older build wrote and out of a route, and a parsed value is data rather than a
+  // proof.
+  const entity = "entity" in props.context ? props.context.entity : undefined;
 
   if (entity === undefined) {
     // The chrome's `empty` arm, which renders the absence and NOT the children — so

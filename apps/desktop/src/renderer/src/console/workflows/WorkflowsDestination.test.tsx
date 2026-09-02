@@ -22,7 +22,7 @@ import {
 import type { GrowthPort } from "../bridge/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { FrameStore, SessionStoreRegistry } from "../store/index.js";
-import type { ConsolePaneAddress } from "../workspace/index.js";
+import type { ConsolePaneAddress } from "../seats/index.js";
 import { FOLLOWING_WINDOW_RETENTION, type WorkflowsScopeState } from "./destination-scope.js";
 import { WorkflowsDestination } from "./WorkflowsDestination.js";
 

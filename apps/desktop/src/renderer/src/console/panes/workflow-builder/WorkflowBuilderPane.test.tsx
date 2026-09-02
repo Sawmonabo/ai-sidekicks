@@ -19,8 +19,18 @@ import { describe, expect, it } from "vitest";
 import { createFixtureBridge } from "../../bridge/index.js";
 import { WORKFLOWS_SCENARIO } from "../../bridge/scenarios/workflows.js";
 import { WORKFLOWS_SESSION_ID } from "../../bridge/scenarios/workflow-fixture-data.js";
-import type { ConsolePaneContext } from "../../workspace/index.js";
+import type { ConsolePaneContext } from "../../seats/index.js";
+import type { ConsoleEntityRef } from "../../store/index.js";
 import { WorkflowBuilderPane } from "./WorkflowBuilderPane.js";
+
+/**
+ * What a cast pane context may be addressed at.
+ *
+ * Any console entity or none — the set the pane's own two guards project, rather than
+ * `ConsolePaneAddress`'s own arm for this kind, because the cases below drive exactly
+ * the addresses the arm makes unconstructible and the guards still refuse.
+ */
+type AddressedEntity = ConsoleEntityRef | undefined;
 
 /**
  * The fields the chrome reads, and nothing else.
@@ -32,7 +42,7 @@ import { WorkflowBuilderPane } from "./WorkflowBuilderPane.js";
  * real so that a read composed by mistake would reach a port that answers, rather
  * than passing because nothing was there to ask.
  */
-function paneContext(entity: ConsolePaneContext["entity"]): ConsolePaneContext {
+function paneContext(entity: AddressedEntity): ConsolePaneContext {
   return {
     kind: "workflow-builder",
     entity,

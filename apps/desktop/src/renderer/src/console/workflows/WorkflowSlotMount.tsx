@@ -13,7 +13,7 @@
 // took only the body would let a fifth slot appear with nobody named against it.
 
 import { Nothing } from "../primitives/index.js";
-import type { OwnerSlotProps } from "../workspace/index.js";
+import type { OwnerSlotProps } from "../seats/index.js";
 
 export interface WorkflowSlotMountProps {
   readonly slot: OwnerSlotProps<React.ReactNode>;

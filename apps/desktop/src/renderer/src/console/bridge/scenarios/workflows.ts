@@ -172,16 +172,23 @@ export const WORKFLOWS_SCENARIO: ConsoleScenario = {
   // Absent, the caller-identity read refuses and every operator control on a parked
   // run reads as unchecked rather than as adjudicated.
   viewingParticipantId: WORKFLOWS_PARTICIPANT_YOU,
+  // And their role, which is what makes this scenario able to drive a role-gated
+  // control at all: the identity read answers the viewer, and the role a run pane's
+  // operator controls gate on is this entry, looked up in the roster the session read
+  // establishes. Owner, because the story this fixture tells is a person adjudicating
+  // their own session's parked run.
+  membershipRoleByParticipantId: { [WORKFLOWS_PARTICIPANT_YOU]: "owner" },
   startedAtIso: "2026-01-01T07:00:00.000Z",
   beats: [
     {
       atMs: 0,
       event: {
+        id: "019b7a10-0280-7ea1-8110-e5e0d1150001",
         sessionId: WORKFLOWS_SESSION_ID,
         sequence: 1,
         kind: "session.created",
         occurredAt: "2026-01-01T07:00:00.000Z",
-        actorParticipantId: WORKFLOWS_PARTICIPANT_YOU,
+        actorId: WORKFLOWS_PARTICIPANT_YOU,
         // The registered shape, verbatim: the new session's id plus the resolved
         // config and metadata, both open records the corpus names no key inside. The
         // workflow's title is not on this wire; a fixture that put one here would be
@@ -192,13 +199,14 @@ export const WORKFLOWS_SCENARIO: ConsoleScenario = {
     ...WORKFLOWS_SCENARIO_AGENTS.map((agent, agentIndex) => ({
       atMs: agent.attachedAtMs,
       event: {
+        id: agent.eventId,
         sessionId: WORKFLOWS_SESSION_ID,
         sequence: FIRST_AGENT_SEQUENCE + agentIndex,
         kind: "agent.attached",
         occurredAt: agent.attachedAtIso,
         // The person who attached the agent, not the agent. An agent does not attach
         // itself, and the envelope actor is who acted.
-        actorParticipantId: WORKFLOWS_PARTICIPANT_YOU,
+        actorId: WORKFLOWS_PARTICIPANT_YOU,
         // The full persona plus the daemon-resolved resulting state, so the `agents`
         // projection rebuilds from the log alone. `name` is the member — `displayName`
         // is not on this wire.
@@ -219,11 +227,12 @@ export const WORKFLOWS_SCENARIO: ConsoleScenario = {
     {
       atMs: 240,
       event: {
+        id: "019b7a10-0280-7ea1-8110-e5e0d1150004",
         sessionId: WORKFLOWS_SESSION_ID,
         sequence: 4,
         kind: "run.queued",
         occurredAt: "2026-01-01T07:00:00.240Z",
-        actorParticipantId: WORKFLOWS_PARTICIPANT_YOU,
+        actorId: WORKFLOWS_PARTICIPANT_YOU,
         // A run-lifecycle payload is a STATE TRANSITION carrying the progression
         // counter. `previousState` is absent here and only here: a queued run is being
         // born, and no document names a value for the state it came from.
@@ -239,6 +248,7 @@ export const WORKFLOWS_SCENARIO: ConsoleScenario = {
     {
       atMs: 320,
       event: {
+        id: "019b7a10-0280-7ea1-8110-e5e0d1150005",
         sessionId: WORKFLOWS_SESSION_ID,
         sequence: 5,
         kind: "run.starting",
@@ -257,6 +267,7 @@ export const WORKFLOWS_SCENARIO: ConsoleScenario = {
     {
       atMs: 420,
       event: {
+        id: "019b7a10-0280-7ea1-8110-e5e0d1150006",
         sessionId: WORKFLOWS_SESSION_ID,
         sequence: 6,
         kind: "run.running",

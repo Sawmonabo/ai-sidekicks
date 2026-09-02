@@ -1,14 +1,24 @@
 // The growth port the fixture bridge actually serves.
 //
-// Every other growth operation refuses under both bridges, which is what makes the
-// "not checked" absence a true statement rather than a placeholder. Eight do not:
-// the two the console cannot function without — a session snapshot read and a
-// session directory read — the attention projection read, which is the only one of
-// them the console must not compute for itself, the three workflow reads, which are
-// answered from the workflows scenario's own script and part company only over what
-// an unscripted scenario means, the gitflow branch-context read, whose whole answer
-// today is that there is none, and the caller-identity read, which is answered from
-// a scenario that states its own viewer and refused from one that does not.
+// ONE RULE DECIDES WHICH, AND THE SET IS DECLARED ONCE. An operation is served when
+// a scenario states something it can be answered FROM, and refuses otherwise —
+// refuses under both bridges, which is what makes the "not checked" absence a true
+// statement rather than a placeholder. The served operations are
+// `FIXTURE_SERVED_GROWTH_OPERATION_IDS` below and each entry carries its own reason
+// beside it; this header used to enumerate and count them here as well, which is one
+// closed set with two homes and goes stale in the direction nothing catches. The
+// sweep in `fixture-growth-port.test.ts` calls every registered operation and holds
+// each answer to that tuple, so the set and what the port does cannot disagree.
+//
+// WHAT THIS MODULE OWNS, AND WHAT ITS NEIGHBOURS DO
+//
+// This one owns the decision: which operations are served, and with which outcome.
+// The five answers with a job of their own live beside it, because each fails in a
+// way this one cannot — `fixture-session-snapshot.ts` derives the base state one
+// session opens with, `fixture-session-directory.ts` derives what the node HAS,
+// `fixture-attention-derivation.ts` folds beats into an attention projection,
+// `fixture-workflow-scope.ts` derives which workflow subjects a script can answer
+// for, and `fixture-scripted-answer.ts` maps a scripted settlement onto an outcome.
 //
 // WHY THE TWO SESSION READS ARE SERVED AND THE REST ARE NOT
 //
@@ -37,44 +47,9 @@
 // console's own `SessionSnapshot`, which mints no second shape, and the slate row
 // names the registered request and reply as the half the corpus already owns.
 //
-// WHAT THE BASE STATE HONESTLY IS
-//
-// Cursor zero, no entities, and the scenario's join log. Zero rather than a
-// position derived from the scenario's beats, because a base state ahead of the
-// stream would make the store discard every beat below it; the subscription is
-// replay-then-tail, so nothing is missed by starting at the bottom. A re-read
-// therefore lands behind an initialised store's cursor and is a silent no-op,
-// which is `SessionStore.admitsSnapshotAt`'s documented behaviour and not a defect
-// of this port: repairing a degraded store needs a read that carries a position,
-// and this one cannot until the wire does.
-//
-// WHY THE ATTENTION PROJECTION IS DERIVED HERE AND NOT IN A SURFACE
-//
-// `Spec-019 §State And Data Implications` makes attention "a derived projection from
-// canonical events", and Plan-019 I-019-4 requires clients to READ that projection
-// rather than recompute it from a partial local view — the failure it names is a
-// session badge and its run badges drifting apart. The fixture bridge is the daemon's
-// stand-in, so the derivation belongs here, on the far side of the seam, exactly
-// where the daemon's projector will be. A notification centre that folded the event
-// stream itself would be the client-side aggregation that invariant forbids, and it
-// would keep being that after the wire landed.
-//
-// WHAT THE DERIVATION CLAIMS, AND WHAT IT DELIBERATELY DOES NOT
-//
-// Three of the six registered triggers are derived, and they are exactly the three
-// `Spec-019 §Default Behavior` classifies: "Pending approval or required input is
-// actionable attention by default" covers `run.waiting_for_approval` and
-// `run.waiting_for_input`; "Run completion and invite receipt are informational
-// attention by default" covers `run.completed`. The other three are not derived, and
-// each is left out for a reason rather than for lack of time:
-//
-//   • `run_failed` — the spec classifies neither severity for it, and Plan-019 T2.3
-//     owns the trigger-to-severity mapping. A fixture that picked one would be
-//     teaching every surface a wire fact no document states.
-//   • `invite_received` — `invite.created` is registered, but no scenario plays one,
-//     so the fold would have no input; it lands with the scenario that needs it.
-//   • `mention` — the event census registers no mention type at all, so there is
-//     nothing canonical to fold.
+// WHAT THE BASE STATE HONESTLY IS — and why it is not derived here. Cursor zero,
+// the session's roster, and the memberships that roster holds, all of it
+// `fixture-session-snapshot.ts`'s, whose header carries the reasoning for each.
 //
 // WHY THE FOUR WORKFLOW READS ARE SERVED, AND WHY TWO OF THEM STILL REFUSE
 //
@@ -96,9 +71,9 @@
 //     (`Spec-023 §Console Design (Meridian)` §The five kinds of nothing) — a stated
 //     fact a surface draws — and an empty enumeration is a real daemon answer to the
 //     question asked. No `nextCursor` travels with the definitions, on the scripted
-//     reply's own reasoning: the engine matches a reply by call name, so a cursor
-//     would promise a second page that every later fetch would answer with this same
-//     one forever.
+//     reply's own reasoning: a `result`-shaped reply is one fixed value the engine
+//     finds by call name, so a cursor would promise a second page that every later
+//     fetch would answer with this same one forever.
 //   • The run read and the phase-output read refuse. Neither value has an empty form
 //     — every member of `WorkflowRunSnapshot` is required, and a phase-output read
 //     reports a phase that reached a terminal state — so the only way to answer would
@@ -107,13 +82,16 @@
 //     `callerParticipantRead` takes for a scenario that names no viewer: the question
 //     reached nothing that could answer it.
 //
-// EVERY WORKFLOW READ CHECKS WHAT IT WAS ADDRESSED BY BEFORE IT ANSWERS. A scripted
-// reply is matched by CALL NAME alone, so a handler that passed its request through
-// untouched answered `workflow.runRead` for ANY run id with the one run its scenario
-// states, and both enumerations for any session with that session's rows. That is one
+// EVERY WORKFLOW READ CHECKS WHAT IT WAS ADDRESSED BY BEFORE IT ANSWERS. The request
+// does travel with the call — `ScenarioReply`'s `resultFor` arm is what reads it —
+// but the workflows scenario scripts FIXED values, and a fixed value is one answer
+// for the call however it was addressed. So a handler that only forwarded the request
+// answered `workflow.runRead` for ANY run id with the one run its scenario states,
+// and both enumerations for any session with that session's rows. That is one
 // session's workflow data displayed under another session's name, and a parked run
 // returned for a run that is not it — a fixture teaching a surface that the daemon
-// does not scope its answers.
+// does not scope its answers. The scope check lives beside the port in
+// `fixture-workflow-scope.ts`, which reads it out of the replies themselves.
 //
 // The two kinds of read part company over the same thing they part company over
 // above: whether the value has an empty form.
@@ -151,17 +129,34 @@
 // rather than a stub. Two things would have to be true for a scenario to state a
 // branch context, and neither is:
 //
-//   • `ConsoleScenario` carries no repo mount, no workspace, and no branch. Its
-//     fields are a session id, a join order, beats, replies, and a start instant.
+//   • `ConsoleScenario` carries no repo mount, no workspace, and no branch. What it
+//     does carry is a session, its roster, beats, replies, and a start instant.
 //   • No registered event payload names a branch. The `repo.*` / `workspace.*` /
 //     `worktree.*` family payload is `{sessionId, repoMountId?, workspaceId?,
 //     worktreeId?, state, actor?}` (`packages/contracts/src/repo.ts`), so a fold
 //     over beats could reach a workspace and a worktree and would still have to
 //     invent both branch names — and `BranchContextReadResponse` requires them.
 //
-// So the honest answer is that there is none, and `findScenariosNamingABranch` in
-// the suite beside this file is what keeps the claim true: the day a scenario does
-// carry a branch, that test fails and this derivation is what has to change.
+// So the honest answer is that there is none, and `findScenariosNaming` in
+// `fixture-growth-port.gitflow.test.ts` beside this file is what keeps the claim
+// true: the day a scenario does carry a branch, that test fails and this derivation
+// is what has to change.
+//
+// AND WHY ITS SIBLING ON THE SAME SLATE ROW REFUSES
+//
+// `gitflowPrPrepare` is registered in the signature table and is not in the served
+// set, which reads as an omission and is the rule above applied twice over. A
+// PREPARATION is not an absence a surface has to draw: a proposal was either assembled
+// or it was not, so there is no "we asked and there is none" state here for the served
+// arm to answer with, and the port would have to mint a `prPreparationId` and a
+// `proposalBlob` out of nothing. Nor could a caller reach it: the request is keyed on a
+// `branchContextId`, and the read next door answers the absence for every scenario, so
+// under this bridge there is no id to send. `Spec-011 §Required Behavior` puts the
+// review before any remote mutation, which is the last of it — a fixture that answered
+// would be standing in for the review rather than for the wire.
+//
+// The finder pins that too, from the same side it pins the branch premise: no scenario
+// states a prepared proposal, and the day one does, the case beside it fails.
 //
 // WHY THE CALLER-IDENTITY READ IS ANSWERED FROM A FIELD AND NOT FROM JOIN ORDER
 //
@@ -179,6 +174,15 @@
 // operation IS scripted here, and whether a given scenario scripts the fact is the
 // scenario's business. `wire-truth.ts` holds a stated viewer to the roster, so the
 // served arm can never answer with an identity no surface could resolve a role from.
+//
+// AND THE ANSWER IS RESOLVABLE, WHICH IT WAS NOT. Being in the roster made the
+// identity well-formed and left it unusable: the base state carried no entities and
+// the composition root registers no `membership.*` projector, so `membershipRoleOf`
+// found nothing for the viewer under any scenario and every owner- and
+// collaborator-gated control rendered closed against a store that had never held a
+// participant — which looks, on screen, exactly like a member with no elevated role.
+// The roster now arrives with the base state (`fixture-session-snapshot.ts`), so the
+// identity this read serves resolves to the role the scenario declares for it.
 //
 // WHY THE REGISTRY READS REFUSE HERE, AND WHY THAT IS NOT A GAP EITHER
 //
@@ -206,17 +210,13 @@
 // branch finder pins its own, and pins the identity premise from the other side: no
 // scenario states a viewer under any name but the one field the port reads.
 
-import type { WireErrorEnvelope } from "../../../../shared/wire-errors.js";
-import type {
-  AttentionItem,
-  AttentionProjection,
-  AttentionSeverity,
-  AttentionTrigger,
-} from "./attention-projection.js";
+import { deriveAttentionProjection } from "./fixture-attention-derivation.js";
+import { answerFromScriptedReply } from "./fixture-scripted-answer.js";
+import { directorySessionsOf } from "./fixture-session-directory.js";
+import { fixtureSessionSnapshot } from "./fixture-session-snapshot.js";
+import { declaredWorkflowScope, requireScenarioWorkflowSubject } from "./fixture-workflow-scope.js";
 import { createRefusingGrowthPort, growthUnavailable, type GrowthPort } from "./growth-port.js";
-import type { GrowthSessionSummary } from "./growth-values.js";
-import type { ConsoleScenario, ScenarioEngine } from "./scenario.js";
-import { answerFromScriptedReply } from "./scripted-reply-adapter.js";
+import type { ScenarioEngine } from "./scenario-engine.js";
 
 /**
  * The operations the fixture answers rather than refuses.
@@ -227,17 +227,26 @@ import { answerFromScriptedReply } from "./scripted-reply-adapter.js";
  * member — a compile error rather than a runtime surprise.
  */
 export const FIXTURE_SERVED_GROWTH_OPERATION_IDS = [
+  // The two the console cannot function without — a store admits nothing until a read
+  // gives it a base state, and without the directory the only sessions a surface can
+  // name are the ones this window happens to have open.
   "sessionRead",
   "sessionList",
+  // The one projection the console must not compute for itself.
   "attentionProjectionRead",
-  // workflow
+  // workflow — the four reads a workflows scenario scripts. The six operations they
+  // leave out are five mutations and the gate-chain verification: see the workflow
+  // section of the header.
   "workflowDefinitionList",
   "workflowRunRead",
   "workflowPhaseOutputRead",
   "workflowRunList",
-  // gitflow
+  // gitflow — the branch-context read, whose whole answer today is that there is none.
+  // Its sibling `gitflowPrPrepare` is on the same slate row and refuses, which is the
+  // rule above rather than an omission: see the branch-context section of the header.
   "gitflowBranchContextRead",
-  // identity
+  // identity — answered from a scenario that states its own viewer, refused from one
+  // that does not.
   "callerParticipantRead",
 ] as const;
 
@@ -257,18 +266,7 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
   const served: Pick<GrowthPort, FixtureServedGrowthOperationId> = {
     sessionRead: async (request) => ({
       status: "served",
-      value: {
-        cursor: 0,
-        entities: [],
-        // The join log is the scenario's only where the scenario is the session
-        // being read. Another id gets an empty one rather than this session's
-        // roster: hue allocation keys on join order, and lending one session's
-        // order to another would colour a stranger's rows as if they were hers.
-        participantJoinLog:
-          request.sessionId === engine.scenario.sessionId
-            ? engine.scenario.participantIdsInJoinOrder
-            : [],
-      },
+      value: fixtureSessionSnapshot(engine.scenario, request.sessionId),
     }),
     sessionList: async () => ({
       status: "served",
@@ -300,6 +298,7 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
         engine,
         "workflow.definitionList",
         "workflowDefinitionList",
+        request,
         () => emptyEnumeration,
       );
     },
@@ -318,7 +317,7 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
       // is the value's rather than this port's: `WorkflowRunSnapshot` requires a run
       // id, a session, a pinned version, a state, and a start instant, so an "empty"
       // run would be five invented facts, and a pane offers controls on what it holds.
-      return answerFromScriptedReply(engine, "workflow.runRead", "workflowRunRead", () =>
+      return answerFromScriptedReply(engine, "workflow.runRead", "workflowRunRead", request, () =>
         growthUnavailable("workflowRunRead"),
       );
     },
@@ -337,6 +336,7 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
         engine,
         "workflow.phaseOutputRead",
         "workflowPhaseOutputRead",
+        request,
         () => growthUnavailable("workflowPhaseOutputRead"),
       );
     },
@@ -354,11 +354,12 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
         engine,
         "workflow.runList",
         "workflowRunList",
+        request,
         () => emptyEnumeration,
       );
     },
     // gitflow
-    gitflowBranchContextRead: async () =>
+    gitflowBranchContextRead: async (request) =>
       // Routed through the scripted-reply seam so a repos scenario that DOES script
       // `gitflow.branchContextRead` is answered from the script, on the frozen clock,
       // with the loading window and the two non-arrival refusals a real read has. No
@@ -367,10 +368,17 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
       // refusal: the operation IS answered here and what it found is nothing, whereas
       // a refusal would say the wire is missing, which under this bridge is not what
       // happened.
+      //
+      // The REQUEST travels with the call because this operation is entity-scoped:
+      // it names a workspace and a worktree, and a scenario answering it per worktree
+      // reads exactly that. Discarded, every branch-context read in a session was
+      // computed about no worktree, so a two-worktree session got one answer twice or
+      // none at all.
       answerFromScriptedReply(
         engine,
         "gitflow.branchContextRead",
         "gitflowBranchContextRead",
+        request,
         () => ({ status: "served", value: { branchContext: undefined } }),
       ),
     // identity
@@ -397,302 +405,4 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
     },
   };
   return { ...createRefusingGrowthPort(), ...served };
-}
-
-/**
- * The session state a scenario declares for its own session, if it declares one.
- *
- * A scenario's `session.read` reply is its statement of what that session IS, so
- * the reply is where the state is read from. The alternative — lifting a state out
- * of a beat's payload — would have the fixture folding the event stream to
- * re-derive a fact the scenario already states, and would disagree with the read
- * the same window performs a moment later.
- *
- * `undefined` when the scenario scripts no session read: a scenario that declares
- * nothing about its session has not said the session exists, and inventing a state
- * for it here would be the fixture answering a question nobody asked it.
- */
-function declaredSessionState(scenario: ConsoleScenario): string | undefined {
-  const sessionRead = scenario.replies.find((reply) => reply.call === "session.read");
-  // Read out of `unknown` by narrowing, the way `readRunStateTransition` below
-  // reads a beat's payload: a scenario's `result` is deliberately untyped so a
-  // scenario can carry any registered reply, and a cast here would assert a shape
-  // the type system was never given.
-  return readStringMember(readMember(sessionRead?.result, "session"), "state");
-}
-
-/** One member of a value that may not be an object at all. */
-function readMember(value: unknown, member: string): unknown {
-  return typeof value === "object" && value !== null
-    ? (value as Readonly<Record<string, unknown>>)[member]
-    : undefined;
-}
-
-/**
- * One STRING member of a value that may not be an object at all.
- *
- * The narrowing every reply reader here needs, written once: a scenario's `result`
- * is deliberately untyped, so each id or state lifted out of one has to be checked
- * rather than asserted, and a second copy of `typeof value === "string"` beside this
- * one is how two readers of the same replies come to disagree about what counts.
- */
-function readStringMember(value: unknown, member: string): string | undefined {
-  const read = readMember(value, member);
-  return typeof read === "string" ? read : undefined;
-}
-
-/**
- * The workflow identifiers one scenario's script can actually answer for.
- *
- * A scenario's replies ARE this fixture's daemon state. The run it can project is
- * the one its `workflow.runRead` reply carries and the phase whose outputs it can
- * serve is the one its `workflow.phaseOutputRead` reply names — both read out of the
- * reply rather than restated beside it, so a scenario that re-points either one
- * cannot leave a stale id behind for a request to be validated against.
- *
- * `undefined` on a member means the scenario scripts that read not at all. There is
- * then nothing to hold a request to, and the unscripted arm answers — which is the
- * refusal both snapshot reads already take.
- */
-interface DeclaredWorkflowScope {
-  readonly snapshotRunId: string | undefined;
-  readonly phaseOutputPhaseId: string | undefined;
-}
-
-function declaredWorkflowScope(scenario: ConsoleScenario): DeclaredWorkflowScope {
-  const runRead = scenario.replies.find((reply) => reply.call === "workflow.runRead");
-  const phaseOutputRead = scenario.replies.find(
-    (reply) => reply.call === "workflow.phaseOutputRead",
-  );
-  return {
-    snapshotRunId: readStringMember(runRead?.result, "workflowRunId"),
-    phaseOutputPhaseId: readStringMember(phaseOutputRead?.result, "phaseId"),
-  };
-}
-
-/** What a workflow read is addressed by, where the two refuse differently. */
-type WorkflowSubjectKind = "run" | "phase";
-
-/**
- * Refuse a run or a phase this scenario projects nothing for.
- *
- * Thrown rather than returned: the growth outcome union has no arm for a daemon
- * refusal on purpose — one would paraphrase the wire's own envelope — so a refusal
- * travels as a rejection here exactly as a scripted one does and as the live seam's
- * will once these become ordinary bridge calls.
- *
- * `declared` absent means the scenario scripts the read not at all, so there is
- * nothing to check and the unscripted arm — a refusal in both cases — answers
- * instead. A scenario that DOES script one is held to exactly the identifier its own
- * reply carries.
- */
-function requireScenarioWorkflowSubject(
-  declared: string | undefined,
-  requested: string,
-  kind: WorkflowSubjectKind,
-): void {
-  if (declared === undefined || declared === requested) {
-    return;
-  }
-  throw wireRefusal(
-    "workflow.not_found",
-    `No workflow ${kind} \`${requested}\` exists on this node.`,
-  );
-}
-
-/** The wire's refusal envelope, built in one place so both codes read alike. */
-function wireRefusal(code: string, message: string): WireErrorEnvelope {
-  return { code, message };
-}
-
-/**
- * Session states that put a session in the node's directory.
- *
- * The directory answers what this node HAS, and `provisioning` is the state of a
- * session that is still being created — the one a first run is sitting in, and the
- * whole reason the first-run scenario exists. Listing it would make a freshly
- * installed console show a session row where `Spec-023 §Console Design (Meridian)`
- * §The five kinds of nothing requires the EMPTY kind: "no sessions yet", a stated
- * fact with a next action.
- *
- * An allow-list rather than a deny-list, so a state nobody has thought about yet
- * stays out of the directory rather than appearing in it by default. The directory
- * is the surface a person reads to find out what exists; the failure that matters
- * is a row for something that does not.
- */
-const DIRECTORY_SESSION_STATES: ReadonlySet<string> = new Set(["active", "paused", "archived"]);
-
-/**
- * The node's session directory, derived from what the scenario declares.
- *
- * Not "the scenario's session, always". `sessionId` is a required member of every
- * scenario because the beats and the reads are keyed on it, so its presence says
- * which session a scenario is ABOUT and says nothing about whether that session
- * exists yet — and answering with a row regardless made the first-run scenario, a
- * fresh install with nothing in it, list a session on the surface whose committed
- * screenshot baselines exist to pin the empty state.
- *
- * No title: a scenario declares none as a field, and lifting one out of a beat's
- * payload would have the fixture inventing a wire fact for the one surface that
- * renders it.
- */
-function directorySessionsOf(scenario: ConsoleScenario): readonly GrowthSessionSummary[] {
-  const state = declaredSessionState(scenario);
-  if (state === undefined || !DIRECTORY_SESSION_STATES.has(state)) {
-    return [];
-  }
-  return [{ sessionId: scenario.sessionId, state } satisfies GrowthSessionSummary];
-}
-
-/** How one run state reaches a participant, where `Spec-019` classifies it. */
-interface AttentionClassification {
-  readonly trigger: AttentionTrigger;
-  readonly severity: AttentionSeverity;
-  /** The one line a surface renders. Prose; the item carries the identifiers. */
-  readonly summary: string;
-}
-
-/**
- * The run states that are attention, and what kind of attention each one is.
- *
- * Keyed by the run state itself rather than by the event kind that announced it,
- * because a run's ATTENTION follows its current state: `Spec-019 §Required Behavior`
- * derives emission "from canonical session or run state", and the state is what the
- * transition's `newState` carries. Keying on the kind would have made resolution a
- * second mechanism — some rule about which later kinds cancel which earlier ones —
- * where here it is the same one fact, read again.
- *
- * Three entries, and the three are exactly what `Spec-019 §Default Behavior`
- * classifies; the header says why the other three registered triggers are absent.
- */
-const ATTENTION_BY_RUN_STATE: Readonly<Record<string, AttentionClassification>> = {
-  waiting_for_approval: {
-    trigger: "pending_approval",
-    severity: "actionable",
-    summary: "A run is waiting for an approval decision.",
-  },
-  waiting_for_input: {
-    trigger: "pending_input",
-    severity: "actionable",
-    summary: "A run is waiting for participant input.",
-  },
-  completed: {
-    trigger: "run_completed",
-    severity: "informational",
-    summary: "A run finished.",
-  },
-};
-
-/**
- * The scenario's attention projection at one point in its playback.
- *
- * `deliveredBeatCount` rather than the whole script, so the projection is the state
- * the frozen clock has actually reached: a surface that advances the engine sees
- * attention arrive and resolve exactly as a live session would, and a screenshot
- * pinned at a tick is pinned against what the console could really have known then.
- */
-function deriveAttentionProjection(
-  scenario: ConsoleScenario,
-  deliveredBeatCount: number,
-): AttentionProjection {
-  // Keyed by run, holding the run's CURRENT attention: a later transition into an
-  // unclassified state deletes the entry, which is how an item resolves. There is
-  // no separate resolution pass, and no `resolvedAt` on a served item — this
-  // projection answers what is outstanding now.
-  const byRunId = new Map<string, AttentionItem>();
-  for (const beat of scenario.beats.slice(0, deliveredBeatCount)) {
-    const transition = readRunStateTransition(beat.event.payload);
-    if (transition === undefined) {
-      continue;
-    }
-    const classification = ATTENTION_BY_RUN_STATE[transition.newState];
-    if (classification === undefined) {
-      byRunId.delete(transition.runId);
-      continue;
-    }
-    byRunId.set(transition.runId, {
-      id: `${transition.runId}:${classification.trigger}`,
-      sessionId: scenario.sessionId,
-      runId: transition.runId,
-      trigger: classification.trigger,
-      severity: classification.severity,
-      summary: classification.summary,
-      // The console's event projection keys on `sequence` and carries no opaque
-      // daemon row id (`scenarios/wire-truth.ts` supplies one only to probe the
-      // strict layer), so the reference is composed from the two members that do
-      // identify the event. An invented opaque-looking id would read as a wire
-      // fact and be traceable to nothing.
-      sourceEventId: `${scenario.sessionId}:${String(beat.event.sequence)}`,
-      createdAt: beat.event.occurredAt,
-    });
-  }
-  const runScoped = [...byRunId.values()];
-  const aggregate = deriveSessionAggregate(scenario.sessionId, runScoped);
-  return { items: aggregate === undefined ? runScoped : [...runScoped, aggregate] };
-}
-
-/** One run state transition, or `undefined` when this payload is not one. */
-function readRunStateTransition(
-  payload: Readonly<Record<string, unknown>> | undefined,
-): { readonly runId: string; readonly newState: string } | undefined {
-  if (payload === undefined) {
-    return undefined;
-  }
-  const { runId, newState } = payload;
-  // Both members, not either: a run-lifecycle payload is a state transition
-  // carrying both, and a payload with a `runId` and no `newState` is some other
-  // event that merely mentions a run — folding it in would clear attention on a
-  // usage reading or a tool result.
-  return typeof runId === "string" && typeof newState === "string"
-    ? { runId, newState }
-    : undefined;
-}
-
-/**
- * The session-scoped aggregate over the run-scoped contributors, or `undefined`
- * when there are none.
- *
- * Plan-019 D-019-2's rule, transcribed rather than reinvented: the aggregate is an
- * `AttentionItem` with no `runId`; `severity` is `actionable` while ANY contributor
- * is, `informational` only when every one is; and `trigger` and `sourceEventId` come
- * from one representative contributor chosen by highest severity, then earliest
- * `createdAt`, then lexicographically smallest `id`. The chain is total, so two
- * readers of one projection state never disagree about which contributor the
- * aggregate names. `summary` and `createdAt` follow the representative too — the
- * aggregate has no birth of its own, and inventing one would be the only alternative.
- */
-function deriveSessionAggregate(
-  sessionId: string,
-  contributors: readonly AttentionItem[],
-): AttentionItem | undefined {
-  const representative = contributors.reduce<AttentionItem | undefined>(
-    (chosen, candidate) =>
-      chosen === undefined || outranksAsRepresentative(candidate, chosen) ? candidate : chosen,
-    undefined,
-  );
-  if (representative === undefined) {
-    return undefined;
-  }
-  return {
-    id: `${sessionId}:session`,
-    sessionId,
-    trigger: representative.trigger,
-    severity: contributors.some((item) => item.severity === "actionable")
-      ? "actionable"
-      : "informational",
-    summary: representative.summary,
-    sourceEventId: representative.sourceEventId,
-    createdAt: representative.createdAt,
-  };
-}
-
-/** D-019-2's tiebreak chain: severity, then `createdAt`, then `id`. */
-function outranksAsRepresentative(candidate: AttentionItem, chosen: AttentionItem): boolean {
-  if (candidate.severity !== chosen.severity) {
-    return candidate.severity === "actionable";
-  }
-  if (candidate.createdAt !== chosen.createdAt) {
-    return candidate.createdAt < chosen.createdAt;
-  }
-  return candidate.id < chosen.id;
 }

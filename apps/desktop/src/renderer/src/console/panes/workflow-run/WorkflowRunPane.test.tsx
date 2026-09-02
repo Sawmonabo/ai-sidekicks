@@ -20,7 +20,8 @@ import { FLAGSHIP_SCENARIO } from "../../bridge/scenarios/flagship.js";
 import { WORKFLOWS_SCENARIO } from "../../bridge/scenarios/workflows.js";
 import { WORKFLOWS_PARKED_RUN } from "../../bridge/scenarios/workflow-fixture-data.js";
 import { parkAwaitsPerson, parkSchedule, phasePark } from "../../workflows/run-list-projection.js";
-import type { ConsolePaneContext } from "../../workspace/index.js";
+import type { ConsolePaneContext } from "../../seats/index.js";
+import type { ConsoleEntityRef } from "../../store/index.js";
 import { RunDetailSlot } from "./slots/RunDetailSlot.js";
 import { WorkflowRunPane } from "./WorkflowRunPane.js";
 
@@ -31,6 +32,15 @@ import { WorkflowRunPane } from "./WorkflowRunPane.js";
 vi.mock(import("./slots/RunDetailSlot.js"), { spy: true });
 
 /**
+ * What a cast pane context may be addressed at.
+ *
+ * Any console entity or none — the set the pane's own two guards project, rather than
+ * `ConsolePaneAddress`'s own arm for this kind, because the cases below drive exactly
+ * the addresses the arm makes unconstructible and the guards still refuse.
+ */
+type AddressedEntity = ConsoleEntityRef | undefined;
+
+/**
  * The fields the chrome reads, and nothing else.
  *
  * Cast rather than constructed, the idiom `frame/legacy-surfaces.test.ts`
@@ -39,10 +49,7 @@ vi.mock(import("./slots/RunDetailSlot.js"), { spy: true });
  * component that reads three fields would make the setup the subject. The bridge is
  * real, because the pane now asks it something.
  */
-function paneContext(
-  entity: ConsolePaneContext["entity"],
-  bridge: ConsoleBridge,
-): ConsolePaneContext {
+function paneContext(entity: AddressedEntity, bridge: ConsoleBridge): ConsolePaneContext {
   return {
     kind: "workflow-run",
     entity,

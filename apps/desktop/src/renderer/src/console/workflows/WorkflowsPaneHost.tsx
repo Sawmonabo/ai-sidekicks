@@ -34,8 +34,8 @@
 
 import { useCallback, useState } from "react";
 
-import type { ConsolePaneAddress, ConsolePaneContext } from "../workspace/index.js";
-import { consolePaneRegistry } from "../workspace/index.js";
+import type { ConsolePaneAddress, ConsolePaneContext } from "../seats/index.js";
+import { consolePaneRegistry } from "../seats/index.js";
 import type { ConsoleSurfaceContext } from "../frame/surface-registry.js";
 import { Nothing } from "../primitives/index.js";
 import { useFrameStore, type SessionStore } from "../store/index.js";
@@ -131,16 +131,25 @@ function OpenPaneBody(props: {
       />
     );
   }
+  // Through the address's own discriminant: `ConsolePaneAddress` is a kind-scoped
+  // union, so a session-scoped arm carries no entity to name a pane after and a bare
+  // arm carries none yet.
+  const addressedEntityId = "entity" in address ? address.entity?.id : undefined;
   const paneContext: ConsolePaneContext = {
     ...address,
     // Deterministic in the address rather than minted, so re-opening the same subject
     // is the same pane and React keeps whatever state its body holds.
-    paneId: `workflows:${address.kind}:${address.entity?.id ?? "new"}`,
+    paneId: `workflows:${address.kind}:${addressedEntityId ?? "new"}`,
     bridge: context.bridge,
     frameStore: context.frameStore,
     sessionStore: scopedSessionStore(context, scopeSessionId),
     uiStateStore: context.uiStateStore,
     draftStore: context.draftStore,
+    // Nothing linked this pane to another: this surface opens one pane at a time from
+    // its own lists, not from a pane beside it. A required member carrying `undefined`
+    // rather than an omitted one, which is the binding's own rule — an absent key
+    // reads identically whether the host decided there was no source pane or forgot.
+    linkedSourcePaneId: undefined,
     // No actor to attribute this pane to on a bare route, which is the fail-closed
     // answer: an unattributed pane takes the neutral boundary and not someone's hue.
     focusHue: undefined,

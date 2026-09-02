@@ -15,8 +15,8 @@ import { WORKFLOWS_SESSION_ID } from "../bridge/scenarios/workflow-fixture-data.
 import { ManualClock } from "../core/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { FrameStore, SessionStoreRegistry } from "../store/index.js";
-import type { ConsolePaneContext } from "../workspace/index.js";
-import { consolePaneRegistry } from "../workspace/index.js";
+import type { ConsolePaneContext } from "../seats/index.js";
+import { consolePaneRegistry } from "../seats/index.js";
 // Deep, for `index.ts`'s reason: the frame's barrel also exports `ConsoleRoot`, which
 // composes the families, so a family reaching it through that door closes a cycle the
 // layering gate rejects.
@@ -119,7 +119,6 @@ function probeBuilderPane(): readonly ConsolePaneContext[] {
       mountedContexts.push(context);
       return <p>probe</p>;
     },
-    openInWindow: false,
   });
   return mountedContexts;
 }

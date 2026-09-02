@@ -24,7 +24,8 @@ import {
 } from "./workflow-fixture-data.js";
 import { WORKFLOWS_SCENARIO } from "./workflows.js";
 import { findScenarioWireTruthDefects } from "./wire-truth.js";
-import { ScenarioEngine, type ConsoleScenario } from "../scenario.js";
+import { ScenarioEngine } from "../scenario-engine.js";
+import type { ConsoleScenario } from "../scenario.js";
 import { settleScriptedReply } from "../scripted-reply.js";
 import type {
   WorkflowPhaseState,

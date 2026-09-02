@@ -46,7 +46,7 @@ import { createElement } from "react";
 import type { ConsoleSurfaceRegistry } from "../frame/surface-registry.js";
 import { WorkflowBuilderPane } from "../panes/workflow-builder/index.js";
 import { WorkflowRunPane } from "../panes/workflow-run/index.js";
-import type { ConsolePaneDescriptor, ConsolePaneRegistry } from "../workspace/index.js";
+import type { ConsolePaneDescriptor, ConsolePaneRegistry } from "../seats/index.js";
 import { WorkflowsPaneHost } from "./WorkflowsPaneHost.js";
 
 /**
@@ -61,26 +61,26 @@ import { WorkflowsPaneHost } from "./WorkflowsPaneHost.js";
 const WORKFLOWS_OWNER = "workflows";
 
 /**
- * Both pane kinds this family claims, with the tear-off answer each one gives.
+ * Both pane kinds this family claims.
  *
- * Neither opens in an auxiliary window. `Spec-023 §Console Design (Meridian)` ships
- * exactly two auxiliary windows, `timeline` and `agent-console`, and a kind that is
- * not one of them answers `false` — not because a workflow could not usefully be
- * detached, but because the window set is closed by the spec and a pane claiming a
- * window that does not exist would fail at the detach rather than at the claim.
+ * NO TEAR-OFF ANSWER TRAVELS WITH THEM, deliberately: whether a kind may be torn off
+ * into an auxiliary window is `seats/pane-kinds.ts`'s `isDetachablePaneKind`, derived
+ * from the window model's own closed set. `Spec-023 §Console Design (Meridian)` ships
+ * exactly two auxiliary windows, `timeline` and `agent-console`, and neither of these
+ * is one — but a boolean stated here would be asked of each descriptor independently,
+ * so a kind could advertise a detach path the window model cannot serve and neither
+ * this registration nor the type system would notice.
  */
 const WORKFLOW_PANES: readonly ConsolePaneDescriptor[] = [
   {
     kind: "workflow-run",
     owner: WORKFLOWS_OWNER,
     render: (context) => createElement(WorkflowRunPane, { context }),
-    openInWindow: false,
   },
   {
     kind: "workflow-builder",
     owner: WORKFLOWS_OWNER,
     render: (context) => createElement(WorkflowBuilderPane, { context }),
-    openInWindow: false,
   },
 ];
 

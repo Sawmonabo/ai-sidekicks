@@ -1,124 +1,44 @@
 // What the composition root WIRES, proved by driving the composed window.
 //
-// Five claims here, and none of them is visible from the modules underneath: each
-// is a fact about how this file joins two pieces that are individually correct.
+// Four claims here, and none of them is visible from the modules underneath: each
+// is a fact about how `ConsoleRoot` joins two pieces that are individually correct.
 //
-//   • **A window opens at the address it was given.** The Window menu opens an
-//     auxiliary window by URL, so the route the store starts on and the hash the
-//     window was loaded with have to be the same fact. They were not: the store
-//     began on the default route and adopted the hash one commit later, which left
-//     the route-to-hash direction closing over `#/sessions` for that commit.
 //   • **Regaining focus re-reads.** The scheduler names `window-focus` a refresh
 //     reason; only this file can say when it happened.
 //   • **The palette's bridge-backed acts are mounted.** They are built by the
 //     palette and registered by nobody, which reads exactly like a palette whose
 //     Help group is simply empty.
-//   • **The rail names the three destinations and highlights where the window is.**
-//     The destination set is the routing family's and the highlight is the rail's;
-//     only a driven window shows them agreeing, and only a driven window shows a
-//     session workspace sitting under the sessions destination rather than under
-//     an icon that is not drawn.
 //   • **A modal overlay makes the frame's background inert.** The palette's open
-//     state lives in this file, so this file is the only one that can hand it to
-//     the frame — `AppFrame` proves the attribute follows the prop, and nothing
+//     state lives in the composition root, so it is the only place that can hand it
+//     to the frame — `AppFrame` proves the attribute follows the prop, and nothing
 //     below proves the prop is ever passed.
 //   • **The window's database connection is closed with the window.** Nothing below
-//     this file knows when the console is finished, so nothing below it can be the
-//     one to close.
+//     the composition root knows when the console is finished, so nothing below it
+//     can be the one to close.
 //
 // Every case drives the real `ConsoleRoot` against the fixture bridge the
 // `console-unit` project compiles in, so nothing here is a stand-in for the thing
 // under test. The one instrument is a spy on the REAL `SessionStoreRegistry`
 // prototype: the registry is created inside the frame and there is no other way to
 // observe what the frame asked it for.
+//
+// The other two claims have their own files: `ConsoleRoot.routing.test.tsx` for the
+// address a window opens at and the rail that reports where it is, and
+// `ConsoleRoot.tokens.test.tsx` for the sheet every state renders on.
 
-import { act, cleanup, fireEvent, render, type RenderResult } from "@testing-library/react";
+import { act, cleanup, fireEvent, type RenderResult } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 
-import { useBridgeResolution } from "../bridge/index.js";
 import { SCHEME_PREFERENCE_KEY, type UiStateStore } from "../persistence/index.js";
-import { formatRoute, type ConsoleRoute } from "../routing/index.js";
 import { SessionStoreRegistry } from "../store/index.js";
 import { consoleCommands } from "./command-surface.js";
-import { ConsoleRoot } from "./ConsoleRoot.js";
-import { MERIDIAN_STYLE_ELEMENT_ID } from "./token-installation.js";
-import { type ConsoleSurfaceContext } from "./surface-registry.js";
-
-// Spied, never replaced: every export of the bridge door keeps its real
-// implementation and is merely observable, so the one case that needs the
-// missing-preload resolution can state it for that case alone. `resolveBridge`
-// answers `unavailable` only when no bridge is supplied AND fixtures are compiled
-// out, and this tier compiles them in — so without this the branch that renders
-// the recovery card is unreachable, which is how it came to be untested.
-vi.mock(import("../bridge/index.js"), { spy: true });
-
-/** An auxiliary window's address: a route the sessions list is not. */
-const AUXILIARY_HASH = "#/window/timeline/session-alpha";
-
-/** Where a window with no particular address lands. */
-const SESSIONS_HASH = "#/sessions";
-
-/** A window opened straight into a session, the way a saved link does. */
-const WORKSPACE_HASH = "#/session/session-alpha";
-
-const SETTINGS_HASH = "#/settings";
-
-const WORKFLOWS_HASH = "#/workflows";
+import { SESSIONS_HASH, mountConsole } from "./ConsoleRoot.test-support.js";
 
 const BRIDGE_COMMAND_IDS = ["bridge.copyBuildDetails", "bridge.checkForUpdates"] as const;
-
-/**
- * Mount and let the settled promises land.
- *
- * `ConsoleRoot` starts the persistence open on mount and swaps the durable adapter
- * in when it settles, so a test that asserted straight after `render` would assert
- * against a half-settled tree and leave a state update landing outside `act`. Two
- * flushes rather than one: the open resolves a promise whose continuation schedules
- * another.
- *
- * The observer is handed the whole surface context rather than the route alone.
- * That context is what the frame builds and hands to every surface, so it is the
- * one seam that reports what this file wired without replacing any of it — and a
- * second observer beside it would be a second such seam.
- */
-async function mountConsole(
-  observe?: (context: ConsoleSurfaceContext) => void,
-): Promise<RenderResult> {
-  let mounted: RenderResult | undefined;
-  await act(async () => {
-    mounted = render(
-      <ConsoleRoot
-        {...(observe === undefined
-          ? {}
-          : {
-              renderOverlays: (context) => {
-                observe(context);
-                return null;
-              },
-            })}
-      />,
-    );
-    await Promise.resolve();
-    await Promise.resolve();
-  });
-  if (mounted === undefined) {
-    throw new Error("the console never mounted");
-  }
-  return mounted;
-}
 
 async function dispatchWindowEvent(type: "focus" | "blur"): Promise<void> {
   await act(async () => {
     window.dispatchEvent(new Event(type));
-    await Promise.resolve();
-  });
-}
-
-/** Click a rail destination by the label a person reads on it. */
-async function clickRailDestination(mounted: RenderResult, label: string): Promise<void> {
-  const button = mounted.getByLabelText(label);
-  await act(async () => {
-    fireEvent.click(button);
     await Promise.resolve();
   });
 }
@@ -149,54 +69,6 @@ function backgroundOf(mounted: RenderResult): HTMLElement {
   }
   return background;
 }
-
-/** Which destination the rail is showing as current, by its accessible name. */
-function currentRailDestination(mounted: RenderResult): string | null {
-  const current = mounted.container.querySelector("[aria-current='page']");
-  return current === null ? null : current.getAttribute("aria-label");
-}
-
-describe("ConsoleRoot — the window opens at the address it was given", () => {
-  beforeEach(() => {
-    window.location.hash = SESSIONS_HASH;
-  });
-
-  afterEach(() => {
-    cleanup();
-    window.location.hash = SESSIONS_HASH;
-  });
-
-  it("starts on the route parsed from the opening hash, and never passes through the default", async () => {
-    window.location.hash = AUXILIARY_HASH;
-    const observed: ConsoleRoute[] = [];
-
-    await mountConsole((context) => observed.push(context.route));
-
-    // The FIRST render already carries the auxiliary route. A store that adopted
-    // the hash from an effect would render the sessions route once before it, and
-    // that one commit is all the route-to-hash direction needs to overwrite the
-    // address the window was opened at.
-    expect(observed.length).toBeGreaterThan(0);
-    expect(observed.map(formatRoute)).not.toContain(SESSIONS_HASH);
-    expect(observed[0]).toStrictEqual({
-      kind: "auxiliary",
-      route: "timeline",
-      sessionId: "session-alpha",
-    });
-    expect(window.location.hash).toBe(AUXILIARY_HASH);
-  });
-
-  it("negative control: a window opened with no address still lands on the sessions route", async () => {
-    // Without this, a frame that ignored the hash entirely and simply never
-    // navigated would satisfy the case above.
-    const observed: ConsoleRoute[] = [];
-
-    await mountConsole((context) => observed.push(context.route));
-
-    expect(observed[0]).toStrictEqual({ kind: "sessions" });
-    expect(window.location.hash).toBe(SESSIONS_HASH);
-  });
-});
 
 describe("ConsoleRoot — regaining focus re-reads every open session", () => {
   let requestRefreshOfEverySession: MockInstance<
@@ -283,83 +155,6 @@ describe("ConsoleRoot — the palette's bridge-backed acts are mounted", () => {
   });
 });
 
-describe("ConsoleRoot — the rail's three destinations, and where the window is", () => {
-  beforeEach(() => {
-    window.location.hash = WORKSPACE_HASH;
-  });
-
-  afterEach(() => {
-    cleanup();
-    window.location.hash = SESSIONS_HASH;
-  });
-
-  it("offers sessions, workflows, and settings, and nothing else", async () => {
-    // The defect: the rail shipped a Workspace destination where `Spec-023
-    // §Console Design (Meridian)` §The surface set names Workflows, so the
-    // destination that opens the workflow builder could not be reached at all and
-    // one that has no address of its own carried an icon.
-    const mounted = await mountConsole();
-
-    const labels = [...mounted.container.querySelectorAll(".meridian-rail__button")].map((button) =>
-      button.getAttribute("aria-label"),
-    );
-    expect(labels).toStrictEqual(["Sessions", "Workflows", "Settings"]);
-  });
-
-  it("puts a session workspace under the sessions destination", async () => {
-    // A window opened straight into a session is INSIDE the sessions destination,
-    // which is where a person got there from. Highlighting nothing — the answer a
-    // rail gives when the route names a destination it does not draw — reads as
-    // the console losing track of where it is.
-    const mounted = await mountConsole();
-
-    expect(currentRailDestination(mounted)).toBe("Sessions");
-  });
-
-  it("navigates to the workflows destination and highlights it", async () => {
-    const mounted = await mountConsole();
-
-    await clickRailDestination(mounted, "Workflows");
-
-    expect(window.location.hash).toBe(WORKFLOWS_HASH);
-    expect(currentRailDestination(mounted)).toBe("Workflows");
-    // The workflows family claims this slot, so the destination mounts the
-    // definitions browser rather than the frame's reserved-slot absence. Asserted on
-    // the scope groups, which are the one thing only that surface renders: the frame
-    // would happily render an absence here again if the family stopped registering,
-    // and a check for "something is on screen" would not notice.
-    expect(mounted.container.querySelectorAll(".meridian-workflow__scope-heading")).toHaveLength(3);
-    expect(mounted.container.querySelector(".meridian-frame__absence")).toBeNull();
-  });
-
-  it("keeps the session this window opened after the route leaves it", async () => {
-    // `SessionStoreRegistry` does not close a session when the route moves on, so
-    // the way back has to survive the move. It is read from the frame store rather
-    // than from the route, which is the distinction the retained id exists for.
-    let observed: string | undefined;
-    const mounted = await mountConsole((context) => {
-      observed = context.frameStore.lastOpenedSessionId;
-    });
-
-    await clickRailDestination(mounted, "Settings");
-    expect(window.location.hash).toBe(SETTINGS_HASH);
-
-    expect(observed).toBe("session-alpha");
-  });
-
-  it("negative control: a window that has opened no session retains none", async () => {
-    // Without this, a store that returned a constant id would satisfy the case
-    // above and offer a way back into a session this window was never in.
-    window.location.hash = SESSIONS_HASH;
-    let observed: string | undefined = "not-read";
-    await mountConsole((context) => {
-      observed = context.frameStore.lastOpenedSessionId;
-    });
-
-    expect(observed).toBeUndefined();
-  });
-});
-
 describe("ConsoleRoot — a modal overlay inerts the frame's background", () => {
   beforeEach(() => {
     window.location.hash = SESSIONS_HASH;
@@ -429,69 +224,5 @@ describe("ConsoleRoot — the window's durable store is closed with the window",
     if (afterUnmount.outcome === "refused") {
       expect(afterUnmount.refusal.code).toBe("adapter-unavailable");
     }
-  });
-});
-
-describe("ConsoleRoot — every state it can render sits on the Meridian tokens", () => {
-  // The tokens are installed on the DOCUMENT, so they outlive `cleanup()` and
-  // every case here would otherwise read a sheet an earlier one left behind.
-  // Removing it first is what makes the assertions about THIS render.
-  beforeEach(() => {
-    window.location.hash = SESSIONS_HASH;
-    document.getElementById(MERIDIAN_STYLE_ELEMENT_ID)?.remove();
-  });
-
-  afterEach(() => {
-    cleanup();
-    // The spy's own restore, by name. `restoreAllMocks` puts the original
-    // implementation back but leaves a `mockReturnValue` standing on a module
-    // spy, so the next case would have gone on reading the missing-preload
-    // resolution this one stated.
-    vi.mocked(useBridgeResolution).mockRestore();
-    window.location.hash = SESSIONS_HASH;
-  });
-
-  it("installs the sheet for the missing-preload card, which mounts no frame at all", async () => {
-    // The resolution is spied on the REAL barrel — every other export still calls
-    // through — because the fixture build this tier compiles always resolves a
-    // bridge, so the one state that skips the frame entirely is unreachable
-    // otherwise. It is also the state a person is most likely to be reading when
-    // something has gone wrong, and it used to arrive in browser defaults: no
-    // custom properties, and none of the `html, body { height: 100% }` rules the
-    // card is centred against.
-    vi.mocked(useBridgeResolution).mockReturnValue({
-      status: "unavailable",
-      unavailable: {
-        reason: "preload-did-not-run",
-        detail: "This window loaded without its preload bridge.",
-      },
-    });
-    // Non-vacuity: the sheet is genuinely absent going in, so what is asserted
-    // below was written by this render and not by an earlier file.
-    expect(document.getElementById(MERIDIAN_STYLE_ELEMENT_ID)).toBeNull();
-
-    const mounted = await mountConsole();
-
-    expect(mounted.container.textContent).toContain("This window cannot reach the app.");
-    // The frame really did not mount: no rail, so nothing below the gate ran.
-    expect(mounted.container.querySelector(".meridian-rail")).toBeNull();
-    const styleElement = document.getElementById(MERIDIAN_STYLE_ELEMENT_ID);
-    expect(styleElement).not.toBeNull();
-    expect(styleElement?.textContent ?? "").toContain("--meridian-ground");
-    expect(styleElement?.textContent ?? "").toContain("height: 100%");
-    // Prepended, so the frame's own sheet cascades after the definitions it reads.
-    expect(document.head.firstElementChild?.id).toBe(MERIDIAN_STYLE_ELEMENT_ID);
-  });
-
-  it("installs it exactly once on the ready path, and no second time for the frame", async () => {
-    // The other half of "one installer, one call site": hoisting it above the gate
-    // must not leave the frame installing a second copy, which would double the
-    // cascade for every window that works.
-    expect(document.getElementById(MERIDIAN_STYLE_ELEMENT_ID)).toBeNull();
-
-    const mounted = await mountConsole();
-
-    expect(mounted.container.querySelector(".meridian-rail")).not.toBeNull();
-    expect(document.querySelectorAll(`#${MERIDIAN_STYLE_ELEMENT_ID}`)).toHaveLength(1);
   });
 });

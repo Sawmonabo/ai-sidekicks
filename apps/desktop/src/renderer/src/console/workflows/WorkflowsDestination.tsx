@@ -79,7 +79,7 @@ import { useEffect, useRef } from "react";
 import type { GrowthPort } from "../bridge/index.js";
 import { WireFigure, useAnnounce } from "../primitives/index.js";
 import { useFrameStore, type FrameStore, type SessionStoreRegistry } from "../store/index.js";
-import type { ConsolePaneOpener } from "../workspace/index.js";
+import type { ConsolePaneOpener } from "../seats/index.js";
 import {
   AWAITING_SESSION_CHOICE,
   chosenScope,

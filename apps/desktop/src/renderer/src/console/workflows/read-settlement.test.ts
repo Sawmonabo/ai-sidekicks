@@ -15,8 +15,9 @@ import type { WireErrorEnvelope } from "../../../../shared/wire-errors.js";
 import { growthUnavailable } from "../bridge/index.js";
 import type { GrowthOutcome } from "../bridge/growth-outcome.js";
 import type { GrowthOperationSignatures } from "../bridge/growth-signatures.js";
-import { ScenarioEngine, type ConsoleScenario } from "../bridge/scenario.js";
-import { answerFromScriptedReply } from "../bridge/scripted-reply-adapter.js";
+import { ScenarioEngine } from "../bridge/scenario-engine.js";
+import type { ConsoleScenario } from "../bridge/scenario.js";
+import { answerFromScriptedReply } from "../bridge/fixture-scripted-answer.js";
 import { ConsoleRefusalError, refuse } from "../core/index.js";
 import {
   DAEMON_REFUSAL_ORIGIN,
@@ -64,6 +65,7 @@ function enumerationThroughTheSeam(
     engine,
     "workflow.definitionList",
     "workflowDefinitionList",
+    { sessionId: PROBE_SESSION_ID },
     () => ({
       status: "served",
       value: { definitions: [] },

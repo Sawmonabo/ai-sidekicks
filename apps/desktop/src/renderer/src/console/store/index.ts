@@ -14,12 +14,26 @@
 // `readable.ts` narrows a `zustand` store to the two methods a consumer needs, so
 // nothing outside this family holds a handle that can also WRITE.
 
+// The kind vocabulary leaves the family beside the reference it keys, because the
+// seat that decides which entity kinds a pane is a view of has to decide it for
+// EVERY kind — a list of the admitted ones grows a hole the day a kind is added,
+// which is how repo and invite went missing from the inspector's scope.
+export { CONSOLE_ENTITY_KINDS } from "./entities.js";
 export type { ConsoleEntityRef, ConsoleSessionEvent } from "./entities.js";
 // The projection contract leaves the family with its first producer: the
 // composition root's run-lifecycle projector. A projector reads WIRE member names
 // and this family deliberately knows none, so the type travels out and the
 // implementation stays where the wire is already understood.
 export type { EntityMutation, EntityProjector, EntityProjectorRegistry } from "./entities.js";
+// The registry that decides WHICH projector claims a kind, beside the table type it
+// hands out. It ships through this door because the composition root registers into
+// it and the session-store plumbing reads a snapshot out of it, and both of those
+// live one family up — a deep import would be the second path this door exists to
+// keep from opening.
+export {
+  ConsoleEntityProjectorRegistry,
+  consoleEntityProjectorRegistry,
+} from "./entity-projector-registry.js";
 
 export { SessionStore } from "./session-store.js";
 // The base state a read establishes. Exported because the composition root now

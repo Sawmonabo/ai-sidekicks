@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ConsolePaneRegistry } from "../workspace/index.js";
+import { ConsolePaneRegistry, isDetachablePaneKind } from "../seats/index.js";
 import { registerWorkflowPanes } from "./index.js";
 
 function registeredWorkflowPanes(): ConsolePaneRegistry {
@@ -36,13 +36,18 @@ describe("workflows family — the pane kinds it claims", () => {
     }).not.toThrow();
   });
 
-  it("opens neither kind in an auxiliary window", () => {
-    // The spec ships exactly two auxiliary windows and neither is a workflow pane,
-    // so a `true` here would be a detach into a window that does not exist.
+  it("claims neither kind as detachable, which is the window model's own answer", () => {
+    // The spec ships exactly two auxiliary windows and neither is a workflow pane, so
+    // a detachable workflow kind would be a tear-off into a window that does not
+    // exist. Asserted against `isDetachablePaneKind` rather than against a member of
+    // the descriptor, because the descriptor deliberately carries none: one answer,
+    // derived from the window model's closed set, so a family cannot advertise a
+    // detach path the model cannot serve.
     const registry = registeredWorkflowPanes();
-    expect(
-      registry.registeredPaneKinds().map((kind) => registry.descriptorFor(kind)?.openInWindow),
-    ).toStrictEqual([false, false]);
+    expect(registry.registeredPaneKinds().map((kind) => isDetachablePaneKind(kind))).toStrictEqual([
+      false,
+      false,
+    ]);
   });
 
   it("negative control: a fresh registry claims nothing on its own", () => {

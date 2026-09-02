@@ -33,7 +33,7 @@
 // the builder. Spread across the mounts, the pair that is shared would be written
 // twice and would drift the first time either half moved.
 
-import type { OwnerSlotContract, OwnerSlotProps } from "../workspace/index.js";
+import type { OwnerSlotContract, OwnerSlotProps } from "../seats/index.js";
 
 /**
  * The body every slot here eventually holds: a rendered React subtree.

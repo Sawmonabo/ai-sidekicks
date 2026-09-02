@@ -24,7 +24,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ConsolePaneRegistry } from "../workspace/index.js";
+import { ConsolePaneRegistry } from "../seats/index.js";
 import { registerConsolePanes } from "./index.js";
 
 declare global {
@@ -150,9 +150,13 @@ describe("pane seat board — composing it today", () => {
     expect(second.registeredPaneKinds()).toStrictEqual(first.registeredPaneKinds());
   });
 
-  it("negative control: a fresh registry claims nothing on its own", () => {
-    // Every case above reads the registry back, and all of them would pass over a
-    // registry that reported kinds nobody registered.
-    expect(new ConsolePaneRegistry().registeredPaneKinds()).toStrictEqual([]);
+  it("negative control: the registry reports what was registered, and only that", () => {
+    // Every case above reads the registry back, so all of them would pass over a
+    // `registeredPaneKinds` that always answered `[]`, and over one that reported
+    // kinds nobody registered. Both vacuities, one on each side, close here.
+    const registry = new ConsolePaneRegistry();
+    expect(registry.registeredPaneKinds()).toStrictEqual([]);
+    registry.register({ kind: "timeline", owner: "panes-test", render: () => null });
+    expect(registry.registeredPaneKinds()).toStrictEqual(["timeline"]);
   });
 });

@@ -78,9 +78,10 @@ import {
 } from "../../src/renderer/src/console/workflows/index.js";
 import {
   ConsolePaneRegistry,
+  type ConsolePaneAddress,
   type ConsolePaneContext,
   type PaneKind,
-} from "../../src/renderer/src/console/workspace/index.js";
+} from "../../src/renderer/src/console/seats/index.js";
 
 /**
  * A registry carrying exactly this family's two claims.
@@ -114,19 +115,28 @@ function paneBodyComponent(kind: PaneKind): FunctionComponent<{ context: Console
   return ({ context }) => descriptor.render(context);
 }
 
-/** The deck context a pane is mounted with, minus the parts each caller supplies. */
+/**
+ * The deck context a pane is mounted with, minus the parts each caller supplies.
+ *
+ * The caller supplies the ADDRESS and the pane id, not a `Pick` of the context: the
+ * address is a kind-scoped union, so `entity` is not a key every arm has and a `Pick`
+ * naming it does not resolve. Taking the union itself is also the stronger claim —
+ * a tier cannot mount a workflow pane over an entity kind the seat refuses.
+ */
 function paneContext(
-  overrides: Pick<ConsolePaneContext, "kind" | "paneId" | "entity">,
+  address: ConsolePaneAddress & { readonly paneId: string },
   bridge: ConsoleBridge,
 ): ConsolePaneContext {
   return {
+    ...address,
     frameStore: new FrameStore(),
     uiStateStore: UiStateStore.opening(),
     draftStore: new DraftStore(),
+    // Nothing opened these panes from another: each tier mounts one body directly.
+    linkedSourcePaneId: undefined,
     focusHue: undefined,
     bridge,
     sessionStore: new SessionStore({ sessionId: WORKFLOWS_SESSION_ID }),
-    ...overrides,
   };
 }
 

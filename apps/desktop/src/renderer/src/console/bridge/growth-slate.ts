@@ -175,6 +175,21 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     consumingSurface: "repos, diffs, and pull-request surfaces",
     wireRegistered: false,
   },
+  // WHERE THE PANE'S SAVE GOES, AND WHY IT IS NOT A ROW HERE. An artifact read hands
+  // back bytes, and the pane has to be able to put them somewhere — so the question is
+  // whether that producer is missing too. It is not: `native.showSaveDialog` is on the
+  // `SidekicksBridge` contract in `packages/contracts/src/desktop-bridge.ts` beside the
+  // rest of the `native` namespace, and both bridges refuse it as an absent CAPABILITY
+  // rather than an unregistered wire. A row here would be the wrong record of that —
+  // this table's rows are wires no document registers, and adding one for a method the
+  // contract already names would put a wire on the slate that has nothing to land.
+  //
+  // The residual is narrower and belongs to that package rather than to this one: its
+  // `SaveDialogOptions` and `SaveDialogResult` are Tier-1 stubs declaring no member, so
+  // a caller can neither suggest a filename nor read back the path a person chose. That
+  // is a shape to fill in where it is declared, not a wire to register here, and it is
+  // recorded at the row it would otherwise be minted against so the next reader does
+  // not mint one.
   "artifact-ingest-and-crud": {
     id: "artifact-ingest-and-crud",
     wire: "attachment ingest method-name table and artifact CRUD method strings",
@@ -311,7 +326,7 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     id: "hydrated-event-read",
     wire: "the hydrated event read that pairs a verified event row with its opened machine-authored body, and the participant-text body no arm of that read opens",
     owningDocument:
-      "Spec-006 §Canonical Event Envelope; Plan-006 Phase 3B (the HydratedSessionEvent projection over session_events.content_payload, which the daemon builds and no bridge namespace serves; the participant half rides session_events.pii_payload under the same document and has no read projection at all)",
+      "Spec-006 §Assistant Output (assistant_output); Plan-006 §Phase 3B — Machine-authored content column (explicit-label supplement) (the HydratedSessionEvent projection over session_events.content_payload, which the daemon builds and no bridge namespace serves; the participant half rides session_events.pii_payload under the same document and has no read projection at all)",
     consumingSurface: "timeline pane, ledger rows",
     wireRegistered: false,
   },

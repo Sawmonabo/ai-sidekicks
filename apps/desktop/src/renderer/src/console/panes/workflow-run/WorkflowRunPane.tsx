@@ -66,7 +66,7 @@ import { refusedWorkflowChrome } from "../../workflows/chrome-state.js";
 import { ParkBadge } from "../../workflows/ParkBadge.js";
 import { parkAwaitsPerson, phasePark, parkSchedule } from "../../workflows/run-list-projection.js";
 import type { WorkflowParkedPhase } from "../../workflows/run-list-projection.js";
-import type { ConsolePaneContext } from "../../workspace/index.js";
+import type { ConsolePaneContext } from "../../seats/index.js";
 import { OperatorControls } from "./OperatorControls.js";
 import { WORKFLOW_RUN_PANE_SUBJECT_KIND, misaddressedRunPane } from "./run-addressing.js";
 import { unregisteredRunControl } from "./run-controls.js";
@@ -301,7 +301,15 @@ function RunParks(props: { readonly phases: readonly WorkflowPhaseState[] }): Re
 
 /** The run pane's chrome. The run detail and the human form inside it are Plan-017's. */
 export function WorkflowRunPane(props: WorkflowRunPaneProps): React.JSX.Element {
-  const { bridge, entity, sessionStore } = props.context;
+  const { bridge, sessionStore } = props.context;
+  // Read through the address's own discriminant, because that is what carries the
+  // entity: `ConsolePaneAddress` is a kind-scoped union, so a session-scoped arm has
+  // no `entity` member at all and only the arms that take one publish it. The two
+  // guards below are the FAIL-CLOSED PROJECTION of that union rather than a
+  // substitute for it — a pane address is also PARSED, out of a persisted layout an
+  // older build wrote and out of a route, and a parsed value is data rather than a
+  // proof.
+  const entity = "entity" in props.context ? props.context.entity : undefined;
   // The id is taken from the address only where the address names a RUN. An entity
   // of another kind supplies nothing, so the read below is `unasked` on exactly the
   // arm that refuses — rather than in flight against an id that names no run.
