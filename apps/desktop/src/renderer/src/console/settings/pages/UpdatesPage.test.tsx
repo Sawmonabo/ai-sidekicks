@@ -97,6 +97,44 @@ function bridgePushing(initial: UpdateState): {
   };
 }
 
+/**
+ * A bridge whose opening read is settled by hand, so a push can land ahead of it.
+ *
+ * Separate from {@link bridgePushing} rather than an option on it: that builder's
+ * read resolves immediately, which is what its own cases need, and the case here
+ * needs the opposite — a read still in flight when the updater pushes, which is the
+ * moment an unconditional continuation overwrites the newer state with the older.
+ */
+function bridgeHoldingItsRead(): {
+  readonly bridge: ConsoleBridge;
+  readonly push: (state: UpdateState) => void;
+  readonly settleRead: (state: UpdateState) => void;
+} {
+  let deliver: ((state: UpdateState) => void) | undefined;
+  let settle: ((state: UpdateState) => void) | undefined;
+  const bridge = bridgeWithUpdater({
+    getState: () =>
+      new Promise<UpdateState>((resolve) => {
+        settle = resolve;
+      }),
+    subscribe: (handler): Unsubscribe => {
+      deliver = handler;
+      return () => undefined;
+    },
+    requestCheck: () => Promise.resolve(),
+    requestRestart: () => Promise.resolve(),
+  });
+  return {
+    bridge,
+    push: (state) => {
+      deliver?.(state);
+    },
+    settleRead: (state) => {
+      settle?.(state);
+    },
+  };
+}
+
 /** The block's own element, so a case never reads the announcer's regions by accident. */
 function updatesBlockOf(root: HTMLElement): HTMLElement {
   const block = root.querySelector<HTMLElement>('section[aria-label="Application updates"]');
@@ -172,6 +210,45 @@ describe("updates page — the five arms", () => {
     expect(text).toContain("update feed was not reached");
     expect(text).not.toContain("The updater reported a failure");
     expect(container.querySelectorAll('[role="alert"]')).toHaveLength(0);
+  });
+});
+
+describe("updates page — the two sources are sequenced", () => {
+  it("keeps a pushed transition when the opening read resolves behind it", async () => {
+    // The block's own end of the race. Without the sequencing, the read's older
+    // snapshot lands last and the ready arm — and its restart control — disappear
+    // until the updater pushes again, which from a terminal arm it never does.
+    const held = bridgeHoldingItsRead();
+    const { page } = await renderSettled(held.bridge);
+
+    await act(async () => {
+      held.push({ status: "ready" });
+      held.settleRead({ status: "checking" });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const text = page.textContent ?? "";
+    expect(text).toContain("An update has finished downloading");
+    expect(text).not.toContain("Checking for an update");
+    const labels = [...page.querySelectorAll("button")].map((button) => button.textContent ?? "");
+    expect(labels).toContain("Restart to apply");
+  });
+
+  it("negative control: the opening read still installs when nothing was pushed", async () => {
+    // Without this, a block that ignored its opening read outright would satisfy the
+    // case above and then show "Reading the updater's state" for the window's life.
+    const held = bridgeHoldingItsRead();
+    const { page } = await renderSettled(held.bridge);
+    expect(page.textContent ?? "").toContain("Reading the updater");
+
+    await act(async () => {
+      held.settleRead({ status: "idle" });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(page.textContent ?? "").toContain("No update is waiting");
   });
 });
 
