@@ -24,7 +24,7 @@
 //   • `hosting-unavailable`. The arm needs a bundle path and a preparation state that
 //     names the outage. The preparation reply carries `prPreparationId`, a state
 //     closed at `draft | ready`, and an untyped blob — and the blob is display data
-//     the console may never read as an instruction (`proposal-model.ts`), so there is
+//     the console may never read as an instruction (`prepared-proposal.ts`), so there is
 //     no honest route to the arm at all. Publishing it from a `draft` reply would
 //     report an outage nothing observed; publishing a bundle path would invent a
 //     filesystem location. The arm stays drawable for a caller that CAN state it.
@@ -61,7 +61,9 @@ import {
   type ProposalGateRefusalCode,
   type ProposalGateSubject,
 } from "./proposal-gate-model.js";
-import type { PreparedProposal, ProposalAction, ProposalGateState } from "./proposal-model.js";
+import type { PreparedProposal } from "./prepared-proposal.js";
+import type { ProposalAction } from "./proposal-actions.js";
+import type { ProposalGateState } from "./proposal-gate-state.js";
 
 /**
  * Everything one worktree's gate renders from, in one immutable value.

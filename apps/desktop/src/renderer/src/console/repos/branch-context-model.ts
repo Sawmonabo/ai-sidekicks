@@ -16,7 +16,7 @@
 // `ExecutionMode`, because the mode is what decides whether a writable context exists
 // at all and the contract already closes it at four.
 //
-// IT LIVES BESIDE `proposal-model.ts` RATHER THAN INSIDE IT because a branch context
+// IT LIVES BESIDE `prepared-proposal.ts` RATHER THAN INSIDE IT because a branch context
 // outlives any one proposal: a writable run has one whether or not a proposal has been
 // prepared, which is why the gate can render a context with no proposal and never the
 // reverse. One module per noun, and this is the other noun.

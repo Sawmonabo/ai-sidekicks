@@ -19,13 +19,19 @@
 //    and a preparation state naming it, and neither exists on a reply whose state
 //    vocabulary is `draft | ready`. So the reader never publishes that arm, the gate
 //    still draws it for a caller that can state it, and nothing here invents the
-//    difference. `proposal-model.ts` carries the same note beside the arm itself.
+//    difference. `proposal-gate-state.ts` carries the same note beside the arm itself.
 //
 // 2. NOTHING HERE DECIDES WHO MAY ACT. `docs/architecture/contracts/error-contracts.md`
 //    registers no `gitflow` namespace, so a failed action arrives as an ordinary
 //    unsuccessful result and renders as a first-class failure carrying the daemon's own
 //    message text. Controls are offered; the refusal renders beside the one pressed.
 //    Greying a control out would mean holding a second copy of the daemon's rule.
+//
+//    WHICH ACTS EXIST IS A DIFFERENT QUESTION, and this file does not answer that one
+//    either: `offeredProposalActions` in `proposal-actions.ts` does, and the act row
+//    below is built from its list rather than from the vocabulary. So the one condition
+//    that withholds an act here — the preparation gate — is a rule stated once, beside
+//    the acts it governs, and tested without rendering anything.
 //
 // 3. BASE AND HEAD COME FROM THE CONTEXT, ALWAYS. Not from the selected pane, not from
 //    a tab, not from the focused view. There is no prop on this component through which
@@ -37,10 +43,13 @@
 //    summary plus the bundle's path — it is not an error page and carries no refusal
 //    styling.
 //
-// THE PREPARATION GATE IS THE ORDER OF THIS FILE. `prepare-proposal` is offered before
-// `push`, the prepared proposal is rendered above the acts, and the remote-mutating act
-// sits under the thing it would send. A layout that put the button above the payload
-// would be inviting approval of something not yet on screen.
+// THE PREPARATION GATE IS THE ORDER OF THIS FILE AND THE CONTENT OF ITS ACT ROW.
+// `prepare-proposal` is offered before `push`, the prepared proposal is rendered above
+// the acts, and the remote-mutating act sits under the thing it would send — and where
+// there is no prepared proposal it is not offered at all, so the send cannot be
+// confirmed against a payload that has never been on screen. A layout that put the
+// button above the payload would invite approval of something not yet drawn; a row that
+// offered it with no payload at all would invite approval of something not yet built.
 
 import { useId, useState } from "react";
 
@@ -57,23 +66,27 @@ import type { ConsoleRefusal } from "../core/index.js";
 import { BranchContextSummary } from "./BranchContextSummary.js";
 import { ProposalSummary } from "./ProposalSummary.js";
 import { BRANCH_CONTEXT_UNREAD_REASON, NO_BRANCH_CONTEXT_REASON } from "./branch-context-model.js";
+import type { CheckoutConflict } from "./checkout-conflict.js";
 import {
-  ACTION_FAILURE_COPY,
   CHANGE_REQUEST_STATE_PRESENTATION,
   CHECK_STATUS_PRESENTATION,
-  HOSTING_UNAVAILABLE_COPY,
   MERGEABILITY_PRESENTATION,
   NO_REVIEW_DECISION_COPY,
-  ONE_CUMULATIVE_PROPOSAL_COPY,
-  PROPOSAL_ACTIONS,
-  PROPOSAL_ACTION_PRESENTATION,
   REVIEW_DECISION_PRESENTATION,
   checkRollup,
-  type CheckoutConflict,
-  type ProposalAction,
-  type ProposalGateState,
   type ProposalStatusReading,
-} from "./proposal-model.js";
+} from "./hosting-status.js";
+import { ONE_CUMULATIVE_PROPOSAL_COPY } from "./prepared-proposal.js";
+import {
+  PROPOSAL_ACTION_PRESENTATION,
+  offeredProposalActions,
+  type ProposalAction,
+} from "./proposal-actions.js";
+import {
+  ACTION_FAILURE_COPY,
+  HOSTING_UNAVAILABLE_COPY,
+  type ProposalGateState,
+} from "./proposal-gate-state.js";
 
 export interface ProposalGateProps {
   readonly state: ProposalGateState;
@@ -86,7 +99,7 @@ export interface ProposalGateProps {
    */
   readonly checkoutConflict?: CheckoutConflict | undefined;
   readonly onResolveCheckoutConflict?: ((optionId: string) => void) | undefined;
-  /** Send one modelled action. The three offers, and there is no fourth entry point. */
+  /** Send one modelled action. The one entry point, whichever acts the arm offers. */
   readonly onRequestAction?: ((action: ProposalAction) => void) | undefined;
   /** What the last action produced, keyed by the action that produced it. */
   readonly actionRefusals?: ReadonlyMap<ProposalAction, ConsoleRefusal> | undefined;
@@ -198,6 +211,7 @@ function renderGateBody(props: ProposalGateProps): React.JSX.Element {
         />
       )}
       <ProposalActions
+        actions={offeredProposalActions(state)}
         onRequestAction={props.onRequestAction}
         actionRefusals={props.actionRefusals}
         isBlocked={props.checkoutConflict !== undefined}
@@ -304,7 +318,14 @@ function CheckoutConflictChoice(props: {
 }
 
 /**
- * The three acts, in the order the gate enforces.
+ * The acts this arm offers, in the order the gate enforces.
+ *
+ * THE LIST ARRIVES; IT IS NOT DERIVED HERE. `offeredProposalActions` decides which acts
+ * a gate arm may offer, so this component cannot draw a remote act the preparation gate
+ * withholds. Two conditions leave no row to draw — a mount that cannot honour an act at
+ * all, and an arm the rule offers none for — and both draw nothing rather than an empty
+ * group, because the arm above has already said what this gate is looking at and a
+ * labelled group holding no control would be a second, wordless answer to that.
  *
  * `isBlocked` is not an eligibility derivation: it is the presence of an unanswered
  * blocking choice on this very surface, which `Spec-011 §Fallback Behavior` requires
@@ -312,6 +333,7 @@ function CheckoutConflictChoice(props: {
  * daemon's, is not consulted here, and renders as the refusal beside the act.
  */
 function ProposalActions(props: {
+  readonly actions: readonly ProposalAction[];
   readonly onRequestAction: ((action: ProposalAction) => void) | undefined;
   readonly actionRefusals: ReadonlyMap<ProposalAction, ConsoleRefusal> | undefined;
   readonly isBlocked: boolean;
@@ -319,12 +341,12 @@ function ProposalActions(props: {
   const [actionAwaitingConfirm, setActionAwaitingConfirm] = useState<ProposalAction | undefined>(
     undefined,
   );
-  if (props.onRequestAction === undefined) {
+  if (props.onRequestAction === undefined || props.actions.length === 0) {
     return null;
   }
   return (
     <div className="meridian-proposal-gate__acts" role="group" aria-label="Git actions">
-      {PROPOSAL_ACTIONS.map((action) => {
+      {props.actions.map((action) => {
         const presentation = PROPOSAL_ACTION_PRESENTATION[action];
         const refusal = props.actionRefusals?.get(action);
         const isAwaitingConfirm = actionAwaitingConfirm === action;
