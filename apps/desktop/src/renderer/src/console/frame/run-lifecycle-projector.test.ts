@@ -202,13 +202,13 @@ describe("the flagship scenario's run, folded", () => {
     const starting = firstBeatOfKind(flagship, "run.starting");
     // The queued beat carries an actor and the daemon-driven transition does not,
     // so the attribution the first established survives rather than being erased.
-    expect(queued.actorParticipantId).toBeDefined();
-    expect(starting.actorParticipantId).toBeUndefined();
+    expect(queued.actorId).toBeDefined();
+    expect(starting.actorId).toBeUndefined();
 
     const run =
       storeDrivenBy(flagship).snapshot().partitions.run[String(queued.payload?.["runId"])];
 
-    expect(run?.attributedTo).toBe(queued.actorParticipantId);
+    expect(run?.attributedTo).toBe(queued.actorId);
   });
 });
 

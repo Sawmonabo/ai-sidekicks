@@ -72,7 +72,14 @@ export interface ConsoleEntity {
   readonly state?: string;
   /** ISO-8601 timestamp of the newest event that touched this entity. */
   readonly touchedAt?: string;
-  /** The participant this entity is attributed to, when the wire names one. */
+  /**
+   * Who this entity is attributed to, when the wire names anyone.
+   *
+   * The projector carries `ConsoleSessionEvent.actorId` here unchanged, so it holds the
+   * same three-state fact that member does — a participant id, an agent id, or nobody
+   * — and a renderer that read it as a participant's would mislabel every agent-driven
+   * run. Naming a KIND here would be the guess the decode boundary refuses to make.
+   */
   readonly attributedTo?: string;
   /** Kind-specific body, owned by the view family that registered the projector. */
   readonly body?: Readonly<Record<string, unknown>>;
@@ -128,8 +135,23 @@ export interface ConsoleSessionEvent {
   readonly kind: string;
   /** ISO-8601, wire-verbatim. Formatted at render time, never re-parsed into a store. */
   readonly occurredAt: string;
-  /** The participant the event is attributed to, when the wire names one. */
-  readonly actorParticipantId?: string;
+  /**
+   * Who the event is attributed to, wire-verbatim, when the wire names anyone.
+   *
+   * `EventEnvelope.actor`, carried under this name rather than a narrower one. The
+   * contract registers that member as a participant id, an AGENT id, or `null` for a
+   * system-emitted event, and supplies no discriminator to tell the first two apart —
+   * so this member holds whichever id the daemon named and the console never guesses
+   * which kind it has. The member used to be called `actorParticipantId`, which named
+   * one of the three states and quietly mis-described the other two: every agent-
+   * emitted event in the store was being read as a participant's.
+   *
+   * Absent for the system arm, and absent is the ONE no-value state: the wire has two,
+   * present-`null` and omitted, and the decode boundary folds both into this one
+   * (`frame/session-event-payload.ts`). Nothing downstream has to tell them apart,
+   * because no daemon distinguishes them either.
+   */
+  readonly actorId?: string;
   /** The event's own payload, narrowed by the projector that claims its kind. */
   readonly payload?: Readonly<Record<string, unknown>>;
 }

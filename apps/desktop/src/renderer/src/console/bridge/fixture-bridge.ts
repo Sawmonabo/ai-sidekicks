@@ -29,7 +29,7 @@
 //     exactly like a quiet session; a fixture that delivered the envelope to those
 //     two streams sent a frame with no `currentState` on a wire whose whole payload
 //     is one; and a fixture that delivered the AUTHORING RECORD to the streams that
-//     do carry an envelope sent a frame carrying `kind` and `actorParticipantId`
+//     do carry an envelope sent a frame carrying `kind` and `actorId`
 //     where the wire carries `type` and `actor`, which is how the console's decode
 //     boundary came to read fixture-local names and refuse every live delivery with
 //     every fixture test green. `session-event-streams.ts` routes,

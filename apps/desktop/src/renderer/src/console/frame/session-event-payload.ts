@@ -22,7 +22,7 @@
 // two mappings below are the whole of the translation, and both were the defect
 // that made this module worth rewriting: the wire's event type is `type` and this
 // projection calls it `kind`, and the wire's attribution is `actor` where this
-// projection calls it `actorParticipantId`. A reader that looked for the console's
+// projection calls it `actorId`. A reader that looked for the console's
 // own names found neither, refused every live delivery as unreadable, and agreed
 // perfectly with a fixture that was handing it the console's shape to begin with.
 // `bridge/scenario-envelope.ts` closes the second half of that: the fixture now
@@ -49,7 +49,7 @@ import type { ConsoleSessionEvent } from "../store/index.js";
  *
  * The two renames are the only translation, and each is a rename rather than a
  * reading: `type` is carried to `kind` verbatim, and `actor` to
- * `actorParticipantId` verbatim. The wire supplies no discriminator on `actor` —
+ * `actorId` verbatim. The wire supplies no discriminator on `actor` —
  * the contract registers it as a participant id, an agent id, or `null` for a
  * system-emitted event — so this boundary carries whichever id the daemon named and
  * turns both no-value states, present-`null` and absent, into `undefined`. Guessing
@@ -71,9 +71,7 @@ export function readConsoleSessionEvent(
     sequence: envelope.sequence,
     kind: envelope.type,
     occurredAt: envelope.occurredAt,
-    ...(envelope.actor === undefined || envelope.actor === null
-      ? {}
-      : { actorParticipantId: envelope.actor }),
+    ...(envelope.actor === undefined || envelope.actor === null ? {} : { actorId: envelope.actor }),
     payload: envelope.payload,
   };
 }
