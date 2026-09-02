@@ -32,7 +32,20 @@
 // competing to be the one a reader hears, which is the defect the primitive exists
 // to make unrepresentable. The frame is also its first consumer — see
 // `banner-announcements.ts`.
+//
+// AND IT RUNS ON THE WINDOW'S CLOCK, not on the wall clock. The announcer arms one
+// timeout — the hold before a standing message is cleared and the next one is
+// spoken — and that is a timer like any other, so `Spec-023 §Console Design
+// (Meridian)` §The fixture bridge's "the fixture clock is the only clock the
+// renderer reads in fixture mode" binds it. Left on `RealClock` it was the one
+// subsystem in a fixture window still reading wall time: a refusal raised by a
+// scenario beat cleared on how fast the runner happened to be, so what a reader
+// hears and what a screenshot captures both depended on the host. `useConsoleClock`
+// is the same answer `ui-state-lifecycle.ts` and `session-lifecycle.ts` ask for,
+// and the frame is where it is asked because `primitives/` sits below `bridge/` in
+// the family DAG and cannot ask for itself.
 
+import { useConsoleClock } from "../bridge/index.js";
 import { LiveAnnouncerProvider, RefusalBanner } from "../primitives/index.js";
 import { type FrameBanner } from "../store/index.js";
 import { useRefusalBannerAnnouncements } from "./banner-announcements.js";
@@ -76,8 +89,9 @@ export interface AppFrameProps {
  * provider it renders itself.
  */
 export function AppFrame(props: AppFrameProps): React.JSX.Element {
+  const announcerClock = useConsoleClock();
   return (
-    <LiveAnnouncerProvider>
+    <LiveAnnouncerProvider clock={announcerClock}>
       <FrameChrome {...props} />
     </LiveAnnouncerProvider>
   );

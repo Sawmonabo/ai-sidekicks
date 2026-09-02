@@ -190,6 +190,24 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
       build: {
         outDir: "out/renderer",
         sourcemap: "hidden",
+        // Minified, because electron-vite is not Vite here.
+        //
+        // Vite's own production default is `minify: "esbuild"`; electron-vite
+        // OVERRIDES it to `false` for every target, on the reasoning that a
+        // desktop bundle is loaded from disk rather than over a network. That
+        // reasoning does not survive contact with this package: what shipped was
+        // the console's SOURCE TEXT — every comment in this tree, every
+        // identifier at full length — and the `renderer-initial-bundle` budget
+        // (`Spec-023 §Console Design (Meridian)` §Budgets row 1, ≤ 450 000 B
+        // gzip) was therefore gating an artifact nobody downloads. Measured on
+        // this branch: 443 585 B unminified against 244 546 B minified, so the
+        // budget was reading within 2 % of its ceiling on bytes the shipped app
+        // does not have.
+        //
+        // Source maps stay `hidden` above, so a stack trace is still resolvable
+        // by anyone holding the map and the bundle still carries no
+        // `sourceMappingURL` for anyone who is not.
+        minify: "esbuild",
         // `.vite/manifest.json` — the chunk graph Rollup already computed to
         // produce the chunks, written out on request. It carries `isEntry`,
         // the STATIC `imports` of every chunk, its `dynamicImports`, its `css`,

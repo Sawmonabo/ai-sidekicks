@@ -43,15 +43,18 @@ export type { SessionSnapshot } from "./session-store.js";
 export type { FrameBanner } from "./frame-store.js";
 export { FrameStore } from "./frame-store.js";
 
-// `SessionSnapshotRead` and `SessionSnapshotReader` now leave the family, because
-// the producer they were held back for exists: the composition root builds a reader
-// over the growth port's session read, and says so at the call site with a type
-// rather than by convention.
+// `SessionSnapshotRead` now leaves the family, because the producer it was held
+// back for exists: the composition root builds a reader over the growth port's
+// session read, and says so at the call site with a type rather than by convention.
 export { SessionStoreRegistry } from "./session-store-registry.js";
+// Straight from the module that DECLARES it rather than through the registry that
+// consumes it: a barrel re-exporting a re-export is the chain this family's one
+// door exists to avoid.
+//
 // `SessionSnapshotReader` stays inside the family: what a caller above needs to
 // SAY is what the registry takes, and the reader is one arm of that union rather
 // than a type anything outside names.
-export type { SessionSnapshotRead } from "./session-store-registry.js";
+export type { SessionSnapshotRead } from "./open-session-entry.js";
 
 // The refresh chokepoint, on the family door because the rule it realises binds
 // every family above this one: `Spec-023 §Console Design (Meridian)` §The eight
