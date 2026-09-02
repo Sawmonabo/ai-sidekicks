@@ -61,17 +61,43 @@
 //   needs the define — preload and renderer do not contain the probe
 //   branch.
 //
+// Renderer dev server — Content-Security-Policy parity:
+//
+//   `electron-vite dev` serves the renderer over HTTP and sets
+//   `ELECTRON_RENDERER_URL`, which `src/main/window.ts` loads instead of the
+//   built bundle. That document does NOT pass through the protocol handler, so
+//   it does not inherit the handler's response headers — without the `server`
+//   block below the dev renderer would run with NO policy at all, and
+//   `Spec-023 §Security Hardening Baseline` holds for every renderer document
+//   and not merely for the packaged one. The dev server therefore emits the
+//   same policy the handler does, composed from the SAME directive list in
+//   `src/main/renderer-scheme.ts` so the two cannot drift, widened by exactly
+//   one directive: `connect-src` also admits the HMR websocket. `strictPort`
+//   is set because the policy names that port literally — a silent fallback to
+//   5174 would leave HMR blocked by a policy that no longer matches the server
+//   it is protecting, which is a confusing failure rather than a safe one.
+//
 //   The production-safety guarantee is empirical: after `pnpm build`,
 //   `grep -c SIDEKICKS_SMOKE_PROBE out/main/index.js`,
 //   `grep -c executeJavaScript out/main/index.js`, and
 //   `grep -c "about:blank" out/main/index.js` all return 0 — proving
 //   the probe body never reaches the release bundle.
 
-import { defineConfig } from "electron-vite";
+import { defineConfig, type ElectronViteConfigFnObject } from "electron-vite";
+
+import {
+  RENDERER_DEV_CONTENT_SECURITY_POLICY,
+  RENDERER_DEV_SERVER_PORT,
+} from "./src/main/renderer-scheme.js";
 
 const ELECTRON_EXTERNAL: readonly (string | RegExp)[] = ["electron", /^electron\/.+/];
 
-export default defineConfig(({ mode }) => {
+// Annotated rather than inferred: `isolatedDeclarations` is repo-wide, and
+// this module is imported by `src/main/renderer-scheme.test.ts` — which asserts
+// the dev server emits the same Content-Security-Policy the protocol handler
+// does — so it is part of a checked program and not config the compiler only
+// ever sees through Vite's own loader.
+const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) => {
   // `electron-vite build --mode=smoke` produces a smoke-test artifact that
   // ships the probe; the default `electron-vite build` produces a release
   // artifact that tree-shakes the probe entirely. See header comment.
@@ -123,6 +149,16 @@ export default defineConfig(({ mode }) => {
       },
     },
     renderer: {
+      server: {
+        port: RENDERER_DEV_SERVER_PORT,
+        // See the header note: the policy names this port, so a silent
+        // fallback to the next free one must fail instead.
+        strictPort: true,
+        headers: {
+          "Content-Security-Policy": RENDERER_DEV_CONTENT_SECURITY_POLICY,
+          "X-Content-Type-Options": "nosniff",
+        },
+      },
       build: {
         outDir: "out/renderer",
         sourcemap: "hidden",
@@ -135,3 +171,5 @@ export default defineConfig(({ mode }) => {
     },
   };
 });
+
+export default electronViteConfig;
