@@ -32,7 +32,7 @@
 //   • No parse of a git action's `output`. There is no function here that reads it; it
 //     is diagnostic text the gate renders and the console never scrapes.
 //   • No stacked proposals, and no second host adapter. One cumulative proposal per run
-//     lineage is what `oneCumulativeProposalCopy` says out loud, and the detected host
+//     lineage is what `ONE_CUMULATIVE_PROPOSAL_COPY` says out loud, and the detected host
 //     arrives as a wire string this file never picks.
 
 import type { ExecutionMode } from "@ai-sidekicks/contracts";

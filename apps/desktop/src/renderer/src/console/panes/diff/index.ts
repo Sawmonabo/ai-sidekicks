@@ -13,3 +13,9 @@
 // reached first.
 
 export { DiffPane } from "./DiffPane.js";
+
+// The ledger's `diff` inline-card body. Exported as the REGISTRATION rather than
+// the component, because the seat is filled by a call and a family barrel that
+// exported the component would invite a sibling to mount it directly — which is
+// the import across view families the seats exist to prevent.
+export { registerInlineDiffCardBody } from "./InlineDiffCard.js";

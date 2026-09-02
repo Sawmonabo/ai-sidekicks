@@ -273,11 +273,19 @@ function RestoreEnumerationLists(props: {
 /**
  * One enumeration: its count, then its paths.
  *
- * The count is always visible and the list is a `<details>` — §10.5's density note. A
- * long enumeration therefore costs one row until it is opened, which is the budget
- * this surface is held to; the design's virtualized list is not built because
- * `@tanstack/react-virtual` is not a dependency of this package and adding one is not
- * this surface's to do.
+ * The count is always visible and the list is a `<details>` — §10.5's density note —
+ * so a long enumeration costs one row until somebody opens it, which is what keeps
+ * this surface inside its budget while closed.
+ *
+ * NO VIRTUALIZER, AND THE REASON IS NOT LAZINESS. §10.5's leverage note reaches for
+ * `@tanstack/react-virtual`, which is a dependency of no package in this workspace;
+ * the family's own diff pane virtualizes with an own-built row index because a diff
+ * is a nested structure, and its flat changed-file list settles for a scroll
+ * container past a threshold instead. This is the flat case, and the scroll container
+ * would need a height bound that the sheet's own no-literal-lengths rule has no token
+ * for — so an OPEN enumeration renders every path it holds. That is the residual, and
+ * it is stated rather than hidden: the bound belongs with the token that would express
+ * it, and neither is this file's to mint.
  */
 function PathEnumeration(props: {
   readonly label: string;

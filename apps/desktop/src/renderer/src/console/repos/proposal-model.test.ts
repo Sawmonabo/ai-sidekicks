@@ -217,7 +217,7 @@ describe("proposalBlobRows — inert display data, never instructions", () => {
 
   it("states the fallback for a value that will not stringify", () => {
     const cyclic: Record<string, unknown> = {};
-    cyclic.self = cyclic;
+    cyclic["self"] = cyclic;
     expect(proposalBlobRows({ handler: () => undefined, ...cyclic })).toStrictEqual([
       { key: "handler", text: PROPOSAL_BLOB_UNRENDERABLE },
       { key: "self", text: PROPOSAL_BLOB_UNRENDERABLE },
