@@ -31,6 +31,16 @@ import { FIND_MATCH_CAP } from "./constants.js";
  */
 export const LEDGER_FIND_SCOPE_NOTE = "Searched loaded rows only.";
 
+/**
+ * The sentence a capped walk states, beside the scope note and never instead of it.
+ *
+ * A different boundary from the scope note's, and the difference is why it is its
+ * own string: the scope note bounds what was SEARCHED, and this bounds what can be
+ * STEPPED THROUGH. Composed from `FIND_MATCH_CAP` rather than restating the number,
+ * for the same one-value-one-home reason the constant carries its own rationale.
+ */
+export const LEDGER_FIND_CAP_NOTE: string = `Only the first ${String(FIND_MATCH_CAP)} matches can be stepped through. Narrow the query to reach the rest.`;
+
 /** One row the query matched, and where. */
 export interface LedgerFindMatch {
   readonly rowId: string;
@@ -50,6 +60,11 @@ export interface LedgerFindResult {
    * The TRUE match count, uncapped. Reported honestly beside a capped walk: a
    * count that silently equalled the cap would tell a person their query is
    * narrower than it is.
+   *
+   * It is not the counter's denominator, though. The walk is over `matches`, so
+   * naming this as the total a position is "of" advertised results the walk can
+   * never reach — "500 of 700", then a wrap to "1 of 700", with 501–700 sitting
+   * behind nothing on screen. It rides BESIDE the walkable figure instead.
    */
   readonly totalMatchCount: number;
   /** Rows the query was actually run over. Half of the stated boundary. */
@@ -109,6 +124,17 @@ export function findInLedger(
     searchedRowCount: rows.length,
     hasEarlierRows,
   };
+}
+
+/**
+ * Whether the cap kept matches out of the walk.
+ *
+ * Derived rather than carried as a result member — the two counts already say it —
+ * and read by both surfaces that have to agree about it: the counter, which names a
+ * second figure only here, and the cap sentence, which is rendered only here.
+ */
+export function isFindWalkCapped(result: LedgerFindResult): boolean {
+  return result.totalMatchCount > result.matches.length;
 }
 
 /** Which field a row matched on, summary first because that is what a person reads. */

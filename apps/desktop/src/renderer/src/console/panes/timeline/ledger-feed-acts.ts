@@ -14,6 +14,14 @@
 // the viewport binding's, and the replay engine is the replay state's. That is what
 // lets the whole set be driven by a test with no render at all.
 //
+// TWO OF THE EIGHT TOUCH THE REPLAY ENGINE, AND BOTH REVEAL THE DOCK BEFORE THEY
+// ACT. Engaging replay withholds rows, and the only other paths to the dock are the
+// rail's hover and its focus — so a chord that started playback left the ledger
+// collapsed to the window's first instant with no visible control to undo it. The
+// dock's own density rule already names a chord among its triggers, so this is
+// honouring that rather than adding a third one; conceal is unchanged, and the next
+// pointer-leave or focus-out concludes it.
+//
 // TWO OF THE EIGHT REFUSE, AND THAT IS THE HONEST ANSWER RATHER THAN A GAP.
 // `Spec-023 §Console Design (Meridian)` rule 8 says a surface never renders a
 // default in place of a reading, and the same holds for an act: "clear filters" over
@@ -111,12 +119,22 @@ export function buildLedgerStructureActs(inputs: LedgerFeedActInputs): LedgerStr
     // only arm the press turns off.
     toggleReplay: () => {
       if (inputs.replay.position.state === "playing") {
+        // Pause deliberately does not reveal: a pause on a dock already on screen
+        // needs nothing, and `playing` is only reachable through a press that
+        // revealed or a rail the reader is already in.
         inputs.replay.pause();
         return;
       }
+      inputs.replay.reveal();
       inputs.replay.play();
     },
-    jumpToNextSeam: inputs.replay.jumpToNextSeam,
+    jumpToNextSeam: () => {
+      // The scrub inside this promotes an idle engine to `paused`, which counts as
+      // engaged, so rows start being withheld the same way a play does — and behind
+      // the same hidden dock unless the reveal comes with it.
+      inputs.replay.reveal();
+      inputs.replay.jumpToNextSeam();
+    },
   };
 }
 

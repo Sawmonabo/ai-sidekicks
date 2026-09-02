@@ -9,8 +9,8 @@
 // them is the defect it exists to make unrepresentable.
 //
 //   • `LedgerWindowModel` is the whole loaded log — everything the subscription
-//     delivered and the projection could place. Replay plays over it, because §5.5
-//     replays "the rows already loaded".
+//     delivered and the projection could place. Replay plays over it, because
+//     `Spec-023 §Console Design (Meridian)` replays "the rows already loaded".
 //   • `VisibleLedgerWindow` is what the viewport is actually showing, after the
 //     window cap has pruned and after replay has withheld whatever the position has
 //     not reached. Find searches it and the rail marks it, because both of them
@@ -22,6 +22,15 @@
 // reconciled snapshot rather than off the log — one window on screen, one window
 // searched, one window marked. What falls outside it is not silently dropped: the
 // rows are counted, and the feed says so.
+//
+// AND THE ROWS OUTSIDE IT ARE COUNTED IN TWO PILES, NOT ONE. Cap retention and
+// replay visibility are two facts about a row, and this module tracks them
+// separately because a person's next move differs: a row the cap took is gone until
+// the session is read again, and a row the replay position has not reached comes
+// back the moment the dock is scrubbed forward. One complement over the viewport's
+// rows reported every not-yet-replayed row as an older entry the cap had removed,
+// which is wrong twice — those rows are NEWER than the window's head, and nothing
+// removed them.
 //
 // Replay sits BETWEEN the two: it plays over the log and decides which of its rows
 // the viewport is given, so a scrub moves the rows on screen and find and the rail
@@ -35,6 +44,10 @@ import { type TimelineRow } from "@ai-sidekicks/contracts";
 
 import { useConsoleClock } from "../../bridge/index.js";
 import { type LedgerViewportRow } from "../../ledger/frame/index.js";
+// The frame's door carries the four symbols a stranger holds; this range is the
+// binding's own shape, reached by module path the way this family's other subtrees
+// reach the frame's internals.
+import { type LedgerVisibleRowRange } from "../../ledger/frame/viewport-binding.js";
 import {
   ProvenanceRailModel,
   ReplayEngine,
@@ -55,13 +68,24 @@ export interface VisibleLedgerWindow {
   /** Rows the log has and this window does not — what the cap took. */
   readonly prunedAwayRows: readonly TimelineRow[];
   /**
+   * Rows the log has and the replay position has not reached yet.
+   *
+   * A separate pile from `prunedAwayRows` because the two absences are different
+   * facts, and the difference is the whole point: nothing removed these rows, they
+   * are newer rather than older, and scrubbing the dock forward brings them back.
+   */
+  readonly withheldByReplayRows: readonly TimelineRow[];
+  /**
    * Whether rows sit before this window's head — the CLIP, measured rather than
    * declared.
    *
    * True exactly when the cap took something, which is what `prunedAwayRows`
-   * records. It was a hard-coded `false` until now, on the reasoning that no
-   * registered read pages a session's log backwards — but that reasoning answers a
-   * different question. Whether anybody can FETCH earlier rows and whether earlier
+   * records — and deliberately NOT when replay is merely holding rows back, which
+   * would draw an unloaded segment over a complete window and make find state a
+   * boundary that is not there. It was a hard-coded `false` until now, on the
+   * reasoning that no registered read pages a session's log backwards — but that
+   * reasoning answers a different question. Whether anybody can FETCH earlier rows
+   * and whether earlier
    * rows EXIST are two facts, and collapsing them made the rail draw a complete
    * session over a window the cap had already truncated, and told the find result
    * it had searched a whole log.
@@ -77,23 +101,40 @@ export interface VisibleLedgerWindow {
 }
 
 /**
- * Project the viewport's reconciled snapshot back into rows.
+ * Project the viewport's reconciled snapshot back into rows, and name what is not
+ * in it and why.
  *
  * Keyed on the snapshot's ROW ARRAY rather than on the snapshot, because a
  * snapshot is republished whenever the reading state moves — which is every time
  * somebody scrolls, and re-deriving the rail on a scroll is the render this frame's
  * budget exists to avoid. The row array's identity changes exactly on a reconcile.
+ *
+ * THE THREE LISTS NEST — `viewportRows ⊆ revealedRows ⊆ ledgerWindow.viewportRows`
+ * — because the window cap ADOPTS the array it is handed rather than accumulating
+ * across ingests, so whatever replay withheld the cap never saw. That nesting is
+ * what makes the partition below a decision and not a guess: a row the viewport
+ * holds is on screen, a row only the revealed set holds is one the cap took, and a
+ * row neither holds is one the replay position has not reached.
  */
 export function useVisibleLedgerWindow(
   ledgerWindow: LedgerWindowModel,
+  revealedRows: readonly LedgerViewportRow[],
   viewportRows: readonly LedgerViewportRow[],
 ): VisibleLedgerWindow {
   return useMemo(() => {
     const visibleKeys = new Set(viewportRows.map((row) => row.key));
+    const revealedKeys = new Set(revealedRows.map((row) => row.key));
     const rows: TimelineRow[] = [];
     const prunedAwayRows: TimelineRow[] = [];
+    const withheldByReplayRows: TimelineRow[] = [];
     for (const row of ledgerWindow.rows) {
-      (visibleKeys.has(row.id) ? rows : prunedAwayRows).push(row);
+      if (visibleKeys.has(row.id)) {
+        rows.push(row);
+      } else if (revealedKeys.has(row.id)) {
+        prunedAwayRows.push(row);
+      } else {
+        withheldByReplayRows.push(row);
+      }
     }
     // One measurement, read by the rail and by find, so the two can never disagree
     // about whether this window is the whole session.
@@ -101,10 +142,11 @@ export function useVisibleLedgerWindow(
     return {
       rows,
       prunedAwayRows,
+      withheldByReplayRows,
       hasEarlierRows,
       railModel: new ProvenanceRailModel({ rows, hasEarlierRows }),
     };
-  }, [ledgerWindow, viewportRows]);
+  }, [ledgerWindow, revealedRows, viewportRows]);
 }
 
 /** The find field's state, and the walk over one window's matches. */
@@ -112,8 +154,27 @@ export interface LedgerFindState {
   readonly isOpen: boolean;
   readonly query: string;
   readonly result: LedgerFindResult;
-  /** Matches in rows the log holds and this window does not. Named, never hidden. */
+  /** Matches in rows the cap took out of this window. Named, never hidden. */
   readonly beyondWindowMatchCount: number;
+  /**
+   * Matches in rows the replay position has not reached.
+   *
+   * Its own figure rather than a share of the one above, because the sentence each
+   * is rendered in offers a different move: nothing brings a pruned row back, and
+   * scrubbing forward brings these back at once.
+   */
+  readonly notYetReplayedMatchCount: number;
+  /**
+   * Where the walk is in the CURRENT result, or `-1` with nothing selected.
+   *
+   * Derived from the selected ROW rather than held as an ordinal, because the
+   * result recomputes whenever the visible window moves — every replay withhold,
+   * every prune, every appended row — while the query stays the same. A held
+   * ordinal survived into a shorter list, so the counter could read "10 of 2" and
+   * the next step wrapped over the new count from a position that meant nothing.
+   * A lookup answers `-1` exactly when the selected row has left the result, and
+   * `-1` is already the sentinel the stepper enters the list from.
+   */
   readonly currentMatchIndex: number;
   readonly setQuery: (query: string) => void;
   /**
@@ -125,6 +186,15 @@ export interface LedgerFindState {
    * and reset a walk the reader was already in the middle of.
    */
   readonly open: () => void;
+  /**
+   * How many times `open` has been pressed, monotonic for the mount's life.
+   *
+   * The field is conditionally mounted, so a mount IS one open — but the chord
+   * pressed while the field is already up has to put the caret back and select what
+   * is there, and a mount-only effect cannot see that press. One counter covers both
+   * entries and stays drivable by a unit test, which `autoFocus` is not.
+   */
+  readonly openRequestCount: number;
   readonly close: () => void;
   readonly step: (direction: "next" | "previous") => ReturnType<typeof stepFindMatch>;
 }
@@ -136,11 +206,16 @@ export interface LedgerFindState {
  * partition afterwards, which costs the same and keeps the walkable result honest:
  * every match in `result` is a row `jumpToRow` can reach, and every match that is
  * not is in the count beside it.
+ *
+ * THE WALK IS HELD BY ROW, NOT BY ORDINAL. The result recomputes whenever the
+ * window moves under a query somebody is still walking, and an ordinal into the
+ * previous result is a position in a list that no longer exists.
  */
 export function useLedgerFind(visible: VisibleLedgerWindow): LedgerFindState {
   const [isOpen, setIsOpen] = useState(false);
+  const [openRequestCount, setOpenRequestCount] = useState(0);
   const [query, setQueryValue] = useState("");
-  const [currentMatchIndex, setCurrentMatchIndex] = useState(-1);
+  const [selectedMatchRowId, setSelectedMatchRowId] = useState<string | undefined>(undefined);
 
   const result = useMemo(
     () =>
@@ -158,11 +233,29 @@ export function useLedgerFind(visible: VisibleLedgerWindow): LedgerFindState {
     [visible, query],
   );
 
+  const notYetReplayedMatchCount = useMemo(
+    () =>
+      query.trim().length === 0
+        ? 0
+        : findInLedger(visible.withheldByReplayRows, query, false).totalMatchCount,
+    [visible, query],
+  );
+
+  // Looked up rather than remembered, so a result that recomputed under the walk
+  // reports where the walk actually is — or that it is nowhere.
+  const currentMatchIndex = useMemo(
+    () =>
+      selectedMatchRowId === undefined
+        ? -1
+        : result.matches.findIndex((match) => match.rowId === selectedMatchRowId),
+    [result, selectedMatchRowId],
+  );
+
   const setQuery = useCallback((next: string) => {
     setQueryValue(next);
-    // A new query restarts the walk. Keeping the index would step from a position
-    // inside a match list that no longer exists.
-    setCurrentMatchIndex(-1);
+    // A new query restarts the walk. Keeping the selection would resume inside a
+    // match list built from a different question.
+    setSelectedMatchRowId(undefined);
     setIsOpen(true);
   }, []);
 
@@ -170,7 +263,7 @@ export function useLedgerFind(visible: VisibleLedgerWindow): LedgerFindState {
     (direction: "next" | "previous") => {
       const outcome = stepFindMatch(result, currentMatchIndex, direction);
       if (outcome !== undefined) {
-        setCurrentMatchIndex(outcome.index);
+        setSelectedMatchRowId(outcome.match.rowId);
       }
       return outcome;
     },
@@ -179,12 +272,15 @@ export function useLedgerFind(visible: VisibleLedgerWindow): LedgerFindState {
 
   const open = useCallback(() => {
     setIsOpen(true);
+    // Bumped rather than set, so the field can tell a fresh press from a re-render
+    // and take the caret on both the first open and every one after it.
+    setOpenRequestCount((count) => count + 1);
   }, []);
 
   const close = useCallback(() => {
     setIsOpen(false);
     setQueryValue("");
-    setCurrentMatchIndex(-1);
+    setSelectedMatchRowId(undefined);
   }, []);
 
   return {
@@ -192,9 +288,11 @@ export function useLedgerFind(visible: VisibleLedgerWindow): LedgerFindState {
     query,
     result,
     beyondWindowMatchCount,
+    notYetReplayedMatchCount,
     currentMatchIndex,
     setQuery,
     open,
+    openRequestCount,
     close,
     step,
   };
@@ -327,19 +425,25 @@ export interface RailGeometry {
  * marks out in: a tick sits at its row's place in the window, so a thumb measured in
  * pixels would drift away from the marks it is supposed to point at wherever rows
  * differ in height — which, with tool cards and streamed prose in the same log, is
- * everywhere. Read off the virtualizer's own rendered range, so there is no second
- * measurement of what is on screen.
+ * everywhere.
+ *
+ * Measured off the binding's `visibleRange` and NOT off `virtualItems`, which is
+ * that range widened by the overscan at both edges: at the estimated row height a
+ * 400px box intersects about five rows and mounts about seventeen, so a thumb sized
+ * off the mount range is more than three times too tall and starts six rows early —
+ * a thumb that no longer points at the ticks under it. An absent range is a box
+ * nothing has measured, and the honest answer for one is the whole rail.
  */
 export function useRailGeometry(
-  virtualItems: readonly { readonly index: number }[],
+  visibleRange: LedgerVisibleRowRange | undefined,
   rowCount: number,
 ): RailGeometry {
+  const firstIndex = visibleRange?.startIndex;
+  const lastIndex = visibleRange?.endIndex;
   return useMemo(() => {
-    if (rowCount === 0 || virtualItems.length === 0) {
+    if (rowCount === 0 || firstIndex === undefined || lastIndex === undefined) {
       return { position: 0, extent: 1 };
     }
-    const firstIndex = virtualItems[0]?.index ?? 0;
-    const lastIndex = virtualItems[virtualItems.length - 1]?.index ?? firstIndex;
     const visibleCount = lastIndex - firstIndex + 1;
     // Divided by the last INDEX rather than by the count, so a viewport sitting on
     // the final row reports 1 rather than falling short of the rail's own end.
@@ -348,5 +452,9 @@ export function useRailGeometry(
       position: Math.min(1, firstIndex / lastPossibleIndex),
       extent: Math.min(1, visibleCount / rowCount),
     };
-  }, [virtualItems, rowCount]);
+    // The two indices rather than the range object: the virtualizer recomputes that
+    // object whenever the scroll offset moves, so keying on its identity would
+    // re-derive the geometry on scrolls that did not change which rows are on
+    // screen.
+  }, [firstIndex, lastIndex, rowCount]);
 }

@@ -30,8 +30,9 @@
 //     renders — the viewport's own reconciled snapshot, after the cap — so the
 //     boundary find states is the boundary that is actually true of what is on
 //     screen, and every tick the rail draws is a row the viewport can scroll to.
-//     Matches the cap has taken out of the window are counted beside the field
-//     rather than walked into and lost.
+//     Matches outside that window are counted beside the field rather than walked
+//     into and lost — in TWO counts, because a match the cap took and a match the
+//     replay position has not reached are different states with different exits.
 //   • A row body is the SEAT's, handed down whole. This file supplies only the three
 //     decisions the seat says the list makes.
 //
@@ -95,8 +96,15 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   });
 
   // Read back off the viewport's own reconciled snapshot, so find and the rail are
-  // looking at the window on screen rather than at the log behind it.
-  const visible = useVisibleLedgerWindow(ledgerWindow, viewport.snapshot.rows);
+  // looking at the window on screen rather than at the log behind it. The revealed
+  // set goes in beside it so the two absences stay separable: what the cap took is
+  // the difference between the two, and what replay is holding back is everything
+  // the revealed set never carried.
+  const visible = useVisibleLedgerWindow(
+    ledgerWindow,
+    revealedViewportRows,
+    viewport.snapshot.rows,
+  );
   const find = useLedgerFind(visible);
 
   // The STORE's wheel, which is the one the cast bar reads, handed to both surfaces
@@ -133,7 +141,7 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
     [hueForActor, ledgerWindow, props],
   );
 
-  const geometry = useRailGeometry(viewport.virtualItems, viewport.snapshot.rows.length);
+  const geometry = useRailGeometry(viewport.visibleRange, viewport.snapshot.rows.length);
   const jumpToRow = viewport.jumpToRow;
   const onStepFind = useCallback(
     (direction: "next" | "previous") => {
@@ -143,6 +151,38 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
       }
     },
     [find, jumpToRow],
+  );
+
+  const closeFind = find.close;
+  const focusLedgerSurface = viewport.focusSurface;
+  const onCloseFind = useCallback(() => {
+    closeFind();
+    // The field took focus when it opened, and it is unmounted by the close — so
+    // without this focus falls to `body` and the next Tab restarts from the top of
+    // the document, well away from the log somebody was reading.
+    focusLedgerSurface();
+  }, [closeFind, focusLedgerSurface]);
+
+  const concealReplayDock = replay.conceal;
+  const concealReplayDockOnFocusLeaving = useCallback(
+    (event: React.FocusEvent<HTMLDivElement>) => {
+      // React backs `onBlur` with `focusout`, which BUBBLES, so tabbing from the
+      // rail's slider to a dock button reaches this wrapper although focus never
+      // left it — and concealing there makes the dock's controls vanish or be
+      // skipped mid-tab. A related target this wrapper contains is that move.
+      //
+      // A NULL related target is focus leaving the document, and that IS a conceal
+      // rather than an exemption: reading it as one would leave the dock open under
+      // a window nobody is in. Do not "fix" this into a leak.
+      if (
+        event.relatedTarget instanceof Node &&
+        event.currentTarget.contains(event.relatedTarget)
+      ) {
+        return;
+      }
+      concealReplayDock();
+    },
+    [concealReplayDock],
   );
 
   // The palette's chords and the cast bar's chips both act on whichever ledger is
@@ -158,12 +198,14 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
           query={find.query}
           result={find.result}
           currentMatchIndex={find.currentMatchIndex}
+          openRequestCount={find.openRequestCount}
           onQueryChange={find.setQuery}
           onStep={onStepFind}
-          onClose={find.close}
+          onClose={onCloseFind}
         />
       ) : null}
       <LedgerMatchesOutsideWindowNotice count={find.beyondWindowMatchCount} />
+      <LedgerMatchesNotYetReplayedNotice count={find.notYetReplayedMatchCount} />
       <div className="meridian-ledger__body">
         <LedgerViewport
           binding={viewport}
@@ -174,9 +216,13 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
         <div
           className="meridian-ledger__rail"
           onPointerEnter={replay.reveal}
+          // Unguarded, unlike the focus pair: React's leave events do not fire for
+          // a pointer move between two elements inside this subtree.
           onPointerLeave={replay.conceal}
+          // Reveal needs no guard of its own — it is idempotent, and a focus move
+          // arriving from anywhere is a reason for the dock to be on screen.
           onFocus={replay.reveal}
-          onBlur={replay.conceal}
+          onBlur={concealReplayDockOnFocusLeaving}
         >
           <ProvenanceRail
             model={visible.railModel}
@@ -201,6 +247,7 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
       <LedgerWindowAbsences
         unprojectableEventCount={ledgerWindow.unprojectableEventCount}
         droppedRowCount={visible.prunedAwayRows.length}
+        withheldByReplayRowCount={visible.withheldByReplayRows.length}
         hasUnreceivedEntries={ledgerWindow.hasUnreceivedEntries}
       />
     </div>
@@ -224,31 +271,55 @@ function LedgerMatchesOutsideWindowNotice(props: {
   );
 }
 
+/** Matches the query found in rows the replay position has not reached yet. */
+function LedgerMatchesNotYetReplayedNotice(props: {
+  readonly count: number;
+}): React.JSX.Element | null {
+  if (props.count === 0) {
+    return null;
+  }
+  return (
+    <Nothing
+      kind="not-loaded"
+      placement="inline"
+      title="Some matches are ahead of the replay position."
+      detail={`${String(props.count)} more entr${props.count === 1 ? "y" : "ies"} match, in rows this replay has not reached. Scrub the dock forward to walk them.`}
+    />
+  );
+}
+
 interface LedgerWindowAbsencesProps {
   /** Events the contract package registers no category for. */
   readonly unprojectableEventCount: number;
   /** Rows the log holds and this window does not, because the cap took them. */
   readonly droppedRowCount: number;
+  /** Rows the log holds and this window does not, because replay has not reached them. */
+  readonly withheldByReplayRowCount: number;
   /** The store recorded sequences it never received. */
   readonly hasUnreceivedEntries: boolean;
 }
 
 /**
- * The three ways this window is not the whole session, each said out loud.
+ * The four ways this window is not the whole session, each said out loud.
  *
- * Three separate sentences because a person's next move differs for each: an
- * unrecognised type is this build's limit, a dropped row is the window's cap, and a
- * sequence that never arrived is the stream's. Collapsing any two would tell
- * somebody the console failed where it merely stopped holding, or the reverse.
+ * Four separate sentences because a person's next move differs for each: an
+ * unrecognised type is this build's limit, a dropped row is the window's cap, a row
+ * ahead of the replay position is a control they are holding, and a sequence that
+ * never arrived is the stream's. Collapsing any two would tell somebody the console
+ * failed where it merely stopped holding, or the reverse — and collapsing the middle
+ * two told them rows they can scrub back to in a keystroke were gone for good.
  *
- * Each of them names the read that is missing rather than offering a control for
+ * Three of them name the read that is missing rather than offering a control for
  * it, which is what replaced the "load earlier" button: this console holds one live
- * subscription and a whole-session snapshot read, and neither takes a cursor.
+ * subscription and a whole-session snapshot read, and neither takes a cursor. The
+ * replay one is the exception, and it is the honest one — the control that would
+ * undo it is on screen.
  */
 function LedgerWindowAbsences(props: LedgerWindowAbsencesProps): React.JSX.Element | null {
   if (
     props.unprojectableEventCount === 0 &&
     props.droppedRowCount === 0 &&
+    props.withheldByReplayRowCount === 0 &&
     !props.hasUnreceivedEntries
   ) {
     return null;
@@ -269,6 +340,14 @@ function LedgerWindowAbsences(props: LedgerWindowAbsencesProps): React.JSX.Eleme
           placement="surface"
           title="Older entries are no longer in this window."
           detail={`${String(props.droppedRowCount)} entr${props.droppedRowCount === 1 ? "y" : "ies"} left the window as the session grew. This console subscribes to the log and holds no read that fetches a range of it, so there is nothing to press here.`}
+        />
+      )}
+      {props.withheldByReplayRowCount === 0 ? null : (
+        <Nothing
+          kind="not-loaded"
+          placement="surface"
+          title="Later entries are behind the replay position."
+          detail={`${String(props.withheldByReplayRowCount)} entr${props.withheldByReplayRowCount === 1 ? "y" : "ies"} in this window come after where the replay dock is parked. Scrub forward, or play on, and they come back.`}
         />
       )}
       {props.hasUnreceivedEntries ? (
