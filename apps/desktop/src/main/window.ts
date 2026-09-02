@@ -72,6 +72,7 @@ import path from "node:path";
 import { installNavigationPolicy } from "./navigation.js";
 import { RENDERER_INDEX_URL } from "./renderer-scheme.js";
 import { loadDocument, type WindowRole } from "./window-load-failure.js";
+import { applyRevealPreferences, revealWindow } from "./window-reveal.js";
 
 const PRELOAD_PATH = path.join(import.meta.dirname, "../preload/index.cjs");
 
@@ -108,9 +109,13 @@ export function constructLockedWindow(options: LockedWindowOptions): BrowserWind
   });
 
   installNavigationPolicy(browserWindow);
+  applyRevealPreferences(browserWindow);
 
+  // The reveal is delegated so every window this process creates takes the same
+  // decision — an ordinary `show()`, or the inactive reveal the automated tiers
+  // ask a test build for (see `./window-reveal.ts`).
   browserWindow.once("ready-to-show", () => {
-    browserWindow.show();
+    revealWindow(browserWindow);
   });
 
   return browserWindow;
