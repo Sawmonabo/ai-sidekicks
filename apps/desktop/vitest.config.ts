@@ -57,7 +57,7 @@ export default defineConfig({
           // suite's intermittent boot timeout: `lifecycle.gc.test.ts` drives 80
           // forced stop-the-world full GCs over ~160 MB of allocation churn
           // while `launch.smoke.test.ts` is trying to complete a cold Chromium
-          // boot against a 15 s deadline, and both are also the runner's FIRST
+          // boot against its spawn deadline, and both are also the runner's FIRST
           // Electron launches, so they contend for the same cold per-`$HOME`
           // Chromium initialisation (fontconfig cache build, NSS DB creation).
           //
@@ -69,8 +69,11 @@ export default defineConfig({
           // 462-510 ms unloaded — never reached `did-finish-load`.
           //
           // Serialising costs ~14 s of wall time in this project and removes
-          // the contention outright. It is deliberately NOT a longer timeout:
-          // the budget stays at 15 s (30x the measured unloaded cost).
+          // the contention outright. It is deliberately NOT a longer timeout —
+          // this change alters no budget. (`SPAWN_TIMEOUT_MS` was separately
+          // re-derived 15 s -> 30 s from the CI numbers this fix's own runs
+          // produced; see that constant's comment for why the two are not the
+          // same act.)
           fileParallelism: false,
         },
       },

@@ -46,7 +46,7 @@
 //
 // Boot determinism (why the readiness gate and the diagnostic dump exist):
 //   This suite intermittently failed with a bare "did-finish-load never fired"
-//   at the 15 s deadline and an EMPTY stderr — nothing to diagnose from. Two
+//   at the spawn deadline and an EMPTY stderr — nothing to diagnose from. Two
 //   defects produced that:
 //
 //     (a) `apps/desktop/test/` holds two files that each spawn a full
@@ -173,26 +173,44 @@ const READINESS_BREADCRUMB_TAG = "[SIDEKICKS_SMOKE_READY]";
 // Electron process (which we want to kill rather than hang the suite).
 const WINDOW_BUDGET_MS = 5_000;
 
-// Spawn-side backstop. Derived from measurement, not from guesswork:
+// Spawn-side backstop. Derived from measurement, not from guesswork — and
+// re-derived once the fix's own CI runs supplied numbers the local box could
+// not:
 //
-//   Unloaded spawn -> probe line, 5 consecutive runs (macOS 14, M1 Pro,
-//   warm bundle): 462 / 483 / 510 / 490 / 505 ms, with the in-app
-//   `windowMs` (whenReady -> did-finish-load) at 121-131 ms.
+//   Unloaded, macOS 14 / M1 Pro, warm bundle, 5 consecutive runs:
+//     462 / 483 / 510 / 490 / 505 ms  (in-app `windowMs` 121-131 ms)
 //
-// 15 s is ~30x the measured cost, so this budget is NOT the reason the
-// suite flaked — it is the backstop that reports the stall. The flake's
-// root cause was contention between this file and `lifecycle.gc.test.ts`
-// (see `apps/desktop/vitest.config.ts`'s `main` project `fileParallelism`
-// comment); that is fixed at the scheduler, and the budget is deliberately
-// left where it is rather than raised to paper over a stall.
-const SPAWN_TIMEOUT_MS = 15_000;
+//   ubuntu-latest hosted runner (4 vCPU), boot-and-probe case, three
+//   consecutive green runs of THIS fixed tree:
+//     4129 / 6732 / 13008 ms
+//
+// The local figure does not transfer: a hosted runner is 8-28x slower at the
+// same work, and the spread across three runs of identical code is 3.2x.
+//
+// The old 15 s ceiling was set against the local number alone and described
+// itself as "~30x the measured cost". Against the CI numbers it is 1.15x the
+// observed worst case — a margin thin enough that runner variance alone
+// re-creates the original symptom. 30 s is ~2.3x that worst case and matches
+// the budget `lifecycle.gc.test.ts` already uses for the same kind of spawn.
+//
+// This is NOT the flake fix and does not stand in for one. The root cause was
+// contention between this file and `lifecycle.gc.test.ts`, fixed at the
+// scheduler (see `apps/desktop/vitest.config.ts`'s `main` project
+// `fileParallelism` comment). What remains after that fix is cross-PACKAGE
+// concurrency: turbo runs `desktop:test:smoke` alongside `desktop:test:renderer`,
+// `client-sdk:test` and `runtime-daemon:test` on the same runner, so a cold
+// Electron boot never has the box to itself. This budget is the backstop that
+// reports a stall, and `renderDiagnosticDump` is what makes the next one
+// attributable; the inner `windowMs` assertion (WINDOW_BUDGET_MS) is still the
+// load-bearing timing check and is deliberately NOT relaxed.
+const SPAWN_TIMEOUT_MS = 30_000;
 
 // How long to wait for the X display named by `$DISPLAY` to start answering
 // before we give up and refuse to spawn. On a hosted runner the display is
 // stood up by the CI job (see `.github/workflows/ci.yml`, the Xvfb step),
 // which already gates on readiness — this is the harness-side restatement so
 // a display that is configured but dead produces an immediate, named refusal
-// instead of a 15 s silence.
+// instead of a full spawn-budget silence.
 const DISPLAY_READY_TIMEOUT_MS = 10_000;
 const DISPLAY_POLL_INTERVAL_MS = 250;
 
@@ -542,7 +560,7 @@ function spawnElectron(): Promise<SpawnResult> {
 
   // Readiness gate. A display that is named but not serving is the one boot
   // precondition this harness can check cheaply and BEFORE spawning, so it is
-  // checked here rather than discovered as a 15 s silence. On CI the job-level
+  // checked here rather than discovered as a spawn-budget silence. On CI the job-level
   // Xvfb step has already gated on the same condition; this is the harness-side
   // restatement, and it is what the negative control drives.
   const display = resolvedDisplay();
@@ -650,7 +668,7 @@ function spawnElectron(): Promise<SpawnResult> {
     let escalationTimer: NodeJS.Timeout | null = null;
 
     const spawnDeadline = setTimeout(() => {
-      // The spawn timeout (15 s) is a backstop — the in-app window
+      // The spawn timeout (SPAWN_TIMEOUT_MS) is a backstop — the in-app window
       // budget (5 s) is the load-bearing assertion. If we hit this,
       // Electron is stuck and we want a non-hanging test failure.
       //
@@ -965,7 +983,7 @@ describe("desktop shell substrate boot", () => {
   // on a healthy boot none of this code runs. So this test breaks the readiness
   // precondition deterministically (a display number nothing serves) and
   // asserts the harness produces a NAMED refusal carrying the dump, rather than
-  // the bare 15 s timeout that run 33571210321 produced.
+  // the bare spawn-budget timeout that run 33571210321 produced.
   //
   // It drives the real `spawnElectron()` and the real `renderReadinessFailure()`
   // — not a hand-built `SpawnResult` — so a regression that silently stopped
