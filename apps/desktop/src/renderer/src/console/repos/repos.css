@@ -636,3 +636,402 @@
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
 }
+
+/* -------------------------------------------------- change proposal gate */
+
+/*
+ * §10.7's density made structural: base, head, title, and the check rollup sit in the
+ * open, and body, trailers, the file list, and the blob are `<details>`. The gate is a
+ * column so the reading order IS the approval order — context, status, what would be
+ * sent, then the acts that would send it.
+ */
+.meridian-proposal-gate {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  min-block-size: 0;
+}
+
+.meridian-proposal-gate__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--meridian-space-3);
+}
+
+.meridian-proposal-gate__heading {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  font-weight: 600;
+}
+
+/* The detected host is a report, so it reads as one: quiet, beside the heading. */
+.meridian-proposal-gate__host {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-proposal-gate__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  min-block-size: 0;
+}
+
+.meridian-proposal-gate__context {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-proposal-gate__pair {
+  display: flex;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-proposal-gate__pair dt {
+  flex: 0 0 8rem;
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-proposal-gate__pair dd {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  overflow-wrap: anywhere;
+}
+
+.meridian-proposal-gate__status {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-proposal-gate__chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-proposal-gate__meaning {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-proposal-gate__detail-summary {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+}
+
+.meridian-proposal-gate__detail-summary:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-proposal-gate__checks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: var(--meridian-space-2) 0 0;
+  list-style: none;
+}
+
+.meridian-proposal-gate__checks li {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-proposal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-proposal__face {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-proposal__title {
+  flex: 1 1 12rem;
+  margin: 0;
+  font-size: var(--meridian-text-md);
+  font-weight: 600;
+}
+
+.meridian-proposal__range {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-proposal__lineage,
+.meridian-proposal__body {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-proposal__body {
+  padding-block-start: var(--meridian-space-2);
+  white-space: pre-wrap;
+}
+
+.meridian-proposal__trailers,
+.meridian-proposal__paths {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: var(--meridian-space-2) 0 0;
+  list-style: none;
+}
+
+.meridian-proposal__blob {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding-block-start: var(--meridian-space-2);
+}
+
+/*
+ * A path is a link into the diff pane and nothing more, so it carries no button
+ * chrome: the affordance is the underline on hover and the focus ring, and a row of
+ * bordered buttons would turn a file list into a control panel.
+ */
+.meridian-proposal__path-link,
+.meridian-restore-disclosure__path-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--meridian-text);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.meridian-proposal__path-link:hover,
+.meridian-restore-disclosure__path-link:hover {
+  text-decoration: underline;
+}
+
+/*
+ * The blocking choice. It sits above the acts it holds and states the daemon's own
+ * reason first — the way out is offered, never taken automatically.
+ */
+.meridian-proposal-gate__conflict {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-2);
+  border: 1px solid var(--meridian-amber-mark);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-amber-ground);
+}
+
+.meridian-proposal-gate__conflict-reason {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-amber-text);
+}
+
+.meridian-proposal-gate__conflict-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-proposal-gate__acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-proposal-gate__act-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-proposal-gate__act {
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+}
+
+/* One primary act: preparation is what a participant came here to approve. */
+.meridian-proposal-gate__act--primary {
+  border-color: var(--meridian-accent);
+  color: var(--meridian-accent-text);
+}
+
+.meridian-proposal-gate__act:disabled {
+  color: var(--meridian-text-faint);
+  cursor: not-allowed;
+}
+
+.meridian-proposal-gate__confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-proposal-gate__consequence {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-proposal-gate__degraded {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: var(--meridian-space-2);
+  border: 1px solid var(--meridian-amber-mark);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-amber-ground);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-amber-text);
+}
+
+.meridian-proposal-gate__bundle {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/* ------------------------------------------------- file-restore disclosure */
+
+/*
+ * A read surface, so it carries no act chrome at all. The counts are on the face and
+ * the path lists are `<details>` — §10.5's density — and the not-an-all-clear sentence
+ * sits under both lists because it qualifies the pair rather than either one.
+ */
+.meridian-restore-disclosure {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-restore-disclosure__head {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-restore-disclosure__heading {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  font-weight: 600;
+}
+
+.meridian-restore-disclosure__meaning,
+.meridian-restore-disclosure__step,
+.meridian-restore-disclosure__no-enumerations,
+.meridian-restore-disclosure__count {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-restore-disclosure__enumerations {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding-block-start: var(--meridian-space-1);
+  border-block-start: 1px solid var(--meridian-edge);
+}
+
+.meridian-restore-disclosure__detail-summary {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+}
+
+.meridian-restore-disclosure__detail-summary:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-restore-disclosure__paths {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: var(--meridian-space-2) 0 0;
+  list-style: none;
+}
+
+/*
+ * The sentence that stops an empty pair reading as an all-clear. Amber, because both
+ * of its two readings are a person's to resolve and neither is a clean result.
+ */
+.meridian-restore-disclosure__not-all-clear {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-amber-text);
+}
+
+.meridian-proposal-gate :focus-visible,
+.meridian-restore-disclosure :focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
