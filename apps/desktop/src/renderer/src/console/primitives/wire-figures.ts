@@ -298,13 +298,19 @@ const currencyMinorUnits = new CurrencyMinorUnitRegistry();
  * rounds to. The
  * floor only ever raises: a zero-minor-unit currency renders two digits, which is
  * the console's column rule applied where it costs no precision.
+ *
+ * Sub-unit is a question about MAGNITUDE, so the test is on the absolute value. A
+ * bare `amount < 1` is true of every negative amount, which would render a refund
+ * of -123.4567 with four fractional digits beside a charge of 123.4567 with two —
+ * two different column widths for one column, and sub-cent precision claimed for a
+ * figure whose magnitude is nowhere near a sub-unit one.
  */
 export function formatMoney(amount: number, currency: string, locale?: string): string {
   if (!Number.isFinite(amount)) {
     return "—";
   }
   const minimumFractionDigits = 2;
-  const floorFractionDigits = amount < 1 ? 4 : minimumFractionDigits;
+  const floorFractionDigits = Math.abs(amount) < 1 ? 4 : minimumFractionDigits;
   try {
     return new Intl.NumberFormat(locale, {
       style: "currency",

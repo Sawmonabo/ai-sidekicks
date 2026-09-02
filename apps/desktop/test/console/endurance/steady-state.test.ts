@@ -8,18 +8,18 @@
 // none of them fail a fast tier, and all of them end the day as a console the
 // person has to restart.
 //
-// WHAT THIS TIER MEASURES, AND WHAT IT REFUSES TO
+// WHAT THIS FILE MEASURES, AND WHAT IT REFUSES TO
 //
 // It measures the STEADY-STATE heap: the reading after the application has
 // settled, against the reading after a long stretch of the same work. That
 // difference is the leak signal — a number that should be near zero regardless
 // of how much work happened in between, which is what makes it a usable gate.
 //
-// It deliberately does not measure the peak, the growth curve, or the absolute
-// heap at any single instant. Those are budget-tier questions
-// (`test/console/budget/`), they are measured there against `budgets.json`, and
-// re-asserting them here would put one number under two owners — the failure mode
-// where a budget is loosened in one file and still enforced in the other.
+// It deliberately does not measure the peak or the growth curve. The absolute
+// heap at one instant is a BUDGET question and is answered by this tier's
+// `heap-at-rest.test.ts` against `budgets.json`; re-asserting a ceiling here
+// would put one number under two owners — the failure mode where a budget is
+// loosened in one file and still enforced in the other.
 //
 // WHY THE FIXTURE SCENARIO IS THE WORKLOAD
 //
@@ -78,10 +78,19 @@ import {
   TRIPWIRE_FIXTURE_GLOBAL,
   fixtureBundleExists,
   launchConsole,
-  type ConsoleSessionDiagnostics,
-  type ScenarioFixtureHandle,
 } from "../electron-harness.js";
-import type { ConsoleApplication } from "../electron-harness.js";
+import {
+  FLAGSHIP_SESSION_ID,
+  SETTINGS_SURFACE_SELECTOR,
+  WORKSPACE_SURFACE_SELECTOR,
+  churnOnce,
+  openFlagshipSessionRoute,
+  openSettingsRoute,
+  readAppliedEventCount,
+  readBoundSessionIds,
+  readPlayingScenarioId,
+  readSettledHeapBytes,
+} from "./console-workload.js";
 import { FLAGSHIP_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/flagship.js";
 
 const bundleIsBuilt = fixtureBundleExists();
@@ -109,10 +118,6 @@ const CHURN_CYCLE_COUNT = 200;
  */
 const STEADY_HEAP_GROWTH_CEILING_BYTES = 8 * 1024 * 1024;
 
-/** The session the flagship script plays into, and the route this run opens. */
-const FLAGSHIP_SESSION_ID = FLAGSHIP_SCENARIO.sessionId;
-const FLAGSHIP_SESSION_ROUTE = `#/session/${encodeURIComponent(FLAGSHIP_SESSION_ID)}`;
-
 /**
  * How far the frozen clock moves on each churn cycle.
  *
@@ -128,155 +133,46 @@ const SCENARIO_ADVANCE_MS_PER_CYCLE = Math.max(
   Math.ceil((FLAGSHIP_SCENARIO.beats.at(-1)?.atMs ?? 0) / CHURN_CYCLE_COUNT),
 );
 
-/**
- * Read the renderer's heap after asking it to collect.
- *
- * `--expose-gc` is not passed and deliberately not required: the reading is taken
- * as the MINIMUM over several samples with a yield between them, which lets the
- * incremental collector run and gives a floor that is far more stable than a
- * single sample. A tier that depended on a non-default Electron flag would be a
- * tier CI silently stopped running the day the flag was dropped.
- */
-async function readSettledHeapBytes(consoleApplication: ConsoleApplication): Promise<number> {
-  const samples: number[] = [];
-  for (let sampleIndex = 0; sampleIndex < 6; sampleIndex += 1) {
-    const sample = await consoleApplication.window.evaluate(async () => {
-      // Two frames plus a macrotask: enough for the collector to run its
-      // incremental steps between samples without pinning the main thread.
-      await new Promise((resolve) => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            setTimeout(resolve, 0);
-          });
-        });
-      });
-      const memory = (
-        performance as Performance & { readonly memory?: { readonly usedJSHeapSize: number } }
-      ).memory;
-      return memory === undefined ? null : memory.usedJSHeapSize;
-    });
-    if (sample === null) {
-      throw new Error(
-        "performance.memory is unavailable in this renderer; the endurance tier cannot measure a heap without it",
-      );
-    }
-    samples.push(sample);
-  }
-  return Math.min(...samples);
-}
-
-/**
- * Move the scenario on, and report how far it has got.
- *
- * `null` means the handle is not on the page at all — which this tier treats as a
- * failure and never as a reason to skip, on the same reasoning the tripwire
- * assertion below states: a run that could not drive the workload measured an idle
- * console, and reporting that as a pass is worse than not running.
- */
-async function advanceScenario(
-  consoleApplication: ConsoleApplication,
-  milliseconds: number,
-): Promise<number | null> {
-  return consoleApplication.window.evaluate(
-    ([globalName, deltaMs]: [string, number]) => {
-      const control = (globalThis as unknown as Record<string, ScenarioFixtureHandle | undefined>)[
-        globalName
-      ];
-      if (control === undefined) {
-        return null;
-      }
-      control.advance(deltaMs);
-      return control.deliveredBeatCount();
-    },
-    [SCENARIO_FIXTURE_GLOBAL, milliseconds] as [string, number],
-  );
-}
-
-/** Which scenario the launched console is actually playing, or `null`. */
-async function readPlayingScenarioId(
-  consoleApplication: ConsoleApplication,
-): Promise<string | null> {
-  return consoleApplication.window.evaluate((globalName: string) => {
-    const control = (globalThis as unknown as Record<string, ScenarioFixtureHandle | undefined>)[
-      globalName
-    ];
-    return control === undefined ? null : control.scenarioId;
-  }, SCENARIO_FIXTURE_GLOBAL);
-}
-
-/**
- * How many events the store for one session has ADMITTED, or `null`.
- *
- * Admitted to the apply chokepoint, which is a different number from the beats
- * the engine delivered and from anything a timeline is long. That is why both are
- * read: they answer different questions, and this one answers whether a stream
- * reached this window's stores at all.
- */
-async function readAppliedEventCount(
-  consoleApplication: ConsoleApplication,
-  sessionId: string,
-): Promise<number | null> {
-  return consoleApplication.window.evaluate(
-    ([globalName, targetSessionId]: [string, string]) => {
-      const sessions = (
-        globalThis as unknown as Record<string, ConsoleSessionDiagnostics | undefined>
-      )[globalName];
-      return sessions === undefined ? null : sessions.appliedEventCountFor(targetSessionId);
-    },
-    [SESSION_DIAGNOSTICS_FIXTURE_GLOBAL, sessionId] as [string, string],
-  );
-}
-
-/** Sessions this window holds a wire subscription for, or `null` with no handle. */
-async function readBoundSessionIds(
-  consoleApplication: ConsoleApplication,
-): Promise<readonly string[] | null> {
-  return consoleApplication.window.evaluate((globalName: string) => {
-    const sessions = (
-      globalThis as unknown as Record<string, ConsoleSessionDiagnostics | undefined>
-    )[globalName];
-    return sessions === undefined ? null : [...sessions.boundSessionIds()];
-  }, SESSION_DIAGNOSTICS_FIXTURE_GLOBAL);
-}
-
-/**
- * One cycle of the work a console does while a person watches it.
- *
- * Navigation and palette use rather than synthetic allocation, because the leaks
- * worth catching live in the machinery those exercise — subscriptions, effects,
- * portals, and the listener table — and a loop that allocated arrays would prove
- * only that V8 collects arrays. The clock moves once per cycle so the scenario is
- * delivering into that machinery while it is being churned, which is the state a
- * real session is in and the one a leak shows up in.
- *
- * Returns the delivered-beat count the advance reported, so a caller can assert
- * the workload progressed without paying for a second round trip.
- */
-async function churnOnce(consoleApplication: ConsoleApplication): Promise<number | null> {
-  const consoleWindow = consoleApplication.window;
-  await consoleWindow.keyboard.press("ControlOrMeta+KeyK");
-  await consoleWindow.getByRole("dialog").waitFor({ state: "visible" });
-  await consoleWindow.keyboard.type("Go to");
-  await consoleWindow.keyboard.press("Escape");
-  await consoleWindow.getByRole("dialog").waitFor({ state: "hidden" });
-
-  // Route changes mount and unmount the surface subtree through the error
-  // boundary's keyed remount — the path most likely to strand a listener. One of
-  // the two routes is the scenario's own session, so the cycle also opens and
-  // re-reads the store the beats are landing in.
-  await consoleWindow.evaluate(() => {
-    globalThis.location.hash = "#/settings";
-  });
-  await consoleWindow.locator(".meridian-frame").waitFor({ state: "visible" });
-  await consoleWindow.evaluate((sessionRoute: string) => {
-    globalThis.location.hash = sessionRoute;
-  }, FLAGSHIP_SESSION_ROUTE);
-  await consoleWindow.locator(".meridian-frame").waitFor({ state: "visible" });
-
-  return advanceScenario(consoleApplication, SCENARIO_ADVANCE_MS_PER_CYCLE);
-}
-
 describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
+  // The proof that every reading below describes a console that actually
+  // navigated. A churn cycle is two route changes, and the run only measures the
+  // mount and unmount churn it claims to if each change is OBSERVED before the
+  // next hash is assigned. The cycle used to wait on `.meridian-frame`, which is
+  // the window's permanent shell: it was already on the page, so the wait
+  // returned at once and the second assignment could land before React had
+  // mounted the first destination at all.
+  //
+  // This is the assertion that catches that, and it catches it by construction
+  // rather than by inspection — the locators asserted route-exclusive here are
+  // the same two constants `churnOnce` waits on, so a wait re-pointed at any
+  // element both routes render fails on the two absence checks below.
+  it("waits on a surface that only its own destination renders", async () => {
+    const consoleApplication = await launchConsole({ scenarioId: FLAGSHIP_SCENARIO.id });
+    try {
+      const consoleWindow = consoleApplication.window;
+
+      // `openSettingsRoute` has already waited for its own locator, so the
+      // positive half is the wait itself. What is asserted here is the half a
+      // wait cannot make: that the OTHER route's locator is absent, which is what
+      // a locator naming the permanent shell could never satisfy.
+      await openSettingsRoute(consoleApplication);
+      expect(await consoleWindow.locator(SETTINGS_SURFACE_SELECTOR).count()).toBeGreaterThan(0);
+      expect(
+        await consoleWindow.locator(WORKSPACE_SURFACE_SELECTOR).count(),
+        "the workspace wait is satisfied on the settings route, so a churn cycle never observes the transition into the workspace",
+      ).toBe(0);
+
+      await openFlagshipSessionRoute(consoleApplication);
+      expect(await consoleWindow.locator(WORKSPACE_SURFACE_SELECTOR).count()).toBeGreaterThan(0);
+      expect(
+        await consoleWindow.locator(SETTINGS_SURFACE_SELECTOR).count(),
+        "the settings wait is satisfied on the workspace route, so a churn cycle never observes the transition into settings",
+      ).toBe(0);
+    } finally {
+      await consoleApplication.close();
+    }
+  });
+
   it("does not grow its steady-state heap across sustained use", async () => {
     const consoleApplication = await launchConsole({ scenarioId: FLAGSHIP_SCENARIO.id });
     try {
@@ -294,7 +190,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
       // before the palette, its portal, and the settings route have ever been
       // constructed, and their one-time allocation would be reported as growth —
       // a tier that failed on first use of a feature rather than on a leak.
-      const beatsAfterWarmUp = await churnOnce(consoleApplication);
+      const beatsAfterWarmUp = await churnOnce(consoleApplication, SCENARIO_ADVANCE_MS_PER_CYCLE);
       const appliedEventsAfterWarmUp = await readAppliedEventCount(
         consoleApplication,
         FLAGSHIP_SESSION_ID,
@@ -304,7 +200,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
       let beatsDelivered = beatsAfterWarmUp;
       let appliedEventsAtMidRun: number | null = null;
       for (let cycle = 0; cycle < CHURN_CYCLE_COUNT; cycle += 1) {
-        beatsDelivered = await churnOnce(consoleApplication);
+        beatsDelivered = await churnOnce(consoleApplication, SCENARIO_ADVANCE_MS_PER_CYCLE);
         if (cycle === Math.floor(CHURN_CYCLE_COUNT / 2)) {
           appliedEventsAtMidRun = await readAppliedEventCount(
             consoleApplication,
@@ -392,7 +288,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
     const consoleApplication = await launchConsole({ scenarioId: FLAGSHIP_SCENARIO.id });
     try {
       for (let cycle = 0; cycle < CHURN_CYCLE_COUNT; cycle += 1) {
-        await churnOnce(consoleApplication);
+        await churnOnce(consoleApplication, SCENARIO_ADVANCE_MS_PER_CYCLE);
       }
       const firings = await consoleApplication.window.evaluate((globalName: string) => {
         const registry = (

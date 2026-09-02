@@ -30,7 +30,7 @@
 
 import type { SessionState } from "@ai-sidekicks/contracts";
 
-import type { AttentionSeverity } from "../notifications/index.js";
+import type { AttentionSeverity } from "../bridge/index.js";
 
 /**
  * The two tiers the list folds into. Closed, declared once, union derived.

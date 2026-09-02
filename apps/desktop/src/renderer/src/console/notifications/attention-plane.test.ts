@@ -8,17 +8,15 @@
 
 import { describe, expect, it } from "vitest";
 
+import { ATTENTION_SEVERITIES, ATTENTION_TRIGGERS, type AttentionItem } from "../bridge/index.js";
 import {
-  ATTENTION_SEVERITIES,
-  ATTENTION_TRIGGERS,
   AttentionPlane,
   READS_NO_ATTENTION_PROJECTION,
   narrowAttentionItem,
   narrowAttentionProjection,
-  type ConsoleAttentionItem,
 } from "./attention-plane.js";
 
-function item(overrides: Partial<ConsoleAttentionItem> = {}): ConsoleAttentionItem {
+function item(overrides: Partial<AttentionItem> = {}): AttentionItem {
   return {
     id: "attention-1",
     sessionId: "session-a",

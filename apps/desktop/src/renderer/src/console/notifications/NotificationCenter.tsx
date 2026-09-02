@@ -36,13 +36,9 @@
 // control-plane procedures the console cannot reach, so the center says where mute
 // lives rather than drawing a switch that would write nowhere.
 
+import type { AttentionItem, AttentionTrigger } from "../bridge/index.js";
 import { Chip, Nothing, WireFigure, formatClockTime, formatCount } from "../primitives/index.js";
-import type {
-  AttentionReading,
-  AttentionSessionGroup,
-  AttentionTrigger,
-  ConsoleAttentionItem,
-} from "./attention-plane.js";
+import type { AttentionReading, AttentionSessionGroup } from "./attention-plane.js";
 
 /**
  * How one trigger reads. Total over the closed six by construction, so a seventh
@@ -72,7 +68,7 @@ export interface NotificationCenterProps {
    */
   readonly reading: AttentionReading;
   /** Open the source of one item. Renderer-local navigation; resolves nothing. */
-  readonly onOpen?: (item: ConsoleAttentionItem) => void;
+  readonly onOpen?: (item: AttentionItem) => void;
 }
 
 export function NotificationCenter(props: NotificationCenterProps): React.JSX.Element {
@@ -91,7 +87,7 @@ export function NotificationCenter(props: NotificationCenterProps): React.JSX.El
 
 function ProjectionBody(props: {
   readonly reading: AttentionReading;
-  readonly onOpen: ((item: ConsoleAttentionItem) => void) | undefined;
+  readonly onOpen: ((item: AttentionItem) => void) | undefined;
 }): React.JSX.Element {
   if (props.reading.phase === "reading") {
     return <Nothing kind="not-loaded" placement="surface" title="Reading what needs you." />;
@@ -153,7 +149,7 @@ function ProjectionBody(props: {
 function SessionGroup(props: {
   readonly group: AttentionSessionGroup;
   readonly foldInformational: boolean;
-  readonly onOpen: ((item: ConsoleAttentionItem) => void) | undefined;
+  readonly onOpen: ((item: AttentionItem) => void) | undefined;
 }): React.JSX.Element {
   const { group } = props;
   const informational = <AttentionItemList items={group.informational} onOpen={props.onOpen} />;
@@ -179,8 +175,8 @@ function SessionGroup(props: {
 
 /** Zero or more items as one list. Zero renders nothing, never an empty list. */
 function AttentionItemList(props: {
-  readonly items: readonly ConsoleAttentionItem[];
-  readonly onOpen: ((item: ConsoleAttentionItem) => void) | undefined;
+  readonly items: readonly AttentionItem[];
+  readonly onOpen: ((item: AttentionItem) => void) | undefined;
 }): React.JSX.Element | null {
   if (props.items.length === 0) {
     return null;
@@ -206,8 +202,8 @@ function AttentionItemList(props: {
  * and the console labels which without recomputing either.
  */
 function AttentionRow(props: {
-  readonly item: ConsoleAttentionItem;
-  readonly onOpen: ((item: ConsoleAttentionItem) => void) | undefined;
+  readonly item: AttentionItem;
+  readonly onOpen: ((item: AttentionItem) => void) | undefined;
 }): React.JSX.Element {
   const { item, onOpen } = props;
   const body = (

@@ -47,14 +47,21 @@ const EXPECTED_BUDGET_IDS: readonly string[] = [
 /**
  * Budgets this revision actually measures. Every other row must be `"n/a"`.
  *
- * `renderer-heap-at-rest` was here until 2026-09-02, gated against a Node
- * process holding a stand-in entity map. That reading excluded Chromium, the
- * renderer isolate, React, the DOM, and the console's own store, so the gate
- * could report green over a renderer well past its ceiling. The row is `"n/a"`
- * against the task that takes the real CDP reading; re-listing it here without
- * that measurement restores the false green rather than the gate.
+ * `renderer-heap-at-rest` left this list on 2026-09-02 and returned the same
+ * day, and the round trip is the point. It was gated against a Node process
+ * holding a stand-in entity map — no Chromium, no renderer isolate, no React, no
+ * DOM, no console store — so the gate could report green over a renderer well
+ * past its ceiling; the row went `"n/a"` rather than being re-pointed at a
+ * reading nothing could take. It is here again because the reading now exists:
+ * the endurance tier launches the built console, opens a session the scenario
+ * engine has delivered into, and reads that renderer's own heap. Re-listing this
+ * id against any harness that holds no renderer restores the false green rather
+ * than the gate, which `heap-budget.test.ts` refuses by name.
  */
-const EXPECTED_ENFORCED_BUDGET_IDS: readonly string[] = ["renderer-initial-bundle"];
+const EXPECTED_ENFORCED_BUDGET_IDS: readonly string[] = [
+  "renderer-initial-bundle",
+  "renderer-heap-at-rest",
+];
 
 /** How each declared unit reduces to its canonical unit. */
 const CANONICAL_UNIT_FACTORS: Readonly<Record<string, { factor: number; canonical: string }>> = {
