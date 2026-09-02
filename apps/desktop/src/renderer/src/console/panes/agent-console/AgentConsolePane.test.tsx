@@ -213,3 +213,68 @@ describe("agent console — asking the daemon again for the peer-invocation gran
     expect(container.textContent ?? "").toContain("was not handed a session");
   });
 });
+
+describe("agent console — the run this agent's linkage is keyed by", () => {
+  it("picks up a run that started after the mount", async () => {
+    // The pane subscribes to the agent roster, and a run starting emits none of the
+    // three agent-lifecycle kinds that signal it — so a one-off snapshot read kept
+    // saying the agent had no run for as long as the pane stayed open.
+    const bridge = bridgeReading(growthRefusing("sessionRead"));
+    const sessionStore = projectingStore();
+    const { container } = render(
+      <AgentConsolePane
+        sessionId={SESSION_ID}
+        agentId={AGENT_ID}
+        bridgeSource="fixture"
+        bridge={bridge}
+        sessionStore={sessionStore}
+      />,
+    );
+    await settle(bridge);
+    expect(container.textContent ?? "").toContain("No run of this agent is on the timeline yet");
+
+    await act(async () => {
+      sessionStore.apply({
+        sessionId: SESSION_ID,
+        sequence: 1,
+        kind: "run.queued",
+        occurredAt: "2026-01-01T10:06:00.000Z",
+        payload: { runId: "run-7", newState: "queued", agentId: AGENT_ID },
+      });
+    });
+
+    expect(container.textContent ?? "").toContain("Reading what this run started");
+    expect(container.textContent ?? "").not.toContain(
+      "No run of this agent is on the timeline yet",
+    );
+  });
+
+  it("negative control: a run belonging to another agent leaves the linkage unkeyed", async () => {
+    // Without this, the case above would pass over a mount that keyed its linkage
+    // to whichever run moved last, whoever it belonged to.
+    const bridge = bridgeReading(growthRefusing("sessionRead"));
+    const sessionStore = projectingStore();
+    const { container } = render(
+      <AgentConsolePane
+        sessionId={SESSION_ID}
+        agentId={AGENT_ID}
+        bridgeSource="fixture"
+        bridge={bridge}
+        sessionStore={sessionStore}
+      />,
+    );
+    await settle(bridge);
+
+    await act(async () => {
+      sessionStore.apply({
+        sessionId: SESSION_ID,
+        sequence: 1,
+        kind: "run.queued",
+        occurredAt: "2026-01-01T10:06:00.000Z",
+        payload: { runId: "run-8", newState: "queued", agentId: "agent-other" },
+      });
+    });
+
+    expect(container.textContent ?? "").toContain("No run of this agent is on the timeline yet");
+  });
+});

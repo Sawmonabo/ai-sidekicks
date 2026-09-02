@@ -33,7 +33,6 @@ import {
   PeerInvocation,
   RunLinkage,
   SIDEKICK_DEFINITION_EDITOR_SLOT,
-  newestRunIdForAgent,
   useAgentConsoleModels,
   type AgentConsoleModels,
 } from "../../agents/index.js";
@@ -44,6 +43,7 @@ import { renderAbsorbedNodeRoster } from "../../frame/legacy-surfaces.js";
 import { Nothing, WireFigure } from "../../primitives/index.js";
 import type { SessionStore } from "../../store/index.js";
 import { AgentBindingColumn } from "./AgentBindingColumn.js";
+import { useNewestRunIdForAgent } from "./agent-run-linkage.js";
 import { usePeerInvocationEnabled, useSessionProjectionReRead } from "./session-projection.js";
 
 /** Names a peer-invocation failure the thrown value carried no refusal for. */
@@ -233,12 +233,23 @@ function RunLinkageMount(props: {
   readonly agentId: string | undefined;
 }): React.JSX.Element {
   const { models, sessionStore, agentId } = props;
-  const parentRunId =
-    sessionStore === undefined ? undefined : newestRunIdForAgent(sessionStore, agentId);
-  if (models === undefined || parentRunId === undefined) {
+  if (models === undefined || sessionStore === undefined) {
     return <RunLinkage parentRunId={undefined} state={undefined} />;
   }
-  return <ResolvedRunLinkage models={models} parentRunId={parentRunId} />;
+  return <SubscribedRunLinkage models={models} sessionStore={sessionStore} agentId={agentId} />;
+}
+
+/** The subscribed arm: the linkage is re-keyed whenever the run partition moves. */
+function SubscribedRunLinkage(props: {
+  readonly models: AgentConsoleModels;
+  readonly sessionStore: SessionStore;
+  readonly agentId: string | undefined;
+}): React.JSX.Element {
+  const parentRunId = useNewestRunIdForAgent(props.sessionStore, props.agentId);
+  if (parentRunId === undefined) {
+    return <RunLinkage parentRunId={undefined} state={undefined} />;
+  }
+  return <ResolvedRunLinkage models={props.models} parentRunId={parentRunId} />;
 }
 
 /** The mounted arm, where both halves exist and the read's hook may run. */
