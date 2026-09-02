@@ -383,3 +383,150 @@
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-faint);
 }
+
+/* -------------------------------------------------------------- run controls */
+
+/*
+ * The run's two controls, side by side and equal.
+ *
+ * Equal because they are separately grantable and neither is subordinate: an
+ * operator may hold cancel and not resume, and a layout that made one primary
+ * would be the console guessing which. Rule 7's single-primary-action budget is
+ * spent in the chrome header above; this is the run's control cluster, and it sits
+ * in the body where the run's own facts are.
+ */
+.meridian-run-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-4);
+}
+
+.meridian-run-controls__control {
+  display: flex;
+  flex: 1 1 20rem;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  min-inline-size: 0;
+  padding: var(--meridian-space-4);
+  background: var(--meridian-surface-sunken);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+}
+
+/* The control's name where the control itself is refused and so is not drawn. */
+.meridian-run-controls__label {
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-run-controls__head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+/*
+ * Shares the chrome's action treatment rather than restating it: a run control and
+ * the browser's "New definition" are the same kind of thing and a second set of
+ * paddings here would drift from that one at the first tweak.
+ */
+.meridian-run-controls__action {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-accent-text);
+  cursor: pointer;
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-run-controls__action:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-run-controls__note {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}
+
+/* The disclosure marker stays the platform's: it is already announced and already
+ * rotates, and a replacement would be ornament that a screen reader cannot use. */
+.meridian-run-controls__summary {
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+}
+
+.meridian-run-controls__summary:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-run-controls__disclosure {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-run-controls__field-label {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/*
+ * Prose, not a wire figure: the operator is writing a sentence, so it is set in the
+ * sans face at the reading size rather than in the mono column rule 4 reserves for
+ * strings the daemon sent.
+ */
+.meridian-run-controls__reason {
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+  resize: vertical;
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-run-controls__reason:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-run-controls__budget,
+.meridian-run-controls__repin-target {
+  display: flex;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}
+
+.meridian-run-controls__repin {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-run-controls__select {
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-run-controls__select:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
