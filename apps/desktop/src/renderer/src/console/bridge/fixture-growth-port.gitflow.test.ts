@@ -35,6 +35,17 @@ const BRANCH_NAMING_MEMBERS = [
   "branchName",
 ] as const;
 
+/**
+ * Names a member that would only appear if a scenario stated a prepared proposal.
+ *
+ * The two `gitflowPrPrepare` answers with that nothing else in the corpus produces,
+ * plus the target a request would carry. `branchContextId` is deliberately NOT here:
+ * it is the finder above's, and a scenario stating one would fail that case first —
+ * which is the right order, because without a branch context there is nothing to
+ * prepare a proposal from in the first place.
+ */
+const PR_PREPARATION_NAMING_MEMBERS = ["prPreparationId", "proposalBlob", "targetBranch"] as const;
+
 describe("the fixture's gitflow reads — one answers nothing, the other refuses", () => {
   it("plays no scenario that states a branch, which is what makes the absence honest", () => {
     // The fixture answers the branch-context read with an absence, and this is the
@@ -44,7 +55,7 @@ describe("the fixture's gitflow reads — one answers nothing, the other refuses
     expect(findScenariosNaming(CONSOLE_SCENARIOS, BRANCH_NAMING_MEMBERS)).toStrictEqual([]);
   });
 
-  it("negative control: reports a scenario that DOES state one", () => {
+  it("negative control: reports a scenario that DOES state a branch", () => {
     // Scripted as a canned reply, because that is how a scenario would really state
     // a branch context — `gitflow.branchContextRead` is a request/response call and
     // no event payload in the census carries a branch name at all.
@@ -96,6 +107,31 @@ describe("the fixture's gitflow reads — one answers nothing, the other refuses
       expect(outcome.owningDocument).toContain("Spec-011");
     }
     expect(outcome).not.toHaveProperty("value");
+  });
+
+  it("plays no scenario that states a prepared proposal, which is what makes the refusal honest", () => {
+    // The premise the refusal below rests on rather than a restatement of it. The
+    // served set omits `gitflowPrPrepare` and the module header says why; this is the
+    // half of that reasoning a reader can check — nothing a scenario says could be
+    // turned into a proposal, so the port is not withholding one it has.
+    expect(findScenariosNaming(CONSOLE_SCENARIOS, PR_PREPARATION_NAMING_MEMBERS)).toStrictEqual([]);
+  });
+
+  it("negative control: reports a scenario that DOES state a proposal", () => {
+    const withPreparedProposal: ConsoleScenario = {
+      ...FLAGSHIP_SCENARIO,
+      id: "states-a-prepared-proposal",
+      replies: [
+        {
+          call: "gitflow.prPrepare",
+          result: { prPreparationId: "preparation-1", state: "draft", proposalBlob: {} },
+        },
+      ],
+    };
+
+    expect(
+      findScenariosNaming([withPreparedProposal], PR_PREPARATION_NAMING_MEMBERS),
+    ).toStrictEqual(["states-a-prepared-proposal"]);
   });
 
   it("refuses the PR preparation under both bridges, no daemon standing behind it", async () => {

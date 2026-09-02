@@ -1,15 +1,16 @@
 // The growth port the fixture bridge actually serves.
 //
-// Every other growth operation refuses under both bridges, which is what makes the
-// "not checked" absence a true statement rather than a placeholder. Five do not:
-// the two the console cannot function without — a session snapshot read and a
-// session directory read — the attention projection read, which is the only one of
-// them the console must not compute for itself, the gitflow branch-context read,
-// whose whole answer today is that there is none, and the caller-identity read,
-// which is answered from a scenario that states its own viewer and refused from one
-// that does not.
+// ONE RULE DECIDES WHICH, AND THE SET IS DECLARED ONCE. An operation is served when
+// a scenario states something it can be answered FROM, and refuses otherwise —
+// refuses under both bridges, which is what makes the "not checked" absence a true
+// statement rather than a placeholder. The served operations are
+// `FIXTURE_SERVED_GROWTH_OPERATION_IDS` below and each entry carries its own reason
+// beside it; this header used to enumerate and count them here as well, which is one
+// closed set with two homes and goes stale in the direction nothing catches. The
+// sweep in `fixture-growth-port.test.ts` calls every registered operation and holds
+// each answer to that tuple, so the set and what the port does cannot disagree.
 //
-// WHAT THIS MODULE OWNS, AND WHAT ITS THREE NEIGHBOURS DO
+// WHAT THIS MODULE OWNS, AND WHAT ITS NEIGHBOURS DO
 //
 // This one owns the decision: which operations are served, and with which outcome.
 // The four answers with a job of their own live beside it, because each fails in a
@@ -62,8 +63,8 @@
 // rather than a stub. Two things would have to be true for a scenario to state a
 // branch context, and neither is:
 //
-//   • `ConsoleScenario` carries no repo mount, no workspace, and no branch. Its
-//     fields are a session id, a join order, beats, replies, and a start instant.
+//   • `ConsoleScenario` carries no repo mount, no workspace, and no branch. What it
+//     does carry is a session, its roster, beats, replies, and a start instant.
 //   • No registered event payload names a branch. The `repo.*` / `workspace.*` /
 //     `worktree.*` family payload is `{sessionId, repoMountId?, workspaceId?,
 //     worktreeId?, state, actor?}` (`packages/contracts/src/repo.ts`), so a fold
@@ -74,6 +75,22 @@
 // `fixture-growth-port.gitflow.test.ts` beside this file is what keeps the claim
 // true: the day a scenario does carry a branch, that test fails and this derivation
 // is what has to change.
+//
+// AND WHY ITS SIBLING ON THE SAME SLATE ROW REFUSES
+//
+// `gitflowPrPrepare` is registered in the signature table and is not in the served
+// set, which reads as an omission and is the rule above applied twice over. A
+// PREPARATION is not an absence a surface has to draw: a proposal was either assembled
+// or it was not, so there is no "we asked and there is none" state here for the served
+// arm to answer with, and the port would have to mint a `prPreparationId` and a
+// `proposalBlob` out of nothing. Nor could a caller reach it: the request is keyed on a
+// `branchContextId`, and the read next door answers the absence for every scenario, so
+// under this bridge there is no id to send. `Spec-011 §Required Behavior` puts the
+// review before any remote mutation, which is the last of it — a fixture that answered
+// would be standing in for the review rather than for the wire.
+//
+// The finder pins that too, from the same side it pins the branch premise: no scenario
+// states a prepared proposal, and the day one does, the case beside it fails.
 //
 // WHY THE CALLER-IDENTITY READ IS ANSWERED FROM A FIELD AND NOT FROM JOIN ORDER
 //
@@ -143,12 +160,19 @@ import type { ScenarioEngine } from "./scenario-engine.js";
  * member — a compile error rather than a runtime surprise.
  */
 export const FIXTURE_SERVED_GROWTH_OPERATION_IDS = [
+  // The two the console cannot function without — a store admits nothing until a read
+  // gives it a base state, and without the directory the only sessions a surface can
+  // name are the ones this window happens to have open.
   "sessionRead",
   "sessionList",
+  // The one projection the console must not compute for itself.
   "attentionProjectionRead",
-  // gitflow
+  // gitflow — the branch-context read, whose whole answer today is that there is none.
+  // Its sibling `gitflowPrPrepare` is on the same slate row and refuses, which is the
+  // rule above rather than an omission: see the branch-context section of the header.
   "gitflowBranchContextRead",
-  // identity
+  // identity — answered from a scenario that states its own viewer, refused from one
+  // that does not.
   "callerParticipantRead",
 ] as const;
 

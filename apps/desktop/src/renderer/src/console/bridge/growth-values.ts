@@ -20,10 +20,8 @@
 // AND NOT HERE EITHER: A VOCABULARY `@ai-sidekicks/contracts` ALREADY SHIPS. The
 // console's own vocabularies below exist because the corpus registers them in a
 // document and no code package carries them. Where a package DOES carry one, the
-// member below names the package's type and this module declares nothing — a second
-// closed union restating a shipped one compiles for exactly as long as the two agree
-// and then fails silently, because the value that broke it is one the wire may send
-// and this side cannot represent. `billingMode` is that case.
+// member names the package's type and this module declares nothing. `billingMode` is
+// that case, and the comment on it says what the second union cost.
 
 import type { BillingMode } from "@ai-sidekicks/contracts";
 
