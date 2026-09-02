@@ -16,6 +16,7 @@
 import { Terminal, type ILink, type ILinkProvider } from "@xterm/xterm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { installFakeResizeObserver } from "../primitives/element-resize.test-support.js";
 import { TERMINAL_DEFAULT_SCROLLBACK_LINES } from "./constants.js";
 import { TerminalRendererPool } from "./renderer-pool.js";
 import { XtermTerminalAdapter } from "./xterm-adapter.js";
@@ -91,6 +92,7 @@ afterEach(() => {
   for (const host of liveHosts.splice(0)) {
     host.remove();
   }
+  vi.unstubAllGlobals();
 });
 
 describe("the emulator wrapper", () => {
@@ -165,6 +167,60 @@ describe("the renderer mode, as something a surface can follow", () => {
     adapter.subscribeToRendererMode((mode) => observed.push(mode));
     adapter.dispose();
     expect(observed).toStrictEqual(["dom"]);
+  });
+});
+
+// The grid re-fits when its host box changes, and it does so through the console's
+// ONE size seam.
+//
+// The environment implements no `ResizeObserver`, so the fake is what makes the seam
+// reachable here at all — and it is `primitives/element-resize.test-support.ts`'s,
+// the same one three browser suites drive, because a second fake beside this one
+// would be the duplication the hoist removed reappearing in the test tier.
+//
+// `fitToHost` is watched rather than stubbed: the spy calls through, so what the
+// cases below assert is that a delivery reached the real re-fit. The fit ITSELF is
+// the addon's and is exercised where a box can be measured; in this environment the
+// host has no layout, so the addon's own division is undefined and the adapter
+// swallows it by design.
+describe("the grid's size source", () => {
+  it("re-fits when a size change is delivered for its own host", () => {
+    const resizeObserver = installFakeResizeObserver();
+    const { adapter, host } = mountedAdapter({ terminalId: "sized" });
+    // One observer, on the host, armed by the attach rather than by a timer.
+    expect(resizeObserver.observedCount()).toBe(1);
+    const refit = vi.spyOn(adapter, "fitToHost");
+
+    resizeObserver.deliverFor(host);
+
+    expect(refit).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops listening once the emulator is off screen", () => {
+    const resizeObserver = installFakeResizeObserver();
+    const { adapter, host } = mountedAdapter({ terminalId: "detached" });
+    const refit = vi.spyOn(adapter, "fitToHost");
+
+    adapter.detach();
+    resizeObserver.deliverFor(host);
+
+    // Disconnected rather than merely ignored: an observer left armed over a host a
+    // pane has dropped keeps that element reachable for as long as the adapter lives.
+    expect(resizeObserver.liveObserverCount()).toBe(0);
+    expect(refit).not.toHaveBeenCalled();
+  });
+
+  it("negative control: a size change somewhere else is not this terminal's", () => {
+    // Without this the cases above would pass against an adapter that re-fitted on
+    // every delivery in the document, which is a terminal that re-measures itself
+    // whenever any other pane resizes.
+    const resizeObserver = installFakeResizeObserver();
+    const { adapter } = mountedAdapter({ terminalId: "elsewhere" });
+    const refit = vi.spyOn(adapter, "fitToHost");
+
+    resizeObserver.deliverFor(document.createElement("div"));
+
+    expect(refit).not.toHaveBeenCalled();
   });
 });
 

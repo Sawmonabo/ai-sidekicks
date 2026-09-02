@@ -1,26 +1,29 @@
 // The DOM seams an element's movement is read through.
 //
-// Each seam is a claim a naive reading gets wrong: a resize observer that is never
-// disconnected outlives its subject; a motion listener attached to the subject hears
-// its ancestors' transitions not at all; a sibling's animation moves nothing; a
-// paused animation is not motion; and a size observer over the element reports
-// nothing whatever when the element is MOVED rather than resized. Every clean case
-// below has the control that fails without the rule.
+// Each seam is a claim a naive reading gets wrong: a motion listener attached to the
+// subject hears its ancestors' transitions not at all; a sibling's animation moves
+// nothing; a paused animation is not motion; and a size observer over the element
+// reports nothing whatever when the element is MOVED rather than resized. Every clean
+// case below has the control that fails without the rule.
+//
+// The size seam's OWN cases are not here. `observeElementResize` moved to
+// `primitives/element-resize.ts`, and its test moved beside it; this suite still
+// installs the fake, because the composed position observer arms that seam over every
+// ancestor it watches.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ManualClock } from "../core/index.js";
+import { installFakeResizeObserver } from "../primitives/element-resize.test-support.js";
 import {
   hasRunningDocumentMotion,
   hasRunningMotion,
   observeElementPosition,
-  observeElementResize,
   observeMotionStarts,
   sharesMotionWith,
 } from "./element-motion.js";
 import {
   fakeAnimation,
-  installFakeResizeObserver,
   movingAnimation,
   settleMutationRecords,
   withAnimations,
@@ -45,34 +48,6 @@ afterEach(() => {
   for (const root of attachedRoots.splice(0)) {
     root.remove();
   }
-});
-
-describe("observeElementResize", () => {
-  it("reports every delivery until it is disposed, then disconnects", () => {
-    const resizeObserver = installFakeResizeObserver();
-    const element = document.createElement("div");
-    const onResize = vi.fn();
-
-    const detach = observeElementResize(element, onResize);
-    expect(resizeObserver.observedCount()).toBe(1);
-    resizeObserver.deliverAll();
-    expect(onResize).toHaveBeenCalledTimes(1);
-
-    detach();
-    expect(resizeObserver.disconnectCount()).toBe(1);
-  });
-
-  it("negative control: a platform with no ResizeObserver arms nothing and reports nothing", () => {
-    // Without the guard this line throws rather than degrading, and the whole
-    // registry stops registering overlays on that platform.
-    vi.stubGlobal("ResizeObserver", undefined);
-    const onResize = vi.fn();
-
-    const detach = observeElementResize(document.createElement("div"), onResize);
-    detach();
-
-    expect(onResize).not.toHaveBeenCalled();
-  });
 });
 
 describe("observeMotionStarts", () => {

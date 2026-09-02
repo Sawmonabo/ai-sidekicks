@@ -77,6 +77,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 
 import { Emitter, type Unsubscribe } from "../core/index.js";
+import { observeElementResize } from "../primitives/index.js";
 import { TERMINAL_DEFAULT_SCROLLBACK_LINES } from "./constants.js";
 import { allowedTerminalLinkHref } from "./link-guard.js";
 import { TerminalRendererPool, terminalRendererPool } from "./renderer-pool.js";
@@ -129,7 +130,7 @@ export class XtermTerminalAdapter {
   // terminal that had already fallen back to the DOM renderer.
   readonly #rendererModeChanges = new Emitter<TerminalRendererMode>("terminal renderer mode");
   #hostElement: HTMLElement | undefined;
-  #resizeObserver: ResizeObserver | undefined;
+  #detachHostSizeObserver: Unsubscribe | undefined;
   #isWriteEnabled = false;
   #isDisposed = false;
 
@@ -205,8 +206,8 @@ export class XtermTerminalAdapter {
 
   /** Take the emulator off screen and keep it, with its scrollback and its renderer. */
   public detach(): void {
-    this.#resizeObserver?.disconnect();
-    this.#resizeObserver = undefined;
+    this.#detachHostSizeObserver?.();
+    this.#detachHostSizeObserver = undefined;
     this.#hostElement = undefined;
   }
 
@@ -447,18 +448,22 @@ export class XtermTerminalAdapter {
     this.#rendererModeChanges.emit(rendererMode);
   }
 
+  /**
+   * Re-fit the grid whenever the host box changes, through the console's one size
+   * seam.
+   *
+   * `primitives/element-resize.ts` owns the observer construction, its feature
+   * detection, and its disconnect. A second construction here would be the same four
+   * lines free to drift from the browser family's — the hoist-on-second-use rule
+   * `apps/desktop/AGENTS.md` states — and the degrade is the helper's: a host without
+   * the observer arms nothing and re-fits when the surface asks. No interval is
+   * started either way; a polling terminal would be the console's only always-on
+   * timer.
+   */
   #observeHostSize(hostElement: HTMLElement): void {
-    this.#resizeObserver?.disconnect();
-    if (typeof ResizeObserver === "undefined") {
-      // A host without the observer re-fits when the surface asks. No interval is
-      // started: a polling terminal would be the console's only always-on timer.
-      this.#resizeObserver = undefined;
-      return;
-    }
-    const resizeObserver = new ResizeObserver(() => {
+    this.#detachHostSizeObserver?.();
+    this.#detachHostSizeObserver = observeElementResize(hostElement, () => {
       this.fitToHost();
     });
-    resizeObserver.observe(hostElement);
-    this.#resizeObserver = resizeObserver;
   }
 }

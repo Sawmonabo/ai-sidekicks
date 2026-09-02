@@ -3,9 +3,9 @@
 // `occlusion-registry.ts` holds WHICH overlays are on screen; this module holds how
 // the document reports that one of them has moved. They are split because only this
 // half needs a document: the registry stays testable over rectangle readers alone,
-// and every DOM seam that can be absent — a platform with no `ResizeObserver`, a
-// shim with no Web Animations, a node-environment tier with no `document` — is
-// guarded here once instead of at each use.
+// and every DOM seam that can be absent — a shim with no Web Animations, a
+// node-environment tier with no `document` — is guarded here once instead of at each
+// use.
 //
 // A SIZE CHANGE AND A MOTION ARE DIFFERENT FACTS. A `ResizeObserver` fires when the
 // box changes shape and says nothing about a box that is being carried across the
@@ -19,10 +19,12 @@
 // it. One capture-phase pair on the document hears all three, and the caller
 // decides which of its subjects the moving node belongs to.
 //
-// ONE CONSTRUCTION SITE PER SEAM. Both consumers — the overlay registry and the
-// pane geometry publisher — arm their size source through `observeElementResize`
-// here rather than constructing an observer of their own, so the feature detection
-// and the disconnect-on-dispose cannot drift apart between them.
+// THE SIZE SEAM ITSELF IS NOT HERE. `observeElementResize` was this family's, until
+// the terminal family turned out to arm a size source too — for an emulator grid
+// that re-fits when its host box changes — and the two families sit beside each
+// other in the DAG, where neither can import the other. It lives in
+// `primitives/element-resize.ts` now, which is the lowest family both sit above, and
+// this module is one of its callers rather than its home.
 //
 // AND A MOVE IS NEITHER OF THOSE. `observeElementPosition` is the composed answer
 // to "did this element change WHERE it is", which no single platform observer
@@ -32,6 +34,7 @@
 // below, and none of them samples at rest.
 
 import type { ConsoleClock, ScheduledHandle, Unsubscribe } from "../core/index.js";
+import { observeElementResize } from "../primitives/index.js";
 
 /**
  * The two events that announce motion STARTING.
@@ -43,27 +46,6 @@ import type { ConsoleClock, ScheduledHandle, Unsubscribe } from "../core/index.j
  * animations themselves, so a caller never has to reconcile two vocabularies.
  */
 const MOTION_START_EVENT_NAMES = ["transitionrun", "animationstart"] as const;
-
-/**
- * Report every size change of one element until the returned disposer is called.
- *
- * A platform with no `ResizeObserver` arms nothing and says so by doing nothing: the
- * caller's other sources still fire, which is the honest degrade — a missing observer
- * makes the reading coarser, never wrong.
- */
-export function observeElementResize(element: Element, onResize: () => void): Unsubscribe {
-  const ObserverConstructor = globalThis.ResizeObserver as typeof ResizeObserver | undefined;
-  if (ObserverConstructor === undefined) {
-    return () => undefined;
-  }
-  const observer = new ObserverConstructor(() => {
-    onResize();
-  });
-  observer.observe(element);
-  return () => {
-    observer.disconnect();
-  };
-}
 
 /**
  * Report the node under every transition or animation that starts anywhere in this

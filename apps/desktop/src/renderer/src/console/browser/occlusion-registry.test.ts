@@ -16,7 +16,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ManualClock } from "../core/index.js";
-import { installFakeResizeObserver } from "./element-motion.test-support.js";
+import { installFakeResizeObserver } from "../primitives/element-resize.test-support.js";
 import { OVERLAY_KINDS, PaneOcclusionRegistry } from "./occlusion-registry.js";
 import type { PaneRect } from "./pane-geometry.js";
 
