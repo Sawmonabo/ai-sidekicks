@@ -6,24 +6,28 @@
 // each a composition of its own read, opening panes; a section carrying an amber
 // or red item is open and every other section is collapsed."
 //
-// FOUR FAMILIES FILL THIS ONE SIDEBAR
+// THREE FAMILIES FILL THIS ONE SIDEBAR
 //
 // The sidebar itself is the composer family's (T-023p-1C-3), and it renders
 // sections it does not own: repos and artifacts are the repos family's
 // (T-023p-1C-5), channels, agents, and members the collaboration family's
-// (T-023p-1C-4), and runs its own. Without a seat those four branches would each
-// have to edit the sidebar component, which is one file and therefore three
-// conflicts.
+// (T-023p-1C-4), and goal, runs, and approvals its own. Without a seat those
+// branches would each have to edit the sidebar component, which is one file and
+// therefore a conflict per branch.
 //
-// WHY THE SECTION IDS ARE A SMALLER SET THAN THE SPEC'S SENTENCE
+// THE SET IS THE SPEC'S SET, IN THE SPEC'S ORDER
 //
-// The spec's list names eight things; this set has six. `goal` and `approvals`
-// are not sections with owners in Phase 1C — the goal is session chrome the
-// workspace renders above the sections, and approvals reach the person through
-// the approvals PANE and the frame's banner rather than through a sidebar
-// section. A section id minted for a body no task will register would be a seat
-// that can never be filled and a hole the sidebar would have to explain. When
-// either grows an owner it joins this tuple in that owner's PR.
+// All eight, including `goal` and `approvals`. This tuple drives
+// `SidebarSectionId`, registration, and render order, so a section missing from it
+// cannot be registered at all: a conforming sidebar could not be built against a
+// substrate that has no seat for two sections the spec requires, and the family
+// that owns them would have to reopen this shared contract to add them — or route
+// them somewhere the spec did not put them.
+//
+// An approvals PANE and the frame's approval banner are not substitutes for the
+// section and never were: the pane is a whole surface a person navigates to and the
+// banner is room-wide attention, while the section is the sidebar's own
+// independently loaded read of what this session is waiting on.
 
 import { KeyedRegistry } from "../../core/index.js";
 import { type ConsoleBridge } from "../../bridge/index.js";
@@ -34,15 +38,22 @@ import { type ConsolePaneOpener } from "./pane-registry.js";
 /**
  * Every sidebar section, in render order.
  *
- * The order IS the sidebar's order, so this tuple is what a person sees. The
- * tuple is the declaration and the union is derived from it, for the reason
+ * The order IS the sidebar's order, so this tuple is what a person sees — and it
+ * is `Spec-023 §Console Design (Meridian)` §The surface set's own order, quoted in
+ * this module's header and compared to the transcription in `sidebar-sections.test.ts`
+ * by an ordered comparison. `repos` is the spec's "repos and worktrees": one
+ * section, and the id names the entity kind its cards open panes for.
+ *
+ * The tuple is the declaration and the union is derived from it, for the reason
  * `pane-kinds.ts` gives about its own set.
  */
 export const SIDEBAR_SECTION_IDS = [
+  "goal",
   "channels",
-  "agents",
   "runs",
+  "agents",
   "repos",
+  "approvals",
   "artifacts",
   "members",
 ] as const;
@@ -113,7 +124,7 @@ export class SidebarSectionRegistry {
 }
 
 // Consumed by T-023p-1C-3
-/** The process-wide registry the four contributing families call at module scope. */
+/** The process-wide registry the three contributing families call at module scope. */
 export const sidebarSectionRegistry: SidebarSectionRegistry = new SidebarSectionRegistry();
 
 // Consumed by T-023p-1C-3, T-023p-1C-4, T-023p-1C-5
