@@ -28,7 +28,16 @@
     "sourceMap": false,
     // DOM joins the Node lib rather than replacing it — see the header. Kept in
     // step with the renderer project's own lib set.
-    "lib": ["ES2023", "DOM", "DOM.Iterable"]
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    // These tiers name renderer constants, and the modules that DECLARE those
+    // constants type-import their family barrels, which re-export `.tsx`
+    // components — so the console's React modules are in this program whether or
+    // not a test file mentions one. Without `jsx` they fail TS6142 at the barrel
+    // and the pin the whole posture rests on (import the string, never retype it)
+    // is unavailable. Same option the renderer's own project carries; nothing
+    // here emits, and no `.tsx` is authored under `test/console/e2e/` or
+    // `test/console/endurance/`.
+    "jsx": "react-jsx"
   },
   "include": [
     "test/console/e2e/**/*",

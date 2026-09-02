@@ -67,6 +67,47 @@ export const MAIN_ENTRY_PATH: string = join(PACKAGE_ROOT, "out", "main", "index.
 export { TRIPWIRE_FIXTURE_GLOBAL } from "../../src/renderer/src/console/core/tripwires.js";
 
 /**
+ * The property a fixture build hangs the scenario control on, and its shape.
+ *
+ * Re-exported from the module that declares it, for the reason above: a tier that
+ * retyped the string would read `undefined` from a property that no longer exists
+ * and report a missing member rather than a rename. The module is reached
+ * directly rather than through `console/bridge/index.js` because that barrel pulls
+ * the provider's `.tsx` in, and this program has no JSX.
+ */
+export {
+  SCENARIO_FIXTURE_GLOBAL,
+  type ScenarioFixtureHandle,
+} from "../../src/renderer/src/console/bridge/scenario-selection.js";
+
+/**
+ * The property a fixture build hangs the session-store diagnostics on, and its
+ * shape.
+ *
+ * The third of the three handles these tiers read, re-exported on the same rule
+ * as the two above: the string is imported from the module that sets it, never
+ * retyped, so a rename is a compile error rather than a tier reading `undefined`
+ * from a property that no longer exists. Beats delivered by the scenario engine
+ * and events admitted to a store's apply chokepoint are two different claims, and
+ * the endurance tier asserts both.
+ */
+export {
+  SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
+  type ConsoleSessionDiagnostics,
+} from "../../src/renderer/src/console/frame/session-event-binder.js";
+
+/**
+ * The environment variable the built main process reads a scenario id from.
+ *
+ * Held here rather than imported: `src/main/index.ts` boots Electron at module
+ * evaluation, so importing it into a driver process is not available. The two
+ * literals are pinned end-to-end instead — `steady-state.test.ts` launches with a
+ * scenario id and asserts the console is playing that scenario, so a drift on
+ * either side fails that tier rather than quietly selecting nothing.
+ */
+const FIXTURE_SCENARIO_ENV_VAR = "SIDEKICKS_FIXTURE_SCENARIO";
+
+/**
  * How long a window may take to appear before the launch is called failed.
  *
  * Generous, and deliberately so: this bounds a COLD Electron start on a shared
@@ -88,11 +129,23 @@ export interface LaunchConsoleOptions {
   /**
    * Extra environment for the Electron process.
    *
-   * Merged over `process.env`. A tier uses this to pin a scenario or a clock;
+   * Merged over `process.env`. A tier uses this to pin a clock or a probe;
    * nothing here reaches the renderer except through the main process, which is
    * the same boundary the shipped application enforces.
    */
   readonly env?: Readonly<Record<string, string>>;
+  /**
+   * Which scripted scenario the launched console plays.
+   *
+   * A named option rather than an `env` entry a caller spells itself, so the one
+   * thing every tier needs to say is said the same way and the variable name lives
+   * in one place. Pass a manifest id — a tier reads it off the scenario module it
+   * is driving, so a renamed scenario is a compile error rather than a launch that
+   * quietly falls back. An unknown id does NOT fail the launch: the console plays
+   * its first-run scenario and says why, which is what makes the assertion that it
+   * is playing the RIGHT one worth making.
+   */
+  readonly scenarioId?: string;
 }
 
 /**
@@ -106,11 +159,16 @@ export async function launchConsole(
   options: LaunchConsoleOptions = {},
 ): Promise<ConsoleApplication> {
   const userDataDirectory = mkdtempSync(join(tmpdir(), "ai-sidekicks-console-"));
+  // The scenario is applied LAST so a named option cannot be shadowed by an `env`
+  // entry that happens to spell the same variable — one place decides, and it is
+  // the typed one.
+  const scenarioEnvironment =
+    options.scenarioId === undefined ? {} : { [FIXTURE_SCENARIO_ENV_VAR]: options.scenarioId };
   let application: ElectronApplication;
   try {
     application = await electron.launch({
       args: [`--user-data-dir=${userDataDirectory}`, MAIN_ENTRY_PATH],
-      env: { ...process.env, ...options.env } as Record<string, string>,
+      env: { ...process.env, ...options.env, ...scenarioEnvironment } as Record<string, string>,
       timeout: WINDOW_APPEAR_TIMEOUT_MS,
     });
   } catch (error: unknown) {
