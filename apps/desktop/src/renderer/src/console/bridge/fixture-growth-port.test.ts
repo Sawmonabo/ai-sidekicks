@@ -26,6 +26,13 @@ import { FIRST_RUN_SCENARIO } from "./scenarios/first-run.js";
 import { FLAGSHIP_SCENARIO } from "./scenarios/flagship.js";
 import { CONSOLE_SCENARIOS } from "./scenarios/index.js";
 import { findScenarioWireTruthDefects } from "./scenarios/wire-truth.js";
+import {
+  WORKFLOWS_COMPLETED_PHASE_ID,
+  WORKFLOWS_PARKED_RUN,
+  WORKFLOWS_SCENARIO_DEFINITIONS,
+  WORKFLOWS_SCENARIO_PHASE_OUTPUTS,
+} from "./scenarios/workflow-fixture-data.js";
+import { WORKFLOWS_SCENARIO } from "./scenarios/workflows.js";
 import { createTier1Bridge } from "@ai-sidekicks/contracts";
 
 /**
@@ -41,13 +48,20 @@ import { createTier1Bridge } from "@ai-sidekicks/contracts";
  * `callerParticipantRead` does, because an identity is a fact about one roster — so
  * a probe carrying no session would be asking about a session the fixture is not
  * playing and would read a correct scoping refusal as a broken served claim.
+ *
+ * Which is also why the session is a PARAMETER rather than a constant: the cases
+ * below drive more than one scenario, and a probe naming the flagship's session
+ * against a bridge playing a different one would fail for exactly the reason the
+ * paragraph above gives. The flagship stays the default, so only a caller that means
+ * another scenario has to say so.
  */
 async function callOperation(
   port: GrowthPort,
   operationId: GrowthOperationId,
+  sessionId: string = FLAGSHIP_SCENARIO.sessionId,
 ): Promise<GrowthOutcome<unknown>> {
   const call = port[operationId] as (request: unknown) => Promise<GrowthOutcome<unknown>>;
-  return call({ sessionId: FLAGSHIP_SCENARIO.sessionId });
+  return call({ sessionId });
 }
 
 function fixturePort(): GrowthPort {
@@ -57,11 +71,21 @@ function fixturePort(): GrowthPort {
 
 describe("the fixture growth port — what it serves, and what it still refuses", () => {
   it("answers every operation its bridge claims to serve, and refuses every other", async () => {
-    const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
+    // Driven over the WORKFLOWS scenario rather than the flagship, on the second half
+    // of the rule the helper above states: a served operation may legitimately answer
+    // from what the scenario SAYS and refuse where it says nothing —
+    // `callerParticipantRead` does that for a viewer, and the two workflow snapshot
+    // reads do it for a run that has no empty form. The workflows scenario is the one
+    // that states all of it, so a refusal here is a broken served claim rather than a
+    // script that has not spoken. The other side of that pair — the flagship, which
+    // scripts no workflow read — is driven by the workflow suite at the foot of this
+    // file, so neither arm ships untested.
+    const scenario = WORKFLOWS_SCENARIO;
+    const bridge = createFixtureBridge({ scenario });
     const served = new Set<string>(FIXTURE_SERVED_GROWTH_OPERATION_IDS);
 
     for (const operationId of Object.keys(GROWTH_OPERATIONS) as GrowthOperationId[]) {
-      const outcome = await callOperation(bridge.growth, operationId);
+      const outcome = await callOperation(bridge.growth, operationId, scenario.sessionId);
       expect(outcome.status, `${operationId} answered the wrong way`).toBe(
         served.has(operationId) ? "served" : "unavailable",
       );
@@ -747,6 +771,132 @@ describe("the fixture's registry reads — refusing on a stated premise", () => 
       expect(outcome.status).toBe("unavailable");
       if (outcome.status === "unavailable") {
         expect(outcome.owningDocument, operationId).toContain(owner);
+      }
+    }
+  });
+});
+
+// The workflow reads.
+//
+// Three operations, one seam, and two different honest absences — which is why they
+// are held together rather than one per surface. The claim is not that a call returns
+// something. It is that what a scenario STATES reaches the caller unchanged, and that
+// a scenario stating nothing gets the answer its value shape admits: an empty
+// enumeration where an empty enumeration is a real reply, a refusal where the only
+// alternative is an invented run.
+//
+// The flagship is the negative control throughout. It scripts none of the three, so
+// each case that reads the workflows script has a counterpart driven over it, and a
+// port answering from a constant instead of from the script would pass one of every
+// pair and fail the other.
+
+/** The fixture port playing the scenario that scripts all three workflow reads. */
+function workflowsPort(): GrowthPort {
+  return createFixtureBridge({ scenario: WORKFLOWS_SCENARIO }).growth;
+}
+
+describe("the fixture's workflow reads — answered from the script, never invented", () => {
+  it("enumerates the definitions the scenario states, and synthesizes no cursor", async () => {
+    const outcome = await workflowsPort().workflowDefinitionList({
+      sessionId: WORKFLOWS_SCENARIO.sessionId,
+    });
+
+    expect(outcome.status).toBe("served");
+    if (outcome.status === "served") {
+      expect(outcome.value.definitions).toStrictEqual(WORKFLOWS_SCENARIO_DEFINITIONS);
+      // The scenario's reply omits it and the fixture must not fill it in: a cursor
+      // here would promise a second page that every later fetch — the engine matching
+      // a reply by call name — would answer with this same one forever.
+      expect(outcome.value.nextCursor).toBeUndefined();
+    }
+  });
+
+  it("answers the run read with the very run the scenario states", async () => {
+    const outcome = await workflowsPort().workflowRunRead({
+      workflowRunId: WORKFLOWS_PARKED_RUN.workflowRunId,
+    });
+
+    expect(outcome.status).toBe("served");
+    if (outcome.status === "served") {
+      // Identity rather than deep equality: the pane's run and the list's run are one
+      // object, and two copies that agree today are what a later edit takes apart
+      // with nothing to notice.
+      expect(outcome.value).toBe(WORKFLOWS_PARKED_RUN);
+    }
+  });
+
+  it("answers the phase-output read for the phase the scenario finished", async () => {
+    const outcome = await workflowsPort().workflowPhaseOutputRead({
+      workflowRunId: WORKFLOWS_PARKED_RUN.workflowRunId,
+      phaseId: WORKFLOWS_COMPLETED_PHASE_ID,
+    });
+
+    expect(outcome.status).toBe("served");
+    if (outcome.status === "served") {
+      expect(outcome.value.phaseId).toBe(WORKFLOWS_COMPLETED_PHASE_ID);
+      expect(outcome.value.state).toBe("completed");
+      expect(outcome.value.outputs).toStrictEqual(WORKFLOWS_SCENARIO_PHASE_OUTPUTS);
+    }
+  });
+
+  it("answers a scenario that scripts no definitions with an empty enumeration", async () => {
+    // Served-and-empty, not refused: the operation IS answered here and what it found
+    // is nothing, which is the EMPTY kind of nothing a definition browser draws.
+    const outcome = await fixturePort().workflowDefinitionList({
+      sessionId: FLAGSHIP_SCENARIO.sessionId,
+    });
+
+    expect(outcome.status).toBe("served");
+    if (outcome.status === "served") {
+      expect(outcome.value).toStrictEqual({ definitions: [] });
+    }
+  });
+
+  it("refuses the two snapshot reads for a scenario that scripts neither", async () => {
+    // The negative control for the three script-driven cases above, and the rule this
+    // routing exists under in its own right: an unscripted run read must never become
+    // an absent value. There is no empty `WorkflowRunSnapshot` and no phase this
+    // fixture could name as finished, so an answer here would be an invented run and
+    // an invented phase — and a run pane offers operator controls on what it holds.
+    const port = fixturePort();
+
+    for (const outcome of [
+      await port.workflowRunRead({ workflowRunId: WORKFLOWS_PARKED_RUN.workflowRunId }),
+      await port.workflowPhaseOutputRead({
+        workflowRunId: WORKFLOWS_PARKED_RUN.workflowRunId,
+        phaseId: WORKFLOWS_COMPLETED_PHASE_ID,
+      }),
+    ]) {
+      expect(outcome.status).toBe("unavailable");
+      if (outcome.status === "unavailable") {
+        expect(outcome.code).toBe("wire-unregistered");
+        expect(outcome.slateRow).toBe("workflow-run-control");
+      }
+      expect(outcome).not.toHaveProperty("value");
+    }
+  });
+
+  it("routes no workflow mutation, a scripted reply being a value and not a state machine", async () => {
+    // A cancel that answered would sit beside a run read still reporting `suspended`.
+    // The set is derived from the ledger minus the served set rather than listed here,
+    // so a mutation routed later fails this case instead of shipping quietly.
+    const port = workflowsPort();
+    const served = new Set<string>(FIXTURE_SERVED_GROWTH_OPERATION_IDS);
+    const unrouted = (Object.keys(GROWTH_OPERATIONS) as GrowthOperationId[]).filter(
+      (operationId) =>
+        GROWTH_OPERATIONS[operationId].slateRow === "workflow-run-control" &&
+        !served.has(operationId),
+    );
+
+    // Six: five mutations and the gate-chain verification. Counted so a row that
+    // quietly lost its operations cannot make the loop below vacuously pass.
+    expect(unrouted).toHaveLength(6);
+    for (const operationId of unrouted) {
+      const outcome = await callOperation(port, operationId, WORKFLOWS_SCENARIO.sessionId);
+
+      expect(outcome.status, operationId).toBe("unavailable");
+      if (outcome.status === "unavailable") {
+        expect(outcome.code, operationId).toBe("wire-unregistered");
       }
     }
   });

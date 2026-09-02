@@ -133,6 +133,19 @@
   border-radius: var(--meridian-radius-md);
 }
 
+/*
+ * The run pane's park stack.
+ *
+ * A stack rather than a grid: the badges are read top to bottom in the order the
+ * phases run, and a two-column arrangement would put a park a person has to act on
+ * beside one nothing is waiting for and imply they are peers.
+ */
+.meridian-workflow__parks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+}
+
 /* ----------------------------------------------------------------- actions */
 
 .meridian-workflow__action {

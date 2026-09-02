@@ -38,6 +38,7 @@
 import { registerLegacySurfaces } from "./frame/legacy-surfaces.js";
 import type { ConsoleSurfaceRegistry } from "./frame/surface-registry.js";
 import { registerConsolePanes } from "./panes/index.js";
+import { registerWorkflowSurfaces } from "./workflows/index.js";
 import { consolePaneRegistry } from "./workspace/index.js";
 
 /**
@@ -64,7 +65,7 @@ export function registerConsoleFamilies(registry: ConsoleSurfaceRegistry): void 
   // T-023p-1C-3 composer
   // T-023p-1C-4 collaboration
   // T-023p-1C-5 repos
-  // T-023p-1C-6 workflows
+  registerWorkflowSurfaces(registry);
   // T-023p-1C-7 browser-terminal
   // T-023p-1C-8 gallery
 }

@@ -109,8 +109,17 @@ export interface WorkflowPhasePark {
 /** One phase's projected state, with the park members exactly as the wire carries them. */
 export interface WorkflowPhaseStateRow {
   readonly phaseId: string;
-  /** The phase's own name, for a park a person has to act on. */
-  readonly phaseName: string;
+  /**
+   * The phase's own name, for a park a person has to act on — where anything
+   * carries one.
+   *
+   * Optional because no registered read does. The run read projects phases by
+   * `phaseId` and nothing else names them, so a row built from the wire has an
+   * opaque identity and no label; a projection that required a name would force its
+   * caller to invent one, and an invented phase name is indistinguishable on screen
+   * from an authored one. A surface without it shows the id as the wire value it is.
+   */
+  readonly phaseName?: string;
   readonly state: WorkflowPhaseRunState;
   readonly parkReason?: WorkflowParkReason;
   readonly parkCause?: string;
@@ -129,8 +138,17 @@ export interface WorkflowRunSnapshot {
   /** Also the cancellation reason on a `cancelled` run, per the contract's own split. */
   readonly failureReason?: string;
   readonly phaseStates: readonly WorkflowPhaseStateRow[];
-  /** The definition's name, so a run row reads as something other than an id. */
-  readonly definitionName: string;
+  /**
+   * The definition's name, so a run row reads as something other than an id —
+   * where the caller holds one.
+   *
+   * Optional for the reason `phaseName` is: the run read carries the pinned
+   * `workflowVersionId` and no name, the definition enumeration carries names and
+   * is keyed by definition, and no registered read joins the two. A caller that has
+   * both may pass it; one that has only the run passes nothing and the row shows
+   * the run's own identity rather than a name nobody sent.
+   */
+  readonly definitionName?: string;
   /**
    * The definition's newest version id, when the caller holds it.
    *
@@ -146,7 +164,13 @@ export interface WorkflowRunSnapshot {
 /** A parked phase, paired with the park that made it one. */
 export interface WorkflowParkedPhase {
   readonly phaseId: string;
-  readonly phaseName: string;
+  /**
+   * Spelled `| undefined` rather than merely optional, on this file's own stated
+   * rule: the shape is CONSTRUCTED from a row rather than written as a literal, and
+   * under `exactOptionalPropertyTypes` an absent key and a key holding `undefined`
+   * are different types.
+   */
+  readonly phaseName?: string | undefined;
   readonly park: WorkflowPhasePark;
 }
 

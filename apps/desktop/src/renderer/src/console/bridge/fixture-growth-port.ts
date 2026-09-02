@@ -1,13 +1,14 @@
 // The growth port the fixture bridge actually serves.
 //
 // Every other growth operation refuses under both bridges, which is what makes the
-// "not checked" absence a true statement rather than a placeholder. Five do not:
+// "not checked" absence a true statement rather than a placeholder. Eight do not:
 // the two the console cannot function without — a session snapshot read and a
 // session directory read — the attention projection read, which is the only one of
-// them the console must not compute for itself, the gitflow branch-context read,
-// whose whole answer today is that there is none, and the caller-identity read,
-// which is answered from a scenario that states its own viewer and refused from one
-// that does not.
+// them the console must not compute for itself, the three workflow reads, which are
+// answered from the workflows scenario's own script and part company only over what
+// an unscripted scenario means, the gitflow branch-context read, whose whole answer
+// today is that there is none, and the caller-identity read, which is answered from
+// a scenario that states its own viewer and refused from one that does not.
 //
 // WHY THE TWO SESSION READS ARE SERVED AND THE REST ARE NOT
 //
@@ -74,6 +75,41 @@
 //     so the fold would have no input; it lands with the scenario that needs it.
 //   • `mention` — the event census registers no mention type at all, so there is
 //     nothing canonical to fold.
+//
+// WHY THE THREE WORKFLOW READS ARE SERVED, AND WHY TWO OF THEM STILL REFUSE
+//
+// The workflows scenario scripts `workflow.definitionList`, `workflow.runRead`, and
+// `workflow.phaseOutputRead` — the three reads the run list, the run pane, and the
+// definition browser are built on — and this port routed none of them. So the panes
+// rendered the "not checked" refusal in every fixture build and the family's
+// screenshots pinned an absence rather than the story the scenario tells. Routing
+// them is what makes a script that already exists reachable.
+//
+// All three cross the same scripted-reply seam the branch-context read does, so a
+// workflow read gets the frozen clock's loading window and the two non-arrival
+// refusals a real read has. Where they part is the UNSCRIPTED arm, and the split is
+// a property of the value rather than a preference:
+//
+//   • The definition enumeration answers with an empty list. A context that resolves
+//     no definitions is the EMPTY kind of nothing (`Spec-023 §Console Design
+//     (Meridian)` §The five kinds of nothing) — a stated fact the browser draws —
+//     and an empty enumeration is a real daemon answer to the question asked. No
+//     `nextCursor` travels with it, on the scripted reply's own reasoning: the engine
+//     matches a reply by call name, so a cursor would promise a second page that
+//     every later fetch would answer with this same one forever.
+//   • The run read and the phase-output read refuse. Neither value has an empty form
+//     — every member of `WorkflowRunSnapshot` is required, and a phase-output read
+//     reports a phase that reached a terminal state — so the only way to answer would
+//     be to invent a run and a finished phase, and a run pane offers operator
+//     controls on whatever it is handed. They take the same "not checked" refusal
+//     `callerParticipantRead` takes for a scenario that names no viewer: the question
+//     reached nothing that could answer it.
+//
+// NO MUTATION IS ROUTED, and that is the scenario's rule rather than this port's: a
+// scripted reply is a fixed value and not a state machine, so a cancel that answered
+// would sit beside a run read still reporting `suspended`. The six workflow
+// operations this leaves — five mutations and the gate-chain verification — keep
+// refusing under both bridges.
 //
 // WHY THE BRANCH-CONTEXT READ IS SERVED AND ANSWERS NOTHING
 //
@@ -149,17 +185,10 @@ import type {
   AttentionSeverity,
   AttentionTrigger,
 } from "./attention-projection.js";
-import type { GrowthOperationId } from "./growth-entry.js";
-import type { GrowthOutcome } from "./growth-outcome.js";
-import {
-  createRefusingGrowthPort,
-  growthScriptedReplyUnavailable,
-  growthUnavailable,
-  type GrowthPort,
-} from "./growth-port.js";
+import { createRefusingGrowthPort, growthUnavailable, type GrowthPort } from "./growth-port.js";
 import type { GrowthSessionSummary } from "./growth-values.js";
 import type { ConsoleScenario, ScenarioEngine } from "./scenario.js";
-import { settleScriptedReply } from "./scripted-reply.js";
+import { answerFromScriptedReply } from "./scripted-reply-adapter.js";
 
 /**
  * The operations the fixture answers rather than refuses.
@@ -173,6 +202,10 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS = [
   "sessionRead",
   "sessionList",
   "attentionProjectionRead",
+  // workflow
+  "workflowDefinitionList",
+  "workflowRunRead",
+  "workflowPhaseOutputRead",
   // gitflow
   "gitflowBranchContextRead",
   // identity
@@ -222,6 +255,31 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
             // IS served, and what it found for that session is nothing.
             { items: [] },
     }),
+    // workflow
+    workflowDefinitionList: async () =>
+      // Served empty for a scenario that scripts nothing. An enumeration has an empty
+      // form and it is a real answer — this context resolves no definitions — so the
+      // browser draws the EMPTY kind of nothing rather than the "not checked" kind.
+      // `nextCursor` stays absent, the scripted reply's own note beside it saying why.
+      answerFromScriptedReply(engine, "workflow.definitionList", "workflowDefinitionList", () => ({
+        status: "served",
+        value: { definitions: [] },
+      })),
+    workflowRunRead: async () =>
+      // Refused for a scenario that scripts nothing, and the split from the read above
+      // is the value's rather than this port's: `WorkflowRunSnapshot` requires a run
+      // id, a session, a pinned version, a state, and a start instant, so an "empty"
+      // run would be five invented facts, and a pane offers controls on what it holds.
+      answerFromScriptedReply(engine, "workflow.runRead", "workflowRunRead", () =>
+        growthUnavailable("workflowRunRead"),
+      ),
+    workflowPhaseOutputRead: async () =>
+      // Refused on the same ground. This read reports a phase that reached a terminal
+      // state, so there is no phase the fixture could name here without stating that
+      // a phase it knows nothing about has finished and left outputs behind.
+      answerFromScriptedReply(engine, "workflow.phaseOutputRead", "workflowPhaseOutputRead", () =>
+        growthUnavailable("workflowPhaseOutputRead"),
+      ),
     // gitflow
     gitflowBranchContextRead: async () =>
       // Routed through the scripted-reply seam so a repos scenario that DOES script
@@ -236,9 +294,7 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
         engine,
         "gitflow.branchContextRead",
         "gitflowBranchContextRead",
-        () => ({
-          branchContext: undefined,
-        }),
+        () => ({ status: "served", value: { branchContext: undefined } }),
       ),
     // identity
     callerParticipantRead: async (request) => {
@@ -336,54 +392,6 @@ function directorySessionsOf(scenario: ConsoleScenario): readonly GrowthSessionS
     return [];
   }
   return [{ sessionId: scenario.sessionId, state } satisfies GrowthSessionSummary];
-}
-
-/**
- * Answer one served operation from the scenario's script, or from its own absence.
- *
- * The four settlements `scripted-reply.ts` reports land here as three different kinds
- * of answer, and the mapping is the whole reason this helper exists rather than four
- * inline arms per operation:
- *
- *   • **Unscripted** is not a failure on this port. Every operation the fixture serves
- *     has an honest answer of its own for a scenario that scripts nothing — the branch
- *     read's is that this workspace has no branch context — so the caller supplies it
- *     and the port serves it. `reply-unscripted` therefore stays what it has always
- *     been: `fixture-bridge.ts`'s authoring error, raised where a call really has no
- *     answer at all.
- *   • **Resolved** is served verbatim. The cast is the seam's own property rather than
- *     a shortcut: a `ScenarioReply` carries `unknown`, exactly as it does for the
- *     bridge's `daemon.call`, and there is no registered reply schema to narrow it
- *     against until the wire lands.
- *   • **Unanswered** refuses by name. This is the rule the codes exist for: a reply
- *     the frozen clock never released must never reach a surface as an absent value,
- *     because an absent value renders as "there is none" — a claim about the session
- *     that nothing checked.
- *   • **Refused** is thrown VERBATIM, unwrapped, exactly as the bridge throws it. A
- *     scripted refusal is the DAEMON's, and this port's outcome union has no arm for
- *     one; adding a code for it would paraphrase the daemon's own `{code, message}`
- *     into a growth-scoped vocabulary, which is the one thing a fixture must not do.
- *     A rejection is also what the caller will get once the wire lands and the
- *     operation becomes an ordinary bridge call, so the fixture is not teaching a
- *     shape the real seam will not produce.
- */
-async function answerFromScriptedReply<TValue>(
-  engine: ScenarioEngine,
-  call: string,
-  operationId: GrowthOperationId,
-  whenUnscripted: () => TValue,
-): Promise<GrowthOutcome<TValue>> {
-  const settlement = await settleScriptedReply(engine, call);
-  switch (settlement.status) {
-    case "unscripted":
-      return { status: "served", value: whenUnscripted() };
-    case "resolved":
-      return { status: "served", value: settlement.value as TValue };
-    case "unanswered":
-      return growthScriptedReplyUnavailable(operationId, settlement.code, settlement.detail);
-    case "refused":
-      throw settlement.refusal;
-  }
 }
 
 /** How one run state reaches a participant, where `Spec-019` classifies it. */

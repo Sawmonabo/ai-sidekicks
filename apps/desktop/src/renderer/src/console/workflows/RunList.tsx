@@ -58,11 +58,22 @@ interface RunListItemProps {
 const RunListItem = memo(function RunListItem(props: RunListItemProps): React.JSX.Element {
   const { row, onOpenRun } = props;
   const { run } = row;
+  // The definition's name where the caller holds one, and the run's own identity
+  // where it does not. No registered read joins a run to the name of the definition
+  // it was started from, so the fallback is the opaque id the wire DID send, worn as
+  // a wire value in mono — which reads as an identifier rather than as a title, and
+  // is the one thing on this row a person can paste into a search.
+  const runLabel =
+    run.definitionName === undefined ? (
+      <WireFigure value={run.workflowRunId} />
+    ) : (
+      run.definitionName
+    );
   return (
     <li className="meridian-run-row">
       <div className="meridian-run-row__head">
         {onOpenRun === undefined ? (
-          <span className="meridian-run-row__name">{run.definitionName}</span>
+          <span className="meridian-run-row__name">{runLabel}</span>
         ) : (
           <button
             type="button"
@@ -71,7 +82,7 @@ const RunListItem = memo(function RunListItem(props: RunListItemProps): React.JS
               onOpenRun(row);
             }}
           >
-            {run.definitionName}
+            {runLabel}
           </button>
         )}
         {/*
