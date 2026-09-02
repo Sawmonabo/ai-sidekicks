@@ -6,6 +6,7 @@
 // read out of Turborepo's own resolution rather than asserted about a file.
 
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -13,6 +14,22 @@ import { describe, expect, it } from "vitest";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = resolve(HERE, "..", "..", "..");
+
+/**
+ * Turborepo's own launcher script, run on this process's Node.
+ *
+ * Deliberately not `pnpm exec turbo`: pnpm prints its engine warnings on stdout
+ * (measured 2026-09-02 on the Node 22.14 CI leg, where the control-plane
+ * package's `>=24` floor produced a `WARN Unsupported engine` line ahead of the
+ * JSON), and a launcher that shares its stdout with the JSON it is asked for
+ * cannot be parsed. The package's `bin` is a script that spawns the platform
+ * binary, so `process.execPath` runs it on every platform without a shell.
+ */
+const TURBO_LAUNCHER = resolve(
+  dirname(createRequire(import.meta.url).resolve("turbo/package.json")),
+  "bin",
+  "turbo",
+);
 
 /**
  * The three tasks that write `apps/desktop/out/**`, and one foil that does not.
@@ -57,10 +74,9 @@ interface TurboDryRun {
  */
 function resolveTurboCacheFlags(): ReadonlyMap<string, boolean> {
   const dryRun = spawnSync(
-    "pnpm",
+    process.execPath,
     [
-      "exec",
-      "turbo",
+      TURBO_LAUNCHER,
       "run",
       "build",
       "build:smoke",
@@ -68,7 +84,13 @@ function resolveTurboCacheFlags(): ReadonlyMap<string, boolean> {
       "--filter=@ai-sidekicks/desktop",
       "--dry=json",
     ],
-    { cwd: PACKAGE_ROOT, encoding: "utf8", maxBuffer: 32 * 1024 * 1024 },
+    {
+      cwd: PACKAGE_ROOT,
+      encoding: "utf8",
+      maxBuffer: 32 * 1024 * 1024,
+      // The dry run must be the graph as configured, never a daemon's replay of it.
+      env: { ...process.env, TURBO_DAEMON: "false" },
+    },
   );
   if (dryRun.status !== 0) {
     throw new Error(
