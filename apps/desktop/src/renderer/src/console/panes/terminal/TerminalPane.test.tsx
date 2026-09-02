@@ -137,10 +137,12 @@ describe("terminal pane — bound to a session", () => {
     await waitFor(() => {
       expect(region.textContent).toContain("No output stream");
     });
-    // The refusal carried is the port's own: it names the wire that is missing and
-    // the document that owes it, rather than a sentence this pane wrote.
+    // The refusal carried is the port's own: it names the wire that is missing
+    // rather than a sentence this pane wrote — and never the governance document
+    // that owes it, which is ledger data and not product vocabulary.
     expect(region.textContent).toContain("terminal pane as a renderer surface");
-    expect(region.textContent).toContain("Spec-003");
+    expect(region.textContent).toContain("not registered on this build yet");
+    expect(region.textContent).not.toContain("Spec-003");
   });
 
   it("negative control: it does not render the absence that would look finished", () => {
