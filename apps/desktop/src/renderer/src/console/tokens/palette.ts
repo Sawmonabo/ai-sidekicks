@@ -97,6 +97,30 @@ export const ATTENTION_TOKENS: Readonly<Record<string, SchemePair>> = {
   // a black label stuck on top of it. Both carry a little of the accent's own
   // chroma for the same reason.
   "accent-ink": { light: oklch(0.13, 0.03, 215), dark: oklch(0.22, 0.04, 205) },
+  // The face of a PRESSED accent-filled control. A token rather than a `filter`,
+  // and the arithmetic is why: a `brightness()` scales both rendered colours, and
+  // scaling does not preserve a contrast ratio, because relative luminance carries
+  // a 0.05 offset a multiplication does not distribute over. `brightness(0.94)` on
+  // the light face took the measured `accent-ink` pair from 4.73:1 to 4.27:1 —
+  // through rule 3's 4.5:1 floor, in the state the treatment was meant to keep
+  // legible.
+  //
+  // HOW FAR THE LIGHT FACE MAY DARKEN IS SETTLED BY ARITHMETIC, NOT BY TASTE. The
+  // ink is dark in both schemes (see above), so contrast with it is a monotone
+  // function of the FILL's luminance, and 4.5:1 against an ink of luminance L needs
+  // a fill above 4.5 × (L + 0.05) − 0.05. Even a pure-black ink puts that floor at
+  // 0.175, and the light accent's own luminance is 0.187 — about 6% of headroom, so
+  // no ink whatsoever buys the light scheme a visibly darker press. Its leg
+  // therefore takes the deepest face the floor admits, L 0.565 at 4.57:1, with
+  // chroma up against the sRGB edge at this lightness so the state reads as a
+  // deeper face rather than a dimmer one; `primitives.css` carries the rest of the
+  // press on the control's boundary, which takes the ink and costs no ratio. The
+  // dark leg starts at 7.41:1 and can afford a real deepening: L 0.68 at 6.17:1.
+  //
+  // Both legs also clear the 3:1 non-text floor on all four grounds (3.54 light,
+  // 5.82 dark) and are measured there, because a pressed control's own face is
+  // still the boundary a person has to find.
+  "accent-pressed": { light: oklch(0.565, 0.099, 215), dark: oklch(0.68, 0.095, 205) },
   "focus-ring": { light: oklch(0.55, 0.11, 215), dark: oklch(0.8, 0.09, 205) },
 };
 
