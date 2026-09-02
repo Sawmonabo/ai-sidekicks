@@ -46,7 +46,8 @@ export { createFixtureBridge } from "./fixture-bridge.js";
 // door the bridge itself does, because a growth refusal IS what this bridge
 // answers for a wire the corpus has not registered.
 export { growthUnavailable } from "./growth-port.js";
-export type { GrowthPort, GrowthSessionSummary } from "./growth-port.js";
+export type { GrowthPort } from "./growth-port.js";
+export type { GrowthSessionSummary } from "./growth-values.js";
 export type { GrowthUnavailable } from "./growth-outcome.js";
 
 // The boot-time scenario decision. Exported through this door because the

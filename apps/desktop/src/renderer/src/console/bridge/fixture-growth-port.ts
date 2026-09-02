@@ -104,11 +104,8 @@ import type {
   AttentionSeverity,
   AttentionTrigger,
 } from "./attention-projection.js";
-import {
-  createRefusingGrowthPort,
-  type GrowthPort,
-  type GrowthSessionSummary,
-} from "./growth-port.js";
+import { createRefusingGrowthPort, type GrowthPort } from "./growth-port.js";
+import type { GrowthSessionSummary } from "./growth-values.js";
 import type { ConsoleScenario, ScenarioEngine } from "./scenario.js";
 
 /**
