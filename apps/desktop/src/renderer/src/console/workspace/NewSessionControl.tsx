@@ -19,6 +19,13 @@
 // _not checked_ absence rather than in a picker with nothing behind it. The draft's
 // own send says the same thing about the wire — one of its three calls is
 // registered, so a send lands `session.create` and refuses the other two by name.
+//
+// SEND IS DISABLED WHILE A SEND IS RUNNING, AND THAT IS THE SECOND GUARD. The draft
+// coalesces repeated sends itself, so pressing twice cannot mint two sessions
+// whatever this control does; disabling the button is what stops a person pressing
+// into a control that looks like it did nothing. Structural guard first, affordance
+// second — never the affordance alone, which is a guard that a keyboard path or a
+// later caller does not get.
 
 import { useCallback, useState } from "react";
 
@@ -92,7 +99,7 @@ export function NewSessionControl(props: NewSessionControlProps): React.JSX.Elem
         <button
           type="button"
           className="meridian-new-session__send"
-          disabled={composition.draftState.isEmpty}
+          disabled={composition.draftState.isEmpty || composition.isSending}
           onClick={composition.send}
         >
           Send
@@ -107,6 +114,8 @@ interface NewSessionComposition {
   /** `undefined` while no draft is open — the state the "+ New" button is in. */
   readonly draftState: NewSessionDraftState | undefined;
   readonly sendResult: NewSessionSendResult | undefined;
+  /** True from the press until the send settles — what disables Send meanwhile. */
+  readonly isSending: boolean;
   readonly open: () => void;
   readonly close: () => void;
   readonly setPosture: (posture: DraftPostureMode) => void;
@@ -125,6 +134,7 @@ function useNewSessionComposition(bridge: ConsoleBridge): NewSessionComposition 
   const [draft, setDraft] = useState<NewSessionDraft | undefined>(undefined);
   const [draftState, setDraftState] = useState<NewSessionDraftState | undefined>(undefined);
   const [sendResult, setSendResult] = useState<NewSessionSendResult | undefined>(undefined);
+  const [isSending, setIsSending] = useState(false);
   const announce = useAnnounce();
 
   const open = useCallback(() => {
@@ -136,6 +146,7 @@ function useNewSessionComposition(bridge: ConsoleBridge): NewSessionComposition 
     setDraft(opened);
     setDraftState(opened.snapshot());
     setSendResult(undefined);
+    setIsSending(false);
   }, [bridge]);
 
   const close = useCallback(() => {
@@ -146,6 +157,7 @@ function useNewSessionComposition(bridge: ConsoleBridge): NewSessionComposition 
     setDraft(undefined);
     setDraftState(undefined);
     setSendResult(undefined);
+    setIsSending(false);
   }, [draft]);
 
   const setPosture = useCallback(
@@ -159,13 +171,22 @@ function useNewSessionComposition(bridge: ConsoleBridge): NewSessionComposition 
     if (draft === undefined) {
       return;
     }
-    void draft.send().then((result) => {
-      setSendResult(result);
-      // Once, on the settlement, and never on a re-render: the outcome is the thing a
-      // person waited for, and the refusal below carries the detail.
-      announce(SEND_ANNOUNCEMENTS[result.outcome]);
-    });
+    setIsSending(true);
+    // `finally` rather than a second `setIsSending(false)` inside `then`: the flag
+    // has to clear on the rejected path too, or a send that threw would leave Send
+    // disabled with nothing on screen explaining why.
+    void draft
+      .send()
+      .then((result) => {
+        setSendResult(result);
+        // Once, on the settlement, and never on a re-render: the outcome is the thing a
+        // person waited for, and the refusal below carries the detail.
+        announce(SEND_ANNOUNCEMENTS[result.outcome]);
+      })
+      .finally(() => {
+        setIsSending(false);
+      });
   }, [announce, draft]);
 
-  return { draftState, sendResult, open, close, setPosture, send };
+  return { draftState, sendResult, isSending, open, close, setPosture, send };
 }

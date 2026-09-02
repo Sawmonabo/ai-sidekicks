@@ -20,6 +20,18 @@
 //     undo a `session.create` the daemon accepted, and pretending otherwise would
 //     leave a real session the person believes was never made.
 //
+// ONE DRAFT OBJECT, AT MOST ONE SESSION. The three properties above make the draft
+// editable after a send that only partly landed, which is what a person needs — and
+// which means Send stays pressable with the same choices behind it. Without a
+// memory of what a previous press already did, the next press would reach
+// `session.create` again: a double-click would mint two daemon sessions, and a
+// retry after the `wire-unregistered` partial would mint a third, none of them the
+// one the person is looking at. So this class coalesces rather than refuses, on the
+// deck writer's idiom: a send while one is in flight yields THAT send, and a send
+// after a session has been created re-reports the same session instead of making
+// another. The invariant is scoped to the object, so closing the draft — which
+// drops it — is what makes the next "+ New" a genuinely new session.
+//
 // WIRE TRUTH. Of the three calls the coalesced send names, exactly one is reachable
 // from the console today: `session.create`, which the shipped Tier-1 bootstrap
 // already calls over `daemon.call`. `agent.attach` and `run.queueCreate` are
@@ -115,6 +127,34 @@ const UNREGISTERED_SEND_CALLS: readonly string[] = ["agent.attach", "run.queueCr
 export class NewSessionDraft {
   readonly #bridge: ConsoleBridge;
   readonly #changes = new Emitter<NewSessionDraftState>("new session draft change");
+  /**
+   * The send that is running, while one is.
+   *
+   * Held rather than counted, so a concurrent caller receives the SAME promise and
+   * therefore the same result — a double-click yields one create and one settlement
+   * rather than one create and a second caller left waiting on nothing.
+   *
+   * Private, and no reader is offered one: the guard is structural, so a caller
+   * that is not a button — a keyboard path, a test, a later surface — is safe
+   * without consulting anything. A surface that wants to disable an affordance
+   * meanwhile knows it pressed, which is `NewSessionControl`'s own flag.
+   */
+  #sendInFlight: Promise<NewSessionSendResult> | undefined;
+  /**
+   * The create this draft already landed, once it has.
+   *
+   * Keyed on the CALL having returned rather than on an id having been read: a
+   * create the daemon accepted made a session whether or not its response carried
+   * a readable `sessionId`, so a memory that only remembered ids would let an
+   * unreadable response mint a second session on the next press. One field, so
+   * "the create landed" and "this is what we know of it" cannot disagree.
+   *
+   * Deliberately not cleared by {@link discard}: the invariant is one session per
+   * draft OBJECT, and a draft that could be emptied and re-composed into a second
+   * `session.create` would be the same defect reached by a longer route. The
+   * control drops the object on close, which is where a new session comes from.
+   */
+  #landedCreate: { readonly sessionId: string | undefined } | undefined;
   #state: NewSessionDraftState = {
     agents: [],
     repoMount: undefined,
@@ -186,11 +226,26 @@ export class NewSessionDraft {
   /**
    * The coalesced first send.
    *
-   * Ordered rather than parallel, and that is the design: the two calls after
-   * `session.create` need the session it returns, so issuing them together would
-   * mean inventing the id before the daemon minted it.
+   * Coalesced in TWO senses, and both are load-bearing. Across the three calls
+   * §4.8 names, it is ordered rather than parallel: the two after `session.create`
+   * need the session it returns, so issuing them together would mean inventing the
+   * id before the daemon minted it. Across repeated presses, it is idempotent in
+   * the only way a renderer can make a create idempotent — by remembering. A
+   * concurrent call joins the running send; a later call re-reports the session the
+   * first one made. Neither refuses, because a refusal here would put a fourth code
+   * in front of a person whose press did exactly what they meant it to.
    */
-  public async send(): Promise<NewSessionSendResult> {
+  public send(): Promise<NewSessionSendResult> {
+    // `??=` short-circuits, so the send is started only when none is running, and
+    // the assignment happens before the first `await` inside it — a second
+    // synchronous call therefore always finds the promise rather than a gap.
+    this.#sendInFlight ??= this.#performSend().finally(() => {
+      this.#sendInFlight = undefined;
+    });
+    return this.#sendInFlight;
+  }
+
+  async #performSend(): Promise<NewSessionSendResult> {
     if (this.#state.isEmpty) {
       return {
         outcome: "refused",
@@ -201,6 +256,14 @@ export class NewSessionDraft {
           "Pick at least one sidekick, a repository, or a posture before sending.",
         ),
       };
+    }
+
+    // A session this draft already created is the session this draft sends to. The
+    // create is skipped rather than repeated, and the SAME partial is re-reported,
+    // because nothing about the outcome has changed: the session still exists and
+    // the two calls that would have finished the send are still unregistered.
+    if (this.#landedCreate !== undefined) {
+      return this.#unregisteredRemainder(this.#landedCreate.sessionId);
     }
 
     let sessionId: string | undefined;
@@ -221,10 +284,23 @@ export class NewSessionDraft {
       };
     }
 
-    // Both remaining calls are unreachable: neither is registered in the contracts
-    // package and neither has a growth-port operation, so there is no honest way to
-    // issue them. The session exists, so the outcome is PARTIAL and says which call
-    // landed — §4.8's "with the calls that succeeded named".
+    this.#landedCreate = { sessionId };
+    return this.#unregisteredRemainder(sessionId);
+  }
+
+  /**
+   * What a send reports once the session exists and the rest cannot be issued.
+   *
+   * One function, reached by both the first send and every later one, because the
+   * two must report the same thing: a retry that described the session differently
+   * from the press that made it would read as a second session.
+   *
+   * Both remaining calls are unreachable — neither is registered in the contracts
+   * package and neither has a growth-port operation, so there is no honest way to
+   * issue them. The session exists, so the outcome is PARTIAL and says which call
+   * landed, which is §4.8's "with the calls that succeeded named".
+   */
+  #unregisteredRemainder(sessionId: string | undefined): NewSessionSendResult {
     return {
       outcome: "partial",
       sessionId,
