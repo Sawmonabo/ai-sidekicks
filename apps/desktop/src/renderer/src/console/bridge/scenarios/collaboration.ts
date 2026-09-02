@@ -1,9 +1,10 @@
-// The collaboration scenario — skeleton.
+// The collaboration scenario — a room with people in it.
 //
 // A session that has PEOPLE and CHANNELS in it, which is the one thing neither
 // substrate scenario supplies: `first-run` has a single participant and no
 // structure, and `flagship` is about four agents working at once. The roster, the
-// channel list, and the members section are built against this one.
+// channel list, the members section, and the sent-invite ledger are built against
+// this one.
 //
 // The join order is load-bearing for the same reason it is in `flagship.ts`:
 // `Spec-023 §Console Design (Meridian)` rule 2 allocates participant hues by
@@ -23,10 +24,30 @@
 // (`MembershipRole` in `packages/contracts/src/session.ts`), which is the same
 // closed set `collaboration/members-model.ts` reads.
 //
-// There is deliberately NO invite beat: the invites read is unregistered on every
-// transport, so the invite surfaces reach it through the growth port and render its
-// refusal, and a scripted invite event would put data on screen the live console
-// cannot get.
+// FOUR PEOPLE, BECAUSE THE ROSTER HAS FOUR STATES. `PresenceState` is
+// `online | idle | reconnecting | offline` and `collaboration/presence-model.ts`
+// renders them in exactly that order, keeping an offline member IN the list rather
+// than dropping them. A three-person roster leaves one of those four rows — the
+// dimmed one, which is the row with a rendering of its own — unreachable, so the
+// scenario carries the fourth person whose only job is to be away.
+//
+// WHY THE PRESENCE READ IS A REPLY AND THE PRESENCE EVENTS ARE BEATS. The roster's
+// whole discipline is that the READ is the truth and the push is only a SIGNAL: it
+// never decodes a push payload and answers every one with a fresh read. So the
+// four states live in the `presence.read` reply, which is the registered
+// `PresenceReadResponse`, and the `presence.*` beats exist to make the signal
+// arrive at all. Their payloads carry the session and the participant the envelope
+// is about and nothing else — the census registers these four types with no
+// payload variant, and a fixture that invented a device id or a last-seen member
+// for them would be teaching a shape to a surface that has promised not to read it.
+//
+// WHY THERE IS NO INVITE BEAT AND THERE IS AN INVITE REPLY. `invite.created` is a
+// census type with no registered payload variant and no consumer: the sent-invite
+// ledger reads the growth port's `invitesList`, not the event stream. So the
+// expiring invitation this scenario exists to show reaches the surface through a
+// scripted `invite.list` reply — served through the fixture growth port, in the
+// `GrowthInviteSummary` shape the console itself declares — and no event payload is
+// invented for a read nothing performs.
 
 import type { ConsoleScenario } from "../scenario.js";
 
@@ -39,18 +60,107 @@ const SESSION_ID = "019b7904-8ce0-75e5-8510-ada11a5a33a5";
 const PARTICIPANT_YOU = "019b7904-8ce0-79a4-8110-cca0117a0330";
 const PARTICIPANT_PRIYA = "019b7904-8ce0-79a4-8120-cca0117a0340";
 const PARTICIPANT_TOMAS = "019b7904-8ce0-79a4-8130-cca0117a0350";
+const PARTICIPANT_NOAH = "019b7904-8ce0-79a4-8140-cca0117a0355";
 const MEMBERSHIP_PRIYA = "019b7904-8ce0-7e3b-8110-cca0117a0360";
 const MEMBERSHIP_TOMAS = "019b7904-8ce0-7e3b-8120-cca0117a0370";
+const MEMBERSHIP_NOAH = "019b7904-8ce0-7e3b-8130-cca0117a0375";
 const CHANNEL_MAIN = "019b7904-8ce0-7c11-8110-cca0117a0380";
 const CHANNEL_REVIEW = "019b7904-8ce0-7c11-8120-cca0117a0390";
+const CHANNEL_HANDOFF = "019b7904-8ce0-7c11-8130-cca0117a0395";
+const INVITE_EXPIRING = "019b7904-8ce0-7f22-8110-cca0117a03a0";
+const INVITE_ACCEPTED = "019b7904-8ce0-7f22-8120-cca0117a03b0";
+
+/**
+ * Who is in the room, in join order, and what the roster read says of each.
+ *
+ * ONE TABLE rather than a membership literal per beat and a presence literal per
+ * reply, on `flagship.ts`'s rule: the `membership.created` event and the
+ * `presence.read` row are two views of one person, and two hand-written copies of
+ * one person drift in exactly the direction nothing catches. `you` carries no
+ * membership beat because the session's opener is admitted by `session.created`
+ * itself, so the entry states that with an absent id rather than inventing one.
+ *
+ * The four presence states are covered exactly once each, which is what makes the
+ * roster's render order and its dimmed offline row both reachable from one script.
+ */
+const COLLABORATION_PARTICIPANTS = [
+  {
+    participantId: PARTICIPANT_YOU,
+    identityHandle: "sawyer",
+    role: "owner",
+    membershipId: undefined,
+    joinedAtMs: undefined,
+    joinedAtIso: undefined,
+    presenceState: "online",
+    lastSeenIso: "2026-01-01T10:05:00.400Z",
+  },
+  {
+    participantId: PARTICIPANT_PRIYA,
+    identityHandle: "priya",
+    role: "collaborator",
+    membershipId: MEMBERSHIP_PRIYA,
+    joinedAtMs: 60,
+    joinedAtIso: "2026-01-01T10:05:00.060Z",
+    presenceState: "idle",
+    lastSeenIso: "2026-01-01T10:05:00.380Z",
+  },
+  {
+    participantId: PARTICIPANT_TOMAS,
+    identityHandle: "tomas",
+    // `viewer` is the wire's read-only role. There is no `observer` on this wire,
+    // and the members model refuses one, so a fixture that played it would be
+    // scripting a role no session can hold.
+    role: "viewer",
+    membershipId: MEMBERSHIP_TOMAS,
+    joinedAtMs: 120,
+    joinedAtIso: "2026-01-01T10:05:00.120Z",
+    presenceState: "reconnecting",
+    lastSeenIso: "2026-01-01T10:05:00.240Z",
+  },
+  {
+    participantId: PARTICIPANT_NOAH,
+    identityHandle: "noah",
+    role: "collaborator",
+    membershipId: MEMBERSHIP_NOAH,
+    joinedAtMs: 160,
+    joinedAtIso: "2026-01-01T10:05:00.160Z",
+    presenceState: "offline",
+    lastSeenIso: "2026-01-01T10:05:00.180Z",
+  },
+] as const;
+
+/**
+ * The channels, as `channel.list` serves them and `channel.created` announces them.
+ *
+ * `ChannelListResponseChannel` is exactly `{id, name?, state, participantCount}`
+ * (`packages/contracts/src/channels.ts`), so this table carries those four members
+ * and nothing about audience or kind — the wire has neither, and
+ * `collaboration/channel-model.ts` classifies rows from `state` and the bootstrap
+ * name alone. The archived row is here because the directory renders live and
+ * archived as two regions and a list with no archived row leaves one of them dead.
+ */
+const COLLABORATION_CHANNELS = [
+  { channelId: CHANNEL_MAIN, name: "main", state: "active", participantCount: 4 },
+  { channelId: CHANNEL_REVIEW, name: "review", state: "active", participantCount: 3 },
+  { channelId: CHANNEL_HANDOFF, name: "handoff", state: "archived", participantCount: 2 },
+] as const;
 
 export const COLLABORATION_SCENARIO: ConsoleScenario = {
   id: COLLABORATION_SCENARIO_ID,
   label: "A room with people in it",
   purpose:
-    "A session with three participants and two channels — the roster, the channel list, and the members section are built against this one.",
+    "Four participants across all four presence states, three channels including an archived one, and one invitation about to expire — the roster, the channel list, the members section, and the sent-invite ledger are built against this one.",
   sessionId: SESSION_ID,
-  participantIdsInJoinOrder: [PARTICIPANT_YOU, PARTICIPANT_PRIYA, PARTICIPANT_TOMAS],
+  participantIdsInJoinOrder: COLLABORATION_PARTICIPANTS.map(
+    (participant) => participant.participantId,
+  ),
+  // Which of the four this window is. Stated rather than inferred from the head of
+  // the join order — that entry is whoever opened the session, on whichever machine,
+  // and the two facts coincide here only because this scenario chose to make them.
+  // The members section reads it to mark the reader's own row rather than to gate a
+  // control, which is why the owner is the honest choice: an owner's row is the one
+  // whose role controls are all reachable.
+  viewingParticipantId: PARTICIPANT_YOU,
   startedAtIso: "2026-01-01T10:05:00.000Z",
   beats: [
     {
@@ -64,71 +174,116 @@ export const COLLABORATION_SCENARIO: ConsoleScenario = {
         payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
       },
     },
-    {
-      atMs: 60,
+    ...COLLABORATION_PARTICIPANTS.filter(
+      (participant) => participant.membershipId !== undefined,
+    ).map((participant, joinIndex) => ({
+      atMs: participant.joinedAtMs ?? 0,
       event: {
         sessionId: SESSION_ID,
-        sequence: 2,
+        sequence: 2 + joinIndex,
         kind: "membership.created",
-        occurredAt: "2026-01-01T10:05:00.060Z",
-        actorParticipantId: PARTICIPANT_PRIYA,
+        occurredAt: participant.joinedAtIso ?? "2026-01-01T10:05:00.000Z",
+        actorParticipantId: participant.participantId,
         payload: {
-          membershipId: MEMBERSHIP_PRIYA,
-          participantId: PARTICIPANT_PRIYA,
-          role: "collaborator",
-          identityHandle: "priya",
+          membershipId: participant.membershipId,
+          participantId: participant.participantId,
+          role: participant.role,
+          identityHandle: participant.identityHandle,
         },
       },
-    },
-    {
-      atMs: 120,
+    })),
+    ...COLLABORATION_CHANNELS.map((channel, channelIndex) => ({
+      atMs: 200 + channelIndex * 40,
       event: {
         sessionId: SESSION_ID,
-        sequence: 3,
-        kind: "membership.created",
-        occurredAt: "2026-01-01T10:05:00.120Z",
-        actorParticipantId: PARTICIPANT_TOMAS,
-        // `viewer` is the wire's read-only role. There is no `observer` on this
-        // wire, and the members model refuses one, so a fixture that played it
-        // would be scripting a role no session can hold.
-        payload: {
-          membershipId: MEMBERSHIP_TOMAS,
-          participantId: PARTICIPANT_TOMAS,
-          role: "viewer",
-          identityHandle: "tomas",
-        },
-      },
-    },
-    {
-      atMs: 200,
-      event: {
-        sessionId: SESSION_ID,
-        sequence: 4,
+        sequence: 5 + channelIndex,
         kind: "channel.created",
-        occurredAt: "2026-01-01T10:05:00.200Z",
+        occurredAt: `2026-01-01T10:05:00.${String(200 + channelIndex * 40)}Z`,
         actorParticipantId: PARTICIPANT_YOU,
-        payload: { channelId: CHANNEL_MAIN, name: "main" },
+        // The registered shape, verbatim: `{channelId, name?}`. A channel's state
+        // and its participant count reach the console from `channel.list`, never
+        // from the creation event, so neither is carried here.
+        payload: { channelId: channel.channelId, name: channel.name },
       },
-    },
+    })),
     {
-      atMs: 260,
+      atMs: 340,
       event: {
         sessionId: SESSION_ID,
-        sequence: 5,
-        kind: "channel.created",
-        occurredAt: "2026-01-01T10:05:00.260Z",
-        actorParticipantId: PARTICIPANT_PRIYA,
-        payload: { channelId: CHANNEL_REVIEW, name: "review" },
+        sequence: 8,
+        kind: "channel.archived",
+        occurredAt: "2026-01-01T10:05:00.340Z",
+        actorParticipantId: PARTICIPANT_YOU,
+        // One of the four kinds `collaboration/channel-model.ts` re-reads on, so
+        // this beat is what proves the directory refreshes from a signal rather
+        // than from a timer. The census registers no payload variant for it, so the
+        // payload carries the channel the event is about and invents nothing else.
+        payload: { sessionId: SESSION_ID, channelId: CHANNEL_HANDOFF },
       },
     },
+    ...COLLABORATION_PARTICIPANTS.filter(
+      (participant) => participant.presenceState !== "online",
+    ).map((participant, presenceIndex) => ({
+      atMs: 380 + presenceIndex * 20,
+      event: {
+        sessionId: SESSION_ID,
+        sequence: 9 + presenceIndex,
+        kind: `presence.${participant.presenceState}` as const,
+        occurredAt: participant.lastSeenIso,
+        actorParticipantId: participant.participantId,
+        // Opaque BY CONTRACT. The roster treats every presence push as a change
+        // signal and answers it with a fresh `presence.read`, so this payload is
+        // never decoded by anything — which is exactly why it carries the two
+        // identifiers the envelope is about and no third member.
+        payload: { sessionId: SESSION_ID, participantId: participant.participantId },
+      },
+    })),
   ],
   replies: [
     {
-      call: "session.list",
+      // The registered `PresenceReadResponse`: `{participants: [{participantId,
+      // state, lastSeen}]}` and nothing beside it — the schema is `.strict()`, so a
+      // role or a display name here would be rejected outright. Role lives on the
+      // membership projection and the roster reads it from there.
+      call: "presence.read",
       result: {
-        sessions: [{ sessionId: SESSION_ID, title: "Relay sweep", state: "active" }],
+        participants: COLLABORATION_PARTICIPANTS.map((participant) => ({
+          participantId: participant.participantId,
+          state: participant.presenceState,
+          lastSeen: participant.lastSeenIso,
+        })),
       },
     },
+    {
+      call: "channel.list",
+      result: {
+        channels: COLLABORATION_CHANNELS.map((channel) => ({
+          id: channel.channelId,
+          name: channel.name,
+          state: channel.state,
+          participantCount: channel.participantCount,
+        })),
+      },
+    },
+    {
+      // Served through the fixture growth port's `invitesList`, in the
+      // `GrowthInviteSummary` shape the console declares: `{inviteId, state,
+      // expiresAt}`. There is no plaintext token and no join link, because
+      // `invite.create` returns the token exactly once and nothing hands this
+      // renderer its control-plane host — a fixture that supplied either would let
+      // a copy-link control be built against an identifier that opens nothing.
+      //
+      // The pending row expires forty seconds after the scenario starts, so a
+      // console driven past that tick sees an invitation age out rather than one
+      // frozen permanently on the brink.
+      call: "invite.list",
+      result: [
+        { inviteId: INVITE_EXPIRING, state: "pending", expiresAt: "2026-01-01T10:05:40.000Z" },
+        { inviteId: INVITE_ACCEPTED, state: "accepted", expiresAt: "2026-01-01T10:04:00.000Z" },
+      ],
+    },
+    // No agent has been attached, and the empty list is the honest reading rather
+    // than an absent reply: the read succeeded and this room has no agents in it.
     { call: "agent.list", result: { agents: [] } },
   ],
 };

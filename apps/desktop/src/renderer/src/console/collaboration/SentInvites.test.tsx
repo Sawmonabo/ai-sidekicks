@@ -10,7 +10,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
+import { createFixtureBridge, growthUnavailable, type ConsoleBridge } from "../bridge/index.js";
 import { SentInvites, type SentInvite } from "./SentInvites.js";
 
 type FixtureScenario = Parameters<typeof createFixtureBridge>[0]["scenario"];
@@ -42,6 +42,26 @@ function invite(overrides: Partial<SentInvite> = {}): SentInvite {
   };
 }
 
+/**
+ * The real fixture bridge, with the one growth operation this surface reads REFUSING.
+ *
+ * The fixture serves `invitesList` — a scenario answers it from its own script and
+ * otherwise from the empty ledger — so the refusal this surface has to render is a
+ * fact about the LIVE bridge rather than about a scenario that scripts nothing. The
+ * refusal is the shipped port's own `growthUnavailable`, not a hand-written envelope,
+ * so what this asserts is what a release build actually produces.
+ */
+function bridgeRefusingInvites(): ConsoleBridge {
+  const fixture = createFixtureBridge({ scenario: EMPTY_SCENARIO });
+  return {
+    ...fixture,
+    growth: {
+      ...fixture.growth,
+      invitesList: async () => await Promise.resolve(growthUnavailable("invitesList")),
+    },
+  };
+}
+
 /** The real fixture bridge, with the one growth operation this surface reads served. */
 function bridgeServing(invites: readonly SentInvite[]): ConsoleBridge {
   const fixture = createFixtureBridge({ scenario: EMPTY_SCENARIO });
@@ -63,8 +83,9 @@ async function settle(): Promise<void> {
 
 describe("sent invites — the read", () => {
   it("renders the port's refusal verbatim rather than an empty ledger", async () => {
-    const bridge = createFixtureBridge({ scenario: EMPTY_SCENARIO });
-    const { container } = render(<SentInvites bridge={bridge} sessionId="session-1" />);
+    const { container } = render(
+      <SentInvites bridge={bridgeRefusingInvites()} sessionId="session-1" />,
+    );
     await settle();
     expect(container.textContent ?? "").toContain("wire-unregistered");
     expect(container.textContent ?? "").not.toContain("Nobody has been invited");
