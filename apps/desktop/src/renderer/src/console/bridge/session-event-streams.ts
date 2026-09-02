@@ -83,30 +83,6 @@ export const RUN_QUEUE_EVENT_STREAM = "run.subscribeQueue";
 const RUN_EVENT_KIND_PREFIX = "run.";
 
 /**
- * Every registered run state, as a membership record total over the contract's own
- * union.
- *
- * The vocabulary a beat may NAME, which is a different question from the kinds a
- * stream carries: `previousState` has no kind to be read off, so it is checked
- * against this record rather than against the routing table. Declared as a record
- * rather than built into a `Set` at module load because a `Set` is mutable state
- * and this is a constant — and because `satisfies` over `RunState` makes it total
- * in both directions, so a newly registered state fails this file and an invented
- * one fails it too.
- */
-const REGISTERED_RUN_STATE_MEMBERSHIP: Readonly<Record<RunState, true>> = Object.freeze({
-  queued: true,
-  starting: true,
-  running: true,
-  waiting_for_approval: true,
-  waiting_for_input: true,
-  paused: true,
-  completed: true,
-  interrupted: true,
-  failed: true,
-} satisfies Record<RunState, true>);
-
-/**
  * The registered event kinds `run.subscribeState` projects, and the wire arm each
  * one travels as.
  *
@@ -267,18 +243,6 @@ export function runStateForTransitionKind(eventKind: string): RunState | undefin
   return runStateStreamArmFor(eventKind) === "state-change"
     ? (eventKind.slice(RUN_EVENT_KIND_PREFIX.length) as RunState)
     : undefined;
-}
-
-/**
- * The value as a registered run state, or `undefined` when the vocabulary has no
- * such member.
- *
- * The membership test for a state a beat NAMES rather than one a kind implies —
- * `previousState` has no kind to be read off, and a value outside the vocabulary
- * would otherwise reach a consumer typed as though it were inside it.
- */
-export function registeredRunStateFor(value: string): RunState | undefined {
-  return Object.hasOwn(REGISTERED_RUN_STATE_MEMBERSHIP, value) ? (value as RunState) : undefined;
 }
 
 /**

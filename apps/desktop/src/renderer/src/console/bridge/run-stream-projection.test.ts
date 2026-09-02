@@ -15,9 +15,10 @@
 //     distinction between a turn-complete and a task-complete, and between a
 //     budget-exhausted interrupt and a participant cancel.
 //
-// The schema is imported as a VALUE here, as it is in the sibling suite: a test file
-// is not bundled, so it can hold the projector to the registered shape where the
-// module deliberately imports the type only.
+// The projector now parses through the registered schema itself, so the suite's job
+// changes with it: not "does the output happen to satisfy the shape" — it must, or
+// it was never delivered — but WHICH beats reach that gate and which are refused at
+// it, and with what named in the refusal.
 
 import { describe, expect, it } from "vitest";
 
@@ -94,6 +95,75 @@ describe("run-stream projection — the optional members a beat supplies", () =>
     expect(parsed.healthSignal).toBeUndefined();
     expect(parsed.completionKind).toBeUndefined();
     expect("internalHelper" in parsed).toBe(false);
+  });
+});
+
+describe("run-stream projection — an optional the registered shape rejects", () => {
+  // Every one of these is a value the wire member's own schema refuses:
+  // `intendedClose` is `z.literal(true)`, `healthSignal` is
+  // `z.literal("stuck-suspected")`, and `executionPosture` is a two-arm union whose
+  // `trusted` arm requires `networkAccess` and `writableRoots`. Before the parse
+  // they were copied through wire-verbatim and a cast presented the result as a
+  // valid `RunStateChangeEvent`, so a fixture subscriber received values the live
+  // bridge cannot send — the one thing a fixture must never do.
+  it.each([
+    ["intendedClose", { intendedClose: false }],
+    ["healthSignal", { healthSignal: "healthy" }],
+    ["executionPosture", { executionPosture: { mode: "trusted" } }],
+  ])("refuses a malformed `%s` and names the member in the refusal", (member, overrides) => {
+    const projection = projectRunStreamDelivery(
+      RUN_STATE_EVENT_STREAM,
+      runTransitionBeat(transitionPayload(overrides)).event,
+    );
+
+    expect(projection?.status).toBe("unprojectable");
+    if (projection?.status !== "unprojectable") {
+      return;
+    }
+    // The member's own path, so a scenario author reads WHICH member is wrong.
+    expect(projection.detail).toContain(member);
+  });
+
+  it("negative control: the same optionals at values the shape admits are delivered", () => {
+    // Without it, a projector that refused every optional would pass all three cases
+    // above — and every scenario that scripts a `completionKind` or a `trigger` would
+    // silently lose it.
+    const projection = projectRunStreamDelivery(
+      RUN_STATE_EVENT_STREAM,
+      runTransitionBeat(
+        transitionPayload({
+          intendedClose: true,
+          healthSignal: "stuck-suspected",
+          executionPosture: { networkAccess: "none", writableRoots: [], mode: "trusted" },
+        }),
+      ).event,
+    );
+
+    expect(projection?.status).toBe("projected");
+    if (projection?.status !== "projected") {
+      return;
+    }
+    expect(RunStateChangeEventSchema.parse(projection.delivery)).toStrictEqual(projection.delivery);
+  });
+
+  it("delivers exactly the registered members, and no envelope member with them", () => {
+    // The whole delivered value, asserted rather than sampled: the parse is what
+    // stands between a subscriber and a shape the daemon does not send, so what it
+    // lets through is the claim worth pinning.
+    const beat = runTransitionBeat(transitionPayload());
+    const projection = projectRunStreamDelivery(RUN_STATE_EVENT_STREAM, beat.event);
+
+    expect(projection?.status).toBe("projected");
+    if (projection?.status !== "projected") {
+      return;
+    }
+    expect(projection.delivery).toStrictEqual({
+      runId: PROBE_RUN_ID,
+      runVersion: 4,
+      previousState: "starting",
+      currentState: "running",
+      timestamp: beat.event.occurredAt,
+    });
   });
 });
 
