@@ -87,8 +87,11 @@
 //      non-deterministic — see the `globalGcAvailable` setup-correctness
 //      assertion below for the explicit gate.
 //
-// Linux CI handling — same `xvfb-run -a` wrapping as the smoke test: GitHub
-// Actions `ubuntu-latest` is headless and no `$DISPLAY` is set.
+// Linux CI handling — same posture as the smoke test. CI now stands up ONE
+// Xvfb for the whole job and exports `$DISPLAY` before any test runs (see
+// `.github/workflows/ci.yml`), so `needsXvfb()` is false there and this spawns
+// the binary directly. The `xvfb-run -a` arm below remains the fallback for a
+// Linux contributor running with no display server of their own.
 
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
