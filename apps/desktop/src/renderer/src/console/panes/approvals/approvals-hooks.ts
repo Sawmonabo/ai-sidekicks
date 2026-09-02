@@ -32,8 +32,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
-import { RealClock, refuse, type ConsoleClock, type ConsoleRefusal } from "../../core/index.js";
-import { type ConsoleBridge } from "../../bridge/index.js";
+import { refuse, type ConsoleRefusal } from "../../core/index.js";
+import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
 import {
   useSessionDegradedCause,
   useSessionStore,
@@ -176,7 +176,7 @@ export function useApprovalsReader(
   const { sessionId } = sessionStore;
   const readingSession = useMemo<ApprovalsReadingSession>(
     () => ({
-      reader: new ApprovalsReader({ bridge, sessionId, clock: resolveClock(bridge) }),
+      reader: new ApprovalsReader({ bridge, sessionId, clock: consoleClockFor(bridge) }),
       repairWatcher: new SessionRepairWatcher(),
       signalCursor: new ApprovalSignalCursor(),
     }),
@@ -234,10 +234,6 @@ export function useApprovalsReader(
   );
 
   return { reader, snapshot };
-}
-
-function resolveClock(bridge: ConsoleBridge): ConsoleClock {
-  return bridge.scenarioEngine?.clock ?? new RealClock();
 }
 
 /**

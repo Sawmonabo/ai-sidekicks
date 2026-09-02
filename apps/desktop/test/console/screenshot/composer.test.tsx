@@ -36,6 +36,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { emulateSystemScheme } from "../console-harness.js";
 import {
+  mountApprovalsPane,
   mountComposerChannelAddressed,
   mountComposerChannelDefault,
   mountComposerProviderBoundRunning,
@@ -64,6 +65,7 @@ const PINNED_SURFACES: readonly {
   { referenceName: "composer-provider-bound-running", mount: mountComposerProviderBoundRunning },
   { referenceName: "composer-provider-bound-waiting", mount: mountComposerProviderBoundWaiting },
   { referenceName: "runs-pane-live", mount: mountRunsPane },
+  { referenceName: "approvals-pane-live", mount: mountApprovalsPane },
 ];
 
 beforeEach(() => {

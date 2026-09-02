@@ -19,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { emulateSystemScheme } from "../console-harness.js";
 import {
+  mountApprovalsPane,
   mountComposerChannelAddressed,
   mountComposerChannelDefault,
   mountComposerProviderBoundRunning,
@@ -46,6 +47,7 @@ const AUDITED_SURFACES: readonly {
   { label: "the composer addressed at a working run", mount: mountComposerProviderBoundRunning },
   { label: "the composer addressed at a waiting run", mount: mountComposerProviderBoundWaiting },
   { label: "the runs pane", mount: mountRunsPane },
+  { label: "the approvals pane", mount: mountApprovalsPane },
 ];
 
 beforeEach(() => {

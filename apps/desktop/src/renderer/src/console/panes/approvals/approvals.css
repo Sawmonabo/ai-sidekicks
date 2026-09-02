@@ -534,3 +534,42 @@
   gap: var(--meridian-space-2);
   align-items: center;
 }
+
+/* --- the provider permission ask --------------------------------------- */
+
+/* The framing sits inside the ordinary approval card, between its header and
+   its action row: a body the card reserves, not a second card. The sunken
+   ground is what separates it from the card's own facts without giving it a
+   border that would read as a card edge. */
+.meridian-approval-ask {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  padding: var(--meridian-space-2);
+  background: var(--meridian-surface-sunken);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-approval-ask__origin,
+.meridian-approval-ask__deadline,
+.meridian-approval-ask__expiry-outcome {
+  max-width: 68ch;
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  line-height: 1.5;
+}
+
+/* The requested resource, inline rather than behind the card's disclosure —
+   for a permission ask it is the whole question. */
+.meridian-approval-ask__input {
+  overflow-wrap: anywhere;
+}
+
+/* Amber, because a missing deadline is a thing a person has to know about, and
+   amber is this console's one "someone is needed" colour. */
+.meridian-approval-ask__missing {
+  margin: 0;
+  color: var(--meridian-amber-text);
+  font-size: var(--meridian-text-xs);
+}
