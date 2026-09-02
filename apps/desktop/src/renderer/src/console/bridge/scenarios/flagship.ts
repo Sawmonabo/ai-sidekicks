@@ -205,13 +205,18 @@ export const FLAGSHIP_SCENARIO: ConsoleScenario = {
         occurredAt: "2026-01-01T14:20:00.320Z",
         actorParticipantId: PARTICIPANT_YOU,
         // A run-lifecycle payload is a STATE TRANSITION carrying the progression
-        // counter, not a bare id. `previousState` is absent here and only here: a
-        // queued run is being born, and no document names a value for the state it
-        // came from — so none is invented.
+        // counter, not a bare id — and the transition is total. `previousState` was
+        // absent here on the reasoning that a run being born came from nowhere, but
+        // the shape this beat is projected into on `run.subscribeState` requires it
+        // and the registered `RunState` vocabulary has no pre-birth member. A beat
+        // that omits it is refused rather than half-projected, so the birth row is
+        // recorded as the run entering the queue: `queued` is the only value that
+        // does not claim a state this run was never in.
         payload: {
           sessionId: SESSION_ID,
           runId: FIRST_RUN_ID,
           runVersion: 1,
+          previousState: "queued",
           newState: "queued",
           agentId: AGENT_IMPLEMENTER,
         },

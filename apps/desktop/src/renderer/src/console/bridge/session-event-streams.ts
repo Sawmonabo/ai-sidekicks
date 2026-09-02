@@ -76,8 +76,15 @@ export const RUN_QUEUE_EVENT_STREAM = "run.subscribeQueue";
  */
 type RunStateStreamKind = Extract<SessionEventType, `run.${RunState}` | "run.rolled_back">;
 
-/** Which of the stream's two registered arms a kind is projected into. */
-type RunStateStreamArm = "state-change" | "rollback";
+/**
+ * Which of the stream's two registered arms a kind is projected into.
+ *
+ * Exported because the arm is not a fact about ROUTING alone: the two arms are two
+ * different registered wire shapes, so whatever builds one of them has to read the
+ * same table that decided the kind belongs here. A second reading of "which arm is
+ * this" would be the drift this module was written to end, one layer up.
+ */
+export type RunStateStreamArm = "state-change" | "rollback";
 
 const RUN_STATE_STREAM_ARM_BY_KIND = {
   "run.queued": "state-change",
@@ -176,6 +183,72 @@ export const CONSOLE_SESSION_EVENT_STREAMS: Readonly<
     carriedKinds: new Set(Object.keys(RUN_QUEUE_STREAM_STATE_BY_KIND)),
   },
 };
+
+/** The namespace prefix every run-lifecycle event kind carries. */
+const RUN_EVENT_KIND_PREFIX = "run.";
+
+/**
+ * The registered run state each state-change kind announces, derived from the arm
+ * table rather than written a second time.
+ *
+ * `run.waiting_for_approval` announces `waiting_for_approval`: the kind IS the
+ * prefix plus the state, which is why the union above could be `Extract`ed with a
+ * template literal in the first place. Taking the map from the same record that
+ * decides routing keeps one declaration answering both questions — which kinds this
+ * stream carries, and what state each of them means — so a newly registered run
+ * state cannot arrive in one and be missing from the other.
+ */
+const RUN_STATE_BY_TRANSITION_KIND: ReadonlyMap<string, RunState> = new Map(
+  Object.entries(RUN_STATE_STREAM_ARM_BY_KIND)
+    .filter(([, arm]) => arm === "state-change")
+    // Sound by the record's own key type: every `state-change` row is keyed
+    // `run.${RunState}`, so the tail after the prefix is exactly a `RunState`.
+    // The `rollback` row — the one key that is not — is filtered out above.
+    .map(([kind]) => [kind, kind.slice(RUN_EVENT_KIND_PREFIX.length) as RunState] as const),
+);
+
+/** Every registered run state, read off the map above so it has one home. */
+const REGISTERED_RUN_STATES: ReadonlySet<string> = new Set(RUN_STATE_BY_TRANSITION_KIND.values());
+
+/**
+ * Which registered arm of `run.subscribeState` this event kind travels as, or
+ * `undefined` when the stream does not carry the kind at all.
+ */
+export function runStateStreamArmFor(eventKind: string): RunStateStreamArm | undefined {
+  const armsByKind: Readonly<Record<string, RunStateStreamArm | undefined>> =
+    RUN_STATE_STREAM_ARM_BY_KIND;
+  return armsByKind[eventKind];
+}
+
+/** The run state a state-change kind announces, or `undefined` for any other kind. */
+export function runStateForTransitionKind(eventKind: string): RunState | undefined {
+  return RUN_STATE_BY_TRANSITION_KIND.get(eventKind);
+}
+
+/**
+ * The value as a registered run state, or `undefined` when the vocabulary has no
+ * such member.
+ *
+ * The membership test for a state a beat NAMES rather than one a kind implies —
+ * `previousState` has no kind to be read off, and a value outside the vocabulary
+ * would otherwise reach a consumer typed as though it were inside it.
+ */
+export function registeredRunStateFor(value: string): RunState | undefined {
+  return REGISTERED_RUN_STATES.has(value) ? (value as RunState) : undefined;
+}
+
+/**
+ * The queue state a `queue_item.*` kind announces, or `undefined` for any other
+ * kind.
+ *
+ * The map's whole reason for being a map rather than a list, exposed: the queue's
+ * first row is `queue_item.created` and the state it announces is `queued`.
+ */
+export function runQueueStreamStateFor(eventKind: string): QueueItemState | undefined {
+  const statesByKind: Readonly<Record<string, QueueItemState | undefined>> =
+    RUN_QUEUE_STREAM_STATE_BY_KIND;
+  return statesByKind[eventKind];
+}
 
 /** The registered stream this subscription name is, or `undefined` if it is not one. */
 export function sessionEventStreamFor(
