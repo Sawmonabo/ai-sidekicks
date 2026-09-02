@@ -5,9 +5,10 @@
 // so a violation names the surface that owns it.
 //
 // Both schemes, for `frame-axe.test.tsx`'s reason: contrast is the rule most likely
-// to pass in one and fail in the other, and this family draws two things the palette
-// tests cannot reach — a scope group whose resolution mark is carried on a row's
-// leading edge, and a park badge that spends amber on exactly one of its two kinds.
+// to pass in one and fail in the other, and this family draws three things the
+// palette tests cannot reach — a scope line naming a wire identifier beside a quiet
+// re-scope control, a scope group whose resolution mark is carried on a row's leading
+// edge, and a park badge that spends amber on exactly one of its two kinds.
 //
 // THE PARKED RUN IS THE CASE WORTH HAVING. Its badges are the family's only tinted,
 // glyph-plus-prose composition, and one of the two carries a formatted clock time
@@ -18,8 +19,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { emulateSystemScheme } from "../console-harness.js";
 import {
-  mountWorkflowDefinitionsBrowser,
   mountWorkflowParkedRunPane,
+  mountWorkflowsDestination,
   type MountedFamilySurface,
 } from "../workflow-surfaces.js";
 import {
@@ -37,7 +38,7 @@ const AUDITED_SURFACES: readonly {
   readonly label: string;
   readonly mount: () => Promise<MountedFamilySurface>;
 }[] = [
-  { label: "the definitions browser", mount: mountWorkflowDefinitionsBrowser },
+  { label: "the workflows destination", mount: mountWorkflowsDestination },
   { label: "the run pane on a parked run", mount: mountWorkflowParkedRunPane },
 ];
 

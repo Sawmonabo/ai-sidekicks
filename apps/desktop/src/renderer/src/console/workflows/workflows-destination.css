@@ -1,0 +1,92 @@
+/*
+ * The workflows destination's own composition: the scope line above the browser, and
+ * the question that stands in its place while no session is in scope.
+ *
+ * A sibling sheet rather than a section of `workflows.css`, on the
+ * `panes/workflow-run/phase-graph/phase-graph.css` precedent: these rules belong to
+ * one surface, and appending them to the family sheet would put a surface's layout in
+ * the file every other surface in the family also edits.
+ *
+ * Imported by `WorkflowsDestination.tsx` and by nothing else. The picker beside it is
+ * mounted only from there, so one edge still reaches every rule below and a chrome
+ * can never arrive without them.
+ *
+ * `Spec-023 §Console Design (Meridian)` governs every rule here: values come from the
+ * generated token sheet, there is no literal colour and no literal length off the
+ * space scale, and nothing animates (rule 5).
+ */
+
+.meridian-workflows-destination {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  block-size: 100%;
+  min-block-size: 0;
+}
+
+/*
+ * The scope line reads as a caption on the surface below it rather than as a heading
+ * of its own: the browser under it carries the region's name, and a second heading
+ * here would give the destination two names a reader has to reconcile.
+ */
+.meridian-workflows-destination__scope {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: var(--meridian-space-3) var(--meridian-space-5) 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+/*
+ * The one control on the line, and it is quiet: re-scoping is a correction rather
+ * than the surface's purpose, so it reads as a link beside the subject rather than
+ * as a button competing with the browser's own primary action (rule 7).
+ */
+.meridian-workflows-destination__rescope {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--meridian-text-muted);
+  font: inherit;
+  text-decoration: underline;
+  cursor: default;
+}
+
+.meridian-workflows-destination__rescope:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+/* ------------------------------------------------------------ scope picker */
+
+.meridian-workflows-scope-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  max-inline-size: 40rem;
+  margin: var(--meridian-space-8) auto;
+  padding-inline: var(--meridian-space-4);
+}
+
+.meridian-workflows-scope-picker__heading {
+  margin: 0;
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-lg);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--meridian-text);
+}
+
+/*
+ * Why the question is being asked at all, in one line. The resolution order is the
+ * reason this surface needs a session and the browser's own summary states it for
+ * rows that exist; a person facing the question before any row exists needs it here.
+ */
+.meridian-workflows-scope-picker__reason {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}

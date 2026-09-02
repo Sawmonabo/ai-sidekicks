@@ -9,10 +9,13 @@
 // two pane chromes, and the two captured here are different compositions rather than
 // states of one:
 //
-//   • the definitions browser, whose whole design claim is that three scope groups
-//     stand in the daemon's own resolution order and that exactly one row is marked
-//     as the one a run would pick — a claim about what is DRAWN, which an image
-//     holds whole and a DOM assertion reads one attribute of;
+//   • the workflows destination, whose whole design claim is that it names the
+//     session it is reading from and then stands three scope groups in the daemon's
+//     own resolution order, with exactly one row marked as the one a run would pick
+//     — a claim about what is DRAWN, which an image holds whole and a DOM assertion
+//     reads one attribute of. The reference keeps the name it was minted under: a
+//     renamed reference is a new file beside an orphaned baseline, and the surface
+//     under it is the same surface with its subject resolved.
 //   • the run pane on the scenario's parked run, which is the frame that fixture's
 //     own header says a baseline should pin: two park kinds at once, one with an
 //     armed resume and one waiting on a person, beside the reserved slot shells the
@@ -27,8 +30,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { emulateSystemScheme } from "../console-harness.js";
 import {
-  mountWorkflowDefinitionsBrowser,
   mountWorkflowParkedRunPane,
+  mountWorkflowsDestination,
   type MountedFamilySurface,
 } from "../workflow-surfaces.js";
 import { skipOffPinnedPlatform, warnOnceIfOffPinnedPlatform } from "./baseline-platform.js";
@@ -47,7 +50,7 @@ const PINNED_SURFACES: readonly {
   readonly referenceName: string;
   readonly mount: () => Promise<MountedFamilySurface>;
 }[] = [
-  { referenceName: "workflow-definitions-browser", mount: mountWorkflowDefinitionsBrowser },
+  { referenceName: "workflow-definitions-browser", mount: mountWorkflowsDestination },
   { referenceName: "workflow-parked-run", mount: mountWorkflowParkedRunPane },
 ];
 
