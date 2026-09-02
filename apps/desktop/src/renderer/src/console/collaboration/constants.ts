@@ -52,3 +52,14 @@ export const COMPOSING_NAMED_CAP = 3;
  * off the screen.
  */
 export const ARCHIVED_CHANNEL_VISIBLE_CAP = 12;
+
+/**
+ * Settled invitations the sent-invite ledger renders inside its one disclosure.
+ *
+ * Sixteen. The fold exists because accepted, expired, and revoked rows are history
+ * rather than work, and history that outgrows one screenful stops being scannable
+ * and becomes a log — which is the timeline's job, not this section's. A sender who
+ * needs more than this is asking a question the ledger cannot answer, because no
+ * invite read carries a cursor to page with.
+ */
+export const SETTLED_INVITE_VISIBLE_CAP = 16;

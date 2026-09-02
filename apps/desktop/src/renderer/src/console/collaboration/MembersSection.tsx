@@ -5,14 +5,18 @@
 // `Roster` plain values. Ordering happens here rather than inside the roster so the
 // roster stays a pure render and the ordering rule stays drivable on its own.
 //
-// THE SECTION IS THE MEMBERS SECTION AND THE ROSTER IS WHAT IT SHOWS TODAY. Roles
-// and invites are other surfaces' bodies and land beside this one; the section id
-// is claimed here because presence is what the sidebar's members section is FOR,
-// and a section with no body is a hole the sidebar has to explain.
+// THE SECTION RENDERS THREE BODIES, IN THE ORDER A PERSON ASKS THE QUESTIONS. The
+// roster answers who is here right now; the membership ledger below it answers on
+// what terms they are here at all, and carries the four controls that change those
+// terms; the sent-invite ledger inside it answers who has been asked and has not
+// arrived. Each reads its own source — presence from the wire, memberships from
+// the session's own projection, invitations from the growth port — so a body that
+// cannot be read is one absence and not three.
 
 import { useMemo } from "react";
 
 import type { SidebarSectionContext } from "../workspace/seats/index.js";
+import { Memberships } from "./Memberships.js";
 import { usePushDrivenRead } from "./push-driven-read.js";
 import { rosterRowsFrom } from "./presence-model.js";
 import { Roster } from "./Roster.js";
@@ -57,16 +61,19 @@ export function MembersSection(props: MembersSectionProps): React.JSX.Element {
   );
 
   return (
-    <Roster
-      state={state}
-      rows={rows}
-      // Sampled once per read rather than per frame: the stamps are relative to when
-      // the console last heard, and re-reading the clock on every render would arm
-      // nothing but would still make two rows in one paint disagree.
-      nowMilliseconds={models.clock.now()}
-      labels={models.labels}
-      composingChannelFor={(participantId) => models.activity.composingChannelFor(participantId)}
-      isLastKnown={context.sessionStore.snapshot().degradedCause !== undefined}
-    />
+    <>
+      <Roster
+        state={state}
+        rows={rows}
+        // Sampled once per read rather than per frame: the stamps are relative to
+        // when the console last heard, and re-reading the clock on every render
+        // would arm nothing but would still make two rows in one paint disagree.
+        nowMilliseconds={models.clock.now()}
+        labels={models.labels}
+        composingChannelFor={(participantId) => models.activity.composingChannelFor(participantId)}
+        isLastKnown={context.sessionStore.snapshot().degradedCause !== undefined}
+      />
+      <Memberships context={context} />
+    </>
   );
 }
