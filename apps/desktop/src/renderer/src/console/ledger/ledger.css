@@ -1,0 +1,178 @@
+/* The ledger family's styles — the deck's shell and a pane's chrome.
+ *
+ * Imported from `ledger/index.ts` and nowhere else, so the sheet lands once per
+ * bundle and its rules cascade after the primitives' and the frame's.
+ *
+ * Every colour is a Meridian custom property and every space a step on the scale, so
+ * the family follows the scheme attribute with no conditional in JSX and its rhythm
+ * is a decision made once in `tokens/palette.ts`.
+ */
+
+/* --- The deck's shell --------------------------------------------------- */
+
+/*
+ * The empty-deck state: one pane, full width, filling the surface.
+ *
+ * A grid rather than a block, because `.meridian-frame__surface` is a scroll
+ * container and a percentage-height chain through a block would collapse the moment
+ * the pane's own body wanted to scroll instead. `minmax(0, 1fr)` in both axes is what
+ * lets the feed inside be the thing that scrolls.
+ */
+.meridian-ledger-surface {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  min-width: 0;
+  min-height: 100%;
+}
+
+/* --- A pane ------------------------------------------------------------- */
+
+/*
+ * `--meridian-pane-hue` is set per pane by the body, from the actor the pane's
+ * entity is attributed to, and falls back to the neutral control boundary where
+ * there is no actor to attribute it to. It is read only by the focus rule below:
+ * the hue answers "who", and a pane that is not about anybody answers nothing.
+ */
+.meridian-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--meridian-surface);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-lg);
+  overflow: hidden;
+}
+
+/*
+ * The ring is drawn on `:focus-within` rather than on a "this pane is active" class.
+ * Focus is where the keyboard is, the deck moves focus when it moves panes, and a
+ * second record of which pane is current is a second thing to keep in step.
+ *
+ * An inset shadow, not an outline: an outline on a rounded container paints outside
+ * the radius and clips against the neighbouring pane's edge.
+ */
+.meridian-pane:focus-within {
+  border-color: var(--meridian-pane-hue);
+  box-shadow: inset 0 0 0 1px var(--meridian-pane-hue);
+}
+
+.meridian-pane__header {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-3);
+  min-height: 34px;
+  padding: 0 var(--meridian-space-2) 0 var(--meridian-space-3);
+  border-bottom: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-pane__kind {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  color: var(--meridian-text-muted);
+  flex: 0 0 auto;
+}
+
+.meridian-pane__heading {
+  font-size: var(--meridian-text-sm);
+  font-weight: 600;
+  color: var(--meridian-text);
+}
+
+/*
+ * The breadcrumb takes the row's slack and truncates from the start, so a long
+ * address loses its outermost crumb rather than the entity a person is looking at.
+ */
+.meridian-pane__breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  direction: rtl;
+  text-align: left;
+}
+
+/* `direction` is flipped back on the crumbs themselves: the container truncates from
+   the start, and the ids inside it are still read left to right. */
+.meridian-pane__crumb,
+.meridian-pane__crumb-absent {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  direction: ltr;
+  white-space: nowrap;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-pane__crumb-absent {
+  color: var(--meridian-text-faint);
+  font-style: italic;
+}
+
+.meridian-pane__controls {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  flex: 0 0 auto;
+}
+
+/*
+ * Quiet until reached. The control carries no border and no fill at rest — rule 7's
+ * "secondary controls live one click away" applied to a header that is one line —
+ * and it is a 26 px hit target with a 14 px glyph, which is the smallest square that
+ * still clears a pointer's aim at this density.
+ */
+.meridian-pane__control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+  transition:
+    background-color var(--meridian-motion-quick) var(--meridian-ease-settle),
+    color var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-pane__control:hover {
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+}
+
+.meridian-pane__control:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: -2px;
+}
+
+/* --- The pane's body ---------------------------------------------------- */
+
+.meridian-pane__body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/*
+ * The feed is the scroll container, and it is the ONLY one in the pane: a pane that
+ * scrolled as a whole would carry its own header out of view, and the reading anchor
+ * the ledger holds is an offset inside this box.
+ */
+.meridian-pane__feed {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}

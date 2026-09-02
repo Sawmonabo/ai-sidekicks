@@ -7,6 +7,13 @@
 // when a new mount point lands before the old surfaces are re-homed. This module
 // re-homes them.
 //
+// TWO OF THE THREE ARE HERE NOW. The `workspace` slot was one of them and belongs
+// to the ledger family from T-023p-1C-2 on: this table held it while nothing else
+// could, and a seat filled by a 1C family REPLACES the holder rather than sitting
+// beside it — the registry refuses a second owner on one slot, so the deletion is
+// the registration's other half. The participant roster's own home in the console
+// is a sidebar section the collaboration family owns; it is not re-mounted here.
+//
 // ABSORBED BY IMPORT, NOT BY CALL. A plan-owned subtree whose owner MOUNTS INTO
 // the console reaches the frame by calling `registerConsoleSurface`; the console
 // imports it through no path, which is why the layering gate bans those subtrees
@@ -38,10 +45,6 @@ import { routeSessionId, type ConsoleRoute } from "../routing/index.js";
 import { SurfaceAbsence } from "./RouteSurface.js";
 import { NodeRoster } from "../../runtime-node-attach/index.js";
 import { SessionBootstrap } from "../../session-bootstrap/index.js";
-// Deep, because `session-members/` ships no barrel. The other two are reached
-// through theirs. Adding one is that family's own diff, not the console's — the
-// console does not author files inside a subtree it merely absorbs.
-import { ParticipantRoster } from "../../session-members/participant-roster.js";
 import {
   type ConsoleSurfaceContext,
   type ConsoleSurfaceDescriptor,
@@ -49,32 +52,24 @@ import {
 } from "./surface-registry.js";
 
 /**
- * The three shipped families, and the slot each mounts in.
+ * The shipped families still mounted here, and the slot each holds.
  *
- * `sessions` and `workspace` are the destinations that name these surfaces; the
- * runtime-node roster takes the `agent-console` auxiliary window because it is
- * about the machines a session's agents run on, and because that slot's route
- * grammar is the only remaining one that GUARANTEES the session id the roster
- * requires — the frame resolves a bare auxiliary route through its context picker
- * before any surface renders, so the mount needs no invented empty state.
+ * `sessions` is the destination that names the session probe; the runtime-node
+ * roster takes the `agent-console` auxiliary window because it is about the
+ * machines a session's agents run on, and because that slot's route grammar is the
+ * only remaining one that GUARANTEES the session id the roster requires — the frame
+ * resolves a bare auxiliary route through its context picker before any surface
+ * renders, so the mount needs no invented empty state.
  *
- * The components each family exports beyond these three take inputs no route
- * carries — an invite token, an attach draft — so a route cannot supply them and
- * a slot for them would be a slot nothing could ever fill.
+ * The components each family exports beyond these take inputs no route carries — an
+ * invite token, an attach draft — so a route cannot supply them and a slot for them
+ * would be a slot nothing could ever fill.
  */
 const LEGACY_SURFACES: readonly ConsoleSurfaceDescriptor[] = [
   {
     slot: "sessions",
     owner: "session-bootstrap",
     render: (context) => mountLegacySurface(context, () => createElement(SessionBootstrap)),
-  },
-  {
-    slot: "workspace",
-    owner: "session-members",
-    render: (context) =>
-      mountSessionScopedLegacySurface(context, (sessionId) =>
-        createElement(ParticipantRoster, { sessionId }),
-      ),
   },
   {
     slot: "agent-console",

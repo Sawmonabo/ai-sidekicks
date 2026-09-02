@@ -35,6 +35,7 @@
 // No logic lands here. If this file ever needs a condition, a try, or a value of
 // its own, the thing it is deciding belongs in the family that owns the decision.
 
+import { registerLedger } from "./ledger/index.js";
 import { registerLegacySurfaces } from "./frame/legacy-surfaces.js";
 import type { ConsoleSurfaceRegistry } from "./frame/surface-registry.js";
 import { registerConsolePanes } from "./panes/index.js";
@@ -60,7 +61,7 @@ export function registerConsoleFamilies(registry: ConsoleSurfaceRegistry): void 
   // whole console, and it takes the module-scope pane registry because the
   // pane table is not the surface table this function was handed.
   registerConsolePanes(consolePaneRegistry);
-  // T-023p-1C-2 ledger
+  registerLedger(registry);
   // T-023p-1C-3 composer
   // T-023p-1C-4 collaboration
   // T-023p-1C-5 repos
