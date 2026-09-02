@@ -105,6 +105,25 @@
   padding: 0 var(--meridian-space-3) var(--meridian-space-2);
 }
 
+/*
+ * The session's ephemeral clones, in the same column as the mount cards. Its own
+ * group because it is a second list rather than a third card: the heading names the
+ * execution mode the roots belong to, and the rows below it are root cards, which
+ * carry their own edges exactly as the worktree rows under a mount do.
+ */
+.meridian-repo-section__clones {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-repo-section__clones-heading {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  font-weight: 600;
+  color: var(--meridian-text-muted);
+}
+
 /* -------------------------------------------------------------- mount card */
 
 /*
