@@ -33,6 +33,7 @@
 // press rather than stealing it.
 
 import { ConsoleRefusalError, refuse } from "../core/index.js";
+import { isTextEntryTarget } from "../primitives/index.js";
 import type { CommandInvocationOutcome, CommandRegistry } from "./command-registry.js";
 import type { KeyBinding } from "./contributions.js";
 import { chordMatchesEvent } from "./keybinding-chord.js";
@@ -121,47 +122,6 @@ export interface KeyBindingTableOptions {
   readonly readContext: () => WhenClauseContext;
   /** Every dispatch decision, for diagnostics and for the Keyboard settings page. */
   readonly onDispatch?: (dispatch: KeyBindingDispatch) => void;
-}
-
-/**
- * `<input>` types that are controls rather than text entry. A checkbox or a
- * radio should still receive a chord; a search field should not.
- */
-const NON_TEXT_INPUT_TYPES = new Set([
-  "button",
-  "checkbox",
-  "color",
-  "file",
-  "image",
-  "radio",
-  "range",
-  "reset",
-  "submit",
-]);
-
-/**
- * Is this event coming out of a text field?
- *
- * `isContentEditable` covers the composer and any rich editor; the tag check
- * covers native fields. `type` is consulted so a chord still reaches a checkbox,
- * which is a control rather than a place text is being typed.
- */
-export function isTextEntryTarget(target: EventTarget | null): boolean {
-  if (target === null || !(target instanceof HTMLElement)) {
-    return false;
-  }
-  if (target.isContentEditable) {
-    return true;
-  }
-  const tagName = target.tagName;
-  if (tagName === "TEXTAREA" || tagName === "SELECT") {
-    return true;
-  }
-  if (tagName !== "INPUT") {
-    return false;
-  }
-  const inputType = target.getAttribute("type")?.toLowerCase() ?? "text";
-  return !NON_TEXT_INPUT_TYPES.has(inputType);
 }
 
 /**

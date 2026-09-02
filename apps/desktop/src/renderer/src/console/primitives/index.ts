@@ -28,6 +28,12 @@ export { ChordHint } from "./ChordHint.js";
 // the second rendering of the one claim this primitive exists to make.
 export { WireFigure } from "./Figure.js";
 
+// The "whose keystroke is it" pair, through the same door and for the same reason
+// `chord-format.js` is here: the keybinding table and the deck both ask it, both sit
+// above this family, and a second copy in either would be the drift this rule exists
+// to prevent.
+export { isEditableTarget, isTextEntryTarget } from "./editable-target.js";
+
 export type { ChordPlatform } from "./chord-format.js";
 export {
   HOST_CHORD_PLATFORM,

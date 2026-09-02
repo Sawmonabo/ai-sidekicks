@@ -47,7 +47,15 @@ function registryWith(
       kind: descriptor.kind,
       owner: descriptor.owner ?? "deck-test",
       openInWindow: descriptor.openInWindow ?? false,
-      render: (context) => <p data-pane={context.paneId}>{descriptor.kind} body</p>,
+      // A body with a text field in it, because the deck's keyboard guard is about
+      // where a keystroke came FROM: a marker-only body could not tell a chord
+      // taken from the chrome apart from one taken out of somebody's typing.
+      render: (context) => (
+        <>
+          <p data-pane={context.paneId}>{descriptor.kind} body</p>
+          <textarea aria-label={`${descriptor.kind} notes`} />
+        </>
+      ),
     });
   }
   return registry;
@@ -234,6 +242,43 @@ describe("the deck's keyboard paths", () => {
     expect(layout.snapshot().panes).toHaveLength(0);
   });
 
+  it("never takes a chord from an editable target inside a pane body", () => {
+    // The defect: Option+Arrow is word-wise caret movement on macOS and
+    // Option+Backspace deletes a word, so typing in a pane's find field rearranged
+    // or closed the pane it was typed in — and `preventDefault` swallowed the
+    // keystroke the person meant.
+    const layout = emptyLayout();
+    const first = layout.open({ kind: "timeline", entity: undefined });
+    layout.open({ kind: "runs", entity: undefined });
+    const deck = renderDeck(layout, registryWith({ kind: "timeline" }, { kind: "runs" }));
+    focus(layout, first);
+
+    const field = deck.querySelector("textarea");
+    expect(field).not.toBeNull();
+    const moveEvent = pressFrom(field, { key: "ArrowRight", altKey: true, shiftKey: true });
+    const closeEvent = pressFrom(field, { key: "Backspace", altKey: true });
+
+    expect(layout.snapshot().panes.map((pane) => pane.paneId)[0]).toBe(first);
+    expect(layout.snapshot().panes).toHaveLength(2);
+    expect(moveEvent.defaultPrevented).toBe(false);
+    expect(closeEvent.defaultPrevented).toBe(false);
+  });
+
+  it("negative control: the same chord from the pane chrome still moves the pane", () => {
+    // Without this, the case above would pass over a deck whose keyboard paths were
+    // dead everywhere rather than declining only where a widget owns the keys.
+    const layout = emptyLayout();
+    const first = layout.open({ kind: "timeline", entity: undefined });
+    const second = layout.open({ kind: "runs", entity: undefined });
+    const deck = renderDeck(layout, registryWith({ kind: "timeline" }, { kind: "runs" }));
+    focus(layout, first);
+
+    const moveEvent = pressFrom(deck, { key: "ArrowRight", altKey: true, shiftKey: true });
+
+    expect(layout.snapshot().panes.map((pane) => pane.paneId)).toStrictEqual([second, first]);
+    expect(moveEvent.defaultPrevented).toBe(true);
+  });
+
   it("negative control: the same keys without Alt do nothing", () => {
     // Without this, the two cases above would pass over a deck that acted on every
     // arrow key — which would make every text field inside a pane unusable.
@@ -267,4 +312,22 @@ function press(deck: HTMLElement, init: KeyboardEventInit): void {
   act(() => {
     deck.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, ...init }));
   });
+}
+
+/**
+ * Dispatch one keydown from a named element and hand the event back.
+ *
+ * The event itself is the subject of the editable-target cases: whether the deck
+ * called `preventDefault` is the difference between declining a keystroke and
+ * swallowing it, and only the dispatched object carries that.
+ */
+function pressFrom(origin: Element | null, init: KeyboardEventInit): KeyboardEvent {
+  if (origin === null) {
+    throw new Error("no element to dispatch the keydown from");
+  }
+  const event = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init });
+  act(() => {
+    origin.dispatchEvent(event);
+  });
+  return event;
 }
