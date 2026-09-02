@@ -31,7 +31,7 @@ import type { ConsoleBridge } from "../../bridge/index.js";
 import { Glyph, InlineRefusal, type GlyphName } from "../../primitives/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
 import { type RunControl } from "./run-control-dispatch.js";
-import { isControlOffered, type DeclaredCapabilities } from "./run-control-gating.js";
+import { isControlOffered, type DriverCapabilityReadout } from "./run-control-gating.js";
 import { inFlightKeyFor, type RunControlSurface } from "./run-control-surface.js";
 import { type RunProjection } from "./run-state-feed.js";
 import { isLiveRunState } from "./run-status.js";
@@ -61,7 +61,12 @@ export interface RunControlsProps {
   readonly surface: RunControlSurface;
   /** Handed to `StepIn`, which owns its own `run.pause` dispatch and its receipt. */
   readonly bridge: ConsoleBridge;
-  readonly capabilities: DeclaredCapabilities;
+  /**
+   * The capability read, retained per driver. This row resolves it for ITS OWN run:
+   * a session with two drivers must not let either one's declaration decide the
+   * other's controls.
+   */
+  readonly driverCapabilities: DriverCapabilityReadout | undefined;
   /** Pause settled: open this run's detail and put focus in it. */
   readonly onTakeTheFloor: () => void;
   /** Compose a rewind. The pane owns the preview; this row only asks for one. */
@@ -71,7 +76,7 @@ export interface RunControlsProps {
 }
 
 export function RunControls(props: RunControlsProps): React.JSX.Element {
-  const { run, surface, capabilities } = props;
+  const { run, surface, driverCapabilities } = props;
   const [isOverflowOpen, setOverflowOpen] = useState(false);
   const comparand = surface.dispatcher.freshComparandFor(run.runId) ?? run.runVersion;
 
@@ -113,7 +118,7 @@ export function RunControls(props: RunControlsProps): React.JSX.Element {
   );
 
   const offeredOverflow = OVERFLOW_CONTROLS.filter((control) =>
-    isControlOffered(control, capabilities),
+    isControlOffered(control, driverCapabilities, run.runId),
   );
   const isLive = isLiveRunState(run.state);
   const refusal = latestRefusalFor(surface, run.runId);

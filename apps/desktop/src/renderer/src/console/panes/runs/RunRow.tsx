@@ -39,7 +39,7 @@ import {
 import { InputAskSlot, INPUT_ASK_SLOT_CONTRACT } from "./InputAskSlot.js";
 import { InterventionHistory } from "./InterventionHistory.js";
 import { RunControls } from "./RunControls.js";
-import type { DeclaredCapabilities } from "./run-control-gating.js";
+import type { DriverCapabilityReadout } from "./run-control-gating.js";
 import type { RunControlSurface } from "./run-control-surface.js";
 import { runElapsedMilliseconds, type RunProjection, type RunStatusRow } from "./run-state-feed.js";
 import {
@@ -67,7 +67,8 @@ export interface RunRowProps {
   readonly run: RunProjection;
   readonly surface: RunControlSurface;
   readonly bridge: ConsoleBridge;
-  readonly capabilities: DeclaredCapabilities;
+  /** Passed through to the control row, which resolves it for this row's run. */
+  readonly driverCapabilities: DriverCapabilityReadout | undefined;
   /** Ask the pane to compose a rewind for this run. */
   readonly onRequestRewind: (runId: string) => void;
   /** Ask the pane to compose a steer for this run. */
@@ -107,7 +108,7 @@ export function RunRow(props: RunRowProps): React.JSX.Element {
           run={run}
           surface={props.surface}
           bridge={props.bridge}
-          capabilities={props.capabilities}
+          driverCapabilities={props.driverCapabilities}
           onTakeTheFloor={onTakeTheFloor}
           onRequestRewind={onRequestRewind}
           onRequestSteer={onRequestSteer}

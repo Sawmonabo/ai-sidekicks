@@ -8,7 +8,11 @@
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import type { RunState } from "@ai-sidekicks/contracts";
+import {
+  DRIVER_CAPABILITY_FLAGS,
+  type DriverCapabilityFlag,
+  type RunState,
+} from "@ai-sidekicks/contracts";
 
 import { ConsolePaneRegistry } from "../../workspace/index.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
@@ -20,6 +24,7 @@ import { RunsPane } from "./RunsPane.js";
 import { RunControls } from "./RunControls.js";
 import { RunStateProjection } from "./run-state-feed.js";
 import { useRunControlSurface } from "./run-control-surface.js";
+import type { DriverCapabilityReadout } from "./run-control-gating.js";
 
 const RUN_ID = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
 // A canonical UUID: both `run.*` streams parse their registered request through
@@ -206,10 +211,29 @@ describe("the rewind arm never fabricates a transition", () => {
 });
 
 describe("controls are a fail-closed projection, never a local decision", () => {
+  /**
+   * One driver's report, as the only driver in the session.
+   *
+   * A single report is what makes every run in the session resolve to it, which is
+   * the binding the capability reply itself admits — so these cases exercise the
+   * real per-run resolution rather than a stand-in for it.
+   */
+  function soleDriverReadout(
+    declared: Readonly<Partial<Record<DriverCapabilityFlag, boolean>>>,
+  ): DriverCapabilityReadout {
+    const flags = Object.fromEntries(
+      DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, declared[flag] === true]),
+    ) as Readonly<Record<DriverCapabilityFlag, boolean>>;
+    return {
+      flagsByDriverName: new Map([["claude", flags]]),
+      driverNameByRunId: new Map(),
+    };
+  }
+
   /** Render the control row for one run, at one declared capability set. */
   function ControlHarness(props: {
     readonly state: RunState;
-    readonly capabilities: Readonly<Record<string, boolean>> | undefined;
+    readonly driverCapabilities: DriverCapabilityReadout | undefined;
   }): React.JSX.Element {
     const bridge = scriptedBridge([]);
     const surface = useRunControlSurface(bridge);
@@ -224,7 +248,7 @@ describe("controls are a fail-closed projection, never a local decision", () => 
         run={run}
         surface={surface}
         bridge={bridge}
-        capabilities={props.capabilities as never}
+        driverCapabilities={props.driverCapabilities}
         onTakeTheFloor={() => undefined}
         onRequestRewind={() => undefined}
         onRequestSteer={() => undefined}
@@ -234,9 +258,11 @@ describe("controls are a fail-closed projection, never a local decision", () => 
 
   function renderControls(
     state: RunState,
-    capabilities: Readonly<Record<string, boolean>> | undefined,
+    driverCapabilities: DriverCapabilityReadout | undefined,
   ): HTMLElement {
-    const { container } = render(<ControlHarness state={state} capabilities={capabilities} />);
+    const { container } = render(
+      <ControlHarness state={state} driverCapabilities={driverCapabilities} />,
+    );
     return container;
   }
 
@@ -261,7 +287,7 @@ describe("controls are a fail-closed projection, never a local decision", () => 
   });
 
   it("offers a gated control once the driver declares its flag", () => {
-    const container = renderControls("running", { steer: true, rollback: true });
+    const container = renderControls("running", soleDriverReadout({ steer: true, rollback: true }));
     openOverflow(container);
     expect(container.querySelector(".meridian-run-controls__action--steer")).not.toBeNull();
     expect(container.querySelector(".meridian-run-controls__action--rollback")).not.toBeNull();
@@ -270,7 +296,7 @@ describe("controls are a fail-closed projection, never a local decision", () => 
   it("negative control: a declared-false flag leaves the control absent", () => {
     // Proves the case above reads the flag rather than reacting to the object's
     // presence, which would offer every gated control the moment the read answered.
-    const container = renderControls("running", { steer: false, rollback: false });
+    const container = renderControls("running", soleDriverReadout({}));
     openOverflow(container);
     expect(container.querySelector(".meridian-run-controls__action--steer")).toBeNull();
   });
@@ -280,7 +306,7 @@ describe("controls are a fail-closed projection, never a local decision", () => 
     // `cancel` is ungated and stays offered wherever the overflow is drawn, and
     // nothing in the renderer refuses on state. The daemon's typed refusal is what
     // a person would see.
-    const container = renderControls("running", { steer: false, rollback: false });
+    const container = renderControls("running", soleDriverReadout({}));
     openOverflow(container);
     expect(container.querySelector(".meridian-run-controls__action--cancel")).not.toBeNull();
   });

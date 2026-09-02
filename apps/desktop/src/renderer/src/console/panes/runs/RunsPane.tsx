@@ -38,7 +38,7 @@ import { ConsolePaneChrome, paneScopeCrumbs } from "../pane-chrome.js";
 import { QueueContents } from "./QueueContents.js";
 import { RunInterventionComposer, type ComposedControl } from "./RunInterventionComposer.js";
 import { RunRow } from "./RunRow.js";
-import { useDeclaredCapabilities } from "./run-control-gating.js";
+import { useDriverCapabilities } from "./run-control-gating.js";
 import { useRunControlSurface } from "./run-control-surface.js";
 import { useQueueFeed } from "./queue-feed.js";
 import { useRunStateFeed } from "./run-state-feed.js";
@@ -89,7 +89,7 @@ function RunsPaneBody(props: {
   // happened to yet, so this is what keeps "the stream has told us nothing" from
   // rendering as "the session has no runs".
   const knownRuns = useSessionPartition(sessionStore, "run");
-  const capabilities = useDeclaredCapabilities(context.bridge);
+  const driverCapabilities = useDriverCapabilities(context.bridge);
   const surface = useRunControlSurface(context.bridge);
   const [composerTarget, setComposerTarget] = useState<ComposerTarget | undefined>(undefined);
 
@@ -127,7 +127,7 @@ function RunsPaneBody(props: {
                 run={run}
                 surface={surface}
                 bridge={context.bridge}
-                capabilities={capabilities}
+                driverCapabilities={driverCapabilities}
                 onRequestRewind={onRequestRewind}
                 onRequestSteer={onRequestSteer}
               />
