@@ -44,16 +44,6 @@ export const COMPOSING_RECEIVED_STALE_MS = 10_000;
 export const COMPOSING_NAMED_CAP = 3;
 
 /**
- * Archived channels rendered inside the disclosure before it scrolls.
- *
- * The disclosure is collapsed by default and archival is terminal, so the list
- * behind it only grows. A cap turns an unbounded region into a bounded one without
- * hiding anything: past it the region scrolls rather than pushing the live channels
- * off the screen.
- */
-export const ARCHIVED_CHANNEL_VISIBLE_CAP = 12;
-
-/**
  * Settled invitations the sent-invite ledger renders inside its one disclosure.
  *
  * Sixteen. The fold exists because accepted, expired, and revoked rows are history
