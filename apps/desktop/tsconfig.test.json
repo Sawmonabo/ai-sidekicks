@@ -24,8 +24,23 @@
     "composite": false,
     "declaration": true,
     "declarationMap": false,
-    "sourceMap": false
+    "sourceMap": false,
+    // The console budget tier imports the harnesses under `scripts/budget/`,
+    // which are TypeScript run directly by `node --experimental-strip-types`
+    // (Plan-023 T-023p-1C-1). Node resolves the extension it is GIVEN and does
+    // no `.mjs` → `.mts` rewriting, so those modules import each other by their
+    // real `.mts` path — and a program that pulls them in needs this option to
+    // accept that path. Legal here because this config is `noEmit`.
+    "allowImportingTsExtensions": true
   },
+  // `files` rather than `include`, deliberately: `exclude` filters `include` and
+  // this path sits under the excluded `src/renderer/**`, while a `files` entry is
+  // unconditional. The declarations are needed because exclusion only filters the
+  // include globs — a test that IMPORTS a renderer module still pulls it into the
+  // program, and the bundle tier does exactly that to name the string it greps
+  // for rather than copying it. Those modules read the console's build-time
+  // signals, which are declared here and nowhere else.
+  "files": ["src/renderer/src/console/console-env.d.ts"],
   "include": ["src/**/*", "test/**/*"],
   // `src/renderer/**` is excluded because the renderer is a separate composite
   // project (browser context: JSX + DOM lib) wired in via the parent
@@ -35,5 +50,28 @@
   // parent tsconfig.json exclude resolves. Renderer-internal test files (when
   // they land at T-023p-1-7+) are typechecked by the renderer composite
   // project itself, not by this Node-context config.
-  "exclude": ["dist", "node_modules", "src/renderer/**"]
+  //
+  // Plan-023 Phase 1C adds the three browser-mode console tiers to that list.
+  // They live under `test/` — so `include` reaches them — but they import
+  // renderer sources and render React into a real DOM, and dragging those in
+  // here fails exactly as the renderer `.tsx` exclusion above describes:
+  // TS6142 for the unset `--jsx`, TS2304 for `indexedDB` and `IDBFactory`, and
+  // `Document` resolving to Electron's `WebviewTag`. They are typechecked by
+  // `tsconfig.console-browser-test.json`, under the renderer's own options.
+  "exclude": [
+    "dist",
+    "node_modules",
+    "src/renderer/**",
+    "test/console/console-harness.tsx",
+    "test/console/browser/**",
+    "test/console/screenshot/**",
+    "test/console/accessibility/**",
+    "test/console/e2e/**",
+    "test/console/endurance/**",
+    // The launcher the two Electron tiers share. It sits beside them rather than
+    // inside either, so it needs its own line: it names renderer constants (and
+    // so reads the console's build-time signals) for the same reason those tiers
+    // do, and is typechecked with them by `tsconfig.console-electron-test.json`.
+    "test/console/electron-harness.ts"
+  ]
 }

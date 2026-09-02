@@ -1,0 +1,303 @@
+/*
+ * The command palette's chrome.
+ *
+ * Every colour here is a Meridian token (`--meridian-*`, generated from
+ * `console/tokens/palette.ts`). There is no literal colour in this file and there
+ * must never be one: the contrast tier measures the TOKENS, and a hard-coded hex
+ * would be a value the accessibility sweep cannot see.
+ *
+ * Motion obeys rule 5 — settles, never bounces. Entrances fade with a 2 px rise
+ * over `--meridian-motion-settle` (180 ms) using `@starting-style`, and nothing
+ * overshoots. `prefers-reduced-motion` is collapsed to opacity globally by the
+ * generated base sheet, so this file does not restate it.
+ *
+ * Attention is steered by LUMINANCE, not hue: a matched character is the
+ * full-strength text token against a muted row, and the highlighted row is a
+ * raised surface. Amber and red appear only in the absence block, where they mean
+ * what the two-hue rule says they mean.
+ */
+
+.console-palette__backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--meridian-ground);
+  opacity: 0.72;
+  transition: opacity var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.console-palette__backdrop[data-starting-style],
+.console-palette__backdrop[data-ending-style] {
+  opacity: 0;
+}
+
+.console-palette__popup {
+  position: fixed;
+  /* Sits above centre: the eye is already high on the screen when the chord is
+     pressed, and a centred dialog would drop the first result below the gaze. */
+  top: 12vh;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  width: min(40rem, calc(100vw - var(--meridian-space-8)));
+  max-height: min(30rem, 70vh);
+  overflow: hidden;
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-lg);
+  box-shadow: 0 1.5rem 3rem oklch(0% 0 0 / 22%);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-md);
+  transition:
+    opacity var(--meridian-motion-settle) var(--meridian-ease-settle),
+    translate var(--meridian-motion-settle) var(--meridian-ease-settle);
+}
+
+.console-palette__popup[data-starting-style],
+.console-palette__popup[data-ending-style] {
+  opacity: 0;
+  translate: 0 2px;
+}
+
+.console-palette__popup:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: -2px;
+}
+
+/* The scoped-context row: what the commands below act on. */
+.console-palette__scope {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-2) var(--meridian-space-4);
+  border-bottom: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface);
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.console-palette__scope-label {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--meridian-text-faint);
+}
+
+.console-palette__scope-value {
+  color: var(--meridian-text);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.console-palette__input {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  width: 100%;
+  padding: var(--meridian-space-4);
+  border: 0;
+  border-bottom: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+  font-family: inherit;
+  font-size: var(--meridian-text-lg);
+  line-height: 1.4;
+}
+
+.console-palette__input::placeholder {
+  color: var(--meridian-text-faint);
+}
+
+.console-palette__input:focus {
+  /* The popup already carries the boundary; a second ring inside it would read
+     as two focused things. The list's highlight is where focus is legible. */
+  outline: none;
+  border-bottom-color: var(--meridian-edge-strong);
+}
+
+.console-palette__list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--meridian-space-2) 0;
+}
+
+.console-palette__group-label {
+  padding: var(--meridian-space-2) var(--meridian-space-4) var(--meridian-space-1);
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.console-palette__item {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-3);
+  padding: var(--meridian-space-2) var(--meridian-space-4);
+  border-left: var(--meridian-attribution-edge) solid transparent;
+  color: var(--meridian-text-muted);
+  cursor: default;
+  scroll-margin: var(--meridian-space-2);
+  transition: background-color var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.console-palette__item[data-highlighted] {
+  background: var(--meridian-surface);
+  border-left-color: var(--meridian-accent);
+  color: var(--meridian-text);
+}
+
+.console-palette__item-title {
+  flex: 1 1 auto;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Matched characters: luminance, never hue. */
+.console-palette__match {
+  color: var(--meridian-text);
+  font-weight: 640;
+}
+
+.console-palette__item-field {
+  flex: 0 0 auto;
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+/*
+ * The chord slot. LAYOUT ONLY — the keycap itself is `ChordHint`, and this rule
+ * deliberately sets nothing about how a key is drawn.
+ *
+ * There used to be a second keycap here, a border-and-background rule that painted
+ * `formatChordForPlatform`'s string. Two keycap treatments in one console is one
+ * too many, and the palette's was the one that could never be right: a chord
+ * printed as a single string cannot separate the modifiers from the key, so a
+ * screen reader got "⌘K" — which it pronounces "place of interest sign K".
+ */
+.console-palette__chord {
+  display: flex;
+  flex: 0 0 auto;
+}
+
+.console-palette__recent-mark {
+  flex: 0 0 auto;
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+/*
+ * The five kinds of nothing (rule 8). Each absence gets its own shape because the
+ * operator's next move differs for each; collapsing two of them into one row is
+ * the mistake the rule names.
+ */
+.console-palette__absence {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-5) var(--meridian-space-4);
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+}
+
+.console-palette__absence-headline {
+  color: var(--meridian-text);
+}
+
+.console-palette__absence-detail {
+  color: var(--meridian-text-faint);
+}
+
+/* not loaded — a skeleton in the row's shape. */
+.console-palette__skeleton-row {
+  height: 1.25rem;
+  margin: var(--meridian-space-2) var(--meridian-space-4);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+}
+
+.console-palette__skeleton-row:nth-child(2) {
+  width: 72%;
+}
+
+.console-palette__skeleton-row:nth-child(3) {
+  width: 54%;
+}
+
+/* error — a red-edged row carrying the code and the message verbatim. */
+.console-palette__absence--error {
+  border-left: var(--meridian-attribution-edge) solid var(--meridian-red-mark);
+  background: var(--meridian-red-ground);
+  color: var(--meridian-red-text);
+}
+
+.console-palette__absence--error .console-palette__absence-headline {
+  color: var(--meridian-red-text);
+}
+
+.console-palette__error-code {
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+}
+
+.console-palette__error-list {
+  margin: 0;
+  padding-left: var(--meridian-space-5);
+  color: var(--meridian-red-text);
+  font-size: var(--meridian-text-xs);
+}
+
+/* not checked — a dotted badge. */
+.console-palette__badge {
+  align-self: flex-start;
+  padding: 0 var(--meridian-space-2);
+  border: 1px dashed var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+  line-height: 1.6;
+}
+
+/* unknown, still computing — a badge with a clock glyph. */
+.console-palette__badge--computing {
+  border-style: solid;
+  border-color: var(--meridian-amber-mark);
+  background: var(--meridian-amber-ground);
+  color: var(--meridian-amber-text);
+}
+
+.console-palette__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--meridian-space-3);
+  padding: var(--meridian-space-2) var(--meridian-space-4);
+  border-top: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface);
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+.console-palette__footer-hints {
+  display: flex;
+  gap: var(--meridian-space-3);
+}
+
+/*
+ * The live region. Visually hidden but never `display: none` and never removed —
+ * Base UI's `Combobox.Status` announces by mutating its own text, and a node that
+ * is unmounted or hidden announces nothing on several screen readers.
+ */
+.console-palette__status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

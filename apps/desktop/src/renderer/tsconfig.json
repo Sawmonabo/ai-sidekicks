@@ -25,19 +25,24 @@
     "module": "esnext",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
-    "outDir": "../../out",
     // `rootDir` is `src/`, not `src/renderer/`, so the renderer may import
     // `../shared/**` — a subtree BOTH processes compile (see
     // `src/shared/auxiliary-routes.ts` for why the auxiliary-route manifest has
     // to be shared rather than main-process-only). With `rootDir: "."` the first
     // such import is TS6059 ("file is not under rootDir"), which would make the
     // shared module importable in principle and a compile error in practice.
-    // Paired with the widened `outDir`, every renderer file still emits to
-    // exactly `out/renderer/<same relative path>` as before — `rootDir` and
-    // `outDir` both moved up one level, so the quotient is unchanged — and the
-    // shared subtree emits alongside it at `out/shared/`. The renderer BUNDLE is
-    // built by `electron-vite`, not by this project's emit, so nothing about the
-    // shipped tree depends on either path.
+    //
+    // `outDir` is NOT `../../out` and NOT `../../out/renderer`: the latter is the
+    // directory `electron.vite.config.ts` gives the renderer BUNDLE, and the
+    // former puts this project's emit one level above it, which lands
+    // `out/renderer/**` in the same tree either way — so the bundle-budget
+    // harness could not tell an emitted chunk from a typecheck artifact. Sending
+    // the emit to its own `out/tsc-<project>` root keeps both properties at once:
+    // `rootDir` stays wide enough for the shared subtree, and nothing this
+    // project emits is ever mistaken for something the bundler produced. The
+    // renderer BUNDLE is built by `electron-vite`, not by this emit, so nothing
+    // about the shipped tree depends on either path.
+    "outDir": "../../out/tsc-renderer",
     "rootDir": "..",
     "tsBuildInfoFile": "./.tsbuildinfo"
   },

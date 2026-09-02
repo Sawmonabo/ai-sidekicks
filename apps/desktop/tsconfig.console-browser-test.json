@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // Type-validates the three BROWSER-MODE console tiers (browser, screenshot,
+  // accessibility) and the harness they share.
+  //
+  // They need their own config because they sit in two contexts at once: they
+  // live under the package-root `test/` directory, which the Node-context
+  // `tsconfig.test.json` owns, but they import renderer sources and render React
+  // into a real DOM. Left in the Node config they fail for reasons that have
+  // nothing to do with them — `--jsx` not set, `IDBFactory` and `indexedDB`
+  // unresolved, `Document` resolving to Electron's `WebviewTag` — so
+  // `tsconfig.test.json` excludes them and this config picks them up under the
+  // renderer's own compiler options.
+  //
+  // It extends the RENDERER config rather than the Node one, and overrides
+  // `rootDir`/`outDir` because these files sit outside `src/renderer/` (a
+  // `noEmit` pass still enforces `rootDir` containment, TS6059).
+  //
+  // `types` carries three entries and each is load-bearing:
+  //   • `vitest/globals` — `describe` / `it` / `expect` on the global scope.
+  //   • `@vitest/browser/matchers` — registers `toMatchScreenshot` and the
+  //     jest-dom matchers on `expect`; without it the screenshot tier does not
+  //     compile. (This is also why `apps/desktop` declares `@vitest/browser`
+  //     directly rather than leaning on it as a transitive dependency: under
+  //     pnpm's strict layout a `types` entry can only name a visible package.)
+  //   • `@vitest/browser-playwright` — its entry point carries
+  //     `declare module "vitest/browser" { interface CDPSession … }`, which is
+  //     what gives `cdp()` its `send` method. `vitest/internal/browser` declares
+  //     `CDPSession` as an EMPTY interface on purpose, as an extension point for
+  //     whichever provider is configured; without this entry the harness's
+  //     `Emulation.setEmulatedMedia` call runs correctly and does not compile.
+  "extends": "./src/renderer/tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "declaration": true,
+    "declarationMap": false,
+    "sourceMap": false,
+    "rootDir": ".",
+    "outDir": "out/tsc-console-browser-test",
+    "tsBuildInfoFile": null,
+    "types": ["vitest/globals", "@vitest/browser/matchers", "@vitest/browser-playwright"]
+  },
+  "include": [
+    "test/console/console-harness.tsx",
+    "test/console/browser/**/*",
+    "test/console/screenshot/**/*",
+    "test/console/accessibility/**/*",
+    "src/renderer/src/**/*.d.ts",
+    "src/renderer/src/console/console-env.d.ts"
+  ],
+  "exclude": []
+}

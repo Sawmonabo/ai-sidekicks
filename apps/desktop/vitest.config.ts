@@ -21,9 +21,108 @@
 // (`window.sidekicks`) is mocked per test (see SessionBootstrap.test.tsx)
 // rather than dispatched to the real preload — there is no `electron`
 // runtime in this test surface.
+//
+// Plan-023 Phase 1C (T-023p-1C-1) registers the console's test tiers
+// (`Spec-023 §Console Test Tiers`). Seven of the nine tiers are Vitest projects
+// declared below; `end-to-end` and `endurance` need a real Electron window and
+// live in `playwright.config.ts` beside this file. Every glob is disjoint —
+// including the two NARROWINGS this phase makes to pre-existing projects, which
+// are load-bearing rather than tidying:
+//
+//   • `main`'s `test/**/*.test.ts` would otherwise swallow every console tier
+//     under `test/console/**` and run it in the smoke project's node
+//     environment. It becomes `test/*.test.ts`, which is exactly the three
+//     root-level smoke tests it has always meant.
+//   • `renderer`'s `src/renderer/**/__tests__/**` is unchanged, but its
+//     `exclude` now names the console subtree so a console test co-located
+//     under `src/renderer/src/console/**` belongs to `console-unit` alone.
+import { playwright } from "@vitest/browser-playwright";
 import { defineConfig } from "vitest/config";
 
 import { sharedCoverageOptions } from "../../vitest.shared";
+
+/**
+ * Conditions that resolve workspace *value* imports to TS source rather than a
+ * stale `dist/`. Shared by every DOM-environment project, because each of them
+ * imports `@ai-sidekicks/contracts` for value as well as type.
+ */
+const WORKSPACE_SOURCE_CONDITIONS = ["@ai-sidekicks/source", "import", "default"];
+
+/**
+ * Everything a browser-mode tier renders through, pre-bundled in ONE optimizer
+ * pass and deduplicated.
+ *
+ * Without this the optimizer discovers `react` twice — once as a dependency of
+ * `@testing-library/react`, once as a dependency of `@base-ui/react` reached later
+ * through the console's own graph — and emits two chunks under different `?v=`
+ * hashes. Two React module instances share no context, so the first Base UI
+ * component to call `useContext` reads `null` and the entire tree fails to render.
+ * Listing them together makes one pass see all of them; `dedupe` keeps a single
+ * copy resolved from the package root.
+ */
+const BROWSER_MODE_OPTIMIZE_DEPS = {
+  include: [
+    "react",
+    "react/jsx-dev-runtime",
+    "react-dom",
+    "react-dom/client",
+    "@base-ui/react",
+    "@testing-library/react",
+    "axe-core",
+  ],
+};
+
+/** The one React copy every browser-mode tier resolves. */
+const BROWSER_MODE_DEDUPE = ["react", "react-dom"];
+
+/**
+ * The window the console is measured in.
+ *
+ * Vitest browser mode defaults to a 414×896 phone viewport. The console is a
+ * desktop application whose frame is a 52 px rail beside a surface, so at 414 px
+ * the surface is 362 px wide — every geometry assertion measures a layout no
+ * person will ever see, "does not scroll horizontally" passes because nothing has
+ * room to overflow, and a screenshot baseline is a phone-shaped thumbnail. 1440×900
+ * is the smallest common laptop, which is the honest floor to hold the budgets at:
+ * a baseline captured at the widest window would hide exactly the crowding that
+ * shows up first at the narrowest one.
+ */
+const BROWSER_MODE_VIEWPORT = { width: 1440, height: 900 };
+
+/**
+ * Browser-mode settings shared by every console tier that renders.
+ *
+ * A FACTORY, not a shared constant, and that is not a style choice. Vitest resolves
+ * each browser project by writing a derived name back onto the instance descriptor
+ * it was handed; three projects spread from one object literal share one `instances`
+ * array, so the second project finds the first one's name already stamped on it and
+ * the whole run aborts with "the project name `console-browser (chromium)` was
+ * already defined". A fresh object per project is what keeps them independent.
+ *
+ * `screenshotFailures` is OFF deliberately. Vitest writes a failure capture into
+ * `__screenshots__` beside the test file — the same directory `toMatchScreenshot`
+ * keeps its committed baselines in — so leaving it on makes that directory mean two
+ * different things and puts throwaway PNGs of red tests next to references a review
+ * is supposed to read. The screenshot tier still writes its own actual/diff pair on
+ * a mismatch, which is the capture that is worth having.
+ */
+function browserModeOptions(): {
+  enabled: true;
+  provider: ReturnType<typeof playwright>;
+  headless: true;
+  screenshotFailures: false;
+  viewport: { width: number; height: number };
+  instances: [{ browser: "chromium" }];
+} {
+  return {
+    enabled: true,
+    provider: playwright(),
+    headless: true,
+    screenshotFailures: false,
+    viewport: { ...BROWSER_MODE_VIEWPORT },
+    instances: [{ browser: "chromium" }],
+  };
+}
 
 export default defineConfig({
   test: {
@@ -46,10 +145,11 @@ export default defineConfig({
         test: {
           name: "main",
           environment: "node",
-          // The existing smoke test spawns Electron from the package root.
-          // Keep its discovery glob narrow so the renderer-suite glob below
-          // does not pick it up under happy-dom by accident.
-          include: ["test/**/*.test.ts"],
+          // The three root-level smoke tests, and only those. Narrowed from
+          // `test/**/*.test.ts` by Plan-023 Phase 1C so the console tiers under
+          // `test/console/**` are not double-discovered here in a node
+          // environment that would fail them for the wrong reason.
+          include: ["test/*.test.ts"],
           // Two files under this glob each spawn a full Electron/Chromium
           // process tree — `launch.smoke.test.ts` and `lifecycle.gc.test.ts`.
           // Vitest's default `fileParallelism: true` runs them CONCURRENTLY,
@@ -113,7 +213,7 @@ export default defineConfig({
         test: {
           name: "main-unit",
           environment: "node",
-          // Disjoint from `test/**/*.test.ts` (the smoke project) and from
+          // Disjoint from `test/*.test.ts` (the smoke project) and from
           // `src/renderer/**/__tests__/**` (the renderer project), so the
           // posture's no-double-discovery property still holds. `src/shared/**`
           // joins the set because that subtree is imported by BOTH processes
@@ -134,11 +234,11 @@ export default defineConfig({
         // needs none. The `main-unit` project above DOES need them — see its
         // own block.)
         resolve: {
-          conditions: ["@ai-sidekicks/source", "import", "default"],
+          conditions: WORKSPACE_SOURCE_CONDITIONS,
         },
         ssr: {
           resolve: {
-            conditions: ["@ai-sidekicks/source", "import", "default"],
+            conditions: WORKSPACE_SOURCE_CONDITIONS,
           },
         },
         test: {
@@ -149,6 +249,8 @@ export default defineConfig({
           // and `packages/client-sdk` (renderer is its own composite TS
           // project; its tests live inside that project's source tree).
           include: ["src/renderer/**/__tests__/**/*.test.{ts,tsx}"],
+          // The console owns its own tier; a console test never runs here.
+          exclude: ["src/renderer/src/console/**"],
           // `globals: true` populates `vi`, `expect`, `describe`, `it`,
           // `afterEach` etc. on the global scope so the test file can rely
           // on `vitest/globals` types (configured in
@@ -156,6 +258,192 @@ export default defineConfig({
           // production renderer `tsconfig.json` so vitest globals never leak
           // into renderer production code's typegraph).
           globals: true,
+        },
+      },
+
+      // --- Console test tiers (`Spec-023 §Console Test Tiers`) --------------
+
+      {
+        // Tier: unit. Store transitions, projection arms, exhaustiveness, the
+        // refusal grammar. Co-located with the code it proves, because a console
+        // module and its unit test are read together.
+        define: { __SIDEKICKS_CONSOLE_FIXTURES__: "true" },
+        resolve: { conditions: WORKSPACE_SOURCE_CONDITIONS },
+        ssr: { resolve: { conditions: WORKSPACE_SOURCE_CONDITIONS } },
+        test: {
+          name: "console-unit",
+          environment: "happy-dom",
+          include: [
+            "src/renderer/src/console/**/*.test.{ts,tsx}",
+            "src/renderer/src/console/**/__tests__/**/*.test.{ts,tsx}",
+          ],
+          globals: true,
+        },
+      },
+      {
+        // Tier: browser. Geometry and pixel invariants that a DOM shim cannot
+        // answer — happy-dom returns zeroes for every rect, so a reading-anchor
+        // or scroll-monotonicity assertion under it would pass vacuously.
+        define: { __SIDEKICKS_CONSOLE_FIXTURES__: "true" },
+        resolve: { conditions: WORKSPACE_SOURCE_CONDITIONS, dedupe: BROWSER_MODE_DEDUPE },
+        optimizeDeps: BROWSER_MODE_OPTIMIZE_DEPS,
+        test: {
+          name: "console-browser",
+          include: ["test/console/browser/**/*.test.{ts,tsx}"],
+          globals: true,
+          browser: browserModeOptions(),
+        },
+      },
+      {
+        // Tier: screenshot (component half). The Electron-window half rides
+        // Playwright and lands with T-023p-1C-8; this project pins the frame and
+        // the primitive gallery per component and per scheme.
+        define: { __SIDEKICKS_CONSOLE_FIXTURES__: "true" },
+        resolve: { conditions: WORKSPACE_SOURCE_CONDITIONS, dedupe: BROWSER_MODE_DEDUPE },
+        optimizeDeps: BROWSER_MODE_OPTIMIZE_DEPS,
+        test: {
+          name: "console-screenshot",
+          include: ["test/console/screenshot/**/*.test.{ts,tsx}"],
+          globals: true,
+          browser: browserModeOptions(),
+        },
+      },
+      {
+        // Tier: accessibility. `axe-core` runs INSIDE the browser-mode page
+        // rather than through `@axe-core/playwright`, which needs a
+        // `@playwright/test` `Page` handle that Vitest browser mode does not
+        // hand out. Same engine, same rule set, one less indirection.
+        define: { __SIDEKICKS_CONSOLE_FIXTURES__: "true" },
+        resolve: { conditions: WORKSPACE_SOURCE_CONDITIONS, dedupe: BROWSER_MODE_DEDUPE },
+        optimizeDeps: BROWSER_MODE_OPTIMIZE_DEPS,
+        test: {
+          name: "console-accessibility",
+          include: ["test/console/accessibility/**/*.test.{ts,tsx}"],
+          globals: true,
+          browser: browserModeOptions(),
+        },
+      },
+      {
+        // Tier: architecture. The tripwires, as lint tests over the source text.
+        // Node environment: these read files, they do not render.
+        //
+        // The define is carried even though this tier reads source rather than
+        // importing it, and that is the point: `core/tripwires.ts` guards its
+        // fixture-only assignment at MODULE scope, so the first architecture test
+        // to import a console module instead of reading it would abort at import
+        // with a bare `ReferenceError` naming an identifier that is not a variable
+        // in any process. `false`, on the bundle tier's reasoning — the process
+        // doing the reading is not a build — so such a test reports its own
+        // assertion instead of the tier's configuration.
+        define: {
+          __SIDEKICKS_CONSOLE_FIXTURES__: "false",
+        },
+        test: {
+          name: "console-architecture",
+          environment: "node",
+          include: ["test/console/architecture/**/*.test.ts"],
+        },
+      },
+      {
+        // Tier: assets. Generated artifacts byte-identical to their sources.
+        test: {
+          name: "console-assets",
+          environment: "node",
+          include: ["test/console/assets/**/*.test.ts"],
+        },
+      },
+      {
+        // Tier: bundle. Chunk sizes against `budgets.json`, plus the heap-at-rest
+        // reading, which shares the harness because both are measurements against
+        // the same budget file — the directory is named for the budget file both
+        // read rather than for the one artifact class one of them measures. Also
+        // where claims about what a RELEASE bundle does not contain live, since
+        // those need the same built tree and no other tier has one.
+        //
+        // Same substitution the two Electron tiers carry, and for the same
+        // reason: this tier names renderer constants so a rename breaks it at
+        // compile time, and those modules read the console's build-time gate.
+        // `false`, because the process doing the reading is not a build at all.
+        define: {
+          __SIDEKICKS_CONSOLE_FIXTURES__: "false",
+        },
+        test: {
+          name: "console-bundle",
+          environment: "node",
+          include: ["test/console/budget/**/*.test.ts"],
+        },
+      },
+      {
+        // Tier: end-to-end. A real Electron process, a real window, driven
+        // through Playwright's `_electron` on the runner this repository already
+        // uses. Node environment because the test file is the DRIVER — the code
+        // under test runs in another process entirely, which is exactly what
+        // makes this tier different from the browser-mode ones.
+        //
+        // Requires `pnpm build:fixtures`. The tests skip with a message rather
+        // than fail when the bundle is absent (see `electron-harness.ts`), so a
+        // developer who runs the whole suite without building is told what to do
+        // instead of shown a stack trace from inside Electron's startup.
+        //
+        // Mirrors the release substitution because this tier imports renderer
+        // constants — a database name, a partition, a key — so that a rename
+        // breaks it at compile time rather than leaving it reading a record
+        // nothing writes, and those modules read the console's build-time gate.
+        // `false`, because the DRIVER process is not a fixture build; the window
+        // it launches is one, in another process entirely.
+        define: {
+          __SIDEKICKS_CONSOLE_FIXTURES__: "false",
+        },
+        test: {
+          name: "console-e2e",
+          environment: "node",
+          include: ["test/console/e2e/**/*.test.ts"],
+          // A cold Electron start plus a driven interaction is seconds, not
+          // milliseconds, and the default 5 s timeout would make runner
+          // contention indistinguishable from a hang.
+          testTimeout: 60_000,
+          hookTimeout: 60_000,
+          // One Electron at a time. These launch real processes that each hold a
+          // GPU context and a profile directory; running files in parallel turns
+          // a four-core runner into the thing being measured.
+          fileParallelism: false,
+        },
+      },
+      {
+        // Tier: endurance. The same real application, held open and driven, with
+        // the heap read at both ends of the run.
+        //
+        // Its own project rather than a slow file inside `console-e2e` so that
+        // `pnpm test:console-e2e` stays a fast gate a person will actually run
+        // before pushing, and the slow tier is opted into by name.
+        // Mirrors the release substitution so importing renderer source here —
+        // the tripwire module owns the property name this tier reads, and
+        // importing it through the harness is what keeps the two sides from
+        // drifting into a vacuous assertion — does not hit a bare identifier.
+        // `false`, because the DRIVER process is not a fixture build; the global
+        // this tier asserts on belongs to the renderer, in another process
+        // entirely. Same shape as `main-unit`'s `__SIDEKICKS_SMOKE_BUILD__`
+        // define above.
+        define: {
+          __SIDEKICKS_CONSOLE_FIXTURES__: "false",
+        },
+        test: {
+          name: "console-endurance",
+          environment: "node",
+          include: ["test/console/endurance/**/*.test.ts"],
+          testTimeout: 600_000,
+          hookTimeout: 600_000,
+          fileParallelism: false,
+        },
+      },
+      {
+        // Not one of the nine tiers: the micro-benchmark ledger. Separated so a
+        // benchmark's timing noise can never fail a gate — it records, and a
+        // human reads the ledger.
+        test: {
+          name: "console-bench",
+          environment: "node",
+          include: ["test/console/bench/**/*.bench.ts", "test/console/bench/**/*.test.ts"],
         },
       },
     ],

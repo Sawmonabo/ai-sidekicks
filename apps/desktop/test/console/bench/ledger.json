@@ -1,0 +1,173 @@
+{
+  "schemaVersion": 1,
+  "rows": [
+    {
+      "benchmarkId": "store-fan-out.flat",
+      "label": "Flat entity map — immutable apply at 20,000 entities (control)",
+      "unit": "ms/event",
+      "gitCommitSha": "4db55ac216e8c396d28f1dd335e417412e7e4f85",
+      "recordedAt": "2026-09-02T00:34:01.949Z",
+      "runtimeEnvironment": {
+        "nodeVersion": "v24.18.0",
+        "platform": "darwin-arm64",
+        "cpuModel": "Apple M1 Pro",
+        "cpuCount": 8,
+        "totalMemoryBytes": 17179869184
+      },
+      "context": {
+        "entityCount": 20000,
+        "partitionCount": 11,
+        "eventsPerSample": 50,
+        "warmUpSamplesDiscarded": 5,
+        "nodeVersion": "v24.18.0",
+        "platform": "darwin-arm64",
+        "storeShape": "Record<string, ConsoleEntity>"
+      },
+      "sampleCount": 25,
+      "minimum": 4.379468340000003,
+      "median": 4.465845840000002,
+      "percentile95": 4.666930820000002,
+      "maximum": 4.750990839999995
+    },
+    {
+      "benchmarkId": "store-fan-out.partitioned",
+      "label": "Partitioned entity map — immutable apply at 20,000 entities",
+      "unit": "ms/event",
+      "gitCommitSha": "4db55ac216e8c396d28f1dd335e417412e7e4f85",
+      "recordedAt": "2026-09-02T00:34:01.949Z",
+      "runtimeEnvironment": {
+        "nodeVersion": "v24.18.0",
+        "platform": "darwin-arm64",
+        "cpuModel": "Apple M1 Pro",
+        "cpuCount": 8,
+        "totalMemoryBytes": 17179869184
+      },
+      "context": {
+        "entityCount": 20000,
+        "partitionCount": 11,
+        "eventsPerSample": 50,
+        "warmUpSamplesDiscarded": 5,
+        "nodeVersion": "v24.18.0",
+        "platform": "darwin-arm64",
+        "storeShape": "Record<ConsoleEntityKind, Record<string, ConsoleEntity>>"
+      },
+      "sampleCount": 25,
+      "minimum": 0.34420250000001035,
+      "median": 0.35338166000001364,
+      "percentile95": 0.3748908399999891,
+      "maximum": 0.37801666000001205
+    },
+    {
+      "benchmarkId": "store-fan-out.flat",
+      "label": "Flat entity map — immutable apply at 20,000 entities (control)",
+      "unit": "ms/event",
+      "gitCommitSha": "4db55ac216e8c396d28f1dd335e417412e7e4f85",
+      "recordedAt": "2026-09-02T00:53:29.212Z",
+      "runtimeEnvironment": {
+        "nodeVersion": "v24.18.0",
+        "platform": "darwin-arm64",
+        "cpuModel": "Apple M1 Pro",
+        "cpuCount": 8,
+        "totalMemoryBytes": 17179869184
+      },
+      "context": {
+        "entityCount": 20000,
+        "partitionCount": 11,
+        "eventsPerSample": 50,
+        "warmUpSamplesDiscarded": 5,
+        "nodeVersion": "v24.18.0",
+        "platform": "darwin-arm64",
+        "storeShape": "Record<string, ConsoleEntity>"
+      },
+      "sampleCount": 25,
+      "minimum": 4.403384999999998,
+      "median": 4.9113941599999995,
+      "percentile95": 6.4650933200000145,
+      "maximum": 8.522060840000012
+    },
+    {
+      "benchmarkId": "store-fan-out.partitioned",
+      "label": "Partitioned entity map — immutable apply at 20,000 entities",
+      "unit": "ms/event",
+      "gitCommitSha": "4db55ac216e8c396d28f1dd335e417412e7e4f85",
+      "recordedAt": "2026-09-02T00:53:29.212Z",
+      "runtimeEnvironment": {
+        "nodeVersion": "v24.18.0",
+        "platform": "darwin-arm64",
+        "cpuModel": "Apple M1 Pro",
+        "cpuCount": 8,
+        "totalMemoryBytes": 17179869184
+      },
+      "context": {
+        "entityCount": 20000,
+        "partitionCount": 11,
+        "eventsPerSample": 50,
+        "warmUpSamplesDiscarded": 5,
+        "nodeVersion": "v24.18.0",
+        "platform": "darwin-arm64",
+        "storeShape": "Record<ConsoleEntityKind, Record<string, ConsoleEntity>>"
+      },
+      "sampleCount": 25,
+      "minimum": 0.3462216599999738,
+      "median": 0.36140999999999623,
+      "percentile95": 0.3739891599999828,
+      "maximum": 0.3848266599999988
+    },
+    {
+      "benchmarkId": "store-fan-out.flat",
+      "label": "Flat entity map — immutable apply at 20,000 entities (control)",
+      "unit": "ms/event",
+      "gitCommitSha": "366a67701c00cdbde42109259701320b74d34e9a",
+      "recordedAt": "2026-09-02T00:59:09.974Z",
+      "runtimeEnvironment": {
+        "nodeVersion": "v24.18.0",
+        "platform": "darwin-arm64",
+        "cpuModel": "Apple M1 Pro",
+        "cpuCount": 8,
+        "totalMemoryBytes": 17179869184
+      },
+      "context": {
+        "entityCount": 20000,
+        "partitionCount": 11,
+        "eventsPerSample": 50,
+        "warmUpSamplesDiscarded": 5,
+        "nodeVersion": "v24.18.0",
+        "platform": "darwin-arm64",
+        "storeShape": "Record<string, ConsoleEntity>"
+      },
+      "sampleCount": 25,
+      "minimum": 5.551180820000009,
+      "median": 7.18678249999999,
+      "percentile95": 9.280062499999985,
+      "maximum": 11.084279160000005
+    },
+    {
+      "benchmarkId": "store-fan-out.partitioned",
+      "label": "Partitioned entity map — immutable apply at 20,000 entities",
+      "unit": "ms/event",
+      "gitCommitSha": "366a67701c00cdbde42109259701320b74d34e9a",
+      "recordedAt": "2026-09-02T00:59:09.974Z",
+      "runtimeEnvironment": {
+        "nodeVersion": "v24.18.0",
+        "platform": "darwin-arm64",
+        "cpuModel": "Apple M1 Pro",
+        "cpuCount": 8,
+        "totalMemoryBytes": 17179869184
+      },
+      "context": {
+        "entityCount": 20000,
+        "partitionCount": 11,
+        "eventsPerSample": 50,
+        "warmUpSamplesDiscarded": 5,
+        "nodeVersion": "v24.18.0",
+        "platform": "darwin-arm64",
+        "storeShape": "Record<ConsoleEntityKind, Record<string, ConsoleEntity>>"
+      },
+      "sampleCount": 25,
+      "minimum": 0.360772500000021,
+      "median": 0.37760834000000615,
+      "percentile95": 0.42244000000002413,
+      "maximum": 0.46381250000002183
+    }
+  ]
+}

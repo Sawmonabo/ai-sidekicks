@@ -54,8 +54,9 @@
 // no `node:*`, no `./src/main/**`, no `./src/preload/**`, and no
 // `@ai-sidekicks/client-sdk` — statically enforced via the
 // `no-restricted-imports` rule in apps/desktop/eslint.config.mjs (the
-// `@ai-sidekicks/client-sdk` ban is by-convention at Tier 1, per the
-// SessionBootstrap header).
+// `@ai-sidekicks/client-sdk` ban is structural since Plan-023 T-023p-1C-1
+// removed the package from this app's manifest, per the SessionBootstrap
+// header).
 
 import type { RuntimeNodeAttachRequest } from "@ai-sidekicks/contracts";
 

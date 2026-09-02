@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // Typechecks the two Electron-driving console tiers — `console-e2e` and
+  // `console-endurance`.
+  //
+  // These files are genuinely BOTH contexts at once, which is why neither of the
+  // existing test configs fits. The driver code is Node — `node:fs`,
+  // `node:process`, a spawned Electron — so `tsconfig.console-browser-test.json`
+  // (renderer options, no Node types) rejects it. The callbacks handed to
+  // `page.evaluate` are browser code that runs in the renderer — `document`,
+  // `requestAnimationFrame`, `performance.memory` — so `tsconfig.test.json`
+  // (Node lib, no DOM) rejects those.
+  //
+  // The answer is a config with both libs, scoped to exactly the two directories
+  // that need it, rather than widening `tsconfig.test.json` — which would hand
+  // the DOM to `launch.smoke.test.ts` and every `src/main/**` unit, where
+  // reaching for `document` is a defect the compiler should still catch.
+  "extends": "../../tsconfig.node22.json",
+  "compilerOptions": {
+    "noEmit": true,
+    // Same `isolatedDeclarations` pairing `tsconfig.test.json` documents: the
+    // base sets it, and it needs `declaration` or `composite`, so `declaration`
+    // is kept on beside `noEmit` (TS5069) while `composite: false` keeps this
+    // config out of the project-references graph.
+    "composite": false,
+    "declaration": true,
+    "declarationMap": false,
+    "sourceMap": false,
+    // DOM joins the Node lib rather than replacing it — see the header. Kept in
+    // step with the renderer project's own lib set.
+    "lib": ["ES2023", "DOM", "DOM.Iterable"]
+  },
+  "include": [
+    "test/console/e2e/**/*",
+    "test/console/endurance/**/*",
+    "test/console/electron-harness.ts",
+    // These tiers import renderer constants — a database name, a partition, a key
+    // — so that a rename breaks the test at compile time instead of leaving it
+    // reading a record nothing writes. That pulls the console's transitive module
+    // graph into this program, and part of that graph reads the build-time
+    // signals declared here. The renderer's own `tsconfig` picks this file up by
+    // its `src/**` include; this one has to name it.
+    "src/renderer/src/console/console-env.d.ts"
+  ],
+  "exclude": ["dist", "node_modules"]
+}
