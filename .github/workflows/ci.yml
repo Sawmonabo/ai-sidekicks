@@ -1022,6 +1022,16 @@ jobs:
   # deliberate act that comes with regenerating the references (`-u`) in the same
   # PR — which is exactly what the tier's own fail-closed guard forces.
   #
+  # THIS RUNNER IS THE BASELINE AUTHORITY. The committed references are the ones
+  # this job's image renders, and they are minted by running
+  # `.github/workflows/console-screenshot-baselines.yml` with `mode: regenerate`
+  # on the branch that changes them, then committing the artifact it uploads. A
+  # developer's own machine is a different macOS with a different system UI face
+  # (the console's sans stack falls through to it), so a local run is ADVISORY:
+  # green means it agrees with this image within the tier's stated pixel budget,
+  # and red on that budget alone means it does not — not that the change is
+  # wrong. Nothing but this runner mints a reference.
+  #
   # The install is scoped to the desktop package and its workspace dependencies:
   # this job runs one browser-mode Vitest project and needs nothing else built.
   # `playwright install` is required because browser mode drives a real Chromium
@@ -1065,12 +1075,23 @@ jobs:
       # A mismatch is only actionable with the images. Vitest writes the
       # reference / actual / diff triple into the attachments directory, which is
       # gitignored precisely so it can be collected here instead.
+      #
+      # `include-hidden-files` is load-bearing, not belt-and-braces. The action
+      # skips any path segment beginning with a dot by default, and every file
+      # this step wants is under `.vitest-attachments/` — so without it the step
+      # runs, succeeds, and reports "No files were found with the provided path",
+      # which is what happened on run 33592834676 and is why the three mismatches
+      # on that run could not be looked at. `if-no-files-found: ignore` is kept
+      # because a failure with no attachments is a real case (the tier can fail
+      # on its own guards, which capture nothing), and it must not turn a red
+      # test into a red upload.
       - name: Upload screenshot diffs
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: console-screenshot-diffs
           path: apps/desktop/.vitest-attachments/
+          include-hidden-files: true
           retention-days: 14
           if-no-files-found: ignore
 
