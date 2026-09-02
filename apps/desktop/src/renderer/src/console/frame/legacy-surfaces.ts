@@ -114,11 +114,19 @@ function mountLegacySurface(context: ConsoleSurfaceContext, build: () => ReactNo
     // Centred, because this fills the whole surface. Left in flow it renders as a
     // strip in the top-left corner of the pane — the shape `SurfaceAbsence` exists
     // to prevent, and the one a reader mistakes for a paint that did not finish.
+    //
+    // `placement: "surface"` for the same reason, one level down. `not-checked` is
+    // ordinarily mounted beside a value it qualifies, and a badge is right there;
+    // here it stands in for an entire pane, so it takes the block. Centring a badge
+    // would have moved the strip to the middle of the window rather than retired
+    // it, and the badge shape has nowhere to put the second line below — which is
+    // the line that says where this surface DOES render.
     return createElement(
       SurfaceAbsence,
       null,
       createElement(Nothing, {
         kind: "not-checked",
+        placement: "surface",
         title:
           "This surface reads the installed bridge, and this window is running on the fixture.",
         detail:
@@ -142,6 +150,10 @@ function mountSessionScopedLegacySurface(
         null,
         createElement(Nothing, {
           kind: "empty",
+          // Named rather than left to the default, which happens to agree: this is
+          // the same scale of absence as the arm above, and a mount that says so is
+          // one a reader does not have to look up a defaults table to check.
+          placement: "surface",
           title: "This surface needs a session, and this address names none.",
           detail: "Open a session from the Sessions list and the surface follows it.",
         }),

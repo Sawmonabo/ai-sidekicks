@@ -194,14 +194,27 @@
 /* ------------------------------------------------- the five kinds of nothing */
 
 /*
- * `not-loaded`: a skeleton in the row's shape. The neutral inline-start edge is the
- * ledger row's attribution edge with no attribution yet — which is exactly what is
- * true while the read is in flight.
+ * Two shapes, five kinds, and the split between them is the split the markup makes:
+ * a kind supplies copy, a glyph, and a tone, and the PLACEMENT supplies the box
+ * those are carried in. So every layout rule below is scoped to one shape and every
+ * colour rule to neither — which is what lets `not-checked` keep the dotted boundary
+ * rule 8 names for it while standing in for a whole pane rather than a value.
+ *
+ * `--block`: an absence standing in for a surface that is not there. It carries only
+ * what all five blocks share; the measure each kind sits on is scoped beside it.
  */
-.meridian-nothing--not-loaded {
+.meridian-nothing--block {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-2);
+}
+
+/*
+ * `not-loaded`: a skeleton in the row's shape. The neutral inline-start edge is the
+ * ledger row's attribution edge with no attribution yet — which is exactly what is
+ * true while the read is in flight. Both belong to the row, so both are the block's.
+ */
+.meridian-nothing--block.meridian-nothing--not-loaded {
   padding-block: var(--meridian-space-3);
   padding-inline-start: var(--meridian-space-4);
   border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-edge);
@@ -225,10 +238,7 @@
 }
 
 /* `empty`: a quiet line with the escape hatch. */
-.meridian-nothing--empty {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-2);
+.meridian-nothing--block.meridian-nothing--empty {
   padding: var(--meridian-space-5) var(--meridian-space-4);
 }
 
@@ -257,19 +267,22 @@
   margin-block-start: var(--meridian-space-1);
 }
 
-/* `error`: a red-edged row carrying the daemon's own message text. */
+/* `error`: the red edge and ground are the kind's, at either shape. */
 .meridian-nothing--error {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-2);
-  padding: var(--meridian-space-3) var(--meridian-space-4);
   border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-red-mark);
-  border-start-end-radius: var(--meridian-radius-sm);
-  border-end-end-radius: var(--meridian-radius-sm);
   background: var(--meridian-red-ground);
 }
 
-.meridian-nothing--error .meridian-nothing__title {
+/* The row it becomes when it stands in for a surface. The two end-side radii only:
+   the start side is the red edge, and a radius there would round the mark itself. */
+.meridian-nothing--block.meridian-nothing--error {
+  padding: var(--meridian-space-3) var(--meridian-space-4);
+  border-start-end-radius: var(--meridian-radius-sm);
+  border-end-end-radius: var(--meridian-radius-sm);
+}
+
+.meridian-nothing--error .meridian-nothing__title,
+.meridian-nothing--error .meridian-nothing__badge-label {
   color: var(--meridian-red-text);
 }
 
@@ -286,8 +299,8 @@
 }
 
 /*
- * The two badge kinds. They qualify a value sitting beside them rather than standing
- * in for a missing surface, which is why they are inline and the other three are not.
+ * `--badge`: an absence that qualifies a value sitting beside it. Two of the five
+ * kinds are mounted here by default; all five render here when a caller says so.
  */
 .meridian-nothing--badge {
   box-sizing: border-box;
@@ -303,8 +316,15 @@
   white-space: nowrap;
 }
 
+/* One bar rather than three, and sized in text units because a badge has no measure
+   of its own for a percentage to be a fraction of. */
+.meridian-nothing--badge .meridian-nothing__skeleton-bar {
+  inline-size: 6ch;
+}
+
 /* Rule 8 names this one's treatment in terms: a dotted badge. Nobody asked; the
-   dotted boundary says the question is still open rather than answered "no". */
+   dotted boundary says the question is still open rather than answered "no". The
+   boundary is the kind's, so it survives into the block a whole-surface mount takes. */
 .meridian-nothing--not-checked {
   border: 1px dotted var(--meridian-edge-strong);
 }
@@ -312,6 +332,16 @@
 .meridian-nothing--computing {
   border: 1px solid var(--meridian-edge);
   background: var(--meridian-surface-sunken);
+}
+
+/* The two boundary-bearing kinds carry their border on all four sides, so in block
+   form the measure has to sit inside it — the other three either carry no boundary
+   or carry it on the one edge, where the block's own padding already clears it. */
+.meridian-nothing--block.meridian-nothing--not-checked,
+.meridian-nothing--block.meridian-nothing--computing {
+  box-sizing: border-box;
+  padding: var(--meridian-space-5) var(--meridian-space-4);
+  border-radius: var(--meridian-radius-sm);
 }
 
 /* --------------------------------------------------- the refusal grammar */
