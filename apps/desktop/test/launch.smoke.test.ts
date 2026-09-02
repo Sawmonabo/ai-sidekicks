@@ -35,13 +35,29 @@
 //   prints a single-line tagged JSON payload to stdout, and exits. This
 //   test parses that line.
 //
-// Linux CI handling — Option A in the T-023p-1-7 dispatch contract:
-//   GitHub Actions `ubuntu-latest` has no display server but ships
-//   `xvfb-run` preinstalled. When the test runs on Linux without
-//   `$DISPLAY`, we prepend `xvfb-run -a` so the Electron Chromium boot
-//   succeeds against a virtual framebuffer. macOS and Windows runners
-//   spawn `electron` directly. This keeps Linux as active CI coverage
-//   (the DAG-preferred posture).
+// Linux display handling:
+//   GitHub Actions `ubuntu-latest` has no display server. CI stands up ONE
+//   Xvfb for the whole job and exports `$DISPLAY` only after `xdpyinfo`
+//   confirms the server is answering (see `.github/workflows/ci.yml`), so this
+//   harness spawns Electron directly there and verifies the same readiness
+//   condition itself before spawning. A Linux contributor with no `$DISPLAY`
+//   still gets the original `xvfb-run -a` fallback; macOS and Windows spawn
+//   directly as before.
+//
+// Boot determinism (why the readiness gate and the diagnostic dump exist):
+//   This suite intermittently failed with a bare "did-finish-load never fired"
+//   at the spawn deadline and an EMPTY stderr — nothing to diagnose from. Two
+//   defects produced that:
+//
+//     (a) `apps/desktop/test/` holds two files that each spawn a full
+//         Electron/Chromium tree, and vitest's default `fileParallelism` ran
+//         them concurrently on a 4-vCPU runner while `lifecycle.gc.test.ts`
+//         drove 80 forced full GCs. Fixed at the scheduler in
+//         `apps/desktop/vitest.config.ts`, not by widening this budget.
+//     (b) the harness captured nothing about the environment, and its
+//         stderr-keyed diagnosis arms were unreachable under `xvfb-run`'s
+//         stderr-into-stdout merge. Fixed by `SpawnResult.combinedOutput`,
+//         the readiness breadcrumbs, and `renderDiagnosticDump`.
 //
 // Profile isolation:
 //   Every spawn gets a private Chromium profile via `--user-data-dir`.
@@ -101,7 +117,7 @@
 
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { availableParallelism, loadavg, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -142,13 +158,81 @@ const ELECTRON_BIN = path.join(PACKAGE_ROOT, "node_modules/.bin/electron");
 // can't collide with normal Electron / Chromium log output.
 const SMOKE_PROBE_TAG = "[SIDEKICKS_SMOKE_PROBE]";
 
+// Tagged-stderr marker for the corroborating readiness breadcrumbs
+// (`apps/desktop/src/main/index.ts` constant `READINESS_BREADCRUMB_TAG`).
+// `did-finish-load` remains the ONLY asserted signal — `dom-ready` and
+// `ready-to-show` are recorded so a timeout says WHERE the boot stopped rather
+// than only that it did. Kept off stdout so the probe-line scanner above sees
+// exactly one tagged line.
+const READINESS_BREADCRUMB_TAG = "[SIDEKICKS_SMOKE_READY]";
+
 // Spec-023 acceptance: window appears within 5 seconds. We allow a
 // modest buffer above that on the SPAWN side so we can distinguish a
 // slow-but-passing boot (which is still a pass per the AC: the inner
 // `windowMs` measurement is the load-bearing one) from a fully-stuck
 // Electron process (which we want to kill rather than hang the suite).
 const WINDOW_BUDGET_MS = 5_000;
-const SPAWN_TIMEOUT_MS = 15_000;
+
+// Spawn-side backstop. Derived from measurement, not from guesswork — and
+// re-derived once the fix's own CI runs supplied numbers the local box could
+// not:
+//
+//   Unloaded, macOS 14 / M1 Pro, warm bundle, 5 consecutive runs:
+//     462 / 483 / 510 / 490 / 505 ms  (in-app `windowMs` 121-131 ms)
+//
+//   ubuntu-latest hosted runner (4 vCPU), boot-and-probe case, three
+//   consecutive green runs of THIS fixed tree:
+//     4129 / 6732 / 13008 ms
+//
+// The local figure does not transfer: a hosted runner is 8-28x slower at the
+// same work, and the spread across three runs of identical code is 3.2x.
+//
+// The old 15 s ceiling was set against the local number alone and described
+// itself as "~30x the measured cost". Against the CI numbers it is 1.15x the
+// observed worst case — a margin thin enough that runner variance alone
+// re-creates the original symptom. 30 s is ~2.3x that worst case and matches
+// the budget `lifecycle.gc.test.ts` already uses for the same kind of spawn.
+//
+// This is NOT the flake fix and does not stand in for one. The contention was
+// fixed at two levels: intra-project, where this file and `lifecycle.gc.test.ts`
+// ran concurrently (see `apps/desktop/vitest.config.ts`'s `main` project
+// `fileParallelism` comment), and cross-PACKAGE, where turbo scheduled
+// `desktop:test:smoke` alongside `runtime-daemon:test` and friends on one
+// runner (see the two test steps in `.github/workflows/ci.yml`, which now give
+// this project the box to itself). The three CI samples above were measured
+// with the first fix in place and the second not yet, which is what their 3.2x
+// spread records.
+//
+// The ceiling is kept at 30 s anyway, and deliberately not re-tightened on the
+// strength of the post-fix samples: three runs is not a distribution, a hosted
+// runner is shared infrastructure whose worst case is not ours to control, and
+// the cost of a ceiling that is too generous is a slower failure while the cost
+// of one that is too tight is the flake this file exists to end. This budget is
+// the backstop that reports a stall; `renderDiagnosticDump` is what makes the
+// next one attributable; and the inner `windowMs` assertion (WINDOW_BUDGET_MS)
+// is still the load-bearing timing check and is deliberately NOT relaxed.
+const SPAWN_TIMEOUT_MS = 30_000;
+
+// How long to wait for the X display named by `$DISPLAY` to start answering
+// before we give up and refuse to spawn. On a hosted runner the display is
+// stood up by the CI job (see `.github/workflows/ci.yml`, the Xvfb step),
+// which already gates on readiness — this is the harness-side restatement so
+// a display that is configured but dead produces an immediate, named refusal
+// instead of a full spawn-budget silence.
+const DISPLAY_READY_TIMEOUT_MS = 10_000;
+const DISPLAY_POLL_INTERVAL_MS = 250;
+
+// Budget used when the test-only display override below is in force. The
+// negative control asserts the SHAPE of the refusal (a named diagnostic dump
+// rather than a bare timeout), not how long the harness is willing to wait, so
+// it does not need to sit through the real budget.
+const FORCED_DISPLAY_READY_TIMEOUT_MS = 1_000;
+
+// Test-only switch. Set to an X display that nothing serves, it makes the
+// readiness path fail deterministically on every platform so the negative
+// control can assert that the harness emits its diagnostic dump rather than a
+// bare timeout. Consulted ONLY by this file; the shipped app never reads it.
+const FORCED_DISPLAY_ENV = "SIDEKICKS_SMOKE_FORCE_DISPLAY";
 
 // Grace period between the SIGTERM issued at the spawn deadline and the
 // SIGKILL backstop. `node_modules/.bin/electron` is a Node shim that spawns
@@ -158,6 +242,92 @@ const SPAWN_TIMEOUT_MS = 15_000;
 // `close` event past the vitest deadline. SIGTERM lets the shim forward and
 // the browser process exit; SIGKILL only if it does not.
 const TERMINATION_GRACE_MS = 2_000;
+
+// Wall bound for the WHOLE at-deadline diagnostic collection, and the per-probe
+// bound inside it.
+//
+// This is load-bearing, not hygiene. The collection runs two subprocess
+// readings, and before this bound existed each carried its own 5 s
+// `spawnSync` timeout — so a degraded runner (the exact case these readings
+// exist to diagnose) could spend 10 s here, plus TERMINATION_GRACE_MS, inside
+// an enclosing vitest budget that allowed only 5 s past SPAWN_TIMEOUT_MS. The
+// diagnostic path would then be killed by vitest's generic timeout before
+// `renderReadinessFailure` ever ran, and the dump this whole file exists to
+// produce would be replaced by "test timed out" — losing the evidence in
+// precisely the case that generated it.
+//
+// The probes are sub-100 ms readings in every healthy case; 1.5 s each is
+// already ~15x that, and the 3 s wall bound is what makes the arithmetic
+// below closed-form rather than a sum of independent worst cases.
+const DIAGNOSTIC_PROBE_TIMEOUT_MS = 1_500;
+const DIAGNOSTIC_BUDGET_MS = 3_000;
+
+// Slack over and above the three bounded phases, covering the spawn itself,
+// the `close` event after SIGTERM, and temp-profile cleanup.
+const TEST_TIMEOUT_SLACK_MS = 3_000;
+
+// Ceiling the stalled-boot control asserts the MEASURED collection against.
+//
+// Why it is not simply DIAGNOSTIC_BUDGET_MS. The budget is enforced by handing
+// each probe `spawnSync`'s `timeout`, and that timeout is enforced by killing
+// the child — the parent still pays the kill and the reap after the cap
+// expires, and neither is bounded by anything this file owns. On a runner
+// degraded enough for both probes to reach their caps (the only case where the
+// budget binds at all) that tail is real. Asserting the measurement flush
+// against the bound the probes were given would therefore make the control
+// itself the flake, which would be a poor joke in a de-flaking change.
+//
+// So it carries an EXPLICIT reserve, and deliberately the same one
+// TEST_TIMEOUT_SLACK_MS already provides for the close-event bound rather than
+// a second fudge factor with its own name and its own drift: one reserve
+// concept, used in both places, raised in one edit.
+//
+// It is still a real bound, not a formality. At 6 s it is 1.67x below the 10 s
+// the superseded shape could reach (two independent 5 s `spawnSync` timeouts),
+// so the regression this assertion exists to catch is still caught, and an
+// unbounded collection is caught by a wide margin.
+const DIAGNOSTIC_COLLECTION_CEILING_MS = DIAGNOSTIC_BUDGET_MS + TEST_TIMEOUT_SLACK_MS;
+
+// The enclosing vitest budget, DERIVED from the phases it must contain rather
+// than hand-picked: the spawn budget, then the diagnostic collection, then the
+// SIGTERM->SIGKILL grace, then slack. Every one of these is a named constant,
+// so raising any phase raises this automatically and the enclosing budget
+// cannot silently fall behind the work it encloses again.
+//
+// The collection term is the CEILING, not the budget. The budget is what the
+// probes are handed; the ceiling is the largest collection this file asserts is
+// acceptable, and an enclosure that reserved less than what its own assertions
+// permit would be exactly the arithmetic hole this derivation exists to close.
+//
+// The display-readiness gate leads the whole sequence and is bounded
+// separately, and it is a PHASE of the test like any other: it runs inside
+// `spawnElectron` before the spawn deadline timer is armed, so the spawn budget
+// does not contain it. Omitting it here left the worst legal run — a slow
+// display gate followed by a stalled boot — outside the enclosure, which is the
+// same defect as measuring the collection on one clock and bounding it on
+// another, at a different phase.
+const BOOT_TEST_TIMEOUT_MS =
+  DISPLAY_READY_TIMEOUT_MS +
+  SPAWN_TIMEOUT_MS +
+  DIAGNOSTIC_COLLECTION_CEILING_MS +
+  TERMINATION_GRACE_MS +
+  TEST_TIMEOUT_SLACK_MS;
+
+// Test-only override making the spawn deadline fire almost immediately, so the
+// stalled-boot path can be driven end to end without spending the real spawn
+// budget. Set ONLY by this file's forced-stall test; when it is set the spawn
+// also withholds `SIDEKICKS_SMOKE_PROBE`, so the app boots and simply never
+// emits a probe line — a real stall rather than a simulated one.
+const FORCED_STALL_ENV = "SIDEKICKS_SMOKE_FORCE_SPAWN_STALL";
+const FORCED_STALL_SPAWN_TIMEOUT_MS = 2_000;
+// The forced-stall override shortens the SPAWN budget and nothing else, so this
+// enclosure carries the same real display-readiness term the boot budget does.
+const FORCED_STALL_TEST_TIMEOUT_MS =
+  DISPLAY_READY_TIMEOUT_MS +
+  FORCED_STALL_SPAWN_TIMEOUT_MS +
+  DIAGNOSTIC_COLLECTION_CEILING_MS +
+  TERMINATION_GRACE_MS +
+  TEST_TIMEOUT_SLACK_MS;
 
 interface SmokeProbe {
   readonly ok: boolean;
@@ -174,20 +344,329 @@ interface SpawnResult {
   readonly probe: SmokeProbe | null;
   readonly stdout: string;
   readonly stderr: string;
+  // stdout and stderr concatenated in arrival order.
+  //
+  // Load-bearing, not a convenience: on the headless-Linux path the child is
+  // wrapped by `xvfb-run`, whose Debian/Ubuntu implementation runs the command
+  // as `DISPLAY=... XAUTHORITY=... "$@" 2>&1` — it MERGES the child's stderr
+  // into stdout. Proof from the failing CI run (33571210321): the electron
+  // launcher shim emits its "exited with signal" notice through
+  // `console.error` (`node_modules/electron/cli.js` line 12, i.e. stderr) and
+  // that line arrived in this harness's STDOUT capture while `--- stderr ---`
+  // was empty. Every `result.stderr`-keyed arm of `diagnoseMissingProbe` was
+  // therefore unreachable on exactly the platform CI runs. Diagnosis now keys
+  // off this field so it works under either stream topology.
+  readonly combinedOutput: string;
   readonly exitCode: number | null;
   readonly signal: NodeJS.Signals | null;
   readonly elapsedMs: number;
+  // Ordered readiness breadcrumbs parsed out of the child's output — the
+  // corroborating `dom-ready` / `ready-to-show` signals the main process emits
+  // beside the asserted `did-finish-load`, each with its offset from
+  // `app.whenReady()`. Empty means the renderer never reached even the first
+  // of them, which is a different failure from "loaded but never finished".
+  readonly readinessBreadcrumbs: readonly string[];
+  // Environment readings taken at spawn time and again at the deadline, so a
+  // timeout is attributable from one read of the CI log.
+  readonly diagnostics: readonly string[];
+  // The spawn budget this particular spawn actually ran under. Carried rather
+  // than read back from SPAWN_TIMEOUT_MS so the failure text states the deadline
+  // that really elapsed, which the forced-stall override changes.
+  readonly spawnBudgetMs: number;
+  // Whether THIS harness's deadline fired. Recorded rather than inferred from
+  // `signal`, because the inference is wrong: the direct child is the
+  // `node_modules/.bin/electron` Node shim, which CATCHES SIGTERM, forwards it
+  // to the real binary, prints "... exited with signal SIGTERM" and then exits
+  // with CODE 1 and no signal of its own. A `signal !== null` test therefore
+  // misses every deadline kill on the direct spawn path and lets the diagnosis
+  // fall through to the `exitCode === 1` arm, which reports "`app.whenReady()`
+  // rejected" — a startup failure that did not happen. (This was latent while
+  // CI wrapped each spawn in `xvfb-run`: the direct child was then a shell,
+  // which does die by signal. Moving CI to a job-level display made the shim
+  // the direct child on Linux too, so the flag is what keeps the diagnosis
+  // right on the platform the gate runs on.)
+  readonly timedOut: boolean;
+  // Wall time the at-deadline diagnostic collection actually spent, or null if
+  // the deadline never fired. Exposed so the bound can be asserted against a
+  // measurement of itself rather than inferred from total elapsed time.
+  readonly diagnosticCollectionMs: number | null;
+  // The `$DISPLAY` the child was given, or undefined when none was set. Exposed
+  // so a test can assert the child could not have used the ambient display.
+  readonly childDisplay: string | undefined;
+}
+
+// Resolves the X display this spawn should use, honouring the test-only
+// override that drives the negative control.
+function resolvedDisplay(): string | undefined {
+  return process.env[FORCED_DISPLAY_ENV] ?? process.env["DISPLAY"];
 }
 
 function needsXvfb(): boolean {
-  // GitHub Actions `ubuntu-latest` is headless: no `$DISPLAY`. The runner
-  // ships `xvfb-run` preinstalled, so we wrap the Electron spawn with a
-  // virtual framebuffer rather than skipping the test. macOS / Windows /
-  // local Linux developers (with a display server) take the direct-spawn
-  // path. The `!process.env["DISPLAY"]` guard means a Linux contributor
-  // with X11 / Wayland running gets the same direct path as macOS — they
-  // don't need `xvfb-run` installed locally.
-  return process.platform === "linux" && !process.env["DISPLAY"];
+  // GitHub Actions `ubuntu-latest` is headless. CI now stands up ONE Xvfb for
+  // the whole job and exports `$DISPLAY` (see `.github/workflows/ci.yml`), so
+  // this returns false there and the spawn is direct.
+  //
+  // The `xvfb-run` fallback remains for a Linux contributor with no display
+  // server, but it is deliberately no longer CI's path. `xvfb-run -a` picks a
+  // display number with `find_free_servernum()`, a plain
+  // `while [ -f /tmp/.X$i-lock ]` scan — a documented TOCTOU
+  // (Debian #521075 / Launchpad #348052) that two concurrent invocations can
+  // lose together. It self-heals through the script's retry loop, so it was
+  // not this flake's root cause, but it costs a second X server and a second
+  // shell per spawn and it merges the child's stderr into stdout (see
+  // `SpawnResult.combinedOutput`). A job-level display removes all three.
+  return process.platform === "linux" && !resolvedDisplay();
+}
+
+// Chromium switches applied on the headless-Linux path only.
+//
+// NONE of these weakens the renderer sandbox this test exists to assert.
+// `.github/workflows/ci.yml` forbids `--no-sandbox` for exactly that reason:
+// it disables the renderer's Linux namespace sandbox, and the three-globals
+// assertion below (`require` / `process` / `global` all `undefined`) is a
+// direct consequence of `webPreferences.sandbox: true` holding. The switches
+// here select a COMPOSITING BACKEND and a SHARED-MEMORY LOCATION; they change
+// no process-sandbox policy and no `webPreferences` value:
+//
+//   --disable-gpu ............. skip GPU-process hardware init and composite
+//                               in software. The GPU process is a separate
+//                               process type from the renderer; its presence
+//                               or absence does not alter renderer sandboxing.
+//                               On a hosted runner there is no GPU to use, so
+//                               this removes an init path that can only stall.
+//   --disable-dev-shm-usage ... write shared-memory files under /tmp instead
+//                               of a possibly-small /dev/shm. A location
+//                               choice, not a privilege change.
+//   --password-store=basic .... use the in-process store rather than probing
+//                               gnome-keyring / kwallet over D-Bus. Removes a
+//                               session-bus round trip on a box with no
+//                               session bus.
+//
+// The invariant is also enforced empirically rather than only by argument: if
+// any switch here did weaken the sandbox, the three-globals assertions would
+// fail rather than silently pass.
+const LINUX_HEADLESS_CHROMIUM_SWITCHES: readonly string[] = [
+  "--disable-gpu",
+  "--disable-dev-shm-usage",
+  "--password-store=basic",
+];
+
+// Resolved once: probing for the tool on every poll would spawn a process per
+// iteration to answer a question whose answer cannot change mid-run.
+const xdpyinfoMissing =
+  spawnSync("xdpyinfo", ["-version"], { stdio: "ignore" }).error !== undefined;
+
+// Local `:N` displays expose a unix socket at a well-known path. A remote or
+// path-style `$DISPLAY` (an XQuartz launchd socket, `host:0` over TCP) does
+// not, which is why the readiness gate declines rather than guesses for those.
+function localDisplaySocketPath(display: string): string | null {
+  const localDisplay = /^:(\d+)(\.\d+)?$/.exec(display);
+  return localDisplay === null ? null : `/tmp/.X11-unix/X${localDisplay[1]}`;
+}
+
+// Finds a display number nothing has claimed, for the dead-display control.
+//
+// A hardcoded `:987` is not known-dead on a shared host: CI runners, tmpfs that
+// outlives a crashed server, and a colleague's own Xvfb can all leave a stale
+// `/tmp/.X11-unix/X987`, and a stale socket defeats the socket-existence check
+// this control exists to drive — the gate would report the display as ready and
+// the test would fail for a reason that has nothing to do with the code.
+//
+// So the number is RESERVED at test time instead of assumed: scan downward from
+// a high number and take the first whose X lock file AND unix socket are both
+// absent. Both are checked because either alone can be stale independently —
+// the lock is what a live server holds, the socket is what the gate reads.
+//
+// This is a scan, not a lock; nothing stops a server appearing between the
+// check and the spawn. On a test host that is not a real risk, and the
+// alternative — actually binding a display to prove it is free — would mean
+// standing up an X server inside a test whose entire subject is not having one.
+function reserveDeadDisplay(): string {
+  for (let displayNumber = 999; displayNumber > 900; displayNumber -= 1) {
+    const lockPath = `/tmp/.X${String(displayNumber)}-lock`;
+    const socketPath = `/tmp/.X11-unix/X${String(displayNumber)}`;
+    if (!existsSync(lockPath) && !existsSync(socketPath)) {
+      return `:${String(displayNumber)}`;
+    }
+  }
+  throw new Error(
+    "No unclaimed X display number in :901-:999 — refusing to run the " +
+      "dead-display control against a number something else may own.",
+  );
+}
+
+// Does the named X display actually answer?
+//
+// Two probes, strongest first:
+//
+//   1. `xdpyinfo` — a real client handshake, so a socket that exists but is not
+//      serving fails it exactly as Electron would.
+//   2. the display's unix socket — used when `xdpyinfo` is absent, which is the
+//      normal case on CI: the ubuntu-24.04 runner image ships `xvfb` but NOT
+//      `x11-utils`. Weaker (a crashed server can leave a stale socket behind),
+//      and named as weaker rather than presented as equivalent. It is still
+//      decisive for the case that matters here — a `$DISPLAY` pointing at a
+//      server that was never started.
+//
+// A display we cannot probe either way reports ready, so the gate never refuses
+// a spawn it has no evidence against.
+function displayAnswers(display: string): boolean {
+  if (!xdpyinfoMissing) {
+    const probe = spawnSync("xdpyinfo", ["-display", display], {
+      stdio: "ignore",
+      timeout: 5_000,
+    });
+    return probe.error === undefined && probe.status === 0;
+  }
+  const socketPath = localDisplaySocketPath(display);
+  return socketPath === null ? true : existsSync(socketPath);
+}
+
+// Blocks until the display answers or the budget expires. Returns null when
+// ready, or a human-readable reason when not.
+function awaitDisplayReady(display: string): string | null {
+  // The negative control's override only shortens the budget — it does not make
+  // the gate behave differently. `displayAnswers` is decisive on its own for a
+  // local `:N` display on every platform, with or without `xdpyinfo`, so the
+  // control drives exactly the production path.
+  const budgetMs =
+    process.env[FORCED_DISPLAY_ENV] !== undefined
+      ? FORCED_DISPLAY_READY_TIMEOUT_MS
+      : DISPLAY_READY_TIMEOUT_MS;
+  const probeDescription = xdpyinfoMissing
+    ? `no unix socket at ${localDisplaySocketPath(display) ?? "<unprobeable display>"}`
+    : `\`xdpyinfo -display ${display}\` kept failing`;
+  const deadline = Date.now() + budgetMs;
+  for (;;) {
+    if (displayAnswers(display)) return null;
+    if (Date.now() >= deadline) {
+      return (
+        `X display ${display} did not answer within ${String(budgetMs)}ms ` +
+        `(${probeDescription}). Electron cannot open a window without it, so ` +
+        `the spawn was refused rather than left to time out.`
+      );
+    }
+    // Deliberately synchronous: this runs before the child exists, so there is
+    // nothing to service on the event loop and a busy-free sleep keeps the
+    // readiness gate a straight line.
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, DISPLAY_POLL_INTERVAL_MS);
+  }
+}
+
+// Point-in-time environment reading, captured at spawn and again at the
+// deadline.
+//
+// `externalProbeDeadline` gates the two subprocess-backed readings AND bounds
+// them. They are the expensive half and they are only worth paying for on the
+// failure path, so the at-spawn capture passes `null` — cheap readings only,
+// boot budget untouched — while the at-deadline capture passes a deadline,
+// because by then the budget is already spent and the readings are the whole
+// point.
+//
+// It is an ABSOLUTE instant supplied by the caller, not a duration this
+// function turns into one, and that is the point: the caller also measures how
+// long the collection took, and when the deadline was computed here the
+// measurement started one instant earlier than the bound it was compared
+// against. The cheap readings above sit in that gap, so a collection whose two
+// probes each ran to their cap measured strictly MORE than the budget it was
+// asserted to honour — the bound and its own measurement disagreed by
+// construction. One clock, one constant, set at the call site.
+//
+// The subprocess readings share ONE wall budget (DIAGNOSTIC_BUDGET_MS) rather
+// than carrying independent per-call timeouts, so the collection's worst case
+// is a constant this file can add to the enclosing test budget instead of a
+// sum that can outgrow it. Each reading gets whatever is left, capped at
+// DIAGNOSTIC_PROBE_TIMEOUT_MS; a reading with no budget left is RECORDED as
+// skipped rather than silently omitted, because a dump that quietly drops a
+// line is exactly the failure mode this file was written to end.
+//
+// The process tree is taken FIRST because it is the perishable reading: the
+// caller runs this immediately before SIGTERM, and once the tree is gone `ps`
+// has nothing to report, while the display reading is still available
+// afterwards. Under a shared budget, ordering decides which reading survives a
+// slow runner, so the perishable one goes first.
+function captureDiagnostics(
+  label: string,
+  child: ChildProcess | null,
+  externalProbeDeadline: number | null,
+): string[] {
+  const readings = [
+    `[${label}] platform=${process.platform} cpus=${String(availableParallelism())} ` +
+      `loadavg=${loadavg()
+        .map((value) => value.toFixed(2))
+        .join("/")}`,
+    `[${label}] DISPLAY=${resolvedDisplay() ?? "<unset>"} ` +
+      `spawnPath=${needsXvfb() ? "xvfb-run -a" : "direct"}`,
+  ];
+  const remainingProbeBudgetMs = (): number =>
+    externalProbeDeadline === null
+      ? 0
+      : Math.min(DIAGNOSTIC_PROBE_TIMEOUT_MS, externalProbeDeadline - Date.now());
+
+  if (externalProbeDeadline !== null && child?.pid !== undefined && process.platform !== "win32") {
+    // The spawn leads its own process group, so `-g <pid>` is exactly this
+    // spawn's tree and nothing else on the runner.
+    const budgetMs = remainingProbeBudgetMs();
+    if (budgetMs <= 0) {
+      readings.push(`[${label}] process tree skipped — diagnostic budget exhausted`);
+    } else {
+      const processTree = spawnSync(
+        "ps",
+        ["-o", "pid,ppid,stat,etime,comm", "-g", String(child.pid)],
+        { encoding: "utf8", timeout: budgetMs },
+      );
+      readings.push(
+        `[${label}] process tree (pgid=${String(child.pid)}):\n${processTree.stdout ?? "<unavailable>"}`,
+      );
+    }
+  }
+
+  const display = resolvedDisplay();
+  if (externalProbeDeadline !== null && display !== undefined && process.platform !== "win32") {
+    if (xdpyinfoMissing) {
+      // No `x11-utils` on the ubuntu-24.04 runner image, so report the socket
+      // reading actually used rather than a tool reading we cannot take. This
+      // arm spends no subprocess and so needs no budget check.
+      const socketPath = localDisplaySocketPath(display);
+      readings.push(
+        `[${label}] display socket ${socketPath ?? "<unprobeable display>"} ` +
+          `present=${socketPath === null ? "<unknown>" : String(existsSync(socketPath))} ` +
+          `(xdpyinfo unavailable)`,
+      );
+    } else {
+      const budgetMs = remainingProbeBudgetMs();
+      if (budgetMs <= 0) {
+        readings.push(`[${label}] xdpyinfo skipped — diagnostic budget exhausted`);
+      } else {
+        const probe = spawnSync("xdpyinfo", ["-display", display], {
+          encoding: "utf8",
+          timeout: budgetMs,
+        });
+        const dimensions = /dimensions:\s+(\S+)/.exec(probe.stdout ?? "")?.[1];
+        readings.push(
+          `[${label}] xdpyinfo status=${String(probe.status)} ` +
+            `dimensions=${dimensions ?? "<none>"}`,
+        );
+      }
+    }
+  }
+  return readings;
+}
+
+// Renders everything the harness learned about a spawn that produced no probe
+// line. The point is that the NEXT failure is attributable from one read of
+// the CI log rather than from a re-run.
+function renderDiagnosticDump(result: SpawnResult): string {
+  const breadcrumbs =
+    result.readinessBreadcrumbs.length > 0
+      ? result.readinessBreadcrumbs.join("\n")
+      : "<none — the renderer never reached dom-ready, ready-to-show, or did-finish-load>";
+  return (
+    `--- readiness events observed ---\n${breadcrumbs}\n` +
+    `--- environment ---\n${result.diagnostics.join("\n")}\n` +
+    `--- stdout ---\n${result.stdout}\n` +
+    `--- stderr ---\n${result.stderr}\n`
+  );
 }
 
 // Signals the ENTIRE spawned tree, not just the wrapper. The direct child is a
@@ -238,8 +717,60 @@ function terminateElectronTree(child: ChildProcess, signal: NodeJS.Signals): voi
   child.kill(signal);
 }
 
+/**
+ * Line-buffered scanner for the readiness breadcrumb trail on ONE stream.
+ *
+ * Exported for direct unit testing, and stateful by nature — a chunk boundary
+ * can fall anywhere, including inside the tag itself, so the unfinished tail of
+ * each chunk has to be carried into the next one. The probe-line scanner in
+ * `spawnElectron` has always done this; the breadcrumb scanner did not, and
+ * split a straddling breadcrumb into two fragments that both failed to match,
+ * silently losing the very evidence the trail exists to provide.
+ *
+ * One instance PER STREAM. Sharing an instance across stdout and stderr would
+ * splice the tail of one stream onto the head of the other and synthesise a
+ * line neither of them emitted.
+ */
+export class ReadinessLineScanner {
+  #pending = "";
+
+  /** Feeds one chunk; returns the breadcrumbs completed by it, in order. */
+  push(chunk: string): string[] {
+    this.#pending += chunk;
+    const lines = this.#pending.split("\n");
+    // `pop()` yields the unterminated trailing piece when the chunk does not
+    // end on a newline, or "" when it does — both are the right carry-forward.
+    this.#pending = lines.pop() ?? "";
+    const breadcrumbs: string[] = [];
+    for (const line of lines) {
+      const marker = line.indexOf(READINESS_BREADCRUMB_TAG);
+      if (marker < 0) continue;
+      breadcrumbs.push(line.slice(marker + READINESS_BREADCRUMB_TAG.length).trim());
+    }
+    return breadcrumbs;
+  }
+}
+
 function spawnElectron(): Promise<SpawnResult> {
   const startedAt = Date.now();
+
+  // Forced-stall override, set only by this file's stalled-boot test. It does
+  // two things together, and both are needed for the test to be honest: it
+  // shrinks the spawn deadline so the path runs in seconds rather than the full
+  // spawn budget, and (below) it withholds the probe opt-in so the boot really
+  // does produce no probe line. Neither substitutes a fake for the code under
+  // test — the deadline, the bounded diagnostic collection, the process-group
+  // termination and the failure renderer are all the production ones.
+  const forcedStall = process.env[FORCED_STALL_ENV] !== undefined;
+  const spawnBudgetMs = forcedStall ? FORCED_STALL_SPAWN_TIMEOUT_MS : SPAWN_TIMEOUT_MS;
+
+  // Strip an inherited probe opt-in when forcing a stall; see the `env` block.
+  const { SIDEKICKS_SMOKE_PROBE: _inheritedProbeOptIn, ...envWithoutProbe } = process.env;
+  const spawnBaseEnv = forcedStall ? envWithoutProbe : process.env;
+
+  // What the child's `$DISPLAY` will be. Resolved once here so the value the
+  // harness gated on and the value the child receives cannot diverge.
+  const childDisplay = resolvedDisplay();
 
   // Per-spawn Chromium profile — the deterministic fix for this test's
   // historical flake, and the reason it needs no retry wrapper.
@@ -266,14 +797,54 @@ function spawnElectron(): Promise<SpawnResult> {
   // this reason.
   const userDataDir = mkdtempSync(path.join(tmpdir(), "sidekicks-smoke-test-"));
 
+  // Readiness gate. A display that is named but not serving is the one boot
+  // precondition this harness can check cheaply and BEFORE spawning, so it is
+  // checked here rather than discovered as a spawn-budget silence. On CI the job-level
+  // Xvfb step has already gated on the same condition; this is the harness-side
+  // restatement, and it is what the negative control drives.
+  const display = resolvedDisplay();
+  if (display !== undefined && !needsXvfb()) {
+    const displayFailure = awaitDisplayReady(display);
+    if (displayFailure !== null) {
+      const refusal: SpawnResult = {
+        probe: null,
+        stdout: "",
+        stderr: displayFailure,
+        combinedOutput: displayFailure,
+        exitCode: null,
+        signal: null,
+        elapsedMs: Date.now() - startedAt,
+        readinessBreadcrumbs: [],
+        diagnostics: captureDiagnostics("refused-before-spawn", null, null),
+        spawnBudgetMs,
+        timedOut: false,
+        diagnosticCollectionMs: null,
+        childDisplay,
+      };
+      try {
+        rmSync(userDataDir, { recursive: true, force: true });
+      } catch {
+        // Best-effort, exactly as in `settle()`: a leftover temp profile is
+        // harmless, and surfacing a cleanup error here would mask the refusal
+        // this path exists to report.
+      }
+      return Promise.resolve(refusal);
+    }
+  }
+
   // `xvfb-run -a` auto-picks an unused display number; without `-a` it
   // defaults to `:99` and fails if another xvfb-run instance has claimed
   // it (a real concern on CI runners that may run multiple jobs in
-  // parallel against the same image cache).
+  // parallel against the same image cache). This is now the local-developer
+  // fallback only — CI exports `$DISPLAY` and takes the direct path.
   //
   // Chromium switches MUST precede the entry-script path so Electron routes
   // them to the browser process rather than passing them through to the app.
-  const electronArgs = [`--user-data-dir=${userDataDir}`, MAIN_ENTRY];
+  const electronArgs = [
+    ...(process.platform === "linux" ? LINUX_HEADLESS_CHROMIUM_SWITCHES : []),
+    `--user-data-dir=${userDataDir}`,
+    MAIN_ENTRY,
+  ];
   const cmd = needsXvfb() ? "xvfb-run" : ELECTRON_BIN;
   const args = needsXvfb() ? ["-a", ELECTRON_BIN, ...electronArgs] : electronArgs;
 
@@ -281,7 +852,19 @@ function spawnElectron(): Promise<SpawnResult> {
     const child = spawn(cmd, args, {
       cwd: PACKAGE_ROOT,
       env: {
-        ...process.env,
+        // Under the forced-stall override the probe opt-in is DROPPED from the
+        // inherited environment, not merely left unset below. A developer with
+        // `SIDEKICKS_SMOKE_PROBE=1` exported in their shell would otherwise
+        // have it inherited through the spread, the app would emit a real probe
+        // line, and the stalled-boot control would quietly stop testing a
+        // stall. Same guard, and same reason, as `lifecycle.gc.test.ts`'s
+        // `envWithoutSmoke`.
+        ...spawnBaseEnv,
+        // Pinned rather than inherited so the child cannot fall back to the
+        // ambient display. This matters exactly when the readiness gate has
+        // regressed: without it a spawn that should have been refused would
+        // open on the developer's real display and pass, hiding the regression.
+        ...(childDisplay === undefined ? {} : { DISPLAY: childDisplay }),
         // Activates the main-process smoke-mode branch declared in
         // `apps/desktop/src/main/index.ts`. The branch is conditional on
         // exactly the string "1" so it is a deliberate opt-in. The
@@ -295,7 +878,28 @@ function spawnElectron(): Promise<SpawnResult> {
         // after `pnpm build`). In a smoke bundle, the runtime env-var
         // check remains as defense-in-depth so the probe never
         // auto-runs without explicit opt-in per invocation.
-        SIDEKICKS_SMOKE_PROBE: "1",
+        // Withheld under the forced-stall override: with no probe opt-in the
+        // app boots normally and simply never emits a probe line, which is a
+        // REAL stall for this harness rather than a simulated one, and is what
+        // lets the stalled-boot test drive the deadline path end to end. The
+        // inherited value is stripped above, so this is the only source.
+        ...(forcedStall ? {} : { SIDEKICKS_SMOKE_PROBE: "1" }),
+        // Emit the corroborating readiness breadcrumbs (`dom-ready`,
+        // `ready-to-show`) beside the asserted `did-finish-load`. Opt-in per
+        // invocation for the same reason the probe itself is: the main process
+        // must never take a test-only code path it was not explicitly asked to.
+        SIDEKICKS_SMOKE_TRACE_READINESS: "1",
+        // Give Chromium a session-bus address that fails FAST rather than
+        // leaving it unset. With `DBUS_SESSION_BUS_ADDRESS` unset, libdbus
+        // attempts an X11/autolaunch fallback to find a bus; on a hosted runner
+        // no bus exists, and the probe is a boot-path round trip that can only
+        // cost time. `disabled:` is unparseable as an address, so the lookup
+        // fails immediately instead of autolaunching. Paired with
+        // `--password-store=basic` above, which removes the secret-service
+        // consumer that would want the bus in the first place.
+        ...(process.platform === "linux"
+          ? { DBUS_SESSION_BUS_ADDRESS: "disabled:", NO_AT_BRIDGE: "1" }
+          : {}),
       },
       stdio: ["ignore", "pipe", "pipe"],
       // POSIX: lead a NEW process group so the timeout escalation can signal
@@ -307,7 +911,10 @@ function spawnElectron(): Promise<SpawnResult> {
 
     let stdout = "";
     let stderr = "";
+    let combinedOutput = "";
     let probe: SmokeProbe | null = null;
+    const readinessBreadcrumbs: string[] = [];
+    const diagnostics: string[] = captureDiagnostics("at-spawn", child, null);
     // Line-buffer accumulator for the stdout scanner. The Node `data` event
     // delivers arbitrary chunks; a logical line (the tagged probe payload)
     // can be split across two chunks if the chunk boundary falls inside
@@ -319,9 +926,11 @@ function spawnElectron(): Promise<SpawnResult> {
     // is a debugging nightmare we cheaply avoid by buffering.
     let pending = "";
     let escalationTimer: NodeJS.Timeout | null = null;
+    let deadlineFired = false;
+    let collectionMs: number | null = null;
 
     const spawnDeadline = setTimeout(() => {
-      // The spawn timeout (15 s) is a backstop — the in-app window
+      // The spawn timeout (`spawnBudgetMs`) is a backstop — the in-app window
       // budget (5 s) is the load-bearing assertion. If we hit this,
       // Electron is stuck and we want a non-hanging test failure.
       //
@@ -332,11 +941,41 @@ function spawnElectron(): Promise<SpawnResult> {
       // shim-only kill would orphan the browser process with the inherited
       // stdout write end open and `close` would never fire (the unbounded
       // hang this timer exists to prevent).
+      //
+      // Capture the environment BEFORE signalling: once SIGTERM lands the
+      // process tree is gone and `ps` has nothing left to report, which is
+      // precisely the reading that would have named this flake on its first
+      // occurrence instead of its fourth.
+      deadlineFired = true;
+      // Timed and RECORDED, not merely bounded. The recorded figure is what the
+      // stalled-boot test asserts on, which keeps that assertion measuring the
+      // thing it claims — the collection's own cost — instead of total wall
+      // time, whose dominant term is Electron's teardown after SIGTERM and is
+      // neither bounded here nor ours to control. It also earns its place in
+      // the dump: a collection that ran long is itself a reading about the
+      // runner.
+      const collectionStartedAt = Date.now();
+      const atDeadline = captureDiagnostics(
+        "at-deadline",
+        child,
+        // The SAME instant the measurement below starts from, plus the budget.
+        // Deriving the deadline here rather than inside the callee is what
+        // makes `collectionMs <= DIAGNOSTIC_BUDGET_MS` a claim about one clock
+        // instead of two.
+        collectionStartedAt + DIAGNOSTIC_BUDGET_MS,
+      );
+      collectionMs = Date.now() - collectionStartedAt;
+      diagnostics.push(
+        ...atDeadline,
+        `[at-deadline] collection took ${String(collectionMs)}ms ` +
+          `(budget ${String(DIAGNOSTIC_BUDGET_MS)}ms, ` +
+          `ceiling ${String(DIAGNOSTIC_COLLECTION_CEILING_MS)}ms)`,
+      );
       terminateElectronTree(child, "SIGTERM");
       escalationTimer = setTimeout(() => {
         terminateElectronTree(child, "SIGKILL");
       }, TERMINATION_GRACE_MS);
-    }, SPAWN_TIMEOUT_MS);
+    }, spawnBudgetMs);
 
     // Single settle path so both timers and the temporary profile are
     // disposed exactly once whichever terminal event fires first.
@@ -356,9 +995,21 @@ function spawnElectron(): Promise<SpawnResult> {
       resolve(result);
     };
 
+    // Breadcrumbs are emitted by the main process on STDERR, but the
+    // `xvfb-run` fallback merges the child's stderr into stdout, so both
+    // streams are scanned. Ordering within a stream is preserved; the offsets
+    // the main process stamps on each line are what makes the sequence
+    // readable regardless of interleaving.
+    // One scanner per stream — see `ReadinessLineScanner` for why they are not
+    // shared.
+    const stdoutReadiness = new ReadinessLineScanner();
+    const stderrReadiness = new ReadinessLineScanner();
+
     child.stdout.on("data", (chunk: Buffer) => {
       const text = chunk.toString("utf8");
       stdout += text;
+      combinedOutput += text;
+      readinessBreadcrumbs.push(...stdoutReadiness.push(text));
       // Accumulate into `pending`, slice off complete lines (split on
       // `\n`), retain the (possibly empty) suffix for the next chunk.
       // `lines.pop()` returns either the unterminated trailing piece
@@ -387,7 +1038,10 @@ function spawnElectron(): Promise<SpawnResult> {
     });
 
     child.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString("utf8");
+      const text = chunk.toString("utf8");
+      stderr += text;
+      combinedOutput += text;
+      readinessBreadcrumbs.push(...stderrReadiness.push(text));
     });
 
     // Silent-failure-shape mitigation. Node's `child_process.spawn` emits an
@@ -406,9 +1060,16 @@ function spawnElectron(): Promise<SpawnResult> {
         probe: null,
         stdout,
         stderr: stderr + `\n[spawn error] ${err.message}`,
+        combinedOutput: combinedOutput + `\n[spawn error] ${err.message}`,
         exitCode: null,
         signal: null,
         elapsedMs: Date.now() - startedAt,
+        readinessBreadcrumbs,
+        diagnostics,
+        spawnBudgetMs,
+        timedOut: deadlineFired,
+        diagnosticCollectionMs: collectionMs,
+        childDisplay,
       });
     });
 
@@ -417,9 +1078,16 @@ function spawnElectron(): Promise<SpawnResult> {
         probe,
         stdout,
         stderr,
+        combinedOutput,
         exitCode,
         signal,
         elapsedMs: Date.now() - startedAt,
+        readinessBreadcrumbs,
+        diagnostics,
+        spawnBudgetMs,
+        timedOut: deadlineFired,
+        diagnosticCollectionMs: collectionMs,
+        childDisplay,
       });
     });
   });
@@ -429,8 +1097,22 @@ function spawnElectron(): Promise<SpawnResult> {
 // parsed. Every one of these outcomes reaches the test as the same
 // "probe is null" shape, so without this classification the reader has to
 // re-derive the cause from raw child output on every failure.
+//
+// Every marker match below reads `result.combinedOutput`, never
+// `result.stderr`. Under the `xvfb-run` fallback the child's stderr is merged
+// into stdout by the wrapper, so a `result.stderr` predicate is unreachable on
+// exactly the platform CI runs — the defect that left run 33571210321
+// reporting an empty `--- stderr ---`. See `SpawnResult.combinedOutput`.
 function diagnoseMissingProbe(result: SpawnResult): string {
-  if (/SingletonLock|SingletonCookie|process_singleton/i.test(result.stderr)) {
+  if (result.combinedOutput.includes("did not answer within")) {
+    return (
+      "the X display named by `$DISPLAY` was not serving, so the spawn was " +
+      "refused before Electron was started. On CI the job-level Xvfb step " +
+      "owns this display; locally, either export a working `$DISPLAY` or " +
+      "unset it so the `xvfb-run` fallback takes over."
+    );
+  }
+  if (/SingletonLock|SingletonCookie|process_singleton/i.test(result.combinedOutput)) {
     return (
       "Electron never took its single-instance lock, so the main process quit " +
       "before creating a window. The per-spawn `--user-data-dir` above is " +
@@ -438,25 +1120,63 @@ function diagnoseMissingProbe(result: SpawnResult): string {
       "being shared again."
     );
   }
-  if (result.stderr.includes(`${SMOKE_PROBE_TAG} loadURL failed`)) {
+  if (result.combinedOutput.includes(`${SMOKE_PROBE_TAG} loadURL failed`)) {
     return (
       "the window was created but `about:blank` never loaded, so the preload " +
       "never executed and `did-finish-load` never fired."
     );
   }
-  if (result.stderr.includes(`${SMOKE_PROBE_TAG} executeJavaScript failed`)) {
+  if (result.combinedOutput.includes(`${SMOKE_PROBE_TAG} executeJavaScript failed`)) {
     return "the renderer document loaded but the probe expression never evaluated in it.";
   }
-  if (result.signal !== null) {
+  // `did-finish-load` fired and the probe line still never arrived. That is a
+  // materially different fault from a boot that never loaded: the document IS
+  // up, the callback DID run, and what did not come back is the
+  // `executeJavaScript` round trip into the renderer. Checked ahead of the
+  // signal arm because it is the more specific reading of the same
+  // terminated-at-deadline evidence, and the generic arm below would otherwise
+  // absorb it and report "`did-finish-load` never fired" — which would be
+  // exactly false.
+  if (result.readinessBreadcrumbs.some((event) => event.includes("did-finish-load"))) {
     return (
-      `the process was still running at the ${String(SPAWN_TIMEOUT_MS)}ms deadline and was ` +
-      `terminated (${result.signal}) — \`did-finish-load\` never fired.`
+      "the renderer finished loading and the probe callback ran, but the " +
+      "`executeJavaScript` round trip never resolved — so this is a hung probe " +
+      "evaluation, NOT a renderer that failed to load. Readiness reached: " +
+      `${result.readinessBreadcrumbs.join(", ")}.`
+    );
+  }
+  // Keyed on the recorded deadline, NOT on `signal !== null`. See
+  // `SpawnResult.timedOut`: on the direct spawn path the electron shim catches
+  // SIGTERM and exits with code 1, so a signal test would silently hand this
+  // case to the `exitCode === 1` arm below and report a startup failure that
+  // never happened.
+  if (result.timedOut) {
+    // The breadcrumbs turn one timeout shape into several distinguishable ones:
+    // nothing at all (the browser process never got the renderer up), a
+    // `dom-ready` with no `did-finish-load` (the document parsed but a
+    // subresource never settled), or neither with a `ready-to-show` (the
+    // window surfaced against a document that never parsed). The
+    // `did-finish-load` case is split out above.
+    const reached =
+      result.readinessBreadcrumbs.length > 0
+        ? `Readiness reached: ${result.readinessBreadcrumbs.join(", ")}.`
+        : "No readiness event fired at all — the renderer never reached `dom-ready`.";
+    // How the tree actually died is itself a reading: killed by signal means the
+    // direct child took it, whereas an exit code means the shim caught SIGTERM,
+    // forwarded it, and reported the real binary's death.
+    const disposition =
+      result.signal !== null
+        ? `terminated (${result.signal})`
+        : `terminated (SIGTERM; the electron shim forwarded it and exited ${String(result.exitCode)})`;
+    return (
+      `the process was still running at the ${String(result.spawnBudgetMs)}ms deadline and was ` +
+      `${disposition} — \`did-finish-load\` never fired. ${reached}`
     );
   }
   if (result.exitCode === 1) {
     return "`app.whenReady()` rejected — the main process failed during startup.";
   }
-  if (result.exitCode === 0 && result.stdout.trim() === "") {
+  if (result.exitCode === 0 && result.combinedOutput.trim() === "") {
     // The silent arm of a lost single-instance lock: Chromium's process
     // singleton notifies the existing owner over its socket and exits 0
     // without logging anything, so the stderr match above cannot see it.
@@ -469,6 +1189,18 @@ function diagnoseMissingProbe(result: SpawnResult): string {
     );
   }
   return "the process exited without emitting the probe line and without a recognised failure marker.";
+}
+
+// The single renderer for "no probe line arrived". Both the assertion path and
+// the negative control below go through this function, so the control proves
+// what the real failure would print rather than a re-implementation of it.
+function renderReadinessFailure(result: SpawnResult): string {
+  return (
+    `Desktop shell never became ready: ${diagnoseMissingProbe(result)}\n` +
+    `No \`${SMOKE_PROBE_TAG}\` line arrived within ${String(result.spawnBudgetMs)}ms.\n` +
+    `Exit code: ${String(result.exitCode)}, signal: ${String(result.signal)}, elapsed: ${String(result.elapsedMs)}ms.\n` +
+    renderDiagnosticDump(result)
+  );
 }
 
 // Doc references for this suite (Plan-023 Phase 1 T-023p-1-7,
@@ -506,16 +1238,14 @@ describe("desktop shell substrate boot", () => {
     async () => {
       const result = await spawnElectron();
 
-      // Surface stderr + stdout if the probe line never arrived, so a
-      // failure here is debuggable from CI logs without re-running.
+      // Surface the full diagnostic dump if the probe line never arrived, so a
+      // failure here is attributable from one read of the CI log without a
+      // re-run. The dump carries the readiness events that DID fire with their
+      // offsets, the environment readings taken at spawn and at the deadline
+      // (display liveness, CPU count, load average, and the process tree of
+      // this spawn's own group), and both raw streams.
       if (!result.probe) {
-        throw new Error(
-          `Desktop shell never became ready: ${diagnoseMissingProbe(result)}\n` +
-            `No \`${SMOKE_PROBE_TAG}\` line arrived within ${String(SPAWN_TIMEOUT_MS)}ms.\n` +
-            `Exit code: ${String(result.exitCode)}, signal: ${String(result.signal)}, elapsed: ${String(result.elapsedMs)}ms.\n` +
-            `--- stdout ---\n${result.stdout}\n` +
-            `--- stderr ---\n${result.stderr}\n`,
-        );
+        throw new Error(renderReadinessFailure(result));
       }
 
       const probe = result.probe;
@@ -563,6 +1293,328 @@ describe("desktop shell substrate boot", () => {
       expect(result.exitCode).toBe(0);
       expect(result.signal).toBe(null);
     },
-    SPAWN_TIMEOUT_MS + 5_000, // Vitest timeout = spawn budget + slack.
+    // Derived, not hand-picked: spawn budget + bounded diagnostics + termination
+    // grace + slack. See BOOT_TEST_TIMEOUT_MS.
+    BOOT_TEST_TIMEOUT_MS,
   );
+
+  // Negative control for the readiness path.
+  //
+  // The diagnostics added here are only worth having if they actually fire, and
+  // "the dump would have printed" is not something the passing path can show —
+  // on a healthy boot none of this code runs. So this test breaks the readiness
+  // precondition deterministically (a display number nothing serves) and
+  // asserts the harness produces a NAMED refusal carrying the dump, rather than
+  // the bare spawn-budget timeout that run 33571210321 produced.
+  //
+  // It drives the real `spawnElectron()` and the real `renderReadinessFailure()`
+  // — not a hand-built `SpawnResult` — so a regression that silently stopped
+  // collecting diagnostics would fail here.
+  //
+  // The positive control is the test above: same harness, same renderer, live
+  // display, and it reaches a probe line. Without that pairing this assertion
+  // could pass against a harness that refused every spawn.
+  it(
+    "refuses a dead display with a diagnostic dump rather than a bare timeout",
+    async () => {
+      const deadDisplay = reserveDeadDisplay();
+      process.env[FORCED_DISPLAY_ENV] = deadDisplay;
+      let failureMessage: string;
+      let result: SpawnResult;
+      try {
+        result = await spawnElectron();
+        expect(result.probe).toBeNull();
+        failureMessage = renderReadinessFailure(result);
+      } finally {
+        delete process.env[FORCED_DISPLAY_ENV];
+      }
+
+      // The child would have been pinned to the reserved display, not the
+      // ambient one. Asserted because this is what makes the control sound if
+      // the gate ever regresses: without the pin a spawn that should have been
+      // refused would open on the developer's real display and pass.
+      expect(result.childDisplay).toBe(deadDisplay);
+
+      // Classified, not the catch-all arm — the reader is told which
+      // precondition failed.
+      expect(failureMessage).toContain("was not serving");
+      expect(failureMessage).not.toContain("without a recognised failure marker");
+
+      // The dump itself, with the offending display named in it.
+      expect(failureMessage).toContain("--- readiness events observed ---");
+      expect(failureMessage).toContain("--- environment ---");
+      expect(failureMessage).toContain(deadDisplay);
+      expect(failureMessage).toContain(`DISPLAY=${deadDisplay}`);
+
+      // No readiness event can have fired, because the spawn was refused
+      // before Electron existed — and the dump says exactly that instead of
+      // leaving the section blank.
+      expect(failureMessage).toContain("<none — the renderer never reached");
+    },
+    // Derived like the others: the forced readiness budget, the diagnostic
+    // bound, and slack. No termination grace — this path refuses before a
+    // process exists, so there is no tree to signal. The diagnostic term is the
+    // BUDGET rather than the ceiling, and is conservative even so: the refusal
+    // capture is handed a `null` probe deadline, so it takes the cheap readings
+    // only and spends no subprocess at all.
+    FORCED_DISPLAY_READY_TIMEOUT_MS + DIAGNOSTIC_BUDGET_MS + TEST_TIMEOUT_SLACK_MS,
+  );
+
+  // Negative control for the DEADLINE path's own budget.
+  //
+  // The control above breaks a precondition and never spawns Electron, so it
+  // exercises none of the machinery that runs when a boot actually stalls: the
+  // spawn deadline, the at-deadline diagnostic collection with its two real
+  // subprocess readings, the process-group SIGTERM, and the grace period before
+  // SIGKILL. That path has a budget of its own, and it used to be unpayable —
+  // two 5 s probe timeouts plus a 2 s grace inside an enclosing budget that
+  // allowed 5 s past the spawn deadline. The degraded runner these diagnostics
+  // exist for was therefore the one case where they could not be printed:
+  // vitest's generic timeout would fire first and the dump would be lost.
+  //
+  // So this test forces a REAL stall — the app boots with the probe opt-in
+  // withheld, so it runs normally and simply never emits a probe line — and
+  // asserts two things that together are the fix:
+  //
+  //   1. the failure that comes back is the harness's readiness failure with
+  //      its dump, NOT vitest's generic timeout, and
+  //   2. the whole path fits inside a budget DERIVED from the same named
+  //      constants the production path uses.
+  //
+  // It is a live control, not a tautology: restore either probe's independent
+  // 5 s timeout and the elapsed time exceeds this test's own derived budget, so
+  // vitest kills it and the assertions below never run.
+  it(
+    "bounds the stalled-boot diagnostic path inside its derived budget",
+    async () => {
+      process.env[FORCED_STALL_ENV] = "1";
+      const startedAt = Date.now();
+      let failureMessage: string;
+      let result: SpawnResult;
+      try {
+        result = await spawnElectron();
+        expect(result.probe).toBeNull();
+        failureMessage = renderReadinessFailure(result);
+      } finally {
+        delete process.env[FORCED_STALL_ENV];
+      }
+      const elapsedMs = Date.now() - startedAt;
+
+      // The spawn really did reach THIS harness's deadline — otherwise the test
+      // would be asserting about some other failure shape. Asserted on the
+      // recorded flag rather than on `signal`, for the reason `timedOut`
+      // documents: the shim exits with a code here, not a signal.
+      expect(result.timedOut).toBe(true);
+
+      // THE structural claim, asserted against a measurement of itself: the
+      // collection honoured its own bound.
+      //
+      // Deliberately not asserted as "total elapsed < deadline + budget +
+      // grace". That form is arithmetically equivalent only if teardown is
+      // free, and it is not — on CI the SIGTERM-to-`close` leg is the dominant
+      // term (~2 s) and is bounded by nothing this file owns. Asserting on it
+      // would make a de-flaking change carry a fresh wall-clock flake, which
+      // would be a poor joke. The recorded figure has no such term in it.
+      //
+      // Asserted against the budget PLUS the explicit overhead reserve, because
+      // the budget is what the probes are handed and the measurement also
+      // contains the `spawnSync` kill-and-reap tail that expiring that budget
+      // costs. See DIAGNOSTIC_COLLECTION_CEILING_MS for why the reserve is the
+      // same one the close-event bound uses, and why 6 s still catches the
+      // superseded two-independent-5 s-probes shape it exists to catch.
+      expect(result.diagnosticCollectionMs).not.toBeNull();
+      expect(result.diagnosticCollectionMs).toBeLessThanOrEqual(DIAGNOSTIC_COLLECTION_CEILING_MS);
+
+      // Backstop only, deliberately loose: the whole path still finished inside
+      // the derived enclosing budget. This one is not the control — it is the
+      // assertion that would catch a regression the recorded figure cannot see,
+      // e.g. a termination path that stopped terminating.
+      expect(elapsedMs).toBeLessThan(FORCED_STALL_TEST_TIMEOUT_MS);
+
+      // The readiness failure, not a bare timeout: classified, and carrying the
+      // dump with the at-deadline readings in it.
+      expect(failureMessage).toContain("Desktop shell never became ready");
+      expect(failureMessage).toContain(
+        `still running at the ${String(FORCED_STALL_SPAWN_TIMEOUT_MS)}ms deadline`,
+      );
+      expect(failureMessage).not.toContain("without a recognised failure marker");
+      expect(failureMessage).toContain("--- environment ---");
+
+      // The at-deadline capture ran and its readings are present — the point of
+      // bounding it was to keep these, not merely to finish sooner.
+      expect(failureMessage).toContain("[at-deadline]");
+      if (process.platform !== "win32") {
+        expect(failureMessage).toContain("[at-deadline] process tree");
+      }
+
+      // A skipped reading is a DESIGNED outcome of the shared budget, not a
+      // failure: the whole reason the two probes share one wall bound is that a
+      // slow first reading should cost the second reading rather than the
+      // enclosing test. Forbidding the skip outright — which this assertion
+      // used to do — turns the degraded runner these readings exist for into a
+      // red test, which is the opposite of the intent.
+      //
+      // So the skip is not prohibited; it is required to be EARNED and
+      // RECORDED. A reading is only skipped once `remainingProbeBudgetMs()`
+      // reaches zero, which happens only at or after `collectionStartedAt +
+      // DIAGNOSTIC_BUDGET_MS` — so a dump carrying the skip marker must also
+      // carry a collection cost of at least the full budget. That implication
+      // is exact, and it still catches the regression the old form was reaching
+      // for: a bound tightened until readings are dropped on a healthy runner
+      // would skip with a near-zero recorded cost and fail here.
+      if (failureMessage.includes("diagnostic budget exhausted")) {
+        expect(result.diagnosticCollectionMs).toBeGreaterThanOrEqual(DIAGNOSTIC_BUDGET_MS);
+      }
+
+      // The recorded cost is in the dump too, so a slow collection is legible
+      // to a human reading CI output rather than only to this assertion.
+      expect(failureMessage).toContain("[at-deadline] collection took");
+    },
+    FORCED_STALL_TEST_TIMEOUT_MS,
+  );
+});
+
+// Unit coverage for the breadcrumb scanner's line buffering.
+//
+// This is the failure the buffer exists to stop: a breadcrumb straddling a
+// chunk boundary was previously split into two fragments, NEITHER of which
+// matched the tag, so the breadcrumb vanished. That is the worst possible
+// outcome for a diagnostic trail — it goes missing precisely when the process
+// is under enough load to fragment its own writes, which is the load that
+// produces the stalls it is there to explain.
+describe("ReadinessLineScanner", () => {
+  const emit = (event: string, offsetMs: number): string =>
+    `${READINESS_BREADCRUMB_TAG} ${event} +${String(offsetMs)}ms\n`;
+
+  it("recovers a breadcrumb split across two chunks", () => {
+    const line = emit("dom-ready", 133);
+    // Split inside the TAG itself, which is the case a naive per-chunk
+    // `split("\n")` cannot recover from at all.
+    const splitAt = READINESS_BREADCRUMB_TAG.length - 3;
+    const scanner = new ReadinessLineScanner();
+    expect(scanner.push(line.slice(0, splitAt))).toEqual([]);
+    expect(scanner.push(line.slice(splitAt))).toEqual(["dom-ready +133ms"]);
+  });
+
+  it("recovers a breadcrumb split at every possible boundary", () => {
+    const line = emit("ready-to-show", 148);
+    for (let splitAt = 0; splitAt <= line.length; splitAt += 1) {
+      const scanner = new ReadinessLineScanner();
+      const seen = [...scanner.push(line.slice(0, splitAt)), ...scanner.push(line.slice(splitAt))];
+      expect(seen).toEqual(["ready-to-show +148ms"]);
+    }
+  });
+
+  it("holds an unterminated line until its newline arrives", () => {
+    const scanner = new ReadinessLineScanner();
+    // No trailing newline: the breadcrumb is not complete and must NOT be
+    // reported yet, or a truncated offset would be recorded as fact.
+    expect(scanner.push(`${READINESS_BREADCRUMB_TAG} did-finish-load +12`)).toEqual([]);
+    expect(scanner.push("34ms\n")).toEqual(["did-finish-load +1234ms"]);
+  });
+
+  it("reports several breadcrumbs arriving in one chunk, in order", () => {
+    const scanner = new ReadinessLineScanner();
+    expect(scanner.push(emit("dom-ready", 1) + emit("ready-to-show", 2))).toEqual([
+      "dom-ready +1ms",
+      "ready-to-show +2ms",
+    ]);
+  });
+
+  it("ignores untagged output and never emits for it", () => {
+    const scanner = new ReadinessLineScanner();
+    expect(scanner.push("some unrelated stderr\nmore of it\n")).toEqual([]);
+  });
+
+  it("keeps two streams' partial lines apart", () => {
+    // The reason each stream gets its own instance: a shared one would splice
+    // stdout's tail onto stderr's head and synthesise a line neither emitted.
+    const stdoutScanner = new ReadinessLineScanner();
+    const stderrScanner = new ReadinessLineScanner();
+    expect(stdoutScanner.push(`${READINESS_BREADCRUMB_TAG} dom-`)).toEqual([]);
+    expect(stderrScanner.push(`${READINESS_BREADCRUMB_TAG} ready-to-show +2ms\n`)).toEqual([
+      "ready-to-show +2ms",
+    ]);
+    expect(stdoutScanner.push("ready +1ms\n")).toEqual(["dom-ready +1ms"]);
+  });
+});
+
+// The budget arithmetic, asserted rather than trusted to a comment.
+//
+// Every timing constant in this file is derived from another one so that
+// raising a phase raises everything that must contain it. That property is
+// only worth having if it is checked: the defect that produced this block was
+// exactly a derivation that read plausibly and did not hold — the diagnostic
+// collection was MEASURED from one instant and BOUNDED from a later one, so a
+// collection whose probes each ran to their cap exceeded the budget it was
+// asserted to honour, and the control meant to produce the dump failed instead.
+// A comment cannot catch that returning; these can.
+describe("derived timing budgets", () => {
+  it("leaves the close-event reserve intact above the largest legal collection", () => {
+    // The hole this closes, and the reason it is stated as "slack ON TOP of the
+    // ceiling" rather than "contains the ceiling": the superseded derivation
+    // (`spawn + DIAGNOSTIC_BUDGET_MS + grace + slack`) does contain the ceiling
+    // — but only by spending the slack to do it, leaving nothing for the
+    // unbounded terms that slack exists for (the spawn itself, the `close`
+    // event after SIGTERM, temp-profile cleanup). A legal-but-slow collection
+    // would then fail on the runner's generic test timeout, losing the dump in
+    // precisely the case the dump exists for.
+    //
+    // Written in the weaker "contains the ceiling" form, this test would pass
+    // against the very derivation it exists to reject — which is worth saying
+    // out loud, because an arithmetic guard over constants in its own file is
+    // worth its line count only if it fails on the state it replaced. This one
+    // was run against that state and does.
+    expect(BOOT_TEST_TIMEOUT_MS).toBeGreaterThanOrEqual(
+      DISPLAY_READY_TIMEOUT_MS +
+        SPAWN_TIMEOUT_MS +
+        DIAGNOSTIC_COLLECTION_CEILING_MS +
+        TERMINATION_GRACE_MS +
+        TEST_TIMEOUT_SLACK_MS,
+    );
+    expect(FORCED_STALL_TEST_TIMEOUT_MS).toBeGreaterThanOrEqual(
+      DISPLAY_READY_TIMEOUT_MS +
+        FORCED_STALL_SPAWN_TIMEOUT_MS +
+        DIAGNOSTIC_COLLECTION_CEILING_MS +
+        TERMINATION_GRACE_MS +
+        TEST_TIMEOUT_SLACK_MS,
+    );
+  });
+
+  it("counts every bounded phase a spawn can spend, not only the ones after it starts", () => {
+    // The display-readiness gate is the phase this guard was added for: it runs
+    // inside `spawnElectron` BEFORE the spawn deadline timer is armed, so it is
+    // invisible to the spawn budget and was for a while invisible to both
+    // enclosures too. Every separately-bounded phase belongs in the enclosure
+    // of any test that can reach it, and the negative control's own budget
+    // already names its (overridden) display term, which is what made the
+    // omission in the other two legible.
+    for (const enclosure of [BOOT_TEST_TIMEOUT_MS, FORCED_STALL_TEST_TIMEOUT_MS]) {
+      expect(enclosure).toBeGreaterThan(
+        DISPLAY_READY_TIMEOUT_MS + DIAGNOSTIC_COLLECTION_CEILING_MS,
+      );
+    }
+  });
+
+  it("keeps the shared wall budget binding rather than decorative", () => {
+    // The collection's worst case is `min(wall budget, sum of the per-probe
+    // caps)`. If the wall exceeded that sum it could never bind, and the
+    // collection's worst case would once again be a sum of independent
+    // timeouts — the shape that started this. There are two probes.
+    const boundedProbeCount = 2;
+    expect(DIAGNOSTIC_BUDGET_MS).toBeLessThanOrEqual(
+      DIAGNOSTIC_PROBE_TIMEOUT_MS * boundedProbeCount,
+    );
+  });
+
+  it("keeps the collection ceiling tight enough to catch the shape it replaced", () => {
+    // The superseded collection carried two independent 5 s `spawnSync`
+    // timeouts. The ceiling must stay below that sum, or the assertion stops
+    // being a regression guard and becomes a formality.
+    const supersededIndependentProbeTimeoutMs = 5_000;
+    expect(DIAGNOSTIC_COLLECTION_CEILING_MS).toBeLessThan(supersededIndependentProbeTimeoutMs * 2);
+    // And loose enough to hold the budget plus a real reserve, so the control
+    // is not itself a wall-clock flake.
+    expect(DIAGNOSTIC_COLLECTION_CEILING_MS).toBeGreaterThan(DIAGNOSTIC_BUDGET_MS);
+  });
 });

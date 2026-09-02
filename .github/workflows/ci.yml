@@ -132,6 +132,102 @@ jobs:
           sudo chmod 4755 "$sandbox"
           ls -l "$sandbox"
 
+      # One X server for the whole job, gated on ACTUALLY ANSWERING before any
+      # test runs, with `$DISPLAY` exported for every later step.
+      #
+      # Replaces a per-spawn `xvfb-run -a` inside the Electron test harnesses
+      # (apps/desktop/test/launch.smoke.test.ts, lifecycle.gc.test.ts), which
+      # was unsound in three ways on a hosted runner:
+      #
+      #   1. `xvfb-run -a` picks its display number with `find_free_servernum()`
+      #      — a plain `while [ -f /tmp/.X$i-lock ]` scan. That is a documented
+      #      TOCTOU (Debian #521075 / Launchpad #348052): two concurrent
+      #      invocations can select the same number. The script's retry loop
+      #      recovers, so this was not the root cause of the boot flake, but it
+      #      is real and it is free to remove.
+      #   2. Each spawn stood up its OWN Xvfb plus a wrapper shell, so the two
+      #      Electron test files put two X servers and two extra shells on a
+      #      4-vCPU box for no benefit.
+      #   3. `xvfb-run` runs the command as `... "$@" 2>&1` — it MERGES the
+      #      child's stderr into stdout. That silently disabled every
+      #      stderr-keyed diagnosis branch in the smoke harness on exactly the
+      #      platform CI runs (observed in run 33571210321: the electron shim's
+      #      `console.error` notice arrived in the harness's stdout capture
+      #      while `--- stderr ---` was empty).
+      #
+      # `-nolisten tcp` keeps the server on its unix socket only.
+      #
+      # Readiness uses Xvfb's OWN `-displayfd` signal rather than an external
+      # client probe. The server picks a free display itself and writes the
+      # number to that descriptor only after it is listening, so reading the
+      # number IS the readiness proof — and because the SERVER allocates it, the
+      # display-number race is gone by construction rather than by retry.
+      #
+      # This deliberately does not use `xdpyinfo`: the ubuntu-24.04 image ships
+      # `xvfb` but NOT `x11-utils`, so `xdpyinfo` is absent and a probe built on
+      # it can never succeed. Measured, not assumed — the first revision of this
+      # step did exactly that and failed with "Xvfb did not answer on :99 within
+      # 15s" while the Xvfb process was alive the whole time (run 33573354839).
+      # Installing `x11-utils` would fix the probe but adds an apt round trip to
+      # every run for a signal the server already gives us for free.
+      #
+      # NOTE: nothing here passes `--no-sandbox`. That switch would disable the
+      # renderer's Linux namespace sandbox and thereby defeat the very invariant
+      # apps/desktop/test/launch.smoke.test.ts asserts (`require` / `process` /
+      # `global` all `undefined`, which follow from `webPreferences.sandbox:
+      # true`). The SUID helper configured in the step above is what makes that
+      # sandbox work, and it stays.
+      - name: Start Xvfb and wait for the display to answer (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          display_file="${RUNNER_TEMP}/xvfb-display"
+          xvfb_log="${RUNNER_TEMP}/xvfb.log"
+          : > "$display_file"
+          # No `:N` argument: with `-displayfd` the server allocates a free
+          # display itself and reports it on fd 3, which we point at a file.
+          Xvfb -displayfd 3 -screen 0 1280x1024x24 -nolisten tcp \
+            3>"$display_file" >"$xvfb_log" 2>&1 &
+          xvfb_pid=$!
+          # Deliberately no teardown step: the display is meant to outlive every
+          # test in the job, and the runner reclaims the VM afterwards. This is
+          # also what removes the per-spawn teardown race the old `xvfb-run`
+          # posture had, where each spawn tore its own X server down.
+          for attempt in $(seq 1 60); do
+            display_number=$(tr -d '[:space:]' < "$display_file")
+            if [ -n "$display_number" ]; then
+              echo "Xvfb serving :${display_number} after ${attempt} attempt(s)"
+              echo "DISPLAY=:${display_number}" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            # Checked AFTER the read, not before: a server that came up and
+            # wrote its number is a success even if this loop notices the pid
+            # later, and checking first would race the write.
+            if ! kill -0 "$xvfb_pid" 2>/dev/null; then
+              echo "::error::Xvfb exited before reporting a display number"
+              cat "$xvfb_log" || true
+              exit 1
+            fi
+            sleep 0.25
+          done
+          echo "::error::Xvfb reported no display number within 15s"
+          cat "$xvfb_log" || true
+          exit 1
+
+      # Chromium probes the session bus for portals and the secret service on
+      # boot. There is no session bus on a hosted runner, and with
+      # `DBUS_SESSION_BUS_ADDRESS` unset libdbus falls back to an autolaunch
+      # attempt — a boot-path round trip that can only cost time here.
+      # `disabled:` is unparseable as a bus address, so the lookup fails
+      # immediately instead. `NO_AT_BRIDGE=1` suppresses the accessibility
+      # bridge's own bus connection. Neither changes any sandbox or
+      # `webPreferences` setting; both only remove a probe that cannot succeed.
+      - name: Harden D-Bus / portal environment for Electron (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          echo "DBUS_SESSION_BUS_ADDRESS=disabled:" >> "$GITHUB_ENV"
+          echo "NO_AT_BRIDGE=1" >> "$GITHUB_ENV"
+
       # ADR-023 §Axis 2 D-1: closure for `git commit --no-verify` bypass. Explicit
       # full-repo invocations (NOT `lefthook run pre-commit --all-files` — lint-staged
       # reads the git staging index, which is empty in the CI checkout, so that
@@ -186,8 +282,42 @@ jobs:
       - name: Lint per-package (Node 22 tier — excluding control-plane)
         run: pnpm turbo run lint --filter='!@ai-sidekicks/control-plane' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
-      - name: Test (Node 22 tier — excluding control-plane)
-        run: pnpm turbo run test --filter='!@ai-sidekicks/control-plane' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
+      # Split into a parallel step and a serial one, because turbo's default
+      # concurrency (10) otherwise runs `@ai-sidekicks/desktop#test:smoke`
+      # alongside `runtime-daemon#test` (a ~40 s suite), `client-sdk#test` and
+      # the desktop renderer suite on one 4-vCPU runner — and that project is
+      # the only one that spawns a full Electron/Chromium tree and asserts a
+      # wall-clock boot deadline against it.
+      #
+      # This is the second half of one fix. The first half was intra-project:
+      # the `main` vitest project globs two Electron-spawning files and ran them
+      # concurrently (see `apps/desktop/vitest.config.ts`). Serialising those
+      # made the gate pass, but three consecutive green runs of the fixed tree
+      # still measured the same boot at 4129 / 6732 / 13008 ms — a 3.2x spread
+      # on identical code, with the slowest sample inside 13% of its ceiling.
+      # That residual is this concurrency, one level up, and it is what the two
+      # steps below remove.
+      #
+      # The package scripts are deliberately NOT changed: `pnpm test` in
+      # apps/desktop still runs renderer + smoke, so a developer's local command
+      # keeps its meaning and only CI's scheduling differs. The union of the two
+      # steps is exactly the task set the single step used to run — verified
+      # with `turbo run ... --dry=json`, and note that the two negative filters
+      # below are both applied as exclusions rather than OR'd into a selection.
+      - name: Test (Node 22 tier — excluding control-plane and desktop)
+        run: pnpm turbo run test --filter='!@ai-sidekicks/control-plane' --filter='!@ai-sidekicks/desktop' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
+
+      # The desktop package, alone on the runner. The renderer project is
+      # parallel-safe (happy-dom, no subprocess) but runs here anyway so the
+      # whole package lands in one place; `test:smoke` then runs with
+      # `--concurrency=1` so not even its own `build:smoke` dependency overlaps
+      # it. Nothing else is scheduled against either.
+      - name: Test (desktop — renderer, then the Electron smoke project serially)
+        run: |
+          set -euo pipefail
+          cache_flag='${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}'
+          pnpm turbo run test:renderer --filter=@ai-sidekicks/desktop ${cache_flag}
+          pnpm turbo run test:smoke --filter=@ai-sidekicks/desktop --concurrency=1 ${cache_flag}
 
       # Public-surface validation for the workspace libraries. Two complementary
       # linters run against the *packed* tarball (not the source tree), so they

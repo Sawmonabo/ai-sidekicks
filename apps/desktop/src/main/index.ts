@@ -93,6 +93,12 @@ const gotTheLock = app.requestSingleInstanceLock();
 const SMOKE_PROBE_TAG = "[SIDEKICKS_SMOKE_PROBE]";
 const GC_PROBE_TAG = "[SIDEKICKS_GC_PROBE]";
 
+// Tag for the corroborating readiness breadcrumbs the smoke branch emits on
+// stderr (`dom-ready`, `ready-to-show`) beside the asserted `did-finish-load`.
+// Referenced only from inside the `__SIDEKICKS_SMOKE_BUILD__` branch, so it is
+// tree-shaken out of release bundles along with the branch itself.
+const READINESS_BREADCRUMB_TAG = "[SIDEKICKS_SMOKE_READY]";
+
 // Plan-023 lifecycle-reachability probe. When the bundle is built with
 // `electron-vite build --mode=smoke` AND `SIDEKICKS_GC_PROBE=1`, this
 // function drives K iterations of GC pressure and samples
@@ -217,7 +223,47 @@ if (!gotTheLock) {
       // to execute.
       if (__SIDEKICKS_SMOKE_BUILD__ && process.env["SIDEKICKS_SMOKE_PROBE"] === "1") {
         const t0 = Date.now();
+
+        // Corroborating readiness breadcrumbs (smoke-gated, opt-in per
+        // invocation). `did-finish-load` stays the ONLY signal the test asserts
+        // on; these record how far the boot got when the probe line does not
+        // arrive, which turns one indistinguishable timeout into several
+        // distinguishable ones. The pre-load pair is registered BEFORE the
+        // `loadURL` call below, so neither can be missed by a load that
+        // completes unusually fast.
+        //
+        // Emitted on stderr so the stdout probe-line scanner in
+        // `apps/desktop/test/launch.smoke.test.ts` still sees exactly one
+        // tagged line.
+        // `dom-ready` is a `webContents` event and `ready-to-show` is a
+        // `BrowserWindow` event — they are registered on their own emitters
+        // rather than through one loop, so a wrong-emitter registration is a
+        // compile error instead of a listener that never fires.
+        const readinessTracingEnabled = process.env["SIDEKICKS_SMOKE_TRACE_READINESS"] === "1";
+        const traceReadiness = (readinessEvent: string): void => {
+          if (!readinessTracingEnabled) return;
+          console.error(
+            `${READINESS_BREADCRUMB_TAG} ${readinessEvent} +${String(Date.now() - t0)}ms`,
+          );
+        };
+        if (readinessTracingEnabled) {
+          browserWindow.webContents.once("dom-ready", () => {
+            traceReadiness("dom-ready");
+          });
+          browserWindow.once("ready-to-show", () => {
+            traceReadiness("ready-to-show");
+          });
+        }
+
         browserWindow.webContents.once("did-finish-load", () => {
+          // Emitted at the TOP of the callback, before `executeJavaScript` is
+          // issued. Without it, a renderer that never finished loading and a
+          // probe whose `executeJavaScript` round trip never resolved produce
+          // the identical observable — no probe line — and the harness cannot
+          // tell a boot that never got here from one that got here and hung.
+          // With it, the absence of this breadcrumb and its presence are two
+          // different diagnoses, which is the whole point of the trail.
+          traceReadiness("did-finish-load");
           const tWindow = Date.now() - t0;
           // Probe the renderer for the Spec-023 §Security Hardening Baseline
           // runtime invariants (sandbox: true + nodeIntegration: false +
