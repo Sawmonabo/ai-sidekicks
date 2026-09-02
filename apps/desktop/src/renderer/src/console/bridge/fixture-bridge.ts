@@ -17,14 +17,16 @@
 //
 // Three fixture behaviours are deliberate:
 //
-//   • **Subscriptions come from the scenario engine, filtered by what was asked
-//     for.** `daemon.subscribe` hands the caller beats as they fall due on the
-//     frozen clock, so a fixture session is replayable tick-for-tick and a
-//     screenshot pins an exact frame — and it hands them only to a subscriber that
-//     named them. A fixture that forwarded the whole script to every subscriber
-//     delivered `session.created` into a handler that had asked for `run.starting`,
-//     which is a frame the live bridge cannot produce and therefore a screenshot
-//     or an end-to-end result that proves nothing about the shipped console.
+//   • **Subscriptions come from the scenario engine, routed by the registered
+//     stream table.** `daemon.subscribe` hands the caller beats as they fall due on
+//     the frozen clock, so a fixture session is replayable tick-for-tick and a
+//     screenshot pins an exact frame — and it hands them only to a subscriber the
+//     seam says they reach. A fixture that forwarded the whole script to every
+//     subscriber delivered `session.created` into a handler that had asked for
+//     `run.starting`, which is a frame the live bridge cannot produce; a fixture
+//     that recognised only ONE stream name delivered nothing at all to the two
+//     `run.*` streams the daemon serves, which reads exactly like a quiet session.
+//     `session-event-streams.ts` is the one table both defects are routed by.
 //   • **Native surfaces refuse rather than pretend.** `showOpenDialog` under the
 //     fixture cannot open a dialog, so it rejects with a fixture-scoped error. A
 //     fixture that returned a plausible path would let a surface ship with a code
@@ -45,20 +47,28 @@ import {
 } from "@ai-sidekicks/contracts";
 import { ConsoleRefusalError, refuse } from "../core/index.js";
 import type { ConsoleSessionEvent } from "../store/index.js";
-import { isSessionEventStream, type ConsoleBridge } from "./console-bridge.js";
+import type { ConsoleBridge } from "./console-bridge.js";
 import {
   FIXTURE_SERVED_GROWTH_OPERATION_IDS,
   createFixtureGrowthPort,
 } from "./fixture-growth-port.js";
 import { ScenarioEngine, type ConsoleScenario } from "./scenario.js";
+import { SCRIPTED_REPLY_REFUSAL_CODES, settleScriptedReply } from "./scripted-reply.js";
+import { subscriptionDeliversEventKind } from "./session-event-streams.js";
 
-/** Why the fixture could not answer. Rendered verbatim; never swallowed. */
-export const FIXTURE_BRIDGE_REFUSAL_CODES = [
+/**
+ * Why the fixture could not answer. Rendered verbatim; never swallowed.
+ *
+ * The last two are spread in from `scripted-reply.ts` rather than spelled again
+ * here: they name a reply the frozen clock never released, which is a fact about the
+ * seam both fixture surfaces share, and the growth port's own closed set spreads the
+ * same two. Two independent spellings would be a rename waiting to go half-applied.
+ */
+export const FIXTURE_BRIDGE_REFUSAL_CODES: readonly [
   "reply-unscripted",
   "capability-absent",
-  "reply-abandoned",
-  "reply-backlog-full",
-] as const;
+  ...typeof SCRIPTED_REPLY_REFUSAL_CODES,
+] = ["reply-unscripted", "capability-absent", ...SCRIPTED_REPLY_REFUSAL_CODES];
 
 /** One fixture refusal code. Derived, so the vocabulary is declared exactly once. */
 export type FixtureBridgeRefusalCode = (typeof FIXTURE_BRIDGE_REFUSAL_CODES)[number];
@@ -190,76 +200,68 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
 /**
  * Deliver a scenario's beats to one subscriber, filtered by what it subscribed to.
  *
- * `daemon.subscribe(name, handler)` names either a whole-session stream or one
- * event type, and `console-bridge.ts` owns which names are which. A stream gets
- * every beat; anything else gets the beats whose `kind` it named.
+ * `daemon.subscribe(name, handler)` names either a registered stream or one event
+ * type, and `session-event-streams.ts` owns which names are which and what each
+ * stream carries. This function performs no routing of its own — a fixture that
+ * kept a second reading of the seam would answer a `run.*` stream with silence
+ * while the binder above it was passing a name the daemon serves.
  *
- * The beat's own envelope is what reaches the handler on BOTH arms, deliberately.
+ * The beat's own envelope is what reaches the handler on EVERY arm, deliberately.
  * `DaemonEventPayload<E>` is a Plan-007 stub that resolves to `unknown`, so there
  * is no registered per-event payload shape to project a beat down to — and a
  * fixture that invented one would be putting a wire fact into the one module that
- * has no contract to check it against.
+ * has no contract to check it against. That applies to the run streams as much as
+ * to the session one: their registered emissions are projections of the durable
+ * row, and projecting a beat into one here would mint a wire shape in the fixture.
  */
 function subscribeToScenario(
   engine: ScenarioEngine,
   subscriptionName: string,
   deliver: (event: ConsoleSessionEvent) => void,
 ): Unsubscribe {
-  const carriesWholeStream = isSessionEventStream(subscriptionName);
   return engine.subscribe((events) => {
     for (const event of events) {
-      if (carriesWholeStream || event.kind === subscriptionName) {
+      if (subscriptionDeliversEventKind(subscriptionName, event.kind)) {
         deliver(event);
       }
     }
   });
 }
 
+/**
+ * Answer one request/response call from the scenario, or reject by name.
+ *
+ * The classification is `scripted-reply.ts`'s — this is the arm that turns each
+ * settlement into what a `SidekicksBridge` method may do, which is resolve or reject
+ * and nothing else. Three of the four settlements are rejections here, and each
+ * rejects with a different value on purpose: an unscripted call is a fixture
+ * AUTHORING error, a reply the clock never released is a fixture failure carrying the
+ * shared code, and a scripted daemon refusal is thrown VERBATIM and unwrapped.
+ *
+ * That last one is the whole point of the refusal arm: it is the daemon's refusal,
+ * not the fixture's, and `src/shared/wire-errors.ts` records that a wire refusal
+ * reaches a renderer either as this plain object or as an `Error` carrying the same
+ * `code` — `normalizeWireRejection` renders both as `code: message`. Wrapping it in a
+ * `FixtureBridgeError` would replace the code a surface exists to show with a
+ * fixture-scoped one and make the rendered refusal a thing the live bridge never
+ * produces.
+ */
 async function resolveScriptedReply(engine: ScenarioEngine, call: string): Promise<unknown> {
-  const reply = engine.replyFor(call);
-  if (reply === undefined) {
-    throw new FixtureBridgeError(
-      call,
-      "reply-unscripted",
-      `scenario "${engine.scenario.id}" scripts no reply. Add one to the scenario rather than letting the surface render an empty result for a call that would have failed.`,
-    );
-  }
-  if (reply.afterMs !== undefined && reply.afterMs > 0) {
-    // Latency is scripted rather than real: the frozen clock is the only clock, so
-    // the reply is PARKED on it and the caller advances the engine to release it.
-    // Spending the delay here instead would settle the promise on this same turn —
-    // no loading state would ever be observable — and would deliver every beat
-    // inside the delay as a side effect of a read.
-    const outcome = await engine.holdReply(reply.afterMs);
-    if (outcome === "abandoned") {
+  const settlement = await settleScriptedReply(engine, call);
+  switch (settlement.status) {
+    case "unscripted":
       throw new FixtureBridgeError(
         call,
-        "reply-abandoned",
-        "the scenario engine was torn down before the frozen clock reached this reply. Advance the engine before disposing it, or drive this surface from a scenario that scripts no latency for the call.",
+        "reply-unscripted",
+        `scenario "${engine.scenario.id}" scripts no reply. Add one to the scenario rather than letting the surface render an empty result for a call that would have failed.`,
       );
-    }
-    if (outcome === "backlog-full") {
-      throw new FixtureBridgeError(
-        call,
-        "reply-backlog-full",
-        `the fixture is already holding ${String(engine.pendingReplyCount)} delayed replies and takes no more. Advance the frozen clock to release them; a backlog this size means something is issuing requests without ever moving the scenario forward.`,
-      );
-    }
+    case "unanswered":
+      throw new FixtureBridgeError(call, settlement.code, settlement.detail);
+    case "refused":
+      throw settlement.refusal;
+    case "resolved":
+      return settlement.value;
   }
-  if (reply.refusal !== undefined) {
-    // Thrown VERBATIM and unwrapped, which is the whole point of the arm: this is
-    // the daemon's refusal, not the fixture's, and `src/shared/wire-errors.ts`
-    // records that a wire refusal reaches a renderer either as this plain object
-    // or as an `Error` carrying the same `code` — `normalizeWireRejection` renders
-    // both as `code: message`. Wrapping it in a `FixtureBridgeError` would replace
-    // the code a surface exists to show with a fixture-scoped one and make the
-    // rendered refusal a thing the live bridge never produces.
-    //
-    // It is thrown AFTER the hold above, so a refusal is preceded by exactly the
-    // loading window a resolving reply of the same `afterMs` would have.
-    throw reply.refusal;
-  }
-  return reply.result;
 }
 
 /**

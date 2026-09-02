@@ -16,9 +16,33 @@
 import type { ConsoleRefusal } from "../core/index.js";
 import type { GrowthOperationId } from "./growth-entry.js";
 import type { GrowthSlateRowId } from "./growth-slate.js";
+import { SCRIPTED_REPLY_REFUSAL_CODES } from "./scripted-reply.js";
 
-/** Why the port refused. One member today; a closed set so a second is a decision. */
-export const GROWTH_PORT_REFUSAL_CODES = ["wire-unregistered"] as const;
+/**
+ * Why the port refused. A closed set, and each member is a decision:
+ *
+ *   • `wire-unregistered` — nobody asked, because the wire this operation needs is
+ *     not registered anywhere in the corpus. The refusal names who owes it. This is
+ *     the only code a LIVE bridge produces, and it is the "not checked" kind of
+ *     nothing rather than an empty result.
+ *   • `reply-abandoned` — the fixture asked, and the scenario engine was torn down
+ *     before the frozen clock reached the answer.
+ *   • `reply-backlog-full` — the fixture asked, and the engine was already holding
+ *     its cap of delayed replies, so this one was never parked at all.
+ *
+ * The last two are spread in from `scripted-reply.ts`, which is where the seam that
+ * produces them lives and where `fixture-bridge.ts` reads the same two from. They
+ * exist as codes at all because of the rule they enforce: a fixture must NEVER map an
+ * abandoned or over-cap scripted reply to an absent value. Both of those are a reply
+ * that did not arrive, and an absent value renders as "there is none" — a claim about
+ * the session that nothing checked. The union stays two-armed (`served | unavailable`)
+ * so no consumer's exhaustive switch breaks: the new codes ride the existing
+ * `unavailable` arm and render through the same `RefusalCard` the first one does.
+ */
+export const GROWTH_PORT_REFUSAL_CODES: readonly [
+  "wire-unregistered",
+  ...typeof SCRIPTED_REPLY_REFUSAL_CODES,
+] = ["wire-unregistered", ...SCRIPTED_REPLY_REFUSAL_CODES];
 
 /** One growth-port refusal code. Derived, so the vocabulary is declared once. */
 export type GrowthPortRefusalCode = (typeof GROWTH_PORT_REFUSAL_CODES)[number];

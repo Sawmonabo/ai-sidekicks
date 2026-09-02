@@ -104,6 +104,10 @@ export function findScenarioWireTruthDefects(
       }
     }
     defects.push(...findDuplicateReplyCalls(scenario));
+    const viewerDefect = describeViewerDefect(scenario);
+    if (viewerDefect !== undefined) {
+      defects.push(viewerDefect);
+    }
   }
   return defects;
 }
@@ -152,6 +156,38 @@ function describeIssue(issue: {
 }): string {
   const location = issue.path.length === 0 ? "the event" : issue.path.map(String).join(".");
   return `${location} — ${issue.message}`;
+}
+
+/**
+ * A stated viewer who is not in the roster, or `undefined` when the scenario is sound.
+ *
+ * `viewingParticipantId` is the one field a surface resolves a ROLE from, and it
+ * resolves it by looking the id up in the session's own participant projection. An id
+ * outside `participantIdsInJoinOrder` therefore resolves to nothing, and a surface
+ * handed one either renders a role gate closed for a member who has it or renders it
+ * open for a stranger — neither of which is visible in the fixture, because both look
+ * exactly like a session whose viewer simply has no elevated role.
+ *
+ * Scoped to scenarios that STATE one: an absent viewer is the deliberate state the
+ * fixture refuses the caller-identity read from, not a defect.
+ */
+function describeViewerDefect(scenario: ConsoleScenario): ScenarioWireTruthDefect | undefined {
+  const { viewingParticipantId } = scenario;
+  if (viewingParticipantId === undefined) {
+    return undefined;
+  }
+  if (scenario.participantIdsInJoinOrder.includes(viewingParticipantId)) {
+    return undefined;
+  }
+  return {
+    scenarioId: scenario.id,
+    subject: `viewingParticipantId "${viewingParticipantId}"`,
+    reason:
+      "the stated viewer is not in `participantIdsInJoinOrder`, so no surface can " +
+      "resolve their role from this session's roster. Name a participant the " +
+      "scenario actually joins, or leave the field absent and let the caller-identity " +
+      "read refuse.",
+  };
 }
 
 /**
