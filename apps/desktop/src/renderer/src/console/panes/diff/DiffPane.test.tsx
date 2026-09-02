@@ -8,8 +8,15 @@
 // a workspace has no changes. A pane that regressed into `empty` would look
 // identical to a reviewer and would be stating a fact nobody established.
 
-import { render } from "@testing-library/react";
+import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+
+import {
+  RUN_ATTRIBUTION,
+  SMALL_DIFF_SHAPE,
+  WORKSPACE_FALLBACK_ATTRIBUTION,
+  buildDiffFixture,
+} from "./diff-fixture.js";
 
 import { type ConsolePaneContext } from "../../workspace/index.js";
 import { DiffPane } from "./DiffPane.js";
@@ -64,5 +71,126 @@ describe("diff pane — the absence it renders", () => {
     // shapes and the pane must never reach for the second.
     const { container } = render(<DiffPane context={contextFor(WORKSPACE_ENTITY)} />);
     expect(container.querySelector(".meridian-nothing--empty")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The pane with a diff in it. Everything above is the chrome and the absence;
+// what follows is the surface §10.6 actually describes — the compared states,
+// the attribution badge, the file list, and the rows.
+
+describe("diff pane — the header a diff gives it", () => {
+  it("names the compared states and the attribution mode", () => {
+    const { container } = render(
+      <DiffPane context={contextFor(WORKSPACE_ENTITY)} diff={buildDiffFixture(SMALL_DIFF_SHAPE)} />,
+    );
+    const subjectBar = container.querySelector(".meridian-diff-pane__subject-bar");
+    expect(subjectBar?.textContent).toContain("Run-attributed");
+    expect(subjectBar?.textContent).toContain("main");
+    expect(subjectBar?.textContent).toContain("feat/rate-limit-wiring");
+  });
+
+  it("renders a workspace-fallback diff's workspace, and no run anywhere", () => {
+    // `Spec-011 §Pitfalls To Avoid` names pretending a workspace diff is
+    // run-attributed. The union makes the wrong shape unrepresentable; this is
+    // the check that the renderer did not reintroduce it by reaching elsewhere.
+    const fallbackDiff = buildDiffFixture(SMALL_DIFF_SHAPE, WORKSPACE_FALLBACK_ATTRIBUTION);
+    const { container } = render(
+      <DiffPane context={contextFor(WORKSPACE_ENTITY)} diff={fallbackDiff} />,
+    );
+    const subjectBar = container.querySelector(".meridian-diff-pane__subject-bar");
+    expect(subjectBar?.textContent).toContain("Workspace fallback");
+    expect(subjectBar?.textContent).toContain("workspace-sidekicks");
+    expect(subjectBar?.textContent).not.toContain("run-");
+  });
+
+  it("negative control: the badge is neutral on both arms, so neither spends a hue", () => {
+    // A workspace fallback is a lower attribution quality — not a failure and not
+    // something a person must act on. Amber or red here would be the two-hue rule
+    // broken in the one place it is tempting.
+    for (const attribution of [RUN_ATTRIBUTION, WORKSPACE_FALLBACK_ATTRIBUTION]) {
+      const { container } = render(
+        <DiffPane
+          context={contextFor(WORKSPACE_ENTITY)}
+          diff={buildDiffFixture(SMALL_DIFF_SHAPE, attribution)}
+        />,
+      );
+      const chips = container.querySelectorAll(".meridian-diff-pane__subject-bar .meridian-chip");
+      expect(chips.length).toBeGreaterThan(0);
+      for (const chip of chips) {
+        expect(chip.className).not.toContain("attention");
+        expect(chip.className).not.toContain("failure");
+      }
+    }
+  });
+});
+
+describe("diff pane — the file list and the rows", () => {
+  it("opens on the changed-file list with the rows beside it", () => {
+    const { container } = render(
+      <DiffPane context={contextFor(WORKSPACE_ENTITY)} diff={buildDiffFixture(SMALL_DIFF_SHAPE)} />,
+    );
+    expect(container.querySelectorAll(".meridian-diff-files__entry").length).toBe(
+      SMALL_DIFF_SHAPE.fileCount + 1,
+    );
+    expect(container.querySelector(".meridian-diff")).not.toBeNull();
+  });
+
+  it("narrows the rows to the file a person selects", () => {
+    const { container, getByRole } = render(
+      <DiffPane context={contextFor(WORKSPACE_ENTITY)} diff={buildDiffFixture(SMALL_DIFF_SHAPE)} />,
+    );
+    const before = container.querySelector(".meridian-diff")?.getAttribute("aria-rowcount");
+    fireEvent.click(getByRole("button", { name: /module-01\.ts/u }));
+    const after = container.querySelector(".meridian-diff")?.getAttribute("aria-rowcount");
+    expect(Number(after)).toBeLessThan(Number(before));
+    expect(container.querySelector(".meridian-diff__row--file")?.textContent).toContain(
+      "module-01.ts",
+    );
+  });
+
+  it("filters the list, and says so when nothing matches", () => {
+    const { container, getByRole } = render(
+      <DiffPane context={contextFor(WORKSPACE_ENTITY)} diff={buildDiffFixture(SMALL_DIFF_SHAPE)} />,
+    );
+    fireEvent.change(getByRole("searchbox"), { target: { value: "module-01" } });
+    // The "All files" entry always stands, so one match leaves two entries.
+    expect(container.querySelectorAll(".meridian-diff-files__entry").length).toBe(2);
+    fireEvent.change(getByRole("searchbox"), { target: { value: "no-such-path" } });
+    expect(container.querySelector(".meridian-diff-files__no-match")).not.toBeNull();
+  });
+});
+
+describe("diff pane — the toolbar", () => {
+  it("offers the four renderer-local controls, with marks on by default", () => {
+    // §10.6's density rule: attribution marks are ON in the pane and OFF in the
+    // card, one toggle away in both.
+    const { getByRole } = render(
+      <DiffPane context={contextFor(WORKSPACE_ENTITY)} diff={buildDiffFixture(SMALL_DIFF_SHAPE)} />,
+    );
+    expect(getByRole("toolbar", { name: "Diff view controls" })).toBeDefined();
+    expect(getByRole("button", { name: "Attribution marks" }).getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+  });
+
+  it("switches the renderer between unified and split", () => {
+    const { container, getByRole } = render(
+      <DiffPane context={contextFor(WORKSPACE_ENTITY)} diff={buildDiffFixture(SMALL_DIFF_SHAPE)} />,
+    );
+    expect(container.querySelectorAll(".meridian-diff__side--base").length).toBe(0);
+    fireEvent.click(getByRole("button", { name: "Unified view" }));
+    expect(container.querySelectorAll(".meridian-diff__side--base").length).toBeGreaterThan(0);
+  });
+
+  it("negative control: a toggle actually moves the renderer, not just its own state", () => {
+    // Without this, a toolbar whose values nothing read would pass every
+    // `aria-pressed` assertion above while changing nothing on screen.
+    const { container, getByRole } = render(
+      <DiffPane context={contextFor(WORKSPACE_ENTITY)} diff={buildDiffFixture(SMALL_DIFF_SHAPE)} />,
+    );
+    expect(container.querySelector(".meridian-diff--wrap")).toBeNull();
+    fireEvent.click(getByRole("button", { name: "Wrap long lines" }));
+    expect(container.querySelector(".meridian-diff--wrap")).not.toBeNull();
   });
 });

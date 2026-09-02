@@ -1,0 +1,273 @@
+// One row of a diff, in either layout — and the two-hue rule applied to the one
+// surface in the console that is traditionally painted red and green.
+//
+// WHY NOT RED AND GREEN. `Spec-023 §Console Design (Meridian)` §2.3: "Amber means
+// a person is needed. Red means something failed. Nothing else in the console is
+// coloured for attention." A deleted line is not a failure and an inserted line is
+// not a success, so neither may spend a hue — and a diff that spent red on
+// deletions would make every large change set look like an incident, which is
+// exactly the legibility the rule exists to protect. Meridian's answer uses three
+// signals that are not hue and that survive both schemes and colour blindness:
+//
+//   • the SIGN, in the marker column, in mono at full text weight — the signal a
+//     patch file itself uses, and the only one that is unambiguous;
+//   • the GROUND weight — an insertion sits on a lighter tint of the surface, a
+//     deletion on a heavier one, both mixed from `--meridian-text` so the pair
+//     tracks the scheme rather than being two greys chosen by hand;
+//   • the RULE on the marker column — solid for an insertion, dashed for a
+//     deletion, which is the signal that survives a screenshot in greyscale.
+//
+// INTRALINE IS A SEGMENT LIST, NEVER A RE-COMPUTATION. The line arrives already
+// split (`diff-model.ts` says why the producer owns that), so this file renders
+// spans and computes nothing. A renderer that recomputed a word diff per row
+// would do it once per scroll tick, which is the cost virtualization exists to
+// avoid.
+//
+// THE ROW IS MEMOISED because a five-thousand-row change set re-renders its whole
+// window on every scroll tick otherwise, and the window is the only thing that
+// changed. The props are all primitives or stable references, so the default
+// shallow comparison is the correct one.
+
+import { memo } from "react";
+
+import { Glyph } from "../../primitives/index.js";
+import type { DiffLine, DiffLineKind, DiffViewMode } from "./diff-model.js";
+import type { DiffRow, DiffRowIndex } from "./hunk-virtualization.js";
+
+/** The marker each line kind carries, and the class its ground is painted by. */
+const LINE_KIND_MARKERS: Readonly<Record<DiffLineKind, string>> = {
+  context: " ",
+  insert: "+",
+  delete: "-",
+};
+
+/** How each line kind is announced, so the marker is not the only carrier. */
+const LINE_KIND_LABELS: Readonly<Record<DiffLineKind, string>> = {
+  context: "unchanged",
+  insert: "added",
+  delete: "removed",
+};
+
+/** Glyph edge length in a diff row's chrome, matching the primitives' own inline size. */
+const DIFF_ROW_GLYPH_SIZE = 12;
+
+/** Glyph edge length in the gutter, where the mark sits beside a line number. */
+const DIFF_GUTTER_GLYPH_SIZE = 10;
+
+export interface DiffRowViewProps {
+  readonly rowIndex: number;
+  readonly row: DiffRow;
+  readonly index: DiffRowIndex;
+  readonly viewMode: DiffViewMode;
+  readonly showAttributionMarks: boolean;
+  readonly showWhitespaceChanges: boolean;
+  /** Reveal one more band of this row's gap. Only a `gap` row calls it. */
+  readonly onExpandGap: (fileIndex: number, hunkIndex: number) => void;
+}
+
+export const DiffRowView: React.MemoExoticComponent<
+  (props: DiffRowViewProps) => React.JSX.Element
+> = memo(function DiffRowView(props: DiffRowViewProps): React.JSX.Element {
+  const { row, index, rowIndex } = props;
+  const rowProps = { role: "row", "aria-rowindex": rowIndex + 1 } as const;
+
+  if (row.kind === "file-header") {
+    const file = index.model.files[row.fileIndex];
+    return (
+      <div {...rowProps} className="meridian-diff__row meridian-diff__row--file">
+        <span className="meridian-diff__file-path" role="cell" title={file?.path}>
+          <Glyph name="diff" size={DIFF_ROW_GLYPH_SIZE} />
+          {file?.path ?? ""}
+        </span>
+      </div>
+    );
+  }
+
+  if (row.kind === "hunk-header") {
+    const hunk = index.model.files[row.fileIndex]?.hunks[row.hunkIndex];
+    return (
+      <div {...rowProps} className="meridian-diff__row meridian-diff__row--hunk">
+        {/* Wire-verbatim: an `@@` header is the daemon's own string and the
+            console neither re-parses nor re-renders its numbers. */}
+        <span className="meridian-diff__hunk-header" role="cell">
+          {hunk?.header ?? ""}
+        </span>
+      </div>
+    );
+  }
+
+  if (row.kind === "gap") {
+    return (
+      <div {...rowProps} className="meridian-diff__row meridian-diff__row--gap">
+        <span role="cell">
+          <button
+            type="button"
+            className="meridian-diff__gap-button"
+            onClick={() => {
+              props.onExpandGap(row.fileIndex, row.hunkIndex);
+            }}
+          >
+            <Glyph name="more" size={DIFF_ROW_GLYPH_SIZE} />
+            {`Expand ${String(row.hiddenLineCount)} hidden lines`}
+          </button>
+        </span>
+      </div>
+    );
+  }
+
+  const line = index.lineFor(row);
+  if (line === undefined) {
+    // Unreachable while the index and the model agree, and rendered rather than
+    // thrown: a row that cannot find its line is a defect in the flattening, and
+    // a blank row with a stable height keeps the rest of the diff readable while
+    // it is diagnosed.
+    return <div {...rowProps} className="meridian-diff__row meridian-diff__row--line" />;
+  }
+
+  return props.viewMode === "split" ? (
+    <div
+      {...rowProps}
+      className={`meridian-diff__row meridian-diff__row--line meridian-diff__row--${line.kind}`}
+    >
+      <DiffSplitCell
+        line={line}
+        side="base"
+        showAttributionMarks={props.showAttributionMarks}
+        showWhitespaceChanges={props.showWhitespaceChanges}
+      />
+      <DiffSplitCell
+        line={line}
+        side="head"
+        showAttributionMarks={props.showAttributionMarks}
+        showWhitespaceChanges={props.showWhitespaceChanges}
+      />
+    </div>
+  ) : (
+    <div
+      {...rowProps}
+      className={`meridian-diff__row meridian-diff__row--line meridian-diff__row--${line.kind}`}
+    >
+      {/* One cell, not three: `role="row"` admits only cells as children, and the
+          gutters are part of the line rather than columns a reader navigates. */}
+      <span className="meridian-diff__side meridian-diff__side--unified" role="cell">
+        <DiffGutter line={line} side="base" showAttributionMarks={props.showAttributionMarks} />
+        <DiffGutter line={line} side="head" showAttributionMarks={false} />
+        <DiffLineText line={line} showWhitespaceChanges={props.showWhitespaceChanges} />
+      </span>
+    </div>
+  );
+});
+
+/**
+ * One side of a split row.
+ *
+ * A deleted line has no head side and an inserted line has no base side, so the
+ * absent side renders an empty cell rather than the line's text. Rendering the
+ * text on both sides is the split-view bug that makes a rename read as a
+ * duplication.
+ */
+function DiffSplitCell(props: {
+  readonly line: DiffLine;
+  readonly side: "base" | "head";
+  readonly showAttributionMarks: boolean;
+  readonly showWhitespaceChanges: boolean;
+}): React.JSX.Element {
+  const occupied =
+    props.line.kind === "context" ||
+    (props.side === "base" && props.line.kind === "delete") ||
+    (props.side === "head" && props.line.kind === "insert");
+  return (
+    <span className={`meridian-diff__side meridian-diff__side--${props.side}`} role="cell">
+      <DiffGutter
+        line={props.line}
+        side={props.side}
+        showAttributionMarks={props.showAttributionMarks && occupied}
+      />
+      {occupied ? (
+        <DiffLineText line={props.line} showWhitespaceChanges={props.showWhitespaceChanges} />
+      ) : (
+        <span className="meridian-diff__text" />
+      )}
+    </span>
+  );
+}
+
+/**
+ * The line-number gutter, and the attribution mark when the trailers named
+ * somebody.
+ *
+ * The mark is a glyph with a hover card rather than a name in the gutter, because
+ * a name in the gutter costs the measure the diff's content needs, and §10.6 puts
+ * per-line attribution behind a toolbar toggle rather than in the default reading.
+ * It is `aria-hidden` only when it is decoration; when it is on, it carries the
+ * agent's name as its accessible name so the hover card is not the only way to it.
+ */
+function DiffGutter(props: {
+  readonly line: DiffLine;
+  readonly side: "base" | "head";
+  readonly showAttributionMarks: boolean;
+}): React.JSX.Element {
+  const lineNumber = props.side === "base" ? props.line.baseLineNumber : props.line.headLineNumber;
+  const attribution = props.line.agentAttribution;
+  const showMark = props.showAttributionMarks && attribution !== undefined;
+  return (
+    <span className="meridian-diff__gutter">
+      <span className="meridian-diff__line-number">
+        {lineNumber === undefined ? "" : String(lineNumber)}
+      </span>
+      {showMark && attribution !== undefined ? (
+        <span
+          className="meridian-diff__attribution-mark"
+          title={`${attribution.agentName} — ${attribution.agentRunId}`}
+        >
+          <Glyph
+            name="agent"
+            size={DIFF_GUTTER_GLYPH_SIZE}
+            title={`Attributed to ${attribution.agentName}`}
+          />
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+/**
+ * The marker, then the line's segments. One implementation for both layouts.
+ *
+ * With whitespace changes off, a changed segment whose text is entirely
+ * whitespace renders as carried-over: the segment is still drawn, so the line's
+ * characters are all present and the column positions are unmoved, and only the
+ * emphasis is withheld. Dropping the segment instead would silently shorten the
+ * line, which is a diff lying about its content to honour a view preference.
+ */
+function DiffLineText(props: {
+  readonly line: DiffLine;
+  readonly showWhitespaceChanges: boolean;
+}): React.JSX.Element {
+  return (
+    <span className="meridian-diff__text">
+      <span className="meridian-diff__marker" aria-hidden="true">
+        {LINE_KIND_MARKERS[props.line.kind]}
+      </span>
+      <span className="meridian-visually-hidden">{LINE_KIND_LABELS[props.line.kind]}</span>
+      <code className="meridian-diff__code">
+        {props.line.segments.map((segment, segmentIndex) => (
+          <span
+            // Segments have no identity of their own and never reorder — the list
+            // is rebuilt whole whenever the line changes — so the position IS the
+            // key, and inventing one would be a claim about stability nothing
+            // upstream makes.
+            key={segmentIndex}
+            className={
+              segment.changed && (props.showWhitespaceChanges || segment.text.trim() !== "")
+                ? "meridian-diff__segment meridian-diff__segment--changed"
+                : undefined
+            }
+          >
+            {segment.text}
+          </span>
+        ))}
+      </code>
+    </span>
+  );
+}
