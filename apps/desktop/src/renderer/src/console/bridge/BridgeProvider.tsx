@@ -39,7 +39,8 @@
 // the provider disposes only an engine it BUILT, never one a caller handed it.
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import type { ConsoleBridge } from "./console-bridge.js";
+import { type ConsoleClock } from "../core/index.js";
+import { consoleClockFor, type ConsoleBridge } from "./console-bridge.js";
 import { createFixtureBridge } from "./fixture-bridge.js";
 import { createLiveBridge, readInstalledBridge } from "./live-bridge.js";
 import { consoleScenario } from "./scenario-manifest.js";
@@ -246,6 +247,30 @@ export function useConsoleBridge(): ConsoleBridge {
     throw new Error(`console bridge unavailable: ${resolution.unavailable.detail}`);
   }
   return resolution.bridge;
+}
+
+/**
+ * The clock this window runs on, pinned for the calling component's life.
+ *
+ * `consoleClockFor` is the one answer to which clock a window reads, and a
+ * subsystem that BUILDS itself around a clock — a store, a registry — resolves it
+ * once inside its own `useState` initializer. A component that has to HAND a clock
+ * to something it renders has nowhere to put that pin, and the real arm of
+ * `consoleClockFor` mints a fresh `RealClock` per call: read straight from a render
+ * body, the value would have a new identity on every pass, and every consumer that
+ * treats a clock as a resource identity would tear itself down and rebuild once per
+ * render. So the resolution is `useState` for the same reason the bridge resolution
+ * itself is — a resource identity is state and is never recomputed.
+ *
+ * A window's clock cannot change under it: the fixture arm reads the running
+ * engine's frozen clock, which the provider replaces only by remounting the tree
+ * below it, and every `RealClock` reads the same wall clock. So pinning loses
+ * nothing.
+ */
+export function useConsoleClock(): ConsoleClock {
+  const bridge = useConsoleBridge();
+  const [clock] = useState<ConsoleClock>(() => consoleClockFor(bridge));
+  return clock;
 }
 
 /** The resolution including its failure arm, for the frame's own error surface. */

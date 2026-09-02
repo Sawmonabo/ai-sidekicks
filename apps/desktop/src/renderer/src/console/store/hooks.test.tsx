@@ -22,7 +22,8 @@ import {
   useSessionPartition,
   useSessionStore,
 } from "./hooks.js";
-import { SessionStoreRegistry, type SessionSnapshotReader } from "./session-store-registry.js";
+import { type SessionSnapshotReader } from "./open-session-entry.js";
+import { SessionStoreRegistry } from "./session-store-registry.js";
 import type { SessionStore } from "./session-store.js";
 
 const readsNothing: SessionSnapshotReader = () => Promise.resolve(undefined);
