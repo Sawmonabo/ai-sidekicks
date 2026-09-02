@@ -18,12 +18,26 @@
 //   2. `@media (prefers-color-scheme: dark)` guarded by
 //      `:root:not([data-console-scheme="light"])` redefines the varying tokens,
 //      so the system preference wins when the operator has expressed none.
-//   3. `:root[data-console-scheme="dark"]` redefines them again, so an explicit
-//      choice beats the system in both directions.
+//   3. `[data-console-scheme="light"]` and `[data-console-scheme="dark"]` — the
+//      explicit-choice layer, which beats the system in both directions. The
+//      attribute is stamped on the document element, so both selectors match
+//      `:root` and win on source order at equal specificity.
+//
+// `color-scheme` is part of that third layer rather than a single root
+// declaration, and that is the difference between theming the document and
+// theming the browser. Custom properties reach nothing the browser paints itself —
+// scrollbars, form controls, spinners, the canvas behind the document — so a root
+// that said `light dark` unconditionally would give an operator who chose light on
+// a dark OS a light document inside dark scrollbars, and the mirror mismatch for an
+// explicit dark choice on a light OS. `light dark` therefore stays on `:root`,
+// where it means "no one has chosen, follow the system", and each explicit arm
+// pins the single scheme it stands for.
 
 import { formatOklch } from "./color.js";
 import {
   ATTRIBUTION_EDGE_WIDTH_PX,
+  BODY_LINE_HEIGHT,
+  BOUNDED_ENUMERATION_MAX_HEIGHT_REM,
   FONT_STACKS,
   MOTION_DURATIONS_MS,
   MOTION_EASE_SETTLE,
@@ -81,6 +95,7 @@ function invariantBlock(): string {
     lines.push(declaration(tokenName, `${sizeRem}rem`));
   }
   lines.push(declaration("attribution-edge", `${ATTRIBUTION_EDGE_WIDTH_PX}px`));
+  lines.push(declaration("enumeration-max-height", `${BOUNDED_ENUMERATION_MAX_HEIGHT_REM}rem`));
 
   lines.push("");
   lines.push("  /* Motion — settles, never bounces. */");
@@ -135,9 +150,22 @@ export function generateMeridianCss(): string {
     "}",
   ].join("\n");
 
+  // The explicit-choice layer. It carries no palette for light — `:root` already
+  // holds those values and the media block excludes itself on this attribute — so
+  // the light arm exists for `color-scheme` alone. See the header for why that
+  // declaration rides each arm rather than the root.
+  const explicitLightBlock = [
+    "/* An explicit choice beats the system preference in both directions, for the",
+    "   browser's own controls as well as for the palette. */",
+    '[data-console-scheme="light"] {',
+    "  color-scheme: light;",
+    "}",
+  ].join("\n");
+
   const explicitDarkBlock = [
-    "/* An explicit choice beats the system preference in both directions. */",
     '[data-console-scheme="dark"] {',
+    "  color-scheme: dark;",
+    "",
     schemeColorBlock("dark", ""),
     "}",
   ].join("\n");
@@ -157,7 +185,7 @@ export function generateMeridianCss(): string {
     "  color: var(--meridian-text);",
     "  font-family: var(--meridian-font-sans);",
     "  font-size: var(--meridian-text-md);",
-    "  line-height: 1.5;",
+    `  line-height: ${BODY_LINE_HEIGHT};`,
     "  -webkit-font-smoothing: antialiased;",
     "}",
     "",
@@ -174,7 +202,17 @@ export function generateMeridianCss(): string {
     "}",
   ].join("\n");
 
-  return [header, rootBlock, "", systemDarkBlock, "", explicitDarkBlock, "", baseBlock, ""].join(
-    "\n",
-  );
+  return [
+    header,
+    rootBlock,
+    "",
+    systemDarkBlock,
+    "",
+    explicitLightBlock,
+    "",
+    explicitDarkBlock,
+    "",
+    baseBlock,
+    "",
+  ].join("\n");
 }

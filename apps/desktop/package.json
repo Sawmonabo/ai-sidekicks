@@ -13,7 +13,7 @@
     "build": "electron-vite build && node --experimental-strip-types build/assert-webprefs.ts",
     "build:smoke": "electron-vite build --mode=smoke && node --experimental-strip-types build/assert-webprefs.ts",
     "build:fixtures": "electron-vite build --mode=fixtures && node --experimental-strip-types build/assert-webprefs.ts",
-    "typecheck": "tsc -b && tsc -p tsconfig.test.json && tsc -p src/renderer/tsconfig.test.json && tsc -p tsconfig.console-browser-test.json && tsc -p tsconfig.console-electron-test.json && tsc -p tsconfig.build.json && tsc -p tsconfig.scripts.json",
+    "typecheck": "tsc -b && tsc -p tsconfig.test.json && tsc -p src/renderer/tsconfig.test.json && tsc -p tsconfig.console-architecture-test.json && tsc -p tsconfig.console-browser-test.json && tsc -p tsconfig.console-electron-test.json && tsc -p tsconfig.build.json && tsc -p tsconfig.scripts.json",
     "lint": "eslint build scripts src test",
     "test:renderer": "vitest run --project=renderer",
     "test:coverage": "vitest run --project=renderer --coverage",
@@ -34,7 +34,7 @@
     "structure:dead-code": "knip --directory ../.. --config apps/desktop/knip.json --workspace apps/desktop --treat-config-hints-as-errors --treat-tag-hints-as-errors",
     "structure:layering": "depcruise src build scripts --config .dependency-cruiser.mjs --output-type err",
     "structure": "pnpm run structure:dead-code && pnpm run structure:layering",
-    "test": "turbo run test:renderer test:main-unit test:smoke test:console-unit test:console-architecture test:console-assets --filter=@ai-sidekicks/desktop"
+    "test": "turbo run test:renderer test:main-unit test:console-unit test:console-architecture test:console-assets --filter=@ai-sidekicks/desktop && turbo run test:console-browser test:console-accessibility --filter=@ai-sidekicks/desktop --concurrency=1 && turbo run test:console-bundle --filter=@ai-sidekicks/desktop --concurrency=1 && turbo run test:smoke --filter=@ai-sidekicks/desktop --concurrency=1 && turbo run test:console-e2e test:console-endurance --filter=@ai-sidekicks/desktop --concurrency=1"
   },
   "dependencies": {
     "@ai-sidekicks/contracts": "workspace:*",

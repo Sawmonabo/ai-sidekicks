@@ -54,11 +54,15 @@ export const GLYPH_DEFAULT_SIZE = 16;
  * then control verbs and navigation. `GLYPH_NAMES` preserves that order.
  */
 export const GLYPH_PATHS = {
-  // --- Rail destinations (`Spec-023 §Console Design (Meridian)` §The surface set).
+  // --- The top-level destinations (`Spec-023 §Console Design (Meridian)` §The
+  // surface set) and the session workspace reached from the first of them.
   // Stacked layers: a session is a stack of work, and the rail's first
   // destination is the stack of them.
   sessions: "M8 2 13.5 5 8 8 2.5 5ZM2.5 8 8 11l5.5-3M2.5 11 8 14l5.5-3",
-  // A folder: the workspace destination is a checkout on disk, not an abstraction.
+  // A folder: the session workspace is a checkout on disk, not an abstraction.
+  // Not a rail destination — the rail's middle one is `workflows`, which draws the
+  // `workflow` glyph below — but the kind glyph the workspace surface and its
+  // breadcrumb carry.
   workspace:
     "M2.5 12.5V4a.5.5 0 0 1 .5-.5h3.25l1.5 2h5.75a.5.5 0 0 1 .5.5v6.5a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5Z",
   // Sliders rather than a gear: settings here are values a person moves, and the

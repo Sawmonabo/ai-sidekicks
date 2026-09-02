@@ -32,6 +32,39 @@ export const REFRESH_MAX_WAIT_MS = 1000;
 export const APPLY_COALESCE_MS = 16;
 
 /**
+ * Wire events one session store holds while it waits for its first read.
+ *
+ * A store buffers rather than applies until a read response gives it a base
+ * state, and that wait is ordinarily the milliseconds between opening a
+ * subscription and the read landing — a handful of events. Past this bound the
+ * wait is not a race any more, it is a read that is not coming, and the honest
+ * response is to stop growing: the oldest is dropped and the loss is recorded
+ * (and re-derived exactly, as a sequence gap, the moment a base state does
+ * arrive) rather than the buffer holding an entire session's stream forever.
+ */
+export const PRE_INITIALISATION_BUFFER_CAP = 512;
+
+/**
+ * Sequences a session store will carry as a repairable hole before it calls the
+ * stream diverged.
+ *
+ * A hole is recorded as a RANGE rather than one entry per sequence, so a wide one
+ * costs exactly what a narrow one does; this bound is about REPAIRABILITY, not
+ * about the size of the record. Ordinary loss is small — a delivery dropped on a
+ * resumed subscription, or the oldest rows a full `PRE_INITIALISATION_BUFFER_CAP`
+ * shed — and a re-pull fills it against the cursor the store already reached,
+ * which is why the bound sits above that buffer's whole worth of loss. Past it
+ * the arithmetic stops being a hole and starts being a different stream:
+ * admitting the event would move the cursor to a position an authoritative read
+ * may never answer at, and every later repair would then be refused as a rewind.
+ * So past this bound the event is refused, the store says the stream diverged,
+ * and a snapshot read — not a fill — is the repair. It bounds the ACCUMULATED
+ * loss rather than one jump, which is what keeps the range list bounded too: a
+ * range is at least one sequence wide, so there can never be more of them.
+ */
+export const MAX_REPAIRABLE_SEQUENCE_GAP = 1024;
+
+/**
  * Sessions whose UI state the persistence layer keeps. Past this the least
  * recently touched partition is trimmed, so a long-lived install does not grow
  * an unbounded IndexedDB.
@@ -39,12 +72,18 @@ export const APPLY_COALESCE_MS = 16;
 export const PERSISTENCE_SESSION_PARTITION_CAP = 40;
 
 /**
- * Bytes one persisted UI-state value may occupy once serialised. A layout
- * snapshot or an expansion set is kilobytes; anything past this is content that
- * does not belong in the store, so the cap is a second line of defence behind the
- * value-class enumeration rather than a performance knob.
+ * Bytes one persisted UI-state RECORD may occupy: its partition, its key, its
+ * class, and its serialised value together. A layout snapshot or an expansion set
+ * is kilobytes; anything past this is content that does not belong in the store,
+ * so the cap is a second line of defence behind the value-class enumeration
+ * rather than a performance knob.
+ *
+ * The address is inside the cap rather than beside it because the address is
+ * stored too — a ceiling over the value alone would leave the key unbounded by
+ * anything but the identifier grammar, and the key is the part an index holds a
+ * second copy of.
  */
-export const PERSISTENCE_VALUE_BYTE_CAP: number = 64 * 1024;
+export const PERSISTENCE_RECORD_BYTE_CAP: number = 64 * 1024;
 
 /**
  * Fraction of the storage quota at which the gauge reports pressure. Reported,
@@ -90,6 +129,48 @@ export const TRIPWIRE_REPORT_CAP = 64;
  * frame — which is what makes the screenshot target byte-stable.
  */
 export const SCENARIO_TICK_MS = 50;
+
+/**
+ * Scripted replies the fixture engine holds waiting for the frozen clock.
+ *
+ * A held reply is one in-flight request on one surface, so a handful is the
+ * whole working set — and the clock only moves when a caller moves it, which
+ * means a driver that never advances would otherwise grow this list for the life
+ * of the window. Past the cap the fixture refuses the call rather than parking
+ * it, because a scenario asking for more concurrent latency than this is being
+ * driven by something that will never release any of it.
+ */
+export const SCENARIO_PENDING_REPLY_CAP = 64;
+
+/**
+ * Announcements the live announcer holds in ONE politeness lane while an earlier
+ * one is still standing in its region.
+ *
+ * A screen reader speaks one message at a time, so announcements are serialised
+ * rather than overwritten — an overwrite inside the hold window below is a message
+ * nobody heard. Past this bound the burst is one condition repeating rather than
+ * this many separate things a person needs told, so the OLDEST is dropped: the
+ * newest fact is the one still true, and a queue that shed the newest would spend
+ * its whole drain reading history. The bound is per lane rather than shared,
+ * because the two lanes are two independent speech channels and a burst of polite
+ * announcements must not be able to shed a refusal.
+ */
+export const LIVE_ANNOUNCEMENT_QUEUE_CAP = 8;
+
+/**
+ * How long one announcement stays in its region before the announcer clears it
+ * and publishes whatever is queued behind it.
+ *
+ * Two things fix this window, and they pull in opposite directions. It has to be
+ * long enough that assistive technology observes the text before it is replaced —
+ * a region mutated and reverted within a frame or two announces nothing at all.
+ * And the region has to be CLEARED rather than left standing, because two
+ * identical messages in a row are one unchanged string and the second announces
+ * nothing; clearing is also what stops a region from re-reading, on a remount, a
+ * message the person already heard. So a full lane drains in
+ * `LIVE_ANNOUNCEMENT_QUEUE_CAP` × this — seconds, not minutes.
+ */
+export const LIVE_ANNOUNCEMENT_HOLD_MS = 500;
 
 /**
  * Panes one saved deck layout may restore.

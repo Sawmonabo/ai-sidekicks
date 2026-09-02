@@ -33,6 +33,20 @@
 //     would silently miss a session opened between construction and attachment,
 //     and the symptom — one session that never updates — looks like a wire fault
 //     rather than a wiring one.
+//   • **No stream into a store that cannot be initialised.** A store buffers
+//     rather than applies until a read gives it a base state, so binding a stream
+//     to a registry whose `read` is a refusal rather than a reader feeds a buffer
+//     nothing will ever drain — a long-running session retains its whole event
+//     stream and projects none of it. `attach` reads
+//     `SessionStoreRegistry.canInitialiseSessionStores` and takes no subscription
+//     at all when the answer is no. Structural rather than a check the composition
+//     root makes: every caller gets it, and it cannot be forgotten by the next one.
+//   • **No subscription without the read that makes it mean something.** The
+//     converse of the rule above, and it was the half that was missing: binding a
+//     stream and never asking for a base state leaves the store buffering exactly
+//     as if no read existed. `#bindSession` requests the read in the same act as
+//     taking the subscription, so the two cannot be separated by a caller who
+//     remembers one of them.
 //
 // WHAT THE WIRE ACTUALLY OFFERS, AND WHAT THIS DOES ABOUT IT
 //
@@ -46,22 +60,12 @@
 // gains an argument and nothing else about the lifecycle moves.
 
 import type { Unsubscribe } from "../core/index.js";
-import { reportTripwire } from "../core/index.js";
-import type { ConsoleBridge } from "../bridge/index.js";
+import { SESSION_DIAGNOSTICS_FIXTURE_GLOBAL, reportTripwire } from "../core/index.js";
+import { SESSION_EVENT_STREAM, type ConsoleBridge } from "../bridge/index.js";
 import type { ConsoleSessionEvent, SessionStoreRegistry } from "../store/index.js";
 
 /** The site every tripwire this module reports names. */
 const SITE = "console/frame/session-event-binder.ts";
-
-/**
- * The registered daemon stream a console session is projected from.
- *
- * `session.subscribe` is the replay-then-tail event stream the method registry
- * already carries, named here verbatim rather than invented: a console that
- * subscribed to a string the daemon does not serve would get silence that is
- * indistinguishable from a quiet session.
- */
-const SESSION_EVENT_STREAM = "session.subscribe";
 
 /**
  * The subscribe call, with the one brand bypass this module makes.
@@ -90,12 +94,14 @@ export interface ConsoleSessionDiagnostics {
   /**
    * Events this window has put through one session's apply chokepoint.
    *
-   * Deliberately NOT the store's timeline length. The console has no session-read
-   * wire yet, so no store is ever initialised and every event is buffered rather
-   * than admitted — a timeline reading would be zero for every session forever,
-   * and a diagnostic that reports the same number whether or not this binder
-   * exists is worse than no diagnostic at all. This counts admissions to the
-   * chokepoint: deliveries the registry accepted for a session's apply queue.
+   * Deliberately NOT the store's timeline length: a store admits nothing until a
+   * read gives it a base state, so a timeline reading is zero for every session
+   * whose read has not landed, and a diagnostic that reports the same number
+   * whether or not this binder exists is worse than no diagnostic at all. This
+   * counts admissions to the chokepoint: deliveries the registry accepted for a
+   * session's apply queue. It is zero — correctly, and beside `boundSessionIds()`
+   * reading empty — on a window whose registry can initialise no store, because
+   * that window takes no wire subscription in the first place.
    *
    * Retained after a session closes, so the count FREEZES rather than vanishing.
    * A reading that disappeared on close could not be told apart from a session
@@ -106,15 +112,16 @@ export interface ConsoleSessionDiagnostics {
   boundSessionIds: () => readonly string[];
 }
 
-/**
+/*
  * The property a fixture build hangs the session diagnostics on.
  *
- * A constant rather than a literal written at both ends, for the same reason the
- * tripwire registry's is: the tier that reads it imports this name, so a rename is
- * a compile error there instead of a check that silently starts reading `undefined`
- * and reports nothing forever.
+ * Declared in `core/fixture-globals.ts` and re-exported here, so this installer
+ * and the release-absence sweep that proves the handle absent read one string.
+ * Re-exported rather than only imported because the tier that reads it reaches
+ * this module by name, so a rename is a compile error there instead of a check
+ * that silently starts reading `undefined` and reports nothing forever.
  */
-export const SESSION_DIAGNOSTICS_FIXTURE_GLOBAL = "__sidekicksConsoleSessions__";
+export { SESSION_DIAGNOSTICS_FIXTURE_GLOBAL };
 
 export interface SessionEventBinderOptions {
   readonly registry: SessionStoreRegistry;
@@ -130,6 +137,7 @@ export class SessionEventBinder {
   #installedDiagnostics: ConsoleSessionDiagnostics | undefined;
   #unreadableDeliveryCount = 0;
   #droppedAfterCloseCount = 0;
+  #attached = false;
   #disposed = false;
 
   public constructor(options: SessionEventBinderOptions) {
@@ -146,22 +154,31 @@ export class SessionEventBinder {
    * unobserved; taking the subscription first can at worst bind a session twice,
    * and `#bindSession` is idempotent by session id.
    *
+   * A registry that can initialise no store gets NEITHER subscription — not the
+   * registry's change feed and not the wire's — because every delivery would land
+   * in a pre-initialisation buffer nothing can ever drain. The diagnostics handle
+   * is still installed on that arm: "bound: none, applied: zero" is a reading, and
+   * an absent handle is indistinguishable from a build with no binder at all.
+   *
    * Idempotent, and a no-op once disposed: a disposed binder holds no
    * subscription and must not be able to start one from a late effect.
    */
   public attach(): void {
-    if (this.#disposed || this.#unsubscribeFromRegistry !== undefined) {
+    if (this.#disposed || this.#attached) {
       return;
     }
-    this.#unsubscribeFromRegistry = this.#registry.subscribe((change) => {
-      if (change.change === "opened") {
-        this.#bindSession(change.sessionId);
-        return;
+    this.#attached = true;
+    if (this.#registry.canInitialiseSessionStores) {
+      this.#unsubscribeFromRegistry = this.#registry.subscribe((change) => {
+        if (change.change === "opened") {
+          this.#bindSession(change.sessionId);
+          return;
+        }
+        this.#unbindSession(change.sessionId);
+      });
+      for (const sessionId of this.#registry.openSessionIds) {
+        this.#bindSession(sessionId);
       }
-      this.#unbindSession(change.sessionId);
-    });
-    for (const sessionId of this.#registry.openSessionIds) {
-      this.#bindSession(sessionId);
     }
     this.#installFixtureDiagnostics();
   }
@@ -238,6 +255,15 @@ export class SessionEventBinder {
         this.#deliver(sessionId, payload);
       }),
     );
+    // The read that gives the store its base state, asked for at the one moment
+    // that knows a stream just started. `subscribe` is a registered refresh reason
+    // and means precisely this. Without it a bound session buffers forever —
+    // nothing else in the console calls `requestRefresh` on an open, so the store
+    // layer stayed dormant even where a read WAS available. The refusal arm is
+    // unreachable here (this runs on the registry's own `opened` change, so the
+    // session is open) and is dropped rather than checked: a re-check would be a
+    // second answer to a question the caller already answered.
+    this.#registry.requestRefresh(sessionId, "subscribe");
   }
 
   #unbindSession(sessionId: string): void {

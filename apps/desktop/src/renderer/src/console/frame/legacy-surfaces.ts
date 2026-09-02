@@ -45,6 +45,7 @@ import { routeSessionId, type ConsoleRoute } from "../routing/index.js";
 import { SurfaceAbsence } from "./RouteSurface.js";
 import { NodeRoster } from "../../runtime-node-attach/index.js";
 import { SessionBootstrap } from "../../session-bootstrap/index.js";
+import { SessionsSurface } from "./SessionsSurface.js";
 import {
   type ConsoleSurfaceContext,
   type ConsoleSurfaceDescriptor,
@@ -61,6 +62,13 @@ import {
  * resolves a bare auxiliary route through its context picker before any surface
  * renders, so the mount needs no invented empty state.
  *
+ * The `sessions` row is the one that does not mount its component OUTRIGHT. The
+ * session probe creates a session from its mount effect, and a route lifecycle
+ * remounts a slot on every visit, so mounting it here would make navigating back
+ * to the sessions list create a session. `SessionsSurface` holds the slot and
+ * builds the probe on the participant's own act; the guard below still decides
+ * WHAT that act builds, so the bridge-source rule stays written once.
+ *
  * The components each family exports beyond these take inputs no route carries — an
  * invite token, an attach draft — so a route cannot supply them and a slot for them
  * would be a slot nothing could ever fill.
@@ -69,7 +77,16 @@ const LEGACY_SURFACES: readonly ConsoleSurfaceDescriptor[] = [
   {
     slot: "sessions",
     owner: "session-bootstrap",
-    render: (context) => mountLegacySurface(context, () => createElement(SessionBootstrap)),
+    render: (context) =>
+      createElement(SessionsSurface, {
+        frameStore: context.frameStore,
+        sessionStoreRegistry: context.sessionStoreRegistry,
+        // The port comes off the surface context's bridge rather than out of React
+        // context, so the surface stays a function of what it is handed and its
+        // tests need no provider to render it.
+        growth: context.bridge.growth,
+        startSession: () => mountLegacySurface(context, () => createElement(SessionBootstrap)),
+      }),
   },
   {
     slot: "agent-console",
