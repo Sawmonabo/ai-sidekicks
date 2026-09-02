@@ -106,6 +106,21 @@ describe("the workflows destination — the session it reads from", () => {
     expect(definitionNames(container)).toContain("Release checks");
   });
 
+  it("puts the session's runs under its definitions, both read with the same scope", async () => {
+    // Two reads under one scope, and the runs half is the one that had no caller at
+    // all: the list and its projection were reachable only from their own tests, so
+    // the attention-ordered view the family had built could not be reached by a
+    // person. One scope feeds both, which is why they are asserted together.
+    const { container } = renderDestination(
+      fixtureGrowthPort(),
+      frameStoreRetaining(WORKFLOWS_SESSION_ID),
+    );
+    await settle();
+
+    expect(container.querySelector(".meridian-workflows-runs")).not.toBeNull();
+    expect(container.querySelectorAll(".meridian-run-row")).toHaveLength(4);
+  });
+
   it("negative control: a window that has opened nothing renders no browser at all", async () => {
     // Without this, the case above would pass over a destination that mounted the
     // browser unconditionally and let it render its own three empty groups — which is
@@ -116,6 +131,9 @@ describe("the workflows destination — the session it reads from", () => {
     expect(scopeLine(container)).toBeNull();
     expect(definitionNames(container)).toStrictEqual([]);
     expect(container.querySelector(".meridian-workflow__scopes")).toBeNull();
+    // The runs go with it. An unscoped destination has no session to enumerate for,
+    // and a runs section standing there would draw the same absence twice.
+    expect(container.querySelector(".meridian-workflows-runs")).toBeNull();
   });
 
   it("asks which session, offering the ones the node's directory answered with", async () => {

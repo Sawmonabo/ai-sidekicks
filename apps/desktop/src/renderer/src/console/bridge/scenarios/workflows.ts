@@ -24,20 +24,21 @@
 //
 // HOW THE WORKFLOW STATE REACHES A SURFACE
 //
-// Two seams, because the wire has two different amounts of answer:
+// Every read is a scripted reply. A served growth operation answers through
+// `answerFromScriptedReply(engine, "<call>", …)`, which is the one seam
+// `bridge/scripted-reply.ts` owns, so a workflow read gets the script, the frozen
+// clock's loading window, and the two non-arrival refusals a real read has. The
+// engine matches a reply on the call name alone, so there is one reply per call and a
+// second for the same call is a wire-truth defect precisely because it could never be
+// served — which is why `workflow.runRead` answers with the parked run, the one run a
+// run pane opens, while `workflow.runList` answers with all four.
 //
-//   • The three READS are scripted replies. A served growth operation answers through
-//     `answerFromScriptedReply(engine, "<call>", …)`, which is the one seam
-//     `bridge/scripted-reply.ts` owns, so a workflow read gets the script, the frozen
-//     clock's loading window, and the two non-arrival refusals a real read has.
-//     `workflow.runRead` addresses ONE run by an id the caller already holds, so it
-//     answers with the parked run — the run a run pane opens. One reply, one run: the
-//     engine matches a reply on the call name alone, and a second reply for the same
-//     call is a wire-truth defect precisely because it could never be served.
-//   • The run LIST has no wire at all. The registered workflow registry carries
-//     thirteen methods and none of them enumerates runs, so the set is stated as
-//     fixture data and reaches the list from its caller — which is exactly how
-//     `workflows/RunList.tsx` says its snapshots arrive.
+// The two differ in what the corpus registers, and that difference is on the slate
+// rather than in this file: the run READ is one of the thirteen registered workflow
+// methods and rides `workflow-run-control`, while the run ENUMERATION is registered
+// nowhere — every registered run operation addresses one run by an id the caller must
+// already hold — and rides `workflow-run-enumeration`. Both are fixture-only, and the
+// port refuses both under a live bridge.
 //
 // NO MUTATION IS SCRIPTED. Cancel, resume, gate resolve, and human-form submit each
 // change state the fixture would then have to hold, and a scripted reply is a fixed
@@ -76,6 +77,7 @@ import {
   WORKFLOWS_SCENARIO_AGENTS,
   WORKFLOWS_SCENARIO_DEFINITIONS,
   WORKFLOWS_SCENARIO_PHASE_OUTPUTS,
+  WORKFLOWS_SCENARIO_RUNS,
   WORKFLOWS_SESSION_ID,
 } from "./workflow-fixture-data.js";
 import type { ConsoleScenario } from "../scenario.js";
@@ -243,6 +245,15 @@ export const WORKFLOWS_SCENARIO: ConsoleScenario = {
       // serve, and claiming otherwise would drive the browser into a fetch that
       // answers with this same page forever.
       result: { definitions: WORKFLOWS_SCENARIO_DEFINITIONS },
+    },
+    {
+      // All four runs, in the table's own order. The list's ordering is the
+      // projection's — parked first, then active, then settled, newest first inside
+      // each — so a reply that pre-sorted them would be scripting a fold the console
+      // performs, and a projection bug would be invisible behind fixture data that
+      // had already done the work.
+      call: "workflow.runList",
+      result: { runs: WORKFLOWS_SCENARIO_RUNS },
     },
     {
       call: "workflow.runRead",

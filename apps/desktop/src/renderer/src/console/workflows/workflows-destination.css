@@ -16,12 +16,37 @@
  * space scale, and nothing animates (rule 5).
  */
 
+/*
+ * ONE scrolling column over the whole destination rather than a chrome that scrolls
+ * inside itself. The runs stand BELOW the definitions, and a browser that kept its
+ * own scroll would hold them permanently off-screen — so the scroll is taken up to
+ * this element and the chrome is released from it just below.
+ *
+ * The scroll lives HERE and not on an inner wrapper, which is an accessibility fact
+ * rather than a tidiness one: a scrollable region a keyboard cannot reach is an axe
+ * violation (`scrollable-region-focusable`), and the region only passes because the
+ * scope line inside it carries the re-scope control. An inner wrapper holding just
+ * the two reads would have excluded that control and made the column unreachable by
+ * keyboard — which is why the element that scrolls is the one that contains it.
+ */
 .meridian-workflows-destination {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-3);
   block-size: 100%;
   min-block-size: 0;
+  overflow-y: auto;
+}
+
+/*
+ * The chrome sizes itself to 100% of its parent and scrolls internally, which is
+ * right when it IS the surface and wrong when something stands under it. Scoped to
+ * this composition rather than changed in the family sheet: the chrome mounted alone
+ * still owns its own scroll, and that is every other caller of it.
+ */
+.meridian-workflows-destination > .meridian-workflow {
+  block-size: auto;
+  overflow-y: visible;
 }
 
 /*
@@ -58,6 +83,30 @@
 .meridian-workflows-destination__rescope:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------- the runs */
+
+/*
+ * The runs read as a second region under the definitions, with the same gutter the
+ * chrome sets so the two columns line up rather than stepping in and out by a few
+ * pixels at their shared edge.
+ */
+.meridian-workflows-runs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  padding-inline: var(--meridian-space-5);
+  padding-block-end: var(--meridian-space-5);
+}
+
+.meridian-workflows-runs__heading {
+  margin: 0;
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-md);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--meridian-text);
 }
 
 /* ------------------------------------------------------------ scope picker */

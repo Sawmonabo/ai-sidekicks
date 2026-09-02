@@ -90,16 +90,23 @@ describe("the workflows scenario — wire truth", () => {
 });
 
 describe("the workflows scenario — what a caller is answered with", () => {
-  it("answers the three workflow reads through the scripted-reply seam", async () => {
+  it("answers the four workflow reads through the scripted-reply seam", async () => {
     const engine = new ScenarioEngine({ scenario: WORKFLOWS_SCENARIO });
 
     const definitionList = await settleScriptedReply(engine, "workflow.definitionList");
+    const runList = await settleScriptedReply(engine, "workflow.runList");
     const runRead = await settleScriptedReply(engine, "workflow.runRead");
     const phaseOutputRead = await settleScriptedReply(engine, "workflow.phaseOutputRead");
 
     expect(definitionList).toStrictEqual({
       status: "resolved",
       value: { definitions: WORKFLOWS_SCENARIO_DEFINITIONS },
+    });
+    // Every run in the table, unsorted: the attention ordering is the console's fold
+    // and a reply that pre-sorted them would hide a fold that had stopped working.
+    expect(runList).toStrictEqual({
+      status: "resolved",
+      value: { runs: WORKFLOWS_SCENARIO_RUNS },
     });
     expect(runRead).toStrictEqual({ status: "resolved", value: WORKFLOWS_PARKED_RUN });
     expect(phaseOutputRead).toStrictEqual({
@@ -141,6 +148,24 @@ describe("the workflows scenario — what a caller is answered with", () => {
 
     expect(runRead.status).toBe("resolved");
     expect(WORKFLOWS_SCENARIO_RUNS).toContain(WORKFLOWS_PARKED_RUN);
+    engine.dispose();
+  });
+
+  it("answers the enumeration with the run the pane reads, not a copy of it", async () => {
+    // The same identity claim one seam further out: the pane's run and the list's run
+    // stay one object across BOTH scripted replies, so a later edit that rebuilt either
+    // table would separate two surfaces that are meant to agree by construction.
+    const engine = new ScenarioEngine({ scenario: WORKFLOWS_SCENARIO });
+
+    const runList = await settleScriptedReply(engine, "workflow.runList");
+
+    if (runList.status !== "resolved") {
+      throw new Error(`the enumeration settled ${runList.status}`);
+    }
+    const enumerated = (runList.value as { runs: readonly unknown[] }).runs;
+
+    expect(enumerated).toContain(WORKFLOWS_PARKED_RUN);
+    expect(enumerated).toHaveLength(4);
     engine.dispose();
   });
 });

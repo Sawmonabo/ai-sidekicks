@@ -35,7 +35,13 @@
 // otherwise learn, because the browser under it renders the same chrome whichever
 // session it is reading. It is announced when the scope first settles and when it
 // settles on a DIFFERENT session, and on no re-render: a repeat would talk over the
-// surface it just described.
+// surface it just described. Each read under it announces its OWN settlement, which
+// is a different fact from the scope and is that section's to say.
+//
+// WHAT THE SCOPE BUYS, ONCE IT HAS SETTLED. Two reads, not one: the definitions
+// visible from this session, and the runs it holds. They are separate sections
+// because they are separate questions with separate absences — a session can have
+// definitions and no runs — and one of them refusing must not silence the other.
 
 import { useEffect, useRef, useState } from "react";
 
@@ -44,6 +50,7 @@ import "./workflows-destination.css";
 import type { GrowthPort } from "../bridge/index.js";
 import { WireFigure, useAnnounce } from "../primitives/index.js";
 import { useFrameStore, type FrameStore, type SessionStoreRegistry } from "../store/index.js";
+import { WorkflowRuns } from "./WorkflowRuns.js";
 import { WorkflowsBrowser } from "./WorkflowsBrowser.js";
 import { WorkflowsScopePicker } from "./WorkflowsScopePicker.js";
 
@@ -105,6 +112,7 @@ export function WorkflowsDestination(props: WorkflowsDestinationProps): React.JS
         </button>
       </p>
       <WorkflowsBrowser growth={props.growth} sessionId={sessionId} />
+      <WorkflowRuns growth={props.growth} sessionId={sessionId} />
     </div>
   );
 }

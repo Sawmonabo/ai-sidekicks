@@ -115,6 +115,10 @@ export type GrowthOperationId =
   | "workflowGateResolve"
   | "workflowHumanFormSubmit"
   | "workflowGateChainVerify"
+  // The run enumeration, which is NOT one of the thirteen above and folds to no wire
+  // method: it serves its own slate row, because every registered run operation
+  // addresses one run by an id the caller already holds.
+  | "workflowRunList"
   // gitflow
   | "gitflowBranchContextRead"
   | "gitflowPrPrepare"

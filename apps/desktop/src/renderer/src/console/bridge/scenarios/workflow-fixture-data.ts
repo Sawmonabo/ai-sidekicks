@@ -265,7 +265,8 @@ export const WORKFLOWS_PARKED_RUN: WorkflowRunSnapshot = {
 };
 
 /**
- * The four runs, as `workflow.runRead` projects one of them and a run list holds all.
+ * The four runs, as `workflow.runRead` projects one of them and the scenario's
+ * scripted enumeration holds all four.
  *
  * THE PARK MEMBERS ARE LIVE-SCOPED, and this table is written to that rule rather than
  * around it. A daemon emits `parkReason`, `parkCause`, `autoResumeAt`, and

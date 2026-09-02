@@ -76,27 +76,29 @@
 //   • `mention` — the event census registers no mention type at all, so there is
 //     nothing canonical to fold.
 //
-// WHY THE THREE WORKFLOW READS ARE SERVED, AND WHY TWO OF THEM STILL REFUSE
+// WHY THE FOUR WORKFLOW READS ARE SERVED, AND WHY TWO OF THEM STILL REFUSE
 //
-// The workflows scenario scripts `workflow.definitionList`, `workflow.runRead`, and
-// `workflow.phaseOutputRead` — the three reads the run list, the run pane, and the
-// definition browser are built on — and this port routed none of them. So the panes
-// rendered the "not checked" refusal in every fixture build and the family's
-// screenshots pinned an absence rather than the story the scenario tells. Routing
-// them is what makes a script that already exists reachable.
+// The workflows scenario scripts `workflow.definitionList`, `workflow.runList`,
+// `workflow.runRead`, and `workflow.phaseOutputRead` — the reads the destination, the
+// run list, the run pane, and the definition browser are built on — and this port
+// routed none of them. So the panes rendered the "not checked" refusal in every
+// fixture build and the family's screenshots pinned an absence rather than the story
+// the scenario tells. Routing them is what makes a script that already exists
+// reachable.
 //
-// All three cross the same scripted-reply seam the branch-context read does, so a
+// All four cross the same scripted-reply seam the branch-context read does, so a
 // workflow read gets the frozen clock's loading window and the two non-arrival
 // refusals a real read has. Where they part is the UNSCRIPTED arm, and the split is
 // a property of the value rather than a preference:
 //
-//   • The definition enumeration answers with an empty list. A context that resolves
-//     no definitions is the EMPTY kind of nothing (`Spec-023 §Console Design
-//     (Meridian)` §The five kinds of nothing) — a stated fact the browser draws —
-//     and an empty enumeration is a real daemon answer to the question asked. No
-//     `nextCursor` travels with it, on the scripted reply's own reasoning: the engine
-//     matches a reply by call name, so a cursor would promise a second page that
-//     every later fetch would answer with this same one forever.
+//   • The two ENUMERATIONS answer with an empty list. A context that resolves no
+//     definitions, and a session holding no runs, are both the EMPTY kind of nothing
+//     (`Spec-023 §Console Design (Meridian)` §The five kinds of nothing) — a stated
+//     fact a surface draws — and an empty enumeration is a real daemon answer to the
+//     question asked. No `nextCursor` travels with the definitions, on the scripted
+//     reply's own reasoning: the engine matches a reply by call name, so a cursor
+//     would promise a second page that every later fetch would answer with this same
+//     one forever.
 //   • The run read and the phase-output read refuse. Neither value has an empty form
 //     — every member of `WorkflowRunSnapshot` is required, and a phase-output read
 //     reports a phase that reached a terminal state — so the only way to answer would
@@ -206,6 +208,7 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS = [
   "workflowDefinitionList",
   "workflowRunRead",
   "workflowPhaseOutputRead",
+  "workflowRunList",
   // gitflow
   "gitflowBranchContextRead",
   // identity
@@ -280,6 +283,16 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
       answerFromScriptedReply(engine, "workflow.phaseOutputRead", "workflowPhaseOutputRead", () =>
         growthUnavailable("workflowPhaseOutputRead"),
       ),
+    workflowRunList: async () =>
+      // Served empty for a scenario that scripts nothing, with the definition
+      // enumeration above rather than with the two snapshot reads below it: an
+      // enumeration HAS an empty form and it is a real answer — this session holds no
+      // runs — so the surface draws the EMPTY kind of nothing rather than the
+      // "not checked" kind.
+      answerFromScriptedReply(engine, "workflow.runList", "workflowRunList", () => ({
+        status: "served",
+        value: { runs: [] },
+      })),
     // gitflow
     gitflowBranchContextRead: async () =>
       // Routed through the scripted-reply seam so a repos scenario that DOES script

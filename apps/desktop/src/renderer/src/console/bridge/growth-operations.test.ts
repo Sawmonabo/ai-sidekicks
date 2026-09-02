@@ -101,6 +101,30 @@ describe("the growth ledger's workflow block — one registered method per opera
   });
 });
 
+describe("the growth ledger's run-enumeration row — the boundary of that registry", () => {
+  it("carries one operation, and it names no wire method", () => {
+    // The block above names a method for all nine of its operations because all
+    // nine are registered. This row is where that registry stops rather than an
+    // omission from it: every registered run operation addresses ONE run by an id
+    // the caller must already hold, so a surface that lists runs has nothing to
+    // call, and a `workflow.runList` literal here would be a string this console
+    // invented — the position the two identity-and-registry rows below are in.
+    const operationIds = operationsServingRow("workflow-run-enumeration");
+
+    expect(operationIds).toStrictEqual(["workflowRunList"]);
+    expect(GROWTH_OPERATIONS.workflowRunList.expectedWireMethod).toBeUndefined();
+    expect(GROWTH_OPERATIONS.workflowRunList.kind).toBe("method");
+  });
+
+  it("stays out of the registered block, whose nine keep folding to their methods", () => {
+    // The two claims read from opposite directions: the enumeration is attributed
+    // away from the registered row, which is what keeps that row's every-operation
+    // `toBe` fold above true. Attributing it there instead would fail this and the
+    // fold together, which is the drift worth catching twice.
+    expect(operationsServingRow(WORKFLOW_SLATE_ROW)).not.toContain("workflowRunList");
+  });
+});
+
 describe("the growth ledger's sidekick block — four of the registry's five pairs", () => {
   it("attributes four operations to the row, every one an RPC method", () => {
     const sidekickOperationIds = operationsServingRow(SIDEKICK_SLATE_ROW);
