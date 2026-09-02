@@ -204,7 +204,7 @@ export function createRefusingGrowthPort(): GrowthPort {
     sidekickDefinitionDelete: async () => growthUnavailable("sidekickDefinitionDelete"),
     // event content, and the session cost plane
     hydratedEventRead: async () => growthUnavailable("hydratedEventRead"),
-    costReceiptRead: async () => growthUnavailable("costReceiptRead"),
-    budgetRead: async () => growthUnavailable("budgetRead"),
+    orchestrationCostReceiptRead: async () => growthUnavailable("orchestrationCostReceiptRead"),
+    orchestrationBudgetRead: async () => growthUnavailable("orchestrationBudgetRead"),
   };
 }
