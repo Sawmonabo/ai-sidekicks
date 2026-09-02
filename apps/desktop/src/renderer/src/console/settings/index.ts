@@ -25,10 +25,15 @@ import "./settings.css";
 import { createElement } from "react";
 
 import type { ConsoleSurfaceRegistry } from "../frame/surface-registry.js";
+import { registerAppearancePage } from "./pages/AppearancePage.js";
 import { registerApplicationPage } from "./pages/ApplicationPage.js";
+import { registerDataErasurePage } from "./pages/DataErasurePage.js";
+import { registerDiagnosticsPage } from "./pages/DiagnosticsPage.js";
+import { registerKeyboardPage } from "./pages/KeyboardPage.js";
 import { registerNotificationsPage } from "./pages/NotificationsPage.js";
 import { registerRuntimeNodesPage } from "./pages/RuntimeNodesPage.js";
 import { registerSidekicksPage } from "./pages/sidekicks-page.js";
+import { registerWorkspaceMountsPage } from "./pages/WorkspaceMountsPage.js";
 import { SettingsPageRegistry, registerReservedSettingsPages } from "./settings-page-registry.js";
 import { SettingsSurface } from "./SettingsSurface.js";
 
@@ -49,8 +54,13 @@ export function registerSettingsPages(registry: SettingsPageRegistry): void {
   registerApplicationPage(registry);
   // The sidekicks page: this seam's entry, the agents family's body.
   registerSidekicksPage(registry);
-  // T-023p-1C-4 L4.7 keyboard, appearance, mounts
-  // T-023p-1C-4 L4.8 diagnostics, data, browser, cost
+  // T-023p-1C-4 L4.7 mounts, diagnostics, data, appearance, keyboard
+  registerWorkspaceMountsPage(registry);
+  registerDiagnosticsPage(registry);
+  registerDataErasurePage(registry);
+  registerAppearancePage(registry);
+  registerKeyboardPage(registry);
+  // T-023p-1C-4 L4.8 browser, cost
 }
 
 /**
