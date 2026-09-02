@@ -51,10 +51,10 @@
 // the statuses and park reasons are declared; this module holds the reading — bands,
 // order, and the counts a header shows — and declares exactly one closed set of its
 // own, the attention band, because a band is a reading of a status rather than a
-// status. The four row symbols below are re-exported because their readers — the park
-// badge and the run pane — read a run ROW through the module that projects a run
-// LIST, and a second import edge into the family for the same fact is the thing that
-// drifts.
+// status. The row symbols below are re-exported because their readers — the park
+// badge, the run list, and the run pane — read a run ROW through the module that
+// projects a run LIST, and a second import edge into the family for the same fact is
+// the thing that drifts.
 
 import {
   instantMilliseconds,
@@ -72,6 +72,7 @@ export type {
   WorkflowParkSchedule,
   WorkflowPhasePark,
   WorkflowRunSnapshot,
+  WorkflowRunState,
 } from "./run-list-rows.js";
 
 /**

@@ -113,3 +113,20 @@
   font-size: var(--meridian-text-sm);
   color: var(--meridian-red-text);
 }
+
+/*
+ * The same wire member on a run that did not fail. One member carries two facts — a
+ * bound breach's reason and a cancel's — so a row painted red for both would report
+ * an outcome an operator asked for as a breach. This arm is prose in the ordinary
+ * text colour, with the label in front saying which reading arrived; the hue is spent
+ * on the failure and nowhere else (rule 2.3).
+ */
+.meridian-run-row__reason {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-run-row__reason-label {
+  color: var(--meridian-text-faint);
+}

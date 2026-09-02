@@ -35,10 +35,79 @@ import {
   formatCount,
 } from "../primitives/index.js";
 import { ParkBadge } from "./ParkBadge.js";
-import type { RunListProjection, WorkflowRunListRow } from "./run-list-projection.js";
+import type {
+  RunListProjection,
+  WorkflowRunListRow,
+  WorkflowRunState,
+} from "./run-list-projection.js";
 
 /** What a row's open control does, when a caller supplies one. */
 type OpenRun = (row: WorkflowRunListRow) => void;
+
+/** How the sentence a run carries about its own ending reads on a row. */
+interface RunReasonReading {
+  /**
+   * `failure` is the one reading that spends the red text; everything else is prose.
+   *
+   * Named rather than expressed as a class name so this table says what it decides —
+   * the class follows from the tone, and a table of class names would be a table of
+   * spellings.
+   */
+  readonly tone: "failure" | "neutral";
+  /**
+   * What the reason is called, where the treatment alone does not say it.
+   *
+   * `undefined` on the failure arm, which is the one arm whose treatment IS the name:
+   * red prose under a failed run reads as the failure it is, and a label above it
+   * would be the surface saying twice what it has already said once.
+   */
+  readonly label: string | undefined;
+}
+
+/**
+ * How a run's reason reads, per status.
+ *
+ * `failureReason` is ONE wire member carrying two different facts — it is preserved
+ * on any bound breach and it also carries the reason a cancel supplied — so the run's
+ * own status is the only thing that says which of them arrived. Rendered
+ * unconditionally in the failure treatment, an operator's "the incident was resolved
+ * out of band" was presented as a breach, which is the opposite of what happened.
+ *
+ * TOTAL over the status set rather than a switch with a default, and that totality is
+ * the point: a default arm is how a seventh status inherits a colour nobody chose for
+ * it, and a default of `failure` would inherit the wrong one. Placed here, a seventh
+ * status is a compile error at this table until somebody says what its reason is
+ * called.
+ */
+const RUN_REASON_READINGS = {
+  // The four statuses no V1 producer sends a reason with. They take the neutral arm
+  // anyway rather than being left out: a reason arriving on one of them is a fact
+  // this list shows, and showing it in red would be inventing an outcome for it.
+  pending: { tone: "neutral", label: "Reason" },
+  running: { tone: "neutral", label: "Reason" },
+  suspended: { tone: "neutral", label: "Reason" },
+  completed: { tone: "neutral", label: "Reason" },
+  failed: { tone: "failure", label: undefined },
+  cancelled: { tone: "neutral", label: "Cancellation reason" },
+} as const satisfies Readonly<Record<WorkflowRunState, RunReasonReading>>;
+
+/**
+ * The sentence a run carries about its ending, read as what its status makes it.
+ *
+ * The daemon's text verbatim in both arms — only the treatment and the name in front
+ * of it change, because paraphrasing the engine is what the refusal grammar exists to
+ * prevent.
+ */
+function renderRunReason(state: WorkflowRunState, reason: string): React.JSX.Element {
+  const reading = RUN_REASON_READINGS[state];
+  return reading.tone === "failure" ? (
+    <p className="meridian-run-row__failure">{reason}</p>
+  ) : (
+    <p className="meridian-run-row__reason">
+      <span className="meridian-run-row__reason-label">{reading.label}</span> {reason}
+    </p>
+  );
+}
 
 interface RunListItemProps {
   readonly row: WorkflowRunListRow;
@@ -122,9 +191,7 @@ const RunListItem = memo(function RunListItem(props: RunListItemProps): React.JS
           ))}
         </ul>
       )}
-      {run.failureReason === undefined ? null : (
-        <p className="meridian-run-row__failure">{run.failureReason}</p>
-      )}
+      {run.failureReason === undefined ? null : renderRunReason(run.state, run.failureReason)}
     </li>
   );
 });
