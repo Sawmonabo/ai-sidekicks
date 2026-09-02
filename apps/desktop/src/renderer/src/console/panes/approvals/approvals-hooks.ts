@@ -30,7 +30,7 @@
 // exists to catch — so the cursor walks backwards only as far as the events it has
 // not already examined.
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { RealClock, refuse, type ConsoleClock, type ConsoleRefusal } from "../../core/index.js";
 import { type ConsoleBridge } from "../../bridge/index.js";
@@ -62,19 +62,24 @@ const TRIGGERING_EVENT_KINDS: ReadonlySet<string> = new Set<string>([
 ]);
 
 /**
- * How far the signal watcher has read, and what it last saw.
+ * How far the signal watcher has read, what it last saw, and what it has asked for.
  *
- * A class with private fields rather than two refs, because the two numbers are one
- * invariant: `#latestSignalSequence` is only meaningful relative to how much of the
- * timeline `#examinedThroughSequence` has covered, and a component that could move
- * one without the other would re-read forever or never.
+ * A class with private fields rather than three refs, because the three numbers are
+ * one invariant: `#latestSignalSequence` is only meaningful relative to how much of
+ * the timeline `#examinedThroughSequence` has covered, and asking again for a signal
+ * `#requestedThroughSequence` already covers is the re-read loop this cursor exists
+ * to stop. A component that could move one without the others would re-read forever
+ * or never — and, since all three are one session's history, they are constructed
+ * and discarded with the reader they belong to rather than kept in refs that outlive
+ * a rebind.
  */
 class ApprovalSignalCursor {
   #examinedThroughSequence = -1;
   #latestSignalSequence = -1;
+  #requestedThroughSequence = -1;
 
-  /** Examine the newly appended tail and answer the newest signal seen so far. */
-  public observe(timeline: readonly ConsoleSessionEvent[]): number {
+  /** Examine the newly appended tail and answer whether it owes a re-read. */
+  public observe(timeline: readonly ConsoleSessionEvent[]): boolean {
     for (let position = timeline.length - 1; position >= 0; position -= 1) {
       const entry = timeline[position];
       if (entry === undefined || entry.sequence <= this.#examinedThroughSequence) {
@@ -88,7 +93,11 @@ class ApprovalSignalCursor {
     if (newest !== undefined) {
       this.#examinedThroughSequence = Math.max(this.#examinedThroughSequence, newest.sequence);
     }
-    return this.#latestSignalSequence;
+    if (this.#latestSignalSequence <= this.#requestedThroughSequence) {
+      return false;
+    }
+    this.#requestedThroughSequence = this.#latestSignalSequence;
+    return true;
   }
 }
 
@@ -122,7 +131,37 @@ function selectTimeline(state: SessionStoreState): readonly ConsoleSessionEvent[
 }
 
 /**
+ * Everything one session's reading apparatus is: the reader and the two memories
+ * that are only meaningful about the session it reads.
+ *
+ * They are minted together because they DIE together. A repair watcher carrying the
+ * previous session's standing-degraded flag, or a cursor carrying its high-water
+ * mark, would suppress the new session's first re-read — so a rebind that replaced
+ * only the reader would answer the new session out of the old one's history.
+ */
+interface ApprovalsReadingSession {
+  readonly reader: ApprovalsReader;
+  readonly repairWatcher: SessionRepairWatcher;
+  readonly signalCursor: ApprovalSignalCursor;
+}
+
+/**
  * The reader for one session, plus its current snapshot.
+ *
+ * A READER IS BOUND TO THE SESSION IT READS. Its identity is `(bridge, sessionId)`,
+ * so a pane rebound from one session to another builds a second reader rather than
+ * keeping the first: the reader captures both at construction, and a retained one
+ * would display the previous session's requests under the new session and resolve
+ * or revoke them against the wrong session id.
+ *
+ * WHICH INSTANCE EACH PATH DISPOSES. React runs an effect's cleanup with the values
+ * that effect closed over, so the cleanup below always disposes the reader that
+ * effect's own body read on: a rebind disposes the OLD reader and reads on the new
+ * one, and an unmount disposes exactly the live reader, exactly once. Nothing
+ * disposes a reader twice, because the memo hands each effect pass a distinct one.
+ * A reader built during a render React later discards is never disposed and does
+ * not need to be — construction arms no timer and opens no subscription, so it is
+ * plain garbage until an effect asks it to read.
  *
  * The clock is the fixture's frozen one wherever a scenario is playing and the real
  * one otherwise, resolved once per reader rather than per render — §The fixture
@@ -134,14 +173,16 @@ export function useApprovalsReader(
   bridge: ConsoleBridge,
   sessionStore: SessionStore,
 ): { readonly reader: ApprovalsReader; readonly snapshot: ApprovalsSnapshot } {
-  const [reader] = useState(
-    () =>
-      new ApprovalsReader({
-        bridge,
-        sessionId: sessionStore.sessionId,
-        clock: resolveClock(bridge),
-      }),
+  const { sessionId } = sessionStore;
+  const readingSession = useMemo<ApprovalsReadingSession>(
+    () => ({
+      reader: new ApprovalsReader({ bridge, sessionId, clock: resolveClock(bridge) }),
+      repairWatcher: new SessionRepairWatcher(),
+      signalCursor: new ApprovalSignalCursor(),
+    }),
+    [bridge, sessionId],
   );
+  const { reader } = readingSession;
 
   useEffect(() => {
     reader.requestRead("subscribe");
@@ -167,32 +208,24 @@ export function useApprovalsReader(
   // examined in an effect for the same reason: advancing the watcher is a mutation,
   // and a mutation in a render body runs twice under React's strict double-invoke.
   const degradedCause = useSessionDegradedCause(sessionStore);
-  const repairWatcherRef = useRef<SessionRepairWatcher>(undefined);
 
   useEffect(() => {
-    repairWatcherRef.current ??= new SessionRepairWatcher();
-    if (repairWatcherRef.current.observe(degradedCause)) {
-      reader.requestRead("reconnect");
+    if (readingSession.repairWatcher.observe(degradedCause)) {
+      readingSession.reader.requestRead("reconnect");
     }
-  }, [reader, degradedCause]);
+  }, [readingSession, degradedCause]);
 
   // The timeline is subscribed to in the render body and EXAMINED in an effect.
   // Reading a store through its selector is what a render does; advancing a cursor
   // is a mutation, and a mutation in a render body runs twice under React's strict
   // double-invoke and once more on every discarded pass.
   const timeline = useSessionStore(sessionStore, selectTimeline);
-  const cursorRef = useRef<ApprovalSignalCursor>(undefined);
-  const requestedThroughRef = useRef(-1);
 
   useEffect(() => {
-    cursorRef.current ??= new ApprovalSignalCursor();
-    const latestSignalSequence = cursorRef.current.observe(timeline);
-    if (latestSignalSequence <= requestedThroughRef.current) {
-      return;
+    if (readingSession.signalCursor.observe(timeline)) {
+      readingSession.reader.requestRead("terminal-event");
     }
-    requestedThroughRef.current = latestSignalSequence;
-    reader.requestRead("terminal-event");
-  }, [reader, timeline]);
+  }, [readingSession, timeline]);
 
   const snapshot = useSyncExternalStore(
     (onStoreChange) => reader.subscribe(onStoreChange),
