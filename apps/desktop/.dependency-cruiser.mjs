@@ -71,7 +71,11 @@ export default {
         "A module with no dependents AND no dependencies is connected to nothing. This is a " +
         "narrower claim than the dead-code gate's: `knip` owns reachability from the entry " +
         "points, this owns total disconnection, and neither subsumes the other. Ambient " +
-        "declarations, stylesheets, and tool configuration are roots, not orphans.",
+        "declarations, stylesheets, and tool configuration are roots, not orphans — and " +
+        "neither is test scaffolding, whose only dependents are the test files this cruise " +
+        "excludes, so an orphan verdict on one is an artefact of that exclusion rather than a " +
+        "reading of the real graph. Exempted from THIS rule and not from the cruise, so a " +
+        "`.test-support.ts` that reached across a process boundary is still caught.",
       severity: "error",
       from: {
         orphan: true,
@@ -79,6 +83,7 @@ export default {
           "\\.d\\.(ts|mts)$",
           "\\.css$",
           "\\.json$",
+          "\\.test-support\\.ts$",
           "(^|/)[^/]+\\.config\\.(ts|mjs|cjs|js)$",
         ],
       },
