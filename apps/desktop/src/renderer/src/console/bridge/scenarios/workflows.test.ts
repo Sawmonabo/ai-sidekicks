@@ -1,0 +1,278 @@
+// Does the workflows scenario tell the story it claims, in a shape the wire admits?
+//
+// Two different questions, and this file keeps them apart. The first is whether the
+// beats are events a daemon could emit, and that is answered by driving the SHIPPED
+// predicate — `findScenarioWireTruthDefects` — rather than by restating its rules
+// here; a local copy would go green against a rule nobody ships. The second is
+// whether the fixture data actually carries the four distinct runs the surfaces need,
+// which no predicate can answer because it is a claim about content rather than shape.
+//
+// The reply cases drive `settleScriptedReply` — the one seam a served growth
+// operation answers a workflow read through — rather than reading `scenario.replies`
+// directly. Reading the array would assert that a literal is present; driving the seam
+// asserts that a caller asking for that call gets it, which is the property the panes
+// depend on and the only one that can break.
+
+import { describe, expect, it } from "vitest";
+
+import {
+  WORKFLOWS_COMPLETED_PHASE_ID,
+  WORKFLOWS_PARKED_RUN,
+  WORKFLOWS_SCENARIO_DEFINITIONS,
+  WORKFLOWS_SCENARIO_PHASE_OUTPUTS,
+  WORKFLOWS_SCENARIO_RUNS,
+} from "./workflow-fixture-data.js";
+import { WORKFLOWS_SCENARIO } from "./workflows.js";
+import { findScenarioWireTruthDefects } from "./wire-truth.js";
+import { ScenarioEngine, type ConsoleScenario } from "../scenario.js";
+import { settleScriptedReply } from "../scripted-reply.js";
+import type { WorkflowPhaseState, WorkflowRunSnapshot } from "../workflow-projection.js";
+
+/** Every phase across every run, so a claim about parks can be made over all of them. */
+function everyPhase(): readonly WorkflowPhaseState[] {
+  return WORKFLOWS_SCENARIO_RUNS.flatMap((run) => run.phaseStates);
+}
+
+/** The phases of one run that are parked right now, read through the wire's own discriminator. */
+function parkedPhasesOf(run: WorkflowRunSnapshot): readonly WorkflowPhaseState[] {
+  return run.phaseStates.filter((phase) => phase.parkReason !== undefined);
+}
+
+/** The one run in a given state, asserted to be the only one so a case cannot pass on a neighbour. */
+function soleRunInState(state: WorkflowRunSnapshot["state"]): WorkflowRunSnapshot {
+  const matches = WORKFLOWS_SCENARIO_RUNS.filter((run) => run.state === state);
+  expect(matches).toHaveLength(1);
+  const [only] = matches;
+  if (only === undefined) {
+    throw new Error(`no run in state ${state}`);
+  }
+  return only;
+}
+
+describe("the workflows scenario — wire truth", () => {
+  it("plays only registered event types, with the payloads those types register", () => {
+    const defects = findScenarioWireTruthDefects([WORKFLOWS_SCENARIO]);
+
+    // Printed rather than counted: a failure here has to name the beat and the reason.
+    expect(defects.map((defect) => `${defect.subject} — ${defect.reason}`)).toStrictEqual([]);
+  });
+
+  it("reports a defect when a beat of this scenario is perturbed", () => {
+    // The negative control for the case above. Without it that assertion would pass
+    // against a predicate that never looked at this scenario at all.
+    const [firstBeat, ...remainingBeats] = WORKFLOWS_SCENARIO.beats;
+    if (firstBeat === undefined) {
+      throw new Error("the scenario plays no beats");
+    }
+    const perturbed: ConsoleScenario = {
+      ...WORKFLOWS_SCENARIO,
+      beats: [
+        { ...firstBeat, event: { ...firstBeat.event, kind: "workflow.phase_suspended" } },
+        ...remainingBeats,
+      ],
+    };
+
+    const defects = findScenarioWireTruthDefects([perturbed]);
+
+    expect(defects).toHaveLength(1);
+    expect(defects[0]?.reason).toContain("not a registered event type");
+  });
+
+  it("states a viewer the session's own roster carries", () => {
+    // The identity the fixture answers the caller-identity read from. Asserted here as
+    // well as by the predicate because its absence is silent: every role gate would
+    // read unchecked, which looks exactly like a member with no elevated role.
+    expect(WORKFLOWS_SCENARIO.viewingParticipantId).toBeDefined();
+    expect(WORKFLOWS_SCENARIO.participantIdsInJoinOrder).toContain(
+      WORKFLOWS_SCENARIO.viewingParticipantId,
+    );
+  });
+});
+
+describe("the workflows scenario — what a caller is answered with", () => {
+  it("answers the three workflow reads through the scripted-reply seam", async () => {
+    const engine = new ScenarioEngine({ scenario: WORKFLOWS_SCENARIO });
+
+    const definitionList = await settleScriptedReply(engine, "workflow.definitionList");
+    const runRead = await settleScriptedReply(engine, "workflow.runRead");
+    const phaseOutputRead = await settleScriptedReply(engine, "workflow.phaseOutputRead");
+
+    expect(definitionList).toStrictEqual({
+      status: "resolved",
+      value: { definitions: WORKFLOWS_SCENARIO_DEFINITIONS },
+    });
+    expect(runRead).toStrictEqual({ status: "resolved", value: WORKFLOWS_PARKED_RUN });
+    expect(phaseOutputRead).toStrictEqual({
+      status: "resolved",
+      value: {
+        phaseId: WORKFLOWS_COMPLETED_PHASE_ID,
+        state: "completed",
+        outputs: WORKFLOWS_SCENARIO_PHASE_OUTPUTS,
+      },
+    });
+    engine.dispose();
+  });
+
+  it("scripts no mutating workflow call", async () => {
+    // The negative control for the case above, and a rule in its own right: a scripted
+    // answer is a fixed value rather than a state machine, so a cancel that "succeeded"
+    // would sit beside a run read still answering `suspended`.
+    const engine = new ScenarioEngine({ scenario: WORKFLOWS_SCENARIO });
+
+    for (const call of [
+      "workflow.runCancel",
+      "workflow.runResume",
+      "workflow.gateResolve",
+      "workflow.humanFormSubmit",
+      "workflow.runStart",
+    ]) {
+      expect(await settleScriptedReply(engine, call)).toStrictEqual({ status: "unscripted" });
+    }
+    engine.dispose();
+  });
+
+  it("answers the run read with a run the list also carries", async () => {
+    // The pane's run and the list's run are one object, not two literals that agree
+    // today. Identity rather than deep equality, because deep equality would still pass
+    // for two copies that a later edit could take apart.
+    const engine = new ScenarioEngine({ scenario: WORKFLOWS_SCENARIO });
+
+    const runRead = await settleScriptedReply(engine, "workflow.runRead");
+
+    expect(runRead.status).toBe("resolved");
+    expect(WORKFLOWS_SCENARIO_RUNS).toContain(WORKFLOWS_PARKED_RUN);
+    engine.dispose();
+  });
+});
+
+describe("the workflows scenario — the four runs", () => {
+  it("carries one run in each of the four states the surfaces render", () => {
+    expect(WORKFLOWS_SCENARIO_RUNS).toHaveLength(4);
+    expect(soleRunInState("running").phaseStates.some((phase) => phase.state === "running")).toBe(
+      true,
+    );
+    expect(soleRunInState("cancelled")).toBeDefined();
+    // Two runs are suspended — the parked one and the frozen-pin one — which is what
+    // gives the attention fold something to fold.
+    expect(WORKFLOWS_SCENARIO_RUNS.filter((run) => run.state === "suspended")).toHaveLength(2);
+  });
+
+  it("parks nothing on the working run and nothing on the cancelled one", () => {
+    // The live-scoping rule, asserted where it is easiest to violate: a settled run
+    // that kept a stale park member would render as still waiting forever.
+    expect(parkedPhasesOf(soleRunInState("running"))).toStrictEqual([]);
+    expect(parkedPhasesOf(soleRunInState("cancelled"))).toStrictEqual([]);
+  });
+
+  it("carries both park reasons, and arms a resume on exactly one of them", () => {
+    const parked = everyPhase().filter((phase) => phase.parkReason !== undefined);
+    const armed = parked.filter((phase) => phase.autoResumeAt !== undefined);
+    const humanParks = parked.filter((phase) => phase.parkReason === "waiting-human");
+
+    expect(parked).toHaveLength(3);
+    expect(armed).toHaveLength(1);
+    expect(humanParks).toHaveLength(1);
+    // The unscheduled usage-limit park is the third: a park a banner must read as
+    // awaiting resume rather than as scheduled. Without it the fixture could only ever
+    // drive the countdown arm.
+    expect(
+      parked.filter(
+        (phase) =>
+          phase.parkReason === "provider-usage-limited" && phase.autoResumeAt === undefined,
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("gives every parked phase the cause its reason obliges", () => {
+    // `parkCause` is present whenever `parkReason` is, by the producer's own rule. A
+    // reason with no cause would render a park with an empty sentence, which reads as
+    // an engine that had no reason rather than as a malformed response.
+    for (const phase of everyPhase()) {
+      expect(phase.parkCause === undefined).toBe(phase.parkReason === undefined);
+    }
+  });
+
+  it("folds exactly two runs onto one provider-account attention key", () => {
+    const keys = everyPhase()
+      .map((phase) => phase.parkAttentionKey)
+      .filter((key): key is string => key !== undefined);
+    const runsWithKey = WORKFLOWS_SCENARIO_RUNS.filter((run) =>
+      run.phaseStates.some((phase) => phase.parkAttentionKey !== undefined),
+    );
+
+    expect(new Set(keys).size).toBe(1);
+    expect(runsWithKey).toHaveLength(2);
+  });
+
+  it("carries the cancellation reason where the contract puts it", () => {
+    const cancelled = soleRunInState("cancelled");
+
+    expect(cancelled.failureReason).toBeDefined();
+    expect(cancelled.endedAt).toBeDefined();
+    // Completed phase outputs stay addressable on a run that will not move again.
+    expect(cancelled.phaseStates.some((phase) => phase.state === "completed")).toBe(true);
+  });
+
+  it("pins exactly one run behind its definition's latest version", () => {
+    const latestVersionIds = new Set(
+      WORKFLOWS_SCENARIO_DEFINITIONS.map((definition) => definition.latestWorkflowVersionId),
+    );
+    const behind = WORKFLOWS_SCENARIO_RUNS.filter(
+      (run) => !latestVersionIds.has(run.workflowVersionId),
+    );
+
+    expect(behind).toHaveLength(1);
+    // The other arm, so the case above is an inequality rather than a table where no
+    // run's pin ever matches a definition at all.
+    expect(WORKFLOWS_SCENARIO_RUNS.length - behind.length).toBe(3);
+  });
+});
+
+describe("the workflows scenario — the definitions", () => {
+  it("marks exactly one resolving row per definition name", () => {
+    const resolvingByName = new Map<string, number>();
+    for (const definition of WORKFLOWS_SCENARIO_DEFINITIONS) {
+      if (definition.resolvesAtThisContext) {
+        resolvingByName.set(definition.name, (resolvingByName.get(definition.name) ?? 0) + 1);
+      }
+    }
+    const names = new Set(WORKFLOWS_SCENARIO_DEFINITIONS.map((definition) => definition.name));
+
+    expect([...resolvingByName.values()]).toStrictEqual(Array.from(names, () => 1));
+  });
+
+  it("carries a name at more than one scope, so the resolution mark says something", () => {
+    // Without a repeated name every row would resolve and the flag would be a constant.
+    const countsByName = new Map<string, number>();
+    for (const definition of WORKFLOWS_SCENARIO_DEFINITIONS) {
+      countsByName.set(definition.name, (countsByName.get(definition.name) ?? 0) + 1);
+    }
+
+    expect([...countsByName.values()].filter((count) => count > 1).length).toBeGreaterThan(0);
+  });
+
+  it("populates all three scopes and gives each its own scope identity", () => {
+    const scopes = new Set(WORKFLOWS_SCENARIO_DEFINITIONS.map((definition) => definition.scope));
+
+    expect(scopes).toStrictEqual(new Set(["session", "project", "shared"]));
+    for (const definition of WORKFLOWS_SCENARIO_DEFINITIONS) {
+      // `shared` is daemon-wide and refers to nothing narrower, so its reference is
+      // empty by the contract rather than by omission; the other two name something.
+      expect(definition.scopeRef === "").toBe(definition.scope === "shared");
+      expect(definition.contentHash.startsWith("b3:")).toBe(true);
+    }
+  });
+});
+
+describe("the workflows scenario — the phase outputs", () => {
+  it("carries both output value kinds", () => {
+    const kinds = WORKFLOWS_SCENARIO_PHASE_OUTPUTS.map((output) => output.valueKind);
+
+    expect(new Set(kinds)).toStrictEqual(new Set(["inline", "artifact_ref"]));
+    for (const output of WORKFLOWS_SCENARIO_PHASE_OUTPUTS) {
+      // An artifact reference carries its id; an inline output must not, or the older
+      // daemon's fallback reading would classify it as a reference.
+      expect(output.artifactId !== undefined).toBe(output.valueKind === "artifact_ref");
+    }
+  });
+});
