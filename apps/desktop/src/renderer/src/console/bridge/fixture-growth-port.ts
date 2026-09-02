@@ -1,13 +1,14 @@
 // The growth port the fixture bridge actually serves.
 //
 // Every other growth operation refuses under both bridges, which is what makes the
-// "not checked" absence a true statement rather than a placeholder. Five do not:
+// "not checked" absence a true statement rather than a placeholder. Six do not:
 // the two the console cannot function without — a session snapshot read and a
 // session directory read — the attention projection read, which is the only one of
 // them the console must not compute for itself, the gitflow branch-context read,
-// whose whole answer today is that there is none, and the caller-identity read,
-// which is answered from a scenario that states its own viewer and refused from one
-// that does not.
+// whose whole answer today is that there is none, the caller-identity read, which is
+// answered from a scenario that states its own viewer and refused from one that does
+// not, and the invites list, which is answered from a scenario's own script and
+// otherwise from the empty ledger.
 //
 // WHY THE TWO SESSION READS ARE SERVED AND THE REST ARE NOT
 //
@@ -177,6 +178,8 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS = [
   "gitflowBranchContextRead",
   // identity
   "callerParticipantRead",
+  // invites
+  "invitesList",
 ] as const;
 
 /** One operation the fixture serves. Derived, so the set has exactly one home. */
@@ -271,6 +274,21 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
       }
       return { status: "served", value: { participantId: viewingParticipantId } };
     },
+    // invites
+    invitesList: async () =>
+      // Routed through the scripted-reply seam on the branch-context read's rule, and
+      // answered with the EMPTY LEDGER when a scenario scripts nothing. The two facts
+      // are different and the surface draws them differently: "the read is not
+      // registered" is what a release build renders, and "this session has sent
+      // nobody an invitation" is a state the sent-invite ledger and the received-
+      // invite shelf both have to draw and could reach from no scenario at all while
+      // this operation refused.
+      //
+      // An empty array is a legitimate daemon answer here in a way it is NOT for the
+      // callback-tool registry next door: an invite ledger with no rows is an ordinary
+      // session, whereas a withheld tool registry and an empty one are different
+      // answers to different questions.
+      answerFromScriptedReply(engine, "invite.list", "invitesList", () => []),
   };
   return { ...createRefusingGrowthPort(), ...served };
 }
