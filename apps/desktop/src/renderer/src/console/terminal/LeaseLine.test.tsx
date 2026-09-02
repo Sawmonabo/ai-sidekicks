@@ -230,6 +230,40 @@ describe("the holder line — every state 8.8 names", () => {
     const absence = container.querySelector(".meridian-nothing");
     expect(absence?.className).toContain("meridian-nothing--not-checked");
     expect(container.textContent).toContain("Node health not read");
+    // The holder the health line is ABOUT. This case is also the control for the
+    // two below: a gate that silenced the block for every state would satisfy both
+    // of them and leave a real holder standing with no word about the node it sits
+    // on, which is the one reading 8.8 spends this absence on.
+    expect(container.textContent).toContain(HOLDER);
+  });
+
+  it("says nothing about a holding node's health when the line says the shell is free", () => {
+    // What a `released`-terminated log with no roster read folds to: an explicit
+    // free lease, and a vouching that records only that nothing was asked. The old
+    // surface put "Node health not read" under "Nobody holds the shell." and so
+    // discussed a holding node the same reading says does not exist.
+    const { container } = renderLease(leaseState({ holding: "unheld" }));
+    expect(container.textContent).toContain("Free");
+    expect(container.textContent).toContain("Nobody holds the shell.");
+    expect(container.textContent).not.toContain("Node health not read");
+  });
+
+  it("leaves an unread transition its own paragraph, without a second unread reading", () => {
+    // The unread arm nulls the holder as well, so the same gate applies — and here
+    // it is the difference between one sentence about what the console could not
+    // read and two, the second about a roster nobody was waiting on.
+    const { container } = renderLease(
+      leaseState({
+        holding: "unrecognized-transition",
+        unreadTransition: {
+          sequence: 9,
+          occurredAtIso: "2026-01-01T16:40:09.000Z",
+          reason: "auto_released_quota_exhausted",
+        },
+      }),
+    );
+    expect(container.textContent).toContain("this build cannot read");
+    expect(container.textContent).not.toContain("Node health not read");
   });
 
   it("degrades an offline holder to unheld and read-only, naming the node", () => {

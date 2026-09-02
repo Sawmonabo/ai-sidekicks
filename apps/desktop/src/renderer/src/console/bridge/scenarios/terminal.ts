@@ -32,11 +32,16 @@
 // Claim was a beat with no producer, and the tests and baselines reading it were
 // exercising nothing.
 //
-// IT ENDS HELD, WHICH IS NOT A DETAIL. `runToCompletion()` is the screenshot tier's
-// entry point, so the last beat is the frame a baseline pins. The pane's headline
-// state is a held lease with a named holder and a claim control that must not offer
-// itself to a non-holder, and a scenario that ran to a free lease would pin the
-// emptiest frame the surface has instead of its busiest.
+// IT ENDS DEGRADED, WHICH IS NOT A DETAIL. `runToCompletion()` is the screenshot
+// tier's entry point, so the last beat is the frame a baseline pins — and the last
+// beat is the host going silent under a lease that had just been taken. The frame is
+// therefore 8.8's degraded state: unheld and read-only, with the node named, standing
+// over a transition ledger that reached all five reasons and a claim control that
+// offers itself to nobody. That is the busier frame as well as the more honest one,
+// because it carries everything the held frame carried plus the reading that took the
+// keyboard away. A script that ended on a plain free lease would pin the emptiest
+// frame the surface has; one that stopped at the final take would pin a surface whose
+// degraded state no baseline had ever seen.
 //
 // THE DEGRADED STATE ARRIVES WITHOUT A TRANSITION, AND THAT IS THE WHOLE DESIGN.
 // 8.8's degraded state is a holder whose node has gone offline: the pane renders
@@ -48,7 +53,10 @@
 // transition, so this scenario scripts exactly that — a `runtime_node.offline` beat
 // after the final take — and a surface that derived the unheld rendering from a
 // missing `pty.control_changed` would never reach it, which is also why 8.8's last
-// Never rule reads "never derives the holder from the last observed claim".
+// Never rule reads "never derives the holder from the last observed claim". The pane
+// reaches it by folding these presence beats beside the lease ones —
+// `terminal/node-presence-model.ts` — and handing the host's reported reachability to
+// the lease fold as its vouching input.
 //
 // WHAT REMAINS UNREACHABLE FROM A SCENARIO, STATED RATHER THAN QUIETLY MISSING. The
 // three refusals (`pty.permission_denied` before any lease comparison,

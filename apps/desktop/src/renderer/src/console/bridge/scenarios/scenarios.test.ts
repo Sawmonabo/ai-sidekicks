@@ -213,9 +213,10 @@ describe("the terminal scenario ends held, then loses its host", () => {
   }
 
   it("leaves the lease held at the last transition", () => {
-    // `runToCompletion()` is the screenshot tier's entry point, so the last
-    // transition is the frame a baseline pins. A held lease with a named holder is
-    // the pane's busiest state; a free one is its emptiest.
+    // The take the offline beat below degrades. It is the last transition, so a
+    // script that ended on a plain release would drop the host under a lease nobody
+    // held — and the degraded state, which is the frame `runToCompletion()` pins,
+    // would have no holder to take away.
     expect(holderAfter(TERMINAL_SCENARIO.beats)).toBe(
       TERMINAL_SCENARIO.participantIdsInJoinOrder[0],
     );
