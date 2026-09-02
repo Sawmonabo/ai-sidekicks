@@ -31,6 +31,7 @@ import type { GrowthStream } from "./growth-outcome.js";
 import type { SidekickDefinition, SidekickDefinitionDraft } from "./sidekick-definition.js";
 import type {
   GrowthArtifactSummary,
+  GrowthAttachmentIngestCompletion,
   GrowthAttentionPreference,
   GrowthBranchContext,
   GrowthBudgetState,
@@ -127,7 +128,10 @@ export interface GrowthOperationSignatures {
     request: { readonly ingestId: string; readonly offset: number; readonly byteLength: number };
     value: void;
   };
-  artifactIngestComplete: { request: { readonly ingestId: string }; value: GrowthArtifactSummary };
+  artifactIngestComplete: {
+    request: { readonly ingestId: string };
+    value: GrowthAttachmentIngestCompletion;
+  };
   artifactList: {
     request: { readonly sessionId: string };
     value: readonly GrowthArtifactSummary[];

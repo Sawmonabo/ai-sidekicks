@@ -32,6 +32,21 @@ export interface LedgerViewportBinding {
   /** One row's element, handed to the library's own measurement observer. */
   readonly attachRow: (element: HTMLElement | null) => void;
   readonly jumpToTail: () => void;
+  /**
+   * Bring one row into view by its key, if this window still holds it.
+   *
+   * Keyed rather than indexed because every caller — the rail's tick, find's walk,
+   * a chapter's header — names a ROW, and an index is a fact about the current
+   * window that a prune invalidates between the caller reading it and acting on it.
+   * The lookup is over the reconciled snapshot, so a key the cap has already
+   * dropped scrolls nothing rather than landing on whichever row now holds that
+   * index.
+   *
+   * Routed through the virtualizer's own `scrollToIndex`, which the controller
+   * binds to the ledger's scroll chokepoint — so this adds a caller, not a second
+   * scroll writer.
+   */
+  readonly jumpToRow: (rowKey: string) => void;
 }
 
 export interface UseLedgerViewportOptions extends LedgerViewportConditions {
@@ -135,5 +150,15 @@ export function useLedgerViewport(options: UseLedgerViewportOptions): LedgerView
     jumpToTail: useCallback(() => {
       controller.jumpToTail();
     }, [controller]),
+    jumpToRow: useCallback(
+      (rowKey: string) => {
+        const index = snapshot.rows.findIndex((candidate) => candidate.key === rowKey);
+        if (index < 0) {
+          return;
+        }
+        virtualizer.scrollToIndex(index, { align: "center" });
+      },
+      [snapshot, virtualizer],
+    ),
   };
 }

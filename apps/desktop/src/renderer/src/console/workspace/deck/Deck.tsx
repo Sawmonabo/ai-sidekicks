@@ -47,34 +47,17 @@
 // indicator, the keyboard reorder path, and the density floor. Neither library ships
 // a stylesheet and neither is imported for one.
 
-import { Fragment, memo, useCallback, useMemo, useRef, useState } from "react";
-import { Group, Panel, Separator } from "react-resizable-panels";
+import { Fragment, useCallback, useMemo, useRef, useState } from "react";
+import { Group, Separator } from "react-resizable-panels";
 
 import { RealClock, type ConsoleRefusal } from "../../core/index.js";
-import { InlineRefusal, Nothing } from "../../primitives/index.js";
-import {
-  type ConsolePaneContext,
-  type ConsolePaneRegistry,
-  type PaneKind,
-} from "../seats/index.js";
+import { InlineRefusal, Nothing, useAnnounce } from "../../primitives/index.js";
+import { type ConsolePaneContext, type ConsolePaneRegistry } from "../seats/index.js";
 import { useDeckLayoutState, type DeckLayout } from "./deck-layout.js";
-import {
-  DECK_TOTAL_PERMILLE,
-  PERMILLE_PER_PERCENT,
-  toPaneSizePercentages,
-  type DeckPane,
-} from "./deck-model.js";
+import { DECK_TOTAL_PERMILLE, toPaneSizePercentages, type DeckPane } from "./deck-model.js";
 import { minimumPaneWidthPx, type DeckDensity } from "./density.js";
-import {
-  useDeckDragCoordinator,
-  useDeckDragMonitor,
-  useDeckDropIndicator,
-  usePaneDragSource,
-  usePaneDropTarget,
-  type DeckDragCoordinator,
-  type PaneDropIndicator,
-} from "./pane-drag.js";
-import { PaneControlsContext, type PaneControls } from "./pane-controls.js";
+import { useDeckDragCoordinator, useDeckDragMonitor, useDeckDropIndicator } from "./pane-drag.js";
+import { DeckPaneSlot } from "./DeckPaneSlot.js";
 import { usePaneRectSources, usePaneRectTracker, type TrackedRect } from "./rect-discipline.js";
 import { useSeparatorValueBoundsCorrection } from "./separator-aria.js";
 
@@ -105,8 +88,12 @@ export function Deck(props: DeckProps): React.JSX.Element {
   usePaneRectSources(tracker, containerReference, state.revision);
   useSeparatorValueBoundsCorrection(containerReference, state.revision);
 
+  // Read HERE and not inside the drag seam: this is the component with the
+  // context, and a deck mounted outside `LiveAnnouncerProvider` throws on this line
+  // rather than reordering panes in a silence nobody watching can detect.
+  const announce = useAnnounce();
   const dragCoordinator = useDeckDragCoordinator();
-  useDeckDragMonitor(dragCoordinator, layout);
+  useDeckDragMonitor(dragCoordinator, layout, announce);
   const dropIndicator = useDeckDropIndicator(dragCoordinator);
 
   /**
@@ -282,123 +269,5 @@ export function Deck(props: DeckProps): React.JSX.Element {
         </Group>
       )}
     </div>
-  );
-}
-
-interface DeckPaneSlotProps {
-  readonly pane: DeckPane;
-  readonly isFocused: boolean;
-  readonly density: DeckDensity;
-  readonly registry: ConsolePaneRegistry;
-  readonly paneContextFor: (pane: DeckPane) => ConsolePaneContext;
-  readonly dragCoordinator: DeckDragCoordinator;
-  /** The edge a drop would land on, when a drag is currently over this pane. */
-  readonly dropIndicator: PaneDropIndicator["edge"] | undefined;
-  readonly onFocus: (paneId: string) => void;
-  readonly onClose: (paneId: string) => void;
-  readonly onOpenInWindow?: (pane: DeckPane) => void;
-  readonly trackElement: (paneId: string, element: Element) => void;
-  readonly untrackElement: (paneId: string) => void;
-}
-
-/**
- * One pane's frame, and the body resolved through the deck's single mount door.
- *
- * Memoised on purpose: `Spec-023 §Console Design (Meridian)`'s budgets are written
- * against a four-lane streaming session, and an unmemoised map re-renders four pane
- * bodies for every event that touches one of them.
- */
-const DeckPaneSlot = memo(function DeckPaneSlot(props: DeckPaneSlotProps): React.JSX.Element {
-  const { dragCoordinator, pane, onClose, onFocus, onOpenInWindow, trackElement, untrackElement } =
-    props;
-  const descriptor = props.registry.descriptorFor(pane.kind);
-  const canOpenInWindow = descriptor?.openInWindow === true && onOpenInWindow !== undefined;
-
-  // The panel's own root element, which is the one the library sizes. It is the
-  // element the rect discipline measures and the element a drop is aimed at, so
-  // both hold the same node rather than one holding a wrapper of the other.
-  const [panelElement, setPanelElement] = useState<HTMLDivElement | null>(null);
-  const registerDragHandle = usePaneDragSource(dragCoordinator, pane.paneId);
-  usePaneDropTarget(dragCoordinator, pane.paneId, panelElement);
-
-  const controls = useMemo<PaneControls>(
-    () => ({
-      onClose: () => {
-        onClose(pane.paneId);
-      },
-      registerDragHandle,
-      ...(canOpenInWindow
-        ? {
-            onOpenInWindow: (): void => {
-              onOpenInWindow?.(pane);
-            },
-          }
-        : {}),
-    }),
-    [canOpenInWindow, onClose, onOpenInWindow, pane, registerDragHandle],
-  );
-
-  const onFocusCapture = useCallback(() => {
-    onFocus(pane.paneId);
-  }, [onFocus, pane.paneId]);
-
-  const attachElement = useCallback(
-    (element: HTMLDivElement | null) => {
-      setPanelElement(element);
-      if (element === null) {
-        untrackElement(pane.paneId);
-        return;
-      }
-      trackElement(pane.paneId, element);
-    },
-    [pane.paneId, trackElement, untrackElement],
-  );
-
-  const paneClassName = [
-    "meridian-deck__pane",
-    props.isFocused ? "meridian-deck__pane--focused" : undefined,
-    props.dropIndicator === undefined
-      ? undefined
-      : `meridian-deck__pane--drop-${props.dropIndicator}`,
-  ]
-    .filter((token): token is string => token !== undefined)
-    .join(" ");
-
-  return (
-    <Panel
-      id={pane.paneId}
-      className={paneClassName}
-      elementRef={attachElement}
-      minSize={minimumPaneWidthPx(props.density)}
-      defaultSize={`${String(pane.sizePermille / PERMILLE_PER_PERCENT)}%`}
-      onFocusCapture={onFocusCapture}
-    >
-      <PaneControlsContext.Provider value={controls}>
-        {descriptor === undefined ? (
-          <MissingPaneBody kind={pane.kind} />
-        ) : (
-          descriptor.render(props.paneContextFor(pane))
-        )}
-      </PaneControlsContext.Provider>
-    </Panel>
-  );
-});
-
-/**
- * A pane kind the deck holds and no family has a body for.
- *
- * Reserved, not stubbed: the kind set is closed by the spec and two of its members
- * are gated on their own amendments, so a deck restored from a snapshot can legally
- * name a kind this build has not mounted. Naming the kind beats an empty rectangle
- * that reads as a body which failed to render.
- */
-function MissingPaneBody(props: { readonly kind: PaneKind }): React.JSX.Element {
-  return (
-    <Nothing
-      kind="empty"
-      placement="surface"
-      title="This kind of pane has not been built yet."
-      detail={`Nothing renders a ${props.kind} pane in this build. The pane is reserved for it.`}
-    />
   );
 }

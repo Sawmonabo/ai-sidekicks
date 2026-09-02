@@ -41,12 +41,24 @@ import {
 } from "../frame/surface-registry.js";
 import { Nothing } from "../primitives/index.js";
 import { Workspace, consolePaneRegistry, type ConsolePaneContext } from "../workspace/index.js";
+import { registerFixtureShellRows } from "./cards/FixtureShellRows.js";
 
 import "./ledger.css";
 
-export * from "./cards/index.js";
-export * from "./frame/index.js";
-export * from "./structure/index.js";
+// This door carries the family's two REGISTRATIONS and no pieces.
+//
+// `registerLedger` claims the surfaces, and `registerFixtureShellRows` fills the
+// row seat on its own — which a caller mounting the pane without the surfaces
+// around it needs, and which the accessibility tier is. Both are acts rather than
+// parts, which is what makes them the door's business.
+//
+// The three sub-barrels this used to re-export upward were reached by no importer
+// at all: the pane, the feed, and the cards reach `cards/`, `frame/`, and
+// `structure/` by their own paths, which is what an intra-family import is for. So
+// re-exporting them here published seventy-six symbols nobody asked for, and the
+// dead-code gate reported exactly that.
+
+export { registerFixtureShellRows } from "./cards/FixtureShellRows.js";
 
 /**
  * The owner string every ledger claim carries.
@@ -80,6 +92,19 @@ const LEDGER_SURFACES: readonly ConsoleSurfaceDescriptor[] = [
  * auxiliary window composes a subset without a second code path.
  */
 export function registerLedger(registry: ConsoleSurfaceRegistry): void {
+  // The row seat is filled here rather than by importing `FixtureShellRows.tsx` for
+  // its side effect, because a module whose IMPORT registers a seat cannot be
+  // composed twice and the seat's owner scoping would refuse the second composition
+  // rather than replace it. Registering from this function makes it idempotent: the
+  // seat admits a re-registration by the same owner, which is what a second window
+  // and a hot reload both are.
+  //
+  // AND IT IS DELETED WITH THE SHELL. `workspace/seats/timeline-row-slot.ts` states
+  // the absorb-by-import rule: the change that registers the timeline subtree's real
+  // rows deletes this call, `FixtureShellRows.tsx`, and `fixture-shell-projection.ts`
+  // in the same diff. A shell left registered beside the real row does not render
+  // both — it refuses the real one by name, at import time.
+  registerFixtureShellRows();
   for (const descriptor of LEDGER_SURFACES) {
     registry.register(descriptor);
   }

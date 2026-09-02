@@ -28,18 +28,14 @@
 //     `elementFromPoint` — because those three are the only reads a scroll event
 //     handler can afford at 60 Hz with four lanes streaming.
 //
-// Overflow measurement for clamped rows is batched and pre-paint: triggers
-// accumulate, one frame is armed through the clock seam, and the sink runs once
-// with the surface's geometry. Font loading re-runs it, because a webfont swap
-// changes every clamped row's height after the layout that measured them.
+// Overflow measurement for clamped rows is batched and pre-paint, and the batching
+// itself is `overflow-measurement-batch.ts`': a scroll triggers none of it, so the
+// arming and the coalescing are not this module's subject. What stays here is the
+// half that is — which sink is installed, and what one pass reads.
 
-import {
-  Emitter,
-  type ConsoleClock,
-  type ScheduledHandle,
-  type Unsubscribe,
-} from "../../core/index.js";
+import { Emitter, type ConsoleClock, type Unsubscribe } from "../../core/index.js";
 import { LEDGER_GEOMETRY_EPSILON_PX, LEDGER_TAIL_TOLERANCE_PX } from "./frame-bounds.js";
+import { OverflowMeasurementBatch } from "./overflow-measurement-batch.js";
 import { WholePixelQuantizationLearner } from "./scroll-quantization.js";
 
 /**
@@ -117,36 +113,30 @@ export interface LedgerScrollControllerOptions {
   readonly tailTolerancePx?: number;
 }
 
-/**
- * Fonts, as much of the API as this module uses.
- *
- * Declared rather than reached through `document.fonts` typing, because the console
- * runs under a DOM shim in the unit tier where the set is absent, and an optional
- * declaration is the honest statement of that.
- */
-interface FontLoadingDocument {
-  readonly fonts?: { readonly ready: Promise<unknown> };
-}
-
 export class LedgerScrollController {
   readonly #clock: ConsoleClock;
   readonly #tailTolerancePx: number;
   readonly #geometryEmitter = new Emitter<LedgerGeometry>("ledger geometry");
   readonly #writeCountByCaller = new Map<LedgerScrollCaller, number>();
   readonly #quantization = new WholePixelQuantizationLearner();
+  readonly #overflowBatch: OverflowMeasurementBatch;
 
   #surface: LedgerScrollSurface | undefined;
   #onSurfaceScroll: (() => void) | undefined;
-  #resizeObserver: ResizeObserver | undefined;
   #lastGeometry: LedgerGeometry | undefined;
   #overflowSink: OverflowMeasurementSink | undefined;
-  #overflowFrame: ScheduledHandle | undefined;
   #writeDepth = 0;
   #disposed = false;
 
   public constructor(options: LedgerScrollControllerOptions) {
     this.#clock = options.clock;
     this.#tailTolerancePx = options.tailTolerancePx ?? LEDGER_TAIL_TOLERANCE_PX;
+    this.#overflowBatch = new OverflowMeasurementBatch({
+      clock: options.clock,
+      runPass: () => {
+        this.#runOverflowPass();
+      },
+    });
   }
 
   /**
@@ -166,8 +156,8 @@ export class LedgerScrollController {
     };
     this.#onSurfaceScroll = onScroll;
     surface.addEventListener("scroll", onScroll, { passive: true });
-    this.#observeSurfaceResize(surface);
-    this.#observeFontLoading();
+    this.#overflowBatch.observeResize(surface);
+    this.#overflowBatch.observeFontLoading();
     this.#publishGeometry();
   }
 
@@ -176,7 +166,7 @@ export class LedgerScrollController {
    *
    * Every read here is null-safe (`Spec-023 §Console Design (Meridian)` §5.17,
    * "teardown reads are null-safe"): teardown runs on an unmount that may follow a
-   * failed attach, so the listener, the observer, and the armed frame may each be
+   * failed attach, so the listener and everything the batch holds may each be
    * absent independently.
    */
   public detach(): void {
@@ -185,16 +175,15 @@ export class LedgerScrollController {
     if (surface !== undefined && onScroll !== undefined) {
       surface.removeEventListener("scroll", onScroll);
     }
-    this.#resizeObserver?.disconnect();
-    this.#resizeObserver = undefined;
     this.#onSurfaceScroll = undefined;
     this.#surface = undefined;
-    this.#cancelOverflowFrame();
+    this.#overflowBatch.release();
   }
 
   /** Terminal. A disposed controller attaches nothing and arms nothing. */
   public dispose(): void {
     this.detach();
+    this.#overflowBatch.dispose();
     this.#geometryEmitter.clear();
     this.#disposed = true;
   }
@@ -295,20 +284,11 @@ export class LedgerScrollController {
   /**
    * Ask for an overflow pass. Repeated calls inside one frame cost one pass.
    *
-   * Pre-paint through the clock's frame seam rather than a microtask, so the
-   * measurement reads a layout the browser has settled.
+   * The coalescing is the batch's; what a pass READS is this controller's, which is
+   * why the two live either side of this call.
    */
   public requestOverflowMeasurement(): void {
-    if (this.#disposed || this.#overflowFrame !== undefined) {
-      return;
-    }
-    this.#overflowFrame = this.#clock.scheduleFrame(() => {
-      this.#overflowFrame = undefined;
-      const geometry = this.#sampleGeometry();
-      if (geometry !== undefined) {
-        this.#overflowSink?.(geometry);
-      }
-    });
+    this.#overflowBatch.request();
   }
 
   /** How many times a caller has written. Read by diagnostics and by tests. */
@@ -368,49 +348,17 @@ export class LedgerScrollController {
     this.#geometryEmitter.emit(geometry);
   }
 
-  #observeSurfaceResize(surface: LedgerScrollSurface): void {
-    // Only an element can be observed; a structural surface driven by a test
-    // cannot, and asking for an observer it can never feed would be a subscription
-    // held open against nothing.
-    if (!(surface instanceof Element)) {
-      return;
-    }
-    const observerHost = globalThis as { readonly ResizeObserver?: typeof ResizeObserver };
-    const ObserverConstructor = observerHost.ResizeObserver;
-    if (ObserverConstructor === undefined) {
-      // A DOM shim without a resize observer. The pass still runs on font loading
-      // and on the viewport's own row-measurement calls, so the absence costs a
-      // trigger rather than the feature.
-      return;
-    }
-    const observer = new ObserverConstructor(() => {
-      this.requestOverflowMeasurement();
-    });
-    observer.observe(surface);
-    this.#resizeObserver = observer;
-  }
-
   /**
-   * Re-run the pass once the webfonts have swapped.
+   * One batched pass: sample once, and hand that one sample to the sink.
    *
-   * A clamped row's height is a function of its font, so the measurements taken
-   * before the swap describe a layout that no longer exists.
+   * A pass on a detached controller samples nothing and calls nobody, which is what
+   * makes a frame that outlived its surface harmless rather than a read against a
+   * node React has already dropped.
    */
-  #observeFontLoading(): void {
-    const fonts = (globalThis as { readonly document?: FontLoadingDocument }).document?.fonts;
-    if (fonts === undefined) {
-      return;
+  #runOverflowPass(): void {
+    const geometry = this.#sampleGeometry();
+    if (geometry !== undefined) {
+      this.#overflowSink?.(geometry);
     }
-    void fonts.ready.then(() => {
-      this.requestOverflowMeasurement();
-    });
-  }
-
-  #cancelOverflowFrame(): void {
-    if (this.#overflowFrame === undefined) {
-      return;
-    }
-    this.#clock.cancel(this.#overflowFrame);
-    this.#overflowFrame = undefined;
   }
 }

@@ -22,6 +22,7 @@ import type { GrowthOutcome } from "./growth-outcome.js";
 import type { GrowthPort } from "./index.js";
 import { createLiveBridge } from "./live-bridge.js";
 import type { ConsoleScenario, ScenarioBeat } from "./scenario.js";
+import { FIRST_RUN_SCENARIO } from "./scenarios/first-run.js";
 import { FLAGSHIP_SCENARIO } from "./scenarios/flagship.js";
 import { CONSOLE_SCENARIOS } from "./scenarios/index.js";
 import { findScenarioWireTruthDefects } from "./scenarios/wire-truth.js";
@@ -131,8 +132,74 @@ describe("the fixture growth port — what it serves, and what it still refuses"
 
     expect(outcome.status).toBe("served");
     if (outcome.status === "served") {
+      // The state is the one the scenario's own `session.read` reply declares,
+      // read rather than assumed: the port used to hardcode `active` on the
+      // premise that "a scenario plays one live session", which is exactly the
+      // premise the first-run scenario is a counterexample to.
       expect(outcome.value).toStrictEqual([
         { sessionId: FLAGSHIP_SCENARIO.sessionId, state: "active" },
+      ]);
+    }
+  });
+
+  it("answers a first run with an empty directory, because it has no session yet", async () => {
+    // The defect this replaces: the directory answered with the scenario's session
+    // unconditionally, so the FIRST-RUN scenario — a fresh install whose whole
+    // purpose is "no sessions, no agents, no history" — listed a session row on the
+    // one surface whose committed screenshot baselines exist to pin the EMPTY kind
+    // of nothing (`Spec-023 §Console Design (Meridian)` §The five kinds of nothing).
+    //
+    // Derived from what the scenario DECLARES rather than from which scenario it is:
+    // first-run's `session.read` reply says `provisioning`, which is a session still
+    // being created and not one the node has.
+    const bridge = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
+
+    const outcome = await bridge.growth.sessionList({});
+
+    expect(outcome.status).toBe("served");
+    if (outcome.status === "served") {
+      // Served-and-empty, not refused: the operation IS answered here, and what it
+      // found is nothing. A refusal would render `not-checked`, which says the
+      // console never asked.
+      expect(outcome.value).toStrictEqual([]);
+    }
+  });
+
+  it("carries the declared state through rather than relabelling it", async () => {
+    // The negative control for the rule above. A port that simply answered empty
+    // for every scenario, or that kept hardcoding one state, would satisfy the two
+    // cases above; driving a scenario that declares a directory state OTHER than
+    // `active` is what separates "read from the reply" from either.
+    const pausedScenario: ConsoleScenario = {
+      ...FIRST_RUN_SCENARIO,
+      id: "first-run-paused-probe",
+      replies: FIRST_RUN_SCENARIO.replies.map((reply) =>
+        reply.call === "session.read"
+          ? {
+              call: "session.read",
+              result: {
+                session: {
+                  id: FIRST_RUN_SCENARIO.sessionId,
+                  state: "paused",
+                  config: {},
+                  metadata: {},
+                  createdAt: FIRST_RUN_SCENARIO.startedAtIso,
+                  updatedAt: FIRST_RUN_SCENARIO.startedAtIso,
+                },
+                timelineCursors: { latest: "first-run-cursor-1" },
+              },
+            }
+          : reply,
+      ),
+    };
+    const bridge = createFixtureBridge({ scenario: pausedScenario });
+
+    const outcome = await bridge.growth.sessionList({});
+
+    expect(outcome.status).toBe("served");
+    if (outcome.status === "served") {
+      expect(outcome.value).toStrictEqual([
+        { sessionId: pausedScenario.sessionId, state: "paused" },
       ]);
     }
   });

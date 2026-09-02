@@ -117,6 +117,23 @@ export type GrowthArtifactReplicationStatus = (typeof GROWTH_ARTIFACT_REPLICATIO
  * list as an unmapped list shape, which is what a summary that is three members of a
  * fourteen-member record does the first time a surface needs the rest of them.
  */
+/**
+ * What `AttachmentIngestComplete` answers once the daemon has the bytes. Mirrors
+ * `api-payload-contracts.md` `AttachmentIngestCompleteResponse` member-for-member:
+ * the derived truth that replaces the caller's declaration, never the manifest —
+ * a completion is the pipeline's verdict on one payload, and the manifest it
+ * committed is read through `artifactRead`.
+ */
+export interface GrowthAttachmentIngestCompletion {
+  readonly artifactId: string;
+  readonly contentHash: string;
+  readonly normalizedName: string;
+  /** Server-derived from the payload signature; the declared type is never recorded. */
+  readonly derivedMediaType: string;
+  /** Server-derived byte length of the spooled payload; authoritative over the declared bound. */
+  readonly derivedSizeBytes: number;
+}
+
 export interface GrowthArtifactSummary {
   readonly artifactId: string;
   readonly sessionId: string;

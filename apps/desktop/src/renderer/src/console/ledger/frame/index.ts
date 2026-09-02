@@ -20,29 +20,24 @@
 // The bounds every one of them spends live in `frame-bounds.ts`, on the terms
 // `core/constants.ts` sets for a view family's own module.
 
-// WHY EVERY LINE BELOW IS A STAR RE-EXPORT rather than a named one. The dead-code
-// gate reports an unused re-export at the SPECIFIER, so a named barrel written
-// ahead of its consumers is a list of findings — and the only exemption for that is
-// a `@consumedBy` tag, which is for a symbol a DIFFERENT task will import. Every
-// consumer of this door is a sibling piece of this same task (the pane that mounts
-// the viewport, the structure that drives the rail, the cards that stream into it),
-// so a tag here would name the task that already owns the file. `ledger/index.ts`
-// and `workspace/index.ts` take the same form for the same reason.
+// WHAT THIS DOOR CARRIES IS WHAT LEAVES THE DIRECTORY, AND NOTHING MORE.
 //
-// The comment on each line is the table a named barrel would have been: what the
-// module carries, in DAG order, low to high.
+// It used to be fourteen star re-exports, on the reasoning that a NAMED barrel
+// written ahead of its consumers is just a list of dead-code findings. That was
+// true when it was written and is not true now: the pane mounts the feed, so the
+// consumers exist and can be counted. Counting them gives FOUR symbols — the feed
+// component, the hook a view binds it through, the row shape both sides speak, and
+// the per-row error boundary the cards wrap themselves in — and the star form was
+// re-exporting seventy-six, every one of which the gate reported the moment
+// anything reached this directory at all.
+//
+// The rest are not hidden, they are INTERNAL: `panes/timeline/` and this family's
+// other subtrees reach them by their own module paths, which is what an
+// intra-family import is for. A door is the list of things a stranger may hold, and
+// widening it to every symbol a directory happens to define makes it a table of
+// contents rather than a contract.
 
-export * from "./frame-bounds.js"; // the caps, windows, and budgets everything here spends
-export * from "./reveal-gate.js"; // commit modes and the literal-safety predicate
-export * from "./rope-smoother.js"; // one lane's text, as parts and a cursor
-export * from "./scroll-quantization.js"; // whether this display rounds a written offset
-export * from "./scroll-chokepoint.js"; // the console's only scroll writer, and its geometry
-export * from "./reading-anchor.js"; // following, reading, and the rows a reader is holding
-export * from "./row-measurement-ledger.js"; // the residuals the virtualizer does not cover
-export * from "./window-cap.js"; // what the log keeps, and when it may let go
-export * from "./reveal-engine.js"; // N lanes streaming on one frame budget
-export * from "./ErrorSlot.js"; // ranked per-kind slots and the row-group boundary
-export * from "./virtualizer-seams.js"; // every seam the library reaches the outside world through
-export * from "./viewport-controller.js"; // the wiring the feed needs held in one place
-export * from "./viewport-binding.js"; // the virtualizer, and the hook a view reads it through
-export * from "./LedgerViewport.js"; // the feed itself
+export { LedgerRowGroup } from "./ErrorSlot.js";
+export { LedgerViewport } from "./LedgerViewport.js";
+export { useLedgerViewport } from "./viewport-binding.js";
+export { type LedgerViewportRow } from "./viewport-controller.js";

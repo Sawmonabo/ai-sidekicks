@@ -14,6 +14,7 @@ import { DECK_RESTORED_PANE_CAP } from "../core/index.js";
 import { createFixtureBridge } from "../bridge/index.js";
 import type { ConsoleScenario } from "../bridge/scenario.js";
 import { DraftStore, UiStateStore } from "../persistence/index.js";
+import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { MemoryPersistenceAdapter } from "../persistence/memory-adapter.js";
 import { FrameStore, SessionStore } from "../store/index.js";
 import { ConsolePaneRegistry } from "./seats/index.js";
@@ -59,17 +60,26 @@ interface RenderedWorkspace {
   readonly uiStateStore: UiStateStore;
 }
 
+/**
+ * The workspace under the window's announcer, which is where `AppFrame` mounts it.
+ *
+ * The deck inside reads `useAnnounce` to say what a pane drop settled on, and that
+ * hook throws outside the provider by design — so this wrapper is the production
+ * mount shape rather than test scaffolding.
+ */
 function renderWorkspace(uiStateStore: UiStateStore): RenderedWorkspace {
   const { container } = render(
-    <Workspace
-      bridge={createFixtureBridge({ scenario: SCENARIO })}
-      frameStore={new FrameStore({ initialRoute: { kind: "workspace", sessionId: SESSION_ID } })}
-      sessionStore={sessionStore()}
-      uiStateStore={uiStateStore}
-      draftStore={new DraftStore()}
-      route={{ kind: "workspace", sessionId: SESSION_ID }}
-      registry={testRegistry()}
-    />,
+    <LiveAnnouncerProvider>
+      <Workspace
+        bridge={createFixtureBridge({ scenario: SCENARIO })}
+        frameStore={new FrameStore({ initialRoute: { kind: "workspace", sessionId: SESSION_ID } })}
+        sessionStore={sessionStore()}
+        uiStateStore={uiStateStore}
+        draftStore={new DraftStore()}
+        route={{ kind: "workspace", sessionId: SESSION_ID }}
+        registry={testRegistry()}
+      />
+    </LiveAnnouncerProvider>,
   );
   return { container, uiStateStore };
 }
@@ -158,9 +168,11 @@ describe("Workspace — the saved arrangement", () => {
     });
     const { container } = renderWorkspace(store);
     await waitFor(() => {
-      expect(container.querySelector('[role="status"]')?.textContent).toContain(
-        "written by a different version",
-      );
+      // Scoped to the deck's own refusal strip: the announcer's polite region
+      // carries `role="status"` too and renders above every surface.
+      expect(
+        container.querySelector('.meridian-deck__refusals[role="status"]')?.textContent,
+      ).toContain("written by a different version");
     });
     // Discarded WHOLE: the deck falls back to the ledger rather than adopting the
     // pane the unknown record happened to name.

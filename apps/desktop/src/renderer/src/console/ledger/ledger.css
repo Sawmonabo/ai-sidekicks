@@ -25,6 +25,51 @@
   min-height: 100%;
 }
 
+/* --- The loaded ledger -------------------------------------------------- */
+
+/*
+ * The whole feed for one session: an optional find strip above, and below it the
+ * scrolling window with its rail.
+ *
+ * A column grid whose second track is `minmax(0, 1fr)` rather than a flex column,
+ * because the find strip appears and disappears and a flex child that could grow
+ * would take its height back from the window on every toggle — which moves every
+ * row on screen for a reason the reader did not ask for. The grid keeps the
+ * window's track the whole remainder either way.
+ */
+.meridian-ledger {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+/*
+ * The window and the rail, side by side.
+ *
+ * The rail's track is sized from its own content rather than given a number here:
+ * the rail draws marks at a width the family's own tokens decide, and a literal
+ * would be a second place that decision lived. `minmax(0, 1fr)` on the window is
+ * what lets the viewport — and not this row — be the element that scrolls.
+ */
+.meridian-ledger__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+/*
+ * The rail is revealed by pointer and by focus, so it must be able to take focus
+ * without the layout moving underneath it — hence a track that is already there
+ * rather than one that appears on hover.
+ */
+.meridian-ledger__rail {
+  display: flex;
+  min-height: 0;
+}
+
 /* --- A pane ------------------------------------------------------------- */
 
 /*

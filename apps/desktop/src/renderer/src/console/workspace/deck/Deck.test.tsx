@@ -9,6 +9,7 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { DECK_RESTORED_PANE_CAP } from "../../core/index.js";
+import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { ConsolePaneRegistry, type ConsolePaneContext } from "../seats/index.js";
 import { Deck } from "./Deck.js";
 import { DeckLayout } from "./deck-layout.js";
@@ -52,9 +53,21 @@ function registryWith(
   return registry;
 }
 
+/**
+ * The deck under the window's announcer, which is where it lives.
+ *
+ * Not decoration: the deck reads `useAnnounce` to say what a drop settled on, and
+ * that hook throws outside the provider by design. `AppFrame` mounts the provider
+ * above every surface, so a bare `render(<Deck/>)` here would be a mount shape
+ * production never has — and the throw is the primitive refusing to let a surface
+ * speak through a region nobody created, which is a rule worth honouring in a test
+ * rather than working around.
+ */
 function renderDeck(layout: DeckLayout, registry: ConsolePaneRegistry): HTMLElement {
   const { container } = render(
-    <Deck layout={layout} registry={registry} paneContextFor={paneContextFor} />,
+    <LiveAnnouncerProvider>
+      <Deck layout={layout} registry={registry} paneContextFor={paneContextFor} />
+    </LiveAnnouncerProvider>,
   );
   const deck = container.querySelector(".meridian-deck");
   if (!(deck instanceof HTMLElement)) {
@@ -178,16 +191,21 @@ describe("the deck's panes", () => {
     const layout = emptyLayout();
     const report = layout.restore({ $deck: { version: 99 } });
     const { container } = render(
-      <Deck
-        layout={layout}
-        registry={registryWith({ kind: "timeline" })}
-        paneContextFor={paneContextFor}
-        restoreRefusals={report.refusals}
-      />,
+      <LiveAnnouncerProvider>
+        <Deck
+          layout={layout}
+          registry={registryWith({ kind: "timeline" })}
+          paneContextFor={paneContextFor}
+          restoreRefusals={report.refusals}
+        />
+      </LiveAnnouncerProvider>,
     );
-    expect(container.querySelector('[role="status"]')?.textContent).toContain(
-      "written by a different version",
-    );
+    // Scoped to the deck's own strip rather than the first `role="status"` in the
+    // tree: the announcer's polite region carries that role too and renders above
+    // everything, so a bare role selector would find an empty live region.
+    expect(
+      container.querySelector('.meridian-deck__refusals[role="status"]')?.textContent,
+    ).toContain("written by a different version");
   });
 });
 

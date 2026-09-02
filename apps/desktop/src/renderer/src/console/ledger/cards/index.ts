@@ -28,4 +28,5 @@ export * from "./StreamingMarkdown.js"; // the committed-and-volatile split, mou
 export * from "./MachineBody.js"; // truncated and unreadable bodies, named
 export * from "./MessageCard.js"; // participant words, agent replies, agent reasoning
 export * from "./ToolCard.js"; // one line until opened
+export * from "./fixture-shell-projection.js"; // this window's event log, read as rows
 export * from "./FixtureShellRows.js"; // the row seat's stand-in, and its death notice
