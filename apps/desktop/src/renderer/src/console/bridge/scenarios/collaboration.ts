@@ -41,6 +41,15 @@
 // payload variant, and a fixture that invented a device id or a last-seen member
 // for them would be teaching a shape to a surface that has promised not to read it.
 //
+// WHY THE MACHINES ARE IN A SIBLING FILE. A room with people in it is a room with
+// their MACHINES in it: three participants attach one runtime node each, which is
+// the multi-node case the registered roster read exists for. But that is a second
+// script rather than more of this one — it plays `runtime_node.*` beats and is read
+// back through `runtimenode.roster` rather than `presence.read` — so it lives in
+// `collaboration-runtime-nodes.js` and takes from here only the session, who owns
+// which machine, and the first free log position. That file states what the two
+// surfaces disagree about and why the disagreement is the point.
+//
 // WHY THERE IS NO INVITE BEAT AND THERE IS AN INVITE REPLY. `invite.created` is a
 // census type with no registered payload variant and no consumer: the sent-invite
 // ledger reads the growth port's `invitesList`, not the event stream. So the
@@ -49,6 +58,13 @@
 // `GrowthInviteSummary` shape the console itself declares — and no event payload is
 // invented for a read nothing performs.
 
+import type { ParticipantId } from "@ai-sidekicks/contracts";
+
+import {
+  collaborationRuntimeNodeBeats,
+  collaborationRuntimeNodeRoster,
+  type CollaborationRuntimeNodeScript,
+} from "./collaboration-runtime-nodes.js";
 import type { ConsoleScenario } from "../scenario.js";
 
 export const COLLABORATION_SCENARIO_ID = "collaboration";
@@ -56,11 +72,17 @@ export const COLLABORATION_SCENARIO_ID = "collaboration";
 // Wire identifiers, spelled as the wire spells them — UUID v7 values whose leading
 // bytes are this scenario's own start instant, so a rendered id still tells one
 // fixture apart from another.
+//
+// The participants are branded at their declaration because the ROSTER read types
+// its `participantId` as one, while an event payload types every member `unknown`;
+// one assertion per constant is what keeps the machine script's rows free of them.
+// The assertion is a claim, and the bridge seam's test discharges it by parsing
+// every shipped frame with the registered `RuntimeNodeRosterResponseSchema`.
 const SESSION_ID = "019b7904-8ce0-75e5-8510-ada11a5a33a5";
-const PARTICIPANT_YOU = "019b7904-8ce0-79a4-8110-cca0117a0330";
-const PARTICIPANT_PRIYA = "019b7904-8ce0-79a4-8120-cca0117a0340";
-const PARTICIPANT_TOMAS = "019b7904-8ce0-79a4-8130-cca0117a0350";
-const PARTICIPANT_NOAH = "019b7904-8ce0-79a4-8140-cca0117a0355";
+const PARTICIPANT_YOU = "019b7904-8ce0-79a4-8110-cca0117a0330" as ParticipantId;
+const PARTICIPANT_PRIYA = "019b7904-8ce0-79a4-8120-cca0117a0340" as ParticipantId;
+const PARTICIPANT_TOMAS = "019b7904-8ce0-79a4-8130-cca0117a0350" as ParticipantId;
+const PARTICIPANT_NOAH = "019b7904-8ce0-79a4-8140-cca0117a0355" as ParticipantId;
 const MEMBERSHIP_PRIYA = "019b7904-8ce0-7e3b-8110-cca0117a0360";
 const MEMBERSHIP_TOMAS = "019b7904-8ce0-7e3b-8120-cca0117a0370";
 const MEMBERSHIP_NOAH = "019b7904-8ce0-7e3b-8130-cca0117a0375";
@@ -145,6 +167,21 @@ const COLLABORATION_CHANNELS = [
   { channelId: CHANNEL_HANDOFF, name: "handoff", state: "archived", participantCount: 2 },
 ] as const;
 
+/**
+ * What the machine script needs from this scenario: the session, who owns which
+ * machine in registration order, and the first free position in the event log.
+ *
+ * Stated here rather than reached for over there, so the two scripts share exactly
+ * these three facts and neither file imports the other's identifiers.
+ */
+const RUNTIME_NODE_SCRIPT: CollaborationRuntimeNodeScript = {
+  sessionId: SESSION_ID,
+  ownerParticipantIds: [PARTICIPANT_YOU, PARTICIPANT_PRIYA, PARTICIPANT_TOMAS],
+  // Eleven beats precede them: the session, three memberships, three channels, one
+  // archival, and three presence transitions.
+  firstSequence: 12,
+};
+
 export const COLLABORATION_SCENARIO: ConsoleScenario = {
   id: COLLABORATION_SCENARIO_ID,
   label: "A room with people in it",
@@ -162,6 +199,7 @@ export const COLLABORATION_SCENARIO: ConsoleScenario = {
   // whose role controls are all reachable.
   viewingParticipantId: PARTICIPANT_YOU,
   startedAtIso: "2026-01-01T10:05:00.000Z",
+  runtimeNodeRoster: collaborationRuntimeNodeRoster(RUNTIME_NODE_SCRIPT),
   beats: [
     {
       atMs: 0,
@@ -238,6 +276,7 @@ export const COLLABORATION_SCENARIO: ConsoleScenario = {
         payload: { sessionId: SESSION_ID, participantId: participant.participantId },
       },
     })),
+    ...collaborationRuntimeNodeBeats(RUNTIME_NODE_SCRIPT),
   ],
   replies: [
     {

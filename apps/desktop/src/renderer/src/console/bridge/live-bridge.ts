@@ -18,6 +18,10 @@ import type { SidekicksBridge } from "@ai-sidekicks/contracts";
 import { SIDEKICKS_BRIDGE_NAMESPACES } from "./bridge-shape.js";
 import type { ConsoleBridge } from "./console-bridge.js";
 import { createRefusingGrowthPort } from "./growth-port.js";
+import {
+  readRuntimeNodeRosterOverControlPlane,
+  subscribeRuntimeNodePresence,
+} from "./runtime-node-roster.js";
 
 /** The installed preload bridge, or `undefined` when the preload did not run. */
 export function readInstalledBridge(): SidekicksBridge | undefined {
@@ -43,6 +47,15 @@ export function createLiveBridge(sidekicks: SidekicksBridge): ConsoleBridge {
     // be a singleton the console's own rules reject, and the allocation is one
     // empty set per window.
     growthServedOperations: new Set(),
+    // The two registered runtime-node wires, forwarded to the surfaces that serve
+    // them: the roster read to `controlPlane.call`, because it is control-plane
+    // tRPC only, and the presence subscription to `daemon.subscribe`, because the
+    // daemon is what authors the `runtime_node.*` lifecycle events. Neither is
+    // refused here the way a growth operation is — both are on the wire.
+    runtimeNodeRosterRead: async (request) =>
+      readRuntimeNodeRosterOverControlPlane(sidekicks, request),
+    runtimeNodePresenceSubscribe: (sessionId, onPresenceChange) =>
+      subscribeRuntimeNodePresence(sidekicks, sessionId, onPresenceChange),
     source: "live",
     scenarioEngine: undefined,
   };
