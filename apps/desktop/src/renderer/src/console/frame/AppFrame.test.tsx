@@ -20,9 +20,18 @@
 //     sit outside the `inert` wrapper; the banner is their first consumer because a
 //     refusal that changes what the whole room can do is the frame's own event.
 
+import { createTier1Bridge } from "@ai-sidekicks/contracts";
 import { act, render, screen, within } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  SidekicksBridgeProvider,
+  createFixtureBridge,
+  type ConsoleBridge,
+} from "../bridge/index.js";
+import { createLiveBridge } from "../bridge/live-bridge.js";
+import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { LIVE_ANNOUNCEMENT_HOLD_MS, consoleTripwires } from "../core/index.js";
 import { CommandRegistry, PaletteOverlay } from "../palette/index.js";
 import type { ConsoleRoute } from "../routing/index.js";
@@ -77,6 +86,38 @@ function frameProps(
   };
 }
 
+/**
+ * A bridge host for the frame, because the frame now resolves the window's clock.
+ *
+ * `AppFrame` mounts the live announcer, and the announcer arms the one timeout the
+ * console's idle budget counts — so which clock it runs on is a property of the
+ * WINDOW rather than of the primitive, and the frame reads it from the bridge. Both
+ * arms are the real thing: `createTier1Bridge()` is the object the preload exposes
+ * to a shipped window, and `createFixtureBridge` builds the real engine over the
+ * real flagship scenario.
+ */
+function bridgeWrapper(
+  bridge: ConsoleBridge,
+): (props: { readonly children: ReactNode }) => React.JSX.Element {
+  return function BridgeHost(props: { readonly children: ReactNode }): React.JSX.Element {
+    return <SidekicksBridgeProvider bridge={bridge}>{props.children}</SidekicksBridgeProvider>;
+  };
+}
+
+/** The wall-clock arm: what a shipped window resolves. */
+function liveBridgeWrapper(): (props: { readonly children: ReactNode }) => React.JSX.Element {
+  return bridgeWrapper(createLiveBridge(createTier1Bridge()));
+}
+
+/** The running engine, or a failure that names what was missing rather than `undefined`. */
+function scenarioEngineOf(bridge: ConsoleBridge): NonNullable<ConsoleBridge["scenarioEngine"]> {
+  const engine = bridge.scenarioEngine;
+  if (engine === undefined) {
+    throw new Error("the fixture bridge exposed no scenario engine");
+  }
+  return engine;
+}
+
 function backgroundOf(container: HTMLElement): HTMLElement {
   const background = container.querySelector<HTMLElement>(".meridian-frame__background");
   if (background === null) {
@@ -127,6 +168,7 @@ describe("AppFrame — a modal overlay inerts the background and nothing else", 
       <AppFrame {...frameProps(SESSIONS_ROUTE)} overlays={palette(false)}>
         <CalmSurface />
       </AppFrame>,
+      { wrapper: liveBridgeWrapper() },
     );
     const background = backgroundOf(container);
     expect(background.hasAttribute("inert")).toBe(false);
@@ -179,6 +221,7 @@ describe("AppFrame — a failed surface does not survive a route change", () => 
       <AppFrame {...frameProps(SESSIONS_ROUTE)}>
         <ExplodingSurface />
       </AppFrame>,
+      { wrapper: liveBridgeWrapper() },
     );
     expect(surfaceAlert(container)?.textContent).toContain(RENDER_FAILURE_MESSAGE);
 
@@ -200,6 +243,7 @@ describe("AppFrame — a failed surface does not survive a route change", () => 
       <AppFrame {...frameProps(SESSIONS_ROUTE)}>
         <ExplodingSurface />
       </AppFrame>,
+      { wrapper: liveBridgeWrapper() },
     );
     expect(surfaceAlert(container)?.textContent).toContain(RENDER_FAILURE_MESSAGE);
 
@@ -220,6 +264,7 @@ describe("AppFrame — the window has one live announcer, and the banner reaches
       <AppFrame {...frameProps(SESSIONS_ROUTE)}>
         <CalmSurface />
       </AppFrame>,
+      { wrapper: liveBridgeWrapper() },
     );
 
     // One PAIR, not one per surface: the count is the claim, because a second
@@ -234,6 +279,7 @@ describe("AppFrame — the window has one live announcer, and the banner reaches
       <AppFrame {...frameProps(SESSIONS_ROUTE)} modalOverlayOpen>
         <CalmSurface />
       </AppFrame>,
+      { wrapper: liveBridgeWrapper() },
     );
 
     // A region under `inert` leaves the accessibility tree, so a refusal raised
@@ -248,6 +294,7 @@ describe("AppFrame — the window has one live announcer, and the banner reaches
       <AppFrame {...frameProps(SESSIONS_ROUTE)}>
         <CalmSurface />
       </AppFrame>,
+      { wrapper: liveBridgeWrapper() },
     );
     expect(liveRegion(container, "assertive").textContent).toBe("");
 
@@ -283,6 +330,7 @@ describe("AppFrame — the window has one live announcer, and the banner reaches
         <AppFrame {...frameProps(SESSIONS_ROUTE, [REFUSAL_BANNER])}>
           <CalmSurface />
         </AppFrame>,
+        { wrapper: liveBridgeWrapper() },
       );
       expect(liveRegion(container, "assertive").textContent).toBe(REFUSAL_BANNER.detail);
 
@@ -297,6 +345,72 @@ describe("AppFrame — the window has one live announcer, and the banner reaches
         </AppFrame>,
       );
 
+      expect(liveRegion(container, "assertive").textContent).toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("AppFrame — the announcer runs on the window's clock", () => {
+  it("holds a fixture window's announcement until the scenario's own clock moves", () => {
+    // `Spec-023 §Console Design (Meridian)` §The fixture bridge: "the fixture clock
+    // is the only clock the renderer reads in fixture mode". The announcer arms the
+    // one timeout the idle-CPU budget counts, so on the wall clock it was a
+    // subsystem reaching past the frozen one — the assertive region cleared on how
+    // fast the runner happened to be, which makes an accessibility assertion and a
+    // screenshot of a standing refusal both depend on the host rather than on the
+    // beat that advanced time.
+    //
+    // The engine, the scenario, and the announcer are all the real ones: the only
+    // instrument is fake timers, which stand in for wall time and for nothing under
+    // test.
+    vi.useFakeTimers();
+    try {
+      const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
+      const { container } = render(
+        <AppFrame {...frameProps(SESSIONS_ROUTE, [REFUSAL_BANNER])}>
+          <CalmSurface />
+        </AppFrame>,
+        { wrapper: bridgeWrapper(bridge) },
+      );
+      expect(liveRegion(container, "assertive").textContent).toBe(REFUSAL_BANNER.detail);
+
+      // Wall time well past the hold window, twice over. Nothing clears, because
+      // nothing in this window is reading it.
+      act(() => {
+        vi.advanceTimersByTime(LIVE_ANNOUNCEMENT_HOLD_MS * 2);
+      });
+      expect(liveRegion(container, "assertive").textContent).toBe(REFUSAL_BANNER.detail);
+
+      // The scenario's own clock is what the hold was measured against.
+      act(() => {
+        scenarioEngineOf(bridge).advance(LIVE_ANNOUNCEMENT_HOLD_MS + 1);
+      });
+      expect(liveRegion(container, "assertive").textContent).toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("negative control: a live window's announcement clears on wall time", () => {
+    // The other arm of the same seam, over the REAL live bridge — `createTier1Bridge`
+    // is the object the preload exposes. Without this the case above would be
+    // satisfied by an announcer that had simply stopped clearing at all, and the
+    // frozen-clock claim would say nothing about which clock is read.
+    vi.useFakeTimers();
+    try {
+      const { container } = render(
+        <AppFrame {...frameProps(SESSIONS_ROUTE, [REFUSAL_BANNER])}>
+          <CalmSurface />
+        </AppFrame>,
+        { wrapper: liveBridgeWrapper() },
+      );
+      expect(liveRegion(container, "assertive").textContent).toBe(REFUSAL_BANNER.detail);
+
+      act(() => {
+        vi.advanceTimersByTime(LIVE_ANNOUNCEMENT_HOLD_MS + 1);
+      });
       expect(liveRegion(container, "assertive").textContent).toBe("");
     } finally {
       vi.useRealTimers();
