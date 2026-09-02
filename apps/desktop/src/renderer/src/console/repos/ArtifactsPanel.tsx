@@ -29,35 +29,34 @@
 //    are offered; the typed refusal renders beside the one that was pressed.
 //
 // THE DELETE CONFIRM IS TWO STEPS, IN PLACE. The design requires the foreclosure
-// consequence stated BEFORE the act and reported AFTER it; both halves are here. It
-// is an inline strip rather than the modal §10.3 describes, because that modal is
-// the retire/dispose consent surface and enumerates an inspection this panel is
-// never given — borrowing its shape would imply a preview that does not exist.
+// consequence stated BEFORE the act and reported AFTER it, and both halves ship:
+// the consequence strip is on the row and the receipt is here. It is an inline
+// strip rather than the modal §10.3 describes, because that modal is the
+// retire/dispose consent surface and enumerates an inspection this panel is never
+// given — borrowing its shape would imply a preview that does not exist.
+//
+// WHAT THIS FILE OWNS, AND WHERE THE REST WENT. This module is the SESSION-scoped
+// surface: the head count, the type filter, the delete receipt, and which of the
+// body's arms renders. One manifest's face, acts, confirm strip, and disclosure are
+// `ArtifactRow.tsx`, which needs nothing this file knows — the split is that seam
+// and not a line budget, and no class name moved with it.
 
 import { useMemo, useState } from "react";
 
 import type { ConsoleRefusal } from "../core/index.js";
 import {
-  Chip,
   DerivedFigure,
   Glyph,
-  InlineRefusal,
   Nothing,
   RefusalCard,
   WireFigure,
-  formatByteQuantity,
   formatCount,
-  formatRelativeTime,
 } from "../primitives/index.js";
+import { ArtifactRow, type DeleteConfirmState } from "./ArtifactRow.js";
 import {
-  ARTIFACT_DELETE_CONSEQUENCE,
   ARTIFACT_PAYLOAD_DISPOSITION_COPY,
-  ARTIFACT_STATE_PRESENTATION,
   ARTIFACT_TYPES,
   ARTIFACT_TYPE_FILTER_ALL,
-  ARTIFACT_VISIBILITY_PRESENTATION,
-  artifactProducerLabel,
-  artifactReplicationPresentation,
   artifactTypeCounts,
   filterArtifactRows,
   type ArtifactDeleteReceipt,
@@ -140,7 +139,7 @@ export function ArtifactsPanel(props: ArtifactsPanelProps): React.JSX.Element {
       )}
 
       <div className="meridian-artifacts__body">
-        {renderPanelBody(props, visibleRows, {
+        {renderPanelBody(props, visibleRows, typeFilter, {
           artifactIdAwaitingDeleteConfirm,
           setArtifactIdAwaitingDeleteConfirm,
         })}
@@ -149,16 +148,22 @@ export function ArtifactsPanel(props: ArtifactsPanelProps): React.JSX.Element {
   );
 }
 
-/** The two pieces of confirm state one row's controls need. */
-interface DeleteConfirmState {
-  readonly artifactIdAwaitingDeleteConfirm: string | undefined;
-  readonly setArtifactIdAwaitingDeleteConfirm: (artifactId: string | undefined) => void;
-}
-
-/** The panel's four arms. Each absence is its own kind; none stands in for another. */
+/**
+ * The panel's arms. Each absence is its own kind; none stands in for another.
+ *
+ * THE TWO EMPTIES ARE TWO DIFFERENT CLAIMS, AND THE READ DECIDES WHICH. Branching
+ * on the rows the FILTER kept made a session holding six artifacts state, in the
+ * console's own voice, that it has none the moment somebody selected a type with no
+ * matches — misreporting a successful non-empty list and hiding that the filter is
+ * what is empty. So the session-empty copy is gated on what the read RETURNED, and
+ * the filter's own empty is its own arm, naming the type it is set to and the count
+ * it is hiding. The filter buttons stay exactly as they were: every type is offered
+ * including the ones at zero, and `countsByType` already tells a reader which.
+ */
 function renderPanelBody(
   props: ArtifactsPanelProps,
   visibleRows: readonly ArtifactManifestRow[],
+  typeFilter: ArtifactTypeFilter,
   confirmState: DeleteConfirmState,
 ): React.JSX.Element {
   if (props.state.kind === "not-checked") {
@@ -181,7 +186,7 @@ function renderPanelBody(
     // room can do, and rule 9 picks the shape by blast radius.
     return <RefusalCard code={props.state.refusal.code} detail={props.state.refusal.detail} />;
   }
-  if (visibleRows.length === 0) {
+  if (props.state.rows.length === 0) {
     return (
       <Nothing
         kind="empty"
@@ -191,174 +196,36 @@ function renderPanelBody(
       />
     );
   }
+  if (visibleRows.length === 0) {
+    return (
+      <Nothing
+        kind="empty"
+        placement="surface"
+        title="No artifacts of the type this filter is set to."
+        detail={`This session holds ${formatCount(props.state.rows.length)} of other types. Every type is on the filter above with its own count.`}
+        // The type is a wire word, so it renders through the figure chokepoint rather
+        // than as prose interpolated into the copy above — and it is the setting the
+        // reader has to change, which is what this slot is for.
+        action={<WireFigure value={typeFilter} />}
+      />
+    );
+  }
   return (
     <ul className="meridian-artifacts__list">
       {visibleRows.map((row) => (
-        <li key={row.id}>{renderArtifactRow(row, props, confirmState)}</li>
+        <li key={row.id}>
+          <ArtifactRow
+            row={row}
+            nowMilliseconds={props.nowMilliseconds}
+            refusal={props.rowRefusals?.get(row.id)}
+            onReadManifest={props.onReadManifest}
+            onChangeVisibility={props.onChangeVisibility}
+            onDelete={props.onDelete}
+            confirmState={confirmState}
+          />
+        </li>
       ))}
     </ul>
-  );
-}
-
-/** One manifest row: the six figures on its face, its acts, and its disclosure. */
-function renderArtifactRow(
-  row: ArtifactManifestRow,
-  props: ArtifactsPanelProps,
-  confirmState: DeleteConfirmState,
-): React.JSX.Element {
-  const statePresentation = ARTIFACT_STATE_PRESENTATION[row.state];
-  const visibilityPresentation = ARTIFACT_VISIBILITY_PRESENTATION[row.visibility];
-  const replicationPresentation = artifactReplicationPresentation(row);
-  const formattedSize = formatByteQuantity(row.size);
-  const refusal = props.rowRefusals?.get(row.id);
-  const isAwaitingConfirm = confirmState.artifactIdAwaitingDeleteConfirm === row.id;
-
-  return (
-    <article className="meridian-artifact-row" aria-label={`Artifact ${row.id}`}>
-      <div className="meridian-artifact-row__face">
-        <Chip
-          label={row.artifactType}
-          mono
-          glyph={row.artifactType === "diff" ? "diff" : "artifact"}
-        />
-        <Chip tone={statePresentation.tone} label={row.state} mono />
-        <Chip tone={visibilityPresentation.tone} label={row.visibility} mono />
-        <span className="meridian-artifact-row__size">
-          {/* The scaled reading, with the exact byte count the daemon sent on its title. */}
-          <WireFigure value={formattedSize.text} title={`${row.size}`} />
-        </span>
-        <span className="meridian-artifact-row__producer">
-          by <DerivedFigure text={artifactProducerLabel(row)} />
-        </span>
-        <span className="meridian-artifact-row__age" title={row.createdAt}>
-          <DerivedFigure text={formatRelativeTime(row.createdAt, props.nowMilliseconds)} />
-        </span>
-      </div>
-
-      <p className="meridian-artifact-row__replication">{replicationPresentation.meaning}</p>
-
-      <div className="meridian-artifact-row__acts">
-        {props.onReadManifest === undefined ? null : (
-          <button
-            type="button"
-            className="meridian-artifact-row__act meridian-artifact-row__act--primary"
-            onClick={() => props.onReadManifest?.(row)}
-          >
-            Read manifest
-          </button>
-        )}
-        {props.onChangeVisibility === undefined ? null : (
-          <button
-            type="button"
-            className="meridian-artifact-row__act"
-            onClick={() => props.onChangeVisibility?.(row)}
-          >
-            {row.visibility === "shared" ? "Make local-only" : "Share with the session"}
-          </button>
-        )}
-        {props.onDelete === undefined || isAwaitingConfirm ? null : (
-          <button
-            type="button"
-            className="meridian-artifact-row__act"
-            onClick={() => confirmState.setArtifactIdAwaitingDeleteConfirm(row.id)}
-          >
-            Delete
-          </button>
-        )}
-      </div>
-
-      {props.onDelete === undefined || !isAwaitingConfirm ? null : (
-        <div className="meridian-artifact-row__confirm" role="group" aria-label="Confirm delete">
-          <p className="meridian-artifact-row__consequence">{ARTIFACT_DELETE_CONSEQUENCE}</p>
-          <button
-            type="button"
-            className="meridian-artifact-row__act meridian-artifact-row__act--destructive"
-            onClick={() => {
-              confirmState.setArtifactIdAwaitingDeleteConfirm(undefined);
-              props.onDelete?.(row);
-            }}
-          >
-            Delete permanently
-          </button>
-          <button
-            type="button"
-            className="meridian-artifact-row__act"
-            onClick={() => confirmState.setArtifactIdAwaitingDeleteConfirm(undefined)}
-          >
-            Keep it
-          </button>
-        </div>
-      )}
-
-      {refusal === undefined ? null : (
-        // Inline, beside the controls that produced it, and the controls stay: the
-        // act did not happen and the participant may try another one. The daemon's
-        // own sentence is what renders — a blocked delete's remedy (delete the
-        // derivatives first, or keep the source) is the daemon's to state.
-        <InlineRefusal code={refusal.code} detail={refusal.detail} />
-      )}
-
-      <details className="meridian-artifact-row__detail">
-        <summary className="meridian-artifact-row__detail-summary">Digest and metadata</summary>
-        <dl className="meridian-artifact-row__detail-list">
-          <div className="meridian-artifact-row__pair">
-            <dt>Digest</dt>
-            <dd>
-              <WireFigure value={row.digest} />
-            </dd>
-          </div>
-          <div className="meridian-artifact-row__pair">
-            <dt>Derived from</dt>
-            <dd>
-              {row.subject === undefined ? (
-                <Nothing kind="empty" placement="inline" title="Not a derivative." />
-              ) : (
-                <WireFigure value={row.subject} />
-              )}
-            </dd>
-          </div>
-          <div className="meridian-artifact-row__pair">
-            <dt>Run</dt>
-            <dd>
-              {row.runId === undefined ? (
-                <Nothing kind="empty" placement="inline" title="No run produced this." />
-              ) : (
-                <WireFigure value={row.runId} />
-              )}
-            </dd>
-          </div>
-          {renderStringMap("Annotations", row.annotations)}
-          {renderStringMap("Metadata", row.metadata)}
-        </dl>
-      </details>
-    </article>
-  );
-}
-
-/** One free-form wire map, drawn as pairs. Keys and values are both the wire's. */
-function renderStringMap(
-  label: string,
-  entries: Readonly<Record<string, string>>,
-): React.JSX.Element {
-  const entryPairs = Object.entries(entries);
-  return (
-    <div className="meridian-artifact-row__pair">
-      <dt>{label}</dt>
-      <dd>
-        {entryPairs.length === 0 ? (
-          <Nothing kind="empty" placement="inline" title="None." />
-        ) : (
-          <ul className="meridian-artifact-row__map">
-            {entryPairs.map(([entryKey, entryValue]) => (
-              <li key={entryKey}>
-                <WireFigure value={entryKey} />
-                <WireFigure value={entryValue} />
-              </li>
-            ))}
-          </ul>
-        )}
-      </dd>
-    </div>
   );
 }
 

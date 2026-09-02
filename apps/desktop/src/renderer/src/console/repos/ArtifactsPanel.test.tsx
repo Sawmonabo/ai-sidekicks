@@ -10,7 +10,7 @@ import {
   REPOS_VIEWING_PARTICIPANT_ID,
 } from "../bridge/scenarios/repos.js";
 import { refuse } from "../core/index.js";
-import { formatByteQuantity } from "../primitives/index.js";
+import { formatByteQuantity, formatCount } from "../primitives/index.js";
 import { ArtifactsPanel } from "./ArtifactsPanel.js";
 import {
   ARTIFACT_DELETE_CONSEQUENCE,
@@ -154,14 +154,48 @@ describe("ArtifactsPanel — the type filter is one filter over one list", () =>
     expect(container.querySelectorAll(".meridian-artifact-row")).toHaveLength(1);
   });
 
-  it("negative control: a filter that matches nothing renders the empty absence, not the whole list", () => {
+  it("says the FILTER matched nothing, not that the session has nothing", () => {
+    // The read served two artifacts. A panel that branched on the rows the filter
+    // kept reported "No artifacts." here — the console's own voice stating that a
+    // non-empty session is empty, and hiding that the filter is what has no matches.
     const { container } = render(
       <ArtifactsPanel state={{ kind: "listed", rows }} nowMilliseconds={NOW_MILLISECONDS} />,
     );
     const filter = within(container).getByRole("group", { name: "Filter by artifact type" });
     fireEvent.click(within(filter).getByText("summary"));
     expect(container.querySelectorAll(".meridian-artifact-row")).toHaveLength(0);
-    expect(container.textContent).toContain("No artifacts.");
+
+    const body = container.querySelector(".meridian-artifacts__body");
+    expect(body?.textContent).toContain("No artifacts of the type this filter is set to");
+    // The type it is set to, and how many rows of other types it is hiding.
+    expect(body?.textContent).toContain("summary");
+    expect(body?.textContent).toContain(formatCount(rows.length));
+    expect(body?.textContent).not.toContain("No artifacts.");
+    expect(body?.textContent).not.toContain("produced by runs and by ingest");
+  });
+
+  it("negative control: the session-empty copy survives, on the arm that earns it", () => {
+    // The other side of the same branch. A fix that routed every empty body through
+    // the filter-scoped sentence would leave a read that genuinely found none with
+    // no way to say so, and would name a filter the participant never touched.
+    const { container } = render(
+      <ArtifactsPanel state={{ kind: "listed", rows: [] }} nowMilliseconds={NOW_MILLISECONDS} />,
+    );
+    const body = container.querySelector(".meridian-artifacts__body");
+    expect(body?.textContent).toContain("No artifacts.");
+    expect(body?.textContent).toContain("produced by runs and by ingest");
+    expect(body?.textContent).not.toContain("this filter is set to");
+  });
+
+  it("negative control: a filter that matches keeps rendering the list", () => {
+    const { container } = render(
+      <ArtifactsPanel state={{ kind: "listed", rows }} nowMilliseconds={NOW_MILLISECONDS} />,
+    );
+    const filter = within(container).getByRole("group", { name: "Filter by artifact type" });
+    fireEvent.click(within(filter).getByText("file"));
+    expect(container.querySelectorAll(".meridian-artifact-row")).toHaveLength(1);
+    const body = container.querySelector(".meridian-artifacts__body");
+    expect(body?.textContent).not.toContain("this filter is set to");
   });
 });
 

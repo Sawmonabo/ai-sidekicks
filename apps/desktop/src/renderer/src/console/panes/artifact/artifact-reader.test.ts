@@ -350,3 +350,113 @@ describe("artifact pane reader — reading again is coalesced, not raced", () =>
     expect(reader.snapshot.artifacts.kind).toBe("loading");
   });
 });
+
+/**
+ * A delete whose answer lands under a refresh the participant started after
+ * confirming it. The list read that refresh issues can have observed the artifact
+ * BEFORE the daemon destroyed it, so it republishes a row the daemon no longer
+ * holds — and the delete is the only party that knows better.
+ */
+function readerRacingADelete(clock: ManualClock): {
+  readonly reader: ArtifactPaneReader;
+  readonly releaseDelete: (answer: unknown) => void;
+  readonly stopListingTheArtifact: () => void;
+} {
+  let listedSummaries: readonly unknown[] = [SERVED_SUMMARY];
+  let releaseDelete: (answer: unknown) => void = () => undefined;
+  const reader = new ArtifactPaneReader({
+    bridge: {
+      growth: {
+        artifactList: async () => ({ status: "served", value: listedSummaries }),
+        artifactAllowlistRead: async () => REFUSAL,
+        artifactDelete: () =>
+          new Promise((resolve) => {
+            releaseDelete = resolve;
+          }),
+      },
+    } as unknown as ConsoleBridge,
+    sessionId: "session-1",
+    clock,
+  });
+  return {
+    reader,
+    releaseDelete: (answer) => releaseDelete(answer),
+    stopListingTheArtifact: () => {
+      listedSummaries = [];
+    },
+  };
+}
+
+function listedRowIds(reader: ArtifactPaneReader): readonly string[] {
+  const state = reader.snapshot.artifacts;
+  return state.kind === "listed" ? state.rows.map((row) => row.id) : [];
+}
+
+describe("artifact pane reader — a served delete reconciles, superseded or not", () => {
+  it("removes the row and reads again when nothing raced the delete", async () => {
+    const clock = new ManualClock();
+    const { reader, releaseDelete, stopListingTheArtifact } = readerRacingADelete(clock);
+    reader.start();
+    await readThrough(clock);
+    expect(listedRowIds(reader)).toStrictEqual([SERVED_SUMMARY.artifactId]);
+
+    const deletion = reader.deleteArtifact(SERVED_SUMMARY.artifactId);
+    stopListingTheArtifact();
+    releaseDelete({ status: "served", value: undefined });
+
+    expect(await deletion).toStrictEqual({ status: "settled" });
+    expect(listedRowIds(reader)).toStrictEqual([]);
+    await readThrough(clock);
+    expect(reader.performCount).toBe(2);
+  });
+
+  it("still reconciles when a refresh moved the stamp under the delete", async () => {
+    // The bug, exercised: confirm Delete, press "Read again" before the answer
+    // lands, and let that read observe the artifact the daemon is about to destroy.
+    // A reader that returned on the moved stamp scheduled no second read and left
+    // the republished row on screen, actionable, against a manifest that is gone.
+    const clock = new ManualClock();
+    const { reader, releaseDelete, stopListingTheArtifact } = readerRacingADelete(clock);
+    reader.start();
+    await readThrough(clock);
+
+    const deletion = reader.deleteArtifact(SERVED_SUMMARY.artifactId);
+    reader.refresh();
+    await readThrough(clock);
+    expect(reader.performCount).toBe(2);
+    expect(listedRowIds(reader)).toStrictEqual([SERVED_SUMMARY.artifactId]);
+
+    stopListingTheArtifact();
+    releaseDelete({ status: "served", value: undefined });
+
+    // Not `settled`: the reader applied the removal and asked for the read that
+    // re-establishes the rest, and it cannot vouch for a screen it does not yet own.
+    expect(await deletion).toStrictEqual({ status: "reconciling" });
+    expect(listedRowIds(reader)).toStrictEqual([]);
+
+    await readThrough(clock);
+    expect(reader.performCount).toBe(3);
+    expect(listedRowIds(reader)).toStrictEqual([]);
+  });
+
+  it("negative control: a disposed reader publishes nothing and schedules nothing", async () => {
+    // The other half of the split. `#generation` answered disposal and supersession
+    // with one comparison; a fix that reconciled on every served delete would re-arm
+    // a scheduler behind a pane that unmounted, which is the failure the refresh
+    // substrate exists to make unrepresentable.
+    const clock = new ManualClock();
+    const { reader, releaseDelete, stopListingTheArtifact } = readerRacingADelete(clock);
+    reader.start();
+    await readThrough(clock);
+
+    const deletion = reader.deleteArtifact(SERVED_SUMMARY.artifactId);
+    reader.dispose();
+    stopListingTheArtifact();
+    releaseDelete({ status: "served", value: undefined });
+
+    expect(await deletion).toStrictEqual({ status: "superseded" });
+    expect(listedRowIds(reader)).toStrictEqual([SERVED_SUMMARY.artifactId]);
+    await readThrough(clock);
+    expect(reader.performCount).toBe(1);
+  });
+});
