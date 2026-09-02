@@ -25,13 +25,18 @@ import "./settings.css";
 import { createElement } from "react";
 
 import type { ConsoleSurfaceRegistry } from "../frame/surface-registry.js";
+import { registerAppearancePage } from "./pages/AppearancePage.js";
 import { registerApplicationPage } from "./pages/ApplicationPage.js";
 import { registerCostReceiptPage } from "./pages/CostReceiptPage.js";
+import { registerDataErasurePage } from "./pages/DataErasurePage.js";
+import { registerDiagnosticsPage } from "./pages/DiagnosticsPage.js";
+import { registerKeyboardPage } from "./pages/KeyboardPage.js";
 import { registerMcpServersPage } from "./pages/McpServersPage.js";
 import { registerNotificationsPage } from "./pages/NotificationsPage.js";
 import { registerProviderAccountsPage } from "./pages/ProviderAccountsPage.js";
 import { registerRuntimeNodesPage } from "./pages/RuntimeNodesPage.js";
 import { registerSidekicksPage } from "./pages/sidekicks-page.js";
+import { registerWorkspaceMountsPage } from "./pages/WorkspaceMountsPage.js";
 import { SettingsPageRegistry } from "./settings-page-registry.js";
 import { SettingsSurface } from "./SettingsSurface.js";
 
@@ -49,10 +54,13 @@ export function registerSettingsPages(registry: SettingsPageRegistry): void {
   registerApplicationPage(registry);
   // The sidekicks page: this seam's entry, the agents family's body.
   registerSidekicksPage(registry);
-  // T-023p-1C-4 L4.7 keyboard, appearance, mounts
-  // T-023p-1C-4 L4.8 accounts, MCP servers, cost — the first two are chrome plus a
-  // typed slot, and the shell is deleted by the task that fills it rather than left
-  // standing beside the body.
+  // T-023p-1C-4 L4.7 mounts, diagnostics, data, appearance, keyboard
+  registerWorkspaceMountsPage(registry);
+  registerDiagnosticsPage(registry);
+  registerDataErasurePage(registry);
+  registerAppearancePage(registry);
+  registerKeyboardPage(registry);
+  // T-023p-1C-4 L4.8 accounts, MCP servers, cost
   registerProviderAccountsPage(registry);
   registerMcpServersPage(registry);
   registerCostReceiptPage(registry);

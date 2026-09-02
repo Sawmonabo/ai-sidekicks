@@ -413,3 +413,210 @@
   font-size: var(--meridian-text-sm);
   line-height: 1.5;
 }
+
+/* --- The colour-scheme choice ------------------------------------------- */
+/* Three options, no disclosure. The control is Base UI's radio, so the ring and
+   the dot are ours to draw and the semantics are the hidden input's. */
+
+.meridian-scheme-choice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+}
+
+.meridian-scheme-choice__option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--meridian-space-3);
+  max-width: 62ch;
+  cursor: pointer;
+}
+
+.meridian-scheme-choice__control {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  padding: 0;
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: 999px;
+  background: var(--meridian-surface-raised);
+  cursor: pointer;
+}
+
+.meridian-scheme-choice__control[data-checked] {
+  border-color: var(--meridian-accent);
+}
+
+.meridian-scheme-choice__control:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-scheme-choice__indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--meridian-accent);
+}
+
+.meridian-scheme-choice__text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  min-width: 0;
+}
+
+.meridian-scheme-choice__label {
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+  font-weight: 500;
+}
+
+.meridian-scheme-choice__description {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  line-height: 1.5;
+}
+
+/* --- The mount inventory ------------------------------------------------- */
+/* One line per mount, with the two health axes side by side. Detail belongs to the
+   workspace surface; this list is scannable or it is nothing. */
+
+.meridian-mount-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-mount-list__item {
+  padding-bottom: var(--meridian-space-3);
+  border-bottom: 1px solid var(--meridian-edge);
+}
+
+.meridian-mount-list__item:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.meridian-mount-list__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  min-width: 0;
+}
+
+.meridian-mount-list__path {
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+  overflow-wrap: anywhere;
+}
+
+.meridian-mount-list__root,
+.meridian-mount-list__probe {
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+  overflow-wrap: anywhere;
+}
+
+.meridian-mount-list__axes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  margin-top: var(--meridian-space-1);
+}
+
+/* --- The keyboard map ----------------------------------------------------- */
+/* A scannable list rather than a table: every row carries the same three things,
+   and a chord is read by shape rather than by column position. */
+
+.meridian-keymap__filter {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin-bottom: var(--meridian-space-4);
+}
+
+.meridian-keymap__filter-label {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-keymap__filter-input {
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+  font: inherit;
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-keymap__filter-input:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-keymap__filter-input::placeholder {
+  color: var(--meridian-text-faint);
+}
+
+.meridian-keymap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-keymap__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  padding-bottom: var(--meridian-space-3);
+  border-bottom: 1px solid var(--meridian-edge);
+}
+
+.meridian-keymap__row:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.meridian-keymap__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-keymap__title {
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-keymap__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-keymap__scope {
+  overflow-wrap: anywhere;
+}
+
+.meridian-keymap__unavailable {
+  margin: 0;
+  color: var(--meridian-red-text);
+  font-size: var(--meridian-text-xs);
+  line-height: 1.5;
+}

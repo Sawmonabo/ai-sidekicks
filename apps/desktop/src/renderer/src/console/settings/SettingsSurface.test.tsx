@@ -100,8 +100,12 @@ describe("settings pane — the three ways there is no page", () => {
   });
 
   it("says a section's page is reserved rather than drawing an empty pane", () => {
+    // An EMPTY registry rather than the shipped one. The claim is the pane's — a
+    // section whose page nobody registered says so — and pinning it to whichever
+    // section happens to be unbuilt this week made it fail the moment that
+    // section's lane landed, which is a stale test rather than a real regression.
     const { container } = render(
-      <SettingsSurface context={contextFor("keyboard")} pages={shippedPages()} />,
+      <SettingsSurface context={contextFor("keyboard")} pages={new SettingsPageRegistry()} />,
     );
     expect(container.textContent ?? "").toContain("has not been built yet");
   });

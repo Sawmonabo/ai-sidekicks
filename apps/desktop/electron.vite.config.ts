@@ -190,6 +190,19 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
       build: {
         outDir: "out/renderer",
         sourcemap: "hidden",
+        // Named rather than defaulted. `electron-vite` overrides Vite's own
+        // production default and ships `minify: false` for every config it
+        // builds, so without this line the renderer that reaches a person is the
+        // console's source text — every identifier, every blank line — and the
+        // `≤ 450 kB gzip` budget below is measured against an artifact nobody
+        // downloads. Measured at this revision: 1,967,715 B raw / 443,585 B gzip
+        // unminified against 845,273 B raw / 244,546 B gzip minified, which is
+        // the difference between 98.6 % of that budget with three of the twelve
+        // settings sections still unbuilt and 54.3 % with all but three built.
+        //
+        // `sourcemap: "hidden"` above is what makes it costless to read: the maps
+        // are still emitted and still not referenced from the bundle.
+        minify: "esbuild",
         // `.vite/manifest.json` — the chunk graph Rollup already computed to
         // produce the chunks, written out on request. It carries `isEntry`,
         // the STATIC `imports` of every chunk, its `dynamicImports`, its `css`,
