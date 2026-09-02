@@ -55,12 +55,12 @@ import type { SessionDirectoryState } from "../frame/session-directory.js";
 import { useSessionDirectory } from "../frame/session-directory.js";
 import { renderAbsorbedSessionProbe } from "../frame/legacy-surfaces.js";
 import type { ConsoleSurfaceContext } from "../frame/surface-registry.js";
+import type { AttentionSeverity } from "../bridge/index.js";
 import {
   NotificationCenter,
-  READS_NO_ATTENTION_PROJECTION,
+  attentionProjectionReaderFor,
   useAttentionProjection,
   type AttentionReading,
-  type AttentionSeverity,
 } from "../notifications/index.js";
 import { DerivedFigure, InlineRefusal, Nothing, formatCount } from "../primitives/index.js";
 import { useOpenSessionIds, useSessionPartition, type SessionStore } from "../store/index.js";
@@ -80,10 +80,28 @@ export interface SessionsSurfaceProps {
 
 export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element {
   const { context } = props;
-  const attention = useAttentionProjection(READS_NO_ATTENTION_PROJECTION);
   const pins = useSessionPins(context.uiStateStore);
   const directory = useSessionDirectory(context.bridge.growth);
   const windowSessionIds = useOpenSessionIds(context.sessionStoreRegistry);
+  // The attention read is scoped to a session on the wire and this destination is
+  // not, so it asks about every session the surface can NAME — the same set the
+  // list is built from, derived here with no projected rows because the ids are all
+  // this needs. Memoised on the merged ids rather than on the directory object, so
+  // the read fires once when the directory settles and not again on every render
+  // the surface performs afterwards.
+  const attentionSessionIds = useMemo(
+    () =>
+      mergeSessionRows({ directory, windowSessionIds, projectedRows: [] }).map(
+        (row) => row.sessionId,
+      ),
+    [directory, windowSessionIds],
+  );
+  const attention = useAttentionProjection(
+    useMemo(
+      () => attentionProjectionReaderFor(context.bridge.growth, attentionSessionIds),
+      [context.bridge.growth, attentionSessionIds],
+    ),
+  );
   // Counts presses rather than recording a boolean, so the built node can be keyed
   // on it: a second press remounts and therefore starts a second session.
   const [startRequestCount, setStartRequestCount] = useState(0);

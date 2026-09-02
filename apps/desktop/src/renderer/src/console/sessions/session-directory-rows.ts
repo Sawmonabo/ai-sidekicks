@@ -28,7 +28,7 @@
 // cannot reach it.
 
 import type { SessionDirectoryState } from "../frame/session-directory.js";
-import type { AttentionSeverity } from "../notifications/index.js";
+import type { AttentionSeverity } from "../bridge/index.js";
 import type { SessionListRow } from "./session-rows.js";
 
 /**

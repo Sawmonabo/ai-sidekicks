@@ -102,6 +102,8 @@ function contextWith(options: {
   readonly directorySessionIds?: readonly string[];
   /** What this window holds a store for, as the registry would report it. */
   readonly windowSessionIds?: readonly string[];
+  /** Attention items the projection serves, per session. Refused unless named. */
+  readonly attentionBySessionId?: Readonly<Record<string, readonly unknown[]>>;
 }): ConsoleSurfaceContext {
   const directorySessionIds = options.directorySessionIds;
   return {
@@ -110,6 +112,14 @@ function contextWith(options: {
       source: options.bridgeSource ?? "fixture",
       growth: {
         invitesList: () => Promise.resolve(refusedRead("invitesList", "invites-list")),
+        attentionProjectionRead: ({ sessionId }: { readonly sessionId: string }) => {
+          const items = options.attentionBySessionId?.[sessionId];
+          return Promise.resolve(
+            items === undefined
+              ? refusedRead("attentionProjectionRead", "attention-projection-read")
+              : { status: "served", value: { items } },
+          );
+        },
         sessionList: () =>
           Promise.resolve(
             directorySessionIds === undefined
@@ -305,5 +315,36 @@ describe("what the destination puts beside the list", () => {
     const text = container.textContent ?? "";
     expect(text).toContain("The attention projection has not been read.");
     expect(text).not.toContain("Nothing needs you.");
+  });
+
+  it("asks about every session it can name, not only the one the address names", async () => {
+    // The read is session-scoped on the wire and this destination is not, so the
+    // proof is that an item raised for a session THIS ADDRESS DOES NOT NAME still
+    // reaches the panel. Before the fan-out the surface read for the active session
+    // and the address names none, so this panel could never populate at all.
+    const { container } = render(
+      <SessionsSurface
+        context={contextWith({
+          directorySessionIds: ["session-node"],
+          attentionBySessionId: {
+            "session-node": [
+              {
+                id: "attention-1",
+                sessionId: "session-node",
+                trigger: "pending_approval",
+                severity: "actionable",
+                summary: "A tool call is waiting on you.",
+                sourceEventId: "event-1",
+                createdAt: "2026-01-01T10:00:00.000Z",
+              },
+            ],
+          },
+        })}
+      />,
+    );
+    await settle();
+    const text = container.textContent ?? "";
+    expect(text).toContain("A tool call is waiting on you.");
+    expect(text).not.toContain("The attention projection has not been read.");
   });
 });

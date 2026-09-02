@@ -33,64 +33,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-/**
- * The six triggers, closed. `Spec-023 §Console Design (Meridian)`: "`trigger` at
- * exactly six values, each with its own render … Six is closed. The center adds no
- * seventh and collapses no two."
- *
- * Declared once as a tuple with the union derived from it, so the claim about a
- * COUNT is countable at runtime and a seventh cannot be added to a hand-written
- * union while the table a renderer walks stays at six.
- */
-export const ATTENTION_TRIGGERS = [
-  "pending_approval",
-  "pending_input",
-  "run_completed",
-  "run_failed",
-  "invite_received",
-  "mention",
-] as const;
-
-/** One trigger. Derived from the enumeration, never restated beside it. */
-export type AttentionTrigger = (typeof ATTENTION_TRIGGERS)[number];
-
-/**
- * The two severities, closed. This is the console's primary visual axis here
- * because it is the axis suppression keys on: a muted session still surfaces
- * actionable attention while informational events stay muted
- * (`Spec-019 §Fallback Behavior`).
- */
-export const ATTENTION_SEVERITIES = ["actionable", "informational"] as const;
-
-/** One severity. Derived, so the vocabulary is declared exactly once. */
-export type AttentionSeverity = (typeof ATTENTION_SEVERITIES)[number];
-
-/**
- * One attention item as the console consumes it.
- *
- * Two scopes live in this one shape, discriminated by `runId` exactly as the
- * projection discriminates them: an item carrying it is run-scoped, an item
- * omitting it is the session-scoped aggregate whose representative the daemon
- * selected. The console renders that selection and never performs it, which is
- * why there is no second type and no aggregate-only member here.
- *
- * Liveness is `resolvedAt`: there is no boolean, and absence means live.
- */
-export interface ConsoleAttentionItem {
-  readonly id: string;
-  readonly sessionId: string;
-  /** Present on a run-scoped item; absent on the session-scoped aggregate. */
-  readonly runId?: string;
-  readonly trigger: AttentionTrigger;
-  readonly severity: AttentionSeverity;
-  /** The projection's own render string. Shown as sent, never paraphrased. */
-  readonly summary: string;
-  /** The canonical event the item points at. Never composed here. */
-  readonly sourceEventId: string;
-  readonly createdAt: string;
-  /** Set by the daemon when the item clears. The console never writes it. */
-  readonly resolvedAt?: string;
-}
+import {
+  ATTENTION_SEVERITIES,
+  ATTENTION_TRIGGERS,
+  type AttentionItem,
+  type AttentionSeverity,
+  type AttentionTrigger,
+  type GrowthPort,
+} from "../bridge/index.js";
 
 /**
  * The read the notification center performs.
@@ -111,6 +61,41 @@ export type AttentionProjectionReader = () => Promise<readonly unknown[] | undef
  */
 export const READS_NO_ATTENTION_PROJECTION: AttentionProjectionReader = () =>
   Promise.resolve(undefined);
+
+/**
+ * The reader a surface installs when it has a bridge and sessions to read for.
+ *
+ * The projection is SESSION-scoped on the wire, and the destination that renders it
+ * is not: the all-sessions list asks "what needs me" across everything it can name.
+ * So the reader fans out over the ids it was given and concatenates what came back —
+ * which is a fan-out over a read, not a second projection, and the plane above still
+ * folds one flat set exactly as it did when the set came from one session.
+ *
+ * `undefined` — "nothing was read" — on two inputs and deliberately not an empty
+ * array, which would tell the center the projection is genuinely empty and let it
+ * render the all-clear for a question nobody put: no ids to ask about, and every
+ * ask refused. A PARTIAL answer is an answer and is returned, because a session
+ * whose attention the console did read is one it can report on.
+ *
+ * The port's refusal detail is not threaded through: the reading has one non-answer
+ * phase and the center renders one sentence for it, and a second sentence lifted
+ * out of a refusal would be a second place that copy is written.
+ */
+export function attentionProjectionReaderFor(
+  growth: GrowthPort,
+  sessionIds: readonly string[],
+): AttentionProjectionReader {
+  return async () => {
+    if (sessionIds.length === 0) {
+      return undefined;
+    }
+    const outcomes = await Promise.all(
+      sessionIds.map(async (sessionId) => await growth.attentionProjectionRead({ sessionId })),
+    );
+    const served = outcomes.filter((outcome) => outcome.status === "served");
+    return served.length === 0 ? undefined : served.flatMap((outcome) => outcome.value.items);
+  };
+}
 
 function isTrigger(candidate: unknown): candidate is AttentionTrigger {
   return (
@@ -138,7 +123,7 @@ function readString(source: Readonly<Record<string, unknown>>, member: string): 
  * Dropping is the fail-closed arm: a half-narrowed item would put a blank summary
  * or an unstyled trigger on a surface whose whole job is to be trusted.
  */
-export function narrowAttentionItem(candidate: unknown): ConsoleAttentionItem | undefined {
+export function narrowAttentionItem(candidate: unknown): AttentionItem | undefined {
   if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) {
     return undefined;
   }
@@ -178,8 +163,8 @@ export function narrowAttentionItem(candidate: unknown): ConsoleAttentionItem | 
 /** One session's live attention, split on the axis suppression keys on. */
 export interface AttentionSessionGroup {
   readonly sessionId: string;
-  readonly actionable: readonly ConsoleAttentionItem[];
-  readonly informational: readonly ConsoleAttentionItem[];
+  readonly actionable: readonly AttentionItem[];
+  readonly informational: readonly AttentionItem[];
 }
 
 /**
@@ -201,11 +186,11 @@ export interface AttentionSessionGroup {
  * work that is already done.
  */
 export class AttentionPlane {
-  readonly #liveItems: readonly ConsoleAttentionItem[];
+  readonly #liveItems: readonly AttentionItem[];
   readonly #groups: readonly AttentionSessionGroup[];
   readonly #severityBySessionId: ReadonlyMap<string, AttentionSeverity>;
 
-  public constructor(items: readonly ConsoleAttentionItem[]) {
+  public constructor(items: readonly AttentionItem[]) {
     this.#liveItems = items.filter((item) => item.resolvedAt === undefined);
     this.#groups = groupBySession(this.#liveItems);
     this.#severityBySessionId = new Map(
@@ -217,7 +202,7 @@ export class AttentionPlane {
   }
 
   /** Every unresolved item, oldest first. Ordering is the projection's own. */
-  public get liveItems(): readonly ConsoleAttentionItem[] {
+  public get liveItems(): readonly AttentionItem[] {
     return this.#liveItems;
   }
 
@@ -252,10 +237,10 @@ export class AttentionPlane {
  * about the attention state.
  */
 export function narrowAttentionProjection(members: readonly unknown[]): {
-  readonly items: readonly ConsoleAttentionItem[];
+  readonly items: readonly AttentionItem[];
   readonly droppedCount: number;
 } {
-  const items: ConsoleAttentionItem[] = [];
+  const items: AttentionItem[] = [];
   let droppedCount = 0;
   for (const member of members) {
     const item = narrowAttentionItem(member);
@@ -268,10 +253,10 @@ export function narrowAttentionProjection(members: readonly unknown[]): {
   return { items, droppedCount };
 }
 
-function groupBySession(items: readonly ConsoleAttentionItem[]): readonly AttentionSessionGroup[] {
+function groupBySession(items: readonly AttentionItem[]): readonly AttentionSessionGroup[] {
   const bySessionId = new Map<
     string,
-    { actionable: ConsoleAttentionItem[]; informational: ConsoleAttentionItem[] }
+    { actionable: AttentionItem[]; informational: AttentionItem[] }
   >();
   for (const item of items) {
     const existing = bySessionId.get(item.sessionId) ?? { actionable: [], informational: [] };

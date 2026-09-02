@@ -25,8 +25,7 @@ export { NotificationCenter } from "./NotificationCenter.js";
 // the layout rule, and a barrel re-exporting a symbol nobody outside it imports is
 // a door onto a room with no other entrance.
 export {
-  READS_NO_ATTENTION_PROJECTION,
+  attentionProjectionReaderFor,
   useAttentionProjection,
   type AttentionReading,
-  type AttentionSeverity,
 } from "./attention-plane.js";

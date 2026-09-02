@@ -8,14 +8,11 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import type { AttentionItem } from "../bridge/index.js";
 import { NotificationCenter } from "./NotificationCenter.js";
-import {
-  AttentionPlane,
-  type ConsoleAttentionItem,
-  type AttentionReading,
-} from "./attention-plane.js";
+import { AttentionPlane, type AttentionReading } from "./attention-plane.js";
 
-function item(overrides: Partial<ConsoleAttentionItem> = {}): ConsoleAttentionItem {
+function item(overrides: Partial<AttentionItem> = {}): AttentionItem {
   return {
     id: "attention-1",
     sessionId: "session-a",
@@ -28,7 +25,7 @@ function item(overrides: Partial<ConsoleAttentionItem> = {}): ConsoleAttentionIt
   };
 }
 
-function readingOf(items: readonly ConsoleAttentionItem[]): AttentionReading {
+function readingOf(items: readonly AttentionItem[]): AttentionReading {
   return { phase: "read", plane: new AttentionPlane(items), droppedCount: 0 };
 }
 
