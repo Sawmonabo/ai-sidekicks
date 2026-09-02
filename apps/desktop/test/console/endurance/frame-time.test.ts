@@ -26,14 +26,21 @@
 //
 // WHAT THE SAMPLED WINDOW ACTUALLY CONTAINS
 //
-// Four agent lanes, and the flagship script delivering into the ledger underneath
-// them. `bridge/scenarios/flagship.ts` is the four-lane session — its own header
-// says so — and at this revision its script is the SKELETON: eight beats over
-// 400 ms, attaching four agents and opening a run. So the sampled window covers the
-// whole of that delivery and the settled console after it, and the run asserts the
-// delivery happened inside the window rather than before it. It does not claim to
-// have sampled four lanes revealing text, because no scripted beat reveals any: the
-// reveal engine's own budget row is `streaming-cpu-one-lane`, and it stays `n/a`.
+// Four agent lanes streaming into the ledger, which is the row's own subject.
+// `bridge/scenarios/flagship.ts` scripts four runs mid-turn at the same tick —
+// interleaved thinking, messages, and tool calls across four run chapters, with an
+// approval blocking one of them while the other three carry on — and the sampled
+// window covers that stretch of it. The run asserts both halves rather than
+// describing them: that the script delivered INSIDE the window rather than before
+// it, and that four lanes were streaming inside the window, read off the scenario's
+// own beats by `scenarios/streaming-lanes.ts`. A scenario that stopped streaming
+// would fail the second assertion, which is what the first enforced revision of this
+// row could not say — its script carried no assistant beat at all.
+//
+// What is still not claimed is REVEALED text. The scripted beats carry each body's
+// description and never the body, so what the frame renders is a card and its named
+// absence; the reveal engine's own budget row is `streaming-cpu-one-lane`, and it
+// stays `n/a`.
 //
 // WHY THE WARM-UP IS COUNTED IN FRAMES AND NOT IN SECONDS
 //
@@ -59,7 +66,11 @@ import {
 } from "../electron-harness.js";
 import { openFlagshipSessionRoute } from "./console-workload.js";
 import { RUNNER_CLASS_DESCRIPTION, isPinnedRunnerClass } from "./pinned-runner-class.js";
-import { FLAGSHIP_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/flagship.js";
+import {
+  FLAGSHIP_LANE_COUNT,
+  FLAGSHIP_SCENARIO,
+} from "../../../src/renderer/src/console/bridge/scenarios/flagship.js";
+import { peakConcurrentStreamingRuns } from "../../../src/renderer/src/console/bridge/scenarios/streaming-lanes.js";
 import { ConsoleBudgetRegistry, evaluateBudget } from "../../../scripts/budget/budget-registry.mjs";
 
 const bundleIsBuilt = fixtureBundleExists();
@@ -231,8 +242,16 @@ async function runOnce(plantedStallMilliseconds: number): Promise<FrameTimingRun
   }
 }
 
-/** The workload was a workload: the script delivered inside the sampled window. */
-function expectDeliveryInsideWindow(run: FrameTimingRun): void {
+/**
+ * The workload was the workload the row names.
+ *
+ * Three claims, and the third is the one that makes this row's subject true rather
+ * than merely asserted: the script finished inside the window, it was still
+ * arriving during it, and four lanes were streaming while it did. The lane count
+ * comes off the scenario's own cast, so a script that grew a fifth agent and kept
+ * four lanes streaming would fail here rather than pass on a stale literal.
+ */
+function expectFourLaneWorkloadInsideWindow(run: FrameTimingRun): void {
   expect(
     run.beatsAtWindowEnd,
     "the flagship script had not finished delivering by the end of the sampled window, so the " +
@@ -243,6 +262,15 @@ function expectDeliveryInsideWindow(run: FrameTimingRun): void {
     "every beat had already been delivered before sampling started, so these frames measured a " +
       "settled console rather than one with a session arriving in it",
   ).toBeGreaterThan(run.beatsAtWindowStart);
+  expect(
+    peakConcurrentStreamingRuns(
+      FLAGSHIP_SCENARIO.beats,
+      run.beatsAtWindowStart,
+      run.beatsAtWindowEnd,
+    ),
+    "fewer than four agent lanes were mid-turn at any point inside the sampled window, so this " +
+      "figure bounds a console that was not doing the work the budget row names",
+  ).toBe(FLAGSHIP_LANE_COUNT);
 }
 
 describe("the four-lane frame-time budget row", () => {
@@ -261,7 +289,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — frame time with the flagship sess
     const perRunPercentiles: number[] = [];
     for (let runIndex = 0; runIndex < MEASURED_RUN_COUNT; runIndex += 1) {
       const run = await runOnce(0);
-      expectDeliveryInsideWindow(run);
+      expectFourLaneWorkloadInsideWindow(run);
       perRunPercentiles.push(percentileByNearestRank(run.frameDurationsMs, 0.95));
     }
     const measuredP95 = medianOf(perRunPercentiles);

@@ -150,19 +150,32 @@ describe("the flagship scenario's run, folded", () => {
       throw new Error("the flagship scenario is not on the scenario board");
     }
     const queued = firstBeatOfKind(flagship, "run.queued");
-    const starting = firstBeatOfKind(flagship, "run.starting");
     const runId = queued.payload?.["runId"];
     expect(typeof runId).toBe("string");
+
+    // The LAST transition of that same run, read from the script rather than
+    // assumed to be the one that follows the birth beat: the scenario streams its
+    // lanes for many beats after they start, and naming `run.starting` here made
+    // the assertion a claim about the script's length rather than about the merge.
+    const lastTransition = flagship.beats
+      .map((beat) => beat.event)
+      .filter((event) => event.payload?.["runId"] === runId && event.kind.startsWith("run."))
+      .at(-1);
+    expect(lastTransition).toBeDefined();
+    if (lastTransition === undefined) {
+      throw new Error("unreachable: the assertion above fails first");
+    }
+    expect(lastTransition.sequence).toBeGreaterThan(queued.sequence);
 
     const run = storeDrivenBy(flagship).snapshot().partitions.run[String(runId)];
 
     // The state is the LAST transition's `newState`, and the body still carries the
     // agent only the first beat named — the property the entity merge exists for.
-    expect(run?.state).toBe(starting.payload?.["newState"]);
-    expect(run?.body?.["previousState"]).toBe(starting.payload?.["previousState"]);
-    expect(run?.body?.["runVersion"]).toBe(starting.payload?.["runVersion"]);
+    expect(run?.state).toBe(lastTransition.payload?.["newState"]);
+    expect(run?.body?.["previousState"]).toBe(lastTransition.payload?.["previousState"]);
+    expect(run?.body?.["runVersion"]).toBe(lastTransition.payload?.["runVersion"]);
     expect(run?.body?.["agentId"]).toBe(queued.payload?.["agentId"]);
-    expect(run?.touchedAt).toBe(starting.occurredAt);
+    expect(run?.touchedAt).toBe(lastTransition.occurredAt);
   });
 
   it("attributes a run to the participant the envelope names, and only then", () => {

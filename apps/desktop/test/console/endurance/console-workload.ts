@@ -306,10 +306,10 @@ export interface ScenarioDeliverySchedule {
  * beat to be left queued behind a deadline nothing reaches.
  *
  * The step is floored at one coalescing window, so every step also drains the
- * batch the step before it delivered. Today's script makes that floor inert — a
- * 400 ms span over twenty steps is 20 ms against a 16 ms window — and it is stated
- * anyway, because a shorter script would otherwise deliver beats no advance in the
- * loop ever released, and the failure would be a quiet one.
+ * batch the step before it delivered. Today's script makes that floor inert — its
+ * span over twenty steps is comfortably wider than the 16 ms window — and it is
+ * stated anyway, because a shorter script would otherwise deliver beats no advance
+ * in the loop ever released, and the failure would be a quiet one.
  */
 export function flagshipDeliverySchedule(): ScenarioDeliverySchedule {
   const scriptSpanMs = FLAGSHIP_SCENARIO.beats.at(-1)?.atMs ?? 0;
