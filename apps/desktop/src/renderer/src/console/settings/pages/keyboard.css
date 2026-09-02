@@ -1,0 +1,62 @@
+/* The keyboard page's own controls.
+ *
+ * A sibling sheet rather than a block appended to `settings.css`: the rows a person
+ * reads are the settings family's shape and stay there, while the recorder and the
+ * two reset controls belong to this page alone. Every value is a Meridian token —
+ * the recorder shares the console's one control shape (`agents.css` states it for
+ * its own family's actions) rather than minting a second button that agrees with the
+ * first only until one of them is restyled.
+ */
+
+.meridian-keymap__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin-top: var(--meridian-space-1);
+}
+
+.meridian-keymap__record,
+.meridian-keymap__reset,
+.meridian-keymap__reset-all {
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text);
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  cursor: pointer;
+  transition: background var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-keymap__record:hover,
+.meridian-keymap__reset:hover,
+.meridian-keymap__reset-all:hover {
+  background: var(--meridian-surface);
+}
+
+.meridian-keymap__record:focus-visible,
+.meridian-keymap__reset:focus-visible,
+.meridian-keymap__reset-all:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+/* Armed. The border carries the state as well as the pressed attribute does for a
+   reader, because "press a chord now" is the one moment on this page where the
+   keyboard behaves differently from every other moment. */
+.meridian-keymap__record[aria-pressed="true"] {
+  border-color: var(--meridian-accent);
+  color: var(--meridian-accent-text);
+}
+
+.meridian-keymap__recording-hint {
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-keymap__reset-all {
+  align-self: flex-start;
+  margin-top: var(--meridian-space-2);
+}

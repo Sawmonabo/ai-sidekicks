@@ -1,40 +1,54 @@
-// The keyboard page: every chord this window installs, and what the service says
-// about them.
+// The keyboard page: every chord this window installs, what the service says about
+// them, and the one place a person changes one.
 //
 // `Spec-023 §Console Design (Meridian)` §Keyboard: "One row per command with its
 // chord, its command id, and the when-grammar expression that scopes it …
 // Conflict detection against the same when-scope, naming the command that already
 // holds the chord … Never writes a binding to a wire; the map is renderer-local."
 //
-// WHAT THIS PAGE DOES NOT DRAW, AND WHY IT DRAWS NOTHING IN ITS PLACE
+// WHERE A REBINDING GOES
 //
-// The section also asks for a recorder and a reset. Both need somewhere to put an
-// override, and this console has nowhere: the window installs exactly one
-// `KeyBindingTable`, it is constructed inside the frame's command surface, and the
-// settings context deliberately carries the bridge, the rail, and the open session
-// and nothing else — no frame store, no table. A page that recorded a chord it
-// could not install would be a control that leads nowhere, and one that installed
-// its own second table would put two listeners on one keystroke and run half the
-// console's commands twice. So the offer is absent with its reason, which is the
-// console's rule for a capability it does not have, and the map is what this page
-// is until the frame publishes a seam for one.
+// The frame publishes the seam (`frame/keybinding-override-store.ts`): one store per
+// window, holding the overrides a person authored composed onto the chords the
+// console ships, read by the frame's key dispatch through the same accessor this
+// page reads. So a chord recorded here IS the chord installed — no second table, no
+// second listener, no window in which the page and the keyboard disagree. The
+// override is kept through the console's own persistence chokepoint under its
+// `keybinding` value class, in this window's profile; it reaches no wire.
 //
-// The filter is a real control and does what it says: it narrows the rows in this
-// renderer and writes nothing anywhere.
+// The recorder captures the next press on the control itself, and the console
+// keyboard is SUSPENDED while it does — which is what makes `$mod+1` recordable at
+// all, since the frame's table listens on the window in the capture phase and would
+// otherwise navigate to Sessions instead of letting the chord be bound.
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
-import { COMMAND_PALETTE_OPEN_CHORD } from "../../palette/index.js";
-import { ChordHint, InlineRefusal, Nothing, WireFigure } from "../../primitives/index.js";
-import { FRAME_KEY_BINDINGS, consoleCommands } from "../../frame/command-surface.js";
+import type { ConsoleRefusal } from "../../core/index.js";
+import { consoleCommands } from "../../frame/command-surface.js";
+import { auditKeybindings } from "../../frame/keybinding-audit.js";
 import {
-  auditKeybindings,
+  consoleKeybindingOverrides,
+  useKeybindingSurface,
+} from "../../frame/keybinding-override-store.js";
+import { COMMAND_PALETTE_OPEN_CHORD } from "../../palette/index.js";
+import {
+  ChordHint,
+  HOST_CHORD_PLATFORM,
+  InlineRefusal,
+  Nothing,
+  formatChordForPlatform,
+  useAnnounce,
+} from "../../primitives/index.js";
+import { KeybindingRowBody } from "./KeybindingRowBody.js";
+import {
   composeKeybindingRows,
   matchKeybindingRows,
+  type AppliedChordRecording,
   type KeybindingRow,
 } from "./keybinding-map.js";
 import type { SettingsPageRegistry } from "../settings-page-registry.js";
+import "./keyboard.css";
 
 /** The lane that owns this page, so an unfilled section names someone. */
 const OWNER = "collaboration-settings-keyboard";
@@ -42,35 +56,102 @@ const OWNER = "collaboration-settings-keyboard";
 /** The filter field's id, so its label points at it rather than wrapping it. */
 const FILTER_FIELD_ID = "meridian-keyboard-filter";
 
+/** What the last rebinding said, if it said anything. One act, one answer. */
+interface KeyboardActReport {
+  readonly commandId: string;
+  readonly refusal: ConsoleRefusal;
+}
+
 export function KeyboardPage(): ReactNode {
   const [query, setQuery] = useState("");
+  const [recordingCommandId, setRecordingCommandId] = useState<string | undefined>(undefined);
+  const [report, setReport] = useState<KeyboardActReport | undefined>(undefined);
+  const announce = useAnnounce();
 
-  // Read once per visit rather than per render. The command registry is a mutable
-  // object with no change signal — the frame bumps a revision for the palette and
-  // there is no such counter here — so the honest scope of this read is "the
-  // commands this window had registered when the page opened", which is what
-  // leaving the section and coming back re-reads.
-  const keyboardMap = useMemo(
-    () => ({
-      rows: composeKeybindingRows({
-        commands: consoleCommands.all(),
-        bindings: FRAME_KEY_BINDINGS,
+  // The effective table, and whether the console keyboard is suspended. Read
+  // through the frame's one accessor, so this page cannot draw a keyboard that
+  // differs from the one installed.
+  const keybindingSurface = useKeybindingSurface(consoleKeybindingOverrides);
+
+  // Commands are read once per visit: the registry is a mutable object with no change
+  // signal, so the honest scope of this read is "the commands this window had
+  // registered when the page opened", which is what leaving the section and coming
+  // back re-reads. The BINDINGS are live, because those are what this page changes.
+  const commands = useMemo(() => consoleCommands.all(), []);
+  const rows = useMemo(
+    () =>
+      composeKeybindingRows({
+        commands,
+        bindings: keybindingSurface.bindings,
+        overrides: consoleKeybindingOverrides.overrides,
       }),
-      audit: auditKeybindings(FRAME_KEY_BINDINGS),
-    }),
-    [],
+    [commands, keybindingSurface],
   );
-  const visibleRows = useMemo(
-    () => matchKeybindingRows(keyboardMap.rows, query),
-    [keyboardMap, query],
+  const audit = useMemo(() => auditKeybindings(keybindingSurface.bindings), [keybindingSurface]);
+  const visibleRows = useMemo(() => matchKeybindingRows(rows, query), [rows, query]);
+  const overriddenRowCount = rows.filter((row) => row.overridden).length;
+
+  // A recorder still armed when the page goes away would leave the console keyboard
+  // suspended for the life of the window.
+  useEffect(() => () => consoleKeybindingOverrides.endRecording(), []);
+
+  const stopRecording = useCallback(() => {
+    consoleKeybindingOverrides.endRecording();
+    setRecordingCommandId(undefined);
+  }, []);
+
+  const startRecording = useCallback((commandId: string) => {
+    consoleKeybindingOverrides.beginRecording();
+    setRecordingCommandId(commandId);
+    setReport(undefined);
+  }, []);
+
+  const settleRecording = useCallback(
+    async (row: KeybindingRow, recording: AppliedChordRecording): Promise<void> => {
+      const result =
+        recording.outcome === "cleared"
+          ? await consoleKeybindingOverrides.unbind(row.commandId)
+          : await consoleKeybindingOverrides.bind(row.commandId, recording.chord);
+      if (result.outcome === "refused") {
+        setReport({ commandId: row.commandId, refusal: result.refusal });
+        announce(`${row.title} kept its chord. ${result.refusal.detail}`);
+        return;
+      }
+      setReport(undefined);
+      announce(describeBinding(row.title, result.chord, result.unsaved));
+    },
+    [announce],
   );
+
+  const resetRow = useCallback(
+    async (row: KeybindingRow): Promise<void> => {
+      const unsaved = await consoleKeybindingOverrides.reset(row.commandId);
+      setReport(undefined);
+      announce(
+        unsaved === undefined
+          ? `${row.title} is back to the chord the console ships.`
+          : `${row.title} is back to the chord the console ships for this window only. ${unsaved.detail}`,
+      );
+    },
+    [announce],
+  );
+
+  const resetEveryRow = useCallback(async (): Promise<void> => {
+    const unsaved = await consoleKeybindingOverrides.resetAll();
+    setReport(undefined);
+    announce(
+      unsaved === undefined
+        ? "Every chord is back to the one the console ships."
+        : `Every chord is back to the one the console ships, for this window only. ${unsaved.detail}`,
+    );
+  }, [announce]);
 
   return (
     <div className="meridian-settings-page">
       <p className="meridian-settings-page__lede">
-        Every chord this window installs, the command it runs, and the scope it runs in. The map
-        lives in this renderer and travels nowhere — no machine and no other person is told which
-        keys you press.
+        Every chord this window installs, the command it runs, and the scope it runs in. Chords you
+        change are kept for this window's profile in the console's own store — the map travels
+        nowhere, and no machine and no other person is told which keys you press.
       </p>
 
       <section className="meridian-settings-page__block" aria-label="Chords">
@@ -97,12 +178,12 @@ export function KeyboardPage(): ReactNode {
             kind="empty"
             placement="surface"
             title={
-              keyboardMap.rows.length === 0
+              rows.length === 0
                 ? "This window has registered no commands."
                 : `No command matches "${query.trim()}".`
             }
             detail={
-              keyboardMap.rows.length === 0
+              rows.length === 0
                 ? "Commands are contributed by the surfaces that own them, and none of them had registered when this page opened."
                 : "The filter matches a command's name, its id, and its category. Clearing the field brings every command back."
             }
@@ -111,41 +192,22 @@ export function KeyboardPage(): ReactNode {
           <ul className="meridian-keymap">
             {visibleRows.map((row) => (
               <li key={row.commandId} className="meridian-keymap__row">
-                <KeybindingRowBody row={row} />
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section className="meridian-settings-page__block" aria-label="What the keyboard reports">
-        <h3 className="meridian-settings-page__block-title">What the keyboard reports</h3>
-        {keyboardMap.audit.conflicts.length === 0 ? (
-          <Nothing
-            kind="empty"
-            placement="inline"
-            title="No two chords collide."
-            detail="Every installed chord is the only one live in its scope, so each keystroke has exactly one answer."
-          />
-        ) : (
-          <ul className="meridian-settings-page__list">
-            {keyboardMap.audit.conflicts.map((conflict) => (
-              <li key={`${conflict.chord}:${conflict.commandIds.join("+")}`}>
-                <InlineRefusal
-                  code={conflict.reason}
-                  detail={`${conflict.chord} is claimed by both ${conflict.commandIds[0]} and ${conflict.commandIds[1]}. ${conflict.detail}`}
-                />
-              </li>
-            ))}
-          </ul>
-        )}
-        {keyboardMap.audit.dropped.length === 0 ? null : (
-          <ul className="meridian-settings-page__list">
-            {keyboardMap.audit.dropped.map((dropped) => (
-              <li key={`${dropped.chord}:${dropped.commandId}`}>
-                <InlineRefusal
-                  code={dropped.commandId}
-                  detail={`The chord ${dropped.chord} was not installed. ${dropped.reason}`}
+                <KeybindingRowBody
+                  row={row}
+                  recording={recordingCommandId === row.commandId}
+                  refusal={report?.commandId === row.commandId ? report.refusal : undefined}
+                  onStartRecording={() => {
+                    startRecording(row.commandId);
+                  }}
+                  onRecorded={(recording) => {
+                    stopRecording();
+                    if (recording.outcome !== "cancelled") {
+                      void settleRecording(row, recording);
+                    }
+                  }}
+                  onReset={() => {
+                    void resetRow(row);
+                  }}
                 />
               </li>
             ))}
@@ -155,12 +217,79 @@ export function KeyboardPage(): ReactNode {
 
       <section className="meridian-settings-page__block" aria-label="Changing a chord">
         <h3 className="meridian-settings-page__block-title">Changing a chord</h3>
-        <Nothing
-          kind="not-checked"
-          placement="surface"
-          title="Chords cannot be changed here yet."
-          detail="This window installs one keyboard table, built by the surface that owns the frame, and a settings page has no route to it. Recording a new chord here would record something nothing would ever install, so nothing is offered rather than a control that leads nowhere."
-        />
+        <div className="meridian-settings-page__prose">
+          <p>
+            Press <strong>Rebind</strong> on a row and then the chord you want. Escape leaves the
+            chord alone, and Backspace or Delete leaves that command with no chord at all. The rest
+            of the keyboard stops answering while a chord is being recorded, so a chord the console
+            already uses can still be pressed. A chord another command answers to is refused on the
+            row, naming the command that holds it; Reset puts a row back to the shipped chord.
+          </p>
+        </div>
+        {overriddenRowCount === 0 ? (
+          <Nothing
+            kind="empty"
+            placement="inline"
+            title="Every chord is the one the console ships."
+          />
+        ) : (
+          <button
+            type="button"
+            className="meridian-keymap__reset-all"
+            onClick={() => {
+              void resetEveryRow();
+            }}
+          >
+            Reset all {overriddenRowCount} changed {overriddenRowCount === 1 ? "chord" : "chords"}
+          </button>
+        )}
+      </section>
+
+      <section className="meridian-settings-page__block" aria-label="What the keyboard reports">
+        <h3 className="meridian-settings-page__block-title">What the keyboard reports</h3>
+        {audit.conflicts.length === 0 ? (
+          <Nothing
+            kind="empty"
+            placement="inline"
+            title="No two chords collide."
+            detail="Every installed chord is the only one live in its scope, so each keystroke has exactly one answer."
+          />
+        ) : (
+          <ul className="meridian-settings-page__list">
+            {audit.conflicts.map((conflict) => (
+              <li key={`${conflict.chord}:${conflict.commandIds.join("+")}`}>
+                <InlineRefusal
+                  code={conflict.reason}
+                  detail={`${conflict.chord} is claimed by both ${conflict.commandIds[0]} and ${conflict.commandIds[1]}. ${conflict.detail}`}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+        {audit.dropped.length === 0 ? null : (
+          <ul className="meridian-settings-page__list">
+            {audit.dropped.map((dropped) => (
+              <li key={`${dropped.chord}:${dropped.commandId}`}>
+                <InlineRefusal
+                  code={dropped.commandId}
+                  detail={`The chord ${dropped.chord} was not installed. ${dropped.reason}`}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+        {consoleKeybindingOverrides.hydrationRefusals.length === 0 ? null : (
+          <ul className="meridian-settings-page__list">
+            {consoleKeybindingOverrides.hydrationRefusals.map((declined) => (
+              <li key={declined.commandId}>
+                <InlineRefusal
+                  code={declined.refusal.code}
+                  detail={`A chord kept for ${declined.commandId} was not installed this time. ${declined.refusal.detail}`}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <section
@@ -172,7 +301,8 @@ export function KeyboardPage(): ReactNode {
           <p>
             The command palette opens on <ChordHint chord={COMMAND_PALETTE_OPEN_CHORD} />, which the
             palette installs for itself rather than through the table above — it runs no command, so
-            it has no row here.
+            it has no row here and cannot be changed. It stays live while a chord is being recorded
+            too, which makes it the one chord a recorder here cannot receive.
           </p>
           <p>
             The application menu owns chords too, and they are not listed: the menu is built outside
@@ -186,32 +316,19 @@ export function KeyboardPage(): ReactNode {
   );
 }
 
-/** One row: what runs, on what keys, in what scope. */
-function KeybindingRowBody(props: { readonly row: KeybindingRow }): ReactNode {
-  const { row } = props;
-  return (
-    <>
-      <div className="meridian-keymap__head">
-        <span className="meridian-keymap__title">{row.title}</span>
-        {row.chord === undefined ? (
-          <Nothing kind="empty" placement="inline" title="No chord" />
-        ) : (
-          <ChordHint chord={row.chord} />
-        )}
-      </div>
-      <div className="meridian-keymap__meta">
-        <WireFigure value={row.commandId} />
-        <span className="meridian-keymap__scope">
-          {row.whenExpression === undefined
-            ? "Live everywhere in this window"
-            : `Live when ${row.whenExpression}`}
-        </span>
-      </div>
-      {row.unavailableReason === undefined ? null : (
-        <p className="meridian-keymap__unavailable">{row.unavailableReason}</p>
-      )}
-    </>
-  );
+/** What a settled rebinding says, and never more than it knows. */
+function describeBinding(
+  title: string,
+  chord: string | null,
+  unsaved: ConsoleRefusal | undefined,
+): string {
+  const act =
+    chord === null
+      ? `${title} now has no chord`
+      : `${title} now runs on ${formatChordForPlatform(chord, HOST_CHORD_PLATFORM)}`;
+  return unsaved === undefined
+    ? `${act}, and the change is kept for this window.`
+    : `${act} for as long as this window is open, and will not come back after a reload. ${unsaved.detail}`;
 }
 
 /** Claim the keyboard section. See `RuntimeNodesPage.tsx` on the seam's shape. */
@@ -220,7 +337,16 @@ export function registerKeyboardPage(registry: SettingsPageRegistry): void {
     section: "keyboard",
     owner: OWNER,
     label: "Keyboard",
-    keywords: ["shortcut", "chord", "hotkey", "binding", "keys", "palette", "accelerator"],
+    keywords: [
+      "shortcut",
+      "chord",
+      "hotkey",
+      "binding",
+      "keys",
+      "palette",
+      "accelerator",
+      "rebind",
+    ],
     render: () => <KeyboardPage />,
   });
 }
