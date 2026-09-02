@@ -61,8 +61,14 @@ export function RouteSurface(props: RouteSurfaceProps): React.JSX.Element {
         route={route.route}
         registry={context.sessionStoreRegistry}
         growth={context.bridge.growth}
-        onChoose={(sessionId) => {
-          context.frameStore.navigate({ ...route, sessionId });
+        onChoose={(target) => {
+          // The picker hands over a COMPLETE target, so the spread cannot build a
+          // route the hash writer will refuse. It used to hand over a session id
+          // and this line added it to whatever the route was — which on the
+          // agent-console route produced a session with no agent, a shape the
+          // shared grammar refuses by throwing, from inside the route-to-hash
+          // effect where no surface boundary catches it.
+          context.frameStore.navigate({ kind: "auxiliary", ...target });
         }}
       />
     );

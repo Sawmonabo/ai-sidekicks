@@ -16,6 +16,8 @@ import { act, cleanup, render } from "@testing-library/react";
 import { StrictMode } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { SidekicksBridgeProvider, createFixtureBridge } from "../bridge/index.js";
+import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { SCHEME_PREFERENCE_KEY, type UiStateStore } from "../persistence/index.js";
 import { useUiStateStore } from "./ui-state-lifecycle.js";
 
@@ -45,10 +47,22 @@ async function mountProbe(strict: boolean): Promise<{
       stores.push(store);
     }
   };
-  const probe = <StoreProbe onStore={record} />;
+  // The hook resolves its clock from the bridge, so the probe renders inside a
+  // provider — a SUPPLIED fixture bridge, which the provider never disposes and
+  // never re-resolves, so the double mount below stays the probe's alone.
+  //
+  // `StrictMode` wraps the provider rather than sitting under it, because React
+  // simulates the extra unmount-and-remount for the tree it is the ROOT of: with
+  // the provider outside it the probe rendered twice and its effect ran once, and
+  // the double mount this file exists to drive never happened.
+  const tree = (
+    <SidekicksBridgeProvider bridge={createFixtureBridge({ scenario: FLAGSHIP_SCENARIO })}>
+      <StoreProbe onStore={record} />
+    </SidekicksBridgeProvider>
+  );
   let mounted: ReturnType<typeof render> | undefined;
   await act(async () => {
-    mounted = render(strict ? <StrictMode>{probe}</StrictMode> : probe);
+    mounted = render(strict ? <StrictMode>{tree}</StrictMode> : tree);
     await Promise.resolve();
     await Promise.resolve();
   });

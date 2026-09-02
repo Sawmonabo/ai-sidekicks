@@ -29,7 +29,13 @@ import {
 } from "../bridge/index.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { createLiveBridge } from "../bridge/live-bridge.js";
-import { SessionStoreRegistry, type SessionStore } from "../store/index.js";
+import type { ScenarioEngine } from "../bridge/scenario.js";
+import { APPLY_COALESCE_MS, ManualClock } from "../core/index.js";
+import {
+  SessionStoreRegistry,
+  type ConsoleSessionEvent,
+  type SessionStore,
+} from "../store/index.js";
 import {
   SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
   SessionEventBinder,
@@ -55,17 +61,52 @@ function SessionProbe(props: SessionProbeProps): null {
   return null;
 }
 
+/** One fixture bridge and the provider that serves it, for a case that drives both. */
+interface FixtureBridgeHarness {
+  readonly bridge: ConsoleBridge;
+  readonly wrapper: (props: { readonly children: ReactNode }) => React.JSX.Element;
+}
+
 /**
- * The provider the frame renders inside, around one fixture bridge.
+ * A fixture bridge and the provider around it.
  *
  * Built once per case and closed over, because the provider resolves on bridge
  * IDENTITY: a wrapper that made a new fixture on every render would restart the
  * scenario engine mid-pass and reset the frozen clock underneath it.
  */
-function fixtureBridgeWrapper(): (props: { readonly children: ReactNode }) => React.JSX.Element {
+function fixtureBridgeHarness(): FixtureBridgeHarness {
   const bridge: ConsoleBridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
-  return function FixtureBridgeHost(props: { readonly children: ReactNode }): React.JSX.Element {
-    return <SidekicksBridgeProvider bridge={bridge}>{props.children}</SidekicksBridgeProvider>;
+  return {
+    bridge,
+    wrapper: function FixtureBridgeHost(props: {
+      readonly children: ReactNode;
+    }): React.JSX.Element {
+      return <SidekicksBridgeProvider bridge={bridge}>{props.children}</SidekicksBridgeProvider>;
+    },
+  };
+}
+
+/** The provider alone, for the cases that never touch the scenario's clock. */
+function fixtureBridgeWrapper(): (props: { readonly children: ReactNode }) => React.JSX.Element {
+  return fixtureBridgeHarness().wrapper;
+}
+
+/** The running engine, or a failure that names what was missing rather than `undefined`. */
+function scenarioEngineOf(bridge: ConsoleBridge): ScenarioEngine {
+  const engine = bridge.scenarioEngine;
+  if (engine === undefined) {
+    throw new Error("the fixture bridge exposed no scenario engine");
+  }
+  return engine;
+}
+
+/** One wire event, shaped as the apply chokepoint consumes it. */
+function deliveredEvent(sessionId: string, sequence: number): ConsoleSessionEvent {
+  return {
+    sessionId,
+    sequence,
+    kind: "run.queued",
+    occurredAt: new Date(sequence).toISOString(),
   };
 }
 
@@ -280,5 +321,63 @@ describe("useSessionStoreRegistry — the window's registry and the binder that 
     const binderCallOrder = disposeBinder.mock.invocationCallOrder[0] ?? 0;
     const registryCallOrder = disposeRegistry.mock.invocationCallOrder[0] ?? 0;
     expect(binderCallOrder).toBeGreaterThan(registryCallOrder);
+  });
+});
+
+describe("useSessionStoreRegistry — the clock the window's stores run on", () => {
+  it("drains a queued batch on the scenario's frozen clock rather than on wall time", () => {
+    // The apply queue coalesces on a TIMEOUT of `APPLY_COALESCE_MS`, so which
+    // clock armed it is observable: advancing the scenario is the only thing that
+    // can fire a frozen one, and it fires nothing at all on a wall-clock timer.
+    // Before the registry was handed the bridge's clock, this drain waited on
+    // `setTimeout` while the beats around it moved on frozen time — so a
+    // screenshot or an endurance step taken straight after `advance()` saw either
+    // side of the drain depending on how fast the runner was.
+    const { bridge, wrapper } = fixtureBridgeHarness();
+    const sessionId = FLAGSHIP_SCENARIO.sessionId;
+    const observed: Observation[] = [];
+    render(
+      <SessionProbe
+        sessionId={sessionId}
+        onObserve={(observation) => {
+          observed.push(observation);
+        }}
+      />,
+      { wrapper },
+    );
+    const { registry } = lastObservation(observed);
+    const drainsBefore = registry.applyDrainCountFor(sessionId);
+
+    act(() => {
+      registry.enqueue(sessionId, [deliveredEvent(sessionId, 1)]);
+    });
+    // Still buffered: enqueuing arms the window, it does not spend it.
+    expect(registry.applyDrainCountFor(sessionId)).toBe(drainsBefore);
+
+    act(() => {
+      scenarioEngineOf(bridge).advance(APPLY_COALESCE_MS);
+    });
+
+    expect(registry.applyDrainCountFor(sessionId)).toBeGreaterThan(drainsBefore);
+  });
+
+  it("negative control: a registry left on the real clock does not drain when scenario time moves", () => {
+    // Without this, the case above would pass against a queue that drained on
+    // enqueue, on any advance, or on nothing in particular. This is the SAME
+    // registry class with the one difference under test — no clock supplied, so
+    // it takes its own `RealClock` — and a separate `ManualClock` advanced past
+    // the coalescing window reaches none of its timers.
+    const registry = new SessionStoreRegistry({ read: () => Promise.resolve(undefined) });
+    const unclockedSessionId = "session-wall-clock";
+    registry.open(unclockedSessionId);
+    const separateClock = new ManualClock();
+
+    registry.enqueue(unclockedSessionId, [deliveredEvent(unclockedSessionId, 1)]);
+    separateClock.advance(APPLY_COALESCE_MS * 4);
+
+    expect(registry.applyDrainCountFor(unclockedSessionId)).toBe(0);
+    // Disposed rather than left armed: its real timeout is still pending, and a
+    // drain landing in a later case's turn is a cross-test coupling.
+    registry.disposeAll();
   });
 });
