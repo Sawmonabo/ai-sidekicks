@@ -31,6 +31,10 @@ import { emulateSystemScheme, renderSettled } from "../console-harness.js";
 import { axeViolationsIn, plantedViolationIds } from "./axe-run.js";
 
 import "../../../src/renderer/src/console/collaboration/index.js";
+// The settings family's door, for its stylesheet: the nodes page below is audited as
+// a component, and contrast is measured on the rendered composition rather than on
+// the token table, so a page audited unstyled would report a palette nobody ships.
+import "../../../src/renderer/src/console/settings/index.js";
 import { ManualClock } from "../../../src/renderer/src/console/core/index.js";
 import {
   ConsoleRoot,
@@ -49,6 +53,8 @@ import { ChannelList } from "../../../src/renderer/src/console/collaboration/Cha
 import { rosterRowsFrom } from "../../../src/renderer/src/console/collaboration/presence-model.js";
 import { Roster } from "../../../src/renderer/src/console/collaboration/Roster.js";
 import { SentInvites } from "../../../src/renderer/src/console/collaboration/SentInvites.js";
+import { RuntimeNodesPage } from "../../../src/renderer/src/console/settings/pages/RuntimeNodesPage.js";
+import type { SettingsPageContext } from "../../../src/renderer/src/console/settings/settings-page-registry.js";
 import {
   CONSOLE_SCHEMES,
   ParticipantHueAllocator,
@@ -56,6 +62,9 @@ import {
 
 /** The instant the roster's relative stamps are measured against. */
 const AUDIT_INSTANT_MILLISECONDS = Date.parse("2026-01-01T10:00:00.000Z");
+
+/** The tick this scenario's two machine-health axes disagree at, so both render. */
+const ROSTER_AXES_DISAGREE_MS = 640;
 
 /** Identifiers render as themselves: an audit must not depend on a name read. */
 const LABELS: ChannelActivityLabels = {
@@ -175,6 +184,25 @@ describe("accessibility — the surfaces this family fills a seat with", () => {
         sessionId={COLLABORATION_SCENARIO.sessionId}
       />,
     );
+
+    expect(await axeViolationsIn(container)).toStrictEqual([]);
+  });
+
+  it("has no axe violation on the settings nodes page with a roster served", async () => {
+    // The page rather than the `#/settings/nodes` destination: its roster is
+    // session-scoped and a settings address carries none, so the destination would
+    // audit the "belongs to a session" absence and never a rendered roster.
+    const bridge = createFixtureBridge({ scenario: COLLABORATION_SCENARIO });
+    bridge.scenarioEngine?.advance(ROSTER_AXES_DISAGREE_MS);
+    const pageContext: SettingsPageContext = {
+      bridge,
+      openSection: () => undefined,
+      activeSessionId: COLLABORATION_SCENARIO.sessionId,
+    };
+    const { container } = await renderSettled(<RuntimeNodesPage context={pageContext} />);
+    // An audit of the loading arm would be an audit of a spinner: assert the roster
+    // is the thing on screen before measuring it.
+    expect(container.querySelector('[aria-label="node-roster-loaded"]')).not.toBeNull();
 
     expect(await axeViolationsIn(container)).toStrictEqual([]);
   });

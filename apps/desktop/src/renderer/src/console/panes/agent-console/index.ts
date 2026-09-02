@@ -41,7 +41,6 @@ export function registerAgentConsolePane(registry: ConsolePaneRegistry): void {
       createElement(AgentConsolePane, {
         sessionId: context.sessionStore?.sessionId,
         agentId: context.entity?.kind === "agent" ? context.entity.id : undefined,
-        bridgeSource: context.bridge.source,
         bridge: context.bridge,
         sessionStore: context.sessionStore,
       }),
@@ -60,7 +59,6 @@ export function registerAgentConsoleSurface(registry: ConsoleSurfaceRegistry): v
           context.route.kind === "auxiliary" && "agentId" in context.route
             ? context.route.agentId
             : undefined,
-        bridgeSource: context.bridge.source,
         bridge: context.bridge,
         sessionStore: context.sessionStore,
       }),

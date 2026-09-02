@@ -14,8 +14,8 @@
 // `session.join` that exists, and the node roster still answers which machines a
 // session's agents can run on, so each is absorbed into the console surface whose
 // subject it already was. What this module keeps is the SLOT for the one family
-// that has no console-authored home yet, and — for all three — the guard, which is
-// the part that must not be written twice.
+// that has no console-authored home yet, and — for the two that still need one —
+// the guard, which is the part that must not be written twice.
 //
 // ABSORBED BY IMPORT, NOT BY CALL. A plan-owned subtree whose owner MOUNTS INTO
 // the console reaches the frame by calling `registerConsoleSurface`; the console
@@ -30,24 +30,36 @@
 // it would be three files whose only content is one element each, and the table
 // itself — the part a reader actually needs — would be spread across four places.
 //
-// WHY EACH MOUNT IS GUARDED ON THE BRIDGE SOURCE. All three components read
-// `window.sidekicks` directly rather than taking a bridge from context, so the
-// console's fixture cannot stand in for the preload the way it does for every
-// console-authored surface. Under the fixture they would reach past it: in a
-// window with no preload at all they throw into the surface boundary and read as
-// a crash, and in the fixture build they would answer from the live daemon beside
-// fixture data in the same window, which is worse than answering nothing. So the
-// frame says the question was not put, which is exactly what happened.
+// WHY TWO OF THE THREE MOUNTS ARE GUARDED ON THE BRIDGE SOURCE. The session probe
+// and the invite acceptance read `window.sidekicks` directly rather than taking a
+// bridge from context, so the console's fixture cannot stand in for the preload
+// the way it does for every console-authored surface. Under the fixture they would
+// reach past it: in a window with no preload at all they throw into the surface
+// boundary and read as a crash, and in the fixture build they would answer from
+// the live daemon beside fixture data in the same window, which is worse than
+// answering nothing. So the frame says the question was not put, which is exactly
+// what happened.
+//
+// THE NODE ROSTER IS NO LONGER ONE OF THEM, AND ITS GUARD IS GONE RATHER THAN
+// RELAXED. That view now takes an optional read seam and this module builds one
+// from the bridge the console has already resolved, so it asks whichever bridge
+// this window is running on: the control plane under the preload, the scenario's
+// own roster frames under the fixture. There is no longer a window in which it
+// could reach past the console's bridge, so the condition the guard tested does
+// not arise for it — and every fixture build that used to render "the question was
+// not put" where the roster belongs now renders the roster. The guard stays
+// exactly where it is still true, which is the other two.
 
 import { createElement, type ReactNode } from "react";
 
 import type { SessionId } from "@ai-sidekicks/contracts";
 
-import { type ConsoleBridgeSource } from "../bridge/index.js";
+import { type ConsoleBridge, type ConsoleBridgeSource } from "../bridge/index.js";
+import { ConsoleRefusalError } from "../core/index.js";
 import { Nothing } from "../primitives/index.js";
 import { routeSessionId } from "../routing/index.js";
 import { SurfaceAbsence } from "./RouteSurface.js";
-import { NodeRoster } from "../../runtime-node-attach/index.js";
+import { NodeRoster, type NodeRosterReads } from "../../runtime-node-attach/index.js";
 import { SessionBootstrap } from "../../session-bootstrap/index.js";
 // Deep, because `session-members/` ships no barrel. The other two are reached
 // through theirs. Adding one is that family's own diff, not the console's — the
@@ -101,14 +113,73 @@ export function renderAbsorbedSessionProbe(bridgeSource: ConsoleBridgeSource): R
  * Takes the session id rather than a route, because the two mounts that need it
  * carry a session differently — one from a pane's own store, one from an auxiliary
  * address — and neither should have to build a route to reach a component.
+ *
+ * Takes the BRIDGE rather than its source, because it now hands the view the pair
+ * of reads that bridge already serves rather than deciding whether to mount it at
+ * all. The bridge is optional for one caller's sake: the agent console is mounted
+ * from two contexts and types its own bridge prop as possibly absent, and a helper
+ * that demanded one would move that absence into the caller — which is precisely
+ * what the guard rule here says not to do.
  */
 export function renderAbsorbedNodeRoster(
-  bridgeSource: ConsoleBridgeSource,
+  bridge: ConsoleBridge | undefined,
   sessionId: string | undefined,
 ): ReactNode {
-  return mountSessionScopedLegacySurface(bridgeSource, sessionId, (resolved) =>
-    createElement(NodeRoster, { sessionId: resolved }),
-  );
+  if (bridge === undefined) {
+    return centredAbsence({
+      kind: "not-checked",
+      title: "This surface was not handed a bridge to read the roster through.",
+      detail:
+        "The roster is one read per session, and this mount resolved nothing to perform it with. Nothing was asked.",
+    });
+  }
+  const resolvedSessionId = brandedSessionId(sessionId);
+  if (resolvedSessionId === undefined) {
+    return noSessionAbsence();
+  }
+  return createElement(NodeRoster, {
+    sessionId: resolvedSessionId,
+    reads: nodeRosterReadsFrom(bridge),
+  });
+}
+
+/**
+ * The roster's two reads, as the console's own bridge answers them.
+ *
+ * BOTH ARMS CONVERT A RETURNED REFUSAL INTO A THROWN ONE, and the conversion is
+ * the whole adapter. The bridge answers outcomes because a surface that renders a
+ * refusal wants a value; this view renders a refusal from its own error arm, which
+ * is reached by a rejection. `ConsoleRefusalError` is the console's one shape for a
+ * refusal that has to travel as an exception, so the code, the sentence, and the
+ * origin all survive the trip — the view renders `ConsoleRefusalError` followed by
+ * `<origin>: <code>: <detail>`, which is the refuser's own code verbatim rather
+ * than a paraphrase.
+ *
+ * The SUBSCRIBE arm throws for a second reason beyond symmetry. Handing back a
+ * no-op unsubscribe would leave the roster believing it is live: it would never
+ * re-read and would go quietly stale, which is the one failure a live roster exists
+ * to prevent. The view's own subscribe arm catches a synchronous throw, renders it,
+ * and deliberately SKIPS the initial read rather than painting a snapshot with no
+ * channel behind it — so a refusal here reads as a roster that is not live, which
+ * is what it is.
+ */
+function nodeRosterReadsFrom(bridge: ConsoleBridge): NodeRosterReads {
+  return {
+    readRoster: async (request) => {
+      const outcome = await bridge.runtimeNodeRosterRead(request);
+      if (outcome.status === "refused") {
+        throw new ConsoleRefusalError(outcome);
+      }
+      return outcome.value;
+    },
+    subscribePresence: (sessionId, onPresenceChange) => {
+      const subscription = bridge.runtimeNodePresenceSubscribe(sessionId, onPresenceChange);
+      if (subscription.status === "refused") {
+        throw new ConsoleRefusalError(subscription);
+      }
+      return subscription.unsubscribe;
+    },
+  };
 }
 
 /**
@@ -152,28 +223,12 @@ export function registerLegacySurfaces(registry: ConsoleSurfaceRegistry): void {
  */
 function mountLegacySurface(bridgeSource: ConsoleBridgeSource, build: () => ReactNode): ReactNode {
   if (bridgeSource !== "live") {
-    // Centred, because this fills the whole surface. Left in flow it renders as a
-    // strip in the top-left corner of the pane — the shape `SurfaceAbsence` exists
-    // to prevent, and the one a reader mistakes for a paint that did not finish.
-    //
-    // `placement: "surface"` for the same reason, one level down. `not-checked` is
-    // ordinarily mounted beside a value it qualifies, and a badge is right there;
-    // here it stands in for an entire pane, so it takes the block. Centring a badge
-    // would have moved the strip to the middle of the window rather than retired
-    // it, and the badge shape has nowhere to put the second line below — which is
-    // the line that says where this surface DOES render.
-    return createElement(
-      SurfaceAbsence,
-      null,
-      createElement(Nothing, {
-        kind: "not-checked",
-        placement: "surface",
-        title:
-          "This surface reads the installed bridge, and this window is running on the fixture.",
-        detail:
-          "It renders in the application, where the preload bridge is installed. Nothing was asked of the daemon here.",
-      }),
-    );
+    return centredAbsence({
+      kind: "not-checked",
+      title: "This surface reads the installed bridge, and this window is running on the fixture.",
+      detail:
+        "It renders in the application, where the preload bridge is installed. Nothing was asked of the daemon here.",
+    });
   }
   return build();
 }
@@ -186,23 +241,54 @@ function mountSessionScopedLegacySurface(
 ): ReactNode {
   return mountLegacySurface(bridgeSource, () => {
     const sessionId = brandedSessionId(subject);
-    if (sessionId === undefined) {
-      return createElement(
-        SurfaceAbsence,
-        null,
-        createElement(Nothing, {
-          kind: "empty",
-          // Named rather than left to the default, which happens to agree: this is
-          // the same scale of absence as the arm above, and a mount that says so is
-          // one a reader does not have to look up a defaults table to check.
-          placement: "surface",
-          title: "This surface needs a session, and this address names none.",
-          detail: "Open a session from the Sessions list and the surface follows it.",
-        }),
-      );
-    }
-    return build(sessionId);
+    return sessionId === undefined ? noSessionAbsence() : build(sessionId);
   });
+}
+
+/**
+ * The absence a session-scoped surface renders at an address that names none.
+ *
+ * Written once because two mounts reach it from opposite sides now — the guarded
+ * path above, and the node roster, which has no guard left to reach it through —
+ * and one sentence a person reads must not exist in two places to drift between.
+ */
+function noSessionAbsence(): ReactNode {
+  return centredAbsence({
+    kind: "empty",
+    title: "This surface needs a session, and this address names none.",
+    detail: "Open a session from the Sessions list and the surface follows it.",
+  });
+}
+
+/**
+ * One whole-surface absence, centred, with its second line below.
+ *
+ * Centred, because these fill the whole surface. Left in flow one renders as a
+ * strip in the top-left corner of the pane — the shape `SurfaceAbsence` exists to
+ * prevent, and the one a reader mistakes for a paint that did not finish.
+ *
+ * `placement: "surface"` for the same reason, one level down. These kinds are
+ * ordinarily mounted beside a value they qualify, and a badge is right there; here
+ * each stands in for an entire pane, so it takes the block. Centring a badge would
+ * have moved the strip to the middle of the window rather than retired it, and the
+ * badge shape has nowhere to put the second line below — which is the line that
+ * says where this surface DOES render.
+ */
+function centredAbsence(absence: {
+  readonly kind: "not-checked" | "empty";
+  readonly title: string;
+  readonly detail: string;
+}): ReactNode {
+  return createElement(
+    SurfaceAbsence,
+    null,
+    createElement(Nothing, {
+      kind: absence.kind,
+      placement: "surface",
+      title: absence.title,
+      detail: absence.detail,
+    }),
+  );
 }
 
 /**
