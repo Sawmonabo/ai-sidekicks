@@ -394,6 +394,53 @@ export const GROWTH_OPERATIONS: Readonly<Record<GrowthOperationId, GrowthOperati
     "prepare a reviewable pull-request proposal from the recorded branch context, before any remote mutation",
     "gitflow.prPrepare",
   ),
+  // identity, and the callback-tool registry the approvals pane reads. Neither row
+  // registers a method string anywhere, so neither entry names one — the corpus has
+  // the daemon RESOLVE a caller's principal and never return it, and has the
+  // callback-tool registry ride spawn with no read seam at all.
+  callerParticipantRead: op(
+    "callerParticipantRead",
+    "caller-participant-identity",
+    "method",
+    "read which of a session's participants this window is, so a members surface can address the sender and an approvals control can resolve the caller's own role rather than treating an unread one as read-only",
+  ),
+  callbackToolRegistryRead: op(
+    "callbackToolRegistryRead",
+    "callback-tool-registry-read",
+    "method",
+    "read the callback tools registered into a session, so the approvals pane can name what an agent may call rather than only what it has already been seen calling",
+  ),
+  // sidekick — four of the five registered pairs, in the registry's own order. The
+  // fifth, the per-session peer-invocation opt-in, is not here: it is session state
+  // rather than a definition, and no surface on this substrate sets it.
+  sidekickDefinitionList: op(
+    "sidekickDefinitionList",
+    "sidekick-definition-registry",
+    "method",
+    "list this node's saved sidekick definitions, unfiltered — the registry returns full records, so there is no separate read verb to pair with it",
+    "sidekick.definitionList",
+  ),
+  sidekickDefinitionCreate: op(
+    "sidekickDefinitionCreate",
+    "sidekick-definition-registry",
+    "method",
+    "save a new definition, every axis but the name optional and an omitted axis stored as the inherit state rather than as today's default materialised",
+    "sidekick.definitionCreate",
+  ),
+  sidekickDefinitionUpdate: op(
+    "sidekickDefinitionUpdate",
+    "sidekick-definition-registry",
+    "method",
+    "patch a definition, an absent key leaving the stored value alone and an explicit null clearing it back to the inherit state",
+    "sidekick.definitionUpdate",
+  ),
+  sidekickDefinitionDelete: op(
+    "sidekickDefinitionDelete",
+    "sidekick-definition-registry",
+    "method",
+    "delete a definition, which never touches an agent attached from it because attach copies rather than references",
+    "sidekick.definitionDelete",
+  ),
 };
 
 function op(

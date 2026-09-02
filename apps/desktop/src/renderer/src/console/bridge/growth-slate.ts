@@ -42,7 +42,10 @@ export type GrowthSlateRowId =
   | "window-control-namespace"
   | "provider-session-import"
   | "attention-plane"
-  | "workflow-run-control";
+  | "workflow-run-control"
+  | "caller-participant-identity"
+  | "callback-tool-registry-read"
+  | "sidekick-definition-registry";
 
 export interface GrowthSlateRow {
   readonly id: GrowthSlateRowId;
@@ -267,6 +270,30 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     owningDocument:
       "Spec-017 §Interfaces And Contracts (the definition, run, gate, phase-output, and human-form operations) + §Operator run control (SA-45) (the cancel and resume pair); Plan-017 (the shared-contracts and client-SDK registration, which no code package carries)",
     consumingSurface: "workflow-run pane, workflow builder",
+    wireRegistered: false,
+  },
+  "caller-participant-identity": {
+    id: "caller-participant-identity",
+    wire: "the caller's own participant identity — which of a session's projected participants this window IS",
+    owningDocument:
+      "api-payload-contracts.md §Authenticated Principal And Authorization Model (the resolved principal's outbound disposition, which that section does not yet carry); Spec-018 §Interfaces And Contracts (the reply shape)",
+    consumingSurface: "members surface (invite create), approvals pane (the role-gated control)",
+    wireRegistered: false,
+  },
+  "callback-tool-registry-read": {
+    id: "callback-tool-registry-read",
+    wire: "a read of a session's registered callback-tool set, which rides only the spawn and resume parameters and has no read seam",
+    owningDocument:
+      "Spec-005 §Required Behavior (the session callback-tool registry); api-payload-contracts.md §Plan-005 — Provider Driver Contract (Internal Interface) (the SessionCallbackTool shape and the client-facing driver namespace a read verb would join)",
+    consumingSurface: "approvals pane",
+    wireRegistered: false,
+  },
+  "sidekick-definition-registry": {
+    id: "sidekick-definition-registry",
+    wire: "four of the five sidekick method strings — the definition list, create, update, and delete — with the saved-definition shape and the five definition-plane refusal codes they carry",
+    owningDocument:
+      "Spec-030 §Interfaces And Contracts; Plan-030 §API And Transport Changes (the shapes are registered in api-payload-contracts.md and the codes in error-contracts.md, and no code package carries either)",
+    consumingSurface: "sidekick-definitions page",
     wireRegistered: false,
   },
 };

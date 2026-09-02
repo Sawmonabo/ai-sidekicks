@@ -26,10 +26,12 @@
 
 import type { AttentionProjection } from "./attention-projection.js";
 import type { GrowthStream } from "./growth-outcome.js";
+import type { SidekickDefinition, SidekickDefinitionDraft } from "./sidekick-definition.js";
 import type {
   GrowthArtifactSummary,
   GrowthAttentionPreference,
   GrowthBranchContext,
+  GrowthCallbackTool,
   GrowthHealthReading,
   GrowthImportProgress,
   GrowthInviteSummary,
@@ -311,5 +313,52 @@ export interface GrowthOperationSignatures {
       readonly state: GrowthPrPreparationState;
       readonly proposalBlob: Readonly<Record<string, unknown>>;
     };
+  };
+  // identity
+  //
+  // The value is the identifier and nothing else, which is the whole of what is
+  // missing. A session's participant roster already carries every member's role, and
+  // the store partitions by participant, so a `role` member here would be a second
+  // source of truth for a fact another partition owns — and the two could disagree
+  // with nothing able to say which was right (`store/entities.ts`: a store never
+  // caches a flag another store owns). What no registered read supplies is which
+  // entry in that roster this window IS; given that, the role is a lookup.
+  callerParticipantRead: {
+    request: { readonly sessionId: string };
+    value: { readonly participantId: string };
+  };
+  // The SESSION's registry, not one run's: the registered set is curated per session
+  // and rides spawn, so there is no per-run narrowing to ask for. A `runId` member
+  // would be a request field with no caller, minted ahead of its reader.
+  callbackToolRegistryRead: {
+    request: { readonly sessionId: string };
+    value: readonly GrowthCallbackTool[];
+  };
+  // sidekick — four of the five registered pairs, in the registry's own order. The
+  // fifth is named in the slate row's own wire text: the per-session peer-invocation
+  // opt-in is session state rather than a definition, and no surface on this
+  // substrate sets it.
+  sidekickDefinitionList: {
+    // Node-local and unfiltered, so the request carries no members. Named empty
+    // rather than omitted, matching the registered request half — every operation in
+    // the namespace has both halves of its pair and no caller special-cases a
+    // missing request type.
+    request: Record<string, never>;
+    value: readonly SidekickDefinition[];
+  };
+  sidekickDefinitionCreate: { request: SidekickDefinitionDraft; value: SidekickDefinition };
+  // A partial patch over the same axes, plus the id it patches — `Partial` of the
+  // draft rather than a second axis list, which would drift the first time an axis
+  // landed on one and not the other. `sidekick-definition.ts` says why the draft and
+  // the stored row stay two shapes while the two WRITES stay one.
+  sidekickDefinitionUpdate: {
+    request: { readonly definitionId: string } & Partial<SidekickDefinitionDraft>;
+    // The full post-update row, so a client never reconstructs it by merging its own
+    // patch — which would be a second projection of a fact the daemon just settled.
+    value: SidekickDefinition;
+  };
+  sidekickDefinitionDelete: {
+    request: { readonly definitionId: string };
+    value: { readonly deleted: true };
   };
 }

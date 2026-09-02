@@ -117,7 +117,16 @@ export type GrowthOperationId =
   | "workflowGateChainVerify"
   // gitflow
   | "gitflowBranchContextRead"
-  | "gitflowPrPrepare";
+  | "gitflowPrPrepare"
+  // identity, and the callback-tool registry the approvals pane reads
+  | "callerParticipantRead"
+  | "callbackToolRegistryRead"
+  // sidekick — the registry's own order; each id is its wire method's tail with the
+  // root folded in, which `growth-operations.test.ts` holds every entry to.
+  | "sidekickDefinitionList"
+  | "sidekickDefinitionCreate"
+  | "sidekickDefinitionUpdate"
+  | "sidekickDefinitionDelete";
 
 export type GrowthPrerequisiteId =
   | "browserPaneKindDeclaration"
