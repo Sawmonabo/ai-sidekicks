@@ -54,9 +54,18 @@ async function settle(): Promise<void> {
   });
 }
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
+  // Resetting the address queues a `hashchange` of its own, and happy-dom delivers
+  // every queued `hashchange` on ONE debounced timer. A reset still in flight when
+  // the next case starts is batched with that case's own change and delivered
+  // inside its flush — where the last case counts address changes and would count
+  // this one. So the reset lands here, with no binding mounted and no listener
+  // registered to hear it, before the next case begins.
   window.location.hash = SESSIONS_HASH;
+  await new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
 });
 
 describe("useHashRouteBinding", () => {
