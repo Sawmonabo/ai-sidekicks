@@ -44,9 +44,7 @@ export {
   registeredPaneKinds,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ConsolePaneAddress,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   type ConsolePaneContext,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   type ConsolePaneDescriptor,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ConsolePaneOpener,
@@ -130,9 +128,4 @@ export {
   type InlineCardSeatProps,
 } from "./inline-card-seats.js";
 
-export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
-  OwnerSlotContract,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
-  OwnerSlotProps,
-} from "./owner-slot.js";
+export type { OwnerSlotContract, OwnerSlotProps } from "./owner-slot.js";
