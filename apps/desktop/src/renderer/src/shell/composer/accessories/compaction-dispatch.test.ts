@@ -16,7 +16,7 @@ import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "../../../console/bridge/index.js";
 import type { ConsoleScenario } from "../../../console/bridge/scenario.js";
-import { COMPACT_CONTEXT_METHOD } from "./daemon-calls.js";
+import { COMPACT_CONTEXT_METHOD } from "../../../console/bridge/index.js";
 import { settleCompaction } from "./compaction-dispatch.js";
 
 const SESSION_ID = "session-compaction";

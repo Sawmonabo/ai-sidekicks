@@ -24,9 +24,8 @@ import { useCallback, useRef, useState } from "react";
 import { RunControlAckSchema, type RunControlAck } from "@ai-sidekicks/contracts";
 import { normalizeWireRejection } from "../../../../../shared/wire-errors.js";
 import { refuse, type ConsoleRefusal } from "../../../console/core/index.js";
-import type { ConsoleBridge } from "../../../console/bridge/index.js";
+import { RUN_PAUSE_METHOD, callDaemon, type ConsoleBridge } from "../../../console/bridge/index.js";
 import { Glyph, InlineRefusal, WireFigure } from "../../../console/primitives/index.js";
-import { RUN_PAUSE_METHOD, callDaemon } from "./daemon-calls.js";
 
 /** The subsystem name every refusal this control raises carries. */
 export const STEP_IN_REFUSAL_ORIGIN = "composer-step-in";

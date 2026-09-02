@@ -9,10 +9,18 @@
 // refuses a second owner on one kind, and a refusal that named a whole family would
 // leave a reader hunting three directories for which body is already there.
 
+// THE STYLESHEET IS IMPORTED HERE, and here only. This is the subtree's door —
+// every runs surface is reached through the body this file registers — so the
+// bundler sees one edge into the sheet rather than one per component, and a runs
+// surface can no more arrive without its CSS than a primitive can. `pane-chrome.tsx`
+// records the same reasoning for the frame every pane wears.
+
 import { createElement } from "react";
 
 import { type ConsolePaneRegistry } from "../../workspace/index.js";
 import { RunsPane } from "./RunsPane.js";
+
+import "./runs.css";
 
 /**
  * Claim the `runs` kind.
