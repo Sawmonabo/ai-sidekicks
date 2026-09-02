@@ -120,8 +120,29 @@ export interface GrowthOperationSignatures {
     request: { readonly workspaceId: string; readonly action: string };
     value: { readonly accepted: boolean };
   };
+  // The four members `AttachmentIngestInitRequest` registers that this caller can fill,
+  // spelled the way it spells them — the same rule the chunk row below follows, and the
+  // reason `fileName` and `declaredSizeBytes` are not the shorter names a console would
+  // pick for itself. `mediaType` is ADVISORY and OPTIONAL, a hint that narrows the
+  // expected signature and never widens acceptance, and one consequence of its ABSENCE is
+  // normative: an undetermined-signature payload carrying no declaration has nothing to
+  // admit it under the signature-exempt branch and is refused. A leading-byte signature
+  // determines nothing for `application/json` or `text/markdown`, so an ordinary text
+  // attachment is exactly the case that needs the declaration forwarded. Absent is a
+  // first-class state, so the member is OMITTED when the participant's file declared
+  // nothing — never sent as an empty string, which would be a declaration of nothing
+  // rather than the absence the contract names.
+  //
+  // The registered `runId?` is deliberately not here: this client fills a composer's
+  // carrier, which has no run to name, so the member would be a request field with no
+  // caller — minted ahead of its reader.
   artifactIngestBegin: {
-    request: { readonly sessionId: string; readonly name: string; readonly byteLength: number };
+    request: {
+      readonly sessionId: string;
+      readonly fileName: string;
+      readonly mediaType?: string;
+      readonly declaredSizeBytes: number;
+    };
     value: { readonly ingestId: string };
   };
   // The three members `AttachmentIngestChunkRequest` registers, spelled the way it

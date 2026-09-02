@@ -21,6 +21,9 @@ import type { ConsoleBridge, GrowthPort } from "../bridge/index.js";
 import { AttachmentIngestClient } from "./attachment-ingest.js";
 import { attachmentSourceFrom, type AttachmentSource } from "./attachment-model.js";
 
+/** One recorded `AttachmentIngestInit`, exactly as the registry declares it. */
+export type RecordedInit = Parameters<GrowthPort["artifactIngestBegin"]>[0];
+
 /** One recorded `AttachmentIngestChunk`, exactly as the registry declares it. */
 export type RecordedChunk = Parameters<GrowthPort["artifactIngestWriteChunk"]>[0];
 
@@ -56,6 +59,7 @@ function manualGate(): { readonly promise: Promise<void>; readonly open: () => v
  * asserts: a recorder lets each case ask its own question of the same script.
  */
 export class ScriptedGrowthPort {
+  readonly initCalls: RecordedInit[] = [];
   readonly chunkCalls: RecordedChunk[] = [];
   readonly abortedIngestIds: string[] = [];
   #chunkRefusalCode: string | undefined;
@@ -87,7 +91,8 @@ export class ScriptedGrowthPort {
 
   public asBridge(): ConsoleBridge {
     const port = {
-      artifactIngestBegin: async () => {
+      artifactIngestBegin: async (request: RecordedInit) => {
+        this.initCalls.push(request);
         await this.#beginGate;
         return { status: "served", value: { ingestId: "ingest-1" } };
       },
@@ -130,18 +135,26 @@ export function clientOver(port: ScriptedGrowthPort): AttachmentIngestClient {
   return new AttachmentIngestClient({ bridge: port.asBridge(), sessionId: "session-1" });
 }
 
-/** One source over bytes the case can recognise on the other side of the wire. */
+/**
+ * One source over bytes the case can recognise on the other side of the wire.
+ *
+ * The declared media type is optional here for the same reason it is optional on the
+ * request: a participant's file carries one or it does not, and the cases that turn on
+ * the difference need both arms buildable.
+ */
 export function sourceOver(
   localId: string,
   declaredName: string,
   byteLength: number,
+  declaredMediaType?: string,
 ): AttachmentSource {
   return attachmentSourceFrom({
     localId,
     declaredName,
     payload: new Blob([patternedBytes(byteLength)]),
+    declaredMediaType,
   });
 }
 
-/** The attachment most cases attach: small enough to fit inside one chunk. */
+/** The attachment most cases attach: small enough to fit one chunk, declaring nothing. */
 export const SMALL_SOURCE: AttachmentSource = sourceOver("attachment-1", "notes.md", 300);

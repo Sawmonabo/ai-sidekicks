@@ -13,7 +13,9 @@ import {
   ScriptedGrowthPort,
   clientOver,
   patternedBytes,
+  sourceOver,
 } from "./attachment-ingest-scripted-port.js";
+import { INGEST_STREAM_INVALID_CODE } from "./attachment-model.js";
 
 beforeEach(() => {
   consoleTripwires.setThrowOnReport(false);
@@ -66,5 +68,79 @@ describe("ingest client — the happy stream", () => {
     clientOver(port);
     await new Promise((settle) => setTimeout(settle, 0));
     expect(port.chunkCalls).toStrictEqual([]);
+  });
+});
+
+describe("ingest client — what Init declares", () => {
+  it("forwards the media type the participant's file carried", async () => {
+    const port = new ScriptedGrowthPort();
+    const client = clientOver(port);
+    client.attach(sourceOver("attachment-notes", "notes.md", 300, "text/markdown"));
+    await new Promise((settle) => setTimeout(settle, 0));
+
+    // A leading-byte signature determines nothing for a textual subtype, so this
+    // declaration is the whole of what could admit the payload under the
+    // signature-exempt branch. The other three members are asserted in the same breath
+    // because they are the registered spellings — a request that went back to naming a
+    // `name` and a `byteLength` would fail here rather than at the daemon.
+    expect(port.initCalls).toStrictEqual([
+      {
+        sessionId: "session-1",
+        fileName: "notes.md",
+        mediaType: "text/markdown",
+        declaredSizeBytes: 300,
+      },
+    ]);
+  });
+
+  it("sends no media type member at all when the source declared none", async () => {
+    const port = new ScriptedGrowthPort();
+    const client = clientOver(port);
+    client.attach(SMALL_SOURCE);
+    await new Promise((settle) => setTimeout(settle, 0));
+
+    // The KEY's absence, not an `undefined` value: absence is a first-class state the
+    // contract names, and a member present-and-empty would be this console declaring a
+    // type it was never told.
+    const [initCall] = port.initCalls;
+    expect(initCall).toBeDefined();
+    expect(Object.hasOwn(initCall ?? {}, "mediaType")).toBe(false);
+    expect(initCall?.fileName).toBe("notes.md");
+  });
+
+  it("negative control: an empty declaration is an absent one, not an empty string", async () => {
+    // A `File` off a picker carries an empty `type` when the browser could not place it.
+    // Without this, a fix that sent `mediaType: declared ?? ""` — or forwarded the empty
+    // string verbatim — would pass the case above.
+    const port = new ScriptedGrowthPort();
+    const client = clientOver(port);
+    client.attach(sourceOver("attachment-unplaced", "capture.bin", 300, ""));
+    await new Promise((settle) => setTimeout(settle, 0));
+
+    const [initCall] = port.initCalls;
+    expect(initCall).toBeDefined();
+    expect(Object.hasOwn(initCall ?? {}, "mediaType")).toBe(false);
+  });
+
+  it("declares the same media type again when a terminal refusal restarts the stream", async () => {
+    const port = new ScriptedGrowthPort();
+    const client = clientOver(port);
+    port.refuseChunksWith(INGEST_STREAM_INVALID_CODE);
+    client.attach(sourceOver("attachment-notes", "notes.md", 300, "text/markdown"));
+    await new Promise((settle) => setTimeout(settle, 0));
+    expect(client.snapshot[0]?.disposition).toBe("restart");
+
+    port.refuseChunksWith(undefined);
+    client.retry("attachment-notes");
+    await new Promise((settle) => setTimeout(settle, 0));
+
+    // A restart re-opens the stream, so the second Init has to carry the declaration too:
+    // it is read from the ledger's own record of what the participant handed over, which
+    // a dropped stream identity does not touch.
+    expect(port.initCalls.map((call) => call.mediaType)).toStrictEqual([
+      "text/markdown",
+      "text/markdown",
+    ]);
+    expect(client.snapshot[0]?.state).toBe("complete");
   });
 });
