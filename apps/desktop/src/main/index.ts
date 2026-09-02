@@ -225,11 +225,12 @@ if (!gotTheLock) {
         const t0 = Date.now();
 
         // Corroborating readiness breadcrumbs (smoke-gated, opt-in per
-        // invocation). `did-finish-load` below stays the ONLY signal the test
-        // asserts on; these two record how far the boot got when it does not
-        // arrive, which turns one indistinguishable timeout into three
-        // distinguishable ones. Registered BEFORE the `loadURL` call below, so
-        // neither can be missed by a load that completes unusually fast.
+        // invocation). `did-finish-load` stays the ONLY signal the test asserts
+        // on; these record how far the boot got when the probe line does not
+        // arrive, which turns one indistinguishable timeout into several
+        // distinguishable ones. The pre-load pair is registered BEFORE the
+        // `loadURL` call below, so neither can be missed by a load that
+        // completes unusually fast.
         //
         // Emitted on stderr so the stdout probe-line scanner in
         // `apps/desktop/test/launch.smoke.test.ts` still sees exactly one
@@ -238,12 +239,14 @@ if (!gotTheLock) {
         // `BrowserWindow` event — they are registered on their own emitters
         // rather than through one loop, so a wrong-emitter registration is a
         // compile error instead of a listener that never fires.
-        if (process.env["SIDEKICKS_SMOKE_TRACE_READINESS"] === "1") {
-          const traceReadiness = (readinessEvent: string): void => {
-            console.error(
-              `${READINESS_BREADCRUMB_TAG} ${readinessEvent} +${String(Date.now() - t0)}ms`,
-            );
-          };
+        const readinessTracingEnabled = process.env["SIDEKICKS_SMOKE_TRACE_READINESS"] === "1";
+        const traceReadiness = (readinessEvent: string): void => {
+          if (!readinessTracingEnabled) return;
+          console.error(
+            `${READINESS_BREADCRUMB_TAG} ${readinessEvent} +${String(Date.now() - t0)}ms`,
+          );
+        };
+        if (readinessTracingEnabled) {
           browserWindow.webContents.once("dom-ready", () => {
             traceReadiness("dom-ready");
           });
@@ -253,6 +256,14 @@ if (!gotTheLock) {
         }
 
         browserWindow.webContents.once("did-finish-load", () => {
+          // Emitted at the TOP of the callback, before `executeJavaScript` is
+          // issued. Without it, a renderer that never finished loading and a
+          // probe whose `executeJavaScript` round trip never resolved produce
+          // the identical observable — no probe line — and the harness cannot
+          // tell a boot that never got here from one that got here and hung.
+          // With it, the absence of this breadcrumb and its presence are two
+          // different diagnoses, which is the whole point of the trail.
+          traceReadiness("did-finish-load");
           const tWindow = Date.now() - t0;
           // Probe the renderer for the Spec-023 §Security Hardening Baseline
           // runtime invariants (sandbox: true + nodeIntegration: false +
