@@ -29,7 +29,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { isConsoleRefusal, type ConsoleRefusal } from "../core/index.js";
+import { refusalFromRejection, type ConsoleRefusal } from "../core/index.js";
 import type { ConsoleBridge } from "../bridge/index.js";
 import {
   Chip,
@@ -85,6 +85,19 @@ export interface LeaseLineProps {
    */
   readonly markFor: (participantId: string) => TerminalParticipantMark | undefined;
 }
+
+/**
+ * The subsystem name every refusal this line raises itself carries.
+ *
+ * A REJECTED lease call is normalized by `core/refusal.ts`'s one normalizer rather
+ * than by a copy here. That is what keeps the wire's own code on screen: the port
+ * answers rather than throws, so a rejection means the bridge itself failed, and a
+ * bridge that failed with `{ code, message }` — a lease conflict, a denied
+ * permission — is telling the person what to do next. A local arm that recognised
+ * only this console's own refusal shape flattened every one of those into a single
+ * call-failed code with `[object Object]` for a sentence.
+ */
+const TERMINAL_LEASE_REFUSAL_ORIGIN = "terminal-lease";
 
 /** What the chip says for each holding. Total over the closed set. */
 const HOLDING_CHIPS: Readonly<Record<TerminalLeaseHolding, { label: string; tone: ChipTone }>> = {
@@ -314,7 +327,7 @@ function useTerminalLeaseClaim(bridge: ConsoleBridge, sessionId: string): Termin
           if (!isMountedRef.current) {
             return;
           }
-          setRefusal(asRefusal(error));
+          setRefusal(refusalFromRejection(TERMINAL_LEASE_REFUSAL_ORIGIN, error));
         })
         .finally(() => {
           if (isMountedRef.current) {
@@ -333,23 +346,4 @@ function useTerminalLeaseClaim(bridge: ConsoleBridge, sessionId: string): Termin
   }, [call]);
 
   return { isInFlight, refusal, acquire, release };
-}
-
-/**
- * A thrown value, as the one refusal shape the console renders.
- *
- * The port answers rather than throws, so this arm covers a bridge that rejected —
- * the fixture's unscripted-reply error, or a preload that died mid-call. The
- * message is carried verbatim, because rule 9 forbids paraphrasing what the other
- * side said.
- */
-function asRefusal(error: unknown): ConsoleRefusal {
-  if (isConsoleRefusal(error)) {
-    return error;
-  }
-  return {
-    origin: "terminal-lease",
-    code: "lease-call-failed",
-    detail: error instanceof Error ? error.message : String(error),
-  };
 }
