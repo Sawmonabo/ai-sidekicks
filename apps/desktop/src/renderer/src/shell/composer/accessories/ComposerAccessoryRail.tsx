@@ -1,5 +1,6 @@
-// The composer's trailing rail: the meters, the quota chips, the compaction
-// control, the `+` menu, and the seats two other plans fill.
+// The composer's trailing rail: the queue shelf, the `+` menu, and the five seats
+// other plans fill — the two meters, the compaction control, the edit-and-resend
+// editor, and the workflow picker.
 //
 // WHERE THE FIGURES COME FROM. The rail selects the session's timeline once and
 // folds it three ways under `useMemo` — the newest context reading, the rate
@@ -26,9 +27,18 @@
 // compact and offers nothing, which is the absent-not-disabled discipline rather
 // than a `not-checked` block on every session composer in the console.
 //
-// THE SLOTS ARE `body: undefined` BY CONSTRUCTION, NOT BY OVERSIGHT. Neither seat
-// has a registry to be read out of: a body arrives by its owning plan mounting it
-// here, and until then the seat renders the reserved state.
+// THE SLOTS ARE `body: undefined` BY CONSTRUCTION, NOT BY OVERSIGHT. None of the
+// five seats has a registry to be read out of: a body arrives by its owning plan
+// mounting it here, and until then the seat renders the reserved state.
+//
+// FIVE SEATS, AND WHAT EACH RESERVED STATE LOOKS LIKE. The two plan-owned seats at
+// the ends of this rail — the edit-and-resend editor and the workflow picker — have
+// no shell behind them, so their reserved state is the "not built yet" absence. The
+// three the usage plan owns — the context meter, the rate-limit indicator, and the
+// compaction control — have a FIXTURE SHELL behind them, so what a person meets
+// today is a real meter drawn from real readings and what arrives later replaces the
+// shell rather than filling a hole. Either way the composer's half is the same: the
+// placement, the framing, and the readings this file folds. It authors no body.
 
 import { useMemo } from "react";
 import { useDriverCapabilities, useQueueFeed } from "../../../console/bridge/index.js";
@@ -40,13 +50,13 @@ import {
   type SessionStoreState,
 } from "../../../console/store/index.js";
 import { useComposerAddress } from "../composer-address.js";
-import { CompactionControl } from "./CompactionControl.js";
+import { CompactionSlot, COMPACTION_SLOT_CONTRACT } from "./CompactionSlot.js";
 import { compactionCapabilityFor } from "./compaction-capability.js";
-import { ContextMeter } from "./ContextMeter.js";
+import { ContextMeterSlot, CONTEXT_METER_SLOT_CONTRACT } from "./ContextMeterSlot.js";
 import { EditResendSlot, EDIT_RESEND_SLOT_CONTRACT } from "./EditResendSlot.js";
 import { PlusMenu } from "./PlusMenu.js";
 import { QueueShelf } from "./QueueShelf.js";
-import { RateChips } from "./RateChips.js";
+import { RateLimitSlot, RATE_LIMIT_SLOT_CONTRACT } from "./RateLimitSlot.js";
 import { waitingQueueRows } from "./waiting-queue.js";
 import {
   foldRateLimitReadings,
@@ -99,10 +109,21 @@ export function ComposerAccessoryRail(props: ComposerSeatProps): React.JSX.Eleme
       />
       <div className="meridian-composer__accessories">
         <div className="meridian-composer__meters">
-          <ContextMeter reading={contextReading} />
-          <RateChips readings={rateReadings} nowMilliseconds={clock.now()} />
+          <ContextMeterSlot
+            contract={CONTEXT_METER_SLOT_CONTRACT}
+            body={undefined}
+            reading={contextReading}
+          />
+          <RateLimitSlot
+            contract={RATE_LIMIT_SLOT_CONTRACT}
+            body={undefined}
+            readings={rateReadings}
+            nowMilliseconds={clock.now()}
+          />
           {addressedRun === undefined ? null : (
-            <CompactionControl
+            <CompactionSlot
+              contract={COMPACTION_SLOT_CONTRACT}
+              body={undefined}
               bridge={props.bridge}
               sessionId={props.sessionStore.sessionId}
               capability={compactionCapabilityFor(driverCapabilities, addressedRun.driverName)}

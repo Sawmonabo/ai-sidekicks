@@ -15,6 +15,13 @@
 // actually compacted is the `usage.context_compacted` row and nothing else, which
 // is why the completed line below is driven by a boundary the ledger recorded
 // rather than by the reply that came back.
+//
+// A FIXTURE SHELL, AND THE SEAT BESIDE IT SAYS SO. The control the usage plan owns
+// mounts into `CompactionSlot`; this body is what that seat renders until it does,
+// and it is DELETED by the PR that mounts the owning body. It keeps its dispatch of
+// the registered compaction verb rather than standing inert, because the settlement
+// rule stated above is the behaviour this console is bound to and a shell that only
+// looked like the control would prove none of it.
 
 import { InlineRefusal, Nothing, WireFigure } from "../../../console/primitives/index.js";
 import type { ConsoleBridge } from "../../../console/bridge/index.js";
