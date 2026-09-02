@@ -266,7 +266,7 @@ Per axis, the conditions that force a fresh look at this ADR:
 
 ### Research Conducted
 
-Primary sources consulted during ADR-023 research, surfaced forward from transient subagent research artifacts (`.agents/tmp/research/adr-023-ci-cd/axis-{1..5}-*.md`) per [AGENTS.md](../../AGENTS.md) "Surface-Forward-Then-Delete." All fetches dated 2026-04-26 unless a row carries its own fetch date.
+Primary sources consulted during ADR-023 research, surfaced forward from transient per-axis subagent research artifacts — not retained — per [AGENTS.md](../../AGENTS.md) "Surface-Forward-Then-Delete." The five axes below carry every citation those artifacts held. All fetches dated 2026-04-26 unless a row carries its own fetch date.
 
 #### Axis 1 — CI workflow
 
