@@ -92,6 +92,8 @@ export function XtermHost(props: XtermHostProps): React.JSX.Element {
   // is not.
   const canWriteToWire = onKeystroke !== undefined;
   const canActivateLinks = onActivateLink !== undefined;
+  const writeGate = terminalWriteGate(isWriteEnabled, canWriteToWire);
+  const isWritable = writeGate === "writable";
 
   useEffect(() => {
     const hostElement = hostElementRef.current;
@@ -145,21 +147,21 @@ export function XtermHost(props: XtermHostProps): React.JSX.Element {
   // already said `true` would otherwise start closed and stay closed until the
   // next transition.
   useEffect(() => {
-    adapterRef.current?.setWriteEnabled(isWriteEnabled);
-  }, [isWriteEnabled, emulator]);
+    adapterRef.current?.setWriteEnabled(isWritable);
+  }, [isWritable, emulator]);
 
   return (
     <div
       className="meridian-terminal-host"
       data-renderer={rendererMode ?? "pending"}
-      data-write-enabled={isWriteEnabled ? "true" : "false"}
+      data-write-enabled={isWritable ? "true" : "false"}
     >
       {emulator.status === "loaded" ? (
         <div
           className="meridian-terminal-host__surface"
           ref={hostElementRef}
           role="group"
-          aria-label={label(props.label, isWriteEnabled)}
+          aria-label={surfaceName(props.label, writeGate)}
         />
       ) : (
         renderEmulatorAbsence(emulator)
@@ -267,14 +269,51 @@ function useTerminalEmulator(loader: TerminalEmulatorLoader): TerminalEmulatorSt
 }
 
 /**
- * The surface's accessible name, which carries the write gate.
+ * Whether this surface may be typed into, and when it may not, why.
+ *
+ * Two conditions and not one. The lease says whether this participant is ALLOWED
+ * to write; `onKeystroke` says whether there is anywhere for a keystroke to GO.
+ * A surface built without the writer — which is what the pane mounts today, and
+ * what a re-render across a terminal id already exercises — opened xterm's stdin
+ * on the lease alone, so the emulator accepted every character, the adapter's
+ * `onData` subscription did not exist to forward it, and the region announced
+ * itself writable while the shell heard nothing. A gate is only a gate if it
+ * covers the whole path.
+ *
+ * The set is declared as the table that RENDERS it, rather than as a tuple beside
+ * a record: the suffix a gate carries is what distinguishes it on screen, so the
+ * two cannot be allowed to drift, and a fourth gate is a compile error here rather
+ * than a name that silently reads like one of these three.
  *
  * `Spec-023 §Console Design (Meridian)` 8.8 requires a non-holder to get "the live
  * output in a read-only watch mode with the input area absent rather than
  * disabled". A disabled input announces itself as a control that exists and cannot
  * be used, which is a different and worse claim than "you are watching" — so the
  * state reaches assistive technology through the region's own name instead.
+ *
+ * The third name is not a variant of the second: "you do not hold the shell" and
+ * "this build has nowhere to send what you type" send a person to two different
+ * places, and collapsing them would have them wait for a lease they already hold.
  */
-function label(surfaceLabel: string, isWriteEnabled: boolean): string {
-  return isWriteEnabled ? surfaceLabel : `${surfaceLabel}, read-only`;
+const SURFACE_NAME_SUFFIXES = {
+  writable: "",
+  "lease-not-held": ", read-only",
+  "no-input-channel": ", read-only: no input channel",
+} as const;
+
+type TerminalWriteGate = keyof typeof SURFACE_NAME_SUFFIXES;
+
+function terminalWriteGate(isWriteEnabled: boolean, canWriteToWire: boolean): TerminalWriteGate {
+  if (!isWriteEnabled) {
+    // First, because it is the state 8.8 names and the one a person is in most of
+    // the time: somebody else holds the shell, and no input channel would change
+    // that.
+    return "lease-not-held";
+  }
+  return canWriteToWire ? "writable" : "no-input-channel";
+}
+
+/** The surface's accessible name, which carries the write gate. */
+function surfaceName(surfaceLabel: string, writeGate: TerminalWriteGate): string {
+  return `${surfaceLabel}${SURFACE_NAME_SUFFIXES[writeGate]}`;
 }
