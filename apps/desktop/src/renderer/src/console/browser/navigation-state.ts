@@ -52,6 +52,15 @@ export function useReportedNavigation(bridge: ConsoleBridge, paneId: string): Na
     void (async () => {
       const outcome = await bridge.growth.browserSubscribeNavigation({ paneId });
       if (cancelled) {
+        // Whoever finishes last owns the stream. Cleanup ran while `stream` was
+        // still undefined — there was nothing for it to close — so a stream served
+        // after that point is closed HERE or never: dropping it leaves the bridge
+        // subscription and the producer behind it alive for the life of the
+        // window, once per open/close cycle, and quick cycling is exactly what a
+        // pane deck invites.
+        if (outcome.status === "served") {
+          outcome.value.close();
+        }
         return;
       }
       if (outcome.status === "unavailable") {
