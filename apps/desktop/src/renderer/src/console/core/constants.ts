@@ -111,9 +111,9 @@ export const WHEN_CLAUSE_MAX_DEPTH = 8;
 /**
  * Participant chips the cast bar shows before folding to "+N" (rule 7).
  *
- * The number is a decision `Spec-023 §Console Design (Meridian)` §4.1 already
- * fixed; a bound re-derived at the point of use is a bound that can come back
- * different.
+ * The number is a decision `Spec-023 §Meridian, the design language` rule 7 already
+ * fixed — "the cast bar shows up to eight chips, then `+N`" — and a bound re-derived
+ * at the point of use is a bound that can come back different.
  */
 export const CAST_BAR_CHIP_CAP = 8;
 
@@ -175,11 +175,12 @@ export const LIVE_ANNOUNCEMENT_HOLD_MS = 500;
 /**
  * Panes one saved deck layout may restore.
  *
- * `Spec-023 §Console Design (Meridian)` §4.2 asks for a capped restore, and the cap
- * is about untrusted input rather than performance: a persisted record is a file on
- * disk, and without a bound a corrupted or hand-edited one mounts panes until the
- * window stops responding. Twelve is past any arrangement a person builds on a
- * display the deck's density presets are drawn for, so the cap binds a defect and
- * never a session.
+ * This module's own decision, like the third of the three restore rules
+ * `workspace/deck/deck-snapshot.ts` states — no committed document fixes the number,
+ * and the cap is about untrusted input rather than performance: a persisted record is
+ * a file on disk, and without a bound a corrupted or hand-edited one mounts panes
+ * until the window stops responding. Twelve is past any arrangement a person builds
+ * on a display the deck's density presets are drawn for, so the cap binds a defect
+ * and never a session.
  */
 export const DECK_RESTORED_PANE_CAP = 12;

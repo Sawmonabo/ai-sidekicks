@@ -10,7 +10,7 @@
 // unmounted it and threw the choice away. The promise was kept by nothing and the
 // defect was invisible until somebody scrolled back.
 //
-// WHY A CONTEXT AND NOT A PROP ON THE ROW SEAT. `workspace/seats/timeline-row-slot.ts`
+// WHY A CONTEXT AND NOT A PROP ON THE ROW SEAT. `seats/timeline-row-slot.ts`
 // declares what the LIST decides for a row — the hue, the superseded ranking, the
 // density — and a lease is not a fourth decision of that kind: it is the row body
 // asking the list to REMEMBER something. Widening the seat would make every future

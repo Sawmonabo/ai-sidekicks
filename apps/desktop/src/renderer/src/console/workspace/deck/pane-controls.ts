@@ -3,7 +3,7 @@
 // `deck/PaneHeader.tsx` puts close and open-in-window on the pane HEADER, and both are
 // the DECK's acts: the deck owns which panes exist and — for the auxiliary windows
 // `Spec-023 §The surface set` names — in which window. But a pane body is mounted
-// through `workspace/seats/pane-registry.ts`, whose `render(context)` takes a
+// through `seats/pane-registry.ts`, whose `render(context)` takes a
 // `ConsolePaneContext` and nothing else — that contract is shared by six view
 // families and widening it to carry two callbacks would be six branches changing
 // one merged file.
@@ -33,8 +33,8 @@ export interface PaneControls {
   /** Close this pane. Absent where the host cannot close panes. */
   readonly onClose?: () => void;
   /** Move this pane into a window of its own (`Spec-023 §The surface set`). Absent
-   * where the kind or the host does not permit it — the kind's `openInWindow` is the
-   * deck's own test. */
+   * where the kind or the host does not permit it — `isDetachablePaneKind` answers
+   * the kind's half, and the host's is whether it supplied a handler. */
   readonly onOpenInWindow?: () => void;
   /**
    * Make the header the handle that drags this pane to a new position.

@@ -1,7 +1,8 @@
 // The follow seat: how the cast bar asks the ledger to bring an actor into view.
 //
-// `Spec-023 §Console Design (Meridian)` §4.1 makes a cast chip a control that
-// follows the actor. That has two halves and they belong to two families. The deck's
+// A cast chip is a control that follows the actor — this family's own reading of the
+// cast bar, resolved over the log by `workspace/actor-follow.ts`, which no committed
+// document states. That has two halves and they belong to two families. The deck's
 // half — focus the actor's pane, or the session's ledger — is the workspace's and
 // happens where the deck lives. The ledger's half — scroll that actor's latest row
 // into view — belongs to whichever family renders the ledger, because the row's

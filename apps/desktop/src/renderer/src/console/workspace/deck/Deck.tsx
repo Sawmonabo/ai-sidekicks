@@ -8,7 +8,7 @@
 // WHAT THIS COMPONENT IS AND IS NOT. It is the frame: order, widths, focus, the
 // separators, the keyboard paths, and the one door each pane body is mounted
 // through. It is NOT any pane's content — every body comes from
-// `workspace/seats/pane-registry.ts`, resolved by kind, so a second open of the same
+// `seats/pane-registry.ts`, resolved by kind, so a second open of the same
 // entity focuses the pane that already exists.
 //
 // FOUR DECISIONS WORTH STATING:

@@ -11,7 +11,7 @@
 // blocked-on state were derived on every pass and shown nowhere.
 //
 // WHERE THE BOUNDARY BETWEEN THIS AND THE ROW SEAT SITS. Seams are the LEDGER's
-// rows, not the seat's. The seat (`workspace/seats/timeline-row-slot.ts`) is filled
+// rows, not the seat's. The seat (`seats/timeline-row-slot.ts`) is filled
 // by whichever renderer owns a session's row BODIES, and a seam has no body: it has
 // a glyph, a label, and a handful of wire members laid on one line. So the feed
 // dispatches a seam row here BEFORE it delegates to the seat, and the seat contract

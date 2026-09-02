@@ -7,7 +7,7 @@
 //     opens one pane, structurally (a single mount door and a tripwire that fails on
 //     a second)". A second open of the same entity FOCUSES the pane that already shows
 //     it. The rule is structural here and structural again at the mount door
-//     (`workspace/seats/pane-registry.ts`), which is why neither side needs to trust
+//     (`seats/pane-registry.ts`), which is why neither side needs to trust
 //     the other.
 //   • **Ephemeral panes cascade.** This deck's own rule, because no committed document
 //     states one: a `browser` pane opens right of its source and closes with it — so a

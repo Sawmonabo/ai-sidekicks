@@ -145,7 +145,7 @@ export function registerLedger(
   // seat admits a re-registration by the same owner, which is what a second window
   // and a hot reload both are.
   //
-  // AND IT IS DELETED WITH THE SHELL. `workspace/seats/timeline-row-slot.ts` states
+  // AND IT IS DELETED WITH THE SHELL. `seats/timeline-row-slot.ts` states
   // the absorb-by-import rule: the change that registers the timeline subtree's real
   // rows deletes this call, `FixtureShellRows.tsx`, and `fixture-shell-projection.ts`
   // in the same diff. A shell left registered beside the real row does not render
