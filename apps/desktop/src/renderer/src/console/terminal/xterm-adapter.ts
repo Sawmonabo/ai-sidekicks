@@ -29,6 +29,15 @@
 // a surface that read it off the lease. An emulator that consulted a lease would
 // be a second place eligibility is decided, and the renderer decides it nowhere.
 
+// THE LIBRARY'S OWN SHEET IS IMPORTED HERE, not from the family barrel where the
+// family's stylesheets live. This module is the lazy chunk's entry
+// (`emulator-loader.ts` says why), and the sheet is the emulator's geometry: an
+// import at the barrel — which the seat board reaches statically — would put the
+// grid's CSS in the document the operator waits for while the code that draws the
+// grid arrived on demand. Landing both on the same edge is also what keeps a
+// surface from ever rendering a grid whose geometry did not come with it.
+import "@xterm/xterm/css/xterm.css";
+
 import { Terminal, type IDisposable, type ITerminalOptions } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";

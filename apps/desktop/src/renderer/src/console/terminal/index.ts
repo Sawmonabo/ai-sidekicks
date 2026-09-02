@@ -13,20 +13,26 @@
 // bodies.
 //
 // WHAT THE FAMILY OWNS TODAY, after T-023p-1C-7: its named bounds
-// (`constants.ts`), the emulator wrapper (`xterm-adapter.ts`), the page-wide WebGL
-// slot allocator (`renderer-pool.ts`), the mount point (`XtermHost.tsx`), the lease
-// fold (`lease-model.ts`), and the lease line (`LeaseLine.tsx`). Those are reached
+// (`constants.ts`), the emulator wrapper (`xterm-adapter.ts`) and the deferred edge
+// into it (`emulator-loader.ts`), the page-wide WebGL slot allocator
+// (`renderer-pool.ts`), the mount point (`XtermHost.tsx`), the lease fold
+// (`lease-model.ts`), and the lease line (`LeaseLine.tsx`). Those are reached
 // by the pane body beside them through deep imports inside the family — the door
 // below is the SEAT BOARD's, and a body importing its own family through it would
 // close a cycle: this module imports the pane, and the pane imports these.
 
-// THE FAMILY'S STYLESHEETS ARE IMPORTED HERE AND NOWHERE ELSE, which is
-// `apps/desktop/AGENTS.md`'s rule and matters twice over for this family: the
-// emulator's own sheet is a LIBRARY's, and a component that imported it would put
-// the bundler's edge into `@xterm/xterm` at a leaf rather than at the door. Both
-// land together so a surface can never render a terminal whose grid arrived
-// without its geometry.
-import "@xterm/xterm/css/xterm.css";
+// THE FAMILY'S STYLESHEET IS IMPORTED HERE AND NOWHERE ELSE, which is
+// `apps/desktop/AGENTS.md`'s rule. It is the family's own sheet — the pane box, the
+// lease line, the host's boundary — and it is small, hand-authored, and needed by
+// every terminal surface the moment one renders, including the surface that stands
+// in while the emulator is still arriving.
+//
+// The LIBRARY's sheet is deliberately not beside it. `@xterm/xterm/css/xterm.css`
+// is imported by `xterm-adapter.ts`, which is reached only across the `import()` in
+// `emulator-loader.ts`, so the grid's geometry rides the same lazy chunk as the code
+// that draws the grid. An import here would have put those bytes in the document the
+// operator waits for, which is what `Spec-023 §Console Design (Meridian)` §Budgets
+// excludes when it names the terminal a lazy chunk.
 import "./terminal.css";
 
 import type { ConsolePaneRegistry } from "../workspace/index.js";

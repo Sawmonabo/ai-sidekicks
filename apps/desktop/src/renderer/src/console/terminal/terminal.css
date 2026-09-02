@@ -18,9 +18,11 @@
  *              disclosure, and is not a second visible panel.
  *
  * xterm.js draws inside `.meridian-terminal-host__surface`. Its own sheet
- * (`@xterm/xterm/css/xterm.css`, imported beside this one from the family barrel)
- * owns everything under it; this file owns the box and its boundary only, so a
- * library upgrade cannot collide with a rule of ours.
+ * (`@xterm/xterm/css/xterm.css`, imported by `xterm-adapter.ts` so it rides the
+ * emulator's lazy chunk) owns everything under it; this file owns the box and its
+ * boundary only, so a library upgrade cannot collide with a rule of ours. This
+ * sheet therefore also has to stand on its own before the emulator arrives: the
+ * host box keeps its size and its boundary while the chunk is still in flight.
  */
 
 /* -------------------------------------------------------------------- pane */

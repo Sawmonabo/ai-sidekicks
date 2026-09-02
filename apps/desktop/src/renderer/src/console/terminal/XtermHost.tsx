@@ -3,8 +3,18 @@
 // The component's whole job is to own a DOM box and the lifetime of one
 // `XtermTerminalAdapter` against it. Everything a terminal DOES — the buffer, the
 // renderer, the addons, the write gate — belongs to that class, so this file has
-// no branch a reviewer has to trace: an effect attaches on mount, detaches on
-// unmount, and a second effect forwards the write gate.
+// no branch a reviewer has to trace: the emulator's code is fetched, an effect
+// attaches on mount, detaches on unmount, and a second effect forwards the write
+// gate.
+//
+// WHY THE EMULATOR ARRIVES ON A LATER COMMIT THAN THE MOUNT. `@xterm/xterm`, its
+// five addons, and its stylesheet are the console's largest single dependency, and
+// `Spec-023 §Console Design (Meridian)` §Budgets excludes the terminal from the
+// initial bundle by name. So this component reaches the adapter through
+// `emulator-loader.ts`'s `import()` rather than a static import, and renders the
+// box's absence — `not-loaded`, the read-in-flight kind — until the chunk lands.
+// The skeleton is the primitive every other surface uses for a read in flight; a
+// spinner here would be the console's second vocabulary for one state.
 //
 // WHY THE ADAPTER IS BUILT IN AN EFFECT AND NOT IN THE RENDER BODY. React may
 // discard a render pass, and an adapter constructed during one would be an
@@ -21,7 +31,14 @@
 // own what is inside it.
 
 import { useEffect, useRef, useState } from "react";
-import { XtermTerminalAdapter, type TerminalRendererMode } from "./xterm-adapter.js";
+
+import { Nothing } from "../primitives/index.js";
+import {
+  terminalEmulatorLoader,
+  type TerminalEmulatorLoader,
+  type TerminalEmulatorModule,
+} from "./emulator-loader.js";
+import type { TerminalRendererMode } from "./xterm-adapter.js";
 
 export interface XtermHostProps {
   /** The shared terminal this surface is a view of. One per session in V1. */
@@ -40,17 +57,20 @@ export interface XtermHostProps {
 
 export function XtermHost(props: XtermHostProps): React.JSX.Element {
   const hostElementRef = useRef<HTMLDivElement | null>(null);
-  const adapterRef = useRef<XtermTerminalAdapter | undefined>(undefined);
+  const adapterRef = useRef<XtermTerminalAdapterInstance | undefined>(undefined);
   const [rendererMode, setRendererMode] = useState<TerminalRendererMode | undefined>(undefined);
+  const emulator = useTerminalEmulator(terminalEmulatorLoader);
 
   const { terminalId, isWriteEnabled, onKeystroke, onActivateLink, onRendererMode } = props;
 
   useEffect(() => {
     const hostElement = hostElementRef.current;
-    if (hostElement === null) {
+    if (emulator.status !== "loaded" || hostElement === null) {
+      // Nothing to pair a disposal with yet: the box below is the absence, not the
+      // surface, so there is no element for an emulator to open against.
       return undefined;
     }
-    const adapter = new XtermTerminalAdapter({
+    const adapter = new emulator.module.XtermTerminalAdapter({
       terminalId,
       onKeystroke,
       onActivateLink,
@@ -66,14 +86,18 @@ export function XtermHost(props: XtermHostProps): React.JSX.Element {
       // a remount that is never coming.
       adapter.dispose();
     };
-  }, [terminalId, onKeystroke, onActivateLink, onRendererMode]);
+  }, [emulator, terminalId, onKeystroke, onActivateLink, onRendererMode]);
 
   // Separate from the mount effect on purpose: the lease changes far more often
   // than the pane mounts, and folding the two would tear down an emulator every
-  // time the shell changed hands.
+  // time the shell changed hands. It re-runs when the EMULATOR moves as well as
+  // when the gate does, because the adapter is built on a later commit than the
+  // one that first carried the lease — an emulator that arrived while the lease
+  // already said `true` would otherwise start closed and stay closed until the
+  // next transition.
   useEffect(() => {
     adapterRef.current?.setWriteEnabled(isWriteEnabled);
-  }, [isWriteEnabled]);
+  }, [isWriteEnabled, emulator]);
 
   return (
     <div
@@ -81,14 +105,97 @@ export function XtermHost(props: XtermHostProps): React.JSX.Element {
       data-renderer={rendererMode ?? "pending"}
       data-write-enabled={isWriteEnabled ? "true" : "false"}
     >
-      <div
-        className="meridian-terminal-host__surface"
-        ref={hostElementRef}
-        role="group"
-        aria-label={label(props.label, isWriteEnabled)}
-      />
+      {emulator.status === "loaded" ? (
+        <div
+          className="meridian-terminal-host__surface"
+          ref={hostElementRef}
+          role="group"
+          aria-label={label(props.label, isWriteEnabled)}
+        />
+      ) : (
+        renderEmulatorAbsence(emulator)
+      )}
     </div>
   );
+}
+
+/** The adapter instance type, taken from the class the loader resolves. */
+type XtermTerminalAdapterInstance = InstanceType<TerminalEmulatorModule["XtermTerminalAdapter"]>;
+
+/** Where the emulator's code is: still coming, here, or refused. */
+type TerminalEmulatorState =
+  | { readonly status: "loading" }
+  | { readonly status: "loaded"; readonly module: TerminalEmulatorModule }
+  | { readonly status: "failed"; readonly reason: string };
+
+const LOADING_EMULATOR: TerminalEmulatorState = { status: "loading" };
+
+/**
+ * What stands in the host box while the emulator's code is not there.
+ *
+ * Two of `Nothing`'s five kinds, and the two the states actually are: a fetch in
+ * flight is `not-loaded` — the skeleton that says nothing, because there is nothing
+ * yet to say — and a fetch that refused is `error`, carrying the reason verbatim
+ * rather than a sentence this file wrote. Neither is `empty`, which would claim the
+ * shell printed nothing, and neither is `not-checked`, which would claim nobody
+ * asked.
+ */
+function renderEmulatorAbsence(
+  emulator: Exclude<TerminalEmulatorState, { status: "loaded" }>,
+): React.JSX.Element {
+  return emulator.status === "loading" ? (
+    <Nothing kind="not-loaded" placement="surface" title="Loading the terminal emulator" />
+  ) : (
+    <Nothing
+      kind="error"
+      placement="surface"
+      title="The terminal emulator could not be loaded."
+      detail={emulator.reason}
+    />
+  );
+}
+
+/**
+ * Fetch the emulator's chunk and say where it got to.
+ *
+ * A hook rather than a call in the render body, on `apps/desktop/AGENTS.md`'s rule
+ * and for a concrete reason: `import()` is a side effect, and a render body that
+ * started one would start a second on every discarded pass.
+ *
+ * UNMOUNT BEFORE THE CHUNK ARRIVES is the arm worth naming. A pane opened and
+ * closed inside one fetch leaves a promise still in flight over a component React
+ * has already dropped, and settling it into state would be a write against a
+ * disposed host. The flag below is read on both arms, so a late resolution and a
+ * late rejection are each ignored rather than one of them handled — and the memo
+ * inside the loader means the fetch itself is not wasted: the next mount gets the
+ * chunk this one paid for.
+ */
+function useTerminalEmulator(loader: TerminalEmulatorLoader): TerminalEmulatorState {
+  const [emulator, setEmulator] = useState<TerminalEmulatorState>(LOADING_EMULATOR);
+
+  useEffect(() => {
+    let isMounted = true;
+    loader.load().then(
+      (module) => {
+        if (isMounted) {
+          setEmulator({ status: "loaded", module });
+        }
+      },
+      (loadError: unknown) => {
+        if (isMounted) {
+          setEmulator({
+            status: "failed",
+            reason: loadError instanceof Error ? loadError.message : String(loadError),
+          });
+        }
+      },
+    );
+    return () => {
+      isMounted = false;
+    };
+  }, [loader]);
+
+  return emulator;
 }
 
 /**
