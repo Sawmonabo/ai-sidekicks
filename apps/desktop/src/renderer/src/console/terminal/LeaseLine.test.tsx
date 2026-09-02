@@ -3,8 +3,9 @@
 // The lease STATE is a value here, built directly rather than folded from a
 // scenario, because `lease-model.test.ts` already holds the fold to the wire and
 // this file's subject is what each state RENDERS. The VIEWER's identity is a value
-// for the same reason: `viewer-identity.test.tsx` holds the read, and every case
-// below renders under a settled one so that the state it names is what it is about.
+// for the same reason: `panes/terminal/TerminalPane.test.tsx` drives the read that
+// produces one, against the real port, and every case below renders under a settled
+// one so that the state it names is what it is about.
 //
 // The last of the four prohibitions has its own block at the foot of the file: the
 // claim control is offered only once the viewer's identity has been read, because a

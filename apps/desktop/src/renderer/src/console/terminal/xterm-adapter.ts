@@ -1,68 +1,34 @@
-// The console's own wrapper over `@xterm/xterm`, and the renderer pool it draws
-// from.
+// The console's own wrapper over `@xterm/xterm`: one terminal surface, composed.
 //
 // `Spec-023 §Console Libraries` ADOPTS `@xterm/xterm` 6.0.0 with the WebGL, fit,
 // search, unicode11, serialize, and web-links addons and OWN-BUILDS the React
 // wrapper, the renderer pool, and the link scheme guard, under five constraints.
-// Each one is a decision this module makes rather than a note a reviewer has to
-// remember.
+// Each one is a decision this family makes rather than a note a reviewer has to
+// remember, and each lives with the code that keeps it:
 //
-// The web-links addon is the ADOPT-over-OWN-BUILD side of constraint 4, which is
-// where the reasoning for it is: the alternative is this module reimplementing the
-// library's own buffer index back-mapping, and the guard the constraint is about
-// runs on the activation path either way.
-//
-//   1. **Bound the CONTEXTS this page creates, not the terminals drawing on one.**
-//      `WebglAddon.dispose()` does not release its WebGL2 context — the addon
-//      calls `loseContext()` nowhere, verified in the pinned package rather than
-//      taken from xterm.js issue #6068 — and Chromium drops the OLDEST context
-//      past sixteen. So a teardown gives the ledger no allowance back
-//      (`renderer-pool.ts` says why at length): only the two arms where a context
-//      demonstrably does not exist do, and past the cap a terminal opens on the
-//      DOM renderer rather than taking a context from one still on screen. An
-//      adapter keeps its emulator across a detach so a remount reattaches instead
-//      of minting a second.
-//   2. **`onContextLoss` falls back to DOM, permanently and for this INSTANCE.**
-//      The addon fires it three seconds after `webglcontextlost` with no
-//      restoration, so the fallback is permanent — which the code has to remember,
-//      because the fallback also clears the addon and hands the allowance back, and
-//      a later `attach()` to a different host re-enters the selection and would
-//      otherwise find every condition for taking a second context satisfied. So the
-//      loss is recorded on the instance and the selection reads it first. The
-//      allowance IS still reclaimed, because the host destroyed the context rather
-//      than this code letting go of one; the ledger is about the PAGE, and this flag
-//      is about this terminal.
+//   1. Bound the CONTEXTS this page creates, not the terminals drawing on one —
+//      `renderer-pool.ts` for the ledger, `xterm-addons.ts` for the selection.
+//   2. `onContextLoss` falls back to DOM, permanently and for this INSTANCE —
+//      `xterm-addons.ts`.
 //   3. **`allowProposedApi` only for Unicode 11.** Only the `unicode` getter calls
-//      `_checkProposedApi()`; every other API here is stable.
-//   4. **Every activatable link passes the scheme guard.** `link-guard.ts` owns
-//      the rule, `allowNonHttpProtocols` stays false beside it, and the two ways
-//      a link can reach a person share one activation method rather than two
-//      copies of the same check.
+//      `_checkProposedApi()`; every other API this family uses is stable. The option
+//      is set in this file, because construction is what this file owns; the addon
+//      that needs it is loaded next door.
+//   4. Every activatable link passes the scheme guard — `link-guard.ts` owns the
+//      rule and `xterm-links.ts` builds both paths through it.
+//   5. `disableStdin` plus wire-level gating for watchers — `xterm-host-binding.ts`.
 //
-//      TWO WAYS, because there are two kinds of link in a terminal and xterm.js
-//      handles exactly one of them itself. `linkHandler` governs OSC 8 hyperlinks
-//      — text a program explicitly marked as a link — and governs nothing else,
-//      so an ordinary `https://…` a shell simply PRINTED was inert: no link
-//      provider was registered, and a provider is the only thing that turns
-//      printed text into something clickable. That is the common case, and it was
-//      the one that did nothing.
+// WHAT THIS FILE OWNS, AND WHY THE LINE IS THERE. The emulator's LIFE: built on
+// first attach, kept across a detach so a remount reattaches instead of minting a
+// second, and disposed exactly once in an order the pieces cannot arrange between
+// themselves. Everything a terminal surface also needs — which addons it loads and
+// which renderer it gets, how a link is activated, how it is sized and gated — is a
+// question with its own answer and its own module, and this class composes the three
+// rather than restating them.
 //
-//      `@xterm/addon-web-links` is the xterm.js project's own answer to it and is
-//      ADOPTED here rather than reimplemented: its provider carries the buffer
-//      index back-mapping a hand-written one would have to get right — wrapped
-//      lines, early-wrapped wide characters, the 2048-character expansion bound —
-//      and its default matcher admits `http://` and `https://` only, which is the
-//      same closed set `link-guard.ts` allows, so it decorates nothing the guard
-//      would then refuse. The addon's own default handler (`window.open`) is
-//      never used; this adapter passes its own, and that handler runs the guard.
-//   5. **`disableStdin` plus wire-level gating for watchers.** Watch mode is the
-//      default, so stdin starts disabled and opens only when the lease says this
-//      participant holds the shell — and the keystrokes go to the wire, never into
-//      the local buffer, because the daemon is what echoes a shared shell.
-//
-// WHAT IT DOES NOT DO. It never decides who may write: it is handed that answer by
-// a surface that read it off the lease. An emulator that consulted a lease would
-// be a second place eligibility is decided, and the renderer decides it nowhere.
+// WHAT IT DOES NOT DO. It never decides who may write: it is handed that answer by a
+// surface that read it off the lease. An emulator that consulted a lease would be a
+// second place eligibility is decided, and the renderer decides it nowhere.
 
 // THE LIBRARY'S OWN SHEET IS IMPORTED HERE, not from the family barrel where the
 // family's stylesheets live. This module is the lazy chunk's entry
@@ -73,24 +39,19 @@
 // surface from ever rendering a grid whose geometry did not come with it.
 import "@xterm/xterm/css/xterm.css";
 
-import { Terminal, type IDisposable, type ITerminalOptions } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
-import { SearchAddon } from "@xterm/addon-search";
-import { SerializeAddon } from "@xterm/addon-serialize";
-import { Unicode11Addon } from "@xterm/addon-unicode11";
-import { WebLinksAddon } from "@xterm/addon-web-links";
-import { WebglAddon } from "@xterm/addon-webgl";
+import { Terminal, type ITerminalOptions } from "@xterm/xterm";
 
-import { Emitter, type Unsubscribe } from "../core/index.js";
-import { observeElementResize } from "../primitives/index.js";
+import type { Unsubscribe } from "../core/index.js";
 import { TERMINAL_DEFAULT_SCROLLBACK_LINES } from "./constants.js";
-import { allowedTerminalLinkHref } from "./link-guard.js";
 import { TerminalRendererPool, terminalRendererPool } from "./renderer-pool.js";
+import { TerminalAddonSuite, type TerminalRendererMode } from "./xterm-addons.js";
+import { TerminalHostBinding } from "./xterm-host-binding.js";
+import { buildTerminalLinkHandler, buildTerminalWebLinksAddon } from "./xterm-links.js";
 
-/** Which renderer an instance ended up with. Rendered, never inferred. */
-export const TERMINAL_RENDERER_MODES = ["webgl", "dom"] as const;
-
-export type TerminalRendererMode = (typeof TERMINAL_RENDERER_MODES)[number];
+// Re-exported from the module that DECLARES it, so a consumer that names the mode
+// keeps naming it through the emulator's own entry point — which is also the only
+// module `emulator-loader.ts`'s `typeof import(...)` narrows against.
+export type { TerminalRendererMode } from "./xterm-addons.js";
 
 export interface XtermTerminalAdapterOptions {
   /** The shared terminal this adapter is a view of. One per session in V1. */
@@ -112,43 +73,27 @@ export interface XtermTerminalAdapterOptions {
  */
 export class XtermTerminalAdapter {
   readonly #terminalId: string;
-  readonly #pool: TerminalRendererPool;
   readonly #scrollbackLines: number;
-  readonly #onKeystroke: ((data: string) => void) | undefined;
   readonly #onActivateLink: ((url: string) => void) | undefined;
-  readonly #subscriptions: IDisposable[] = [];
-  // Built with the emulator and DROPPED WITH IT, rather than owned for the
-  // adapter's whole life. An addon holds the terminal it was loaded into, so a
-  // long-lived field here keeps the emulator — and its twelve-bytes-per-cell
-  // buffer — reachable through this object after `dispose()` nulled `#terminal`,
-  // which is a disposal that frees nothing. Measured: holding them left almost all
-  // of a full instance's bytes retained across a teardown, which is what
-  // `test/console/endurance/terminal-endurance.test.ts` holds this object to.
-  #fitAddon: FitAddon | undefined;
-  #searchAddon: SearchAddon | undefined;
-  #serializeAddon: SerializeAddon | undefined;
+  readonly #addons: TerminalAddonSuite;
+  readonly #hostBinding: TerminalHostBinding;
+  // Built on the first attach and DROPPED WITH THE ADAPTER. The three collaborators
+  // each hold what they need of it and let go in the same teardown, so no reference
+  // to a disposed emulator — and its twelve-bytes-per-cell buffer — outlives it.
   #terminal: Terminal | undefined;
-  #webglAddon: WebglAddon | undefined;
-  #rendererMode: TerminalRendererMode = "dom";
-  // Whether this instance has already had a context taken away from it. Written in
-  // exactly one place and never reset: `dispose()` ends the instance, so a remount
-  // that reuses the adapter is the same terminal and gets the same answer.
-  #hasLostWebglContext = false;
-  // The mode settles inside `attach` and can move again whenever the host takes
-  // the context away, so a consumer that COPIED it once reported `webgl` over a
-  // terminal that had already fallen back to the DOM renderer.
-  readonly #rendererModeChanges = new Emitter<TerminalRendererMode>("terminal renderer mode");
-  #hostElement: HTMLElement | undefined;
-  #detachHostSizeObserver: Unsubscribe | undefined;
-  #isWriteEnabled = false;
   #isDisposed = false;
 
   public constructor(options: XtermTerminalAdapterOptions) {
     this.#terminalId = options.terminalId;
-    this.#pool = options.pool ?? terminalRendererPool;
     this.#scrollbackLines = options.scrollbackLines ?? TERMINAL_DEFAULT_SCROLLBACK_LINES;
-    this.#onKeystroke = options.onKeystroke;
     this.#onActivateLink = options.onActivateLink;
+    this.#addons = new TerminalAddonSuite(this.#terminalId, options.pool ?? terminalRendererPool);
+    this.#hostBinding = new TerminalHostBinding({
+      onKeystroke: options.onKeystroke,
+      onHostResize: () => {
+        this.fitToHost();
+      },
+    });
   }
 
   public get terminalId(): string {
@@ -156,21 +101,16 @@ export class XtermTerminalAdapter {
   }
 
   public get rendererMode(): TerminalRendererMode {
-    return this.#rendererMode;
+    return this.#addons.rendererMode;
   }
 
   /**
    * Be told which renderer this instance is on, now and whenever that changes.
    *
-   * The current mode is delivered synchronously on subscribe, which is the point
-   * rather than a convenience: a consumer that read `rendererMode` and then
-   * subscribed would hold a value from before its own subscription — the
-   * copied-once bug in a second shape. Unsubscribing is the caller's, and
-   * disposal drops every sink regardless.
+   * Unsubscribing is the caller's, and disposal drops every sink regardless.
    */
   public subscribeToRendererMode(sink: (mode: TerminalRendererMode) => void): Unsubscribe {
-    sink(this.#rendererMode);
-    return this.#rendererModeChanges.subscribe(sink);
+    return this.#addons.subscribeToRendererMode(sink);
   }
 
   public get isDisposed(): boolean {
@@ -202,50 +142,33 @@ export class XtermTerminalAdapter {
       return;
     }
     const terminal = this.#terminal ?? this.#buildTerminal();
-    if (this.#hostElement === hostElement) {
+    if (this.#hostBinding.hostElement === hostElement) {
       this.fitToHost();
       return;
     }
-    this.#hostElement = hostElement;
     terminal.open(hostElement);
-    this.#selectRenderer(terminal);
-    this.#observeHostSize(hostElement);
+    this.#addons.selectRendererFor(terminal);
+    this.#hostBinding.showOn(hostElement);
     this.fitToHost();
   }
 
   /** Take the emulator off screen and keep it, with its scrollback and its renderer. */
   public detach(): void {
-    this.#detachHostSizeObserver?.();
-    this.#detachHostSizeObserver = undefined;
-    this.#hostElement = undefined;
+    this.#hostBinding.detach();
   }
 
-  /**
-   * Say whether this participant may type. The answer is the lease's, folded from
-   * the log and handed down. Disabled is the default and the fallback: 8.8 makes
-   * watch mode what every non-holder gets, and a guess here would guess in the
-   * direction that lets somebody type into a shell they do not hold.
-   */
+  /** Say whether this participant may type. The answer is the lease's, handed down. */
   public setWriteEnabled(isWriteEnabled: boolean): void {
-    this.#isWriteEnabled = isWriteEnabled;
-    if (this.#terminal !== undefined) {
-      this.#terminal.options.disableStdin = !isWriteEnabled;
-    }
+    this.#hostBinding.setWriteEnabled(isWriteEnabled);
   }
 
   public get isWriteEnabled(): boolean {
-    return this.#isWriteEnabled;
+    return this.#hostBinding.isWriteEnabled;
   }
 
-  /**
-   * The library's own gate, read back rather than mirrored.
-   *
-   * `isWriteEnabled` is this wrapper's field and would keep reporting whatever it
-   * was set to even if the option never moved; this is the value xterm.js actually
-   * consults, which is the claim worth asserting.
-   */
+  /** The library's own gate, read back rather than mirrored. */
   public get isStdinDisabled(): boolean | undefined {
-    return this.#terminal?.options.disableStdin;
+    return this.#hostBinding.isStdinDisabled;
   }
 
   /** Write daemon output into the buffer. The only way bytes reach the screen. */
@@ -253,67 +176,51 @@ export class XtermTerminalAdapter {
     this.#terminal?.write(chunk, onWritten);
   }
 
-  /** Re-measure the grid against its host. No timer: the observer drives it. */
+  /**
+   * Re-measure the grid against its host. No timer: the observer drives it.
+   *
+   * Guarded on both halves of the pairing, because either can be missing: an
+   * emulator that has not been built yet has no grid, and one that has been detached
+   * has no box. The fit itself is the addon's.
+   */
   public fitToHost(): void {
-    if (this.#terminal === undefined || this.#hostElement === undefined) {
+    if (this.#terminal === undefined || this.#hostBinding.hostElement === undefined) {
       return;
     }
-    try {
-      this.#fitAddon?.fit();
-    } catch {
-      // A host with no measurable box (detached, or zero-sized while a layout
-      // settles) makes the fit addon's own division undefined. Skipping is
-      // self-healing — the observer fires again — and throwing would take the pane
-      // down for a transient layout.
-    }
+    this.#addons.fitGrid();
   }
 
   /** The visible grid, as text. `Spec-023 §Console Libraries`' serialize addon. */
   public serialize(): string {
-    return this.#serializeAddon?.serialize() ?? "";
+    return this.#addons.serialize();
   }
 
   /** Find text in the scrollback. The search addon, exposed rather than re-implemented. */
   public findNext(query: string): boolean {
-    return this.#searchAddon?.findNext(query) ?? false;
+    return this.#addons.findNext(query);
   }
 
   /**
-   * Final. Releases the observer, every subscription, this terminal's hold on its
-   * renderer, and the emulator — in that order, because the addon's disposal runs
-   * inside the terminal's and doing it twice leaves a half-torn instance behind.
+   * Final. Releases the renderer mode's sinks, this terminal's hold on its renderer,
+   * the host tie and its subscriptions, and the emulator — in that order, because the
+   * addons' disposal runs inside the terminal's and doing it twice leaves a half-torn
+   * instance behind.
    *
-   * `release` and not `reclaim`: the context this instance created survives its
-   * addon, so the page's allowance stays spent. Handing it back here is the churn
-   * bug — an unbounded run of contexts under a ledger that never rises, ending in
-   * Chromium taking the renderer from an older terminal still on screen.
+   * The order is composed HERE rather than inside any one collaborator, because it is
+   * a fact about all three: the suite's own two halves say what has to happen before
+   * the emulator goes and what has to wait until after, and this is the only place
+   * that knows when the emulator goes.
    */
   public dispose(): void {
     if (this.#isDisposed) {
       return;
     }
     this.#isDisposed = true;
-    // Before anything else: `Emitter` re-raises what a sink threw, so a subscriber
-    // still attached here could abort the teardown between the pool release and
-    // the emulator's disposal — a leak caused by the notification. The mode reset
-    // below therefore reaches an empty sink set by construction.
-    this.#rendererModeChanges.clear();
-    this.detach();
-    for (const subscription of this.#subscriptions) {
-      subscription.dispose();
-    }
-    this.#subscriptions.length = 0;
-    this.#pool.release(this.#terminalId);
-    this.#webglAddon = undefined;
-    this.#setRendererMode("dom");
+    this.#addons.releaseBeforeEmulatorDisposal();
+    this.#hostBinding.dispose();
     this.#terminal?.dispose();
     this.#terminal = undefined;
-    // After the terminal, because `Terminal.dispose()` is what disposes the addons
-    // it loaded; clearing the references first would leave that disposal to run
-    // against objects nothing else could reach.
-    this.#fitAddon = undefined;
-    this.#searchAddon = undefined;
-    this.#serializeAddon = undefined;
+    this.#addons.dropAfterEmulatorDisposal();
   }
 
   #buildTerminal(): Terminal {
@@ -324,7 +231,7 @@ export class XtermTerminalAdapter {
       allowProposedApi: true,
       // Watch mode is the default, so the emulator starts unable to accept input
       // and is opened up only by a lease the log established.
-      disableStdin: !this.#isWriteEnabled,
+      disableStdin: this.#hostBinding.isStdinDisabledAtBuild,
       // THE ONLY TEXTUAL OUTPUT THIS SURFACE HAS. The grid is a canvas under the
       // WebGL renderer and a wall of positioned spans under the DOM one, and
       // neither is readable; xterm.js builds the accessible row list and the live
@@ -334,159 +241,18 @@ export class XtermTerminalAdapter {
       // contents — the shell would be unreadable rather than merely unlabelled.
       screenReaderMode: true,
       convertEol: true,
-      linkHandler: {
-        // The library's own gate: a non-HTTP link never reaches `activate`.
-        allowNonHttpProtocols: false,
-        activate: (_event: MouseEvent, text: string): void => {
-          this.#activateAllowedLink(text);
-        },
-      },
+      linkHandler: buildTerminalLinkHandler(this.#onActivateLink),
     };
     const terminal = new Terminal(options);
-    this.#fitAddon = new FitAddon();
-    this.#searchAddon = new SearchAddon();
-    this.#serializeAddon = new SerializeAddon();
-    terminal.loadAddon(this.#fitAddon);
-    terminal.loadAddon(this.#searchAddon);
-    terminal.loadAddon(this.#serializeAddon);
-    terminal.loadAddon(new Unicode11Addon());
-    terminal.unicode.activeVersion = "11";
+    this.#addons.loadInto(terminal);
     if (this.#onActivateLink !== undefined) {
-      // Gated on the sink, the way `onData` below is: a surface with nowhere to
-      // send a link would otherwise underline printed URLs and swallow the click,
-      // which is an affordance that lies. Not held as a field — nothing calls it
-      // again, and an addon kept as one keeps the emulator reachable past
-      // `dispose()`; `Terminal.dispose()` disposes what it loaded.
-      terminal.loadAddon(
-        new WebLinksAddon((_event: MouseEvent, uri: string): void => {
-          this.#activateAllowedLink(uri);
-        }),
-      );
+      // Gated on the sink, the way the keystroke path is gated on the writer: a
+      // surface with nowhere to send a link would otherwise underline printed URLs
+      // and swallow the click, which is an affordance that lies.
+      terminal.loadAddon(buildTerminalWebLinksAddon(this.#onActivateLink));
     }
-    if (this.#onKeystroke !== undefined) {
-      this.#subscriptions.push(
-        terminal.onData((data: string) => {
-          // Gated here as well as by `disableStdin`: the option stops the DOM
-          // listener, this stops a programmatic write. The expensive mistake on a
-          // shared shell is sending a keystroke nobody was allowed to send.
-          if (this.#isWriteEnabled) {
-            this.#onKeystroke?.(data);
-          }
-        }),
-      );
-    }
+    this.#hostBinding.bindEmulator(terminal);
     this.#terminal = terminal;
     return terminal;
-  }
-
-  /**
-   * The one place a link reaches the surface that owns the opener.
-   *
-   * Both link paths — the OSC 8 hyperlink xterm.js handles itself, and the printed
-   * URL the web-links provider detects — end here, so the scheme allow-list is run
-   * once against one rule. Two call sites each running their own check is the
-   * shape `apps/desktop/AGENTS.md` names: two copies of one normalization that
-   * agree until somebody edits one.
-   *
-   * The href handed on is the PARSED one, so what the opener receives is a
-   * normalized URL rather than whatever a program happened to print.
-   */
-  #activateAllowedLink(text: string): void {
-    const href = allowedTerminalLinkHref(text);
-    if (href !== undefined) {
-      this.#onActivateLink?.(href);
-    }
-  }
-
-  /**
-   * Take a WebGL renderer if the page can spare a context, and fall back to DOM if
-   * it cannot — or if the host has no WebGL2 at all, which is what the addon
-   * throws for.
-   *
-   * THE CONTEXT-LOSS FLAG IS READ FIRST, before the addon check and before the
-   * ledger is asked. A lost context clears `#webglAddon` and reclaims the slot, so
-   * on the next `attach()` to a different host the other two conditions both say
-   * yes: without this the instance would build a second addon after a fallback its
-   * own documentation calls permanent, and churn a context per remount.
-   */
-  #selectRenderer(terminal: Terminal): void {
-    if (
-      this.#hasLostWebglContext ||
-      this.#webglAddon !== undefined ||
-      !this.#pool.acquire(this.#terminalId)
-    ) {
-      return;
-    }
-    try {
-      const webglAddon = new WebglAddon();
-      this.#subscriptions.push(
-        webglAddon.onContextLoss(() => {
-          this.#fallBackToDomRenderer(webglAddon);
-        }),
-      );
-      terminal.loadAddon(webglAddon);
-      this.#webglAddon = webglAddon;
-      this.#setRendererMode("webgl");
-    } catch {
-      // No WebGL2 on this host: the addon threw before it made one. Reclaimed
-      // rather than released, so a later terminal is not counted out by a context
-      // that was never created.
-      this.#pool.reclaim(this.#terminalId);
-      this.#setRendererMode("dom");
-    }
-  }
-
-  /**
-   * The context is gone and the addon does not restore it, so this instance is a
-   * DOM terminal from here on. This is the one teardown-shaped path that reclaims:
-   * the host destroyed the context rather than this code dropping a reference to
-   * it, so counting it would spend the page's allowance on something that no
-   * longer exists.
-   */
-  #fallBackToDomRenderer(webglAddon: WebglAddon): void {
-    if (this.#webglAddon !== webglAddon) {
-      return;
-    }
-    webglAddon.dispose();
-    this.#webglAddon = undefined;
-    // The one write. Everything below this line is reversible by a remount — the
-    // addon reference and the pool slot both are — and this is what makes the
-    // fallback the permanent thing the doc comment above claims it is.
-    this.#hasLostWebglContext = true;
-    this.#setRendererMode("dom");
-    this.#pool.reclaim(this.#terminalId);
-  }
-
-  /**
-   * The one place `#rendererMode` is written, so no path moves it silently.
-   * Emission is conditional on the value actually CHANGING: the selection's catch
-   * arm settles on the constructed mode, and announcing that would report a
-   * fallback that never happened.
-   */
-  #setRendererMode(rendererMode: TerminalRendererMode): void {
-    if (this.#rendererMode === rendererMode) {
-      return;
-    }
-    this.#rendererMode = rendererMode;
-    this.#rendererModeChanges.emit(rendererMode);
-  }
-
-  /**
-   * Re-fit the grid whenever the host box changes, through the console's one size
-   * seam.
-   *
-   * `primitives/element-resize.ts` owns the observer construction, its feature
-   * detection, and its disconnect. A second construction here would be the same four
-   * lines free to drift from the browser family's — the hoist-on-second-use rule
-   * `apps/desktop/AGENTS.md` states — and the degrade is the helper's: a host without
-   * the observer arms nothing and re-fits when the surface asks. No interval is
-   * started either way; a polling terminal would be the console's only always-on
-   * timer.
-   */
-  #observeHostSize(hostElement: HTMLElement): void {
-    this.#detachHostSizeObserver?.();
-    this.#detachHostSizeObserver = observeElementResize(hostElement, () => {
-      this.fitToHost();
-    });
   }
 }
