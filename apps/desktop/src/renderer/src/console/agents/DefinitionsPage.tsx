@@ -54,7 +54,7 @@ import {
   WireFigure,
 } from "../primitives/index.js";
 import {
-  useSettlementAnnouncement,
+  useDefinitionSettlementAnnouncement,
   useSidekickRegistryView,
   type SidekickRegistrySnapshot,
   type SidekickRegistryView,
@@ -108,7 +108,7 @@ export interface SidekickDefinitionsPageProps {
 
 export function SidekickDefinitionsPage(props: SidekickDefinitionsPageProps): React.JSX.Element {
   const { view, snapshot } = useSidekickRegistryView(props.bridge);
-  useSettlementAnnouncement(snapshot.reading);
+  useDefinitionSettlementAnnouncement(snapshot.reading);
 
   return (
     <section className="meridian-sidekicks" aria-label="Sidekicks">

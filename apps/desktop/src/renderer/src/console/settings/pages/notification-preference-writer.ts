@@ -33,7 +33,14 @@
 
 import { normalizeWireRejection } from "../../../../../shared/wire-errors.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { Emitter, refuse, type ConsoleRefusal, type Unsubscribe } from "../../core/index.js";
+import {
+  AttemptGeneration,
+  Emitter,
+  refuse,
+  type Attempt,
+  type ConsoleRefusal,
+  type Unsubscribe,
+} from "../../core/index.js";
 import {
   flipMember,
   isToggleableValue,
@@ -107,12 +114,10 @@ export class NotificationPreferenceWriter {
   readonly #queuedFlipsByRecordKey = new Map<string, readonly QueuedFlip[]>();
   readonly #refusalByMemberKey = new Map<string, ConsoleRefusal>();
   /**
-   * Which round of writes is current, so a reply from a released one writes nothing.
-   * A generation counter rather than an `AbortController`: the port exposes no
-   * cancellation, so the honest claim is that a superseded reply is IGNORED, not
-   * that its call was stopped.
+   * The rounds of writes this writer has run. All of one round's records share it,
+   * because what supersedes them is the teardown rather than each other.
    */
-  #generation = 0;
+  readonly #rounds = new AttemptGeneration();
 
   public constructor(options: {
     readonly port: AttentionPreferencePort;
@@ -158,7 +163,7 @@ export class NotificationPreferenceWriter {
     this.#busyRecordKeys.add(row.key);
     this.#publish();
     void this.#writeUntilQueueIsEmpty(
-      this.#generation,
+      this.#rounds.current(),
       row.key,
       flipMember(row.value, member.name),
       member.memberKey,
@@ -173,7 +178,7 @@ export class NotificationPreferenceWriter {
    * teardown would leave a mounted page whose switches do nothing.
    */
   public releasePendingWrites(): void {
-    this.#generation += 1;
+    this.#rounds.supersedeAll();
     this.#busyRecordKeys.clear();
     this.#queuedFlipsByRecordKey.clear();
     this.#publish();
@@ -190,7 +195,7 @@ export class NotificationPreferenceWriter {
    * window's life — every switch in it dead, with nothing on screen saying why.
    */
   async #writeUntilQueueIsEmpty(
-    generation: number,
+    round: Attempt,
     recordKey: string,
     firstValue: Readonly<Record<string, boolean>>,
     firstMemberKey: string,
@@ -208,7 +213,7 @@ export class NotificationPreferenceWriter {
           key: recordKey,
           value,
         });
-        if (generation !== this.#generation) {
+        if (!this.#rounds.isCurrent(round)) {
           return;
         }
         if (written.status === "unavailable") {
@@ -219,7 +224,7 @@ export class NotificationPreferenceWriter {
         // record the daemon owns — and so a queued toggle is composed against what
         // the daemon actually stored rather than against what this writer sent.
         const reread = await this.#port.attentionPreferenceRead({ participantId });
-        if (generation !== this.#generation) {
+        if (!this.#rounds.isCurrent(round)) {
           return;
         }
         this.#onRecordsRead(reread);
@@ -238,7 +243,7 @@ export class NotificationPreferenceWriter {
         memberKey = queued.memberKey;
       }
     } catch (rejection: unknown) {
-      if (generation === this.#generation) {
+      if (this.#rounds.isCurrent(round)) {
         this.#abandonRecord(recordKey, memberKey, rejectionRefusal(rejection));
       }
     }

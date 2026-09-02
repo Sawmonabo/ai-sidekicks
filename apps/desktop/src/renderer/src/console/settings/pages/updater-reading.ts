@@ -35,7 +35,7 @@
 import type { SidekicksBridge, UpdateState } from "@ai-sidekicks/contracts";
 
 import { normalizeWireRejection } from "../../../../../shared/wire-errors.js";
-import { Emitter, type Unsubscribe } from "../../core/index.js";
+import { AttemptGeneration, Emitter, type Attempt, type Unsubscribe } from "../../core/index.js";
 
 /**
  * What the block knows about the updater. Total; every arm renders something.
@@ -85,13 +85,8 @@ export class UpdaterReadingHolder {
   readonly #changes = new Emitter<void>("updater reading change");
   #snapshot: UpdaterReadingSnapshot = NOTHING_READ;
   #release: (() => void) | undefined = undefined;
-  /**
-   * Which opening is current, so a reply from a released one writes nothing. A
-   * generation counter rather than an `AbortController`: the updater exposes no
-   * cancellation, so the honest claim is that a superseded reply is IGNORED, not
-   * that its call was stopped.
-   */
-  #generation = 0;
+  /** The openings this holder has made. One round per `open`, released by `close`. */
+  readonly #openings = new AttemptGeneration();
   /** Reset per opening, because each opening subscribes afresh. */
   #hasObservedPush = false;
 
@@ -118,36 +113,36 @@ export class UpdaterReadingHolder {
    */
   public open(): void {
     this.close();
-    const generation = (this.#generation += 1);
+    const opening = this.#openings.begin();
     this.#hasObservedPush = false;
     try {
       this.#release = this.#updater.subscribe((state) => {
-        this.#observePush(generation, state);
+        this.#observePush(opening, state);
       });
       void this.#updater
         .getState()
         .then((state) => {
-          this.#observeOpening(generation, { kind: "state", state });
+          this.#observeOpening(opening, { kind: "state", state });
         })
         .catch((readRejection: unknown) => {
-          this.#observeOpening(generation, unreachableFrom(readRejection));
+          this.#observeOpening(opening, unreachableFrom(readRejection));
         });
     } catch (openingRejection: unknown) {
-      this.#observeOpening(generation, unreachableFrom(openingRejection));
+      this.#observeOpening(opening, unreachableFrom(openingRejection));
     }
   }
 
   /** Release the current opening. Not terminal: {@link open} starts another. */
   public close(): void {
-    this.#generation += 1;
+    this.#openings.supersedeAll();
     const release = this.#release;
     this.#release = undefined;
     release?.();
   }
 
   /** A transition the updater pushed: always the newest fact this window has. */
-  #observePush(generation: number, state: UpdateState): void {
-    if (generation !== this.#generation) {
+  #observePush(opening: Attempt, state: UpdateState): void {
+    if (!this.#openings.isCurrent(opening)) {
       return;
     }
     this.#hasObservedPush = true;
@@ -161,8 +156,8 @@ export class UpdaterReadingHolder {
    * stopped it — because they are the same fact about sequence: both describe the
    * moment the block opened, and a push is newer than either.
    */
-  #observeOpening(generation: number, reading: UpdateReading): void {
-    if (generation !== this.#generation || this.#hasObservedPush) {
+  #observeOpening(opening: Attempt, reading: UpdateReading): void {
+    if (!this.#openings.isCurrent(opening) || this.#hasObservedPush) {
       return;
     }
     this.#install(reading, "opening");

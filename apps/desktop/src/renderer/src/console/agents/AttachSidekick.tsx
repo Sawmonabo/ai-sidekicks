@@ -48,6 +48,18 @@ export interface AttachSidekickProps {
   readonly catalog: PushDrivenReadState<DriverCatalogReading>;
   readonly definitions: PushDrivenReadState<SidekickDefinitionListReading>;
   readonly onSubmit: () => void;
+  /**
+   * Whether the caller has an attach outstanding.
+   *
+   * The form does not own this: `agent.attach` creates a durable agent, so the
+   * latch that admits one attempt at a time belongs to whoever performs the call,
+   * and a second flag here would be a second answer to the same question. What
+   * this form owes is that the control SAYS so — disabled, so a second press is
+   * refused where a person can see it rather than only inside the latch, and
+   * `aria-busy`, so a screen reader is told the act is under way rather than
+   * being handed a dead control with no reason.
+   */
+  readonly isSubmitting?: boolean | undefined;
   /** The daemon's own reply, rendered as applied. Never the definition row. */
   readonly confirmation?: AgentAttachReading | undefined;
   /** The daemon's refusal, rendered verbatim. */
@@ -171,7 +183,8 @@ export function AttachSidekick(props: AttachSidekickProps): React.JSX.Element {
             <button
               type="button"
               className="meridian-attach__submit"
-              disabled={readiness.status !== "ready"}
+              disabled={readiness.status !== "ready" || props.isSubmitting === true}
+              aria-busy={props.isSubmitting === true}
               onClick={props.onSubmit}
             >
               Attach

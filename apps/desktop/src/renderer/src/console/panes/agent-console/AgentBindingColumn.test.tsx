@@ -1,10 +1,16 @@
-// The column's one irreversible act, pressed twice.
+// The column's one irreversible act, pressed twice — and what the control says
+// while the first press is still outstanding.
 //
 // `agent.attach` creates a durable agent, so the property worth a whole test file
 // is that the second press of a double click reaches the wire never. It is asserted
 // against the REAL models over a bridge whose daemon call this file holds open,
 // because the failure is invisible against a call that settles: a reply delivered
 // on the next microtask makes every ordering look correct.
+//
+// The refusal being INVISIBLE is a second defect beside the double request, so the
+// disabled-and-busy affordance is asserted here rather than on the form alone: the
+// column is the only place the latch's arm and the control's attributes meet, and
+// a form flag agreeing with itself would prove nothing about which one is true.
 
 import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -100,6 +106,13 @@ async function settleReads(bridge: ConsoleBridge): Promise<void> {
   });
 }
 
+/** The submit control as it stands now — re-queried, never held across a render. */
+function currentSubmitControl(): HTMLButtonElement {
+  const submit = document.querySelector(".meridian-attach__submit");
+  expect(submit).not.toBeNull();
+  return submit as HTMLButtonElement;
+}
+
 /** Open the dialog, choose the definition arm, and pick the one definition. */
 async function openReadyAttachForm(container: HTMLElement): Promise<HTMLButtonElement> {
   await act(async () => {
@@ -114,10 +127,9 @@ async function openReadyAttachForm(container: HTMLElement): Promise<HTMLButtonEl
   await act(async () => {
     fireEvent.click(document.querySelector(".meridian-attach__definition-button") as HTMLElement);
   });
-  const submit = document.querySelector(".meridian-attach__submit") as HTMLButtonElement | null;
-  expect(submit).not.toBeNull();
-  expect((submit as HTMLButtonElement).disabled).toBe(false);
-  return submit as HTMLButtonElement;
+  const submit = currentSubmitControl();
+  expect(submit.disabled).toBe(false);
+  return submit;
 }
 
 describe("agent binding column — attaching a sidekick", () => {
@@ -161,5 +173,32 @@ describe("agent binding column — attaching a sidekick", () => {
       fireEvent.click(submit);
     });
     expect(daemon.attachCallCount).toBe(2);
+  });
+
+  it("disables the control and marks it busy while one attach is outstanding", async () => {
+    const daemon = new HeldAttachDaemon();
+    const bridge = bridgeCalling(daemon);
+    const { container } = render(
+      <AgentBindingColumn models={modelsOver(bridge)} agentId={undefined} />,
+    );
+    await settleReads(bridge);
+
+    const submit = await openReadyAttachForm(container);
+    expect(submit.getAttribute("aria-busy")).toBe("false");
+
+    await act(async () => {
+      fireEvent.click(submit);
+    });
+    expect(currentSubmitControl().disabled).toBe(true);
+    expect(currentSubmitControl().getAttribute("aria-busy")).toBe("true");
+
+    // Negative control for a control that goes busy and stays that way: the
+    // settled attempt has to hand it back, or one refused press has cost the
+    // person the form for the life of the mount.
+    await act(async () => {
+      await daemon.settle("agent-scout");
+    });
+    expect(currentSubmitControl().disabled).toBe(false);
+    expect(currentSubmitControl().getAttribute("aria-busy")).toBe("false");
   });
 });

@@ -8,186 +8,28 @@
 // And it could say nothing at all when the read lands, which is invisible to
 // everyone who can see the screen and total for everyone who cannot.
 //
-// The bridge below is the shipped fixture bridge with the two operations this page
-// calls overridden — the `SentInvites` shape — so the refusals asserted are the
-// port's own `growthUnavailable` values rather than envelopes written here.
+// The registry, the announcer and the presses live in the support module beside this
+// one; the bridge behind them is the shipped fixture bridge with the two operations
+// this page calls overridden — the `SentInvites` shape — so the refusals asserted
+// are the port's own `growthUnavailable` values rather than envelopes written here.
 
-import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { createFixtureBridge, growthUnavailable, type ConsoleBridge } from "../bridge/index.js";
-import { LIVE_ANNOUNCEMENT_HOLD_MS, ManualClock } from "../core/index.js";
-import { LiveAnnouncerProvider } from "../primitives/index.js";
-import { SidekickDefinitionsPage } from "./DefinitionsPage.js";
-import type { SidekickDefinitionRecord } from "./definition-rows.js";
-
-type FixtureScenario = Parameters<typeof createFixtureBridge>[0]["scenario"];
-type ListOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["sidekickDefinitionList"]>>;
-type DeleteOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["sidekickDefinitionDelete"]>>;
-
-const EMPTY_SCENARIO: FixtureScenario = {
-  id: "agents-definitions-test",
-  label: "Sidekick definitions, with nothing scripted",
-  purpose: "Drives the sidekicks page against a registry whose replies this file supplies.",
-  sessionId: "session-agents",
-  participantIdsInJoinOrder: [],
-  beats: [],
-  replies: [],
-  startedAtIso: "2026-01-01T10:05:00.000Z",
-};
-
-function definition(overrides: Partial<SidekickDefinitionRecord> = {}): SidekickDefinitionRecord {
-  return {
-    definitionId: "definition-1",
-    name: "Reviewer",
-    description: "Reads a diff and says what it would change.",
-    driverName: "claude",
-    modelId: "claude-opus-4-6",
-    providerAccountId: "account-work",
-    effort: "high",
-    executionPostureMode: "workspace-sandboxed",
-    instructions: "Be exact.",
-    goal: "Ship a clean diff.",
-    toolAllowlist: ["read", "grep"],
-    createdAt: "2026-01-01T10:00:00.000Z",
-    updatedAt: "2026-01-02T11:30:00.000Z",
-    ...overrides,
-  };
-}
-
-/**
- * A registry that answers, and counts what it was asked.
- *
- * The list replies are consumed in order and the last one repeats, so a test can
- * say what the registry looked like BEFORE a delete and what it looks like after
- * without scripting a whole engine. The counts are what let the re-read be
- * asserted at all: "the row is gone" is also true of a page that removed it itself.
- */
-class RegistryStub {
-  readonly #lists: readonly ListOutcome[];
-  readonly #deleteOutcome: DeleteOutcome;
-  #listCallCount = 0;
-  #deletedIds: string[] = [];
-
-  public constructor(options: {
-    readonly lists: readonly ListOutcome[];
-    readonly deleteOutcome?: DeleteOutcome;
-  }) {
-    this.#lists = options.lists;
-    this.#deleteOutcome = options.deleteOutcome ?? { status: "served", value: { deleted: true } };
-  }
-
-  public get listCallCount(): number {
-    return this.#listCallCount;
-  }
-
-  public get deletedIds(): readonly string[] {
-    return this.#deletedIds;
-  }
-
-  public bridge(): ConsoleBridge {
-    const fixture = createFixtureBridge({ scenario: EMPTY_SCENARIO });
-    return {
-      ...fixture,
-      growth: {
-        ...fixture.growth,
-        sidekickDefinitionList: async () => {
-          const index = Math.min(this.#listCallCount, this.#lists.length - 1);
-          this.#listCallCount += 1;
-          return await Promise.resolve(this.#lists[index] as ListOutcome);
-        },
-        sidekickDefinitionDelete: async (request: { readonly definitionId: string }) => {
-          this.#deletedIds = [...this.#deletedIds, request.definitionId];
-          return await Promise.resolve(this.#deleteOutcome);
-        },
-      },
-    };
-  }
-}
-
-function served(definitions: readonly SidekickDefinitionRecord[]): ListOutcome {
-  return { status: "served", value: definitions };
-}
-
-/**
- * Mount inside the announcer the page speaks through, on a clock that never runs
- * unless a test runs it.
- *
- * The clock is handed back because the announcer HOLDS one message and queues the
- * rest behind a deadline: on a frozen clock a second announcement is invisible in
- * the live region, so a test that only read that region could not tell one
- * announcement from two. Advancing past the hold is what makes the difference
- * observable.
- */
-function renderPage(bridge: ConsoleBridge): {
-  readonly container: HTMLElement;
-  readonly clock: ManualClock;
-} {
-  const clock = new ManualClock();
-  const { container } = render(
-    <LiveAnnouncerProvider clock={clock}>
-      <SidekickDefinitionsPage bridge={bridge} />
-    </LiveAnnouncerProvider>,
-  );
-  return { container, clock };
-}
-
-/** Run the announcer's hold out, so anything queued behind the standing message shows. */
-async function releaseAnnouncementHold(clock: ManualClock): Promise<void> {
-  await act(async () => {
-    clock.advance(LIVE_ANNOUNCEMENT_HOLD_MS + 1);
-    await Promise.resolve();
-  });
-}
-
-/** Let the read, the delete, and the re-read the delete schedules all land. */
-async function settle(): Promise<void> {
-  for (let pass = 0; pass < 6; pass += 1) {
-    await act(async () => {
-      await Promise.resolve();
-    });
-  }
-}
-
-function politeText(container: HTMLElement): string {
-  return container.querySelector('[data-live-region="polite"]')?.textContent ?? "";
-}
-
-function savedRegionOf(container: HTMLElement): Element {
-  const region = container.querySelector('[aria-label="Saved sidekicks"]');
-  if (region === null) {
-    throw new Error("the page rendered no saved-sidekicks region");
-  }
-  return region;
-}
-
-function buttonNamed(container: HTMLElement, label: string): HTMLButtonElement {
-  const control = container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
-  if (control === null) {
-    throw new Error(`no control named ${label}`);
-  }
-  return control;
-}
-
-async function press(control: HTMLButtonElement | null | undefined): Promise<void> {
-  await pressWithoutSettling(control);
-  await settle();
-}
-
-/** Press and stop, so the frame while a call is in flight can be looked at. */
-async function pressWithoutSettling(control: HTMLButtonElement | null | undefined): Promise<void> {
-  await act(async () => {
-    control?.click();
-    await Promise.resolve();
-  });
-}
-
-/** The row's own confirm — the `Delete` that is not one of the per-row openers. */
-function confirmDeleteIn(container: HTMLElement): HTMLButtonElement | undefined {
-  return [...container.querySelectorAll<HTMLButtonElement>("button")].find(
-    (control) => control.textContent === "Delete" && control.getAttribute("aria-label") === null,
-  );
-}
+import { growthUnavailable } from "../bridge/index.js";
+import {
+  RegistryStub,
+  buttonNamed,
+  confirmDeleteIn,
+  definition,
+  politeText,
+  press,
+  pressWithoutSettling,
+  releaseAnnouncementHold,
+  renderPage,
+  savedRegionOf,
+  served,
+  settle,
+} from "./definitions-page.test-support.js";
 
 describe("the sidekicks page — the read", () => {
   it("says a read is in flight before the registry answers", () => {
@@ -307,12 +149,10 @@ describe("the sidekicks page — the settlement it announces", () => {
     expect(politeText(container)).toContain("Not checked");
   });
 
-  it("negative control: a second settlement says nothing more", async () => {
-    // Without this, the cases above would pass over a page that announced on every
-    // settled reading — a screen reader hearing the list re-counted every time
-    // somebody deleted a row. A press alone is too weak a control: it produces no
-    // new reading, so an unguarded announcement would stay silent through it
-    // anyway. The delete below re-reads, which is the case that actually differs.
+  it("speaks again when a re-read settles on something different", async () => {
+    // The repetition rule is keyed on the SENTENCE, not on whether this page has
+    // ever spoken. A delete that re-read to a shorter list is a different fact, and
+    // the person who asked for it is the one entitled to hear that it landed.
     const stub = new RegistryStub({
       lists: [
         served([definition(), definition({ definitionId: "definition-2", name: "Auditor" })]),
@@ -325,9 +165,47 @@ describe("the sidekicks page — the settlement it announces", () => {
     await press(buttonNamed(container, "Delete Reviewer"));
     await press(confirmDeleteIn(container));
     expect(stub.listCallCount).toBe(2);
-    // Running the hold out surfaces whatever was queued behind the first sentence.
-    // An unguarded page has "Read 1 saved sidekick." waiting there; this one has
-    // nothing, so the region clears.
+    // Running the hold out surfaces what was queued behind the first sentence.
+    await releaseAnnouncementHold(clock);
+    expect(politeText(container)).toBe("Read 1 saved sidekick.");
+  });
+
+  it("speaks a refusal that arrives after a read this page already announced", async () => {
+    // The case a once-ever guard loses entirely: the list read, the delete landed,
+    // and the re-read behind it refused. A sighted person sees the refusal; before
+    // the guard became sentence-keyed, everybody else heard the first count and
+    // then silence for the rest of the page's life.
+    const stub = new RegistryStub({
+      lists: [
+        served([definition(), definition({ definitionId: "definition-2", name: "Auditor" })]),
+        growthUnavailable("sidekickDefinitionList"),
+      ],
+    });
+    const { container, clock } = renderPage(stub.bridge());
+    await settle();
+    expect(politeText(container)).toBe("Read 2 saved sidekicks.");
+    await press(buttonNamed(container, "Delete Reviewer"));
+    await press(confirmDeleteIn(container));
+    await releaseAnnouncementHold(clock);
+    expect(politeText(container)).toContain("Not checked");
+  });
+
+  it("negative control: a settlement that says the same thing again is silent", async () => {
+    // Without this, the two cases above would pass over a page that announced on
+    // every settled reading — a screen reader hearing the list re-counted for a
+    // re-read that changed nothing. The delete below refuses, so the re-read that
+    // follows it answers with the list this page already spoke.
+    const stub = new RegistryStub({
+      lists: [
+        served([definition(), definition({ definitionId: "definition-2", name: "Auditor" })]),
+      ],
+      deleteOutcome: growthUnavailable("sidekickDefinitionDelete"),
+    });
+    const { container, clock } = renderPage(stub.bridge());
+    await settle();
+    expect(politeText(container)).toBe("Read 2 saved sidekicks.");
+    await press(buttonNamed(container, "Delete Reviewer"));
+    await press(confirmDeleteIn(container));
     await releaseAnnouncementHold(clock);
     expect(politeText(container)).toBe("");
   });

@@ -157,6 +157,9 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
         catalog={catalogState}
         definitions={definitionsState}
         onSubmit={submitAttach}
+        // The latch's own arm, projected onto the control. The form holds no flag
+        // of its own, so what is disabled and what is refused cannot disagree.
+        isSubmitting={attachState.status === "in-flight"}
         confirmation={attachState.status === "attached" ? attachState.confirmation : undefined}
         refusal={attachState.status === "refused" ? attachState.refusal : undefined}
       />
