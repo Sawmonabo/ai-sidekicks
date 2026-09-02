@@ -27,7 +27,7 @@
 //   • **Peers and linkage** — the session-scoped peer-invocation grant, and what this
 //     agent's newest run started or was refused.
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import {
   PeerInvocation,
@@ -36,6 +36,7 @@ import {
   useAgentConsoleModels,
   useNewestRunIdForAgent,
   type AgentConsoleModels,
+  type ChildRunLinkageRead,
 } from "../../agents/index.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
@@ -258,15 +259,47 @@ function SubscribedRunLinkage(props: {
   return <ResolvedRunLinkage models={props.models} parentRunId={parentRunId} />;
 }
 
-/** The mounted arm, where both halves exist and the read's hook may run. */
+/**
+ * The mounted arm, where both halves exist and the read may be taken.
+ *
+ * The lease is taken and the read started from an EFFECT and never from the render
+ * body: starting opens a subscription and arms a scheduler, and React may abandon or
+ * replay a render pass — an abandoned one would leave a live read with no cleanup to
+ * release it, and a replayed one would dispose a read the committed tree is still
+ * showing. The frame between the render that names a run and the effect that leases
+ * its read holds none, and renders as the `not-checked` absence the surface already
+ * has for a question nothing was asked of.
+ */
 function ResolvedRunLinkage(props: {
   readonly models: AgentConsoleModels;
   readonly parentRunId: string;
 }): React.JSX.Element {
   const { models, parentRunId } = props;
-  const read = useMemo(() => models.linkageFor(parentRunId), [models, parentRunId]);
-  const state = usePushDrivenRead(read);
-  return <RunLinkage parentRunId={parentRunId} state={state} />;
+  const [read, setRead] = useState<ChildRunLinkageRead | undefined>(undefined);
+
+  useEffect(() => {
+    const lease = models.acquireLinkage(parentRunId);
+    lease.read.start();
+    setRead(lease.read);
+    return () => {
+      lease.release();
+      setRead(undefined);
+    };
+  }, [models, parentRunId]);
+
+  if (read === undefined) {
+    return <RunLinkage parentRunId={parentRunId} state={undefined} />;
+  }
+  return <HeldRunLinkage parentRunId={parentRunId} read={read} />;
+}
+
+/** The arm where a read is held, so the hook that reads it may be called. */
+function HeldRunLinkage(props: {
+  readonly parentRunId: string;
+  readonly read: ChildRunLinkageRead;
+}): React.JSX.Element {
+  const state = usePushDrivenRead(props.read);
+  return <RunLinkage parentRunId={props.parentRunId} state={state} />;
 }
 
 /**

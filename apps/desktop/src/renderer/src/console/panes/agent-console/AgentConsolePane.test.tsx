@@ -21,8 +21,11 @@ import {
   growthServing,
   unscriptedScenario,
 } from "../../bridge/fixture-bridge-overrides.test-support.js";
+import { AgentConsoleModels } from "../../agents/index.js";
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { SETTINGS_SCENARIO } from "../../bridge/scenarios/settings.js";
+import { consoleTripwires } from "../../core/index.js";
+import { SurfaceErrorBoundary } from "../../frame/ErrorBoundary.js";
 import { RUN_LIFECYCLE_PROJECTORS } from "../../frame/run-lifecycle-projector.js";
 import { SessionStore, type SessionSnapshot } from "../../store/index.js";
 
@@ -289,5 +292,195 @@ describe("agent console — the run this agent's linkage is keyed by", () => {
     });
 
     expect(container.textContent ?? "").toContain("No run of this agent is on the timeline yet");
+  });
+});
+
+// --- The linkage read's lifetime ----------------------------------------------
+//
+// Acquiring a linkage read opens a subscription and arms a scheduler, so it happens
+// in a mount effect and never in a render body. What that buys is only visible in
+// counts: how many reads one mount starts, whether re-keying the run leaves the
+// previous read listening, and whether an unmounted pane can still be woken by a
+// session event. Every case below counts the child-link calls the pane's own bridge
+// received, per parent run.
+
+/** The child-link method this column reads, so the counter matches nothing else. */
+const CHILD_RUN_LINK_METHOD = "orchestration.childRunLinkRead";
+
+/** A fixture bridge whose child-link reads are counted by the run they asked about. */
+interface LinkageCountingBridge {
+  readonly bridge: ConsoleBridge;
+  /** Reads performed for one parent run. The lifetime instrument. */
+  readonly readsFor: (parentRunId: string) => number;
+}
+
+function linkageCountingBridge(): LinkageCountingBridge {
+  const fixture = bridgeReading(growthRefusing("sessionRead"));
+  const readsByParentRunId = new Map<string, number>();
+  const call = fixture.sidekicks.daemon.call as unknown as (
+    method: string,
+    params: { readonly parentRunId?: string },
+  ) => Promise<unknown>;
+  const counted = (method: string, params: { readonly parentRunId?: string }): Promise<unknown> => {
+    const parentRunId = params?.parentRunId;
+    if (method === CHILD_RUN_LINK_METHOD && parentRunId !== undefined) {
+      readsByParentRunId.set(parentRunId, (readsByParentRunId.get(parentRunId) ?? 0) + 1);
+    }
+    return call(method, params);
+  };
+  return {
+    bridge: {
+      ...fixture,
+      sidekicks: {
+        ...fixture.sidekicks,
+        daemon: {
+          ...fixture.sidekicks.daemon,
+          call: counted as unknown as ConsoleBridge["sidekicks"]["daemon"]["call"],
+        },
+      },
+    },
+    readsFor: (parentRunId) => readsByParentRunId.get(parentRunId) ?? 0,
+  };
+}
+
+/** Project one run of this pane's agent, so the linkage has a run to be keyed by. */
+async function projectRun(
+  sessionStore: SessionStore,
+  runId: string,
+  sequence: number,
+  occurredAt: string,
+): Promise<void> {
+  await act(async () => {
+    sessionStore.apply({
+      sessionId: OWNED_SESSION_ID,
+      sequence,
+      kind: "run.queued",
+      occurredAt,
+      payload: { runId, newState: "queued", agentId: OWNED_AGENT_ID },
+    });
+  });
+}
+
+/** A store that already holds one run of this agent, so the FIRST render is keyed. */
+function storeHoldingRun(runId: string): SessionStore {
+  const sessionStore = projectingStore();
+  sessionStore.initialise({
+    cursor: 1,
+    entities: [
+      {
+        kind: "run",
+        id: runId,
+        touchedAt: "2026-01-01T10:06:00.000Z",
+        body: { agentId: OWNED_AGENT_ID },
+      },
+    ],
+    participantJoinLog: [],
+  });
+  return sessionStore;
+}
+
+/**
+ * The shape this finding replaced: the linkage taken and started during a render.
+ *
+ * The negative control for the discarded-pass case, so the counter is shown to
+ * REPORT a leak when there is one — without it that case would also pass over a
+ * pane that started no read at all.
+ */
+function RenderTimeLinkageProbe(props: {
+  readonly models: AgentConsoleModels;
+  readonly parentRunId: string;
+}): React.JSX.Element {
+  props.models.acquireLinkage(props.parentRunId).read.start();
+  throw new Error("this column could not render");
+}
+
+describe("agent console — the linkage read's lifetime", () => {
+  it("starts exactly one read for the run the pane is keyed by", async () => {
+    const counted = linkageCountingBridge();
+    const sessionStore = projectingStore();
+    renderOwnedPane(counted.bridge, sessionStore);
+    await settleReads(counted.bridge);
+    await projectRun(sessionStore, "run-7", 1, "2026-01-01T10:06:00.000Z");
+    await settleReads(counted.bridge);
+
+    expect(counted.readsFor("run-7")).toBe(1);
+  });
+
+  it("stops reading for the previous run once a newer one is keyed", async () => {
+    const counted = linkageCountingBridge();
+    const sessionStore = projectingStore();
+    renderOwnedPane(counted.bridge, sessionStore);
+    await settleReads(counted.bridge);
+    await projectRun(sessionStore, "run-7", 1, "2026-01-01T10:06:00.000Z");
+    await settleReads(counted.bridge);
+    const readsForFirstRun = counted.readsFor("run-7");
+
+    await projectRun(sessionStore, "run-9", 2, "2026-01-01T10:07:00.000Z");
+    await settleReads(counted.bridge);
+    // A refusal on the session stream is exactly what a live linkage re-reads for,
+    // so it is the event that would wake a read the re-key should have disposed.
+    await act(async () => {
+      sessionStore.apply({
+        sessionId: OWNED_SESSION_ID,
+        sequence: 3,
+        kind: "orchestration.rejected",
+        occurredAt: "2026-01-01T10:08:00.000Z",
+        payload: {},
+      });
+    });
+    await settleReads(counted.bridge);
+
+    expect(counted.readsFor("run-9")).toBeGreaterThan(0);
+    expect(counted.readsFor("run-7")).toBe(readsForFirstRun);
+  });
+
+  it("reads nothing more once the pane has unmounted", async () => {
+    const counted = linkageCountingBridge();
+    const sessionStore = projectingStore();
+    const view = render(
+      <AgentConsolePane
+        sessionId={OWNED_SESSION_ID}
+        agentId={OWNED_AGENT_ID}
+        bridge={counted.bridge}
+        sessionStore={sessionStore}
+      />,
+    );
+    await settleReads(counted.bridge);
+    await projectRun(sessionStore, "run-7", 1, "2026-01-01T10:06:00.000Z");
+    await settleReads(counted.bridge);
+    const readsBeforeUnmount = counted.readsFor("run-7");
+
+    view.unmount();
+    await projectRun(sessionStore, "run-7", 2, "2026-01-01T10:07:00.000Z");
+    await settleReads(counted.bridge);
+
+    expect(counted.readsFor("run-7")).toBe(readsBeforeUnmount);
+  });
+
+  it("negative control: taking the read from a render body leaves one reading behind", async () => {
+    const counted = linkageCountingBridge();
+    const models = new AgentConsoleModels(counted.bridge, storeHoldingRun("run-7"));
+    const restoreThrowOnReport = import.meta.env.DEV;
+    consoleTripwires.setThrowOnReport(false);
+    consoleTripwires.reset();
+
+    render(
+      <SurfaceErrorBoundary surfaceName="The linkage column">
+        <RenderTimeLinkageProbe models={models} parentRunId="run-7" />
+      </SurfaceErrorBoundary>,
+    );
+    await settleReads(counted.bridge);
+
+    // The pass that took it never committed, so no cleanup exists to release the
+    // read — and it went on refreshing regardless. This is what the counter above
+    // has to be able to see, and it is the whole reason the acquisition moved into
+    // an effect: the pane's own three cases would pass over a pane that started
+    // nothing at all.
+    expect(counted.readsFor("run-7")).toBeGreaterThan(0);
+    expect(models.heldLinkageParentRunId).toBe("run-7");
+
+    models.dispose();
+    consoleTripwires.setThrowOnReport(restoreThrowOnReport);
+    consoleTripwires.reset();
   });
 });

@@ -25,6 +25,15 @@
 // they held. That is a bound stated by construction rather than a cap with a
 // rationale: neither can grow.
 //
+// ACQUIRING A LINKAGE READ IS NOT STARTING ONE, AND THAT SPLIT IS THE POINT. Starting
+// opens a subscription and arms a scheduler, which React's render phase may abandon
+// or replay — an abandoned pass would leave a live read with no committed cleanup to
+// release it, and a replayed one would dispose a read the committed tree is still
+// showing. So the cache hands out a LEASE, the surface takes one from a mount effect
+// and starts the read there, and the read is disposed when the last lease is given
+// back. `start()` is idempotent, so a second holder joining a live read starts
+// nothing twice.
+//
 // THE CLOCK COMES FROM THE BRIDGE. Under the fixture the scenario's frozen clock is
 // the only clock the renderer reads, so every debounce here advances exactly when a
 // scenario tick says it does.
@@ -73,6 +82,34 @@ export type ChildRunLinkageRead = PushDrivenRead<ChildRunLinkReading>;
 export type SidekickDefinitionRead = PushDrivenRead<SidekickDefinitionListReading>;
 
 /**
+ * One holder's grant of a parent run's child-link read.
+ *
+ * A value the taker owns rather than a flag on the models, so releasing is something
+ * the effect that acquired it can do without naming the run it acquired for — which
+ * matters exactly when the run has since changed underneath it. The read is handed
+ * over UNSTARTED: whoever takes the lease starts it from its own mount effect, and
+ * `start()` is idempotent, so a second holder joining a live read starts nothing
+ * twice.
+ */
+export interface ChildRunLinkageLease {
+  readonly read: ChildRunLinkageRead;
+  /**
+   * Give this grant back.
+   *
+   * Idempotent, and terminal for this lease alone: a second call does nothing, and a
+   * lease on a read the models have already replaced releases nothing, because the
+   * read it named was disposed with the run it belonged to.
+   */
+  release: () => void;
+}
+
+/** The linkage read the models hold, with the run it answers for. */
+interface HeldChildRunLinkage {
+  readonly parentRunId: string;
+  readonly read: ChildRunLinkageRead;
+}
+
+/**
  * One session's agent-console reads.
  *
  * A class rather than a record: it owns the linkage cache's lifetime and its
@@ -95,7 +132,8 @@ export class AgentConsoleModels {
    * stream itself and not the name of the session it belongs to.
    */
   readonly #sessionStore: SessionStore;
-  #linkage: { readonly parentRunId: string; readonly read: ChildRunLinkageRead } | undefined;
+  #linkage: HeldChildRunLinkage | undefined;
+  #outstandingLinkageLeaseCount = 0;
   #disposed = false;
 
   public constructor(bridge: ConsoleBridge, sessionStore: SessionStore) {
@@ -158,22 +196,38 @@ export class AgentConsoleModels {
     >(this.#bridge, SIDEKICK_PEER_INVOCATION_SET_METHOD, { sessionId: this.sessionId, enabled });
   }
 
+  /** Which run the held linkage answers for, or `undefined` while none is held. */
+  public get heldLinkageParentRunId(): string | undefined {
+    return this.#linkage?.parentRunId;
+  }
+
+  /** Linkage leases handed out and not given back. The lifetime assertion, counted. */
+  public get outstandingLinkageLeaseCount(): number {
+    return this.#outstandingLinkageLeaseCount;
+  }
+
   /**
-   * The child-link read for one parent run, building it on first ask.
+   * Take a lease on one parent run's child-link read, building it on the first ask.
    *
    * Asking for a different run disposes the previous read, so no scheduler and no
-   * subscription survives a run the console has left.
+   * subscription survives a run the console has left. The read is NOT started here:
+   * starting opens a subscription and arms a scheduler, and the surface that takes
+   * the lease does both from a mount effect, where a cleanup exists to undo them.
    */
-  public linkageFor(parentRunId: string): ChildRunLinkageRead {
+  public acquireLinkage(parentRunId: string): ChildRunLinkageLease {
     const held = this.#linkage;
     if (held !== undefined && held.parentRunId === parentRunId) {
-      return held.read;
+      this.#outstandingLinkageLeaseCount += 1;
+      return this.#leaseOn(held);
     }
-    held?.read.dispose();
-    const read = createChildRunLinkage(this.#bridge, this.#sessionStore, parentRunId, this.#clock);
-    this.#linkage = { parentRunId, read };
-    read.start();
-    return read;
+    this.#releaseLinkage();
+    const linkage: HeldChildRunLinkage = {
+      parentRunId,
+      read: createChildRunLinkage(this.#bridge, this.#sessionStore, parentRunId, this.#clock),
+    };
+    this.#linkage = linkage;
+    this.#outstandingLinkageLeaseCount = 1;
+    return this.#leaseOn(linkage);
   }
 
   /** Release every read. Terminal. */
@@ -185,8 +239,40 @@ export class AgentConsoleModels {
     this.roster.dispose();
     this.driverCatalog.dispose();
     this.definitions.dispose();
-    this.#linkage?.read.dispose();
+    this.#releaseLinkage();
+  }
+
+  /**
+   * One lease over one held read, keyed on that read's own identity.
+   *
+   * The identity check is what makes a stale release harmless: React runs a mount's
+   * cleanup after the effect that re-keyed the run has already replaced the held
+   * read, and a counter decremented by that cleanup would take the NEW run's read
+   * down with it.
+   */
+  #leaseOn(linkage: HeldChildRunLinkage): ChildRunLinkageLease {
+    let isReleased = false;
+    return {
+      read: linkage.read,
+      release: () => {
+        if (isReleased || this.#linkage !== linkage) {
+          return;
+        }
+        isReleased = true;
+        this.#outstandingLinkageLeaseCount -= 1;
+        if (this.#outstandingLinkageLeaseCount <= 0) {
+          this.#releaseLinkage();
+        }
+      },
+    };
+  }
+
+  /** Dispose whatever linkage read is held, at most once. Safe with none. */
+  #releaseLinkage(): void {
+    const held = this.#linkage;
     this.#linkage = undefined;
+    this.#outstandingLinkageLeaseCount = 0;
+    held?.read.dispose();
   }
 }
 
