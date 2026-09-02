@@ -29,11 +29,20 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Nothing, formatCount } from "../../primitives/index.js";
+import { Nothing } from "../../primitives/index.js";
 import { type ConsoleRefusal } from "../../core/index.js";
-import { useSessionStore, type SessionStore, type SessionStoreState } from "../../store/index.js";
+import { consoleClockFor } from "../../bridge/index.js";
+import {
+  useSessionPartition,
+  useSessionStore,
+  type ConsoleEntity,
+  type SessionStore,
+  type SessionStoreState,
+} from "../../store/index.js";
 import { ConsolePaneChrome, paneScopeCrumbs, type PaneContextOf } from "../pane-chrome.js";
-import { ApprovalCard, findApprovalCardAction } from "./ApprovalCard.js";
+import { findApprovalCardAction } from "./ApprovalCard.js";
+import { ApprovalList } from "./ApprovalList.js";
+import { providerAskFor, type ProviderAsk } from "./provider-ask.js";
 import { ExecutionPostureChip } from "./ExecutionPosture.js";
 import { CallbackTools } from "./CallbackTools.js";
 import { RememberedGrants } from "./RememberedGrants.js";
@@ -41,7 +50,6 @@ import { SessionGoalCard } from "./SessionGoalCard.js";
 import { useApprovalsReader, useSessionGoalMutation } from "./approvals-hooks.js";
 import { type ApprovalRecord, type RememberedRule } from "./approval-records.js";
 import { type ReadPhase } from "./approvals-reader.js";
-import { type ApprovalResolveRequest } from "./approvals-wire.js";
 import { foldSessionGoal } from "./session-goal.js";
 
 /** The composer's root class. Focus moves to a new card only from inside it. */
@@ -88,6 +96,22 @@ function ApprovalsPaneBody(props: ApprovalsPaneBodyProps): React.JSX.Element {
   const pending = useMemo(() => partitionRecords(snapshot.approvals).pending, [snapshot.approvals]);
   const history = useMemo(() => partitionRecords(snapshot.approvals).history, [snapshot.approvals]);
 
+  // The projected side of the same requests. The read answers the record and the
+  // fold answers what the EVENT carried, and the provider-ask origin is only on the
+  // second — so the two are joined here, by the id both spell, rather than either
+  // one pretending to hold the whole request.
+  const approvalEntities = useSessionPartition(props.sessionStore, "approval");
+  const askByApprovalId = useMemo(() => providerAsksIn(approvalEntities), [approvalEntities]);
+  // One clock, resolved once and read once per render. `consoleClockFor` is the
+  // console's single answer to which clock a window reads — the fixture's frozen one
+  // wherever a scenario is playing — and it is pinned in `useState` because its real
+  // arm mints a fresh instance per call, exactly as `useConsoleClock` pins the same
+  // resolution for callers that take their bridge from React context rather than, as
+  // a pane does, from the seat it was mounted in. The deadline is shown as the
+  // instant the daemon sent plus a reading of it against this; nothing here ticks.
+  const [clock] = useState(() => consoleClockFor(bridge));
+  const nowMilliseconds = clock.now();
+
   const paneRootRef = useRef<HTMLDivElement>(null);
   const announcement = useArrivalAnnouncement(pending, paneRootRef);
 
@@ -123,6 +147,8 @@ function ApprovalsPaneBody(props: ApprovalsPaneBodyProps): React.JSX.Element {
           emptyDetail="Every request this session raised has been answered. A new one appears here the moment an agent asks."
           snapshotResolving={snapshot.resolvingApprovalIds}
           refusalByApprovalId={snapshot.resolveRefusalByApprovalId}
+          askByApprovalId={askByApprovalId}
+          nowMilliseconds={nowMilliseconds}
           onResolve={(request) => {
             reader.resolve(request);
           }}
@@ -138,6 +164,8 @@ function ApprovalsPaneBody(props: ApprovalsPaneBodyProps): React.JSX.Element {
           emptyDetail="Approved, rejected, expired and canceled records all land here, labelled with the state the daemon gave them."
           snapshotResolving={snapshot.resolvingApprovalIds}
           refusalByApprovalId={snapshot.resolveRefusalByApprovalId}
+          askByApprovalId={askByApprovalId}
+          nowMilliseconds={nowMilliseconds}
           onResolve={(request) => {
             reader.resolve(request);
           }}
@@ -168,89 +196,6 @@ function ApprovalsPaneBody(props: ApprovalsPaneBodyProps): React.JSX.Element {
         <h2 className="meridian-approvals__heading">Daemon-hosted tools</h2>
         <CallbackTools capability={undefined} isWithheld={false} tools={[]} />
       </section>
-    </div>
-  );
-}
-
-interface ApprovalListProps {
-  readonly phase: ReadPhase<ApprovalRecord>;
-  readonly records: readonly ApprovalRecord[];
-  readonly emptyTitle: string;
-  readonly emptyDetail: string;
-  readonly snapshotResolving: ReadonlySet<string>;
-  readonly refusalByApprovalId: ReadonlyMap<string, ConsoleRefusal>;
-  readonly onResolve: (request: ApprovalResolveRequest) => void;
-}
-
-/**
- * One read, rendered in each of its four phases.
- *
- * The four are kept apart deliberately: "nobody asked", "the read is in flight",
- * "the read answered and found none", and "the read was refused" are four different
- * next moves for the operator, and rule 8 forbids collapsing any two of them.
- */
-function ApprovalList(props: ApprovalListProps): React.JSX.Element {
-  if (props.phase.status === "not-checked") {
-    return (
-      <Nothing
-        kind="not-checked"
-        placement="surface"
-        title="The console has not asked what needs a decision."
-        detail="Nothing has been read yet, so an empty list here would stand in for an answer nobody has given."
-      />
-    );
-  }
-  if (props.phase.status === "loading") {
-    return <Nothing kind="not-loaded" placement="surface" title="Reading the approval queue." />;
-  }
-  if (props.phase.status === "refused") {
-    return (
-      <Nothing
-        kind="error"
-        placement="surface"
-        title={props.phase.refusal.code}
-        detail={props.phase.refusal.detail}
-      />
-    );
-  }
-  if (props.records.length === 0) {
-    // Two independent facts, and the render has to be able to say both. An answered
-    // read whose records this build could not decode is NOT a served empty set, and
-    // reporting it as one tells an operator that nothing needs them while requests
-    // may be waiting — rule 8's conflation rule, applied to one render.
-    return props.phase.unreadableCount > 0 ? (
-      <Nothing
-        kind="error"
-        placement="surface"
-        title="Part of this read could not be decoded."
-        detail={`The daemon answered and ${formatCount(props.phase.unreadableCount)} of the records it returned are shaped in a way this build cannot read, so this list is empty for that reason rather than because nothing is here.`}
-      />
-    ) : (
-      <Nothing
-        kind="empty"
-        placement="surface"
-        title={props.emptyTitle}
-        detail={props.emptyDetail}
-      />
-    );
-  }
-  return (
-    <div className="meridian-approvals__cards">
-      {props.phase.unreadableCount > 0 ? (
-        <p className="meridian-approvals__unreadable">
-          The reply carried records this build could not read, so this list is shorter than what the
-          daemon returned.
-        </p>
-      ) : null}
-      {props.records.map((record) => (
-        <ApprovalCard
-          key={record.approvalRequestId}
-          record={record}
-          isResolving={props.snapshotResolving.has(record.approvalRequestId)}
-          refusal={props.refusalByApprovalId.get(record.approvalRequestId)}
-          onResolve={props.onResolve}
-        />
-      ))}
     </div>
   );
 }
@@ -294,6 +239,26 @@ function RulesRead(props: RulesReadProps): React.JSX.Element {
       onRevoke={props.onRevoke}
     />
   );
+}
+
+/**
+ * The provider-ask origin of every projected approval, keyed by request id.
+ *
+ * Built over the whole partition rather than per rendered record: the partition's
+ * identity changes only when an approval event lands, so one pass per fold serves
+ * both lists, where a per-record lookup would rebuild on every render of either.
+ */
+function providerAsksIn(
+  entities: Readonly<Record<string, ConsoleEntity>>,
+): ReadonlyMap<string, ProviderAsk> {
+  const asks = new Map<string, ProviderAsk>();
+  for (const [approvalRequestId, entity] of Object.entries(entities)) {
+    const ask = providerAskFor(entity);
+    if (ask !== undefined) {
+      asks.set(approvalRequestId, ask);
+    }
+  }
+  return asks;
 }
 
 /**

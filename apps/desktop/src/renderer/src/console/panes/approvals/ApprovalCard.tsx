@@ -41,9 +41,9 @@ import {
   InlineRefusal,
   WireFigure,
   formatClockTime,
-  formatWireDescriptor,
 } from "../../primitives/index.js";
 import { type ConsoleRefusal } from "../../core/index.js";
+import { ApprovalResource } from "./ApprovalResource.js";
 import {
   hasCompleteResolvedQuad,
   isResolvedState,
@@ -245,7 +245,7 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
           What was asked for
         </Collapsible.Trigger>
         <Collapsible.Panel className="meridian-approval-card__disclosure-panel">
-          <ResourceDescriptor descriptor={record.resourceDescriptor} />
+          <ApprovalResource descriptor={record.resourceDescriptor} />
         </Collapsible.Panel>
       </Collapsible.Root>
 
@@ -335,42 +335,6 @@ function ResolvedQuad(props: { readonly record: ApprovalRecord }): React.JSX.Ele
           </dd>
         </div>
       )}
-    </dl>
-  );
-}
-
-/**
- * The requested resource, as the structured value the reply carries.
- *
- * The member is required on the wire, so "no descriptor" is not a state a
- * conformant row can be in — a row missing it never parses and is counted
- * unreadable instead. What IS reachable is a descriptor carrying no members at all,
- * and that is said in as many words rather than rendered as a blank panel.
- */
-function ResourceDescriptor(props: {
-  readonly descriptor: Readonly<Record<string, unknown>>;
-}): React.JSX.Element {
-  const entries = formatWireDescriptor(props.descriptor);
-  if (entries.length === 0) {
-    return (
-      <p className="meridian-approval-card__resource-empty">
-        The reply carried a descriptor with nothing in it, so what will actually run is not shown
-        here.
-      </p>
-    );
-  }
-  return (
-    <dl className="meridian-approval-card__resource">
-      {entries.map((entry) => (
-        <div className="meridian-approval-card__resource-member" key={entry.key}>
-          <dt>
-            <WireFigure value={entry.key} />
-          </dt>
-          <dd>
-            <WireFigure value={entry.value} />
-          </dd>
-        </div>
-      ))}
     </dl>
   );
 }

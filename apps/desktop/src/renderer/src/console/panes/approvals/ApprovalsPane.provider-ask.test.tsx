@@ -1,0 +1,198 @@
+// The join: a projection row, the entity the fold built from the same request, and
+// the framing that exists only where the two agree there was a provider ask.
+//
+// Its own file rather than more cases in `ApprovalsPane.test.tsx`, because the
+// subject is different: that file drives the pane over the read alone, and this one
+// is about what the pane does when the STORE holds something the read does not
+// carry. Both drive the shipped fixture bridge and the shipped scenario; the one
+// thing this file builds is the store, because the point is which fold it was opened
+// with.
+
+import { act, render, screen, within } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+
+import { ApprovalsPane } from "./ApprovalsPane.js";
+import { APPROVAL_FLOW_PROJECTORS } from "./approval-flow-projector.js";
+import { REFRESH_DEBOUNCE_MS } from "../../core/index.js";
+import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
+import { APPROVALS_SCENARIO } from "../../bridge/scenarios/approvals.js";
+import { DraftStore, MemoryPersistenceAdapter, UiStateStore } from "../../persistence/index.js";
+import {
+  FrameStore,
+  SessionStore,
+  type ConsoleSessionEvent,
+  type EntityProjectorRegistry,
+} from "../../store/index.js";
+import { type PaneContextOf } from "../pane-chrome.js";
+
+/** The request the scenario raises as a provider permission ask. */
+const ASK_APPROVAL_ID = "019b7a33-3300-7f01-8140-d1a4c1150524";
+/** The request the scenario raises directly. Both are pending, so both render. */
+const DIRECT_APPROVAL_ID = "019b7a33-3300-7f01-8130-d1a4c1150523";
+/**
+ * A settled record the reply returns and no beat names.
+ *
+ * The malformed-pairing case needs a request whose entity this test alone builds:
+ * every request the scenario's own beats raise already carries the deadline the wire
+ * requires, and the store's merge keeps what an earlier event named — so injecting a
+ * deadline-less beat for one of those would produce an entity that still had one.
+ */
+const UNBEATEN_APPROVAL_ID = "019b7a33-3300-7f01-8150-d1a4c1150525";
+const ASK_EXPIRY = "2026-01-01T17:30:01.100Z";
+
+function paneContext(
+  bridge: ConsoleBridge,
+  sessionStore: SessionStore,
+): PaneContextOf<"approvals"> {
+  return {
+    kind: "approvals",
+    paneId: "pane-approvals",
+    linkedSourcePaneId: undefined,
+    bridge,
+    frameStore: new FrameStore(),
+    sessionStore,
+    uiStateStore: new UiStateStore({ adapter: new MemoryPersistenceAdapter() }),
+    draftStore: new DraftStore(),
+    focusHue: undefined,
+  };
+}
+
+/** A store fed the scenario's beats, folding with whatever it was opened with. */
+function storeOver(
+  projectors: EntityProjectorRegistry | undefined,
+  extraEvents: readonly ConsoleSessionEvent[] = [],
+): SessionStore {
+  const sequences = APPROVALS_SCENARIO.beats.map((beat) => beat.event.sequence);
+  const store = new SessionStore({
+    sessionId: APPROVALS_SCENARIO.sessionId,
+    ...(projectors === undefined ? {} : { projectors }),
+  });
+  store.initialise({
+    cursor: Math.min(...sequences) - 1,
+    entities: [],
+    participantJoinLog: [...APPROVALS_SCENARIO.participantIdsInJoinOrder],
+  });
+  store.applyBatch([
+    ...APPROVALS_SCENARIO.beats.map((beat) => beat.event as ConsoleSessionEvent),
+    ...extraEvents,
+  ]);
+  return store;
+}
+
+/** Mount the pane over the fixture bridge and let both reads settle. */
+async function mountOver(sessionStore: SessionStore): Promise<HTMLElement> {
+  const bridge = createFixtureBridge({ scenario: APPROVALS_SCENARIO });
+  let container: HTMLElement | undefined;
+  await act(async () => {
+    container = render(<ApprovalsPane {...paneContext(bridge, sessionStore)} />).container;
+  });
+  await act(async () => {
+    bridge.scenarioEngine?.advance(REFRESH_DEBOUNCE_MS);
+  });
+  for (let pass = 0; pass < 4; pass += 1) {
+    await act(async () => {
+      await Promise.resolve();
+    });
+  }
+  if (container === undefined) {
+    throw new Error("the pane rendered no container");
+  }
+  return container;
+}
+
+/** One card, found by the record it belongs to — never the first in DOM order. */
+function cardFor(container: HTMLElement, approvalRequestId: string): HTMLElement {
+  const card = container.querySelector(`[data-approval-id="${approvalRequestId}"]`);
+  if (!(card instanceof HTMLElement)) {
+    throw new Error(`no card is rendered for approval ${approvalRequestId}`);
+  }
+  return card;
+}
+
+function textOf(card: HTMLElement, selector: string): string | undefined {
+  const element = card.querySelector(selector);
+  return element instanceof HTMLElement ? (element.textContent ?? "") : undefined;
+}
+
+describe("a projection row whose entity carries an ask", () => {
+  it("frames it as a provider ask and reads its deadline against the shared clock", async () => {
+    const container = await mountOver(storeOver(APPROVAL_FLOW_PROJECTORS));
+    const card = cardFor(container, ASK_APPROVAL_ID);
+
+    // The origin, from the event payload — the projection reply registers no member
+    // that could have said this.
+    expect(textOf(card, ".meridian-approval-ask__origin")).toContain("ask-permission-force-push");
+    // The deadline, as the instant the daemon sent plus a reading of it.
+    expect(textOf(card, ".meridian-approval-ask__deadline")).toContain(ASK_EXPIRY);
+    expect(textOf(card, ".meridian-approval-ask__deadline")).toContain("Answer needed");
+    expect(card.querySelector(".meridian-approval-ask__missing")).toBeNull();
+    // The two answers stay the card's two: the framing adds no third decision and no
+    // free-text field, because a permission ask is settled as an approval.
+    expect(card.querySelectorAll(".meridian-approval-card__action")).toHaveLength(2);
+    expect(within(card).queryByRole("textbox")).toBeNull();
+  });
+
+  it("negative control: the request raised directly renders the ordinary card", async () => {
+    // Same list, same read, same render pass. Without this the case above would pass
+    // over a pane that framed every card as a provider ask.
+    const container = await mountOver(storeOver(APPROVAL_FLOW_PROJECTORS));
+    expect(
+      cardFor(container, DIRECT_APPROVAL_ID).querySelector(".meridian-approval-ask"),
+    ).toBeNull();
+  });
+});
+
+describe("a projection row the store holds no entity for", () => {
+  it("renders the ordinary card rather than a framing it cannot justify", async () => {
+    // The state every approvals surface was built against, and the state a live
+    // session is in until the fold catches up: the read answered and the partition
+    // is empty. Every card renders; none is framed.
+    const container = await mountOver(storeOver(undefined));
+    expect(container.querySelectorAll(".meridian-approval-ask")).toHaveLength(0);
+    expect(cardFor(container, ASK_APPROVAL_ID)).not.toBeNull();
+  });
+});
+
+describe("an ask whose body broke the wire's ask-implies-deadline pairing", () => {
+  it("frames it, shows no deadline, and counts it once", async () => {
+    // Not a shape a conformant daemon sends — and inventing a deadline for it would
+    // put a time on screen no daemon sent, while dropping the framing would hide a
+    // provider ask because one of its two members was missing.
+    const container = await mountOver(
+      storeOver(APPROVAL_FLOW_PROJECTORS, [
+        {
+          id: "019b7a33-3300-7e00-8110-e5e0c3350099",
+          sessionId: APPROVALS_SCENARIO.sessionId,
+          sequence: 9,
+          kind: "approval.requested",
+          occurredAt: "2026-01-01T13:30:02.000Z",
+          payload: {
+            sessionId: APPROVALS_SCENARIO.sessionId,
+            approvalRequestId: UNBEATEN_APPROVAL_ID,
+            askId: "ask-with-no-deadline",
+            category: "file_write",
+            scope: "session",
+          },
+        },
+      ]),
+    );
+    const card = cardFor(container, UNBEATEN_APPROVAL_ID);
+
+    expect(textOf(card, ".meridian-approval-ask__origin")).toContain("ask-with-no-deadline");
+    expect(card.querySelector(".meridian-approval-ask__deadline")).toBeNull();
+    expect(textOf(card, ".meridian-approval-ask__missing")).toContain("without the deadline");
+    // Counted once, in the list's own summary line, so the list does not go on
+    // claiming everything in it was whole.
+    expect(
+      screen.getAllByText(/1 of these were raised by a provider without the deadline/u),
+    ).toHaveLength(1);
+  });
+
+  it("negative control: the conformant ask adds no such count", async () => {
+    const container = await mountOver(storeOver(APPROVAL_FLOW_PROJECTORS));
+    expect(
+      cardFor(container, ASK_APPROVAL_ID).querySelector(".meridian-approval-ask"),
+    ).not.toBeNull();
+    expect(screen.queryByText(/raised by a provider without the deadline/u)).toBeNull();
+  });
+});
