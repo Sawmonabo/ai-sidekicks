@@ -15,7 +15,12 @@
 //     performance hint; store identity is correctness.
 //   • **The route follows the hash, and the hash follows the route.** Both
 //     directions, because the Window menu opens auxiliary windows by URL and the
-//     rail navigates in-window. `adoptHash` is idempotent so the loop settles.
+//     rail navigates in-window. `adoptHash` is idempotent so the loop settles, and
+//     the store is BORN on the hash the window opened with rather than adopting it
+//     one commit later: the two directions are both effects, and a store that
+//     started on the default route left the route-to-hash direction closing over
+//     that default on the very first pass — long enough to overwrite the address an
+//     auxiliary window was opened at with `#/sessions`.
 //   • **The scheme is hydrated on a read and persisted on an act.** Never on a
 //     state-change effect, which cannot tell the person's choice from the
 //     hydration that just applied a stored one.
@@ -23,7 +28,11 @@
 //     touches `window.sidekicks`.
 
 import { useCallback, useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
-import { SidekicksBridgeProvider, useBridgeResolution } from "../bridge/index.js";
+import {
+  SidekicksBridgeProvider,
+  useBridgeResolution,
+  type ConsoleBridge,
+} from "../bridge/index.js";
 import { PaletteOverlay } from "../palette/index.js";
 import { DraftStore, SCHEME_PREFERENCE_KEY, UiStateStore } from "../persistence/index.js";
 import { Nothing } from "../primitives/index.js";
@@ -37,7 +46,7 @@ import { describeScope, useFrameCommandSurface } from "./frame-commands.js";
 import { buildRailEntries, routeForDestination } from "./rail-navigation.js";
 import { RouteSurface } from "./RouteSurface.js";
 import { useActiveSessionStore, useSessionStoreRegistry } from "./session-lifecycle.js";
-import { formatRoute, railDestinationFor } from "../routing/index.js";
+import { formatRoute, parseRoute, railDestinationFor } from "../routing/index.js";
 import { consoleSurfaceRegistry, type ConsoleSurfaceContext } from "./surface-registry.js";
 
 // Composition, at module scope, before any window renders.
@@ -81,16 +90,63 @@ interface ConsoleFrameHostProps {
   readonly renderOverlays?: (context: ConsoleSurfaceContext) => ReactNode;
 }
 
+/**
+ * The bridge gate, and nothing else.
+ *
+ * The failure arm is rendered HERE rather than inside the frame so that everything
+ * below it holds a resolved `ConsoleBridge` by construction. That is what lets the
+ * frame's own command surface contribute the palette's bridge-backed acts: those
+ * are built by a hook that throws when the bridge is unavailable — correctly, since
+ * a component reaching for a missing bridge is a wiring bug — and a hook cannot be
+ * called conditionally, so the guard has to be a component boundary rather than an
+ * `if` further down.
+ *
+ * The resolution is decided once per provider and does not change afterwards, so
+ * this boundary never remounts the frame under a running window.
+ */
 function ConsoleFrameHost(props: ConsoleFrameHostProps): React.JSX.Element {
   const resolution = useBridgeResolution();
+  if (resolution.status === "unavailable") {
+    return (
+      <div className="meridian-frame meridian-frame--bare">
+        <Nothing
+          kind="error"
+          title="This window cannot reach the app."
+          detail={resolution.unavailable.detail}
+        />
+      </div>
+    );
+  }
+  return (
+    <ConsoleFrame
+      bridge={resolution.bridge}
+      {...(props.renderOverlays === undefined ? {} : { renderOverlays: props.renderOverlays })}
+    />
+  );
+}
+
+interface ConsoleFrameProps {
+  readonly bridge: ConsoleBridge;
+  readonly renderOverlays?: (context: ConsoleSurfaceContext) => ReactNode;
+}
+
+function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
+  // Read first, because the store is born on it. `useLocationHash` is a
+  // subscription rather than a read, so this same value keeps the hash-to-route
+  // direction live for every later navigation.
+  const hash = useLocationHash();
 
   // Stores are per window and created exactly once. `UiStateStore.opening` starts
   // the database open and returns immediately, so first paint never waits on
   // storage while every persisted read and write awaits the same open — one store
   // identity, and no window in which a write would land somewhere it will not be
   // read back from.
+  //
+  // The frame store is seeded with the route the window OPENED at. The ref
+  // initializer runs on the first render only, so this reads the opening hash and
+  // never a later one — every later hash reaches the store through `adoptHash`.
   const frameStoreRef = useRef<FrameStore>(undefined);
-  frameStoreRef.current ??= new FrameStore();
+  frameStoreRef.current ??= new FrameStore({ initialRoute: parseRoute(hash) });
   const frameStore = frameStoreRef.current;
 
   const uiStateStoreRef = useRef<UiStateStore>(undefined);
@@ -103,7 +159,6 @@ function ConsoleFrameHost(props: ConsoleFrameHostProps): React.JSX.Element {
 
   const sessionStoreRegistry = useSessionStoreRegistry();
 
-  const hash = useLocationHash();
   const route = useFrameStore(frameStore, (state) => state.route);
   const banners = useFrameStore(frameStore, (state) => state.banners);
   const schemePreference = useFrameStore(frameStore, (state) => state.schemePreference);
@@ -167,9 +222,24 @@ function ConsoleFrameHost(props: ConsoleFrameHostProps): React.JSX.Element {
   }, [route]);
 
   // Window focus is a refresh reason, not a poll.
+  //
+  // The re-read rides the TRANSITION into focus rather than the event itself. A
+  // window that never lost focus missed nothing, so re-reading every open session
+  // on a focus event a person did not cause would be the poll this design refuses;
+  // a window that WAS blurred may have missed a delivery or a read while nobody was
+  // looking, and its open stores are stale until something asks for them again.
+  //
+  // Whether the window was focused is read back from the store rather than kept in
+  // a ref beside it. The store already holds that fact — `isWindowFocused` is what
+  // the scheduler's `window-focus` reason is named for — and a second copy would be
+  // the same value recorded twice, free to disagree.
   useEffect(() => {
     const onFocus = (): void => {
+      if (frameStore.getState().isWindowFocused) {
+        return;
+      }
       frameStore.setWindowFocused(true);
+      sessionStoreRegistry.requestRefreshOfEverySession("window-focus");
     };
     const onBlur = (): void => {
       frameStore.setWindowFocused(false);
@@ -180,9 +250,7 @@ function ConsoleFrameHost(props: ConsoleFrameHostProps): React.JSX.Element {
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("blur", onBlur);
     };
-  }, [frameStore]);
-
-  const bridge = resolution.status === "ready" ? resolution.bridge : undefined;
+  }, [frameStore, sessionStoreRegistry]);
 
   const activeSessionId = frameStore.activeSessionId;
 
@@ -195,25 +263,9 @@ function ConsoleFrameHost(props: ConsoleFrameHostProps): React.JSX.Element {
 
   const sessionStore = useActiveSessionStore(sessionStoreRegistry, activeSessionId);
 
-  if (resolution.status === "unavailable" || bridge === undefined) {
-    return (
-      <div className="meridian-frame meridian-frame--bare">
-        <Nothing
-          kind="error"
-          title="This window cannot reach the app."
-          detail={
-            resolution.status === "unavailable"
-              ? resolution.unavailable.detail
-              : "The bridge is missing."
-          }
-        />
-      </div>
-    );
-  }
-
   const surfaceContext: ConsoleSurfaceContext = {
     route,
-    bridge,
+    bridge: props.bridge,
     frameStore,
     sessionStore,
     uiStateStore,

@@ -5,10 +5,24 @@
 // and it is a hook rather than a table for the same reason those commands cannot be
 // declared at module scope: every one of them closes over this window's store, so
 // they are built per window, registered from an effect, and removed on unmount.
+//
+// The palette's own bridge-backed acts ride the SAME registration. They are not the
+// frame's commands — they belong to the family that declares them — but they are
+// per-window and late in exactly the way the frame's are, and a second registration
+// lifecycle beside this one would be a second place to get the unregister wrong:
+// two effects registering into one module-scoped registry, whose duplicate-id
+// refusal turns any ordering mistake into a raise at mount rather than a shadowed
+// command. One effect, one list, one revision bump.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { KeyBindingTable, type WhenClauseContext } from "../palette/index.js";
+import type { ConsoleRefusal } from "../core/index.js";
+import {
+  KeyBindingTable,
+  useBridgeCommands,
+  type ConsoleCommand,
+  type WhenClauseContext,
+} from "../palette/index.js";
 import { isAuxiliaryRoute, routeSessionId, type ConsoleRoute } from "../routing/index.js";
 import type { FrameStore } from "../store/index.js";
 import type { SchemePreference } from "../tokens/index.js";
@@ -68,6 +82,29 @@ export function useFrameCommandSurface(input: FrameCommandSurfaceInput): FrameCo
   // renders "no commands apply here" over a registry that has them.
   const [commandRevision, setCommandRevision] = useState(0);
 
+  // Where a bridge-backed command's refusal is rendered.
+  //
+  // A frame banner, which is the third of the three refusal renderings and the only
+  // one available to an act with no surface of its own — "Check for updates" has no
+  // pane to fail inline on. Keyed on the refusal CODE rather than on a fresh id, so
+  // a second failure of one act replaces its banner instead of stacking a duplicate
+  // of the same sentence.
+  const raiseRefusalBanner = useCallback(
+    (refusal: ConsoleRefusal) => {
+      frameStore.raiseBanner({
+        id: refusal.code,
+        dismissible: true,
+        code: refusal.code,
+        detail: refusal.detail,
+      });
+    },
+    [frameStore],
+  );
+
+  // Memoised on that stable sink, so the list keeps its identity across renders and
+  // the registration effect below runs once rather than per pass.
+  const bridgeCommands = useBridgeCommands(raiseRefusalBanner);
+
   const keyBindingsRef = useRef<KeyBindingTable>(undefined);
   keyBindingsRef.current ??= new KeyBindingTable({
     registry: consoleCommands,
@@ -75,27 +112,32 @@ export function useFrameCommandSurface(input: FrameCommandSurfaceInput): FrameCo
   });
   const keyBindings = keyBindingsRef.current;
 
-  // The frame's own commands. Registered HERE rather than at module scope because
-  // each one closes over this window's store; removed on unmount so a second mount
-  // in the same process (a test, a StrictMode double-render) does not collide with
-  // the first registration.
+  // This window's commands. Registered HERE rather than at module scope because
+  // each one closes over this window's store or its bridge; removed on unmount so a
+  // second mount in the same process (a test, a StrictMode double-render) does not
+  // collide with the first registration.
   useEffect(() => {
-    const frameCommands = buildFrameCommands(frameStore, chooseScheme);
+    const windowCommands: readonly ConsoleCommand[] = [
+      ...buildFrameCommands(frameStore, chooseScheme),
+      ...bridgeCommands,
+    ];
     // Through the family door rather than through the registry, so there is one
-    // way to contribute a command and not two. The frame's commands are late
-    // registrations like any family's — the only difference is that they close
-    // over this window's store, which is why they are registered from an effect.
-    registerConsoleCommands(frameCommands);
+    // way to contribute a command and not two. These are late registrations like
+    // any family's — the only difference is that they close over what only this
+    // window has, which is why they are registered from an effect. `registerAll`
+    // is atomic, so a duplicate anywhere in the list adds none of it and the
+    // cleanup below cannot unregister a command another mount owns.
+    registerConsoleCommands(windowCommands);
     keyBindings.setBindings(FRAME_KEY_BINDINGS);
     const uninstall = keyBindings.install(window);
     setCommandRevision((revision) => revision + 1);
     return () => {
       uninstall();
-      for (const command of frameCommands) {
+      for (const command of windowCommands) {
         consoleCommands.unregister(command.id);
       }
     };
-  }, [chooseScheme, frameStore, keyBindings]);
+  }, [bridgeCommands, chooseScheme, frameStore, keyBindings]);
 
   const changePaletteOpen = useCallback((open: boolean) => {
     setPaletteOpen(open);
