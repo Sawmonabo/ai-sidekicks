@@ -17,6 +17,7 @@ const RUN_TARGET: ComposerRunTarget = {
   sessionId: "session-1",
   agentId: "agent-implementer",
   agentName: "Ada",
+  driverName: "claude",
   targetRunId: "run-01",
   expectedRunVersion: 4,
   runState: "running",
