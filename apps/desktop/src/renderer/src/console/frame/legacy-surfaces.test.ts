@@ -288,6 +288,38 @@ describe("legacy surfaces — the read seam the roster is handed", () => {
     ).resolves.toBeDefined();
   });
 
+  it("hands one seam per bridge, so the view can depend on its identity", () => {
+    // The roster's effect re-subscribes when this object changes, and this helper
+    // runs on every parent render. Composed fresh each call, the seam would churn
+    // the subscription on every keystroke above the mount.
+    const bridge = fixtureBridge();
+    expect(rosterReadsFor(bridge, COLLABORATION_SCENARIO.sessionId)).toBe(
+      rosterReadsFor(bridge, COLLABORATION_SCENARIO.sessionId),
+    );
+  });
+
+  it("negative control: a different bridge gets a different seam", () => {
+    // Without this, a seam cached on nothing at all — one module-level pair
+    // reused for every bridge — would pass the case above while leaving a
+    // replaced transport unnoticeable, which is the failure the identity exists
+    // to make visible.
+    expect(rosterReadsFor(fixtureBridge(), COLLABORATION_SCENARIO.sessionId)).not.toBe(
+      rosterReadsFor(fixtureBridge(), COLLABORATION_SCENARIO.sessionId),
+    );
+  });
+
+  it("reads the second bridge's rows through the second bridge's seam", () => {
+    // Identity is only worth depending on if it tracks the transport: the seam a
+    // replaced bridge hands back must ask THAT bridge.
+    const firstBridge = fixtureBridge();
+    const secondBridge = createFixtureBridge({ scenario: NO_ROSTER_SCENARIO });
+
+    const firstSeam = rosterReadsFor(firstBridge, COLLABORATION_SCENARIO.sessionId);
+    const secondSeam = rosterReadsFor(secondBridge, NO_ROSTER_SCENARIO.sessionId);
+
+    expect(secondSeam).not.toBe(firstSeam);
+  });
+
   it("hands back the bridge's own unsubscribe on a live subscription", () => {
     const bridge = fixtureBridge();
     let signals = 0;

@@ -259,6 +259,13 @@ const RUNTIME_NODE_ONLINE_EVENT = "runtime_node.online";
  * presence subscription carries are facts about the wire rather than choices a
  * host makes — a seam that took them as arguments would invite a second, quieter
  * answer to both.
+ *
+ * A HOST HOLDS ONE PAIR PER TRANSPORT. The effect below depends on this object's
+ * identity, because a replaced transport is the one change a session-keyed
+ * dependency cannot see, so a pair composed fresh on every render resubscribes on
+ * every render. That is a host's own doing rather than a hazard hidden here: the
+ * console's mount caches one seam per bridge, and the default arm is a module
+ * constant.
  */
 export interface NodeRosterReads {
   /** One session's roster snapshot, as the registered read answers it. */
@@ -524,21 +531,28 @@ export function NodeRoster({
       // `?.()` no-ops when the Tier-1 subscribe threw before assigning.
       unsubscribe?.();
     };
-    // `[sessionId]` (not `[]`): the effect reads and subscribes for a specific
-    // session, so changing the prop must tear down the old subscription and
-    // re-run for the new one. `SessionId` is a string brand, so referential
-    // equality holds and the effect does not re-run on unrelated re-renders.
+    // `[sessionId, reads]` (not `[]`, and not `[sessionId]`): the effect reads
+    // and subscribes through a specific transport for a specific session, so a
+    // change to EITHER must tear down the old subscription and re-run.
+    // `SessionId` is a string brand, so referential equality holds there and the
+    // effect does not re-run on unrelated re-renders.
     //
-    // `reads` is deliberately NOT a dependency, and the omission is the seam's
-    // contract rather than an oversight. It is a TRANSPORT and not a subject: a
-    // host composes the pair where it mounts this view, so its identity changes
-    // on every parent render, and depending on it would tear down and re-open
-    // the subscription each time — the churn the `sessionId` dependency exists
-    // to confine. The effect re-reads it from the current render's scope
-    // whenever it does re-run, so the only window a stale seam could survive is
-    // "same session, different transport", which no host produces: a window
-    // resolves its bridge once, and a session change re-runs this effect.
-  }, [sessionId]);
+    // `reads` is a dependency because "same session, different transport" is a
+    // state a host genuinely reaches: the console's bridge provider REPLACES its
+    // resolution without remounting its children — on a supplied-bridge or
+    // scenario change, and again when its own engine has been disposed and a
+    // second mount must take a fresh one. Left out, this effect would stay
+    // subscribed to the superseded bridge, keep reading a disposed engine, and
+    // show stale rows with nothing on screen saying so.
+    //
+    // What makes the dependency safe is that the seam is STABLE PER BRIDGE
+    // rather than composed per render — the console's mount caches one pair per
+    // bridge identity, and the default arm below is a module constant. So a
+    // re-run means the transport genuinely changed, which is exactly the churn
+    // the previous omission was reaching for and the correctness it gave up to
+    // get it. A host that composes a fresh pair on every render is asking for a
+    // resubscribe on every render, which is the honest reading of what it did.
+  }, [sessionId, reads]);
 
   if (rosterViewState.kind === "loading") {
     // `aria-busy` announces the in-flight initial snapshot to assistive tech.
