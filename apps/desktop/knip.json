@@ -57,7 +57,12 @@
 
       // A same-file consumer counts as a consumer. Without this, every helper a module uses
       // internally and also exports for its own co-located test reports as an unused export.
-      "ignoreExportsUsedInFile": true
+      "ignoreExportsUsedInFile": true,
+
+      // `xdpyinfo` is an X11 host utility the Xvfb smoke helper probes with `spawnSync` on
+      // Linux runners (`test/helpers/electron-probe.ts`); it is installed by the CI job's apt
+      // step and is never a package dependency, so knip is told not to expect it in a manifest.
+      "ignoreBinaries": ["xdpyinfo"]
     }
   }
 }
