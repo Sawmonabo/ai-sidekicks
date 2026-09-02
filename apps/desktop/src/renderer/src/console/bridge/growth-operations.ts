@@ -379,6 +379,15 @@ export const GROWTH_OPERATIONS: Readonly<Record<GrowthOperationId, GrowthOperati
     "verify a run's gate-resolution hash chain and report the first divergent sequence",
     "workflow.gateChainVerify",
   ),
+  // The run enumeration, on its own row and naming no wire method — the corpus
+  // registers none, and an invented string here would be a wire fact traceable to
+  // nothing.
+  workflowRunList: op(
+    "workflowRunList",
+    "workflow-run-enumeration",
+    "method",
+    "enumerate the workflow runs a session holds, so a person can see what is running and what is parked without already holding a run id",
+  ),
   // gitflow
   gitflowBranchContextRead: op(
     "gitflowBranchContextRead",

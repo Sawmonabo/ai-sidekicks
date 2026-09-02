@@ -270,10 +270,11 @@
 
 /* --- Open-session list -------------------------------------------------- */
 
-/* One list, three surfaces: the sessions destination offers sessions to open in
-   place, and the auxiliary picker asks first which session a window should follow
-   and then which agent inside it. All three render the identical row, so the row
-   is styled once. */
+/* One list, and every surface that offers wire identifiers to choose between: the
+   sessions destination offers sessions to open in place, the auxiliary picker asks
+   first which session a window should follow and then which agent inside it, and the
+   workflows destination asks which session its definitions resolve from. All of them
+   render the identical row, so the row is styled once. */
 
 .meridian-choice-list {
   display: flex;

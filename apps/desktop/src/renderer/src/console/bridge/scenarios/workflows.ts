@@ -24,20 +24,21 @@
 //
 // HOW THE WORKFLOW STATE REACHES A SURFACE
 //
-// Two seams, because the wire has two different amounts of answer:
+// Every read is a scripted reply. A served growth operation answers through
+// `answerFromScriptedReply(engine, "<call>", …)`, which is the one seam
+// `bridge/scripted-reply.ts` owns, so a workflow read gets the script, the frozen
+// clock's loading window, and the two non-arrival refusals a real read has. The
+// engine matches a reply on the call name alone, so there is one reply per call and a
+// second for the same call is a wire-truth defect precisely because it could never be
+// served — which is why `workflow.runRead` answers with the parked run, the one run a
+// run pane opens, while `workflow.runList` answers with all four.
 //
-//   • The three READS are scripted replies. A served growth operation answers through
-//     `answerFromScriptedReply(engine, "<call>", …)`, which is the one seam
-//     `bridge/scripted-reply.ts` owns, so a workflow read gets the script, the frozen
-//     clock's loading window, and the two non-arrival refusals a real read has.
-//     `workflow.runRead` addresses ONE run by an id the caller already holds, so it
-//     answers with the parked run — the run a run pane opens. One reply, one run: the
-//     engine matches a reply on the call name alone, and a second reply for the same
-//     call is a wire-truth defect precisely because it could never be served.
-//   • The run LIST has no wire at all. The registered workflow registry carries
-//     thirteen methods and none of them enumerates runs, so the set is stated as
-//     fixture data and reaches the list from its caller — which is exactly how
-//     `workflows/RunList.tsx` says its snapshots arrive.
+// The two differ in what the corpus registers, and that difference is on the slate
+// rather than in this file: the run READ is one of the thirteen registered workflow
+// methods and rides `workflow-run-control`, while the run ENUMERATION is registered
+// nowhere — every registered run operation addresses one run by an id the caller must
+// already hold — and rides `workflow-run-enumeration`. Both are fixture-only, and the
+// port refuses both under a live bridge.
 //
 // NO MUTATION IS SCRIPTED. Cancel, resume, gate resolve, and human-form submit each
 // change state the fixture would then have to hold, and a scripted reply is a fixed
@@ -45,6 +46,21 @@
 // report a run cancelled while every read beside it kept answering `suspended`. A
 // mutating call the port refuses says "nobody asked", which is true; a mutating call
 // that answered would say the run changed, which would not be.
+//
+// THE SESSION IS CREATED BEFORE ANYTHING THE SESSION OWNS
+//
+// A daemon cannot project a run, or a `session`-scoped definition, that predates the
+// session it belongs to — so the creation beat is the EARLIEST instant in this
+// fixture and every session-owned record in `scenarios/workflow-fixture-data.ts`
+// follows it. The scenario used to open at 10:00 while its four runs started between
+// 07:12 and 09:52 and its session-scoped definition was dated a fortnight earlier,
+// which made every screenshot, projection, and ordering assertion above it a reading
+// of a lifecycle no daemon could produce. The session moved to 07:00 rather than the
+// runs moving after 10:00 because the runs' own spread is the content — the band
+// order and the newest-first secondary key are read off it — and shifting the four
+// of them would have restated that spread instead of preserving it. Every beat keeps
+// its millisecond offset from the start, so the ordering the script claims among its
+// own beats is untouched. `scenarios/workflows.test.ts` holds the rule.
 //
 // EVERY ID IS THE UUID THE WIRE DECLARES. `scenarios/wire-truth.ts` presents each beat
 // to the strict contract layer as the whole envelope it claims to be, so a readable
@@ -61,6 +77,7 @@ import {
   WORKFLOWS_SCENARIO_AGENTS,
   WORKFLOWS_SCENARIO_DEFINITIONS,
   WORKFLOWS_SCENARIO_PHASE_OUTPUTS,
+  WORKFLOWS_SCENARIO_RUNS,
   WORKFLOWS_SESSION_ID,
 } from "./workflow-fixture-data.js";
 import type { ConsoleScenario } from "../scenario.js";
@@ -87,7 +104,7 @@ export const WORKFLOWS_SCENARIO: ConsoleScenario = {
   // Absent, the caller-identity read refuses and every operator control on a parked
   // run reads as unchecked rather than as adjudicated.
   viewingParticipantId: WORKFLOWS_PARTICIPANT_YOU,
-  startedAtIso: "2026-01-01T10:00:00.000Z",
+  startedAtIso: "2026-01-01T07:00:00.000Z",
   beats: [
     {
       atMs: 0,
@@ -95,7 +112,7 @@ export const WORKFLOWS_SCENARIO: ConsoleScenario = {
         sessionId: WORKFLOWS_SESSION_ID,
         sequence: 1,
         kind: "session.created",
-        occurredAt: "2026-01-01T10:00:00.000Z",
+        occurredAt: "2026-01-01T07:00:00.000Z",
         actorParticipantId: WORKFLOWS_PARTICIPANT_YOU,
         // The registered shape, verbatim: the new session's id plus the resolved
         // config and metadata, both open records the corpus names no key inside. The
@@ -137,7 +154,7 @@ export const WORKFLOWS_SCENARIO: ConsoleScenario = {
         sessionId: WORKFLOWS_SESSION_ID,
         sequence: 4,
         kind: "run.queued",
-        occurredAt: "2026-01-01T10:00:00.240Z",
+        occurredAt: "2026-01-01T07:00:00.240Z",
         actorParticipantId: WORKFLOWS_PARTICIPANT_YOU,
         // A run-lifecycle payload is a STATE TRANSITION carrying the progression
         // counter. `previousState` is absent here and only here: a queued run is being
@@ -157,7 +174,7 @@ export const WORKFLOWS_SCENARIO: ConsoleScenario = {
         sessionId: WORKFLOWS_SESSION_ID,
         sequence: 5,
         kind: "run.starting",
-        occurredAt: "2026-01-01T10:00:00.320Z",
+        occurredAt: "2026-01-01T07:00:00.320Z",
         // No actor. The daemon moves a run out of `queued`; a participant id here
         // would attribute a system transition to a person.
         payload: {
@@ -175,7 +192,7 @@ export const WORKFLOWS_SCENARIO: ConsoleScenario = {
         sessionId: WORKFLOWS_SESSION_ID,
         sequence: 6,
         kind: "run.running",
-        occurredAt: "2026-01-01T10:00:00.420Z",
+        occurredAt: "2026-01-01T07:00:00.420Z",
         payload: {
           sessionId: WORKFLOWS_SESSION_ID,
           runId: WORKFLOWS_PHASE_AGENT_RUN_ID,
@@ -198,8 +215,8 @@ export const WORKFLOWS_SCENARIO: ConsoleScenario = {
           state: "active",
           config: {},
           metadata: {},
-          createdAt: "2026-01-01T10:00:00.000Z",
-          updatedAt: "2026-01-01T10:00:00.420Z",
+          createdAt: "2026-01-01T07:00:00.000Z",
+          updatedAt: "2026-01-01T07:00:00.420Z",
         },
         timelineCursors: { latest: "workflows-cursor-6" },
       },
@@ -228,6 +245,15 @@ export const WORKFLOWS_SCENARIO: ConsoleScenario = {
       // serve, and claiming otherwise would drive the browser into a fetch that
       // answers with this same page forever.
       result: { definitions: WORKFLOWS_SCENARIO_DEFINITIONS },
+    },
+    {
+      // All four runs, in the table's own order. The list's ordering is the
+      // projection's — parked first, then active, then settled, newest first inside
+      // each — so a reply that pre-sorted them would be scripting a fold the console
+      // performs, and a projection bug would be invisible behind fixture data that
+      // had already done the work.
+      call: "workflow.runList",
+      result: { runs: WORKFLOWS_SCENARIO_RUNS },
     },
     {
       call: "workflow.runRead",

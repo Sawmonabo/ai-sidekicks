@@ -6,28 +6,38 @@
 // the results as if they were comparable. `console-harness.tsx` owns HOW the console
 // is mounted, one level down; this module owns WHAT of this family is mounted into it.
 //
-// THE BODIES COME OUT OF THE DECK'S REGISTRY, NOT OUT OF AN IMPORT, on the
-// browser-terminal tiers' precedent: both surfaces are resolved through
-// `ConsolePaneRegistry` after the family registers into it, so a tier renders the
-// body the deck would mount rather than a component that happens to sit beside it —
-// and the family's stylesheet arrives on the edge its barrel already owns, which is
+// THE BODIES COME OUT OF THE FAMILY'S REGISTRIES, NOT OUT OF AN IMPORT, on the
+// browser-terminal tiers' precedent: the run pane is resolved through
+// `ConsolePaneRegistry` and the destination through `ConsoleSurfaceRegistry`, each
+// after the family registers into it — so a tier renders what the deck and the rail
+// would actually mount rather than a component that happens to sit beside them, and
+// the family's stylesheets arrive on the edges its own modules already own, which is
 // what makes the captured pixels the ones a person would see.
+//
+// THE DESTINATION IS MOUNTED WITH A SESSION IN SCOPE, WHICH IS HOW A PERSON REACHES
+// IT. `#/workflows` is a bare route and the definition enumeration's request carries
+// a required session id, so the surface resolves its subject from the session this
+// window last opened. The frame store below is put in that state by NAVIGATING —
+// into a session and then to the workflows destination — rather than by setting the
+// field, because that retention is the store's own rule and a tier that wrote the
+// member directly would pin a frame the shipped store could no longer produce.
 //
 // BOTH SURFACES ARE DRIVEN BY THE SCENARIO AND NOT BY HAND-BUILT ROWS. The workflows
 // scenario scripts the definition enumeration and the run read, and the fixture
-// growth port answers both from it — so the browser shows the definitions a daemon
-// would have listed, and the run pane shows the run that fixture's own header calls
-// the parked one: two park kinds at once, one with an armed resume and one without,
-// which is the pair a park banner most easily conflates and therefore the frame worth
-// pinning.
+// growth port answers both from it — so the destination shows the definitions a
+// daemon would have listed, and the run pane shows the run that fixture's own header
+// calls the parked one: two park kinds at once, one with an armed resume and one
+// without, which is the pair a park banner most easily conflates and therefore the
+// frame worth pinning.
 //
-// WHY THE REGION IS FOUND BY ITS HEADING RATHER THAN BY AN `aria-label`. This
-// family's chrome names its region with `aria-labelledby` pointing at the visible
-// heading, deliberately, so the announced name and the read name cannot disagree.
-// The browser-terminal helper's `[aria-label=…]` lookup would therefore find nothing
-// here; the lookup below is the same claim — find the region by the name a person
-// navigating with assistive technology would hear — expressed against the way this
-// family spells it.
+// WHY EACH SURFACE IS FOUND A DIFFERENT WAY. The run pane IS one region, and this
+// family's chrome names it with `aria-labelledby` pointing at the visible heading —
+// deliberately, so the announced name and the read name cannot disagree — which is
+// why it is looked up by that name rather than by the browser-terminal helper's
+// `[aria-label=…]`. The destination is not a region at all: it is a composition of
+// the scope line, the named browser region, and whatever sections stand beside it, so
+// an accessible-name lookup would return one of its parts and a tier would capture a
+// fragment of the surface. It is addressed by its own root instead.
 
 import { waitFor } from "@testing-library/react";
 import type { FunctionComponent } from "react";
@@ -43,9 +53,21 @@ import {
   WORKFLOWS_PARKED_RUN,
   WORKFLOWS_SESSION_ID,
 } from "../../src/renderer/src/console/bridge/scenarios/workflow-fixture-data.js";
+import {
+  ConsoleSurfaceRegistry,
+  type ConsoleSurfaceContext,
+} from "../../src/renderer/src/console/frame/surface-registry.js";
+import { LiveAnnouncerProvider } from "../../src/renderer/src/console/primitives/index.js";
 import { DraftStore, UiStateStore } from "../../src/renderer/src/console/persistence/index.js";
-import { FrameStore, SessionStore } from "../../src/renderer/src/console/store/index.js";
-import { registerWorkflowPanes } from "../../src/renderer/src/console/workflows/index.js";
+import {
+  FrameStore,
+  SessionStore,
+  SessionStoreRegistry,
+} from "../../src/renderer/src/console/store/index.js";
+import {
+  registerWorkflowPanes,
+  registerWorkflowSurfaces,
+} from "../../src/renderer/src/console/workflows/index.js";
 import {
   ConsolePaneRegistry,
   type ConsolePaneContext,
@@ -126,36 +148,84 @@ function requireRegionNamed(container: HTMLElement, headingText: string): HTMLEl
 }
 
 /**
- * The definitions browser, mounted and waited on until its rows have landed.
+ * The surface body the rail holds for a slot, as a component, or a throw.
  *
- * Through the builder pane's no-subject arm, which is where the browser lives
- * inside a session — and a session is what the enumeration's request requires. The
- * wait is the difference between a surface and its empty state: the read crosses a
- * promise, so a tier reading straight after the mount would pin three empty groups
+ * The pane helper's shape, applied to the other registry: a throw rather than an
+ * optional return, so a family that stopped claiming its slot fails here — where the
+ * message names the slot — instead of rendering nothing and letting a tier compare an
+ * empty box against a baseline.
+ */
+function surfaceBodyComponent(): FunctionComponent<{ context: ConsoleSurfaceContext }> {
+  const registry = new ConsoleSurfaceRegistry();
+  registerWorkflowSurfaces(registry);
+  const descriptor = registry.descriptorFor("workflows");
+  if (descriptor === undefined) {
+    throw new Error("no console surface is registered for the `workflows` slot");
+  }
+  return ({ context }) => descriptor.render(context);
+}
+
+/**
+ * The surface context the rail mounts a destination with.
+ *
+ * The frame store is put in the state a person arrives in by NAVIGATING — into a
+ * session, then to the workflows destination — because retaining the last opened
+ * session is the store's own rule and writing the member directly would pin a frame
+ * the shipped store could no longer produce. The session-store registry is real and
+ * empty: this window has opened nothing, which is the ordinary case for a person who
+ * reached the rail from a session the route has since left.
+ */
+function surfaceContext(bridge: ConsoleBridge): ConsoleSurfaceContext {
+  const frameStore = new FrameStore({
+    initialRoute: { kind: "workspace", sessionId: WORKFLOWS_SESSION_ID },
+  });
+  frameStore.navigate({ kind: "workflows" });
+  return {
+    route: { kind: "workflows" },
+    bridge,
+    frameStore,
+    sessionStore: undefined,
+    sessionStoreRegistry: new SessionStoreRegistry({ read: () => Promise.resolve(undefined) }),
+    uiStateStore: UiStateStore.opening(),
+    draftStore: new DraftStore(),
+  };
+}
+
+/**
+ * The workflows destination, mounted and waited on until its rows have landed.
+ *
+ * Through the rail's own surface seat, with a session in scope — which is how a
+ * person reaches it, and what the definition enumeration's request requires. The
+ * announcer is mounted around it because the surface announces the scope it settled
+ * on, and `useAnnounce` throws outside its provider rather than falling back to a
+ * region created at the moment something spoke.
+ *
+ * The wait is the difference between a surface and its empty state: the read crosses
+ * a promise, so a tier reading straight after the mount would pin three empty groups
  * and compare them against a baseline of the populated list on the next warm run.
  */
-export async function mountWorkflowDefinitionsBrowser(): Promise<MountedFamilySurface> {
+export async function mountWorkflowsDestination(): Promise<MountedFamilySurface> {
   const bridge = createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
-  const WorkflowBuilderPaneBody = paneBodyComponent("workflow-builder");
+  const WorkflowsDestinationBody = surfaceBodyComponent();
   const { container } = await renderSettled(
-    <WorkflowBuilderPaneBody
-      context={paneContext(
-        { kind: "workflow-builder", paneId: "pane-workflow-builder-surface", entity: undefined },
-        bridge,
-      )}
-    />,
+    <LiveAnnouncerProvider>
+      <WorkflowsDestinationBody context={surfaceContext(bridge)} />
+    </LiveAnnouncerProvider>,
   );
-  const region = requireRegionNamed(container, "Workflows");
+  const element = container.querySelector<HTMLElement>(".meridian-workflows-destination");
+  if (element === null) {
+    throw new Error("the workflows destination rendered no root");
+  }
   // Deliberately NOT inside `act`: the read resolves in a promise React knows
   // nothing about, and an `act` scope holds the resulting commit back until it
   // exits, so a wait placed inside one waits for a render its own scope prevents.
   // `waitFor` already wraps its polling in the async act the library installs.
   await waitFor(() => {
-    if (region.querySelector(".meridian-definition-row") === null) {
+    if (element.querySelector(".meridian-definition-row") === null) {
       throw new Error("the definition enumeration has not landed yet");
     }
   });
-  return { element: region, bridge };
+  return { element, bridge };
 }
 
 /**

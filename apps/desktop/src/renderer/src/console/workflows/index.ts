@@ -47,7 +47,7 @@ import type { ConsoleSurfaceRegistry } from "../frame/surface-registry.js";
 import { WorkflowBuilderPane } from "../panes/workflow-builder/index.js";
 import { WorkflowRunPane } from "../panes/workflow-run/index.js";
 import type { ConsolePaneDescriptor, ConsolePaneRegistry } from "../workspace/index.js";
-import { WorkflowsBrowser } from "./WorkflowsBrowser.js";
+import { WorkflowsDestination } from "./WorkflowsDestination.js";
 
 /**
  * The family's owner string, as the pane registry's duplicate policy reads it.
@@ -114,13 +114,22 @@ export function registerWorkflowSurfaces(registry: ConsoleSurfaceRegistry): void
   registry.register({
     slot: "workflows",
     owner: WORKFLOWS_OWNER,
-    // The two inputs the browser cannot get for itself, and no more of the context
-    // than that: handing the whole surface context down would make every later
-    // member of it reachable from a browser that needs two.
+    // The destination rather than the browser directly, and the difference is the
+    // whole of this seat: `#/workflows` is a BARE route, so `context.sessionStore` is
+    // `undefined` on it by construction, while the definition enumeration's request
+    // carries a required session id. Handed the browser, this seat could only ever
+    // mount a surface whose read was permanently unasked. The destination resolves
+    // the session first — the one this window last opened, or the one a person picks
+    // — and hands it down unchanged.
+    //
+    // Three inputs and no more of the context than that: handing the whole surface
+    // context down would make every later member of it reachable from a surface that
+    // needs a port, a window store, and this window's open sessions.
     render: (context) =>
-      createElement(WorkflowsBrowser, {
+      createElement(WorkflowsDestination, {
         growth: context.bridge.growth,
-        sessionId: context.sessionStore?.sessionId,
+        frameStore: context.frameStore,
+        sessionStoreRegistry: context.sessionStoreRegistry,
       }),
   });
 }

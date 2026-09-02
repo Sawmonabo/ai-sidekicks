@@ -103,7 +103,7 @@ export const WORKFLOWS_SCENARIO_AGENTS: readonly WorkflowScenarioAgent[] = [
     driverName: "claude",
     modelId: "claude-opus-5[1m]",
     attachedAtMs: 80,
-    attachedAtIso: "2026-01-01T10:00:00.080Z",
+    attachedAtIso: "2026-01-01T07:00:00.080Z",
   },
   {
     agentId: AGENT_BUILDER,
@@ -111,7 +111,7 @@ export const WORKFLOWS_SCENARIO_AGENTS: readonly WorkflowScenarioAgent[] = [
     driverName: "codex",
     modelId: "gpt-5.6-sol",
     attachedAtMs: 160,
-    attachedAtIso: "2026-01-01T10:00:00.160Z",
+    attachedAtIso: "2026-01-01T07:00:00.160Z",
   },
 ];
 
@@ -152,7 +152,11 @@ export const WORKFLOWS_SCENARIO_DEFINITIONS: readonly WorkflowDefinitionSummary[
     latestWorkflowVersionId: VERSION_RELEASE_CHECKS_LATEST,
     contentHash: "b3:0f3c9a1d7e5b42c8a06d1f93be27540ac1d8e6b3927fa04c5de81b6203794acd",
     resolvesAtThisContext: true,
-    createdAt: "2025-12-18T09:14:00.000Z",
+    // Inside the session, and therefore after it. The `project` and `shared` rows
+    // below keep their older instants because they belong to a repository root and
+    // to the daemon, neither of which this session's creation bounds; only a
+    // `session`-scoped definition is owned by the session and constrained by it.
+    createdAt: "2026-01-01T07:04:00.000Z",
   },
   {
     id: "019b7a10-0280-7c11-8100-def111150004",
@@ -261,7 +265,8 @@ export const WORKFLOWS_PARKED_RUN: WorkflowRunSnapshot = {
 };
 
 /**
- * The four runs, as `workflow.runRead` projects one of them and a run list holds all.
+ * The four runs, as `workflow.runRead` projects one of them and the scenario's
+ * scripted enumeration holds all four.
  *
  * THE PARK MEMBERS ARE LIVE-SCOPED, and this table is written to that rule rather than
  * around it. A daemon emits `parkReason`, `parkCause`, `autoResumeAt`, and
@@ -284,6 +289,10 @@ export const WORKFLOWS_PARKED_RUN: WorkflowRunSnapshot = {
  *   4. Frozen pin — suspended and pinned to `Ship pipeline` version 1 while that
  *      definition's latest is version 3. Its park shares the attention key with the
  *      parked run, which is what gives the fold two runs to fold.
+ *
+ * EVERY RUN STARTS AFTER THE SESSION DOES. A run is owned by the session it belongs
+ * to, so no instant in this table precedes the creation beat in `scenarios/workflows.ts`
+ * — the ordering that scenario's header states and its suite holds.
  *
  * WHAT THIS TABLE CANNOT SAY. A phase's readable NAME. `WorkflowPhaseState` carries
  * `phaseId` and no name, and neither the run read nor the definition enumeration

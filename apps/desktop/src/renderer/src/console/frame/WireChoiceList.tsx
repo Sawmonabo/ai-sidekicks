@@ -1,11 +1,14 @@
 // Wire identifiers offered as a list of choices.
 //
-// ONE list, three surfaces. The sessions destination offers the node's sessions to
-// open in place; the context picker asks which session an auxiliary window should
-// follow, and then — on a route whose grammar takes one — which agent inside it.
-// All three render the identical row, a wire identifier and a way to pick it, so
-// the row lives here rather than three times and a change to how a choice reads on
-// screen is one edit instead of three that drift.
+// ONE list, and every surface that offers wire identifiers to choose between. The
+// sessions destination offers the node's sessions to open in place; the auxiliary
+// context picker asks which session a window should follow, and then — on a route
+// whose grammar takes one — which agent inside it; the workflows destination asks
+// which session its definitions should resolve from. All of them render the identical
+// row, a wire identifier and a way to pick it, so the row lives here rather than once
+// per caller and a change to how a choice reads on screen is one edit rather than
+// several that drift. The list is deliberately not counted in this sentence: a count
+// here is a claim that goes stale the first time a surface is added without it.
 //
 // The component is named for what it renders and not for what any one caller is
 // choosing: it took the sessions name while sessions were its only subject, and an

@@ -31,6 +31,7 @@ import {
   WORKFLOWS_PARKED_RUN,
   WORKFLOWS_SCENARIO_DEFINITIONS,
   WORKFLOWS_SCENARIO_PHASE_OUTPUTS,
+  WORKFLOWS_SCENARIO_RUNS,
 } from "./scenarios/workflow-fixture-data.js";
 import { WORKFLOWS_SCENARIO } from "./scenarios/workflows.js";
 import { createTier1Bridge } from "@ai-sidekicks/contracts";
@@ -778,14 +779,19 @@ describe("the fixture's registry reads — refusing on a stated premise", () => 
 
 // The workflow reads.
 //
-// Three operations, one seam, and two different honest absences — which is why they
+// Four operations, one seam, and two different honest absences — which is why they
 // are held together rather than one per surface. The claim is not that a call returns
 // something. It is that what a scenario STATES reaches the caller unchanged, and that
 // a scenario stating nothing gets the answer its value shape admits: an empty
 // enumeration where an empty enumeration is a real reply, a refusal where the only
 // alternative is an invented run.
 //
-// The flagship is the negative control throughout. It scripts none of the three, so
+// The split runs along the value shape and not along the slate row. Both enumerations
+// answer empty — an empty list of definitions and an empty list of runs are each a
+// real answer — while both snapshot reads refuse, and that holds even though the run
+// enumeration is the one operation of the four whose row registers no method at all.
+//
+// The flagship is the negative control throughout. It scripts none of the four, so
 // each case that reads the workflows script has a counterpart driven over it, and a
 // port answering from a constant instead of from the script would pass one of every
 // pair and fail the other.
@@ -839,6 +845,21 @@ describe("the fixture's workflow reads — answered from the script, never inven
     }
   });
 
+  it("enumerates the runs the scenario states, in the table's own order", async () => {
+    const outcome = await workflowsPort().workflowRunList({
+      sessionId: WORKFLOWS_SCENARIO.sessionId,
+    });
+
+    expect(outcome.status).toBe("served");
+    if (outcome.status === "served") {
+      // Identity again, and unsorted: the attention ordering is the console's fold,
+      // so a port that sorted on the way out would hide a fold that had stopped
+      // working behind data that arrived already correct.
+      expect(outcome.value.runs).toStrictEqual(WORKFLOWS_SCENARIO_RUNS);
+      expect(outcome.value.runs).toContain(WORKFLOWS_PARKED_RUN);
+    }
+  });
+
   it("answers a scenario that scripts no definitions with an empty enumeration", async () => {
     // Served-and-empty, not refused: the operation IS answered here and what it found
     // is nothing, which is the EMPTY kind of nothing a definition browser draws.
@@ -849,6 +870,22 @@ describe("the fixture's workflow reads — answered from the script, never inven
     expect(outcome.status).toBe("served");
     if (outcome.status === "served") {
       expect(outcome.value).toStrictEqual({ definitions: [] });
+    }
+  });
+
+  it("answers a scenario that scripts no runs with an empty enumeration", async () => {
+    // The enumeration's counterpart to the case above, and the reason it sits with the
+    // definitions rather than with the two refusals below: a session that holds no run
+    // is a fact a daemon can state, so the honest answer is served-and-empty and the
+    // list draws the EMPTY kind of nothing. The refusal arm belongs to reads that
+    // could only answer by inventing a run.
+    const outcome = await fixturePort().workflowRunList({
+      sessionId: FLAGSHIP_SCENARIO.sessionId,
+    });
+
+    expect(outcome.status).toBe("served");
+    if (outcome.status === "served") {
+      expect(outcome.value).toStrictEqual({ runs: [] });
     }
   });
 
