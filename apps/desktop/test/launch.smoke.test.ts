@@ -298,7 +298,16 @@ const DIAGNOSTIC_COLLECTION_CEILING_MS = DIAGNOSTIC_BUDGET_MS + TEST_TIMEOUT_SLA
 // probes are handed; the ceiling is the largest collection this file asserts is
 // acceptable, and an enclosure that reserved less than what its own assertions
 // permit would be exactly the arithmetic hole this derivation exists to close.
+//
+// The display-readiness gate leads the whole sequence and is bounded
+// separately, and it is a PHASE of the test like any other: it runs inside
+// `spawnElectron` before the spawn deadline timer is armed, so the spawn budget
+// does not contain it. Omitting it here left the worst legal run — a slow
+// display gate followed by a stalled boot — outside the enclosure, which is the
+// same defect as measuring the collection on one clock and bounding it on
+// another, at a different phase.
 const BOOT_TEST_TIMEOUT_MS =
+  DISPLAY_READY_TIMEOUT_MS +
   SPAWN_TIMEOUT_MS +
   DIAGNOSTIC_COLLECTION_CEILING_MS +
   TERMINATION_GRACE_MS +
@@ -311,7 +320,10 @@ const BOOT_TEST_TIMEOUT_MS =
 // emits a probe line — a real stall rather than a simulated one.
 const FORCED_STALL_ENV = "SIDEKICKS_SMOKE_FORCE_SPAWN_STALL";
 const FORCED_STALL_SPAWN_TIMEOUT_MS = 2_000;
+// The forced-stall override shortens the SPAWN budget and nothing else, so this
+// enclosure carries the same real display-readiness term the boot budget does.
 const FORCED_STALL_TEST_TIMEOUT_MS =
+  DISPLAY_READY_TIMEOUT_MS +
   FORCED_STALL_SPAWN_TIMEOUT_MS +
   DIAGNOSTIC_COLLECTION_CEILING_MS +
   TERMINATION_GRACE_MS +
@@ -1435,13 +1447,24 @@ describe("desktop shell substrate boot", () => {
         expect(failureMessage).toContain("[at-deadline] process tree");
       }
 
-      // On a healthy runner the bound is generous, so the readings are actually
-      // taken rather than skipped. (Asserted as the absence of the skip marker
-      // rather than as a regex over the tree's own text: `[\s\S]*` would happily
-      // match digits from a LATER section of the dump and quietly pass against
-      // an empty table, which is the kind of assertion this file exists to
-      // stop shipping.)
-      expect(failureMessage).not.toContain("diagnostic budget exhausted");
+      // A skipped reading is a DESIGNED outcome of the shared budget, not a
+      // failure: the whole reason the two probes share one wall bound is that a
+      // slow first reading should cost the second reading rather than the
+      // enclosing test. Forbidding the skip outright — which this assertion
+      // used to do — turns the degraded runner these readings exist for into a
+      // red test, which is the opposite of the intent.
+      //
+      // So the skip is not prohibited; it is required to be EARNED and
+      // RECORDED. A reading is only skipped once `remainingProbeBudgetMs()`
+      // reaches zero, which happens only at or after `collectionStartedAt +
+      // DIAGNOSTIC_BUDGET_MS` — so a dump carrying the skip marker must also
+      // carry a collection cost of at least the full budget. That implication
+      // is exact, and it still catches the regression the old form was reaching
+      // for: a bound tightened until readings are dropped on a healthy runner
+      // would skip with a near-zero recorded cost and fail here.
+      if (failureMessage.includes("diagnostic budget exhausted")) {
+        expect(result.diagnosticCollectionMs).toBeGreaterThanOrEqual(DIAGNOSTIC_BUDGET_MS);
+      }
 
       // The recorded cost is in the dump too, so a slow collection is legible
       // to a human reading CI output rather than only to this assertion.
@@ -1543,17 +1566,34 @@ describe("derived timing budgets", () => {
     // worth its line count only if it fails on the state it replaced. This one
     // was run against that state and does.
     expect(BOOT_TEST_TIMEOUT_MS).toBeGreaterThanOrEqual(
-      SPAWN_TIMEOUT_MS +
+      DISPLAY_READY_TIMEOUT_MS +
+        SPAWN_TIMEOUT_MS +
         DIAGNOSTIC_COLLECTION_CEILING_MS +
         TERMINATION_GRACE_MS +
         TEST_TIMEOUT_SLACK_MS,
     );
     expect(FORCED_STALL_TEST_TIMEOUT_MS).toBeGreaterThanOrEqual(
-      FORCED_STALL_SPAWN_TIMEOUT_MS +
+      DISPLAY_READY_TIMEOUT_MS +
+        FORCED_STALL_SPAWN_TIMEOUT_MS +
         DIAGNOSTIC_COLLECTION_CEILING_MS +
         TERMINATION_GRACE_MS +
         TEST_TIMEOUT_SLACK_MS,
     );
+  });
+
+  it("counts every bounded phase a spawn can spend, not only the ones after it starts", () => {
+    // The display-readiness gate is the phase this guard was added for: it runs
+    // inside `spawnElectron` BEFORE the spawn deadline timer is armed, so it is
+    // invisible to the spawn budget and was for a while invisible to both
+    // enclosures too. Every separately-bounded phase belongs in the enclosure
+    // of any test that can reach it, and the negative control's own budget
+    // already names its (overridden) display term, which is what made the
+    // omission in the other two legible.
+    for (const enclosure of [BOOT_TEST_TIMEOUT_MS, FORCED_STALL_TEST_TIMEOUT_MS]) {
+      expect(enclosure).toBeGreaterThan(
+        DISPLAY_READY_TIMEOUT_MS + DIAGNOSTIC_COLLECTION_CEILING_MS,
+      );
+    }
   });
 
   it("keeps the shared wall budget binding rather than decorative", () => {
