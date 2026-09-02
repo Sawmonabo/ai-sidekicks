@@ -164,6 +164,17 @@ export interface LedgerFindState {
    * scrubbing forward brings these back at once.
    */
   readonly notYetReplayedMatchCount: number;
+  /**
+   * Where the walk is in the CURRENT result, or `-1` with nothing selected.
+   *
+   * Derived from the selected ROW rather than held as an ordinal, because the
+   * result recomputes whenever the visible window moves — every replay withhold,
+   * every prune, every appended row — while the query stays the same. A held
+   * ordinal survived into a shorter list, so the counter could read "10 of 2" and
+   * the next step wrapped over the new count from a position that meant nothing.
+   * A lookup answers `-1` exactly when the selected row has left the result, and
+   * `-1` is already the sentinel the stepper enters the list from.
+   */
   readonly currentMatchIndex: number;
   readonly setQuery: (query: string) => void;
   /**
@@ -186,11 +197,15 @@ export interface LedgerFindState {
  * partition afterwards, which costs the same and keeps the walkable result honest:
  * every match in `result` is a row `jumpToRow` can reach, and every match that is
  * not is in the count beside it.
+ *
+ * THE WALK IS HELD BY ROW, NOT BY ORDINAL. The result recomputes whenever the
+ * window moves under a query somebody is still walking, and an ordinal into the
+ * previous result is a position in a list that no longer exists.
  */
 export function useLedgerFind(visible: VisibleLedgerWindow): LedgerFindState {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQueryValue] = useState("");
-  const [currentMatchIndex, setCurrentMatchIndex] = useState(-1);
+  const [selectedMatchRowId, setSelectedMatchRowId] = useState<string | undefined>(undefined);
 
   const result = useMemo(
     () =>
@@ -216,11 +231,21 @@ export function useLedgerFind(visible: VisibleLedgerWindow): LedgerFindState {
     [visible, query],
   );
 
+  // Looked up rather than remembered, so a result that recomputed under the walk
+  // reports where the walk actually is — or that it is nowhere.
+  const currentMatchIndex = useMemo(
+    () =>
+      selectedMatchRowId === undefined
+        ? -1
+        : result.matches.findIndex((match) => match.rowId === selectedMatchRowId),
+    [result, selectedMatchRowId],
+  );
+
   const setQuery = useCallback((next: string) => {
     setQueryValue(next);
-    // A new query restarts the walk. Keeping the index would step from a position
-    // inside a match list that no longer exists.
-    setCurrentMatchIndex(-1);
+    // A new query restarts the walk. Keeping the selection would resume inside a
+    // match list built from a different question.
+    setSelectedMatchRowId(undefined);
     setIsOpen(true);
   }, []);
 
@@ -228,7 +253,7 @@ export function useLedgerFind(visible: VisibleLedgerWindow): LedgerFindState {
     (direction: "next" | "previous") => {
       const outcome = stepFindMatch(result, currentMatchIndex, direction);
       if (outcome !== undefined) {
-        setCurrentMatchIndex(outcome.index);
+        setSelectedMatchRowId(outcome.match.rowId);
       }
       return outcome;
     },
@@ -242,7 +267,7 @@ export function useLedgerFind(visible: VisibleLedgerWindow): LedgerFindState {
   const close = useCallback(() => {
     setIsOpen(false);
     setQueryValue("");
-    setCurrentMatchIndex(-1);
+    setSelectedMatchRowId(undefined);
   }, []);
 
   return {
