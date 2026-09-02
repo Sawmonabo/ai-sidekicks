@@ -170,13 +170,29 @@ describe("useCallerMembershipRole — the caller read chained to the roster", ()
   });
 });
 
+/**
+ * The two host methods that report a rejection nothing handled.
+ *
+ * Named here rather than by pulling `@types/node` into the renderer program, which
+ * deliberately excludes it: a renderer MODULE reaching for `process` is a defect the
+ * compiler should catch, and this file is the Node runner the suite executes on
+ * looking at its own host. Nothing under `src/renderer/src/console/` other than this
+ * witness reads it.
+ */
+const runnerHost = globalThis as unknown as {
+  readonly process: {
+    on: (event: "unhandledRejection", listener: (reason: unknown) => void) => void;
+    off: (event: "unhandledRejection", listener: (reason: unknown) => void) => void;
+  };
+};
+
 describe("useCallerMembershipRole — a reader that rejects rather than refusing", () => {
   /**
-   * Every rejection Node saw nothing handle while the body ran.
+   * Every rejection the runner saw nothing handle while the body ran.
    *
    * The escaped-rejection half of this failure is invisible to `render`: React does
    * not route a rejected effect promise to an error boundary, so the only witness is
-   * the process's own report. Listeners are added and removed around each body rather
+   * the host's own report. Listeners are added and removed around each body rather
    * than for the file, so a rejection another case raises cannot be counted here.
    */
   async function unhandledRejectionsDuring(body: () => Promise<void>): Promise<readonly string[]> {
@@ -184,14 +200,14 @@ describe("useCallerMembershipRole — a reader that rejects rather than refusing
     const record = (reason: unknown): void => {
       escaped.push(String(reason));
     };
-    process.on("unhandledRejection", record);
+    runnerHost.process.on("unhandledRejection", record);
     try {
       await body();
       // An unhandled rejection is reported a macrotask after the microtask queue
       // drains, so a body that only awaited microtasks would report clean either way.
       await new Promise((resolve) => setTimeout(resolve, 0));
     } finally {
-      process.off("unhandledRejection", record);
+      runnerHost.process.off("unhandledRejection", record);
     }
     return escaped;
   }

@@ -117,10 +117,28 @@ interface PaneEntityScopeByKind {
   readonly "agent-console": ScopedEntityRef<"agent"> | undefined;
 }
 
-/** One pane kind's address arm, entity member and all. */
+/**
+ * One pane kind's address arm, entity member and all.
+ *
+ * THREE SHAPES, NOT TWO. A session-scoped kind has no `entity` member; a kind whose
+ * scope is a bare reference REQUIRES one; and a kind whose scope includes `undefined`
+ * takes an OPTIONAL one. The third arm used to be written as a required member whose
+ * value may be undefined, which is not the same claim: a typed caller could not write
+ * the documented bare `{ kind: "workflow-builder" }` at all, while
+ * {@link parseConsolePaneAddress} returned exactly that object through a cast — so the
+ * static contract and the runtime contract disagreed, and the cast is what hid it.
+ *
+ * The optional arm keeps `| undefined` in its member type rather than stripping it to
+ * `NonNullable`, and that is load-bearing under `exactOptionalPropertyTypes`: without
+ * it the only admitted spelling would be the ABSENT key, and every existing caller
+ * that writes the equally honest `entity: undefined` would stop compiling. Both
+ * spellings mean the same thing here, and both are admitted.
+ */
 type ConsolePaneAddressOf<TKind extends PaneKind> = [PaneEntityScopeByKind[TKind]] extends [never]
   ? { readonly kind: TKind }
-  : { readonly kind: TKind; readonly entity: PaneEntityScopeByKind[TKind] };
+  : EntityRequired<TKind> extends true
+    ? { readonly kind: TKind; readonly entity: PaneEntityScopeByKind[TKind] }
+    : { readonly kind: TKind; readonly entity?: PaneEntityScopeByKind[TKind] };
 
 // Consumed by T-023p-1C-2, T-023p-1C-3
 /**
@@ -200,6 +218,28 @@ export function paneEntityScopeFor(kind: PaneKind): PaneEntityScopeDeclaration {
   return PANE_ENTITY_SCOPES[kind];
 }
 
+/**
+ * The pane kinds whose address can be written bare — session-scoped, or entity-optional.
+ *
+ * Derived from the one declaration rather than listed, so a kind whose scope changes
+ * moves between the two sides of this predicate without anybody editing a list.
+ */
+type EntityOptionalPaneKind = {
+  [K in PaneKind]: EntityRequired<K> extends true ? never : K;
+}[PaneKind];
+
+/**
+ * Whether this kind's address may be written with no entity.
+ *
+ * A narrowing predicate rather than a bare boolean read, because it is what lets the
+ * parse RETURN the bare address without a cast: the table's `entityRequired` column is
+ * annotated `EntityRequired<K>`, so the runtime value and the type it narrows to are
+ * the same fact, checked by the compiler at the table rather than asserted here.
+ */
+function isEntityOptionalPaneKind(kind: PaneKind): kind is EntityOptionalPaneKind {
+  return !PANE_ENTITY_SCOPES[kind].entityRequired;
+}
+
 /** The entity reference an untyped boundary supplied, or `undefined` when it supplied none. */
 function readEntityRefCandidate(candidate: unknown): ConsoleEntityRef | undefined {
   if (typeof candidate !== "object" || candidate === null) {
@@ -241,18 +281,18 @@ export function parseConsolePaneAddress(
   const scope = paneEntityScopeFor(candidateKind);
 
   if (candidateEntity === undefined) {
-    if (scope.entityRequired) {
+    if (!isEntityOptionalPaneKind(candidateKind)) {
       return refuse(
         PANE_ADDRESS_ORIGIN,
         "pane-entity-required",
         `a "${candidateKind}" pane is a view of one ${scope.entityKinds.join(" or ")} and was opened with none`,
       );
     }
-    // Sound because the guard above holds: a scope that admits no entity kind
-    // declares an arm with no `entity` member, and one that admits some without
-    // requiring one declares that member as optional. Both are satisfied by the
-    // absent key, which is how the union's no-entity arms are written.
-    return { kind: candidateKind } as ConsolePaneAddress;
+    // No cast. The predicate narrowed `candidateKind` to the kinds whose arm has no
+    // `entity` member or an optional one, and the bare object satisfies both — which
+    // is the whole point of the optional arm: what the parse returns is now a value a
+    // typed caller could have written by hand.
+    return { kind: candidateKind };
   }
 
   const entity = readEntityRefCandidate(candidateEntity);
