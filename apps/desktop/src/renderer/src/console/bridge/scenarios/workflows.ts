@@ -46,6 +46,21 @@
 // mutating call the port refuses says "nobody asked", which is true; a mutating call
 // that answered would say the run changed, which would not be.
 //
+// THE SESSION IS CREATED BEFORE ANYTHING THE SESSION OWNS
+//
+// A daemon cannot project a run, or a `session`-scoped definition, that predates the
+// session it belongs to — so the creation beat is the EARLIEST instant in this
+// fixture and every session-owned record in `scenarios/workflow-fixture-data.ts`
+// follows it. The scenario used to open at 10:00 while its four runs started between
+// 07:12 and 09:52 and its session-scoped definition was dated a fortnight earlier,
+// which made every screenshot, projection, and ordering assertion above it a reading
+// of a lifecycle no daemon could produce. The session moved to 07:00 rather than the
+// runs moving after 10:00 because the runs' own spread is the content — the band
+// order and the newest-first secondary key are read off it — and shifting the four
+// of them would have restated that spread instead of preserving it. Every beat keeps
+// its millisecond offset from the start, so the ordering the script claims among its
+// own beats is untouched. `scenarios/workflows.test.ts` holds the rule.
+//
 // EVERY ID IS THE UUID THE WIRE DECLARES. `scenarios/wire-truth.ts` presents each beat
 // to the strict contract layer as the whole envelope it claims to be, so a readable
 // placeholder is a beat no daemon could emit and the architecture tier refuses it. The
@@ -87,7 +102,7 @@ export const WORKFLOWS_SCENARIO: ConsoleScenario = {
   // Absent, the caller-identity read refuses and every operator control on a parked
   // run reads as unchecked rather than as adjudicated.
   viewingParticipantId: WORKFLOWS_PARTICIPANT_YOU,
-  startedAtIso: "2026-01-01T10:00:00.000Z",
+  startedAtIso: "2026-01-01T07:00:00.000Z",
   beats: [
     {
       atMs: 0,
@@ -95,7 +110,7 @@ export const WORKFLOWS_SCENARIO: ConsoleScenario = {
         sessionId: WORKFLOWS_SESSION_ID,
         sequence: 1,
         kind: "session.created",
-        occurredAt: "2026-01-01T10:00:00.000Z",
+        occurredAt: "2026-01-01T07:00:00.000Z",
         actorParticipantId: WORKFLOWS_PARTICIPANT_YOU,
         // The registered shape, verbatim: the new session's id plus the resolved
         // config and metadata, both open records the corpus names no key inside. The
@@ -137,7 +152,7 @@ export const WORKFLOWS_SCENARIO: ConsoleScenario = {
         sessionId: WORKFLOWS_SESSION_ID,
         sequence: 4,
         kind: "run.queued",
-        occurredAt: "2026-01-01T10:00:00.240Z",
+        occurredAt: "2026-01-01T07:00:00.240Z",
         actorParticipantId: WORKFLOWS_PARTICIPANT_YOU,
         // A run-lifecycle payload is a STATE TRANSITION carrying the progression
         // counter. `previousState` is absent here and only here: a queued run is being
@@ -157,7 +172,7 @@ export const WORKFLOWS_SCENARIO: ConsoleScenario = {
         sessionId: WORKFLOWS_SESSION_ID,
         sequence: 5,
         kind: "run.starting",
-        occurredAt: "2026-01-01T10:00:00.320Z",
+        occurredAt: "2026-01-01T07:00:00.320Z",
         // No actor. The daemon moves a run out of `queued`; a participant id here
         // would attribute a system transition to a person.
         payload: {
@@ -175,7 +190,7 @@ export const WORKFLOWS_SCENARIO: ConsoleScenario = {
         sessionId: WORKFLOWS_SESSION_ID,
         sequence: 6,
         kind: "run.running",
-        occurredAt: "2026-01-01T10:00:00.420Z",
+        occurredAt: "2026-01-01T07:00:00.420Z",
         payload: {
           sessionId: WORKFLOWS_SESSION_ID,
           runId: WORKFLOWS_PHASE_AGENT_RUN_ID,
@@ -198,8 +213,8 @@ export const WORKFLOWS_SCENARIO: ConsoleScenario = {
           state: "active",
           config: {},
           metadata: {},
-          createdAt: "2026-01-01T10:00:00.000Z",
-          updatedAt: "2026-01-01T10:00:00.420Z",
+          createdAt: "2026-01-01T07:00:00.000Z",
+          updatedAt: "2026-01-01T07:00:00.420Z",
         },
         timelineCursors: { latest: "workflows-cursor-6" },
       },
