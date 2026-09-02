@@ -419,7 +419,9 @@ describe("the invitations the destination reads for", () => {
   it("does not let one session's refusal hide another session's invitation", async () => {
     // Each session's outcome travels on its own, so a partial read is a partial
     // read. A fan-out that collapsed to the first answer would render the refusal
-    // and drop the invitation that did arrive.
+    // and drop the invitation that did arrive — and one that dropped the refusal
+    // would hide a session the console never got an answer from, so both are on
+    // screen and neither stands for the other.
     const { container } = render(
       <SessionsSurface
         context={contextWith({
@@ -431,7 +433,7 @@ describe("the invitations the destination reads for", () => {
     await settle();
     const text = container.textContent ?? "";
     expect(text).toContain("invite-2");
-    expect(text).not.toContain("the invitesList read is not registered yet");
+    expect(text).toContain("the invitesList read is not registered yet");
   });
 
   it("negative control: asks nothing when it can name no session", async () => {
