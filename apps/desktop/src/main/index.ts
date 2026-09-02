@@ -1,18 +1,61 @@
 // Electron main-process entrypoint.
 //
 // Plan-023 Phase 1 (T-023p-1-3) substrate: single-instance lock + main window.
-// Tier 8 remainder layers Sentry init, daemon supervisor (`utilityProcess.fork`),
-// custom-protocol handler (`sidekicks://`), deep-link routing, auto-updater,
+// Plan-023 Phase 1B (T-023p-1B-1) adds the renderer scheme registration and the
+// bundle handler. Tier 8 remainder layers Sentry init, daemon supervisor
+// (`utilityProcess.fork`), the `sidekicks://` DEEP-LINK handler (a different
+// scheme from the renderer's — that one carries invite URLs), auto-updater,
 // crash reporter, and second-instance focus handling against this same surface.
 //
-// See `docs/plans/023-desktop-shell-and-renderer.md §Tier 1 Partial PR Sequence` (Phase 1, the main-entrypoint bullet).
+// Startup order is load-bearing and is asserted by `startup-order.test.ts`:
+//
+//   module top level ......... registerRendererScheme()      (before app.ready)
+//   inside whenReady() ....... installRendererProtocol(...)  (before any window)
+//                              installApplicationMenu()
+//                              createMainWindow()
+//
+// A scheme registered after ready is refused by Electron, and a window created
+// before the handler is installed would load against an unhandled scheme.
+// Plan-023 Phase 3's T-023r-3-4 COMPOSES this order behind the crash reporter
+// and the single-instance lock; it re-authors none of it. The crash reporter
+// takes the top-level slot immediately AFTER `registerRendererScheme()` — the
+// one named exception to its own crash-first rule (T-023r-3-2), because
+// Electron pins the registration ahead of ready and the call touches no
+// network, no file, and no crash-relevant state. `startup-order.test.ts`
+// therefore asserts the two ORDERINGS (scheme before the first `whenReady()`,
+// handler before the first `BrowserWindow`) and deliberately does NOT assert
+// that this module imports `protocol.ts` first, which Phase 3 would break.
+//
+// See `docs/plans/023-desktop-shell-and-renderer.md §Tier 1 Partial PR Sequence`
+// (Phase 1, the main-entrypoint bullet; Phase 1B, the `index.ts` bullet).
 
-import { queryObjects } from "node:v8";
-import { setTimeout as wait } from "node:timers/promises";
+import path from "node:path";
 
-import { app, BrowserWindow } from "electron";
+import { app, type BrowserWindow } from "electron";
+import { installApplicationMenu } from "./menu.js";
+import { startGcProbe } from "./probes/gc-probe.js";
+import { installReadinessBreadcrumbs, runSmokeProbe } from "./probes/smoke-probe.js";
+import { installRendererProtocol, registerRendererScheme } from "./protocol.js";
 import { createMainWindow } from "./window.js";
 import { registerSidecarLifecycle } from "./sidecar-lifecycle.js";
+
+// The `electron-vite` output layout puts the main bundle at `out/main/index.js`
+// and the renderer tree at `out/renderer/` (see `electron.vite.config.ts`
+// per-target `outDir`), so the renderer root is this module's sibling directory.
+const RENDERER_ROOT = path.join(import.meta.dirname, "../renderer");
+
+// Plan-023 I-023-11. This runs at module evaluation, which is strictly before
+// `app.ready` fires — Electron refuses `registerSchemesAsPrivileged` after ready,
+// and a scheme that is not `standard` has no origin and therefore no IndexedDB
+// and no `localStorage`, which is where the console persists layout, scroll
+// position, selection, pins, and expansion sets — UI state ONLY. Drafts are
+// deliberately NOT in that set: composer text, form values, paths, and code a
+// participant has typed and not sent live in their window's in-memory store for
+// that window's lifetime and are gone when it closes, because participant-
+// authored content's only durable homes are the daemon's encrypted, PII-mapped
+// stores (`Spec-023 §Console Design (Meridian)` §Persistence on the renderer
+// scheme; Spec-022).
+registerRendererScheme();
 
 // Compile-time-static flag. `electron-vite build --mode=smoke` substitutes
 // this with the literal `true`; the default `electron-vite build` substitutes
@@ -31,144 +74,36 @@ declare const __SIDEKICKS_SMOKE_BUILD__: boolean;
 // even at Tier 1, before the deep-link handler ships at Tier 8 remainder.
 const gotTheLock = app.requestSingleInstanceLock();
 
-// Plan-023 Phase 1 T-023p-1-7 smoke-probe affordance.
+// The two probes live in `./probes/`, not here (Plan-023 Phase 1B).
 //
-// When the bundle is built with `electron-vite build --mode=smoke` AND the
-// runtime env-var `SIDEKICKS_SMOKE_PROBE=1` is set, the main process boots
-// the window, loads `about:blank` into the renderer (so the preload script
-// actually executes and registers `window.sidekicks`), queries the
-// renderer for the Spec-023 §Security Hardening Baseline runtime invariants
-// (sidekicks defined; require / process / global all undefined — the full
-// `Spec-023 §Acceptance Criteria` set), prints a single-line JSON
-// probe to stdout tagged with `[SIDEKICKS_SMOKE_PROBE]`, and exits. The
-// smoke test at `apps/desktop/test/launch.smoke.test.ts` parses that line.
+// `runSmokeProbe` boots the window, waits for the REAL renderer bundle's
+// `did-finish-load`, reads the `Spec-023 §Security Hardening Baseline` runtime
+// invariants plus the Phase-1B origin properties out of the renderer, fetches
+// the served `index.html` to read back its CSP header, prints one
+// `[SIDEKICKS_SMOKE_PROBE]`-tagged JSON line, and exits.
+// `startGcProbe` drives the ADR-024 window-reachability loop and prints one
+// `[SIDEKICKS_GC_PROBE]`-tagged line. Each module's header carries its own
+// rationale; what belongs HERE is the startup order and the gates.
 //
-// Why this branch lives in the main entrypoint instead of the test:
-//   • The Tier 1 `createMainWindow()` factory deliberately does NOT call
-//     `window.loadURL(...)` — the `sidekicks://` custom-protocol load is
-//     a Tier 8 remainder surface (see apps/desktop/src/main/window.ts TODO
-//     line ~93). But preload scripts only execute when the renderer process
-//     loads a document; an unloaded BrowserWindow never registers
-//     `window.sidekicks`. The smoke branch loads `about:blank` to trigger
-//     preload execution — this is the minimum content the renderer needs
-//     to bootstrap, and it stays scoped to smoke-mode only so it does NOT
-//     introduce a Tier-8-style protocol load into the default startup path.
-//   • External CDP / chrome-remote-interface attachment was rejected at
-//     Tier 1 (too heavyweight; new dep family). Renderer console.log
-//     parsing was rejected because the renderer source is renderer-untrusted
-//     per Spec-023 §Trust Stance — adding a probe there couples a non-test
-//     surface to the test mechanism. Main-process `executeJavaScript`
-//     keeps the test mechanism in the trusted boundary.
+// Both gates are two-condition and the outer condition is the SAME
+// compile-time-static identifier. `electron-vite build --mode=smoke`
+// substitutes `__SIDEKICKS_SMOKE_BUILD__` with the literal `true`; a default
+// `electron-vite build` substitutes the literal `false`, Rollup collapses
+// `if (false && …)`, and — because the probe modules are then referenced by
+// nothing and declare no top-level side effects — drops both modules from
+// `out/main/index.js` entirely. Empirically: after a release build,
+// `grep -c SIDEKICKS_SMOKE_PROBE out/main/index.js` and
+// `grep -c executeJavaScript out/main/index.js` both return 0, and
+// `about:blank` is absent from both bundles now that the blank-document arm is
+// retired. The inner condition is a per-invocation runtime env-var opt-in, so
+// even a smoke bundle never auto-runs a probe.
 //
-// Production-safety mechanism — compile-time dead-code elimination:
-//
-//   The OUTER condition `__SIDEKICKS_SMOKE_BUILD__` is a compile-time-static
-//   identifier substituted by Vite's `define` (see
-//   `apps/desktop/electron.vite.config.ts` `define` block). In a default
-//   `electron-vite build` (release artifact), Vite textually replaces the
-//   identifier with the literal `false`; Rollup's dead-code elimination then
-//   collapses `if (false && expr) { ... }` and strips the ENTIRE probe body
-//   from the emitted `out/main/index.js`. In `electron-vite build --mode=smoke`,
-//   the identifier substitutes to `true` and the probe body ships in the
-//   smoke bundle. The runtime env-var check on the INNER side
-//   (`process.env["SIDEKICKS_SMOKE_PROBE"] === "1"`) remains as
-//   defense-in-depth: even in a smoke bundle, the probe must be explicitly
-//   opted-in per invocation.
-//
-//   Empirical proof of the production-safety guarantee — after a release
-//   build (`pnpm --filter @ai-sidekicks/desktop build`), running:
-//     grep -c SIDEKICKS_SMOKE_PROBE out/main/index.js
-//     grep -c executeJavaScript     out/main/index.js
-//     grep -c "about:blank"         out/main/index.js
-//   all return 0. The probe code (the `[SIDEKICKS_SMOKE_PROBE]` tag, the
-//   `webContents.executeJavaScript(...)` call, and the `about:blank` URL
-//   string) is physically absent from the shipped bundle. The "no test
-//   machinery in production binaries" property is not a verbatim Spec-023
-//   bullet but a derived invariant from `Spec-023 §Trust Stance` (renderer-
-//   untrusted) + §Pitfalls To Avoid ("`nodeIntegration:
-//   true` or `sandbox: false` in any window must be treated as a build-
-//   time error") — release binaries must not embed code paths that
-//   weaken those guarantees, and a test-probe path that calls
-//   `executeJavaScript` against the renderer is exactly such weakening.
-const SMOKE_PROBE_TAG = "[SIDEKICKS_SMOKE_PROBE]";
-const GC_PROBE_TAG = "[SIDEKICKS_GC_PROBE]";
-
-// Tag for the corroborating readiness breadcrumbs the smoke branch emits on
-// stderr (`dom-ready`, `ready-to-show`) beside the asserted `did-finish-load`.
-// Referenced only from inside the `__SIDEKICKS_SMOKE_BUILD__` branch, so it is
-// tree-shaken out of release bundles along with the branch itself.
-const READINESS_BREADCRUMB_TAG = "[SIDEKICKS_SMOKE_READY]";
-
-// Plan-023 lifecycle-reachability probe. When the bundle is built with
-// `electron-vite build --mode=smoke` AND `SIDEKICKS_GC_PROBE=1`, this
-// function drives K iterations of GC pressure and samples
-// `v8.queryObjects(BrowserWindow)` after each cycle. It emits a single
-// summary line tagged `[SIDEKICKS_GC_PROBE]` that the regression test
-// at `apps/desktop/test/lifecycle.gc.test.ts` parses.
-//
-// The probe asserts the observable lifecycle contract (window stays
-// reachable across the `.then(...)` callback unwind; `window-all-closed`
-// does not fire mid-loop). Per ADR-024 §Antithesis, the load-bearing
-// reachability mechanism is Electron's native-side `BaseWindow::self_ref_`
-// (`v8::Global<v8::Value>` strong-rooted from `InitWith` to native
-// destruction) — the user-side module-scope `let mainWindow` is defensive
-// consistency with the canonical community pattern, not the GC anchor.
-// The probe therefore serves as a future-regression guard against
-// Electron internals shifting `self_ref_` semantics, not as proof that
-// removing `let mainWindow` would break a fix-state.
-//
-// Module-scope so the `setImmediate` callback's closure does not
-// capture the `.then(...)` arrow's local `browserWindow` const. A
-// closure that captured `browserWindow` would root the window for the
-// lifetime of the scheduled task — narrowing the probe's signal scope
-// to native-only retention regressions, which is the discriminating
-// behavior we want.
-//
-// Compile-time-static gate is shared with the smoke probe below: in
-// release builds Vite substitutes `__SIDEKICKS_SMOKE_BUILD__` to
-// `false` and Rollup strips this function body alongside the probe
-// branch.
-let windowAllClosedFiredDuringProbe = false;
-
-async function runGcProbe(): Promise<void> {
-  const iterations = 20;
-  const allocBytes = 8 * 1024 * 1024;
-  const counts: number[] = [];
-  const queryObjectsAvailable = typeof queryObjects === "function";
-  const globalGcAvailable = typeof globalThis.gc === "function";
-
-  for (let i = 0; i < iterations; i++) {
-    if (globalGcAvailable) {
-      globalThis.gc?.();
-      globalThis.gc?.();
-    }
-    const throwaway = new Uint8Array(allocBytes);
-    throwaway[0] = i & 0xff;
-    if (globalGcAvailable) {
-      globalThis.gc?.();
-      globalThis.gc?.();
-    }
-    await wait(50);
-    counts.push(queryObjects(BrowserWindow, { format: "count" }));
-  }
-
-  const min = counts.length > 0 ? Math.min(...counts) : 0;
-  const max = counts.length > 0 ? Math.max(...counts) : 0;
-
-  console.log(
-    `${GC_PROBE_TAG} ${JSON.stringify({
-      ok: true,
-      queryObjectsAvailable,
-      globalGcAvailable,
-      iterations,
-      counts,
-      min,
-      max,
-      allClosedFired: windowAllClosedFiredDuringProbe,
-    })}`,
-  );
-  app.exit(0);
-}
+// "No test machinery in production binaries" is not a verbatim Spec-023 bullet
+// but a derived invariant from `Spec-023 §Trust Stance` (renderer-untrusted)
+// plus §Pitfalls To Avoid ("`nodeIntegration: true` or `sandbox: false` in any
+// window must be treated as a build-time error"): a release binary must not
+// embed a path that weakens those guarantees, and a probe calling
+// `executeJavaScript` against the renderer is exactly such a path.
 
 // Module-scope handle for the BrowserWindow. Defensive consistency
 // with the canonical Electron main-process retention pattern. Per
@@ -209,11 +144,10 @@ if (!gotTheLock) {
   app
     .whenReady()
     .then(() => {
-      const browserWindow = createMainWindow();
-      mainWindow = browserWindow;
-      browserWindow.on("closed", () => {
-        mainWindow = null;
-      });
+      // BEFORE any window: a `BrowserWindow` constructed ahead of the handler
+      // could begin a load against an unhandled scheme.
+      installRendererProtocol(RENDERER_ROOT);
+      installApplicationMenu();
 
       // Production-safety: the OUTER condition is the compile-time-static
       // gate (Vite substitutes `false` in release bundles → Rollup
@@ -221,116 +155,49 @@ if (!gotTheLock) {
       // env-var opt-in so the probe never auto-runs even in a smoke
       // bundle without explicit opt-in. Both must hold for the probe
       // to execute.
-      if (__SIDEKICKS_SMOKE_BUILD__ && process.env["SIDEKICKS_SMOKE_PROBE"] === "1") {
-        const t0 = Date.now();
+      const smokeProbeRequested =
+        __SIDEKICKS_SMOKE_BUILD__ && process.env["SIDEKICKS_SMOKE_PROBE"] === "1";
 
-        // Corroborating readiness breadcrumbs (smoke-gated, opt-in per
-        // invocation). `did-finish-load` stays the ONLY signal the test asserts
-        // on; these record how far the boot got when the probe line does not
-        // arrive, which turns one indistinguishable timeout into several
-        // distinguishable ones. The pre-load pair is registered BEFORE the
-        // `loadURL` call below, so neither can be missed by a load that
-        // completes unusually fast.
-        //
-        // Emitted on stderr so the stdout probe-line scanner in
-        // `apps/desktop/test/launch.smoke.test.ts` still sees exactly one
-        // tagged line.
-        // `dom-ready` is a `webContents` event and `ready-to-show` is a
-        // `BrowserWindow` event — they are registered on their own emitters
-        // rather than through one loop, so a wrong-emitter registration is a
-        // compile error instead of a listener that never fires.
-        const readinessTracingEnabled = process.env["SIDEKICKS_SMOKE_TRACE_READINESS"] === "1";
-        const traceReadiness = (readinessEvent: string): void => {
-          if (!readinessTracingEnabled) return;
-          console.error(
-            `${READINESS_BREADCRUMB_TAG} ${readinessEvent} +${String(Date.now() - t0)}ms`,
-          );
-        };
-        if (readinessTracingEnabled) {
-          browserWindow.webContents.once("dom-ready", () => {
-            traceReadiness("dom-ready");
-          });
-          browserWindow.once("ready-to-show", () => {
-            traceReadiness("ready-to-show");
-          });
-        }
+      // Sampled before the factory call, not after it: the window this measures
+      // is the load's, and `createMainWindow` starts that load.
+      const probeStartedAt = Date.now();
 
-        browserWindow.webContents.once("did-finish-load", () => {
-          // Emitted at the TOP of the callback, before `executeJavaScript` is
-          // issued. Without it, a renderer that never finished loading and a
-          // probe whose `executeJavaScript` round trip never resolved produce
-          // the identical observable — no probe line — and the harness cannot
-          // tell a boot that never got here from one that got here and hung.
-          // With it, the absence of this breadcrumb and its presence are two
-          // different diagnoses, which is the whole point of the trail.
-          traceReadiness("did-finish-load");
-          const tWindow = Date.now() - t0;
-          // Probe the renderer for the Spec-023 §Security Hardening Baseline
-          // runtime invariants (sandbox: true + nodeIntegration: false +
-          // contextIsolation: true should produce: `sidekicks` typeof
-          // "object"; `require` / `process` / `global` all typeof
-          // "undefined" — the full `Spec-023 §Acceptance Criteria`
-          // set). `JSON.stringify` is `executeJavaScript`'s required
-          // serialization shape — `executeJavaScript` returns a thenable
-          // resolving to the expression's value, which we then println-tag
-          // on stdout.
-          browserWindow.webContents
-            .executeJavaScript(
-              `JSON.stringify({
-                sidekicks: typeof window.sidekicks,
-                require: typeof window.require,
-                process: typeof window.process,
-                global: typeof window.global,
-              })`,
-            )
-            .then((result: string) => {
-              console.log(
-                `${SMOKE_PROBE_TAG} ${JSON.stringify({
-                  ok: true,
-                  windowMs: tWindow,
-                  probe: JSON.parse(result) as Record<string, string>,
-                })}`,
-              );
-              app.exit(0);
-            })
-            .catch((err: unknown) => {
-              console.error(`${SMOKE_PROBE_TAG} executeJavaScript failed:`, err);
-              app.exit(2);
+      // `did-finish-load` is registered through `beforeLoad` rather than on the
+      // returned window. The load starts inside the factory, so a listener
+      // attached afterwards is on time only because Electron happens to emit on
+      // a later tick — a property of the runtime, not of this code. See
+      // `WindowLoadOptions`.
+      const browserWindow = createMainWindow({
+        beforeLoad: (window) => {
+          if (smokeProbeRequested) {
+            // Registered here, ahead of the load, so a boot that never reaches
+            // `did-finish-load` still says WHERE it stopped. The breadcrumb at
+            // the top of the callback below is what separates "never got here"
+            // from "got here and the probe round trip hung" — without it the
+            // two produce the identical observable, no probe line at all.
+            const traceReadiness = installReadinessBreadcrumbs(window, probeStartedAt);
+            window.webContents.once("did-finish-load", () => {
+              traceReadiness("did-finish-load");
+              const windowMs = Date.now() - probeStartedAt;
+              void runSmokeProbe(window, windowMs);
             });
-        });
-        // `about:blank` is the minimum URL Electron's renderer will load
-        // without a registered protocol handler. It triggers preload-script
-        // execution (and the `did-finish-load` event) without depending on
-        // the Tier 8 `sidekicks://` handler.
-        browserWindow.loadURL("about:blank").catch((err: unknown) => {
-          console.error(`${SMOKE_PROBE_TAG} loadURL failed:`, err);
-          app.exit(3);
-        });
-      } else if (__SIDEKICKS_SMOKE_BUILD__ && process.env["SIDEKICKS_GC_PROBE"] === "1") {
-        // Register a probe-scoped `window-all-closed` listener. The
-        // module-level `app.quit()` handler below registers at module-
-        // eval time (synchronously, before `whenReady` resolves), so
-        // this listener is invoked second. That is fine: `EventEmitter`
-        // invokes every registered listener synchronously within a
-        // single `emit()` call, so the flag is set during the same
-        // `emit()` pass as `app.quit()`'s synchronous return — Electron's
-        // `app.quit` only schedules the quit sequence (`before-quit` /
-        // `will-quit` / `quit`) on later ticks, so it cannot pre-empt
-        // the second listener. The flag is read in `runGcProbe`'s JSON
-        // payload and asserted false by
-        // `apps/desktop/test/lifecycle.gc.test.ts` — a true value means
-        // the BrowserWindow lifecycle invariant (per ADR-024) broke
-        // mid-probe.
-        app.on("window-all-closed", () => {
-          windowAllClosedFiredDuringProbe = true;
-        });
-        // Schedule on a fresh event-loop tick so the `.then(...)` arrow's
-        // locals can unwind before `runGcProbe` samples the heap. The
-        // arrow passed to `setImmediate` references only `runGcProbe`
-        // (module-scope), so its closure does not capture `browserWindow`.
-        setImmediate(() => {
-          void runGcProbe();
-        });
+          }
+        },
+      });
+      mainWindow = browserWindow;
+      browserWindow.on("closed", () => {
+        mainWindow = null;
+      });
+
+      // The GC probe owns its own listener registration and its own deferral
+      // (see `./probes/gc-probe.ts#startGcProbe`), so nothing scheduled here
+      // closes over `browserWindow` and roots the window the probe measures.
+      if (
+        !smokeProbeRequested &&
+        __SIDEKICKS_SMOKE_BUILD__ &&
+        process.env["SIDEKICKS_GC_PROBE"] === "1"
+      ) {
+        startGcProbe(app);
       }
     })
     .catch((err: unknown) => {

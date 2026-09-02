@@ -166,9 +166,21 @@ import type {
   RuntimeNodeRosterResponse,
   SessionId,
   Unsubscribe,
-  VersionFloorExceededCode,
-  VersionFloorExceededError,
 } from "@ai-sidekicks/contracts";
+
+// The wire-rejection normalizer is shared across every renderer surface and
+// both Electron processes, so it lives in `src/shared/` rather than being
+// written a fourth time here (Plan-023 Phase 1B). It renders ANY code+message
+// envelope with the wire `code` as `Error.name`, which is exactly what this
+// view's below-floor labeling needed and is strictly wider: a
+// `version.floor_exceeded` read refusal still surfaces as
+// `version.floor_exceeded: <server message>`, and every OTHER typed
+// `runtimenode.*` refusal now surfaces by its own code instead of collapsing
+// to `[object Object]`. The code-specific recognizer this file used to carry
+// therefore bought nothing on the render path and is gone; the compile-time
+// binding to the contracts literal survives in the one view that BRANCHES on
+// the code (`MixedVersionStatus.tsx#VERSION_FLOOR_EXCEEDED_WIRE_CODE`).
+import { normalizeWireRejection } from "../../../shared/wire-errors.js";
 
 // The `window.sidekicks` ambient type lives in the renderer-wide
 // `sidekicks-bridge.d.ts` (Plan-002 Phase 6 T6.0; part of the renderer
@@ -216,23 +228,6 @@ const ROSTER_READ_PROCEDURE = "runtimenode.roster";
 // participant-roster).
 const RUNTIME_NODE_ONLINE_EVENT = "runtime_node.online";
 
-// `VERSION_FLOOR_EXCEEDED_WIRE_CODE` — the canonical wire code for the
-// below-floor refusal (ADR-018 §Decision #10), single-sourced in contracts as
-// `NEGOTIATION_REASON_FLOOR_EXCEEDED` (the plain `as const` literal at
-// jsonrpc-negotiation.ts:211) and aliased as the `VersionFloorExceededCode`
-// type (error.ts:96-98). The type annotation is the load-bearing part:
-// annotating this local literal with the imported `VersionFloorExceededCode`
-// binds it to the contracts literal AT COMPILE TIME — if the canonical code
-// ever drifts, this line becomes a type error rather than the below-floor
-// recognizer below silently ceasing to match (which would demote below-floor
-// rejections to the generic error envelope and lose the AC2 below-floor
-// labeling unflagged, since a type predicate's body is an unchecked
-// assertion). The binding costs nothing at runtime — `import type` plus a
-// type-annotated local literal emit no JS import — so the file stays
-// type-only from `@ai-sidekicks/contracts` (the shipped renderer-precedent
-// posture).
-const VERSION_FLOOR_EXCEEDED_WIRE_CODE: VersionFloorExceededCode = "version.floor_exceeded";
-
 /**
  * Props for {@link NodeRoster}.
  *
@@ -270,57 +265,6 @@ type RosterViewState =
   | { kind: "loading" }
   | { kind: "loaded"; nodes: RuntimeNodeRosterEntry[] }
   | { kind: "error"; error: Error };
-
-// Below-floor rejection envelope — the load-bearing consumption of the
-// `VersionFloorExceededError` contract (contract_consumes). `Pick` keeps the
-// recognizer HONEST about what the read path actually delivers: the full
-// `VersionFloorExceededError` (error.ts:332-336) requires
-// `details: VersionBoundExceededDetails` — the TWO-sided HTTP `ErrorResponse`
-// shape — but the runtime-node refusal surface is code+message-only (the
-// one-sided session floor cannot populate `acceptedRange`; the SDK applies the
-// identical reasoning when it declines to validate against the two-sided
-// schema — the JSDoc on
-// `packages/client-sdk/src/runtimeNodeClient.ts#RuntimeNodeControlPlaneError`),
-// and the SDK's rejection shape — that same `RuntimeNodeControlPlaneError`
-// class, what a Tier-8 bridge wired through the SDK would
-// surface here — likewise carries no `details`: only `code` + `message`
-// (plus a transport-level `httpStatus`). Narrowing to the full interface
-// while checking two fields would let a future reader dereference `.details`
-// with the type system's blessing and crash on the real envelope; the `Pick`
-// makes that unrepresentable while still typing both discriminants off the
-// shipped contract (`code` stays the single-sourced `VersionFloorExceededCode`
-// literal).
-type VersionFloorRejectionEnvelope = Pick<VersionFloorExceededError, "code" | "message">;
-
-// Below-floor recognizer. The wire code `version.floor_exceeded` is the typed
-// verdict a below-floor node's WRITE attempt returns (VERSION_FLOOR_EXCEEDED,
-// ADR-018 §Decision #4 / I-003-1) — it is the contract the roster's
-// `readOnly: true` axis PROJECTS (a `readOnly` row is exactly a node whose
-// writes would yield this envelope). This `is`-narrowing helper types such an
-// envelope structurally, by its `code` + `message` discriminants: the guard
-// inspects shape, not identity, so it matches a plain wire envelope and an
-// `Error` subclass carrying the code (the SDK's
-// `RuntimeNodeControlPlaneError`) alike. Discharging the `code` discriminant
-// by `===` equality is SOUND here precisely because
-// `VersionFloorExceededCode` is a plain single-sourced string-literal type,
-// NOT a nominal brand (contrast the branded `SessionId` above, which no
-// structural check could discharge) — and the compared literal is the
-// type-annotated `VERSION_FLOOR_EXCEEDED_WIRE_CODE` const, so the comparison
-// is compile-time-bound to the contracts literal rather than free-floating
-// (see the const's comment). Everything stays type-only from
-// `@ai-sidekicks/contracts` — no value import, nothing emitted at runtime —
-// matching the shipped renderer precedents (participant-roster /
-// SessionBootstrap import `type` ONLY). The recognizer lets the error branch
-// label a below-floor rejection surfaced on the roster read as the distinct
-// below-floor cause rather than a generic failure — the read-path reflection
-// of AC2's at-floor vs below-floor distinguishability.
-function isVersionFloorExceededRejection(value: unknown): value is VersionFloorRejectionEnvelope {
-  if (typeof value !== "object" || value === null) return false;
-  const candidate = value as { code?: unknown; message?: unknown };
-  return (
-    candidate.code === VERSION_FLOOR_EXCEEDED_WIRE_CODE && typeof candidate.message === "string"
-  );
-}
 
 /**
  * Renders the live roster of runtime nodes attached to a session: a loading
@@ -459,15 +403,18 @@ export function NodeRoster({ sessionId }: NodeRosterProps): React.JSX.Element {
           // SDK arm. We do not narrow on `instanceof` for the render decision
           // — any `Error` shape renders the same envelope; non-`Error`
           // rejections are wrapped so the render branch always holds a real
-          // `Error`. We DO recognize a below-floor rejection (the typed
-          // `VersionFloorExceededError` contract) to LABEL its cause
-          // distinctly: a `readOnly` node's writes would return that envelope,
-          // so surfacing the below-floor cause on the read path is the read
-          // reflection of AC2's at-floor vs below-floor distinguishability. A
-          // re-read failure flips the whole roster to `error` (the Tier-3
-          // posture, matching the initial-read failure); a resilient "keep
-          // last snapshot" is a Tier-8 polish, not a Tier-3 requirement.
-          const normalizedError = normalizeRosterReadError(bridgeError);
+          // `Error`. A TYPED refusal envelope keeps its wire code as the
+          // rendered `Error.name` — including the below-floor
+          // `version.floor_exceeded` verdict a `readOnly` node's writes
+          // return, which is the read reflection of AC2's at-floor vs
+          // below-floor distinguishability. The bare (non-`total`) wrap is
+          // correct here: this is a bridge CATCH binding, so the value came
+          // off the IPC surface and a ToPrimitive-failing shape is not
+          // realistically reachable. A re-read failure flips the whole roster
+          // to `error` (the Tier-3 posture, matching the initial-read
+          // failure); a resilient "keep last snapshot" is a Tier-8 polish, not
+          // a Tier-3 requirement.
+          const normalizedError = normalizeWireRejection(bridgeError);
           setRosterViewState({ kind: "error", error: normalizedError });
         }
       })();
@@ -502,7 +449,7 @@ export function NodeRoster({ sessionId }: NodeRosterProps): React.JSX.Element {
       refreshSnapshot();
     } catch (subscribeError: unknown) {
       if (!cancelled) {
-        setRosterViewState({ kind: "error", error: normalizeRosterReadError(subscribeError) });
+        setRosterViewState({ kind: "error", error: normalizeWireRejection(subscribeError) });
       }
     }
 
@@ -582,32 +529,4 @@ export function NodeRoster({ sessionId }: NodeRosterProps): React.JSX.Element {
       </p>
     </section>
   );
-}
-
-// Normalizes a roster-read (or subscribe) rejection into a render-ready
-// `Error`. Hoisted out of the effect so both the read `catch` and the
-// subscribe `catch` share one normalization, and so the below-floor recognizer
-// (`isVersionFloorExceededRejection`) is applied consistently to both paths.
-//
-//   • A below-floor `version.floor_exceeded` envelope (the typed
-//     `VersionFloorExceededError` contract, matched on its code+message
-//     discriminants) is surfaced with its below-floor cause made explicit —
-//     the read-path reflection of AC2's at-floor vs below-floor
-//     distinguishability. The envelope may be a plain wire object OR an
-//     `Error` subclass carrying the code (the SDK's
-//     `RuntimeNodeControlPlaneError` shape); either way we build a fresh
-//     `Error` carrying its `message` with the wire `code` as `Error.name`, so
-//     the rendered envelope shows `version.floor_exceeded: …` rather than a
-//     generic `Error: …`.
-//   • Any other `Error` is passed through unchanged (the generic Tier-1
-//     `NotImplementedAtTier1Error` is the production-observable case today).
-//   • A non-`Error`, non-envelope rejection is wrapped via `String(...)` so
-//     the render branch always holds a real `Error` instance.
-function normalizeRosterReadError(rejection: unknown): Error {
-  if (isVersionFloorExceededRejection(rejection)) {
-    const belowFloorError = new Error(rejection.message);
-    belowFloorError.name = rejection.code;
-    return belowFloorError;
-  }
-  return rejection instanceof Error ? rejection : new Error(String(rejection));
 }

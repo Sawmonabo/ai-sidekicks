@@ -559,7 +559,7 @@ async function runMigrationRace(
     const w: Worker = new Worker(workerUrl, {
       workerData: raceWorkerData,
       // Force Node's native TypeScript-stripping in the worker child. This
-      // flag was added in Node 22.6.0 (within our `engines.node: >=22.12.0`
+      // flag was added in Node 22.6.0 (within our `engines.node: >=22.14.0`
       // floor) and promoted to default-on in Node 22.18.0 — see
       // https://nodejs.org/docs/latest-v22.x/api/typescript.html. The
       // worker's loader hook (`migration-race-loader.mjs`) rewrites

@@ -20,7 +20,9 @@
 //   defensive consistency with the canonical Electron community pattern,
 //   not the primary GC anchor — reverting it does NOT produce a failure
 //   in this test on Electron 41.6.1 (the empirical falsification recorded
-//   in ADR-024 §Antithesis).
+//   in ADR-024 §Antithesis). Re-run green on the 44.x pin at Plan-023
+//   T-023p-1B-4 — the version bump this test's own tripwire row names as
+//   its trigger.
 //
 //   The test therefore serves as a future-regression guard against:
 //     • A future Electron release shifting `self_ref_` lifetime semantics
@@ -164,8 +166,8 @@ function spawnElectronGcProbe(): Promise<SpawnResult> {
   // loop is a no-op without it; the test asserts `globalGcAvailable === true`
   // to fail loudly rather than silently produce non-deterministic results.
   const electronArgs = ["--js-flags=--expose-gc", `--user-data-dir=${userDataDir}`, MAIN_ENTRY];
-  const cmd = needsXvfb() ? "xvfb-run" : ELECTRON_BIN;
-  const args = needsXvfb() ? ["-a", ELECTRON_BIN, ...electronArgs] : electronArgs;
+  const spawnCommand = needsXvfb() ? "xvfb-run" : ELECTRON_BIN;
+  const spawnArguments = needsXvfb() ? ["-a", ELECTRON_BIN, ...electronArgs] : electronArgs;
 
   // Strip SIDEKICKS_SMOKE_PROBE from the spawn env so the smoke branch
   // (checked first in the if/else if cascade in the main entrypoint) does
@@ -175,7 +177,7 @@ function spawnElectronGcProbe(): Promise<SpawnResult> {
   const { SIDEKICKS_SMOKE_PROBE: _drop, ...envWithoutSmoke } = process.env;
 
   return new Promise<SpawnResult>((resolve) => {
-    const child = spawn(cmd, args, {
+    const child = spawn(spawnCommand, spawnArguments, {
       cwd: PACKAGE_ROOT,
       env: {
         ...envWithoutSmoke,
@@ -200,9 +202,9 @@ function spawnElectronGcProbe(): Promise<SpawnResult> {
       const lines = pending.split("\n");
       pending = lines.pop() ?? "";
       for (const line of lines) {
-        const ix = line.indexOf(GC_PROBE_TAG);
-        if (ix < 0) continue;
-        const payload = line.slice(ix + GC_PROBE_TAG.length).trim();
+        const probeTagIndex = line.indexOf(GC_PROBE_TAG);
+        if (probeTagIndex < 0) continue;
+        const payload = line.slice(probeTagIndex + GC_PROBE_TAG.length).trim();
         if (!payload.startsWith("{")) continue;
         try {
           probe = JSON.parse(payload) as GcProbe;
@@ -319,11 +321,10 @@ describe("BrowserWindow lifecycle reachability", () => {
       // Shape A: heap-count threshold. The probe must observe at least
       // one BrowserWindow instance on every iteration; a count of zero
       // means a wrapper was collected mid-loop. The Step 0b empirical
-      // baseline (surface-forwarded into ADR-024 §Antithesis from
-      // `.agents/tmp/research/electron-gc-empirical/queryobjects-results.md`)
-      // shows fixed-state count is typically 2 — an internal Electron-
-      // managed instance plus the user-created window. Either way the
-      // assertion `min >= 1` is the observable contract.
+      // baseline recorded in ADR-024 §Antithesis — The Strongest Case
+      // Against shows fixed-state count is typically 2 — an internal
+      // Electron-managed instance plus the user-created window. Either
+      // way the assertion `min >= 1` is the observable contract.
       expect(
         probe.min,
         `Probe saw queryObjects(BrowserWindow) count drop to ${String(probe.min)} (counts: ${JSON.stringify(probe.counts)}). ` +

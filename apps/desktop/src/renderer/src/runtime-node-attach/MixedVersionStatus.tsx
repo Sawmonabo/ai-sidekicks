@@ -122,30 +122,41 @@
 // `@ai-sidekicks/client-sdk` ban is by-convention at Tier 1, per the
 // SessionBootstrap header).
 
-import type {
-  RuntimeNodeRosterEntry,
-  VersionFloorExceededCode,
-  VersionFloorExceededError,
-} from "@ai-sidekicks/contracts";
+import type { RuntimeNodeRosterEntry, VersionFloorExceededCode } from "@ai-sidekicks/contracts";
+
+// Wire-rejection recognition and normalization live once, in `src/shared/`,
+// for every renderer surface and both Electron processes (Plan-023 Phase 1B).
+// This file used to carry four local copies — a floor recognizer, a generic
+// envelope guard, a total stringifier, and a normalizer — each under a comment
+// naming the duplication and defending it on file scope. File scope is a
+// reason to hoist, not a reason to copy: what actually differs between this
+// view and its siblings is ONE boundary fact (this rejection arrives as a
+// PROP, theirs as bridge `catch` bindings), and that difference is now the
+// `total` option rather than a third normalizer.
+import {
+  isWireErrorEnvelopeWithCode,
+  normalizeWireRejection,
+} from "../../../shared/wire-errors.js";
 
 // `VERSION_FLOOR_EXCEEDED_WIRE_CODE` — the canonical wire code for the
 // below-floor refusal (ADR-018 §Decision #10), single-sourced in contracts as
 // `NEGOTIATION_REASON_FLOOR_EXCEEDED` (the plain `as const` literal at
 // jsonrpc-negotiation.ts:211) and aliased as the `VersionFloorExceededCode`
-// type (error.ts:96-98). LOCAL DUPLICATE of the sibling
-// `NodeRoster.tsx#VERSION_FLOOR_EXCEEDED_WIRE_CODE` — NodeRoster deliberately
-// does not export its recognizer machinery, and this task's file scope cannot
-// widen the sibling.
-// The duplication is drift-safe BY THE TYPE BINDING, not by discipline:
-// annotating each local literal with the imported `VersionFloorExceededCode`
-// binds BOTH copies to the contracts literal at compile time, so if the
-// canonical code ever drifts, both files become type errors rather than
-// either recognizer silently ceasing to match (which would demote a
-// below-floor refusal to the generic envelope and lose the AC4 typed
-// surfacing unflagged — a type predicate's body is an unchecked assertion).
-// The binding costs nothing at runtime: `import type` plus a type-annotated
-// local literal emit no JS import, so the file stays type-only from
-// `@ai-sidekicks/contracts`. (The wire VALUE itself is already hoisted in
+// type (error.ts:96-98). This is the corpus's ONLY below-floor discriminant:
+// the sibling roster view stopped branching on the code when its normalizer
+// moved to `src/shared/wire-errors.ts` (the shared normalizer renders every
+// typed envelope by its own code, so a code-specific recognizer bought that
+// view nothing), leaving this indicator — which genuinely branches, because
+// AC4 gives the floor verdict its own render arm — as the single home.
+// The literal is drift-safe BY THE TYPE BINDING, not by discipline:
+// annotating it with the imported `VersionFloorExceededCode` binds it to the
+// contracts literal at compile time, so if the canonical code ever drifts this
+// line becomes a type error rather than the branch silently ceasing to match
+// (which would demote a below-floor refusal to the generic arm and lose the
+// AC4 typed surfacing unflagged — a type predicate's body is an unchecked
+// assertion). The binding costs nothing at runtime: `import type` plus a
+// type-annotated local literal emit no JS import, so the file stays type-only
+// from `@ai-sidekicks/contracts`. (The wire VALUE itself is already hoisted in
 // contracts; per the repo's hoist test, a compile-bound local literal is the
 // correct consumption shape for a renderer that imports types only.)
 const VERSION_FLOOR_EXCEEDED_WIRE_CODE: VersionFloorExceededCode = "version.floor_exceeded";
@@ -172,9 +183,9 @@ const VERSION_FLOOR_EXCEEDED_WIRE_CODE: VersionFloorExceededCode = "version.floo
  * `Spec-003 §Required Behavior` example), or `null` when no refused write has been observed.
  * Typed `unknown`, NOT a narrowed envelope type, because that is what the
  * parent actually holds — a `catch` binding — and because RECOGNITION
- * AUTHORITY lives in this indicator (`isVersionFloorExceededRejection`
- * below): the parent needs no wire-code knowledge and cannot mislabel a
- * generic failure as a floor verdict. A non-floor rejection passed here is
+ * AUTHORITY lives in this indicator (the `VERSION_FLOOR_EXCEEDED_WIRE_CODE`
+ * branch below): the parent needs no wire-code knowledge and cannot mislabel
+ * a generic failure as a floor verdict. A non-floor rejection passed here is
  * surfaced generically and explicitly NOT labeled below-floor (see the
  * unrecognized arm) — parents should route ordinary write failures to their
  * own flow's error surface (the AttachFlow rejected-branch pattern).
@@ -266,127 +277,6 @@ function resolveAccessStatus(rosterEntry: RuntimeNodeRosterEntry | null): NodeAc
   }
 }
 
-// Below-floor rejection envelope — the load-bearing consumption of the
-// `VersionFloorExceededError` contract (contract_consumes). LOCAL DUPLICATE
-// of the sibling original (`NodeRoster.tsx#VersionFloorRejectionEnvelope`),
-// same drift-safety argument as the wire-code const above.
-// `Pick` keeps the recognizer HONEST about what the write-refusal surface
-// actually delivers: the full `VersionFloorExceededError` (error.ts:332-336)
-// requires
-// `details: VersionBoundExceededDetails` — the TWO-sided HTTP `ErrorResponse`
-// shape — but the runtime-node refusal surface is code+message-only (the
-// one-sided session floor cannot populate `acceptedRange`; the SDK's rejection
-// shape (`packages/client-sdk/src/runtimeNodeClient.ts#RuntimeNodeControlPlaneError`)
-// likewise carries no `details` — only `code` + `message`, plus a
-// transport-level `httpStatus`). Narrowing to the full interface while
-// checking two fields would let a future reader dereference `.details` with
-// the type system's blessing and crash on the real envelope; the `Pick`
-// makes that unrepresentable while still typing both discriminants off the
-// shipped contract.
-type VersionFloorRejectionEnvelope = Pick<VersionFloorExceededError, "code" | "message">;
-
-// Below-floor recognizer — LOCAL DUPLICATE of the sibling original
-// (`NodeRoster.tsx#isVersionFloorExceededRejection`; that file does not
-// export it, and it sits outside this task's file scope). The wire
-// code `version.floor_exceeded` is the typed verdict a below-floor node's
-// version-sensitive write returns
-// (`VERSION_FLOOR_EXCEEDED`, ADR-018 §Decision #4 / I-003-1) — exactly the
-// contract the `readOnly: true` axis PROJECTS, so recognizing it here is what
-// lets the AC4 write-refusal block label the typed outcome distinctly rather
-// than as a generic failure. The guard is STRUCTURAL (shape, not identity):
-// it matches a plain wire envelope and an `Error` subclass carrying the code
-// (the SDK's `RuntimeNodeControlPlaneError`) alike. Discharging the `code`
-// discriminant by `===` equality is SOUND because `VersionFloorExceededCode`
-// is a plain single-sourced string-literal type, NOT a nominal brand, and the
-// compared literal is the type-annotated const above — compile-time-bound to
-// the contracts literal rather than free-floating.
-function isVersionFloorExceededRejection(value: unknown): value is VersionFloorRejectionEnvelope {
-  if (typeof value !== "object" || value === null) return false;
-  const candidate = value as { code?: unknown; message?: unknown };
-  return (
-    candidate.code === VERSION_FLOOR_EXCEEDED_WIRE_CODE && typeof candidate.message === "string"
-  );
-}
-
-// Generic wire error envelope — the code+message-only refusal shape the
-// `runtimenode.*` typed refusals carry (error.ts:103-110), e.g.
-// `runtimenode.capabilityupdate_conflict` — a realistic non-floor arrival on
-// this very prop (a write racing a detach raises it, error.ts:117-124). LOCAL
-// DUPLICATE of the sibling original (`AttachFlow.tsx#isWireErrorEnvelope`),
-// shape-generic by design (any string `code` + string `message`, no literals
-// to drift):
-// this arm's job is to render WHICH refusal occurred, not to branch behavior
-// per code. Checked AFTER the floor recognizer (the specific-before-generic
-// ordering both siblings' normalizations use).
-function isWireErrorEnvelope(value: unknown): value is { code: string; message: string } {
-  if (typeof value !== "object" || value === null) return false;
-  const candidate = value as { code?: unknown; message?: unknown };
-  return typeof candidate.code === "string" && typeof candidate.message === "string";
-}
-
-// Never-throwing lossy fallback for values bare `String(...)` cannot render —
-// LOCAL DUPLICATE of the sibling original
-// (`CapabilityDeclaration.tsx#lossyStringify`; that file does not export it,
-// and it sits outside this task's file scope).
-// Bare `String(...)` is NOT total: it runs ToPrimitive, which itself throws
-// for a null-prototype object — or null-prototype FUNCTION — carrying no
-// `toString`/`valueOf`/`Symbol.toPrimitive` (and a hostile throwing
-// `toString` propagates the same way), so it gets an inner guard. The
-// terminal fallback is a string LITERAL, deliberately not
-// `Object.prototype.toString.call(...)`: even that can throw (its
-// `Symbol.toStringTag` lookup is a Get, and a hostile getter propagates), so
-// only a literal makes the totality claim PROVABLE rather than merely one
-// pathological layer deeper.
-//
-// BOUNDARY CLASS — why this file guards where the two normalizations it
-// otherwise mirrors keep the bare wrap (`AttachFlow.tsx#normalizeAttachError`;
-// `NodeRoster.tsx#normalizeRosterReadError`): their rejection inputs are
-// bridge-CATCH bindings —
-// values that arrived through the IPC/promise-rejection surface, where a
-// ToPrimitive-failing shape is not realistically reachable. This file's
-// rejection input is a PROP (`writeAttemptRejection`), and the prop boundary
-// admits arbitrary `unknown` at Tier 3 — exactly the rationale the
-// CapabilityDeclaration original states for its capability values — so the
-// wrap must be TOTAL: a pathological prop value degrades to a lossy string,
-// and the refusal-surfacing component never crashes on the very value it
-// exists to surface (a render throw would unmount the tree — no error
-// boundary exists in the renderer at Tier 3 — and even a future boundary
-// would only swap the crash for a fallback that hides the node: an
-// eject-by-render). Do NOT "harmonize" the siblings' bare wrap into this
-// file, or this guard into them — the boundary difference is load-bearing in
-// both directions.
-function lossyStringify(rejection: unknown): string {
-  try {
-    return String(rejection);
-  } catch {
-    return "[unrepresentable value]";
-  }
-}
-
-// Normalizes a NON-floor write rejection into a render-ready `Error` for the
-// unrecognized arm (the floor envelope never reaches this — it gets the
-// dedicated AC4 block instead). Same register as the siblings'
-// normalizations (`AttachFlow.tsx#normalizeAttachError`;
-// `NodeRoster.tsx#normalizeRosterReadError`), with ONE deliberate
-// divergence in the terminal arm (see `lossyStringify` above):
-//   • A typed wire envelope (or an `Error` carrying a wire `code`) is rebuilt
-//     as a fresh `Error` with the wire `code` as `Error.name`, so the render
-//     reads `runtimenode.capabilityupdate_conflict: …` rather than a generic
-//     class name — or `[object Object]` for a plain-object rejection.
-//   • Any other `Error` passes through unchanged.
-//   • Anything else is wrapped through the never-throwing `lossyStringify`
-//     into a fresh `Error` — the wrap itself cannot throw on a pathological
-//     prop value (ToPrimitive failure), so the render-ready guarantee is
-//     total, not best-effort.
-function normalizeUnrecognizedRejection(rejection: unknown): Error {
-  if (isWireErrorEnvelope(rejection)) {
-    const envelopeError = new Error(rejection.message);
-    envelopeError.name = rejection.code;
-    return envelopeError;
-  }
-  return rejection instanceof Error ? rejection : new Error(lossyStringify(rejection));
-}
-
 /**
  * Renders a runtime node's mixed-version access status — the AC4 three-way
  * distinction (read-only below floor / read-write at floor / detached, plus
@@ -422,7 +312,7 @@ export function MixedVersionStatus({
     // value; `undefined` is tolerated as the same fact (the prop is
     // `unknown`, so a parent's optional-chain miss can arrive here).
     writeRefusalBlock = <p data-write-refusal="none">no refused write attempt to surface</p>;
-  } else if (isVersionFloorExceededRejection(writeAttemptRejection)) {
+  } else if (isWireErrorEnvelopeWithCode(writeAttemptRejection, VERSION_FLOOR_EXCEEDED_WIRE_CODE)) {
     // The AC4 surfacing: the typed `version.floor_exceeded` envelope rendered
     // verbatim (wire code + server message), with the admit-not-eject fact
     // stated in copy — the refused WRITE is the only thing denied; the node
@@ -451,9 +341,20 @@ export function MixedVersionStatus({
     // "none" render), and deliberately NOT labeled below-floor: dressing an
     // arbitrary failure in floor wording would fabricate a floor verdict this
     // view is forbidden to derive — the converse of AttachFlow's
-    // no-floor-recognizer stance on its attach path (the note above
-    // `AttachFlow.tsx#normalizeAttachError`).
-    const normalizedRejection = normalizeUnrecognizedRejection(writeAttemptRejection);
+    // no-floor-recognizer stance on its attach path.
+    //
+    // `total: true` is the ONE way this call differs from the siblings', and
+    // the difference is a boundary fact rather than a preference. Their
+    // rejections are bridge CATCH bindings — values that arrived through the
+    // IPC/promise-rejection surface, where a ToPrimitive-failing shape is not
+    // realistically reachable. This one is a PROP, and a prop admits arbitrary
+    // `unknown` at Tier 3, so the wrap must be TOTAL: a pathological value
+    // degrades to a lossy string and the refusal-surfacing component never
+    // crashes on the very value it exists to surface. A render throw would
+    // unmount the tree — no error boundary exists in the renderer at Tier 3 —
+    // and even a future boundary would only swap the crash for a fallback that
+    // hides the node: an eject-by-render, which I-003-1 forbids.
+    const normalizedRejection = normalizeWireRejection(writeAttemptRejection, { total: true });
     writeRefusalBlock = (
       <div role="alert" aria-label="unrecognized-write-rejection" data-write-refusal="unrecognized">
         <p>

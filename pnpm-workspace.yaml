@@ -33,7 +33,26 @@ overrides:
 # default and a warning is printed. If strictDepBuilds is set to true, an error
 # will be printed instead." Both true and false are explicit decisions.
 allowBuilds:
-  better-sqlite3: true
+  # DENIED, deliberately — 13.0.3 declares no install script of its own, so the
+  # script pnpm would run here is the implicit `node-gyp rebuild` npm synthesizes
+  # for any package shipping a `binding.gyp`. Upstream's binding.gyp is written to
+  # make that a no-op (`force_build%: 0`, `prebuild_exists%: '<!(node lib/binding.js)'`
+  # — the target takes no sources when a host prebuild is present), and the Node-API
+  # prebuild is resolved at require time by `lib/binding.js` from
+  # `prebuilds/<platform>-<arch>.node` with no install step involved. So approving it
+  # buys nothing and costs a full node-gyp configure on every install.
+  #
+  # It also breaks Windows outright. Configure runs BEFORE gyp evaluates that
+  # condition, and on `windows-latest` node-gyp 11.5.0 cannot parse the image's
+  # Visual Studio 18 Enterprise install ("unknown version undefined", after a
+  # PowerShell probe that overflows its stdio buffer), so `pnpm install` exits 1 on
+  # a platform whose prebuild is sitting in the tarball unused. Measured 2026-09-01
+  # on the `native-prebuilds` matrix: linux-x64, linux-arm64, darwin-arm64 and
+  # darwin-x64 green with the build approved; win32-x64 red. Denied, all five green.
+  #
+  # Denial is also what makes the provenance check's second conjunct absolute:
+  # `build/Release/` cannot hold a `.node` if no build ever runs.
+  better-sqlite3: false
   lefthook: true
   # Cloudflare Workers tooling (Plan-008 Tier 1 / BL-104 — wrangler@^4.86.0):
   # - workerd: local Workers runtime invoked by `wrangler dev`. Approve: required.

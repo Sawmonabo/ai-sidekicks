@@ -22,5 +22,17 @@
     { "path": "./src/renderer" }
   ],
   "include": ["src/**/*"],
-  "exclude": ["dist", "out", "node_modules", "src/**/__tests__/**", "src/renderer/**"]
+  // `src/**/*.test.ts` joins the exclude list at Plan-023 Phase 1B (T-023p-1B-3):
+  // the `main-unit` Vitest project co-locates main-process units beside the
+  // modules they cover (`src/main/protocol.test.ts`), and this project EMITS, so
+  // an included test file would compile a `vitest` import into `dist/`.
+  // Type-validation for those files runs under `tsconfig.test.json` (noEmit).
+  "exclude": [
+    "dist",
+    "out",
+    "node_modules",
+    "src/**/__tests__/**",
+    "src/**/*.test.ts",
+    "src/renderer/**"
+  ]
 }

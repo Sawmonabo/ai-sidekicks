@@ -12,28 +12,61 @@
       "outputs": ["out/**", "dist/**"]
     },
     "typecheck": {
-      "inputs": ["src/**", "test/**", "build/**", "tsconfig*.json", "package.json"],
+      "inputs": ["src/**", "test/**", "build/**", "scripts/**", "tsconfig*.json", "package.json"],
       "outputs": [".tsbuildinfo"]
     },
     "lint": {
-      "inputs": ["src/**", "test/**", "*.{ts,tsx,js,mjs,cjs,json}", "eslint.config.mjs"],
+      "inputs": [
+        "src/**",
+        "test/**",
+        "build/**",
+        "scripts/**",
+        "*.{ts,tsx,js,mjs,cjs,json}",
+        "eslint.config.mjs"
+      ],
       "outputs": []
     },
     "test:renderer": {
       "dependsOn": ["^build"],
-      "inputs": ["src/renderer/**", "vitest.config.*", "tsconfig*.json", "package.json"],
+      "inputs": [
+        "src/renderer/**",
+        "src/shared/**",
+        "vitest.config.*",
+        "tsconfig*.json",
+        "package.json"
+      ],
+      "outputs": [],
+      "cache": false
+    },
+    "test:main-unit": {
+      "dependsOn": ["^build"],
+      "inputs": [
+        "src/main/**",
+        "src/shared/**",
+        "build/**",
+        "test/helpers/**",
+        "vitest.config.*",
+        "tsconfig*.json",
+        "package.json"
+      ],
       "outputs": [],
       "cache": false
     },
     "test:coverage": {
       "dependsOn": ["^build"],
-      "inputs": ["src/renderer/**", "vitest.config.*", "tsconfig*.json", "package.json"],
+      "inputs": [
+        "src/renderer/**",
+        "src/shared/**",
+        "vitest.config.*",
+        "tsconfig*.json",
+        "package.json"
+      ],
       "outputs": ["coverage/**"],
       "cache": false
     },
     "test:smoke": {
       "dependsOn": ["build:smoke"],
-      "inputs": ["test/**", "vitest.config.*", "tsconfig*.json", "package.json"],
+      "inputs": ["test/**", "scripts/**", "vitest.config.*", "tsconfig*.json", "package.json"],
       "outputs": [],
       "cache": false
     },

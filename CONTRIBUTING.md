@@ -178,7 +178,7 @@ pnpm workspace, Turbo pipeline, daemon package skeleton, Vitest config.
 
 ## Test plan
 
-- [ ] `pnpm install` succeeds on Node 22.12+ and 24.x
+- [ ] `pnpm install` succeeds on Node 22.14+ and 24.x
 - [ ] `turbo run build` succeeds across the workspace
 - [ ] `vitest run` exits 0 with the scaffold smoke test
 
