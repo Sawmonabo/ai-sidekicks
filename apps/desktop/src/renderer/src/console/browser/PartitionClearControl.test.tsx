@@ -225,7 +225,7 @@ describe("PartitionClearControl — running the act", () => {
   });
 });
 
-describe("PartitionClearControl — which refusal is shown", () => {
+describe("PartitionClearControl — which verdict is shown", () => {
   it("shows the projected refusal until this control has run its own act", () => {
     const control = renderControl({
       lastClearRefusal: PROJECTED_FAILURE,
@@ -233,9 +233,10 @@ describe("PartitionClearControl — which refusal is shown", () => {
     });
 
     expect(control.textContent).toContain("browser.partition_stale");
+    expect(control.textContent).not.toContain("Cleared");
   });
 
-  it("prefers the act the operator just took over the projected one", async () => {
+  it("prefers the refusal the operator just took over the projected one", async () => {
     const control = renderControl({
       hasOpenPane: true,
       lastClearRefusal: PROJECTED_FAILURE,
@@ -251,9 +252,64 @@ describe("PartitionClearControl — which refusal is shown", () => {
     expect(control.textContent).not.toContain("browser.partition_stale");
   });
 
-  it("negative control: with no refusal anywhere the control renders none", () => {
+  it("retires the projected refusal when the operator's own clear succeeds", async () => {
+    // The case the ranking exists for: a served settlement carries no refusal, so a
+    // control that preferred "whichever refusal exists" reported the older failure
+    // again the moment the retry worked.
+    const control = renderControl({
+      lastClearRefusal: PROJECTED_FAILURE,
+      onClearSiteData: servingAct([], "clear"),
+    });
+
+    confirmButton(control).click();
+
+    await waitFor(() => {
+      expect(control.textContent).toContain("Cleared");
+    });
+    expect(control.textContent).not.toContain("browser.partition_stale");
+    expect(control.querySelector(".meridian-refusal--inline")).toBeNull();
+  });
+
+  it("says nothing about an earlier failure while its own act is in flight", async () => {
+    const clear = pendingAct();
+    const control = renderControl({
+      lastClearRefusal: PROJECTED_FAILURE,
+      onClearSiteData: () => clear.promise,
+    });
+
+    confirmButton(control).click();
+
+    await waitFor(() => {
+      expect(control.textContent).toContain("Clearing");
+    });
+    expect(control.textContent).not.toContain("browser.partition_stale");
+
+    clear.succeed();
+    await waitFor(() => {
+      expect(control.textContent).toContain("Cleared");
+    });
+  });
+
+  it("negative control: a served clear is reported and not merely left blank", async () => {
+    // Without this, a control that simply stopped rendering anything once it had been
+    // clicked would satisfy the case above while telling the operator nothing about
+    // what its own act did.
+    const control = renderControl({ onClearSiteData: servingAct([], "clear") });
+
+    expect(control.textContent).not.toContain("Cleared");
+
+    confirmButton(control).click();
+
+    await waitFor(() => {
+      expect(control.querySelector(".meridian-browser-partitions__reading")).not.toBeNull();
+    });
+    expect(control.textContent).toContain("Cleared");
+  });
+
+  it("negative control: with no verdict anywhere the control renders none", () => {
     const control = renderControl({ onClearSiteData: servingAct([], "clear") });
 
     expect(control.querySelector(".meridian-refusal--inline")).toBeNull();
+    expect(control.querySelector(".meridian-browser-partitions__reading")).toBeNull();
   });
 });
