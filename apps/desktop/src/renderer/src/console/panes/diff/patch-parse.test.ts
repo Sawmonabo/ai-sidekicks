@@ -34,6 +34,79 @@ function linesOfFirstHunk(patchText: string): readonly DiffLine[] {
   return hunk.lines;
 }
 
+/**
+ * A git-style patch whose header carries both things a reconstruction loses: the
+ * section context after the closing `@@`, and a one-line range spelled without its
+ * count.
+ */
+const SECTION_CONTEXT_PATCH = [
+  "diff --git a/apps/desktop/src/main.ts b/apps/desktop/src/main.ts",
+  "--- a/apps/desktop/src/main.ts",
+  "+++ b/apps/desktop/src/main.ts",
+  "@@ -10 +10 @@ function createApplicationWindow(): BrowserWindow {",
+  "-const value = compute(previousBudget, 11);",
+  "+const value = compute(nextBudget, 11);",
+  "",
+].join("\n");
+
+describe("parseUnifiedPatch — the hunk header is the patch's own", () => {
+  it("keeps the section context git appends after the closing marker", () => {
+    // The whole navigational value of a git hunk header: which function the change
+    // is inside. `diff`'s `StructuredPatchHunk` drops it, so it is read off the raw
+    // line rather than composed from the four numbers that survive.
+    expect(parsePlain(SECTION_CONTEXT_PATCH).files[0]?.hunks[0]?.header).toBe(
+      "@@ -10 +10 @@ function createApplicationWindow(): BrowserWindow {",
+    );
+  });
+
+  it("keeps a one-line range spelled the way the patch spelled it", () => {
+    const header = parsePlain(SECTION_CONTEXT_PATCH).files[0]?.hunks[0]?.header ?? "";
+    expect(header.startsWith("@@ -10 +10 @@")).toBe(true);
+  });
+
+  it("negative control: the header is not the reconstruction from the four numbers", () => {
+    // Exactly what composing `@@ -${oldStart},${oldLines} +${newStart},${newLines} @@`
+    // produces for this hunk. It renders as a plausible header and is not the one the
+    // patch declared, which is why the reconstruction was invisible until read.
+    expect(parsePlain(SECTION_CONTEXT_PATCH).files[0]?.hunks[0]?.header).not.toBe(
+      "@@ -10,1 +10,1 @@",
+    );
+  });
+
+  it("hands each file's hunks their own declared headers, in order", () => {
+    const model = parsePlain(PLAIN_PATCH);
+    expect(model.files[0]?.hunks[0]?.header).toBe("@@ -10,2 +10,2 @@");
+    expect(model.files[1]?.hunks[0]?.header).toBe("@@ -1,1 +1,2 @@");
+  });
+
+  it("carries no line ending into the header of a patch written with CRLF", () => {
+    const header = parseUnifiedPatch(
+      SECTION_CONTEXT_PATCH.split("\n").join("\r\n"),
+      RUN_ATTRIBUTION,
+      COMPARED_STATES,
+    ).files[0]?.hunks[0]?.header;
+    expect(header).toBe("@@ -10 +10 @@ function createApplicationWindow(): BrowserWindow {");
+  });
+
+  it("negative control: a body line that looks like a header is not read as one", () => {
+    // Every body line carries a prefix, so a deleted line whose text is itself a hunk
+    // header reads as `-@@ …` and never matches. Without that the header list would
+    // gain an entry and every hunk after it would be handed the wrong one.
+    const patchText = [
+      "--- a/docs/patch-format.md",
+      "+++ b/docs/patch-format.md",
+      "@@ -1,2 +1,2 @@ Section",
+      " A header looks like this:",
+      "-@@ -10,2 +10,2 @@ oldSection",
+      "+@@ -10,3 +10,3 @@ newSection",
+      "",
+    ].join("\n");
+    const model = parseUnifiedPatch(patchText, RUN_ATTRIBUTION, COMPARED_STATES);
+    expect(model.files[0]?.hunks).toHaveLength(1);
+    expect(model.files[0]?.hunks[0]?.header).toBe("@@ -1,2 +1,2 @@ Section");
+  });
+});
+
 describe("parseUnifiedPatch", () => {
   it("carries the create call's attribution and compared states rather than reading them", () => {
     // Neither is in the patch text — `Spec-011` puts both on the create call — so a
@@ -51,7 +124,7 @@ describe("parseUnifiedPatch", () => {
     ]);
   });
 
-  it("rebuilds the hunk header from the ranges the patch declared", () => {
+  it("carries the hunk header the patch declared, verbatim", () => {
     expect(parsePlain(PLAIN_PATCH).files[0]?.hunks[0]?.header).toBe("@@ -10,2 +10,2 @@");
   });
 

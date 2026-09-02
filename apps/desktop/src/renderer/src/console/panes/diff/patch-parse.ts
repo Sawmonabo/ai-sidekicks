@@ -35,6 +35,16 @@
 //   • The attribution mode and the compared refs are the create call's own answer
 //     (`Spec-011 §Interfaces And Contracts`), so they are parameters here rather than
 //     anything scraped out of the patch's headers.
+//
+// AND ONE THING THE LIBRARY DROPS, WHICH THIS FILE THEREFORE READS ITSELF.
+// `StructuredPatchHunk` carries four numbers and the body lines — and nothing else.
+// The `@@` line a patch actually declares carries more than those four numbers: git
+// appends the enclosing function or section after the closing `@@`, and a one-line
+// range is spelled `-10` rather than `-10,1`. A header rebuilt from the numbers
+// therefore lost the section context a reader navigates by and restated the range in
+// a spelling the patch never used, which is not the wire-verbatim header the row kind
+// promises. So the raw `@@` lines are read off the patch text in order and handed to
+// the hunks in that order, and nothing here composes a header out of parts.
 
 import { diffWordsWithSpace, parsePatch, type StructuredPatch } from "diff";
 
@@ -78,17 +88,33 @@ export function parseUnifiedPatch(
   comparedStates: ComparedStates,
 ): ConsoleDiffModel {
   const files: DiffFile[] = [];
+  // Read once for the whole patch, and consumed in the order `parsePatch` hands the
+  // hunks back — both walks read the same text top to bottom, so the nth declared
+  // header belongs to the nth parsed hunk across every file.
+  const declaredHeaders = declaredHunkHeaders(patchText);
+  let hunkOrdinal = 0;
   for (const structuredPatch of parsePatch(patchText)) {
     files.push({
       path: patchFilePath(structuredPatch),
-      hunks: structuredPatch.hunks.map((hunk) => ({
-        header: `@@ -${String(hunk.oldStart)},${String(hunk.oldLines)} +${String(
-          hunk.newStart,
-        )},${String(hunk.newLines)} @@`,
-        // Empty by construction, not by omission — see the header.
-        precedingContext: [],
-        lines: hunkLines(hunk.lines, hunk.oldStart, hunk.newStart),
-      })),
+      hunks: structuredPatch.hunks.map((hunk) => {
+        const header = declaredHeaders[hunkOrdinal];
+        hunkOrdinal += 1;
+        if (header === undefined) {
+          // Unreachable for any patch `parsePatch` accepted, and a throw rather than
+          // a fallback because the only fallback is the reconstruction this function
+          // exists to stop making: a header composed from the numbers would be
+          // indistinguishable on screen from one the patch declared.
+          throw new Error(
+            `the patch declares fewer \`@@\` headers (${String(declaredHeaders.length)}) than it parsed hunks`,
+          );
+        }
+        return {
+          header,
+          // Empty by construction, not by omission — see the header.
+          precedingContext: [],
+          lines: hunkLines(hunk.lines, hunk.oldStart, hunk.newStart),
+        };
+      }),
     });
   }
   return {
@@ -97,6 +123,47 @@ export function parseUnifiedPatch(
     headRef: comparedStates.headRef,
     files,
   };
+}
+
+/**
+ * How a unified patch spells a hunk header, and where its verbatim part ends.
+ *
+ * The two ranges are matched so a body line can never be mistaken for a header —
+ * every body line carries a ` `, `+`, or `-` prefix, so a deleted line reading
+ * `-@@ -1 +1 @@` starts with the prefix and not with `@@`. Both line counts are
+ * optional because a one-line range omits them, which is precisely the spelling a
+ * reconstruction from the numbers used to overwrite. Nothing after the closing `@@`
+ * is described here: it is the section context, it is free text, and it is kept.
+ */
+const HUNK_HEADER_PATTERN = /^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/;
+
+/**
+ * The line endings a patch may use, matched exactly as `diff` matches them.
+ *
+ * One expression rather than a `\n` split, because a patch produced on Windows ends
+ * its header line with `\r` and a header carrying a stray carriage return is not the
+ * header the patch declared.
+ */
+const PATCH_LINE_BREAK_PATTERN = /\r\n|[\n\v\f\r\u0085]/;
+
+/**
+ * Every `@@` header the patch text declares, in the order it declares them.
+ *
+ * Read off the RAW TEXT rather than off the parsed structure because the parsed
+ * structure does not have them: `diff`'s `StructuredPatchHunk` is four numbers and
+ * the body lines, and the section context git appends after the closing `@@` is
+ * discarded before a caller ever sees the hunk. The header is carried verbatim,
+ * trailing context included, which is what `DiffHunkHeaderRow` means by
+ * wire-verbatim.
+ */
+function declaredHunkHeaders(patchText: string): readonly string[] {
+  const headers: string[] = [];
+  for (const line of patchText.split(PATCH_LINE_BREAK_PATTERN)) {
+    if (HUNK_HEADER_PATTERN.test(line)) {
+      headers.push(line);
+    }
+  }
+  return headers;
 }
 
 /**
