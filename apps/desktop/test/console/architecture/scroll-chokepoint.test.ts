@@ -124,6 +124,25 @@ describe("the scroll chokepoint — one writer, tree-wide", () => {
     expect(scrollWriteSignatures(readConsoleSource(CHOKEPOINT_MODULE))).toContain("scrollTop =");
   });
 
+  it("negative control: a virtualizer callback that wrote the offset would be caught", () => {
+    // The adopted virtualizer's `scrollToFn` is the one seam through which a library
+    // could reach the scroll offset, and the shipped implementation hands it to the
+    // chokepoint. This is the proof that the scan would catch the other choice: the
+    // body below is what the default implementation does, and it trips the rule.
+    expect(
+      scrollWriteSignatures(
+        "scrollToFn: (offset) => { instance.scrollElement.scrollTop = offset; },",
+      ),
+    ).toStrictEqual(["scrollTop ="]);
+    expect(
+      unnamedScrollApiSignatures("scrollToFn: (offset) => element.scrollTo({ top: offset })"),
+    ).toStrictEqual([".scrollTo("]);
+    // And the shipped seam trips neither, because it names a caller and delegates.
+    expect(
+      scrollWriteSignatures('this.scroll.glideTo("measurement-compensation", offset);'),
+    ).toStrictEqual([]);
+  });
+
   it("negative control: the predicates bite, and read like a read", () => {
     expect(scrollWriteSignatures("element.scrollTop = 120;")).toStrictEqual(["scrollTop ="]);
     expect(scrollWriteSignatures("surface.scrollTop += delta;")).toStrictEqual(["scrollTop +="]);

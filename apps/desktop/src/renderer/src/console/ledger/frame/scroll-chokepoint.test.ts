@@ -163,6 +163,7 @@ describe("the scroll chokepoint — writes", () => {
       "find-match",
       "replay-seek",
       "prune-compensation",
+      "measurement-compensation",
     ]);
   });
 

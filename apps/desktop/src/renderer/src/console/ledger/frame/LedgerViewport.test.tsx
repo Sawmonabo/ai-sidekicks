@@ -9,15 +9,40 @@
 // and this file asserts what a DOM shim can answer truthfully: that the feed is
 // named, that only a slice of the log is in the document, that the two degradations
 // are reported, and that a settled viewport has no timer armed.
+//
+// The one thing the shim is asked to stand in for is the LAYOUT ENGINE, not a module
+// under test: a viewport of zero height makes the virtualizer's own range empty by
+// construction, so `withLaidOutViewport` gives the scroll container a height. Every
+// module in the assertion path — the viewport, the controller, the chokepoint, the
+// measurement ledger, and the real `@tanstack/react-virtual` instance — is the
+// shipped one.
 
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ManualClock, refuse } from "../../core/index.js";
 import { LedgerViewport } from "./LedgerViewport.js";
 import type { LedgerViewportRow } from "./viewport-controller.js";
 
 const LONG_LOG_ROW_COUNT = 500;
+const LAID_OUT_VIEWPORT_HEIGHT_PX = 400;
+
+/**
+ * Give every element a viewport height, for the length of one case.
+ *
+ * `happy-dom` reports zero for `clientHeight`, and the virtualizer treats a zero
+ * outer size as "no range at all" — so without this the window would be empty for a
+ * reason that has nothing to do with the code under test.
+ */
+function withLaidOutViewport(): void {
+  vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(
+    LAID_OUT_VIEWPORT_HEIGHT_PX,
+  );
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 function syntheticRows(count: number): readonly LedgerViewportRow[] {
   return Array.from({ length: count }, (_unused, index) => ({
@@ -33,6 +58,7 @@ function renderRow(row: LedgerViewportRow): React.ReactNode {
 
 describe("the ledger viewport — the feed", () => {
   it("names the feed, and mounts far fewer rows than the log holds", () => {
+    withLaidOutViewport();
     const { container } = render(
       <LedgerViewport
         clock={new ManualClock()}
@@ -49,7 +75,10 @@ describe("the ledger viewport — the feed", () => {
 
   it("negative control: every row IS reachable — the log itself is not truncated", () => {
     // Without this the case above would pass over a viewport that rendered one row
-    // and dropped the rest of the session on the floor.
+    // and dropped the rest of the session on the floor. The sizer carries the whole
+    // log's height, and every mounted row names the index it stands for, so the rows
+    // that are not in the document are addressable rather than gone.
+    withLaidOutViewport();
     const rows = syntheticRows(LONG_LOG_ROW_COUNT);
     const { container } = render(
       <LedgerViewport
@@ -60,8 +89,13 @@ describe("the ledger viewport — the feed", () => {
       />,
     );
     const sizer = container.querySelector(".meridian-ledger-viewport__sizer");
+    expect(sizer).not.toBeNull();
     expect(sizer?.getAttribute("style")).toContain("height");
-    expect(container.querySelector(".meridian-ledger-viewport__slice")).toBeDefined();
+    const mountedIndexes = [...container.querySelectorAll(".meridian-ledger-viewport__row")].map(
+      (element) => Number(element.getAttribute("data-index")),
+    );
+    expect(mountedIndexes[0]).toBe(0);
+    expect(mountedIndexes.at(-1)).toBeLessThan(LONG_LOG_ROW_COUNT - 1);
   });
 
   it("teaches rather than blames when the session has done nothing yet", () => {
@@ -77,6 +111,7 @@ describe("the ledger viewport — the feed", () => {
   });
 
   it("arms no timer once the first paint has settled", () => {
+    withLaidOutViewport();
     const clock = new ManualClock();
     render(
       <LedgerViewport
@@ -95,6 +130,7 @@ describe("the ledger viewport — the feed", () => {
   });
 
   it("renders the ranked error slot above the feed", () => {
+    withLaidOutViewport();
     render(
       <LedgerViewport
         clock={new ManualClock()}
@@ -113,11 +149,12 @@ describe("the ledger viewport — the feed", () => {
   });
 
   it("reports a projection that repeated a key rather than dropping the window", () => {
+    withLaidOutViewport();
     const rows: readonly LedgerViewportRow[] = [
       { key: "row-0", parentKey: undefined, rootCursor: "cursor-0" },
       { key: "row-0", parentKey: undefined, rootCursor: "cursor-1" },
     ];
-    render(
+    const { container } = render(
       <LedgerViewport
         clock={new ManualClock()}
         rows={rows}
@@ -125,8 +162,11 @@ describe("the ledger viewport — the feed", () => {
         feedLabel="Session timeline"
       />,
     );
-    // Degraded, never discarded: the reader still has a log, and the defect is said
-    // out loud rather than left as a mystery in the scrollbar.
+    // Degraded, never discarded: BOTH rows are in the document under keys of their
+    // own, and the defect is said out loud rather than left as a mystery in the
+    // scrollbar. Sharing the key would have left one row where the projection sent
+    // two, because the library's caches are keyed by item key.
     expect(screen.getByText("Some entries share an identifier.")).toBeDefined();
+    expect(container.querySelectorAll(".meridian-ledger-viewport__row")).toHaveLength(2);
   });
 });

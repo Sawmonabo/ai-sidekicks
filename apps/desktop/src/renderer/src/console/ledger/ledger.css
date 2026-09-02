@@ -215,28 +215,29 @@
 }
 
 /* Carries the whole log's height so the scrollbar is honest about how much there
-   is, while only the rows near the fold exist in the document. */
+   is, while only the rows near the fold exist in the document. The height is written
+   by the virtualizer directly, so it is deliberately absent from this rule. */
 .meridian-ledger-viewport__sizer {
   position: relative;
   width: 100%;
 }
 
 /*
- * Translated to the first mounted row's offset. A transform rather than `top`
- * because it composites: moving the slice does not invalidate layout for anything
- * that did not move, which is what keeps a four-lane stream inside the frame budget.
+ * Each mounted row is anchored at the top of the sizer and translated to its own
+ * offset. A transform rather than `top` because it composites: moving a row does not
+ * invalidate layout for anything that did not move, which is what keeps a four-lane
+ * stream inside the frame budget.
+ *
+ * The transform itself is written by the virtualizer under `directDomUpdates`, so no
+ * `transform` declaration belongs here: a value in this rule would be overwritten on
+ * the first scroll tick and would read as the row's position until then.
  */
-.meridian-ledger-viewport__slice {
-  display: flex;
-  flex-direction: column;
+.meridian-ledger-viewport__row {
+  display: block;
   position: absolute;
   inset-inline: 0;
   top: 0;
   will-change: transform;
-}
-
-.meridian-ledger-viewport__row {
-  display: block;
 }
 
 /*

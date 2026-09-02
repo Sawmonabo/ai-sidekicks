@@ -1,26 +1,31 @@
 // What holds the ledger frame's four objects together, and the hook a view reads it
 // through.
 //
-// The scroll chokepoint, the reading anchor, the row window, and the window cap are
-// each one idea and each testable alone. They are also useless alone: the anchor
-// decides where the reader is and only the chokepoint can hold them there; the row
-// window knows every row's offset and the anchor is the only thing that knows which
-// offset matters. This class is that wiring and nothing else — every rule it obeys
-// lives in one of the four.
+// The scroll chokepoint, the reading anchor, the measurement ledger, and the window
+// cap are each one idea and each testable alone. They are also useless alone: the
+// anchor decides where the reader is and only the chokepoint can hold them there;
+// the virtualizer knows every row's offset and the anchor is the only thing that
+// knows which offset matters. This class is that wiring and nothing else — every
+// rule it obeys lives in one of the four, or in the library.
+//
+// WHAT THE LIBRARY OWNS AND WHAT THIS CLASS OWNS.
+// `Spec-023 §Console Libraries` adopts `@tanstack/react-virtual` "under our own
+// scroll controller". The library owns the measurements, the offsets, the total
+// size, and which indexes are inside the fold; `virtualizer-seams.ts` owns every way
+// it reaches the outside world; this class owns when the four objects below are
+// asked anything, and what the tree is told afterwards.
 //
 // TWO PROPERTIES WORTH NAMING:
 //
-//   • **The anchor is captured from the prefix sum, never from the DOM.** The row a
-//     reader is looking at and its offset both fall out of the row window's own
-//     offsets, so holding a reading position costs no element read at all — which
-//     is what lets `Spec-023 §Console Design (Meridian)` §5.8's "no hit test per
-//     scroll event while following" hold without a special case for the anchor.
+//   • **The anchor is captured from the virtualizer, never from the DOM.** The row a
+//     reader is looking at and its offset both fall out of measurements the library
+//     already holds, so holding a reading position costs no element read at all —
+//     which is what lets `Spec-023 §Console Design (Meridian)` §5.8's "no hit test
+//     per scroll event while following" hold without a special case for the anchor.
 //   • **A snapshot is a value, recomputed on change.** `useSyncExternalStore`
 //     demands a stable reference between changes, and recomputing one per render
 //     would tear the tree. Every producer routes through `#publish`, which rebuilds
 //     the snapshot once and notifies once.
-
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import {
   Emitter,
@@ -29,12 +34,13 @@ import {
   type Unsubscribe,
 } from "../../core/index.js";
 import { ReadingAnchor, type ReadingAnchorState } from "./reading-anchor.js";
-import { RowWindow, type RowWindowRange } from "./row-window.js";
+import { RowMeasurementLedger, type RowKeyProjection } from "./row-measurement-ledger.js";
 import {
   LedgerScrollController,
   type LedgerGeometry,
   type LedgerScrollSurface,
 } from "./scroll-chokepoint.js";
+import { LedgerVirtualizerSeams, type LedgerRowVirtualizer } from "./virtualizer-seams.js";
 import { LedgerWindow, type LedgerWindowRow, type PruneOutcome } from "./window-cap.js";
 
 /**
@@ -46,13 +52,24 @@ import { LedgerWindow, type LedgerWindowRow, type PruneOutcome } from "./window-
  */
 export type LedgerViewportRow = LedgerWindowRow;
 
+/**
+ * The reading state a render draws, which is deliberately not all of it.
+ *
+ * `anchorPoint` is bookkeeping — where the reader is standing, so a height change
+ * beneath them can be undone — and it changes on every pixel of every scroll. It is
+ * omitted here because a snapshot that carried it would notify React sixty times a
+ * second while somebody was simply scrolling, which is the render this frame's
+ * budget and the library's `directDomUpdates` both exist to avoid.
+ */
+export type LedgerReadingState = Omit<ReadingAnchorState, "anchorPoint">;
+
 /** Everything a render of the viewport needs, in one stable value. */
 export interface LedgerViewportSnapshot {
   readonly rows: readonly LedgerViewportRow[];
   readonly rowKeys: readonly string[];
-  readonly range: RowWindowRange;
-  readonly reading: ReadingAnchorState;
-  readonly geometry: LedgerGeometry | undefined;
+  /** One distinct key per row, and the repeats projecting them cost. */
+  readonly keyProjection: RowKeyProjection;
+  readonly reading: LedgerReadingState;
   readonly lastPrune: PruneOutcome | undefined;
 }
 
@@ -72,13 +89,17 @@ export interface LedgerViewportControllerOptions {
 export class LedgerViewportController {
   readonly scroll: LedgerScrollController;
   readonly anchor: ReadingAnchor;
-  readonly rowWindow: RowWindow;
+  readonly measurements: RowMeasurementLedger;
   readonly window: LedgerWindow;
+  /** The option object the virtualizer is constructed with. */
+  readonly seams: LedgerVirtualizerSeams;
 
   readonly #clock: ConsoleClock;
   readonly #changeEmitter = new Emitter<void>("ledger viewport snapshot");
   readonly #teardown: Unsubscribe[] = [];
 
+  #virtualizer: LedgerRowVirtualizer | undefined;
+  #virtualKeys: readonly string[] = [];
   #rows: readonly LedgerViewportRow[] = [];
   #rowKeys: readonly string[] = [];
   #snapshot: LedgerViewportSnapshot;
@@ -90,14 +111,21 @@ export class LedgerViewportController {
     this.#clock = options.clock;
     this.scroll = new LedgerScrollController({ clock: options.clock });
     this.anchor = new ReadingAnchor();
-    this.rowWindow = new RowWindow();
+    this.measurements = new RowMeasurementLedger();
     this.window = new LedgerWindow();
+    this.seams = new LedgerVirtualizerSeams({
+      scroll: this.scroll,
+      measurements: this.measurements,
+      virtualKeyAt: (index) => this.#virtualKeys[index],
+    });
     this.#snapshot = this.#buildSnapshot();
     this.#teardown.push(
+      // No `#publish` here: a scroll sample changes nothing this snapshot carries.
+      // Whatever a scroll DOES change — following became reading, the tail was
+      // reached — reaches the tree through the anchor's own notification below.
       this.scroll.subscribeToGeometry((geometry) => {
         this.anchor.observeGeometry(geometry);
         this.#captureAnchorPoint(geometry);
-        this.#publish();
       }),
       this.anchor.subscribe(() => {
         this.#publish();
@@ -124,10 +152,26 @@ export class LedgerViewportController {
 
   public attach(surface: LedgerScrollSurface): void {
     this.scroll.attach(surface);
+    this.seams.bindSurface(surface);
   }
 
   public detach(): void {
     this.scroll.detach();
+    this.seams.bindSurface(undefined);
+  }
+
+  /**
+   * Hand the controller the virtualizer the hook minted.
+   *
+   * The instance is created inside a React hook because `useFlushSync` and
+   * `directDomUpdates` are the React adapter's options and exist nowhere else; the
+   * POLICY those options run under is this class's, which is why every option body
+   * below is a method here rather than a closure in the component.
+   */
+  public bindVirtualizer(virtualizer: LedgerRowVirtualizer): void {
+    this.#virtualizer = virtualizer;
+    virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) =>
+      this.#compensatesForGrowth(item.end, instance.scrollOffset ?? 0);
   }
 
   /**
@@ -149,17 +193,31 @@ export class LedgerViewportController {
       heldRowKeys: this.anchor.heldRowKeys(),
     });
     for (const prunedKey of this.#lastPrune.prunedKeys) {
-      this.rowWindow.forget(prunedKey);
+      this.measurements.forget(prunedKey);
     }
     const retained = this.window.rows();
     const appendedCount = this.#countAppendedAfter(retained, previousTailKey);
     this.#rows = retained;
     this.#rowKeys = retained.map((row) => row.key);
+    this.#virtualKeys = this.measurements.projectKeys(this.#rowKeys).virtualKeys;
     if (appendedCount > 0) {
       this.anchor.noteAppendedRows(appendedCount);
     }
     this.holdReadingPosition();
     this.#publish();
+  }
+
+  /**
+   * Declare the display every measurement is being taken on.
+   *
+   * A change drops this ledger's priors AND the library's, in one act: two caches
+   * disagreeing about a row's height is a scrollbar that never settles.
+   */
+  public observeDisplaySettings(devicePixelRatio: number, rootFontSizePx: number): void {
+    if (this.measurements.setDisplaySettings({ devicePixelRatio, rootFontSizePx })) {
+      this.#virtualizer?.measure();
+      this.#publish();
+    }
   }
 
   /**
@@ -185,21 +243,16 @@ export class LedgerViewportController {
       // is how a ledger teleports — the offset is left exactly where it is.
       return;
     }
-    const offset = this.rowWindow.offsetOf(this.#rowKeys, index);
-    this.scroll.glideTo("hold-reading-position", offset - anchorPoint.offsetWithinViewportPx);
+    this.scroll.glideTo(
+      "hold-reading-position",
+      this.#offsetOfIndex(index) - anchorPoint.offsetWithinViewportPx,
+    );
   }
 
   /** The tail pill and the keyboard's jump. */
   public jumpToTail(): void {
     this.anchor.resumeFollowing();
     this.scroll.glideToTail("jump-to-tail");
-  }
-
-  /** One row's measured height. Publishing is batched onto the next frame. */
-  public measureRow(rowKey: string, heightPx: number): void {
-    if (this.rowWindow.measure(rowKey, heightPx)) {
-      this.#schedulePublish();
-    }
   }
 
   /** Terminal. Every subscription this controller opened is closed here. */
@@ -212,32 +265,90 @@ export class LedgerViewportController {
     this.scroll.dispose();
     this.anchor.dispose();
     this.#changeEmitter.clear();
+    this.#virtualizer = undefined;
     this.#disposed = true;
+  }
+
+  /** Coalesce a burst of library notifications into one snapshot. Test seam too. */
+  public schedulePublish(): void {
+    if (this.#publishFrame !== undefined || this.#disposed) {
+      return;
+    }
+    this.#publishFrame = this.#clock.scheduleFrame(() => {
+      this.#publishFrame = undefined;
+      this.#publish();
+    });
+  }
+
+  /**
+   * Whether the library may subtract a measurement's delta from the offset.
+   *
+   * Two conjuncts, and BOTH are load-bearing:
+   *
+   *   • The reader is not following. While following, the tail glide already puts
+   *     them at the bottom and a compensation would fight it. While reading, holding
+   *     the offset across a measurement is exactly the reading anchor's promise, and
+   *     the library can keep it a frame earlier than the next reconcile can.
+   *   • The measured row sits ENTIRELY above the fold. A row the reader can see is
+   *     growing below their eyes, not above them, so subtracting its delta would drag
+   *     the viewport down on every frame of a stream — and, because each drag moves
+   *     the anchor, would re-enter through the anchor's own change notification and
+   *     never settle. Dropping this conjunct is measurable as an unbounded render
+   *     loop rather than as a subtle drift.
+   */
+  #compensatesForGrowth(rowEndOffsetPx: number, scrollOffsetPx: number): boolean {
+    return this.anchor.state.mode !== "following" && rowEndOffsetPx <= scrollOffsetPx;
+  }
+
+  /**
+   * Where a row's top edge sits, from measurements the library already holds.
+   *
+   * No element is read, so this is affordable on the scroll path — which is the
+   * whole reason the anchor is captured from here rather than from a rect.
+   */
+  #offsetOfIndex(index: number): number {
+    const offsetForIndex = this.#virtualizer?.getOffsetForIndex(index, "start");
+    if (offsetForIndex !== undefined) {
+      return offsetForIndex[0];
+    }
+    // Before the virtualizer has mounted there are no measurements to read, so the
+    // ledger answers from its own priors rather than pretending the offset is zero.
+    let offset = 0;
+    for (let cursor = 0; cursor < index; cursor += 1) {
+      offset += this.measurements.heightOf(this.#rowKeys[cursor] ?? "");
+    }
+    return offset;
   }
 
   /**
    * Which row the reader is looking at, and how far down the viewport it sits.
    *
-   * Read from the prefix sum rather than from the DOM: no element is touched, so
-   * this is affordable on the scroll path.
+   * Read from the library's measurements rather than from the DOM: no element is
+   * touched, so this is affordable on the scroll path.
    */
   #captureAnchorPoint(geometry: LedgerGeometry): void {
     if (geometry.isAtTail || this.#rowKeys.length === 0) {
       return;
     }
-    const range = this.rowWindow.rangeFor(
-      this.#rowKeys,
-      geometry.scrollTop,
-      geometry.viewportHeight,
-    );
-    const rowKey = this.#rowKeys[range.startIndex];
+    if (this.scroll.vetoesPrune()) {
+      // This sample was published from INSIDE a programmatic glide, so it reports
+      // where the ledger just put the reader rather than where the reader went. Two
+      // reasons not to anchor to it, and either alone is sufficient: it would discard
+      // the very position the glide was performed to preserve, and — because an
+      // anchor change notifies the tree, and a render re-runs the virtualizer's
+      // layout effects, which can glide again — it closes a loop that does not
+      // settle. Only a scroll the READER performed moves the anchor.
+      return;
+    }
+    const topItem = this.#virtualizer?.getVirtualItemForOffset(geometry.scrollTop);
+    const index = topItem?.index ?? 0;
+    const rowKey = this.#rowKeys[index];
     if (rowKey === undefined) {
       return;
     }
     this.anchor.capture({
       rowKey,
-      offsetWithinViewportPx:
-        this.rowWindow.offsetOf(this.#rowKeys, range.startIndex) - geometry.scrollTop,
+      offsetWithinViewportPx: (topItem?.start ?? this.#offsetOfIndex(index)) - geometry.scrollTop,
     });
   }
 
@@ -254,41 +365,42 @@ export class LedgerViewportController {
   }
 
   #buildSnapshot(): LedgerViewportSnapshot {
-    const geometry = this.scroll.geometry;
+    const { mode, newRowCount, pinnedRootCursor } = this.anchor.state;
     return {
       rows: this.#rows,
       rowKeys: this.#rowKeys,
-      range: this.rowWindow.rangeFor(
-        this.#rowKeys,
-        geometry?.scrollTop ?? 0,
-        geometry?.viewportHeight ?? 0,
-      ),
-      reading: this.anchor.state,
-      geometry,
+      keyProjection: this.measurements.projectKeys(this.#rowKeys),
+      reading: { mode, newRowCount, pinnedRootCursor },
       lastPrune: this.#lastPrune,
     };
   }
 
-  #publish(): void {
-    this.#snapshot = this.#buildSnapshot();
-    this.#changeEmitter.emit(undefined);
-  }
-
   /**
-   * Coalesce a burst of row measurements into one publish.
+   * Publish, but only when the published thing actually differs.
    *
-   * Fifty rows mounting in one pass would otherwise be fifty snapshots and fifty
-   * renders; through the clock's frame seam they are one. Nothing here polls: the
-   * frame is armed by a measurement and never re-armed on its own.
+   * `useSyncExternalStore` re-renders on every notification, and a render re-runs the
+   * virtualizer's layout effects, which can move the offset, which notifies again. A
+   * notification that carries no change is therefore not merely wasted work — it is
+   * one turn of a loop that does not settle. Every member below is compared the way
+   * it is produced: the three arrays and the prune outcome by identity, because each
+   * is rebuilt exactly when it changes, and the three reading fields by value.
    */
-  #schedulePublish(): void {
-    if (this.#publishFrame !== undefined || this.#disposed) {
+  #publish(): void {
+    const next = this.#buildSnapshot();
+    const current = this.#snapshot;
+    if (
+      next.rows === current.rows &&
+      next.rowKeys === current.rowKeys &&
+      next.keyProjection === current.keyProjection &&
+      next.lastPrune === current.lastPrune &&
+      next.reading.mode === current.reading.mode &&
+      next.reading.newRowCount === current.reading.newRowCount &&
+      next.reading.pinnedRootCursor === current.reading.pinnedRootCursor
+    ) {
       return;
     }
-    this.#publishFrame = this.#clock.scheduleFrame(() => {
-      this.#publishFrame = undefined;
-      this.#publish();
-    });
+    this.#snapshot = next;
+    this.#changeEmitter.emit(undefined);
   }
 
   #cancelPublishFrame(): void {
@@ -298,88 +410,4 @@ export class LedgerViewportController {
     this.#clock.cancel(this.#publishFrame);
     this.#publishFrame = undefined;
   }
-}
-
-/** What the view gets back: a snapshot, the surface ref, and the two acts it offers. */
-export interface LedgerViewportBinding {
-  readonly snapshot: LedgerViewportSnapshot;
-  readonly attachSurface: (element: HTMLElement | null) => void;
-  readonly measureRow: (rowKey: string, element: HTMLElement | null) => void;
-  readonly jumpToTail: () => void;
-}
-
-export interface UseLedgerViewportOptions extends LedgerViewportConditions {
-  /**
-   * The clock every timer in this frame is minted through. Fixed for the mount:
-   * a viewport that swapped clocks mid-life would have work armed on one and
-   * cancelled on another.
-   */
-  readonly clock: ConsoleClock;
-}
-
-/**
- * Bind a viewport controller to a React tree.
- *
- * `rows` is expected to be MEMOIZED by the caller. The reconcile effect keys on its
- * identity, and so does the row window's prefix-sum cache, so a caller that rebuilds
- * the array every render reconciles every render — a cost the caller controls and
- * this hook documents, rather than a deep compare performed on its behalf.
- *
- * The re-mint arm is `frame/session-lifecycle.ts`' idiom, for its reason: a remount
- * of the same component instance — React's StrictMode double-mount is the one that
- * does it today — has already run the cleanup, and a disposed controller attaches
- * nothing, so the second mount takes a fresh one rather than a corpse.
- */
-export function useLedgerViewport(options: UseLedgerViewportOptions): LedgerViewportBinding {
-  const { clock, rows, hasActiveTurn, isRevealDraining } = options;
-  const [controller, setController] = useState<LedgerViewportController>(
-    () => new LedgerViewportController({ clock }),
-  );
-
-  useEffect(() => {
-    if (controller.isDisposed) {
-      setController(new LedgerViewportController({ clock }));
-      return;
-    }
-    return () => {
-      controller.dispose();
-    };
-  }, [controller, clock]);
-
-  const snapshot = useSyncExternalStore(
-    useCallback((onChange: () => void) => controller.subscribe(onChange), [controller]),
-    useCallback(() => controller.snapshot(), [controller]),
-  );
-
-  useEffect(() => {
-    if (controller.isDisposed) {
-      return;
-    }
-    controller.reconcile({ rows, hasActiveTurn, isRevealDraining });
-  }, [controller, rows, hasActiveTurn, isRevealDraining]);
-
-  return {
-    snapshot,
-    attachSurface: useCallback(
-      (element: HTMLElement | null) => {
-        if (element === null) {
-          controller.detach();
-          return;
-        }
-        controller.attach(element);
-      },
-      [controller],
-    ),
-    measureRow: useCallback(
-      (rowKey: string, element: HTMLElement | null) => {
-        if (element !== null) {
-          controller.measureRow(rowKey, element.offsetHeight);
-        }
-      },
-      [controller],
-    ),
-    jumpToTail: useCallback(() => {
-      controller.jumpToTail();
-    }, [controller]),
-  };
 }
