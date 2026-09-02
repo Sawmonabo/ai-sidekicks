@@ -13,9 +13,13 @@ Two commands, two disjoint claims. Both run in CI on every desktop PR, on the ti
 
 `pnpm --filter @ai-sidekicks/desktop structure` runs both locally; CI runs them as two Turbo tasks with `--continue`, so one red leg never hides the other's findings. Neither claim subsumes the other: a dead module can be perfectly layered, and a layering violation can sit on a fully reachable path.
 
-Config: `knip.json` (run from the workspace root — a package-scoped run cannot see the pnpm catalog or the root tooling manifest) and `.dependency-cruiser.mjs`. Both refuse a stale config: knip runs with `--treat-config-hints-as-errors`, so a pattern that matches nothing or duplicates a default fails the gate.
+Config: `knip.json` (run from the workspace root — a package-scoped run cannot see the pnpm catalog or the root tooling manifest) and `.dependency-cruiser.mjs`. Both refuse a stale config: knip runs with `--treat-config-hints-as-errors`, so a pattern that matches nothing or duplicates a default fails the gate, and with `--treat-tag-hints-as-errors`, so a per-symbol exemption that outlived its consumer fails it too.
 
-A knip `ignore` entry is allowed for exactly one thing: a symbol that carries the comment `// Consumed by T-023p-1C-<n>` naming the task that will import it. Nothing else in this tree gets an ignore entry. `ignoreBinaries` and `ignoreDependencies` are not that lever and are not used; if a dependency looks unused, it is unused.
+The one exemption the dead-code gate admits is per SYMBOL, through knip's `tags` option: `knip.json` sets `"tags": ["-consumedBy"]`, and an export carrying the JSDoc tag `@consumedBy T-023p-1C-<n>` — naming the task, or the comma-separated tasks, that will import it — is excluded. A symbol no task will name is dead code and is deleted, not tagged.
+
+That marker has two halves, and they are deleted together in the PR that imports the symbol. The tag sits where knip reports the finding, which for a barrelled symbol is the BARREL's own export specifier — measured, not assumed: knip reads per-specifier tags on an `export { … } from`, while a tag on the re-exported declaration suppresses nothing there and instead raises an unused-tag hint, because that declaration is referenced by the barrel. The declaration carries the same claim as a one-line `// Consumed by T-023p-1C-<n>` comment, so the symbol names its consumer where a reader meets it. `--treat-tag-hints-as-errors` is what makes the deletion mandatory: the moment a consumer imports the symbol, the surviving tag fails the run.
+
+No other exemption is used. `ignore` and `ignoreIssues` are file-scoped — they exempt every export a file ever grows, not the one symbol that is early — so neither appears here, and no file is exempted. `ignoreDependencies` is not used at all: if a dependency looks unused, it is unused. `ignoreBinaries` carries exactly one entry, `xdpyinfo`, an X11 host utility the Xvfb probe spawns on Linux runners: the CI job's apt step installs it and no manifest could list it. A second entry meets that same standard — a host binary, or nothing.
 
 ## Layout — what belongs in each directory
 

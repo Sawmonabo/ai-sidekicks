@@ -22,6 +22,7 @@ import { type ConsoleRoute } from "../../routing/index.js";
 import { type ConsolePaneAddress } from "./pane-registry.js";
 import { SingleSlotSeat } from "./single-slot-seat.js";
 
+// Consumed by T-023p-1C-2, T-023p-1C-3
 /** What the workspace hands the composer on every render. */
 export interface ComposerSeatProps {
   /** The session the composer is addressed within. */
@@ -48,6 +49,7 @@ export interface ComposerSeatProps {
   readonly focusedPane: ConsolePaneAddress | undefined;
 }
 
+// Consumed by T-023p-1C-2, T-023p-1C-3
 /** The composer body. Returns `React.ReactNode` so the mount can render it directly. */
 export type ComposerSeatRenderer = (props: ComposerSeatProps) => React.ReactNode;
 
@@ -56,11 +58,13 @@ const composerSeat = new SingleSlotSeat<ComposerSeatRenderer>(
   "the session view mounts one composer; a second owner would make which one renders depend on import order",
 );
 
+// Consumed by T-023p-1C-3
 /** The call the composer family makes to fill the seat. */
 export function registerComposerSeat(owner: string, render: ComposerSeatRenderer): void {
   composerSeat.register({ owner, render });
 }
 
+// Consumed by T-023p-1C-2, T-023p-1C-3
 /**
  * Release the seat.
  *
@@ -73,6 +77,7 @@ export function unregisterComposerSeat(): void {
   composerSeat.unregister();
 }
 
+// Consumed by T-023p-1C-2
 /** The composer body, or `undefined` while the seat is empty. */
 export function composerSeatRenderer(): ComposerSeatRenderer | undefined {
   return composerSeat.renderer();

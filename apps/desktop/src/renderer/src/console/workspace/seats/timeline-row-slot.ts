@@ -39,6 +39,7 @@ import type { TimelineRow } from "@ai-sidekicks/contracts";
 import { type ParticipantHueAssignment } from "../../tokens/index.js";
 import { SingleSlotSeat } from "./single-slot-seat.js";
 
+// Consumed by T-023p-1C-2
 /**
  * A row's collapse state, under `Spec-023 §Console Design (Meridian)` rule 7:
  * "Tool rows render as one line until opened; run chapters collapse once terminal
@@ -50,9 +51,11 @@ import { SingleSlotSeat } from "./single-slot-seat.js";
  */
 export const TIMELINE_ROW_DENSITIES = ["collapsed", "expanded"] as const;
 
+// Consumed by T-023p-1C-2
 /** One row's collapse state. Derived from the enumeration, never restated. */
 export type TimelineRowDensity = (typeof TIMELINE_ROW_DENSITIES)[number];
 
+// Consumed by T-023p-1C-2
 /** What the timeline list hands each row. */
 export interface TimelineRowSlotProps {
   /** The projected row, wire-verbatim, as `@ai-sidekicks/contracts` defines it. */
@@ -74,6 +77,7 @@ export interface TimelineRowSlotProps {
   readonly density: TimelineRowDensity;
 }
 
+// Consumed by T-023p-1C-2
 /** The row body. Returns `React.ReactNode` so the list can render it directly. */
 export type TimelineRowRenderer = (props: TimelineRowSlotProps) => React.ReactNode;
 
@@ -82,6 +86,7 @@ const timelineRowSeat = new SingleSlotSeat<TimelineRowRenderer>(
   "the fixture shell is REPLACED by the timeline subtree, not registered beside it — delete the shell in the PR that registers the real row",
 );
 
+// Consumed by T-023p-1C-2
 /**
  * The call a row owner makes to fill the seat.
  *
@@ -94,6 +99,7 @@ export function registerTimelineRowRenderer(owner: string, render: TimelineRowRe
   timelineRowSeat.register({ owner, render });
 }
 
+// Consumed by T-023p-1C-2
 /**
  * Release the seat.
  *
@@ -105,6 +111,7 @@ export function unregisterTimelineRowRenderer(): void {
   timelineRowSeat.unregister();
 }
 
+// Consumed by T-023p-1C-2
 /** The row body, or `undefined` while the seat is empty. */
 export function timelineRowRenderer(): TimelineRowRenderer | undefined {
   return timelineRowSeat.renderer();

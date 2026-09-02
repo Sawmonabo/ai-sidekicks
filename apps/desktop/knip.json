@@ -16,6 +16,23 @@
   // The root workspace is declared with empty globs on purpose: knip then reads its manifest
   // for dependency resolution while contributing no findings of its own, and `--workspace
   // apps/desktop` keeps the report scoped to this package.
+  // The per-symbol dead-code lever, and the only one this package uses. knip reads
+  // JSDoc/TSDoc tags off an export and `-consumedBy` excludes every export carrying
+  // `@consumedBy` from the report — the documented `tags` option, which is what
+  // `apps/desktop/AGENTS.md` binds to a task id. It is per SYMBOL, unlike `ignore`
+  // (file globs) and `ignoreIssues` (issue types per file pattern), neither of which
+  // is used here: exempting a file would exempt every export it ever grows.
+  //
+  // MEASURED, NOT ASSUMED — the tag must sit on the re-export specifier knip reports,
+  // which for a barrelled symbol is the barrel's own specifier and not the defining
+  // declaration. knip reads per-specifier tags on an `export { … } from` (its
+  // `handleExportNamed`), and a tag on the declaration a barrel re-exports suppresses
+  // nothing there while raising an "unused tag" hint, because that declaration IS
+  // referenced — by the barrel. `--treat-tag-hints-as-errors` turns that hint into a
+  // gate failure, so a marker that outlived its consumer fails the run instead of
+  // rotting: the PR that imports the symbol deletes the tag in the same diff.
+  "tags": ["-consumedBy"],
+
   "workspaces": {
     ".": { "entry": [], "project": [] },
 
