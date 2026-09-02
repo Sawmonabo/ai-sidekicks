@@ -293,7 +293,14 @@ export function WorkflowRunPane(props: WorkflowRunPaneProps): React.JSX.Element 
         cancel={{ kind: "refused", refusal: unregisteredRunControl("cancel") }}
         resume={{ kind: "refused", refusal: unregisteredRunControl("resume") }}
       />
-      <RunDetailSlot workflowRunId={entity.id} />
+      <RunDetailSlot
+        workflowRunId={entity.id}
+        // Spread on the served arm and omitted on every other, rather than passed as
+        // an explicit `undefined`: the mount's own rule is that the key's PRESENCE is
+        // the arm the pane was on, and a key carrying nothing would be the null the
+        // type refuses. The same narrowing the human-form mount below performs.
+        {...(snapshot.status === "served" ? { snapshot: snapshot.snapshot } : {})}
+      />
       <HumanFormSlot
         phase={
           snapshot.status === "served" ? openHumanFormFor(snapshot.snapshot.phaseStates) : undefined

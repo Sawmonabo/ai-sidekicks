@@ -28,6 +28,7 @@ import {
   WORKFLOW_HUMAN_FORM_SLOT,
   WORKFLOW_RUN_DETAIL_SLOT,
 } from "../../../workflows/owner-slots.js";
+import { WORKFLOWS_PARKED_RUN } from "../../../bridge/scenarios/workflow-fixture-data.js";
 import { HumanFormSlot, type HumanFormMount } from "./HumanFormSlot.js";
 import { RunDetailSlot, type RunDetailMount } from "./RunDetailSlot.js";
 
@@ -75,11 +76,37 @@ describe("a filled slot receives exactly what the mount promised", () => {
   // `toHaveBeenCalledWith`: React owns the argument list of a component it renders,
   // and an assertion on its ARITY would be a claim about React rather than about the
   // mount this file is checking.
-  it("hands the run detail the run and nothing else", () => {
+  it("hands the run detail the run and, on an unserved read, no snapshot key at all", () => {
+    // Absent rather than present-and-empty: the key's PRESENCE is the arm the pane
+    // was on, so a body reading it can never be shown a run the daemon never
+    // described. `toStrictEqual` is what makes that bite — it separates an absent
+    // key from one carrying `undefined`.
     const body = vi.fn((_mount: RunDetailMount) => <p>run detail body</p>);
     const { container } = render(<RunDetailSlot workflowRunId="wfr-01" body={body} />);
     expect(body.mock.calls[0]?.[0]).toStrictEqual({ workflowRunId: "wfr-01" });
     expect(container.querySelector(".meridian-nothing--empty")).toBeNull();
+  });
+
+  it("hands the run detail the served snapshot beside the run", () => {
+    // The obligation this slot is under is that the run pane supplies the run
+    // snapshot. Handed over rather than left for the body to re-read: a body that
+    // issued its own run read would put one question twice and hold two answers to
+    // it on one screen.
+    const body = vi.fn((_mount: RunDetailMount) => <p>run detail body</p>);
+    render(
+      <RunDetailSlot
+        workflowRunId={WORKFLOWS_PARKED_RUN.workflowRunId}
+        snapshot={WORKFLOWS_PARKED_RUN}
+        body={body}
+      />,
+    );
+    expect(body.mock.calls[0]?.[0]).toStrictEqual({
+      workflowRunId: WORKFLOWS_PARKED_RUN.workflowRunId,
+      snapshot: WORKFLOWS_PARKED_RUN,
+    });
+    // The same object and not a copy of it: the phases, retries and outputs a body
+    // renders are the ones the pane is rendering its parks from.
+    expect(body.mock.calls[0]?.[0].snapshot).toBe(WORKFLOWS_PARKED_RUN);
   });
 
   it("hands the human form the open phase, revision included", () => {

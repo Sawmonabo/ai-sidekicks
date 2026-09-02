@@ -13,14 +13,15 @@
 // surface renders one.
 //
 // WHAT THE MOUNT OWES TODAY, AND WHAT IT CANNOT YET. `RunDetailMount` is the mount
-// obligation made checkable, and it carries exactly what this pane can honestly
-// supply: the run's identifier, and the pane-local call that opens a phase's form
-// in the pane's own layout. Two further members belong on it and are absent for a
-// reason rather than by omission — the run SNAPSHOT, which needs a run read no
-// bridge namespace serves, and the ledger's programmatic-scroll chokepoint, which
-// arrives with the timeline family. Each joins this type in the task that lands its
-// producer; inventing either here would be this pane promising a value it does not
-// have.
+// obligation made checkable, and it carries what this pane can honestly supply: the
+// run's identifier, and the served run SNAPSHOT the pane is already holding beside
+// this mount. The snapshot is optional and PRESENT EXACTLY ON THE SERVED ARM — the
+// key's presence is which arm the pane was on, rather than a null the body would
+// have to interpret, and a body handed one on a refused read would be shown a run
+// the daemon never described. One member of the obligation is still absent, for a
+// reason rather than by omission: the ledger's programmatic-scroll chokepoint, which
+// arrives with the timeline family. It joins this type in the task that lands its
+// producer; inventing it here would be this pane promising a value it does not have.
 //
 // THE FORM IS NOT OPENED FROM HERE. The human phase's form has a slot of its own,
 // mounted beside this one by the same pane, because the form has to sit where the
@@ -29,6 +30,7 @@
 // body to that one belongs on this type the day a body exists to use it; adding it
 // now would be a callback with no caller on either end.
 
+import type { WorkflowRunSnapshot } from "../../../bridge/index.js";
 import { WorkflowSlotMount } from "../../../workflows/WorkflowSlotMount.js";
 import { WORKFLOW_RUN_DETAIL_SLOT } from "../../../workflows/owner-slots.js";
 
@@ -36,6 +38,18 @@ import { WORKFLOW_RUN_DETAIL_SLOT } from "../../../workflows/owner-slots.js";
 export interface RunDetailMount {
   /** The run being rendered. Opaque and wire-verbatim; the body never parses it. */
   readonly workflowRunId: string;
+  /**
+   * The run as the read answered, present exactly while one was served.
+   *
+   * Handed over rather than re-read: the pane puts the run read to render its parks
+   * and its phase graph, so a body that issued its own would be a second read of one
+   * question and two answers to it on one screen. Optional rather than
+   * required-carrying-undefined, because unlike a session that a route may genuinely
+   * not name, the absence here is one of three other read states the pane is already
+   * rendering above this mount — so the key's presence says the read was served and
+   * its absence sends the body to the surface that says which of the three it was.
+   */
+  readonly snapshot?: WorkflowRunSnapshot;
 }
 
 /**
