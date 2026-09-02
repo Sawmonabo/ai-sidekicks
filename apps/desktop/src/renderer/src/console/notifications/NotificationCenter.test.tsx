@@ -132,11 +132,37 @@ describe("members the boundary refused", () => {
         reading={{ phase: "read", plane: new AttentionPlane([item()]), droppedCount: 2 }}
       />,
     );
-    expect(container.textContent ?? "").toContain("2 items in that read");
+    const text = container.textContent ?? "";
+    expect(text).toContain("2 items in that read");
+    // Groups above and the dropped line below: a partial read shows both halves.
+    expect(container.querySelectorAll(".meridian-attention__group")).toHaveLength(1);
   });
 
   it("negative control: a clean read says nothing about dropped members", () => {
     const { container } = render(<NotificationCenter reading={readingOf([item()])} />);
     expect(container.textContent ?? "").not.toContain("in that read");
+  });
+
+  it("never reports an all-clear for a read it could recognise none of", () => {
+    // The failure this catches is the worst one this surface has: a person is told
+    // nothing needs them on the strength of a read whose every member was refused.
+    const { container } = render(
+      <NotificationCenter
+        reading={{ phase: "read", plane: new AttentionPlane([]), droppedCount: 2 }}
+      />,
+    );
+    const text = container.textContent ?? "";
+    expect(text).not.toContain("Nothing needs you.");
+    expect(text).toContain("2 items in that read");
+    expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
+  });
+
+  it("negative control: a read that answered nothing AND dropped nothing is the all-clear", () => {
+    // Without this, the case above would pass over a center that had simply lost
+    // its empty state, which is a different defect wearing the same green tick.
+    const { container } = render(<NotificationCenter reading={readingOf([])} />);
+    const text = container.textContent ?? "";
+    expect(text).toContain("Nothing needs you.");
+    expect(text).not.toContain("in that read");
   });
 });
