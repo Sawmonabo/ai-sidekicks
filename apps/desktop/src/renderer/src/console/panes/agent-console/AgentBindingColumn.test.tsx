@@ -217,6 +217,14 @@ const AGENT_ON_CLAUDE = {
   modelId: "claude-sonnet",
 };
 
+const AGENT_ON_CODEX = {
+  agentId: "agent-b",
+  name: "Runner",
+  state: "ready",
+  driverName: "codex",
+  modelId: "gpt-5.6",
+};
+
 /** The switch actions as they stand now — re-queried, never held across a render. */
 function currentSwitchActions(): HTMLButtonElement[] {
   return [...document.querySelectorAll(".meridian-switch__apply")] as HTMLButtonElement[];
@@ -296,6 +304,44 @@ describe("agent binding column — moving one agent's binding", () => {
     });
 
     expect(container.textContent ?? "").toContain("switches at the next run boundary");
+  });
+
+  it("carries no draft and no settlement across a move to another agent", async () => {
+    // Both agents are in one session's roster and the route moves between them, so
+    // the models and the component type are stable and React keeps this subtree
+    // mounted: without a key the axes edited for the first are submitted against the
+    // second, and the first's settlement is shown under it.
+    const daemon = new HeldConfigUpdateDaemon([AGENT_ON_CLAUDE, AGENT_ON_CODEX]);
+    const bridge = bridgeCalling(daemon);
+    const models = modelsOver(bridge);
+    const { container, rerender } = render(
+      <AgentBindingColumn models={models} agentId="agent-a" />,
+    );
+    await settleReads(bridge);
+
+    editProviderAccount(container, "account-2");
+    await act(async () => {
+      fireEvent.click(currentSwitchActions()[0] as HTMLButtonElement);
+    });
+    await act(async () => {
+      await daemon.settle({
+        agentId: "agent-a",
+        switch: { status: "pending", switchId: "switch-11", appliesAt: "run_boundary" },
+      });
+    });
+    expect(container.textContent ?? "").toContain("switches at the next run boundary");
+
+    rerender(<AgentBindingColumn models={models} agentId="agent-b" />);
+
+    // The account axis is back to the second agent's own value, no edit is pending
+    // against it, and the first agent's settlement is nowhere on its card.
+    expect(container.textContent ?? "").toContain("Runner");
+    expect(container.textContent ?? "").not.toContain("switches at the next run boundary");
+    expect(currentSwitchActions().length).toBe(0);
+    const accountInput = container.querySelector(
+      ".meridian-switch .meridian-axis-field__text",
+    ) as HTMLInputElement;
+    expect(accountInput.value).toBe("");
   });
 });
 

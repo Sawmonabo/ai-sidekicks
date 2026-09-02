@@ -20,6 +20,12 @@
 // rather than by pairs of state variables here: the latch it keeps is written
 // synchronously, which a `useState` flag is not, and a second press inside one task
 // would otherwise reach the wire twice.
+//
+// A SETTLEMENT BELONGS TO THE AGENT IT WAS SUBMITTED FOR. Moving the route from one
+// agent to another keeps this component mounted, so the agent id the submission named
+// is recorded and the settlement renders only under that agent. A comparison at
+// render rather than an effect: an effect would leave one committed render showing
+// agent A's settlement under agent B.
 
 import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 
@@ -36,7 +42,7 @@ import {
 } from "../../agents/index.js";
 import { usePushDrivenRead } from "../../collaboration/push-driven-read.js";
 import { Nothing, RefusalCard } from "../../primitives/index.js";
-import { MutationAttempt, useMutationAttempt } from "./mutation-attempt.js";
+import { IDLE_MUTATION_ATTEMPT, MutationAttempt, useMutationAttempt } from "./mutation-attempt.js";
 
 /** Names a mutation's failure where the thrown value carried no refusal of its own. */
 const AGENT_MUTATION_ORIGIN = "agent-mutation";
@@ -72,6 +78,7 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
   );
   const attachState = useMutationAttempt(attachAttempt);
   const bindingState = useMutationAttempt(bindingAttempt);
+  const [bindingSubjectAgentId, setBindingSubjectAgentId] = useState<string | undefined>(undefined);
 
   useEffect(() => attachForm.onChange(noteFormEdited), [attachForm, noteFormEdited]);
 
@@ -96,10 +103,13 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
       axes: Partial<Record<ProviderAxis, string>>,
       interruptAndSwitch: boolean,
     ): void => {
-      bindingAttempt.submit(async () => {
+      const admitted = bindingAttempt.submit(async () => {
         const reply = await models.updateConfig(targetAgentId, axes, interruptAndSwitch);
         return reply.switch;
       });
+      if (admitted) {
+        setBindingSubjectAgentId(targetAgentId);
+      }
     },
     [bindingAttempt, models],
   );
@@ -109,10 +119,13 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
   // switch does, because both are this agent's binding refusing to move.
   const detachAgent = useCallback(
     (targetAgentId: string): void => {
-      bindingAttempt.submit(async () => {
+      const admitted = bindingAttempt.submit(async () => {
         await models.detach(targetAgentId);
         return undefined;
       });
+      if (admitted) {
+        setBindingSubjectAgentId(targetAgentId);
+      }
     },
     [bindingAttempt, models],
   );
@@ -124,6 +137,8 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
   );
   const soleAgent = shownAgents.length === 1 ? shownAgents[0] : undefined;
   const isBindingMutating = bindingState.status === "in-flight";
+  const shownBinding =
+    bindingSubjectAgentId === soleAgent?.agentId ? bindingState : IDLE_MUTATION_ATTEMPT;
 
   return (
     <>
@@ -145,15 +160,19 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
       ))}
 
       {soleAgent === undefined ? null : (
+        // Keyed by the agent: the draft inside is about ONE agent's binding, and a
+        // key is React's own statement that this is a different subject. A reset
+        // effect would leave one render committed with the previous agent's draft.
         <ProviderSwitch
+          key={soleAgent.agentId}
           agent={soleAgent}
           catalog={catalogState}
           onApply={(axes, interruptAndSwitch) => {
             applySwitch(soleAgent.agentId, axes, interruptAndSwitch);
           }}
           isSubmitting={isBindingMutating}
-          settlement={bindingState.status === "settled" ? bindingState.settlement : undefined}
-          refusal={bindingState.status === "refused" ? bindingState.refusal : undefined}
+          settlement={shownBinding.status === "settled" ? shownBinding.settlement : undefined}
+          refusal={shownBinding.status === "refused" ? shownBinding.refusal : undefined}
         />
       )}
 

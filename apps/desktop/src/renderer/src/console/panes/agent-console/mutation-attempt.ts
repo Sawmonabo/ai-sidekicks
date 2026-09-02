@@ -47,7 +47,14 @@ export type MutationAttemptState<TSettlement> =
   | { readonly status: "settled"; readonly settlement: TSettlement }
   | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
 
-const IDLE: { readonly status: "idle" } = { status: "idle" };
+/**
+ * The idle arm, shared.
+ *
+ * A surface that has to show "nothing has been submitted for THIS subject" renders
+ * this rather than inventing a fourth state: an attempt whose settlement belongs to
+ * another subject is not a different kind of outcome, it is no outcome at all.
+ */
+export const IDLE_MUTATION_ATTEMPT: { readonly status: "idle" } = { status: "idle" };
 
 export interface MutationAttemptOptions {
   /** Names a failure the thrown value carried no refusal of its own for. */
@@ -57,7 +64,7 @@ export interface MutationAttemptOptions {
 export class MutationAttempt<TSettlement> {
   readonly #origin: string;
   readonly #changes = new Emitter<void>("mutation attempt");
-  #state: MutationAttemptState<TSettlement> = IDLE;
+  #state: MutationAttemptState<TSettlement> = IDLE_MUTATION_ATTEMPT;
 
   public constructor(options: MutationAttemptOptions) {
     this.#origin = options.origin;
