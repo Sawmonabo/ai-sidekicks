@@ -17,6 +17,7 @@
 // host seam in `view-host.ts` rather than a fabricated method string.
 
 import {
+  Emitter,
   type ConsoleClock,
   type ConsoleRefusal,
   type ScheduledHandle,
@@ -54,6 +55,7 @@ export class PaneGeometryPublisher {
   readonly #host: PaneViewHost;
   readonly #clock: ConsoleClock;
   readonly #occlusion: PaneOverlaySource;
+  readonly #outcomeEmitter = new Emitter<void>("pane geometry outcome");
   #hostElement: HTMLElement | undefined;
   #detachers: Unsubscribe[] = [];
   #queuedFrame: ScheduledHandle | undefined;
@@ -87,7 +89,7 @@ export class PaneGeometryPublisher {
       return () => undefined;
     }
     if (this.#host.state === "unavailable") {
-      this.#lastOutcome = { status: "suppressed", refusal: this.#host.refusal };
+      this.#recordOutcome({ status: "suppressed", refusal: this.#host.refusal });
       return () => undefined;
     }
     this.#hostElement = hostElement;
@@ -139,6 +141,24 @@ export class PaneGeometryPublisher {
     return this.#lastOutcome;
   }
 
+  /**
+   * Fires whenever a new outcome is recorded, so a surface can RENDER one.
+   *
+   * Without it `lastOutcome()` is only readable by whoever happens to ask, and the
+   * pane asks exactly once — at attach, before the first frame has run, when the
+   * answer is still `undefined`. Everything after that, the `pane-gone` rejection
+   * most of all, would land in this private field and be seen by nobody, leaving the
+   * pane rendering "no page yet" over a host that has said the pane is destroyed.
+   *
+   * A `void` event and a re-read rather than the outcome as a payload, which is the
+   * shape `subscribeToChanges` next door already uses and what `useSyncExternalStore`
+   * takes: one snapshot accessor, one notification, and no second copy of the value
+   * to fall out of step with the first.
+   */
+  public subscribeToOutcomes(sink: () => void): Unsubscribe {
+    return this.#outcomeEmitter.subscribe(sink);
+  }
+
   /** How many samples reached the host. Deduped samples do not count. */
   public get publishCount(): number {
     return this.#publishCount;
@@ -147,6 +167,15 @@ export class PaneGeometryPublisher {
   /** Whether anything is still armed. Zero after `dispose`, and it stays zero. */
   public get armedSourceCount(): number {
     return this.#detachers.length;
+  }
+
+  /**
+   * Whether this publisher is spent. Read by the owner that has to decide whether to
+   * mint a fresh one — a disposal is terminal, and the two ways one happens are an
+   * unmount and the host rejecting a rectangle for a pane that is gone.
+   */
+  public get isDisposed(): boolean {
+    return this.#disposed;
   }
 
   /** Terminal. A disposed publisher never re-arms, however late an event arrives. */
@@ -171,20 +200,33 @@ export class PaneGeometryPublisher {
       return;
     }
     if (sample.key === this.#lastPublishedKey) {
-      this.#lastOutcome = { status: "deduped", sample };
+      this.#recordOutcome({ status: "deduped", sample });
       return;
     }
     const outcome = this.#host.setRect(sample);
     if (outcome.status === "rejected") {
       // 12.3's degraded arm. Retrying would publish a rectangle for a pane that no
-      // longer exists, once per frame, forever.
-      this.#lastOutcome = { status: "suppressed", refusal: outcome.refusal };
+      // longer exists, once per frame, forever. The outcome is recorded BEFORE the
+      // disposal, so the surface that has to render this sentence is told about it
+      // while it is still subscribed.
+      this.#recordOutcome({ status: "suppressed", refusal: outcome.refusal });
       this.dispose();
       return;
     }
     this.#lastPublishedKey = sample.key;
     this.#publishCount += 1;
-    this.#lastOutcome = { status: "published", sample };
+    this.#recordOutcome({ status: "published", sample });
+  }
+
+  /**
+   * The one writer of the outcome field, so no arm can record a result without
+   * announcing it. `dispose` deliberately does NOT clear the sinks: the subscription
+   * belongs to whoever opened it, and severing it here would silently drop the
+   * notification carrying the very refusal that caused the disposal.
+   */
+  #recordOutcome(outcome: PaneGeometryOutcome): void {
+    this.#lastOutcome = outcome;
+    this.#outcomeEmitter.emit();
   }
 
   #armResizeObserver(hostElement: HTMLElement): void {

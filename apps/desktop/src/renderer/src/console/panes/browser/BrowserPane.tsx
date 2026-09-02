@@ -27,7 +27,7 @@
 // module rather than through `browser/index.js`, which re-exports this component — a
 // barrel import here would close a cycle the layering gate refuses.
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 
 import { BudgetMeter } from "../../browser/BudgetMeter.js";
 import {
@@ -86,36 +86,65 @@ interface PaneAttributionStyle extends React.CSSProperties {
   readonly "--meridian-browser-pane-hue": string;
 }
 
+/** One publisher over the host this window actually has. Pure: it arms nothing. */
+function createGeometryPublisher(): PaneGeometryPublisher {
+  return new PaneGeometryPublisher({
+    host: resolvePaneViewHost({}),
+    clock: new RealClock(),
+    occlusion: consoleOcclusionRegistry,
+  });
+}
+
 /**
- * Publish this pane's rectangle for the life of the mount. The publisher is built in
- * the effect and disposed with it, so a pane that unmounts mid-stream leaves no
- * listener behind — and on the unavailable host it has today, `observe` arms nothing
- * and hands back the sentence the viewport renders.
+ * Publish this pane's rectangle for the life of the mount, and RENDER what the host
+ * said back.
+ *
+ * The outcome is subscribed rather than copied. `observe` only queues the first
+ * write, so a value read straight after it is `undefined` by construction — and
+ * everything after it, the `pane-gone` rejection above all, would then land in the
+ * publisher and reach nobody, leaving the viewport saying "no page yet" over a host
+ * that has said this pane is destroyed. `useSyncExternalStore` rather than a
+ * `useState` an effect writes into, for `LiveAnnouncerProvider`'s reason: an outcome
+ * recorded between this component's render and its subscription is missed by the
+ * effect shape, and a missed refusal is silent by construction.
+ *
+ * The publisher is minted in a `useState` initializer and RE-MINTED when the state
+ * holds a disposed one, which is `frame/ui-state-lifecycle.ts`'s shape for the same
+ * hazard: React's double-mount runs the cleanup and then mounts the same component
+ * instance again, so the second mount would otherwise be handed the corpse the first
+ * one's teardown just disposed. Asking the publisher rather than remembering is what
+ * makes that arm correct without a second flag beside it — and the effect's only
+ * dependency is the publisher, so a self-disposal after a rejection does NOT re-mint:
+ * that arm is terminal on purpose.
  */
 function useGeometryPublisher(): {
   readonly hostRef: React.RefObject<HTMLDivElement | null>;
   readonly outcome: PaneGeometryOutcome | undefined;
 } {
   const hostRef = useRef<HTMLDivElement | null>(null);
-  const [outcome, setOutcome] = useState<PaneGeometryOutcome | undefined>(undefined);
+  const [publisher, setPublisher] = useState<PaneGeometryPublisher>(createGeometryPublisher);
+  const subscribe = useCallback(
+    (onOutcome: () => void) => publisher.subscribeToOutcomes(onOutcome),
+    [publisher],
+  );
+  const readOutcome = useCallback(() => publisher.lastOutcome(), [publisher]);
+  const outcome = useSyncExternalStore(subscribe, readOutcome, readOutcome);
 
   useEffect(() => {
+    if (publisher.isDisposed) {
+      setPublisher(createGeometryPublisher());
+      return undefined;
+    }
     const hostElement = hostRef.current;
     if (hostElement === null) {
       return undefined;
     }
-    const publisher = new PaneGeometryPublisher({
-      host: resolvePaneViewHost({}),
-      clock: new RealClock(),
-      occlusion: consoleOcclusionRegistry,
-    });
     const detach = publisher.observe(hostElement);
-    setOutcome(publisher.lastOutcome());
     return () => {
       detach();
       publisher.dispose();
     };
-  }, []);
+  }, [publisher]);
 
   return { hostRef, outcome };
 }
