@@ -137,9 +137,16 @@ import type {
   AttentionSeverity,
   AttentionTrigger,
 } from "./attention-projection.js";
-import { createRefusingGrowthPort, type GrowthPort } from "./growth-port.js";
+import type { GrowthOperationId } from "./growth-entry.js";
+import type { GrowthOutcome } from "./growth-outcome.js";
+import {
+  createRefusingGrowthPort,
+  growthScriptedReplyUnavailable,
+  type GrowthPort,
+} from "./growth-port.js";
 import type { GrowthSessionSummary } from "./growth-values.js";
 import type { ConsoleScenario, ScenarioEngine } from "./scenario.js";
+import { settleScriptedReply } from "./scripted-reply.js";
 
 /**
  * The operations the fixture answers rather than refuses.
@@ -210,16 +217,73 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
             { items: [] },
     }),
     // gitflow
-    gitflowBranchContextRead: async () => ({
-      status: "served",
-      // No scenario states one, and none can — see the header. Served rather than
-      // refused, because the operation IS answered here and what it found is
-      // nothing; a refusal would say the wire is missing, which under this bridge
-      // is not what happened.
-      value: { branchContext: undefined },
-    }),
+    gitflowBranchContextRead: async () =>
+      // Routed through the scripted-reply seam so a repos scenario that DOES script
+      // `gitflow.branchContextRead` is answered from the script, on the frozen clock,
+      // with the loading window and the two non-arrival refusals a real read has. No
+      // scenario scripts one today, and none can — see the header — so the unscripted
+      // arm is the one that runs, and it answers with the absence rather than a
+      // refusal: the operation IS answered here and what it found is nothing, whereas
+      // a refusal would say the wire is missing, which under this bridge is not what
+      // happened.
+      answerFromScriptedReply(
+        engine,
+        "gitflow.branchContextRead",
+        "gitflowBranchContextRead",
+        () => ({
+          branchContext: undefined,
+        }),
+      ),
   };
   return { ...createRefusingGrowthPort(), ...served };
+}
+
+/**
+ * Answer one served operation from the scenario's script, or from its own absence.
+ *
+ * The four settlements `scripted-reply.ts` reports land here as three different kinds
+ * of answer, and the mapping is the whole reason this helper exists rather than four
+ * inline arms per operation:
+ *
+ *   • **Unscripted** is not a failure on this port. Every operation the fixture serves
+ *     has an honest answer of its own for a scenario that scripts nothing — the branch
+ *     read's is that this workspace has no branch context — so the caller supplies it
+ *     and the port serves it. `reply-unscripted` therefore stays what it has always
+ *     been: `fixture-bridge.ts`'s authoring error, raised where a call really has no
+ *     answer at all.
+ *   • **Resolved** is served verbatim. The cast is the seam's own property rather than
+ *     a shortcut: a `ScenarioReply` carries `unknown`, exactly as it does for the
+ *     bridge's `daemon.call`, and there is no registered reply schema to narrow it
+ *     against until the wire lands.
+ *   • **Unanswered** refuses by name. This is the rule the codes exist for: a reply
+ *     the frozen clock never released must never reach a surface as an absent value,
+ *     because an absent value renders as "there is none" — a claim about the session
+ *     that nothing checked.
+ *   • **Refused** is thrown VERBATIM, unwrapped, exactly as the bridge throws it. A
+ *     scripted refusal is the DAEMON's, and this port's outcome union has no arm for
+ *     one; adding a code for it would paraphrase the daemon's own `{code, message}`
+ *     into a growth-scoped vocabulary, which is the one thing a fixture must not do.
+ *     A rejection is also what the caller will get once the wire lands and the
+ *     operation becomes an ordinary bridge call, so the fixture is not teaching a
+ *     shape the real seam will not produce.
+ */
+async function answerFromScriptedReply<TValue>(
+  engine: ScenarioEngine,
+  call: string,
+  operationId: GrowthOperationId,
+  whenUnscripted: () => TValue,
+): Promise<GrowthOutcome<TValue>> {
+  const settlement = await settleScriptedReply(engine, call);
+  switch (settlement.status) {
+    case "unscripted":
+      return { status: "served", value: whenUnscripted() };
+    case "resolved":
+      return { status: "served", value: settlement.value as TValue };
+    case "unanswered":
+      return growthScriptedReplyUnavailable(operationId, settlement.code, settlement.detail);
+    case "refused":
+      throw settlement.refusal;
+  }
 }
 
 /** How one run state reaches a participant, where `Spec-019` classifies it. */

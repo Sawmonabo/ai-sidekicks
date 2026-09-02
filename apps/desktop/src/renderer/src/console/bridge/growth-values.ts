@@ -36,11 +36,113 @@ export interface GrowthTerminalChunk {
   readonly data: string;
 }
 
+/**
+ * The artifact families the manifest discriminates. Closed, declared once, derived
+ * below — `docs/architecture/contracts/api-payload-contracts.md` §ArtifactManifest's
+ * `ArtifactType`, which is the five families `Spec-014 §Required Behavior` enumerates
+ * plus the workflow phase-output type.
+ */
+export const GROWTH_ARTIFACT_TYPES = [
+  "file",
+  "diff",
+  "summary",
+  "log",
+  "design",
+  "workflow_output",
+] as const;
+
+/** One artifact family. Derived, so the vocabulary has exactly one home. */
+export type GrowthArtifactType = (typeof GROWTH_ARTIFACT_TYPES)[number];
+
+/**
+ * The visibility classes an artifact carries.
+ *
+ * Two, and the distinction is the one `Spec-014 §Required Behavior` makes load-bearing:
+ * visibility is explicit and `local-only` is a different fact from shared-visible.
+ * Partial per-participant redaction is deliberately absent — that spec puts it out of
+ * V1 scope, and a third value here would let a surface offer a state nothing serves.
+ */
+export const GROWTH_ARTIFACT_VISIBILITIES = ["local-only", "shared"] as const;
+
+/** One visibility class. Derived, so the vocabulary has exactly one home. */
+export type GrowthArtifactVisibility = (typeof GROWTH_ARTIFACT_VISIBILITIES)[number];
+
+/** The lifecycle states a manifest row is in. */
+export const GROWTH_ARTIFACT_STATES = ["pending", "published", "superseded"] as const;
+
+/** One manifest lifecycle state. Derived, so the vocabulary has exactly one home. */
+export type GrowthArtifactState = (typeof GROWTH_ARTIFACT_STATES)[number];
+
+/**
+ * Where this node's copy of a shared artifact's payload stands.
+ *
+ * Read as PERSISTED, never recomputed from live relay state — which is exactly what
+ * makes it renderable: an unresolved-attachment marker carries a non-`pinned` status
+ * verbatim as its cause, and `expired` reads as "payload not obtainable, remedy is a
+ * re-publish" rather than narrowly as "TTL elapsed".
+ */
+export const GROWTH_ARTIFACT_REPLICATION_STATUSES = [
+  "pending_replication",
+  "pinned",
+  "over_cap",
+  "quota_exceeded",
+  "expired",
+] as const;
+
+/** One replication status. Derived, so the vocabulary has exactly one home. */
+export type GrowthArtifactReplicationStatus = (typeof GROWTH_ARTIFACT_REPLICATION_STATUSES)[number];
+
+/**
+ * One artifact as the manifest envelope carries it.
+ *
+ * Mirrored member-for-member from the registered `ArtifactManifest` in
+ * `docs/architecture/contracts/api-payload-contracts.md` §ArtifactManifest — the
+ * OCI-inspired envelope `Spec-014 §Interfaces And Contracts` states, plus the
+ * daemon-persisted `visibility` / `state` / `metadata` fields the wire shape adds.
+ * `packages/contracts` registers no artifact schema yet (Plan-014 Task 1 mints it in
+ * `packages/contracts/src/artifacts/`), so the architecture contract is the source,
+ * named here so the mirror is checkable by reading one section rather than by memory.
+ *
+ * ONE MEMBER IS SPELLED DIFFERENTLY, AND ONLY ONE. The envelope's `id` is
+ * `artifactId` here, because a bare `id` on a value a renderer passes around says
+ * nothing about what it identifies and the console's own request shapes already name
+ * this scalar `artifactId`. Every other member keeps the envelope's spelling exactly,
+ * including the two maps whose whole point is that they are distinct: `annotations`
+ * is the OCI string-to-string map and `metadata` is freeform daemon-side provenance.
+ *
+ * WHAT THE OLD SHAPE HAD, AND WHERE IT WENT. `byteLength` is the envelope's `size`;
+ * `contentType` is not a member at all — a media type is daemon-side provenance and
+ * rides `metadata` — and `name` likewise has no envelope member: a file's declared
+ * name reaches the manifest through `annotations`. The thin shape refused a served
+ * list as an unmapped list shape, which is what a summary that is three members of a
+ * fourteen-member record does the first time a surface needs the rest of them.
+ */
 export interface GrowthArtifactSummary {
   readonly artifactId: string;
-  readonly name: string;
-  readonly byteLength: number;
-  readonly contentType: string;
+  readonly sessionId: string;
+  /** Absent when no run produced the artifact. */
+  readonly runId?: string;
+  /**
+   * The publishing caller, absent when the daemon itself produced the artifact with
+   * no attributable one. Optional for that reason rather than for convenience: the
+   * delete-own-artifacts scope evaluates the column this mirrors fail-closed, so an
+   * absent value matches no collaborator.
+   */
+  readonly createdBy?: string;
+  readonly artifactType: GrowthArtifactType;
+  /** The OCI `digest` (SHA-256). Required: a content-addressed manifest always has one. */
+  readonly digest: string;
+  /** The payload's byte length. Server-derived, so always present. */
+  readonly size: number;
+  readonly annotations: Readonly<Record<string, string>>;
+  /** Present only on a derivative manifest, naming the source it was derived from. */
+  readonly subject?: string;
+  readonly visibility: GrowthArtifactVisibility;
+  readonly state: GrowthArtifactState;
+  /** Absent on a local-only artifact, which has no replication to report. */
+  readonly replicationStatus?: GrowthArtifactReplicationStatus;
+  readonly metadata: Readonly<Record<string, unknown>>;
+  readonly createdAt: string;
 }
 
 export interface GrowthSessionSummary {
