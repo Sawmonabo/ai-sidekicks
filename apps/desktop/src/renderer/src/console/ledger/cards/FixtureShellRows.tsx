@@ -19,6 +19,13 @@
 // timeline's own entry vocabulary would be authoring the body it exists to stand in for,
 // and Plan-013 would then have two.
 //
+// THE SHELL HOLDS NO STATE OF ITS OWN, which is what its own header claims and what
+// it now is. A disclosure press writes the row's density to the list's lease table
+// through `ledger/frame/`'s lease channel, and the density it renders is whatever it
+// was handed. That is the only way the choice survives: the virtualizer mounts the
+// visible range and nothing else, so anything a row remembers privately is discarded
+// the moment a reader scrolls past it.
+//
 // WHAT THE SHELL CANNOT SUPPLY, stated rather than papered over. A machine-authored body
 // lives in the daemon's own encrypted column and reaches a reader through a hydrated
 // read projection; a `TimelineRow` carries neither the body nor a reference to one, and
@@ -29,6 +36,7 @@
 
 import { useCallback, useState } from "react";
 
+import { useLedgerRowLease } from "../frame/index.js";
 import { LedgerRow, Nothing } from "../../primitives/index.js";
 import {
   registerTimelineRowRenderer,
@@ -52,23 +60,24 @@ export const FIXTURE_SHELL_OWNER = "ledger fixture shell";
  */
 export function FixtureShellRow(props: TimelineRowSlotProps): React.JSX.Element {
   const [footnotes] = useState(() => new FootnoteRegistry());
-  const [openOverride, setOpenOverride] = useState<boolean | undefined>(undefined);
-  const isOpenByList = props.density === "expanded";
-  // THE TOGGLE INVERTS WHAT IS ON SCREEN, not what the override happens to hold. An
-  // untouched row has no override at all, and the density it is showing is the list's
-  // — so the first press has to read the list's answer to know what it is reversing.
-  // Substituting `false` there instead would store `true` for a row the list had
-  // already opened, which reads as a press that did nothing and needs a second one.
+  const rowLease = useLedgerRowLease();
+  const rowId = props.row.id;
+  const density: TimelineRowDensity = props.density;
+  // THE TOGGLE INVERTS WHAT IS ON SCREEN, which is the density the row was HANDED —
+  // the list's answer with the lease already overlaid on it. So the press reverses
+  // what a reader can see, and it writes the reversal to the list rather than to this
+  // component: a `useState` here died with the row the moment the virtualizer scrolled
+  // it out of the mounted range, and the choice came back as whatever the list said.
+  // `innerScrollTopPx` is zero because this shell keeps no inner scroll of its own;
+  // a body that does parks its offset in the same lease.
   const toggleDensity = useCallback(() => {
-    setOpenOverride((current) => !(current ?? isOpenByList));
-  }, [isOpenByList]);
+    rowLease.setLease(rowId, {
+      density: density === "expanded" ? "collapsed" : "expanded",
+      innerScrollTopPx: 0,
+    });
+  }, [density, rowId, rowLease]);
 
   const family = classifyCardFamily(props.row);
-  // The list owns density; the shell STANDS IN for the list, so it may override what it
-  // was handed — and it holds the override separately rather than copying the prop into
-  // state, so a row nobody has touched still follows the list's own decision.
-  const density: TimelineRowDensity =
-    openOverride === undefined ? props.density : openOverride ? "expanded" : "collapsed";
 
   switch (family.family) {
     case "tool-activity":

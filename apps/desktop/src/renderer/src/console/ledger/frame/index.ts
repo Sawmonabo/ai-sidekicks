@@ -38,6 +38,8 @@
 // contents rather than a contract.
 
 export { LedgerRowGroup } from "./ErrorSlot.js";
+export { LedgerRowLeaseProvider, useLedgerRowLease } from "./RowLeaseProvider.js";
 export { LedgerViewport } from "./LedgerViewport.js";
 export { useLedgerViewport } from "./viewport-binding.js";
 export { type LedgerViewportRow } from "./viewport-snapshot.js";
+export { type LedgerRowLease } from "./window-cap.js";

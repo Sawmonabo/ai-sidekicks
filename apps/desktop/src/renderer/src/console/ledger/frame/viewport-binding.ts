@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { type ConsoleClock } from "../../core/index.js";
 import { LEDGER_OVERSCAN_ROWS } from "./frame-bounds.js";
 import { LedgerViewportController } from "./viewport-controller.js";
+import { type LedgerRowLease } from "./window-cap.js";
 import { type LedgerViewportConditions, type LedgerViewportSnapshot } from "./viewport-snapshot.js";
 
 /**
@@ -82,6 +83,17 @@ export interface LedgerViewportBinding {
    * untouched.
    */
   readonly focusSurface: () => void;
+  /**
+   * The state a row body parked on this window, live or re-parked after a prune.
+   *
+   * The window has held this table since it was written and nothing production-side
+   * ever read it: the one row that kept an expansion kept it in its own `useState`,
+   * which the virtualizer discards the moment the row leaves the mounted range. The
+   * lease survives both an unmount and a prune, under the parked-lease cap.
+   */
+  readonly rowLease: (rowKey: string) => LedgerRowLease | undefined;
+  /** Park one row body's state on the window. */
+  readonly setRowLease: (rowKey: string, lease: LedgerRowLease) => void;
 }
 
 export interface UseLedgerViewportOptions extends LedgerViewportConditions {
@@ -165,6 +177,11 @@ export function useLedgerViewport(options: UseLedgerViewportOptions): LedgerView
     controller.reconcile({ rows, hasActiveTurn, isRevealDraining });
   }, [controller, rows, hasActiveTurn, isRevealDraining]);
 
+  // A lease write is state the WINDOW owns, so it is not React state — but the tree
+  // has to repaint to show it. The revision is the notification, and nothing reads
+  // it: it exists so the density overlay recomputes on the frame a lease changes.
+  const [leaseRevision, setLeaseRevision] = useState(0);
+
   const virtualItems = virtualizer.getVirtualItems();
   const isPastElementCeiling = controller.measurements.isPastElementCeiling(
     virtualizer.getTotalSize(),
@@ -198,6 +215,22 @@ export function useLedgerViewport(options: UseLedgerViewportOptions): LedgerView
     jumpToTail: useCallback(() => {
       controller.jumpToTail();
     }, [controller]),
+    rowLease: useCallback(
+      (rowKey: string) => {
+        // `leaseRevision` is the memo's reason to recompute, and reading it here is
+        // what makes that honest rather than a dependency nobody spends.
+        void leaseRevision;
+        return controller.window.lease(rowKey);
+      },
+      [controller, leaseRevision],
+    ),
+    setRowLease: useCallback(
+      (rowKey: string, lease: LedgerRowLease) => {
+        controller.window.setLease(rowKey, lease);
+        setLeaseRevision((current) => current + 1);
+      },
+      [controller],
+    ),
     jumpToRow: useCallback(
       (rowKey: string) => {
         const index = snapshot.rows.findIndex((candidate) => candidate.key === rowKey);
