@@ -121,6 +121,80 @@ describe("splitting a stream into settled blocks and a volatile tail", () => {
 });
 
 /**
+ * Blocks whose interior blank line is content, not a boundary.
+ *
+ * Each source ends in a further paragraph so the container's own commit is proved: the
+ * assertion is that the container is ONE block, not that the scan committed nothing.
+ */
+const CONTAINER_CASES: readonly {
+  readonly what: string;
+  readonly source: string;
+  readonly expectedFirstBlock: string;
+}[] = [
+  {
+    what: "a list item's second paragraph, which is what makes the list loose",
+    source: "- first\n\n  second paragraph\n\nafter\n\ntail\n\nlast\n\nend",
+    expectedFirstBlock: "- first\n\n  second paragraph\n\n",
+  },
+  {
+    what: "a sibling item after a blank line, which is one loose list and not two tight ones",
+    source: "- a\n\n- b\n\nafter\n\ntail\n\nlast\n\nend",
+    expectedFirstBlock: "- a\n\n- b\n\n",
+  },
+  {
+    what: "an ordered item's continuation, whose indent is the marker's width and not one",
+    source: "1. first\n\n   second paragraph\n\nafter\n\ntail\n\nlast\n\nend",
+    expectedFirstBlock: "1. first\n\n   second paragraph\n\n",
+  },
+  {
+    what: "an indented code block holding a blank line between two commands",
+    source: "    one --flag\n\n    two --flag\n\nafter\n\ntail\n\nlast\n\nend",
+    expectedFirstBlock: "    one --flag\n\n    two --flag\n\n",
+  },
+];
+
+describe("a blank line inside a container", () => {
+  it.each(CONTAINER_CASES)("keeps $what in one block", ({ source, expectedFirstBlock }) => {
+    expect(new MarkdownBlockSegmenter().segment(source).settledBlocks[0]).toBe(expectedFirstBlock);
+  });
+
+  it("negative control: a paragraph still ends at its blank line", () => {
+    // Without this, a segmenter that never committed at all would pass every case above
+    // and hold the whole message volatile forever.
+    const segmentation = new MarkdownBlockSegmenter().segment(
+      "first paragraph\n\nsecond paragraph\n\nafter\n\ntail\n\nlast\n\nend",
+    );
+    expect(segmentation.settledBlocks[0]).toBe("first paragraph\n\n");
+  });
+
+  it("negative control: a list that opens after a paragraph is its own block", () => {
+    // And without this, a segmenter that read the container from the line AFTER the
+    // blank run rather than from the line the block opened on would pass the cases above
+    // and glue a paragraph onto the list that follows it.
+    const segmentation = new MarkdownBlockSegmenter().segment(
+      "a paragraph\n\n- an item\n\nafter\n\ntail\n\nlast\n\nend",
+    );
+    expect(segmentation.settledBlocks[0]).toBe("a paragraph\n\n");
+  });
+
+  it("negative control: a differently marked list is a different list", () => {
+    // Commonmark starts a new list when the bullet character changes, so these two are
+    // not siblings and the boundary between them is real.
+    const segmentation = new MarkdownBlockSegmenter().segment(
+      "- a\n\n* b\n\nafter\n\ntail\n\nlast\n\nend",
+    );
+    expect(segmentation.settledBlocks[0]).toBe("- a\n\n");
+  });
+
+  it("negative control: a paragraph at column zero ends the list above it", () => {
+    const segmentation = new MarkdownBlockSegmenter().segment(
+      "- an item\n\nback at the margin\n\nafter\n\ntail\n\nlast\n\nend",
+    );
+    expect(segmentation.settledBlocks[0]).toBe("- an item\n\n");
+  });
+});
+
+/**
  * What the tail keeps and what it drops, in the one place the two are confusable.
  *
  * The separator ahead of the tail is the previous block's, and dropping it is all the
