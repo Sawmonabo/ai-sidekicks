@@ -109,13 +109,37 @@ export function newestContextWindowReading(
   return newest;
 }
 
-/** The sequence of the newest compaction boundary, or `undefined` if there is none. */
+/**
+ * The sequence of the newest compaction boundary recorded for ONE run, or
+ * `undefined` when that run has none.
+ *
+ * THE RUN FILTER IS THE WHOLE FOLD, AND THE POSITION IS THE ROW'S OWN SLOT. The
+ * registered payload for this type is `{ sessionId, runId, provider,
+ * preCompactionTokens?, postCompactionTokens? }` — there is no boundary-position
+ * member to read, and the wire's own name for the pathological case is a compaction
+ * row with no recoverable timeline slot. So `sequence` IS the position, and what
+ * this fold owes is selecting the ADDRESSED run's rows rather than the session's: a
+ * session with two runs was showing one run's boundary under the other's control.
+ *
+ * A row whose `runId` is absent, empty, or not a string yields NO reading, the way
+ * every other narrowing in this module does — counting it as the addressed run's
+ * would be the console asserting a boundary it was never told belongs here. A
+ * composer addressed to no run asks for nothing at all.
+ */
 export function newestCompactionBoundarySequence(
   timeline: readonly ConsoleSessionEvent[],
+  targetRunId: string | undefined,
 ): number | undefined {
+  const addressedRunId = nonEmptyString(targetRunId);
+  if (addressedRunId === undefined) {
+    return undefined;
+  }
   let newest: number | undefined;
   for (const event of timeline) {
     if (event.kind !== CONTEXT_COMPACTED_EVENT_KIND) {
+      continue;
+    }
+    if (nonEmptyString(event.payload?.["runId"]) !== addressedRunId) {
       continue;
     }
     if (newest === undefined || event.sequence > newest) {

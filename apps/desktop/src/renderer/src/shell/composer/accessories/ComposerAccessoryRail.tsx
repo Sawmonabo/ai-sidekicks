@@ -4,9 +4,12 @@
 //
 // WHERE THE FIGURES COME FROM. The rail selects the session's timeline once and
 // folds it three ways under `useMemo` — the newest context reading, the rate
-// readings per account and window, and the newest compaction boundary. Three
-// components reading the store separately would be three subscriptions to one
-// selector, and the fold is pure, so one derivation serves all three.
+// readings per account and window, and the newest compaction boundary of the
+// ADDRESSED RUN. Three components reading the store separately would be three
+// subscriptions to one selector, and the fold is pure, so one derivation serves all
+// three. The compaction fold takes the address as an input rather than reading every
+// compaction row in the session: a session with two runs would otherwise show one
+// run's boundary under the other's control.
 //
 // THE SHELF ASKS A NARROWER QUESTION OF THE SESSION'S ONE QUEUE READING. The rows
 // still waiting are what the shelf holds; the runs pane shows the whole queue,
@@ -89,7 +92,6 @@ export function ComposerAccessoryRail(props: ComposerSeatProps): React.JSX.Eleme
   const timeline = useSessionStore(props.sessionStore, selectTimeline);
   const contextReading = useMemo(() => newestContextWindowReading(timeline), [timeline]);
   const rateReadings = useMemo(() => foldRateLimitReadings(timeline), [timeline]);
-  const compactionBoundary = useMemo(() => newestCompactionBoundarySequence(timeline), [timeline]);
   const queueFeed = useQueueFeed(props.bridge, props.sessionStore.sessionId);
   // The shelf's own question, asked of the session's one reading: the rows still
   // waiting. A row the daemon has stopped calling `queued` has left the shelf, and
@@ -99,6 +101,14 @@ export function ComposerAccessoryRail(props: ComposerSeatProps): React.JSX.Eleme
   const address = useComposerAddress(props.sessionStore, props.focusedPane);
   const driverCapabilities = useDriverCapabilities(props.bridge);
   const addressedRun = address.target.path === "provider-bound" ? address.target : undefined;
+  // Folded AFTER the address, because the address is one of its inputs: the boundary
+  // this composer reports is the addressed run's own, and a composer addressed to a
+  // channel asks for none.
+  const addressedRunId = addressedRun?.targetRunId;
+  const compactionBoundary = useMemo(
+    () => newestCompactionBoundarySequence(timeline, addressedRunId),
+    [timeline, addressedRunId],
+  );
 
   return (
     <div className="meridian-composer__rail">

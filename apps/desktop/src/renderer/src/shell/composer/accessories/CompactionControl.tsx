@@ -45,10 +45,12 @@ export interface CompactionControlProps {
   readonly targetRunId: string | undefined;
   readonly capability: CompactionCapabilityState;
   /**
-   * The newest `usage.context_compacted` position, when the session has one.
+   * The newest `usage.context_compacted` position recorded for THIS run.
    *
    * The ONLY evidence a compaction happened. Passed in rather than read here so the
-   * control cannot mistake its own reply for this fact.
+   * control cannot mistake its own reply for this fact — and scoped to the addressed
+   * run rather than to the session, because a session with two runs would otherwise
+   * report another run's boundary as this one's.
    */
   readonly completedBoundarySequence: number | undefined;
 }
