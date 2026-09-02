@@ -25,6 +25,7 @@ import { type ConsoleEntityRef, type FrameStore, type SessionStore } from "../..
 import { type DraftStore, type UiStateStore } from "../../persistence/index.js";
 import { PANE_KINDS, type PaneKind } from "./pane-kinds.js";
 
+// Consumed by T-023p-1C-2, T-023p-1C-3
 /**
  * Which pane, over which entity — the address a pane is opened at.
  *
@@ -39,6 +40,7 @@ export interface ConsolePaneAddress {
   readonly entity: ConsoleEntityRef | undefined;
 }
 
+// Consumed by T-023p-1C-2, T-023p-1C-3
 /**
  * The call the sidebar and the palette make to open a pane.
  *
@@ -49,6 +51,7 @@ export interface ConsolePaneAddress {
  */
 export type ConsolePaneOpener = (address: ConsolePaneAddress) => void;
 
+// Consumed by T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7
 /**
  * Everything a pane body is handed. Nothing here is global; all of it is per pane,
  * in the window the pane is mounted in.
@@ -72,6 +75,7 @@ export interface ConsolePaneContext extends ConsolePaneAddress {
   readonly focusHue: string | undefined;
 }
 
+// Consumed by T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7
 export interface ConsolePaneDescriptor {
   readonly kind: PaneKind;
   /** The task or family that owns it, so an unrendered kind names someone. */
@@ -129,11 +133,13 @@ export class ConsolePaneRegistry {
 /** The process-wide registry the view families call at module scope. */
 export const consolePaneRegistry: ConsolePaneRegistry = new ConsolePaneRegistry();
 
+// Consumed by T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7
 /** The call a view family makes to claim a pane kind. */
 export function registerConsolePane(descriptor: ConsolePaneDescriptor): void {
   consolePaneRegistry.register(descriptor);
 }
 
+// Consumed by T-023p-1C-2, T-023p-1C-8
 /** Which pane kinds the process-wide registry has a body for. */
 export function registeredPaneKinds(): readonly PaneKind[] {
   return consolePaneRegistry.registeredPaneKinds();

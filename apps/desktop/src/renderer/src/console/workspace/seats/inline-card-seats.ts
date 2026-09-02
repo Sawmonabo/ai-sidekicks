@@ -32,6 +32,7 @@ import { type ConsoleEntityRef } from "../../store/index.js";
 /** The subsystem an inline-card refusal names as its author. */
 const INLINE_CARD_ORIGIN = "inline-card-seats";
 
+// Consumed by T-023p-1C-2
 /**
  * Every kind of card a ledger row can carry. Closed.
  *
@@ -40,9 +41,11 @@ const INLINE_CARD_ORIGIN = "inline-card-seats";
  */
 export const INLINE_CARD_KINDS = ["diff", "attachment", "artifact"] as const;
 
+// Consumed by T-023p-1C-2, T-023p-1C-5
 /** One inline-card kind. Derived from the enumeration, never restated. */
 export type InlineCardKind = (typeof INLINE_CARD_KINDS)[number];
 
+// Consumed by T-023p-1C-2, T-023p-1C-5
 /**
  * A reference to an attachment on a message.
  *
@@ -59,6 +62,7 @@ export interface InlineCardAttachmentRef {
   readonly attachmentId: string;
 }
 
+// Consumed by T-023p-1C-2, T-023p-1C-5
 /** A diff card, over one run's change set. */
 export interface DiffInlineCardProps {
   readonly kind: "diff";
@@ -66,12 +70,14 @@ export interface DiffInlineCardProps {
   readonly changeSetId: string;
 }
 
+// Consumed by T-023p-1C-2, T-023p-1C-5
 /** An attachment card, over one message attachment. */
 export interface AttachmentInlineCardProps {
   readonly kind: "attachment";
   readonly attachment: InlineCardAttachmentRef;
 }
 
+// Consumed by T-023p-1C-2, T-023p-1C-5
 /**
  * An artifact card, over one published artifact.
  *
@@ -85,6 +91,7 @@ export interface ArtifactInlineCardProps {
   readonly artifact: ConsoleEntityRef;
 }
 
+// Consumed by T-023p-1C-2, T-023p-1C-5
 /**
  * The props each card kind's body receives, declared once and indexed by kind.
  *
@@ -100,9 +107,11 @@ export interface InlineCardPropsByKind {
   readonly artifact: ArtifactInlineCardProps;
 }
 
+// Consumed by T-023p-1C-2
 /** The discriminated union of every card's props. Narrow on `kind`. */
 export type InlineCardSeatProps = InlineCardPropsByKind[InlineCardKind];
 
+// Consumed by T-023p-1C-5
 /** What a family registers to fill one card kind's body. */
 export interface InlineCardBodyDescriptor<TKind extends InlineCardKind = InlineCardKind> {
   /** The task or family that owns it, so an unfilled card names someone. */
@@ -110,6 +119,7 @@ export interface InlineCardBodyDescriptor<TKind extends InlineCardKind = InlineC
   readonly render: (props: InlineCardPropsByKind[TKind]) => React.ReactNode;
 }
 
+// Consumed by T-023p-1C-2
 export class InlineCardSeatRegistry {
   // `"owner-scoped"`, for `frame/surface-registry.ts`'s reason: a hot reload
   // re-runs the owning family's module and must replace, while two owners on one
@@ -183,9 +193,11 @@ export class InlineCardSeatRegistry {
   }
 }
 
+// Consumed by T-023p-1C-2
 /** The process-wide registry the repos family calls at module scope. */
 export const inlineCardSeatRegistry: InlineCardSeatRegistry = new InlineCardSeatRegistry();
 
+// Consumed by T-023p-1C-5
 /** The call a family makes to fill one card kind's body. */
 export function registerInlineCardBody<TKind extends InlineCardKind>(
   kind: TKind,
@@ -194,6 +206,7 @@ export function registerInlineCardBody<TKind extends InlineCardKind>(
   inlineCardSeatRegistry.register(kind, descriptor);
 }
 
+// Consumed by T-023p-1C-2
 /** One card kind's body, or `undefined` while nobody has filled it. */
 export function inlineCardBody(kind: InlineCardKind): InlineCardBodyDescriptor | undefined {
   return inlineCardSeatRegistry.bodyFor(kind);
