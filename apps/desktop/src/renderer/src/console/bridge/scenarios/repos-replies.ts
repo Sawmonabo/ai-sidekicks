@@ -22,6 +22,7 @@ import type { ConsoleScenario } from "../scenario.js";
 
 import {
   BRANCH_CONTEXT_ID,
+  EPHEMERAL_CLONE_ID,
   GIT_MOUNT_ID,
   GIT_WORKSPACE_ID,
   IMPLEMENTER_WORKTREE_ID,
@@ -112,10 +113,12 @@ export const REPOS_SCENARIO_REPLIES: ConsoleScenario["replies"] = [
     // section draws that mount's roots as the `empty` kind of nothing rather than as
     // an unasked question.
     //
-    // `ephemeralClones` is present and empty rather than omitted, because the contract
-    // requires both arrays and a session that has bound no clone returns an empty one —
-    // which is a lawful answer and the one this scenario states, since its two agents
-    // both run in worktrees.
+    // `ephemeralClones` carries ONE row, and it is the only way this scenario can reach
+    // that list at all: clone transitions are not separately evented, so no beat can
+    // state a clone and this read is the whole surface. It is past its disposal time on
+    // purpose — the elapsed reading is the one state on §10.3's surface that arrives
+    // with nobody acting, and a fixture whose clone was merely scheduled could not
+    // reach it.
     //
     // The IMPLEMENTER's root is `dirty`, agreeing with the beat above it: the reclaim
     // controls have to be unavailable somewhere, and a fixture whose every root is
@@ -147,7 +150,21 @@ export const REPOS_SCENARIO_REPLIES: ConsoleScenario["replies"] = [
           updatedAt: "2026-01-01T09:05:00.840Z",
         },
       ],
-      ephemeralClones: [],
+      ephemeralClones: [
+        {
+          cloneId: EPHEMERAL_CLONE_ID,
+          // WORKSPACE-anchored, where a worktree row is mount-anchored. The git
+          // workspace, because a clone is a git clone and the plain-directory mount
+          // could not host one.
+          workspaceId: GIT_WORKSPACE_ID,
+          cloneRoot: "/Users/dev/code/ai-sidekicks-clones/rate-limit-audit",
+          branchName: "audit/rate-limit-wiring",
+          state: "ready",
+          cleanupPolicy: "on_run_complete",
+          expiresAt: "2026-01-01T09:05:01.500Z",
+          createdAt: "2026-01-01T09:05:00.960Z",
+        },
+      ],
     },
   },
   {

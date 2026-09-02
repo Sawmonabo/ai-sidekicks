@@ -34,6 +34,12 @@ export const AGENT_REVIEWER: string = "9f2c4a10-0000-4000-8000-000000000012";
 // One execution root per agent, which is what makes §10.3 a list rather than a row.
 export const IMPLEMENTER_WORKTREE_ID: string = "9f2c4a10-0000-4000-8000-000000000020";
 export const REVIEWER_WORKTREE_ID: string = "9f2c4a10-0000-4000-8000-000000000021";
+// The third execution root, and the only one of the OTHER kind. Clone transitions
+// are not separately evented — no `clone.*` type is in the census — so a clone
+// reaches a surface through `repo.worktreeStatusRead` and through nothing else,
+// which is exactly why a scenario that scripted none left that whole list
+// undrawable.
+export const EPHEMERAL_CLONE_ID: string = "9f2c4a10-0000-4000-8000-000000000022";
 export const IMPLEMENTER_RUN_ID: string = "9f2c4a10-0000-4000-8000-000000000030";
 export const BRANCH_CONTEXT_ID: string = "9f2c4a10-0000-4000-8000-000000000040";
 export const DIFF_ARTIFACT_ID: string = "9f2c4a10-0000-4000-8000-000000000050";

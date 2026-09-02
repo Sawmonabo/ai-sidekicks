@@ -5,13 +5,43 @@
 // manual clock's `pendingCount` after teardown is what makes the "no timer outlives
 // the section" claim a check rather than an assertion.
 
+import { WorktreeStatusReadResponseSchema } from "@ai-sidekicks/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "../bridge/index.js";
 import { REPOS_SCENARIO } from "../bridge/scenarios/repos.js";
-import type { ConsoleScenario } from "../bridge/scenario.js";
+import type { ConsoleScenario, ScenarioResolvingReply } from "../bridge/scenario.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../core/index.js";
 import { RepoMountsReader } from "./repo-mounts-reader.js";
+
+/** The one call that names an execution root, whichever kind. */
+const ROOT_READ_CALL = "repo.worktreeStatusRead";
+
+/**
+ * The scenario's own root read, with its clones removed and its worktrees kept.
+ *
+ * Rebuilt through the CONTRACT's schema rather than by spreading an `unknown`: the
+ * negative control's whole claim is that the two arrays travel independently, and a
+ * control assembled from a cast could disagree with the wire and still pass.
+ */
+function scenarioWithoutClones(): ConsoleScenario {
+  const scripted = REPOS_SCENARIO.replies.find(
+    (reply): reply is ScenarioResolvingReply =>
+      reply.call === ROOT_READ_CALL && reply.result !== undefined,
+  );
+  if (scripted === undefined) {
+    throw new Error(`the repos scenario scripts no \`${ROOT_READ_CALL}\` reply to strip`);
+  }
+  const answered = WorktreeStatusReadResponseSchema.parse(scripted.result);
+  return {
+    ...REPOS_SCENARIO,
+    id: "repos-without-clones",
+    replies: [
+      ...REPOS_SCENARIO.replies.filter((reply) => reply.call !== ROOT_READ_CALL),
+      { call: ROOT_READ_CALL, result: { ...answered, ephemeralClones: [] } },
+    ],
+  };
+}
 
 const readers: RepoMountsReader[] = [];
 
@@ -73,6 +103,32 @@ describe("RepoMountsReader — the read", () => {
     );
     const firstWorkspaceId = reading.workspaces[0]?.id ?? "";
     expect(reading.capabilitiesByWorkspaceId[firstWorkspaceId]?.defaultMode).toBe("worktree");
+  });
+
+  it("carries both kinds of execution root the one status read answers with", async () => {
+    const clock = new ManualClock();
+    const reader = openReader(REPOS_SCENARIO, clock);
+    reader.start();
+    await settle(clock, reader);
+
+    const reading = reader.snapshot;
+    // The clone list used to be dropped on publication, so a session running in the
+    // `ephemeral clone` mode reported no execution root while the daemon had named one.
+    expect(reading.worktrees).toHaveLength(2);
+    expect(reading.ephemeralClones).toHaveLength(1);
+    expect(reading.ephemeralClones[0]?.workspaceId).toBe(reading.workspaces[0]?.id);
+  });
+
+  it("negative control: a root read carrying no clone publishes none", async () => {
+    // Without this the case above would pass against a reader that published a
+    // constant, and against one that folded the clones in with the worktrees.
+    const clock = new ManualClock();
+    const reader = openReader(scenarioWithoutClones(), clock);
+    reader.start();
+    await settle(clock, reader);
+
+    expect(reader.snapshot.worktrees).toHaveLength(2);
+    expect(reader.snapshot.ephemeralClones).toStrictEqual([]);
   });
 
   it("negative control: nothing is read until the section starts", async () => {

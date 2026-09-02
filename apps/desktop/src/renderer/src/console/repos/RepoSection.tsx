@@ -18,6 +18,15 @@
 // truth for it. This body renders its content when the sidebar says it is open and
 // one honest line when it does not, and it draws no heading.
 //
+// BOTH KINDS OF EXECUTION ROOT REACH THE SCREEN, AND FROM DIFFERENT PLACES.
+// `repo.worktreeStatusRead` answers with two arrays; the worktrees are drawn under
+// the mount each one names, because `repoMountId` is on the row. A CLONE names a
+// WORKSPACE and no mount, so the only anchoring the wire gives it is the session —
+// and the clone list therefore sits at the section, beside the mounts rather than
+// inside one. Filing it under a mount would mean resolving its workspace through the
+// roster, which is a second read and a pairing rule for a relation the reply does not
+// state.
+//
 // THE READ RUNS WHILE COLLAPSED, AND THAT IS THE POINT. The sidebar's open/collapsed
 // rule is decided by whether a section carries an amber or red item, which a section
 // that had not read cannot know. So the reader starts on mount and the collapsed line
@@ -36,6 +45,7 @@ import type { ConsoleBridge } from "../bridge/index.js";
 import { type ConsoleRefusal } from "../core/index.js";
 import { Nothing, RefusalCard } from "../primitives/index.js";
 import { type SidebarSectionContext } from "../workspace/index.js";
+import { EphemeralCloneCard } from "./EphemeralCloneCard.js";
 import { MountCard } from "./MountCard.js";
 import { useRepoMounts, type RepoMountsReading } from "./repo-mounts-reader.js";
 import { refusalFromRejection } from "./repo-reads.js";
@@ -46,6 +56,21 @@ export interface RepoSectionProps {
 
 /** What an unread section says, in both shapes. */
 const NOT_READ_TITLE = "Repo mounts have not been read.";
+
+/**
+ * The clone list's heading, naming the execution mode those roots belong to.
+ *
+ * `satisfies ExecutionMode` rather than a free string: `"ephemeral clone"` is the
+ * contract's own vocabulary (`packages/contracts/src/repo.ts`), and a heading spelled
+ * by hand would be a second spelling of a closed set the picker beside it renders
+ * from — the drift a `satisfies` makes impossible.
+ */
+const CLONE_EXECUTION_MODE = "ephemeral clone" satisfies ExecutionMode;
+
+const CLONE_LIST_HEADING = `Roots for the ${CLONE_EXECUTION_MODE} mode`;
+
+/** What the clone list says before and after the one read that names a clone. */
+const CLONES_NOT_READ_TITLE = "Execution roots have not been read.";
 
 export function RepoSection(props: RepoSectionProps): React.JSX.Element {
   const { bridge, sessionStore, isOpen } = props.context;
@@ -88,8 +113,83 @@ export function RepoSection(props: RepoSectionProps): React.JSX.Element {
           onCopy={copyCanonicalRoot}
           onSelect={requestModeSelection}
         />
+        {reading.refusal === undefined ? <EphemeralCloneList reading={reading} /> : null}
       </div>
     </div>
+  );
+}
+
+/**
+ * The clones this session holds, drawn beside the mounts rather than under one.
+ *
+ * SESSION-SCOPED, because that is the only anchoring the wire gives them. A clone row
+ * names a WORKSPACE (`ephemeral_clones.workspace_id`) where a worktree row names a
+ * MOUNT, so a clone reaches a mount only through the roster — and a session whose
+ * roster read answered while a mount read did not would then have clones nothing
+ * could draw. The list sits at the section, where the read that produced it was made.
+ *
+ * `Spec-023 §Console Design (Meridian)` §10.3 asks for two lists with different
+ * columns, and `EphemeralCloneCard` is the second one: the disposal countdown is on
+ * the row rather than behind the disclosure, because it is the one fact here that
+ * changes with nobody acting.
+ */
+function EphemeralCloneList(props: { readonly reading: RepoMountsReading }): React.JSX.Element {
+  return (
+    <div className="meridian-repo-section__clones">
+      <h4 className="meridian-repo-section__clones-heading">{CLONE_LIST_HEADING}</h4>
+      {renderCloneRows(props.reading)}
+    </div>
+  );
+}
+
+/**
+ * The clone rows, or the one absence that stands in for them.
+ *
+ * A function returning JSX rather than a second component, on `MountCard`'s own
+ * `renderRoots` precedent: the branches decide which absence a settled read produced,
+ * which is a reading rather than a surface of its own.
+ */
+function renderCloneRows(reading: RepoMountsReading): React.JSX.Element {
+  if (reading.ephemeralClones.length > 0) {
+    return (
+      <>
+        {reading.ephemeralClones.map((record) => (
+          <EphemeralCloneCard
+            key={record.cloneId}
+            record={record}
+            nowMilliseconds={reading.readAtMilliseconds}
+          />
+        ))}
+      </>
+    );
+  }
+  if (reading.status === "reading") {
+    return <Nothing kind="computing" placement="surface" title="Reading execution roots." />;
+  }
+  if (reading.status === "not-read") {
+    return <Nothing kind="not-checked" placement="surface" title={CLONES_NOT_READ_TITLE} />;
+  }
+  if (reading.worktreeRefusal !== undefined) {
+    // `not-checked` and never `empty`: the root read is the only read that names a
+    // clone, it did not answer, and reporting "there are none" would be the console
+    // asserting a fact nothing established. The daemon's own sentence stays where it
+    // was refused — on the mount cards above — so it is not printed twice.
+    return (
+      <Nothing
+        kind="not-checked"
+        placement="surface"
+        title="Ephemeral clones have not been read."
+        detail="The execution-root read was refused, so which clones this session holds is unknown."
+      />
+    );
+  }
+  return (
+    <Nothing
+      kind="empty"
+      placement="surface"
+      title="This session holds no ephemeral clone."
+      detail="A clone is provisioned when a run selects the ephemeral clone execution mode, and it is disposed on its own schedule — so a session with none has run nothing in that mode."
+    />
   );
 }
 

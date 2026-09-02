@@ -63,7 +63,7 @@ import {
   selectExecutionMode,
   type RepoCallOutcome,
 } from "./repo-reads.js";
-import type { WorktreeStatusRecord } from "./worktree-model.js";
+import type { EphemeralCloneStatusRecord, WorktreeStatusRecord } from "./worktree-model.js";
 
 /** One workspace row, exactly as `WorkspaceListResponse` spells it. */
 export type RepoWorkspaceRow = WorkspaceListResponse["workspaces"][number];
@@ -83,6 +83,19 @@ export interface RepoMountsReading {
   readonly workspaces: readonly RepoWorkspaceRow[];
   /** Every worktree this session holds, in the order the status read returned them. */
   readonly worktrees: readonly WorktreeStatusRecord[];
+  /**
+   * Every ephemeral clone this session holds, in the order the same read returned
+   * them.
+   *
+   * ITS OWN FIELD, never folded into `worktrees`. `repo.worktreeStatusRead` answers
+   * with two arrays because the two record kinds are two shapes — one mount-anchored
+   * over ten columns, the other workspace-anchored over nine, with no `updatedAt` —
+   * and `Spec-023 §Console Design (Meridian)` §10.3 draws them as two lists with
+   * different columns. Keeping only `worktrees` would report a session running in the
+   * `ephemeral clone` execution mode as holding no execution root at all, which is
+   * the daemon's answer discarded rather than rendered.
+   */
+  readonly ephemeralClones: readonly EphemeralCloneStatusRecord[];
   /**
    * The instant this reading was taken, on the reader's own clock.
    *
@@ -117,6 +130,7 @@ const NOTHING_READ_YET: RepoMountsReading = {
   mounts: [],
   workspaces: [],
   worktrees: [],
+  ephemeralClones: [],
   readAtMilliseconds: 0,
   capabilitiesByWorkspaceId: {},
   refusal: undefined,
@@ -313,6 +327,12 @@ export class RepoMountsReader {
       mounts,
       workspaces,
       worktrees: worktreeOutcome.status === "read" ? worktreeOutcome.value.worktrees : [],
+      // Both arrays off the one reply, so a refused root read empties both together
+      // and a served one carries whatever each array held — including an empty
+      // `ephemeralClones`, which the contract requires present and which is a lawful
+      // answer rather than a gap.
+      ephemeralClones:
+        worktreeOutcome.status === "read" ? worktreeOutcome.value.ephemeralClones : [],
       readAtMilliseconds: this.#clock.now(),
       capabilitiesByWorkspaceId,
       refusal: firstRefusal,
