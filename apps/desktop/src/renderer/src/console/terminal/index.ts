@@ -20,7 +20,8 @@
 // the page-wide WebGL slot allocator (`renderer-pool.ts`), the link scheme guard
 // (`link-guard.ts`), the mount point (`XtermHost.tsx`), the lease fold
 // (`lease-model.ts`), the host-presence fold (`node-presence-model.ts`), the viewer's
-// identity read (`viewer-identity.ts`), and the lease line (`LeaseLine.tsx`). Those
+// identity read (`viewer-identity.ts`), and the lease line (`LeaseLine.tsx`) with the
+// one wire call it makes (`lease-claim.ts`). Those
 // are reached by the pane body beside them through deep imports inside the family —
 // the door below is the SEAT BOARD's, and a body importing its own family through it
 // would close a cycle: this module imports the pane, and the pane imports these.

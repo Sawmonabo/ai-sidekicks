@@ -34,9 +34,8 @@
 // a person might otherwise reach for the wrong thing, and it is copy rather than a
 // second affordance for exactly that reason.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 
-import { refusalFromRejection, type ConsoleRefusal } from "../core/index.js";
 import type { ConsoleBridge } from "../bridge/index.js";
 import {
   Chip,
@@ -53,6 +52,7 @@ import {
   tokenReference,
   type ParticipantRingTreatment,
 } from "../tokens/index.js";
+import { useTerminalLeaseClaim } from "./lease-claim.js";
 import {
   terminalLeaseTransitionSentence,
   type TerminalLeaseHolding,
@@ -104,19 +104,6 @@ export interface LeaseLineProps {
    */
   readonly viewerIdentity: TerminalViewerIdentity;
 }
-
-/**
- * The subsystem name every refusal this line raises itself carries.
- *
- * A REJECTED lease call is normalized by `core/refusal.ts`'s one normalizer rather
- * than by a copy here. That is what keeps the wire's own code on screen: the port
- * answers rather than throws, so a rejection means the bridge itself failed, and a
- * bridge that failed with `{ code, message }` — a lease conflict, a denied
- * permission — is telling the person what to do next. A local arm that recognised
- * only this console's own refusal shape flattened every one of those into a single
- * call-failed code with `[object Object]` for a sentence.
- */
-const TERMINAL_LEASE_REFUSAL_ORIGIN = "terminal-lease";
 
 /**
  * What the chip says for each holding. Total over the closed set.
@@ -374,82 +361,4 @@ function ParticipantMarkDot(props: {
       ? undefined
       : { "--meridian-lease-hue": tokenReference(participantHueTokenName(props.mark.hueStep)) };
   return <span className={className} style={style} aria-hidden="true" />;
-}
-
-/** What the claim control knows: whether a call is out, and what refused it. */
-interface TerminalLeaseClaim {
-  readonly isInFlight: boolean;
-  readonly refusal: ConsoleRefusal | undefined;
-  readonly acquire: () => void;
-  readonly release: () => void;
-}
-
-/**
- * Call the lease wire and render what it answers — and nothing else.
- *
- * A hook rather than a class because its whole state is two renderer-local values
- * with no logic between them; the moment it acquires a rule, that rule belongs in
- * `lease-model.ts` where the fold can be tested without React.
- *
- * The served arm deliberately sets NO holder. `terminalAcquireWriteLease` answering
- * "served" means the daemon accepted the claim, not that this participant now holds
- * the shell — the holder is the wire field the transition carries, and a surface
- * that moved on the reply would show a keyboard to somebody whose broadcast never
- * arrived. The registered reply DOES carry a `controlHolder`, and 8.8's second Never
- * is precisely that it may not be read as one: the fold owns the holder.
- */
-function useTerminalLeaseClaim(bridge: ConsoleBridge, sessionId: string): TerminalLeaseClaim {
-  const [isInFlight, setIsInFlight] = useState(false);
-  const [refusal, setRefusal] = useState<ConsoleRefusal | undefined>(undefined);
-  const isMountedRef = useRef(true);
-
-  useEffect(() => {
-    isMountedRef.current = true;
-    return () => {
-      // A reply that lands after the pane closed has nothing to render into, and
-      // setting state on an unmounted tree is how a console grows a warning it
-      // then learns to ignore.
-      isMountedRef.current = false;
-    };
-  }, []);
-
-  const call = useCallback(
-    (operation: "acquire" | "release"): void => {
-      setIsInFlight(true);
-      setRefusal(undefined);
-      const request = { sessionId };
-      const pending =
-        operation === "acquire"
-          ? bridge.growth.terminalAcquireWriteLease(request)
-          : bridge.growth.terminalReleaseWriteLease(request);
-      void pending
-        .then((outcome) => {
-          if (!isMountedRef.current) {
-            return;
-          }
-          setRefusal(outcome.status === "unavailable" ? outcome : undefined);
-        })
-        .catch((error: unknown) => {
-          if (!isMountedRef.current) {
-            return;
-          }
-          setRefusal(refusalFromRejection(TERMINAL_LEASE_REFUSAL_ORIGIN, error));
-        })
-        .finally(() => {
-          if (isMountedRef.current) {
-            setIsInFlight(false);
-          }
-        });
-    },
-    [bridge, sessionId],
-  );
-
-  const acquire = useCallback(() => {
-    call("acquire");
-  }, [call]);
-  const release = useCallback(() => {
-    call("release");
-  }, [call]);
-
-  return { isInFlight, refusal, acquire, release };
 }
