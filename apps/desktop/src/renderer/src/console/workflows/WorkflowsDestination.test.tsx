@@ -163,6 +163,53 @@ describe("the workflows destination — the session it reads from", () => {
     expect(definitionNames(container)).toContain("Release checks");
   });
 
+  it("shows the picker when a person asks to choose, with a session already in hand", async () => {
+    // The path the control exists for, end to end: this window has been in a session,
+    // so the destination is scoped without anyone choosing anything, and the button is
+    // the only way back to the question. Under the fold this replaced, pressing it
+    // resolved to the retained session again and the surface did not move.
+    const { container } = renderDestination(
+      fixtureGrowthPort(),
+      frameStoreRetaining(WORKFLOWS_SESSION_ID),
+    );
+    await settle();
+    const rescope = container.querySelector(".meridian-workflows-destination__rescope");
+    if (!(rescope instanceof HTMLElement)) {
+      throw new Error("the scoped destination offered no way to choose again");
+    }
+
+    fireEvent.click(rescope);
+    await settle();
+
+    expect(container.textContent).toContain("Which session's workflows should this show?");
+    expect(scopeLine(container)).toBeNull();
+  });
+
+  it("scopes to the session picked after asking again, and stops following retention", async () => {
+    // The other half of the same control: choosing from the picker it opened settles
+    // the scope, so the button is a round trip rather than a one-way door.
+    const { container } = renderDestination(
+      fixtureGrowthPort(),
+      frameStoreRetaining(WORKFLOWS_SESSION_ID),
+    );
+    await settle();
+    const rescope = container.querySelector(".meridian-workflows-destination__rescope");
+    if (!(rescope instanceof HTMLElement)) {
+      throw new Error("the scoped destination offered no way to choose again");
+    }
+    fireEvent.click(rescope);
+    await settle();
+    const choice = container.querySelector(".meridian-choice-list__choice");
+    if (!(choice instanceof HTMLElement)) {
+      throw new Error("the picker offered no session to choose");
+    }
+
+    fireEvent.click(choice);
+    await settle();
+
+    expect(scopeLine(container)?.textContent).toContain(WORKFLOWS_SESSION_ID);
+  });
+
   it("says the directory was not checked when the port refuses and nothing is open", async () => {
     // "Not checked", never "none": the live bridge refuses the directory read, so the
     // console has not learned that this node has no sessions — it has learned nothing.

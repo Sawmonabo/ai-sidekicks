@@ -21,6 +21,13 @@
 //      offers the node's sessions and this window's open ones, and owns the three
 //      different kinds of nothing that read can settle into.
 //
+// WHY "CHOOSE A DIFFERENT SESSION" IS A STATE AND NOT A CLEARED FIELD. The three
+// sources above are three arms of one value (`destination-scope.ts`), not a chosen id
+// folded over a retained one. Folded, "choose again" could only be spelled as
+// "forget the choice" — which lands straight back on the retained session for anybody
+// who has opened one, so the control did nothing for exactly the people most likely to
+// press it. Asking is its own arm, and it outranks retention.
+//
 // WHY THE CHOICE IS NOT PERSISTED. `persistence/value-classes.ts` would admit it —
 // the `selection` class takes a record of identifier-shaped strings and a session id
 // is one — and it is still held for the mount, on `FrameStore`'s own recorded
@@ -50,6 +57,13 @@ import "./workflows-destination.css";
 import type { GrowthPort } from "../bridge/index.js";
 import { WireFigure, useAnnounce } from "../primitives/index.js";
 import { useFrameStore, type FrameStore, type SessionStoreRegistry } from "../store/index.js";
+import {
+  AWAITING_SESSION_CHOICE,
+  FOLLOWING_WINDOW_RETENTION,
+  chosenScope,
+  scopeSessionIdFor,
+  type WorkflowsScopeState,
+} from "./destination-scope.js";
 import { WorkflowRuns } from "./WorkflowRuns.js";
 import { WorkflowsBrowser } from "./WorkflowsBrowser.js";
 import { WorkflowsScopePicker } from "./WorkflowsScopePicker.js";
@@ -73,13 +87,12 @@ export interface WorkflowsDestinationProps {
 
 /** The workflows destination, scoped to the session it reads from. */
 export function WorkflowsDestination(props: WorkflowsDestinationProps): React.JSX.Element {
-  // Held for the mount and not written anywhere durable — the header says why. A
-  // choice overrides the retained session rather than merging with it: a person who
-  // has just picked a session is looking at that one, and falling back to the
-  // retained id after a choice would undo the act on the next render.
-  const [chosenSessionId, setChosenSessionId] = useState<string | undefined>(undefined);
+  // Held for the mount and not written anywhere durable — the header says why. The
+  // model is next door because it is a rule rather than a render: three arms, one
+  // resolution, and a test that pins the arm the old fold could not express.
+  const [scope, setScope] = useState<WorkflowsScopeState>(FOLLOWING_WINDOW_RETENTION);
   const retainedSessionId = useFrameStore(props.frameStore, (state) => state.lastOpenedSessionId);
-  const sessionId = chosenSessionId ?? retainedSessionId;
+  const sessionId = scopeSessionIdFor(scope, retainedSessionId);
   useScopeSettlementAnnouncement(sessionId);
 
   if (sessionId === undefined) {
@@ -88,7 +101,9 @@ export function WorkflowsDestination(props: WorkflowsDestinationProps): React.JS
         <WorkflowsScopePicker
           growth={props.growth}
           registry={props.sessionStoreRegistry}
-          onChoose={setChosenSessionId}
+          onChoose={(chosenSessionId) => {
+            setScope(chosenScope(chosenSessionId));
+          }}
         />
       </div>
     );
@@ -102,10 +117,10 @@ export function WorkflowsDestination(props: WorkflowsDestinationProps): React.JS
           type="button"
           className="meridian-workflows-destination__rescope"
           onClick={() => {
-            // Back to the question rather than to the retained session: clearing the
-            // choice while a retained id stood would put the surface straight back on
-            // the session the person just asked to leave.
-            setChosenSessionId(undefined);
+            // To the question, and not to the absence of a choice. Those were the same
+            // value under the old fold, so this control put the surface straight back
+            // on the session the person had just asked to leave.
+            setScope(AWAITING_SESSION_CHOICE);
           }}
         >
           Choose a different session
