@@ -225,6 +225,89 @@ app.whenReady().then(async () => {
 });
 ```
 
+The two multi-window observations in the Step 0b row come from the following two scripts, run the same way on the same date; output lines are again recorded as trailing comments. The first closes two unreferenced windows inside one synchronous loop and keeps sampling for five seconds (two runs, identical output):
+
+```js
+const { app, BrowserWindow } = require("electron");
+const v8 = require("node:v8");
+const { setImmediate: nextMacrotask, setTimeout: sleep } = require("node:timers/promises");
+const count = () => {
+  globalThis.gc();
+  globalThis.gc();
+  return v8.queryObjects(BrowserWindow, { format: "count" });
+};
+app.on("window-all-closed", () => {});
+app.whenReady().then(async () => {
+  console.log("baseline:", count()); // baseline: 0
+  let first = new BrowserWindow({ show: false });
+  console.log("one window open:", count()); // one window open: 2
+  let second = new BrowserWindow({ show: false });
+  console.log("two windows open:", count()); // two windows open: 3
+  const closedBoth = Promise.all(
+    [first, second].map((w) => new Promise((r) => w.once("closed", r))),
+  );
+  first = second = null;
+  await nextMacrotask();
+  await nextMacrotask();
+  console.log("two open, unreferenced:", count()); // two open, unreferenced: 3
+  for (const w of BrowserWindow.getAllWindows()) w.close();
+  await closedBoth;
+  await sleep(500);
+  await nextMacrotask();
+  console.log("both closed +500 ms:", count()); // both closed +500 ms: 2
+  await sleep(1500);
+  await nextMacrotask();
+  console.log("both closed +2000 ms:", count()); // both closed +2000 ms: 2
+  await sleep(3000);
+  await nextMacrotask();
+  console.log("both closed +5000 ms:", count()); // both closed +5000 ms: 2
+  app.exit(0);
+});
+```
+
+The second closes the same two windows one at a time, waiting for each `closed` event before sampling, then opens and closes a third:
+
+```js
+const { app, BrowserWindow } = require("electron");
+const v8 = require("node:v8");
+const { setImmediate: nextMacrotask, setTimeout: sleep } = require("node:timers/promises");
+const count = () => {
+  globalThis.gc();
+  globalThis.gc();
+  return v8.queryObjects(BrowserWindow, { format: "count" });
+};
+const closeAndSettle = async (browserWindow) => {
+  const closed = new Promise((resolve) => browserWindow.once("closed", resolve));
+  browserWindow.close();
+  await closed;
+  await sleep(500);
+  await nextMacrotask();
+};
+app.on("window-all-closed", () => {});
+app.whenReady().then(async () => {
+  console.log("baseline:", count()); // baseline: 0
+  new BrowserWindow({ show: false });
+  new BrowserWindow({ show: false });
+  await nextMacrotask();
+  await nextMacrotask();
+  console.log("two open, unreferenced:", count()); // two open, unreferenced: 3
+  await closeAndSettle(BrowserWindow.getAllWindows()[0]);
+  console.log("first closed +500 ms:", count()); // first closed +500 ms: 2
+  await closeAndSettle(BrowserWindow.getAllWindows()[0]);
+  console.log("second closed +500 ms:", count()); // second closed +500 ms: 1
+  await sleep(2000);
+  await nextMacrotask();
+  console.log("second closed +2500 ms:", count()); // second closed +2500 ms: 1
+  new BrowserWindow({ show: false });
+  await nextMacrotask();
+  await nextMacrotask();
+  console.log("third opened (unreferenced):", count()); // third opened (unreferenced): 2
+  await closeAndSettle(BrowserWindow.getAllWindows()[0]);
+  console.log("third closed +500 ms:", count()); // third closed +500 ms: 1
+  app.exit(0);
+});
+```
+
 ### Related ADRs
 
 - `ADR-016` — Electron desktop shell (V1 desktop architecture; this ADR is a derived contract addition).

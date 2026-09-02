@@ -14,8 +14,9 @@
 //   reports `>= 1` AND `window-all-closed` does not fire. Per ADR-024
 //   §Antithesis, the load-bearing reachability mechanism is Electron's
 //   native-side `BaseWindow::self_ref_` (`v8::Global<v8::Value>` strong-
-//   rooted from `InitWith` at `electron_api_base_window.cc:155` to native
-//   destruction at `electron_api_base_window.cc:130`). The user-side
+//   rooted in `BaseWindow::InitWith` and released only in `~BaseWindow` at
+//   native destruction; tag-exact lines in
+//   `ADR-024 §Primary sources (Electron v41.6.1)`). The user-side
 //   module-scope `let mainWindow` in `apps/desktop/src/main/index.ts` is
 //   defensive consistency with the canonical Electron community pattern,
 //   not the primary GC anchor — reverting it does NOT produce a failure
