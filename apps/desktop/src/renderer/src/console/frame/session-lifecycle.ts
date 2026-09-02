@@ -14,11 +14,12 @@
 // nowhere to deliver. Holding them in one piece of state makes "one without the
 // other" unrepresentable rather than merely unlikely.
 //
-// WHAT THE BINDER BINDS is a separate question from whether it exists, and today
-// the answer is nothing: no session read is registered on this window's bridge, so
-// no store it opens can reach a base state, and a stream fed into one is retained
-// and never projected. `createWindowSessionPlumbing` below carries that reasoning
-// and the one line that reverses it.
+// WHAT THE BINDER BINDS is a separate question from whether it exists, and the
+// answer now depends on the bridge: a build whose bridge serves the growth port's
+// session read gets a registry that can reach a base state and a binder that feeds
+// it; a build whose bridge refuses gets the refusal itself as the registry's read,
+// and no stream is bound at all. `createWindowSessionPlumbing` below carries that
+// reasoning.
 //
 // Two rules from `Spec-023 §Console Design (Meridian)` decide the shape here, and
 // both are about the render phase:
@@ -48,11 +49,13 @@
 
 import { useEffect, useState } from "react";
 
-import { useConsoleBridge, type ConsoleBridge } from "../bridge/index.js";
+import { ConsoleRefusalError } from "../core/index.js";
+import { growthUnavailable, useConsoleBridge, type ConsoleBridge } from "../bridge/index.js";
 import {
-  SESSION_READ_UNREGISTERED,
   SessionStoreRegistry,
   useOpenSessionStore,
+  type SessionSnapshot,
+  type SessionSnapshotRead,
   type SessionStore,
 } from "../store/index.js";
 import { SessionEventBinder } from "./session-event-binder.js";
@@ -132,12 +135,12 @@ export function useActiveSessionStore(
 /**
  * The registry and its binder, for one window.
  *
- * THE READ IS UNREGISTERED, AND THAT IS A WIRE FACT RATHER THAN A PLACEHOLDER.
- * There is no session read on this window's bridge: `SidekicksBridge` declares no
- * method that answers one, no growth-slate operation names one, and the growth
- * port therefore has nothing to refuse. `SESSION_READ_UNREGISTERED` is that
- * standing absence, and it is deliberately not a reader resolving `undefined`,
- * which says something different — that one read happened and found nothing, and
+ * THE READ IS THE BRIDGE'S ANSWER, NOT A PLACEHOLDER EITHER WAY. A bridge that
+ * serves the growth port's `sessionRead` gets the adapter below; one that refuses
+ * gets the refusal itself, which names the operation, the slate row, and the
+ * document that owes the wire — the same value a surface renders as the
+ * `not-checked` kind of nothing. Neither arm is a reader resolving `undefined`,
+ * which says something different: that one read happened and found nothing, and
  * the next may not.
  *
  * The binder acts on the difference. A store admits nothing until a read gives it
@@ -145,11 +148,37 @@ export function useActiveSessionStore(
  * buffer nothing will ever drain: every event retained, none projected, for as
  * long as the window is open. `attach` reads
  * `SessionStoreRegistry.canInitialiseSessionStores` and takes no subscription at
- * all on that arm. The binder is still MINTED and attached — it is what installs
- * the window's session diagnostics, and the moment a read is registered on the
- * line below it starts binding again with nothing else moving.
+ * all on that arm. The binder is still MINTED and attached on it — it is what
+ * installs the window's session diagnostics.
  */
 function createWindowSessionPlumbing(bridge: ConsoleBridge): WindowSessionPlumbing {
-  const registry = new SessionStoreRegistry({ read: SESSION_READ_UNREGISTERED });
+  const registry = new SessionStoreRegistry({ read: createSessionSnapshotRead(bridge) });
   return { registry, binder: new SessionEventBinder({ registry, bridge }) };
+}
+
+/**
+ * The read a window performs, resolved from what its bridge actually serves.
+ *
+ * The availability question is answered SYNCHRONOUSLY, off the bridge's served
+ * set, and it has to be: the registry is built before any call can be awaited, and
+ * a registry built optimistically would bind a stream under a live bridge whose
+ * `daemon.subscribe` throws — a crash inside a mount effect rather than a refusal
+ * a surface can render.
+ *
+ * A refusal from a bridge that DID claim to serve the read is a different fact and
+ * takes a different path: it is raised, so the refresh scheduler's error arm marks
+ * the store degraded rather than the adapter reporting "read nothing", which would
+ * clear no degraded flag and look like a quiet success.
+ */
+function createSessionSnapshotRead(bridge: ConsoleBridge): SessionSnapshotRead {
+  if (!bridge.growthServedOperations.has("sessionRead")) {
+    return growthUnavailable("sessionRead");
+  }
+  return async (sessionId: string): Promise<SessionSnapshot> => {
+    const outcome = await bridge.growth.sessionRead({ sessionId });
+    if (outcome.status === "served") {
+      return outcome.value;
+    }
+    throw new ConsoleRefusalError(outcome);
+  };
 }

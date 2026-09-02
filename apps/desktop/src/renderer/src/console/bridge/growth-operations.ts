@@ -120,6 +120,19 @@ export const GROWTH_OPERATIONS: Readonly<Record<GrowthOperationId, GrowthOperati
     "method",
     "reactivate an archived session",
   ),
+  sessionRead: op(
+    "sessionRead",
+    "session-directory-read",
+    "method",
+    "read one session's snapshot, so its store can reach a base state and project the stream bound to it",
+    "session.read",
+  ),
+  sessionList: op(
+    "sessionList",
+    "session-directory-read",
+    "method",
+    "list the sessions on this node, so a surface can offer more than the set this window happens to have open",
+  ),
   daemonStatusRead: op(
     "daemonStatusRead",
     "daemon-control-methods",

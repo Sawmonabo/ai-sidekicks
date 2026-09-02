@@ -1,4 +1,4 @@
-// The sessions this window has open, as a list of choices.
+// Sessions offered as a list of choices.
 //
 // ONE list, two surfaces. The context picker asks which session an auxiliary
 // window should follow; the sessions surface offers the same set to open in place.
@@ -14,9 +14,11 @@
 //
 // The id renders through `WireFigure`, which is the console's one mono figure: rule
 // 4 makes mono the signature that a value came from the wire, and a session id is
-// exactly that. There is no title beside it because no read supplies one — the
-// console has no session-directory wire — and a console-invented label would be
-// prose paraphrasing a wire figure, which the same rule forbids.
+// exactly that. There is no title beside it: the directory read carries an optional
+// one and neither producer in the tree supplies it, so a row rendered by title today
+// would be rendered by a label the console made up — prose paraphrasing a wire
+// figure, which the same rule forbids. A session with no name renders by its
+// identifier, which is what this row does.
 
 import { WireFigure } from "../primitives/index.js";
 

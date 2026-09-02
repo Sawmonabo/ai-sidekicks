@@ -48,14 +48,25 @@
 // while delivering nothing — that count is the evidence the workload was a
 // workload.
 //
-// The second reading is the session store's, and it is asserted to stay at ZERO
-// rather than to grow. No session read is registered on the console's bridge, so
-// no store it opens can reach a base state, so the window's binder takes no wire
-// subscription at all rather than feeding a pre-initialisation buffer nothing will
-// ever drain. That distinction is exactly this tier's subject: a console left open
-// for a working day retaining a stream it cannot project is the leak a two-second
-// tier cannot see. Zero is a READING and not an absence — the diagnostics handle is
-// installed on that arm too, and the run fails if it is missing.
+// The second reading is the session store's, and it is asserted to GROW. The
+// fixture bridge serves the growth port's session read, so a store this window
+// opens reaches a base state, the binder takes the wire subscription, and the
+// scenario's beats travel the whole path a daemon's would: subscription, apply
+// chokepoint, store. That is what makes this a workload rather than a navigation
+// loop — a console left open for a working day is one with events landing in
+// stores, and the leaks worth catching live in that machinery.
+//
+// The reading is taken THREE times — after the warm-up, half way, and at the end —
+// and each is asserted strictly greater than the last. One end-to-end comparison
+// would pass over a run that delivered its whole script inside the warm-up cycle
+// and then sat idle for two hundred, which is the shape a leak hides in most
+// comfortably. `SCENARIO_ADVANCE_MS_PER_CYCLE` is derived from the script's own
+// span for exactly this reason: the run walks the script about once, so its beats
+// fall across the cycles rather than at the front of them, and the mid-run reading
+// is what proves it.
+//
+// Absence is still a failure and never a skip: the diagnostics handle is installed
+// on both arms, and a build without it would make every reading below vacuous.
 
 import process from "node:process";
 
@@ -291,8 +302,15 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
       const baselineHeapBytes = await readSettledHeapBytes(consoleApplication);
 
       let beatsDelivered = beatsAfterWarmUp;
+      let appliedEventsAtMidRun: number | null = null;
       for (let cycle = 0; cycle < CHURN_CYCLE_COUNT; cycle += 1) {
         beatsDelivered = await churnOnce(consoleApplication);
+        if (cycle === Math.floor(CHURN_CYCLE_COUNT / 2)) {
+          appliedEventsAtMidRun = await readAppliedEventCount(
+            consoleApplication,
+            FLAGSHIP_SESSION_ID,
+          );
+        }
       }
 
       const finalHeapBytes = await readSettledHeapBytes(consoleApplication);
@@ -314,7 +332,8 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
           `(${String(perCycleBytes)} B/cycle); beats ${String(beatsAfterWarmUp)} → ` +
           `${String(beatsDelivered)} of ${String(FLAGSHIP_SCENARIO.beats.length)} at ` +
           `${String(SCENARIO_ADVANCE_MS_PER_CYCLE)} ms/cycle; events applied ` +
-          `${String(appliedEventsAfterWarmUp)} → ${String(appliedEventCount)}\n`,
+          `${String(appliedEventsAfterWarmUp)} → ${String(appliedEventsAtMidRun)} → ` +
+          `${String(appliedEventCount)}\n`,
       );
 
       // The workload moved. Both halves are load-bearing: the first says the
@@ -334,14 +353,27 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
         `${SESSION_DIAGNOSTICS_FIXTURE_GLOBAL} is not exposed by this build, so nothing can be shown about where the workload's events went`,
       ).not.toBeNull();
       expect(appliedEventsAfterWarmUp).not.toBeNull();
+      expect(appliedEventsAtMidRun).not.toBeNull();
 
-      // Zero, and zero is the correct number rather than a disappointing one: no
-      // session read is registered on this bridge, so no store can be initialised,
-      // so the window binds no stream instead of buffering one it will never
-      // project. This pair is what fails the day a console starts retaining a
-      // stream it cannot render — the leak a day-long session would show first.
-      expect(appliedEventCount).toBe(0);
-      expect(await readBoundSessionIds(consoleApplication)).toEqual([]);
+      // The events kept arriving for the whole run rather than in a burst at the
+      // front of it. Both comparisons are strict, and both are load-bearing: the
+      // first says the workload was still delivering at the half-way point, the
+      // second that it was still delivering at the end.
+      expect(
+        Number(appliedEventsAtMidRun),
+        "the scenario stopped delivering into the store before the run was half over",
+      ).toBeGreaterThan(Number(appliedEventsAfterWarmUp));
+      expect(
+        Number(appliedEventCount),
+        "the scenario stopped delivering into the store part-way through the run",
+      ).toBeGreaterThan(Number(appliedEventsAtMidRun));
+
+      // And they reached a store through a real subscription rather than a
+      // side channel. This is what fails the day the console goes back to binding
+      // nothing — the reading that was zero in every build before the session read
+      // had a producer, which made this whole tier an idle loop wearing a
+      // workload's name.
+      expect(await readBoundSessionIds(consoleApplication)).toContain(FLAGSHIP_SESSION_ID);
     } finally {
       await consoleApplication.close();
     }

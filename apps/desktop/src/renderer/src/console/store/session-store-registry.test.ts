@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ConsoleRefusalError, ManualClock, isConsoleRefusal } from "../core/index.js";
+import { ConsoleRefusalError, ManualClock, isConsoleRefusal, refuse } from "../core/index.js";
 import type { ConsoleSessionEvent, EntityProjectorRegistry } from "./entities.js";
 import type { RefreshReason } from "./scheduling.js";
 import {
@@ -263,6 +263,31 @@ describe("SessionStoreRegistry — applies go through the queue, reads through t
 
     // Stale rows that look current are the failure this prevents.
     expect(store.snapshot().degradedCause).toBe("read-failed");
+    registry.disposeAll();
+  });
+
+  it("performs no read, and reports why, when it was handed a refusal instead of a reader", async () => {
+    // The arm a bridge with no session wire takes. Two claims, and both matter:
+    // nothing is read, so the scheduler fires into nothing rather than into an
+    // undefined call; and the store is NOT marked degraded, because no read was
+    // attempted and "we could not re-read" would be a different and false story.
+    const clock = new ManualClock(0);
+    const readRefusal = refuse(
+      "growth-port",
+      "wire-unregistered",
+      "no session read is registered.",
+    );
+    const registry = new SessionStoreRegistry({ clock, refreshDebounceMs: 20, read: readRefusal });
+    const store = registry.open("session-1");
+
+    registry.requestRefresh("session-1", "subscribe");
+    clock.advance(20);
+    await settleMicrotasks();
+
+    expect(registry.canInitialiseSessionStores).toBe(false);
+    expect(registry.readRefusal).toBe(readRefusal);
+    expect(store.snapshot().initialised).toBe(false);
+    expect(store.snapshot().degradedCause).toBeUndefined();
     registry.disposeAll();
   });
 

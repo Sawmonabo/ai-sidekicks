@@ -46,7 +46,10 @@ import {
 import { ConsoleRefusalError, refuse } from "../core/index.js";
 import type { ConsoleSessionEvent } from "../store/index.js";
 import { isSessionEventStream, type ConsoleBridge } from "./console-bridge.js";
-import { createRefusingGrowthPort, type GrowthPort } from "./growth-port.js";
+import {
+  FIXTURE_SERVED_GROWTH_OPERATION_IDS,
+  createFixtureGrowthPort,
+} from "./fixture-growth-port.js";
 import { ScenarioEngine, type ConsoleScenario } from "./scenario.js";
 
 /** Why the fixture could not answer. Rendered verbatim; never swallowed. */
@@ -98,12 +101,6 @@ export const FIXTURE_APP_META: SidekicksBridge["app"] = {
 
 export interface FixtureBridgeOptions {
   readonly scenario: ConsoleScenario;
-  /**
-   * The growth port the fixture serves. Defaults to the refusing port, so a
-   * scenario that has not scripted a growth wire renders the "not checked"
-   * absence exactly as the live bridge would.
-   */
-  readonly growth?: GrowthPort;
 }
 
 /** Build the fixture bridge for one scenario. */
@@ -178,7 +175,13 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
 
   return {
     sidekicks,
-    growth: options.growth ?? createRefusingGrowthPort(),
+    // The port and the set that says what it serves are built together, from one
+    // declaration, so a bridge cannot publish a served set its port does not
+    // honour. An injectable port used to sit here and nothing ever passed one;
+    // keeping it would have meant a caller could hand in a port while the served
+    // set beside it still described a different one.
+    growth: createFixtureGrowthPort(scenarioEngine),
+    growthServedOperations: new Set(FIXTURE_SERVED_GROWTH_OPERATION_IDS),
     source: "fixture",
     scenarioEngine,
   };

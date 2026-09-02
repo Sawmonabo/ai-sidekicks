@@ -35,12 +35,18 @@
 //     rather than a wiring one.
 //   • **No stream into a store that cannot be initialised.** A store buffers
 //     rather than applies until a read gives it a base state, so binding a stream
-//     to a registry whose `read` is `SESSION_READ_UNREGISTERED` feeds a buffer
+//     to a registry whose `read` is a refusal rather than a reader feeds a buffer
 //     nothing will ever drain — a long-running session retains its whole event
 //     stream and projects none of it. `attach` reads
 //     `SessionStoreRegistry.canInitialiseSessionStores` and takes no subscription
 //     at all when the answer is no. Structural rather than a check the composition
 //     root makes: every caller gets it, and it cannot be forgotten by the next one.
+//   • **No subscription without the read that makes it mean something.** The
+//     converse of the rule above, and it was the half that was missing: binding a
+//     stream and never asking for a base state leaves the store buffering exactly
+//     as if no read existed. `#bindSession` requests the read in the same act as
+//     taking the subscription, so the two cannot be separated by a caller who
+//     remembers one of them.
 //
 // WHAT THE WIRE ACTUALLY OFFERS, AND WHAT THIS DOES ABOUT IT
 //
@@ -249,6 +255,15 @@ export class SessionEventBinder {
         this.#deliver(sessionId, payload);
       }),
     );
+    // The read that gives the store its base state, asked for at the one moment
+    // that knows a stream just started. `subscribe` is a registered refresh reason
+    // and means precisely this. Without it a bound session buffers forever —
+    // nothing else in the console calls `requestRefresh` on an open, so the store
+    // layer stayed dormant even where a read WAS available. The refusal arm is
+    // unreachable here (this runs on the registry's own `opened` change, so the
+    // session is open) and is dropped rather than checked: a re-check would be a
+    // second answer to a question the caller already answered.
+    this.#registry.requestRefresh(sessionId, "subscribe");
   }
 
   #unbindSession(sessionId: string): void {

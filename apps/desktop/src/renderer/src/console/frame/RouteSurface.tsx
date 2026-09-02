@@ -10,9 +10,10 @@
 //
 //   • **Not-found** — the address names nothing. The way back is the sessions list.
 //   • **A bare auxiliary route** — a WORKING window that has not been given a
-//     subject. It gets the picker, not an error. The picker offers this window's
-//     open sessions and owns its own absence — see `ContextPicker.tsx` for why
-//     that source, and why it is not the route's session store.
+//     subject. It gets the picker, not an error. The picker offers the node's
+//     sessions and this window's open ones, and owns its own absence — see
+//     `ContextPicker.tsx` for why those sources, and why neither is the route's
+//     session store.
 //   • **A session still opening** — the route named a session and its store is not
 //     open yet, which is a read in flight and renders as one.
 //   • **A slot with no renderer** — reserved, not stubbed. The console says the
@@ -59,6 +60,7 @@ export function RouteSurface(props: RouteSurfaceProps): React.JSX.Element {
       <ContextPicker
         route={route.route}
         registry={context.sessionStoreRegistry}
+        growth={context.bridge.growth}
         onChoose={(sessionId) => {
           context.frameStore.navigate({ ...route, sessionId });
         }}

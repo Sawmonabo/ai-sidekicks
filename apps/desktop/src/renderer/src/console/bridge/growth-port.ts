@@ -1,6 +1,6 @@
 // The growth port: the console's single fixture-only seam.
 //
-// `Plan-023 §Console growth slate` names twenty-four wires the console builds
+// `Plan-023 §Console growth slate` names twenty-five wires the console builds
 // against and does not yet have. Those rows are not methods — one bundles a whole
 // namespace plus two settings plus a pane-kind declaration, several describe type
 // semantics on replies that already exist. So the port is keyed by OPERATION, not
@@ -29,6 +29,7 @@
 // signature table it will never read.
 
 import { refuse } from "../core/index.js";
+import type { SessionSnapshot } from "../store/index.js";
 import type { GrowthOperationId } from "./growth-entry.js";
 import { GROWTH_OPERATIONS } from "./growth-operations.js";
 import {
@@ -76,7 +77,14 @@ export interface GrowthArtifactSummary {
 
 export interface GrowthSessionSummary {
   readonly sessionId: string;
-  readonly title: string;
+  /**
+   * Optional because a session may genuinely have no name, and
+   * `Spec-023 §Console Design (Meridian)` says what happens then: it renders by its
+   * identifier, never by an invented title. A required member would force every
+   * producer to supply one, and the only value a producer without a title can
+   * supply is a fabrication.
+   */
+  readonly title?: string;
   readonly state: string;
 }
 
@@ -140,6 +148,8 @@ interface GrowthOperationSignatures {
   sessionArchive: { request: { readonly sessionId: string }; value: void };
   sessionClose: { request: { readonly sessionId: string }; value: void };
   sessionReactivate: { request: { readonly sessionId: string }; value: void };
+  sessionRead: { request: { readonly sessionId: string }; value: SessionSnapshot };
+  sessionList: { request: Record<string, never>; value: readonly GrowthSessionSummary[] };
   daemonStatusRead: {
     request: Record<string, never>;
     value: { readonly state: string; readonly version: string };
@@ -270,6 +280,8 @@ export function createRefusingGrowthPort(): GrowthPort {
     sessionArchive: async () => growthUnavailable("sessionArchive"),
     sessionClose: async () => growthUnavailable("sessionClose"),
     sessionReactivate: async () => growthUnavailable("sessionReactivate"),
+    sessionRead: async () => growthUnavailable("sessionRead"),
+    sessionList: async () => growthUnavailable("sessionList"),
     daemonStatusRead: async () => growthUnavailable("daemonStatusRead"),
     daemonStop: async () => growthUnavailable("daemonStop"),
     daemonRestart: async () => growthUnavailable("daemonRestart"),

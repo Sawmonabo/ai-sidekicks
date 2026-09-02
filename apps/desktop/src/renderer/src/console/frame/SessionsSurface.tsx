@@ -14,13 +14,20 @@
 // absorbs the three shipped Tier-1 components by import and re-authors none of
 // them, and `session.create` is the one implementation of creating a session.
 //
-// WHAT THE LIST CAN HONESTLY SHOW. No `SidekicksBridge` member lists the sessions
-// on a node and `Plan-023 §Console growth slate` registers no row for one, so the
-// only session set this renderer can name is the set this window has open —
-// `SessionStoreRegistry`, the same source the auxiliary window's context picker
-// reads. With none open the absence is `not-checked` rather than `empty`, and the
-// distinction is the honest one: the console did not ask the daemon for the rest
-// and must not report "there are none" for a question it never put.
+// WHAT THE LIST CAN HONESTLY SHOW. Two sets, and the surface offers their union.
+// The node's sessions come from the growth port's directory read — a wire the
+// corpus has not registered, so it is served by the fixture and refused by the live
+// bridge — and this window's own open sessions come from `SessionStoreRegistry`,
+// the same source the auxiliary window's context picker reads. Neither subsumes the
+// other: the directory may not yet name a session this window just created, and the
+// open set names nothing this window has not opened.
+//
+// The absence follows the directory rather than the count. A refused directory with
+// no session open is `not-checked` — the console did not ask the daemon, and must
+// not report "there are none" for a question it never put. A SERVED directory with
+// no rows is `empty`, because that question was put and answered. A read still in
+// flight is `not-loaded`. Collapsing any two of the three is the conflation
+// `Spec-023 §Console Design (Meridian)` rule 8 exists to prevent.
 //
 // WHY THE START CONTROL TAKES A FACTORY RATHER THAN IMPORTING THE PROBE. The probe
 // reads the installed bridge directly, so it is mountable only under a live one;
@@ -30,16 +37,31 @@
 
 import { useState, type ReactNode } from "react";
 
+import type { GrowthPort } from "../bridge/index.js";
 import { Nothing } from "../primitives/index.js";
 import { useOpenSessionIds, type FrameStore, type SessionStoreRegistry } from "../store/index.js";
 import { OpenSessionList } from "./OpenSessionList.js";
+import {
+  offeredSessionIds,
+  useSessionDirectory,
+  type SessionDirectoryState,
+} from "./session-directory.js";
 
-/** How the list names itself, for the heading and for assistive technology. */
-const SESSIONS_HEADING = "Sessions open in this window";
+/**
+ * How the list names itself, for the heading and for assistive technology.
+ *
+ * Two headings because there are two questions, and a heading that named the wrong
+ * one would be the only part of the surface still claiming the console had asked
+ * the node. A window listing its own open sessions says so.
+ */
+const NODE_SESSIONS_HEADING = "Sessions on this node";
+const WINDOW_SESSIONS_HEADING = "Sessions open in this window";
 
 export interface SessionsSurfaceProps {
   readonly frameStore: FrameStore;
   readonly sessionStoreRegistry: SessionStoreRegistry;
+  /** The seam the node's session directory is read through. */
+  readonly growth: GrowthPort;
   /**
    * Builds what a start request renders. Called on the ACT and never on mount, so
    * a build that creates a session creates exactly one per press.
@@ -49,12 +71,15 @@ export interface SessionsSurfaceProps {
 
 export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element {
   const openSessionIds = useOpenSessionIds(props.sessionStoreRegistry);
+  const directory = useSessionDirectory(props.growth);
+  const sessionIds = offeredSessionIds(directory, openSessionIds);
   // Counts presses rather than recording a boolean, so the built node can be keyed
   // on it: a second press remounts and therefore starts a second session, where a
   // boolean would leave the first mount in place and make the control silently
   // inert after its first use.
   const [startRequestCount, setStartRequestCount] = useState(0);
 
+  const heading = directory.status === "served" ? NODE_SESSIONS_HEADING : WINDOW_SESSIONS_HEADING;
   const startControl = (
     <button
       type="button"
@@ -70,24 +95,18 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
   return (
     <section className="meridian-sessions" aria-labelledby="meridian-sessions-heading">
       <h1 className="meridian-sessions__heading" id="meridian-sessions-heading">
-        {SESSIONS_HEADING}
+        {heading}
       </h1>
-      {openSessionIds.length === 0 ? (
-        <Nothing
-          kind="not-checked"
-          placement="surface"
-          title="No session is open in this window."
-          detail="The console shows the sessions this window has opened; it has not asked the daemon for the rest, because no session-directory read is registered yet."
-          action={startControl}
-        />
+      {sessionIds.length === 0 ? (
+        <SessionsAbsence directory={directory} action={startControl} />
       ) : (
         <>
           <OpenSessionList
-            sessionIds={openSessionIds}
+            sessionIds={sessionIds}
             onSelect={(sessionId) => {
               props.frameStore.navigate({ kind: "workspace", sessionId });
             }}
-            label={SESSIONS_HEADING}
+            label={heading}
           />
           {startControl}
         </>
@@ -98,5 +117,48 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
         </div>
       )}
     </section>
+  );
+}
+
+/**
+ * The absence, chosen by what the directory read did rather than by the row count.
+ *
+ * Split out because the three arms are the surface's real content when there is
+ * nothing to list, and inlining them left the one decision that matters — which
+ * kind of nothing this is — buried inside a ternary about array length.
+ */
+function SessionsAbsence(props: {
+  readonly directory: SessionDirectoryState;
+  readonly action: ReactNode;
+}): React.JSX.Element {
+  if (props.directory.status === "reading") {
+    // No action on this arm, and the primitive is why: a read in flight renders as
+    // a skeleton, which carries no title, no detail and no control — "a control
+    // offered beside one is a control offered against nothing". Passing one here
+    // would not render it, which is worse than not passing it, because the code
+    // would read as though the control were on screen.
+    return (
+      <Nothing kind="not-loaded" placement="surface" title="Reading the sessions on this node." />
+    );
+  }
+  if (props.directory.status === "served") {
+    return (
+      <Nothing
+        kind="empty"
+        placement="surface"
+        title="There are no sessions on this node yet."
+        detail="The node answered, and it has none. Starting one is the way to have the first."
+        action={props.action}
+      />
+    );
+  }
+  return (
+    <Nothing
+      kind="not-checked"
+      placement="surface"
+      title="No session is open in this window."
+      detail={`The console shows the sessions this window has opened; it has not asked the daemon for the rest. ${props.directory.refusal.detail}`}
+      action={props.action}
+    />
   );
 }

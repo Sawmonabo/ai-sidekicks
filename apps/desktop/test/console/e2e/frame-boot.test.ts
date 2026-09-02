@@ -74,16 +74,28 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", (
       // The sessions destination has an owner — the frame's own all-sessions
       // surface, which creates nothing on mount and builds the absorbed
       // session-bootstrap probe only when a participant presses "Start a
-      // session". So the claim on this destination is not about which absence
-      // renders — with no session open the surface shows its own not-checked
-      // line inside its list region, and once a session directory read lands it
-      // shows rows — but that the OWNER rendered and the frame's reserved-slot
-      // arm did not fire: the owner's section is present and the frame's
-      // composed absence wrapper is not.
+      // session". The claim is that the OWNER rendered and the frame's
+      // reserved-slot arm did not fire: the owner's section is present and the
+      // frame's composed absence wrapper is not.
       await consoleWindow.locator(".meridian-frame").waitFor({ state: "visible" });
       await consoleWindow.locator(".meridian-sessions").waitFor({ state: "visible" });
       expect(await consoleWindow.locator(".meridian-frame__absence").count()).toBe(0);
       expect(await consoleWindow.locator(".meridian-nothing--empty").count()).toBe(0);
+
+      // And the list has rows in it. A fixture build serves the growth port's
+      // session directory read, so the scenario's session is offered here — which
+      // is what this destination could not do in any build before that read had a
+      // producer, when the only session set the renderer could name was the set
+      // this window happened to have opened, and a fresh window had opened none.
+      // Waited for rather than counted immediately: the read is asynchronous, and
+      // a bare count would race it and pass by rendering the absence instead.
+      await consoleWindow
+        .locator(".meridian-open-sessions__choice")
+        .first()
+        .waitFor({ state: "visible" });
+      expect(
+        await consoleWindow.locator(".meridian-open-sessions__choice").count(),
+      ).toBeGreaterThan(0);
 
       // Reserved, not stubbed, on a destination that genuinely has no owner. This
       // is the half of the pair that makes the other half mean something: without

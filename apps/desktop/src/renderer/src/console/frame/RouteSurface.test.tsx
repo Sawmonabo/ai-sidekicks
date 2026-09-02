@@ -1,16 +1,23 @@
-// A bare auxiliary route offers what this window has, and never a read in flight.
+// A bare auxiliary route offers what this window has and what the node reports.
 //
 // The case this file exists for: `#/window/timeline` with no session id is the one
 // route the context picker is FOR, and it is exactly the route on which the picker
 // used to read its candidates off `context.sessionStore` — the store for the
 // route's own session, which a bare route does not have. The picker therefore sat
-// on "loading" forever and could never offer anything. The assertions below are
-// about the source, so they drive a real `SessionStoreRegistry` with real sessions
-// open in it rather than a stand-in that would agree with whatever the code did.
+// on "loading" forever and could never offer anything. A read in flight is a state
+// the picker has again, and legitimately: the directory read is a real one and it
+// SETTLES, which is the property the old defect lacked and the property these
+// cases assert. The assertions are about the sources, so they drive a real
+// `SessionStoreRegistry` with real sessions open in it and a real growth port
+// rather than stand-ins that would agree with whatever the code did.
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
+import type { GrowthPort } from "../bridge/index.js";
+import { createFixtureBridge } from "../bridge/index.js";
+import { createRefusingGrowthPort } from "../bridge/growth-port.js";
+import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { FrameStore, SessionStoreRegistry } from "../store/index.js";
 import type { ConsoleRoute } from "../routing/index.js";
 import { RouteSurface } from "./RouteSurface.js";
@@ -45,15 +52,32 @@ function registryWithOpenSessions(...sessionIds: readonly string[]): SessionStor
 function contextFor(
   route: ConsoleRoute,
   registry: SessionStoreRegistry,
+  growth: GrowthPort = createRefusingGrowthPort(),
 ): { context: ConsoleSurfaceContext; frameStore: FrameStore } {
   const frameStore = new FrameStore({ initialRoute: route });
   const context = {
     route,
+    // A REAL growth port, defaulting to the refusing one so a case that says
+    // nothing about the directory gets the live bridge's answer rather than a
+    // convenient one.
+    bridge: { growth },
     frameStore,
     sessionStore: undefined,
     sessionStoreRegistry: registry,
   } as unknown as ConsoleSurfaceContext;
   return { context, frameStore };
+}
+
+/** The fixture's port, which serves the directory read the live bridge refuses. */
+function fixtureGrowthPort(): GrowthPort {
+  return createFixtureBridge({ scenario: FLAGSHIP_SCENARIO }).growth;
+}
+
+/** Let the directory read settle, so an assertion is about the answer. */
+async function settle(): Promise<void> {
+  await act(async () => {
+    await Promise.resolve();
+  });
 }
 
 describe("RouteSurface — the picker on a bare auxiliary route", () => {
@@ -71,17 +95,31 @@ describe("RouteSurface — the picker on a bare auxiliary route", () => {
     expect(screen.getByRole("button", { name: "session-beta" })).toBeDefined();
   });
 
-  it("never renders a read in flight, because no read is in flight", () => {
+  it("never leaves a read in flight on screen, because the read it makes settles", async () => {
     // The defect this file was written for renders as the `not-loaded` kind of
     // nothing, whose block form is the only thing on this surface that carries
-    // `aria-busy`. Asserting its absence names the failure rather than merely
-    // asserting the success beside it.
-    const registry = registryWithOpenSessions("session-alpha");
+    // `aria-busy`, and it never went away. Asserting its absence AFTER the
+    // directory read settles names that failure rather than forbidding a loading
+    // state the surface is now entitled to show for one frame.
+    const registry = registryWithOpenSessions();
     const { context } = contextFor(BARE_TIMELINE_ROUTE, registry);
 
     const { container } = render(<RouteSurface context={context} />);
+    await settle();
 
     expect(container.querySelector("[aria-busy='true']")).toBeNull();
+  });
+
+  it("offers the node's sessions when the bridge serves the directory read", async () => {
+    // The window has none open, so every row on screen came from the directory —
+    // which is what the picker could not do at all before the read had a producer.
+    const registry = registryWithOpenSessions();
+    const { context } = contextFor(BARE_TIMELINE_ROUTE, registry, fixtureGrowthPort());
+
+    render(<RouteSurface context={context} />);
+    await settle();
+
+    expect(screen.getByRole("button", { name: FLAGSHIP_SCENARIO.sessionId })).toBeDefined();
   });
 
   it("navigates the window to the session that was chosen", () => {
@@ -98,16 +136,26 @@ describe("RouteSurface — the picker on a bare auxiliary route", () => {
     });
   });
 
-  it("negative control: with nothing open it says so, and offers no session", () => {
+  it("negative control: with nothing open and a refused directory it says so, and offers no session", async () => {
     // Without this, a picker that rendered every id it was ever handed — or one
-    // that rendered a row per nothing — would satisfy the cases above.
+    // that rendered a row per nothing — would satisfy the cases above. The wording
+    // is the `not-checked` one on purpose: the console did not ask the node, and
+    // reporting an empty node for a question never put is the conflation the five
+    // kinds of nothing exist to prevent.
     const registry = registryWithOpenSessions();
     const { context } = contextFor(BARE_TIMELINE_ROUTE, registry);
 
     const { container } = render(<RouteSurface context={context} />);
+    await settle();
 
     expect(screen.queryAllByRole("button")).toStrictEqual([]);
     expect(container.textContent).toContain("This window has no session open.");
+    // The picker's absence renders as a badge, whose second line can only travel as
+    // a tooltip — so the refusal is read off the attribute that actually carries it
+    // rather than off text that was never going to be in the tree.
+    expect(
+      container.querySelector(".meridian-nothing__badge-label")?.getAttribute("title"),
+    ).toContain("has not asked the node for the rest");
     expect(container.querySelector("[aria-busy='true']")).toBeNull();
   });
 

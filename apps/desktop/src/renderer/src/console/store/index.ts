@@ -17,14 +17,22 @@
 export type { ConsoleSessionEvent } from "./entities.js";
 
 export { SessionStore } from "./session-store.js";
+// The base state a read establishes. Exported because the composition root now
+// builds one — the adapter over the growth port's session read lives there, which
+// is where a family that may reach the bridge is allowed to be.
+export type { SessionSnapshot } from "./session-store.js";
 
 export type { FrameBanner } from "./frame-store.js";
 export { FrameStore } from "./frame-store.js";
 
-// `SessionSnapshotRead` and `SessionSnapshotReader` stay inside the family: the
-// only thing a caller above needs to SAY today is that no read exists, and that is
-// the sentinel. A reader type exported to nobody would be a door held open for a
-// producer that does not exist yet.
-export { SESSION_READ_UNREGISTERED, SessionStoreRegistry } from "./session-store-registry.js";
+// `SessionSnapshotRead` and `SessionSnapshotReader` now leave the family, because
+// the producer they were held back for exists: the composition root builds a reader
+// over the growth port's session read, and says so at the call site with a type
+// rather than by convention.
+export { SessionStoreRegistry } from "./session-store-registry.js";
+// `SessionSnapshotReader` stays inside the family: what a caller above needs to
+// SAY is what the registry takes, and the reader is one arm of that union rather
+// than a type anything outside names.
+export type { SessionSnapshotRead } from "./session-store-registry.js";
 
 export { useFrameStore, useLocationHash, useOpenSessionIds, useOpenSessionStore } from "./hooks.js";

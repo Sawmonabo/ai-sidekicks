@@ -11,11 +11,13 @@
 // the window's binder. "The hook mints a registry" is only half a claim — the
 // other half is that it mints the binder beside it, attaches it, and tears the two
 // down in the order that cannot have one call into the other. What that attached
-// binder BINDS is its own claim, and today it is nothing: no session read is
-// registered on this window's bridge, so no store can reach a base state and a
-// bound stream would be retained forever and projected never. Its negative control
-// is the same binder over a registry that does have a read.
+// binder BINDS is its own claim, and it now depends on the bridge: the fixture
+// serves the growth port's session read, so a store can reach a base state and the
+// window binds; a bridge that refuses it hands the registry the refusal itself, no
+// store can be initialised, and a bound stream would be retained forever and
+// projected never. Both arms are cases, and each is the other's control.
 
+import { createTier1Bridge } from "@ai-sidekicks/contracts";
 import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
@@ -26,6 +28,7 @@ import {
   type ConsoleBridge,
 } from "../bridge/index.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
+import { createLiveBridge } from "../bridge/live-bridge.js";
 import { SessionStoreRegistry, type SessionStore } from "../store/index.js";
 import {
   SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
@@ -172,7 +175,7 @@ describe("useActiveSessionStore — the session store a render resolves", () => 
 });
 
 describe("useSessionStoreRegistry — the window's registry and the binder that feeds it", () => {
-  it("mints a binder beside the registry and binds nothing, no session read being registered", () => {
+  it("mints a binder beside the registry and binds the open session, the bridge serving the read", () => {
     const observed: Observation[] = [];
     render(
       <SessionProbe
@@ -192,31 +195,43 @@ describe("useSessionStoreRegistry — the window's registry and the binder that 
     expect(diagnostics).toBeDefined();
     expect(diagnostics?.openSessionIds()).toEqual(["session-bound"]);
 
-    // No read on this window's bridge can give a store a base state, so a bound
-    // stream would fill a pre-initialisation buffer nothing ever drains — the
-    // whole session retained and none of it projected. Zero bound sessions is a
-    // READING here, not an absence: the handle above is installed either way.
-    expect(lastObservation(observed).registry.canInitialiseSessionStores).toBe(false);
-    expect(diagnostics?.boundSessionIds()).toEqual([]);
-    expect(diagnostics?.appliedEventCountFor("session-bound")).toBe(0);
+    // The fixture bridge serves the growth port's session read, so the registry
+    // this hook builds can give a store a base state and the window binds. This is
+    // the reading that was zero in every build before the read had a producer —
+    // the whole store layer dormant, and the endurance tier measuring an idle loop.
+    const { registry } = lastObservation(observed);
+    expect(registry.canInitialiseSessionStores).toBe(true);
+    expect(registry.readRefusal).toBeUndefined();
+    expect(diagnostics?.boundSessionIds()).toEqual(["session-bound"]);
   });
 
-  it("negative control: the same binder binds an open session when a read IS registered", () => {
-    // Without this, the case above would hold over a binder that binds nothing
-    // ever — including the one this window takes the moment a session read lands
-    // on the bridge, which is the single line that flips it.
-    const registry = new SessionStoreRegistry({ read: () => Promise.resolve(undefined) });
-    const binder = new SessionEventBinder({
-      registry,
-      bridge: createFixtureBridge({ scenario: FLAGSHIP_SCENARIO }),
-    });
-    registry.open("session-readable");
-    binder.attach();
+  it("hands the registry the refusal itself when the bridge does not serve the read", () => {
+    // The other arm, over the REAL live bridge rather than a registry constructed
+    // by hand: the composition root has to resolve the read off what the bridge
+    // says it serves, and the live bridge serves nothing. Binding here would call
+    // `daemon.subscribe` on a Tier-1 bridge, which throws — so "bind and find out"
+    // is not a fallback, it is a crash inside a mount effect.
+    const observed: Observation[] = [];
+    const bridge = createLiveBridge(createTier1Bridge());
+    render(
+      <SidekicksBridgeProvider bridge={bridge}>
+        <SessionProbe
+          sessionId="session-unreadable"
+          onObserve={(observation) => {
+            observed.push(observation);
+          }}
+        />
+      </SidekicksBridgeProvider>,
+    );
 
-    expect(registry.canInitialiseSessionStores).toBe(true);
-    expect(binder.boundSessionIds).toEqual(["session-readable"]);
-
-    binder.dispose();
+    const { registry } = lastObservation(observed);
+    expect(registry.canInitialiseSessionStores).toBe(false);
+    // The refusal names the operation and who owes the wire, which a reason-less
+    // sentinel could not: that is the whole reason it replaced one.
+    expect(registry.readRefusal?.origin).toBe("growth-port");
+    expect(registry.readRefusal?.code).toBe("wire-unregistered");
+    expect(readInstalledDiagnostics()?.boundSessionIds()).toEqual([]);
+    expect(readInstalledDiagnostics()?.appliedEventCountFor("session-unreadable")).toBe(0);
   });
 
   it("disposes the binder in the same cleanup, before the registry", () => {
