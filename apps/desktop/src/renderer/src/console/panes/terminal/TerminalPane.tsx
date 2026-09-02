@@ -124,7 +124,12 @@ function BoundTerminalPane(props: {
 
   return (
     <>
-      <LeaseLine bridge={bridge} terminalId={terminalId} state={lease} markFor={markFor} />
+      <LeaseLine
+        bridge={bridge}
+        sessionId={sessionStore.sessionId}
+        state={lease}
+        markFor={markFor}
+      />
       {/* `surface`, not `inline`: the badge form carries its detail on a `title`
           attribute, and the sentence that keeps an empty grid from reading as "the
           shell printed nothing" is exactly the part a tooltip would hide. */}

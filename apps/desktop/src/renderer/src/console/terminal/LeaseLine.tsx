@@ -66,8 +66,17 @@ export interface TerminalParticipantMark {
 
 export interface LeaseLineProps {
   readonly bridge: ConsoleBridge;
-  /** The shared terminal the lease governs. One per session in V1. */
-  readonly terminalId: string;
+  /**
+   * The session whose one shared shell this lease governs.
+   *
+   * The session and not the pane, because that is what the registered pair carries:
+   * `session.takeControl` and `session.releaseControl` both take `{ sessionId }`
+   * (`api-payload-contracts.md §Session Terminal-Control Method Registry`), and V1
+   * gives a session exactly one shared terminal, so the session id is the lease's
+   * subject rather than a stand-in for one. The pane keeps its own local id for the
+   * emulator it mounts; that id never reaches this wire.
+   */
+  readonly sessionId: string;
   readonly state: TerminalLeaseState;
   /**
    * How a participant is drawn, or `undefined` for one the wheel has never
@@ -86,8 +95,8 @@ const HOLDING_CHIPS: Readonly<Record<TerminalLeaseHolding, { label: string; tone
 };
 
 export function LeaseLine(props: LeaseLineProps): React.JSX.Element {
-  const { bridge, terminalId, state, markFor } = props;
-  const claim = useTerminalLeaseClaim(bridge, terminalId);
+  const { bridge, sessionId, state, markFor } = props;
+  const claim = useTerminalLeaseClaim(bridge, sessionId);
   const [isLedgerOpen, setIsLedgerOpen] = useState(false);
 
   const holderMark =
@@ -267,9 +276,10 @@ interface TerminalLeaseClaim {
  * "served" means the daemon accepted the claim, not that this participant now holds
  * the shell — the holder is the wire field the transition carries, and a surface
  * that moved on the reply would show a keyboard to somebody whose broadcast never
- * arrived.
+ * arrived. The registered reply DOES carry a `controlHolder`, and 8.8's second Never
+ * is precisely that it may not be read as one: the fold owns the holder.
  */
-function useTerminalLeaseClaim(bridge: ConsoleBridge, terminalId: string): TerminalLeaseClaim {
+function useTerminalLeaseClaim(bridge: ConsoleBridge, sessionId: string): TerminalLeaseClaim {
   const [isInFlight, setIsInFlight] = useState(false);
   const [refusal, setRefusal] = useState<ConsoleRefusal | undefined>(undefined);
   const isMountedRef = useRef(true);
@@ -288,7 +298,7 @@ function useTerminalLeaseClaim(bridge: ConsoleBridge, terminalId: string): Termi
     (operation: "acquire" | "release"): void => {
       setIsInFlight(true);
       setRefusal(undefined);
-      const request = { terminalId };
+      const request = { sessionId };
       const pending =
         operation === "acquire"
           ? bridge.growth.terminalAcquireWriteLease(request)
@@ -312,7 +322,7 @@ function useTerminalLeaseClaim(bridge: ConsoleBridge, terminalId: string): Termi
           }
         });
     },
-    [bridge, terminalId],
+    [bridge, sessionId],
   );
 
   const acquire = useCallback(() => {

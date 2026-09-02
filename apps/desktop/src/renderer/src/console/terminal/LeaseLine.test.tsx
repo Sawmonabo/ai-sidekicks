@@ -36,6 +36,15 @@ import {
 const VIEWER = TERMINAL_SCENARIO_CAST.owner;
 const HOLDER = TERMINAL_SCENARIO_CAST.collaborator;
 
+/**
+ * The lease's own subject on the wire, read off the scenario rather than invented.
+ *
+ * `session.takeControl` and `session.releaseControl` both take `{ sessionId }`, and
+ * the scenario's session id is a wire-declared UUID — so the request the cases below
+ * assert on is the one a daemon would actually be handed.
+ */
+const SESSION_ID = TERMINAL_SCENARIO.sessionId;
+
 function refusingBridge(): ConsoleBridge {
   return createFixtureBridge({ scenario: TERMINAL_SCENARIO });
 }
@@ -47,11 +56,16 @@ function servingBridge(): ConsoleBridge {
     ...base,
     growth: {
       ...base.growth,
+      // The registered replies, verbatim: a take answers with the caller as
+      // `controlHolder`, a release answers with the freed lease.
       terminalAcquireWriteLease: async () => ({
         status: "served" as const,
-        value: { granted: true },
+        value: { controlHolder: VIEWER },
       }),
-      terminalReleaseWriteLease: async () => ({ status: "served" as const, value: undefined }),
+      terminalReleaseWriteLease: async () => ({
+        status: "served" as const,
+        value: { controlHolder: null },
+      }),
     },
   };
 }
@@ -84,7 +98,7 @@ function transitionAt(
 
 function renderLease(state: TerminalLeaseState, bridge: ConsoleBridge = refusingBridge()) {
   return render(
-    <LeaseLine bridge={bridge} terminalId="session-terminal" state={state} markFor={markFor} />,
+    <LeaseLine bridge={bridge} sessionId={SESSION_ID} state={state} markFor={markFor} />,
   );
 }
 
@@ -95,6 +109,23 @@ function claimControl(container: HTMLElement): HTMLButtonElement {
     throw new Error("the lease line rendered no claim control");
   }
   return control;
+}
+
+/**
+ * The member names of the one request a lease spy was handed.
+ *
+ * Keys rather than the whole value: the claim is the SHAPE, and a value comparison
+ * alone passes for a request that carries the session under the right name and a
+ * pane id beside it — which is the state the strict schema refuses.
+ */
+function requestShapeOf(spy: {
+  readonly mock: { readonly calls: readonly unknown[][] };
+}): string[] {
+  const request = spy.mock.calls[0]?.[0];
+  if (typeof request !== "object" || request === null) {
+    throw new Error("the lease call was made with no request object");
+  }
+  return Object.keys(request).sort();
 }
 
 function disclosureControl(container: HTMLElement): HTMLButtonElement {
@@ -140,7 +171,7 @@ describe("the holder line — every state 8.8 names", () => {
     const { container } = render(
       <LeaseLine
         bridge={refusingBridge()}
-        terminalId="session-terminal"
+        sessionId={SESSION_ID}
         state={leaseState({
           holding: "held-by-another",
           holderParticipantId: HOLDER,
@@ -281,6 +312,44 @@ describe("the claim control — one affordance, and three things it never does",
       expect(release).toHaveBeenCalledTimes(1);
     });
     expect(acquire).not.toHaveBeenCalled();
+  });
+
+  // Both registered lease methods take `{ sessionId }` and nothing else, so both
+  // presses are one claim reached from two states rather than two claims.
+  const REGISTERED_CALLS = [
+    { label: "the claim", operation: "terminalAcquireWriteLease", holding: "unheld" },
+    { label: "the handback", operation: "terminalReleaseWriteLease", holding: "held-by-you" },
+  ] as const;
+
+  for (const registered of REGISTERED_CALLS) {
+    it(`sends the registered request from ${registered.label}`, async () => {
+      const bridge = servingBridge();
+      const call = vi.spyOn(bridge.growth, registered.operation);
+      const { container } = renderLease(
+        leaseState({
+          holding: registered.holding,
+          holderParticipantId: registered.holding === "held-by-you" ? VIEWER : null,
+          holderVouching: "vouched",
+        }),
+        bridge,
+      );
+      fireEvent.click(claimControl(container));
+      await waitFor(() => {
+        expect(call).toHaveBeenCalledTimes(1);
+      });
+      // Exactly the registered member and exactly one of them: a request carrying a
+      // pane-local key beside the session is refused by the strict schema before the
+      // lease authority ever sees it.
+      expect(requestShapeOf(call)).toStrictEqual(["sessionId"]);
+      expect(call).toHaveBeenCalledWith({ sessionId: SESSION_ID });
+    });
+  }
+
+  it("negative control: the pane-keyed shape the daemon refuses is not this one", () => {
+    // The same predicate over the request this surface used to send. Without it a
+    // `requestShapeOf` answering `["sessionId"]` for anything would satisfy both
+    // cases above and say nothing about what goes out.
+    expect(Object.keys({ terminalId: SESSION_ID })).not.toStrictEqual(["sessionId"]);
   });
 
   it("negative control: a state that is not the viewer's calls acquire", async () => {
