@@ -7,13 +7,17 @@
 // frame around them and the answer to the question a builder pane asks before it can
 // draw anything: which definition am I editing?
 //
-// A PANE THAT NAMES NO DEFINITION SHOWS THE DEFINITIONS BROWSER, and that is the
-// design rather than a fallback. `Spec-023 §Console Design (Meridian)` §The surface
-// set has the workflows rail destination open `workflow-builder`, and the browser's
-// own empty state is "three named groups, all empty, plus entry points to the
-// builder and to import" — which is exactly what a person needs when the builder has
-// no subject: pick one, or start one. Rendering an empty canvas instead would be a
-// surface offering an editor for a thing that does not exist yet.
+// A PANE THAT NAMES NO DEFINITION SAYS SO, and stops there. It used to render the
+// definitions browser instead, on the grounds that "pick one, or start one" is what a
+// person needs when the builder has no subject — but neither half of that was true
+// here. The browser was mounted with no navigation callback, so no name in it could
+// be picked; and nothing in this build can start a definition, because every
+// authoring act submits a definition body and no such operation is on the bridge. The
+// result was a read-only copy of the list a person had just pressed a button in,
+// from which nothing could advance. So the arm renders one absence saying what this
+// pane is and what it cannot do — `builder-authoring.ts` owns the words — and the
+// surface that used to offer the entry point withholds it, which is this family's
+// absent-not-disabled rule applied to its own control.
 //
 // THE ADDRESSED ARM COMPOSES ITS OWN ABSENCE, on the shape the run pane established:
 // the chrome's `ready` arm is the one that renders children, so a pane that handed
@@ -39,20 +43,20 @@
 // natural place for someone to persist a viewport into the definition it is editing.
 //
 // WIRE STATUS. `packages/contracts` registers no `workflow.*` method, so the whole
-// plane lives on the growth port behind the workflow slate row. The definition
-// ENUMERATION is reachable there and the browser on the no-subject arm puts it; the
-// definition read, the version read and the submission that saves are not on the
-// port at all, so the addressed arm renders their absence and calls nothing.
+// plane lives on the growth port behind the workflow slate row. The definition read,
+// the version read and the submission that saves are not on that port at all, which
+// is why every arm of this pane renders an absence and calls nothing: this file puts
+// no read of its own, on any address, in this build.
 
 import { InlineRefusal, Nothing } from "../../primitives/index.js";
 import { WorkflowChrome } from "../../workflows/WorkflowChrome.js";
 import { refusedWorkflowChrome } from "../../workflows/chrome-state.js";
-import { WorkflowsBrowser } from "../../workflows/WorkflowsBrowser.js";
 import type { ConsolePaneContext } from "../../workspace/index.js";
 import {
   WORKFLOW_BUILDER_PRIMARY_ACT,
   WORKFLOW_BUILDER_SUBJECT_KIND,
   misaddressedBuilderPane,
+  unaddressedBuilderPane,
   unregisteredAuthoringAct,
 } from "./builder-authoring.js";
 import { DraftsSlot } from "./slots/DraftsSlot.js";
@@ -77,15 +81,22 @@ export interface WorkflowBuilderPaneProps {
 
 /** The builder pane's chrome. The canvas and the inspector inside it are Plan-017's. */
 export function WorkflowBuilderPane(props: WorkflowBuilderPaneProps): React.JSX.Element {
-  const { bridge, entity, sessionStore, uiStateStore, draftStore } = props.context;
+  const { entity, uiStateStore, draftStore } = props.context;
 
   if (entity === undefined) {
-    // The browser rather than the bare chrome, and with a session behind it: a pane
-    // always names one, which is the input the definition enumeration requires and
-    // the rail's own destination does not have. So the same browser that renders
-    // three empty named groups at the rail renders what this session can actually
-    // see here.
-    return <WorkflowsBrowser growth={bridge.growth} sessionId={sessionStore?.sessionId} />;
+    // The chrome's `empty` arm, which renders the absence and NOT the children — so
+    // no slot is mounted for a definition that was never named. No primary action
+    // travels with it either: the `empty` arm draws whatever action it is handed
+    // beside the absence, and the one act this surface draws saves a definition
+    // there is none of.
+    return (
+      <WorkflowChrome
+        glyph="workflow"
+        heading={HEADING}
+        summary={SUMMARY}
+        state={unaddressedBuilderPane()}
+      />
+    );
   }
 
   if (entity.kind !== WORKFLOW_BUILDER_SUBJECT_KIND) {

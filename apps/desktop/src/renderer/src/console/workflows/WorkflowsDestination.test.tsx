@@ -8,6 +8,7 @@
 // retained session is a fact one of them owns.
 
 import { act, fireEvent, render } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "../bridge/index.js";
@@ -22,6 +23,7 @@ import type { GrowthPort } from "../bridge/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { FrameStore, SessionStoreRegistry } from "../store/index.js";
 import type { ConsolePaneAddress } from "../workspace/index.js";
+import { FOLLOWING_WINDOW_RETENTION, type WorkflowsScopeState } from "./destination-scope.js";
 import { WorkflowsDestination } from "./WorkflowsDestination.js";
 
 /**
@@ -56,6 +58,25 @@ function emptyRegistry(): SessionStoreRegistry {
   return new SessionStoreRegistry({ read: () => Promise.resolve(undefined) });
 }
 
+/**
+ * The one thing the destination stopped owning: which arm the scope is on.
+ *
+ * The surface is controlled, because the host above it hands the same answer to a
+ * pane it opens. So a case that presses "choose a different session" needs somewhere
+ * for that arm to live — and it lives HERE, holding the arm and nothing else. The
+ * resolution from arm to session id stays in the component under test, so no case
+ * below re-implements the rule it is checking.
+ */
+function ScopeHolder(props: {
+  readonly children: (
+    scope: WorkflowsScopeState,
+    onScopeChange: (next: WorkflowsScopeState) => void,
+  ) => React.JSX.Element;
+}): React.JSX.Element {
+  const [scope, setScope] = useState<WorkflowsScopeState>(FOLLOWING_WINDOW_RETENTION);
+  return props.children(scope, setScope);
+}
+
 function renderDestination(
   growth: GrowthPort,
   frameStore: FrameStore,
@@ -72,14 +93,20 @@ function renderDestination(
   const openedAddresses: ConsolePaneAddress[] = [];
   const element = (
     <LiveAnnouncerProvider>
-      <WorkflowsDestination
-        growth={growth}
-        frameStore={frameStore}
-        sessionStoreRegistry={registry}
-        openPane={(address) => {
-          openedAddresses.push(address);
-        }}
-      />
+      <ScopeHolder>
+        {(scope, onScopeChange) => (
+          <WorkflowsDestination
+            growth={growth}
+            frameStore={frameStore}
+            sessionStoreRegistry={registry}
+            scope={scope}
+            onScopeChange={onScopeChange}
+            openPane={(address) => {
+              openedAddresses.push(address);
+            }}
+          />
+        )}
+      </ScopeHolder>
     </LiveAnnouncerProvider>
   );
   const { container, rerender } = render(element);
@@ -270,25 +297,25 @@ describe("the workflows destination — what its lists open", () => {
     ]);
   });
 
-  it("opens the builder with no entity for a definition that does not exist yet", async () => {
-    // The pane's own new-definition arm. No id is minted here: a definition the
-    // daemon has not saved has none, and inventing one would be the console deciding
-    // an identity the save decides.
-    const { container, openedAddresses } = renderDestination(
+  it("draws no new-definition control, because nothing in this build authors one", async () => {
+    // Absent, not disabled, and not dead: the growth port's ten workflow operations
+    // include no write of a definition, so this control used to open a pane with
+    // nothing to author. The browser's prop stays optional and unfilled — it is the
+    // mechanism a later authoring wire fills, and an entry point appears when its
+    // caller supplies the action and not before.
+    const { container } = renderDestination(
       fixtureGrowthPort(),
       frameStoreRetaining(WORKFLOWS_SESSION_ID),
     );
     await settle();
-    const action = [...container.querySelectorAll(".meridian-workflow__action")].find(
-      (button) => button.textContent === "New definition",
+
+    const actionLabels = [...container.querySelectorAll(".meridian-workflow__action")].map(
+      (control) => control.textContent,
     );
-    if (!(action instanceof HTMLElement)) {
-      throw new Error("the browser offered no way to author a definition");
-    }
-
-    fireEvent.click(action);
-
-    expect(openedAddresses).toStrictEqual([{ kind: "workflow-builder", entity: undefined }]);
+    expect(actionLabels).not.toContain("New definition");
+    // The rows themselves still open, so this is a withheld control and not a
+    // browser that lost its actions.
+    expect(container.querySelector(".meridian-definition-row__open")).not.toBeNull();
   });
 
   it("opens the run pane on the run a person pressed", async () => {

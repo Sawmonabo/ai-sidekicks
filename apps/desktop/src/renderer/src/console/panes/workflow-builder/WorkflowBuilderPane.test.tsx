@@ -1,10 +1,12 @@
-// A builder with no definition offers the definitions browser; a builder with one
-// mounts both reserved bodies and says plainly that it cannot save.
+// A builder with no definition states its condition; a builder with one mounts both
+// reserved bodies and says plainly that it cannot save.
 //
-// `Spec-023 §Console Design (Meridian)` §The surface set has the workflows rail
-// destination open this pane, and the browser's own empty state is where a person
-// picks or starts a definition — so the unaddressed arm is a real surface rather
-// than a fallback, and the test names it by the thing only that surface renders.
+// The unaddressed arm used to render the definitions browser, and the case for that
+// was "pick one, or start one" — but the browser was mounted with no navigation
+// callback and nothing in this build authors a definition, so neither move was
+// available and the arm was a read-only copy of the list a person had just left. The
+// cases below pin the replacement by what it does NOT mount as much as by what it
+// does.
 //
 // The addressed arm is asserted on the REGIONS it mounts rather than on its copy,
 // which is this family's to reword. Two of them are the reason the arm exists: an
@@ -17,7 +19,6 @@ import { describe, expect, it } from "vitest";
 import { createFixtureBridge } from "../../bridge/index.js";
 import { WORKFLOWS_SCENARIO } from "../../bridge/scenarios/workflows.js";
 import { WORKFLOWS_SESSION_ID } from "../../bridge/scenarios/workflow-fixture-data.js";
-import { WORKFLOW_DEFINITION_SCOPES } from "../../workflows/DefinitionsBrowser.js";
 import type { ConsolePaneContext } from "../../workspace/index.js";
 import { WorkflowBuilderPane } from "./WorkflowBuilderPane.js";
 
@@ -28,7 +29,8 @@ import { WorkflowBuilderPane } from "./WorkflowBuilderPane.js";
  * real pane context carries three stores, one of which opens a database on
  * construction. The two stores travel as markers because this pane only hands them
  * on — the slots' own tests are where what a body receives is checked. The bridge is
- * real, because the no-subject arm is a browser that asks it for definitions.
+ * real so that a read composed by mistake would reach a port that answers, rather
+ * than passing because nothing was there to ask.
  */
 function paneContext(entity: ConsolePaneContext["entity"]): ConsolePaneContext {
   return {
@@ -61,11 +63,16 @@ const ADDRESSED = { kind: "workflow-definition", id: "definition-01" } as const;
 const MISADDRESSED = { kind: "workflow-run", id: "run-01" } as const;
 
 describe("workflow builder pane — with no definition to open", () => {
-  it("renders the definitions browser's scope groups", () => {
-    const headings = [
-      ...renderPane(paneContext(undefined)).querySelectorAll(".meridian-workflow__scope-heading"),
-    ].map((heading) => heading.textContent ?? "");
-    expect(headings).toStrictEqual([...WORKFLOW_DEFINITION_SCOPES]);
+  it("states that it was opened with nothing to author, and lists nothing", () => {
+    // The finding: this arm rendered a definitions browser with neither navigation
+    // callback, so every name in it was a plain span and the press that opened the
+    // pane landed on a list from which nothing could advance.
+    const section = renderPane(paneContext(undefined));
+
+    expect(section.querySelectorAll(".meridian-workflow__scope-heading")).toHaveLength(0);
+    expect(section.querySelector(".meridian-workflow__scopes")).toBeNull();
+    expect(section.querySelector(".meridian-nothing--empty")).not.toBeNull();
+    expect(section.textContent ?? "").toContain("opened without a definition to author");
   });
 
   it("offers no save affordance where there is nothing to save", () => {

@@ -12,8 +12,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createFixtureBridge } from "../bridge/index.js";
 import { WORKFLOWS_SCENARIO } from "../bridge/scenarios/workflows.js";
 import { WORKFLOWS_SESSION_ID } from "../bridge/scenarios/workflow-fixture-data.js";
+import { ManualClock } from "../core/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { FrameStore, SessionStoreRegistry } from "../store/index.js";
+import type { ConsolePaneContext } from "../workspace/index.js";
 import { consolePaneRegistry } from "../workspace/index.js";
 // Deep, for `index.ts`'s reason: the frame's barrel also exports `ConsoleRoot`, which
 // composes the families, so a family reaching it through that door closes a cycle the
@@ -37,6 +39,25 @@ afterEach(() => {
   registerWorkflowPanes(consolePaneRegistry);
 });
 
+/** What a case varies about the window the slot is mounted in. */
+interface SurfaceContextOptions {
+  /** The session this window last opened, if it has opened one. */
+  readonly retainedSessionId?: string;
+  /** The sessions open in this window, whose stores the registry can hand out. */
+  readonly openSessionIds?: readonly string[];
+}
+
+/** The window the cases about mounting assume: in the fixture's session, nothing open. */
+const DEFAULT_WINDOW: SurfaceContextOptions = { retainedSessionId: WORKFLOWS_SESSION_ID };
+
+/**
+ * A session id this fixture serves nothing for, standing in for "somewhere else".
+ *
+ * A window retaining THIS is a window whose retention must not decide what an opened
+ * pane reads, which is the whole of what the cases below separate.
+ */
+const FOREIGN_SESSION_ID = "019b7a10-0280-75e5-8510-ada11a5a9999";
+
 /**
  * The surface context the slot is handed.
  *
@@ -45,27 +66,73 @@ afterEach(() => {
  * `RouteSurface.test.tsx`'s reason — constructing them opens a database to hand a
  * branch that never touches it.
  */
-function surfaceContext(): ConsoleSurfaceContext {
-  const frameStore = new FrameStore({
-    initialRoute: { kind: "workspace", sessionId: WORKFLOWS_SESSION_ID },
-  });
+function surfaceContext(options: SurfaceContextOptions = {}): ConsoleSurfaceContext {
+  const frameStore = new FrameStore(
+    options.retainedSessionId === undefined
+      ? {}
+      : { initialRoute: { kind: "workspace", sessionId: options.retainedSessionId } },
+  );
   frameStore.navigate({ kind: "workflows" });
+  // A manual clock so no refresh scheduler an opened session starts outlives the
+  // case that opened it.
+  const sessionStoreRegistry = new SessionStoreRegistry({
+    read: () => Promise.resolve(undefined),
+    clock: new ManualClock(),
+  });
+  for (const openSessionId of options.openSessionIds ?? []) {
+    sessionStoreRegistry.open(openSessionId);
+  }
   return {
     route: { kind: "workflows" },
     bridge: createFixtureBridge({ scenario: WORKFLOWS_SCENARIO }),
     frameStore,
     sessionStore: undefined,
-    sessionStoreRegistry: new SessionStoreRegistry({ read: () => Promise.resolve(undefined) }),
+    sessionStoreRegistry,
   } as unknown as ConsoleSurfaceContext;
 }
 
-function renderHost(): HTMLElement {
+function renderHost(options: SurfaceContextOptions = DEFAULT_WINDOW): HTMLElement {
   const { container } = render(
     <LiveAnnouncerProvider>
-      <WorkflowsPaneHost context={surfaceContext()} />
+      <WorkflowsPaneHost context={surfaceContext(options)} />
     </LiveAnnouncerProvider>,
   );
   return container;
+}
+
+/**
+ * Replace the builder body with one that records the context it was handed.
+ *
+ * A probe rather than an assertion against a real body, because no registered body
+ * renders the session it was given: the store is handed on to slots whose own tests
+ * check what they receive. The probe observes the seam this host owns — which store
+ * it composed — and observes nothing else. The suite's `afterEach` puts the real
+ * bodies back.
+ */
+function probeBuilderPane(): readonly ConsolePaneContext[] {
+  const mountedContexts: ConsolePaneContext[] = [];
+  consolePaneRegistry.unregister("workflow-builder");
+  consolePaneRegistry.register({
+    kind: "workflow-builder",
+    owner: "workflows-pane-host-test",
+    render: (context) => {
+      mountedContexts.push(context);
+      return <p>probe</p>;
+    },
+    openInWindow: false,
+  });
+  return mountedContexts;
+}
+
+/** Move the destination off its retained session and onto the one a person picks. */
+async function chooseSessionInPicker(container: HTMLElement): Promise<void> {
+  const rescope = container.querySelector(".meridian-workflows-destination__rescope");
+  if (rescope instanceof HTMLElement) {
+    fireEvent.click(rescope);
+    await settle();
+  }
+  pressFirst(container, ".meridian-choice-list__choice");
+  await settle();
 }
 
 async function settle(): Promise<void> {
@@ -137,5 +204,78 @@ describe("what the workflows slot mounts", () => {
 
     expect(container.textContent).toContain("reserved, not missing");
     expect(container.textContent).not.toContain("Workflow builder");
+  });
+});
+
+describe("which session's store the opened pane is handed", () => {
+  it("hands the pane the session a person chose, not the one the window retained", async () => {
+    // The finding: the address carries a definition and never a session, so the host
+    // resolved its own answer from the route and the retention — and a person who had
+    // explicitly moved this surface to another session opened a builder reading the
+    // one they left.
+    const mountedContexts = probeBuilderPane();
+    const container = renderHost({
+      retainedSessionId: FOREIGN_SESSION_ID,
+      openSessionIds: [WORKFLOWS_SESSION_ID],
+    });
+    await settle();
+
+    await chooseSessionInPicker(container);
+    pressFirst(container, ".meridian-definition-row__open");
+    await settle();
+
+    expect(mountedContexts.map((context) => context.sessionStore?.sessionId)).toStrictEqual([
+      WORKFLOWS_SESSION_ID,
+    ]);
+  });
+
+  it("hands the pane a chosen session's store where the window retained nothing", async () => {
+    // The second half of the same defect: with nothing retained the old resolution
+    // had nothing to peek at, so a pane opened after an explicit choice was handed no
+    // store at all and every body under it rendered its own absence.
+    const mountedContexts = probeBuilderPane();
+    const container = renderHost({ openSessionIds: [WORKFLOWS_SESSION_ID] });
+    await settle();
+
+    await chooseSessionInPicker(container);
+    pressFirst(container, ".meridian-definition-row__open");
+    await settle();
+
+    expect(mountedContexts.map((context) => context.sessionStore?.sessionId)).toStrictEqual([
+      WORKFLOWS_SESSION_ID,
+    ]);
+  });
+
+  it("negative control: with nothing chosen the retained session is still what a pane reads", async () => {
+    // Without this the two cases above would pass over a host that had stopped
+    // reading the window's retention at all — which is a different defect wearing the
+    // same assertions, and would strand every person who never touches the picker.
+    const mountedContexts = probeBuilderPane();
+    const container = renderHost({
+      retainedSessionId: WORKFLOWS_SESSION_ID,
+      openSessionIds: [WORKFLOWS_SESSION_ID],
+    });
+    await settle();
+
+    pressFirst(container, ".meridian-definition-row__open");
+    await settle();
+
+    expect(mountedContexts.map((context) => context.sessionStore?.sessionId)).toStrictEqual([
+      WORKFLOWS_SESSION_ID,
+    ]);
+  });
+
+  it("hands the pane no store where the chosen session is not open in this window", async () => {
+    // Fail-closed rather than fall back: substituting whatever store this window does
+    // hold would put a body on a session nobody named, which is the defect above with
+    // the operands swapped. A pane with no store renders its own absence.
+    const mountedContexts = probeBuilderPane();
+    const container = renderHost({ retainedSessionId: WORKFLOWS_SESSION_ID });
+    await settle();
+
+    pressFirst(container, ".meridian-definition-row__open");
+    await settle();
+
+    expect(mountedContexts.map((context) => context.sessionStore)).toStrictEqual([undefined]);
   });
 });

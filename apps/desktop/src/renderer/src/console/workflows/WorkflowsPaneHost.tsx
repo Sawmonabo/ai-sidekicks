@@ -22,6 +22,15 @@
 // `consolePaneRegistry`, the deck's own single mount door, so this surface renders the
 // same body the deck will and cannot drift from it. A kind with no registered body is
 // the registry's own reserved-not-stubbed absence rather than a hole.
+//
+// THE SCOPE IS HELD HERE BECAUSE BOTH HALVES OF THE SLOT NEED IT. The destination
+// asks which session it reads from, and the pane it opens has to be handed that same
+// session's store: an address carries a definition or a run and never a session, so a
+// host that resolved its own answer would hand a body the window's retained session
+// while the person in front of it had explicitly chosen another. That is one fact, so
+// it is one piece of state, held at the surface both halves hang off and pushed DOWN
+// — the destination is controlled rather than reporting its settlement back up, which
+// would be a second copy of a value `destination-scope.ts` already computes.
 
 import { useCallback, useState } from "react";
 
@@ -29,7 +38,12 @@ import type { ConsolePaneAddress, ConsolePaneContext } from "../workspace/index.
 import { consolePaneRegistry } from "../workspace/index.js";
 import type { ConsoleSurfaceContext } from "../frame/surface-registry.js";
 import { Nothing } from "../primitives/index.js";
-import { useFrameStore } from "../store/index.js";
+import { useFrameStore, type SessionStore } from "../store/index.js";
+import {
+  FOLLOWING_WINDOW_RETENTION,
+  scopeSessionIdFor,
+  type WorkflowsScopeState,
+} from "./destination-scope.js";
 import { WorkflowsDestination } from "./WorkflowsDestination.js";
 
 export interface WorkflowsPaneHostProps {
@@ -55,10 +69,16 @@ export function WorkflowsPaneHost(props: WorkflowsPaneHostProps): React.JSX.Elem
   const closePane = useCallback(() => {
     setOpenAddress(undefined);
   }, []);
+  // Held for the mount and pushed down, never persisted — `WorkflowsDestination.tsx`'s
+  // header says why the choice itself is not written anywhere durable. The setter React
+  // gives back is stable, so the controlled destination is not handed a fresh callback
+  // on every pass.
+  const [scope, setScope] = useState<WorkflowsScopeState>(FOLLOWING_WINDOW_RETENTION);
   // Read through the store's own selector seam rather than off the surface context,
   // so a session opened while this surface is mounted is reflected here as it is in
   // the destination beside it.
   const retainedSessionId = useFrameStore(context.frameStore, (state) => state.lastOpenedSessionId);
+  const scopeSessionId = scopeSessionIdFor(scope, retainedSessionId);
 
   if (openAddress === undefined) {
     return (
@@ -66,6 +86,8 @@ export function WorkflowsPaneHost(props: WorkflowsPaneHostProps): React.JSX.Elem
         growth={context.bridge.growth}
         frameStore={context.frameStore}
         sessionStoreRegistry={context.sessionStoreRegistry}
+        scope={scope}
+        onScopeChange={setScope}
         openPane={openPane}
       />
     );
@@ -79,7 +101,7 @@ export function WorkflowsPaneHost(props: WorkflowsPaneHostProps): React.JSX.Elem
       >
         Back to workflows
       </button>
-      <OpenPaneBody address={openAddress} context={context} retainedSessionId={retainedSessionId} />
+      <OpenPaneBody address={openAddress} context={context} scopeSessionId={scopeSessionId} />
     </div>
   );
 }
@@ -87,18 +109,17 @@ export function WorkflowsPaneHost(props: WorkflowsPaneHostProps): React.JSX.Elem
 /**
  * The registered body for one address, or the registry's own absence.
  *
- * The session store is the route's where the route names one and the window's
- * retained session otherwise — `peek`, never `open`, because opening a session is a
- * lifecycle act and a surface that performed one to render a pane would create state
- * nobody asked for. A pane handed no store renders its own absence, which is the
- * honest shape on a bare route that names no session.
+ * The store is the SCOPE's — the session the person in front of this surface settled
+ * on, which outranks both the route and the window's retention because it is the one
+ * of the three they performed deliberately. A pane handed no store renders its own
+ * absence, which is the honest shape wherever no session is in scope at all.
  */
 function OpenPaneBody(props: {
   readonly address: ConsolePaneAddress;
   readonly context: ConsoleSurfaceContext;
-  readonly retainedSessionId: string | undefined;
+  readonly scopeSessionId: string | undefined;
 }): React.JSX.Element {
-  const { address, context, retainedSessionId } = props;
+  const { address, context, scopeSessionId } = props;
   const descriptor = consolePaneRegistry.descriptorFor(address.kind);
   if (descriptor === undefined) {
     return (
@@ -110,11 +131,6 @@ function OpenPaneBody(props: {
       />
     );
   }
-  const sessionStore =
-    context.sessionStore ??
-    (retainedSessionId === undefined
-      ? undefined
-      : context.sessionStoreRegistry.peek(retainedSessionId));
   const paneContext: ConsolePaneContext = {
     ...address,
     // Deterministic in the address rather than minted, so re-opening the same subject
@@ -122,7 +138,7 @@ function OpenPaneBody(props: {
     paneId: `workflows:${address.kind}:${address.entity?.id ?? "new"}`,
     bridge: context.bridge,
     frameStore: context.frameStore,
-    sessionStore,
+    sessionStore: scopedSessionStore(context, scopeSessionId),
     uiStateStore: context.uiStateStore,
     draftStore: context.draftStore,
     // No actor to attribute this pane to on a bare route, which is the fail-closed
@@ -130,4 +146,31 @@ function OpenPaneBody(props: {
     focusHue: undefined,
   };
   return <>{descriptor.render(paneContext)}</>;
+}
+
+/**
+ * The store for the session in scope, and never another session's.
+ *
+ * `peek`, never `open`: opening a session is a lifecycle act, and a surface that
+ * performed one to render a pane would create state nobody asked for. The route's
+ * store serves only where it is the SAME session — it is the one this window is
+ * actually in, so where the scope names it there is no reason to prefer a registry
+ * entry — and where the scope names a session this window has not opened, the answer
+ * is nothing rather than the route's, because handing a body a different session's
+ * store is the defect this resolution exists to end.
+ *
+ * With nothing in scope at all the route's store is all there is, which is the arm
+ * that matters the day this host is mounted somewhere that names a session.
+ */
+function scopedSessionStore(
+  context: ConsoleSurfaceContext,
+  scopeSessionId: string | undefined,
+): SessionStore | undefined {
+  if (scopeSessionId === undefined) {
+    return context.sessionStore;
+  }
+  return (
+    context.sessionStoreRegistry.peek(scopeSessionId) ??
+    (context.sessionStore?.sessionId === scopeSessionId ? context.sessionStore : undefined)
+  );
 }
