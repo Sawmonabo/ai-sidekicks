@@ -101,6 +101,16 @@ export const CAST_LABEL_SOURCE_BY_EVENT_KIND: Readonly<Record<string, CastLabelS
  */
 const CAST_STALE_CLAUSE = "the connection dropped, so this may be out of date";
 
+/**
+ * The clause a blocked chip adds to its own accessible name.
+ *
+ * The exact negation of the bar's own all-clear line, because the two answer one
+ * question: while "Nothing needs you." is absent, this is what says WHO. It is a
+ * clause and not a colour, so the state survives the amber treatment being
+ * unreadable — which for a screen reader it always is.
+ */
+const CAST_ATTENTION_CLAUSE = "needs you";
+
 /** One chip. */
 export interface CastMember {
   readonly participantId: string;
@@ -264,6 +274,13 @@ export function castChipAccessibleName(member: CastMember): string {
   const clauses: string[] = [member.label ?? member.participantId];
   if (member.verb !== undefined) {
     clauses.push(member.verb);
+  }
+  // Beside the verb rather than instead of it, and never suppressed as redundant
+  // when the verb happens to be a waiting one: the two are folded from different
+  // questions, and a rule that dropped this clause whenever the newest row looked
+  // like an ask would be the second attention vocabulary this module deleted.
+  if (member.needsAttention) {
+    clauses.push(CAST_ATTENTION_CLAUSE);
   }
   if (member.isVerbStale) {
     clauses.push(CAST_STALE_CLAUSE);

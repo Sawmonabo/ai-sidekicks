@@ -177,8 +177,11 @@ describe("castChipAccessibleName — the identifier and the verb", () => {
     });
     const member = model.members[0];
     expect(member).toBeDefined();
+    // The documented example is the head of the name. The clause after it is the
+    // attention fold, which is not suppressed as redundant when the verb happens to
+    // be a waiting one: the two are folded from different questions.
     expect(member === undefined ? "" : castChipAccessibleName(member)).toBe(
-      "priya, waiting on approval",
+      "priya, waiting on approval, needs you",
     );
   });
 
@@ -308,7 +311,11 @@ describe("deriveCastBar — the fold and the all-clear line", () => {
     expect(model.isAllClear).toBe(false);
   });
 
-  it("keeps a chip amber while its own run is blocked, whatever a parallel run does", () => {
+  // What this case checks is the DERIVATION — that the member keeps its attention
+  // flag. Whether the chip then wears it is the renderer's claim and is asserted in
+  // `CastBar.test.tsx`; a case here titled as though it read a chip would leave that
+  // seam looking covered while nothing rendered the flag at all.
+  it("keeps a member's attention while its own run is blocked, whatever a parallel run does", () => {
     // The defect: attention was read off each participant's NEWEST row, so an agent
     // waiting on an approval in one run and working in another looked clear, and the
     // bar said "Nothing needs you" over a run that was still blocked.

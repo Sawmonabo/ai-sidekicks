@@ -1,9 +1,15 @@
-// The cast bar's two honest absences, and the line it is not allowed to say.
+// The cast bar's two honest absences, the two things the wire DOES carry, and the
+// line it is not allowed to say.
 //
 // Both of the things §4.1 asks this bar to show that the console cannot get —
 // presence and session spend — have to render as the "not checked" kind of nothing
 // rather than as a green dot and a zero. Either would be a claim nobody measured,
 // and a screenshot cannot tell an unmeasured green dot from a measured one.
+//
+// The other half is the mirror image: a name and an attention state the wire DOES
+// carry, which the bar has to render rather than discard. Both are asserted through
+// the chip, because a model that derives a value no renderer reads is a fold whose
+// only observable effect is a sentence disappearing somewhere else on the bar.
 
 import { render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -206,8 +212,11 @@ describe("CastBar — the name the wire gave each participant", () => {
     );
     // Composed rather than concatenated out of the chip's children: the presence
     // glyph is an image with a name, so the DOM's own computation would open every
-    // chip with "Presence has not been read".
-    expect(within(bar).getByRole("button", { name: "priya, waiting on approval" })).toBeDefined();
+    // chip with "Presence has not been read". The documented example is the head of
+    // the name; a chip that is waiting on a person also says so.
+    expect(
+      within(bar).getByRole("button", { name: "priya, waiting on approval, needs you" }),
+    ).toBeDefined();
   });
 
   it("lets a rename land, because the fold's last writer wins", () => {
@@ -281,6 +290,96 @@ describe("CastBar — what the console has not measured", () => {
     expect(badge?.getAttribute("title")).toBe("No cost receipt has been read.");
     // The strongest form of "it never sums the rows": there is no figure at all.
     expect(allClear?.textContent).not.toMatch(/\$|\d+\.\d\d/);
+  });
+});
+
+describe("CastBar — the chip that needs you", () => {
+  /** A blocked run, and a later ordinary row from a DIFFERENT run by the same actor. */
+  function blockedInOneRunBusyInAnother(): readonly TimelineRow[] {
+    return [
+      attachedAgent(1, AGENT_ARCHITECT, "Architect"),
+      {
+        sequence: 2,
+        kind: "run.waiting_for_approval",
+        actorParticipantId: AGENT_ARCHITECT,
+        payload: { runId: "run-a" },
+      },
+      {
+        sequence: 3,
+        kind: "tool.invoked",
+        actorParticipantId: AGENT_ARCHITECT,
+        payload: { runId: "run-b" },
+      },
+    ];
+  }
+
+  it("marks the blocked chip even while its visible verb is an ordinary one", () => {
+    const bar = renderBar(
+      <CastBar
+        sessionId={SESSION_ID}
+        sessionStore={storeWith([AGENT_ARCHITECT], blockedInOneRunBusyInAnother())}
+        onFollow={() => undefined}
+      />,
+    );
+    const chip = bar.querySelector(".meridian-cast-chip");
+    // The state is the chip's ground and its name. The ring is untouched: it
+    // answers "who", and two participants sharing a wheel step have only it.
+    expect(chip?.getAttribute("data-attention")).toBe("true");
+    expect(chip?.getAttribute("data-ring")).toBe("solid");
+    expect(
+      within(bar).getByRole("button", { name: "Architect, running a tool, needs you" }),
+    ).toBeDefined();
+  });
+
+  it("clears both the mark and the sentence once that run itself moves on", () => {
+    const bar = renderBar(
+      <CastBar
+        sessionId={SESSION_ID}
+        sessionStore={storeWith(
+          [AGENT_ARCHITECT],
+          [
+            ...blockedInOneRunBusyInAnother(),
+            {
+              sequence: 4,
+              kind: "run.running",
+              actorParticipantId: AGENT_ARCHITECT,
+              payload: { runId: "run-a" },
+            },
+          ],
+        )}
+        onFollow={() => undefined}
+      />,
+    );
+    const chip = bar.querySelector(".meridian-cast-chip");
+    expect(chip?.getAttribute("data-attention")).toBe("false");
+    expect(chip?.getAttribute("aria-label")).toBe("Architect, working");
+  });
+
+  it("negative control: a chip with nothing outstanding is marked neither way", () => {
+    // Without this, the cases above would pass over a chip that marked everybody —
+    // which would put the whole bar in amber and identify nobody, the same failure
+    // as marking nobody.
+    const bar = renderBar(
+      <CastBar
+        sessionId={SESSION_ID}
+        sessionStore={storeWith(
+          [AGENT_ARCHITECT],
+          [
+            attachedAgent(1, AGENT_ARCHITECT, "Architect"),
+            {
+              sequence: 2,
+              kind: "tool.invoked",
+              actorParticipantId: AGENT_ARCHITECT,
+              payload: { runId: "run-b" },
+            },
+          ],
+        )}
+        onFollow={() => undefined}
+      />,
+    );
+    const chip = bar.querySelector(".meridian-cast-chip");
+    expect(chip?.getAttribute("data-attention")).toBe("false");
+    expect(chip?.getAttribute("aria-label")).toBe("Architect, running a tool");
   });
 });
 

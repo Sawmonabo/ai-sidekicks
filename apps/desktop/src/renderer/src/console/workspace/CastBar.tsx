@@ -167,6 +167,12 @@ interface CastChipProps {
  * own label, because the presence glyph is an image with a name and concatenation
  * would put "Presence has not been read" in front of every person in the session.
  *
+ * A chip somebody is blocked on carries that on `data-attention`, in the same
+ * attribute idiom as the ring and the stale mark, and says so in its name as well.
+ * The state rides the chip's ground and never its ring: the hue answers "who", and
+ * a ring that changed with state would make two participants who share a wheel step
+ * indistinguishable exactly when one of them needs a person.
+ *
  * The visible name is the one the WIRE gave this participant — a membership beat's
  * identity handle, an agent's attached name — and the id when the log named none.
  * The id stays reachable as the name's tooltip: two participants admitted in the
@@ -184,6 +190,7 @@ function CastChip(props: CastChipProps): React.JSX.Element {
       style={style}
       data-ring={member.hue.ringTreatment}
       data-shares-step={member.hue.sharesStepWithEarlierParticipant}
+      data-attention={member.needsAttention}
       aria-label={castChipAccessibleName(member)}
       onClick={() => {
         props.onFollow(member.participantId);

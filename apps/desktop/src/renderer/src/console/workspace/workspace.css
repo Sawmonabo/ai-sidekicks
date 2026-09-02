@@ -140,6 +140,31 @@
   border-inline-start-style: dotted;
 }
 
+/*
+ * The chip somebody is blocked on. The ledger-side amber triple, verbatim from the
+ * `.meridian-chip--attention` precedent, on the chip's GROUND and its three plain
+ * edges — `border-inline-start` is the hue ring and is deliberately untouched,
+ * because the hue answers "who" and repurposing it for state would strand two
+ * participants who share a wheel step.
+ *
+ * Placed after `:hover`, which it therefore outranks by source order at equal
+ * specificity: a state colour that a passing cursor replaced would flicker off the
+ * one chip a person is looking for.
+ */
+.meridian-cast-chip[data-attention="true"] {
+  border-block-color: var(--meridian-amber-mark);
+  border-inline-end-color: var(--meridian-amber-mark);
+  background: var(--meridian-amber-ground);
+  color: var(--meridian-amber-text);
+}
+
+/* The verb gives up its muted grey here rather than keeping it: grey is measured
+ * for contrast on the plain surfaces and on no tinted one, and amber-on-amber is
+ * the pair the palette actually proves. */
+.meridian-cast-chip[data-attention="true"] .meridian-cast-chip__verb {
+  color: var(--meridian-amber-text);
+}
+
 .meridian-cast-chip__name {
   overflow: hidden;
   text-overflow: ellipsis;
