@@ -5,48 +5,57 @@
 // hold inline are siblings now — `RouteSurface.tsx` resolves a route to a surface,
 // `frame-commands.ts` carries the frame's own commands and chords,
 // `rail-navigation.ts` builds the rail, `session-lifecycle.ts` owns the session
-// registry — and every decision below is one the rest of the substrate depends on:
+// registry, `ui-state-lifecycle.ts` owns the durable store's life, and
+// `scheme-preference.ts` owns the colour scheme end to end — and every decision
+// below is one the rest of the substrate depends on:
 //
 //   • **Tokens before paint.** The sheet is installed in a layout effect, which runs
 //     before the browser paints, so no frame renders against an unstyled cascade.
 //   • **One store per window, created once.** `useRef` rather than `useMemo`: a
 //     memo may be discarded and recomputed, and a recreated `SessionStore` would
 //     silently drop every event applied so far. React documents `useMemo` as a
-//     performance hint; store identity is correctness.
+//     performance hint; store identity is correctness. The two stores that own a
+//     resource beyond their own memory — the session registry's subscriptions and
+//     the UI-state store's database connection — are held by hooks instead, because
+//     a ref has no teardown and both of those have to be given one.
 //   • **The route follows the hash, and the hash follows the route.** Both
 //     directions, because the Window menu opens auxiliary windows by URL and the
-//     rail navigates in-window. `adoptHash` is idempotent so the loop settles, and
-//     the store is BORN on the hash the window opened with rather than adopting it
-//     one commit later: the two directions are both effects, and a store that
-//     started on the default route left the route-to-hash direction closing over
-//     that default on the very first pass — long enough to overwrite the address an
-//     auxiliary window was opened at with `#/sessions`.
-//   • **The scheme is hydrated on a read and persisted on an act.** Never on a
-//     state-change effect, which cannot tell the person's choice from the
-//     hydration that just applied a stored one.
+//     rail navigates in-window — owned by `hash-route-binding.ts`, which is where
+//     the rules that make a two-way binding terminate are written down. The store is
+//     still BORN on the hash the window opened with rather than adopting it one
+//     commit later: a store that started on the default route left the route-to-hash
+//     direction publishing that default on the very first pass — long enough to
+//     overwrite the address an auxiliary window was opened at with `#/sessions`.
+//   • **The rail and the palette follow the RETAINED session, not the route.** The
+//     registry keeps a session open after the route leaves it, so Workspace stays
+//     reachable from Settings and goes back to the session that is still open.
+//     `RouteSurface` still reads the route's own session, which is a different
+//     question — what to render now, rather than where to go back to.
 //   • **The bridge is provided, never reached for.** No component below this one
 //     touches `window.sidekicks`.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import {
   SidekicksBridgeProvider,
   useBridgeResolution,
   type ConsoleBridge,
 } from "../bridge/index.js";
 import { PaletteOverlay } from "../palette/index.js";
-import { DraftStore, SCHEME_PREFERENCE_KEY, UiStateStore } from "../persistence/index.js";
+import { DraftStore } from "../persistence/index.js";
 import { Nothing } from "../primitives/index.js";
 import { CONSOLE_CHORD_PLATFORM, consoleCommands } from "./command-surface.js";
 import { registerConsoleFamilies } from "../families.js";
 import { FrameStore, useFrameStore, useLocationHash } from "../store/index.js";
-import { isSchemePreference, type SchemePreference } from "../tokens/index.js";
 import { applyConsoleScheme, installMeridianTokens } from "./token-installation.js";
 import { AppFrame } from "./AppFrame.js";
 import { describeScope, useFrameCommandSurface } from "./frame-commands.js";
+import { useHashRouteBinding } from "./hash-route-binding.js";
 import { buildRailEntries, routeForDestination } from "./rail-navigation.js";
 import { RouteSurface } from "./RouteSurface.js";
+import { useSchemePreference } from "./scheme-preference.js";
 import { useActiveSessionStore, useSessionStoreRegistry } from "./session-lifecycle.js";
-import { formatRoute, parseRoute, railDestinationFor } from "../routing/index.js";
+import { useUiStateStore } from "./ui-state-lifecycle.js";
+import { parseRoute, railDestinationFor } from "../routing/index.js";
 import { consoleSurfaceRegistry, type ConsoleSurfaceContext } from "./surface-registry.js";
 
 // Composition, at module scope, before any window renders.
@@ -136,11 +145,7 @@ function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
   // direction live for every later navigation.
   const hash = useLocationHash();
 
-  // Stores are per window and created exactly once. `UiStateStore.opening` starts
-  // the database open and returns immediately, so first paint never waits on
-  // storage while every persisted read and write awaits the same open — one store
-  // identity, and no window in which a write would land somewhere it will not be
-  // read back from.
+  // Stores are per window and created exactly once.
   //
   // The frame store is seeded with the route the window OPENED at. The ref
   // initializer runs on the first render only, so this reads the opening hash and
@@ -149,10 +154,14 @@ function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
   frameStoreRef.current ??= new FrameStore({ initialRoute: parseRoute(hash) });
   const frameStore = frameStoreRef.current;
 
-  const uiStateStoreRef = useRef<UiStateStore>(undefined);
-  uiStateStoreRef.current ??= UiStateStore.opening();
-  const uiStateStore = uiStateStoreRef.current;
+  // A hook rather than a ref, because this store owns a database connection and a
+  // ref has nowhere to close one from. `ui-state-lifecycle.ts` says what an unclosed
+  // one costs; `UiStateStore.opening` still returns immediately, so first paint
+  // waits on no storage.
+  const uiStateStore = useUiStateStore();
 
+  // A ref is right for this one: a draft store owns a `Map` and nothing outside its
+  // own memory, so the window dropping it is the whole of its teardown.
   const draftStoreRef = useRef<DraftStore>(undefined);
   draftStoreRef.current ??= new DraftStore();
   const draftStore = draftStoreRef.current;
@@ -161,7 +170,9 @@ function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
 
   const route = useFrameStore(frameStore, (state) => state.route);
   const banners = useFrameStore(frameStore, (state) => state.banners);
-  const schemePreference = useFrameStore(frameStore, (state) => state.schemePreference);
+  // The session this window has in hand, which OUTLIVES a route that names none.
+  const lastOpenedSessionId = useFrameStore(frameStore, (state) => state.lastOpenedSessionId);
+  const { schemePreference, chooseScheme } = useSchemePreference(frameStore, uiStateStore);
 
   // Tokens land before the first paint; the scheme attribute follows the setting.
   useLayoutEffect(() => {
@@ -171,55 +182,9 @@ function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
     applyConsoleScheme(document, schemePreference);
   }, [schemePreference]);
 
-  // The colour scheme is the one window preference that has to survive a reload,
-  // so it is read back once at mount and written at the moment a person changes
-  // it.
-  //
-  // The write deliberately does NOT ride a `schemePreference` effect. Such an
-  // effect cannot tell a person's choice from the hydration that just applied a
-  // stored one, so in the window before the read settles it writes the default
-  // back over the stored preference — a preference that survives every reload
-  // except the ones where the disk was slow. Persisting at the ACT instead makes
-  // that unrepresentable, and leaves the hydration free to be a pure read.
-  const schemeWasChosenRef = useRef(false);
-  const chooseScheme = useCallback(
-    (preference: SchemePreference) => {
-      schemeWasChosenRef.current = true;
-      frameStore.setSchemePreference(preference);
-      void uiStateStore.writeGlobal(SCHEME_PREFERENCE_KEY, "scheme", preference);
-    },
-    [frameStore, uiStateStore],
-  );
-
-  useEffect(() => {
-    let abandoned = false;
-    void uiStateStore.readGlobal(SCHEME_PREFERENCE_KEY).then((record) => {
-      // A choice made while the read was in flight is the newer fact and stands.
-      if (abandoned || schemeWasChosenRef.current || record === undefined) {
-        return;
-      }
-      const stored = record.value;
-      if (isSchemePreference(stored)) {
-        frameStore.setSchemePreference(stored);
-      }
-    });
-    return () => {
-      abandoned = true;
-    };
-  }, [frameStore, uiStateStore]);
-
-  // Hash → route.
-  useEffect(() => {
-    frameStore.adoptHash(hash);
-  }, [frameStore, hash]);
-
-  // Route → hash. Guarded so the two directions cannot ping-pong.
-  useEffect(() => {
-    const desired = formatRoute(route);
-    if (window.location.hash !== desired && route.kind !== "not-found") {
-      window.location.hash = desired;
-    }
-  }, [route]);
+  // The route follows the hash and the hash follows the route, both through one
+  // owner. `hash-route-binding.ts` says why one owner and not two effects here.
+  useHashRouteBinding(frameStore, hash);
 
   // Window focus is a refresh reason, not a poll.
   //
@@ -256,7 +221,7 @@ function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
 
   const commandSurface = useFrameCommandSurface({
     route,
-    activeSessionId,
+    lastOpenedSessionId,
     frameStore,
     chooseScheme,
   });
@@ -276,10 +241,10 @@ function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
   return (
     <AppFrame
       route={route}
-      railEntries={buildRailEntries(route)}
+      railEntries={buildRailEntries(lastOpenedSessionId)}
       railDestination={railDestinationFor(route)}
       onSelectDestination={(destination) => {
-        frameStore.navigate(routeForDestination(destination, activeSessionId));
+        frameStore.navigate(routeForDestination(destination, lastOpenedSessionId));
       }}
       banners={banners}
       onDismissBanner={(bannerId) => {

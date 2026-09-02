@@ -9,6 +9,13 @@
 // Nothing here polls, and nothing here holds a copy of anything the session store
 // owns. `activeSessionId` is a route projection, not a second record of which
 // session is open.
+//
+// `lastOpenedSessionId` is the one piece of session-shaped state this store does
+// keep, and it is neither of those things: it is a fact about where this WINDOW has
+// been, which no other module records. It is written only by a route transition
+// that names a session and read only to answer "which session does Workspace go
+// back to" — so it is a navigation memory, not a second answer to "which sessions
+// are open", which stays the registry's alone.
 
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { ConsoleRefusal } from "../core/index.js";
@@ -43,6 +50,26 @@ export interface FrameBanner extends Pick<ConsoleRefusal, "code" | "detail"> {
 
 export interface FrameStoreState {
   readonly route: ConsoleRoute;
+  /**
+   * The session this window most recently had in hand, kept after the route stops
+   * naming one.
+   *
+   * WHY IT IS KEPT. `SessionStoreRegistry` deliberately does not close a session
+   * when the route leaves it, so a person who opens a session and then goes to
+   * Settings still HAS that session open — but every consumer that asked the route
+   * was told otherwise, so the rail dropped its Workspace entry and the command
+   * that would have gone back had no id to go back with. A session that is open and
+   * unreachable is the worst of the three states.
+   *
+   * WHY IT IS NOT PERSISTED. It is window-lifetime state, beside `isPaletteOpen`
+   * and `isWindowFocused` rather than beside the colour scheme. After a reload
+   * nothing is open — the registry is fresh — so a restored id would offer a way
+   * back into a session this window is not in, which may since have been deleted,
+   * archived, or moved to another node; the frame would be promising something only
+   * the daemon can honour. The window re-seeds this from the hash it opens at, which
+   * is the one session a reload genuinely does restore.
+   */
+  readonly lastOpenedSessionId: string | undefined;
   readonly schemePreference: SchemePreference;
   readonly isPaletteOpen: boolean;
   readonly banners: readonly FrameBanner[];
@@ -59,8 +86,14 @@ export class FrameStore {
   readonly #store: StoreApi<FrameStoreState>;
 
   public constructor(options: FrameStoreOptions = {}) {
+    const initialRoute = options.initialRoute ?? DEFAULT_ROUTE;
     this.#store = createStore<FrameStoreState>(() => ({
-      route: options.initialRoute ?? DEFAULT_ROUTE,
+      route: initialRoute,
+      // Seeded from the opening route rather than left empty and filled by the
+      // first transition: a window opened AT a session has that session in hand on
+      // its first render, and a rail that hid Workspace until the person navigated
+      // away and back would be hiding a destination the window is already on.
+      lastOpenedSessionId: routeSessionId(initialRoute),
       schemePreference: options.initialSchemePreference ?? SYSTEM_SCHEME_PREFERENCE,
       isPaletteOpen: false,
       banners: [],
@@ -82,8 +115,16 @@ export class FrameStore {
     return routeSessionId(this.#store.getState().route);
   }
 
+  /**
+   * The session Workspace goes back to: the last one this window opened, whether or
+   * not the current route still names it. `undefined` until one has been opened.
+   */
+  public get lastOpenedSessionId(): string | undefined {
+    return this.#store.getState().lastOpenedSessionId;
+  }
+
   public navigate(route: ConsoleRoute): void {
-    this.#store.setState({ route });
+    this.#setRoute(route);
   }
 
   /** Adopt a route parsed from the location hash. Idempotent on an unchanged hash. */
@@ -93,7 +134,7 @@ export class FrameStore {
     if (routesAreEqual(current, route)) {
       return;
     }
-    this.#store.setState({ route });
+    this.#setRoute(route);
   }
 
   public setSchemePreference(schemePreference: SchemePreference): void {
@@ -117,8 +158,42 @@ export class FrameStore {
     this.#store.setState({ banners: [...banners, banner] });
   }
 
+  /**
+   * Raise a refusal as the banner rendering — the third of rule 9's three, and the
+   * only one available to an act with no surface of its own.
+   *
+   * The banner is keyed on the refusal's ORIGIN and CODE together, so a second
+   * failure of one act replaces its own banner rather than stacking a duplicate of
+   * the same sentence, and two subsystems that happen to share a code word do not
+   * overwrite each other. The code alone was enough while one producer existed;
+   * it stopped being enough the moment a second one did.
+   */
+  public raiseRefusalBanner(refusal: ConsoleRefusal): void {
+    this.raiseBanner({
+      id: `${refusal.origin}:${refusal.code}`,
+      dismissible: true,
+      code: refusal.code,
+      detail: refusal.detail,
+    });
+  }
+
   public dismissBanner(bannerId: string): void {
     const banners = this.#store.getState().banners.filter((banner) => banner.id !== bannerId);
     this.#store.setState({ banners });
+  }
+
+  /**
+   * The one route writer.
+   *
+   * Both directions of the route — the rail's `navigate` and the hash's
+   * `adoptHash` — pass through here so the retained session cannot be left behind
+   * by one of them. A route that names no session leaves it alone, which is the
+   * whole behaviour: leaving a workspace does not make it unreachable.
+   */
+  #setRoute(route: ConsoleRoute): void {
+    const sessionId = routeSessionId(route);
+    this.#store.setState(
+      sessionId === undefined ? { route } : { route, lastOpenedSessionId: sessionId },
+    );
   }
 }

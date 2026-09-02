@@ -37,7 +37,13 @@ import {
 /** What the frame's own commands are built against: this window's store and acts. */
 export interface FrameCommandSurfaceInput {
   readonly route: ConsoleRoute;
-  readonly activeSessionId: string | undefined;
+  /**
+   * The session this window has in hand, which OUTLIVES a route that names none —
+   * see `FrameStore`'s own field. `sessionActive` is derived from it rather than
+   * from the route, so "Go to Workspace" and its chord stay offered from Settings,
+   * which is precisely where a person reaches for them.
+   */
+  readonly lastOpenedSessionId: string | undefined;
   readonly frameStore: FrameStore;
   readonly chooseScheme: (preference: SchemePreference) => void;
 }
@@ -52,20 +58,20 @@ export interface FrameCommandSurface {
 }
 
 export function useFrameCommandSurface(input: FrameCommandSurfaceInput): FrameCommandSurface {
-  const { route, activeSessionId, frameStore, chooseScheme } = input;
+  const { route, lastOpenedSessionId, frameStore, chooseScheme } = input;
 
   // What a command's `when` clause is evaluated against. Derived from the route
   // rather than stored, so there is one answer to "where am I" and the palette
   // cannot disagree with the rail about it.
   const whenContext: FrameWhenClauseContext = useMemo(
     () => ({
-      sessionActive: activeSessionId !== undefined,
+      sessionActive: lastOpenedSessionId !== undefined,
       onSessions: route.kind === "sessions",
       onWorkspace: route.kind === "workspace",
       onSettings: route.kind === "settings",
       inAuxiliaryWindow: isAuxiliaryRoute(route),
     }),
-    [route, activeSessionId],
+    [route, lastOpenedSessionId],
   );
 
   // The key-binding table reads the context through a ref rather than closing over
@@ -86,17 +92,13 @@ export function useFrameCommandSurface(input: FrameCommandSurfaceInput): FrameCo
   //
   // A frame banner, which is the third of the three refusal renderings and the only
   // one available to an act with no surface of its own — "Check for updates" has no
-  // pane to fail inline on. Keyed on the refusal CODE rather than on a fresh id, so
-  // a second failure of one act replaces its banner instead of stacking a duplicate
-  // of the same sentence.
+  // pane to fail inline on. The banner is composed by the STORE rather than here:
+  // this stopped being the only producer when a refused scheme write got a banner
+  // too, and two producers writing the same four fields is exactly how the two
+  // keying rules come apart.
   const raiseRefusalBanner = useCallback(
     (refusal: ConsoleRefusal) => {
-      frameStore.raiseBanner({
-        id: refusal.code,
-        dismissible: true,
-        code: refusal.code,
-        detail: refusal.detail,
-      });
+      frameStore.raiseRefusalBanner(refusal);
     },
     [frameStore],
   );
@@ -199,8 +201,11 @@ function buildFrameCommands(
       group: "Navigate",
       when: "sessionActive",
       run: () => {
-        if (frameStore.activeSessionId !== undefined) {
-          frameStore.navigate({ kind: "workspace", sessionId: frameStore.activeSessionId });
+        // Read at RUN time, not closed over: this list is built once per window and
+        // the session it returns to changes with every navigation.
+        const sessionId = frameStore.lastOpenedSessionId;
+        if (sessionId !== undefined) {
+          frameStore.navigate({ kind: "workspace", sessionId });
         }
       },
     },

@@ -128,6 +128,7 @@ export class UiStateStore {
   readonly #refusalCounts = new Map<string, number>();
   #failedReadCount = 0;
   #trimCount = 0;
+  #closed = false;
   // Not "0 of 0 bytes": nothing has been read yet, and the reason says so.
   #lastQuota: QuotaGauge = unmeasuredQuota("not-attempted");
 
@@ -304,13 +305,32 @@ export class UiStateStore {
   }
 
   /**
+   * True once `close` has been called, so an owner that has to decide whether to
+   * mint a fresh store can ask rather than remember.
+   *
+   * The same shape as `SessionStoreRegistry.isDisposed`, and for the same reason:
+   * the window's teardown and its next mount are two commits, and a state field
+   * holding a store that has been closed is indistinguishable from one holding a
+   * live store unless the store itself says which it is.
+   */
+  public get isClosed(): boolean {
+    return this.#closed;
+  }
+
+  /**
    * Close the underlying connection.
    *
    * Async because the connection may still be opening: a synchronous close would
    * silently do nothing to a database that lands a millisecond later, leaving a
    * connection open that blocks the next window's upgrade.
+   *
+   * The flag is set BEFORE the await, so `isClosed` is true from the moment close
+   * is asked for. Setting it afterwards would leave a window — as long as the open
+   * takes to settle — in which an owner deciding whether to re-mint reads `false`
+   * and keeps a store whose connection is already on its way out.
    */
   public async close(): Promise<void> {
+    this.#closed = true;
     (await this.#adapterReady).close();
   }
 
