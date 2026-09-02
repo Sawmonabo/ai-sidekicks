@@ -1,10 +1,13 @@
 // The first sixty seconds — the session a fresh console opens into.
 //
-// `Spec-023 §Console Design (Meridian)` §3.17: "Make the product demonstrate itself
-// before it asks for anything." First launch opens into a live session already in
-// flight — several sidekicks and several people working, parallel streams
-// revealing, an approval arriving, a receipt landing past tense — and the empty
-// state IS the demo. So this scenario is not a tour and not a checklist: it is one
+// `Spec-023 §The four bars`, Richness, names this composition: "The first sixty
+// seconds and the flagship frame are designed compositions, regression-tested by
+// screenshot." WHAT THE MINUTE IS FOR is this scenario's own decision, because no
+// committed document states it: the product demonstrates itself before it asks for
+// anything. First launch opens into a live session already in flight — several
+// sidekicks and several people working, parallel streams revealing, an approval
+// arriving, a receipt landing past tense — and the empty state IS the demo. So this
+// scenario is not a tour and not a checklist: it is one
 // ordinary session, scripted over sixty seconds of scenario time, that a person can
 // watch, scrub, and leave.
 //
@@ -27,9 +30,10 @@
 //
 // EVERY BEAT IS A REGISTERED EVENT. The census and the strict layer both live in
 // `packages/contracts/src/event.ts` and `scenarios/wire-truth.ts` holds this file
-// to them. Two things §3.17 names that no beat here can state: participant status
-// VERBS (presence is not an event type, and the cast bar reads it from a projection
-// no wire serves) and the handoff being DRAWN between two runs (`handoff.*` is not
+// to them. Two things the composition above wants that no beat here can state:
+// participant status VERBS (presence is not an event type, and the cast bar reads it
+// from a projection no wire serves) and the handoff being DRAWN between two runs
+// (`handoff.*` is not
 // in the census; `subagent.started` / `subagent.completed` are, and a child thread
 // opening under a run is the part of that story the log can tell).
 

@@ -1,8 +1,8 @@
 // The deck's three density presets, expressed as minimum pane widths.
 //
-// `Spec-023 §Console Design (Meridian)` §4.2: "Three density presets
-// (comfortable, standard, compact) as minimum pane widths from our type scale,
-// chosen in Settings › Appearance". A preset is therefore NOT a spacing theme and
+// THIS DECK'S OWN RULE, because no committed document states it: three density presets
+// (comfortable, standard, compact) as minimum pane widths from the type scale, chosen in
+// Settings › Appearance. A preset is therefore NOT a spacing theme and
 // not a row-collapse state — it is one number per preset, the narrowest a pane may
 // be squeezed to before the deck refuses to take more width from it.
 //
@@ -43,8 +43,8 @@ export type DeckDensity = (typeof DECK_DENSITIES)[number];
 /**
  * What a new deck runs at, and what a restored snapshot falls back to.
  *
- * `Spec-023 §Console Design (Meridian)` §4.2 fixes it in terms: "New panes open at
- * the standard preset".
+ * This module's own default, stated with the presets it chooses between: new panes open
+ * at the standard preset.
  */
 export const DEFAULT_DECK_DENSITY: DeckDensity = "standard";
 

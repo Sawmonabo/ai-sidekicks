@@ -1,10 +1,11 @@
 // The new-session draft — a session that does not exist yet.
 //
-// `Spec-023 §Console Design (Meridian)` §4.8: "'+ New' creates a draft session
-// placeholder with no daemon row: the person picks agents (by definition), a repo
-// mount and mode, a posture, and a paying account per agent. The first send
-// coalesces `session.create`, one `agent.attach` per agent, and `run.queueCreate`;
-// a draft that is closed empty reverts to nothing and leaves no row."
+// THIS CONSOLE'S OWN RULE, because no committed document states it — `Spec-023 §Scope`
+// leaves each surface's composition to "the console's own code and fixture scenarios":
+// "+ New" creates a draft session placeholder with no daemon row, and the person picks
+// agents (by definition), a repo mount and mode, a posture, and a paying account per
+// agent. The first send coalesces `session.create`, one `agent.attach` per agent, and
+// `run.queueCreate`; a draft that is closed empty reverts to nothing and leaves no row.
 //
 // THREE PROPERTIES, AND EACH IS THE REASON THIS IS A CLASS RATHER THAN A FORM:
 //
@@ -13,12 +14,14 @@
 //     nothing behind — there is nothing to delete, which is the strongest form of
 //     "leaves no row".
 //   • **Nothing durable.** A draft is participant-authored content, and
-//     `console/persistence/value-classes.ts` gives such content no durable home in
-//     the renderer. This module never reaches the persistence door.
-//   • **A partial send is reported, never rolled back.** §4.8 asks for "the calls
-//     that succeeded named" and for the draft to stay editable. A renderer cannot
-//     undo a `session.create` the daemon accepted, and pretending otherwise would
-//     leave a real session the person believes was never made.
+//     `Spec-023 §Persistence on the renderer scheme` gives such content no durable home
+//     in the renderer: "a draft lives in its window's in-memory store for that window's
+//     lifetime, is gone when the window closes". `console/persistence/value-classes.ts`
+//     is the enforcement; this module never reaches the persistence door.
+//   • **A partial send is reported, never rolled back.** The rule above asks for the
+//     calls that succeeded to be named and for the draft to stay editable. A renderer
+//     cannot undo a `session.create` the daemon accepted, and pretending otherwise
+//     would leave a real session the person believes was never made.
 //
 // ONE DRAFT OBJECT, AT MOST ONE SESSION. The three properties above make the draft
 // editable after a send that only partly landed, which is what a person needs — and
@@ -106,7 +109,7 @@ function refuseDraft(code: NewSessionDraftRefusalCode, detail: string): NewSessi
 /**
  * What the coalesced send did.
  *
- * `completedCalls` carries the wire names verbatim and in order, because §4.8's
+ * `completedCalls` carries the wire names verbatim and in order, because this module's
  * requirement is that the error slot NAMES the calls that succeeded — a person who
  * has to decide whether to retry needs to know a session already exists.
  */
@@ -215,9 +218,9 @@ export class NewSessionDraft {
   /**
    * Throw the draft away.
    *
-   * No wire call, on §4.8's terms: a draft has no daemon row, so discarding one is
-   * a local act and issuing a delete would be asking the daemon to forget something
-   * it was never told.
+   * No wire call, on this module's own terms: a draft has no daemon row, so discarding
+   * one is a local act and issuing a delete would be asking the daemon to forget
+   * something it was never told.
    */
   public discard(): void {
     this.#commit({ agents: [], repoMount: undefined, posture: undefined });
@@ -226,9 +229,9 @@ export class NewSessionDraft {
   /**
    * The coalesced first send.
    *
-   * Coalesced in TWO senses, and both are load-bearing. Across the three calls
-   * §4.8 names, it is ordered rather than parallel: the two after `session.create`
-   * need the session it returns, so issuing them together would mean inventing the
+   * Coalesced in TWO senses, and both are load-bearing. Across the three calls the rule
+   * above names, it is ordered rather than parallel: the two after `session.create` need
+   * the session it returns, so issuing them together would mean inventing the
    * id before the daemon minted it. Across repeated presses, it is idempotent in
    * the only way a renderer can make a create idempotent — by remembering. A
    * concurrent call joins the running send; a later call re-reports the session the
@@ -298,7 +301,7 @@ export class NewSessionDraft {
    * Both remaining calls are unreachable — neither is registered in the contracts
    * package and neither has a growth-port operation, so there is no honest way to
    * issue them. The session exists, so the outcome is PARTIAL and says which call
-   * landed, which is §4.8's "with the calls that succeeded named".
+   * landed, which is this module's "with the calls that succeeded named".
    */
   #unregisteredRemainder(sessionId: string | undefined): NewSessionSendResult {
     return {

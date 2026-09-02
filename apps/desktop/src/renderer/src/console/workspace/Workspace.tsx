@@ -8,27 +8,30 @@
 // FOUR DECISIONS:
 //
 //   • **The layout is restored once, at mount, and saved through the persistence
-//     chokepoint.** `Spec-023 §Console Design (Meridian)` §4.2: "pane ids, sizes,
-//     order, and scroll positions persist; projections are re-derived on
-//     reconnect". Nothing about a session's own state is written — the snapshot
-//     holds pane ids, kinds, entity refs, and widths, which is the `layout` value
-//     class and nothing beyond it.
+//     chokepoint.** `Spec-023 §Persistence on the renderer scheme`: "Layout, scroll
+//     position, selection, pins, and expansion sets persist per install", and
+//     "Projections never persist and are re-derived on reconnect". Nothing about a
+//     session's own state is written — the snapshot holds pane ids, kinds, entity
+//     refs, and widths, which is the `layout` value class and nothing beyond it.
 //   • **Saves are coalesced by the write itself.** Dragging a separator produces a
 //     transition per frame, and one durable write per frame would spend the store's
 //     whole budget on a gesture. `deck/layout-persistence.ts` holds one write in
 //     flight and one pending snapshot, so a drag costs what the database can absorb
 //     and every record it writes is the newest arrangement rather than a stale one.
-//   • **An empty deck opens the ledger.** §4.2's empty state is "the workspace
-//     shows the ledger alone, full width", which is a `timeline` pane at full width
-//     rather than a special case in the renderer.
+//   • **An empty deck opens the ledger.** This surface's own empty state, because no
+//     committed document states one: the workspace shows the ledger alone at full
+//     width, which is a `timeline` pane rather than a special case in the renderer.
 //   • **Refusals are rendered where they happened.** What a restore dropped belongs
 //     to the deck and renders inside it; what a detach or a save refused changes
-//     what the whole surface can do and takes the workspace banner — §4.1's
-//     placement for a refusal of that reach.
-//   • **A detached pane keeps its slot.** §4.5's main window "never keeps a duplicate
-//     projection alive while the aux window shows it" suppresses the BODY, not the
-//     pane: closing the pane would delete its width and its position, and the window
-//     closing or crashing would then have nowhere to put it back. So the hand-off's
+//     what the whole surface can do and takes the workspace banner: the refusal
+//     grammar of `Spec-023 §Meridian, the design language` renders a refusal of that
+//     reach "as a **banner** across the workspace when it changes what the whole room
+//     can do".
+//   • **A detached pane keeps its slot.** `Spec-023 §The surface set`: "the main
+//     window shows the moved pane's slot as a placeholder with a focus control". That
+//     suppresses the BODY, not the pane: closing the pane would delete its width and
+//     its position, and the window closing or crashing would then have nowhere to put
+//     it back. So the hand-off's
 //     detached set is subscribed to here and passed down, and the slot draws a
 //     placeholder with a focus control and a way back.
 
@@ -153,8 +156,9 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
         if (outcome.outcome === "refused") {
           raise(outcome.refusal);
         }
-        // The pane STAYS, with its body suppressed. §4.5 forbids a duplicate
-        // projection, not the slot: a closed pane loses its width and its position,
+        // The pane STAYS, with its body suppressed. `Spec-023 §The surface set` keeps
+        // the slot as a placeholder rather than closing it: a closed pane loses its
+        // width and its position,
         // and the window closing would then have nowhere to put the pane back.
       })();
     },
@@ -187,7 +191,8 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
 
   const onFollow = useCallback(
     (participantId: string) => {
-      // §4.1's follow has two halves, and both of them happen. The first is the
+      // Follow has two halves — `workspace/actor-follow.ts` states the rule — and both
+      // of them happen. The first is the
       // deck's: the actor's own pane takes focus where one is open, and the session's
       // ledger otherwise. In a deck holding one timeline that half is a no-op, which
       // is why the second half is not optional.
@@ -391,7 +396,8 @@ function useDeckPersistence(options: DeckPersistenceOptions): readonly ConsoleRe
         setRestoreRefusals(report.refusals);
       }
       if (report === undefined || report.restoredPaneCount === 0) {
-        // §4.2's empty state: the workspace shows the ledger alone, full width.
+        // This surface's own empty state: the workspace shows the ledger alone, full
+        // width.
         layout.open({ kind: "timeline", entity: undefined });
       }
     })();

@@ -1,8 +1,9 @@
 // The deck: the panes a person is looking at, side by side.
 //
-// `Spec-023 §Console Design (Meridian)` §4.2 — "Hold the work a person is looking at
-// as independent panes, each headed by an entity breadcrumb and a kind glyph, each
-// with a focus ring in the hue of the actor whose work it shows."
+// `Spec-023 §The surface set`: the deck "holds independent panes, each headed by an
+// entity breadcrumb and a kind glyph, with the actor's hue as the focus ring; one entity
+// opens one pane, structurally (a single mount door and a tripwire that fails on a
+// second)".
 //
 // WHAT THIS COMPONENT IS AND IS NOT. It is the frame: order, widths, focus, the
 // separators, the keyboard paths, and the one door each pane body is mounted
@@ -73,12 +74,13 @@ export interface DeckProps {
   readonly registry: ConsolePaneRegistry;
   /** What each pane body is handed. The surface that owns the stores builds it. */
   readonly paneContextFor: (pane: DeckPane) => ConsolePaneContext;
-  /** Supplied where a host can move a pane into a window of its own (§4.5). */
+  /** Supplied where a host can move a pane into a window of its own
+   * (`Spec-023 §The surface set`, auxiliary windows). */
   readonly onOpenInWindow?: (pane: DeckPane) => void;
   /** What the layout restore refused, rendered rather than swallowed. */
   readonly restoreRefusals?: readonly ConsoleRefusal[];
   /**
-   * Panes whose body is showing in a window of its own (§4.5).
+   * Panes whose body is showing in a window of its own (`Spec-023 §The surface set`).
    *
    * The slot stays and the projection is suppressed, so widths and order survive the
    * window's whole life and the pane goes back where it was.
@@ -88,7 +90,8 @@ export interface DeckProps {
   readonly onReturnToDeck?: (paneId: string) => void;
   /** Why the crashed-window signal is not being received, where it is not. */
   readonly detachedSignalRefusal?: ConsoleRefusal;
-  /** Where measured pane rects go, for a body that hosts a native view (§4.3). */
+  /** Where measured pane rects go, for a body that hosts a native view.
+   * `deck/rect-discipline.ts` holds the rules. */
   readonly onPaneRects?: (rects: readonly TrackedRect[]) => void;
   /**
    * Which overlays are up, so a pane's rect yields while one is.
@@ -222,8 +225,9 @@ export function Deck(props: DeckProps): React.JSX.Element {
    * second through the persistence writer. `onLayoutChange` fires on every frame of
    * the drag and does exactly one thing: invalidates the pane rects, so a native
    * view hosted in a pane tracks its bounds THROUGH the resize rather than jumping
-   * to them at the end of it (§4.3). It is a read, queued to the next frame by the
-   * tracker; it writes no layout, which is the rule that callback exists under.
+   * to them at the end of it (`deck/rect-discipline.ts`). It is a read, queued to the
+   * next frame by the tracker; it writes no layout, which is the rule that callback
+   * exists under.
    */
   const onLayoutSettled = useCallback(
     (percentages: Readonly<Record<string, number>>) => {

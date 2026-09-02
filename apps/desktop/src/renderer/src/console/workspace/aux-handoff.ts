@@ -1,10 +1,10 @@
 // Moving a pane into a window of its own, and bringing it back.
 //
-// `Spec-023 §Console Design (Meridian)` §4.5 — "Move a `timeline` or
-// `agent-console` pane into its own hardened `BrowserWindow` and bring it back …
-// The aux window loads the same renderer bundle at a window route, carries its own
-// preload and its own bridge instance, and subscribes to the daemon itself; it
-// shares no in-memory store with the main window."
+// `Spec-023 §The surface set`: "`timeline` and `agent-console` panes can be moved into
+// their own hardened `BrowserWindow` … An auxiliary window loads the same renderer
+// bundle at a window route, carries its own preload and bridge instance, subscribes to
+// the daemon itself, and shares no in-memory store and no auth material with the main
+// window."
 //
 // FOUR GATES, IN THIS ORDER, AND EACH ONE REFUSES LOCALLY BEFORE ASKING FOR A
 // WINDOW. Asking first and refusing on the answer would mean a window flashes open
@@ -24,15 +24,16 @@
 //      `Plan-023 §Console growth slate` and reaches the console only through the
 //      growth port, which refuses by name. That refusal is rendered, not swallowed.
 //
-// WHAT THE MAIN WINDOW KEEPS. The pane's SLOT, as a placeholder with a focus
-// control, and no projection: §4.5's "never keeps a duplicate projection alive in
-// the main window while the aux window shows it" is why `detached` records an id
-// and a window handle rather than a copy of anything. The deck keeps the pane at its
+// WHAT THE MAIN WINDOW KEEPS. That same heading says it: "the main window shows the
+// moved pane's slot as a placeholder with a focus control" — a slot and no projection,
+// which is why `detached` records an id and a window handle rather than a copy of
+// anything. The deck keeps the pane at its
 // own width and position; only the body is suppressed, so the way back is a control
 // in the slot rather than a re-open that would land the pane somewhere else.
 //
-// AND A CRASHED WINDOW COMES BACK THROUGH A SIGNAL, NOT A GUESS. §4.5's "a crashed
-// aux window returns the pane to the deck" needs something to notice the crash, and
+// AND A CRASHED WINDOW COMES BACK THROUGH A SIGNAL, NOT A GUESS. The same heading's
+// "a crashed auxiliary window returns the pane to the deck with the crash noted in the
+// pane's error slot" needs something to notice the crash, and
 // the growth registry carries exactly one: a window pane-error subscription whose
 // value is a pane id and a reason — the pair `noteWindowLost` already takes. It is
 // watched only while something is detached, because a subscription held over an
@@ -265,8 +266,9 @@ export class AuxiliaryHandoff {
   /**
    * Record that a window was lost rather than closed.
    *
-   * The pane returns to the deck — §4.5's "a crashed aux window returns the pane to
-   * the deck" — and the reason is kept for the pane's error slot, because a pane
+   * The pane returns to the deck — `Spec-023 §The surface set`: "a crashed auxiliary
+   * window returns the pane to the deck with the crash noted in the pane's error slot"
+   * — and the reason is kept for that slot, because a pane
    * that silently reappears tells the person nothing about why.
    */
   public noteWindowLost(paneId: string, reason: string): DetachedPane | undefined {

@@ -72,8 +72,9 @@
   display: inline-flex;
   align-items: center;
   gap: var(--meridian-space-2);
-  /* Right-aligned, per §4.1: the all-clear line is the last thing on the bar and
-   * the one a person's eye should be able to find without reading the rest. */
+  /* Right-aligned, which is this bar's own placement decision: the all-clear line
+   * `Spec-023 §The surface set` asks for is the last thing on the bar and the one a
+   * person's eye should be able to find without reading the rest. */
   margin-inline-start: auto;
   flex: 0 0 auto;
   color: var(--meridian-text-muted);

@@ -1,16 +1,17 @@
 // The deck's live layout: which panes exist, in what order, at what widths.
 //
-// `Spec-023 §Console Design (Meridian)` §4.2 gives this module two of the deck's
-// five rules; the other three are the persisted grammar's and live in
-// `deck-snapshot.ts`.
+// This module holds two of the deck's five rules; the other three are the persisted
+// grammar's and live in `deck-snapshot.ts`.
 //
-//   • **One entity, one pane.** A second open of the same entity FOCUSES the pane
-//     that already shows it. The rule is structural here and structural again at
-//     the mount door (`workspace/seats/pane-registry.ts`), which is why neither
-//     side needs to trust the other.
-//   • **Ephemeral panes cascade.** A `browser` pane opens right of its source and
-//     closes with it — so a page nobody asked for cannot outlive the pane that
-//     opened it.
+//   • **One entity, one pane.** `Spec-023 §The surface set` states it: "one entity
+//     opens one pane, structurally (a single mount door and a tripwire that fails on
+//     a second)". A second open of the same entity FOCUSES the pane that already shows
+//     it. The rule is structural here and structural again at the mount door
+//     (`workspace/seats/pane-registry.ts`), which is why neither side needs to trust
+//     the other.
+//   • **Ephemeral panes cascade.** This deck's own rule, because no committed document
+//     states one: a `browser` pane opens right of its source and closes with it — so a
+//     page nobody asked for cannot outlive the pane that opened it.
 //
 // STATE LIVES IN THE CLASS, NOT IN REACT. Every mutation goes through a method,
 // every method publishes one new immutable `DeckLayoutState`, and React subscribes

@@ -1,6 +1,7 @@
 // The new-session draft, and the honest ending of a send it cannot finish.
 //
-// §4.8 asks for a draft that is local until it is sent, and for a send that names
+// `new-session-draft.ts` asks for a draft that is local until it is sent, and for a
+// send that names
 // the calls that succeeded. Two of the three calls that send needs are registered
 // nowhere in the contracts package, so the interesting case is not the happy path:
 // it is that a send which creates a session and then cannot attach anything says
@@ -136,7 +137,7 @@ describe("NewSessionDraft — the send", () => {
 
     expect(result.outcome).toBe("partial");
     expect(result.sessionId).toBe(CREATED_SESSION_ID);
-    // §4.8: the error slot names the calls that SUCCEEDED, because a person
+    // The error slot names the calls that SUCCEEDED, because a person
     // deciding whether to retry needs to know a session already exists.
     expect(result.completedCalls).toStrictEqual(["session.create"]);
     expect(result.refusal?.code).toBe("wire-unregistered");

@@ -1,9 +1,9 @@
 // What the cast bar shows about each participant, derived and never invented.
 //
-// `Spec-023 §Console Design (Meridian)` §4.1: "One chip per participant: hue ring,
-// name, presence glyph …, the terminal-lease glyph when this participant is
-// `controlHolder`, and a verb. The verb is derived on the client from the
-// participant's newest timeline row and liveness only."
+// `Spec-023 §The surface set` fixes what one chip carries — "hue ring, name, presence
+// glyph, terminal-lease glyph where held, and a present-tense verb derived client-side
+// from that participant's newest timeline row and liveness alone" — and this module is
+// the derivation half of that sentence.
 //
 // THE TWO RULES THIS MODULE EXISTS FOR, both of them prohibitions:
 //
@@ -264,8 +264,9 @@ function foldParticipantLabels(
  * Composed here rather than left to the browser's own name computation over the
  * chip's children, because the presence glyph is an image carrying a name of its
  * own: concatenated, every chip in the bar would open with "Presence has not been
- * read" before the person it is about. The composition is the one §4.1 documents —
- * the identifier and the verb — with each further state added as its own clause, so
+ * read" before the person it is about. The composition is this module's own: the
+ * identifier and the verb, in the order `Spec-023 §The surface set` names them on the
+ * chip itself, with each further state added as its own clause, so
  * a chip that is only itself reads exactly "priya, waiting on approval".
  *
  * Every clause is a value this model already derived. Nothing is invented here.

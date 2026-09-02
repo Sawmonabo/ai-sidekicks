@@ -1,10 +1,10 @@
 // The timeline pane: its chrome, and the hole where another plan's rows go.
 //
-// `Spec-023 §Console Design (Meridian)` §4.2 fixes the chrome: "A pane header:
-// breadcrumb (session › channel › run › entity), kind glyph, the actor hue as the
-// focus ring when the pane's entity is a run or an agent, neutral otherwise, and the
-// pane's controls: close, open-in-window where the kind permits, and the kind's own
-// actions." Everything below is that sentence and nothing beyond it.
+// `Spec-023 §The surface set` fixes the chrome — panes are "each headed by an entity
+// breadcrumb and a kind glyph, with the actor's hue as the focus ring" — and
+// `workspace/deck/PaneHeader.tsx` states the rest of the strip as its own rule: close,
+// open-in-window where the kind permits, and the kind's own actions. Everything below is
+// that header and nothing beyond it.
 //
 // THE ROWS ARE NOT THIS FAMILY'S. The row vocabulary of `Spec-013 §Timeline Entry
 // Types` is authored in `renderer/src/timeline/`, which the console imports through
@@ -70,7 +70,8 @@ export interface TimelinePaneProps {
   readonly context: ConsolePaneContext;
   /** Supplied by whatever owns this pane's lifetime. Absent, no close is offered. */
   readonly onClose?: () => void;
-  /** Supplied where a host can open the pane in a window of its own (§4.5). */
+  /** Supplied where a host can open the pane in a window of its own
+   * (`Spec-023 §The surface set`, auxiliary windows). */
   readonly onOpenInWindow?: () => void;
 }
 

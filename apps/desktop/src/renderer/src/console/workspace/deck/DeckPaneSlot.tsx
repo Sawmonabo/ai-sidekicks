@@ -42,7 +42,8 @@ export interface DeckPaneSlotProps {
   readonly onFocus: (paneId: string) => void;
   readonly onClose: (paneId: string) => void;
   readonly onOpenInWindow?: (pane: DeckPane) => void;
-  /** True while this pane's body is showing in a window of its own (§4.5). */
+  /** True while this pane's body is showing in a window of its own
+   * (`Spec-023 §The surface set`). */
   readonly isDetached: boolean;
   readonly onFocusDetachedWindow?: (paneId: string) => void;
   readonly onReturnToDeck?: (paneId: string) => void;
@@ -161,10 +162,11 @@ export const DeckPaneSlot: React.NamedExoticComponent<DeckPaneSlotProps> = memo(
  * The pane whose body is somewhere else.
  *
  * A named absence rather than an empty rectangle, and two controls rather than none:
- * §4.5 keeps the SLOT while the aux window shows the projection, so the widths and
- * the order survive the window's whole life and the pane goes back exactly where it
- * was. Closing the pane instead — which is what this replaced — deleted the position
- * the window's own close would have needed to restore.
+ * `Spec-023 §The surface set` keeps the SLOT while the auxiliary window shows the
+ * projection — "the main window shows the moved pane's slot as a placeholder with a
+ * focus control" — so the widths and the order survive the window's whole life and the
+ * pane goes back exactly where it was. Closing the pane instead — which is what this
+ * replaced — deleted the position the window's own close would have needed to restore.
  *
  * The signal refusal renders HERE, in the slot it is about. A build that cannot
  * subscribe to the crashed-window signal cannot notice a window that died, and a

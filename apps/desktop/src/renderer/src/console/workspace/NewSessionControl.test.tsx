@@ -5,7 +5,7 @@
 // a person could press. These cases drive the control instead of the class, so what
 // they assert is that the acts are reachable, in that order, through the screen.
 //
-// The send case is the load-bearing one. Exactly one of the three calls §4.8's
+// The send case is the load-bearing one. Exactly one of the three calls the draft's
 // coalesced send names is registered, so a real send lands `session.create` and then
 // says what it could not do. A control that reported that as a plain success would
 // be describing a session with no sidekicks and no first turn as a finished one.
@@ -167,9 +167,10 @@ describe("the composed new-session draft — reachable, and only on an act", () 
     });
     await press("Discard");
 
-    // Back to the one control, and re-opening starts empty: §4.8's "a draft that is
-    // closed empty reverts to nothing and leaves no row" is a claim about what a
-    // discard leaves, so the case that matters is the state the NEXT draft is in.
+    // Back to the one control, and re-opening starts empty: `new-session-draft.ts`'s
+    // "a draft that is closed empty reverts to nothing and leaves no row" is a claim
+    // about what a discard leaves, so the case that matters is the state the NEXT draft
+    // is in.
     expect(container.querySelector(".meridian-new-session")).toBeNull();
     await press("+ New");
     expect((screen.getByRole("radio", { name: "Trusted" }) as HTMLInputElement).checked).toBe(

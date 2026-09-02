@@ -3,8 +3,8 @@
 // The first case is the load-bearing one: every key in the verb table is checked
 // against the contracts package's own event census. Without it this module could put
 // a verb on a chip for a kind the wire does not have, which is exactly the invented
-// verb §4.1 forbids — and no rendering test would ever notice, because the fixture
-// would simply never produce that kind.
+// verb `cast-bar-model.ts` forbids — and no rendering test would ever notice, because
+// the fixture would simply never produce that kind.
 //
 // Attention is no longer a second kind table here: it is folded by each ask's own
 // lifecycle in `outstanding-asks.ts`, whose co-located test makes the same census
@@ -161,7 +161,7 @@ describe("deriveCastBar — the name each participant was given", () => {
 });
 
 describe("castChipAccessibleName — the identifier and the verb", () => {
-  it("speaks the label and the verb, which is the name §4.1 documents", () => {
+  it("speaks the label and the verb, which is the name the model composes", () => {
     const wheel = wheelFor(["participant-priya"]);
     const model = deriveCastBar({
       assignments: wheel.assignments(),
