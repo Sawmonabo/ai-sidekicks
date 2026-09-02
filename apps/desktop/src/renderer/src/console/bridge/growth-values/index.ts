@@ -31,6 +31,22 @@
 // barrel publishes exactly what the single module published: the export surface is
 // the same set of names, which `index.test.ts` asserts against a pinned census
 // rather than leaving to review.
+//
+// A SUB-MODULE DOOR, NOT A SECOND FAMILY DOOR. `growth-values/` is a sub-module of
+// `bridge/`, not a family of its own: it sits inside the bridge's directory, it is
+// below no family in the DAG, and it publishes to the bridge's own modules. So the
+// one-`index.ts`-per-family rule is not violated by its existence — `bridge/index.ts`
+// remains the single door the rest of the console comes through, and this file is
+// reached only by deep, intra-family specifiers.
+//
+// WHY IT SURVIVES AT ALL. Three modules inside this family read across several
+// planes at once — `growth-signatures.ts` names shapes from four of them in one
+// table, `fixture-session-directory.ts` and the gitflow port test each name one —
+// and a specifier per plane at each of those call sites would make the table's
+// import block longer than the rows it introduces. What it may NOT do is leave the
+// family: `bridge/index.ts` re-exports every growth value from the module that
+// declares it, and `console-no-barrel-chain` in `.dependency-cruiser.mjs` fails the
+// build if that ever regresses to a forward through this file.
 
 export type { GrowthNavigationState, GrowthPaneError, GrowthTerminalChunk } from "./panes.js";
 

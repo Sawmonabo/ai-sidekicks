@@ -27,11 +27,15 @@
 // one sentence: the pane-kind set is closed, `timeline` is "(session- or
 // channel-scoped)", and "a repo, workspace, worktree, invite, or member entity
 // is a card in its sidebar section and opens as an `inspector` pane keyed by its
-// entity kind, its changes opening the `diff` pane". Two of the five entities
-// that sentence names — repo and invite — are not console entity KINDS
-// (`store/entities.ts` partitions neither), so the inspector's row is that
-// sentence's list intersected with the partition set, and the row widens by the
-// same amendment that mints a partition for either. Optionality is never
+// entity kind, its changes opening the `diff` pane". All five of the entities that
+// sentence names are console entity KINDS, so the inspector's row is that sentence's
+// list and nothing narrower. It was the intersection with the partition set until
+// repo and invite were missing from that set — which made a repo card and an invite
+// card unrepresentable at the address layer, and would have had the repos and
+// collaboration branches reopen this shared substrate to open a pane the spec already
+// routes. The row is now derived from a map that decides EVERY entity kind, so a kind
+// added later fails to compile until the inspector question is answered for it.
+// Optionality is never
 // invented: `agent-console` takes a no-entity arm because
 // `src/shared/auxiliary-routes.ts` gives that route a no-context target the
 // window's own picker resolves, and `workflow-builder` takes one because
@@ -52,11 +56,21 @@
 // no entity" a fact the compiler holds.
 
 import { refuse, type ConsoleRefusal } from "../core/index.js";
-import { type ConsoleEntityRef } from "../store/index.js";
+import { IDENTIFIER_MAX_LENGTH, isSingleNameIdentifierShaped } from "../persistence/index.js";
+import { CONSOLE_ENTITY_KINDS, type ConsoleEntityRef } from "../store/index.js";
 import { PANE_KINDS, isPaneKind, type PaneKind } from "./pane-kinds.js";
 
 /** The subsystem a pane-address refusal names as its author. */
 const PANE_ADDRESS_ORIGIN = "pane-address";
+
+/**
+ * The ceiling the entity-id grammar enforces, named for the refusal sentence.
+ *
+ * Read off the grammar rather than restated, so the number a person is told is the
+ * number the predicate applied. It is `persistence/`'s constant because the grammar
+ * is `persistence/`'s — this module applies it, it does not own it.
+ */
+const PANE_ENTITY_ID_MAX_LENGTH = IDENTIFIER_MAX_LENGTH;
 
 /**
  * One console entity kind, read off the reference the store family exports.
@@ -73,6 +87,53 @@ type ScopedEntityRef<TEntityKind extends ConsoleEntityKind> = ConsoleEntityRef &
 };
 
 /**
+ * The entity kinds the `inspector` pane is a view of.
+ *
+ * `Spec-023 §Console Design (Meridian)` §The surface set: "a repo, workspace,
+ * worktree, invite, or member entity is a card in its sidebar section and opens as an
+ * `inspector` pane keyed by its entity kind, its changes opening the `diff` pane".
+ * All five are here — `participant` is that sentence's member — now that the console's
+ * entity vocabulary names repo and invite.
+ */
+type InspectorEntityKind = "participant" | "workspace" | "worktree" | "repo" | "invite";
+
+/**
+ * Every entity kind, decided. The exhaustiveness check, and the union's proof.
+ *
+ * A TOTAL map rather than a list of the admitted kinds, because a list grows a hole
+ * silently — which is exactly how repo and invite went missing. The three intersected
+ * constraints pin it in every direction that can be wrong: `Record<ConsoleEntityKind,
+ * boolean>` means a kind added to `CONSOLE_ENTITY_KINDS` fails to compile here until
+ * the inspector question is answered for it, and the two halves after it hold this map
+ * and the union above to the SAME set — every union member `true`, every other kind
+ * `false` — so the union cannot quietly become narrower or wider than the table the
+ * runtime filters with.
+ */
+const INSPECTOR_ADMITS_ENTITY_KIND = {
+  session: false,
+  participant: true,
+  channel: false,
+  run: false,
+  agent: false,
+  workspace: true,
+  worktree: true,
+  artifact: false,
+  approval: false,
+  "workflow-definition": false,
+  "workflow-run": false,
+  "browser-page": false,
+  repo: true,
+  invite: true,
+} as const satisfies Record<ConsoleEntityKind, boolean> &
+  Record<InspectorEntityKind, true> &
+  Record<Exclude<ConsoleEntityKind, InspectorEntityKind>, false>;
+
+/** The same set as data, filtered from the map so the two halves cannot drift. */
+const INSPECTOR_ENTITY_KINDS: readonly InspectorEntityKind[] = CONSOLE_ENTITY_KINDS.filter(
+  (kind): kind is InspectorEntityKind => INSPECTOR_ADMITS_ENTITY_KIND[kind],
+);
+
+/**
  * What each pane kind is a view of. THE declaration.
  *
  * `never` where the pane is session-scoped and takes no entity; `| undefined`
@@ -86,7 +147,7 @@ interface PaneEntityScopeByKind {
   /** Session-scoped when bare, channel-scoped when a channel is named. */
   readonly timeline: ScopedEntityRef<"channel"> | undefined;
   /** Keyed by the inspected entity's own kind; there is nothing to inspect without one. */
-  readonly inspector: ScopedEntityRef<"workspace" | "worktree" | "participant">;
+  readonly inspector: ScopedEntityRef<InspectorEntityKind>;
   /** The session's runs list. */
   readonly runs: never;
   /** The session's approvals queue. */
@@ -117,10 +178,28 @@ interface PaneEntityScopeByKind {
   readonly "agent-console": ScopedEntityRef<"agent"> | undefined;
 }
 
-/** One pane kind's address arm, entity member and all. */
+/**
+ * One pane kind's address arm, entity member and all.
+ *
+ * THREE SHAPES, NOT TWO. A session-scoped kind has no `entity` member; a kind whose
+ * scope is a bare reference REQUIRES one; and a kind whose scope includes `undefined`
+ * takes an OPTIONAL one. The third arm used to be written as a required member whose
+ * value may be undefined, which is not the same claim: a typed caller could not write
+ * the documented bare `{ kind: "workflow-builder" }` at all, while
+ * {@link parseConsolePaneAddress} returned exactly that object through a cast — so the
+ * static contract and the runtime contract disagreed, and the cast is what hid it.
+ *
+ * The optional arm keeps `| undefined` in its member type rather than stripping it to
+ * `NonNullable`, and that is load-bearing under `exactOptionalPropertyTypes`: without
+ * it the only admitted spelling would be the ABSENT key, and every existing caller
+ * that writes the equally honest `entity: undefined` would stop compiling. Both
+ * spellings mean the same thing here, and both are admitted.
+ */
 type ConsolePaneAddressOf<TKind extends PaneKind> = [PaneEntityScopeByKind[TKind]] extends [never]
   ? { readonly kind: TKind }
-  : { readonly kind: TKind; readonly entity: PaneEntityScopeByKind[TKind] };
+  : EntityRequired<TKind> extends true
+    ? { readonly kind: TKind; readonly entity: PaneEntityScopeByKind[TKind] }
+    : { readonly kind: TKind; readonly entity?: PaneEntityScopeByKind[TKind] };
 
 // Consumed by T-023p-1C-2, T-023p-1C-3
 /**
@@ -168,7 +247,7 @@ const PANE_ENTITY_SCOPES: {
   };
 } = {
   timeline: { entityKinds: ["channel"], entityRequired: false },
-  inspector: { entityKinds: ["workspace", "worktree", "participant"], entityRequired: true },
+  inspector: { entityKinds: INSPECTOR_ENTITY_KINDS, entityRequired: true },
   runs: { entityKinds: [], entityRequired: false },
   approvals: { entityKinds: [], entityRequired: false },
   diff: { entityKinds: ["worktree", "workspace"], entityRequired: true },
@@ -200,13 +279,54 @@ export function paneEntityScopeFor(kind: PaneKind): PaneEntityScopeDeclaration {
   return PANE_ENTITY_SCOPES[kind];
 }
 
-/** The entity reference an untyped boundary supplied, or `undefined` when it supplied none. */
+/**
+ * The pane kinds whose address can be written bare — session-scoped, or entity-optional.
+ *
+ * Derived from the one declaration rather than listed, so a kind whose scope changes
+ * moves between the two sides of this predicate without anybody editing a list.
+ */
+type EntityOptionalPaneKind = {
+  [K in PaneKind]: EntityRequired<K> extends true ? never : K;
+}[PaneKind];
+
+/**
+ * Whether this kind's address may be written with no entity.
+ *
+ * A narrowing predicate rather than a bare boolean read, because it is what lets the
+ * parse RETURN the bare address without a cast: the table's `entityRequired` column is
+ * annotated `EntityRequired<K>`, so the runtime value and the type it narrows to are
+ * the same fact, checked by the compiler at the table rather than asserted here.
+ */
+function isEntityOptionalPaneKind(kind: PaneKind): kind is EntityOptionalPaneKind {
+  return !PANE_ENTITY_SCOPES[kind].entityRequired;
+}
+
+/**
+ * The entity reference an untyped boundary supplied, or `undefined` when it supplied none.
+ *
+ * The id is held to the console's ONE identifier grammar rather than to `id.length`.
+ * A non-empty check admits whitespace, a NUL, a path, and a string of any length, and
+ * the parse then answered with a valid pane address whose body would query a store key
+ * that can never exist — `Spec-023 §Console Design (Meridian)` §The surface set's "an
+ * entity id that fails validation is rejected", unenforced.
+ *
+ * The grammar is `persistence/identifier-grammar.ts`'s, imported rather than restated:
+ * the layout snapshot this parse reads back is written through that family's value
+ * walk, so the durable boundary already holds this exact string to this exact
+ * predicate. A second grammar here would let route resolution admit an id the layout
+ * path refuses, which is one value with two answers.
+ *
+ * `packages/contracts` settles nothing broader for it. Its id schemas are per-entity
+ * branded UUIDs (`SessionIdSchema` and its siblings), and `ConsoleEntityRef.id` is
+ * deliberately kind-agnostic and wire-verbatim, so no contracts schema covers the
+ * value this boundary holds — and none disagrees with the grammar that does.
+ */
 function readEntityRefCandidate(candidate: unknown): ConsoleEntityRef | undefined {
   if (typeof candidate !== "object" || candidate === null) {
     return undefined;
   }
   const { kind, id } = candidate as { readonly kind?: unknown; readonly id?: unknown };
-  return typeof kind === "string" && typeof id === "string" && id.length > 0
+  return typeof kind === "string" && typeof id === "string" && isSingleNameIdentifierShaped(id)
     ? ({ kind, id } as ConsoleEntityRef)
     : undefined;
 }
@@ -241,18 +361,18 @@ export function parseConsolePaneAddress(
   const scope = paneEntityScopeFor(candidateKind);
 
   if (candidateEntity === undefined) {
-    if (scope.entityRequired) {
+    if (!isEntityOptionalPaneKind(candidateKind)) {
       return refuse(
         PANE_ADDRESS_ORIGIN,
         "pane-entity-required",
         `a "${candidateKind}" pane is a view of one ${scope.entityKinds.join(" or ")} and was opened with none`,
       );
     }
-    // Sound because the guard above holds: a scope that admits no entity kind
-    // declares an arm with no `entity` member, and one that admits some without
-    // requiring one declares that member as optional. Both are satisfied by the
-    // absent key, which is how the union's no-entity arms are written.
-    return { kind: candidateKind } as ConsolePaneAddress;
+    // No cast. The predicate narrowed `candidateKind` to the kinds whose arm has no
+    // `entity` member or an optional one, and the bare object satisfies both — which
+    // is the whole point of the optional arm: what the parse returns is now a value a
+    // typed caller could have written by hand.
+    return { kind: candidateKind };
   }
 
   const entity = readEntityRefCandidate(candidateEntity);
@@ -260,7 +380,10 @@ export function parseConsolePaneAddress(
     return refuse(
       PANE_ADDRESS_ORIGIN,
       "pane-entity-malformed",
-      `a "${candidateKind}" pane was opened over a value that is not an entity reference`,
+      // The length is named and the value is not, on the persistence grammar's own
+      // discipline: a refusal that quoted the string it refused would carry that
+      // string one layer past the boundary that stopped it.
+      `a "${candidateKind}" pane was opened over a value that is not an entity reference — an entity reference is a kind and an identifier-shaped id (no whitespace, no path separator, at most ${String(PANE_ENTITY_ID_MAX_LENGTH)} characters)`,
     );
   }
 

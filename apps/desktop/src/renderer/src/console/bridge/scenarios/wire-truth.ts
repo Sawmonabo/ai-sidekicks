@@ -51,8 +51,12 @@
 //     a registered state and passes every leg above, because the strict layer
 //     registers no run-lifecycle variant to hold the pair to. It reports two states
 //     at once, and the fold that consumes it would store the one the payload names
-//     under the kind the timeline renders. Read off the same module the queue leg
-//     reads, for the same reason.
+//     under the kind the timeline renders. A beat that names NO `newState` passed
+//     the same way, and is refused on the queue leg's terms: the tolerant envelope
+//     accepts the omission, so the beat reached delivery and was refused there as
+//     unprojectable while the run-lifecycle projector dropped its mutation — green
+//     here and rendering nothing. Read off the same module the queue leg reads,
+//     for the same reason.
 //   • The rollback payload's own session. `run.rolled_back` is the one run-lifecycle
 //     payload that carries `sessionId`, and it carries it because the durable row is
 //     what the timeline's boundary entry refines against the envelope — outer
@@ -267,11 +271,11 @@ function describeQueueStateDefect(beat: ScenarioBeat): string | undefined {
 }
 
 /**
- * A run beat whose payload names a different state than its kind announces.
+ * A run beat that names no state, or names a different one than its kind announces.
  *
  * The transition-table leg above catches a beat that claims a run moved to the
  * state it was already in; this one catches the beat that claims two states at
- * once. `run.running` carrying `newState: "failed"` names a registered kind and a
+ * once, and the one that claims none. `run.running` carrying `newState: "failed"` names a registered kind and a
  * registered state, passes the census, passes the envelope, and passes the strict
  * layer — which registers no run-lifecycle payload variant to hold it to — so
  * before this leg the only thing that read the pair was the projector consuming
@@ -291,8 +295,23 @@ function describeRunStateDefect(beat: ScenarioBeat): string | undefined {
     return undefined;
   }
   const statedState = beat.event.payload?.["newState"];
-  if (statedState === undefined || statedState === announcedState) {
+  if (statedState === announcedState) {
     return undefined;
+  }
+  if (statedState === undefined) {
+    // Absence is a defect, on the queue leg's terms exactly. The tolerant envelope
+    // accepts a run-lifecycle payload with no `newState` and the strict layer
+    // registers no variant to reject it, so this beat passed every leg above —
+    // and then `run-stream-projection.ts` refuses it as `beat-unprojectable` at
+    // delivery while the run-lifecycle projector drops its mutation. A scenario
+    // that passes the gate and produces nothing on either consumer is the exact
+    // shape this predicate exists to keep off a family branch.
+    return (
+      "this beat names no `newState`, which is the member the run-state stream " +
+      "projects into the registered `currentState` and the member the run-lifecycle " +
+      "projector folds. Name the state this run moved to — " +
+      `\`"${announcedState}"\`, which is what its kind announces.`
+    );
   }
   return (
     `this beat announces "${announcedState}" by its kind and ` +
@@ -441,38 +460,73 @@ function findMembershipRoleDefects(scenario: ConsoleScenario): readonly Scenario
 }
 
 /**
- * Beats scripted out of the order the clock reaches them in.
+ * Beats scripted out of the order the clock reaches them in, or out of the log
+ * position the store reads them at.
  *
- * `beats` is an ORDERED script, not a set: the engine advances a frozen clock and
- * consumes the contiguous prefix that has fallen due, so an entry whose `atMs` is
- * earlier than the entry in front of it is a beat the author wrote in one order
- * and the clock delivers in another. Nondecreasing rather than strictly
+ * TWO CLAIMS, ONE WALK, because both are about a beat and the beat in front of it
+ * and neither is about anything else.
+ *
+ * **The tick.** `beats` is an ORDERED script, not a set: the engine advances a
+ * frozen clock and consumes the contiguous prefix that has fallen due, so an entry
+ * whose `atMs` is earlier than the entry in front of it is a beat the author wrote
+ * in one order and the clock delivers in another. Nondecreasing rather than strictly
  * increasing, because beats sharing a tick are ordinary — a session event and the
- * run transition it triggers land together, and their array order is the order
- * they reach a subscriber in.
+ * run transition it triggers land together, and their array order is the order they
+ * reach a subscriber in. The engine no longer duplicates or drops a beat over this,
+ * so the defect costs a late delivery rather than a corrupted stream; it is still
+ * reported, because the screenshot and endurance tiers pin frames by advancing to an
+ * exact tick.
  *
- * The engine no longer duplicates or drops a beat over this, so the defect costs a
- * late delivery rather than a corrupted stream; it is still reported, because a
- * scenario whose beats arrive in an order the author did not write is a fixture
- * that rehearses a sequence no session produces, and the screenshot and endurance
- * tiers pin frames by advancing to an exact tick.
+ * **The position.** `sequence` is the log position, and unlike `atMs` it is not a
+ * scheduling convenience the store tolerates: `session.subscribe` represents the
+ * whole log, the fixture's snapshot starts at cursor zero, and the store's own
+ * reconciler reads a jump as a real GAP and a step backwards as a real DIVERGENCE.
+ * Either one puts it into degradation and repair — where it can drop later rows —
+ * over a script the author meant as an ordinary session, while every per-beat schema
+ * parse passes and this suite stays green. So the rule here is strictly contiguous:
+ * each beat's `sequence` is its predecessor's plus one. Two beats at one TICK still
+ * take two positions, which is why this claim is not the tick claim relaxed by one.
+ *
+ * NO INTENT MARKER IS DECLARED, and that is a finding rather than an omission: the
+ * two shipped scenarios run 1..8 and 1..1, so nothing in the tree scripts a gap or a
+ * regression on purpose and a marker minted here would be a field ahead of its only
+ * reader. A family branch whose repair or degradation scenario needs one adds it in
+ * the swap that needs it, as a declared per-scenario field this walk reads — never
+ * as a silent pass.
  */
 function findBeatOrderDefects(scenario: ConsoleScenario): readonly ScenarioWireTruthDefect[] {
   const defects: ScenarioWireTruthDefect[] = [];
   for (const [beatIndex, beat] of scenario.beats.entries()) {
     const previousBeat = scenario.beats[beatIndex - 1];
-    if (previousBeat === undefined || previousBeat.atMs <= beat.atMs) {
+    if (previousBeat === undefined) {
       continue;
     }
-    defects.push({
-      scenarioId: scenario.id,
-      subject: `beat ${String(beatIndex)} (${beat.event.kind})`,
-      reason:
-        `it is due at ${String(beat.atMs)}ms, before the beat in front of it at ` +
-        `${String(previousBeat.atMs)}ms. The engine consumes beats in array order as the ` +
-        "frozen clock reaches them, so this one is delivered later than it is scripted for. " +
-        "Order the beats by `atMs`, or change the tick this beat is due at.",
-    });
+    const subject = `beat ${String(beatIndex)} (${beat.event.kind})`;
+    if (previousBeat.atMs > beat.atMs) {
+      defects.push({
+        scenarioId: scenario.id,
+        subject,
+        reason:
+          `it is due at ${String(beat.atMs)}ms, before the beat in front of it at ` +
+          `${String(previousBeat.atMs)}ms. The engine consumes beats in array order as the ` +
+          "frozen clock reaches them, so this one is delivered later than it is scripted for. " +
+          "Order the beats by `atMs`, or change the tick this beat is due at.",
+      });
+    }
+    const expectedSequence = previousBeat.event.sequence + 1;
+    if (beat.event.sequence !== expectedSequence) {
+      defects.push({
+        scenarioId: scenario.id,
+        subject,
+        reason:
+          `it is at log position ${String(beat.event.sequence)}, and the beat in front of it is ` +
+          `at ${String(previousBeat.event.sequence)}, so this script ` +
+          `${beat.event.sequence > expectedSequence ? "skips a position" : "steps backwards"}. ` +
+          "The store reconciles a subscription against the whole log from cursor zero, so it " +
+          "reads that as a real gap or a real divergence, enters degradation and repair, and " +
+          `can drop later rows. Number the beats contiguously — this one is ${String(expectedSequence)}.`,
+      });
+    }
   }
   return defects;
 }

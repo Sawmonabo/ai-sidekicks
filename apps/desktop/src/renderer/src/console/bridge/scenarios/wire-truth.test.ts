@@ -124,6 +124,32 @@ describe("scenario wire truth — a run beat that reports two states at once", (
     ).toStrictEqual([]);
   });
 
+  it("reports a beat whose payload names no state at all", () => {
+    // The quieter half, and the one that stayed green: absence was treated as
+    // clean, so a family scenario could ship a `run.running` beat with no
+    // `newState`, pass the architecture suite, and then be refused at delivery as
+    // unprojectable while the run-lifecycle projector dropped its mutation. Green
+    // gate, nothing on screen.
+    const withoutNewState: ConsoleScenario = {
+      ...FLAGSHIP_SCENARIO,
+      id: "names-no-run-state",
+      beats: FLAGSHIP_SCENARIO.beats.map((beat) =>
+        beat.event.kind === "run.starting"
+          ? {
+              ...beat,
+              event: { ...beat.event, payload: { ...beat.event.payload, newState: undefined } },
+            }
+          : beat,
+      ),
+    };
+
+    const defects = findScenarioWireTruthDefects([withoutNewState]);
+
+    expect(defects).toHaveLength(1);
+    expect(defects[0]?.subject).toContain("run.starting");
+    expect(defects[0]?.reason).toContain("newState");
+  });
+
   it("leaves the kinds the run-state stream does not carry to the other legs", () => {
     // `run.queued` is the run's creation rather than a transition, and the mapping
     // this leg reads claims no state for it — so the shipped creation beat, which

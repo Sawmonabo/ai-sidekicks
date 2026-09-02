@@ -18,6 +18,7 @@
 import { describe, expect, it } from "vitest";
 
 import { isConsoleRefusal } from "../core/index.js";
+import { IDENTIFIER_MAX_LENGTH } from "../persistence/index.js";
 import type { ConsoleEntityRef } from "../store/index.js";
 import {
   paneEntityScopeFor,
@@ -99,6 +100,35 @@ describe("the address union, at a typed call site", () => {
     expect(bareBuilder.entity).toBeUndefined();
     expect(namedAgent.entity).toBe(AGENT);
   });
+
+  it("admits the bare object on every entity-optional arm, with no `entity` key at all", () => {
+    // The arm the union could not express. `entity: undefined` and an absent key read
+    // identically at a call site and are not the same TYPE: a required member whose
+    // value may be undefined made the documented bare `{ kind: "workflow-builder" }`
+    // unwritable, while the parse returned exactly that object through a cast — so the
+    // static contract and the runtime contract disagreed and the cast hid it. These
+    // three are what the parse now returns, constructed by hand at the same type.
+    const bareTimeline: AddressArm<"timeline"> = { kind: "timeline" };
+    const bareBuilder: AddressArm<"workflow-builder"> = { kind: "workflow-builder" };
+    const barePicker: AddressArm<"agent-console"> = { kind: "agent-console" };
+
+    expect(bareTimeline).toStrictEqual({ kind: "timeline" });
+    expect(bareBuilder).toStrictEqual({ kind: "workflow-builder" });
+    expect(barePicker).toStrictEqual({ kind: "agent-console" });
+  });
+
+  it("negative control: the bare object stays refused on an entity-REQUIRED arm", () => {
+    // Without this, the case above would hold over a union that made every `entity`
+    // member optional — which is the fix's own failure mode, and it would let a caller
+    // open a diff pane with nothing to diff.
+    // @ts-expect-error a diff pane is the changes OF something and takes no bare form
+    const bareDiff: AddressArm<"diff"> = { kind: "diff" };
+    // @ts-expect-error an artifact pane is a view of an artifact and takes no bare form
+    const bareArtifact: AddressArm<"artifact"> = { kind: "artifact" };
+
+    expect(bareDiff.kind).toBe("diff");
+    expect(bareArtifact.kind).toBe("artifact");
+  });
 });
 
 describe("the boundary parse — what it admits", () => {
@@ -119,6 +149,18 @@ describe("the boundary parse — what it admits", () => {
     expect(parseConsolePaneAddress("agent-console", undefined)).toStrictEqual({
       kind: "agent-console",
     });
+  });
+
+  it("returns the bare object itself on an entity-optional arm, with no entity key", () => {
+    // `toStrictEqual` against the bare literal is the assertion that pins it: an
+    // `entity: undefined` key would fail here, and it is what the union used to
+    // require of a typed caller while the parse returned this instead.
+    const bareBuilder = parseConsolePaneAddress("workflow-builder", undefined);
+    const bareTimeline = parseConsolePaneAddress("timeline", undefined);
+
+    expect(bareBuilder).toStrictEqual({ kind: "workflow-builder" });
+    expect(bareTimeline).toStrictEqual({ kind: "timeline" });
+    expect("entity" in (bareBuilder as object)).toBe(false);
   });
 
   it("admits a bare browser pane at both untyped boundaries", () => {
@@ -187,6 +229,94 @@ describe("the boundary parse — what it refuses, and by which name", () => {
         "pane-entity-malformed",
       );
     }
+  });
+
+  it.each([
+    ["a space", "artifact 1"],
+    ["a tab", "artifact\t1"],
+    ["a newline", "artifact\n1"],
+    ["a NUL", "artifact 1"],
+    ["a path", "../../etc/passwd"],
+    ["a bare path separator", "artifacts/artifact-1"],
+    ["prose", "the artifact Priya opened this morning"],
+    ["a quote", 'artifact-"1"'],
+    ["an over-length string", `artifact-${"9".repeat(IDENTIFIER_MAX_LENGTH)}`],
+  ])("rejects an id carrying %s", (_class, id) => {
+    // Each is a string the previous `id.length > 0` check admitted, and each then
+    // produced a valid-looking pane address whose body would query a store key that
+    // can never exist. The layout snapshot this parse reads back is written through
+    // the persistence value walk, which refuses every one of them — so before this
+    // the durable boundary and the route boundary disagreed about the same string.
+    const refusal = refusalFrom(parseConsolePaneAddress("artifact", { kind: "artifact", id }));
+
+    expect(refusal.code).toBe("pane-entity-malformed");
+    expect(refusal.origin).toBe("pane-address");
+    // The refused string is never echoed — a refusal that quoted it would carry it
+    // one layer past the boundary that stopped it — but the ceiling is named, so a
+    // person reading the sentence knows what would change the answer.
+    expect(refusal.detail).not.toContain(id);
+    expect(refusal.detail).toContain(String(IDENTIFIER_MAX_LENGTH));
+  });
+
+  it("negative control: the ids this build's own fixtures carry are admitted", () => {
+    // Without this, the sweep above would hold over a parse that refused every id.
+    // Both shapes the corpus actually mints: the scenario's UUID and the seat
+    // fixtures' dashed name.
+    const scenarioId = "019b79ee-0280-7c11-8110-d1a4c1150092";
+
+    expect(parseConsolePaneAddress("artifact", { kind: "artifact", id: scenarioId })).toStrictEqual(
+      { kind: "artifact", entity: { kind: "artifact", id: scenarioId } },
+    );
+    expect(parseConsolePaneAddress("artifact", ARTIFACT)).toStrictEqual({
+      kind: "artifact",
+      entity: ARTIFACT,
+    });
+  });
+});
+
+describe("the inspector, over the entities the spec routes to it", () => {
+  it("parses an inspector address for every entity kind the spec names", () => {
+    // `Spec-023 §Console Design (Meridian)` §The surface set routes five kinds to the
+    // inspector, and two of them — repo and invite — were not console entity kinds at
+    // all, so the address union could not represent them and the runtime scope table
+    // rejected them as kind mismatches. The repos and collaboration branches would
+    // have had to reopen this shared substrate to open a pane the spec already routes.
+    for (const entityKind of ["participant", "workspace", "worktree", "repo", "invite"] as const) {
+      const entity = { kind: entityKind, id: `${entityKind}-1` } satisfies ConsoleEntityRef;
+
+      expect(parseConsolePaneAddress("inspector", entity)).toStrictEqual({
+        kind: "inspector",
+        entity,
+      });
+    }
+  });
+
+  it("admits the repo and invite refs at a typed call site too", () => {
+    // The compile-time half. Both were unconstructible before, at a type the union
+    // derived from an entity vocabulary that named neither.
+    const repoInspector: AddressArm<"inspector"> = {
+      kind: "inspector",
+      entity: { kind: "repo", id: "repo-1" },
+    };
+    const inviteInspector: AddressArm<"inspector"> = {
+      kind: "inspector",
+      entity: { kind: "invite", id: "invite-1" },
+    };
+
+    expect(repoInspector.entity.kind).toBe("repo");
+    expect(inviteInspector.entity.kind).toBe("invite");
+  });
+
+  it("negative control: the inspector still refuses a kind the spec does not route to it", () => {
+    // Without this the two cases above would hold over a scope that admitted every
+    // entity kind, which is what the fix's own failure mode looks like — an inspector
+    // opened over a run has no card to render.
+    // @ts-expect-error the spec routes no run entity to the inspector
+    const runInspector: AddressArm<"inspector"> = { kind: "inspector", entity: RUN };
+    expect(runInspector.entity.kind).toBe("run");
+    expect(refusalFrom(parseConsolePaneAddress("inspector", RUN)).code).toBe(
+      "pane-entity-kind-mismatch",
+    );
   });
 });
 

@@ -188,6 +188,10 @@ function projectStateChange(event: ConsoleSessionEvent): RunStreamProjection {
   if (payload === undefined) {
     return unprojectableFor(event, "carries no payload at all");
   }
+  const sessionDisagreement = refuseSessionDisagreement(event, payload);
+  if (sessionDisagreement !== undefined) {
+    return sessionDisagreement;
+  }
   // The one cross-check no schema can make: the kind and the payload each name the
   // state the run is now in, and they have to be the same state. Checked before the
   // parse because it is a fact about this BEAT rather than about the shape — a
@@ -227,29 +231,9 @@ function projectRollback(event: ConsoleSessionEvent): RunStreamProjection {
   if (payload === undefined) {
     return unprojectableFor(event, "carries no payload at all");
   }
-  // The cross-check this arm owes, in the same shape and for the same reason as the
-  // state arm's kind-against-`newState` check above: a fact about this BEAT that no
-  // schema can make. `sessionId` is a member of this payload and of no sibling stream
-  // shape precisely because "this same payload is the durable `run.rolled_back` row
-  // the Plan-013 timeline consumes, where the boundary entry refines
-  // `runId === payload.runId`, `sessionId === payload.sessionId`, and
-  // `position === payload.targetPosition`, so outer attribution and payload cannot
-  // disagree". This module used to OVERWRITE the payload's member with the envelope's
-  // before parsing, which made that rule unenforceable here: a beat that named no
-  // session, or named a different one, was rewritten into a rollback that passed
-  // `RunRolledBackEventSchema` and reached subscribers as valid.
-  const statedSessionId = payload["sessionId"];
-  if (statedSessionId === undefined) {
-    return unprojectableFor(
-      event,
-      "names no `sessionId`, which the registered rollback payload requires and which no other member of this shape can stand in for",
-    );
-  }
-  if (statedSessionId !== event.sessionId) {
-    return unprojectableFor(
-      event,
-      `is delivered on session "${event.sessionId}" and names ${JSON.stringify(statedSessionId)} in its payload; outer attribution and payload cannot disagree about which session was rolled back`,
-    );
+  const sessionDisagreement = refuseSessionDisagreement(event, payload);
+  if (sessionDisagreement !== undefined) {
+    return sessionDisagreement;
   }
   const channelId = readWireString(payload, "channelId");
   return projectThroughRegisteredShape(RunRolledBackEventSchema, event, {
@@ -257,7 +241,7 @@ function projectRollback(event: ConsoleSessionEvent): RunStreamProjection {
     // carried untouched. Copying the envelope's here instead would make that check
     // vacuous — the value delivered would agree with the envelope by construction
     // rather than because the beat said so.
-    sessionId: statedSessionId,
+    sessionId: payload["sessionId"],
     runId: payload["runId"],
     runVersion: payload["runVersion"],
     ...(channelId === undefined ? {} : { channelId }),
@@ -279,6 +263,10 @@ function projectRunQueueStreamBeat(
   const payload = event.payload;
   if (payload === undefined) {
     return unprojectableFor(event, "carries no payload at all");
+  }
+  const sessionDisagreement = refuseSessionDisagreement(event, payload);
+  if (sessionDisagreement !== undefined) {
+    return sessionDisagreement;
   }
   const queueItemId = readWireString(payload, "queueItemId");
   if (queueItemId === undefined) {
@@ -338,6 +326,49 @@ function projectRunQueueStreamBeat(
     // moment the row was last updated. Sourced, not stamped from a clock.
     updatedAt: event.occurredAt,
   });
+}
+
+/**
+ * The envelope-against-payload session cross-check, for every arm of both run streams.
+ *
+ * A fact about this BEAT that no schema can make, and one none of the three arms can
+ * skip. `Spec-006` gives every one of these payloads a required `sessionId`, so a beat
+ * delivered on session A whose payload names session B is not a beat that omitted a
+ * check: it is a frame no daemon produces. The state and queue arms then compound it,
+ * because neither registered stream shape carries a `sessionId` member at all — the
+ * projection drops the disagreeing value on the floor and the narrowed subscriber
+ * receives a valid-looking update about a session it never asked for, with nothing on
+ * the delivered payload left to notice it by.
+ *
+ * ONE GUARD RATHER THAN THREE COPIES, because three copies of one comparison drift
+ * and the gate goes green: the rollback arm carried this rule alone for one round and
+ * the two arms beside it were the ones that could hide the mismatch afterwards.
+ *
+ * A non-string `sessionId` refuses on the same arm as an absent one. It cannot be
+ * compared to the envelope's, and admitting it here would leave the state and queue
+ * arms delivering on an identifier nothing ever checked.
+ *
+ * Returns the refusal, or `undefined` when the beat agrees with its envelope — the
+ * guard shape a caller reads as "nothing to say" without a second status vocabulary.
+ */
+function refuseSessionDisagreement(
+  event: ConsoleSessionEvent,
+  payload: Readonly<Record<string, unknown>>,
+): RunStreamProjection | undefined {
+  const statedSessionId = readWireString(payload, "sessionId");
+  if (statedSessionId === undefined) {
+    return unprojectableFor(
+      event,
+      "names no `sessionId`, which every registered run payload requires and which no other member of these shapes can stand in for",
+    );
+  }
+  if (statedSessionId !== event.sessionId) {
+    return unprojectableFor(
+      event,
+      `is delivered on session "${event.sessionId}" and names ${JSON.stringify(statedSessionId)} in its payload; outer attribution and payload cannot disagree about which session a beat is about`,
+    );
+  }
+  return undefined;
 }
 
 /**
