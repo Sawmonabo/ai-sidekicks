@@ -63,11 +63,33 @@ export interface InlineCardAttachmentRef {
 }
 
 // Consumed by T-023p-1C-2, T-023p-1C-5
-/** A diff card, over one run's change set. */
+/**
+ * A diff card, over one computed diff.
+ *
+ * The two identifiers are the ones the registered diff result carries — the
+ * `DiffArtifactCreateResponse` in
+ * `docs/architecture/contracts/api-payload-contracts.md` §Plan-011, whose members
+ * are `diffArtifactId`, `artifactManifestId`, and `createdAt`. They are spelled flat
+ * here because that response is flat, so the arm and the wire it is fetched with
+ * read as one shape.
+ *
+ * This arm used to carry a `changeSetId`, which had no producer, no consumer, and no
+ * registration anywhere in the corpus: a card body handed one had nothing to fetch
+ * with, and the identifier looked exactly like a wire fact while being traceable to
+ * nothing. Both members are needed rather than one — the diff and the artifact
+ * manifest it mints are two rows, and a body renders the diff while its provenance
+ * and retention hang off the manifest.
+ *
+ * `packages/contracts` exports no diff type yet, so these are plain strings, the
+ * same posture (and the same deletion obligation) `InlineCardAttachmentRef` above
+ * takes: when the contracts package registers the response, these members take its
+ * branded ids and this comment goes with the change.
+ */
 export interface DiffInlineCardProps {
   readonly kind: "diff";
   readonly runId: string;
-  readonly changeSetId: string;
+  readonly diffArtifactId: string;
+  readonly artifactManifestId: string;
 }
 
 // Consumed by T-023p-1C-2, T-023p-1C-5
