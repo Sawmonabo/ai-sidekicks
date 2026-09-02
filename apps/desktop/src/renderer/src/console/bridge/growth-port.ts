@@ -1,6 +1,6 @@
 // The growth port: the console's single fixture-only seam.
 //
-// `Plan-023 §Console growth slate` names twenty-four wires the console builds
+// `Plan-023 §Console growth slate` names thirty wires the console builds
 // against and does not yet have. Those rows are not methods — one bundles a whole
 // namespace plus two settings plus a pane-kind declaration, several describe type
 // semantics on replies that already exist. So the port is keyed by OPERATION, not
@@ -20,13 +20,14 @@
 // five kinds of nothing), never as an empty list — because "we have not asked" and
 // "there is none" are different facts and the console does not conflate them.
 //
-// WHAT THIS FILE OWNS, AND WHY THE LINE IS HERE. Everything that makes the port
-// CALLABLE: what each operation takes, what it gives back, the mapped type that
-// derives one method per operation, and the two functions that produce a port
-// value. The ledger's rows and the ledger's row shape are somebody else's — they
-// change when a wire lands, and this file does not. What a call ANSWERS with is
-// `growth-outcome.ts`, so a surface can narrow a result without reaching for the
-// signature table it will never read.
+// WHAT THIS FILE OWNS, AND WHY THE LINE IS HERE. Everything that CONSTRUCTS the
+// port: the mapped type that derives one method per operation, the refusal builder,
+// and the refusing port itself. All three are one construction over whatever the
+// signature table says, so they do not move when a wire is registered — and the
+// table does, which is why it lives next door in `growth-signatures.ts`. The
+// ledger's rows and the ledger's row shape are somebody else's too. What a call
+// ANSWERS with is `growth-outcome.ts`, so a surface can narrow a result without
+// reaching for the signature table it will never read.
 
 import { refuse } from "../core/index.js";
 import type { GrowthOperationId } from "./growth-entry.js";
@@ -35,170 +36,10 @@ import {
   GROWTH_PORT_REFUSAL_ORIGIN,
   type GrowthOutcome,
   type GrowthPortRefusalCode,
-  type GrowthStream,
   type GrowthUnavailable,
 } from "./growth-outcome.js";
+import type { GrowthOperationSignatures } from "./growth-signatures.js";
 import { growthSlateRow } from "./growth-slate.js";
-
-// --- Operation signatures -------------------------------------------------
-//
-// One typed entry per operation. The request and value types are the CONSOLE's,
-// derived from what its surfaces need — not a claim about the eventual wire shape,
-// which belongs to the owning document. Where a shape is genuinely unknown to the
-// console it is stated as a named empty request rather than `unknown`, so a caller
-// that starts passing something has to come here and say what.
-
-export interface GrowthNavigationState {
-  readonly url: string;
-  readonly title: string;
-  readonly isLoading: boolean;
-  readonly canGoBack: boolean;
-  readonly canGoForward: boolean;
-}
-
-export interface GrowthToolCall {
-  readonly toolCallId: string;
-  readonly toolName: string;
-  readonly argumentsJson: string;
-}
-
-export interface GrowthTerminalChunk {
-  readonly terminalId: string;
-  readonly data: string;
-}
-
-export interface GrowthArtifactSummary {
-  readonly artifactId: string;
-  readonly name: string;
-  readonly byteLength: number;
-  readonly contentType: string;
-}
-
-export interface GrowthSessionSummary {
-  readonly sessionId: string;
-  readonly title: string;
-  readonly state: string;
-}
-
-export interface GrowthInviteSummary {
-  readonly inviteId: string;
-  readonly state: string;
-  readonly expiresAt: string;
-}
-
-export interface GrowthHealthReading {
-  readonly component: string;
-  readonly state: string;
-  readonly observedAt: string;
-}
-
-export interface GrowthPaneError {
-  readonly paneId: string;
-  readonly reason: string;
-}
-
-export interface GrowthImportProgress {
-  readonly importId: string;
-  readonly turnsSeen: number;
-  readonly state: string;
-}
-
-interface GrowthOperationSignatures {
-  browserNavigate: { request: { readonly paneId: string; readonly url: string }; value: void };
-  browserReload: { request: { readonly paneId: string }; value: void };
-  browserStopLoading: { request: { readonly paneId: string }; value: void };
-  browserGoBack: { request: { readonly paneId: string }; value: void };
-  browserGoForward: { request: { readonly paneId: string }; value: void };
-  browserSubscribeNavigation: {
-    request: { readonly paneId: string };
-    value: GrowthStream<GrowthNavigationState>;
-  };
-  browserSubscribeToolCalls: {
-    request: { readonly sessionId: string };
-    value: GrowthStream<GrowthToolCall>;
-  };
-  browserRespondToToolCall: {
-    request: { readonly toolCallId: string; readonly resultJson: string };
-    value: void;
-  };
-  terminalSubscribeOutput: {
-    request: { readonly terminalId: string };
-    value: GrowthStream<GrowthTerminalChunk>;
-  };
-  terminalWrite: { request: { readonly terminalId: string; readonly data: string }; value: void };
-  terminalResize: {
-    request: { readonly terminalId: string; readonly columns: number; readonly rows: number };
-    value: void;
-  };
-  terminalAcquireWriteLease: {
-    request: { readonly terminalId: string };
-    value: { readonly granted: boolean };
-  };
-  terminalReleaseWriteLease: { request: { readonly terminalId: string }; value: void };
-  devServerProbe: { request: { readonly port: number }; value: { readonly listening: boolean } };
-  sessionRename: { request: { readonly sessionId: string; readonly title: string }; value: void };
-  sessionArchive: { request: { readonly sessionId: string }; value: void };
-  sessionClose: { request: { readonly sessionId: string }; value: void };
-  sessionReactivate: { request: { readonly sessionId: string }; value: void };
-  daemonStatusRead: {
-    request: Record<string, never>;
-    value: { readonly state: string; readonly version: string };
-  };
-  daemonStop: { request: Record<string, never>; value: void };
-  daemonRestart: { request: Record<string, never>; value: void };
-  onboardingStateRead: {
-    request: Record<string, never>;
-    value: { readonly completedStepIds: readonly string[]; readonly isComplete: boolean };
-  };
-  onboardingStepAdvance: { request: { readonly stepId: string }; value: void };
-  onboardingStepSkip: { request: { readonly stepId: string }; value: void };
-  onboardingComplete: { request: Record<string, never>; value: void };
-  onboardingProviderSignInHandoff: { request: { readonly providerName: string }; value: void };
-  shellConfigRead: { request: Record<string, never>; value: Readonly<Record<string, boolean>> };
-  shellConfigWrite: { request: { readonly key: string; readonly enabled: boolean }; value: void };
-  invitesList: { request: { readonly sessionId: string }; value: readonly GrowthInviteSummary[] };
-  healthSubscribe: { request: Record<string, never>; value: GrowthStream<GrowthHealthReading> };
-  gitActionExecute: {
-    request: { readonly workspaceId: string; readonly action: string };
-    value: { readonly accepted: boolean };
-  };
-  artifactIngestBegin: {
-    request: { readonly sessionId: string; readonly name: string; readonly byteLength: number };
-    value: { readonly ingestId: string };
-  };
-  artifactIngestWriteChunk: {
-    request: { readonly ingestId: string; readonly offset: number; readonly byteLength: number };
-    value: void;
-  };
-  artifactIngestComplete: { request: { readonly ingestId: string }; value: GrowthArtifactSummary };
-  artifactList: {
-    request: { readonly sessionId: string };
-    value: readonly GrowthArtifactSummary[];
-  };
-  artifactRead: { request: { readonly artifactId: string }; value: GrowthArtifactSummary };
-  artifactDelete: { request: { readonly artifactId: string }; value: void };
-  artifactAllowlistRead: {
-    request: { readonly sessionId: string };
-    value: { readonly contentTypes: readonly string[]; readonly maximumByteLength: number };
-  };
-  artifactIngestAbort: { request: { readonly ingestId: string }; value: void };
-  sessionSearch: { request: { readonly query: string }; value: readonly GrowthSessionSummary[] };
-  windowDetachPane: { request: { readonly paneId: string }; value: { readonly windowId: string } };
-  windowFocusAuxiliary: { request: { readonly windowId: string }; value: void };
-  windowCloseAuxiliary: { request: { readonly windowId: string }; value: void };
-  windowSubscribePaneErrors: {
-    request: Record<string, never>;
-    value: GrowthStream<GrowthPaneError>;
-  };
-  providerSessionImportBegin: {
-    request: { readonly providerName: string; readonly sourceRef: string };
-    value: { readonly importId: string };
-  };
-  providerSessionImportSubscribe: {
-    request: { readonly importId: string };
-    value: GrowthStream<GrowthImportProgress>;
-  };
-}
 
 /**
  * The port. One method per operation, derived from the signature table so the
@@ -270,6 +111,8 @@ export function createRefusingGrowthPort(): GrowthPort {
     sessionArchive: async () => growthUnavailable("sessionArchive"),
     sessionClose: async () => growthUnavailable("sessionClose"),
     sessionReactivate: async () => growthUnavailable("sessionReactivate"),
+    sessionRead: async () => growthUnavailable("sessionRead"),
+    sessionList: async () => growthUnavailable("sessionList"),
     daemonStatusRead: async () => growthUnavailable("daemonStatusRead"),
     daemonStop: async () => growthUnavailable("daemonStop"),
     daemonRestart: async () => growthUnavailable("daemonRestart"),
@@ -299,5 +142,29 @@ export function createRefusingGrowthPort(): GrowthPort {
     windowSubscribePaneErrors: async () => growthUnavailable("windowSubscribePaneErrors"),
     providerSessionImportBegin: async () => growthUnavailable("providerSessionImportBegin"),
     providerSessionImportSubscribe: async () => growthUnavailable("providerSessionImportSubscribe"),
+    attentionProjectionRead: async () => growthUnavailable("attentionProjectionRead"),
+    attentionPreferenceRead: async () => growthUnavailable("attentionPreferenceRead"),
+    attentionPreferenceUpdate: async () => growthUnavailable("attentionPreferenceUpdate"),
+    // workflow
+    workflowDefinitionList: async () => growthUnavailable("workflowDefinitionList"),
+    workflowRunStart: async () => growthUnavailable("workflowRunStart"),
+    workflowRunRead: async () => growthUnavailable("workflowRunRead"),
+    workflowRunCancel: async () => growthUnavailable("workflowRunCancel"),
+    workflowRunResume: async () => growthUnavailable("workflowRunResume"),
+    workflowPhaseOutputRead: async () => growthUnavailable("workflowPhaseOutputRead"),
+    workflowGateResolve: async () => growthUnavailable("workflowGateResolve"),
+    workflowHumanFormSubmit: async () => growthUnavailable("workflowHumanFormSubmit"),
+    workflowGateChainVerify: async () => growthUnavailable("workflowGateChainVerify"),
+    // gitflow
+    gitflowBranchContextRead: async () => growthUnavailable("gitflowBranchContextRead"),
+    gitflowPrPrepare: async () => growthUnavailable("gitflowPrPrepare"),
+    // identity, and the callback-tool registry read
+    callerParticipantRead: async () => growthUnavailable("callerParticipantRead"),
+    callbackToolRegistryRead: async () => growthUnavailable("callbackToolRegistryRead"),
+    // sidekick
+    sidekickDefinitionList: async () => growthUnavailable("sidekickDefinitionList"),
+    sidekickDefinitionCreate: async () => growthUnavailable("sidekickDefinitionCreate"),
+    sidekickDefinitionUpdate: async () => growthUnavailable("sidekickDefinitionUpdate"),
+    sidekickDefinitionDelete: async () => growthUnavailable("sidekickDefinitionDelete"),
   };
 }

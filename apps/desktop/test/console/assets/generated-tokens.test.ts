@@ -32,7 +32,10 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
+  BOUNDED_ENUMERATION_MAX_HEIGHT_REM,
+  BOUNDED_ENUMERATION_MAX_ROWS,
   CONSOLE_SCHEMES,
+  ENUMERATION_ROW_HEIGHT_REM,
   PARTICIPANT_HUES,
   SCHEME_COLOR_TOKENS,
   formatOklch,
@@ -82,6 +85,44 @@ function inlineTokenVariables(source: string): Set<string> {
     }
   }
   return defined;
+}
+
+/**
+ * The declarations inside the TOP-LEVEL rule whose selector is exactly `selector`.
+ *
+ * Anchored to a line start, because `[data-console-scheme="light"]` also appears
+ * inside the `prefers-color-scheme` block — as the indented `:root:not(...)` guard
+ * that exists to exclude that very choice — and a substring search would read the
+ * system layer while claiming to read the explicit one.
+ */
+function topLevelRuleBody(css: string, selector: string): string {
+  const opening = `\n${selector} {\n`;
+  const start = css.indexOf(opening);
+  if (start === -1) {
+    return "";
+  }
+  const bodyStart = start + opening.length;
+  const end = css.indexOf("\n}", bodyStart);
+  return end === -1 ? "" : css.slice(bodyStart, end);
+}
+
+/**
+ * The one number a `rem` declaration carries, read out of the emitted sheet.
+ *
+ * The sheet is the artifact, so a length assertion that reads it is measuring
+ * what the browser will paint rather than restating the record it came from.
+ * Returns `undefined` when the property is absent, so a caller asserts on a
+ * missing declaration instead of comparing against `NaN`.
+ */
+function emittedRemValue(css: string, tokenName: string): number | undefined {
+  const matched = new RegExp(`${tokenVariableName(tokenName)}: ([\\d.]+)rem;`).exec(css);
+  return matched?.[1] === undefined ? undefined : Number(matched[1]);
+}
+
+/** The unitless multiplier a `line-height` declaration carries. */
+function emittedLineHeight(css: string): number | undefined {
+  const matched = /line-height: ([\d.]+);/.exec(css);
+  return matched?.[1] === undefined ? undefined : Number(matched[1]);
 }
 
 /** Custom-property names a stylesheet READS through `var()`. */
@@ -141,6 +182,73 @@ describe("assets — the generated token sheet", () => {
       const variableName = tokenVariableName(participantHueTokenName(step));
       expect(css).toContain(`${variableName}: ${formatOklch(hue)};`);
     });
+  });
+
+  it("binds the browser's own UI to the chosen scheme on each explicit arm", () => {
+    // `color-scheme` decides what Chromium paints for scrollbars, form controls,
+    // spinners and the canvas — surfaces no custom property reaches. Leaving the
+    // root's `light dark` in force under an explicit choice means an operator who
+    // picks light on a dark OS gets a light document inside dark scrollbars, and
+    // the inverse mismatch is reachable the same way. The token guard already
+    // keeps the right palette; this is the other half of the same choice.
+    const css = generateMeridianCss();
+    const explicitLight = topLevelRuleBody(css, '[data-console-scheme="light"]');
+    const explicitDark = topLevelRuleBody(css, '[data-console-scheme="dark"]');
+
+    expect(explicitLight, "there should be an explicit-light rule at all").not.toBe("");
+    expect(explicitDark, "there should be an explicit-dark rule at all").not.toBe("");
+    expect(explicitLight).toContain("color-scheme: light;");
+    expect(explicitDark).toContain("color-scheme: dark;");
+    // `light dark` says "either, follow the system", which is the one thing an
+    // explicit choice is not.
+    expect(explicitLight).not.toContain("light dark");
+    expect(explicitDark).not.toContain("light dark");
+  });
+
+  it("keeps both schemes on offer only where the system is the one deciding", () => {
+    // Negative control for the case above: an explicit arm is not made correct by
+    // dropping `light dark` everywhere. With no attribute at all the root has to
+    // keep offering both, or a system-scheme window loses native dark controls.
+    const css = generateMeridianCss();
+    expect(css.slice(0, css.indexOf("@media"))).toContain("color-scheme: light dark;");
+  });
+
+  it("sizes an enumeration row by the line box the sheet actually paints", () => {
+    // The row is one `text-md` line box plus a `space-2` above and below it. All
+    // three inputs are read back out of the emitted sheet rather than restated
+    // here, so a change to the type scale, the spacing scale, or the body line
+    // height moves this assertion with it instead of leaving the rhythm behind.
+    const css = generateMeridianCss();
+    const bodyLineHeight = emittedLineHeight(css);
+    const bodyTextSizeRem = emittedRemValue(css, "text-md");
+    const rowPaddingRem = emittedRemValue(css, "space-2");
+
+    expect(bodyLineHeight).toBeDefined();
+    expect(bodyTextSizeRem).toBeDefined();
+    expect(rowPaddingRem).toBeDefined();
+    if (
+      bodyLineHeight === undefined ||
+      bodyTextSizeRem === undefined ||
+      rowPaddingRem === undefined
+    ) {
+      return;
+    }
+    expect(ENUMERATION_ROW_HEIGHT_REM).toBe(bodyTextSizeRem * bodyLineHeight + 2 * rowPaddingRem);
+    // Negative control: a row height that counted the line box and forgot the
+    // padding would satisfy a looser check, and would then cap six rows at a box
+    // a row and a half too short to hold them.
+    expect(ENUMERATION_ROW_HEIGHT_REM).not.toBe(bodyTextSizeRem * bodyLineHeight);
+  });
+
+  it("caps a bounded enumeration at a whole number of those rows, never a hand-picked length", () => {
+    const css = generateMeridianCss();
+
+    expect(emittedRemValue(css, "enumeration-max-height")).toBe(BOUNDED_ENUMERATION_MAX_HEIGHT_REM);
+    // The cap is a ROW count converted to a length here so no stylesheet
+    // multiplies; a length picked directly would not divide evenly.
+    expect(BOUNDED_ENUMERATION_MAX_HEIGHT_REM / ENUMERATION_ROW_HEIGHT_REM).toBe(
+      BOUNDED_ENUMERATION_MAX_ROWS,
+    );
   });
 
   it("catches a planted difference, so the comparison is not vacuous", () => {

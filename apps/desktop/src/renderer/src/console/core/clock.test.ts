@@ -350,6 +350,73 @@ describe("ManualClock — frames are separable from timeouts", () => {
     expect(clock.pendingCount).toBe(1);
   });
 
+  it("leaves a frame armed across an advance, and paints it only when asked", () => {
+    // Advancing time is not painting. A frame is armed with `dueAt` equal to NOW,
+    // so an `advance` that selected work on due time alone would run every pending
+    // frame — and a scenario beat, an endurance step, or a frozen-tick screenshot
+    // would then paint an extra frame nobody released, with the two controls the
+    // clock separates silently fused back together.
+    const clock = new ManualClock();
+    let framePainted = false;
+    clock.scheduleFrame(() => {
+      framePainted = true;
+    });
+
+    clock.advance(1_000);
+
+    expect(framePainted).toBe(false);
+    expect(clock.pendingFrameCount).toBe(1);
+    // Time still lands where it was told to, with the frame still owed.
+    expect(clock.now()).toBe(1_000);
+
+    clock.runFrame();
+
+    expect(framePainted).toBe(true);
+    expect(clock.pendingFrameCount).toBe(0);
+  });
+
+  it("negative control: the same advance still runs a timeout that falls due", () => {
+    // Without this, an `advance` that had stopped running anything at all would
+    // pass the case above while breaking every debounce and coalescing window in
+    // the console.
+    const clock = new ManualClock();
+    let framePainted = false;
+    let timeoutRan = false;
+    clock.scheduleFrame(() => {
+      framePainted = true;
+    });
+    clock.scheduleTimeout(() => {
+      timeoutRan = true;
+    }, 10);
+
+    clock.advance(20);
+
+    expect(timeoutRan).toBe(true);
+    expect(framePainted).toBe(false);
+    expect(clock.pendingCount).toBe(1);
+  });
+
+  it("runs a timeout a frame callback arms, once the frame is released", () => {
+    // The two controls compose rather than exclude each other: work a paint arms
+    // is ordinary timeout work, and the next advance owns it.
+    const clock = new ManualClock();
+    let armedByPaint = false;
+    clock.scheduleFrame(() => {
+      clock.scheduleTimeout(() => {
+        armedByPaint = true;
+      }, 5);
+    });
+
+    clock.advance(100);
+    expect(clock.pendingCount).toBe(1);
+
+    clock.runFrame();
+    expect(armedByPaint).toBe(false);
+
+    clock.advance(5);
+    expect(armedByPaint).toBe(true);
+  });
+
   it("negative control: an idle clock has nothing armed, so the counts are not constant", () => {
     // The idle-CPU budget's precondition is `pendingCount === 0`. If the counter
     // could not reach zero, every budget assertion built on it would be vacuous.

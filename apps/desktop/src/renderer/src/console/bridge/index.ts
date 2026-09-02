@@ -20,6 +20,17 @@
 
 export type { ConsoleBridge, ConsoleBridgeSource } from "./console-bridge.js";
 
+// The one answer to "which clock does this window run on". Exported because the
+// two composition roots that build a clocked subsystem — the session registry and
+// the durable UI-state store — both ask it, and two readings of the bridge's
+// engine would be two clocks the moment one of them forgot the fixture arm.
+export { consoleClockFor } from "./console-bridge.js";
+
+// The subscribe seam's own vocabulary. Exported because the binder one family up
+// passes it to `daemon.subscribe` and the fixture answers it — two sides of one
+// seam reading one declaration rather than two spellings of one string.
+export { SESSION_EVENT_STREAM } from "./console-bridge.js";
+
 export {
   SidekicksBridgeProvider,
   useBridgeResolution,
@@ -27,6 +38,17 @@ export {
 } from "./BridgeProvider.js";
 
 export { createFixtureBridge } from "./fixture-bridge.js";
+
+// The growth port's public face. The composition root builds a session-snapshot
+// read over it and two surfaces read the session directory through it, so the
+// port type, the one summary shape those surfaces render, the refusal they render
+// instead, and the builder that mints one all leave through this door — the same
+// door the bridge itself does, because a growth refusal IS what this bridge
+// answers for a wire the corpus has not registered.
+export { growthUnavailable } from "./growth-port.js";
+export type { GrowthPort } from "./growth-port.js";
+export type { GrowthSessionSummary } from "./growth-values.js";
+export type { GrowthUnavailable } from "./growth-outcome.js";
 
 // The boot-time scenario decision. Exported through this door because the
 // renderer root reads it — it is the one console fact that arrives on the

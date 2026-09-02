@@ -3,8 +3,10 @@
 // `Spec-023 §Console Test Tiers` names axe-core over every surface in both
 // schemes. It runs INSIDE the browser-mode page rather than through
 // `@axe-core/playwright`, which wants a `@playwright/test` `Page` handle Vitest
-// browser mode does not hand out — same engine, same rule set, one less
-// indirection. (`axe-core` is MPL-2.0 and is admitted as a never-distributed test
+// browser mode hands only to server-side custom commands, never to test code,
+// and which is the orchestrator page rather than the tester iframe — same
+// engine, same rule set, one less indirection. (`axe-core` is MPL-2.0 and is
+// admitted as a never-distributed test
 // dependency by ADR-020's Decision Log; it must not reach a shipped bundle, which
 // is why it is imported here and nowhere under `src/`.)
 //
