@@ -15,6 +15,7 @@ import { act, render } from "@testing-library/react";
 import { vi } from "vitest";
 
 import { SidekicksBridgeProvider, createFixtureBridge } from "../../bridge/index.js";
+import { useLedgerRowLease } from "../../ledger/frame/index.js";
 import { LEDGER_QUIET_SCENARIO } from "../../bridge/scenarios/ledger-quiet.js";
 import { consoleCommandSurface, consoleCommands } from "../../frame/command-surface.js";
 import { LEDGER_WINDOW_ROW_CAP } from "../../ledger/frame/frame-bounds.js";
@@ -85,6 +86,7 @@ export function openSessionStoreWithLog(count: number): SessionStore {
 export function renderFeed(
   sessionStore: SessionStore,
   onRowMounted?: (mount: TimelineRowSlotProps) => void,
+  renderRowBody?: (mount: TimelineRowSlotProps) => React.JSX.Element,
 ): HTMLElement {
   const { container } = render(
     <SidekicksBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
@@ -92,7 +94,7 @@ export function renderFeed(
         sessionStore={sessionStore}
         renderTimelineRow={(mount) => {
           onRowMounted?.(mount);
-          return <p>{mount.row.summary}</p>;
+          return renderRowBody === undefined ? <p>{mount.row.summary}</p> : renderRowBody(mount);
         }}
         feedLabel="Session timeline"
       />
@@ -139,6 +141,162 @@ export function openStoreWhereJoinOrderIsNotEventOrder(): SessionStore {
       payload: {},
     },
   ]);
+  return sessionStore;
+}
+
+/**
+ * A row body that presses its own disclosure through the list's lease.
+ *
+ * The composed feed hands each row to whichever renderer fills the seat, and the
+ * shell that ships one is `FixtureShellRows.tsx` — whose own suite proves it writes
+ * the press to the lease. What a FEED case needs is the other half: that a write
+ * reaches the window and comes back as the density the seat is handed. This row is
+ * the smallest thing that can perform the write from inside the tree.
+ */
+export function LeasingRowBody(props: TimelineRowSlotProps): React.JSX.Element {
+  const rowLease = useLedgerRowLease();
+  return (
+    <button
+      type="button"
+      className="leasing-row"
+      data-density={props.density}
+      onClick={() => {
+        rowLease.setLease(props.row.id, {
+          density: props.density === "expanded" ? "collapsed" : "expanded",
+          innerScrollTopPx: 0,
+        });
+      }}
+    >
+      {props.row.summary}
+    </button>
+  );
+}
+
+/** One run's id, so a case can name the chapter it expects a header for. */
+export const TERMINAL_RUN_ID = "019b793b-7b60-740e-8110-d1a4c1150111";
+export const LIVE_RUN_ID = "019b793b-7b60-740e-8120-d1a4c1150112";
+
+/**
+ * A store holding one run that ENDED and one that is still going.
+ *
+ * Two lanes rather than one because the fold's rule is a difference between them:
+ * the terminal chapter draws a header and folds to it and its receipt, the live one
+ * draws none and keeps every row on screen. A single-lane log would pass over a fold
+ * that folded everything.
+ */
+export function openSessionStoreWithTerminalChapter(): SessionStore {
+  const sessionStore = new SessionStore({ sessionId: SESSION_ID });
+  sessionStore.initialise({ cursor: -1, entities: [], participantJoinLog: [] });
+  const at = (index: number): string => new Date(Date.UTC(2026, 0, 1, 11, 0, index)).toISOString();
+  sessionStore.applyBatch([
+    {
+      sessionId: SESSION_ID,
+      sequence: 0,
+      kind: "run.running",
+      occurredAt: at(0),
+      payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID },
+    },
+    {
+      sessionId: SESSION_ID,
+      sequence: 1,
+      kind: "assistant.message",
+      occurredAt: at(1),
+      payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID },
+    },
+    {
+      sessionId: SESSION_ID,
+      sequence: 2,
+      kind: "run.paused",
+      occurredAt: at(2),
+      payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID },
+    },
+    {
+      sessionId: SESSION_ID,
+      sequence: 3,
+      kind: "run.completed",
+      occurredAt: at(3),
+      payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID },
+    },
+    {
+      sessionId: SESSION_ID,
+      sequence: 4,
+      kind: "run.running",
+      occurredAt: at(4),
+      payload: { sessionId: SESSION_ID, runId: LIVE_RUN_ID },
+    },
+    {
+      sessionId: SESSION_ID,
+      sequence: 5,
+      kind: "assistant.message",
+      occurredAt: at(5),
+      payload: { sessionId: SESSION_ID, runId: LIVE_RUN_ID },
+    },
+  ]);
+  return sessionStore;
+}
+
+/**
+ * A store whose one run is still live and carries a compaction seam.
+ *
+ * Live on purpose: the seam row and the chapter fold are two different dispatches in
+ * the same renderer, and a seam inside a folded chapter would be hidden by the fold
+ * rather than drawn — which would make a case about the seam pass or fail for the
+ * fold's reasons.
+ */
+export function openSessionStoreWithSeam(): SessionStore {
+  const sessionStore = new SessionStore({ sessionId: SESSION_ID });
+  sessionStore.initialise({ cursor: -1, entities: [], participantJoinLog: [] });
+  const at = (index: number): string => new Date(Date.UTC(2026, 0, 1, 11, 0, index)).toISOString();
+  sessionStore.applyBatch([
+    {
+      sessionId: SESSION_ID,
+      sequence: 0,
+      kind: "run.running",
+      occurredAt: at(0),
+      payload: { sessionId: SESSION_ID, runId: LIVE_RUN_ID },
+    },
+    {
+      sessionId: SESSION_ID,
+      sequence: 1,
+      kind: "usage.context_compacted",
+      occurredAt: at(1),
+      payload: { sessionId: SESSION_ID, runId: LIVE_RUN_ID },
+    },
+    {
+      sessionId: SESSION_ID,
+      sequence: 2,
+      kind: "assistant.message",
+      occurredAt: at(2),
+      payload: { sessionId: SESSION_ID, runId: LIVE_RUN_ID },
+    },
+  ]);
+  return sessionStore;
+}
+
+/**
+ * A live run whose rows are tool rows, which are the ones that carry a disclosure.
+ *
+ * The only card in the shell that offers one, so it is the only row through which a
+ * reader's expansion can be pressed at all — and therefore the only one that can show
+ * the lease making the round trip out of the row and back.
+ */
+export function openSessionStoreWithToolRows(count: number): SessionStore {
+  const sessionStore = new SessionStore({ sessionId: SESSION_ID });
+  sessionStore.initialise({ cursor: -1, entities: [], participantJoinLog: [] });
+  sessionStore.applyBatch(
+    Array.from({ length: count }, (_unused, index) => ({
+      sessionId: SESSION_ID,
+      sequence: index,
+      kind: "tool.invoked",
+      occurredAt: new Date(Date.UTC(2026, 0, 1, 11, 0, index)).toISOString(),
+      payload: {
+        sessionId: SESSION_ID,
+        runId: LIVE_RUN_ID,
+        toolName: `tool_${String(index)}`,
+        toolCallId: `call-${String(index)}`,
+      },
+    })),
+  );
   return sessionStore;
 }
 

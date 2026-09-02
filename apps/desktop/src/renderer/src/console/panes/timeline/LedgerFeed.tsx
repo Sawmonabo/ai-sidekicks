@@ -50,15 +50,22 @@
 // itself is passed truthfully, so the rail still draws its dotted segment and the
 // find result still carries its boundary over a window the cap has truncated.
 
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 
 import { useConsoleClock } from "../../bridge/index.js";
 import {
+  LedgerRowLeaseProvider,
   LedgerViewport,
   type LedgerViewportRow,
   useLedgerViewport,
 } from "../../ledger/frame/index.js";
-import { FindInLedger, ProvenanceRail, ReplayControls } from "../../ledger/structure/index.js";
+import {
+  ChapterHeader,
+  FindInLedger,
+  ProvenanceRail,
+  ReplayControls,
+  SeamRow,
+} from "../../ledger/structure/index.js";
 import { Nothing } from "../../primitives/index.js";
 import { type SessionStore } from "../../store/index.js";
 import { type TimelineRowRenderer } from "../../workspace/index.js";
@@ -70,7 +77,7 @@ import {
   useReplayRevealedRows,
   useVisibleLedgerWindow,
 } from "./ledger-feed-model.js";
-import { densityFor, useLedgerWindow } from "./ledger-window.js";
+import { densityFor, useChapterDisclosure, useLedgerWindow } from "./ledger-window.js";
 
 export interface LedgerFeedProps {
   readonly sessionStore: SessionStore;
@@ -82,7 +89,11 @@ export interface LedgerFeedProps {
 
 export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   const clock = useConsoleClock();
-  const ledgerWindow = useLedgerWindow(props.sessionStore);
+  // The fold is this MOUNT's, not the log's: which finished chapters a person has
+  // opened is a fact about who is reading, so it is held here and handed to the
+  // derivation rather than folded into it.
+  const chapterDisclosure = useChapterDisclosure();
+  const ledgerWindow = useLedgerWindow(props.sessionStore, chapterDisclosure.openedTerminalRunIds);
   const replay = useLedgerReplay(ledgerWindow);
   // What the replay position has reached. The whole window while nobody is
   // replaying, so a ledger with the dock closed pays nothing and reconciles nothing.
@@ -120,8 +131,30 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
     [props.sessionStore],
   );
 
+  const toggleChapter = chapterDisclosure.toggle;
+  const openedTerminalRunIds = chapterDisclosure.openedTerminalRunIds;
+  const rowLease = viewport.rowLease;
+  const setRowLease = viewport.setRowLease;
+  const rowLeaseChannel = useMemo(() => ({ setLease: setRowLease }), [setRowLease]);
   const renderRow = useCallback(
     (row: LedgerViewportRow) => {
+      // A CHAPTER HEADER IS A ROW OF THE LIST, keyed by the run it heads, so it is
+      // dispatched before the body lookup — there is no projected row behind it and
+      // there was never meant to be. Every terminal chapter has one; a live chapter
+      // has none and its rows stay top-level.
+      const chapter = ledgerWindow.chapterByHeaderKey.get(row.key);
+      if (chapter !== undefined) {
+        return (
+          <ChapterHeader
+            chapter={chapter}
+            isOpen={openedTerminalRunIds.has(chapter.runId)}
+            participantHue={
+              chapter.actorId === undefined ? undefined : hueForActor(chapter.actorId)
+            }
+            onToggle={toggleChapter}
+          />
+        );
+      }
       const projected = ledgerWindow.rowsByKey.get(row.key);
       if (projected === undefined) {
         // The window moved under the viewport between its reconcile and this paint.
@@ -131,14 +164,32 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
           <Nothing kind="not-loaded" placement="inline" title="This entry is no longer loaded." />
         );
       }
+      const participantHue =
+        projected.actor === undefined ? undefined : hueForActor(projected.actor);
+      const isSuperseded = ledgerWindow.supersededRowIds.has(projected.id);
+      // A SEAM IS THE LEDGER'S OWN ROW, so it is drawn before the seat is asked.
+      // The seat fills with whichever renderer owns a session's row BODIES, and a
+      // seam has none: it is a change in the run's condition, laid on one line from
+      // parts `seams.ts` derived. Delegating it would render a rollback, a
+      // compaction, a switch or a block as an ordinary receipt and drop the boundary
+      // position, the continuity, the losses, the reason and the blocked-on state.
+      const seam = ledgerWindow.seamByRowId.get(projected.id);
+      if (seam !== undefined) {
+        return <SeamRow seam={seam} participantHue={participantHue} isSuperseded={isSuperseded} />;
+      }
       return props.renderTimelineRow({
         row: projected,
-        participantHue: projected.actor === undefined ? undefined : hueForActor(projected.actor),
-        isSuperseded: ledgerWindow.supersededRowIds.has(projected.id),
-        density: densityFor(projected.id, ledgerWindow.collapsedRowIds),
+        participantHue,
+        isSuperseded,
+        // THE LEASE OVERLAYS THE LIST, and the list is the fallback rather than the
+        // other way round: a row nobody has touched holds no lease and follows the
+        // chapter fold, and a row somebody opened keeps that choice across an
+        // unmount and across a prune, because the window re-parks it.
+        density:
+          rowLease(projected.id)?.density ?? densityFor(projected.id, ledgerWindow.collapsedRowIds),
       });
     },
-    [hueForActor, ledgerWindow, props],
+    [hueForActor, ledgerWindow, openedTerminalRunIds, props, rowLease, toggleChapter],
   );
 
   const geometry = useRailGeometry(viewport.visibleRange, viewport.snapshot.rows.length);
@@ -188,7 +239,17 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   // The palette's chords and the cast bar's chips both act on whichever ledger is
   // mounted when they fire, and neither can import this component. Both seats are
   // claimed here for the mount's lifetime; what each act does is `ledger-feed-acts.ts`'.
-  useLedgerStructureActs({ find, replay, jumpToRow, jumpToTail: viewport.jumpToTail });
+  const collapseAllTerminal = chapterDisclosure.collapseAllTerminal;
+  const collapseAllTerminalChapters = useCallback(() => {
+    collapseAllTerminal([...ledgerWindow.chapterByHeaderKey.values()]);
+  }, [collapseAllTerminal, ledgerWindow]);
+  useLedgerStructureActs({
+    find,
+    replay,
+    jumpToRow,
+    jumpToTail: viewport.jumpToTail,
+    collapseAllTerminalChapters,
+  });
   useActorFollowSeat({ visibleRows: visible.rows, jumpToRow });
 
   return (
@@ -207,12 +268,14 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
       <LedgerMatchesOutsideWindowNotice count={find.beyondWindowMatchCount} />
       <LedgerMatchesNotYetReplayedNotice count={find.notYetReplayedMatchCount} />
       <div className="meridian-ledger__body">
-        <LedgerViewport
-          binding={viewport}
-          renderRow={renderRow}
-          feedLabel={props.feedLabel}
-          hasActiveTurn={ledgerWindow.hasActiveTurn}
-        />
+        <LedgerRowLeaseProvider channel={rowLeaseChannel}>
+          <LedgerViewport
+            binding={viewport}
+            renderRow={renderRow}
+            feedLabel={props.feedLabel}
+            hasActiveTurn={ledgerWindow.hasActiveTurn}
+          />
+        </LedgerRowLeaseProvider>
         <div
           className="meridian-ledger__rail"
           onPointerEnter={replay.reveal}

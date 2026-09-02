@@ -1274,3 +1274,111 @@
   margin: 0;
   min-height: 1lh;
 }
+
+/* --- Structure: the seam row --------------------------------------------- */
+
+/*
+ * A seam is ONE LINE, which is the whole visual claim `SeamRow.tsx` is built on: a
+ * glyph, a label, and whichever wire members that kind carries, laid across the row
+ * rather than stacked. `flex-wrap` is what keeps that true on a narrow pane — the
+ * parts reflow onto a second line rather than the row growing a scrollbar or one
+ * member being clipped away, and a member a reader cannot see is a member the
+ * console did not render.
+ */
+.meridian-seam-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-seam-row__label {
+  color: var(--meridian-text);
+}
+
+/*
+ * The one caution in the set. Rule 3 spends amber on attention and red on failure,
+ * and `SEAM_WIRE_BINDINGS` marks exactly one member a caution — the failed provider
+ * switch — so this class is reachable from one binding and no other.
+ */
+.meridian-seam-row--caution .meridian-seam-row__label {
+  color: var(--meridian-red-text);
+}
+
+/*
+ * Every wire-sourced part, in mono. Mono is the console's figure treatment: it is
+ * how a reader tells a value the daemon sent from a word the console chose, and
+ * every part carrying it here is verbatim.
+ */
+.meridian-seam-row__figure {
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+}
+
+.meridian-seam-row__boundary,
+.meridian-seam-row__blocked-on,
+.meridian-seam-row__continuity {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--meridian-space-1);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-seam-row__losses {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-1);
+}
+
+/* --- Structure: the chapter header --------------------------------------- */
+
+/*
+ * One finished run, on one line, with the disclosure that opens it.
+ *
+ * The 2 px inline-start edge is the same attribution edge a ledger row wears, set
+ * from the participant wheel by the component so a chapter and the rows inside it
+ * are coloured by one allocation. The fallback is the neutral border, which is what
+ * an unattributed chapter takes — never a participant hue nobody was allocated.
+ */
+.meridian-chapter-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-edge);
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-chapter-header__disclosure {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.meridian-chapter-header__actor {
+  color: var(--meridian-text);
+}
+
+.meridian-chapter-header__terminal,
+.meridian-chapter-header__figure {
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text);
+}
+
+.meridian-chapter-header__counts {
+  font-size: var(--meridian-text-xs);
+}

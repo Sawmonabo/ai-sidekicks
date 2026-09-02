@@ -27,7 +27,9 @@
 
 export * from "./constants.js"; // the caps and geometry every module here spends
 export * from "./chapters.js"; // one run's rows, folded, and which chapters are open
+export * from "./ChapterHeader.js"; // one finished run, folded to a line somebody can open
 export * from "./seams.js"; // epochs as geography, one row at a time
+export * from "./SeamRow.js"; // one seam, on one line, every part wire-sourced
 export * from "./superseded-bands.js"; // which rows a rewind put behind it, kept and dimmed
 export * from "./rail-model.js"; // the minimap's marks, with no DOM in them
 export * from "./ProvenanceRail.js"; // the canvas, the hit strip, and the keyboard walk

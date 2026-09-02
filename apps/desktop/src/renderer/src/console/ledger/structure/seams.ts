@@ -77,6 +77,14 @@ export type SeamWireRegistration = "registered" | "unregistered";
 /** What one seam kind reads, and how it is drawn. */
 export interface SeamWireBinding {
   readonly kind: LedgerSeamKind;
+  /**
+   * What the one-line row calls this seam, in the console's own words.
+   *
+   * The console's, and deliberately not the wire's: the wire type is rendered
+   * beside it verbatim and in mono, so this is the reader-facing half of a pair
+   * rather than a paraphrase standing in for a value the daemon sent.
+   */
+  readonly label: string;
   /** The wire event types that produce this seam, verbatim. */
   readonly wireTypes: readonly string[];
   /**
@@ -108,42 +116,49 @@ export interface SeamWireBinding {
 export const SEAM_WIRE_BINDINGS: Readonly<Record<LedgerSeamKind, SeamWireBinding>> = {
   "provider-switch": {
     kind: "provider-switch",
+    label: "Provider switched",
     wireTypes: ["agent.provider_switched"],
     glyph: "chevron-right",
     isCaution: false,
   },
   "provider-switch-failed": {
     kind: "provider-switch-failed",
+    label: "Provider switch failed",
     wireTypes: ["agent.provider_switch_failed"],
     glyph: "alert",
     isCaution: true,
   },
   compaction: {
     kind: "compaction",
+    label: "Context compacted",
     wireTypes: ["usage.context_compacted"],
     glyph: "chevron-down",
     isCaution: false,
   },
   rollback: {
     kind: "rollback",
+    label: "Rewound",
     wireTypes: ["run.rolled_back"],
     glyph: "clock",
     isCaution: false,
   },
   "run-paused": {
     kind: "run-paused",
+    label: "Run paused",
     wireTypes: ["run.paused"],
     glyph: "pause",
     isCaution: false,
   },
   "run-resumed": {
     kind: "run-resumed",
+    label: "Run resumed",
     wireTypes: ["run.resumed"],
     glyph: "play",
     isCaution: false,
   },
   "run-blocked": {
     kind: "run-blocked",
+    label: "Run blocked",
     // The design's own parenthetical: the block indicator distinguishes
     // `waiting_for_approval` from `waiting_for_input`, and both are registered.
     // `run.blocked` itself is not a wire type and is not read for.
@@ -153,6 +168,7 @@ export const SEAM_WIRE_BINDINGS: Readonly<Record<LedgerSeamKind, SeamWireBinding
   },
   "run-unblocked": {
     kind: "run-unblocked",
+    label: "Run unblocked",
     wireTypes: ["run.unblocked"],
     glyph: "check",
     isCaution: false,
@@ -181,8 +197,9 @@ export interface LedgerSeam {
   readonly wireRegistration: SeamWireRegistration;
   /**
    * The boundary position, for the two seams that carry one: the rollback's
-   * confirmed rewind floor, and the compaction's boundary. `undefined` where the
-   * payload named none — rendered as an absence, never as zero.
+   * confirmed rewind floor, read through the boundary arm's typed payload, and the
+   * compaction's own run-scoped position. `undefined` where the row carried none —
+   * rendered as an absence, never as zero.
    */
   readonly boundaryPosition: number | undefined;
   /** The epoch the seam belongs to, where the arm carries one. */
@@ -207,11 +224,6 @@ export const SWITCH_CONTINUITY_MEMO = "memo";
 function readString(payload: Readonly<Record<string, unknown>>, key: string): string | undefined {
   const value = payload[key];
   return typeof value === "string" ? value : undefined;
-}
-
-function readNumber(payload: Readonly<Record<string, unknown>>, key: string): number | undefined {
-  const value = payload[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 /**
@@ -334,8 +346,15 @@ export class LedgerSeamIndex {
       actorId: row.actor,
       wireType: row.type,
       wireRegistration: this.#registeredWireTypes.has(row.type) ? "registered" : "unregistered",
-      boundaryPosition:
-        kind === "compaction" ? readNumber(row.payload, "boundaryPosition") : undefined,
+      // THE COMPACTION BOUNDARY IS THE ROW'S OWN POSITION, not a payload member.
+      // `usage.context_compacted` registers no payload variant in
+      // `@ai-sidekicks/contracts` and names no boundary member anywhere in it, so a
+      // payload read here was permanently absent. What the wire DOES carry is the
+      // run-scoped `position` the `run` arm requires — the projection-resolved
+      // originating run position, and the comparand a rollback's cutoff is ranked
+      // against. A compaction row on any other arm carries no position at all, and
+      // that absence is rendered as one.
+      boundaryPosition: kind === "compaction" && row.kind === "run" ? row.position : undefined,
       epoch,
       continuity: readString(row.payload, "continuity"),
       declaredLosses:

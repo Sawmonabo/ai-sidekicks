@@ -33,6 +33,9 @@ describe("seams — the binding table is closed and total", () => {
     for (const kind of LEDGER_SEAM_KINDS) {
       expect(SEAM_WIRE_BINDINGS[kind].kind).toBe(kind);
       expect(SEAM_WIRE_BINDINGS[kind].wireTypes.length).toBeGreaterThan(0);
+      // The label the one-line row draws. Every kind has one, so the renderer never
+      // falls back to the wire type as a heading for a reader.
+      expect(SEAM_WIRE_BINDINGS[kind].label.length).toBeGreaterThan(0);
     }
   });
 
@@ -113,7 +116,11 @@ describe("seams — one row's classification", () => {
     expect(seam.wireRegistration).toBe("registered");
   });
 
-  it("reads a compaction's boundary position from its payload", () => {
+  it("reads a compaction's boundary off the row's own run-scoped position", () => {
+    // `usage.context_compacted` names no boundary member in any registered payload,
+    // so the read that reached for one on the payload was permanently absent. The
+    // registered carrier is the run arm's `position` — the same comparand a
+    // rollback's cutoff is ranked against.
     const seam = classifyOne(
       runRow({
         id: "c1",
@@ -121,25 +128,46 @@ describe("seams — one row's classification", () => {
         type: "usage.context_compacted",
         category: "usage_telemetry",
         runId: "run-a",
-        position: 3,
-        payload: { boundaryPosition: 7 },
+        position: 7,
       }),
     );
     expect(seam.kind).toBe("compaction");
     expect(seam.boundaryPosition).toBe(7);
   });
 
-  it("negative control: an absent boundary position renders as an absence, never as zero", () => {
+  it("negative control: a payload member of that name is not what is read", () => {
+    // The reading the old code took. A row whose position and whose payload member
+    // disagree is what discriminates the two: over the payload read this answered
+    // 99, and over a boundary hard-coded to the position it would answer 3 either
+    // way — so the position and the decoy are deliberately different numbers.
     const seam = classifyOne(
       runRow({
+        id: "c1b",
+        sequence: 3,
+        type: "usage.context_compacted",
+        category: "usage_telemetry",
+        runId: "run-a",
+        position: 3,
+        payload: { boundaryPosition: 99 },
+      }),
+    );
+    expect(seam.boundaryPosition).toBe(3);
+  });
+
+  it("negative control: a compacted stub carries no position, and renders an absence", () => {
+    // The `legacy_stub` arm structurally has no position — it is the one shape a
+    // compaction row can take without one — so this is the absence the row draws
+    // rather than a zero.
+    const seam = classifyOne(
+      legacyStubRow({
         id: "c2",
         sequence: 4,
         type: "usage.context_compacted",
         category: "usage_telemetry",
         runId: "run-a",
-        position: 4,
       }),
     );
+    expect(seam.kind).toBe("compaction");
     expect(seam.boundaryPosition).toBeUndefined();
   });
 
