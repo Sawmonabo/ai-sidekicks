@@ -35,10 +35,11 @@ const OWNER = "collaboration-settings-sidekicks";
 /**
  * Claim the sidekicks section.
  *
- * The body takes no props — it reads nothing, writes nothing, and navigates
- * nowhere, because every verb it would use is unregistered — so the page context is
- * deliberately not threaded into it. The day the registry read lands, the body
- * grows a bridge from the context this seam already carries.
+ * The body takes the BRIDGE and nothing else from the page context. It reads the
+ * saved-sidekick registry on mount and deletes through the same port, so the seam
+ * hands it the one member those calls need; `openSection` and `activeSessionId` are
+ * deliberately not threaded, because the page navigates nowhere and its subject is
+ * node-local rather than scoped to whichever session this window happens to hold.
  */
 export function registerSidekicksPage(registry: SettingsPageRegistry): void {
   registry.register({
@@ -55,6 +56,6 @@ export function registerSidekicksPage(registry: SettingsPageRegistry): void {
       "tools",
       "attach",
     ],
-    render: () => createElement(SidekickDefinitionsPage),
+    render: (context) => createElement(SidekickDefinitionsPage, { bridge: context.bridge }),
   });
 }

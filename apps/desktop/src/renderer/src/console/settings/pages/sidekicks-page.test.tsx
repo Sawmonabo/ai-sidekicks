@@ -2,8 +2,10 @@
 //
 // The claim under test is a SEAM, not a body — the page's own contents are asserted
 // beside the page, in the agents family. What can only be checked here is that the
-// section is claimed, that a person's words find it, and that the thing rendered is
-// the real page rather than a stand-in this file drew.
+// section is claimed, that a person's words find it, that the thing rendered is the
+// real page rather than a stand-in this file drew, and — since the body grew a
+// required prop — that this registration actually hands it the bridge it reads
+// through.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -15,13 +17,39 @@ import {
   matchSettingsEntries,
   type SettingsPageContext,
 } from "../settings-page-registry.js";
+import { createFixtureBridge } from "../../bridge/index.js";
+import { ManualClock } from "../../core/index.js";
+import { LiveAnnouncerProvider } from "../../primitives/index.js";
 
-/** The body takes no props, so the context it is handed is never read. */
-const CONTEXT = {
-  bridge: { source: "fixture" },
+/**
+ * A real context, because the body now reads through the bridge on it.
+ *
+ * The fixture bridge rather than a stub object: what this file checks is that the
+ * seam hands the page a working bridge, and a cast placeholder would compile past
+ * exactly the wiring mistake — a `render` that passed no bridge at all — that this
+ * page's first prop makes possible.
+ */
+const CONTEXT: SettingsPageContext = {
+  bridge: createFixtureBridge({
+    scenario: {
+      id: "settings-sidekicks-test",
+      label: "Sidekicks registration",
+      purpose: "Drives the sidekicks settings registration against a bridge that scripts nothing.",
+      sessionId: "session-settings",
+      participantIdsInJoinOrder: [],
+      beats: [],
+      replies: [],
+      startedAtIso: "2026-01-01T10:05:00.000Z",
+    },
+  }),
   openSection: () => undefined,
   activeSessionId: undefined,
-} as unknown as SettingsPageContext;
+};
+
+/** The page speaks its settlement, so it is mounted inside the console's announcer. */
+function renderPage(body: React.ReactNode): { readonly container: HTMLElement } {
+  return render(<LiveAnnouncerProvider clock={new ManualClock()}>{body}</LiveAnnouncerProvider>);
+}
 
 function registeredRegistry(): SettingsPageRegistry {
   const registry = new SettingsPageRegistry();
@@ -42,9 +70,19 @@ describe("the sidekicks settings page", () => {
     // carries. A shell drawn here would pass an "it rendered something" assertion.
     const descriptor = registeredRegistry().descriptorFor("sidekicks");
     expect(descriptor).toBeDefined();
-    const { container } = render(<>{descriptor?.render(CONTEXT)}</>);
+    const { container } = renderPage(<>{descriptor?.render(CONTEXT)}</>);
     expect(container.querySelector(".meridian-sidekicks__title")?.textContent).toBe("Sidekicks");
     expect(container.textContent ?? "").toContain("Where they live");
+  });
+
+  it("hands the page the bridge it reads through", async () => {
+    // The seam's whole job now. A registration that composed the element with no
+    // props would fail to compile, but one that passed a DIFFERENT bridge would
+    // not — so the check is that the page put a read in flight at all, which only
+    // the context's own bridge can answer.
+    const descriptor = registeredRegistry().descriptorFor("sidekicks");
+    const { container } = renderPage(<>{descriptor?.render(CONTEXT)}</>);
+    expect(container.querySelector(".meridian-nothing--not-loaded")).not.toBeNull();
   });
 
   it("is found by the words a person types for it", () => {
