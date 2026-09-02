@@ -87,6 +87,76 @@ describe("the write chokepoint refuses what the durable store may not hold", () 
     await store.close();
   });
 
+  it("refuses a key built from prose, writes nothing, and fires the tripwire", async () => {
+    // The address half of the record. Nothing in the value here is wrong — an
+    // expansion set of two run ids is exactly what the class is for — so a
+    // chokepoint that validated only the value would have written the sentence.
+    const store = new UiStateStore({
+      adapter: new MemoryPersistenceAdapter(),
+      clock: new ManualClock(1_000),
+    });
+    const proseKey = "Rerun the migration and tell me what the row counts look like";
+
+    const result = await store.write("session-1", proseKey, "expansion", ["run-01"]);
+
+    expect(result.outcome).toBe("refused");
+    if (result.outcome === "refused") {
+      expect(result.refusal.code).toBe("address-not-identifier-shaped");
+      expect(isConsoleRefusal(result.refusal)).toBe(true);
+    }
+    expect(consoleTripwires.firingCount("persistence-value-class")).toBe(1);
+    // The site a tripwire reports must not carry the prose the store refused.
+    expect(consoleTripwires.reports().at(-1)?.site).not.toContain(proseKey);
+
+    expect(await store.read("session-1", proseKey)).toBeUndefined();
+    expect(await store.readPartition("session-1")).toStrictEqual([]);
+    const health = await store.health();
+    expect(health.refusalCounts["address-not-identifier-shaped"]).toBe(1);
+    await store.close();
+  });
+
+  it("refuses a path-shaped partition, which the value grammar would have admitted", async () => {
+    const store = new UiStateStore({
+      adapter: new MemoryPersistenceAdapter(),
+      clock: new ManualClock(1_000),
+    });
+    const path = "/Users/someone/repos/service/notes.md";
+
+    const result = await store.write(path, "expansion", "expansion", ["run-01"]);
+
+    expect(result.outcome).toBe("refused");
+    if (result.outcome === "refused") {
+      expect(result.refusal.code).toBe("address-not-identifier-shaped");
+    }
+    expect(await store.readPartition(path)).toStrictEqual([]);
+    await store.close();
+  });
+
+  it("counts the address against the record byte cap, not only the value", async () => {
+    // A cap that measured the value alone would let a caller spend the ceiling on
+    // the value and then an unbounded further amount on the key beside it.
+    const value = ["run-01"];
+    const store = new UiStateStore({
+      adapter: new MemoryPersistenceAdapter(),
+      clock: new ManualClock(1_000),
+      // Room for the short address below and nothing like room for the long one.
+      recordByteCap: "s".length + "k".length + "expansion".length + JSON.stringify(value).length,
+    });
+
+    await expect(store.write("s", "k", "expansion", value)).resolves.toStrictEqual({
+      outcome: "written",
+    });
+
+    const overCap = await store.write("s", "expansion-of-the-runs-pane", "expansion", value);
+
+    expect(overCap.outcome).toBe("refused");
+    if (overCap.outcome === "refused") {
+      expect(overCap.refusal.code).toBe("value-too-large");
+    }
+    expect(await store.read("s", "expansion-of-the-runs-pane")).toBeUndefined();
+    await store.close();
+  });
+
   it("negative control: an in-enumeration write lands and fires nothing", async () => {
     // Without this, a chokepoint that refused every write would pass both cases
     // above while having broken persistence entirely.

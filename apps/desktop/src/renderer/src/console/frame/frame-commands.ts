@@ -23,21 +23,35 @@ import {
   type ConsoleCommand,
   type WhenClauseContext,
 } from "../palette/index.js";
-import { isAuxiliaryRoute, routeSessionId, type ConsoleRoute } from "../routing/index.js";
+import {
+  RAIL_DESTINATIONS,
+  isAuxiliaryRoute,
+  routeSessionId,
+  type ConsoleRoute,
+} from "../routing/index.js";
 import type { FrameStore } from "../store/index.js";
 import type { SchemePreference } from "../tokens/index.js";
 import {
   FRAME_KEY_BINDINGS,
+  RAIL_NAVIGATION_DETAILS,
   consoleCommands,
   registerConsoleCommands,
   type FrameCommand,
   type FrameWhenClauseContext,
 } from "./command-surface.js";
+import { RAIL_ENTRY_TEMPLATES } from "./IconRail.js";
+import { routeForDestination } from "./rail-navigation.js";
 
 /** What the frame's own commands are built against: this window's store and acts. */
 export interface FrameCommandSurfaceInput {
   readonly route: ConsoleRoute;
-  readonly activeSessionId: string | undefined;
+  /**
+   * The session this window has in hand, which OUTLIVES a route that names none —
+   * see `FrameStore`'s own field. `sessionActive` is derived from it rather than
+   * from the route, so "Go to Workspace" stays offered from Settings, which is
+   * precisely where a person reaches for it.
+   */
+  readonly lastOpenedSessionId: string | undefined;
   readonly frameStore: FrameStore;
   readonly chooseScheme: (preference: SchemePreference) => void;
 }
@@ -52,20 +66,21 @@ export interface FrameCommandSurface {
 }
 
 export function useFrameCommandSurface(input: FrameCommandSurfaceInput): FrameCommandSurface {
-  const { route, activeSessionId, frameStore, chooseScheme } = input;
+  const { route, lastOpenedSessionId, frameStore, chooseScheme } = input;
 
   // What a command's `when` clause is evaluated against. Derived from the route
   // rather than stored, so there is one answer to "where am I" and the palette
   // cannot disagree with the rail about it.
   const whenContext: FrameWhenClauseContext = useMemo(
     () => ({
-      sessionActive: activeSessionId !== undefined,
+      sessionActive: lastOpenedSessionId !== undefined,
       onSessions: route.kind === "sessions",
       onWorkspace: route.kind === "workspace",
+      onWorkflows: route.kind === "workflows",
       onSettings: route.kind === "settings",
       inAuxiliaryWindow: isAuxiliaryRoute(route),
     }),
-    [route, activeSessionId],
+    [route, lastOpenedSessionId],
   );
 
   // The key-binding table reads the context through a ref rather than closing over
@@ -86,17 +101,13 @@ export function useFrameCommandSurface(input: FrameCommandSurfaceInput): FrameCo
   //
   // A frame banner, which is the third of the three refusal renderings and the only
   // one available to an act with no surface of its own — "Check for updates" has no
-  // pane to fail inline on. Keyed on the refusal CODE rather than on a fresh id, so
-  // a second failure of one act replaces its banner instead of stacking a duplicate
-  // of the same sentence.
+  // pane to fail inline on. The banner is composed by the STORE rather than here:
+  // this stopped being the only producer when a refused scheme write got a banner
+  // too, and two producers writing the same four fields is exactly how the two
+  // keying rules come apart.
   const raiseRefusalBanner = useCallback(
     (refusal: ConsoleRefusal) => {
-      frameStore.raiseBanner({
-        id: refusal.code,
-        dismissible: true,
-        code: refusal.code,
-        detail: refusal.detail,
-      });
+      frameStore.raiseRefusalBanner(refusal);
     },
     [frameStore],
   );
@@ -165,6 +176,8 @@ export function describeScope(route: ConsoleRoute): string {
       return "All sessions";
     case "workspace":
       return `Session ${route.sessionId}`;
+    case "workflows":
+      return "Workflows";
     case "settings":
       return "Settings";
     case "auxiliary": {
@@ -178,39 +191,48 @@ export function describeScope(route: ConsoleRoute): string {
   }
 }
 
-/** Navigation and appearance: the two things the frame itself can do. */
+/**
+ * Navigation and appearance: the two things the frame itself can do.
+ *
+ * The rail's destinations are WALKED rather than listed. The palette and the rail
+ * offer the same three top-level contexts, and writing them out here made a second
+ * closed set that agreed with the first only while someone kept it in step — so
+ * when the spec's workflows destination was missing, it was missing from the rail,
+ * the chord table, and this list at once, and each of the three read as confirming
+ * the other two. Each command's title is the rail's own label, so the two surfaces
+ * cannot end up calling one place two names.
+ */
 function buildFrameCommands(
   frameStore: FrameStore,
   chooseScheme: (preference: SchemePreference) => void,
 ): readonly FrameCommand[] {
   return [
-    {
-      id: "frame.goToSessions",
-      title: "Go to Sessions",
+    ...RAIL_DESTINATIONS.map((destination) => ({
+      id: RAIL_NAVIGATION_DETAILS[destination].commandId,
+      title: `Go to ${RAIL_ENTRY_TEMPLATES[destination].label}`,
       group: "Navigate",
-      keywords: ["list", "home"],
+      keywords: RAIL_NAVIGATION_DETAILS[destination].keywords,
       run: () => {
-        frameStore.navigate({ kind: "sessions" });
+        frameStore.navigate(routeForDestination(destination));
       },
-    },
+    })),
     {
+      // Beside the destinations rather than among them: the session workspace is
+      // reached from the sessions list, so it is an act on the session this window
+      // has in hand and not a place the rail can send anyone. `sessionActive` is
+      // read from the RETAINED session, which is why the command stays offered
+      // from Settings — precisely where a person reaches for it.
       id: "frame.goToWorkspace",
       title: "Go to Workspace",
       group: "Navigate",
       when: "sessionActive",
       run: () => {
-        if (frameStore.activeSessionId !== undefined) {
-          frameStore.navigate({ kind: "workspace", sessionId: frameStore.activeSessionId });
+        // Read at RUN time, not closed over: this list is built once per window and
+        // the session it returns to changes with every navigation.
+        const sessionId = frameStore.lastOpenedSessionId;
+        if (sessionId !== undefined) {
+          frameStore.navigate({ kind: "workspace", sessionId });
         }
-      },
-    },
-    {
-      id: "frame.goToSettings",
-      title: "Go to Settings",
-      group: "Navigate",
-      keywords: ["preferences", "options"],
-      run: () => {
-        frameStore.navigate({ kind: "settings", page: undefined });
       },
     },
     {

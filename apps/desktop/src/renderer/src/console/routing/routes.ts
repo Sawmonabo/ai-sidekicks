@@ -11,7 +11,9 @@
 // Two families of route:
 //
 //   • **Main-window routes**, one per icon-rail destination plus the session
-//     workspace.
+//     workspace. The workspace is a route and NOT a rail destination: a session is
+//     reached from the sessions destination, which is why `railDestinationFor`
+//     answers `sessions` for it.
 //   • **Auxiliary-window routes**, `#/window/<route>[/<sessionId>[/<agentId>]]`.
 //     These are the routes a detached pane opens into, and they are the reason the
 //     grammar has optional trailing segments at all.
@@ -29,8 +31,8 @@
 // auxiliary-window factory) and this module CONSUMES them — two halves in two
 // processes, which is exactly the pair that drifts when each writes its own. This
 // module keeps the console-wide grammar (`#/sessions`, `#/session/<id>`,
-// `#/settings`) and delegates the one arm it shares with main, so the console
-// cannot accept a fragment the menu cannot produce or the reverse.
+// `#/workflows`, `#/settings`) and delegates the one arm it shares with main, so
+// the console cannot accept a fragment the menu cannot produce or the reverse.
 
 import {
   formatAuxiliaryFragment,
@@ -47,7 +49,7 @@ import {
  * table is an array, so a destination added to the union alone would typecheck and
  * render nowhere.
  */
-export const RAIL_DESTINATIONS = ["sessions", "workspace", "settings"] as const;
+export const RAIL_DESTINATIONS = ["sessions", "workflows", "settings"] as const;
 
 /** One icon-rail destination, derived from the tuple above. */
 export type RailDestination = (typeof RAIL_DESTINATIONS)[number];
@@ -56,6 +58,11 @@ export type RailDestination = (typeof RAIL_DESTINATIONS)[number];
 export type ConsoleRoute =
   | { readonly kind: "sessions" }
   | { readonly kind: "workspace"; readonly sessionId: string }
+  // Bare, and deliberately so. `Spec-023 §Console Design (Meridian)` §The surface
+  // set opens the `workflow-builder` pane from this destination, and a pane
+  // carries its own context — a definition id written into the address here would
+  // be a second, unowned locator for something the builder has not defined yet.
+  | { readonly kind: "workflows" }
   | { readonly kind: "settings"; readonly page: string | undefined }
   // The shared target with a kind tag, INTERSECTED rather than restated. That
   // target is route-discriminated — an agent console carries its agent with its
@@ -142,6 +149,10 @@ export function parseRoute(hash: string): ConsoleRoute {
     return decoded === undefined ? notFound(hash) : { kind: "workspace", sessionId: decoded };
   }
 
+  if (head === "workflows") {
+    return rest.length === 0 ? { kind: "workflows" } : notFound(hash);
+  }
+
   if (head === "settings") {
     if (rest.length > 1) {
       return notFound(hash);
@@ -187,6 +198,8 @@ export function formatRoute(route: ConsoleRoute): string {
       return "#/sessions";
     case "workspace":
       return `#/session/${encodeURIComponent(route.sessionId)}`;
+    case "workflows":
+      return "#/workflows";
     case "settings":
       return route.page === undefined
         ? "#/settings"
@@ -204,13 +217,22 @@ export function formatRoute(route: ConsoleRoute): string {
   }
 }
 
-/** Which rail destination is current, or `undefined` in an auxiliary window. */
+/**
+ * Which rail destination is current, or `undefined` in an auxiliary window.
+ *
+ * The map is NOT one-to-one, and `workspace` is the arm that makes it so: a
+ * session is reached FROM the sessions destination, so a window sitting in a
+ * workspace is still under that destination and the rail highlights it there.
+ * Answering with a destination of its own would name an icon the rail does not
+ * render, and the current-destination highlight would simply go out.
+ */
 export function railDestinationFor(route: ConsoleRoute): RailDestination | undefined {
   switch (route.kind) {
     case "sessions":
-      return "sessions";
     case "workspace":
-      return "workspace";
+      return "sessions";
+    case "workflows":
+      return "workflows";
     case "settings":
       return "settings";
     case "auxiliary":
@@ -253,6 +275,7 @@ export function routeSessionId(route: ConsoleRoute): string | undefined {
     case "auxiliary":
       return "sessionId" in route ? route.sessionId : undefined;
     case "sessions":
+    case "workflows":
     case "settings":
     case "not-found":
       return undefined;
@@ -279,6 +302,7 @@ export function routesAreEqual(left: ConsoleRoute, right: ConsoleRoute): boolean
   }
   switch (left.kind) {
     case "sessions":
+    case "workflows":
       return true;
     case "workspace":
       return right.kind === "workspace" && left.sessionId === right.sessionId;

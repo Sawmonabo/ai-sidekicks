@@ -58,6 +58,25 @@ export type SessionSnapshotReader = (
   reasons: readonly RefreshReason[],
 ) => Promise<SessionSnapshot | undefined>;
 
+/**
+ * What a registry does about reads: perform one, or carry the refusal that says
+ * why it cannot.
+ *
+ * A refusal rather than a reason-less sentinel, and the two are not the same
+ * mechanism wearing different names. Both answer the question a function-shaped
+ * placeholder cannot be asked — can a store this registry opens ever be
+ * initialised? — and a stream bound to one that cannot is a stream buffered
+ * forever and projected never. The refusal answers it and also names the operation
+ * that would have served the read and the document that owes the wire, which is
+ * what a surface renders as the `not-checked` kind of nothing. One mechanism, and
+ * the strictly more informative one.
+ *
+ * Still deliberately distinct from a reader that resolves `undefined`: that is a
+ * read that HAPPENED and found nothing — transient, and the next refresh may well
+ * succeed.
+ */
+export type SessionSnapshotRead = SessionSnapshotReader | ConsoleRefusal;
+
 /** What happened to the set of open sessions. */
 export interface SessionRegistryChange {
   readonly sessionId: string;
@@ -68,10 +87,10 @@ export interface SessionStoreRegistryOptions {
   /**
    * The read every session's refresh scheduler performs. REQUIRED, and required
    * on purpose: a refresh path with no read is a timer that fires into nothing,
-   * so a caller with no wire yet passes a reader that resolves `undefined` and
+   * so a caller with no wire yet passes the refusal it would have rendered and
    * says so at the call site rather than getting that behaviour by default.
    */
-  readonly read: SessionSnapshotReader;
+  readonly read: SessionSnapshotRead;
   /** Defaults to `RealClock`. Every queue and scheduler this registry makes shares it. */
   readonly clock?: ConsoleClock;
   /** Event-kind projectors handed to each store it opens. */
@@ -110,6 +129,13 @@ class OpenSessionEntry {
     this.refreshScheduler = new RefreshScheduler({
       clock,
       perform: async (reasons) => {
+        if (typeof options.read !== "function") {
+          // A refusal, not a reader. Nothing to perform, and nothing to report
+          // either: the refusal is a STANDING fact the caller already renders,
+          // not an error this read discovered, so `onError` stays for reads that
+          // were attempted and failed.
+          return;
+        }
         const snapshot = await options.read(sessionId, reasons);
         if (snapshot !== undefined) {
           // A completed re-pull is the ONE thing that clears the sticky degraded
@@ -139,6 +165,14 @@ export class SessionStoreRegistry {
   readonly #options: SessionStoreRegistryOptions;
   readonly #entriesBySessionId = new Map<string, OpenSessionEntry>();
   readonly #changes = new Emitter<SessionRegistryChange>("session registry change");
+  // The open set as an array, rebuilt only when the set itself changes.
+  //
+  // Load-bearing rather than a micro-optimisation: `useSyncExternalStore` compares
+  // consecutive reads with `Object.is` and re-renders while they differ, so a getter
+  // that spread the map on every call would hand React a fresh array every pass and
+  // spin forever. Every mutation below is paired with `#forgetOpenSessionIds`, so the
+  // cache cannot outlive the set it describes.
+  #openSessionIdsSnapshot: readonly string[] | undefined = undefined;
   #disposed = false;
 
   public constructor(options: SessionStoreRegistryOptions) {
@@ -170,6 +204,7 @@ export class SessionStoreRegistry {
     }
     const entry = new OpenSessionEntry(sessionId, this.#options);
     this.#entriesBySessionId.set(sessionId, entry);
+    this.#forgetOpenSessionIds();
     this.#changes.emit({ sessionId, change: "opened" });
     return entry.store;
   }
@@ -187,9 +222,15 @@ export class SessionStoreRegistry {
     return this.#entriesBySessionId.size;
   }
 
-  /** Open sessions in the order they were opened. */
+  /**
+   * Open sessions in the order they were opened.
+   *
+   * A STABLE reference between changes: the same array comes back until a session
+   * opens or closes, which is what lets a React subscription read this directly.
+   */
   public get openSessionIds(): readonly string[] {
-    return [...this.#entriesBySessionId.keys()];
+    this.#openSessionIdsSnapshot ??= [...this.#entriesBySessionId.keys()];
+    return this.#openSessionIdsSnapshot;
   }
 
   /**
@@ -203,6 +244,7 @@ export class SessionStoreRegistry {
     }
     entry.dispose();
     this.#entriesBySessionId.delete(sessionId);
+    this.#forgetOpenSessionIds();
     this.#changes.emit({ sessionId, change: "closed" });
     return true;
   }
@@ -285,6 +327,32 @@ export class SessionStoreRegistry {
     return this.#disposed;
   }
 
+  /**
+   * Whether a store this registry opens can ever reach a base state.
+   *
+   * `false` when the caller passed a refusal instead of a reader: every refresh
+   * reason a session raises — focus, reconnect, a gap re-pull — resolves nothing,
+   * so `initialise` is never called and the store buffers what it is given and
+   * projects none of it. Read by whatever would otherwise feed it, which is the
+   * one decision this fact exists to inform.
+   */
+  public get canInitialiseSessionStores(): boolean {
+    return typeof this.#options.read === "function";
+  }
+
+  /**
+   * Why no store here can be initialised, or `undefined` when one can.
+   *
+   * The other half of the boolean above, and the half a surface renders. Kept as a
+   * read on the registry rather than left with the composition root, so the one
+   * object that knows a store cannot reach a base state is also the one that can
+   * say why — a caller holding the boolean and hunting for the reason elsewhere is
+   * how two answers to one question get out of step.
+   */
+  public get readRefusal(): ConsoleRefusal | undefined {
+    return typeof this.#options.read === "function" ? undefined : this.#options.read;
+  }
+
   /** Close every session and drop every listener. The window is going away. */
   public disposeAll(): void {
     for (const sessionId of [...this.#entriesBySessionId.keys()]) {
@@ -292,6 +360,11 @@ export class SessionStoreRegistry {
     }
     this.#changes.clear();
     this.#disposed = true;
+  }
+
+  /** Drop the cached open set. Called from the two places that change it. */
+  #forgetOpenSessionIds(): void {
+    this.#openSessionIdsSnapshot = undefined;
   }
 
   #sessionNotOpen(sessionId: string, attempted: string): ConsoleRefusal {

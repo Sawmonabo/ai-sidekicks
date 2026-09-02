@@ -35,6 +35,34 @@
 // They assert how this tier behaves when a reference is absent, which is a claim
 // about the runner rather than about pixels, and it holds on every platform — so
 // the tier still proves something where it cannot compare.
+//
+// WHO MINTS A REFERENCE
+//
+// `darwin` is not one machine. The committed images are the ones GitHub's
+// `macos-15` runner renders, and that runner is the AUTHORITY: `ci.yml`'s
+// `console-screenshot-macos` job compares against them there, so a reference
+// minted anywhere else is one no CI run will reproduce. They are refreshed by
+// dispatching `.github/workflows/console-screenshot-baselines.yml` with
+// `mode: regenerate` on the branch that changes them, reading every image in the
+// artifact it uploads, and committing that tree.
+//
+// A developer Mac is a LATER macOS with a different system UI face — the console's
+// sans stack names IBM Plex Sans first, nothing self-hosts it yet, and the fallback
+// is whatever `system-ui` resolves to on the host. So a local run is ADVISORY, and
+// it is advisory in a specific and small way: measured 2026-09-02 on macOS 26.6.1
+// against `macos-15` references, the whole disagreement is SIX pixels — one in
+// `frame-first-run-light`, six in `palette-open-light`, none in the dark frame —
+// and every one of them is a corner of a `⌘` keycap glyph, the one character on
+// these surfaces that comes from the host's font rather than the console's.
+//
+// The tier allows none of them. `vitest.config.ts`'s `SCREENSHOT_TIER_MATCH_OPTIONS`
+// records why: a single changed glyph in a palette label moves only 20 pixels, so a
+// budget large enough to absorb six is close enough to twenty to hide a punctuation
+// change, and the tier would rather be red on a developer's machine than blind on
+// the runner's. So read a local red the way the numbers make it readable — a
+// handful of pixels on a keycap is the known residue; anything else is yours. A
+// one-pixel rail move is 3 690 pixels; the stale palette reference this lane found
+// (a Help group that had appeared since the capture) was 26 016.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { TestContext } from "vitest";

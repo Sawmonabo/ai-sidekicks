@@ -15,13 +15,18 @@ import { describe, expect, it } from "vitest";
 import {
   APPLY_COALESCE_MS,
   CAST_BAR_CHIP_CAP,
+  LIVE_ANNOUNCEMENT_HOLD_MS,
+  LIVE_ANNOUNCEMENT_QUEUE_CAP,
+  MAX_REPAIRABLE_SEQUENCE_GAP,
   PALETTE_RECENTS_CAP,
   PALETTE_RESULT_CAP,
   PERSISTENCE_QUOTA_PRESSURE_RATIO,
+  PERSISTENCE_RECORD_BYTE_CAP,
   PERSISTENCE_SESSION_PARTITION_CAP,
-  PERSISTENCE_VALUE_BYTE_CAP,
+  PRE_INITIALISATION_BUFFER_CAP,
   REFRESH_DEBOUNCE_MS,
   REFRESH_MAX_WAIT_MS,
+  SCENARIO_PENDING_REPLY_CAP,
   SCENARIO_TICK_MS,
   TRIPWIRE_REPORT_CAP,
   WHEN_CLAUSE_MAX_DEPTH,
@@ -30,12 +35,16 @@ import {
 /** Every bound that counts whole things. A fractional or zero cap counts nothing. */
 const COUNTING_BOUNDS: readonly (readonly [string, number])[] = [
   ["PERSISTENCE_SESSION_PARTITION_CAP", PERSISTENCE_SESSION_PARTITION_CAP],
-  ["PERSISTENCE_VALUE_BYTE_CAP", PERSISTENCE_VALUE_BYTE_CAP],
+  ["PERSISTENCE_RECORD_BYTE_CAP", PERSISTENCE_RECORD_BYTE_CAP],
   ["PALETTE_RECENTS_CAP", PALETTE_RECENTS_CAP],
   ["PALETTE_RESULT_CAP", PALETTE_RESULT_CAP],
   ["WHEN_CLAUSE_MAX_DEPTH", WHEN_CLAUSE_MAX_DEPTH],
   ["CAST_BAR_CHIP_CAP", CAST_BAR_CHIP_CAP],
   ["TRIPWIRE_REPORT_CAP", TRIPWIRE_REPORT_CAP],
+  ["SCENARIO_PENDING_REPLY_CAP", SCENARIO_PENDING_REPLY_CAP],
+  ["PRE_INITIALISATION_BUFFER_CAP", PRE_INITIALISATION_BUFFER_CAP],
+  ["MAX_REPAIRABLE_SEQUENCE_GAP", MAX_REPAIRABLE_SEQUENCE_GAP],
+  ["LIVE_ANNOUNCEMENT_QUEUE_CAP", LIVE_ANNOUNCEMENT_QUEUE_CAP],
 ];
 
 function isWholeCount(value: number): boolean {
@@ -83,6 +92,16 @@ describe("console bounds — the refresh scheduler's two windows", () => {
   });
 });
 
+describe("console bounds — the live announcer's hold window", () => {
+  it("holds a message for longer than the console calls one frame", () => {
+    // A live region whose text is set and reverted inside a frame announces
+    // nothing: the observer never sees a settled string. `APPLY_COALESCE_MS` is
+    // this console's own name for one frame, so the hold has to sit above it, and
+    // the relation is what says so rather than 500 happening to be bigger than 16.
+    expect(LIVE_ANNOUNCEMENT_HOLD_MS).toBeGreaterThan(APPLY_COALESCE_MS);
+  });
+});
+
 describe("console bounds — the palette's two caps describe one list", () => {
   it("does not remember more commands than the list can show", () => {
     // Recents are rendered inside the ranked result list. A recents cap above the
@@ -101,6 +120,17 @@ describe("console bounds — the fixture tick names one frame", () => {
 
   it("is a whole number of milliseconds, because scripts are expressed in whole ticks", () => {
     expect(Number.isInteger(SCENARIO_TICK_MS)).toBe(true);
+  });
+});
+
+describe("console bounds — the two sequence bounds describe one store", () => {
+  it("repairs a gap at least as wide as the pre-initialisation buffer can shed", () => {
+    // A store whose read never lands sheds its oldest buffered events, and the
+    // drain re-derives that loss as one gap. At or below the buffer's own cap the
+    // ordinary overflow path would report the stream DIVERGED — refusing the very
+    // events the buffer kept — so the repairable bound has to sit above it, and
+    // the relation is what says so rather than the two numbers happening to.
+    expect(MAX_REPAIRABLE_SEQUENCE_GAP).toBeGreaterThan(PRE_INITIALISATION_BUFFER_CAP);
   });
 });
 
