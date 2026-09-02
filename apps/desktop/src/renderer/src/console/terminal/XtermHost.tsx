@@ -34,6 +34,13 @@
 // gains the ability to write to the wire is built differently, and the adapter's
 // own gate is the absence of the option rather than a check inside it.
 //
+// WHY THE RENDERER MODE IS SUBSCRIBED AND NOT COPIED. The renderer an instance
+// draws with is not settled for the life of the mount: the GPU can take the WebGL
+// context away at any point, and the addon's fallback to the DOM renderer is
+// permanent for that instance. A mode read once at attachment would leave this
+// box's `data-renderer` — and every consumer of `onRendererMode` — reporting
+// `webgl` over a terminal that is no longer drawing with one.
+//
 // WHY THE HOST BOX IS ONLY NAMED AND THE LIVE TEXT IS NOT HERE. xterm.js draws
 // a grid of spans (or a WebGL canvas), and its own accessibility layer exposes rows
 // through an `aria-live="assertive"` region with a twenty-row flood guard. That
@@ -62,7 +69,12 @@ export interface XtermHostProps {
   readonly onKeystroke?: ((data: string) => void) | undefined;
   /** Where an allowed link goes. Absent means links render and never activate. */
   readonly onActivateLink?: ((url: string) => void) | undefined;
-  /** Told which renderer the instance settled on, so a surface can report it. */
+  /**
+   * Told which renderer the instance settled on, and told again whenever that
+   * changes — a lost WebGL context falls the instance back to the DOM renderer
+   * for good, and a surface reporting the old one is reporting a renderer that is
+   * no longer drawing anything.
+   */
   readonly onRendererMode?: ((mode: TerminalRendererMode) => void) | undefined;
 }
 
@@ -103,10 +115,21 @@ export function XtermHost(props: XtermHostProps): React.JSX.Element {
     });
     adapterRef.current = adapter;
     adapter.attach(hostElement);
-    setRendererMode(adapter.rendererMode);
-    callbacksRef.current.onRendererMode?.(adapter.rendererMode);
+    // After the attach, because the renderer selection happens synchronously
+    // inside it and the subscription delivers the current mode on subscribe — so
+    // this order reports the SETTLED mode once rather than the constructed one
+    // followed by the selected one. Every later delivery is a context loss, which
+    // reaches the adapter asynchronously and so cannot slip through this gap.
+    const unsubscribeFromRendererMode = adapter.subscribeToRendererMode((mode) => {
+      setRendererMode(mode);
+      callbacksRef.current.onRendererMode?.(mode);
+    });
     return () => {
       adapterRef.current = undefined;
+      // Before the disposal, which resets the mode: a delivery from a teardown
+      // would be a state write against a tree React is dropping, and it would say
+      // the renderer fell back when what happened is that the pane closed.
+      unsubscribeFromRendererMode();
       // Final, not `detach()`. The pane is going away, so the emulator's hold on
       // its renderer has to go back — a detach would keep the instance alive for
       // a remount that is never coming.

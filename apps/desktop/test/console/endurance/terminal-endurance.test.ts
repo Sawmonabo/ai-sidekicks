@@ -47,9 +47,19 @@ import { ConsoleBudgetRegistry, evaluateBudget } from "../../../scripts/budget/b
 import { TERMINAL_DEFAULT_SCROLLBACK_LINES } from "../../../src/renderer/src/console/terminal/constants.js";
 import { XtermTerminalAdapter } from "../../../src/renderer/src/console/terminal/xterm-adapter.js";
 import { TerminalRendererPool } from "../../../src/renderer/src/console/terminal/renderer-pool.js";
-import { heapCollectorAvailable, retainedGrowthBytes, sampleHeap } from "../heap-sampling.js";
+import { HeapSampler, retainedGrowthBytes } from "../heap-sampling.js";
 
 const registry = ConsoleBudgetRegistry.load();
+
+/**
+ * This file's collector and settling loop.
+ *
+ * One per test file, beside the harness it measures, rather than a module the tier
+ * shares with every other: the resolution is memoised, and a memo any tier could
+ * poison would let one file's failure decide what a later one is allowed to
+ * measure.
+ */
+const heapSampler = new HeapSampler();
 
 /**
  * The reference ceiling, read from the budget row rather than restated here.
@@ -103,7 +113,7 @@ async function writeLines(adapter: XtermTerminalAdapter, lines: number): Promise
 }
 
 function requireHeapCollector(): void {
-  if (!heapCollectorAvailable()) {
+  if (!heapSampler.isCollectorAvailable) {
     // Named rather than skipped: a heap reading with no collection behind it is
     // noise, and a tier that is green because it measured noise is worse than one
     // that is loud about the gap.
@@ -144,13 +154,13 @@ describe("a terminal held open over a long stream", () => {
     async () => {
       requireHeapCollector();
       const pool = new TerminalRendererPool();
-      const before = await sampleHeap();
+      const before = await heapSampler.sample();
       const adapter = mountAdapter("endurance-budget-terminal", pool);
       await writeLines(adapter, TERMINAL_DEFAULT_SCROLLBACK_LINES * 2);
       // Held live across the sample on purpose: the figure is what the instance
       // RETAINS, so it has to still be reachable when the heap is read.
       expect(adapter.bufferLineCount).toBeGreaterThan(0);
-      const after = await sampleHeap();
+      const after = await heapSampler.sample();
 
       // A long stream must not buy an emulator a bigger allowance than a full one
       // gets. Against the reference figure, which the pane the budget bounds also
@@ -169,12 +179,12 @@ describe("a terminal held open over a long stream", () => {
     async () => {
       requireHeapCollector();
       const pool = new TerminalRendererPool();
-      const baseline = await sampleHeap();
+      const baseline = await heapSampler.sample();
       const adapter = mountAdapter("teardown-terminal", pool);
       await writeLines(adapter, TERMINAL_DEFAULT_SCROLLBACK_LINES);
-      const held = await sampleHeap();
+      const held = await heapSampler.sample();
       adapter.dispose();
-      const released = await sampleHeap();
+      const released = await heapSampler.sample();
 
       // The buffer was really there — otherwise "it was released" is a claim about
       // nothing — and then it is not.
@@ -191,10 +201,10 @@ describe("a terminal held open over a long stream", () => {
     async () => {
       requireHeapCollector();
       const pool = new TerminalRendererPool();
-      const baseline = await sampleHeap();
+      const baseline = await heapSampler.sample();
       const adapter = mountAdapter("undisposed-terminal", pool);
       await writeLines(adapter, TERMINAL_DEFAULT_SCROLLBACK_LINES);
-      const held = await sampleHeap();
+      const held = await heapSampler.sample();
       // Deliberately NOT disposed. Without this case the release assertion above
       // would pass against a sampler that always read the baseline back, and every
       // heap figure in this file would be measuring nothing.
@@ -237,13 +247,13 @@ describe("a working day of opening and closing the pane", () => {
       await writeLines(warmUp, TERMINAL_DEFAULT_SCROLLBACK_LINES);
       warmUp.dispose();
 
-      const baseline = await sampleHeap();
+      const baseline = await heapSampler.sample();
       for (let cycle = 0; cycle < CHURN_CYCLES; cycle += 1) {
         const adapter = mountAdapter(`churn-heap-terminal-${String(cycle)}`, pool);
         await writeLines(adapter, TERMINAL_DEFAULT_SCROLLBACK_LINES);
         adapter.dispose();
       }
-      const afterChurn = await sampleHeap();
+      const afterChurn = await heapSampler.sample();
 
       // The leak signal: twelve full terminals came and went, so a per-cycle
       // retention would show up here twelve times over. The allowance is ONE

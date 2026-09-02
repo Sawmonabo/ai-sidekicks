@@ -24,6 +24,8 @@
 // DAG: `core/` is the bottom family and knows none of them. Each producer keeps
 // its own closed code union and widens into this shape at its boundary.
 
+import { isWireErrorEnvelope, lossyStringify } from "../../../../shared/wire-errors.js";
+
 export interface ConsoleRefusal {
   /** Machine-readable, rendered verbatim. */
   readonly code: string;
@@ -76,5 +78,52 @@ export function isConsoleRefusal(value: unknown): value is ConsoleRefusal {
     typeof candidate.code === "string" &&
     typeof candidate.detail === "string" &&
     typeof candidate.origin === "string"
+  );
+}
+
+/**
+ * A REJECTED promise, as the one refusal shape the console renders.
+ *
+ * Four arms, in this order, because each earlier one carries a code the later ones
+ * would throw away:
+ *
+ *   1. A `ConsoleRefusal` that travelled as a rejection is already this shape and
+ *      already names its own author, so it passes through untouched.
+ *   2. A {@link ConsoleRefusalError} is unwrapped to the refusal it carries. Left
+ *      to arm 4 it would render `<origin>-call-failed` over an `Error` whose
+ *      message happens to read `origin: code: detail` — the code a person pastes
+ *      into an issue replaced by one this function invented.
+ *   3. A wire envelope — `{ code, message }`, whether it arrived as a plain object
+ *      across the preload boundary or as an `Error` subclass carrying the code —
+ *      keeps its code VERBATIM, which is the whole point: `permission_denied` and
+ *      a lease conflict are different next moves, and both are unactionable once
+ *      flattened into one call-failed code. The guard is
+ *      `src/shared/wire-errors.ts`'s rather than a second structural check or a
+ *      schema parse: that module owns this shape for every renderer surface, and
+ *      it records why the recognition is structural — the same envelope arrives
+ *      as an object and as an `Error`, and a schema bound to one set of codes
+ *      would narrow it below what its callers need.
+ *   4. Anything else is this caller's own refusal. An `Error` gives up its
+ *      message; anything else goes through the total stringifier rather than
+ *      through `String(...)`, which itself throws on a null-prototype object —
+ *      the value a surface exists to SURFACE must not take the surface down.
+ *
+ * `origin` is the caller's subsystem name and is what arm 4's code is built from,
+ * so a call-failed refusal still says which seam failed.
+ */
+export function refusalFromRejection(origin: string, error: unknown): ConsoleRefusal {
+  if (isConsoleRefusal(error)) {
+    return error;
+  }
+  if (error instanceof ConsoleRefusalError) {
+    return error.refusal;
+  }
+  if (isWireErrorEnvelope(error)) {
+    return refuse(origin, error.code, error.message);
+  }
+  return refuse(
+    origin,
+    `${origin}-call-failed`,
+    error instanceof Error ? error.message : lossyStringify(error),
   );
 }

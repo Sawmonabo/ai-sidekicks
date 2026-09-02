@@ -35,5 +35,11 @@ export { Emitter, type EmitterSink, type Unsubscribe } from "./emitter.js";
 // importer reaches is a dead export the structure gate reports.
 export { SCENARIO_FIXTURE_GLOBAL, SESSION_DIAGNOSTICS_FIXTURE_GLOBAL } from "./fixture-globals.js";
 export { DuplicateRegistrationError, KeyedRegistry } from "./keyed-registry.js";
-export { ConsoleRefusalError, isConsoleRefusal, refuse, type ConsoleRefusal } from "./refusal.js";
+export {
+  ConsoleRefusalError,
+  isConsoleRefusal,
+  refuse,
+  refusalFromRejection,
+  type ConsoleRefusal,
+} from "./refusal.js";
 export { consoleTripwires, reportTripwire } from "./tripwires.js";

@@ -70,6 +70,27 @@ function servingBridge(): ConsoleBridge {
   };
 }
 
+/**
+ * A bridge whose lease calls REJECT with the wire's own `{ code, message }`.
+ *
+ * The shape a rejected registered call actually carries across the preload
+ * boundary (`src/shared/wire-errors.ts` owns it, for every renderer surface). The
+ * port ANSWERS a refusal, so a rejection is the bridge itself failing — and a
+ * daemon that refused a claim because somebody else holds the shell said so with a
+ * code the person can act on.
+ */
+function bridgeRejectingWith(rejection: unknown): ConsoleBridge {
+  const base = createFixtureBridge({ scenario: TERMINAL_SCENARIO });
+  return {
+    ...base,
+    growth: {
+      ...base.growth,
+      terminalAcquireWriteLease: () => Promise.reject(rejection),
+      terminalReleaseWriteLease: () => Promise.reject(rejection),
+    },
+  };
+}
+
 function markFor(participantId: string): TerminalParticipantMark | undefined {
   return participantId === HOLDER
     ? { hueStep: 3, ringTreatment: "dashed", displayName: undefined }
@@ -256,6 +277,54 @@ describe("the claim control — one affordance, and three things it never does",
       expect(container.querySelector(".meridian-refusal--inline")).not.toBeNull();
     });
     expect(container.textContent).toContain("wire-unregistered");
+  });
+
+  it("renders the wire's own code when the call REJECTED rather than refused", async () => {
+    const { container } = renderLease(
+      leaseState({ holding: "unheld", holderVouching: "vouched" }),
+      bridgeRejectingWith({
+        code: "terminal.lease_conflict",
+        message: "Another participant holds the shell.",
+      }),
+    );
+    fireEvent.click(claimControl(container));
+    await waitFor(() => {
+      expect(container.querySelector(".meridian-refusal--inline")).not.toBeNull();
+    });
+    // The code the daemon sent, verbatim, and its sentence beside it — which is
+    // what tells the person that waiting, rather than pressing again, is the move.
+    expect(container.textContent).toContain("terminal.lease_conflict");
+    expect(container.textContent).toContain("Another participant holds the shell.");
+  });
+
+  it("negative control: it does not flatten that rejection into a call-failed code", async () => {
+    // A local arm that recognised only this console's own refusal shape rendered
+    // every wire rejection as one invented code with `[object Object]` for a
+    // sentence, which is a lease conflict a person cannot tell from a dead preload.
+    const { container } = renderLease(
+      leaseState({ holding: "unheld", holderVouching: "vouched" }),
+      bridgeRejectingWith({ code: "permission_denied", message: "You may not take the shell." }),
+    );
+    fireEvent.click(claimControl(container));
+    await waitFor(() => {
+      expect(container.querySelector(".meridian-refusal--inline")).not.toBeNull();
+    });
+    expect(container.textContent).toContain("permission_denied");
+    expect(container.textContent).not.toContain("call-failed");
+    expect(container.textContent).not.toContain("[object Object]");
+  });
+
+  it("names its own seam for a rejection that carries no code at all", async () => {
+    const { container } = renderLease(
+      leaseState({ holding: "unheld", holderVouching: "vouched" }),
+      bridgeRejectingWith(new Error("the preload went away mid-call")),
+    );
+    fireEvent.click(claimControl(container));
+    await waitFor(() => {
+      expect(container.querySelector(".meridian-refusal--inline")).not.toBeNull();
+    });
+    expect(container.textContent).toContain("terminal-lease-call-failed");
+    expect(container.textContent).toContain("the preload went away mid-call");
   });
 
   it("never queues a refused claim — one press is one call, and no retry follows", async () => {
