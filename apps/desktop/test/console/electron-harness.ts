@@ -124,12 +124,18 @@ export const WINDOW_APPEAR_TIMEOUT_MS = 30_000;
 
 /**
  * How long two consecutive animation frames may take to arrive before the
- * launch is declared throttled. A painting renderer delivers them within two
- * display refreshes; a hidden or occluded one under Chromium's default
- * throttling delivers none at all, so the bound only has to be clearly above
- * a refresh interval and clearly below a tier's patience.
+ * launch is declared throttled. A hidden or occluded document under Chromium's
+ * default throttling delivers NO frame at all, so any bound above a refresh
+ * interval separates "never" from "late" — and late is real: the first launch
+ * of a hosted Linux job paints through a cold software rasterizer, and with the
+ * frame element already mounted its first frame did not arrive within 2 s (CI
+ * run 33693658246) while the four launches that followed each painted within a
+ * second. The bound therefore sits clearly above a cold compositor's first paint
+ * and clearly below a tier's patience (`WINDOW_APPEAR_TIMEOUT_MS`). It bounds
+ * only the failure path: a painting renderer still answers within two
+ * refreshes, so no tier's timing moves with it.
  */
-const FRAME_WITNESS_TIMEOUT_MS = 2_000;
+const FRAME_WITNESS_TIMEOUT_MS = 10_000;
 
 export interface ConsoleApplication {
   readonly application: ElectronApplication;
