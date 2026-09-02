@@ -1,4 +1,4 @@
-// The three shipped families reach the screen, and reach it honestly.
+// The shipped families still mounted by the console reach the screen, honestly.
 //
 // The elements are inspected rather than rendered, and that is the point rather
 // than a shortcut. All three components read `window.sidekicks` on mount, so
@@ -14,7 +14,6 @@ import type { ConsoleBridgeSource } from "../bridge/index.js";
 import type { ConsoleRoute } from "../routing/index.js";
 import { NodeRoster } from "../../runtime-node-attach/index.js";
 import { SessionBootstrap } from "../../session-bootstrap/index.js";
-import { ParticipantRoster } from "../../session-members/participant-roster.js";
 import { registerLegacySurfaces } from "./legacy-surfaces.js";
 import { SurfaceAbsence } from "./RouteSurface.js";
 import { ConsoleSurfaceRegistry, type ConsoleSurfaceContext } from "./surface-registry.js";
@@ -69,16 +68,22 @@ describe("legacy surfaces — which family holds which slot", () => {
       .map((slot) => [slot, registry.descriptorFor(slot)?.owner]);
     expect(claims).toStrictEqual([
       ["sessions", "session-bootstrap"],
-      ["workspace", "session-members"],
       ["agent-console", "runtime-node-attach"],
     ]);
   });
 
-  it("negative control: the slots nobody claimed stay reserved", () => {
+  it("negative control: the slots this registrar does not claim stay reserved", () => {
     // "Reserved, not stubbed" is the frame's rule for an unclaimed slot, and the
     // case above would read the same over a registrar that claimed all five.
+    //
+    // `workspace` and `timeline` are the ledger family's from T-023p-1C-2 on, and
+    // this file composes the legacy table ALONE — so their absence here is the
+    // assertion that the claim was deleted rather than merely shadowed. A
+    // registrar that still held `workspace` would fail this case as well as the
+    // one above.
     const registry = registeredLegacySurfaces();
     expect(registry.descriptorFor("settings")).toBeUndefined();
+    expect(registry.descriptorFor("workspace")).toBeUndefined();
     expect(registry.descriptorFor("timeline")).toBeUndefined();
   });
 });
@@ -90,17 +95,6 @@ describe("legacy surfaces — under a live bridge, the family mounts", () => {
       registry.descriptorFor("sessions")?.render(contextFor({ kind: "sessions" }, "live")),
     );
     expect(element.type).toBe(SessionBootstrap);
-  });
-
-  it("hands the roster the session the workspace address names", () => {
-    const registry = registeredLegacySurfaces();
-    const element = renderedElement(
-      registry
-        .descriptorFor("workspace")
-        ?.render(contextFor({ kind: "workspace", sessionId: "session-7" }, "live")),
-    );
-    expect(element.type).toBe(ParticipantRoster);
-    expect(element.props["sessionId"]).toBe("session-7");
   });
 
   it("hands the node roster the session the auxiliary address names", () => {
@@ -138,13 +132,21 @@ describe("legacy surfaces — under the fixture, the console says it did not ask
 
   it("does not reach the session lookup at all", () => {
     // A bridge check placed after the session lookup would report "no session"
-    // for a workspace address under the fixture, which is a different and false
-    // statement about a route that names one perfectly well.
+    // for an address under the fixture, which is a different and false statement
+    // about a route that names one perfectly well.
     const registry = registeredLegacySurfaces();
     const element = centredAbsence(
-      registry
-        .descriptorFor("workspace")
-        ?.render(contextFor({ kind: "workspace", sessionId: "session-7" }, "fixture")),
+      registry.descriptorFor("agent-console")?.render(
+        contextFor(
+          {
+            kind: "auxiliary",
+            route: "agent-console",
+            sessionId: "session-9",
+            agentId: undefined,
+          },
+          "fixture",
+        ),
+      ),
     );
     expect(element.props["kind"]).toBe("not-checked");
   });

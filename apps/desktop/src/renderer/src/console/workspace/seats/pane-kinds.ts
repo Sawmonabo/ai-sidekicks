@@ -20,7 +20,6 @@
 // `frame/surface-registry.ts` gives about its own slots: a union written beside a
 // hand-repeated array is two closed sets that agree until someone widens one.
 
-// Consumed by T-023p-1C-2
 /**
  * Every kind of pane the deck can hold, in `Spec-023`'s own order.
  *

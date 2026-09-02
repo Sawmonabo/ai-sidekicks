@@ -27,7 +27,6 @@
 // imports the symbol — a tag that outlives its consumer fails the run.
 
 export {
-  /** @consumedBy T-023p-1C-2 */
   PANE_KINDS,
   /** @consumedBy T-023p-1C-2 */
   isPaneKind,
@@ -44,7 +43,6 @@ export {
   registeredPaneKinds,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ConsolePaneAddress,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   type ConsolePaneContext,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   type ConsolePaneDescriptor,
@@ -87,15 +85,11 @@ export {
 export {
   /** @consumedBy T-023p-1C-2 */
   TIMELINE_ROW_DENSITIES,
-  /** @consumedBy T-023p-1C-2 */
   registerTimelineRowRenderer,
-  /** @consumedBy T-023p-1C-2 */
   timelineRowRenderer,
-  /** @consumedBy T-023p-1C-2 */
   unregisterTimelineRowRenderer,
   /** @consumedBy T-023p-1C-2 */
   type TimelineRowDensity,
-  /** @consumedBy T-023p-1C-2 */
   type TimelineRowRenderer,
   /** @consumedBy T-023p-1C-2 */
   type TimelineRowSlotProps,
@@ -130,9 +124,4 @@ export {
   type InlineCardSeatProps,
 } from "./inline-card-seats.js";
 
-export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
-  OwnerSlotContract,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
-  OwnerSlotProps,
-} from "./owner-slot.js";
+export type { OwnerSlotContract, OwnerSlotProps } from "./owner-slot.js";

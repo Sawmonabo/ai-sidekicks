@@ -19,13 +19,14 @@
 
 import { FIRST_RUN_SCENARIO } from "./first-run.js";
 import { FLAGSHIP_SCENARIO } from "./flagship.js";
+import { LEDGER_SCENARIO } from "./ledger.js";
 import type { ConsoleScenario } from "../scenario.js";
 
 /** Every scenario the fixture bridge can play, in picker order. */
 export const CONSOLE_SCENARIOS: readonly ConsoleScenario[] = [
   FIRST_RUN_SCENARIO,
   FLAGSHIP_SCENARIO,
-  // T-023p-1C-2 ledger
+  LEDGER_SCENARIO,
   // T-023p-1C-3 composer
   // T-023p-1C-4 collaboration
   // T-023p-1C-5 repos
