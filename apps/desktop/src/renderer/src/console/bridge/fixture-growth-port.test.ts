@@ -31,16 +31,23 @@ import { createTier1Bridge } from "@ai-sidekicks/contracts";
 /**
  * Call one operation without knowing its request shape.
  *
- * Every arm ignores its argument, and the alternative — a table of one request per
- * operation retyped here — is a second declaration of the signature table that
- * would go stale the first time a request grew a member.
+ * The alternative — a table of one request per operation retyped here — is a second
+ * declaration of the signature table that would go stale the first time a request
+ * grew a member. So one request is sent to every arm, and an arm that declares no
+ * `sessionId` simply never reads the member.
+ *
+ * The session is the scenario's OWN, and that is load-bearing rather than tidy: a
+ * served operation may legitimately scope its answer to the session it is playing —
+ * `callerParticipantRead` does, because an identity is a fact about one roster — so
+ * a probe carrying no session would be asking about a session the fixture is not
+ * playing and would read a correct scoping refusal as a broken served claim.
  */
 async function callOperation(
   port: GrowthPort,
   operationId: GrowthOperationId,
 ): Promise<GrowthOutcome<unknown>> {
   const call = port[operationId] as (request: unknown) => Promise<GrowthOutcome<unknown>>;
-  return call({});
+  return call({ sessionId: FLAGSHIP_SCENARIO.sessionId });
 }
 
 function fixturePort(): GrowthPort {
@@ -548,7 +555,7 @@ describe("the fixture's gitflow reads — one answers nothing, the other refuses
   });
 });
 
-// The three rows that refuse under both bridges.
+// The identity read, and the two rows that still refuse under both bridges.
 //
 // The gitflow cases above are about a DISTINCTION — one operation served, one
 // refused. These are about the other half of that discipline: an operation refuses
@@ -557,18 +564,26 @@ describe("the fixture's gitflow reads — one answers nothing, the other refuses
 // operation's answer) but the PREMISE the refusal rests on. So each finder below
 // asserts what no scenario says, and each has a negative control that plants it.
 //
-// This is the `findScenariosNamingABranch` shape, applied to the two premises that
-// can go stale. The sidekick row has no finder because its premise cannot: a
-// definition is node-local configuration and `ConsoleScenario` models no node at
-// all, so there is no field a scenario could grow that would make one derivable.
+// The identity row is the one whose premise MOVED. `ConsoleScenario` grew
+// `viewingParticipantId`, so the fact now has a home and the read is answered from
+// it — and the premise worth pinning inverted with it: what no scenario may do is
+// state a viewer under some OTHER name, because the port reads exactly one field and
+// a second spelling would be a fact on the script that never reaches a surface. The
+// sidekick row has no finder because its premise cannot go stale: a definition is
+// node-local configuration and `ConsoleScenario` models no node at all, so there is
+// no field a scenario could grow that would make one derivable.
 
 /**
- * Members a scenario would have to carry to say which participant the window is.
+ * Names a scenario must NOT state a viewer under — the spellings that are not the
+ * field the port reads.
  *
- * Not `participantIdsInJoinOrder`, which every scenario carries and which is
- * deliberately not this fact: join order is who opened the session and who followed,
- * on any machine, and reading the head of it as "me" is the fabrication the refusal
- * exists to avoid.
+ * `viewingParticipantId` is deliberately absent from this list: it is the one name
+ * the fixture answers from, and every substrate scenario now carries it. What the
+ * finder catches is the near-miss — a family scenario that writes `viewerParticipantId`
+ * into a scripted reply and quietly gets a refusal, because the port never looks
+ * there. Not `participantIdsInJoinOrder` either, which every scenario carries and
+ * which is deliberately not this fact: join order is who opened the session and who
+ * followed, on any machine.
  */
 const VIEWER_NAMING_MEMBERS = [
   "viewerParticipantId",
@@ -592,13 +607,65 @@ function findScenariosNaming(
     .map((scenario) => scenario.id);
 }
 
-describe("the fixture's identity and registry reads — refusing on a stated premise", () => {
-  it("plays no scenario that says which participant the window is", () => {
+describe("the fixture's identity read — answered from the field, refused without it", () => {
+  it("answers which participant this window is, from the scenario's own statement", async () => {
+    const port = fixturePort();
+
+    const outcome = await port.callerParticipantRead({ sessionId: FLAGSHIP_SCENARIO.sessionId });
+
+    expect(outcome.status).toBe("served");
+    if (outcome.status === "served") {
+      expect(outcome.value.participantId).toBe(FLAGSHIP_SCENARIO.viewingParticipantId);
+      // In the roster, which is what makes the answer resolvable to a role. The
+      // wire-truth predicate holds every scenario to this; the assertion here is
+      // that the PORT answers with the member rather than with something adjacent.
+      expect(FLAGSHIP_SCENARIO.participantIdsInJoinOrder).toContain(outcome.value.participantId);
+    }
+  });
+
+  it("refuses for a scenario that states no viewer, rather than reading join order", () => {
+    // The fabrication the field exists to prevent, asserted as a refusal rather
+    // than argued in a comment: the head of the join order is right there and is
+    // not the answer.
+    const { viewingParticipantId: _statedViewer, ...withoutViewerFields } = FLAGSHIP_SCENARIO;
+    const withoutViewer: ConsoleScenario = { ...withoutViewerFields, id: "states-no-viewer" };
+
+    return expect(
+      createFixtureBridge({ scenario: withoutViewer }).growth.callerParticipantRead({
+        sessionId: withoutViewer.sessionId,
+      }),
+    ).resolves.toMatchObject({ status: "unavailable", code: "wire-unregistered" });
+  });
+
+  it("lends no session's viewer to another, a role being a fact about one roster", async () => {
+    const port = fixturePort();
+
+    const outcome = await port.callerParticipantRead({ sessionId: "session-somebody-else" });
+
+    expect(outcome.status).toBe("unavailable");
+    expect(outcome).not.toHaveProperty("value");
+  });
+
+  it("keeps that answer out of the live bridge, which still has no wire for it", async () => {
+    const bridge = createLiveBridge(createTier1Bridge());
+
+    const outcome = await bridge.growth.callerParticipantRead({
+      sessionId: FLAGSHIP_SCENARIO.sessionId,
+    });
+
+    expect(outcome.status).toBe("unavailable");
+    if (outcome.status === "unavailable") {
+      expect(outcome.slateRow).toBe("caller-participant-identity");
+      expect(outcome.owningDocument).toContain("Authenticated Principal");
+    }
+  });
+
+  it("plays no scenario that states a viewer under a name the port does not read", () => {
     expect(findScenariosNaming(CONSOLE_SCENARIOS, VIEWER_NAMING_MEMBERS)).toStrictEqual([]);
   });
 
-  it("negative control: reports a scenario that DOES say", () => {
-    const withViewer: ConsoleScenario = {
+  it("negative control: reports a scenario that states one under the wrong name", () => {
+    const withMisnamedViewer: ConsoleScenario = {
       ...FLAGSHIP_SCENARIO,
       id: "names-a-viewer",
       replies: [
@@ -609,11 +676,13 @@ describe("the fixture's identity and registry reads — refusing on a stated pre
       ],
     };
 
-    expect(findScenariosNaming([withViewer], VIEWER_NAMING_MEMBERS)).toStrictEqual([
+    expect(findScenariosNaming([withMisnamedViewer], VIEWER_NAMING_MEMBERS)).toStrictEqual([
       "names-a-viewer",
     ]);
   });
+});
 
+describe("the fixture's registry reads — refusing on a stated premise", () => {
   it("plays no scenario that states a registered callback tool", () => {
     expect(findScenariosNaming(CONSOLE_SCENARIOS, CALLBACK_TOOL_NAMING_MEMBERS)).toStrictEqual([]);
   });
@@ -635,21 +704,19 @@ describe("the fixture's identity and registry reads — refusing on a stated pre
     ]);
   });
 
-  it("refuses all six under both bridges, each naming the row that owes its wire", async () => {
+  it("refuses all five under both bridges, each naming the row that owes its wire", async () => {
     const liveBridge = createLiveBridge(createTier1Bridge());
     const port = fixturePort();
-    const rows = [
-      "caller-participant-identity",
-      "callback-tool-registry-read",
-      "sidekick-definition-registry",
-    ];
+    const rows = ["callback-tool-registry-read", "sidekick-definition-registry"];
     const operationIds = (Object.keys(GROWTH_OPERATIONS) as GrowthOperationId[]).filter(
       (operationId) => rows.includes(GROWTH_OPERATIONS[operationId].slateRow),
     );
 
-    // Six, and the count is asserted so a row that quietly lost its operations
-    // cannot make the loop below vacuously pass.
-    expect(operationIds).toHaveLength(6);
+    // Five, and the count is asserted so a row that quietly lost its operations
+    // cannot make the loop below vacuously pass. The identity row is no longer
+    // among them — it is answered above from the scenario's own field, which is
+    // exactly the transition this count is here to notice.
+    expect(operationIds).toHaveLength(5);
     for (const operationId of operationIds) {
       for (const outcome of [
         await callOperation(port, operationId),
@@ -672,7 +739,6 @@ describe("the fixture's identity and registry reads — refusing on a stated pre
     const port = fixturePort();
 
     for (const [operationId, owner] of [
-      ["callerParticipantRead", "Authenticated Principal"],
       ["callbackToolRegistryRead", "Spec-005"],
       ["sidekickDefinitionList", "Spec-030"],
     ] as const) {

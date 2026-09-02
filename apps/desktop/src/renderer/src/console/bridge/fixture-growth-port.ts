@@ -1,11 +1,13 @@
 // The growth port the fixture bridge actually serves.
 //
 // Every other growth operation refuses under both bridges, which is what makes the
-// "not checked" absence a true statement rather than a placeholder. Four do not:
+// "not checked" absence a true statement rather than a placeholder. Five do not:
 // the two the console cannot function without — a session snapshot read and a
 // session directory read — the attention projection read, which is the only one of
-// them the console must not compute for itself, and the gitflow branch-context
-// read, whose whole answer today is that there is none.
+// them the console must not compute for itself, the gitflow branch-context read,
+// whose whole answer today is that there is none, and the caller-identity read,
+// which is answered from a scenario that states its own viewer and refused from one
+// that does not.
 //
 // WHY THE TWO SESSION READS ARE SERVED AND THE REST ARE NOT
 //
@@ -98,19 +100,28 @@
 // the suite beside this file is what keeps the claim true: the day a scenario does
 // carry a branch, that test fails and this derivation is what has to change.
 //
-// WHY THE IDENTITY AND REGISTRY READS REFUSE HERE TOO, AND WHY THAT IS NOT A GAP
+// WHY THE CALLER-IDENTITY READ IS ANSWERED FROM A FIELD AND NOT FROM JOIN ORDER
 //
-// Three rows landed together whose operations this fixture answers none of, and each
+// `ConsoleScenario` now carries `viewingParticipantId` — which of the roster this
+// window IS — and the read is served from that field and from nothing else. The
+// field exists because the fact had no other honest source: join order is who opened
+// the session and who followed, on any machine, so reading its head as "me" is a
+// fabrication, and a surface handed a fabricated identity renders a role gate as
+// though it had been checked.
+//
+// A scenario that states no viewer is therefore not a gap to fill in with a guess.
+// The operation refuses for it, exactly as it did before the field existed, and the
+// refusal says "not checked" — which is true of a script that has not said. That is
+// why the served set names this operation and the answer is still conditional: the
+// operation IS scripted here, and whether a given scenario scripts the fact is the
+// scenario's business. `wire-truth.ts` holds a stated viewer to the roster, so the
+// served arm can never answer with an identity no surface could resolve a role from.
+//
+// WHY THE REGISTRY READS REFUSE HERE, AND WHY THAT IS NOT A GAP EITHER
+//
+// Two rows land beside it whose operations this fixture answers none of, and each
 // refuses because a scenario states nothing it could answer FROM — not because the
 // script has not caught up.
-//
-//   • The caller's own participant identity. `ConsoleScenario` names a session, a
-//     join order, beats, replies, and a start instant, and nothing anywhere says
-//     which participant the window IS. Join order is not that fact: the first joiner
-//     is whoever opened the session, on any machine. Every available answer is a
-//     fabrication, and a fabricated identity is worse than a refusal, because a
-//     surface that reads one renders a role gate as though it had been checked. So
-//     this is exactly "not checked", which is what the refusal says.
 //
 //   • The session's callback-tool registry. A scenario can play `tool.*` beats, and
 //     folding those into a registry would answer the wrong question — a tool
@@ -128,8 +139,9 @@
 //     either, because a node with no definitions and a node nobody asked are answers
 //     to different questions.
 //
-// `findScenariosNamingAViewer` and `findScenariosNamingACallbackTool` beside this
-// file pin the first two premises the way the branch finder pins its own.
+// `findScenariosNaming` beside this file pins the callback-tool premise the way the
+// branch finder pins its own, and pins the identity premise from the other side: no
+// scenario states a viewer under any name but the one field the port reads.
 
 import type {
   AttentionItem,
@@ -137,7 +149,7 @@ import type {
   AttentionSeverity,
   AttentionTrigger,
 } from "./attention-projection.js";
-import { createRefusingGrowthPort, type GrowthPort } from "./growth-port.js";
+import { createRefusingGrowthPort, growthUnavailable, type GrowthPort } from "./growth-port.js";
 import type { GrowthSessionSummary } from "./growth-values.js";
 import type { ConsoleScenario, ScenarioEngine } from "./scenario.js";
 
@@ -155,6 +167,8 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS = [
   "attentionProjectionRead",
   // gitflow
   "gitflowBranchContextRead",
+  // identity
+  "callerParticipantRead",
 ] as const;
 
 /** One operation the fixture serves. Derived, so the set has exactly one home. */
@@ -209,6 +223,28 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
       // is not what happened.
       value: { branchContext: undefined },
     }),
+    // identity
+    callerParticipantRead: async (request) => {
+      const { viewingParticipantId } = engine.scenario;
+      // Refused rather than answered with an absence, and the distinction is the
+      // opposite of the branch-context read's above. There, the operation was
+      // answered and what it found was nothing — a state a surface has to draw.
+      // Here there is no such state: a session always HAS a viewer, and a scenario
+      // that has not said which one has left the question unasked rather than
+      // answered it emptily. So this takes the same "not checked" refusal the live
+      // bridge takes, which is the one honest reading.
+      if (viewingParticipantId === undefined) {
+        return growthUnavailable("callerParticipantRead");
+      }
+      // Scoped to the session the scenario is playing, on the `sessionRead` rule
+      // next door: an identity is a fact about one session's roster, and lending
+      // this session's viewer to another would tell a surface it holds a role in a
+      // session it may not even be a member of.
+      if (request.sessionId !== engine.scenario.sessionId) {
+        return growthUnavailable("callerParticipantRead");
+      }
+      return { status: "served", value: { participantId: viewingParticipantId } };
+    },
   };
   return { ...createRefusingGrowthPort(), ...served };
 }
