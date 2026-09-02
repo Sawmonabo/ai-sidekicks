@@ -227,6 +227,24 @@ describe("the composite says what it did", () => {
     expect(composite?.textContent).not.toContain("re-sent");
   });
 
+  it("queues the replacement byte-identical, indentation and blank line included", async () => {
+    // The trim used to run on the way to the wire rather than only on the blank
+    // test, so a pasted block reached the queue having lost the shape that was the
+    // reason for pasting it. The negative control is the dispatched params: the
+    // resolution is the same composite either way.
+    const indented = "  if (ready) {\n    ship();\n  }\n\n";
+    const { container, calls } = renderComposer("rollback");
+    typeInto(container.querySelector(".meridian-run-composer__position"), "4");
+    typeInto(container.querySelector(".meridian-run-composer__body"), indented);
+    await submit(container);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.params).toMatchObject({
+      type: "rollback",
+      replacementSend: { content: indented },
+    });
+  });
+
   it("carries the replacement on the one intervention rather than as a second call", async () => {
     const { container, calls } = renderComposer("rollback");
     typeInto(container.querySelector(".meridian-run-composer__position"), "4");

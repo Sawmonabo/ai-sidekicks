@@ -67,6 +67,88 @@ function mountBar(options: {
   return { result, line };
 }
 
+const FIRST_AGENT_ID = "agent-ada";
+const SECOND_AGENT_ID = "agent-grace";
+const FIRST_RUN_ID = "2c3d4e5f-6071-4182-8293-a4b5c6d7e8f0";
+const SECOND_RUN_ID = "3d4e5f60-7182-4293-83a4-b5c6d7e8f001";
+// The fixed form `neutralization-tripwire.ts` reads, which is what puts the card
+// on screen at all. Both agents carry one, so re-addressing moves between two
+// tripped targets rather than between a tripped one and no card.
+const TRIPWIRE_DETAIL = "driver.text_neutralization_failed origin=participant_text";
+
+/** A store holding two agents, each with a steerable run that has tripped. */
+function storeWithTwoTrippedAgents(): SessionStore {
+  const sessionStore = new SessionStore({ sessionId: SESSION_ID });
+  sessionStore.initialise({
+    cursor: 0,
+    entities: [
+      { kind: "agent", id: FIRST_AGENT_ID, body: { name: "Ada", driverName: "claude" } },
+      { kind: "agent", id: SECOND_AGENT_ID, body: { name: "Grace", driverName: "claude" } },
+      {
+        kind: "run",
+        id: FIRST_RUN_ID,
+        state: "paused",
+        body: {
+          agentId: FIRST_AGENT_ID,
+          runVersion: 3,
+          providerFailureDetail: TRIPWIRE_DETAIL,
+        },
+      },
+      {
+        kind: "run",
+        id: SECOND_RUN_ID,
+        state: "paused",
+        body: {
+          agentId: SECOND_AGENT_ID,
+          runVersion: 5,
+          providerFailureDetail: TRIPWIRE_DETAIL,
+        },
+      },
+    ],
+    participantJoinLog: ["participant-you"],
+  });
+  return sessionStore;
+}
+
+function paneFor(agentId: string): ConsolePaneAddress {
+  return { kind: "agent-console", entity: { kind: "agent", id: agentId } };
+}
+
+/** One mounted bar whose focused pane the case moves, without remounting it. */
+function mountAddressable(bridge: ConsoleBridge) {
+  const draftStore = new DraftStore({ restartNoticePending: false });
+  const sessionStore = storeWithTwoTrippedAgents();
+  const enumeration = new ProviderCommandEnumeration();
+  const barFor = (agentId: string): React.JSX.Element => (
+    <ComposerSendBar
+      sessionStore={sessionStore}
+      bridge={bridge}
+      draftStore={draftStore}
+      route={DEFAULT_ROUTE}
+      focusedPane={paneFor(agentId)}
+      commandEnumeration={enumeration}
+    />
+  );
+  const result = render(barFor(FIRST_AGENT_ID));
+  return {
+    result,
+    address: (agentId: string) => {
+      result.rerender(barFor(agentId));
+    },
+    line: (): HTMLTextAreaElement => {
+      const line = result.container.querySelector("textarea");
+      if (!(line instanceof HTMLTextAreaElement)) {
+        throw new Error("the send bar rendered no directive line");
+      }
+      return line;
+    },
+    resend: (): HTMLButtonElement | null => {
+      const offer = result.container.querySelector(".meridian-composer__resend");
+      return offer instanceof HTMLButtonElement ? offer : null;
+    },
+  };
+}
+
 describe("ComposerSendBar — the unsent body lives in the supplied draft store", () => {
   it("restores the text a remount would otherwise have thrown away", () => {
     const draftStore = new DraftStore({ restartNoticePending: false });
@@ -198,6 +280,214 @@ describe("ComposerSendBar — the store's restart disclosure, once", () => {
     fireEvent.focus(mounted.line);
     fireEvent.change(mounted.line, { target: { value: "unsent words" } });
     expect(mounted.result.container.querySelector(".meridian-composer__notice")).toBeNull();
+  });
+});
+
+describe("ComposerSendBar — a resend offer belongs to the target it was written for", () => {
+  it("withholds the offer under a target the body was not written for", async () => {
+    // The defect: the last sent body outlived the address it was sent under, so the
+    // second agent's tripwire card offered the first agent's words — and pressing
+    // "Send again" sent them there. The card itself still renders; only the offer is
+    // gone, which is what `ResendOffer` already does with no body.
+    const calls: string[] = [];
+    const bar = mountAddressable(
+      stubBridge(async (_method, params) => {
+        calls.push(JSON.stringify(params));
+        return undefined;
+      }),
+    );
+
+    fireEvent.change(bar.line(), { target: { value: "keep going on the parser" } });
+    await act(async () => {
+      fireEvent.keyDown(bar.line(), { key: "Enter" });
+    });
+    expect(bar.resend()).not.toBeNull();
+
+    bar.address(SECOND_AGENT_ID);
+    expect(bar.result.container.textContent).toContain("driver.text_neutralization_failed");
+    expect(bar.resend()).toBeNull();
+  });
+
+  it("restores the offer on returning to the address that holds it", async () => {
+    // The negative control for the case above: the guard withholds by ADDRESS rather
+    // than by "any re-address clears it", so a body is not lost by looking away.
+    const bar = mountAddressable(stubBridge(async () => undefined));
+
+    fireEvent.change(bar.line(), { target: { value: "keep going on the parser" } });
+    await act(async () => {
+      fireEvent.keyDown(bar.line(), { key: "Enter" });
+    });
+    bar.address(SECOND_AGENT_ID);
+    expect(bar.resend()).toBeNull();
+
+    bar.address(FIRST_AGENT_ID);
+    expect(bar.resend()).not.toBeNull();
+  });
+
+  it("resends that body to its own target, once", async () => {
+    const sent: unknown[] = [];
+    const bar = mountAddressable(
+      stubBridge(async (_method, params) => {
+        sent.push(params);
+        return undefined;
+      }),
+    );
+
+    fireEvent.change(bar.line(), { target: { value: "keep going on the parser" } });
+    await act(async () => {
+      fireEvent.keyDown(bar.line(), { key: "Enter" });
+    });
+    await act(async () => {
+      bar.resend()?.click();
+    });
+
+    expect(sent).toHaveLength(2);
+    expect(sent[1]).toMatchObject({
+      targetRunId: FIRST_RUN_ID,
+      content: "keep going on the parser",
+    });
+  });
+});
+
+describe("ComposerSendBar — directive history does not cross an addressing boundary", () => {
+  /** Put the caret at the start edge, which is the one place ArrowUp recalls. */
+  function pressArrowUpAtStart(line: HTMLTextAreaElement): void {
+    line.setSelectionRange(0, 0);
+    fireEvent.keyDown(line, { key: "ArrowUp" });
+  }
+
+  it("recalls nothing under an address the message was not sent from", async () => {
+    // The defect: one history for the life of the mounted bar meant ArrowUp under the
+    // second agent copied participant-authored text sent to the first into its line.
+    const bar = mountAddressable(stubBridge(async () => undefined));
+    fireEvent.change(bar.line(), { target: { value: "written for Ada" } });
+    await act(async () => {
+      fireEvent.keyDown(bar.line(), { key: "Enter" });
+    });
+
+    bar.address(SECOND_AGENT_ID);
+    fireEvent.change(bar.line(), { target: { value: "  half a thought for Grace" } });
+    act(() => {
+      pressArrowUpAtStart(bar.line());
+    });
+
+    expect(bar.line().value).toBe("  half a thought for Grace");
+  });
+
+  it("recalls that address's own message on returning to it", async () => {
+    // The negative control for the case above: history is KEYED rather than reset, so
+    // coming back finds what was sent from here — a reset would pass the first case
+    // and lose the history a person expects to still be there.
+    const bar = mountAddressable(stubBridge(async () => undefined));
+    fireEvent.change(bar.line(), { target: { value: "written for Ada" } });
+    await act(async () => {
+      fireEvent.keyDown(bar.line(), { key: "Enter" });
+    });
+
+    bar.address(SECOND_AGENT_ID);
+    bar.address(FIRST_AGENT_ID);
+    act(() => {
+      pressArrowUpAtStart(bar.line());
+    });
+
+    expect(bar.line().value).toBe("written for Ada");
+  });
+});
+
+describe("ComposerSendBar — one interrupt in flight", () => {
+  function stopButton(container: HTMLElement): HTMLButtonElement {
+    const stop = container.querySelector(".meridian-composer__stop");
+    if (!(stop instanceof HTMLButtonElement)) {
+      throw new Error("the send bar drew no stop control");
+    }
+    return stop;
+  }
+
+  it("issues one interrupt for two presses inside one frame", async () => {
+    // `driver.interruptRun` is not idempotent, and both presses run before React
+    // re-renders, so both read the same rendered state. Without the controller's
+    // synchronous latch the stub is called twice: the first retires the turn and the
+    // duplicate refuses with no live run, beside an interrupt that worked.
+    const calls: string[] = [];
+    let releaseFirstCall: () => void = () => undefined;
+    const pending = new Promise<void>((resolve) => {
+      releaseFirstCall = resolve;
+    });
+    const bar = mountAddressable(
+      stubBridge(async (method) => {
+        calls.push(method);
+        await pending;
+        return undefined;
+      }),
+    );
+
+    await act(async () => {
+      stopButton(bar.result.container).click();
+      stopButton(bar.result.container).click();
+    });
+    expect(calls).toStrictEqual(["driver.interruptRun"]);
+    expect(stopButton(bar.result.container).disabled).toBe(true);
+    expect(stopButton(bar.result.container).getAttribute("aria-busy")).toBe("true");
+
+    await act(async () => {
+      releaseFirstCall();
+      await pending;
+    });
+    expect(calls).toStrictEqual(["driver.interruptRun"]);
+    // The negative control for the latch itself: it releases in `finally`, so a
+    // wedged one would make the composer stoppable exactly once per window.
+    expect(stopButton(bar.result.container).disabled).toBe(false);
+  });
+
+  it("renders the daemon's refusal when the interrupt is refused", async () => {
+    const bar = mountAddressable(
+      stubBridge(async () => {
+        throw { code: "run.not_running", message: "there is no live run" };
+      }),
+    );
+
+    await act(async () => {
+      stopButton(bar.result.container).click();
+    });
+
+    expect(bar.result.container.textContent).toContain("there is no live run");
+    expect(stopButton(bar.result.container).disabled).toBe(false);
+  });
+
+  it("stays reachable while a send is in flight, which is what it is for", async () => {
+    // Deliberately not the send latch: a person interrupting a turn is escaping the
+    // state a pending send is part of, and sharing the latch would put the control
+    // behind it.
+    const calls: string[] = [];
+    let releaseSend: () => void = () => undefined;
+    const sendPending = new Promise<void>((resolve) => {
+      releaseSend = resolve;
+    });
+    const bar = mountAddressable(
+      stubBridge(async (method) => {
+        calls.push(method);
+        if (method === "run.intervene") {
+          await sendPending;
+        }
+        return undefined;
+      }),
+    );
+
+    fireEvent.change(bar.line(), { target: { value: "keep going" } });
+    await act(async () => {
+      fireEvent.keyDown(bar.line(), { key: "Enter" });
+    });
+    expect(calls).toStrictEqual(["run.intervene"]);
+
+    await act(async () => {
+      stopButton(bar.result.container).click();
+    });
+    expect(calls).toStrictEqual(["run.intervene", "driver.interruptRun"]);
+
+    await act(async () => {
+      releaseSend();
+      await sendPending;
+    });
   });
 });
 

@@ -27,6 +27,32 @@
 // store's flag is still consumed at that first focus, so a window tells one composer
 // and no other repeats it.
 //
+// STOP HAS ITS OWN LATCH AND NOT THE SEND ONE. `driver.interruptRun` is not
+// idempotent: a second press issues a second interrupt, and once the first has
+// retired the active turn the duplicate refuses with no live run — a misleading
+// refusal standing beside an interrupt that worked. So Stop takes the same ref
+// pattern the send path takes, for the same reason, and deliberately NOT the same
+// ref: interrupting a turn while a send is in flight is exactly what the control
+// exists for, and sharing the latch would put Stop behind the state it escapes. A
+// second press while the first is held is silent, as `dispatch`'s own is — the
+// person pressed the control for the interrupt already going.
+//
+// THE HISTORY WALK IS PER ADDRESS FOR THE SAME REASON. One history for the life of
+// the mounted bar carried an address's sent messages, and any walk in progress, into
+// the next address the bar was rebound to. `AddressedDirectiveHistories` keys them
+// on the same draft key, so the composer walks the history of the target it is
+// addressed to and no other.
+//
+// THE RESEND OFFER CARRIES ITS ADDRESSING. The tripwire card offers the last sent
+// body so a neutralized turn can be retried without retyping, and that body used to
+// be a bare string that outlived the address it was written for: sending to one
+// agent and then focusing another whose run had tripped offered the first agent's
+// words, and pressing the offer sent them to the second. So the offer is held WITH
+// the draft key it was sent under and is exposed only while that key is still the
+// current one. The draft key is already this composer's address identity, so the
+// guard is the same notion of "same target" the draft store keys on rather than a
+// second one beside it.
+//
 // THE UNSENT BODY LIVES IN THE SUPPLIED `DraftStore` AND NOWHERE ELSE. The
 // workspace hands the composer seat a window-lifetime store, keyed per address; a
 // `useState` string here would be a second home for the same text, and the two
@@ -46,7 +72,7 @@ import type { CommandExecutor } from "./command-executor.js";
 import { composerDraftKey } from "./draft-key.js";
 import { composerRefusal } from "./send-refusals.js";
 import {
-  DirectiveHistory,
+  AddressedDirectiveHistories,
   caretAtEnd,
   caretAtStart,
   composeDirectivePlaceholder,
@@ -69,6 +95,12 @@ export type SendControllerStatus = "idle" | "sending";
  */
 const NO_EXECUTOR_DETAIL =
   "That command was recognised but nothing here can run it, so nothing happened. Your message is still in the line.";
+
+/** The last sent body, held under the composer address it was sent to. */
+interface AddressedResendOffer {
+  readonly draftKey: string;
+  readonly body: string;
+}
 
 /** What the composer is built from. One object, so a new dependency is one edit. */
 export interface SendControllerDependencies {
@@ -113,9 +145,20 @@ export interface SendController {
   /** "new turn" or "steer", or `undefined` when this text resolves to no send. */
   readonly pathLabel: DirectivePathLabel | undefined;
   readonly status: SendControllerStatus;
+  /**
+   * Whether an interrupt is in flight, so the surface can mark Stop busy.
+   *
+   * Its own reading rather than a second value of {@link status}: a stop and a send
+   * can be in flight at once, and one status could not say so.
+   */
+  readonly isStopping: boolean;
   /** The last refusal, composer-side or daemon-side, until the person types again. */
   readonly refusal: ConsoleRefusal | undefined;
-  /** The most recent sent message, so a tripped run can be resent without retyping. */
+  /**
+   * The most recent message sent to THIS address, so a tripped run can be resent
+   * without retyping. `undefined` once the composer is re-addressed, because a body
+   * written for one target is not an offer to send it to another.
+   */
   readonly resendableText: string | undefined;
   /**
    * The store's restart disclosure, while it is armed and there is text to lose.
@@ -159,14 +202,18 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
   // A ref rather than state: the walk's own cursor is not rendered, and putting it
   // in state would re-render the whole bar on a keystroke that changed nothing a
   // person can see.
-  const historyRef = useRef<DirectiveHistory>(new DirectiveHistory());
+  const historiesRef = useRef<AddressedDirectiveHistories>(new AddressedDirectiveHistories());
   // Set before the await and cleared in `finally`, so every settlement — sent,
   // intercepted, refused, or a rejection the router turned into a refusal — releases
   // it on exactly one path rather than on the arms an author remembered.
   const isDispatchInFlight = useRef(false);
+  // Stop's own, on the same pattern and for the same reason. Separate because a stop
+  // is reachable while a send is in flight.
+  const isInterruptInFlight = useRef(false);
   const [status, setStatus] = useState<SendControllerStatus>("idle");
+  const [isStopping, setStopping] = useState(false);
   const [refusal, setRefusal] = useState<ConsoleRefusal | undefined>(undefined);
-  const [resendableText, setResendableText] = useState<string | undefined>(undefined);
+  const [resendOffer, setResendOffer] = useState<AddressedResendOffer | undefined>(undefined);
   // Armed by the first focus of this composer, and only where the store still owed
   // the disclosure. The store stays the source of whether one is owed at all; this
   // hook decides nothing except when the sentence has something to be about.
@@ -184,6 +231,10 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     [draftStore, draftKey],
   );
   const text = useSyncExternalStore(subscribeToDraft, readDraftText, readDraftText);
+  // Asked on every pass rather than in an effect, so a keystroke arriving before an
+  // effect could run still walks this address's own history. Idempotent for an
+  // address already current, which is what makes asking here safe.
+  const history = historiesRef.current.forAddress(draftKey);
 
   const changeText = useCallback(
     (next: string) => {
@@ -209,8 +260,8 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
         const outcome = await router.send(body, target);
         switch (outcome.status) {
           case "sent":
-            historyRef.current.recordSent(body);
-            setResendableText(body);
+            history.recordSent(body);
+            setResendOffer({ draftKey, body });
             draftStore.clear(draftKey);
             setRefusal(undefined);
             return;
@@ -244,7 +295,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
         setStatus("idle");
       }
     },
-    [router, target, draftStore, draftKey, commandExecutor],
+    [router, target, draftStore, draftKey, commandExecutor, history],
   );
 
   const send = useCallback(async () => {
@@ -259,8 +310,18 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
   );
 
   const stop = useCallback(async () => {
-    const outcome = await router.stop(target);
-    setRefusal(outcome.status === "refused" ? outcome.refusal : undefined);
+    if (isInterruptInFlight.current) {
+      return;
+    }
+    isInterruptInFlight.current = true;
+    setStopping(true);
+    try {
+      const outcome = await router.stop(target);
+      setRefusal(outcome.status === "refused" ? outcome.refusal : undefined);
+    } finally {
+      isInterruptInFlight.current = false;
+      setStopping(false);
+    }
   }, [router, target]);
 
   const recallOlder = useCallback(
@@ -268,14 +329,14 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
       if (!caretAtStart(caret)) {
         return false;
       }
-      const recalled = historyRef.current.recallOlder(readDraftText());
+      const recalled = history.recallOlder(readDraftText());
       if (recalled === undefined) {
         return false;
       }
       draftStore.write(draftKey, recalled);
       return true;
     },
-    [draftStore, draftKey, readDraftText],
+    [draftStore, draftKey, readDraftText, history],
   );
 
   const recallNewer = useCallback(
@@ -283,14 +344,14 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
       if (!caretAtEnd(caret)) {
         return false;
       }
-      const recalled = historyRef.current.recallNewer();
+      const recalled = history.recallNewer();
       if (recalled === undefined) {
         return false;
       }
       draftStore.write(draftKey, recalled);
       return true;
     },
-    [draftStore, draftKey],
+    [draftStore, draftKey, history],
   );
 
   const acknowledgeRestartNotice = useCallback(() => {
@@ -310,8 +371,9 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     placeholder: composeDirectivePlaceholder(target),
     pathLabel: directivePathLabel(resolution),
     status,
+    isStopping,
     refusal,
-    resendableText,
+    resendableText: resendOffer?.draftKey === draftKey ? resendOffer.body : undefined,
     restartNotice:
       isRestartNoticeArmed && text.length > 0 ? draftStore.restartNoticeText : undefined,
     changeText,

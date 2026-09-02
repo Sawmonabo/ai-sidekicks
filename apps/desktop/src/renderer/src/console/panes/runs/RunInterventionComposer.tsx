@@ -173,8 +173,12 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
         );
         return;
       }
-      const replacement = body.trim();
-      if (body.length > 0 && replacement.length === 0) {
+      // A test, never a transform: what the daemon is handed below is the body the
+      // participant typed, byte for byte. A trimmed replacement would reach the
+      // queue having lost the indentation or the separating blank line that was the
+      // point of writing it that way.
+      const isReplacementBlank = body.trim().length === 0;
+      if (body.length > 0 && isReplacementBlank) {
         setLocalRefusal(
           refuse(
             RUN_CONTROL_REFUSAL_ORIGIN,
@@ -188,9 +192,9 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
       surface.dispatch(run.runId, "rollback", (dispatcher) =>
         dispatcher.rollback(
           { runId: run.runId, expectedRunVersion: comparand },
-          replacement.length === 0
+          isReplacementBlank
             ? { targetPosition: reading.position }
-            : { targetPosition: reading.position, replacementSend: { content: replacement } },
+            : { targetPosition: reading.position, replacementSend: { content: body } },
         ),
       );
     },

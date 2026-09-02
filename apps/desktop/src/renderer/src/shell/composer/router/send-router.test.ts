@@ -226,6 +226,79 @@ describe("ComposerSendRouter — an enumerated provider entry is named, never se
   });
 });
 
+describe("ComposerSendRouter — the daemon receives the text the participant wrote", () => {
+  // Indentation and a trailing blank line, both load-bearing: this is what a pasted
+  // block and a deliberately separated Markdown paragraph look like. The negative
+  // control in every case is the dispatched params rather than the resolution label,
+  // because the old router resolved to the same arm and sent different bytes.
+  const INDENTED_BODY = "  if (ready) {\n    ship();\n  }\n\n";
+
+  it("queues a channel message byte-identical, indentation and blank line included", async () => {
+    const call = vi.fn().mockResolvedValue({});
+    await routerWith(call).send(INDENTED_BODY, CHANNEL_TARGET);
+
+    expect(call).toHaveBeenCalledWith("run.queueCreate", {
+      sessionId: SESSION_ID,
+      channelId: CHANNEL_ID,
+      payload: { content: INDENTED_BODY },
+    });
+  });
+
+  it("steers with the same bytes, so the running turn reads what was typed", async () => {
+    const call = vi.fn().mockResolvedValue({});
+    await routerWith(call).send(INDENTED_BODY, RUN_TARGET);
+
+    expect(call).toHaveBeenCalledWith("run.intervene", {
+      type: "steer",
+      targetRunId: RUN_ID,
+      expectedRunVersion: 7,
+      clientIdempotencyKey: PINNED_REQUEST_UUID,
+      content: INDENTED_BODY,
+    });
+  });
+
+  it("still refuses a body that is only whitespace, because blankness is a test", async () => {
+    const call = vi.fn().mockResolvedValue({});
+    const outcome = await routerWith(call).send("  \n\t ", CHANNEL_TARGET);
+
+    expect(outcome.status === "refused" && outcome.refusal.code).toBe("empty-message");
+    expect(call).not.toHaveBeenCalled();
+  });
+
+  it("sends an indented line beginning with a slash as the prose it is", async () => {
+    // The narrowing the raw read buys: a command opens its line. Pasted code whose
+    // first non-blank character is a slash used to be refused as an unknown command.
+    const call = vi.fn().mockResolvedValue({});
+    const outcome = await routerWith(call, ["help"]).send("  /help me read this", CHANNEL_TARGET);
+
+    expect(outcome).toStrictEqual({ status: "sent", path: "channel-message" });
+    expect(call).toHaveBeenCalledWith("run.queueCreate", {
+      sessionId: SESSION_ID,
+      channelId: CHANNEL_ID,
+      payload: { content: "  /help me read this" },
+    });
+  });
+
+  it("negative control: the same name at the first byte is still a command", async () => {
+    const call = vi.fn().mockResolvedValue({});
+    const outcome = await routerWith(call, ["help"]).send("/help me read this", CHANNEL_TARGET);
+
+    expect(outcome).toStrictEqual({ status: "intercepted", commandName: "help" });
+    expect(call).not.toHaveBeenCalled();
+  });
+
+  it("strips exactly the escape and leaves the participant's spacing alone", async () => {
+    const call = vi.fn().mockResolvedValue({});
+    await routerWith(call).send("//literal  \n", CHANNEL_TARGET);
+
+    expect(call).toHaveBeenCalledWith("run.queueCreate", {
+      sessionId: SESSION_ID,
+      channelId: CHANNEL_ID,
+      payload: { content: "/literal  \n" },
+    });
+  });
+});
+
 describe("ComposerSendRouter — a daemon refusal is carried, never paraphrased", () => {
   it("renders the daemon's own code and message", async () => {
     const call = vi

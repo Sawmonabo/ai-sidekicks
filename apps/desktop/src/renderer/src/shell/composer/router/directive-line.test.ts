@@ -2,9 +2,10 @@
 
 import { describe, expect, it } from "vitest";
 
-import { COMPOSER_HISTORY_RECALL_CAP } from "../composer-bounds.js";
+import { COMPOSER_HISTORY_RECALL_CAP, COMPOSER_RETAINED_ADDRESS_CAP } from "../composer-bounds.js";
 import type { ComposerChannelTarget, ComposerRunTarget } from "../chips/chip-models.js";
 import {
+  AddressedDirectiveHistories,
   DirectiveHistory,
   caretAtEnd,
   caretAtStart,
@@ -125,6 +126,17 @@ describe("recall walks sent messages and gives the draft back", () => {
     history.recordSent("   ");
     expect(history.recallableCount).toBe(0);
   });
+
+  it("recalls the message verbatim, so walking back and sending again sends the same bytes", () => {
+    // The list used to store a trimmed copy, which put the router's own defect one
+    // ArrowUp away: the send went out with the indentation and the recall gave it
+    // back without.
+    const history = new DirectiveHistory();
+    const indented = "  if (ready) {\n    ship();\n  }\n\n";
+    history.recordSent(indented);
+
+    expect(history.recallOlder("")).toBe(indented);
+  });
 });
 
 describe("the edge offsets are what let an arrow recall at all", () => {
@@ -138,5 +150,57 @@ describe("the edge offsets are what let an arrow recall at all", () => {
     // matters: ArrowUp there extends or collapses their selection.
     expect(caretAtStart({ selectionStart: 0, selectionEnd: 4, textLength: 9 })).toBe(false);
     expect(caretAtEnd({ selectionStart: 4, selectionEnd: 4, textLength: 9 })).toBe(false);
+  });
+});
+
+describe("histories are per address, so a walk never crosses a rebinding", () => {
+  it("keeps each address's sent messages to itself", () => {
+    const histories = new AddressedDirectiveHistories();
+    histories.forAddress("first").recordSent("written for the first");
+
+    // The defect this closes: one history for the mounted bar handed the second
+    // address the first one's participant-authored text on ArrowUp.
+    expect(histories.forAddress("second").recallOlder("")).toBeUndefined();
+    expect(histories.forAddress("first").recallOlder("")).toBe("written for the first");
+  });
+
+  it("puts the cursor at rest for an address that has just become current", () => {
+    const histories = new AddressedDirectiveHistories();
+    histories.forAddress("first").recordSent("written for the first");
+    expect(histories.forAddress("first").recallOlder("half-written")).toBe("written for the first");
+
+    histories.forAddress("second");
+    const returned = histories.forAddress("first");
+
+    // Walking is a gesture within one line: coming back cannot land mid-walk, so the
+    // stashed draft is not restorable and the walk starts again from the newest.
+    expect(returned.isRecalling).toBe(false);
+    expect(returned.recallNewer()).toBeUndefined();
+    expect(returned.recallOlder("")).toBe("written for the first");
+  });
+
+  it("evicts the least recently addressed past the retained-address cap", () => {
+    const histories = new AddressedDirectiveHistories();
+    for (let index = 0; index <= COMPOSER_RETAINED_ADDRESS_CAP; index += 1) {
+      histories.forAddress(`address ${String(index)}`).recordSent(`message ${String(index)}`);
+    }
+
+    expect(histories.retainedAddressCount).toBe(COMPOSER_RETAINED_ADDRESS_CAP);
+    // The oldest address is gone; the newest is intact. The negative control for the
+    // eviction ORDER: dropping the most recent instead would pass a size assertion.
+    expect(histories.forAddress("address 0").recallOlder("")).toBeUndefined();
+    expect(
+      histories.forAddress(`address ${String(COMPOSER_RETAINED_ADDRESS_CAP)}`).recallOlder(""),
+    ).toBe(`message ${String(COMPOSER_RETAINED_ADDRESS_CAP)}`);
+  });
+
+  it("re-addressing an address it already holds does not disturb its walk", () => {
+    // Asked on every render, so it has to be idempotent: a re-ask that reset the
+    // cursor would make ArrowUp unable to reach past the newest message.
+    const histories = new AddressedDirectiveHistories();
+    histories.forAddress("first").recordSent("older");
+    histories.forAddress("first").recordSent("newer");
+    expect(histories.forAddress("first").recallOlder("")).toBe("newer");
+    expect(histories.forAddress("first").recallOlder("")).toBe("older");
   });
 });
