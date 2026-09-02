@@ -120,27 +120,56 @@ describe("DeckLayout — order, focus, and the ephemeral cascade", () => {
   });
 });
 
-describe("DeckLayout — resize", () => {
-  it("moves width between the two panes a separator sits between, and no others", () => {
+describe("DeckLayout — adopting what the panel group settled on", () => {
+  it("takes the group's percentages as the deck's widths, still summing to the total", () => {
     const layout = twoPaneLayout();
     layout.open({ kind: "runs", entity: undefined });
-    const before = layout.snapshot().panes.map((pane) => pane.sizePermille);
-    const [first] = layout.snapshot().panes;
-    layout.resize(first?.paneId ?? "", 60, 0);
-    const after = layout.snapshot().panes.map((pane) => pane.sizePermille);
+    const paneIds = layout.snapshot().panes.map((pane) => pane.paneId);
 
-    expect(after[0]).toBe((before[0] ?? 0) + 60);
-    expect(after[1]).toBe((before[1] ?? 0) - 60);
-    expect(after[2]).toBe(before[2]);
+    layout.applyLayout(
+      { [paneIds[0] ?? ""]: 50, [paneIds[1] ?? ""]: 30, [paneIds[2] ?? ""]: 20 },
+      0,
+    );
+
+    const after = layout.snapshot().panes.map((pane) => pane.sizePermille);
+    expect(after).toStrictEqual([500, 300, 200]);
     expect(after.reduce((sum, size) => sum + size, 0)).toBe(DECK_TOTAL_PERMILLE);
   });
 
-  it("negative control: the floor stops a pane being squeezed past it", () => {
+  it("clamps a width below the floor IN THE STORE, whatever the DOM reported", () => {
+    // The subject is the persisted value, not the rendered one: a width below the
+    // floor that reached the store would be written to disk and restored on the next
+    // launch, where no drag is happening for the library's own clamp to run in.
     const layout = twoPaneLayout();
-    const [first] = layout.snapshot().panes;
-    const floor = 400;
-    layout.resize(first?.paneId ?? "", DECK_TOTAL_PERMILLE, floor);
-    expect(layout.snapshot().panes[1]?.sizePermille).toBe(floor);
+    const paneIds = layout.snapshot().panes.map((pane) => pane.paneId);
+    const floorPermille = 400;
+
+    layout.applyLayout({ [paneIds[0] ?? ""]: 95, [paneIds[1] ?? ""]: 5 }, floorPermille);
+
+    const after = layout.snapshot().panes.map((pane) => pane.sizePermille);
+    expect(Math.min(...after)).toBeGreaterThanOrEqual(floorPermille);
+    expect(after.reduce((sum, size) => sum + size, 0)).toBe(DECK_TOTAL_PERMILLE);
+  });
+
+  it("negative control: with no floor the same layout is adopted unclamped", () => {
+    // Without this the case above would pass over a store that clamped every width
+    // to some fixed minimum of its own, which would make the floor argument dead.
+    const layout = twoPaneLayout();
+    const paneIds = layout.snapshot().panes.map((pane) => pane.paneId);
+    layout.applyLayout({ [paneIds[0] ?? ""]: 95, [paneIds[1] ?? ""]: 5 }, 0);
+    expect(layout.snapshot().panes.map((pane) => pane.sizePermille)).toStrictEqual([950, 50]);
+  });
+
+  it("negative control: a report that changes nothing raises no revision", () => {
+    // The guard that stops the write-back looping: the group reports its layout
+    // after every commit, including the ones this method caused.
+    const layout = twoPaneLayout();
+    const revisionBefore = layout.snapshot().revision;
+    const percentages = Object.fromEntries(
+      layout.snapshot().panes.map((pane) => [pane.paneId, pane.sizePermille / 10]),
+    );
+    layout.applyLayout(percentages, 0);
+    expect(layout.snapshot().revision).toBe(revisionBefore);
   });
 });
 

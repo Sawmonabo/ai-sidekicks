@@ -5,11 +5,10 @@
 // with a focus ring in the hue of the actor whose work it shows."
 //
 // WHAT THIS COMPONENT IS AND IS NOT. It is the frame: order, widths, focus, the
-// separators between panes, the keyboard paths, and the one door each pane body is
-// mounted through. It is NOT any pane's content — every body comes from
+// separators, the keyboard paths, and the one door each pane body is mounted
+// through. It is NOT any pane's content — every body comes from
 // `workspace/seats/pane-registry.ts`, resolved by kind, so a second open of the same
-// entity focuses the pane that already exists and no family can mount a second body
-// for a kind it does not own.
+// entity focuses the pane that already exists.
 //
 // FOUR DECISIONS WORTH STATING:
 //
@@ -24,8 +23,32 @@
 //   • **Keyboard before pointer.** Focus, move, and close are chords; resize is on
 //     the separator, which is focusable and operable with the arrow keys. A deck
 //     reachable only by dragging is a deck half the people using it cannot arrange.
+//
+// WHAT THE TWO ADOPTED LIBRARIES OWN, AND WHAT STAYS OURS. `Spec-023 §Console
+// Libraries`, row "Layout, panes, drag":
+//
+//   • `react-resizable-panels` owns the resize gesture, the flex arithmetic that
+//     turns a drag into widths, and the window-splitter ARIA with its arrow-key,
+//     Home/End and Enter bindings. It does NOT own the layout: `DeckLayout` does,
+//     and the group reports back to it. Its one open defect — the crossed
+//     `aria-valuemin` / `aria-valuemax` on every separator after the first — is
+//     wrapped in `separator-aria.ts`. A pane's floor rides the panel's own
+//     `minSize` in PIXELS, which is what the density preset means; upstream issue
+//     #720 reports a pixel floor being rescaled as a percentage across a window
+//     resize, which is why `DeckLayout.applyLayout` clamps again over a freshly
+//     measured deck — and only the store's clamp is written to disk.
+//   • `@atlaskit/pragmatic-drag-and-drop` owns the pointer reorder gesture, as the
+//     browser's own HTML5 drag, so no React render happens per frame. It provides
+//     no keyboard drag by design, which is why the Alt+Shift chord below is not an
+//     alternative to the gesture but the accessible path the row's constraint
+//     requires the deck to keep.
+//
+// Own-built and staying own-built: the deck store, the separator's chrome, the drop
+// indicator, the keyboard reorder path, and the density floor. Neither library ships
+// a stylesheet and neither is imported for one.
 
 import { Fragment, memo, useCallback, useMemo, useRef, useState } from "react";
+import { Group, Panel, Separator } from "react-resizable-panels";
 
 import { RealClock, type ConsoleRefusal } from "../../core/index.js";
 import { InlineRefusal, Nothing } from "../../primitives/index.js";
@@ -35,19 +58,25 @@ import {
   type PaneKind,
 } from "../seats/index.js";
 import { useDeckLayoutState, type DeckLayout } from "./deck-layout.js";
-import { DECK_TOTAL_PERMILLE, type DeckPane } from "./deck-model.js";
+import {
+  DECK_TOTAL_PERMILLE,
+  PERMILLE_PER_PERCENT,
+  toPaneSizePercentages,
+  type DeckPane,
+} from "./deck-model.js";
 import { minimumPaneWidthPx, type DeckDensity } from "./density.js";
+import {
+  useDeckDragCoordinator,
+  useDeckDragMonitor,
+  useDeckDropIndicator,
+  usePaneDragSource,
+  usePaneDropTarget,
+  type DeckDragCoordinator,
+  type PaneDropIndicator,
+} from "./pane-drag.js";
 import { PaneControlsContext, type PaneControls } from "./pane-controls.js";
 import { usePaneRectSources, usePaneRectTracker, type TrackedRect } from "./rect-discipline.js";
-
-/**
- * How much one arrow press moves a separator, in permille of the deck.
- *
- * Two percent: coarse enough that a pane crosses a useful distance in a few
- * presses, fine enough that a person can land on a width they meant. The pointer
- * path is continuous and does not use it.
- */
-const SEPARATOR_KEYBOARD_STEP_PERMILLE = 20;
+import { useSeparatorValueBoundsCorrection } from "./separator-aria.js";
 
 export interface DeckProps {
   readonly layout: DeckLayout;
@@ -74,14 +103,20 @@ export function Deck(props: DeckProps): React.JSX.Element {
     ...(props.onPaneRects === undefined ? {} : { onRects: props.onPaneRects }),
   });
   usePaneRectSources(tracker, containerReference, state.revision);
+  useSeparatorValueBoundsCorrection(containerReference, state.revision);
+
+  const dragCoordinator = useDeckDragCoordinator();
+  useDeckDragMonitor(dragCoordinator, layout);
+  const dropIndicator = useDeckDropIndicator(dragCoordinator);
 
   /**
-   * The floor a separator holds both its panes above, in permille.
+   * The density floor as a share of the deck, in permille, right now.
    *
-   * Read from the live element at the moment of the act rather than held in state:
-   * the floor is a width in pixels divided by the deck's own width, and a deck
-   * width kept in state would be a second copy of a number the DOM already has —
-   * one that goes stale exactly when the window is being resized.
+   * Measured at the moment of the act rather than held in state: the floor is a
+   * width in pixels divided by the deck's own width, and a deck width kept in state
+   * would be a second copy of a number the DOM already has — one that goes stale
+   * exactly when the window is being resized. It is read inside a callback and
+   * never during a render, so nothing here makes rendering depend on layout.
    */
   const minimumPermille = useCallback(
     (density: DeckDensity): number => {
@@ -156,13 +191,35 @@ export function Deck(props: DeckProps): React.JSX.Element {
     [tracker],
   );
 
+  /**
+   * Adopt what the group settled on, and re-measure while it is still settling.
+   *
+   * Two callbacks because they answer two different questions. `onLayoutChanged`
+   * fires once, when the pointer is released or a key is pressed, and is what the
+   * store keeps — writing every intermediate frame would put sixty arrangements a
+   * second through the persistence writer. `onLayoutChange` fires on every frame of
+   * the drag and does exactly one thing: invalidates the pane rects, so a native
+   * view hosted in a pane tracks its bounds THROUGH the resize rather than jumping
+   * to them at the end of it (§4.3). It is a read, queued to the next frame by the
+   * tracker; it writes no layout, which is the rule that callback exists under.
+   */
+  const onLayoutSettled = useCallback(
+    (percentages: Readonly<Record<string, number>>) => {
+      layout.applyLayout(percentages, minimumPermille(state.density));
+    },
+    [layout, minimumPermille, state.density],
+  );
+  const onLayoutMoving = useCallback(() => {
+    tracker.invalidate("layout-mover");
+  }, [tracker]);
+
   const refusals = props.restoreRefusals ?? [];
+  const defaultLayout = useMemo(() => toPaneSizePercentages(state.panes), [state.panes]);
 
   return (
     <div
       className="meridian-deck"
       data-density={state.density}
-      ref={containerReference}
       role="group"
       aria-label="Open panes"
       onKeyDown={onKeyDown}
@@ -186,111 +243,45 @@ export function Deck(props: DeckProps): React.JSX.Element {
           detail="Open one from the sidebar, or follow somebody from the cast bar."
         />
       ) : (
-        state.panes.map((pane, position) => (
-          <Fragment key={pane.paneId}>
-            {position === 0 ? null : (
-              <PaneSeparator
-                leftPaneId={state.panes[position - 1]?.paneId ?? pane.paneId}
-                leftSizePermille={state.panes[position - 1]?.sizePermille ?? 0}
-                onResize={(deltaPermille) => {
-                  const left = state.panes[position - 1];
-                  if (left !== undefined) {
-                    layout.resize(left.paneId, deltaPermille, minimumPermille(state.density));
-                  }
-                }}
+        <Group
+          className="meridian-deck__group"
+          elementRef={containerReference}
+          orientation="horizontal"
+          defaultLayout={defaultLayout}
+          onLayoutChange={onLayoutMoving}
+          onLayoutChanged={onLayoutSettled}
+        >
+          {state.panes.map((pane, position) => (
+            <Fragment key={pane.paneId}>
+              {position === 0 ? null : (
+                <Separator
+                  className="meridian-deck__separator"
+                  aria-label="Resize the pane to the left"
+                />
+              )}
+              <DeckPaneSlot
+                pane={pane}
+                isFocused={pane.paneId === state.focusedPaneId}
+                density={state.density}
+                registry={props.registry}
+                paneContextFor={props.paneContextFor}
+                dragCoordinator={dragCoordinator}
+                dropIndicator={
+                  dropIndicator?.overPaneId === pane.paneId ? dropIndicator.edge : undefined
+                }
+                onFocus={focusPane}
+                onClose={closePane}
+                {...(props.onOpenInWindow === undefined
+                  ? {}
+                  : { onOpenInWindow: props.onOpenInWindow })}
+                trackElement={trackElement}
+                untrackElement={untrackElement}
               />
-            )}
-            <DeckPaneSlot
-              pane={pane}
-              isFocused={pane.paneId === state.focusedPaneId}
-              density={state.density}
-              registry={props.registry}
-              paneContextFor={props.paneContextFor}
-              onFocus={focusPane}
-              onClose={closePane}
-              {...(props.onOpenInWindow === undefined
-                ? {}
-                : { onOpenInWindow: props.onOpenInWindow })}
-              trackElement={trackElement}
-              untrackElement={untrackElement}
-            />
-          </Fragment>
-        ))
+            </Fragment>
+          ))}
+        </Group>
       )}
     </div>
-  );
-}
-
-interface PaneSeparatorProps {
-  readonly leftPaneId: string;
-  readonly leftSizePermille: number;
-  readonly onResize: (deltaPermille: number) => void;
-}
-
-/**
- * The grab bar between two panes.
- *
- * `role="separator"` with a `tabIndex`, which is what makes a separator an
- * OPERABLE widget rather than a decorative rule — the arrow keys move it, and
- * `aria-valuenow` is what a screen reader announces as it moves. The pointer path
- * is a pointer capture on the same element, so the two agree on one act.
- */
-function PaneSeparator(props: PaneSeparatorProps): React.JSX.Element {
-  const dragOriginX = useRef<number | undefined>(undefined);
-
-  const endDrag = (event: React.PointerEvent<HTMLDivElement>): void => {
-    dragOriginX.current = undefined;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-  };
-
-  return (
-    <div
-      className="meridian-deck__separator"
-      role="separator"
-      tabIndex={0}
-      aria-orientation="vertical"
-      aria-label="Resize the pane to the left"
-      aria-valuenow={props.leftSizePermille}
-      aria-valuemin={0}
-      aria-valuemax={DECK_TOTAL_PERMILLE}
-      onKeyDown={(event) => {
-        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
-          return;
-        }
-        props.onResize(
-          event.key === "ArrowRight"
-            ? SEPARATOR_KEYBOARD_STEP_PERMILLE
-            : -SEPARATOR_KEYBOARD_STEP_PERMILLE,
-        );
-        event.preventDefault();
-      }}
-      onPointerDown={(event) => {
-        dragOriginX.current = event.clientX;
-        event.currentTarget.setPointerCapture(event.pointerId);
-      }}
-      onPointerMove={(event) => {
-        const origin = dragOriginX.current;
-        const deckWidth = event.currentTarget.parentElement?.getBoundingClientRect().width ?? 0;
-        // `buttons` as well as the origin, because a pointer move also fires on a
-        // bare hover: without it a drag the system ended without telling us would
-        // leave the separator following the cursor around the deck.
-        if (origin === undefined || event.buttons === 0 || deckWidth <= 0) {
-          return;
-        }
-        dragOriginX.current = event.clientX;
-        props.onResize(Math.round(((event.clientX - origin) / deckWidth) * DECK_TOTAL_PERMILLE));
-      }}
-      onPointerUp={(event) => {
-        endDrag(event);
-      }}
-      // A cancel is the case a released capture does not cover: the browser or the
-      // OS takes the pointer away mid-drag and no `pointerup` ever arrives.
-      onPointerCancel={(event) => {
-        endDrag(event);
-      }}
-    />
   );
 }
 
@@ -300,6 +291,9 @@ interface DeckPaneSlotProps {
   readonly density: DeckDensity;
   readonly registry: ConsolePaneRegistry;
   readonly paneContextFor: (pane: DeckPane) => ConsolePaneContext;
+  readonly dragCoordinator: DeckDragCoordinator;
+  /** The edge a drop would land on, when a drag is currently over this pane. */
+  readonly dropIndicator: PaneDropIndicator["edge"] | undefined;
   readonly onFocus: (paneId: string) => void;
   readonly onClose: (paneId: string) => void;
   readonly onOpenInWindow?: (pane: DeckPane) => void;
@@ -315,15 +309,24 @@ interface DeckPaneSlotProps {
  * bodies for every event that touches one of them.
  */
 const DeckPaneSlot = memo(function DeckPaneSlot(props: DeckPaneSlotProps): React.JSX.Element {
-  const { pane, onClose, onFocus, onOpenInWindow, trackElement, untrackElement } = props;
+  const { dragCoordinator, pane, onClose, onFocus, onOpenInWindow, trackElement, untrackElement } =
+    props;
   const descriptor = props.registry.descriptorFor(pane.kind);
   const canOpenInWindow = descriptor?.openInWindow === true && onOpenInWindow !== undefined;
+
+  // The panel's own root element, which is the one the library sizes. It is the
+  // element the rect discipline measures and the element a drop is aimed at, so
+  // both hold the same node rather than one holding a wrapper of the other.
+  const [panelElement, setPanelElement] = useState<HTMLDivElement | null>(null);
+  const registerDragHandle = usePaneDragSource(dragCoordinator, pane.paneId);
+  usePaneDropTarget(dragCoordinator, pane.paneId, panelElement);
 
   const controls = useMemo<PaneControls>(
     () => ({
       onClose: () => {
         onClose(pane.paneId);
       },
+      registerDragHandle,
       ...(canOpenInWindow
         ? {
             onOpenInWindow: (): void => {
@@ -332,7 +335,7 @@ const DeckPaneSlot = memo(function DeckPaneSlot(props: DeckPaneSlotProps): React
           }
         : {}),
     }),
-    [canOpenInWindow, onClose, onOpenInWindow, pane],
+    [canOpenInWindow, onClose, onOpenInWindow, pane, registerDragHandle],
   );
 
   const onFocusCapture = useCallback(() => {
@@ -341,6 +344,7 @@ const DeckPaneSlot = memo(function DeckPaneSlot(props: DeckPaneSlotProps): React
 
   const attachElement = useCallback(
     (element: HTMLDivElement | null) => {
+      setPanelElement(element);
       if (element === null) {
         untrackElement(pane.paneId);
         return;
@@ -350,13 +354,24 @@ const DeckPaneSlot = memo(function DeckPaneSlot(props: DeckPaneSlotProps): React
     [pane.paneId, trackElement, untrackElement],
   );
 
+  const paneClassName = [
+    "meridian-deck__pane",
+    props.isFocused ? "meridian-deck__pane--focused" : undefined,
+    props.dropIndicator === undefined
+      ? undefined
+      : `meridian-deck__pane--drop-${props.dropIndicator}`,
+  ]
+    .filter((token): token is string => token !== undefined)
+    .join(" ");
+
   return (
-    <div
-      className="meridian-deck__pane"
-      data-focused={props.isFocused}
-      style={{ flexGrow: pane.sizePermille, minWidth: minimumPaneWidthPx(props.density) }}
+    <Panel
+      id={pane.paneId}
+      className={paneClassName}
+      elementRef={attachElement}
+      minSize={minimumPaneWidthPx(props.density)}
+      defaultSize={`${String(pane.sizePermille / PERMILLE_PER_PERCENT)}%`}
       onFocusCapture={onFocusCapture}
-      ref={attachElement}
     >
       <PaneControlsContext.Provider value={controls}>
         {descriptor === undefined ? (
@@ -365,7 +380,7 @@ const DeckPaneSlot = memo(function DeckPaneSlot(props: DeckPaneSlotProps): React
           descriptor.render(props.paneContextFor(pane))
         )}
       </PaneControlsContext.Provider>
-    </div>
+    </Panel>
   );
 });
 

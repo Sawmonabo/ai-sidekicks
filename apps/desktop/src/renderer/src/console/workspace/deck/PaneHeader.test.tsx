@@ -160,3 +160,45 @@ describe("PaneHeader — where the controls come from", () => {
     expect(buttons).toHaveLength(2);
   });
 });
+
+describe("PaneHeader — the drag handle", () => {
+  it("hands the host its own header element, which is what the drag adapter binds to", () => {
+    const registered: (HTMLElement | null)[] = [];
+    const header = renderHeader(
+      <PaneControlsContext.Provider
+        value={{
+          registerDragHandle: (element) => {
+            registered.push(element);
+          },
+        }}
+      >
+        <PaneHeader
+          kind="timeline"
+          title="Timeline"
+          headingId="heading-1"
+          sessionId="session-1"
+          entity={undefined}
+        />
+      </PaneControlsContext.Provider>,
+    );
+    expect(registered[0]).toBe(header);
+  });
+
+  it("negative control: a header with no host registers nothing and is undraggable", () => {
+    // Without this the header could be registering unconditionally, which would make
+    // the auxiliary window's single pane draggable onto a deck it is not part of.
+    const registered: (HTMLElement | null)[] = [];
+    renderHeader(
+      <PaneControlsContext.Provider value={{ onClose: () => undefined }}>
+        <PaneHeader
+          kind="timeline"
+          title="Timeline"
+          headingId="heading-1"
+          sessionId="session-1"
+          entity={undefined}
+        />
+      </PaneControlsContext.Provider>,
+    );
+    expect(registered).toStrictEqual([]);
+  });
+});

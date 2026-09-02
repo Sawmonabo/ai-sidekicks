@@ -24,6 +24,14 @@
 // The heading id is a PROP rather than minted here, because the `<section>` that
 // wraps a pane is the element that carries `aria-labelledby` and only the pane
 // knows its own id.
+//
+// AND WHY THE HEADER IS ALSO THE DRAG HANDLE. `Spec-023 §Console Libraries` puts
+// pointer reorder on `@atlaskit/pragmatic-drag-and-drop`, which binds to an element.
+// The header is the strip that means "this pane" in every deck a person has used,
+// and making the whole pane draggable would turn selecting text in a pane body into
+// the start of a drag. The registration arrives through the same host context the
+// two deck controls do, so a header rendered outside a deck is simply not draggable
+// — the absent-not-disabled rule again, applied to a gesture.
 
 import { Glyph, WireFigure } from "../../primitives/index.js";
 import { type ConsoleEntityRef } from "../../store/index.js";
@@ -80,9 +88,10 @@ export function PaneHeader(props: PaneHeaderProps): React.JSX.Element {
   const hostControls = usePaneControls();
   const onClose = props.onClose ?? hostControls?.onClose;
   const onOpenInWindow = props.onOpenInWindow ?? hostControls?.onOpenInWindow;
+  const registerDragHandle = hostControls?.registerDragHandle;
 
   return (
-    <header className="meridian-pane__header">
+    <header className="meridian-pane__header" ref={registerDragHandle}>
       <span className="meridian-pane__kind">
         <Glyph name={PANE_KIND_GLYPHS[props.kind]} size={PANE_KIND_GLYPH_SIZE} />
         <span className="meridian-pane__heading" id={props.headingId}>
