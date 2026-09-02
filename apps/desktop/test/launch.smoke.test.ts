@@ -1535,11 +1535,13 @@ describe("derived timing budgets", () => {
     // unbounded terms that slack exists for (the spawn itself, the `close`
     // event after SIGTERM, temp-profile cleanup). A legal-but-slow collection
     // would then fail on the runner's generic test timeout, losing the dump in
-    // precisely the case the dump exists for. Asserted in the weaker
-    // "contains" form this test passes against the very derivation it was
-    // written to reject, which is worth saying out loud: an arithmetic guard
-    // over constants is only worth its line count if it fails on the state it
-    // replaced, and this one is pinned to that state by perturbation.
+    // precisely the case the dump exists for.
+    //
+    // Written in the weaker "contains the ceiling" form, this test would pass
+    // against the very derivation it exists to reject — which is worth saying
+    // out loud, because an arithmetic guard over constants in its own file is
+    // worth its line count only if it fails on the state it replaced. This one
+    // was run against that state and does.
     expect(BOOT_TEST_TIMEOUT_MS).toBeGreaterThanOrEqual(
       SPAWN_TIMEOUT_MS +
         DIAGNOSTIC_COLLECTION_CEILING_MS +
