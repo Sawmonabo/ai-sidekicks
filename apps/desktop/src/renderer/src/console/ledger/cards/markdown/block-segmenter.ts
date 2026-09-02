@@ -79,7 +79,7 @@ export class MarkdownBlockSegmenter {
     const remainder = cumulativeSource.slice(this.#remainderOffset);
     return {
       settledBlocks,
-      volatileTail: [...laggedBlocks, remainder].join("").trimStart(),
+      volatileTail: withoutLeadingBlankLines([...laggedBlocks, remainder].join("")),
     };
   }
 
@@ -154,6 +154,23 @@ export class MarkdownBlockSegmenter {
     }
     this.#completeBlocks.push(block);
   }
+}
+
+/**
+ * Blank separator lines ahead of the tail's first content line, and nothing more.
+ *
+ * The block before this tail keeps its own trailing blank line so a re-join reproduces
+ * the source, which is why the tail starts on one at all — and dropping the separator
+ * is all that is wanted. Trimming leading WHITESPACE instead takes the indentation of
+ * the first content line with it, and in commonmark that indentation is syntax: four
+ * spaces open an indented code block, so `    command` would arrive at the parser as
+ * an ordinary paragraph and a reader would be shown prose where an author wrote code.
+ * The class is `[ \t]` rather than `\s` for the same reason the boundary scan is
+ * line-oriented: `\s` matches the newline itself and would eat the line's own
+ * terminator out of the middle of the run.
+ */
+function withoutLeadingBlankLines(tail: string): string {
+  return tail.replace(/^(?:[ \t]*\n)+/u, "");
 }
 
 /** The fence this line opens, or `undefined`. Backticks and tildes, per commonmark. */
