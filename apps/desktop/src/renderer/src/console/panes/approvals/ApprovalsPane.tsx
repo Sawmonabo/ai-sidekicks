@@ -27,7 +27,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Nothing } from "../../primitives/index.js";
+import { Nothing, formatCount } from "../../primitives/index.js";
 import { type ConsoleRefusal } from "../../core/index.js";
 import { useSessionStore, type SessionStore, type SessionStoreState } from "../../store/index.js";
 import { type ConsolePaneContext } from "../../workspace/index.js";
@@ -213,7 +213,18 @@ function ApprovalList(props: ApprovalListProps): React.JSX.Element {
     );
   }
   if (props.records.length === 0) {
-    return (
+    // Two independent facts, and the render has to be able to say both. An answered
+    // read whose records this build could not decode is NOT a served empty set, and
+    // reporting it as one tells an operator that nothing needs them while requests
+    // may be waiting — rule 8's conflation rule, applied to one render.
+    return props.phase.unreadableCount > 0 ? (
+      <Nothing
+        kind="error"
+        placement="surface"
+        title="Part of this read could not be decoded."
+        detail={`The daemon answered and ${formatCount(props.phase.unreadableCount)} of the records it returned are shaped in a way this build cannot read, so this list is empty for that reason rather than because nothing is here.`}
+      />
+    ) : (
       <Nothing
         kind="empty"
         placement="surface"
