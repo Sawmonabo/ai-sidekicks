@@ -129,6 +129,40 @@ describe("browser pane address field", () => {
   });
 });
 
+describe("browser pane rejected calls", () => {
+  it("keeps the wire's own code when the navigation call rejects with an envelope", async () => {
+    // A `permission_denied` and a torn-down preload are different next moves. The
+    // pane used to flatten both into `navigation-call-failed`; the shared
+    // normaliser keeps the code the other side sent and spends the pane's own
+    // sentence only on a rejection that carries none.
+    const bridge = createFixtureBridge({ scenario: BROWSER_SCENARIO });
+    vi.spyOn(bridge.growth, "browserNavigate").mockRejectedValue({
+      code: "permission_denied",
+      message: "You may not navigate this pane.",
+    });
+    await renderBrowserPane(bridge);
+    const field = addressField();
+    fireEvent.change(field, { target: { value: "https://example.invalid/page" } });
+    fireEvent.submit(field.closest("form") as HTMLFormElement);
+    const banner = await findRefusalBanner();
+    expect(banner.textContent).toContain("permission_denied");
+    expect(banner.textContent).toContain("You may not navigate this pane.");
+    expect(banner.textContent).not.toContain("navigation-call-failed");
+  });
+
+  it("negative control: a codeless rejection still takes the pane's own sentence", async () => {
+    const bridge = createFixtureBridge({ scenario: BROWSER_SCENARIO });
+    vi.spyOn(bridge.growth, "browserNavigate").mockRejectedValue(new Error("IPC channel closed"));
+    await renderBrowserPane(bridge);
+    const field = addressField();
+    fireEvent.change(field, { target: { value: "https://example.invalid/page" } });
+    fireEvent.submit(field.closest("form") as HTMLFormElement);
+    const banner = await findRefusalBanner();
+    expect(banner.textContent).toContain("navigation-call-failed");
+    expect(banner.textContent).toContain("never answered");
+  });
+});
+
 describe("browser pane close-tab chord", () => {
   it("swallows the platform chord, so it cannot reach the window and close it", async () => {
     const { region } = await renderBrowserPane();

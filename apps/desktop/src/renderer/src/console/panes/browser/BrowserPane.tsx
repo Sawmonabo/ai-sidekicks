@@ -49,7 +49,7 @@ import {
 } from "../../browser/navigation-state.js";
 import { consoleOcclusionRegistry } from "../../browser/occlusion-registry.js";
 import { resolvePaneViewHost } from "../../browser/view-host.js";
-import { ConsoleRefusalError, RealClock, refuse, type ConsoleRefusal } from "../../core/index.js";
+import { RealClock, refusalFromRejection, refuse, type ConsoleRefusal } from "../../core/index.js";
 import { HOST_CHORD_PLATFORM, Nothing, RefusalBanner } from "../../primitives/index.js";
 import { tokenReference } from "../../tokens/index.js";
 import { ChromeControl } from "./ChromeControl.js";
@@ -57,26 +57,6 @@ import type { ConsolePaneContext } from "../../workspace/index.js";
 
 /** The subsystem name every refusal this pane raises itself carries. */
 const BROWSER_PANE_REFUSAL_ORIGIN = "browser-pane";
-
-/**
- * What a REJECTED bridge promise renders as.
- *
- * Every call this pane makes crosses the preload boundary, and a boundary that fails
- * — a torn-down transport, a preload that never installed — rejects rather than
- * answering with a refusal. Left unhandled that is an unhandled rejection in the
- * renderer and a pane still showing whatever was on screen before the click, which
- * is the failure mode a refusal exists to replace.
- *
- * A refusal the bridge itself raised travels through untouched, because it already
- * names its own origin and code; anything else becomes this pane's sentence. Hoisted
- * out of the two call sites that now share it rather than written twice: two
- * normalizers drift, and the second one to drift is the one nobody reads.
- */
-function bridgeRejectionRefusal(failure: unknown, code: string, detail: string): ConsoleRefusal {
-  return failure instanceof ConsoleRefusalError
-    ? failure.refusal
-    : refuse(BROWSER_PANE_REFUSAL_ORIGIN, code, detail);
-}
 
 /** The pane region's accessible name. The tab strip's own labels arrive with it. */
 const BROWSER_PANE_LABEL = "Browser";
@@ -170,11 +150,11 @@ export function BrowserPane(context: ConsolePaneContext): React.JSX.Element {
       },
       (failure: unknown) => {
         setActRefusal(
-          bridgeRejectionRefusal(
-            failure,
-            "navigation-call-failed",
-            "The page could not be reached from this window, because the call into the browser never answered.",
-          ),
+          refusalFromRejection(BROWSER_PANE_REFUSAL_ORIGIN, failure, {
+            code: "navigation-call-failed",
+            detail:
+              "The page could not be reached from this window, because the call into the browser never answered.",
+          }),
         );
       },
     );
@@ -210,11 +190,10 @@ export function BrowserPane(context: ConsolePaneContext): React.JSX.Element {
       },
       (failure: unknown) => {
         setActRefusal(
-          bridgeRejectionRefusal(
-            failure,
-            "open-external-failed",
-            "The system browser could not be reached from this window.",
-          ),
+          refusalFromRejection(BROWSER_PANE_REFUSAL_ORIGIN, failure, {
+            code: "open-external-failed",
+            detail: "The system browser could not be reached from this window.",
+          }),
         );
       },
     );

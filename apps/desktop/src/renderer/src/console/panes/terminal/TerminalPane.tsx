@@ -37,6 +37,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { lossyStringify } from "../../../../../shared/wire-errors.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { Nothing } from "../../primitives/index.js";
 import { useSessionStore, type SessionStore, type SessionStoreState } from "../../store/index.js";
@@ -190,7 +191,7 @@ function useTerminalOutputStream(bridge: ConsoleBridge, terminalId: string): Ter
           setAbsence({
             kind: "error",
             title: "The output stream could not be reached.",
-            detail: error instanceof Error ? error.message : String(error),
+            detail: error instanceof Error ? error.message : lossyStringify(error),
           });
         }
       });

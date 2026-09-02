@@ -26,6 +26,19 @@
 
 import { isWireErrorEnvelope, lossyStringify } from "../../../../shared/wire-errors.js";
 
+/**
+ * A caller-written refusal for a rejection that carries no code of its own.
+ *
+ * Some seams know their failure better than the thrown value does: "the call into
+ * the browser never answered" names what a person can do next, where the preload's
+ * own message names a transport. Supplied to {@link refusalFromRejection} it
+ * replaces the synthesized `<origin>-call-failed` pair — and only that pair.
+ */
+export interface RejectionFallback {
+  readonly code: string;
+  readonly detail: string;
+}
+
 export interface ConsoleRefusal {
   /** Machine-readable, rendered verbatim. */
   readonly code: string;
@@ -103,15 +116,24 @@ export function isConsoleRefusal(value: unknown): value is ConsoleRefusal {
  *      it records why the recognition is structural — the same envelope arrives
  *      as an object and as an `Error`, and a schema bound to one set of codes
  *      would narrow it below what its callers need.
- *   4. Anything else is this caller's own refusal. An `Error` gives up its
- *      message; anything else goes through the total stringifier rather than
- *      through `String(...)`, which itself throws on a null-prototype object —
- *      the value a surface exists to SURFACE must not take the surface down.
+ *   4. Anything else is this caller's own refusal. When the caller wrote a
+ *      {@link RejectionFallback} it is used verbatim — a sentence that names the
+ *      person's next move beats a thrown value's message. Otherwise an `Error`
+ *      gives up its message; anything else goes through the total stringifier
+ *      rather than through `String(...)`, which itself throws on a null-prototype
+ *      object — the value a surface exists to SURFACE must not take the surface
+ *      down.
  *
- * `origin` is the caller's subsystem name and is what arm 4's code is built from,
- * so a call-failed refusal still says which seam failed.
+ * `origin` is the caller's subsystem name and is what arm 4's synthesized code is
+ * built from, so a call-failed refusal still says which seam failed. The fallback
+ * never displaces arms 1–3: a code the other side sent is more actionable than any
+ * prose written here, which is the whole reason this function exists.
  */
-export function refusalFromRejection(origin: string, error: unknown): ConsoleRefusal {
+export function refusalFromRejection(
+  origin: string,
+  error: unknown,
+  fallback?: RejectionFallback,
+): ConsoleRefusal {
   if (isConsoleRefusal(error)) {
     return error;
   }
@@ -120,6 +142,9 @@ export function refusalFromRejection(origin: string, error: unknown): ConsoleRef
   }
   if (isWireErrorEnvelope(error)) {
     return refuse(origin, error.code, error.message);
+  }
+  if (fallback !== undefined) {
+    return refuse(origin, fallback.code, fallback.detail);
   }
   return refuse(
     origin,

@@ -152,6 +152,38 @@ describe("refusalFromRejection — a rejected call, without losing what refused 
     });
   });
 
+  it("takes the caller's own sentence for a rejection that carries no code", () => {
+    // A seam that knows its failure better than the thrown value does hands the
+    // person its own next move rather than the transport's message.
+    expect(
+      refusalFromRejection("browser-pane", new Error("IPC channel closed"), {
+        code: "navigation-call-failed",
+        detail: "The page could not be reached from this window.",
+      }),
+    ).toStrictEqual({
+      code: "navigation-call-failed",
+      detail: "The page could not be reached from this window.",
+      origin: "browser-pane",
+    });
+  });
+
+  it("negative control: a fallback never displaces the code the other side sent", () => {
+    // The fallback replaces arm 4 only. Were it consulted first, a supplied sentence
+    // would flatten `permission_denied` into the caller's guess — the exact loss
+    // this function exists to prevent.
+    expect(
+      refusalFromRejection(
+        "browser-pane",
+        { code: "permission_denied", message: "You may not do that." },
+        { code: "navigation-call-failed", detail: "The page could not be reached." },
+      ),
+    ).toStrictEqual({
+      code: "permission_denied",
+      detail: "You may not do that.",
+      origin: "browser-pane",
+    });
+  });
+
   it("renders a hostile rejected value rather than throwing while surfacing it", () => {
     // `String(...)` runs ToPrimitive, which throws for a null-prototype object
     // carrying no `toString` — and a refusal renderer that crashed on the value it

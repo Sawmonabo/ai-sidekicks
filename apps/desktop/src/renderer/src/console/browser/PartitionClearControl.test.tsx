@@ -194,6 +194,24 @@ describe("PartitionClearControl — running the act", () => {
     });
   });
 
+  it("keeps the wire's own code when a step rejects with an envelope", async () => {
+    // The control's `site-data-act-failed` sentence is for a rejection that carries
+    // no code. A daemon refusal that travelled as a rejection keeps its code, which
+    // is the half a person can act on.
+    const control = renderControl({
+      onClearSiteData: () =>
+        Promise.reject({ code: "permission_denied", message: "You may not clear this partition." }),
+    });
+
+    confirmButton(control).click();
+
+    await waitFor(() => {
+      expect(control.textContent).toContain("permission_denied");
+    });
+    expect(control.textContent).toContain("You may not clear this partition.");
+    expect(control.textContent).not.toContain("site-data-act-failed");
+  });
+
   it("says which step it is waiting on, and refuses a second confirm while it waits", async () => {
     const close = pendingAct();
     const closeCalls = vi.fn();
