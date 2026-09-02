@@ -120,6 +120,15 @@ const FIXTURE_SCENARIO_ENV_VAR = "SIDEKICKS_FIXTURE_SCENARIO";
  */
 export const WINDOW_APPEAR_TIMEOUT_MS = 30_000;
 
+/**
+ * How long two consecutive animation frames may take to arrive before the
+ * launch is declared throttled. A painting renderer delivers them within two
+ * display refreshes; a hidden or occluded one under Chromium's default
+ * throttling delivers none at all, so the bound only has to be clearly above
+ * a refresh interval and clearly below a tier's patience.
+ */
+const FRAME_WITNESS_TIMEOUT_MS = 2_000;
+
 export interface ConsoleApplication {
   readonly application: ElectronApplication;
   readonly window: Page;
@@ -211,16 +220,26 @@ export async function launchConsole(
     // against an empty body and call it a pass.
     await window.waitForSelector(".meridian-frame", { timeout: WINDOW_APPEAR_TIMEOUT_MS });
     // A measurement from a throttled renderer is a false one. The window is
-    // revealed inactive, so it can be occluded, and Chromium answers occlusion
-    // by throttling timers and frames and reporting the document hidden — unless
-    // the build switched background throttling off for this launch. The tiers
-    // assert the state they measure in rather than trust it.
+    // never revealed on macOS and revealed inactive elsewhere, so Chromium would
+    // by default throttle its timers and frames and report the document hidden
+    // — unless the build switched background throttling off for this launch.
+    // The tiers assert the state they measure in rather than trust it, twice:
+    // what the document REPORTS, and whether frames actually ARRIVE, since the
+    // first is a flag and the second is the thing the endurance tier times.
     const visibilityState = await window.evaluate(() => document.visibilityState);
     if (visibilityState !== "visible") {
       throw new Error(
         `the console document is "${visibilityState}" to Chromium, so its renderer is throttled and ` +
           "nothing measured in it would describe the console; the launched build must honour " +
           `${UNOBTRUSIVE_WINDOWS_ENV} by disabling background throttling (src/main/window-reveal.ts)`,
+      );
+    }
+    const framesArrive = await witnessAnimationFrames(window);
+    if (!framesArrive) {
+      throw new Error(
+        `no animation frame arrived within ${String(FRAME_WITNESS_TIMEOUT_MS)} ms, so the renderer ` +
+          "is not painting and nothing timed in it would describe the console; an unrevealed " +
+          `window paints only with background throttling off (src/main/window-reveal.ts)`,
       );
     }
     return { application, window, close };
@@ -246,5 +265,36 @@ export function fixtureBundleExists(): boolean {
     return statSync(MAIN_ENTRY_PATH).isFile();
   } catch {
     return false;
+  }
+}
+
+/**
+ * Whether the renderer delivers two consecutive animation frames in bounded
+ * time. Two rather than one: a single callback can be the tail of a frame the
+ * compositor was already producing, while the second proves the schedule is
+ * running. The timer is cleared on either outcome so a passing launch leaves
+ * nothing armed.
+ */
+async function witnessAnimationFrames(window: Page): Promise<boolean> {
+  let timeoutHandle: NodeJS.Timeout | undefined;
+  const timedOut = new Promise<false>((resolve) => {
+    timeoutHandle = setTimeout(() => {
+      resolve(false);
+    }, FRAME_WITNESS_TIMEOUT_MS);
+  });
+  const framed = window.evaluate(
+    () =>
+      new Promise<true>((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            resolve(true);
+          });
+        });
+      }),
+  );
+  try {
+    return await Promise.race([framed, timedOut]);
+  } finally {
+    clearTimeout(timeoutHandle);
   }
 }

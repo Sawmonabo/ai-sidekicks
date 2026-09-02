@@ -19,24 +19,34 @@ import {
 const REQUESTED: NodeJS.ProcessEnv = { [UNOBTRUSIVE_WINDOWS_ENV]: "1" };
 
 describe("resolveWindowRevealMode", () => {
-  it("reveals inactive when a test build is asked to", () => {
-    expect(resolveWindowRevealMode(true, REQUESTED)).toBe("inactive");
+  it("never reveals a requested macOS test build", () => {
+    // Nothing ordered onto a screen or Space: the only reveal that cannot pull
+    // an operator anywhere.
+    expect(resolveWindowRevealMode(true, REQUESTED, "darwin")).toBe("hidden");
+  });
+
+  it.each(["linux", "win32"] as const)("reveals inactive on %s", (platform) => {
+    // A hidden window stops painting on Windows (electron/electron#31016), so
+    // the faithful measurement surface there is an inactive one.
+    expect(resolveWindowRevealMode(true, REQUESTED, platform)).toBe("inactive");
   });
 
   it("ignores the request outside a test build", () => {
     // Negative control for the production-safety claim: the same environment,
     // a release build, an ordinary reveal.
-    expect(resolveWindowRevealMode(false, REQUESTED)).toBe("active");
+    expect(resolveWindowRevealMode(false, REQUESTED, "darwin")).toBe("active");
   });
 
   it("reveals active in a test build that was not asked", () => {
-    expect(resolveWindowRevealMode(true, {})).toBe("active");
+    expect(resolveWindowRevealMode(true, {}, "darwin")).toBe("active");
   });
 
   it("accepts exactly the string 1", () => {
     // The opt-in is deliberate, like the smoke probe's: a truthy-looking value
     // is not a request.
-    expect(resolveWindowRevealMode(true, { [UNOBTRUSIVE_WINDOWS_ENV]: "true" })).toBe("active");
+    expect(resolveWindowRevealMode(true, { [UNOBTRUSIVE_WINDOWS_ENV]: "true" }, "darwin")).toBe(
+      "active",
+    );
   });
 });
 
@@ -66,7 +76,7 @@ describe("the release-compiled wrappers", () => {
     const show = vi.fn();
     const showInactive = vi.fn();
 
-    revealWindow({ show, showInactive });
+    revealWindow({ show, showInactive }, "darwin");
 
     expect(show).toHaveBeenCalledOnce();
     expect(showInactive).not.toHaveBeenCalled();
@@ -77,7 +87,7 @@ describe("the release-compiled wrappers", () => {
     vi.stubEnv(UNOBTRUSIVE_WINDOWS_ENV, "1");
     const setBackgroundThrottling = vi.fn();
 
-    applyRevealPreferences({ webContents: { setBackgroundThrottling } });
+    applyRevealPreferences({ webContents: { setBackgroundThrottling } }, "darwin");
 
     expect(setBackgroundThrottling).not.toHaveBeenCalled();
     vi.unstubAllEnvs();
