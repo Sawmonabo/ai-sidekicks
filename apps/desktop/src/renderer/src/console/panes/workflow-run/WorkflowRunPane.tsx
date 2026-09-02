@@ -32,6 +32,18 @@
 // the growth port gives every other surface; hiding it would leave an operator
 // waiting for a button that is never going to appear.
 //
+// AN ADDRESS IS CHECKED BEFORE IT IS USED, AND THE CHECK STAYS WHEN THE TYPE SAYS IT
+// CANNOT FAIL. The pane used to read `entity.id` on any kind at all, so a
+// `workflow-definition` addressed here had its id carried into the run read and
+// whatever came back — the port's refusal, or a snapshot — was shown under an address
+// that never named a run. `ConsolePaneAddress` is becoming a kind-scoped union, which
+// makes that address unconstructible by code in this process; the guard below is the
+// FAIL-CLOSED PROJECTION of that type and does not go away with it, because a pane
+// address is also PARSED — out of a persisted layout an older build wrote, and out of
+// a route — and a parsed value is data rather than a proof. The builder pane holds
+// the same guard for the kind it authors, and both refuse through one sentence
+// (`workflows/pane-addressing.ts`).
+//
 // PARK IS READ FROM THE PARK MEMBERS AND NEVER FROM A PHASE'S STATE. The phase state
 // union carries no suspended arm on purpose, and the park members are live-scoped —
 // present for exactly the phases parked when the response was built. That rule binds
@@ -50,11 +62,13 @@ import type { WorkflowPhaseState } from "../../bridge/index.js";
 import { Nothing, RefusalBanner } from "../../primitives/index.js";
 import { ChatStartSlot } from "../../workflows/ChatStartSlot.js";
 import { WorkflowChrome } from "../../workflows/WorkflowChrome.js";
+import { refusedWorkflowChrome } from "../../workflows/chrome-state.js";
 import { ParkBadge } from "../../workflows/ParkBadge.js";
 import { phasePark, parkSchedule } from "../../workflows/run-list-projection.js";
 import type { WorkflowParkedPhase } from "../../workflows/run-list-projection.js";
 import type { ConsolePaneContext } from "../../workspace/index.js";
 import { OperatorControls } from "./OperatorControls.js";
+import { WORKFLOW_RUN_PANE_SUBJECT_KIND, misaddressedRunPane } from "./run-addressing.js";
 import { unregisteredRunControl } from "./run-controls.js";
 import { PhaseGraph } from "./phase-graph/PhaseGraph.js";
 import type { PhaseGraphNode } from "./phase-graph/phase-topology.js";
@@ -267,10 +281,14 @@ function RunParks(props: { readonly phases: readonly WorkflowPhaseState[] }): Re
 /** The run pane's chrome. The run detail and the human form inside it are Plan-017's. */
 export function WorkflowRunPane(props: WorkflowRunPaneProps): React.JSX.Element {
   const { bridge, entity, sessionStore } = props.context;
-  // Called before the no-run arm returns, because a hook may not sit behind a
+  // The id is taken from the address only where the address names a RUN. An entity
+  // of another kind supplies nothing, so the read below is `unasked` on exactly the
+  // arm that refuses — rather than in flight against an id that names no run.
+  const addressedRunId = entity?.kind === WORKFLOW_RUN_PANE_SUBJECT_KIND ? entity.id : undefined;
+  // Called before the two absent arms return, because a hook may not sit behind a
   // branch. With no run named the read is `unasked`, which is the honest state and
-  // the one the arm below never renders.
-  const snapshot = useWorkflowRunSnapshot(bridge.growth, entity?.id);
+  // the one those arms never render.
+  const snapshot = useWorkflowRunSnapshot(bridge.growth, addressedRunId);
 
   if (entity === undefined) {
     return (
@@ -283,6 +301,22 @@ export function WorkflowRunPane(props: WorkflowRunPaneProps): React.JSX.Element 
         />
         <ChatStartSlot sessionId={sessionStore?.sessionId} />
       </WorkflowChrome>
+    );
+  }
+
+  if (entity.kind !== WORKFLOW_RUN_PANE_SUBJECT_KIND) {
+    // The chrome's own `refused` arm, which renders the refusal and NOT the children
+    // — so no control, no slot and no start affordance stands beside an address this
+    // surface will not open, and the read above was never composed for it. A banner
+    // across the surface rather than a card, because what changed is what this whole
+    // surface can do, which is nothing.
+    return (
+      <WorkflowChrome
+        glyph="run"
+        heading={HEADING}
+        summary={SUMMARY}
+        state={refusedWorkflowChrome(misaddressedRunPane(entity.kind))}
+      />
     );
   }
 
