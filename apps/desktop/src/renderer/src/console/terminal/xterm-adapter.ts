@@ -6,15 +6,20 @@
 // renderer pool, under five constraints. Each one is a decision this module makes
 // rather than a note a reviewer has to remember:
 //
-//   1. **Pool the WebGL panes and never churn the addon.** `WebglAddon.dispose()`
-//      does not release its WebGL2 context (xterm.js issue #6068) and Chromium
-//      drops the OLDEST context past sixteen, so a terminal that churned renderers
-//      on every remount would eventually take the context away from a terminal
-//      still on screen. The pool caps how many instances hold one, and an adapter
-//      keeps its emulator across a detach so a remount reattaches.
+//   1. **Bound the CONTEXTS this page creates, not the terminals drawing on one.**
+//      `WebglAddon.dispose()` does not release its WebGL2 context — the addon
+//      calls `loseContext()` nowhere, verified in the pinned package rather than
+//      taken from xterm.js issue #6068 — and Chromium drops the OLDEST context
+//      past sixteen. So a teardown gives the ledger no allowance back
+//      (`renderer-pool.ts` says why at length): only the two arms where a context
+//      demonstrably does not exist do, and past the cap a terminal opens on the
+//      DOM renderer rather than taking a context from one still on screen. An
+//      adapter keeps its emulator across a detach so a remount reattaches instead
+//      of minting a second.
 //   2. **`onContextLoss` falls back to DOM.** The addon fires it three seconds
 //      after `webglcontextlost` with no restoration, so the fallback is permanent
-//      for that instance and the slot goes back.
+//      for that instance — and the allowance IS reclaimed there, because the host
+//      destroyed the context rather than this code letting go of one.
 //   3. **`allowProposedApi` only for Unicode 11.** Only the `unicode` getter calls
 //      `_checkProposedApi()`; every other API here is stable.
 //   4. **Own link provider with the scheme guard.** A program can print a
@@ -242,9 +247,14 @@ export class XtermTerminalAdapter {
   }
 
   /**
-   * Final. Releases the observer, every subscription, the renderer slot, and the
-   * emulator — in that order, because the addon's disposal runs inside the
-   * terminal's and doing it twice leaves a half-torn instance behind.
+   * Final. Releases the observer, every subscription, this terminal's hold on its
+   * renderer, and the emulator — in that order, because the addon's disposal runs
+   * inside the terminal's and doing it twice leaves a half-torn instance behind.
+   *
+   * `release` and not `reclaim`: the context this instance created survives its
+   * addon, so the page's allowance stays spent. Handing it back here is the churn
+   * bug — an unbounded run of contexts under a ledger that never rises, ending in
+   * Chromium taking the renderer from an older terminal still on screen.
    */
   public dispose(): void {
     if (this.#isDisposed) {
@@ -332,18 +342,20 @@ export class XtermTerminalAdapter {
       this.#webglAddon = webglAddon;
       this.#rendererMode = "webgl";
     } catch {
-      // No WebGL2 on this host. The slot goes straight back so a later terminal
-      // is not counted out by a context that was never created.
-      this.#pool.release(this.#terminalId);
+      // No WebGL2 on this host: the addon threw before it made one. Reclaimed
+      // rather than released, so a later terminal is not counted out by a context
+      // that was never created.
+      this.#pool.reclaim(this.#terminalId);
       this.#rendererMode = "dom";
     }
   }
 
   /**
    * The context is gone and the addon does not restore it, so this instance is a
-   * DOM terminal from here on. The slot goes back even though the context does
-   * not: holding it would count a context that no longer draws against the cap
-   * that protects the ones that do.
+   * DOM terminal from here on. This is the one teardown-shaped path that reclaims:
+   * the host destroyed the context rather than this code dropping a reference to
+   * it, so counting it would spend the page's allowance on something that no
+   * longer exists.
    */
   #fallBackToDomRenderer(webglAddon: WebglAddon): void {
     if (this.#webglAddon !== webglAddon) {
@@ -352,7 +364,7 @@ export class XtermTerminalAdapter {
     webglAddon.dispose();
     this.#webglAddon = undefined;
     this.#rendererMode = "dom";
-    this.#pool.release(this.#terminalId);
+    this.#pool.reclaim(this.#terminalId);
   }
 
   #observeHostSize(hostElement: HTMLElement): void {

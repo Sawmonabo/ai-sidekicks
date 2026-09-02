@@ -155,9 +155,11 @@ describe("a working day of opening and closing the pane", () => {
         await writeLines(adapter, WRITE_BATCH_LINES);
         adapter.dispose();
       }
-      // Twelve cycles against a pool of twelve slots: a cycle that kept its slot
-      // would have exhausted the pool and pushed later terminals onto the fallback
-      // silently, which is the shape of the context leak the cap exists for.
+      // Twelve cycles, and nothing drawing at the end: no teardown left a hold
+      // behind. Whether the page may still TAKE a context is the ledger's other
+      // reading, which does not fall on a teardown and which
+      // `renderer-pool.test.ts` owns — this environment has no WebGL2 to spend,
+      // so it could only be asserted vacuously here.
       expect(pool.heldSlotCount).toBe(0);
     },
     ENDURANCE_CASE_TIMEOUT_MS,

@@ -26,6 +26,35 @@ import {
 const liveAdapters: XtermTerminalAdapter[] = [];
 const liveHosts: HTMLElement[] = [];
 
+/**
+ * The real ledger, with a note of which call each arm of the adapter made.
+ *
+ * A subclass and not a stand-in: every method runs the real accounting through
+ * `super`, and the arrays only record that it was reached. They are what keeps
+ * the churn case below from being vacuous — without them it would pass just as
+ * well against an adapter that never asked for a context at all.
+ */
+class RecordingRendererPool extends TerminalRendererPool {
+  public readonly acquiredTerminalIds: string[] = [];
+  public readonly releasedTerminalIds: string[] = [];
+  public readonly reclaimedTerminalIds: string[] = [];
+
+  public override acquire(terminalId: string): boolean {
+    this.acquiredTerminalIds.push(terminalId);
+    return super.acquire(terminalId);
+  }
+
+  public override release(terminalId: string): void {
+    this.releasedTerminalIds.push(terminalId);
+    super.release(terminalId);
+  }
+
+  public override reclaim(terminalId: string): void {
+    this.reclaimedTerminalIds.push(terminalId);
+    super.reclaim(terminalId);
+  }
+}
+
 function mountedAdapter(
   options: Partial<ConstructorParameters<typeof XtermTerminalAdapter>[0]> = {},
 ): { adapter: XtermTerminalAdapter; host: HTMLElement } {
@@ -205,6 +234,53 @@ describe("teardown", () => {
     const { adapter } = mountedAdapter();
     await writeText(adapter, "still here\n");
     expect(adapter.serialize()).not.toBe("");
+  });
+});
+
+describe("the context ledger, through the adapter", () => {
+  /** A working day of opening and closing the pane, well past the page's cap. */
+  const CHURN_CYCLES = 20;
+
+  it("spends nothing on a host that has no WebGL2 to spend it on", () => {
+    const pool = new RecordingRendererPool();
+    for (let cycle = 0; cycle < CHURN_CYCLES; cycle += 1) {
+      const { adapter } = mountedAdapter({ pool, terminalId: `churn-${String(cycle)}` });
+      adapter.dispose();
+    }
+    // The addon threw before it made a context, so there is nothing out there to
+    // count — and a terminal opened after twenty cycles must still be able to take
+    // one on a host that later has one to give.
+    expect(pool.createdContextCount).toBe(0);
+    expect(pool.acquire("late-arrival")).toBe(true);
+  });
+
+  it("negative control: the adapter did ask for one on every one of those cycles", () => {
+    // Without this the case above would pass against an adapter that never
+    // reached the ledger, which asserts nothing about how it hands one back.
+    const pool = new RecordingRendererPool();
+    for (let cycle = 0; cycle < CHURN_CYCLES; cycle += 1) {
+      const { adapter } = mountedAdapter({ pool, terminalId: `asked-${String(cycle)}` });
+      adapter.dispose();
+    }
+    expect(pool.acquiredTerminalIds).toHaveLength(CHURN_CYCLES);
+    expect(pool.reclaimedTerminalIds).toHaveLength(CHURN_CYCLES);
+  });
+
+  it("gives up its hold on a teardown and does not reclaim the context", () => {
+    const pool = new RecordingRendererPool();
+    const { adapter } = mountedAdapter({ pool, terminalId: "torn-down" });
+    // One reclaim already, from the renderer selection: this host has no WebGL2,
+    // so the context was never created and the allowance went straight back.
+    expect(pool.reclaimedTerminalIds).toStrictEqual(["torn-down"]);
+
+    adapter.dispose();
+
+    // The teardown adds a release and NOT a second reclaim. Reclaiming here is the
+    // churn bug: on a host that does have WebGL2 the context outlives the addon,
+    // so a teardown that handed the allowance back would let the page mint them
+    // without bound while the ledger never rose.
+    expect(pool.releasedTerminalIds).toStrictEqual(["torn-down"]);
+    expect(pool.reclaimedTerminalIds).toStrictEqual(["torn-down"]);
   });
 });
 
