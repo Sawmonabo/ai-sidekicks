@@ -36,7 +36,14 @@ import "./workflows.css";
 
 import { createElement } from "react";
 
-import type { ConsoleSurfaceRegistry } from "../frame/index.js";
+// Deep, and this is the one import in the family that must be. The frame's barrel
+// also exports `ConsoleRoot`, which composes the families — so a family reaching the
+// surface seat THROUGH that barrel closes a cycle the layering gate rejects
+// (`families.ts → workflows/index.ts → frame/index.ts → ConsoleRoot.tsx →
+// families.ts`). `families.ts` deep-imports this same module for the same reason.
+// The seat is a registry type and nothing else; the family reaches no other part of
+// the frame.
+import type { ConsoleSurfaceRegistry } from "../frame/surface-registry.js";
 import { WorkflowBuilderPane } from "../panes/workflow-builder/index.js";
 import { WorkflowRunPane } from "../panes/workflow-run/index.js";
 import type { ConsolePaneDescriptor, ConsolePaneRegistry } from "../workspace/index.js";

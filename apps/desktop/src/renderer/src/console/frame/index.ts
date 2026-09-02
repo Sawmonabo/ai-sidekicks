@@ -20,9 +20,3 @@ export {
   applyConsoleScheme,
   installMeridianTokens,
 } from "./token-installation.js";
-
-// The surface seat's own vocabulary. A view family claims its slot by exporting a
-// `register<Family>` function that `families.ts` calls with the registry, so the
-// registry type leaves through this door rather than being deep-imported past it —
-// which is the one way a family reaches the frame at all.
-export type { ConsoleSurfaceRegistry } from "./surface-registry.js";
