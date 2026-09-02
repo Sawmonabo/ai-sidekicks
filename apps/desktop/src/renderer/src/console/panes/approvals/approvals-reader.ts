@@ -5,8 +5,8 @@
 //
 //   • **Two reads, one scheduler.** Both the projection read and the standing-rule
 //     list refresh through `store/scheduling.ts`'s `RefreshScheduler`, which is the
-//     console's one refresh chokepoint (`Spec-023 §Console Design (Meridian)` §The
-//     eight rules). Nothing here arms a timer of its own and nothing polls.
+//     console's one refresh chokepoint (`Spec-023 §Rules every console surface
+//     obeys`). Nothing here arms a timer of its own and nothing polls.
 //   • **A control is disabled while ITS call is in flight, and only that one.**
 //     THIS SURFACE'S OWN RULE, because no committed document states it: exactly one
 //     call per answer. A single global busy flag would also disable the other cards,
@@ -137,7 +137,8 @@ export class ApprovalsReader {
    *
    * `subscribe` on mount, `window-focus` when the window regains it, `reconnect`
    * when the session store's degraded flag clears, and `terminal-event` for a
-   * lifecycle signal — the four reasons §The eight rules names, and no interval.
+   * lifecycle signal — the four reasons the section this module's header cites
+   * names, and no interval.
    */
   public requestRead(reason: RefreshReason): void {
     if (this.#disposed) {

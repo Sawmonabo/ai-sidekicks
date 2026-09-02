@@ -1,9 +1,9 @@
 // The four things that make the approvals surface re-read, and nothing else.
 //
-// `Spec-023 §Console Design (Meridian)` §The eight rules: "Reads happen on
-// subscribe, on window focus, on reconnect, and on the terminal events the owning
-// spec names". This module wires exactly those, through `ApprovalsReader`'s one
-// scheduler. There is no interval, no `setTimeout`, and no second subscription.
+// `Spec-023 §Rules every console surface obeys`: "Reads happen on subscribe, on
+// window focus, on reconnect, and on the terminal events the owning spec names".
+// This module wires exactly those, through `ApprovalsReader`'s one scheduler.
+// There is no interval, no `setTimeout`, and no second subscription.
 //
 // WHAT RECONNECT IS, HERE. The console has no wire-level connection state to read —
 // what it has is the session store's own sticky degraded flag, which is raised for a
