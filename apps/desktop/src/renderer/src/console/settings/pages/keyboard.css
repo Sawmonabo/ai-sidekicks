@@ -60,3 +60,25 @@
   align-self: flex-start;
   margin-top: var(--meridian-space-2);
 }
+
+/* The chords kept for commands this build does not have.
+ *
+ * A plain list rather than the row shape above: these entries have no title, no
+ * group, and no scope — an id, a chord, and the one control that removes them — so
+ * borrowing the keymap row's grid would leave three empty columns claiming those
+ * facts are missing rather than absent. */
+.meridian-keymap__stale {
+  list-style: none;
+  margin: var(--meridian-space-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-keymap__stale-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}

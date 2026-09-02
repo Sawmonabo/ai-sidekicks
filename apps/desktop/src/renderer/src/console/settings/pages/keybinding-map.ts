@@ -94,6 +94,58 @@ export function composeKeybindingRows(options: {
     });
 }
 
+/** A chord this window is holding for a command it cannot find. */
+export interface StaleKeybindingOverrideRow {
+  readonly commandId: string;
+  /** The chord the override reserves. Always a string: a cleared override reserves none. */
+  readonly chord: string;
+}
+
+/**
+ * The overrides that belong to no command this build has.
+ *
+ * An upgrade that removes or renames a command leaves its stored override behind,
+ * and the override store admits it deliberately — commands register at module scope
+ * as families load, so validating a hydrated key against the registry would delete a
+ * legitimate override for a family that had not registered yet, which is a worse
+ * failure than the one this fixes. `composeEffectiveBindings` then APPENDS the
+ * unknown command's binding, which is what makes a command shipping with no chord
+ * bindable at all — so the entry reserves its chord and the rows above, built from
+ * the registered commands, cannot show it. Left alone it is invisible, cannot be
+ * reset, and refuses somebody else's rebinding by naming an id nothing on the page
+ * holds.
+ *
+ * So the answer is legibility rather than deletion: these are exactly the entries the
+ * page draws with a Remove control beside them. Pure over its inputs — a `null`
+ * override reserves no chord and is not one of these, and a key the shipped table
+ * binds is a rebinding of a real command rather than a leftover, whatever the command
+ * registry happens to hold at this moment.
+ *
+ * Ordered by command id, which is the only thing a stale entry has to be ordered by.
+ *
+ * `shippedBindings` is the table the console SHIPS and never the effective one. The
+ * effective table is the shipped table with these very entries appended, so passing
+ * it would make every stale entry claim itself and this function answer nothing.
+ */
+export function composeStaleOverrideRows(options: {
+  readonly commands: readonly ConsoleCommand[];
+  readonly shippedBindings: readonly KeyBinding[];
+  readonly overrides: KeybindingOverrideMap;
+}): readonly StaleKeybindingOverrideRow[] {
+  const claimed = new Set<string>([
+    ...options.commands.map((command) => command.id),
+    ...options.shippedBindings.map((binding) => binding.commandId),
+  ]);
+  const stale: StaleKeybindingOverrideRow[] = [];
+  for (const commandId of Object.keys(options.overrides).sort()) {
+    const override = options.overrides[commandId];
+    if (typeof override === "string" && !claimed.has(commandId)) {
+      stale.push({ commandId, chord: override });
+    }
+  }
+  return stale;
+}
+
 /**
  * Narrow the rows to a typed query.
  *
