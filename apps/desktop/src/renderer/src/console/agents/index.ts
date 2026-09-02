@@ -65,11 +65,14 @@ export const SIDEKICK_DEFINITION_EDITOR_SLOT: OwnerSlotProps<SidekickDefinitionE
 // this family's own and are reached deeply from inside it — a barrel entry for
 // one of them would be an export nothing outside can name.
 
-export {
-  AgentConsoleModels,
-  newestRunIdForAgent,
-  useAgentConsoleModels,
-} from "./agent-console-model.js";
+export { AgentConsoleModels, useAgentConsoleModels } from "./agent-console-model.js";
+
+// Which run is this agent's newest, for every surface that has to ask. The
+// SUBSCRIPTION is what leaves: the pure selector under it is this family's own and
+// is reached deeply from inside it, because a consumer outside that took the
+// snapshot form would have to invent its own re-derivation signal — which is the
+// defect `agent-run-linkage.ts` exists to close, arrived at from the other side.
+export { useNewestRunIdForAgent } from "./agent-run-linkage.js";
 
 export type { AgentAttachReading, AgentSwitchSettlement, ProviderAxis } from "./agent-wire.js";
 

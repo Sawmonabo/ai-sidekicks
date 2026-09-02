@@ -34,6 +34,7 @@ import {
   RunLinkage,
   SIDEKICK_DEFINITION_EDITOR_SLOT,
   useAgentConsoleModels,
+  useNewestRunIdForAgent,
   type AgentConsoleModels,
 } from "../../agents/index.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
@@ -43,7 +44,6 @@ import { renderAbsorbedNodeRoster } from "../../frame/legacy-surfaces.js";
 import { Nothing, WireFigure } from "../../primitives/index.js";
 import type { SessionStore } from "../../store/index.js";
 import { AgentBindingColumn } from "./AgentBindingColumn.js";
-import { useNewestRunIdForAgent } from "./agent-run-linkage.js";
 import { usePeerInvocationEnabled, useSessionProjectionReRead } from "./session-projection.js";
 
 /** Names a peer-invocation failure the thrown value carried no refusal for. */

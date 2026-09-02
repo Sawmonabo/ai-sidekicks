@@ -325,30 +325,3 @@ function subscribeToAgentLifecycle(
     }
   });
 }
-
-/**
- * The newest run the session projects for one agent, where the log named one.
- *
- * The child-link read is keyed by a PARENT RUN and the agent console is scoped to an
- * agent, so this is the one place the two are related — by reading the store's own
- * run projection rather than by asking the daemon a question no method answers.
- * `undefined` where no run has been attributed to this agent yet, which the linkage
- * surface renders as the absence it is rather than as an empty result.
- */
-export function newestRunIdForAgent(
-  sessionStore: SessionStore,
-  agentId: string | undefined,
-): string | undefined {
-  if (agentId === undefined) {
-    return undefined;
-  }
-  const runs = Object.values(sessionStore.snapshot().partitions.run)
-    .filter((run) => run !== undefined)
-    .filter((run) => run.body?.["agentId"] === agentId);
-  if (runs.length === 0) {
-    return undefined;
-  }
-  return runs.reduce((newest, candidate) =>
-    (candidate.touchedAt ?? "") > (newest.touchedAt ?? "") ? candidate : newest,
-  ).id;
-}
