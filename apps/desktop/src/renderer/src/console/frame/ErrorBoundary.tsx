@@ -44,10 +44,17 @@ export class SurfaceErrorBoundary extends Component<
 
   public override componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
     // Routed through the tripwire registry rather than `console.error` so a render
-    // failure is counted the same way every other console invariant breach is, and
+    // failure is counted and retained the way every other runtime tripwire is, and
     // so the diagnostics surface can show it.
+    //
+    // Under its OWN kind. This used to report `apply-chokepoint-bypass`, which says
+    // a store was mutated outside its single `apply` — and a component that threw
+    // while rendering mutated nothing at all. The two readings are acted on
+    // differently (one is a state-write defect, the other a rendering one), so
+    // folding a crash into the store's count made the store invariant read as
+    // broken every time any pane hit a rendering bug.
     reportTripwire(
-      "apply-chokepoint-bypass",
+      "surface-render-failure",
       `SurfaceErrorBoundary(${this.props.surfaceName})`,
       `${error.message}${describeComponentStack(errorInfo)}`,
     );

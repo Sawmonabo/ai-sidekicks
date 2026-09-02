@@ -9,7 +9,7 @@
 // unreachable from a release entry). Those are proved by reading source and
 // live under `test/console/architecture/`.
 //
-// This module owns the four tripwires that can only be proved at RUNTIME,
+// This module owns the five tripwires that can only be proved at RUNTIME,
 // because their violation is a value rather than a token:
 //
 //   • `bridge-shape-drift`   — the live and fixture bridges stopped being
@@ -21,6 +21,14 @@
 //   • `apply-chokepoint-bypass` — a store was mutated outside its single `apply`.
 //   • `wire-figure-formatting`  — a wire figure was rendered through something
 //                              other than the two classes §The eight rules fixes.
+//   • `surface-render-failure`  — a surface threw while RENDERING and its error
+//                              boundary caught it. Its own kind rather than a
+//                              state-write breach: a component that crashes on a
+//                              value it could not render mutated nothing, and
+//                              counting it as a chokepoint bypass would report a
+//                              store invariant as broken every time a pane hit a
+//                              rendering bug — the one reading an operator must be
+//                              able to trust.
 //
 // **Loud in development, reported in production.** A tripwire is a defect
 // detector, and a defect detector that crashes an operator's session turns one
@@ -46,6 +54,7 @@ export const TRIPWIRE_KINDS = [
   "persistence-value-class",
   "apply-chokepoint-bypass",
   "wire-figure-formatting",
+  "surface-render-failure",
 ] as const;
 
 /** One runtime tripwire, derived from the tuple above. */

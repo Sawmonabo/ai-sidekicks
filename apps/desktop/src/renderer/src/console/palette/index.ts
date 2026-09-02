@@ -23,6 +23,12 @@ import "./palette.css";
 export { CommandRegistry } from "./command-registry.js";
 export type { ConsoleCommand, KeyBinding } from "./contributions.js";
 
+// The bridge-backed acts are the palette's own contribution, and they reach the
+// frame through this door like every other symbol a family consumes. Only the
+// hook is forwarded: the builder beside it exists so the BEHAVIOUR can be driven
+// without a React tree, which is its own family's business and not a caller's.
+export { useBridgeCommands } from "./bridge-commands.js";
+
 export { KeyBindingTable } from "./keybindings.js";
 
 export type { WhenClauseContext } from "./when-clause.js";
