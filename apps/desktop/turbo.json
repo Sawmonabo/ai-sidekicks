@@ -231,8 +231,9 @@
       "cache": false
     },
     "budget:heap": {
-      // No build edge: the workload is constructed in-process, so the harness's
-      // own source and the registry are the whole input set.
+      // No build edge: the row is declared `n/a` until its subject exists (see the
+      // registry's reason field), so the gate's own source and the registry are the
+      // whole input set.
       "inputs": ["scripts/budget/**", "test/console/budget/budgets.json", "package.json"],
       "outputs": [],
       "cache": false
