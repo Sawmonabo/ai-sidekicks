@@ -34,7 +34,6 @@ import { type ConsoleBridge } from "../bridge/index.js";
 import { type SessionStore } from "../store/index.js";
 import { type ConsolePaneOpener } from "./pane-registry.js";
 
-// Consumed by T-023p-1C-3
 /**
  * Every sidebar section, in render order.
  *
@@ -58,11 +57,11 @@ export const SIDEBAR_SECTION_IDS = [
   "members",
 ] as const;
 
-// Consumed by T-023p-1C-3, T-023p-1C-4, T-023p-1C-5
+// Consumed by T-023p-1C-4, T-023p-1C-5
 /** One sidebar section. Derived from the enumeration, never restated. */
 export type SidebarSectionId = (typeof SIDEBAR_SECTION_IDS)[number];
 
-// Consumed by T-023p-1C-3, T-023p-1C-4, T-023p-1C-5
+// Consumed by T-023p-1C-4, T-023p-1C-5
 /** Everything a section body is handed. */
 export interface SidebarSectionContext {
   readonly sessionStore: SessionStore;
@@ -84,15 +83,46 @@ export interface SidebarSectionContext {
   readonly isOpen: boolean;
 }
 
-// Consumed by T-023p-1C-3, T-023p-1C-4, T-023p-1C-5
+// Consumed by T-023p-1C-4, T-023p-1C-5
 export interface SidebarSectionDescriptor {
   readonly id: SidebarSectionId;
   /** The task or family that owns it, so an unfilled section names someone. */
   readonly owner: string;
   readonly render: (context: SidebarSectionContext) => React.ReactNode;
+  /**
+   * What this section is calling for, or nothing.
+   *
+   * The spec's stronger rule — "a section carrying an amber or red item is open
+   * and every other section is collapsed" — is stated over the whole SET, so the
+   * sidebar has to decide it. But only the family that owns a section can say
+   * whether its items are calling for anybody: the projection is that family's, and
+   * a sidebar that re-derived it would be a second source of truth for it. So the
+   * family REPORTS a fact and the sidebar makes the decision, which is the same
+   * split `isOpen` above is written under and the reason this is a reader rather
+   * than a stored flag.
+   *
+   * The two values are the two hues rule 3 spends on urgency — amber for "a person
+   * is needed", red for "something failed" — and nothing else. `neutral` and
+   * `accent` are absent on purpose: a section that carries neither returns
+   * `undefined`, and offering a tone that means "no attention" would let a family
+   * report attention by reporting its absence.
+   *
+   * The context is the section's own minus the two members the sidebar decides:
+   * `isOpen` is what this answer helps settle, so a reader that could see it would
+   * be reading its own output, and `openPane` is an act rather than a fact. Derived
+   * by subtraction rather than declared again, so a member added above is carried
+   * here with nothing to keep in step.
+   *
+   * OPTIONAL, AND CHEAP. It is called during the sidebar's render, over state the
+   * family already holds — never a read, never a subscription. A section that has
+   * no projection to answer from omits it, which is not the same claim as reporting
+   * no attention and is why the member is optional rather than defaulted.
+   */
+  readonly attention?: (
+    context: Omit<SidebarSectionContext, "isOpen" | "openPane">,
+  ) => "attention" | "failure" | undefined;
 }
 
-// Consumed by T-023p-1C-3
 export class SidebarSectionRegistry {
   // `"owner-scoped"`, for `frame/surface-registry.ts`'s reason: a hot reload
   // re-runs the owning family's module and must replace, while two owners on one
@@ -123,7 +153,6 @@ export class SidebarSectionRegistry {
   }
 }
 
-// Consumed by T-023p-1C-3
 /** The process-wide registry the three contributing families call at module scope. */
 export const sidebarSectionRegistry: SidebarSectionRegistry = new SidebarSectionRegistry();
 

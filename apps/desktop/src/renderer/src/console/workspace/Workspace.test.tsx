@@ -301,6 +301,54 @@ describe("Workspace — what it composes", () => {
   });
 });
 
+describe("Workspace — the sidebar it composes beside the deck", () => {
+  it("mounts the session sidebar, which nothing else in the console does", async () => {
+    // The gap this composition closes: every family registers into the sidebar seat,
+    // and until the workspace rendered the column there was no surface those sections
+    // could ever appear on.
+    const { container } = renderWorkspace(memoryStore());
+    await waitFor(() => {
+      expect(container.querySelector(".meridian-sidebar")).not.toBeNull();
+    });
+    expect(container.querySelectorAll("[data-sidebar-section]")).toHaveLength(8);
+  });
+
+  it("nests the deck's own group inside the split rather than replacing it", async () => {
+    // Two groups, and the deck's is untouched: a sidebar drag resizes the split and a
+    // pane drag resizes the deck, so neither gesture reaches the other's record.
+    const { container } = renderWorkspace(memoryStore());
+    await waitFor(() => {
+      expect(container.querySelector(".meridian-deck__pane")).not.toBeNull();
+    });
+    const split = container.querySelector(".meridian-workspace__split");
+    expect(split).not.toBeNull();
+    expect(split?.querySelector(".meridian-deck__group")).not.toBeNull();
+    expect(split?.querySelector(".meridian-sidebar")).not.toBeNull();
+  });
+
+  it("negative control: a route with no session store composes no sidebar", async () => {
+    // Without this the cases above would pass over a workspace that rendered the column
+    // whether or not there was a session for its sections to be a view of.
+    const { container } = render(
+      <LiveAnnouncerProvider>
+        <Workspace
+          bridge={createFixtureBridge({ scenario: SCENARIO })}
+          frameStore={new FrameStore({ initialRoute: { kind: "sessions" } })}
+          sessionStore={undefined}
+          uiStateStore={memoryStore()}
+          draftStore={new DraftStore()}
+          route={{ kind: "sessions" }}
+          registry={testRegistry()}
+        />
+      </LiveAnnouncerProvider>,
+    );
+    await waitFor(() => {
+      expect(container.querySelector(".meridian-workspace__split")).not.toBeNull();
+    });
+    expect(container.querySelector(".meridian-sidebar")).toBeNull();
+  });
+});
+
 describe("Workspace — the saved arrangement", () => {
   it("opens the ledger alone when nothing was saved", async () => {
     const { container } = renderWorkspace(memoryStore());
