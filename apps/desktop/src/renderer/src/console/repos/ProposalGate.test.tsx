@@ -50,7 +50,7 @@ describe("ProposalGate — the absences do not stand in for each other", () => {
   it("says nothing was asked when no branch-context read is registered", () => {
     const { container } = render(<ProposalGate state={{ kind: "not-checked" }} />);
     expect(container.textContent).toContain("No branch context has been read");
-    expect(container.textContent).toContain("Nothing has asked");
+    expect(container.textContent).toContain("the question could not be put");
   });
 
   it("names the mode as the reason a read-only workspace produces no context", () => {

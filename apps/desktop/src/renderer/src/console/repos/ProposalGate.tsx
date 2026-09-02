@@ -4,13 +4,22 @@
 // `Spec-023 §Console Design (Meridian)` §10.7. Four things about this file are
 // decisions rather than implementation, and each is load-bearing:
 //
-// 1. IT RENDERS, AND IT DOES NOT READ. The state arrives as a prop and the acts leave
-//    as callbacks, exactly as `ArtifactsPanel` takes its four arms. Every read and
-//    every write behind this gate — `gitflow.branchContextRead`, `gitflow.prPrepare`,
-//    `gitflow.gitActionExecute` — is unregistered: `packages/contracts` carries no
-//    `gitflow` module at all, and the growth port carries exactly ONE of the three,
-//    `gitActionExecute`, under the `gitflow-actions` slate row. A gate that called the
-//    port itself would own an effect to render the one arm it already takes as a prop.
+// 1. IT RENDERS, AND IT DOES NOT READ — AND `proposal-gate-reader.ts` IS THE ONE
+//    CALLER. The state arrives as a prop and the acts leave as callbacks, exactly as
+//    `ArtifactsPanel` takes its four arms; the reader beside this file is what holds
+//    a worktree's gate state, routes all three growth operations — the branch-context
+//    read, the preparation call, and the git action — and publishes the arm below.
+//    All three are `gitflow-actions` slate rows and every one of them is refused by
+//    the live bridge, which is why the reader's ordinary arm is `not-checked`: the
+//    split is what keeps that refusal a rendered sentence rather than an effect
+//    inside a component that also draws it.
+//
+//    WHAT THE READER CANNOT PUBLISH, AND WHY THAT IS STATED HERE. Two arms need
+//    members no registered reply carries — `hosting-unavailable` needs a bundle path
+//    and a preparation state naming it, and neither exists on a reply whose state
+//    vocabulary is `draft | ready`. So the reader never publishes that arm, the gate
+//    still draws it for a caller that can state it, and nothing here invents the
+//    difference. `proposal-model.ts` carries the same note beside the arm itself.
 //
 // 2. NOTHING HERE DECIDES WHO MAY ACT. `docs/architecture/contracts/error-contracts.md`
 //    registers no `gitflow` namespace, so a failed action arrives as an ordinary
@@ -96,10 +105,12 @@ export function ProposalGate(props: ProposalGateProps): React.JSX.Element {
           <Glyph name="workflow" size={GATE_GLYPH_SIZE} />
           Change proposal
         </h3>
-        {props.state.kind === "prepared" ? (
+        {props.state.kind === "prepared" && props.state.detectedHost !== undefined ? (
           // The detected host, in the host's own word. §10.7: the provider is
           // auto-detected from the git remote URL, so this is a REPORT and never a
-          // picker — there is no control here that could change it.
+          // picker — there is no control here that could change it. Absent where
+          // nothing supplied one, rather than shown as a guessed provider name: no
+          // registered reply carries the detection result today.
           <span className="meridian-proposal-gate__host">
             detected host <WireFigure value={props.state.detectedHost} />
           </span>
@@ -119,7 +130,7 @@ function renderGateBody(props: ProposalGateProps): React.JSX.Element {
         kind="not-checked"
         placement="surface"
         title="No branch context has been read."
-        detail="Nothing has asked. The branch-context read reaches the daemon through the growth port and the reader that calls it has not landed, so this is an unasked question rather than a workspace without a context."
+        detail="The branch-context read reaches the daemon through the growth port and that wire is not registered, so the question could not be put. This is an unanswered question rather than a workspace without a context, and the port's own refusal sentence is beside the gate."
       />
     );
   }
