@@ -42,7 +42,7 @@ import { type ConsoleClock } from "../../core/index.js";
 import { DerivedFigure, Nothing, formatCount } from "../../primitives/index.js";
 import { LedgerErrorSlot, LedgerRowGroup, type LedgerErrorEntry } from "./ErrorSlot.js";
 import { useLedgerViewport, type LedgerViewportBinding } from "./viewport-binding.js";
-import type { LedgerViewportRow, LedgerViewportSnapshot } from "./viewport-controller.js";
+import type { LedgerViewportRow, LedgerViewportSnapshot } from "./viewport-snapshot.js";
 
 /** How a row body is drawn. Supplied by whoever owns the row vocabulary. */
 export type LedgerRowRenderer = (row: LedgerViewportRow) => React.ReactNode;

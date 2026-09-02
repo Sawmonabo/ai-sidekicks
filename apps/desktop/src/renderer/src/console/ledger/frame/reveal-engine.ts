@@ -27,6 +27,11 @@
 // show. Turning that text into blocks — the incremental lex, the memoized block
 // parse, the settled-block subtree, the highlight cache — is the card layer's, and
 // a parser here would be a second one.
+//
+// WHAT IT NO LONGER DECLARES. The two closed sets and the four published shapes —
+// the engine states, the diagnostic kinds, a delta, a lane state, a frame — live in
+// `reveal-vocabulary.ts`, which states why the cut is there. A consumer that only
+// speaks the language holds that module and never this one.
 
 import {
   Emitter,
@@ -41,58 +46,15 @@ import {
   REVEAL_GATE_TAIL_CHARACTERS,
   REVEAL_LITERAL_BACKTRACK_CAP,
 } from "./frame-bounds.js";
-import { safeRevealCeiling, type RevealCommitMode } from "./reveal-gate.js";
+import { safeRevealCeiling } from "./reveal-gate.js";
+import type {
+  RevealDelta,
+  RevealDiagnostic,
+  RevealEngineState,
+  RevealFrame,
+  RevealLaneState,
+} from "./reveal-vocabulary.js";
 import { RopeSmoother, type ProvenAppendToken } from "./rope-smoother.js";
-
-/** The four states §5.6 names. Closed, and derived into a union below. */
-export const REVEAL_ENGINE_STATES = ["idle", "streaming", "catching-up", "settled"] as const;
-
-/** One engine state. Derived from the enumeration, never restated. */
-export type RevealEngineState = (typeof REVEAL_ENGINE_STATES)[number];
-
-/** Why the engine reported something. Closed: a nameless diagnostic is noise. */
-export const REVEAL_DIAGNOSTIC_KINDS = [
-  "out-of-band-source-change",
-  "transition-failed",
-  "checkpoint-dropped",
-] as const;
-
-/** One diagnostic kind. Derived from the enumeration, never restated. */
-export type RevealDiagnosticKind = (typeof REVEAL_DIAGNOSTIC_KINDS)[number];
-
-export interface RevealDiagnostic {
-  readonly kind: RevealDiagnosticKind;
-  readonly laneId: string;
-  readonly detail: string;
-}
-
-/** One delta from one producer. */
-export interface RevealDelta {
-  readonly laneId: string;
-  readonly mode: RevealCommitMode;
-  /** For `direct`, the appended text. For `authoritative`, the whole source. */
-  readonly text: string;
-}
-
-/** What a lane looks like from outside. */
-export interface RevealLaneState {
-  readonly laneId: string;
-  /** The text a consumer may render. Never shorter than it was last frame. */
-  readonly publishedText: string;
-  readonly pendingCharacterCount: number;
-  /** True while the lane is taking more than its fair share to catch up. */
-  readonly isCatchingUp: boolean;
-  readonly isSettled: boolean;
-  /** The receipt for the most recent append, so a consumer proves growth by token. */
-  readonly appendToken: ProvenAppendToken | undefined;
-}
-
-/** One drained frame, published to every subscriber at once. */
-export interface RevealFrame {
-  readonly state: RevealEngineState;
-  readonly lanes: readonly RevealLaneState[];
-  readonly charactersRevealed: number;
-}
 
 export interface RevealEngineOptions {
   readonly clock: ConsoleClock;

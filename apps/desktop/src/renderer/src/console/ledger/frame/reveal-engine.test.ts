@@ -9,8 +9,8 @@ import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "../../core/index.js";
 import { REVEAL_CATCH_UP_MULTIPLIER, REVEAL_FRAME_CHARACTER_BUDGET } from "./frame-bounds.js";
-import { REVEAL_DIAGNOSTIC_KINDS, REVEAL_ENGINE_STATES, RevealEngine } from "./reveal-engine.js";
-import type { RevealDiagnostic, RevealFrame } from "./reveal-engine.js";
+import { RevealEngine } from "./reveal-engine.js";
+import type { RevealDiagnostic, RevealFrame } from "./reveal-vocabulary.js";
 
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz";
 
@@ -28,20 +28,6 @@ function engineOn(clock: ManualClock): RevealEngine {
 }
 
 describe("the reveal engine — the frame budget", () => {
-  it("declares its states and diagnostics closed", () => {
-    expect([...REVEAL_ENGINE_STATES]).toStrictEqual([
-      "idle",
-      "streaming",
-      "catching-up",
-      "settled",
-    ]);
-    expect([...REVEAL_DIAGNOSTIC_KINDS]).toStrictEqual([
-      "out-of-band-source-change",
-      "transition-failed",
-      "checkpoint-dropped",
-    ]);
-  });
-
   it("arms nothing until there is work, and nothing again once settled", () => {
     const clock = new ManualClock();
     const engine = engineOn(clock);
