@@ -41,6 +41,7 @@ import {
 } from "../frame/surface-registry.js";
 import { Nothing } from "../primitives/index.js";
 import { Workspace, consolePaneRegistry, type ConsolePaneContext } from "../workspace/index.js";
+import { registerFixtureShellRows } from "./cards/FixtureShellRows.js";
 
 import "./ledger.css";
 
@@ -80,6 +81,19 @@ const LEDGER_SURFACES: readonly ConsoleSurfaceDescriptor[] = [
  * auxiliary window composes a subset without a second code path.
  */
 export function registerLedger(registry: ConsoleSurfaceRegistry): void {
+  // The row seat is filled here rather than by importing `FixtureShellRows.tsx` for
+  // its side effect, because a module whose IMPORT registers a seat cannot be
+  // composed twice and the seat's owner scoping would refuse the second composition
+  // rather than replace it. Registering from this function makes it idempotent: the
+  // seat admits a re-registration by the same owner, which is what a second window
+  // and a hot reload both are.
+  //
+  // AND IT IS DELETED WITH THE SHELL. `workspace/seats/timeline-row-slot.ts` states
+  // the absorb-by-import rule: the change that registers the timeline subtree's real
+  // rows deletes this call, `FixtureShellRows.tsx`, and `fixture-shell-projection.ts`
+  // in the same diff. A shell left registered beside the real row does not render
+  // both — it refuses the real one by name, at import time.
+  registerFixtureShellRows();
   for (const descriptor of LEDGER_SURFACES) {
     registry.register(descriptor);
   }

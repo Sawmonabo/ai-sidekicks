@@ -15,9 +15,11 @@
 //     participant's colour, which is the fail-closed arm of rule 2.
 
 import { render } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { FrameStore } from "../../store/index.js";
+import { SidekicksBridgeProvider, createFixtureBridge } from "../../bridge/index.js";
+import { LEDGER_QUIET_SCENARIO } from "../../bridge/scenarios/ledger-quiet.js";
+import { FrameStore, SessionStore } from "../../store/index.js";
 import { participantHueTokenName, tokenReference } from "../../tokens/index.js";
 import {
   registerTimelineRowRenderer,
@@ -27,6 +29,7 @@ import {
 import { TIMELINE_ROW_SLOT, TimelinePane } from "./TimelinePane.js";
 
 const SESSION_ID = "session-ledger";
+const LAID_OUT_VIEWPORT_HEIGHT_PX = 400;
 
 /**
  * The pane context, with the members this component reads real and the rest cast.
@@ -56,8 +59,20 @@ function paneContext(
   } as unknown as ConsolePaneContext;
 }
 
+/**
+ * Render one pane under a bridge, because the ledger reads the console clock.
+ *
+ * The quiet scenario rather than a richer one: what this file needs from a bridge
+ * is the frozen clock the viewport's scheduler runs on, and every row these cases
+ * assert on comes from the store built below rather than from a scripted beat, so
+ * a scenario that delivered its own would make the setup the subject.
+ */
 function renderPane(element: React.JSX.Element): HTMLElement {
-  const { container } = render(element);
+  const { container } = render(
+    <SidekicksBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
+      {element}
+    </SidekicksBridgeProvider>,
+  );
   const pane = container.querySelector(".meridian-pane");
   if (!(pane instanceof HTMLElement)) {
     throw new Error("TimelinePane rendered no pane element");
@@ -65,9 +80,53 @@ function renderPane(element: React.JSX.Element): HTMLElement {
   return pane;
 }
 
+/**
+ * A real store holding a two-event log.
+ *
+ * Real rather than a stand-in because the pane's whole job here is to read one, and
+ * a fake store would let the projection, the fold, and the viewport's reconcile all
+ * be wrong together while this case stayed green.
+ */
+function openSessionStoreWithLog(): SessionStore {
+  const sessionStore = new SessionStore({ sessionId: SESSION_ID });
+  sessionStore.initialise({ cursor: -1, entities: [], participantJoinLog: [] });
+  sessionStore.applyBatch([
+    {
+      sessionId: SESSION_ID,
+      sequence: 0,
+      kind: "session.created",
+      occurredAt: "2026-01-01T11:05:00.000Z",
+      payload: { sessionId: SESSION_ID },
+    },
+    {
+      sessionId: SESSION_ID,
+      sequence: 1,
+      kind: "run.running",
+      occurredAt: "2026-01-01T11:05:01.000Z",
+      payload: { sessionId: SESSION_ID, runId: "019b793b-7b60-740e-8110-d1a4c1150111" },
+    },
+  ]);
+  return sessionStore;
+}
+
+/**
+ * Give every element a viewport height, for the length of one case.
+ *
+ * `happy-dom` reports zero for `clientHeight`, and the virtualizer treats a zero
+ * outer size as no range at all — so without this a mounted feed would hold no
+ * rows for a reason that has nothing to do with the projection under test. The
+ * same stub `LedgerViewport.test.tsx` takes, for the same reason.
+ */
+function withLaidOutViewport(): void {
+  vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(
+    LAID_OUT_VIEWPORT_HEIGHT_PX,
+  );
+}
+
 afterEach(() => {
   // The seat is module-scope, so a case that filled it would leak into the next.
   unregisterTimelineRowRenderer();
+  vi.restoreAllMocks();
 });
 
 describe("TimelinePane — the chrome", () => {
@@ -137,19 +196,59 @@ describe("TimelinePane — the chrome", () => {
 describe("TimelinePane — the row slot", () => {
   it("says the rows have not been built while the seat is empty", () => {
     const pane = renderPane(<TimelinePane context={paneContext()} />);
-    const feed = pane.querySelector('[role="feed"]');
-    expect(feed?.textContent).toContain("The timeline rows have not been built yet.");
+    const body = pane.querySelector(".meridian-pane__body");
+    expect(body?.textContent).toContain("The timeline rows have not been built yet.");
+    // The feed itself is the ledger's, and the ledger is not mounted at all while
+    // there is no row body to mount it for.
+    expect(pane.querySelector('[role="feed"]')).toBeNull();
   });
 
-  it("says the session is empty once a row owner has filled the seat", () => {
+  it("says no session is open once the seat is filled but the pane has no store", () => {
     // Driven through the real seat rather than a local stand-in: a host holding its
     // own idea of whether rows exist would keep rendering the reserved state after
     // the row subtree landed, and no case here would notice.
+    //
+    // The two absences are different absences, which is the whole reason they are
+    // two: "the console cannot draw this" is a fact about what has shipped, and "no
+    // session is open in this pane" is a fact about this pane's address.
     registerTimelineRowRenderer("timeline-pane-test", () => null);
     const pane = renderPane(<TimelinePane context={paneContext()} />);
+    const body = pane.querySelector(".meridian-pane__body");
+    expect(body?.textContent).toContain("No session is open in this pane.");
+    expect(body?.textContent).not.toContain("The timeline rows have not been built yet.");
+  });
+
+  it("mounts the ledger and renders one row per admitted event", () => {
+    // The positive control for the whole composition: the seat is filled, a store is
+    // open, and a log has landed in it, so the projection has to reach the screen.
+    // Every earlier case here is an absence, and a pane that rendered NOTHING but
+    // absences would have passed all of them.
+    withLaidOutViewport();
+    registerTimelineRowRenderer("timeline-pane-test", (rowProps) => (
+      <article data-row-type={rowProps.row.type}>{rowProps.row.summary}</article>
+    ));
+    const sessionStore = openSessionStoreWithLog();
+    const pane = renderPane(
+      <TimelinePane context={paneContext({ sessionStore } as Partial<ConsolePaneContext>)} />,
+    );
     const feed = pane.querySelector('[role="feed"]');
-    expect(feed?.textContent).toContain("Nothing has happened in this session yet.");
-    expect(feed?.textContent).not.toContain("The timeline rows have not been built yet.");
+    expect(feed).not.toBeNull();
+    const rowTypes = [...pane.querySelectorAll("[data-row-type]")].map((row) =>
+      row.getAttribute("data-row-type"),
+    );
+    expect(rowTypes).toStrictEqual(["session.created", "run.running"]);
+    expect(pane.textContent).not.toContain("Nothing has happened in this session yet.");
+  });
+
+  it("negative control: the same store with no events shows the empty session", () => {
+    registerTimelineRowRenderer("timeline-pane-test", () => null);
+    const sessionStore = new SessionStore({ sessionId: SESSION_ID });
+    sessionStore.initialise({ cursor: -1, entities: [], participantJoinLog: [] });
+    const pane = renderPane(
+      <TimelinePane context={paneContext({ sessionStore } as Partial<ConsolePaneContext>)} />,
+    );
+    expect(pane.textContent).toContain("Nothing has happened in this session yet.");
+    expect(pane.querySelectorAll("[data-row-type]")).toHaveLength(0);
   });
 
   it("declares who owns the rows, what the mount owes them, and where the shell dies", () => {

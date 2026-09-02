@@ -33,7 +33,7 @@ import { useId } from "react";
 
 import { Nothing } from "../../primitives/index.js";
 import { routeSessionId } from "../../routing/index.js";
-import { useFrameStore } from "../../store/index.js";
+import { useFrameStore, type SessionStore } from "../../store/index.js";
 import { tokenReference } from "../../tokens/index.js";
 import {
   PaneHeader,
@@ -43,6 +43,7 @@ import {
   type OwnerSlotProps,
   type TimelineRowRenderer,
 } from "../../workspace/index.js";
+import { LedgerFeed } from "./LedgerFeed.js";
 
 /**
  * Who owns the rows, what this pane owes them, and where the shell dies.
@@ -101,43 +102,66 @@ export function TimelinePane(props: TimelinePaneProps): React.JSX.Element {
         {...(props.onClose === undefined ? {} : { onClose: props.onClose })}
         {...(props.onOpenInWindow === undefined ? {} : { onOpenInWindow: props.onOpenInWindow })}
       />
-      <TimelineRowHost contract={TIMELINE_ROW_SLOT} body={timelineRowRenderer()} />
+      <TimelineRowHost
+        contract={TIMELINE_ROW_SLOT}
+        body={timelineRowRenderer()}
+        sessionStore={context.sessionStore}
+      />
     </section>
   );
 }
 
 /**
- * The rows' hole, and the two different nothings it can hold.
+ * The rows' hole, and the three different nothings it can hold.
  *
- * `role="feed"` because the log grows at one end while a person reads the other, and
- * the rows themselves are `<article>`s — which is what makes the nesting valid.
+ * The three are kept apart because a person's next move differs (rule 8): a seat
+ * nobody has filled means the feature has not shipped; a route that names no session
+ * means there is nothing to be a log OF; and a filled seat over an open session with
+ * no rows means this session has not done anything yet. Collapsing any two of them
+ * would tell somebody their session was empty when the truth is that the console
+ * cannot draw it, or has not been asked to.
  *
- * The two absences are kept apart because a person's next move differs (rule 8): a
- * seat nobody has filled means the feature has not shipped, and a filled seat with
- * nothing to show means this session has not done anything yet. Collapsing them into
- * one empty state would tell somebody their session was empty when the truth is that
- * the console cannot draw it.
+ * The third is the FEED's to render rather than this file's — `LedgerViewport` shows
+ * it inside the scroll container, where a row would appear the moment one arrived —
+ * so the empty session is not a case here at all.
  */
-function TimelineRowHost(props: OwnerSlotProps<TimelineRowRenderer>): React.JSX.Element {
+function TimelineRowHost(
+  props: OwnerSlotProps<TimelineRowRenderer> & {
+    readonly sessionStore: SessionStore | undefined;
+  },
+): React.JSX.Element {
+  const body = props.body;
+  if (body === undefined) {
+    return (
+      <div className="meridian-pane__body">
+        <Nothing
+          kind="empty"
+          placement="surface"
+          title="The timeline rows have not been built yet."
+          detail="The pane is reserved for them — nothing here failed, and nothing is missing from this session."
+        />
+      </div>
+    );
+  }
+  if (props.sessionStore === undefined) {
+    return (
+      <div className="meridian-pane__body">
+        <Nothing
+          kind="not-loaded"
+          placement="surface"
+          title="No session is open in this pane."
+          detail="Open a session and its log appears here."
+        />
+      </div>
+    );
+  }
   return (
     <div className="meridian-pane__body">
-      <div className="meridian-pane__feed" role="feed" aria-label="Session timeline">
-        {props.body === undefined ? (
-          <Nothing
-            kind="empty"
-            placement="surface"
-            title="The timeline rows have not been built yet."
-            detail="The pane is reserved for them — nothing here failed, and nothing is missing from this session."
-          />
-        ) : (
-          <Nothing
-            kind="empty"
-            placement="surface"
-            title="Nothing has happened in this session yet."
-            detail="Entries appear here as people and agents work."
-          />
-        )}
-      </div>
+      <LedgerFeed
+        sessionStore={props.sessionStore}
+        renderTimelineRow={body}
+        feedLabel="Session timeline"
+      />
     </div>
   );
 }
