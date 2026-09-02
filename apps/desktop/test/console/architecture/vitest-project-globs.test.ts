@@ -170,6 +170,19 @@ describe("vitest projects — the carve-outs hold on paths that do not exist yet
     expect([...owners.values()][0]).toHaveLength(1);
   });
 
+  it("gives a shell test exactly one owner, in either co-located form", () => {
+    // `src/renderer/src/shell/**` composes console seats and needs the fixture
+    // define, so it belongs to `console-unit`; the renderer tier's `__tests__`
+    // glob would also match the second path without the shell exclusion.
+    const owners = ownersByFile(matchers, [
+      "src/renderer/src/shell/MessageComposer.test.tsx",
+      "src/renderer/src/shell/__tests__/AppShell.test.tsx",
+    ]);
+    for (const [file, projectNames] of owners) {
+      expect(projectNames, file).toEqual(["console-unit"]);
+    }
+  });
+
   it("gives a non-console renderer test under `__tests__` exactly one owner", () => {
     const owners = ownersByFile(matchers, [
       "src/renderer/src/some-family/__tests__/thing.test.tsx",

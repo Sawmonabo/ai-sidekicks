@@ -83,7 +83,7 @@ There is exactly one shared layer. `src/renderer/src/shared/` is not created; a 
 
 ## Tests
 
-- Co-located `*.test.{ts,tsx}` beside the module for `console/` and `src/main/**`. No new `__tests__/`; the three legacy renderer families keep theirs and are not converted.
+- Co-located `*.test.{ts,tsx}` beside the module for `console/`, `src/renderer/src/shell/` (a `console-unit` resident, since it composes console seats), and `src/main/**`. No new `__tests__/`; the three legacy renderer families keep theirs and are not converted.
 - The console tiers live under `test/console/<tier>/`, one Vitest project each, globs disjoint.
 - Shared scaffolding lives once, and one home per role. Cross-process roles go in `test/helpers/` — the `vi.mock("electron")` factory in `test/helpers/electron-mock.ts`, and any second one is rejected. Console roles go in `test/console/`: `console-harness.tsx` (render harness) and `electron-harness.ts` (spawn-and-scan) are the residents; a temp-directory helper, a script runner, and a path resolver take `temp-dir.ts`, `run-script.ts`, and `paths.ts` there when first needed. A tier that hand-rolls a role another tier already has is rejected.
 - A test never reimplements the rule it checks and never drives a local stand-in for the module under test; import the real one. Every clean result has a negative control that fails.

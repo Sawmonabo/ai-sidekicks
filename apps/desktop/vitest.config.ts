@@ -34,8 +34,9 @@
 //     environment. It becomes `test/*.test.ts`, which is exactly the three
 //     root-level smoke tests it has always meant.
 //   • `renderer`'s `src/renderer/**/__tests__/**` is unchanged, but its
-//     `exclude` now names the console subtree so a console test co-located
-//     under `src/renderer/src/console/**` belongs to `console-unit` alone.
+//     `exclude` now names the console and shell subtrees so a test co-located
+//     under `src/renderer/src/console/**` or `src/renderer/src/shell/**`
+//     belongs to `console-unit` alone.
 import { playwright, type PlaywrightProviderOptions } from "@vitest/browser-playwright";
 import { defineConfig } from "vitest/config";
 
@@ -335,8 +336,8 @@ export default defineConfig({
           // and `packages/client-sdk` (renderer is its own composite TS
           // project; its tests live inside that project's source tree).
           include: ["src/renderer/**/__tests__/**/*.test.{ts,tsx}"],
-          // The console owns its own tier; a console test never runs here.
-          exclude: ["src/renderer/src/console/**"],
+          // The console owns its own tier; a console or shell test never runs here.
+          exclude: ["src/renderer/src/console/**", "src/renderer/src/shell/**"],
           // `globals: true` populates `vi`, `expect`, `describe`, `it`,
           // `afterEach` etc. on the global scope so the test file can rely
           // on `vitest/globals` types (configured in
@@ -362,6 +363,10 @@ export default defineConfig({
           include: [
             "src/renderer/src/console/**/*.test.{ts,tsx}",
             "src/renderer/src/console/**/__tests__/**/*.test.{ts,tsx}",
+            // The shell subtree (Plan-023's own; it hosts the composer seat) composes
+            // console seats and so needs the fixture define — it is a console tier.
+            "src/renderer/src/shell/**/*.test.{ts,tsx}",
+            "src/renderer/src/shell/**/__tests__/**/*.test.{ts,tsx}",
           ],
           globals: true,
         },
