@@ -33,7 +33,6 @@ import { useSessionStore, type SessionStore, type SessionStoreState } from "../.
 import { type ConsolePaneContext } from "../../workspace/index.js";
 import { ConsolePaneChrome, paneScopeCrumbs } from "../pane-chrome.js";
 import { ApprovalCard, findApprovalCardAction } from "./ApprovalCard.js";
-import { DriverAskCard } from "./DriverAskCard.js";
 import { ExecutionPostureChip } from "./ExecutionPosture.js";
 import { CallbackTools } from "./CallbackTools.js";
 import { RememberedGrants } from "./RememberedGrants.js";
@@ -231,27 +230,15 @@ function ApprovalList(props: ApprovalListProps): React.JSX.Element {
           daemon returned.
         </p>
       ) : null}
-      {props.records.map((record) =>
-        // The `kind` discriminator on the originating ask is what routes a record
-        // to the ask card, so exactly one of the two renders any given record.
-        record.askId === undefined ? (
-          <ApprovalCard
-            key={record.approvalRequestId}
-            record={record}
-            isResolving={props.snapshotResolving.has(record.approvalRequestId)}
-            refusal={props.refusalByApprovalId.get(record.approvalRequestId)}
-            onResolve={props.onResolve}
-          />
-        ) : (
-          <DriverAskCard
-            key={record.approvalRequestId}
-            record={record}
-            isResolving={props.snapshotResolving.has(record.approvalRequestId)}
-            refusal={props.refusalByApprovalId.get(record.approvalRequestId)}
-            onResolve={props.onResolve}
-          />
-        ),
-      )}
+      {props.records.map((record) => (
+        <ApprovalCard
+          key={record.approvalRequestId}
+          record={record}
+          isResolving={props.snapshotResolving.has(record.approvalRequestId)}
+          refusal={props.refusalByApprovalId.get(record.approvalRequestId)}
+          onResolve={props.onResolve}
+        />
+      ))}
     </div>
   );
 }

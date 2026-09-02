@@ -27,10 +27,10 @@ import { Chip, InlineRefusal, Nothing, WireFigure } from "../../primitives/index
 import { type ConsoleRefusal } from "../../core/index.js";
 import { type RememberedRule } from "./approval-records.js";
 import {
-  SCOPE_KIND_PHRASE,
   TRIGGER_PHRASE,
   asInvalidationTrigger,
   asRememberedScopeKind,
+  rememberedScopeKindPhrase,
 } from "./approval-vocabulary.js";
 
 export interface RememberedGrantsProps {
@@ -79,7 +79,7 @@ export function RememberedGrants(props: RememberedGrantsProps): React.JSX.Elemen
               <div className="meridian-grants__line">
                 <Chip mono label={rule.category} />
                 <Chip
-                  label={scopePhrase(rule.scope.kind)}
+                  label={rememberedScopeKindPhrase(rule.scope.kind)}
                   tone={
                     asRememberedScopeKind(rule.scope.kind) === undefined ? "failure" : "neutral"
                   }
@@ -179,13 +179,4 @@ function RevokeControl(props: {
       </button>
     </div>
   );
-}
-
-/**
- * A scope kind's phrase, or the wire string itself where this build does not know
- * the kind — the fail-closed projection, never a guess at which boundary was meant.
- */
-function scopePhrase(kind: string): string {
-  const known = asRememberedScopeKind(kind);
-  return known === undefined ? kind : SCOPE_KIND_PHRASE[known];
 }

@@ -137,12 +137,33 @@
   border-radius: var(--meridian-radius-sm);
 }
 
-.meridian-approval-card__resource,
-.meridian-approval-card__audit {
-  display: flex;
-  gap: var(--meridian-space-2);
+.meridian-approval-card__resource {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  gap: var(--meridian-space-1) var(--meridian-space-2);
+  margin: 0;
+}
+
+.meridian-approval-card__resource-member {
+  display: contents;
+}
+
+.meridian-approval-card__resource dt,
+.meridian-approval-card__resource dd {
   margin: 0;
   overflow-wrap: anywhere;
+}
+
+.meridian-approval-card__resource dt {
+  color: var(--meridian-text-muted);
+}
+
+.meridian-approval-card__resource-empty {
+  max-width: 62ch;
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  line-height: 1.5;
 }
 
 .meridian-approval-card__remember-note {
@@ -249,35 +270,6 @@
 }
 
 /* --- the permission ask ------------------------------------------------ */
-
-.meridian-approval-ask__body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-  padding: var(--meridian-space-2);
-  background: var(--meridian-surface-sunken);
-  border-radius: var(--meridian-radius-sm);
-}
-
-.meridian-approval-ask__origin,
-.meridian-approval-ask__expiry-outcome {
-  max-width: 68ch;
-  margin: 0;
-  color: var(--meridian-text-muted);
-  font-size: var(--meridian-text-xs);
-  line-height: 1.5;
-}
-
-.meridian-approval-ask__input {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
-.meridian-approval-ask__missing {
-  margin: 0;
-  color: var(--meridian-amber-text);
-  font-size: var(--meridian-text-xs);
-}
 
 /* --- standing permissions ---------------------------------------------- */
 

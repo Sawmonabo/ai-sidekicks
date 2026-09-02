@@ -6,21 +6,24 @@
 // checked is the request that would go on the wire rather than a re-derivation of
 // it beside the component.
 
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
 
 import { ApprovalCard } from "./ApprovalCard.js";
-import { DriverAskCard } from "./DriverAskCard.js";
 import { type ApprovalRecord } from "./approval-records.js";
 import { type ApprovalResolveRequest } from "./approvals-wire.js";
 
 function pendingRecord(overrides: Partial<ApprovalRecord> = {}): ApprovalRecord {
   return {
     approvalRequestId: "approval-01",
+    runId: "run-01",
     category: "file_write",
     state: "pending",
     requestedBy: "agent-implementer",
     requestedScope: "session",
+    resourceDescriptor: { path: "packages/contracts/src/approval.ts" },
+    createdAt: "2026-01-01T13:30:00.900Z",
+    updatedAt: "2026-01-01T13:30:00.900Z",
     ...overrides,
   };
 }
@@ -172,37 +175,91 @@ describe("the action row is keyboard-walkable", () => {
   });
 });
 
-describe("a permission-kind ask rides the same card", () => {
-  it("shows the normalized input inline and names the expiry outcome", () => {
-    const onResolve = vi.fn();
-    render(
-      <DriverAskCard
-        record={pendingRecord({
-          askId: "ask-11",
-          resourceDescriptor: "git push --force origin main",
-        })}
-        isResolving={false}
-        refusal={undefined}
-        onResolve={onResolve}
-      />,
+describe("the requested resource is the structured value the reply carried", () => {
+  it("renders every member of the descriptor as a pair", () => {
+    renderCard(
+      pendingRecord({
+        resourceDescriptor: { command: "git push --force origin main", branch: "main" },
+      }),
     );
-    expect(screen.getAllByText("git push --force origin main").length).toBeGreaterThan(0);
-    expect(screen.getByText(/the run continues/u)).not.toBeNull();
-    // It is the same card: the two answers are still the only two answers, and no
-    // free-text answer arm exists on this surface.
-    expect(screen.getByRole("toolbar", { name: "Answer this request" })).not.toBeNull();
-    expect(screen.queryByRole("textbox")).toBeNull();
+    const disclosure = screen.getByRole("button", { name: "What was asked for" });
+    fireEvent.click(disclosure);
+    expect(screen.getByText("command")).not.toBeNull();
+    expect(screen.getByText("git push --force origin main")).not.toBeNull();
+    expect(screen.getByText("branch")).not.toBeNull();
+    // Negative control on the "no local formatter" rule: a string member renders
+    // with no quotes added around it, so a JSON dump of the whole descriptor would
+    // fail this assertion rather than pass it.
+    expect(screen.queryByText(/^\{/u)).toBeNull();
   });
 
-  it("says so when the reply carried no requested resource", () => {
-    render(
-      <DriverAskCard
-        record={pendingRecord({ askId: "ask-12" })}
-        isResolving={false}
-        refusal={undefined}
-        onResolve={vi.fn()}
-      />,
+  it("renders a non-string member as its JSON form rather than dropping it", () => {
+    renderCard(pendingRecord({ resourceDescriptor: { bytes: 4096, dryRun: false } }));
+    fireEvent.click(screen.getByRole("button", { name: "What was asked for" }));
+    expect(screen.getByText("4096")).not.toBeNull();
+    expect(screen.getByText("false")).not.toBeNull();
+  });
+
+  it("says so when the descriptor carried no members at all", () => {
+    renderCard(pendingRecord({ resourceDescriptor: {} }));
+    fireEvent.click(screen.getByRole("button", { name: "What was asked for" }));
+    expect(screen.getByText(/descriptor with nothing in it/u)).not.toBeNull();
+  });
+});
+
+describe("the facts the reply requires", () => {
+  it("names the run that raised the request", () => {
+    renderCard(pendingRecord({ runId: "019b7a33-3300-740e-8110-d1a4c1150511" }));
+    const facts = screen.getByText("Raised by run").closest("div");
+    expect(facts).not.toBeNull();
+    expect(
+      within(facts ?? document.body).getByText("019b7a33-3300-740e-8110-d1a4c1150511"),
+    ).not.toBeNull();
+  });
+
+  it("shows both instants as a clock reading that still carries the wire value", () => {
+    renderCard(
+      pendingRecord({
+        createdAt: "2026-01-01T13:30:00.900Z",
+        updatedAt: "2026-01-01T14:05:20.000Z",
+      }),
     );
-    expect(screen.getByText(/no requested resource/u)).not.toBeNull();
+    // The formatted reading is what a person reads; the exact instant rides
+    // `title`, because a formatted figure never hides the value the daemon sent.
+    const created = screen.getByTitle("2026-01-01T13:30:00.900Z");
+    const changed = screen.getByTitle("2026-01-01T14:05:20.000Z");
+    expect(created.textContent).not.toBe("2026-01-01T13:30:00.900Z");
+    expect(changed.textContent).not.toBe("");
+  });
+});
+
+describe("a remembered scope on a resolved record", () => {
+  it("names the boundary and the pattern it was narrowed to", () => {
+    renderCard(
+      pendingRecord({
+        state: "approved",
+        resolvedAt: "2026-01-01T13:30:00.420Z",
+        decision: "approved",
+        approverId: "participant-you",
+        effectiveScope: "session",
+        rememberedScope: { kind: "run", pattern: "packages/contracts/**" },
+      }),
+    );
+    expect(screen.getByText("This run only")).not.toBeNull();
+    expect(screen.getByText("packages/contracts/**")).not.toBeNull();
+  });
+
+  it("says the grant is category-wide when it carried no pattern", () => {
+    renderCard(
+      pendingRecord({
+        state: "approved",
+        resolvedAt: "2026-01-01T13:30:00.420Z",
+        decision: "approved",
+        approverId: "participant-you",
+        effectiveScope: "session",
+        rememberedScope: { kind: "session" },
+      }),
+    );
+    expect(screen.getByText("the whole category inside that boundary")).not.toBeNull();
   });
 });

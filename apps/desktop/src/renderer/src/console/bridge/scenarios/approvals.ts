@@ -26,6 +26,12 @@
 // carries `{sessionId, config, metadata}` and the second carries `name` rather than
 // the `displayName` that is on no wire in this corpus.
 //
+// THE PROJECTION REPLY IS THE REGISTERED ONE, key for key. `approval.projectionRead`
+// answers `{ approvals: [{ id, runId, requestedBy, category, scope, resourceDescriptor,
+// state, createdAt, updatedAt, ... }] }`, and every row below is written that way — a
+// fixture that answered a shape the corpus has not registered would teach the surface
+// a wire that does not exist, and the surface would then be tested against the lie.
+//
 // IDENTIFIERS ARE UUIDS, with one deliberate exception. `SessionId`,
 // `ParticipantId`, `AgentId`, `RunId`, and `ApprovalRequestId` are branded ids the
 // contracts declare over UUID values, and a readable `approval-01` also renders at a
@@ -57,11 +63,10 @@ const RULE_RUN_SCOPED = "019b7a33-3300-7b01-8120-d1a4c1150532";
 const RULE_REVOKED = "019b7a33-3300-7b01-8130-d1a4c1150533";
 
 /**
- * The originating driver ask, carried on the permission-kind request.
+ * The originating driver ask, carried on the `approval.requested` EVENT payload.
  *
- * `askId` routes a normalized permission ask to the ask card rather than the plain
- * one, so exactly one of the two renders it. It is a driver-scoped identifier and
- * not one of the branded id types, which is why it is not a UUID here.
+ * Registered there and persisted on the request row, and on no member of the
+ * projection reply — so the beat below carries it and the reply below does not.
  */
 const DRIVER_ASK_ID = "ask-permission-force-push";
 
@@ -127,7 +132,7 @@ export const APPROVALS_SCENARIO: ConsoleScenario = {
           category: "tool_execution",
           scope: "run",
           requestedBy: AGENT_IMPLEMENTER,
-          resourceDescriptor: "pnpm --filter @ai-sidekicks/desktop run build",
+          resourceDescriptor: { command: "pnpm --filter @ai-sidekicks/desktop run build" },
           expiryAt: "2026-01-01T17:30:00.200Z",
         },
       },
@@ -168,7 +173,7 @@ export const APPROVALS_SCENARIO: ConsoleScenario = {
           category: "destructive_git",
           scope: "session",
           requestedBy: AGENT_IMPLEMENTER,
-          resourceDescriptor: "git reset --hard origin/develop",
+          resourceDescriptor: { command: "git reset --hard origin/develop", branch: "develop" },
           expiryAt: "2026-01-01T13:30:00.780Z",
         },
       },
@@ -206,7 +211,10 @@ export const APPROVALS_SCENARIO: ConsoleScenario = {
           category: "file_write",
           scope: "session",
           requestedBy: AGENT_IMPLEMENTER,
-          resourceDescriptor: "write packages/runtime-daemon/src/store/migrations/0012.sql",
+          resourceDescriptor: {
+            path: "packages/runtime-daemon/src/store/migrations/0012.sql",
+            bytes: 4096,
+          },
           expiryAt: "2026-01-01T17:30:00.900Z",
         },
       },
@@ -230,7 +238,10 @@ export const APPROVALS_SCENARIO: ConsoleScenario = {
           category: "tool_execution",
           scope: "run",
           requestedBy: AGENT_IMPLEMENTER,
-          resourceDescriptor: "git push --force origin feature/rebased",
+          resourceDescriptor: {
+            command: "git push --force origin feature/rebased",
+            branch: "feature/rebased",
+          },
           expiryAt: "2026-01-01T17:30:01.100Z",
         },
       },
@@ -261,72 +272,106 @@ export const APPROVALS_SCENARIO: ConsoleScenario = {
       // the resolved quad present exactly on the two resolved arms and `expiryAt`
       // verbatim on the ones that have one. The console never filters by state
       // itself — the filter is a server-side one this read deliberately does not use.
+      // The member names inside a descriptor are the daemon's own composition — the
+      // wire types it an open `Record<string, unknown>` and registers no vocabulary
+      // for its keys, so the surface renders whatever members arrive and names none
+      // of them itself.
       result: {
-        requests: [
+        approvals: [
           {
-            approvalRequestId: APPROVAL_PENDING_WRITE,
+            id: APPROVAL_PENDING_WRITE,
+            runId: RUN_ID,
+            requestedBy: AGENT_IMPLEMENTER,
             category: "file_write",
+            scope: "session",
+            resourceDescriptor: {
+              path: "packages/runtime-daemon/src/store/migrations/0012.sql",
+              bytes: 4096,
+            },
             state: "pending",
-            requestedBy: AGENT_IMPLEMENTER,
-            requestedScope: "session",
-            resourceDescriptor: "write packages/runtime-daemon/src/store/migrations/0012.sql",
+            createdAt: "2026-01-01T13:30:00.900Z",
+            updatedAt: "2026-01-01T13:30:00.900Z",
             expiryAt: "2026-01-01T17:30:00.900Z",
-            auditMetadata: { origin: "tool", turn: "7" },
           },
-          // A permission-kind driver ask, normalized into the approval model: the
-          // `askId` is what routes it to the ask card rather than the plain one, so
-          // exactly one of the two renders it.
+          // The request that arrived as a provider permission ask. It carries no
+          // marker of that origin, because the projection reply registers none: the
+          // `askId` is on the EVENT payload and on the persisted row, and a fixture
+          // that answered one here would be teaching a member into existence.
           {
-            approvalRequestId: APPROVAL_PENDING_ASK,
+            id: APPROVAL_PENDING_ASK,
+            runId: RUN_ID,
+            requestedBy: AGENT_IMPLEMENTER,
             category: "tool_execution",
+            scope: "run",
+            resourceDescriptor: {
+              command: "git push --force origin feature/rebased",
+              branch: "feature/rebased",
+            },
             state: "pending",
-            requestedBy: AGENT_IMPLEMENTER,
-            requestedScope: "run",
-            resourceDescriptor: "git push --force origin feature/rebased",
+            createdAt: "2026-01-01T13:30:01.100Z",
+            updatedAt: "2026-01-01T13:30:01.100Z",
             expiryAt: "2026-01-01T17:30:01.100Z",
-            askId: DRIVER_ASK_ID,
           },
           {
-            approvalRequestId: APPROVAL_RESOLVED,
-            category: "tool_execution",
-            state: "approved",
+            id: APPROVAL_RESOLVED,
+            runId: RUN_ID,
             requestedBy: AGENT_IMPLEMENTER,
-            requestedScope: "run",
+            category: "tool_execution",
+            scope: "run",
+            resourceDescriptor: { command: "pnpm --filter @ai-sidekicks/desktop run build" },
+            state: "approved",
+            createdAt: "2026-01-01T13:30:00.200Z",
+            updatedAt: "2026-01-01T13:30:00.420Z",
             expiryAt: "2026-01-01T17:30:00.200Z",
             resolvedAt: "2026-01-01T13:30:00.420Z",
             decision: "approved",
             approverId: PARTICIPANT_YOU,
             effectiveScope: "run",
+            // The resolution that minted a rule. An OBJECT, as the wire declares
+            // it, and the one row here that carries a narrowing pattern.
+            rememberedScope: { kind: "run", pattern: "pnpm --filter @ai-sidekicks/desktop" },
           },
           {
-            approvalRequestId: APPROVAL_EXPIRED,
-            category: "destructive_git",
-            state: "expired",
+            id: APPROVAL_EXPIRED,
+            runId: RUN_ID,
             requestedBy: AGENT_IMPLEMENTER,
-            requestedScope: "session",
+            category: "destructive_git",
+            scope: "session",
+            resourceDescriptor: { command: "git reset --hard origin/develop", branch: "develop" },
+            state: "expired",
+            createdAt: "2026-01-01T13:30:00.600Z",
+            // An expired row settles on `updatedAt`; there is no resolution row.
+            updatedAt: "2026-01-01T13:30:00.780Z",
             expiryAt: "2026-01-01T13:30:00.780Z",
           },
           // The remaining two members of the five-state union. A `rejected` record
           // carries the resolved quad exactly as an `approved` one does, and a
           // `canceled` one carries none, because it was never resolved by anybody.
           {
-            approvalRequestId: APPROVAL_REJECTED,
-            category: "network_access",
-            state: "rejected",
+            id: APPROVAL_REJECTED,
+            runId: RUN_ID,
             requestedBy: AGENT_REVIEWER,
-            requestedScope: "run",
-            resourceDescriptor: "fetch https://registry.example.invalid/index",
+            category: "network_access",
+            scope: "run",
+            resourceDescriptor: { host: "registry.example.invalid", method: "GET" },
+            state: "rejected",
+            createdAt: "2026-01-01T13:29:00.000Z",
+            updatedAt: "2026-01-01T13:29:10.000Z",
             resolvedAt: "2026-01-01T13:29:10.000Z",
             decision: "rejected",
             approverId: PARTICIPANT_YOU,
             effectiveScope: "run",
           },
           {
-            approvalRequestId: APPROVAL_CANCELED,
-            category: "plan_approval",
-            state: "canceled",
+            id: APPROVAL_CANCELED,
+            runId: RUN_ID,
             requestedBy: AGENT_REVIEWER,
-            requestedScope: "session",
+            category: "plan_approval",
+            scope: "session",
+            resourceDescriptor: { planId: "plan-console-shell", steps: 4 },
+            state: "canceled",
+            createdAt: "2026-01-01T13:28:40.000Z",
+            updatedAt: "2026-01-01T13:28:55.000Z",
           },
         ],
       },

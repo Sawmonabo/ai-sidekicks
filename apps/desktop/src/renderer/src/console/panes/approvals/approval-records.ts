@@ -19,11 +19,29 @@
 //     count is what the pane renders beside the list, because "the daemon returned
 //     eleven and we could read nine" is a fact an operator has to be able to see.
 //
+//   • **The registered reply is ADAPTED here, at one boundary.** The daemon answers
+//     `{ approvals: [{ id, runId, requestedBy, category, scope, resourceDescriptor,
+//     state, createdAt, updatedAt, ... }] }`, and this module is the only place that
+//     shape becomes the shape a component reads. `id` keeps the console-side name
+//     `approvalRequestId` because that is what the registered resolve REQUEST calls
+//     the same value, so the rename is an adaptation between two registered spellings
+//     of one identity rather than drift; `scope` keeps the console-side name
+//     `requestedScope` because the reply carries a second scope — `effectiveScope` —
+//     and one word for two of them is how a surface starts showing the granted scope
+//     where the requested one belongs.
+//
 // WHAT IS DELIBERATELY ABSENT: a barrier identifier. §7.6 states the wait-for-all
 // barrier, and no member of this reply groups the requests one turn raised. The
 // pane states the rule in copy rather than inventing a field to group by, because
 // a fabricated grouping key would silently claim that two unrelated requests must
 // resolve together.
+//
+// AND TWO MEMBERS THAT ARE NOT ON THIS READ AT ALL. `askId` is registered on the
+// approval-flow EVENT payload and persisted on the request row; `auditMetadata` is a
+// member of the resolve REQUEST. Neither is on the projection reply, so neither is a
+// member of the record below — a console cannot render a distinction the read it made
+// does not carry, and a member kept alive by a fixture is a member kept alive by
+// nothing.
 
 import { z } from "zod";
 
@@ -39,48 +57,59 @@ import { z } from "zod";
  * console renders as incomplete rather than as resolved-at-unknown.
  */
 export interface ApprovalRecord {
+  /** The reply's `id`. Named as the registered resolve REQUEST names the same value. */
   readonly approvalRequestId: string;
+  /** Which run raised this. Required on the wire, and the first thing anyone asks. */
+  readonly runId: string;
   readonly category: string;
   readonly state: string;
   readonly requestedBy: string;
+  /** The reply's `scope` — what was asked for, never what was granted. */
   readonly requestedScope: string;
-  readonly resourceDescriptor?: string | undefined;
+  /**
+   * The audit-grade target, required and structured. A row carrying a string here,
+   * or nothing, is a row this build cannot read — counted, never rendered as a
+   * decision about an action nobody can see.
+   */
+  readonly resourceDescriptor: Readonly<Record<string, unknown>>;
+  readonly createdAt: string;
+  /** The last state-transition instant. Expired and canceled rows settle here. */
+  readonly updatedAt: string;
   readonly expiryAt?: string | undefined;
   readonly resolvedAt?: string | undefined;
   readonly decision?: string | undefined;
   readonly approverId?: string | undefined;
   readonly effectiveScope?: string | undefined;
-  readonly rememberedScope?: string | undefined;
-  readonly askId?: string | undefined;
-  readonly auditMetadata?: Readonly<Record<string, string>> | undefined;
+  /** Present where the resolution minted a rule; the shape the rule list carries. */
+  readonly rememberedScope?: RememberedScope | undefined;
 }
 
-const approvalRecordSchema: z.ZodType<ApprovalRecord> = z
-  .object({
-    approvalRequestId: z.string().min(1),
-    category: z.string().min(1),
-    state: z.string().min(1),
-    requestedBy: z.string().min(1),
-    requestedScope: z.string().min(1),
-    /** The command, path, or tool arguments the decision is about. */
-    resourceDescriptor: z.string().optional(),
-    /** Verbatim. The console performs no expiry arithmetic of its own. */
-    expiryAt: z.string().optional(),
-    resolvedAt: z.string().optional(),
-    decision: z.string().optional(),
-    approverId: z.string().optional(),
-    effectiveScope: z.string().optional(),
-    /** Present where the resolution minted a rule. */
-    rememberedScope: z.string().optional(),
-    /**
-     * The originating driver ask, present on a permission-kind ask normalized into
-     * the approval model (§7.8). Its presence is what routes a record to the ask
-     * card; its absence is an ordinary approval.
-     */
-    askId: z.string().optional(),
-    auditMetadata: z.record(z.string(), z.string()).optional(),
-  })
-  .loose();
+/**
+ * Every member of {@link ApprovalRecord}, as a value.
+ *
+ * A closed set has to be countable at runtime for a test to hold it, and the claim
+ * this list carries is that the record's member set IS the registered reply's — so a
+ * member invented back in fails an assertion rather than quietly reaching a card.
+ * The annotation does the other half: a name the interface does not carry is a
+ * compile error here rather than a string nobody checks.
+ */
+export const APPROVAL_RECORD_MEMBERS: readonly (keyof ApprovalRecord)[] = [
+  "approvalRequestId",
+  "runId",
+  "category",
+  "state",
+  "requestedBy",
+  "requestedScope",
+  "resourceDescriptor",
+  "createdAt",
+  "updatedAt",
+  "expiryAt",
+  "resolvedAt",
+  "decision",
+  "approverId",
+  "effectiveScope",
+  "rememberedScope",
+];
 
 /** What a remembered rule covers. `kind` is a wire string, classified at render. */
 export interface RememberedScope {
@@ -95,6 +124,55 @@ const rememberedScopeSchema: z.ZodType<RememberedScope> = z
     pattern: z.string().optional(),
   })
   .loose();
+
+/**
+ * The registered projection row, and the one place its spelling becomes ours.
+ *
+ * Loose rather than strict: a member this build does not know is a member a later
+ * daemon added, and refusing the whole row over one would turn an additive wire
+ * change into an approvals pane that renders nothing. The transform then builds the
+ * record EXPLICITLY, so an unknown member is dropped at the boundary instead of
+ * riding along into a component that never declared it.
+ */
+const approvalRecordSchema: z.ZodType<ApprovalRecord> = z
+  .object({
+    id: z.string().min(1),
+    runId: z.string().min(1),
+    requestedBy: z.string().min(1),
+    category: z.string().min(1),
+    scope: z.string().min(1),
+    resourceDescriptor: z.record(z.string(), z.unknown()),
+    state: z.string().min(1),
+    createdAt: z.string().min(1),
+    updatedAt: z.string().min(1),
+    /** Verbatim. The console performs no expiry arithmetic of its own. */
+    expiryAt: z.string().optional(),
+    resolvedAt: z.string().optional(),
+    decision: z.string().optional(),
+    approverId: z.string().optional(),
+    effectiveScope: z.string().optional(),
+    rememberedScope: rememberedScopeSchema.optional(),
+  })
+  .loose()
+  .transform(
+    (row): ApprovalRecord => ({
+      approvalRequestId: row.id,
+      runId: row.runId,
+      category: row.category,
+      state: row.state,
+      requestedBy: row.requestedBy,
+      requestedScope: row.scope,
+      resourceDescriptor: row.resourceDescriptor,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      expiryAt: row.expiryAt,
+      resolvedAt: row.resolvedAt,
+      decision: row.decision,
+      approverId: row.approverId,
+      effectiveScope: row.effectiveScope,
+      rememberedScope: row.rememberedScope,
+    }),
+  );
 
 /** One standing permission, as this surface holds it. */
 export interface RememberedRule {
@@ -140,18 +218,18 @@ export interface ParsedRows<TRow> {
   readonly unreadableCount: number;
 }
 
-const approvalProjectionSchema = z.object({ requests: z.array(z.unknown()) });
+const approvalProjectionSchema = z.object({ approvals: z.array(z.unknown()) });
 const rememberedRuleListSchema = z.object({ rules: z.array(z.unknown()) });
 
 /**
  * Narrow an `approval.projectionRead` reply.
  *
  * Throws on a reply that is not even shaped like the read — a caller renders that
- * as a refusal, because a reply with no `requests` array is the daemon answering
+ * as a refusal, because a reply with no `approvals` array is the daemon answering
  * something else entirely and an empty list would report it as "nothing pending".
  */
 export function readApprovalProjection(reply: unknown): ParsedRows<ApprovalRecord> {
-  return parseRows(approvalProjectionSchema.parse(reply).requests, approvalRecordSchema);
+  return parseRows(approvalProjectionSchema.parse(reply).approvals, approvalRecordSchema);
 }
 
 /** Narrow an `approval.ruleList` reply. Throws for `readApprovalProjection`'s reason. */

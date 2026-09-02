@@ -132,13 +132,13 @@ describe("one unfiltered read, rendered in two places", () => {
     expect(within(section("Waiting on a decision")).queryByText("Approved")).toBeNull();
   });
 
-  it("routes a permission-kind ask to the ask card and an ordinary one to the plain card", async () => {
+  it("names the run each waiting request was raised by", async () => {
     const bridge = await mountPane();
     await settle(bridge);
     const waiting = section("Waiting on a decision");
-    // The ask card is the only one that names the expiry outcome, so its presence
-    // is the routing, and exactly one of the two pending records took it.
-    expect(within(waiting).getAllByText(/the run continues/u)).toHaveLength(1);
+    // `runId` is required on every registered row, so every card can say it — and
+    // which run raised a request is the first thing anyone answering one asks.
+    expect(within(waiting).getAllByText("Raised by run")).toHaveLength(2);
   });
 
   it("states the wait-for-all barrier over the group rather than grouping cards", async () => {
@@ -228,7 +228,7 @@ class ScriptedApprovalReads {
 
   public reply(): unknown {
     const shown = this.#admitsThird ? WAITING_APPROVAL_IDS : WAITING_APPROVAL_IDS.slice(0, 2);
-    return { requests: shown.map(waitingRecord) };
+    return { approvals: shown.map(waitingRecord) };
   }
 }
 
@@ -238,13 +238,17 @@ const WAITING_APPROVAL_IDS = [
   "019b7a33-3300-7f01-8230-d1a4c1150603",
 ] as const;
 
-function waitingRecord(approvalRequestId: string): Record<string, string> {
+function waitingRecord(id: string): Record<string, unknown> {
   return {
-    approvalRequestId,
-    category: "file_write",
-    state: "pending",
+    id,
+    runId: "019b7a33-3300-740e-8110-d1a4c1150511",
     requestedBy: "019b7a33-3300-7a6e-8110-d1a4c1150501",
-    requestedScope: "run",
+    category: "file_write",
+    scope: "run",
+    resourceDescriptor: { path: "packages/contracts/src/approval.ts" },
+    state: "pending",
+    createdAt: "2026-01-01T13:30:00.900Z",
+    updatedAt: "2026-01-01T13:30:00.900Z",
   };
 }
 

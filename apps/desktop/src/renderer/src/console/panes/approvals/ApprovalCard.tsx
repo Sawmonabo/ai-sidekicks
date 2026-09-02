@@ -30,7 +30,14 @@ import { Checkbox } from "@base-ui/react/checkbox";
 import { Collapsible } from "@base-ui/react/collapsible";
 import { Select } from "@base-ui/react/select";
 
-import { Chip, DerivedFigure, InlineRefusal, WireFigure } from "../../primitives/index.js";
+import {
+  Chip,
+  DerivedFigure,
+  InlineRefusal,
+  WireFigure,
+  formatClockTime,
+  formatWireDescriptor,
+} from "../../primitives/index.js";
 import { type ConsoleRefusal } from "../../core/index.js";
 import {
   hasCompleteResolvedQuad,
@@ -45,6 +52,7 @@ import {
   STATE_TONE,
   asApprovalCategory,
   asApprovalState,
+  rememberedScopeKindPhrase,
   type RememberedScopeKind,
 } from "./approval-vocabulary.js";
 import { type ApprovalResolveRequest } from "./approvals-wire.js";
@@ -173,9 +181,29 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
           </dd>
         </div>
         <div className="meridian-approval-card__fact">
+          <dt>Raised by run</dt>
+          <dd>
+            <WireFigure value={record.runId} />
+          </dd>
+        </div>
+        <div className="meridian-approval-card__fact">
           <dt>Requested scope</dt>
           <dd>
             <WireFigure value={record.requestedScope} />
+          </dd>
+        </div>
+        <div className="meridian-approval-card__fact">
+          <dt>Requested</dt>
+          <dd>
+            {/* The clock reading is what a person reads; `title` carries the exact
+                instant the daemon sent, because a formatted figure never hides it. */}
+            <WireFigure value={formatClockTime(record.createdAt)} title={record.createdAt} />
+          </dd>
+        </div>
+        <div className="meridian-approval-card__fact">
+          <dt>Last changed</dt>
+          <dd>
+            <WireFigure value={formatClockTime(record.updatedAt)} title={record.updatedAt} />
           </dd>
         </div>
         <div className="meridian-approval-card__fact">
@@ -192,28 +220,14 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
 
       {props.children}
 
-      {record.resourceDescriptor === undefined && record.auditMetadata === undefined ? null : (
-        <Collapsible.Root className="meridian-approval-card__disclosure">
-          <Collapsible.Trigger className="meridian-approval-card__disclosure-trigger">
-            What was asked for
-          </Collapsible.Trigger>
-          <Collapsible.Panel className="meridian-approval-card__disclosure-panel">
-            {record.resourceDescriptor === undefined ? null : (
-              <p className="meridian-approval-card__resource">
-                <WireFigure value={record.resourceDescriptor} />
-              </p>
-            )}
-            {record.auditMetadata === undefined
-              ? null
-              : Object.entries(record.auditMetadata).map(([key, value]) => (
-                  <p className="meridian-approval-card__audit" key={key}>
-                    <WireFigure value={key} />
-                    <WireFigure value={value} />
-                  </p>
-                ))}
-          </Collapsible.Panel>
-        </Collapsible.Root>
-      )}
+      <Collapsible.Root className="meridian-approval-card__disclosure">
+        <Collapsible.Trigger className="meridian-approval-card__disclosure-trigger">
+          What was asked for
+        </Collapsible.Trigger>
+        <Collapsible.Panel className="meridian-approval-card__disclosure-panel">
+          <ResourceDescriptor descriptor={record.resourceDescriptor} />
+        </Collapsible.Panel>
+      </Collapsible.Root>
 
       {isResolvedRecord(record) ? <ResolvedQuad record={record} /> : null}
 
@@ -351,10 +365,51 @@ function ResolvedQuad(props: { readonly record: ApprovalRecord }): React.JSX.Ele
         <div className="meridian-approval-card__fact">
           <dt>Remembered scope</dt>
           <dd>
-            <WireFigure value={record.rememberedScope} />
+            <DerivedFigure text={rememberedScopeKindPhrase(record.rememberedScope.kind)} />
+            {record.rememberedScope.pattern === undefined ? (
+              <DerivedFigure text="the whole category inside that boundary" />
+            ) : (
+              <WireFigure value={record.rememberedScope.pattern} />
+            )}
           </dd>
         </div>
       )}
+    </dl>
+  );
+}
+
+/**
+ * The requested resource, as the structured value the reply carries.
+ *
+ * The member is required on the wire, so "no descriptor" is not a state a
+ * conformant row can be in — a row missing it never parses and is counted
+ * unreadable instead. What IS reachable is a descriptor carrying no members at all,
+ * and that is said in as many words rather than rendered as a blank panel.
+ */
+function ResourceDescriptor(props: {
+  readonly descriptor: Readonly<Record<string, unknown>>;
+}): React.JSX.Element {
+  const entries = formatWireDescriptor(props.descriptor);
+  if (entries.length === 0) {
+    return (
+      <p className="meridian-approval-card__resource-empty">
+        The reply carried a descriptor with nothing in it, so what will actually run is not shown
+        here.
+      </p>
+    );
+  }
+  return (
+    <dl className="meridian-approval-card__resource">
+      {entries.map((entry) => (
+        <div className="meridian-approval-card__resource-member" key={entry.key}>
+          <dt>
+            <WireFigure value={entry.key} />
+          </dt>
+          <dd>
+            <WireFigure value={entry.value} />
+          </dd>
+        </div>
+      ))}
     </dl>
   );
 }
