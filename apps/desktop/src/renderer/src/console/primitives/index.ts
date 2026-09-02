@@ -28,6 +28,13 @@ export { ChordHint } from "./ChordHint.js";
 // the second rendering of the one claim this primitive exists to make.
 export { WireFigure } from "./Figure.js";
 
+// The console's ONE `ResizeObserver` construction site, through the door for the
+// reason the announcer is: two view families arm a size source — the browser
+// family's overlay registry and pane geometry publisher, and the terminal family's
+// emulator — and they sit beside each other in the DAG, so a second construction
+// site is the only other way either could have one.
+export { observeElementResize } from "./element-resize.js";
+
 export type { ChordPlatform } from "./chord-format.js";
 export {
   HOST_CHORD_PLATFORM,

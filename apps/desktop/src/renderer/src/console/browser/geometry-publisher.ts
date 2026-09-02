@@ -24,8 +24,9 @@ import {
   type ScheduledHandle,
   type Unsubscribe,
 } from "../core/index.js";
+import { observeElementResize } from "../primitives/index.js";
 import { SCHEME_ATTRIBUTE } from "../tokens/index.js";
-import { observeElementPosition, observeElementResize } from "./element-motion.js";
+import { observeElementPosition } from "./element-motion.js";
 import {
   composePaneGeometrySample,
   type GeometryInvalidationReason,
@@ -238,12 +239,13 @@ export class PaneGeometryPublisher {
   }
 
   /**
-   * The size source, through the family's one resize seam.
+   * The size source, through the console's one resize seam.
    *
-   * `element-motion.ts` owns the observer construction, its feature detection, and
-   * its disconnect; a second construction here would be the same four lines free to
-   * drift from those. A platform with no `ResizeObserver` degrades inside the helper
-   * and hands back a disposer that does nothing, so this arm never branches on it.
+   * `primitives/element-resize.ts` owns the observer construction, its feature
+   * detection, and its disconnect; a second construction here would be the same four
+   * lines free to drift from those. A platform with no `ResizeObserver` degrades
+   * inside the helper and hands back a disposer that does nothing, so this arm never
+   * branches on it.
    */
   #armResizeObserver(hostElement: HTMLElement): void {
     this.#detachers.push(

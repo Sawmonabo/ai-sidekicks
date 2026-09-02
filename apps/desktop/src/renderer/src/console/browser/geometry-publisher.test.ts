@@ -10,8 +10,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ManualClock, refuse, type ConsoleRefusal } from "../core/index.js";
+import { installFakeResizeObserver } from "../primitives/element-resize.test-support.js";
 import {
-  installFakeResizeObserver,
   movingAnimation,
   settleMutationRecords,
   withAnimations,

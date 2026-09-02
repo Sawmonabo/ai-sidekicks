@@ -88,14 +88,44 @@ afterEach(() => {
   }
 });
 
-function mountedAdapter(terminalId: string): XtermTerminalAdapter {
+function attachedHost(): HTMLElement {
   const host = document.createElement("div");
   document.body.append(host);
   liveHosts.push(host);
+  return host;
+}
+
+function mountedAdapter(terminalId: string): XtermTerminalAdapter {
   const adapter = new XtermTerminalAdapter({ terminalId, pool: new TerminalRendererPool() });
   liveAdapters.push(adapter);
-  adapter.attach(host);
+  adapter.attach(attachedHost());
   return adapter;
+}
+
+/**
+ * The real ledger, refusing the first N acquisitions and accounting normally after.
+ *
+ * A subclass and not a stand-in, for `xterm-adapter.test.ts`'s reason: the accounting
+ * is the real one and only the answer to the first call is staged. It exists for the
+ * PREMISE case below — that a second `attach()` really does re-enter the renderer
+ * selection — which would be unprovable against a pool that always says yes, because
+ * an instance that already holds an addon short-circuits before the ledger is asked.
+ */
+class LateGrantingRendererPool extends TerminalRendererPool {
+  #refusalsLeft: number;
+
+  public constructor(refusalsLeft: number) {
+    super();
+    this.#refusalsLeft = refusalsLeft;
+  }
+
+  public override acquire(terminalId: string): boolean {
+    if (this.#refusalsLeft > 0) {
+      this.#refusalsLeft -= 1;
+      return false;
+    }
+    return super.acquire(terminalId);
+  }
 }
 
 /** The renderer the newest adapter built for itself. */
@@ -200,6 +230,77 @@ describe("the adapter, when the context it was drawing on goes away", () => {
     newestRenderer().loseContext();
 
     expect(pool.holds("adapter-reclaimed")).toBe(false);
+  });
+});
+
+// A lost context is permanent for the LIFE OF THE INSTANCE, and a remount is not a
+// new instance.
+//
+// The fallback clears the addon and hands the page's allowance back — both correct,
+// and between them they undo every condition the renderer selection tests. So an
+// adapter that a pane detaches and re-attaches to a different host would have walked
+// straight back onto the renderer it had just been told it cannot have, and churned a
+// context per remount for as long as the pane was moved around.
+describe("the adapter, after the context it lost", () => {
+  it("does not take a second one when it is attached somewhere else", () => {
+    const pool = new TerminalRendererPool();
+    const adapter = new XtermTerminalAdapter({ terminalId: "lost-then-moved", pool });
+    liveAdapters.push(adapter);
+    adapter.attach(attachedHost());
+    expect(adapter.rendererMode).toBe("webgl");
+
+    newestRenderer().loseContext();
+    adapter.detach();
+    adapter.attach(attachedHost());
+
+    expect(adapter.rendererMode).toBe("dom");
+    // One renderer for the whole life of this adapter — the one it lost.
+    expect(FakeWebglRenderer.live).toHaveLength(1);
+    // And the page's allowance stays where the fallback put it: the reclaim is
+    // right, and re-spending it on the same terminal is what this stops.
+    expect(pool.holds("lost-then-moved")).toBe(false);
+    expect(pool.createdContextCount).toBe(0);
+  });
+
+  it("announces nothing on that attach, because nothing moved", () => {
+    const adapter = new XtermTerminalAdapter({
+      terminalId: "lost-then-silent",
+      pool: new TerminalRendererPool(),
+    });
+    liveAdapters.push(adapter);
+    adapter.attach(attachedHost());
+    newestRenderer().loseContext();
+
+    const observed: TerminalRendererMode[] = [];
+    adapter.subscribeToRendererMode((mode) => observed.push(mode));
+    adapter.detach();
+    adapter.attach(attachedHost());
+
+    // The current mode on subscribe and nothing after it. A surface that heard a
+    // second announcement here would be hearing a renderer change that did not
+    // happen — and against the old adapter it was `webgl`, which did.
+    expect(observed).toStrictEqual(["dom"]);
+  });
+
+  it("premise: a second attach really does re-enter the renderer selection", () => {
+    // Without this the two cases above would hold vacuously against an adapter that
+    // never reconsidered its renderer at all. Refused once and granted after, so the
+    // instance reaches the second attach with no addon and no loss — the one state
+    // in which taking a context is correct.
+    const adapter = new XtermTerminalAdapter({
+      terminalId: "refused-then-granted",
+      pool: new LateGrantingRendererPool(1),
+    });
+    liveAdapters.push(adapter);
+    adapter.attach(attachedHost());
+    expect(adapter.rendererMode).toBe("dom");
+    expect(FakeWebglRenderer.live).toHaveLength(0);
+
+    adapter.detach();
+    adapter.attach(attachedHost());
+
+    expect(adapter.rendererMode).toBe("webgl");
+    expect(FakeWebglRenderer.live).toHaveLength(1);
   });
 });
 

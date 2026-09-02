@@ -40,10 +40,10 @@
 // it, and a registry nobody can reach is a plan rather than a seam.
 
 import { Emitter, RealClock, type ConsoleClock, type Unsubscribe } from "../core/index.js";
+import { observeElementResize } from "../primitives/index.js";
 import {
   hasRunningMotion,
   MotionFrameSampler,
-  observeElementResize,
   observeMotionStarts,
   sharesMotionWith,
 } from "./element-motion.js";

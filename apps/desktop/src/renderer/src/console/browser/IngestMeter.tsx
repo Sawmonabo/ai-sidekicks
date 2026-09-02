@@ -31,26 +31,48 @@ export interface BrowserIngestMeterProps {
 }
 
 /**
- * The bar's value attributes, which are two different sets rather than one set with
- * a hole in it.
+ * The bar's value attributes, which are three different sets rather than one set with
+ * holes in it.
  *
  * A progressbar carrying no `aria-valuenow` is INDETERMINATE under WAI-ARIA, which is
  * exactly the state an undeclared total leaves this bar in — and it is the only
  * honest one, because the alternative the component shipped was a `valuenow` past its
  * own `valuemax`, a range assistive technology cannot place and a reading no operator
- * could act on. The determinate arm keeps the numeric pair; the indeterminate arm
- * says in words what arrived and that the total is not known, through the same
- * sentence printed under the bar so the two readings cannot disagree.
+ * could act on. The indeterminate arm says in words what arrived and that the total
+ * is not known, through the same sentence printed under the bar so the two readings
+ * cannot disagree.
+ *
+ * MORE CAN ARRIVE THAN WAS DECLARED, and that is a determinate range, not an unknown
+ * one: the producer said what the total was, and what came back exceeded it. So the
+ * overrun does NOT go to the indeterminate arm — dropping `aria-valuemax` there would
+ * report an unknown scale where a known one exists — and it does not emit a
+ * `valuenow` past its own maximum either. The numeric value is clamped to the
+ * maximum, which is where the fill already sits, and the TRUE reading rides
+ * `aria-valuetext` on the same element, which is what a screen reader announces in
+ * place of the computed percentage. Neither number is invented and neither is hidden.
+ *
+ * `aria-valuetext` is deliberately absent on the ordinary determinate arm. It
+ * overrides the percentage assistive technology derives from the pair, so a byte
+ * string on every honest transfer would replace a reading that is already correct
+ * with a coarser one — it is here only where the pair alone would be a lie.
  */
 function meterValueAttributes(props: BrowserIngestMeterProps): React.AriaAttributes {
-  if (!isIngestRangeDeterminate(props.receivedByteLength, props.declaredByteLength)) {
+  const { receivedByteLength, declaredByteLength } = props;
+  if (!isIngestRangeDeterminate(receivedByteLength, declaredByteLength)) {
     return {
-      "aria-valuetext": `${formatIngestProgress(props.receivedByteLength, props.declaredByteLength)} received`,
+      "aria-valuetext": `${formatIngestProgress(receivedByteLength, declaredByteLength)} received`,
+    };
+  }
+  if (receivedByteLength > declaredByteLength) {
+    return {
+      "aria-valuenow": declaredByteLength,
+      "aria-valuemax": declaredByteLength,
+      "aria-valuetext": `${formatIngestProgress(receivedByteLength, declaredByteLength)} received`,
     };
   }
   return {
-    "aria-valuenow": props.receivedByteLength,
-    "aria-valuemax": props.declaredByteLength,
+    "aria-valuenow": receivedByteLength,
+    "aria-valuemax": declaredByteLength,
   };
 }
 
