@@ -41,6 +41,7 @@ import type { AttentionProjection } from "./attention-projection.js";
 import type { GrowthStream } from "./growth-outcome.js";
 import type { SidekickDefinition, SidekickDefinitionDraft } from "./sidekick-definition.js";
 import type {
+  GrowthArtifactRead,
   GrowthArtifactSummary,
   GrowthAttachmentIngestCompletion,
   GrowthAttentionPreference,
@@ -147,7 +148,16 @@ export interface GrowthOperationSignatures {
     request: { readonly sessionId: string };
     value: readonly GrowthArtifactSummary[];
   };
-  artifactRead: { request: { readonly artifactId: string }; value: GrowthArtifactSummary };
+  // The read is TWO reads behind one method, told apart by `includePayload`: the
+  // pane's manifest read leaves it absent and gets the envelope, and its payload
+  // fetch sets it and gets the bytes beside the envelope. The member is the wire's
+  // own discriminator rather than a console convenience — without it here the
+  // second read had no request to make and no member to receive an answer on, so
+  // the pane could render an artifact's metadata and never its content.
+  artifactRead: {
+    request: { readonly artifactId: string; readonly includePayload?: boolean };
+    value: GrowthArtifactRead;
+  };
   artifactDelete: { request: { readonly artifactId: string }; value: void };
   artifactAllowlistRead: {
     request: { readonly sessionId: string };
