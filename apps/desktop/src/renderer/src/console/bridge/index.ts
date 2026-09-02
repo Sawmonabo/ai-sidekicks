@@ -28,6 +28,13 @@ export {
 
 export { createFixtureBridge } from "./fixture-bridge.js";
 
+// The growth ledger's row lookup, through the door this file's header already claims
+// it for ("the ledger that makes those refusals checkable"). A view family that must
+// render an absence names the row that would fill it, and reading the row through the
+// barrel is what keeps a family out of this one's interior — the deep import a card
+// would otherwise take is exactly the reach past a door the layout rules forbid.
+export { growthSlateRow, type GrowthSlateRow } from "./growth-slate.js";
+
 // The boot-time scenario decision. Exported through this door because the
 // renderer root reads it — it is the one console fact that arrives on the
 // document URL rather than through the bridge, and the root is above every
