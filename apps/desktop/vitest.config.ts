@@ -73,7 +73,9 @@ export default defineConfig({
           // this change alters no budget. (`SPAWN_TIMEOUT_MS` was separately
           // re-derived 15 s -> 30 s from the CI numbers this fix's own runs
           // produced; see that constant's comment for why the two are not the
-          // same act.)
+          // same act.) The cross-PACKAGE half of the same contention — turbo
+          // scheduling this project beside the daemon suite — is removed in
+          // `.github/workflows/ci.yml`, not here.
           fileParallelism: false,
         },
       },
