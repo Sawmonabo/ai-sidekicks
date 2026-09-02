@@ -40,6 +40,40 @@
       ],
       "outputs": []
     },
+    // --- Structure gates (`Spec-023 §Console Libraries`, structure-enforcement row) -------
+    //
+    // Two tools, two disjoint claims, and deliberately TWO tasks rather than one fused gate.
+    // `knip` answers "does an entry point reach this?"; `dependency-cruiser` answers "is this
+    // import allowed to exist?". Neither subsumes the other — a dead module can be perfectly
+    // layered, and a layering violation can sit on a fully reachable path — and a single task
+    // running them in sequence would hide the second leg's findings behind the first leg's
+    // exit code. CI runs both with `--continue`, so one red leg never conceals the other.
+    //
+    // Cacheable, unlike the console test tiers: both legs read only files inside this package
+    // plus the workspace-root manifest and `pnpm-workspace.yaml`, and a change to either of
+    // those moves `pnpm-lock.yaml`, which Turborepo hashes globally.
+    "structure:dead-code": {
+      "inputs": [
+        "src/**",
+        "test/**",
+        "build/**",
+        "scripts/**",
+        "knip.json",
+        "vitest.config.ts",
+        "electron.vite.config.ts",
+        "tsconfig*.json",
+        "package.json"
+      ],
+      "outputs": []
+    },
+    // No `tsconfig*.json` here: the cruise resolves through an explicit extension list rather
+    // than `--ts-config`, so a tsconfig edit cannot change its result and must not bust its
+    // cache. `package.json` stays because the script that invokes it lives there.
+    "structure:layering": {
+      "inputs": ["src/**", "build/**", "scripts/**", ".dependency-cruiser.mjs", "package.json"],
+      "outputs": []
+    },
+
     "test:renderer": {
       "dependsOn": ["^build"],
       "inputs": [

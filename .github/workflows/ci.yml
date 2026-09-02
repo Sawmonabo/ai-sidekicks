@@ -438,6 +438,18 @@ jobs:
           pnpm turbo run test:main-unit --filter=@ai-sidekicks/desktop ${cache_flag}
           pnpm turbo run test:smoke --filter=@ai-sidekicks/desktop --concurrency=1 ${cache_flag}
 
+      # The desktop structure gates (Plan-023 Phase 1C): `knip` for dead code, then
+      # `dependency-cruiser` for the import DAG. Both are scoped to `apps/desktop` — a desktop
+      # PR never sweeps the daemon or the control plane — and both fail this job, which
+      # `ci-gate` already depends on, so neither needs a new required check.
+      #
+      # Two tasks with `--continue` rather than one fused task: `knip` answers "does an entry
+      # point reach this?" and `dependency-cruiser` answers "is this import allowed to exist?",
+      # neither claim subsumes the other, and a sequential aggregate would hide the second
+      # leg's findings behind the first leg's exit code.
+      - name: Structure gates (apps/desktop — dead code + layering)
+        run: pnpm turbo run structure:dead-code structure:layering --filter=@ai-sidekicks/desktop --continue ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
+
       # Public-surface validation for the workspace libraries. Two complementary
       # linters run against the *packed* tarball (not the source tree), so they
       # see exactly what a consumer would install:
