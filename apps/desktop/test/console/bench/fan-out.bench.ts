@@ -35,8 +35,12 @@
 // flat `Record<string, ConsoleEntity>` must copy all 20,000 keys to produce the
 // new identity a subscriber can compare, while a partitioned
 // `Record<ConsoleEntityKind, Record<string, ConsoleEntity>>` copies only the
-// touched kind's partition (~1,818 keys across eleven kinds) plus the eleven-key
-// outer record. The saving is structural, not incidental.
+// touched kind's partition — `BENCHMARK_ENTITY_COUNT / CONSOLE_ENTITY_KINDS.length`
+// keys — plus an outer record with one key per kind. The saving is structural,
+// not incidental, and it scales with the partition count rather than with any
+// figure written here: every count below is read off `CONSOLE_ENTITY_KINDS`, which
+// `console/store/entities.ts` declares once and this file imports, so a kind added
+// there moves the arithmetic without touching this comment.
 //
 // ─────────────────────────────────────────────────────────────────────────────
 // WHY A PLAIN `test` AND AN OWN SAMPLER RATHER THAN VITEST'S `bench`
@@ -62,20 +66,31 @@
 // the ordinary `vitest run --project=console-bench` with every other tier.
 //
 // ─────────────────────────────────────────────────────────────────────────────
-// TODO(T-023p-1C-2)
+// WHAT THE TWO ARMS ARE, AND WHAT THEY ARE NOT
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// The two stores below are LOCAL REFERENCE IMPLEMENTATIONS, not the console's.
-// `console/store/` does not exist at this revision. When the flagship scenario
-// and the real store land, re-point the partitioned arm at the real
-// `SessionStore`'s apply chokepoint and keep the flat arm as the control — the
-// comparison is the point, and the flat store is never a product artifact.
+// Both stores below are LOCAL REFERENCE IMPLEMENTATIONS of one MAP SHAPE, and
+// neither is the console's. They isolate the immutable apply so the two shapes
+// are compared and nothing else is: `SessionStore.applyBatch` also validates,
+// dedupes, detects gaps, and runs projectors, so driving it here would price
+// that work into a figure the spec states about the map.
+//
+// The entity KIND SET is not local, and no longer could be. `CONSOLE_ENTITY_KINDS`
+// is imported from `console/store/entities.ts`, which declares it once: a second
+// copy here would have been a closed set restated, and it drifted the moment the
+// store grew `workflow-definition` — under-counting the partitions this benchmark
+// exists to measure.
 
 import process from "node:process";
 import { performance } from "node:perf_hooks";
 
 import { expect, test } from "vitest";
 
+import { CONSOLE_ENTITY_KINDS } from "../../../src/renderer/src/console/store/entities.js";
+import type {
+  ConsoleEntity,
+  ConsoleEntityKind,
+} from "../../../src/renderer/src/console/store/entities.js";
 import {
   BenchmarkLedger,
   DEFAULT_BENCHMARK_LEDGER_PATH,
@@ -84,43 +99,6 @@ import {
   type BenchmarkLedgerRowInput,
   type BenchmarkSampleStatistics,
 } from "./ledger.js";
-
-/** The closed console entity-kind set the partitioned store partitions by. */
-export type ConsoleEntityKind =
-  | "session"
-  | "participant"
-  | "channel"
-  | "run"
-  | "agent"
-  | "workspace"
-  | "worktree"
-  | "artifact"
-  | "approval"
-  | "workflow-run"
-  | "browser-page";
-
-export interface ConsoleEntity {
-  readonly kind: ConsoleEntityKind;
-  readonly id: string;
-  readonly state?: string;
-  readonly touchedAt?: string;
-  readonly attributedTo?: string;
-  readonly body?: Readonly<Record<string, unknown>>;
-}
-
-const CONSOLE_ENTITY_KINDS: readonly ConsoleEntityKind[] = [
-  "session",
-  "participant",
-  "channel",
-  "run",
-  "agent",
-  "workspace",
-  "worktree",
-  "artifact",
-  "approval",
-  "workflow-run",
-  "browser-page",
-];
 
 /** The entity count `Spec-023 §Console Libraries` states its figure at. */
 const BENCHMARK_ENTITY_COUNT = 20_000;
@@ -137,10 +115,12 @@ const RECORDED_SAMPLE_COUNT = 25;
 /**
  * The floor the partitioned arm must clear against the flat one.
  *
- * The structural expectation is ~11× (one partition of eleven, plus the outer
- * record), and the spec's own figures are ~23×. Three is deliberately far below
- * both: this assertion exists to catch the apply path losing its partitioning,
- * not to police a shared runner's variance.
+ * The structural expectation is about `CONSOLE_ENTITY_KINDS.length`× — one
+ * partition out of that many, plus the outer record — and the spec's own figures
+ * are ~23×. Three is deliberately far below both: this assertion exists to catch
+ * the apply path losing its partitioning, not to police a shared runner's
+ * variance, and a floor written as a multiple of the kind count would move every
+ * time the store grew a partition.
  */
 const MINIMUM_PARTITIONING_SPEEDUP = 3;
 
@@ -179,7 +159,7 @@ export class FlatConsoleEntityStore implements ConsoleEntityStore {
 
 /**
  * The shape `Spec-023 §Console Libraries` adopts: one partition per entity kind,
- * each with its own immutable apply, under an outer record of eleven keys.
+ * each with its own immutable apply, under an outer record of one key per kind.
  */
 export class PartitionedConsoleEntityStore implements ConsoleEntityStore {
   #partitions: Readonly<Record<ConsoleEntityKind, Readonly<Record<string, ConsoleEntity>>>>;
@@ -239,7 +219,7 @@ class DeterministicSequence {
   }
 }
 
-/** Builds the entity population, spread evenly across the eleven kinds. */
+/** Builds the entity population, spread evenly across every console entity kind. */
 export function buildConsoleEntities(entityCount: number): readonly ConsoleEntity[] {
   const entities: ConsoleEntity[] = [];
   for (let ordinal = 0; ordinal < entityCount; ordinal += 1) {

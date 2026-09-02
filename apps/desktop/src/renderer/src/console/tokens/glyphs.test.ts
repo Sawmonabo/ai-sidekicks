@@ -63,6 +63,42 @@ describe("the glyph family — GLYPH_NAMES is the record, not a second list", ()
     const misnamed = GLYPH_NAMES.filter((name) => !/^[a-z]+(-[a-z]+)*$/.test(name));
     expect(misnamed).toStrictEqual([]);
   });
+
+  it("draws each glyph once, so no two names render the same picture", () => {
+    // Rule 3's other half. A closed name set says nothing about the DRAWINGS
+    // behind it, and the way a family loses a member is a paste: a new name added
+    // beside an existing path, which type-checks, renders, and passes every case
+    // above while putting one picture behind two meanings. The two names then
+    // drift apart in copy and stay identical on screen.
+    const pathsByName = new Map<string, string[]>();
+    for (const name of GLYPH_NAMES) {
+      const sharing = pathsByName.get(GLYPH_PATHS[name]) ?? [];
+      sharing.push(name);
+      pathsByName.set(GLYPH_PATHS[name], sharing);
+    }
+    const shared = [...pathsByName.values()].filter((names) => names.length > 1);
+
+    expect(shared).toStrictEqual([]);
+  });
+
+  it("negative control: reports two names that DO share one path", () => {
+    // Without this the check above would hold over any grouping at all, including
+    // one that keyed on the name and could never report a collision.
+    const duplicated: Record<string, string> = {
+      timeline: GLYPH_PATHS.timeline,
+      ledger: GLYPH_PATHS.timeline,
+    };
+    const pathsByName = new Map<string, string[]>();
+    for (const [name, path] of Object.entries(duplicated)) {
+      const sharing = pathsByName.get(path) ?? [];
+      sharing.push(name);
+      pathsByName.set(path, sharing);
+    }
+
+    expect([...pathsByName.values()].filter((names) => names.length > 1)).toStrictEqual([
+      ["timeline", "ledger"],
+    ]);
+  });
 });
 
 describe("the glyph family — one d string per glyph", () => {
@@ -93,6 +129,19 @@ describe("the glyph family — one d string per glyph", () => {
     expect(PATH_CHARACTERS.test('<path d="M0 0h4"/>')).toBe(false);
     expect(PATH_CHARACTERS.test("M0 0 url(#gradient)")).toBe(false);
     expect(openingPoint("h4v4")).toBeUndefined();
+  });
+});
+
+describe("the glyph family — the two marks the ledger's turn controls need", () => {
+  it("carries a rewind and a fold, each drawn as its own path", () => {
+    // Named rather than left to the sweep above, because the sweep holds over
+    // whatever the record happens to contain: it would pass just as cleanly on the
+    // day one of these was deleted. These two are what a superseded turn and a
+    // compaction boundary are drawn with, so their presence is a claim worth
+    // stating once.
+    expect(GLYPH_NAMES).toContain("rewind");
+    expect(GLYPH_NAMES).toContain("fold");
+    expect(GLYPH_PATHS.rewind).not.toBe(GLYPH_PATHS.fold);
   });
 });
 
