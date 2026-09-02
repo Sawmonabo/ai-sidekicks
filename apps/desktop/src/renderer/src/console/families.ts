@@ -37,6 +37,8 @@
 
 import { registerLegacySurfaces } from "./frame/legacy-surfaces.js";
 import type { ConsoleSurfaceRegistry } from "./frame/surface-registry.js";
+import { registerConsolePanes } from "./panes/index.js";
+import { consolePaneRegistry } from "./workspace/index.js";
 
 /**
  * Register every shipped view family against a registry.
@@ -53,6 +55,11 @@ export function registerConsoleFamilies(registry: ConsoleSurfaceRegistry): void 
   // order decide which surface mounts, so a seat added without the deletion is a
   // conflict the composition test names by slot rather than a silent swap.
   registerLegacySurfaces(registry);
+  // The deck's pane bodies have their own seat board, keyed by pane kind
+  // rather than by surface slot. It is composed here so one call reaches the
+  // whole console, and it takes the module-scope pane registry because the
+  // pane table is not the surface table this function was handed.
+  registerConsolePanes(consolePaneRegistry);
   // T-023p-1C-2 ledger
   // T-023p-1C-3 composer
   // T-023p-1C-4 collaboration

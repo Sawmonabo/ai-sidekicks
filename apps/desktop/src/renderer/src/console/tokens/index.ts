@@ -48,7 +48,7 @@ export { formatOklch } from "./color.js";
 
 export type { GlyphName } from "./glyphs.js";
 
-export type { ParticipantRingTreatment } from "./participant-hue.js";
+export type { ParticipantHueAssignment, ParticipantRingTreatment } from "./participant-hue.js";
 export { ParticipantHueAllocator, RING_TREATMENTS } from "./participant-hue.js";
 
 export { SCHEME_ATTRIBUTE, generateMeridianCss } from "./generate-css.js";

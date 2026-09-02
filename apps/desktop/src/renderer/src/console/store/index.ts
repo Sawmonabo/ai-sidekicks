@@ -14,7 +14,7 @@
 // `readable.ts` narrows a `zustand` store to the two methods a consumer needs, so
 // nothing outside this family holds a handle that can also WRITE.
 
-export type { ConsoleSessionEvent } from "./entities.js";
+export type { ConsoleEntityRef, ConsoleSessionEvent } from "./entities.js";
 
 export { SessionStore } from "./session-store.js";
 
