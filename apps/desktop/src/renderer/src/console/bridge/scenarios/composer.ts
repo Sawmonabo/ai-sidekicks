@@ -23,16 +23,19 @@
 //     being born and no document names the state it came from.
 //   • **Nothing scripts `session.list`.** No method registry in the corpus carries
 //     that name. The session directory reaches a surface through the growth
-//     operation `sessionList`, which `bridge/fixture-growth-port.ts` already serves
-//     from this scenario's own `sessionId` — so a scripted reply here would be a
-//     second, unreachable answer to a question the fixture already answers.
+//     operation `sessionList`, which `bridge/fixture-growth-port.ts` serves from
+//     the state this scenario's own `session.read` reply declares — so a scripted
+//     reply here would be a second, unreachable answer to a question the fixture
+//     already answers from the read below.
 //
 // WHICH CALLS ARE SCRIPTED, AND WHY ONLY THOSE. `fixture-bridge.ts` refuses an
 // unscripted call as `reply-unscripted`, which is the fixture's authoring error and
 // a state some surfaces are built to render. So a reply is scripted here exactly
-// when a composer-family surface issues that call: `agent.list` for the roster, and
-// the two the composer's own accessories dispatch — `run.pause` from the step-in
-// control and `driver.compactContext` from the compaction control. The approval
+// when a composer-family surface issues that call: `session.read`, which the frame
+// issues for the opened session (and which is what puts this session in the node
+// directory), `agent.list` for the roster, and the two the composer's own
+// accessories dispatch — `run.pause` from the step-in control and
+// `driver.compactContext` from the compaction control. The approval
 // reads are deliberately NOT scripted: this scenario is what makes the approvals
 // pane's refusal arm reachable.
 
@@ -225,6 +228,23 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
     },
   ],
   replies: [
+    {
+      // The registered `SessionReadResponse` shape. `state: "active"` is what the
+      // fixture's directory derivation reads to list this session on the node —
+      // a scenario that declares no session state declares no session to list.
+      call: "session.read",
+      result: {
+        session: {
+          id: SESSION_ID,
+          state: "active",
+          config: {},
+          metadata: {},
+          createdAt: "2026-01-01T11:05:00.000Z",
+          updatedAt: "2026-01-01T11:05:00.000Z",
+        },
+        timelineCursors: { latest: "composer-cursor-1" },
+      },
+    },
     {
       call: "agent.list",
       result: {
