@@ -7,7 +7,7 @@
 // adapters are deliberately not exported from the console's barrel, so the only
 // reachable path to a durable byte is this class.
 //
-// Three behaviours are worth stating because they are decisions rather than
+// Four behaviours are worth stating because they are decisions rather than
 // mechanics:
 //
 //   1. **Refuse; never repair.** A disallowed value class, a wrong shape, a string
@@ -17,7 +17,11 @@
 //      that quietly fixes its callers hides the caller that was wrong.
 //   2. **Trim before failing on quota.** A `quota-exceeded` write triggers one LRU
 //      partition trim and one retry. A second failure is surfaced. Retrying forever
-//      would turn a full disk into a spin.
+//      would turn a full disk into a spin. The trim, the partition count it needs,
+//      and the housekeeping trim that follows a successful write all surface an
+//      adapter failure as the same refusal the write itself would have returned:
+//      `write` declares its failure as a VALUE, and the one shipped caller fires
+//      it without awaiting, so a rejection that escapes is an unhandled one.
 //   3. **Reads never throw.** A read that fails returns `undefined` and records the
 //      failure on the store's health, because a preference the console cannot read
 //      is the "not loaded" kind of nothing, not an error the caller must handle.
@@ -165,9 +169,10 @@ export class UiStateStore {
     valueClass: PersistedValueClass,
     value: PersistableValue,
   ): Promise<PersistenceWriteResult> {
+    const site = `${partition}/${key}`;
     const classRefusal = validatePersistedValue(valueClass, value);
     if (classRefusal !== undefined) {
-      return this.#refuse(classRefusal, `${partition}/${key}`);
+      return this.#refuse(classRefusal, site);
     }
 
     const serialisedByteLength = JSON.stringify(value)?.length ?? 0;
@@ -177,7 +182,7 @@ export class UiStateStore {
           "value-too-large",
           `${valueClass}/${key} serialises to ${String(serialisedByteLength)} bytes, past the ${String(this.#valueByteCap)}-byte ceiling for one UI-state value`,
         ),
-        `${partition}/${key}`,
+        site,
       );
     }
 
@@ -193,9 +198,8 @@ export class UiStateStore {
     try {
       await adapter.write(record);
     } catch (error) {
-      const refusal = toRefusal(error);
-      if (refusal.code !== "quota-exceeded") {
-        return this.#refuse(refusal, `${partition}/${key}`);
+      if (!(error instanceof PersistenceAdapterError) || error.refusal.code !== "quota-exceeded") {
+        return this.#refuseAdapterFailure(error, site);
       }
       // One trim, one retry. A second failure is the operator's to see.
       //
@@ -205,21 +209,36 @@ export class UiStateStore {
       // unchanged store is not a retry, it is the same failure twice. If nothing
       // was actually freed, the original refusal is surfaced without the second
       // attempt.
-      const freed = await adapter.trimPartitions(
-        Math.max(0, (await this.#countSessionPartitions()) - 1),
-      );
-      this.#trimCount += freed;
-      if (freed === 0) {
-        return this.#refuse(refusal, `${partition}/${key}`);
+      let freedPartitionCount: number;
+      try {
+        freedPartitionCount = await adapter.trimPartitions(
+          Math.max(0, (await this.#countSessionPartitions()) - 1),
+        );
+      } catch (trimFailure) {
+        return this.#refuseAdapterFailure(trimFailure, site);
+      }
+      this.#trimCount += freedPartitionCount;
+      if (freedPartitionCount === 0) {
+        return this.#refuse(error.refusal, site);
       }
       try {
         await adapter.write(record);
-      } catch (retryError) {
-        return this.#refuse(toRefusal(retryError), `${partition}/${key}`);
+      } catch (retryFailure) {
+        return this.#refuseAdapterFailure(retryFailure, site);
       }
     }
 
-    await this.#trimIfOverCap();
+    try {
+      await this.#trimIfOverCap();
+    } catch (trimFailure) {
+      // The record itself may already be durable, and this arm says "refused"
+      // anyway. That is the deliberate reading: `write` is documented as
+      // validate, then persist, then trim, so a store that could not finish the
+      // path it declares reports a refusal the operator can COUNT rather than a
+      // success that hides a store which has begun to fail. The alternative —
+      // answering "written" and dropping the failure — is the silent one.
+      return this.#refuseAdapterFailure(trimFailure, site);
+    }
     return { outcome: "written" };
   }
 
@@ -305,6 +324,26 @@ export class UiStateStore {
     return { outcome: "refused", refusal };
   }
 
+  /**
+   * The one translation from a thrown adapter failure into a refused write.
+   *
+   * Every arm of the write path funnels through here — the initial write, the
+   * post-quota retry, and both trims — because the arms that did not were the
+   * arms that REJECTED, and `write`'s declared failure is a returned refusal.
+   *
+   * A failure that is not a `PersistenceAdapterError` is rethrown rather than
+   * refused. Both adapters wrap every rejection in one, so anything else is a
+   * defect in this class or in an adapter that broke the seam, and a store that
+   * answered "refused" to its own bug would file that bug under a refusal code
+   * naming storage — where nobody would ever look for it.
+   */
+  #refuseAdapterFailure(error: unknown, site: string): PersistenceWriteResult {
+    if (!(error instanceof PersistenceAdapterError)) {
+      throw error;
+    }
+    return this.#refuse(error.refusal, site);
+  }
+
   async #trimIfOverCap(): Promise<void> {
     if ((await this.#countSessionPartitions()) <= this.#sessionPartitionCap) {
       return;
@@ -317,14 +356,4 @@ export class UiStateStore {
     const summaries = await (await this.#adapterReady).summarisePartitions();
     return summaries.filter((summary) => summary.partition !== PERSISTENCE_GLOBAL_PARTITION).length;
   }
-}
-
-function toRefusal(error: unknown): PersistenceRefusal {
-  if (error instanceof PersistenceAdapterError) {
-    return error.refusal;
-  }
-  return refusePersistence(
-    "adapter-unavailable",
-    error instanceof Error ? error.message : "the preferences store failed for an unknown reason",
-  );
 }
