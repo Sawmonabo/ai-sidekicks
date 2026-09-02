@@ -40,7 +40,6 @@ export interface ConsolePaneAddress {
   readonly entity: ConsoleEntityRef | undefined;
 }
 
-// Consumed by T-023p-1C-2, T-023p-1C-3
 /**
  * The call the sidebar and the palette make to open a pane.
  *
@@ -51,7 +50,6 @@ export interface ConsolePaneAddress {
  */
 export type ConsolePaneOpener = (address: ConsolePaneAddress) => void;
 
-// Consumed by T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7
 /**
  * Everything a pane body is handed. Nothing here is global; all of it is per pane,
  * in the window the pane is mounted in.

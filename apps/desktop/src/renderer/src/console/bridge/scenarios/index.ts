@@ -17,8 +17,11 @@
 // person sees. The two substrate scenarios come first because they are the ones
 // that make sense with no family loaded; family scenarios follow in task order.
 
+import { APPROVALS_SCENARIO } from "./approvals.js";
+import { COMPOSER_SCENARIO } from "./composer.js";
 import { FIRST_RUN_SCENARIO } from "./first-run.js";
 import { FLAGSHIP_SCENARIO } from "./flagship.js";
+import { RUNS_SCENARIO } from "./runs.js";
 import type { ConsoleScenario } from "../scenario.js";
 
 /** Every scenario the fixture bridge can play, in picker order. */
@@ -26,7 +29,13 @@ export const CONSOLE_SCENARIOS: readonly ConsoleScenario[] = [
   FIRST_RUN_SCENARIO,
   FLAGSHIP_SCENARIO,
   // T-023p-1C-2 ledger
-  // T-023p-1C-3 composer
+  // One family ships three scenarios where the others ship one: the composer, the
+  // runs pane, and the approvals pane are three surfaces with three different
+  // states worth pinning, and folding them into one session would make each of
+  // them reachable only through the others' noise.
+  COMPOSER_SCENARIO,
+  RUNS_SCENARIO,
+  APPROVALS_SCENARIO,
   // T-023p-1C-4 collaboration
   // T-023p-1C-5 repos
   // T-023p-1C-6 workflows

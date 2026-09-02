@@ -35,6 +35,7 @@
 // No logic lands here. If this file ever needs a condition, a try, or a value of
 // its own, the thing it is deciding belongs in the family that owns the decision.
 
+import { registerComposerFamily } from "../shell/index.js";
 import { registerLegacySurfaces } from "./frame/legacy-surfaces.js";
 import type { ConsoleSurfaceRegistry } from "./frame/surface-registry.js";
 import { registerConsolePanes } from "./panes/index.js";
@@ -61,7 +62,11 @@ export function registerConsoleFamilies(registry: ConsoleSurfaceRegistry): void 
   // pane table is not the surface table this function was handed.
   registerConsolePanes(consolePaneRegistry);
   // T-023p-1C-2 ledger
-  // T-023p-1C-3 composer
+  // The composer family claims no surface slot: its body is the composer SEAT under
+  // the deck, and its panes are claimed through `panes/index.ts` above. It is
+  // composed here for the same reason the others are — so exactly one call reaches
+  // the whole console — and it takes no registry because it claims nothing in one.
+  registerComposerFamily();
   // T-023p-1C-4 collaboration
   // T-023p-1C-5 repos
   // T-023p-1C-6 workflows

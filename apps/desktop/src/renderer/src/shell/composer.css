@@ -1,0 +1,47 @@
+/* The composer. Three zones in one column: what a message is addressed to, the
+   message itself, and what the send would cost. Dense where the data is dense and
+   quiet everywhere else — the chrome is a boundary, not a toolbar. */
+
+.meridian-composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  background: var(--meridian-surface-raised);
+  border-top: 1px solid var(--meridian-edge);
+}
+
+.meridian-composer__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  min-height: var(--meridian-space-5);
+}
+
+/* The input's zone is the tall one — it is the only place a person types, so it
+   gets the room and the raised ground even while it is reserved. */
+.meridian-composer__send {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: calc(var(--meridian-space-8) * 2);
+  padding: var(--meridian-space-3);
+  background: var(--meridian-surface);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+}
+
+.meridian-composer__accessories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-3);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.meridian-composer__meters {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+}

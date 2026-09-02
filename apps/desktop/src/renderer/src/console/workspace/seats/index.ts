@@ -27,11 +27,9 @@
 // imports the symbol — a tag that outlives its consumer fails the run.
 
 export {
-  /** @consumedBy T-023p-1C-2 */
   PANE_KINDS,
   /** @consumedBy T-023p-1C-2 */
   isPaneKind,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   type PaneKind,
 } from "./pane-kinds.js";
 
@@ -44,43 +42,34 @@ export {
   registeredPaneKinds,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ConsolePaneAddress,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   type ConsolePaneContext,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   type ConsolePaneDescriptor,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ConsolePaneOpener,
 } from "./pane-registry.js";
 
 export {
   /** @consumedBy T-023p-1C-2 */
   composerSeatRenderer,
-  /** @consumedBy T-023p-1C-3 */
   registerComposerSeat,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   unregisterComposerSeat,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ComposerSeatProps,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ComposerSeatRenderer,
 } from "./composer-seat.js";
 
 export {
-  /** @consumedBy T-023p-1C-3 */
   SIDEBAR_SECTION_IDS,
   /** @consumedBy T-023p-1C-3 */
   SidebarSectionRegistry,
   /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   registerSidebarSection,
-  /** @consumedBy T-023p-1C-3 */
   sidebarSectionRegistry,
-  /** @consumedBy T-023p-1C-3 */
   sidebarSectionRenderer,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   type SidebarSectionContext,
   /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   type SidebarSectionDescriptor,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   type SidebarSectionId,
 } from "./sidebar-sections.js";
 
@@ -130,9 +119,4 @@ export {
   type InlineCardSeatProps,
 } from "./inline-card-seats.js";
 
-export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
-  OwnerSlotContract,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
-  OwnerSlotProps,
-} from "./owner-slot.js";
+export type { OwnerSlotContract, OwnerSlotProps } from "./owner-slot.js";
