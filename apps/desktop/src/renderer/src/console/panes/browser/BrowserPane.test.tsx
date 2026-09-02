@@ -12,7 +12,7 @@
 // ones, because each has exactly one catastrophic failure — a page navigated to a
 // local file, and a chord that closes the operator's window instead of a tab.
 
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { BROWSER_SCENARIO } from "../../bridge/scenarios/browser.js";
@@ -22,6 +22,29 @@ import { HOST_CHORD_PLATFORM } from "../../primitives/index.js";
 import { FrameStore } from "../../store/index.js";
 import type { ConsolePaneContext } from "../../workspace/index.js";
 import { BrowserPane } from "./BrowserPane.js";
+
+/**
+ * The refusal banner the pane raises — a plain group, since the frame's announcer
+ * owns the announcement — read by that role and scoped by the banner's own class,
+ * so an unrelated group in the pane can never satisfy the query. Awaited through
+ * `waitFor` because the port settles a refusal asynchronously and a bare role
+ * query would answer before it lands.
+ */
+function queryRefusalBanner(): HTMLElement | null {
+  return (
+    screen
+      .queryAllByRole("group")
+      .find((element) => element.classList.contains("meridian-refusal--banner")) ?? null
+  );
+}
+
+async function findRefusalBanner(): Promise<HTMLElement> {
+  return waitFor(() => {
+    const banner = queryRefusalBanner();
+    expect(banner).not.toBeNull();
+    return banner as HTMLElement;
+  });
+}
 
 function paneContext(bridge: ConsoleBridge = createFixtureBridge({ scenario: BROWSER_SCENARIO })): {
   readonly context: ConsolePaneContext;
@@ -139,9 +162,7 @@ describe("browser pane address field", () => {
     fireEvent.change(field, { target: { value: "/etc/hosts" } });
     fireEvent.submit(field.closest("form") as HTMLFormElement);
     expect(navigate).not.toHaveBeenCalled();
-    expect((await screen.findByRole("status")).textContent).toContain(
-      "takes web destinations only",
-    );
+    expect((await findRefusalBanner()).textContent).toContain("takes web destinations only");
   });
 
   it("negative control: a web destination does reach the port", async () => {
@@ -159,7 +180,7 @@ describe("browser pane address field", () => {
     });
     // The port refuses it today, and the pane renders that refusal rather than
     // pretending the navigation happened.
-    expect((await screen.findByRole("status")).textContent).toContain("wire-unregistered");
+    expect((await findRefusalBanner()).textContent).toContain("wire-unregistered");
   });
 });
 
@@ -175,9 +196,7 @@ describe("browser pane close-tab chord", () => {
     });
     fireEvent(region, event);
     expect(event.defaultPrevented).toBe(true);
-    expect((await screen.findByRole("status")).textContent).toContain(
-      "could not close this window",
-    );
+    expect((await findRefusalBanner()).textContent).toContain("could not close this window");
   });
 
   it("negative control: an ordinary keystroke passes through untouched", async () => {
@@ -192,6 +211,6 @@ describe("browser pane close-tab chord", () => {
     });
     fireEvent(region, event);
     expect(event.defaultPrevented).toBe(false);
-    expect(screen.queryByRole("status")).toBeNull();
+    expect(queryRefusalBanner()).toBeNull();
   });
 });
