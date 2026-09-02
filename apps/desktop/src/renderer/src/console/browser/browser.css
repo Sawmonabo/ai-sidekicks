@@ -470,6 +470,19 @@
 }
 
 /*
+ * The receipt a finished subscription leaves, sitting under the controls it has just
+ * made inert. A quiet line rather than a banner, on the partitions reading's terms: a
+ * producer that ended cleanly refused nothing, and dressing it as a refusal would put
+ * an alert edge around a page that simply stopped being watched.
+ */
+.meridian-browser-pane__reading {
+  margin: 0;
+  padding: var(--meridian-space-2) var(--meridian-space-2) 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+/*
  * The viewport clips, and that is load-bearing rather than tidy: the rectangle
  * this box reports is what a native view is eventually positioned to, and an
  * unclipped box reports coordinates that reach past the pane.

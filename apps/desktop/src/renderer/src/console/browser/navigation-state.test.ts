@@ -14,7 +14,22 @@ import { describe, expect, it, vi } from "vitest";
 
 import { BROWSER_SCENARIO } from "../bridge/scenarios/browser.js";
 import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
-import { isFilesystemDestination, useReportedNavigation } from "./navigation-state.js";
+import type { ConsoleRefusal } from "../core/index.js";
+import {
+  isFilesystemDestination,
+  useReportedNavigation,
+  type NavigationReading,
+} from "./navigation-state.js";
+
+/** The refusal an arm carries, or nothing — so a case reads one field, not a switch. */
+function refusalOf(reading: NavigationReading): ConsoleRefusal | undefined {
+  return reading.status === "refused" ? reading.refusal : undefined;
+}
+
+/** The reported state, and deliberately nothing from any other arm. */
+function reportedStateOf(reading: NavigationReading): NavigationEvent | undefined {
+  return reading.status === "reported" ? reading.state : undefined;
+}
 
 /**
  * Every local-path spelling, named by its FORM and paired with the verdict the
@@ -99,18 +114,18 @@ describe("useReportedNavigation", () => {
     const bridge = createFixtureBridge({ scenario: BROWSER_SCENARIO });
     const { result } = renderHook(() => useReportedNavigation(bridge, "pane-browser-1"));
     await waitFor(() => {
-      expect(result.current.refusal).toBeDefined();
+      expect(refusalOf(result.current)).toBeDefined();
     });
-    expect(result.current.refusal?.code).toBe("wire-unregistered");
+    expect(refusalOf(result.current)?.code).toBe("wire-unregistered");
     // The half that matters to the chrome: no state means no navigability, so every
     // history control stays disabled rather than optimistically live.
-    expect(result.current.state).toBeUndefined();
+    expect(reportedStateOf(result.current)).toBeUndefined();
   });
 
   it("starts with neither, so nothing renders a reading before one arrives", () => {
     const bridge = createFixtureBridge({ scenario: BROWSER_SCENARIO });
     const { result } = renderHook(() => useReportedNavigation(bridge, "pane-browser-1"));
-    expect(result.current).toStrictEqual({ state: undefined, refusal: undefined });
+    expect(result.current).toStrictEqual({ status: "unread" });
   });
 });
 
@@ -145,6 +160,15 @@ interface DeferredSubscriptionOptions {
   readonly events?: readonly NavigationEvent[];
   /** Thrown by the iterator once the events are drained — a producer that died. */
   readonly failsAfterEventsWith?: unknown;
+  /**
+   * Hold the iterator open after the events, until the test says the producer is
+   * finished — which is what a live subscription does.
+   *
+   * A generator that returns as soon as its script runs out is a producer that has
+   * ALREADY ended, so a case about the moment a subscription ends, or about what the
+   * pane does while one is live, needs that moment to be the test's to choose.
+   */
+  readonly staysOpen?: boolean;
 }
 
 interface SubscriptionSettlement {
@@ -161,11 +185,17 @@ function deferredSubscription(options: DeferredSubscriptionOptions = {}): {
   readonly bridge: ConsoleBridge;
   readonly serve: () => void;
   readonly reject: (failure: unknown) => void;
+  /** End a held-open producer, the way a daemon closing its side would. */
+  readonly finish: () => void;
   readonly close: ReturnType<typeof vi.fn>;
 } {
   const base = createFixtureBridge({ scenario: BROWSER_SCENARIO });
   const close = vi.fn();
   let settlement: SubscriptionSettlement | undefined;
+  let finish: (() => void) | undefined;
+  const heldOpen = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
   const stream: NavigationStream = {
     events: {
       async *[Symbol.asyncIterator](): AsyncGenerator<NavigationEvent> {
@@ -173,12 +203,18 @@ function deferredSubscription(options: DeferredSubscriptionOptions = {}): {
         if (options.failsAfterEventsWith !== undefined) {
           throw options.failsAfterEventsWith;
         }
+        if (options.staysOpen === true) {
+          await heldOpen;
+        }
       },
     },
     close,
   };
   return {
     close,
+    finish: () => {
+      finish?.();
+    },
     serve: () => {
       settlement?.resolve({ status: "served", value: stream });
     },
@@ -213,82 +249,82 @@ describe("useReportedNavigation — a subscription that answers after the pane h
     // Without this, closing every served stream on sight would satisfy the case
     // above and would also make the subscription useless: no reading would ever
     // reach the chrome, and every history control would stay disabled forever.
-    const { bridge, serve, close } = deferredSubscription({ events: [REPORTED_PAGE] });
+    const { bridge, serve, close } = deferredSubscription({
+      events: [REPORTED_PAGE],
+      staysOpen: true,
+    });
     const { result } = renderHook(() => useReportedNavigation(bridge, "pane-browser-1"));
     serve();
     await waitFor(() => {
-      expect(result.current.state).toStrictEqual(REPORTED_PAGE);
+      expect(reportedStateOf(result.current)).toStrictEqual(REPORTED_PAGE);
     });
     expect(close).not.toHaveBeenCalled();
   });
 });
 
-describe("useReportedNavigation — a subscription that fails", () => {
-  it("renders a refusal when the subscribe call itself rejects", async () => {
-    // The finding, and its own control: before the catch existed this rejection was
-    // unhandled and the reading stayed `{ undefined, undefined }` for the life of
-    // the pane, so this assertion is exactly what the old code could not satisfy.
-    const { bridge, reject } = deferredSubscription();
-    const { result } = renderHook(() => useReportedNavigation(bridge, "pane-browser-1"));
+// The producer that simply finishes.
+//
+// Not a failure, and not nothing: the pane WAS being told where the page is and is
+// not being told now. Falling out of the loop left the bridge handle allocated until
+// unmount and left the chrome holding the last frame — a URL in the address field, a
+// history flag on each control — as though a subscription were still behind them.
+describe("useReportedNavigation — a subscription that ends", () => {
+  it("closes the stream once and says the reading is over", async () => {
+    const subscription = deferredSubscription({ events: [REPORTED_PAGE], staysOpen: true });
+    const { result } = renderHook(() =>
+      useReportedNavigation(subscription.bridge, "pane-browser-1"),
+    );
+    subscription.serve();
+    await waitFor(() => {
+      expect(reportedStateOf(result.current)).toStrictEqual(REPORTED_PAGE);
+    });
 
-    reject(new Error("The preload bridge went away."));
+    subscription.finish();
 
     await waitFor(() => {
-      expect(result.current.refusal).toBeDefined();
+      expect(result.current.status).toBe("ended");
     });
-    expect(result.current.refusal?.origin).toBe("browser-navigation");
-    expect(result.current.refusal?.code).toBe("navigation-subscription-failed");
-    // The sentence carries what was thrown, verbatim.
-    expect(result.current.refusal?.detail).toContain("The preload bridge went away.");
-    expect(result.current.state).toBeUndefined();
+    expect(subscription.close).toHaveBeenCalledTimes(1);
+    // The half the chrome reads: an ended subscription hands it no state, so nothing
+    // it drew off the last frame outlives the producer.
+    expect(reportedStateOf(result.current)).toBeUndefined();
+    expect(refusalOf(result.current)).toBeUndefined();
   });
 
-  it("keeps a typed wire code rather than flattening it into this module's own", async () => {
-    // A code is what a person pastes into a search. Replacing the wire's own with a
-    // generic one throws away the actionable half of the refusal.
-    const { bridge, reject } = deferredSubscription();
-    const { result } = renderHook(() => useReportedNavigation(bridge, "pane-browser-1"));
+  it("ends the same way when the producer never reported anything at all", async () => {
+    const subscription = deferredSubscription();
+    const { result } = renderHook(() =>
+      useReportedNavigation(subscription.bridge, "pane-browser-1"),
+    );
 
-    reject({ code: "browser.pane_not_found", message: "That pane is not on this node." });
+    subscription.serve();
 
     await waitFor(() => {
-      expect(result.current.refusal).toBeDefined();
+      expect(result.current.status).toBe("ended");
     });
-    expect(result.current.refusal?.code).toBe("browser.pane_not_found");
-    expect(result.current.refusal?.detail).toContain("That pane is not on this node.");
+    expect(subscription.close).toHaveBeenCalledTimes(1);
   });
 
-  it("renders a refusal and closes the stream when the iterator throws mid-stream", async () => {
-    const { bridge, serve, close } = deferredSubscription({
-      events: [REPORTED_PAGE],
-      failsAfterEventsWith: new Error("The producer stopped reporting."),
-    });
-    const { result } = renderHook(() => useReportedNavigation(bridge, "pane-browser-1"));
-
-    serve();
-
+  it("negative control: an unmounted pane publishes no ending and closes once", async () => {
+    // The cleanup already closed the stream, and there is no surface left to tell. A
+    // second close here would be the double-close the one-owner rule exists to
+    // prevent, and a state write would be a report nobody sees.
+    const subscription = deferredSubscription({ events: [REPORTED_PAGE], staysOpen: true });
+    const { result, unmount } = renderHook(() =>
+      useReportedNavigation(subscription.bridge, "pane-browser-1"),
+    );
+    subscription.serve();
     await waitFor(() => {
-      expect(result.current.refusal).toBeDefined();
+      expect(result.current.status).toBe("reported");
     });
-    expect(result.current.refusal?.detail).toContain("The producer stopped reporting.");
-    // A producer that threw part-way is still a subscription somebody has to end.
-    expect(close).toHaveBeenCalledTimes(1);
-  });
 
-  it("publishes nothing when the failure arrives after the pane has gone", async () => {
-    // There is no surface left to read a refusal, and setting state on an unmounted
-    // hook is a report nobody sees. The rejection still has to be CAUGHT, which is
-    // what keeps this file free of an unhandled rejection.
-    const { bridge, reject, close } = deferredSubscription();
-    const { result, unmount } = renderHook(() => useReportedNavigation(bridge, "pane-browser-1"));
     unmount();
-
-    reject(new Error("The preload bridge went away."));
+    subscription.finish();
     await new Promise<void>((resolve) => {
       setTimeout(resolve, 0);
     });
 
-    expect(result.current).toStrictEqual({ state: undefined, refusal: undefined });
-    expect(close).not.toHaveBeenCalled();
+    expect(subscription.close).toHaveBeenCalledTimes(1);
+    expect(result.current.status).toBe("reported");
   });
 });
