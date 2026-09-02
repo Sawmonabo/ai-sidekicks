@@ -1445,6 +1445,12 @@
   white-space: pre-wrap;
 }
 
+/*
+ * Both lists are unbounded on the wire — a proposal names as many files as it
+ * changes — so both take the console's one enumeration ceiling and scroll inside
+ * their own box. Without it a forty-file proposal pushes the three offers, which are
+ * what a person opened the gate to reach, off the bottom of the surface.
+ */
 .meridian-proposal__trailers,
 .meridian-proposal__paths {
   display: flex;
@@ -1452,6 +1458,8 @@
   gap: var(--meridian-space-1);
   margin: 0;
   padding: var(--meridian-space-2) 0 0;
+  max-block-size: var(--meridian-enumeration-max-height);
+  overflow-y: auto;
   list-style: none;
 }
 
