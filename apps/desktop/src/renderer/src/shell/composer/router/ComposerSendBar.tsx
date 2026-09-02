@@ -35,20 +35,36 @@ import { COMPOSER_DIRECTIVE_LINE_MAX_ROWS } from "../composer-bounds.js";
 import { useComposerAddress } from "../composer-address.js";
 import { readTextNeutralization } from "../neutralization-tripwire.js";
 import { useComposerCommandZone } from "../commands/client-command-executor.js";
+import type { ProviderCommandEnumeration } from "../commands/provider-command-holder.js";
 import { useSendController } from "./send-controller.js";
 
-export function ComposerSendBar(props: ComposerSeatProps): React.JSX.Element {
+export type ComposerSendBarProps = ComposerSeatProps & {
+  /**
+   * The composer's one enumeration reading, opened by the discovery surface.
+   *
+   * Read and never opened here: a typed name that the bound provider published is
+   * refused by name rather than sent, and the reading that answers is the same one
+   * the popover is showing — not a second read of the same wire.
+   */
+  readonly commandEnumeration: ProviderCommandEnumeration;
+};
+
+export function ComposerSendBar(props: ComposerSendBarProps): React.JSX.Element {
   const address = useComposerAddress(props.sessionStore, props.focusedPane);
   // BOTH HALVES OR NEITHER. The router will not intercept a name its recogniser does
   // not claim, and an intercepted name with no executor refuses rather than running,
   // so the two are supplied together by the zone that owns both.
-  const commandZone = useComposerCommandZone(props.route);
+  const commandZone = useComposerCommandZone({
+    route: props.route,
+    commandEnumeration: props.commandEnumeration,
+  });
   const controller = useSendController({
     bridge: props.bridge,
     target: address.target,
     draftStore: props.draftStore,
     recognizeClientCommand: commandZone.recognizeClientCommand,
     commandExecutor: commandZone.commandExecutor,
+    recognizeProviderCommand: commandZone.recognizeProviderCommand,
   });
   const pathLabelId = useId();
   const isSending = controller.status === "sending";

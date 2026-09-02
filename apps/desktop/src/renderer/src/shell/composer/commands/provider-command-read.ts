@@ -1,26 +1,16 @@
-// The enumeration read: one live read, held for the composer's current target and
-// nothing longer.
+// One enumeration request, and the states one can settle into.
 //
-// `Spec-023 §Signature Feature Composition Sketches` §The Session Composer states the
-// lifetime as a rule rather than as advice — "not persisted, not cached across
-// sessions, and re-read rather than patched" — and the re-addressing behaviour as its
-// consequence: pointing the composer at a different agent RE-READS the enumeration
-// rather than filtering the one already in hand. A filter would offer a Claude-
-// enumerated command in a composer addressed to a Codex agent, which is exactly the
-// routing invariant `Spec-005 §The provider command and skill surface` exists to
-// forbid.
+// The REQUEST and its readings live here; the lifetime rule that decides when one is
+// live — keyed on the addressed agent, discarded before a re-read, discarded when the
+// surface closes — is `provider-command-holder.ts`'s, because two zones observe that
+// decision and only one of them may make it. Splitting them keeps this module a pure
+// round trip a test can drive without a component, and keeps the holder free of the
+// parsing.
 //
-// So the read is keyed on the addressed agent, and a key change DISCARDS before it
-// re-reads. The intermediate state is `not-loaded` and never the previous agent's
-// list: a list that survived a re-address for one frame would be one frame in which
-// the surface offered the wrong binding's commands.
-//
-// LAZY ON PURPOSE. The read runs when the discovery surface is open, not when the
-// composer mounts. A person who never types a slash never spends a provider round
-// trip, and the enumeration a closed popover holds is a cache — which is the thing
-// the lifetime rule above forbids.
+// THE REPLY IS PARSED THROUGH THE REGISTERED SCHEMA AND NOTHING ELSE. A reply the
+// schema will not accept is a refusal under this module's own code; a daemon refusal
+// travels under the daemon's own code instead, never under that one.
 
-import { useEffect, useState } from "react";
 import {
   ProviderCommandListResultSchema,
   type ProviderCommandBindingGroup,
@@ -33,7 +23,6 @@ import {
   callDaemon,
   type ConsoleBridge,
 } from "../../../console/bridge/index.js";
-import type { ComposerTarget } from "../chips/chip-models.js";
 
 /** The subsystem name every refusal this read raises carries. */
 export const PROVIDER_COMMAND_READ_ORIGIN = "composer-command-discovery";
@@ -63,49 +52,6 @@ export type ProviderCommandReadState =
   | { readonly phase: "not-loaded" }
   | { readonly phase: "served"; readonly groups: readonly ProviderCommandBindingGroup[] }
   | { readonly phase: "refused"; readonly refusal: ConsoleRefusal };
-
-const NOT_CHECKED: ProviderCommandReadState = { phase: "not-checked" };
-
-/** The agent this composer would enumerate, or `undefined` when it addresses none. */
-function addressedAgentId(target: ComposerTarget): string | undefined {
-  return target.path === "provider-bound" ? target.agentId : undefined;
-}
-
-/** Read the addressed agent's commands and skills while the discovery surface is open. */
-export function useProviderCommandEnumeration(options: {
-  readonly bridge: ConsoleBridge;
-  readonly target: ComposerTarget;
-  readonly isOpen: boolean;
-}): ProviderCommandReadState {
-  const { bridge, target, isOpen } = options;
-  const sessionId = target.sessionId;
-  const agentId = addressedAgentId(target);
-  const [state, setState] = useState<ProviderCommandReadState>(NOT_CHECKED);
-
-  useEffect(() => {
-    if (!isOpen || agentId === undefined) {
-      // Discarded rather than retained. Closing the popover ends the read's lifetime,
-      // and re-addressing ends it too — both leave the surface with no enumeration
-      // rather than with the previous binding's.
-      setState(NOT_CHECKED);
-      return;
-    }
-    let isCurrent = true;
-    setState({ phase: "not-loaded" });
-    void settleEnumeration(bridge, sessionId, agentId).then((settled) => {
-      if (isCurrent) {
-        setState(settled);
-      }
-    });
-    return () => {
-      // The reply of a read whose key has changed has nowhere to go: writing it would
-      // put one binding's commands under another binding's address.
-      isCurrent = false;
-    };
-  }, [bridge, sessionId, agentId, isOpen]);
-
-  return state;
-}
 
 /** One enumeration request, resolved into exactly one settled state. Never throws. */
 export async function settleEnumeration(

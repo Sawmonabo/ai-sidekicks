@@ -45,6 +45,8 @@ import {
 import type { ConsoleRefusal } from "../../../console/core/index.js";
 import type { ConsoleBridge } from "../../../console/bridge/index.js";
 import type { ComposerSendPath, ComposerTarget } from "../chips/chip-models.js";
+import type { ProviderCatalogEntry } from "../commands/provider-command-catalog.js";
+import { LITERAL_SLASH_ESCAPE, readDirectiveName } from "../directive-syntax.js";
 import {
   carriedDaemonRefusal,
   composerRefusal,
@@ -105,10 +107,36 @@ export type ComposerSendOutcome =
  */
 export type ClientCommandPredicate = (commandName: string) => boolean;
 
+/**
+ * What the console knows about a name the bound provider published.
+ *
+ * Narrowed from the catalog's own entry rather than restated, so the three members
+ * the refusal reads can never disagree with the list a person read them off.
+ */
+export type EnumeratedProviderCommand = Pick<ProviderCatalogEntry, "name" | "kind" | "driverName">;
+
+/**
+ * Whether a name is one the addressed agent's provider published, for discovery.
+ *
+ * A SECOND port beside the client-command predicate and deliberately not a widening
+ * of it: the two answers lead to opposite acts. A client command is run; a provider
+ * entry is refused by name, because `Spec-023 §Signature Feature Composition
+ * Sketches` §The Session Composer makes the enumeration a discovery surface — V1
+ * sends exactly one enumerated entry, the compaction command, through its own control
+ * and never through a typed line. The default answers `undefined` for every name,
+ * which leaves a composer with no enumeration behind it saying exactly what it said
+ * before this port existed.
+ */
+export type ProviderCommandPredicate = (
+  commandName: string,
+) => EnumeratedProviderCommand | undefined;
+
 export interface ComposerSendRouterOptions {
   readonly bridge: ConsoleBridge;
   /** Defaults to recognising none, which is the fail-loud arm rather than the quiet one. */
   readonly recognizeClientCommand?: ClientCommandPredicate;
+  /** Defaults to naming none, so an unread enumeration changes no refusal. */
+  readonly recognizeProviderCommand?: ProviderCommandPredicate;
   /**
    * Mints the per-request idempotency key the wire requires as a UUID.
    *
@@ -128,20 +156,16 @@ const INTERVENE_METHOD = "run.intervene";
 /** The wire method a stop travels. Reachable during any active turn. */
 const INTERRUPT_RUN_METHOD = "driver.interruptRun";
 
-/** The escape a person types to send a literal leading slash on the channel path. */
-const LITERAL_SLASH_ESCAPE = "//";
-
-/** Splits a directive line on its first run of whitespace, to read the command name. */
-const FIRST_WHITESPACE = /\s/u;
-
 export class ComposerSendRouter {
   readonly #bridge: ConsoleBridge;
   readonly #recognizeClientCommand: ClientCommandPredicate;
+  readonly #recognizeProviderCommand: ProviderCommandPredicate;
   readonly #mintIdempotencyKey: () => string;
 
   public constructor(options: ComposerSendRouterOptions) {
     this.#bridge = options.bridge;
     this.#recognizeClientCommand = options.recognizeClientCommand ?? (() => false);
+    this.#recognizeProviderCommand = options.recognizeProviderCommand ?? (() => undefined);
     this.#mintIdempotencyKey = options.mintIdempotencyKey ?? (() => crypto.randomUUID());
   }
 
@@ -239,26 +263,57 @@ export class ComposerSendRouter {
     if (!body.startsWith("/")) {
       return undefined;
     }
+    const commandName = readDirectiveName(body);
     if (target.path === "provider-bound") {
       // Every leading slash, the escape included. The provider-bound transport is
       // the one whose own input surface parses client-side commands, so an escape
       // that worked on the channel path would be an escape into a parser this
       // console does not control. The copy carries no internal id.
-      return refused(
-        "slash-prefix-unsupported",
-        "Text that begins with a slash cannot be sent to a running turn yet. Remove the leading slash, or address this message to the channel instead.",
+      return (
+        this.#resolveDiscoveryOnly(commandName) ??
+        refused(
+          "slash-prefix-unsupported",
+          "Text that begins with a slash cannot be sent to a running turn yet. Remove the leading slash, or address this message to the channel instead.",
+        )
       );
     }
-    if (body.startsWith(LITERAL_SLASH_ESCAPE)) {
+    if (commandName === undefined) {
+      // The literal-slash escape: a message that really begins with a slash.
       return undefined;
     }
-    const commandName = body.slice(1).split(FIRST_WHITESPACE)[0] ?? "";
     if (commandName.length > 0 && this.#recognizeClientCommand(commandName)) {
       return { outcome: "client-command", commandName };
     }
+    return (
+      this.#resolveDiscoveryOnly(commandName) ??
+      refused(
+        "unknown-command",
+        `No command by that name is registered. Type ${LITERAL_SLASH_ESCAPE} to send a message that really starts with a slash.`,
+      )
+    );
+  }
+
+  /**
+   * The refusal for a name the bound provider published, or `undefined` for any
+   * other name.
+   *
+   * NAMED RATHER THAN SENT. The enumeration is a discovery surface: this console does
+   * not dispatch a provider command from the line on any path, and the person who
+   * typed one read it off a list this composer showed them — so the refusal says what
+   * the entry is, rather than telling them to check their spelling (which was right)
+   * or to address the channel (which would not run it either).
+   */
+  #resolveDiscoveryOnly(commandName: string | undefined): ComposerSendResolution | undefined {
+    if (commandName === undefined || commandName.length === 0) {
+      return undefined;
+    }
+    const published = this.#recognizeProviderCommand(commandName);
+    if (published === undefined) {
+      return undefined;
+    }
     return refused(
-      "unknown-command",
-      `No command by that name is registered. Type ${LITERAL_SLASH_ESCAPE} to send a message that really starts with a slash.`,
+      "provider-command-discovery-only",
+      `${published.name} is a ${published.kind} the bound ${published.driverName} provider publishes, and this console lists those for discovery only. Nothing was sent.`,
     );
   }
 

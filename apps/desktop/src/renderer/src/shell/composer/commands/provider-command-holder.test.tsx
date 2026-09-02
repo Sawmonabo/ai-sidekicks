@@ -1,10 +1,13 @@
-// That re-addressing RE-READS, and never filters the list already in hand.
+// One reading, two readers, and a re-address that RE-READS rather than filtering.
 //
-// The rule is the routing invariant expressed as an interaction: an entry enumerated
+// Two claims, and both are about what was ASKED rather than about what rendered. The
+// first is the routing invariant expressed as an interaction: an entry enumerated
 // under one binding is offerable only in a composer addressed to an agent of that
-// same binding. A surface that kept the previous agent's list and narrowed it would
-// pass every rendering test and still offer one provider's commands under another's
-// address — so the claim is checked where it is decidable, on what was ASKED.
+// same binding, so a surface that kept the previous agent's list and narrowed it
+// would pass every rendering test and still offer one provider's commands under
+// another's address. The second is the arithmetic this holder exists for — the
+// popover and the send path observe ONE reading, so opening the surface puts one
+// enumeration on the wire and not one per zone.
 
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -12,7 +15,10 @@ import { describe, expect, it } from "vitest";
 import { createFixtureBridge, type ConsoleBridge } from "../../../console/bridge/index.js";
 import { COMPOSER_SCENARIO } from "../../../console/bridge/scenarios/composer.js";
 import type { ComposerTarget } from "../chips/chip-models.js";
-import { useProviderCommandEnumeration } from "./provider-command-read.js";
+import {
+  ProviderCommandEnumeration,
+  useProviderCommandEnumeration,
+} from "./provider-command-holder.js";
 
 const ENUMERATION_METHOD = "driver.listProviderCommands";
 
@@ -62,8 +68,10 @@ describe("useProviderCommandEnumeration", () => {
   it("asks nothing until the discovery surface is open", async () => {
     const recorded: RecordedCall[] = [];
     const bridge = recordingBridge(recorded);
+    const enumeration = new ProviderCommandEnumeration();
     const { result } = renderHook(() =>
       useProviderCommandEnumeration({
+        enumeration,
         bridge,
         target: targetForAgent("agent-one"),
         isOpen: false,
@@ -80,8 +88,10 @@ describe("useProviderCommandEnumeration", () => {
   it("reads the addressed agent once the surface opens", async () => {
     const recorded: RecordedCall[] = [];
     const bridge = recordingBridge(recorded);
+    const enumeration = new ProviderCommandEnumeration();
     const { result } = renderHook(() =>
       useProviderCommandEnumeration({
+        enumeration,
         bridge,
         target: targetForAgent("agent-one"),
         isOpen: true,
@@ -102,9 +112,11 @@ describe("useProviderCommandEnumeration", () => {
   it("re-reads for a newly addressed agent rather than reusing the list in hand", async () => {
     const recorded: RecordedCall[] = [];
     const bridge = recordingBridge(recorded);
+    const enumeration = new ProviderCommandEnumeration();
     const { result, rerender } = renderHook(
       (agentId: string) =>
         useProviderCommandEnumeration({
+          enumeration,
           bridge,
           target: targetForAgent(agentId),
           isOpen: true,
@@ -134,9 +146,11 @@ describe("useProviderCommandEnumeration", () => {
   it("negative control: re-rendering at the same address asks nothing a second time", async () => {
     const recorded: RecordedCall[] = [];
     const bridge = recordingBridge(recorded);
+    const enumeration = new ProviderCommandEnumeration();
     const { rerender } = renderHook(
       (agentId: string) =>
         useProviderCommandEnumeration({
+          enumeration,
           bridge,
           target: targetForAgent(agentId),
           isOpen: true,
@@ -159,8 +173,10 @@ describe("useProviderCommandEnumeration", () => {
   it("asks nothing for a composer addressed at a channel", async () => {
     const recorded: RecordedCall[] = [];
     const bridge = recordingBridge(recorded);
+    const enumeration = new ProviderCommandEnumeration();
     const { result } = renderHook(() =>
       useProviderCommandEnumeration({
+        enumeration,
         bridge,
         target: {
           path: "channel-message",
@@ -178,5 +194,121 @@ describe("useProviderCommandEnumeration", () => {
 
     expect(result.current.phase).toBe("not-checked");
     expect(enumerationCalls(recorded)).toHaveLength(0);
+  });
+});
+
+describe("ProviderCommandEnumeration — one reading, two readers", () => {
+  it("puts one enumeration on the wire for both zones", async () => {
+    const recorded: RecordedCall[] = [];
+    const bridge = recordingBridge(recorded);
+    const enumeration = new ProviderCommandEnumeration();
+    // Two observers of one holder: the popover, which opens the reading, and the
+    // send path, which only reads it. On the pre-holder tree each zone owned its own
+    // hook and this counted two.
+    renderHook(() =>
+      useProviderCommandEnumeration({
+        enumeration,
+        bridge,
+        target: targetForAgent("agent-one"),
+        isOpen: true,
+      }),
+    );
+    renderHook(() =>
+      useProviderCommandEnumeration({
+        enumeration,
+        bridge,
+        target: targetForAgent("agent-one"),
+        isOpen: true,
+      }),
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(enumerationCalls(recorded)).toHaveLength(1);
+  });
+
+  it("negative control: two holders are two readings and ask twice", async () => {
+    const recorded: RecordedCall[] = [];
+    const bridge = recordingBridge(recorded);
+    for (const enumeration of [
+      new ProviderCommandEnumeration(),
+      new ProviderCommandEnumeration(),
+    ]) {
+      renderHook(() =>
+        useProviderCommandEnumeration({
+          enumeration,
+          bridge,
+          target: targetForAgent("agent-one"),
+          isOpen: true,
+        }),
+      );
+    }
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(enumerationCalls(recorded)).toHaveLength(2);
+  });
+
+  it("names a published entry to a reader that never opened the surface", async () => {
+    const recorded: RecordedCall[] = [];
+    const bridge = recordingBridge(recorded);
+    const enumeration = new ProviderCommandEnumeration();
+    // Nothing is named before the reading lands: the send path says what it said
+    // before this holder existed rather than guessing at an answer in flight.
+    expect(enumeration.publishedEntryNamed("compact")).toBeUndefined();
+
+    renderHook(() =>
+      useProviderCommandEnumeration({
+        enumeration,
+        bridge,
+        target: targetForAgent("agent-one"),
+        isOpen: true,
+      }),
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const published = enumeration.publishedEntryNamed("compact");
+    expect(published?.source).toBe("provider");
+    expect(published?.name).toBe("compact");
+    // A name the provider did not publish stays unnamed, so the send path keeps its
+    // own vocabulary for one it has never heard of.
+    expect(enumeration.publishedEntryNamed("frame.goToSettings")).toBeUndefined();
+  });
+
+  it("stops naming entries once the surface that opened the reading closes", async () => {
+    const recorded: RecordedCall[] = [];
+    const bridge = recordingBridge(recorded);
+    const enumeration = new ProviderCommandEnumeration();
+    const { rerender } = renderHook(
+      (isOpen: boolean) =>
+        useProviderCommandEnumeration({
+          enumeration,
+          bridge,
+          target: targetForAgent("agent-one"),
+          isOpen,
+        }),
+      { initialProps: true },
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(enumeration.publishedEntryNamed("compact")).toBeDefined();
+
+    await act(async () => {
+      rerender(false);
+    });
+
+    // The lifetime ends with the surface: what is left is a reading nobody has, not
+    // a list held for the next time somebody types a slash.
+    expect(enumeration.snapshot().phase).toBe("not-checked");
+    expect(enumeration.publishedEntryNamed("compact")).toBeUndefined();
   });
 });

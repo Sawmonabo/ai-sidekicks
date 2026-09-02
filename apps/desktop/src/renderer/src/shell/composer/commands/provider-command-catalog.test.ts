@@ -1,14 +1,14 @@
-// When the surface opens, and what survives the prefix.
+// What the two sources compose into, and what survives the prefix.
 //
-// The two rules that would rot silently: `//` is the send router's literal-slash
-// escape and must open nothing, and a provider entry keeps its own binding rather
-// than borrowing the group's by position.
+// The rule that would rot silently: a provider entry keeps its own binding rather
+// than borrowing the group's by position. When the surface opens at all is the
+// family's own grammar and is asserted beside it, in `directive-syntax.test.ts`.
 
 import { describe, expect, it } from "vitest";
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts";
 
 import type { ConsoleCommand } from "../../../console/palette/index.js";
-import { composeCatalog, filterCatalog, readDiscoveryPrefix } from "./provider-command-catalog.js";
+import { composeCatalog, filterCatalog } from "./provider-command-catalog.js";
 
 const OFFERED: readonly ConsoleCommand[] = [
   { id: "frame.goToSettings", title: "Go to Settings", group: "Navigate", run: () => undefined },
@@ -41,28 +41,6 @@ const GROUPS: readonly ProviderCommandBindingGroup[] = [
     complete: true,
   },
 ];
-
-describe("readDiscoveryPrefix", () => {
-  it("opens on a leading slash and reports the typed name", () => {
-    expect(readDiscoveryPrefix("/comp")).toBe("comp");
-  });
-
-  it("opens with an empty prefix on the trigger alone", () => {
-    expect(readDiscoveryPrefix("/")).toBe("");
-  });
-
-  it("reads only the first word, so arguments do not widen the filter", () => {
-    expect(readDiscoveryPrefix("/compact now please")).toBe("compact");
-  });
-
-  it("negative control: the literal-slash escape opens nothing", () => {
-    expect(readDiscoveryPrefix("//not a command")).toBeUndefined();
-  });
-
-  it("negative control: ordinary prose opens nothing", () => {
-    expect(readDiscoveryPrefix("please read the file")).toBeUndefined();
-  });
-});
 
 describe("composeCatalog", () => {
   it("carries each provider entry's own binding rather than a shared one", () => {

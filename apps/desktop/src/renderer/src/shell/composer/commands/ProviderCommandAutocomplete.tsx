@@ -36,17 +36,26 @@ import {
   filterCatalog,
   type CommandCatalogEntry,
 } from "./provider-command-catalog.js";
-import { useProviderCommandEnumeration } from "./provider-command-read.js";
+import {
+  useProviderCommandEnumeration,
+  type ProviderCommandEnumeration,
+} from "./provider-command-holder.js";
 
 export type ProviderCommandAutocompleteProps = ComposerSeatProps & {
   /** The composer region whose line this surface watches. It writes to none of it. */
   readonly region: React.RefObject<HTMLElement | null>;
+  /**
+   * The composer's one enumeration reading. THIS surface is what opens it: the
+   * leading slash in the line is what makes the reading live, and the send path
+   * observes the same holder rather than reading the wire a second time.
+   */
+  readonly commandEnumeration: ProviderCommandEnumeration;
 };
 
 export function ProviderCommandAutocomplete(
   props: ProviderCommandAutocompleteProps,
 ): React.JSX.Element | null {
-  const { region, bridge, route } = props;
+  const { region, bridge, route, commandEnumeration } = props;
   // The address is resolved here rather than handed down, exactly as the chip rail
   // and the send bar resolve it: one hook with three readers is one implementation,
   // and a host that passed the answer down would be a host that knew what each zone
@@ -54,7 +63,12 @@ export function ProviderCommandAutocomplete(
   const { target } = useComposerAddress(props.sessionStore, props.focusedPane);
   const discovery = useDirectiveLineDiscovery(region);
   const isOpen = discovery.prefix !== undefined;
-  const enumeration = useProviderCommandEnumeration({ bridge, target, isOpen });
+  const enumeration = useProviderCommandEnumeration({
+    enumeration: commandEnumeration,
+    bridge,
+    target,
+    isOpen,
+  });
 
   const readSurface = useCallback(() => composerCommandSurface(route), [route]);
 

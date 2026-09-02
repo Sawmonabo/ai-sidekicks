@@ -50,6 +50,7 @@ export const COMPOSER_REFUSAL_CODES = [
   "no-running-turn",
   "identifier-unparseable",
   "command-unexecutable",
+  "provider-command-discovery-only",
 ] as const;
 
 /** One composer refusal code. Derived, so the vocabulary is declared exactly once. */

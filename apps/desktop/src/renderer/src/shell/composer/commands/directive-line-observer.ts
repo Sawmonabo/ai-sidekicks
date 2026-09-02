@@ -24,7 +24,7 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
-import { readDiscoveryPrefix } from "./provider-command-catalog.js";
+import { readDirectiveName } from "../directive-syntax.js";
 
 /** What the composer's line is currently asking the discovery surface for. */
 export interface DirectiveLineDiscovery {
@@ -71,7 +71,7 @@ export function useDirectiveLineDiscovery(
   const [dismissedAtText, setDismissedAtText] = useState<string | undefined>(undefined);
   const [stepIntoListToken, setStepIntoListToken] = useState(0);
 
-  const typedPrefix = readDiscoveryPrefix(lineText);
+  const typedPrefix = readDirectiveName(lineText);
   const isOpen = typedPrefix !== undefined && dismissedAtText !== lineText;
 
   const dismiss = useCallback(() => {

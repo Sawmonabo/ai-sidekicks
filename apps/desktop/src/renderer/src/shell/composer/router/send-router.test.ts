@@ -48,10 +48,18 @@ function bridgeRecording(call: ReturnType<typeof vi.fn>): ConsoleBridge {
   } as unknown as ConsoleBridge;
 }
 
-function routerWith(call: ReturnType<typeof vi.fn>, recognized: readonly string[] = []) {
+function routerWith(
+  call: ReturnType<typeof vi.fn>,
+  recognized: readonly string[] = [],
+  published: readonly string[] = [],
+) {
   return new ComposerSendRouter({
     bridge: bridgeRecording(call),
     recognizeClientCommand: (name) => recognized.includes(name),
+    recognizeProviderCommand: (name) =>
+      published.includes(name)
+        ? { name, kind: "command" as const, driverName: "claude" }
+        : undefined,
     mintIdempotencyKey: () => PINNED_REQUEST_UUID,
   });
 }
@@ -156,6 +164,65 @@ describe("ComposerSendRouter — the reserved slash prefix, on both paths", () =
 
     expect(resolution.outcome).toBe("refused");
     expect(resolution.outcome === "refused" && resolution.refusal.detail).toContain("//");
+  });
+});
+
+describe("ComposerSendRouter — an enumerated provider entry is named, never sent", () => {
+  it("refuses a typed provider command as the discovery entry it is", async () => {
+    // The gap this closes: the popover listed `review` and the send path answered
+    // "remove the leading slash, or address this message to the channel instead" —
+    // advice for text that is not a command, given to somebody who typed one the
+    // console itself had just shown them. Neither remedy runs it.
+    const call = vi.fn().mockResolvedValue({});
+    const outcome = await routerWith(call, [], ["review"]).send("/review", RUN_TARGET);
+
+    expect(outcome.status).toBe("refused");
+    expect(outcome.status === "refused" && outcome.refusal.code).toBe(
+      "provider-command-discovery-only",
+    );
+    expect(outcome.status === "refused" && outcome.refusal.detail).toContain("review");
+    expect(outcome.status === "refused" && outcome.refusal.detail).toContain("claude");
+    expect(call).not.toHaveBeenCalled();
+  });
+
+  it("negative control: with no enumeration read, the same line keeps the old refusal", async () => {
+    const call = vi.fn().mockResolvedValue({});
+    const outcome = await routerWith(call).send("/review", RUN_TARGET);
+
+    expect(outcome.status === "refused" && outcome.refusal.code).toBe("slash-prefix-unsupported");
+  });
+
+  it("names a published entry on the channel path too, rather than calling it unknown", () => {
+    const resolution = routerWith(vi.fn(), [], ["review"]).resolve("/review", CHANNEL_TARGET);
+
+    expect(resolution.outcome === "refused" && resolution.refusal.code).toBe(
+      "provider-command-discovery-only",
+    );
+  });
+
+  it("runs a console command whose name the provider also published", async () => {
+    // The console's own registry answers first: a name this client can run is run,
+    // and the discovery arm is what a name it cannot run falls through to.
+    const call = vi.fn().mockResolvedValue({});
+    const outcome = await routerWith(call, ["compact"], ["compact"]).send(
+      "/compact",
+      CHANNEL_TARGET,
+    );
+
+    expect(outcome).toStrictEqual({ status: "intercepted", commandName: "compact" });
+    expect(call).not.toHaveBeenCalled();
+  });
+
+  it("keeps an unpublished, unregistered name at the unknown-command refusal", () => {
+    const resolution = routerWith(vi.fn(), [], ["review"]).resolve("/nothing", CHANNEL_TARGET);
+
+    expect(resolution.outcome === "refused" && resolution.refusal.code).toBe("unknown-command");
+  });
+
+  it("leaves the literal-slash escape an escape, whatever the provider published", () => {
+    const resolution = routerWith(vi.fn(), [], ["review"]).resolve("//review", CHANNEL_TARGET);
+
+    expect(resolution.outcome).toBe("new-turn");
   });
 });
 

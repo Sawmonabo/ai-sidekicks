@@ -13,6 +13,7 @@ import { DEFAULT_ROUTE } from "../../../console/routing/index.js";
 import { DraftStore } from "../../../console/persistence/index.js";
 import { SessionStore } from "../../../console/store/index.js";
 import type { ConsolePaneAddress } from "../../../console/workspace/index.js";
+import { ProviderCommandEnumeration } from "../commands/provider-command-holder.js";
 import { ComposerSendBar } from "./ComposerSendBar.js";
 
 const SESSION_ID = "0a1b2c3d-4e5f-4061-8273-9a4b5c6d7e8f";
@@ -45,6 +46,7 @@ function mountBar(options: {
   readonly draftStore: DraftStore;
   readonly sessionStore: SessionStore;
   readonly focusedPane?: ConsolePaneAddress | undefined;
+  readonly commandEnumeration?: ProviderCommandEnumeration;
 }): MountedBar {
   const result = render(
     <ComposerSendBar
@@ -53,6 +55,9 @@ function mountBar(options: {
       draftStore={options.draftStore}
       route={DEFAULT_ROUTE}
       focusedPane={options.focusedPane}
+      // The host owns the holder; a bar mounted alone is one nobody opened, which is
+      // the state every case here but the discovery one is asserting against.
+      commandEnumeration={options.commandEnumeration ?? new ProviderCommandEnumeration()}
     />,
   );
   const line = result.container.querySelector("textarea");

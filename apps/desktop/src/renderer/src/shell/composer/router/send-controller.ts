@@ -44,7 +44,11 @@ import {
   type DirectiveCaret,
   type DirectivePathLabel,
 } from "./directive-line.js";
-import { ComposerSendRouter, type ClientCommandPredicate } from "./send-router.js";
+import {
+  ComposerSendRouter,
+  type ClientCommandPredicate,
+  type ProviderCommandPredicate,
+} from "./send-router.js";
 
 /** Whether the line is accepting text or is locked behind an in-flight dispatch. */
 export type SendControllerStatus = "idle" | "sending";
@@ -74,6 +78,15 @@ export interface SendControllerDependencies {
    * never called. The composer's command zone supplies both or neither.
    */
   readonly recognizeClientCommand?: ClientCommandPredicate | undefined;
+  /**
+   * Whether a name is one the bound provider published, for discovery only.
+   *
+   * Supplied by the same zone and read off the same holder the discovery popover
+   * renders from, so a name the list showed and a name the send path recognises are
+   * one reading. Absent, a typed provider command refuses exactly as it did before
+   * the two zones shared one.
+   */
+  readonly recognizeProviderCommand?: ProviderCommandPredicate | undefined;
   /**
    * Runs a recognised client command, when this composer has one to run with.
    *
@@ -119,13 +132,22 @@ export interface SendController {
 
 /** Build the controller for one addressed composer. */
 export function useSendController(dependencies: SendControllerDependencies): SendController {
-  const { bridge, target, draftStore, commandExecutor, recognizeClientCommand } = dependencies;
+  const {
+    bridge,
+    target,
+    draftStore,
+    commandExecutor,
+    recognizeClientCommand,
+    recognizeProviderCommand,
+  } = dependencies;
   const router = useMemo(
     () =>
-      new ComposerSendRouter(
-        recognizeClientCommand === undefined ? { bridge } : { bridge, recognizeClientCommand },
-      ),
-    [bridge, recognizeClientCommand],
+      new ComposerSendRouter({
+        bridge,
+        ...(recognizeClientCommand === undefined ? {} : { recognizeClientCommand }),
+        ...(recognizeProviderCommand === undefined ? {} : { recognizeProviderCommand }),
+      }),
+    [bridge, recognizeClientCommand, recognizeProviderCommand],
   );
   // A ref rather than state: the walk's own cursor is not rendered, and putting it
   // in state would re-render the whole bar on a keystroke that changed nothing a
