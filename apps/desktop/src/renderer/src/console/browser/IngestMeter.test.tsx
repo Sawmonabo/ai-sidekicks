@@ -111,3 +111,52 @@ describe("the browser ingest meter — an undeclared total", () => {
     expect(bar.getAttribute("aria-valuetext")).toBeNull();
   });
 });
+
+// What the bar says when MORE arrived than was declared.
+//
+// A determinate range with a value past its own maximum is not a smaller kind of
+// correct: `aria-valuenow` outside `[aria-valuemin, aria-valuemax]` is a position on
+// a scale that cannot hold it, and the bar beside it has already been clamped to
+// full, so the two readings disagreed about the one thing this component exists to
+// keep together. The range is still KNOWN — the producer declared a total and the
+// bytes exceeded it — so the answer is to make the numeric pair lawful and put the
+// true figure in words on the same element, not to throw the scale away.
+describe("the browser ingest meter — more arrived than was declared", () => {
+  it("clamps the accessible value to the maximum rather than emitting a position past it", () => {
+    const bar = renderMeter(4096, 1024);
+    expect(bar.getAttribute("aria-valuenow")).toBe("1024");
+    expect(bar.getAttribute("aria-valuemax")).toBe("1024");
+    expect(bar.getAttribute("aria-valuenow")).toBe(bar.getAttribute("aria-valuemax"));
+  });
+
+  it("announces the figure that really arrived, against the total that was declared", () => {
+    // The clamp is what makes the range placeable; this is what keeps it honest. The
+    // words are the same ones printed under the bar, which is how the two readings
+    // stay one reading.
+    const bar = renderMeter(4096, 1024);
+    const note = bar.parentElement?.querySelector(".meridian-browser-card__note");
+    expect(collapseUnicodeSpaces(bar.getAttribute("aria-valuetext") ?? "")).toBe(
+      "4.0 KiB of 1.0 KiB received",
+    );
+    expect(collapseUnicodeSpaces(note?.textContent ?? "")).toBe("4.0 KiB of 1.0 KiB received.");
+  });
+
+  it("keeps the scale rather than going indeterminate, and the fill stays full", () => {
+    // The overrun is a declared range, so `aria-valuemax` stays: dropping it would
+    // report an unknown total where the producer named one. The fill was already
+    // clamped and is unchanged.
+    const bar = renderMeter(4096, 1024);
+    expect(bar.getAttribute("aria-valuemax")).not.toBeNull();
+    expect(bar.firstElementChild).toHaveProperty("style.inlineSize", "100%");
+  });
+
+  it("negative control: an exact arrival is not an overrun and carries no valuetext", () => {
+    // Without this, a meter that clamped and annotated unconditionally would satisfy
+    // every case above while overriding the percentage assistive technology derives
+    // for every honest transfer. Equal is the boundary, and it takes the plain pair.
+    const bar = renderMeter(1024, 1024);
+    expect(bar.getAttribute("aria-valuenow")).toBe("1024");
+    expect(bar.getAttribute("aria-valuemax")).toBe("1024");
+    expect(bar.getAttribute("aria-valuetext")).toBeNull();
+  });
+});
