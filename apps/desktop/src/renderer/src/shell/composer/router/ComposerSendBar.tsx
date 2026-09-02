@@ -24,8 +24,8 @@
 //
 // THE LINE'S TEXT IS THE DRAFT STORE'S. The seat is handed a window-lifetime store
 // and this bar neither owns the body nor copies it; the one thing it owns about the
-// draft is WHEN the store's restart disclosure is acknowledged, which the store
-// documents as the first focus of a composer.
+// draft is WHEN the store's restart disclosure is taken on, which the store documents
+// as the first focus of a composer.
 
 import { useCallback, useId } from "react";
 
@@ -123,10 +123,11 @@ export function ComposerSendBar(props: ComposerSendBarProps): React.JSX.Element 
         onChange={(event) => {
           controller.changeText(event.currentTarget.value);
         }}
-        // The store arms its restart disclosure at construction and clears it the
-        // first time a composer is focused, so focus is where it is acknowledged —
-        // not a timer, and not the first keystroke, which would clear a sentence
-        // somebody was still reading.
+        // The store arms its restart disclosure at construction and consumes it the
+        // first time a composer is focused, so focus is where this composer takes it
+        // on. The sentence itself waits for the line to hold unsent text, which is
+        // what it is about — an untouched composer says nothing about text nobody
+        // has typed.
         onFocus={() => {
           controller.acknowledgeRestartNotice();
         }}

@@ -151,32 +151,53 @@ describe("ComposerSendBar — the unsent body lives in the supplied draft store"
 });
 
 describe("ComposerSendBar — the store's restart disclosure, once", () => {
-  it("shows the store's own sentence and clears it on the first focus", () => {
+  it("says nothing until there is unsent text to say it about", () => {
+    const draftStore = new DraftStore();
+    const sessionStore = openSessionStore();
+    const bridge = stubBridge(async () => undefined);
+
+    const mounted = mountBar({ bridge, draftStore, sessionStore });
+    // The default state of every composer in every window, and what the captured
+    // pixels hold: an untouched line says nothing about text nobody has typed. On
+    // the shipped tree this sentence was in the DOM here, on every composer.
+    expect(mounted.result.container.querySelector(".meridian-composer__notice")).toBeNull();
+
+    fireEvent.focus(mounted.line);
+    expect(draftStore.restartNoticePending).toBe(false);
+    // Armed, still silent: focus alone is not text at risk.
+    expect(mounted.result.container.querySelector(".meridian-composer__notice")).toBeNull();
+
+    fireEvent.change(mounted.line, { target: { value: "unsent words" } });
+    expect(mounted.result.container.textContent).toContain(draftStore.restartNoticeText);
+  });
+
+  it("keeps it to one composer per window, and out of the ones it never armed", () => {
     const draftStore = new DraftStore();
     const sessionStore = openSessionStore();
     const bridge = stubBridge(async () => undefined);
 
     const first = mountBar({ bridge, draftStore, sessionStore });
-    expect(first.result.container.textContent).toContain(draftStore.restartNoticeText);
-
     fireEvent.focus(first.line);
-    expect(first.result.container.textContent).not.toContain(draftStore.restartNoticeText);
-    expect(draftStore.restartNoticePending).toBe(false);
-
-    // Once per window, not once per mount: a second composer never repeats it.
     first.result.unmount();
+
+    // Once per window, not once per mount: a second composer takes the disclosure on
+    // nowhere, so typing into it says nothing.
     const second = mountBar({ bridge, draftStore, sessionStore });
-    expect(second.result.container.textContent).not.toContain(draftStore.restartNoticeText);
+    fireEvent.focus(second.line);
+    fireEvent.change(second.line, { target: { value: "more unsent words" } });
+    expect(second.result.container.querySelector(".meridian-composer__notice")).toBeNull();
   });
 
   it("negative control: a store that owes no disclosure renders none at all", () => {
     const draftStore = new DraftStore({ restartNoticePending: false });
-    const { result } = mountBar({
+    const mounted = mountBar({
       bridge: stubBridge(async () => undefined),
       draftStore,
       sessionStore: openSessionStore(),
     });
-    expect(result.container.querySelector(".meridian-composer__notice")).toBeNull();
+    fireEvent.focus(mounted.line);
+    fireEvent.change(mounted.line, { target: { value: "unsent words" } });
+    expect(mounted.result.container.querySelector(".meridian-composer__notice")).toBeNull();
   });
 });
 
