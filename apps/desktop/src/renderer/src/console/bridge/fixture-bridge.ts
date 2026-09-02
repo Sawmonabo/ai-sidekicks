@@ -37,7 +37,10 @@
 //     four defects are gone from the three tables between them. The relay
 //     subscription is routed by the same discipline on its own key: it names a
 //     SESSION rather than an event, so it delivers only to a subscriber that
-//     asked for the session the scenario plays.
+//     asked for the session the scenario plays. And the whole-session stream is
+//     replay-then-tail as the corpus registers it: a subscriber attaching after
+//     beats have been delivered is handed those beats before it tails, so a store
+//     opened mid-scenario does not read the next beat as a sequence gap.
 //   • **Native surfaces refuse rather than pretend.** `showOpenDialog` under the
 //     fixture cannot open a dialog, so it rejects with a fixture-scoped error. A
 //     fixture that returned a plausible path would let a surface ship with a code
@@ -71,7 +74,7 @@ import { ScenarioEngine } from "./scenario-engine.js";
 import { composeScenarioEventEnvelope } from "./scenario-envelope.js";
 import type { ConsoleScenario } from "./scenario.js";
 import { SCRIPTED_REPLY_REFUSAL_CODES, settleScriptedReply } from "./scripted-reply.js";
-import { subscriptionDeliversEventKind } from "./session-event-streams.js";
+import { sessionEventStreamFor, subscriptionDeliversEventKind } from "./session-event-streams.js";
 
 /**
  * Why the fixture could not answer. Rendered verbatim; never swallowed.
@@ -242,6 +245,17 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
  * live bridge cannot send: no `kind`, no `sequence`, no nested `payload`, and
  * `currentState` where the envelope has `payload.newState`.
  *
+ * AND WHEN IT REACHES THE HANDLER, for the one arm where that is a second question.
+ * `session.subscribe` is registered replay-then-tail, so a subscriber that attaches
+ * after the frozen clock has already delivered beats is handed those beats first, in
+ * log order, and then tails. Without it a store opened mid-scenario read the next
+ * beat as a real sequence gap — its snapshot answers at cursor zero, so every
+ * position in between counts as missing — and a store opened after the script
+ * finished stayed empty for the life of the window. The two narrowed run streams take
+ * no replay: they are live projections, and handing a runs surface the transitions it
+ * did not subscribe in time for would be inventing a subscription the daemon does not
+ * serve.
+ *
  * A beat the projection cannot build REFUSES here rather than delivering a partial
  * shape, and it refuses by throwing: `core/emitter.ts` runs every sink and re-raises
  * afterwards, so one scenario's authoring error surfaces to whoever advanced the
@@ -252,30 +266,39 @@ function subscribeToScenario(
   subscriptionName: string,
   deliver: (delivered: unknown) => void,
 ): Unsubscribe {
-  return engine.subscribe((events) => {
-    for (const event of events) {
-      if (!subscriptionDeliversEventKind(subscriptionName, event.kind)) {
-        continue;
+  // Replay-then-tail is the whole-session stream's registered behaviour and no other
+  // name's, and which name is which is `session-event-streams.ts`'s answer rather
+  // than a second reading taken here: its `scope` IS that distinction — a stream that
+  // represents the whole log is the one a subscriber can join late and expect the log
+  // from, while the two narrowed run streams and every bare event type are live.
+  const stream = sessionEventStreamFor(subscriptionName);
+  return engine.subscribe(
+    (events) => {
+      for (const event of events) {
+        if (!subscriptionDeliversEventKind(subscriptionName, event.kind)) {
+          continue;
+        }
+        // The queue stream's payload is a projection of the queue ROW, and the
+        // scenario's stand-in for the daemon's row read is the reply it scripts for
+        // that read. Resolved per beat rather than once, so a fixture whose scenario
+        // is replaced mid-subscription reads the new one's rows.
+        const projection = projectRunStreamDelivery(
+          subscriptionName,
+          event,
+          engine.replyFor(RUN_QUEUE_ROW_READ)?.result,
+        );
+        if (projection === undefined) {
+          deliver(composeScenarioEventEnvelope(event));
+          continue;
+        }
+        if (projection.status === "unprojectable") {
+          throw new FixtureBridgeError(subscriptionName, "beat-unprojectable", projection.detail);
+        }
+        deliver(projection.delivery);
       }
-      // The queue stream's payload is a projection of the queue ROW, and the
-      // scenario's stand-in for the daemon's row read is the reply it scripts for
-      // that read. Resolved per beat rather than once, so a fixture whose scenario
-      // is replaced mid-subscription reads the new one's rows.
-      const projection = projectRunStreamDelivery(
-        subscriptionName,
-        event,
-        engine.replyFor(RUN_QUEUE_ROW_READ)?.result,
-      );
-      if (projection === undefined) {
-        deliver(composeScenarioEventEnvelope(event));
-        continue;
-      }
-      if (projection.status === "unprojectable") {
-        throw new FixtureBridgeError(subscriptionName, "beat-unprojectable", projection.detail);
-      }
-      deliver(projection.delivery);
-    }
-  });
+    },
+    { replayDeliveredPrefix: stream?.scope === "whole-session" },
+  );
 }
 
 /**
