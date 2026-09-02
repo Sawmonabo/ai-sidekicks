@@ -37,7 +37,14 @@
 // lives rather than drawing a switch that would write nowhere.
 
 import type { AttentionItem, AttentionTrigger } from "../bridge/index.js";
-import { Chip, Nothing, WireFigure, formatClockTime, formatCount } from "../primitives/index.js";
+import {
+  Chip,
+  Nothing,
+  RefusalCard,
+  WireFigure,
+  formatClockTime,
+  formatCount,
+} from "../primitives/index.js";
 import type { AttentionReading, AttentionSessionGroup } from "./attention-plane.js";
 
 /**
@@ -101,6 +108,11 @@ function ProjectionBody(props: {
         detail="Nothing on the installed bridge reads it yet, so this console has not asked. It is not an all-clear — an all-clear is an answer, and no question was put."
       />
     );
+  }
+  if (props.reading.phase === "refused") {
+    // The read was put and it failed, which is neither an all-clear nor a question
+    // nobody asked. The refusal renders with its own code, verbatim.
+    return <RefusalCard code={props.reading.refusal.code} detail={props.reading.refusal.detail} />;
   }
   const { plane, droppedCount } = props.reading;
   if (plane.groups.length === 0) {

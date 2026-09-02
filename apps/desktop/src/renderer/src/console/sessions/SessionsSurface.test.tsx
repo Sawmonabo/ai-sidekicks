@@ -20,6 +20,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { REFRESH_DEBOUNCE_MS } from "../core/index.js";
 import { MemoryPersistenceAdapter } from "../persistence/memory-adapter.js";
 import { UiStateStore } from "../persistence/index.js";
 import { SessionStore } from "../store/index.js";
@@ -33,6 +34,12 @@ import type { ConsoleSurfaceContext } from "../frame/surface-registry.js";
  * fan-out, and the node's session directory — and each settles an effect that can
  * schedule the next, so the count is the depth of that chain rather than a number
  * picked to make a test pass.
+ *
+ * The attention read is the one that also costs TIME. It goes through the console's
+ * one refresh scheduler, so its first read lands a debounce interval after the
+ * subscribe rather than on the next microtask — and the bridge this file builds
+ * carries no scenario engine, so that interval is measured on the wall clock. A
+ * surface driven against the real fixture advances the frozen clock instead.
  */
 async function settle(): Promise<void> {
   for (let pass = 0; pass < 4; pass += 1) {
@@ -40,6 +47,11 @@ async function settle(): Promise<void> {
       await Promise.resolve();
     });
   }
+  await act(async () => {
+    await new Promise((resolveAfterDebounce) => {
+      setTimeout(resolveAfterDebounce, REFRESH_DEBOUNCE_MS * 2);
+    });
+  });
 }
 
 /** A store holding the sessions a test names, established the way a read would. */
