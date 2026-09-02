@@ -112,7 +112,7 @@ describe("the fixture's gitflow reads — one answers nothing, the other refuses
         // A reviewable proposal is a daemon act — `Spec-011 §Required Behavior`
         // puts it before any remote mutation — so a fixture that answered would be
         // standing in for the review, not for the wire.
-        expect(outcome.detail).toContain("not registered yet");
+        expect(outcome.detail).toContain("not registered on this build yet");
       }
     }
   });

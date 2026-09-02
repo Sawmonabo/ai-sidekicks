@@ -214,7 +214,7 @@ describe("the fixture growth port's scripted reads — served, refused, or named
     expect(outcome.status).toBe("unavailable");
     if (outcome.status === "unavailable") {
       expect(outcome.code).toBe("wire-unregistered");
-      expect(outcome.detail).toContain("not registered yet");
+      expect(outcome.detail).toContain("not registered on this build yet");
     }
   });
 });
