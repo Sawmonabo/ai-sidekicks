@@ -191,6 +191,7 @@ export function StreamingMarkdown(props: StreamingMarkdownProps): React.JSX.Elem
       sourceId={props.sourceId}
       footnotes={props.footnotes}
       uncitedIdentifiers={uncitedFootnoteIdentifiers}
+      definedFootnoteIdentifiers={definedFootnoteIdentifiers}
     >
       <div className="meridian-markdown">
         {segmentation.settledBlocks.map((block, index) => (
