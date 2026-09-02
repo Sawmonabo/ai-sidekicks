@@ -14,13 +14,15 @@
 // composition root, which puts it at or below the frame. A selector chooses
 // nothing — it reads a member some projector already wrote, and its job is to
 // refuse to hand a surface a value that is not the shape the surface's type says
-// it is. So the body read below names a member and then VALIDATES it, and it
-// decides nothing about what any event means.
+// it is. So the two body reads below name a member and then VALIDATE it, and
+// neither of them decides what any event means.
 //
-// THE BODY READ BELOW RETURNS A STORED REFERENCE, never a value
-// built per call, so it stays usable inside a `useStore` selector: the posture
-// read answers the stored object it narrowed rather than a copy of it.
+// THE TWO BODY READS BELOW RETURN PRIMITIVES OR STORED REFERENCES, never a value
+// built per call, so they stay usable as `useStore` selectors: `Object.is` on a
+// string is value equality, and the posture read returns the stored object it
+// narrowed rather than a copy of it.
 
+import { MembershipRoleSchema, type MembershipRole } from "@ai-sidekicks/contracts";
 import type { ExecutionPosture } from "@ai-sidekicks/contracts";
 
 import type { ConsoleEntity, ConsoleEntityKind, ConsoleEntityRef } from "./entities.js";
@@ -84,6 +86,36 @@ export function stampedExecutionPostureOf(
 }
 
 /**
+ * The membership role the roster carries for one participant, or `undefined`.
+ *
+ * `bridge/growth-signatures.ts` states the reasoning this selector is the other
+ * half of: the session's participant roster already carries every member's role,
+ * so a role member on the caller-identity read would be a second source of truth
+ * for a fact this partition owns — and the two could disagree with nothing able to
+ * say which was right. What no registered read supplies is which entry in the
+ * roster this window IS; given that, the role is this lookup.
+ *
+ * `undefined` when the participant is not in the partition and equally when the
+ * entry carries no parseable role. Never a default role: an unread role rendered
+ * as `viewer` would hide a control an owner is entitled to, and one rendered as
+ * `owner` would offer a control the daemon will refuse.
+ *
+ * Takes the STATE rather than the store, unlike the signature a caller might
+ * expect: `session-store.ts` re-exports this module, so naming `SessionStore` here
+ * — even as a type, which the layering gate resolves like any other edge — would
+ * close an import cycle. Taking the state is also what makes it usable as a
+ * `useStore` selector, which is how a component is supposed to reach it.
+ */
+export function membershipRoleOf(
+  state: SessionStoreState,
+  participantId: string,
+): MembershipRole | undefined {
+  const participant = state.partitions.participant[participantId];
+  const parsed = MembershipRoleSchema.safeParse(participant?.body?.[MEMBERSHIP_ROLE_MEMBER]);
+  return parsed.success ? parsed.data : undefined;
+}
+
+/**
  * The body member `run.running` stamps the posture on, spelled as the registered
  * shape spells it.
  *
@@ -95,6 +127,9 @@ export function stampedExecutionPostureOf(
  * read.
  */
 const STAMPED_EXECUTION_POSTURE_MEMBER = "executionPosture";
+
+/** The body member a participant entry carries its role on, spelled as the roster spells it. */
+const MEMBERSHIP_ROLE_MEMBER = "role";
 
 /**
  * The posture's mode arms, split by whether the contract requires a

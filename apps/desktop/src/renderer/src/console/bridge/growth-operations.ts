@@ -407,6 +407,13 @@ export const GROWTH_OPERATIONS: Readonly<Record<GrowthOperationId, GrowthOperati
   // registers a method string anywhere, so neither entry names one — the corpus has
   // the daemon RESOLVE a caller's principal and never return it, and has the
   // callback-tool registry ride spawn with no read seam at all.
+  //
+  // THERE IS NO `participant-role-read` ROW, AND THERE WILL NOT BE ONE. The role is
+  // a lookup, not a read: `store/selectors.ts`'s `membershipRoleOf` answers it from
+  // the roster this session's own store already holds, and `store/hooks.ts`'s
+  // `useCallerMembershipRole` chains this operation to it. A slate row for the role
+  // would be asking a second wire for a fact a shipped partition owns, and the two
+  // could disagree with nothing able to say which was right.
   callerParticipantRead: op(
     "callerParticipantRead",
     "caller-participant-identity",
