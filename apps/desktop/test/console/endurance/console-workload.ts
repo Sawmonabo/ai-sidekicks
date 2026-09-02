@@ -20,18 +20,25 @@
 // `steady-state.test.ts` — the assertion that fails the day either one goes back
 // to naming the shell.
 //
-// Both are production markup. `Spec-023 §Console Design (Meridian)` rule 8's five
-// kinds of nothing carry a per-kind class, and the two routes this tier walks
-// render different kinds today: the settings slot has no registered surface, so
-// the frame says the surface is reserved rather than stubbed (`empty`), while the
-// session workspace mounts a shipped Tier-1 family that reads the installed
-// bridge, which under the fixture is a question nobody put (`not-checked`). No
-// test-only attribute is added to the renderer to make this observable.
+// Both are production markup, and neither is a `Nothing` KIND any more. The pair
+// used to name two kinds of absence — the settings slot reserved (`empty`) and the
+// workspace not-checked — and that stopped being route-exclusive the moment the
+// ledger family shipped the session workspace for real: the ledger renders its own
+// `empty` when a session has no rows yet, which is exactly the state a churn cycle
+// observes between opening the route and advancing the clock.
 //
-// When either surface ships for real, its locator stops matching and this tier
-// fails on a wait timeout naming the selector. That is the right direction: a
-// driver that can no longer see the surface it drives should stop, not continue
-// measuring an unobserved loop.
+// So each locator now names a STRUCTURE only its own route mounts. The settings
+// route resolves to a slot no family has registered, which the frame renders inside
+// its own centred absence wrapper; the session workspace mounts the ledger, whose
+// body is the scroll container the whole surface is built around. A `Nothing` of any
+// kind inside the ledger is therefore invisible to the settings wait, and the
+// absence wrapper is never mounted inside a ledger body. No test-only attribute is
+// added to the renderer to make either observable.
+//
+// When either surface changes shape, its locator stops matching and this tier fails
+// on a wait timeout naming the selector. That is the right direction: a driver that
+// can no longer see the surface it drives should stop, not continue measuring an
+// unobserved loop.
 
 import { expect } from "vitest";
 
@@ -54,16 +61,21 @@ export const SETTINGS_ROUTE: string = "#/settings";
 /**
  * What the settings route renders and the session workspace does not.
  *
- * Anchored under the frame's surface slot, so a `Nothing` of the same kind
- * mounted in the rail, a banner, or an overlay cannot satisfy the wait for a
- * surface that never mounted.
+ * Anchored under the frame's surface slot AND under the frame's own absence
+ * wrapper, so a `Nothing` of the same kind mounted in a pane, the rail, a banner,
+ * or an overlay cannot satisfy the wait for a surface that never mounted.
  */
 export const SETTINGS_SURFACE_SELECTOR: string =
-  ".meridian-frame__surface .meridian-nothing--block.meridian-nothing--empty";
+  ".meridian-frame__surface .meridian-frame__absence .meridian-nothing--empty";
 
-/** What the session workspace renders and the settings route does not. */
-export const WORKSPACE_SURFACE_SELECTOR: string =
-  ".meridian-frame__surface .meridian-nothing--block.meridian-nothing--not-checked";
+/**
+ * What the session workspace renders and the settings route does not.
+ *
+ * The ledger's scroll container, which the workspace mounts on every session route
+ * whether or not that session has rows yet — so the wait observes the MOUNT rather
+ * than the arrival of content, which is what a churn cycle needs it to observe.
+ */
+export const WORKSPACE_SURFACE_SELECTOR: string = ".meridian-frame__surface .meridian-ledger__body";
 
 /**
  * How long a route transition may take before the run is called failed.
