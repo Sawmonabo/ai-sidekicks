@@ -7,9 +7,15 @@
 // pane renders the absence when they do not. The alternative is a pane full of
 // optional hooks, each of which would have to invent a defined-enough value to run on.
 //
-// WHAT IT OWNS: the attach form's lifetime, the dialog's open state, and the last
-// reply from each mutation. Nothing else — the reads belong to the models and the
-// rendering belongs to the `agents/` surfaces this file composes.
+// WHAT IT OWNS: the attach form's lifetime, the dialog's open state, the attach
+// attempt's latch, and the last reply from each mutation. Nothing else — the reads
+// belong to the models and the rendering belongs to the `agents/` surfaces this
+// file composes.
+//
+// ONE ATTACH AT A TIME. `agent.attach` creates a durable agent, so the attempt is
+// held by `attach-attempt.ts` rather than by a pair of state variables here: the
+// latch it keeps is written synchronously, which a `useState` flag is not, and a
+// second press inside one task would otherwise reach the wire twice.
 
 import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 
@@ -19,7 +25,6 @@ import {
   AttachSidekick,
   AttachSidekickForm,
   ProviderSwitch,
-  type AgentAttachReading,
   type AgentConsoleModels,
   type AgentSwitchSettlement,
   type ProviderAxis,
@@ -27,14 +32,10 @@ import {
 import type { ConsoleRefusal } from "../../core/index.js";
 import { consoleRefusalFrom, usePushDrivenRead } from "../../collaboration/push-driven-read.js";
 import { Nothing, RefusalCard } from "../../primitives/index.js";
+import { AttachAttempt, useAttachAttempt } from "./attach-attempt.js";
 
 /** Names a mutation's failure where the thrown value carried no refusal of its own. */
 const AGENT_MUTATION_ORIGIN = "agent-mutation";
-
-interface AttachOutcome {
-  readonly confirmation?: AgentAttachReading | undefined;
-  readonly refusal?: ConsoleRefusal | undefined;
-}
 
 interface SwitchOutcome {
   readonly settlement?: AgentSwitchSettlement | undefined;
@@ -61,25 +62,25 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
   const [attachForm] = useState(() => new AttachSidekickForm());
   const [, noteFormEdited] = useReducer((edits: number) => edits + 1, 0);
   const [isAttachOpen, setAttachOpen] = useState(false);
-  const [attachOutcome, setAttachOutcome] = useState<AttachOutcome>({});
+  // The latch, held for the life of this mount. Built by an initializer for the
+  // form's reason: a body would mint a fresh one on every discarded render pass,
+  // and a latch that is replaced mid-flight admits the press it exists to refuse.
+  const [attachAttempt] = useState(() => new AttachAttempt({ origin: AGENT_MUTATION_ORIGIN }));
+  const attachState = useAttachAttempt(attachAttempt);
   const [switchOutcome, setSwitchOutcome] = useState<SwitchOutcome>({});
 
   useEffect(() => attachForm.onChange(noteFormEdited), [attachForm, noteFormEdited]);
 
+  // A press while one attach is outstanding reaches the latch and stops there —
+  // `submit` is a no-op in flight, so a double click costs one request and the
+  // confirmation shown is the settled reply's rather than whichever landed last.
   const submitAttach = useCallback((): void => {
     const readiness = attachForm.readiness();
     if (readiness.status !== "ready") {
       return;
     }
-    models
-      .attach(readiness.request)
-      .then((confirmation) => {
-        setAttachOutcome({ confirmation });
-      })
-      .catch((error: unknown) => {
-        setAttachOutcome({ refusal: consoleRefusalFrom(error, AGENT_MUTATION_ORIGIN) });
-      });
-  }, [attachForm, models]);
+    attachAttempt.submit(async () => await models.attach(readiness.request));
+  }, [attachAttempt, attachForm, models]);
 
   const applySwitch = useCallback(
     (
@@ -156,8 +157,8 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
         catalog={catalogState}
         definitions={definitionsState}
         onSubmit={submitAttach}
-        confirmation={attachOutcome.confirmation}
-        refusal={attachOutcome.refusal}
+        confirmation={attachState.status === "attached" ? attachState.confirmation : undefined}
+        refusal={attachState.status === "refused" ? attachState.refusal : undefined}
       />
     </>
   );
