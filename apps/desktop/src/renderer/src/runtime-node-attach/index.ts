@@ -27,4 +27,4 @@ export { CapabilityDeclaration, type CapabilityDeclarationProps } from "./Capabi
 /** @public Plan-003 T5.3; mounted by a later Plan-023 console surface. */
 export { MixedVersionStatus, type MixedVersionStatusProps } from "./MixedVersionStatus.js";
 /** @public Plan-003 T5.1; mounted by the console's `agent-console` slot. */
-export { NodeRoster, type NodeRosterProps } from "./NodeRoster.js";
+export { NodeRoster, type NodeRosterProps, type NodeRosterReads } from "./NodeRoster.js";
