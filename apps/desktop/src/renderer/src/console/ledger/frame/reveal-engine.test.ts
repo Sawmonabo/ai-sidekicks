@@ -1,0 +1,255 @@
+// Four lanes streaming at once, on a clock that only moves when told to.
+//
+// `ManualClock` is the instrument, not a convenience: the budget claim the engine
+// makes is "nothing is armed when nothing is streaming", and `pendingCount` is the
+// only way to check that rather than assert it. Every case that ends settled ends
+// with that count at zero.
+
+import { describe, expect, it } from "vitest";
+
+import { ManualClock } from "../../core/index.js";
+import { REVEAL_CATCH_UP_MULTIPLIER, REVEAL_FRAME_CHARACTER_BUDGET } from "./frame-bounds.js";
+import { REVEAL_DIAGNOSTIC_KINDS, REVEAL_ENGINE_STATES, RevealEngine } from "./reveal-engine.js";
+import type { RevealDiagnostic, RevealFrame } from "./reveal-engine.js";
+
+const ALPHABET = "abcdefghijklmnopqrstuvwxyz";
+
+/** Filler with no markdown in it, so the gate never has a reason to withhold. */
+function prose(characterCount: number): string {
+  let text = "";
+  while (text.length < characterCount) {
+    text += `${ALPHABET} `;
+  }
+  return text.slice(0, characterCount);
+}
+
+function engineOn(clock: ManualClock): RevealEngine {
+  return new RevealEngine({ clock });
+}
+
+describe("the reveal engine — the frame budget", () => {
+  it("declares its states and diagnostics closed", () => {
+    expect([...REVEAL_ENGINE_STATES]).toStrictEqual([
+      "idle",
+      "streaming",
+      "catching-up",
+      "settled",
+    ]);
+    expect([...REVEAL_DIAGNOSTIC_KINDS]).toStrictEqual([
+      "out-of-band-source-change",
+      "transition-failed",
+      "checkpoint-dropped",
+    ]);
+  });
+
+  it("arms nothing until there is work, and nothing again once settled", () => {
+    const clock = new ManualClock();
+    const engine = engineOn(clock);
+    expect(engine.state).toBe("idle");
+    expect(clock.pendingCount).toBe(0);
+
+    engine.ingest({ laneId: "lane-1", mode: "direct", text: prose(40) });
+    expect(clock.pendingCount).toBe(1);
+
+    clock.runFrame();
+    expect(engine.state).toBe("settled");
+    expect(engine.publishedText("lane-1")).toHaveLength(40);
+    // The claim the idle-CPU budget rests on: a settled engine has no timer at all.
+    expect(clock.pendingCount).toBe(0);
+  });
+
+  it("negative control: an engine with work left DOES keep a frame armed", () => {
+    // Without this, the zero above would pass over an engine that never armed
+    // anything and simply did nothing.
+    const clock = new ManualClock();
+    const engine = engineOn(clock);
+    engine.ingest({
+      laneId: "lane-1",
+      mode: "direct",
+      text: prose(REVEAL_FRAME_CHARACTER_BUDGET * 3),
+    });
+    clock.runFrame();
+    expect(engine.state).toBe("streaming");
+    expect(clock.pendingCount).toBe(1);
+  });
+
+  it("spends at most one frame's budget per frame", () => {
+    const clock = new ManualClock();
+    const engine = engineOn(clock);
+    const frames: RevealFrame[] = [];
+    engine.subscribe((frame) => frames.push(frame));
+    engine.ingest({
+      laneId: "lane-1",
+      mode: "direct",
+      text: prose(REVEAL_FRAME_CHARACTER_BUDGET * 4),
+    });
+    clock.runFrame();
+    expect(frames[0]?.charactersRevealed).toBeLessThanOrEqual(REVEAL_FRAME_CHARACTER_BUDGET);
+    expect(frames[0]?.charactersRevealed).toBeGreaterThan(0);
+  });
+});
+
+describe("the reveal engine — four lanes", () => {
+  it("advances every lane on every frame, so none starves", () => {
+    const clock = new ManualClock();
+    const engine = engineOn(clock);
+    const laneIds = ["lane-1", "lane-2", "lane-3", "lane-4"];
+    for (const laneId of laneIds) {
+      engine.ingest({ laneId, mode: "direct", text: prose(REVEAL_FRAME_CHARACTER_BUDGET * 2) });
+    }
+    clock.runFrame();
+    const lengths = laneIds.map((laneId) => engine.publishedText(laneId).length);
+    expect(lengths.every((length) => length > 0)).toBe(true);
+    // Every lane got its fair share and no lane got the whole frame.
+    expect(Math.max(...lengths) - Math.min(...lengths)).toBeLessThanOrEqual(1);
+  });
+
+  it("raises a behind lane's rate without letting it jump", () => {
+    const clock = new ManualClock();
+    const engine = engineOn(clock);
+    engine.ingest({ laneId: "fast", mode: "direct", text: prose(10) });
+    engine.ingest({ laneId: "behind", mode: "direct", text: prose(100_000) });
+    clock.runFrame();
+
+    const fairShare = Math.floor(REVEAL_FRAME_CHARACTER_BUDGET / 2);
+    const behind = engine.publishedText("behind").length;
+    expect(behind).toBeGreaterThan(fairShare);
+    expect(behind).toBeLessThanOrEqual(fairShare * REVEAL_CATCH_UP_MULTIPLIER);
+    expect(engine.laneState("behind")?.isCatchingUp).toBe(true);
+    expect(engine.state).toBe("catching-up");
+  });
+
+  it("clears the catch-up mark once the lane it was behind has finished", () => {
+    // Catching up is a fact about an ALLOCATION, not a badge a lane keeps: it means
+    // this lane took another lane's unspent share this frame. Once the short lane
+    // has settled there is nobody to take a share from, so the mark clears even
+    // though the long lane still has as much text left as it did a frame ago.
+    const clock = new ManualClock();
+    const engine = engineOn(clock);
+    engine.ingest({ laneId: "fast", mode: "direct", text: prose(10) });
+    engine.ingest({ laneId: "behind", mode: "direct", text: prose(100_000) });
+    clock.runFrame();
+    expect(engine.laneState("behind")?.isCatchingUp).toBe(true);
+
+    clock.runFrame();
+    expect(engine.laneState("behind")?.isCatchingUp).toBe(false);
+    expect(engine.laneState("behind")?.isSettled).toBe(false);
+  });
+
+  it("retires a lane whose run ended, so a finished turn stops costing memory", () => {
+    const clock = new ManualClock();
+    const engine = engineOn(clock);
+    engine.ingest({ laneId: "lane-1", mode: "direct", text: prose(40) });
+    clock.runFrame();
+    engine.retireLane("lane-1");
+    expect(engine.laneState("lane-1")).toBeUndefined();
+    expect(engine.lanes()).toStrictEqual([]);
+    expect(engine.state).toBe("idle");
+  });
+});
+
+describe("the reveal engine — the visible text never regresses", () => {
+  it("only ever grows a lane's published text across a whole stream", () => {
+    const clock = new ManualClock();
+    const engine = engineOn(clock);
+    const lengths: number[] = [];
+    engine.subscribe((frame) => {
+      for (const lane of frame.lanes) {
+        lengths.push(lane.publishedText.length);
+      }
+    });
+    for (let chunk = 0; chunk < 12; chunk += 1) {
+      engine.ingest({ laneId: "lane-1", mode: "direct", text: prose(200) });
+      clock.runFrame();
+    }
+    const regressions = lengths.filter(
+      (length, index) => index > 0 && length < (lengths[index - 1] ?? 0),
+    );
+    expect(regressions).toStrictEqual([]);
+    expect(engine.publishedText("lane-1")).toHaveLength(2400);
+  });
+
+  it("appends an authoritative commit that extends what it holds", () => {
+    const clock = new ManualClock();
+    const engine = engineOn(clock);
+    engine.ingest({ laneId: "lane-1", mode: "direct", text: "The run " });
+    clock.runFrame();
+    engine.ingest({ laneId: "lane-1", mode: "authoritative", text: "The run started" });
+    clock.runFrame();
+    expect(engine.publishedText("lane-1")).toBe("The run started");
+  });
+
+  it("reports a source that changed out of band, and holds the visible text", () => {
+    const clock = new ManualClock();
+    const engine = engineOn(clock);
+    const diagnostics: RevealDiagnostic[] = [];
+    engine.subscribeToDiagnostics((diagnostic) => diagnostics.push(diagnostic));
+
+    engine.ingest({ laneId: "lane-1", mode: "direct", text: "The run started at noon" });
+    clock.runFrame();
+    const before = engine.publishedText("lane-1");
+
+    const rewritten = "The run failed to start, and was retried";
+    engine.ingest({ laneId: "lane-1", mode: "authoritative", text: rewritten });
+    expect(diagnostics.map((diagnostic) => diagnostic.kind)).toStrictEqual([
+      "out-of-band-source-change",
+    ]);
+    // Re-based, not reset: the reader keeps exactly as much text as they had, and
+    // the rest of the rewritten source arrives through the ordinary frame budget.
+    expect(engine.publishedText("lane-1")).toHaveLength(before.length);
+    expect(rewritten.length).toBeGreaterThan(before.length);
+    clock.runFrame();
+    expect(engine.publishedText("lane-1")).toBe(rewritten);
+  });
+
+  it("negative control: a commit that DOES extend raises no diagnostic", () => {
+    const clock = new ManualClock();
+    const engine = engineOn(clock);
+    const diagnostics: RevealDiagnostic[] = [];
+    engine.subscribeToDiagnostics((diagnostic) => diagnostics.push(diagnostic));
+    engine.ingest({ laneId: "lane-1", mode: "direct", text: "The run " });
+    engine.ingest({ laneId: "lane-1", mode: "authoritative", text: "The run started" });
+    expect(diagnostics).toStrictEqual([]);
+  });
+
+  it("withholds a tail that would mount an incomplete construct", () => {
+    const clock = new ManualClock();
+    const engine = engineOn(clock);
+    // The emphasis run lands exactly under this frame's ceiling, so publishing it
+    // would put `**` on screen as either half-open emphasis or markers that vanish.
+    const withOpenEmphasis = `${prose(477)} **${prose(100)}`;
+    engine.ingest({ laneId: "lane-1", mode: "direct", text: withOpenEmphasis });
+    clock.runFrame();
+    const published = engine.publishedText("lane-1");
+    expect(published).toHaveLength(478);
+    expect(published.endsWith("*")).toBe(false);
+  });
+
+  it("negative control: the same lane WOULD have reached the budget without the gate", () => {
+    // Prose with no markdown in it publishes the whole frame budget, so the 478
+    // above is the gate withholding rather than the engine running short.
+    const clock = new ManualClock();
+    const engine = engineOn(clock);
+    engine.ingest({ laneId: "lane-1", mode: "direct", text: prose(580) });
+    clock.runFrame();
+    expect(engine.publishedText("lane-1")).toHaveLength(REVEAL_FRAME_CHARACTER_BUDGET);
+  });
+});
+
+describe("the reveal engine — teardown", () => {
+  it("disposes terminally: no armed frame, and nothing reaches a subscriber", () => {
+    const clock = new ManualClock();
+    const engine = engineOn(clock);
+    let frameCount = 0;
+    engine.subscribe(() => {
+      frameCount += 1;
+    });
+    engine.ingest({ laneId: "lane-1", mode: "direct", text: prose(4000) });
+    engine.dispose();
+    expect(clock.pendingCount).toBe(0);
+    engine.ingest({ laneId: "lane-1", mode: "direct", text: prose(40) });
+    clock.runFrame();
+    expect(frameCount).toBe(0);
+    expect(clock.pendingCount).toBe(0);
+  });
+});
