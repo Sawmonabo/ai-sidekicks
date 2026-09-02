@@ -274,6 +274,52 @@ describe("the boundary parse — what it refuses, and by which name", () => {
   });
 });
 
+describe("the inspector, over the entities the spec routes to it", () => {
+  it("parses an inspector address for every entity kind the spec names", () => {
+    // `Spec-023 §Console Design (Meridian)` §The surface set routes five kinds to the
+    // inspector, and two of them — repo and invite — were not console entity kinds at
+    // all, so the address union could not represent them and the runtime scope table
+    // rejected them as kind mismatches. The repos and collaboration branches would
+    // have had to reopen this shared substrate to open a pane the spec already routes.
+    for (const entityKind of ["participant", "workspace", "worktree", "repo", "invite"] as const) {
+      const entity = { kind: entityKind, id: `${entityKind}-1` } satisfies ConsoleEntityRef;
+
+      expect(parseConsolePaneAddress("inspector", entity)).toStrictEqual({
+        kind: "inspector",
+        entity,
+      });
+    }
+  });
+
+  it("admits the repo and invite refs at a typed call site too", () => {
+    // The compile-time half. Both were unconstructible before, at a type the union
+    // derived from an entity vocabulary that named neither.
+    const repoInspector: AddressArm<"inspector"> = {
+      kind: "inspector",
+      entity: { kind: "repo", id: "repo-1" },
+    };
+    const inviteInspector: AddressArm<"inspector"> = {
+      kind: "inspector",
+      entity: { kind: "invite", id: "invite-1" },
+    };
+
+    expect(repoInspector.entity.kind).toBe("repo");
+    expect(inviteInspector.entity.kind).toBe("invite");
+  });
+
+  it("negative control: the inspector still refuses a kind the spec does not route to it", () => {
+    // Without this the two cases above would hold over a scope that admitted every
+    // entity kind, which is what the fix's own failure mode looks like — an inspector
+    // opened over a run has no card to render.
+    // @ts-expect-error the spec routes no run entity to the inspector
+    const runInspector: AddressArm<"inspector"> = { kind: "inspector", entity: RUN };
+    expect(runInspector.entity.kind).toBe("run");
+    expect(refusalFrom(parseConsolePaneAddress("inspector", RUN)).code).toBe(
+      "pane-entity-kind-mismatch",
+    );
+  });
+});
+
 describe("every pane kind against every scoped entity kind", () => {
   it("admits a pairing exactly when the kind's own row names it", () => {
     // The sweep the pre-fold address could not survive: it admitted every pairing,

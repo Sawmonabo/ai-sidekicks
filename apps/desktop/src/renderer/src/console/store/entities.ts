@@ -46,6 +46,24 @@ export const CONSOLE_ENTITY_KINDS = [
   "workflow-definition",
   "workflow-run",
   "browser-page",
+  // `Spec-023 §Console Design (Meridian)` §The surface set routes five entity kinds
+  // to the `inspector` pane — repo, workspace, worktree, invite, member — and these
+  // are the two the console could not NAME. `seats/pane-address.ts` derives the
+  // inspector's scope from this vocabulary, so their absence made a repo card and an
+  // invite card unrepresentable at the address layer and made the runtime scope table
+  // reject them as kind mismatches, which would have forced the repos and
+  // collaboration branches to reopen this shared substrate to open a pane the spec
+  // already routes.
+  //
+  // NO PROJECTOR IS OWED BY THIS ENTRY. A kind here is a valid REFERENCE kind and a
+  // partition that exists; it is not a promise that some family projects rows into
+  // it. An inspector card for a repo or an invite reads the row from its own family's
+  // reader — the growth port's repo and invite operations — exactly as it would if it
+  // had a partition full of rows, and the empty partition costs one `Map` per session.
+  // The alternative was a second kind vocabulary for references that the store does
+  // not fill, which is two closed sets for one idea.
+  "repo",
+  "invite",
 ] as const;
 
 /** One entity kind. Derived from the enumeration, never restated. */

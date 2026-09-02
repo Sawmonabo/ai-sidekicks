@@ -14,6 +14,11 @@
 // `readable.ts` narrows a `zustand` store to the two methods a consumer needs, so
 // nothing outside this family holds a handle that can also WRITE.
 
+// The kind vocabulary leaves the family beside the reference it keys, because the
+// seat that decides which entity kinds a pane is a view of has to decide it for
+// EVERY kind — a list of the admitted ones grows a hole the day a kind is added,
+// which is how repo and invite went missing from the inspector's scope.
+export { CONSOLE_ENTITY_KINDS } from "./entities.js";
 export type { ConsoleEntityRef, ConsoleSessionEvent } from "./entities.js";
 // The projection contract leaves the family with its first producer: the
 // composition root's run-lifecycle projector. A projector reads WIRE member names

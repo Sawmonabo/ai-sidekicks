@@ -27,11 +27,15 @@
 // one sentence: the pane-kind set is closed, `timeline` is "(session- or
 // channel-scoped)", and "a repo, workspace, worktree, invite, or member entity
 // is a card in its sidebar section and opens as an `inspector` pane keyed by its
-// entity kind, its changes opening the `diff` pane". Two of the five entities
-// that sentence names — repo and invite — are not console entity KINDS
-// (`store/entities.ts` partitions neither), so the inspector's row is that
-// sentence's list intersected with the partition set, and the row widens by the
-// same amendment that mints a partition for either. Optionality is never
+// entity kind, its changes opening the `diff` pane". All five of the entities that
+// sentence names are console entity KINDS, so the inspector's row is that sentence's
+// list and nothing narrower. It was the intersection with the partition set until
+// repo and invite were missing from that set — which made a repo card and an invite
+// card unrepresentable at the address layer, and would have had the repos and
+// collaboration branches reopen this shared substrate to open a pane the spec already
+// routes. The row is now derived from a map that decides EVERY entity kind, so a kind
+// added later fails to compile until the inspector question is answered for it.
+// Optionality is never
 // invented: `agent-console` takes a no-entity arm because
 // `src/shared/auxiliary-routes.ts` gives that route a no-context target the
 // window's own picker resolves, and `workflow-builder` takes one because
@@ -53,7 +57,7 @@
 
 import { refuse, type ConsoleRefusal } from "../core/index.js";
 import { IDENTIFIER_MAX_LENGTH, isSingleNameIdentifierShaped } from "../persistence/index.js";
-import { type ConsoleEntityRef } from "../store/index.js";
+import { CONSOLE_ENTITY_KINDS, type ConsoleEntityRef } from "../store/index.js";
 import { PANE_KINDS, isPaneKind, type PaneKind } from "./pane-kinds.js";
 
 /** The subsystem a pane-address refusal names as its author. */
@@ -83,6 +87,53 @@ type ScopedEntityRef<TEntityKind extends ConsoleEntityKind> = ConsoleEntityRef &
 };
 
 /**
+ * The entity kinds the `inspector` pane is a view of.
+ *
+ * `Spec-023 §Console Design (Meridian)` §The surface set: "a repo, workspace,
+ * worktree, invite, or member entity is a card in its sidebar section and opens as an
+ * `inspector` pane keyed by its entity kind, its changes opening the `diff` pane".
+ * All five are here — `participant` is that sentence's member — now that the console's
+ * entity vocabulary names repo and invite.
+ */
+type InspectorEntityKind = "participant" | "workspace" | "worktree" | "repo" | "invite";
+
+/**
+ * Every entity kind, decided. The exhaustiveness check, and the union's proof.
+ *
+ * A TOTAL map rather than a list of the admitted kinds, because a list grows a hole
+ * silently — which is exactly how repo and invite went missing. The three intersected
+ * constraints pin it in every direction that can be wrong: `Record<ConsoleEntityKind,
+ * boolean>` means a kind added to `CONSOLE_ENTITY_KINDS` fails to compile here until
+ * the inspector question is answered for it, and the two halves after it hold this map
+ * and the union above to the SAME set — every union member `true`, every other kind
+ * `false` — so the union cannot quietly become narrower or wider than the table the
+ * runtime filters with.
+ */
+const INSPECTOR_ADMITS_ENTITY_KIND = {
+  session: false,
+  participant: true,
+  channel: false,
+  run: false,
+  agent: false,
+  workspace: true,
+  worktree: true,
+  artifact: false,
+  approval: false,
+  "workflow-definition": false,
+  "workflow-run": false,
+  "browser-page": false,
+  repo: true,
+  invite: true,
+} as const satisfies Record<ConsoleEntityKind, boolean> &
+  Record<InspectorEntityKind, true> &
+  Record<Exclude<ConsoleEntityKind, InspectorEntityKind>, false>;
+
+/** The same set as data, filtered from the map so the two halves cannot drift. */
+const INSPECTOR_ENTITY_KINDS: readonly InspectorEntityKind[] = CONSOLE_ENTITY_KINDS.filter(
+  (kind): kind is InspectorEntityKind => INSPECTOR_ADMITS_ENTITY_KIND[kind],
+);
+
+/**
  * What each pane kind is a view of. THE declaration.
  *
  * `never` where the pane is session-scoped and takes no entity; `| undefined`
@@ -96,7 +147,7 @@ interface PaneEntityScopeByKind {
   /** Session-scoped when bare, channel-scoped when a channel is named. */
   readonly timeline: ScopedEntityRef<"channel"> | undefined;
   /** Keyed by the inspected entity's own kind; there is nothing to inspect without one. */
-  readonly inspector: ScopedEntityRef<"workspace" | "worktree" | "participant">;
+  readonly inspector: ScopedEntityRef<InspectorEntityKind>;
   /** The session's runs list. */
   readonly runs: never;
   /** The session's approvals queue. */
@@ -196,7 +247,7 @@ const PANE_ENTITY_SCOPES: {
   };
 } = {
   timeline: { entityKinds: ["channel"], entityRequired: false },
-  inspector: { entityKinds: ["workspace", "worktree", "participant"], entityRequired: true },
+  inspector: { entityKinds: INSPECTOR_ENTITY_KINDS, entityRequired: true },
   runs: { entityKinds: [], entityRequired: false },
   approvals: { entityKinds: [], entityRequired: false },
   diff: { entityKinds: ["worktree", "workspace"], entityRequired: true },
