@@ -152,7 +152,7 @@ function useNewSessionComposition(bridge: ConsoleBridge): NewSessionComposition 
   const close = useCallback(() => {
     // `discard()` first and then the local drop, in that order: the draft's own
     // discard is what leaves no row behind, and dropping the object without it would
-    // make "closed empty" mean something different from what §4.8 says it means.
+    // make "closed empty" mean something different from what the draft says it means.
     draft?.discard();
     setDraft(undefined);
     setDraftState(undefined);

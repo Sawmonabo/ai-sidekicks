@@ -1,9 +1,9 @@
 // What a pane body may ask its host to do — and the reason it is a context.
 //
-// `Spec-023 §Console Design (Meridian)` §4.2 puts close and open-in-window on the
-// pane HEADER, and §4.5 makes both of them the DECK's acts: the deck owns which
-// panes exist and in which window. But a pane body is mounted through
-// `workspace/seats/pane-registry.ts`, whose `render(context)` takes a
+// `deck/PaneHeader.tsx` puts close and open-in-window on the pane HEADER, and both are
+// the DECK's acts: the deck owns which panes exist and — for the auxiliary windows
+// `Spec-023 §The surface set` names — in which window. But a pane body is mounted
+// through `workspace/seats/pane-registry.ts`, whose `render(context)` takes a
 // `ConsolePaneContext` and nothing else — that contract is shared by six view
 // families and widening it to carry two callbacks would be six branches changing
 // one merged file.
@@ -32,8 +32,9 @@ import { createContext, useContext } from "react";
 export interface PaneControls {
   /** Close this pane. Absent where the host cannot close panes. */
   readonly onClose?: () => void;
-  /** Move this pane into a window of its own (§4.5). Absent where the kind or the
-   * host does not permit it — the kind's `openInWindow` is the deck's own test. */
+  /** Move this pane into a window of its own (`Spec-023 §The surface set`). Absent
+   * where the kind or the host does not permit it — the kind's `openInWindow` is the
+   * deck's own test. */
   readonly onOpenInWindow?: () => void;
   /**
    * Make the header the handle that drags this pane to a new position.

@@ -4,7 +4,7 @@
 // in the strict sense: it drives the real tracker on a frozen clock and asserts
 // that nothing was written at the moment the observer fired. A tracker that wrote
 // synchronously would satisfy every other assertion in this file and would still
-// be the `ResizeObserver` loop `Spec-023 §Console Design (Meridian)` §4.2 forbids.
+// be the `ResizeObserver` loop `rect-discipline.ts`'s first rule forbids.
 
 import { afterEach, describe, expect, it } from "vitest";
 

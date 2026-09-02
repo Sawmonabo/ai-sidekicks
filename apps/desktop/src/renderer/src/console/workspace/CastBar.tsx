@@ -1,8 +1,12 @@
 // The cast bar: everyone in the session, and what each of them is doing.
 //
-// `Spec-023 §Console Design (Meridian)` §4.1 — "Show every participant, human and
-// sidekick, as a live chip with a present-tense verb, and make each chip a way to
-// follow that actor."
+// `Spec-023 §The surface set`: the cast bar "shows every participant as a live chip —
+// hue ring, name, presence glyph, terminal-lease glyph where held, and a present-tense
+// verb derived client-side from that participant's newest timeline row and liveness
+// alone — up to eight chips then "+N", with an all-clear line when nothing is amber or
+// red". THAT EACH CHIP IS ALSO A WAY TO FOLLOW ITS ACTOR is this console's own rule,
+// because no committed document states it; the act itself lives in
+// `workspace/actor-follow.ts`, which is where the rule is written down.
 //
 // WHAT IT RENDERS AND WHAT IT REFUSES TO. The identity, the six-value session state
 // verbatim, one chip per participant in join-log order, the fold to "+N" past the
@@ -58,10 +62,11 @@ export function CastBar(props: CastBarProps): React.JSX.Element {
   return (
     <header className="meridian-cast-bar" aria-label="Session cast">
       <span className="meridian-cast-bar__identity">
-        {/* The display title `Spec-023 §Console Design (Meridian)` §4.1 asks for
-            comes from `SessionSnapshot.metadata`, which no wire the console holds
-            carries — so the identity is the short id alone, in mono, rather than a
-            title invented beside it. */}
+        {/* A display title would come from `SessionSnapshot.metadata`, which no wire
+            the console holds carries — so the identity is the short id alone, in mono.
+            `Spec-023 §The surface set` fixes that disposition for the sessions list and
+            it holds here: a session with no name "renders by its identifier and
+            participants, never by an invented title". */}
         {props.sessionId === undefined ? (
           <Nothing kind="empty" title="No session" />
         ) : (
@@ -145,7 +150,9 @@ function CastBarBody(props: CastBarBodyProps): React.JSX.Element {
         ) : null}
         {/* The receipt is the only source of a spend figure and the console has no
             read for it, so the figure is drawn as the "not checked" kind of nothing.
-            Summing the rows here would be the one thing §4.1 forbids by name. */}
+            Summing the rows here would be the one thing `Spec-023 §Rules every console
+            surface obeys` forbids by name: under One accountant, "the renderer never
+            sums visible rows". */}
         <Nothing kind="not-checked" title="Session spend" detail="No cost receipt has been read." />
       </span>
     </>

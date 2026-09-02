@@ -1,8 +1,8 @@
 // What is still waiting on a person, folded by its own lifecycle.
 //
-// `Spec-023 §Console Design (Meridian)` §4.1 puts the all-clear line on screen "when
-// nothing in the session is amber or red". Deciding that from each participant's
-// NEWEST row cannot work in a session with more than one run: an agent waiting on an
+// `Spec-023 §The surface set` puts the all-clear line on the cast bar "when nothing is
+// amber or red". Deciding that from each participant's NEWEST row cannot work in a
+// session with more than one run: an agent waiting on an
 // approval in run A that then emits an ordinary row from run B has a newer row that
 // is not amber, and the bar says "Nothing needs you" over a run that is still
 // blocked. The newest row answers "what is this actor doing"; it does not answer

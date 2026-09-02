@@ -27,9 +27,10 @@ export const DECK_TOTAL_PERMILLE = 1000;
 /**
  * The pane kinds that are never written to a snapshot.
  *
- * `Spec-023 §Console Design (Meridian)` §4.2: a `browser` pane "is ephemeral: it is
- * never written to the layout snapshot". Declared as a set rather than tested with
- * `kind === "browser"` at three sites, so a second ephemeral kind is one edit.
+ * This deck's own rule, because no committed document states one: a `browser` pane is
+ * ephemeral and is never written to the layout snapshot. Declared as a set rather than
+ * tested with `kind === "browser"` at three sites, so a second ephemeral kind is one
+ * edit.
  */
 export const EPHEMERAL_PANE_KINDS: readonly PaneKind[] = ["browser"];
 

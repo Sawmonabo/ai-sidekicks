@@ -1,10 +1,11 @@
 // A pane's header — the one implementation of it.
 //
-// `Spec-023 §Console Design (Meridian)` §4.2 fixes the contents: "A pane header:
-// breadcrumb (session › channel › run › entity), kind glyph, the actor hue as the
-// focus ring when the pane's entity is a run or an agent, neutral otherwise, and
-// the pane's controls: close, open-in-window where the kind permits (§4.5), and the
-// kind's own actions."
+// `Spec-023 §The surface set` fixes three of the contents — panes are "each headed by
+// an entity breadcrumb and a kind glyph, with the actor's hue as the focus ring". THE
+// CONTROL STRIP IS THIS MODULE'S, because no committed document enumerates it: close,
+// open-in-window where the kind permits (the auxiliary windows that same heading names),
+// and the kind's own actions. The breadcrumb reads session › channel › run › entity, and
+// the ring is neutral where the pane's entity is neither a run nor an agent.
 //
 // WHY IT IS SHARED AND NOT PER PANE KIND. Eleven pane kinds across six view
 // families each want the same strip. Written per family it is six breadcrumbs, six

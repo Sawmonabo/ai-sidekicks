@@ -1,9 +1,10 @@
 // The cast bar's two honest absences, the two things the wire DOES carry, and the
 // line it is not allowed to say.
 //
-// Both of the things §4.1 asks this bar to show that the console cannot get —
-// presence and session spend — have to render as the "not checked" kind of nothing
-// rather than as a green dot and a zero. Either would be a claim nobody measured,
+// Both of the things `Spec-023 §The surface set` asks this bar to show that the
+// console cannot get — presence and session spend — have to render as the "not
+// checked" kind of nothing rather than as a green dot and a zero. Either would be a
+// claim nobody measured,
 // and a screenshot cannot tell an unmeasured green dot from a measured one.
 //
 // The other half is the mirror image: a name and an attention state the wire DOES
@@ -191,7 +192,7 @@ describe("CastBar — the name the wire gave each participant", () => {
     expect(name?.textContent).not.toContain(PARTICIPANT_PRIYA);
   });
 
-  it("speaks the chip as the identifier and the verb, which is the name §4.1 documents", () => {
+  it("speaks the chip as the identifier and the verb, which is the name the model composes", () => {
     const bar = renderBar(
       <CastBar
         sessionId={SESSION_ID}

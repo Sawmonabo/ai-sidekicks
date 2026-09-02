@@ -1,12 +1,15 @@
-// Rect discipline — `Spec-023 §Console Design (Meridian)` §4.3.
+// Rect discipline — THIS MODULE'S OWN RULE, stated here because it is the one place
+// that implements it and no committed document states it.
 //
-// "Every pane, and every native overlay the browser pane hosts, tracks its rect
-// from four invalidation sources: a `ResizeObserver` on the host, window resize,
-// capture-phase scroll on any ancestor, and layout movers (pane widths, rail
-// collapse, theme change). A `flushRect` step dedupes on a composed key so one
-// frame produces one write. Native views hide when either dimension of the visible
-// clip is below one pixel. Overlay elements … register in an airspace registry on
-// mount so a native view yields to them or hides while one is up."
+// Every pane, and every native overlay the browser pane hosts, tracks its rect from four
+// invalidation sources: a `ResizeObserver` on the host, window resize, capture-phase
+// scroll on any ancestor, and layout movers (pane widths, rail collapse, theme change).
+// A `flushRect` step dedupes on a composed key so one frame produces one write. Native
+// views hide when either dimension of the visible clip is below one pixel. Overlay
+// elements register in an airspace registry on mount so a native view yields to them or
+// hides while one is up — which is the airspace half `Spec-023 §Console Libraries` owns
+// by name on its native-browser-view row: "OWN-BUILD the bounds bridge, the airspace
+// policy (hide the view and swap in a `capturePage` image while an overlay is open)".
 //
 // TWO RULES DO ALL THE WORK, and both are about WHEN rather than what:
 //
@@ -14,9 +17,8 @@
 //      `ResizeObserver` callback is what the callback is for; mutating layout there
 //      re-enters the observer and the browser reports `ResizeObserver loop
 //      completed with undelivered notifications` — or, worse, does not, and the
-//      pane oscillates a pixel a frame forever. `Spec-023 §Console Design
-//      (Meridian)` §4.2 states it as a prohibition; this class is the one
-//      implementation of it, so no pane has to remember.
+//      pane oscillates a pixel a frame forever. This class is the one implementation
+//      of the prohibition, so no pane has to remember it.
 //   2. **One write per frame, per composed key.** Four invalidation sources fire
 //      for one visual change — a drag moves a pane, which resizes it, which scrolls
 //      an ancestor, on a window that is itself being resized. Without the dedupe
@@ -50,8 +52,8 @@ import {
 /**
  * The smallest visible extent a native view is drawn at, in CSS pixels.
  *
- * `Spec-023 §Console Design (Meridian)` §4.3: "Native views hide when either
- * dimension of the visible clip is below one pixel." One pixel rather than zero
+ * The hide threshold this module's own rule states: a native view hides when either
+ * dimension of the visible clip is below one pixel. One pixel rather than zero
  * because a sub-pixel clip is a view the compositor still composites and nobody can
  * see — the cost with none of the benefit.
  */
@@ -487,7 +489,7 @@ export function usePaneRectSources(
     }
     const observer = new ResizeObserver(() => {
       // A READ, queued. Mutating layout from inside this callback re-enters the
-      // observer, which is the loop §4.3 rule 1 forbids.
+      // observer, which is the loop this module's rule 1 forbids.
       tracker.invalidate("host-resize");
     });
     observer.observe(element);
