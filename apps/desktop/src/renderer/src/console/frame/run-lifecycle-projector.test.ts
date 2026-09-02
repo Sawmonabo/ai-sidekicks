@@ -380,6 +380,88 @@ describe("the projector on a payload that does not carry its kind's state", () =
   });
 });
 
+describe("the projector on a payload that names another session", () => {
+  const OTHER_SESSION_ID = "019b79ee-0280-75e5-8510-b0b0b0b0b0b0";
+
+  it("answers with no mutation when the payload names no session", () => {
+    // `sessionId` is a registered member of the durable `run_lifecycle` row, so a
+    // beat without one is malformed rather than terse — and the fold would key a
+    // run into whichever store the envelope happened to be routed to.
+    expect(
+      projectRunLifecycleEvent(
+        runBeat("run.running", { runId: "run-1", runVersion: 5, newState: "running" }),
+      ),
+    ).toStrictEqual([]);
+  });
+
+  it("answers with no mutation when the payload names a different session", () => {
+    // The delivery this guard exists for: the envelope schema admits the payload
+    // whole and the strict event union registers no run-lifecycle variant, so a
+    // beat for session B arrives on session A's subscription well-formed and used
+    // to write session B's run into session A's partition.
+    expect(
+      projectRunLifecycleEvent(
+        runBeat("run.running", {
+          sessionId: OTHER_SESSION_ID,
+          runId: "run-1",
+          runVersion: 5,
+          newState: "running",
+        }),
+      ),
+    ).toStrictEqual([]);
+  });
+
+  it("answers with no mutation when the payload's session is not a string", () => {
+    // Compared against the raw member rather than a read one, so a non-string
+    // cannot be read as absence and then be waved through by a laxer arm.
+    for (const spoiled of [7, null, [SYNTHETIC_SESSION_ID], { id: SYNTHETIC_SESSION_ID }]) {
+      expect(
+        projectRunLifecycleEvent(
+          runBeat("run.running", {
+            sessionId: spoiled,
+            runId: "run-1",
+            runVersion: 5,
+            newState: "running",
+          }),
+        ),
+      ).toStrictEqual([]);
+    }
+  });
+
+  it("projects the beat whose payload names the envelope's own session", () => {
+    // The control: the guard is checked once at the fold's entry for every kind in
+    // the family, so a projector that refused everything would pass every case
+    // above and this one names the difference.
+    expect(
+      projectRunLifecycleEvent(
+        runBeat("run.running", {
+          sessionId: SYNTHETIC_SESSION_ID,
+          runId: "run-1",
+          runVersion: 5,
+          newState: "running",
+        }),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("leaves the store undegraded — the foreign beat is admitted and never keyed", () => {
+    const { store, outcome } = storeApplying([
+      runBeat("run.running", {
+        sessionId: OTHER_SESSION_ID,
+        runId: "run-1",
+        runVersion: 5,
+        newState: "running",
+      }),
+    ]);
+
+    expect(outcome.admitted).toBe(1);
+    expect(outcome.projectionFailures).toBe(0);
+    expect(store.snapshot().partitions.run).toStrictEqual({});
+    expect(store.snapshot().timeline.length).toBe(1);
+    expect(store.snapshot().degradedCause).toBeUndefined();
+  });
+});
+
 describe("the projector on a payload it cannot key on", () => {
   const eventWithoutRunIdentity: ConsoleSessionEvent = {
     id: "019b79ee-0280-7ea1-8110-e5e0d1150801",
@@ -387,7 +469,7 @@ describe("the projector on a payload it cannot key on", () => {
     sequence: 1,
     kind: "run.starting",
     occurredAt: "2026-01-01T14:20:00.400Z",
-    payload: { newState: "starting" },
+    payload: { sessionId: SYNTHETIC_SESSION_ID, newState: "starting" },
   };
 
   it("answers with no mutation rather than throwing", () => {
@@ -408,7 +490,12 @@ describe("the projector on a payload it cannot key on", () => {
     // test is the READER's and not the state guard's: a turn boundary announces no
     // state, so a spoiled `newState` there is absence and not a refusal.
     const mutations = projectRunLifecycleEvent(
-      runBeat("run.turn_started", { runId: "run-1", newState: 7, runVersion: "2" }),
+      runBeat("run.turn_started", {
+        sessionId: SYNTHETIC_SESSION_ID,
+        runId: "run-1",
+        newState: 7,
+        runVersion: "2",
+      }),
     );
 
     expect(mutations).toHaveLength(1);

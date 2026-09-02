@@ -63,7 +63,12 @@ function runEvent(kind: string, payload: Readonly<Record<string, unknown>>): Con
     sequence: 1,
     kind,
     occurredAt: "2026-01-01T14:20:01.000Z",
-    payload,
+    // The envelope's session, written into the payload rather than left off it,
+    // because the fold requires the two to agree before it keys anything — the
+    // durable `run_lifecycle` row registers `sessionId` and every case here is
+    // about the BODY, not about a beat that names another session. A case may
+    // still spell its own, and one below does.
+    payload: { sessionId: SYNTHETIC_SESSION_ID, ...payload },
   };
 }
 
@@ -172,7 +177,10 @@ describe("the registered payload members the body carries", () => {
         newState: "starting",
         speculativeMember: "should-not-travel",
         currentState: "starting",
-        sessionId: "019b79ee-0280-75e5-8510-ada11a5a11a5",
+        // Spelled explicitly, and equal to the envelope's: the claim is that the
+        // body copies no member the shapes exclude, and a beat naming ANOTHER
+        // session is refused before a body is ever read.
+        sessionId: SYNTHETIC_SESSION_ID,
         timestamp: "2026-01-01T14:20:01.000Z",
       }),
     );
