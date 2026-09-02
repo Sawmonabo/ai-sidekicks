@@ -21,24 +21,10 @@
 
 import { KeyedRegistry } from "../../core/index.js";
 import { type ConsoleBridge } from "../../bridge/index.js";
-import { type ConsoleEntityRef, type FrameStore, type SessionStore } from "../../store/index.js";
+import { type FrameStore, type SessionStore } from "../../store/index.js";
 import { type DraftStore, type UiStateStore } from "../../persistence/index.js";
+import { type ConsolePaneAddress } from "./pane-address.js";
 import { PANE_KINDS, type PaneKind } from "./pane-kinds.js";
-
-// Consumed by T-023p-1C-2, T-023p-1C-3
-/**
- * Which pane, over which entity — the address a pane is opened at.
- *
- * `entity` is `undefined` for the pane kinds that are session-scoped rather than
- * entity-scoped (the session `runs` list, an unbound `timeline`). It is a required
- * member carrying `undefined` rather than an optional one so a caller that forgot
- * to resolve an entity is a compile error at the construction site instead of an
- * absent key that reads identically to a deliberate session scope.
- */
-export interface ConsolePaneAddress {
-  readonly kind: PaneKind;
-  readonly entity: ConsoleEntityRef | undefined;
-}
 
 // Consumed by T-023p-1C-2, T-023p-1C-3
 /**
@@ -55,8 +41,17 @@ export type ConsolePaneOpener = (address: ConsolePaneAddress) => void;
 /**
  * Everything a pane body is handed. Nothing here is global; all of it is per pane,
  * in the window the pane is mounted in.
+ *
+ * An intersection rather than an interface extending the address, because the
+ * address is a discriminated union over `kind` and an interface can only extend
+ * an object type. The intersection distributes over that union, so narrowing a
+ * context on its `kind` narrows its `entity` with it — the property the union
+ * exists for, carried through to every registered body.
  */
-export interface ConsolePaneContext extends ConsolePaneAddress {
+export type ConsolePaneContext = ConsolePaneAddress & ConsolePaneBinding;
+
+/** What a pane is bound to, beside the address it was opened at. */
+interface ConsolePaneBinding {
   /** This pane's identity in the deck, stable across a layout restore. */
   readonly paneId: string;
   readonly bridge: ConsoleBridge;
