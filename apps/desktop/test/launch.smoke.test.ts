@@ -266,13 +266,43 @@ const DIAGNOSTIC_BUDGET_MS = 3_000;
 // the `close` event after SIGTERM, and temp-profile cleanup.
 const TEST_TIMEOUT_SLACK_MS = 3_000;
 
+// Ceiling the stalled-boot control asserts the MEASURED collection against.
+//
+// Why it is not simply DIAGNOSTIC_BUDGET_MS. The budget is enforced by handing
+// each probe `spawnSync`'s `timeout`, and that timeout is enforced by killing
+// the child — the parent still pays the kill and the reap after the cap
+// expires, and neither is bounded by anything this file owns. On a runner
+// degraded enough for both probes to reach their caps (the only case where the
+// budget binds at all) that tail is real. Asserting the measurement flush
+// against the bound the probes were given would therefore make the control
+// itself the flake, which would be a poor joke in a de-flaking change.
+//
+// So it carries an EXPLICIT reserve, and deliberately the same one
+// TEST_TIMEOUT_SLACK_MS already provides for the close-event bound rather than
+// a second fudge factor with its own name and its own drift: one reserve
+// concept, used in both places, raised in one edit.
+//
+// It is still a real bound, not a formality. At 6 s it is 1.67x below the 10 s
+// the superseded shape could reach (two independent 5 s `spawnSync` timeouts),
+// so the regression this assertion exists to catch is still caught, and an
+// unbounded collection is caught by a wide margin.
+const DIAGNOSTIC_COLLECTION_CEILING_MS = DIAGNOSTIC_BUDGET_MS + TEST_TIMEOUT_SLACK_MS;
+
 // The enclosing vitest budget, DERIVED from the phases it must contain rather
-// than hand-picked: the spawn budget, then the bounded diagnostic collection,
-// then the SIGTERM->SIGKILL grace, then slack. Every one of these is a named
-// constant, so raising any phase raises this automatically and the enclosing
-// budget cannot silently fall behind the work it encloses again.
+// than hand-picked: the spawn budget, then the diagnostic collection, then the
+// SIGTERM->SIGKILL grace, then slack. Every one of these is a named constant,
+// so raising any phase raises this automatically and the enclosing budget
+// cannot silently fall behind the work it encloses again.
+//
+// The collection term is the CEILING, not the budget. The budget is what the
+// probes are handed; the ceiling is the largest collection this file asserts is
+// acceptable, and an enclosure that reserved less than what its own assertions
+// permit would be exactly the arithmetic hole this derivation exists to close.
 const BOOT_TEST_TIMEOUT_MS =
-  SPAWN_TIMEOUT_MS + DIAGNOSTIC_BUDGET_MS + TERMINATION_GRACE_MS + TEST_TIMEOUT_SLACK_MS;
+  SPAWN_TIMEOUT_MS +
+  DIAGNOSTIC_COLLECTION_CEILING_MS +
+  TERMINATION_GRACE_MS +
+  TEST_TIMEOUT_SLACK_MS;
 
 // Test-only override making the spawn deadline fire almost immediately, so the
 // stalled-boot path can be driven end to end without spending the real spawn
@@ -283,7 +313,7 @@ const FORCED_STALL_ENV = "SIDEKICKS_SMOKE_FORCE_SPAWN_STALL";
 const FORCED_STALL_SPAWN_TIMEOUT_MS = 2_000;
 const FORCED_STALL_TEST_TIMEOUT_MS =
   FORCED_STALL_SPAWN_TIMEOUT_MS +
-  DIAGNOSTIC_BUDGET_MS +
+  DIAGNOSTIC_COLLECTION_CEILING_MS +
   TERMINATION_GRACE_MS +
   TEST_TIMEOUT_SLACK_MS;
 
@@ -514,11 +544,21 @@ function awaitDisplayReady(display: string): string | null {
 // Point-in-time environment reading, captured at spawn and again at the
 // deadline.
 //
-// `probeExternals` gates the two subprocess-backed readings. They are the
-// expensive half and they are only worth paying for on the failure path, so the
-// at-spawn capture takes the cheap readings only and leaves the boot budget
-// untouched; the at-deadline capture takes everything, because by then the
-// budget is already spent and the readings are the whole point.
+// `externalProbeDeadline` gates the two subprocess-backed readings AND bounds
+// them. They are the expensive half and they are only worth paying for on the
+// failure path, so the at-spawn capture passes `null` — cheap readings only,
+// boot budget untouched — while the at-deadline capture passes a deadline,
+// because by then the budget is already spent and the readings are the whole
+// point.
+//
+// It is an ABSOLUTE instant supplied by the caller, not a duration this
+// function turns into one, and that is the point: the caller also measures how
+// long the collection took, and when the deadline was computed here the
+// measurement started one instant earlier than the bound it was compared
+// against. The cheap readings above sit in that gap, so a collection whose two
+// probes each ran to their cap measured strictly MORE than the budget it was
+// asserted to honour — the bound and its own measurement disagreed by
+// construction. One clock, one constant, set at the call site.
 //
 // The subprocess readings share ONE wall budget (DIAGNOSTIC_BUDGET_MS) rather
 // than carrying independent per-call timeouts, so the collection's worst case
@@ -536,7 +576,7 @@ function awaitDisplayReady(display: string): string | null {
 function captureDiagnostics(
   label: string,
   child: ChildProcess | null,
-  probeExternals: boolean,
+  externalProbeDeadline: number | null,
 ): string[] {
   const readings = [
     `[${label}] platform=${process.platform} cpus=${String(availableParallelism())} ` +
@@ -546,11 +586,12 @@ function captureDiagnostics(
     `[${label}] DISPLAY=${resolvedDisplay() ?? "<unset>"} ` +
       `spawnPath=${needsXvfb() ? "xvfb-run -a" : "direct"}`,
   ];
-  const collectionDeadline = Date.now() + DIAGNOSTIC_BUDGET_MS;
   const remainingProbeBudgetMs = (): number =>
-    Math.min(DIAGNOSTIC_PROBE_TIMEOUT_MS, collectionDeadline - Date.now());
+    externalProbeDeadline === null
+      ? 0
+      : Math.min(DIAGNOSTIC_PROBE_TIMEOUT_MS, externalProbeDeadline - Date.now());
 
-  if (probeExternals && child?.pid !== undefined && process.platform !== "win32") {
+  if (externalProbeDeadline !== null && child?.pid !== undefined && process.platform !== "win32") {
     // The spawn leads its own process group, so `-g <pid>` is exactly this
     // spawn's tree and nothing else on the runner.
     const budgetMs = remainingProbeBudgetMs();
@@ -569,7 +610,7 @@ function captureDiagnostics(
   }
 
   const display = resolvedDisplay();
-  if (probeExternals && display !== undefined && process.platform !== "win32") {
+  if (externalProbeDeadline !== null && display !== undefined && process.platform !== "win32") {
     if (xdpyinfoMissing) {
       // No `x11-utils` on the ubuntu-24.04 runner image, so report the socket
       // reading actually used rather than a tool reading we cannot take. This
@@ -762,7 +803,7 @@ function spawnElectron(): Promise<SpawnResult> {
         signal: null,
         elapsedMs: Date.now() - startedAt,
         readinessBreadcrumbs: [],
-        diagnostics: captureDiagnostics("refused-before-spawn", null, false),
+        diagnostics: captureDiagnostics("refused-before-spawn", null, null),
         spawnBudgetMs,
         timedOut: false,
         diagnosticCollectionMs: null,
@@ -861,7 +902,7 @@ function spawnElectron(): Promise<SpawnResult> {
     let combinedOutput = "";
     let probe: SmokeProbe | null = null;
     const readinessBreadcrumbs: string[] = [];
-    const diagnostics: string[] = captureDiagnostics("at-spawn", child, false);
+    const diagnostics: string[] = captureDiagnostics("at-spawn", child, null);
     // Line-buffer accumulator for the stdout scanner. The Node `data` event
     // delivers arbitrary chunks; a logical line (the tagged probe payload)
     // can be split across two chunks if the chunk boundary falls inside
@@ -902,12 +943,21 @@ function spawnElectron(): Promise<SpawnResult> {
       // the dump: a collection that ran long is itself a reading about the
       // runner.
       const collectionStartedAt = Date.now();
-      const atDeadline = captureDiagnostics("at-deadline", child, true);
+      const atDeadline = captureDiagnostics(
+        "at-deadline",
+        child,
+        // The SAME instant the measurement below starts from, plus the budget.
+        // Deriving the deadline here rather than inside the callee is what
+        // makes `collectionMs <= DIAGNOSTIC_BUDGET_MS` a claim about one clock
+        // instead of two.
+        collectionStartedAt + DIAGNOSTIC_BUDGET_MS,
+      );
       collectionMs = Date.now() - collectionStartedAt;
       diagnostics.push(
         ...atDeadline,
         `[at-deadline] collection took ${String(collectionMs)}ms ` +
-          `(budget ${String(DIAGNOSTIC_BUDGET_MS)}ms)`,
+          `(budget ${String(DIAGNOSTIC_BUDGET_MS)}ms, ` +
+          `ceiling ${String(DIAGNOSTIC_COLLECTION_CEILING_MS)}ms)`,
       );
       terminateElectronTree(child, "SIGTERM");
       escalationTimer = setTimeout(() => {
@@ -1291,7 +1341,10 @@ describe("desktop shell substrate boot", () => {
     },
     // Derived like the others: the forced readiness budget, the diagnostic
     // bound, and slack. No termination grace — this path refuses before a
-    // process exists, so there is no tree to signal.
+    // process exists, so there is no tree to signal. The diagnostic term is the
+    // BUDGET rather than the ceiling, and is conservative even so: the refusal
+    // capture is handed a `null` probe deadline, so it takes the cheap readings
+    // only and spends no subprocess at all.
     FORCED_DISPLAY_READY_TIMEOUT_MS + DIAGNOSTIC_BUDGET_MS + TEST_TIMEOUT_SLACK_MS,
   );
 
@@ -1350,8 +1403,15 @@ describe("desktop shell substrate boot", () => {
       // term (~2 s) and is bounded by nothing this file owns. Asserting on it
       // would make a de-flaking change carry a fresh wall-clock flake, which
       // would be a poor joke. The recorded figure has no such term in it.
+      //
+      // Asserted against the budget PLUS the explicit overhead reserve, because
+      // the budget is what the probes are handed and the measurement also
+      // contains the `spawnSync` kill-and-reap tail that expiring that budget
+      // costs. See DIAGNOSTIC_COLLECTION_CEILING_MS for why the reserve is the
+      // same one the close-event bound uses, and why 6 s still catches the
+      // superseded two-independent-5 s-probes shape it exists to catch.
       expect(result.diagnosticCollectionMs).not.toBeNull();
-      expect(result.diagnosticCollectionMs).toBeLessThanOrEqual(DIAGNOSTIC_BUDGET_MS);
+      expect(result.diagnosticCollectionMs).toBeLessThanOrEqual(DIAGNOSTIC_COLLECTION_CEILING_MS);
 
       // Backstop only, deliberately loose: the whole path still finished inside
       // the derived enclosing budget. This one is not the control — it is the
@@ -1453,5 +1513,66 @@ describe("ReadinessLineScanner", () => {
       "ready-to-show +2ms",
     ]);
     expect(stdoutScanner.push("ready +1ms\n")).toEqual(["dom-ready +1ms"]);
+  });
+});
+
+// The budget arithmetic, asserted rather than trusted to a comment.
+//
+// Every timing constant in this file is derived from another one so that
+// raising a phase raises everything that must contain it. That property is
+// only worth having if it is checked: the defect that produced this block was
+// exactly a derivation that read plausibly and did not hold — the diagnostic
+// collection was MEASURED from one instant and BOUNDED from a later one, so a
+// collection whose probes each ran to their cap exceeded the budget it was
+// asserted to honour, and the control meant to produce the dump failed instead.
+// A comment cannot catch that returning; these can.
+describe("derived timing budgets", () => {
+  it("leaves the close-event reserve intact above the largest legal collection", () => {
+    // The hole this closes, and the reason it is stated as "slack ON TOP of the
+    // ceiling" rather than "contains the ceiling": the superseded derivation
+    // (`spawn + DIAGNOSTIC_BUDGET_MS + grace + slack`) does contain the ceiling
+    // — but only by spending the slack to do it, leaving nothing for the
+    // unbounded terms that slack exists for (the spawn itself, the `close`
+    // event after SIGTERM, temp-profile cleanup). A legal-but-slow collection
+    // would then fail on the runner's generic test timeout, losing the dump in
+    // precisely the case the dump exists for. Asserted in the weaker
+    // "contains" form this test passes against the very derivation it was
+    // written to reject, which is worth saying out loud: an arithmetic guard
+    // over constants is only worth its line count if it fails on the state it
+    // replaced, and this one is pinned to that state by perturbation.
+    expect(BOOT_TEST_TIMEOUT_MS).toBeGreaterThanOrEqual(
+      SPAWN_TIMEOUT_MS +
+        DIAGNOSTIC_COLLECTION_CEILING_MS +
+        TERMINATION_GRACE_MS +
+        TEST_TIMEOUT_SLACK_MS,
+    );
+    expect(FORCED_STALL_TEST_TIMEOUT_MS).toBeGreaterThanOrEqual(
+      FORCED_STALL_SPAWN_TIMEOUT_MS +
+        DIAGNOSTIC_COLLECTION_CEILING_MS +
+        TERMINATION_GRACE_MS +
+        TEST_TIMEOUT_SLACK_MS,
+    );
+  });
+
+  it("keeps the shared wall budget binding rather than decorative", () => {
+    // The collection's worst case is `min(wall budget, sum of the per-probe
+    // caps)`. If the wall exceeded that sum it could never bind, and the
+    // collection's worst case would once again be a sum of independent
+    // timeouts — the shape that started this. There are two probes.
+    const boundedProbeCount = 2;
+    expect(DIAGNOSTIC_BUDGET_MS).toBeLessThanOrEqual(
+      DIAGNOSTIC_PROBE_TIMEOUT_MS * boundedProbeCount,
+    );
+  });
+
+  it("keeps the collection ceiling tight enough to catch the shape it replaced", () => {
+    // The superseded collection carried two independent 5 s `spawnSync`
+    // timeouts. The ceiling must stay below that sum, or the assertion stops
+    // being a regression guard and becomes a formality.
+    const supersededIndependentProbeTimeoutMs = 5_000;
+    expect(DIAGNOSTIC_COLLECTION_CEILING_MS).toBeLessThan(supersededIndependentProbeTimeoutMs * 2);
+    // And loose enough to hold the budget plus a real reserve, so the control
+    // is not itself a wall-clock flake.
+    expect(DIAGNOSTIC_COLLECTION_CEILING_MS).toBeGreaterThan(DIAGNOSTIC_BUDGET_MS);
   });
 });
