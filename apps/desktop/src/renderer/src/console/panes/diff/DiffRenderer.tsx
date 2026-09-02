@@ -1,8 +1,9 @@
 // THE diff renderer. One implementation, two hosts.
 //
-// `Spec-023 §Console Design (Meridian)` §10.6: "One diff renderer serves both the
-// pane and the timeline card, so a one-character edit reads as one character in
-// both." That sentence is the whole reason this file is separate from either of
+// THIS FAMILY'S OWN RULE, stated here because no committed document states it: one
+// diff renderer serves both the pane and the timeline card, so a one-character edit
+// reads as one character in
+// both. That rule is the whole reason this file is separate from either of
 // them — a second renderer written for the card would drift from the pane's in
 // exactly the places nobody screenshots, and the two would disagree about what a
 // change looks like without either ever being wrong on its own terms.
@@ -21,8 +22,8 @@
 //     span; the artifact serving posture forbids the alternative and no branch
 //     here reaches for `dangerouslySetInnerHTML`.
 //   • It never clips a long line into a hidden-overflow container. The scroller
-//     overflows on both axes and the wrap toggle is the other answer; §10.6 names
-//     the clipped-line case as the one that must not happen.
+//     overflows on both axes and the wrap toggle is the other answer, and the
+//     clipped-line case is this renderer's one Never.
 //
 // THE WINDOW IS THE ADOPTED VIRTUALIZER'S, AND THE FLATTENING IS OURS.
 // `Spec-023 §Console Libraries` ADOPTs `@tanstack/react-virtual` with constraints,

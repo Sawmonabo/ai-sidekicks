@@ -1,7 +1,7 @@
 // What a branch context IS, read as something a surface can draw — and nothing else.
 //
-// `Spec-023 §Console Design (Meridian)` §10.7 requires four named values plus a
-// worktree association on every writable coding run, and it forbids inferring base or
+// THIS MODULE'S RULE, and the console's only home for it: four named values plus a
+// worktree association on every writable coding run, and no inferring base or
 // head from a pane, a tab, or a focused view. Both halves live here: the shape that
 // carries the four values, and the one function that reads which root a context is
 // bound to. Nothing in this module computes a branch name.
@@ -10,7 +10,7 @@
 // `gitflow` module: there is no `baseBranch`, no `headBranch`, and no `upstreamRef`
 // anywhere in the workspace — only `BranchContextId`, a branded scalar `worktree.ts`
 // mints and `ExecutionRootPrepareResponse` carries. So this is the shape the SURFACE
-// needs, derived from what §10.7 says it renders, exactly as `bridge/growth-port.ts`
+// needs, derived from what this family renders, exactly as `bridge/growth-port.ts`
 // derives its request and value types; it is not a claim about the eventual wire,
 // which `Spec-011` owns. The one vocabulary imported rather than invented is
 // `ExecutionMode`, because the mode is what decides whether a writable context exists
@@ -26,7 +26,7 @@ import type { ExecutionMode } from "@ai-sidekicks/contracts";
 // --- The branch context -----------------------------------------------------
 
 /**
- * The four named values §10.7 requires, plus the association that makes them
+ * The four named values this module requires, plus the association that makes them
  * actionable.
  *
  * `branchContextId` is spelled as a plain string rather than as the contract's

@@ -1,13 +1,15 @@
 // What the repos section knows, who asked for it, and when it asks again.
 //
-// `Spec-023 §Console Design (Meridian)` §10.1 fixes the refresh policy in one
-// sentence — "on panel focus, on reconnect, and on a `workspace.stale` frame. No
-// interval polling" — so every read this family performs is routed through the
+// `Spec-023 §Rules every console surface obeys` fixes the refresh policy — "Reads
+// happen on subscribe, on window focus, on reconnect, and on the terminal events the
+// owning spec names", under "No interval polling" — so every read this family performs
+// is routed through the
 // console's one `RefreshScheduler` (`console/store/scheduling.ts`). Nothing here
 // arms a timer of its own; the scheduler coalesces a burst of reasons into one read
-// and serializes reads so two never overlap. All three of that sentence's reasons are
-// wired, by `repo-refresh-triggers.ts` beside this file: this class owns the read and
-// that one owns when.
+// and serializes reads so two never overlap. All FOUR of that rule's reasons are wired:
+// `subscribe` by this class's own `start`, and the other three by
+// `repo-refresh-triggers.ts` beside this file, whose terminal event is a
+// `workspace.stale` frame. This class owns the read and that one owns when.
 //
 // THE ROOTS COME FROM THEIR OWN READ, and it is the only one that names a worktree.
 // A workspace row carries no worktree id, so `repo.worktreeStatusRead` — session
@@ -88,7 +90,7 @@ export interface RepoMountsReading {
    *
    * ITS OWN FIELD, never folded into `worktrees`: the two record kinds are two shapes —
    * one mount-anchored over ten columns, the other workspace-anchored over nine — and
-   * `Spec-023 §Console Design (Meridian)` §10.3 draws them as two lists. Keeping only
+   * this console draws them as two lists (`RepoSection.tsx` owns that split). Keeping only
    * `worktrees` reported a session running in the `ephemeral clone` execution mode as
    * holding no execution root at all: the daemon's answer discarded rather than drawn.
    */
@@ -97,7 +99,7 @@ export interface RepoMountsReading {
    * The instant this reading was taken, on the reader's own clock.
    *
    * Carried here rather than read off the wall clock by the cards that render an age,
-   * because `Spec-023 §Console Design (Meridian)` §10.3 forbids polling on that surface:
+   * because `Spec-023 §Rules every console surface obeys` forbids interval polling:
    * an age moves when the surface RE-READS and at no other time, where a card reading
    * `Date.now()` in its render body would move it on any unrelated re-render. Zero
    * before the first read, which no card renders against — every one is behind `read`.

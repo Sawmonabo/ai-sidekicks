@@ -412,9 +412,9 @@
 /* ------------------------------------------------- execution-root cards */
 
 /*
- * One card per worktree or clone row (§10.3). Both record kinds share this shape
- * and differ only in which columns they fill, which is the design's "two lists,
- * different columns" read as one rhythm rather than two visual languages: an
+ * One card per worktree or clone row. Both record kinds share this shape
+ * and differ only in which columns they fill, which is `RepoSection.tsx`'s two lists
+ * with different columns read as one rhythm rather than two visual languages: an
  * operator scanning for what is safe to reclaim reads the same three lines in the
  * same three places in either list.
  */
@@ -462,8 +462,8 @@
 
 /*
  * The sub-state line reads louder than the state's own sentence, because it is the
- * one that answers "is this disk free" — the question §10.3 says the surface exists
- * to answer and the one a plain `retired` chip gets wrong.
+ * one that answers "is this disk free" — the question `worktree-model.ts` says the
+ * surface exists to answer and the one a plain `retired` chip gets wrong.
  */
 .meridian-root-card__disposition {
   color: var(--meridian-amber-text);
@@ -699,7 +699,7 @@
   outline-offset: 2px;
 }
 
-/* --- Attachments (§10.8) and the artifact pane's cards (§10.4) ---------------
+/* --- Attachments and the artifact pane's cards -------------------------------
    Appended, never reordered: this sheet is one family's and six lanes grow it. */
 
 /* The pane's own re-read control. Quiet chrome — one primary action per surface
@@ -908,7 +908,7 @@
 /* -------------------------------------------------- change proposal gate */
 
 /*
- * §10.7's density made structural: base, head, title, and the check rollup sit in the
+ * The gate's density made structural: base, head, title, and the check rollup sit in the
  * open, and body, trailers, the file list, and the blob are `<details>`. The gate is a
  * column so the reading order IS the approval order — context, status, what would be
  * sent, then the acts that would send it.
@@ -1227,7 +1227,7 @@
 
 /*
  * A read surface, so it carries no act chrome at all. The counts are on the face and
- * the path lists are `<details>` — §10.5's density — and the not-an-all-clear sentence
+ * the path lists are `<details>` — the disclosure's density — and the not-an-all-clear sentence
  * sits under both lists because it qualifies the pair rather than either one.
  */
 .meridian-restore-disclosure {

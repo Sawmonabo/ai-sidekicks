@@ -1,9 +1,10 @@
 // What a prepared proposal IS on the way to a git host, read as something the gate can
 // draw — and nothing else. No React, no calls, no eligibility.
 //
-// `Spec-023 §Console Design (Meridian)` §10.7's job for this surface: "Show exactly
+// THIS SURFACE'S JOB, stated here because `Spec-023 §Console Design (Meridian)` puts a
+// surface's composition in the console's code: show exactly
 // what will be sent to the git host, and let a participant approve it before anything
-// leaves the machine." Four of those words are decisions the gate must not make twice,
+// leaves the machine. Four of those words are decisions the gate must not make twice,
 // and they live in four modules beside each other rather than in one: this file owns
 // what a prepared proposal carries and how its untyped blob becomes display data;
 // `hosting-status.ts` owns what the host's three trichotomies MEAN and how a check list
@@ -13,8 +14,8 @@
 //
 // EVERY SHAPE BELOW IS THE CONSOLE'S OWN, AND SAYS SO. `packages/contracts` registers
 // no `gitflow` module: there is no `ChangeRequest` and no proposal type anywhere in the
-// workspace. So these are the shapes the SURFACE needs, derived from what §10.7 says it
-// renders, exactly as `bridge/growth-port.ts` derives its request and value types: they
+// workspace. So these are the shapes the SURFACE needs, derived from what this family
+// draws, exactly as `bridge/growth-port.ts` derives its request and value types: they
 // are not a claim about the eventual wire, which `Spec-011` owns.
 //
 // NO STACKED PROPOSALS. One cumulative proposal per run lineage is what
@@ -30,9 +31,10 @@ export type ProposalState = (typeof PROPOSAL_STATES)[number];
 /**
  * What a prepared proposal puts on screen, before any remote mutation.
  *
- * `blob` is deliberately untyped and deliberately last. §10.7's leverage note is that
- * the proposal is rendered from an untyped `proposalBlob`, "so the renderer treats
- * unknown keys as inert display data and never as instructions" — `proposalBlobRows`
+ * `blob` is deliberately untyped and deliberately last. THIS MODULE'S RULE, because no
+ * committed document states it: the proposal is rendered from an untyped `proposalBlob`,
+ * so the renderer treats
+ * unknown keys as inert display data and never as instructions — `proposalBlobRows`
  * below is the only reader of it, and it produces strings.
  */
 export interface PreparedProposal {
@@ -41,14 +43,14 @@ export interface PreparedProposal {
    *
    * The preparation call answers with a preparation id, a state, and an untyped
    * blob (`bridge/growth-signatures.ts`, `gitflowPrPrepare`), so a reader can supply
-   * the two branches — from the branch context, which is where §10.7 says base and
-   * head always come from — and the state, and nothing else. Absence is therefore
+   * the two branches — from the branch context, which `branch-context-model.ts` makes
+   * the only source of base and head — and the state, and nothing else. Absence is therefore
    * the honest reading, and each one renders as the "nobody supplied this" kind of
    * nothing rather than as a default: an empty title reads as an untitled proposal
    * and an empty path list reads as a proposal that changes no files, and both are
    * claims about the proposal that no read established.
    *
-   * They stay on the shape rather than being deleted because they are what §10.7
+   * They stay on the shape rather than being deleted because they are what this family
    * asks the gate to show, and a caller that HAS them — the fixtures the tiers pin,
    * and any later reply that carries them — draws the full surface unchanged.
    */
@@ -65,7 +67,7 @@ export interface PreparedProposal {
 }
 
 /**
- * The proposal members §10.7 draws that no registered reply supplies.
+ * The proposal members this gate draws that no registered reply supplies.
  *
  * A closed set with one sentence each, declared here and derived everywhere, so the
  * summary cannot word one absence differently from another, and a member that later
@@ -183,8 +185,8 @@ function proposalBlobValueText(value: unknown): string {
 }
 
 /**
- * The one sentence §10.7 asks to be said plainly, kept out of the component so the
- * claim and the surface that makes it can be held against each other by a test.
+ * The one sentence this module asks to be said plainly, kept out of the component so
+ * the claim and the surface that makes it can be held against each other by a test.
  */
 export const ONE_CUMULATIVE_PROPOSAL_COPY =
   "One proposal covers this run lineage. Further commits in this worktree update it rather than opening another.";

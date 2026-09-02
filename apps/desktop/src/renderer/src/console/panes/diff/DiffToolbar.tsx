@@ -1,8 +1,8 @@
 // The four renderer-local view controls, and the state they toggle.
 //
-// `Spec-023 §Console Design (Meridian)` §10.6 lists them under Offers as
-// explicitly renderer-local: "Toggle attribution marks, view mode, wrap, and
-// whitespace. All renderer-local." Nothing here calls a wire, nothing here
+// FOUR CONTROLS, ALL RENDERER-LOCAL, and this module is where that closed set is
+// declared: attribution marks, view mode, wrap, and
+// whitespace. Nothing here calls a wire, nothing here
 // persists, and nothing here derives eligibility — a view control is available
 // because the diff is on screen, which is a fact this component can see.
 //
@@ -12,9 +12,12 @@
 // render a different set of controls over it, which is how a toolbar ends up
 // with a toggle nothing reads.
 //
-// WHY THE DEFAULTS DIFFER BY HOST. §10.6's density rule: "Attribution marks are
+// WHY THE DEFAULTS DIFFER BY HOST. THIS MODULE'S DENSITY RULE, which the two hosts
+// read and neither restates: attribution marks are
 // on by default in the pane and off by default in the timeline card, one toggle
-// away in both." So the hook takes its defaults from the host rather than fixing
+// away in both — `Spec-023 §Meridian, the design language` rule 7's "secondary
+// controls live one click away", spent on one control. So the hook takes its defaults
+// from the host rather than fixing
 // them — the card is a glance and the pane is a reading, and provenance marks
 // earn their measure in the second and not the first.
 //

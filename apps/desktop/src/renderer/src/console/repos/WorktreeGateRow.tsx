@@ -1,6 +1,6 @@
 // One execution root, and the change proposal standing behind it.
 //
-// `Spec-023 §Console Design (Meridian)` §10.3 draws the root and §10.7 draws the gate,
+// `WorktreeCard.tsx` draws the root and `ProposalGate.tsx` draws the gate,
 // and this module is the seam that puts the second beneath the first — one gate per
 // worktree, because the branch-context read is asked per worktree and a session with
 // two agents has two roots, two contexts, and two independent refusals.

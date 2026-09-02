@@ -1,9 +1,9 @@
 // One row of a diff, in either layout — and the two-hue rule applied to the one
 // surface in the console that is traditionally painted red and green.
 //
-// WHY NOT RED AND GREEN. `Spec-023 §Console Design (Meridian)` §2.3: "Amber means
-// a person is needed. Red means something failed. Nothing else in the console is
-// coloured for attention." A deleted line is not a failure and an inserted line is
+// WHY NOT RED AND GREEN. `Spec-023 §Meridian, the design language` rule 3, the
+// two-hue rule: "Amber means a person is needed. Red means something failed.
+// Nothing else is colored for attention." A deleted line is not a failure and an inserted line is
 // not a success, so neither may spend a hue — and a diff that spent red on
 // deletions would make every large change set look like an incident, which is
 // exactly the legibility the rule exists to protect. Meridian's answer uses three
@@ -233,8 +233,9 @@ function DiffSplitCell(props: {
  * somebody.
  *
  * The mark is a glyph with a hover card rather than a name in the gutter, because
- * a name in the gutter costs the measure the diff's content needs, and §10.6 puts
- * per-line attribution behind a toolbar toggle rather than in the default reading.
+ * a name in the gutter costs the measure the diff's content needs, and
+ * `DiffToolbar.tsx` puts per-line attribution behind a toggle rather than in the
+ * default reading.
  * It is `aria-hidden` only when it is decoration; when it is on, it carries the
  * agent's name as its accessible name so the hover card is not the only way to it.
  */

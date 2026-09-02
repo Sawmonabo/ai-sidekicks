@@ -1,8 +1,9 @@
 // One workspace row: its binding, its lifecycle position, and its root.
 //
-// `Spec-023 §Console Design (Meridian)` §10.2 fixes what a row carries — "exactly
-// what `WorkspaceListResponse` gives: `id`, `repoMountId`, `executionMode`, `state`,
-// `fsRoot?`, `lastError?`" — and two of the field notes are rules rather than
+// WHAT A ROW CARRIES IS FIXED HERE, because `Spec-023 §Console Design (Meridian)` puts
+// a surface's composition in the console's code: exactly
+// what `WorkspaceListResponse` gives — `id`, `repoMountId`, `executionMode`, `state`,
+// `fsRoot?`, `lastError?` — and two of the field notes are rules rather than
 // descriptions:
 //
 //   • `lastError` IS PRESENT ONLY ON A `stale` ROW and renders inline on that row.
@@ -12,7 +13,7 @@
 //     for a writable bind until provisioning completes, and the honest word for a
 //     root that does not exist yet is not an empty cell.
 //
-// NO HEALTH CHIP HERE, EVER. §10.2 names it a Never: the workspace list carries no
+// NO HEALTH CHIP HERE, EVER. This row's own Never: the workspace list carries no
 // health member by design — `RepoMountHealth` is the MOUNT's reachability projection
 // and belongs to `repo.mountRead` — so a mismatching mount surfaces on this row as
 // `stale` plus `lastError`, and synthesising a second health axis would be the

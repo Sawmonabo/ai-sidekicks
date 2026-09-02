@@ -1,17 +1,19 @@
 // One prepared proposal, rendered before any remote mutation.
 //
-// `Spec-023 §Console Design (Meridian)` §10.7 requires the proposal to be generated and
-// reviewable BEFORE anything leaves the machine, and fixes its density: "The gate opens
-// on base, head, title, and the check rollup. Body, trailers, and the full file list are
-// one click away." This module is the second half of that sentence, and it is its own
+// `Spec-011 §Interfaces And Contracts` requires the proposal to be generated and
+// reviewable BEFORE anything leaves the machine, and THIS FAMILY'S OWN density carries
+// it: the gate opens on base, head, title, and the check rollup, and body, trailers,
+// and the full file list are one click away — `Spec-023 §Meridian, the design language`
+// rule 7's "secondary controls live one click away", on a proposal.
+// This module is the second half of that split, and it is its own
 // file rather than a block inside `ProposalGate.tsx` because it is a second surface
 // rather than a second arm — the gate renders one of six states, and exactly two of them
 // (`prepared` and `hosting-unavailable`) mount this, unchanged, so a proposal reads the
 // same whether the host is reachable or not.
 //
-// THE BLOB IS DISPLAY DATA AND THE MODEL IS WHAT MAKES IT SO. §10.7's leverage note:
-// the proposal is rendered from an untyped `proposalBlob`, "so the renderer treats
-// unknown keys as inert display data and never as instructions". `proposalBlobRows`
+// THE BLOB IS DISPLAY DATA AND THE MODEL IS WHAT MAKES IT SO. `prepared-proposal.ts`
+// owns that rule: the proposal is rendered from an untyped `proposalBlob`, so the
+// renderer treats unknown keys as inert display data and never as instructions. `proposalBlobRows`
 // stringifies every value before it reaches this file, so nothing in the list below can
 // be a handler, a URL the console follows, or markup — a key named `action` renders as
 // the text of its value and as nothing else. This file re-derives none of that.
@@ -28,7 +30,7 @@ import {
  * The prepared proposal, rendered before any remote mutation.
  *
  * Title, base, head, and state are on the face; body, trailers, the file list, and the
- * untyped blob are one click away — §10.7's density split exactly.
+ * untyped blob are one click away — this family's density split exactly.
  */
 export interface ProposalSummaryProps {
   readonly proposal: PreparedProposal;

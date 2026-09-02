@@ -16,8 +16,8 @@
 
 /*
  * THE TWO-HUE RULE, APPLIED TO THE ONE SURFACE THAT IS TRADITIONALLY PAINTED RED
- * AND GREEN. `Spec-023 §Console Design (Meridian)` §2.3 spends amber on "a person
- * is needed" and red on "something failed", and a deleted line is neither. So the
+ * AND GREEN. `Spec-023 §Meridian, the design language` rule 3 spends amber on "a
+ * person is needed" and red on "something failed", and a deleted line is neither. So the
  * insert / delete distinction is carried by three signals that are not hue: the
  * sign in the marker column, the weight of the cell's ground, and the style of the
  * rule on the marker column. The two grounds are mixed from `--meridian-text` so
@@ -215,7 +215,7 @@
   min-inline-size: 0;
   min-block-size: 0;
   /* Explicit on both axes. A long line overflows horizontally and is never
-     clipped into a hidden-overflow container (§10.6's Never). */
+     clipped into a hidden-overflow container (`DiffRenderer.tsx`'s one Never). */
   overflow: auto;
   font-family: var(--meridian-font-mono);
   font-size: var(--meridian-text-xs);

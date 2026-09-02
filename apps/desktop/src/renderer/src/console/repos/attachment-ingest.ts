@@ -1,10 +1,10 @@
 // The ingest client: three calls, a bounded slice of the payload on each one, a
 // decoded-byte ledger, and a retry that replays.
 //
-// `Spec-023 §Console Design (Meridian)` §10.8 puts the chunking, the decoded-byte
-// accounting, and the replay-safe retry on the console's own side of the seam and says
-// why: all three are CONTRACT behaviour, and a generic upload library would obscure
-// every one of them. So this is own-built, and it is a class with private fields rather
+// THE CHUNKING, THE DECODED-BYTE ACCOUNTING, AND THE REPLAY-SAFE RETRY are on the
+// console's own side of the seam, and this module is where that is decided and why:
+// all three are `Spec-014` CONTRACT behaviour, and a generic upload library would
+// obscure every one of them. So this is own-built, and it is a class with private fields rather
 // than a hook holding four `useState`s, because a stream is state with a lifecycle and
 // a component is a render. The carrier's own record — which attachments there are, in
 // which order, and where each one stands — is `attachment-ingest-ledger.ts` next door;
@@ -372,7 +372,7 @@ export class AttachmentIngestClient {
 }
 
 // NO REACT BINDING SHIPS HERE, AND THAT IS THE OWNERSHIP LINE RATHER THAN AN OMISSION.
-// §10.8 puts the attach affordance and the composer chips in chapter 6, which is a
+// The attach affordance and the composer chips belong to the composer, which is a
 // SIBLING view family (`T-023p-1C-3`), and a hook this family exported with no caller
 // would be dead code the structure gate is right to reject — the tree admits a
 // per-symbol exemption only for a symbol a landed task names, and inventing an attach

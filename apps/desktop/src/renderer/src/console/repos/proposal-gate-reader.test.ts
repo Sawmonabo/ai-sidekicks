@@ -509,7 +509,7 @@ describe("ProposalGateReader — the proposal and the context it was prepared fo
 
 describe("ProposalGateReader — the reasons it reads again", () => {
   it("re-reads when the session's projection is repaired", async () => {
-    // §10.1's second refresh trigger, and the gate had none of it: a daemon that
+    // The reconnect refresh reason, which the gate had none of: a daemon that
     // reconnected while the window stayed focused left the branch context and the
     // prepared proposal standing, with `push` still offered against them.
     const clock = new ManualClock();
@@ -535,7 +535,7 @@ describe("ProposalGateReader — the reasons it reads again", () => {
   });
 
   it("re-reads on a `workspace.stale` frame", async () => {
-    // §10.1's third trigger. A path that went stale in an already-focused window used
+    // The terminal-event refresh reason. A path that went stale in an already-focused window used
     // to leave the gate reporting a context the daemon had stopped standing behind.
     const clock = new ManualClock();
     const sessionStore = initialisedStore();

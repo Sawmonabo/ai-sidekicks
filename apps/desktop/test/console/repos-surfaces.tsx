@@ -19,7 +19,7 @@
 //     (`gitflow.diffArtifactCreate` is a `Plan-023 §Console growth slate` row), so
 //     the deck's own body renders the `not-checked` absence — which is the emptiest
 //     frame the surface has and would pin a baseline of a box. The pane is mounted
-//     with the parsed fixture instead, which is the composition §10.6 describes:
+//     with the parsed fixture instead, which is the composition `DiffPane.tsx` draws:
 //     the attribution badge, the compared states, the file list, and the rows. The
 //     absence arm is not unpinned by that — `DiffPane.test.tsx` owns it, where a
 //     DOM assertion can say WHICH absence it is and an image cannot.

@@ -1,8 +1,10 @@
 // The change proposal gate: exactly what would be sent to the git host, held where a
 // participant can approve it first.
 //
-// `Spec-023 §Console Design (Meridian)` §10.7. Four things about this file are
-// decisions rather than implementation, and each is load-bearing:
+// THE GATE'S COMPOSITION IS THIS FAMILY'S, stated across the modules that obey it,
+// because `Spec-023 §Console Design (Meridian)` puts a surface's composition — what it
+// renders, offers, refuses, and folds — in the console's code. Four things about this
+// file are decisions rather than implementation, and each is load-bearing:
 //
 // 1. IT RENDERS, AND IT DOES NOT READ — AND `proposal-gate-reader.ts` IS THE ONE
 //    CALLER. The state arrives as a prop and the acts leave as callbacks, exactly as
@@ -119,7 +121,7 @@ export function ProposalGate(props: ProposalGateProps): React.JSX.Element {
           Change proposal
         </h3>
         {props.state.kind === "prepared" && props.state.detectedHost !== undefined ? (
-          // The detected host, in the host's own word. §10.7: the provider is
+          // The detected host, in the host's own word. The provider is
           // auto-detected from the git remote URL, so this is a REPORT and never a
           // picker — there is no control here that could change it. Absent where
           // nothing supplied one, rather than shown as a guessed provider name: no
@@ -223,8 +225,9 @@ function renderGateBody(props: ProposalGateProps): React.JSX.Element {
 /**
  * The three trichotomies, always visible, because they are the decision.
  *
- * The check rollup opens as counts rather than as a list: §10.7's density note puts
- * the rollup on the face and the full list one click away.
+ * The check rollup opens as counts rather than as a list: this gate's density puts
+ * the rollup on the face and the full list one click away, on `Spec-023 §Meridian, the
+ * design language` rule 7 ("secondary controls live one click away").
  */
 function StatusRollup(props: { readonly status: ProposalStatusReading }): React.JSX.Element {
   const { status } = props;

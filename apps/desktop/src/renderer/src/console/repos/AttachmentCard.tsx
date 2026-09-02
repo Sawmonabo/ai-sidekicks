@@ -1,7 +1,9 @@
 // One attachment, in the position the participant put it, whatever became of it.
 //
-// `Spec-023 §Console Design (Meridian)` §10.8. Four arms, and the reason there are four
-// rather than a card with flags is that §10.8's Never list separates them:
+// THE ATTACHMENT SURFACE'S COMPOSITION IS THIS FAMILY'S, because `Spec-023 §Console
+// Design (Meridian)` puts a surface's composition in the console's code. Four arms, and
+// the reason there are four rather than a card with flags is `attachment-model.ts`'s
+// own Never list, which separates them:
 //
 //   • IN FLIGHT — progress from `receivedBytes`, the spooled running total of DECODED
 //     bytes, with the six-hour stream ceiling disclosed once the upload has gone quiet.

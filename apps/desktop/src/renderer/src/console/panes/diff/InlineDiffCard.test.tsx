@@ -1,4 +1,4 @@
-// The card, and the four clauses of §10.6 it is the implementation of.
+// The card, and the four clauses of `InlineDiffCard.tsx`'s own rule it implements.
 //
 // The registration is checked here rather than in `panes/panes.test.ts`, which is
 // seat-blind by design: it asserts the seat board's SHAPE and says nothing about
@@ -79,7 +79,7 @@ describe("inline diff card — the absence, and the diff", () => {
   });
 
   it("uses the same renderer the pane uses", () => {
-    // Not "a renderer" — THE renderer. §10.6: one implementation, so a
+    // Not "a renderer" — THE renderer. `DiffRenderer.tsx`: one implementation, so a
     // one-character edit reads as one character in both surfaces. The rows carry
     // the renderer's own classes, which is what makes this checkable.
     const { container } = render(<InlineDiffCard card={CARD} diff={DIFF} />);
@@ -116,7 +116,7 @@ describe("inline diff card — expanded to the cap, with somewhere to go", () =>
   });
 
   it("starts with attribution marks off, one toggle from the pane's default", () => {
-    // §10.6's density rule, and the half of it the card owns. The pane's own test
+    // `DiffToolbar.tsx`'s density rule, and the half of it the card owns. The pane's own test
     // owns the other half; together they are the claim that the two defaults
     // differ rather than that either is a particular value.
     const { container } = render(<InlineDiffCard card={CARD} diff={DIFF} />);
@@ -136,7 +136,7 @@ describe("inline diff card — the one control it carries", () => {
 
   it("negative control: it carries that control and not the pane's whole toolbar", () => {
     // A card is read inside a conversation. Four controls of chrome per diff is
-    // the density §10.6's card clause exists to avoid, and a card that grew the
+    // the density `InlineDiffCard.tsx`'s own rule exists to avoid, and a card that grew the
     // pane's toolbar would pass every other case in this file.
     const { queryByRole } = render(<InlineDiffCard card={CARD} diff={DIFF} />);
     expect(queryByRole("toolbar")).toBeNull();

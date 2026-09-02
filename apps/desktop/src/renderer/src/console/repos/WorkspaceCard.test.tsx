@@ -1,7 +1,7 @@
 // A workspace row carries what the list gave it, and nothing it invented.
 //
 // The load-bearing negative control here is the absence of a health chip.
-// `Spec-023 §Console Design (Meridian)` §10.2 names it a Never, and the reason is
+// `WorkspaceCard.tsx` names it a Never, and the reason is
 // structural: `WorkspaceListResponse` carries no health member because a mount's
 // reachability is the MOUNT's projection. A row that synthesised one would be
 // answering a question the daemon deliberately did not answer.

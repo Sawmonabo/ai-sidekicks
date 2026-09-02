@@ -1,13 +1,15 @@
 // The file half of a rewound run: what a rollback did to the working tree, said out
 // loud on every disposition that touched it.
 //
-// `Spec-023 §Console Design (Meridian)` §10.5's job: "Make a rollback that touched the
+// THIS SURFACE'S JOB, stated here because `Spec-023 §Console Design (Meridian)` puts a
+// surface's composition in the console's code: make a rollback that touched the
 // working tree legible on the artifact and run record, so no surface hides a restore
-// that mutated files." Four things here are decisions rather than implementation:
+// that mutated files. Four things here are decisions rather than implementation:
 //
 // 1. THIS RENDERS A REGISTERED WIRE TYPE, NOT A FIXTURE. `RollbackInterventionResult`
-//    is in `packages/contracts/src/runControl.ts` — the design table calls the restore
-//    disclosure a fixture, and the contract has since landed, so this file consumes the
+//    is in `packages/contracts/src/runControl.ts` — an earlier console design pass had
+//    the restore disclosure down as a fixture, and the contract has since landed, so
+//    this file consumes the
 //    real discriminated union and the compiler holds it to the nine dispositions. A
 //    tenth disposition fails to compile here rather than rendering as a blank card.
 //
@@ -30,16 +32,17 @@
 //    the diff pane where a diff exists, and that is a navigation the MOUNTING surface
 //    supplies — the disclosure never reaches for a pane itself.
 //
-// NEVER, from the same section, and each is a property of THIS file:
+// THREE NEVERS, each a property of THIS file:
 //   • `files-partially-restored` is never collapsed into `files-unrestored`. They are
 //     separate arms of the presentation table below with separate sentences, because
 //     the sequence mutates incrementally and a late failure leaves earlier effects on
 //     disk. Hiding that would mask file loss.
 //   • No snapshot ref is presented as a branch. Nothing in this file renders a ref at
 //     all — the enumerations are filesystem paths and are labelled as paths.
-//   • The nine dispositions, their state mapping, and the `resendDisposition` axis are
-//     chapter 7's run-control surface. This file fixes only where the FILE half is
-//     disclosed, which is why it takes a result rather than an intervention.
+//   • The nine dispositions, their state mapping, and the `resendDisposition` axis
+//     belong to the run-control surface, a SIBLING view family. This file fixes only
+//     where the FILE half is disclosed, which is why it takes a result rather than an
+//     intervention.
 
 import { useId, useState } from "react";
 
@@ -74,7 +77,7 @@ interface DispositionPresentation {
  *
  * `files-partially-restored` and `files-unrestored` carry deliberately different
  * sentences — the first says earlier effects are on disk, the second says the tree was
- * not touched — because that difference is the one §10.5 forbids collapsing.
+ * not touched — because that difference is the one this surface exists not to collapse.
  */
 const DISPOSITION_PRESENTATION: Readonly<Record<RollbackDisposition, DispositionPresentation>> = {
   "files-restored": {
@@ -237,8 +240,8 @@ export function FileRestoreDisclosure(props: FileRestoreDisclosureProps): React.
 }
 
 /**
- * Both enumerations, always, in the density §10.5 fixes: counts on the face, lists one
- * click away.
+ * Both enumerations, always, in this surface's own density: counts on the face, lists
+ * one click away, on `Spec-023 §Meridian, the design language` rule 7.
  *
  * They render even at zero — that is what "never silent" means on this surface — and
  * the empty pair carries the sentence that stops it reading as an all-clear.
@@ -274,7 +277,7 @@ function RestoreEnumerationLists(props: {
 /**
  * One enumeration: its count, then its paths.
  *
- * The count is always visible and the list is a `<details>` — §10.5's density note.
+ * The count is always visible and the list is a `<details>` — this surface's density.
  *
  * THE CLOSED LIST HOLDS NO ROW, AND THAT IS STATE RATHER THAN MARKUP. A `<details>`
  * hides its children; it does not stop React from putting them in the document, so

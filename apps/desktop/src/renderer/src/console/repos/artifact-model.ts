@@ -10,8 +10,8 @@
 // reaches for those operations and is refused by name.
 //
 // So `ArtifactManifestRow` below is A CONSOLE VIEW MODEL AND NOT A WIRE TYPE. It
-// transcribes the manifest envelope `Spec-023 §Console Design (Meridian)` §10.4
-// names, field for field, so the panel is built against the shape the owning
+// transcribes the manifest envelope `Spec-014 §Interfaces And Contracts` describes,
+// field for field, so the panel is built against the shape the owning
 // document specifies rather than against a shape this file invented — and when the
 // wire lands, the diff is an import and a deletion here, not a redesign of the
 // panel. Nothing in this module claims the daemon sends it.
@@ -20,7 +20,8 @@
 // which is the rule and also the only way the totals below can be trusted: three
 // states, two visibility classes, six types, five replication statuses plus absent.
 //
-// WHAT THIS MODULE REFUSES TO MODEL, from §10.4's own Never list:
+// WHAT THIS MODULE REFUSES TO MODEL — its own Never list, because no committed
+// document carries one for this surface:
 //   • No payload preview shape, of any kind. Payloads are explicit-fetch downloads
 //     with no in-product execution surface, and the design calls that the defense
 //     rather than a preference. A field here holding renderable payload content

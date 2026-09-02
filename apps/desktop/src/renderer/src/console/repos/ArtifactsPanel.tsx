@@ -1,7 +1,9 @@
 // The artifacts panel: what this session produced, whether its bytes are reachable,
 // and the acts a participant may attempt on one.
 //
-// `Spec-023 §Console Design (Meridian)` §10.4. Three things about this file are
+// THE ARTIFACT SURFACE'S COMPOSITION IS THIS FAMILY'S, because `Spec-023 §Console
+// Design (Meridian)` puts a surface's composition — what it renders, offers, refuses,
+// and folds — in the console's code. Three things about this file are
 // decisions rather than implementation, and each is load-bearing:
 //
 // 1. IT RENDERS, AND IT DOES NOT READ. The state arrives as a prop, and the four
@@ -28,11 +30,11 @@
 //    greying a button out would mean holding a second copy of all three. Controls
 //    are offered; the typed refusal renders beside the one that was pressed.
 //
-// THE DELETE CONFIRM IS TWO STEPS, IN PLACE. The design requires the foreclosure
-// consequence stated BEFORE the act and reported AFTER it, and both halves ship:
+// THE DELETE CONFIRM IS TWO STEPS, IN PLACE. This panel states the foreclosure
+// consequence BEFORE the act and reports it AFTER, and both halves ship:
 // the consequence strip is on the row and the receipt is here. It is an inline
-// strip rather than the modal §10.3 describes, because that modal is the
-// retire/dispose consent surface and enumerates an inspection this panel is never
+// strip rather than the retire/dispose modal the execution-root surface would use,
+// because that modal enumerates an inspection this panel is never
 // given — borrowing its shape would imply a preview that does not exist.
 //
 // WHAT THIS FILE OWNS, AND WHERE THE REST WENT. This module is the SESSION-scoped

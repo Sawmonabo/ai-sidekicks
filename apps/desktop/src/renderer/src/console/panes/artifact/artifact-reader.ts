@@ -1,14 +1,15 @@
 // Who asks the artifact pane's reads, when they are asked again, and what is refused.
 //
-// `Spec-023 §Console Design (Meridian)` §10.4. Three reads, all on `Plan-023 §Console
+// Three reads, all on `Plan-023 §Console
 // growth slate` and all refused by name today: `artifactList` and `artifactRead`
 // against `artifact-ingest-and-crud`, `artifactAllowlistRead` against
 // `artifact-allowlist-and-abort`.
 //
 // THE ONE DECISION IN THIS FILE IS WHAT TO DO WITH A SERVED LIST, AND IT HAS CHANGED.
 // The growth port's `artifactList` used to answer a four-member payload summary —
-// `artifactId`, `name`, `byteLength`, `contentType` — while §10.4's row renders the
-// MANIFEST ENVELOPE, and none of the missing members was derivable from the four that
+// `artifactId`, `name`, `byteLength`, `contentType` — while the row
+// `repos/artifact-model.ts` builds renders the MANIFEST ENVELOPE, and none of the
+// missing members was derivable from the four that
 // were present. So a served list was REFUSED with the console's own code rather than
 // mapped, and that refusal named the gap "so the day the shape lands the fix is a
 // mapping and not an archaeology". The shape landed: `GrowthArtifactSummary` now

@@ -19,8 +19,8 @@
 // is a function of the change set's shape rather than of its size, and an
 // expansion re-derives one prefix-sum instead of five thousand objects.
 //
-// WHY EXPANSION IS A COUNT PER GAP AND NOT A BOOLEAN. §10.6 requires "hunk-gap
-// expansion with predecessor retention": pressing expand a second time must not
+// WHY EXPANSION IS A COUNT PER GAP AND NOT A BOOLEAN. This family requires hunk-gap
+// expansion with predecessor retention: pressing expand a second time must not
 // take back what the first press revealed. A boolean cannot express a partially
 // expanded gap, so a second press would either do nothing or jump to the whole
 // gap; a monotonically growing count expresses both states and makes retention a
@@ -229,8 +229,8 @@ interface FileRowSpan {
  * renderer correct — a mutated index would report new rows against an unchanged
  * identity and the rows on screen would not move.
  *
- * NARROWING IS A VIEW OVER THE WHOLE MODEL AND NEVER A SMALLER MODEL. §10.6 has
- * the pane open on its file list and narrow the rows to the file a person picks;
+ * NARROWING IS A VIEW OVER THE WHOLE MODEL AND NEVER A SMALLER MODEL. `DiffPane.tsx`
+ * opens on its file list and narrows the rows to the file a person picks;
  * doing that by filtering `model.files` renumbers them, and every index the rows
  * then hand back — to the expansion key, and to the host resolving how much
  * context a gap still holds — addresses the wrong file. So the file stays where
