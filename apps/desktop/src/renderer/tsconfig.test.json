@@ -1,8 +1,19 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
   // Type-validates renderer test files without emitting. The production
-  // renderer `tsconfig.json` excludes `__tests__/**` so test files don't ship
-  // in `out/renderer/`; this config covers them via a `noEmit` typecheck pass.
+  // renderer `tsconfig.json` excludes both `__tests__/**` and every
+  // `*.test.{ts,tsx}` so test files don't ship in `out/renderer/`; this config
+  // covers them via a `noEmit` typecheck pass.
+  //
+  // BOTH test layouts are included, because the tree has two by design and the
+  // production config excludes both. The three legacy renderer families keep
+  // their `__tests__/` directories; `console/` co-locates `*.test.{ts,tsx}`
+  // beside the module it covers, which `apps/desktop/AGENTS.md` binds for that
+  // subtree. Until the co-located glob was added here, every console unit test
+  // was in NO tsconfig program — excluded from the production config and
+  // unmatched by this one — so `pnpm typecheck` type-checked none of them and
+  // vitest transformed them without checking. A test nothing typechecks is a
+  // test that can assert against a type that no longer exists.
   //
   // Why a separate config (not just widening tsconfig.json): adding
   // `vitest/globals` to the production renderer config would leak `vi`,
@@ -40,6 +51,6 @@
   // to `*.d.ts` so it pulls in ambient declarations only, never production
   // `.tsx`, preserving the hermetic "vitest globals don't leak into the
   // production typegraph" property documented above.
-  "include": ["**/__tests__/**/*", "src/**/*.d.ts"],
+  "include": ["**/__tests__/**/*", "src/**/*.test.ts", "src/**/*.test.tsx", "src/**/*.d.ts"],
   "exclude": []
 }

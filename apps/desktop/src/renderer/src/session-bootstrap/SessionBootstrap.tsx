@@ -19,11 +19,15 @@
 //     reaches the renderer.
 // No `electron`, no `node:*`, no `./src/main/**`, no `./src/preload/**` —
 // statically enforced via the `no-restricted-imports` rule in
-// apps/desktop/eslint.config.mjs. The `@ai-sidekicks/client-sdk` ban is
-// by-convention at Tier 1 (the SDK package is Node-side; importing it
-// from the renderer would break Spec-023 §Trust Stance but lint will not
-// catch it until a renderer-targeted no-restricted-imports entry lands —
-// tracked as a Plan-023 Tier 8 hoist).
+// apps/desktop/eslint.config.mjs. The `@ai-sidekicks/client-sdk` ban was
+// by-convention at Tier 1 and is now structural: Plan-023 T-023p-1C-1 removed
+// the package from `apps/desktop/package.json`, having found it declared and
+// imported by nothing, so the specifier no longer resolves from this app at
+// all. That is a stronger guarantee than the renderer-targeted
+// `no-restricted-imports` entry this header used to await — a lint rule reports
+// an import the build would still perform, and a dependency that is not
+// declared cannot be imported to begin with. The SDK package is Node-side;
+// importing it from the renderer would break Spec-023 §Trust Stance.
 
 import { useEffect, useState } from "react";
 

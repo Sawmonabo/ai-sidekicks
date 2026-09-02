@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // Type-validates `scripts/` — the Node-context tools invoked BY NAME from a
+  // package script, as distinct from `build/`, which runs DURING `pnpm build`
+  // and has its own sibling config. Same shape as `tsconfig.build.json`:
+  // `noEmit` plus an isolated buildinfo, so the scripts are typechecked without
+  // entering the project-references graph or the production `dist/` layout.
+  //
+  // Authored at Plan-023 Phase 1C (T-023p-1C-1), when the harnesses under
+  // `scripts/` moved from `.mjs` beside hand-written `.d.mts` declarations to
+  // TypeScript sources run through `node --experimental-strip-types`. That move
+  // is the whole point of this file: the declarations are now GENERATED from the
+  // implementations, and this config is what checks them. Before it, no
+  // `tsconfig` reached `scripts/**` at all — `tsconfig.test.json` includes
+  // `src/**` and `test/**`, `tsconfig.build.json` includes `build/**` — so a
+  // declaration could contradict its implementation indefinitely.
+  //
+  // Reached by the package `typecheck` script in the same commit, per the
+  // desktop structure rule that a new `tsconfig*.json` no script or `references`
+  // entry reaches is a config that checks nothing.
+  "extends": "../../tsconfig.node22.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "./scripts",
+    // `isolatedDeclarations` (inherited from base) requires either `declaration`
+    // or `composite`; `declaration: true` paired with `noEmit: true` honors the
+    // constraint without writing files (see TS5069). `composite: false` and a
+    // null buildinfo keep this config out of the project-references graph.
+    "composite": false,
+    "declaration": true,
+    "declarationMap": false,
+    "sourceMap": false,
+    // These files are executed by `node --experimental-strip-types`, which
+    // resolves the extension it is given and performs no `.mts` → `.mjs`
+    // rewriting. So the relative imports between them name the real file, and
+    // this is the option that permits it — the posture TypeScript documents for
+    // a `noEmit` project whose runtime loads TypeScript directly.
+    "allowImportingTsExtensions": true
+  },
+  "include": ["scripts/**/*"],
+  "exclude": ["dist", "out", "node_modules"]
+}

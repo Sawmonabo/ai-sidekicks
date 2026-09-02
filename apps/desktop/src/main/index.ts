@@ -37,6 +37,7 @@ import { startGcProbe } from "./probes/gc-probe.js";
 import { installReadinessBreadcrumbs, runSmokeProbe } from "./probes/smoke-probe.js";
 import { installRendererProtocol, registerRendererScheme } from "./protocol.js";
 import { createMainWindow } from "./window.js";
+import { installActivationPolicy } from "./window-reveal.js";
 import { registerSidecarLifecycle } from "./sidecar-lifecycle.js";
 
 // The `electron-vite` output layout puts the main bundle at `out/main/index.js`
@@ -67,6 +68,57 @@ registerRendererScheme();
 // bundle for `SIDEKICKS_SMOKE_PROBE`, `executeJavaScript`, or `about:blank`
 // — all return zero matches (see commit message for the proof).
 declare const __SIDEKICKS_SMOKE_BUILD__: boolean;
+
+// The console's fixture gate, substituted for this target by the same `define`
+// block. `electron-vite build --mode=fixtures` substitutes `true`; every other
+// mode, the release build included, substitutes `false`.
+declare const __SIDEKICKS_CONSOLE_FIXTURES__: boolean;
+
+/**
+ * Environment variable a fixture build names its scenario on.
+ *
+ * Set by `test/console/electron-harness.ts` for the two Electron tiers, and by a
+ * developer running the fixtures build by hand. It is read in exactly one place —
+ * below — and never reaches the renderer as an environment value: the renderer is
+ * sandboxed and has no process environment, which is why this crosses the boundary
+ * as a document-URL query instead.
+ */
+const FIXTURE_SCENARIO_ENV_VAR = "SIDEKICKS_FIXTURE_SCENARIO";
+
+/**
+ * The query parameter the renderer reads the id back off.
+ *
+ * Pinned to `SCENARIO_QUERY_PARAMETER` in
+ * `src/renderer/src/console/bridge/scenario-selection.ts`, which cannot be
+ * imported here: `src/main/**` and the renderer tree are separate programs by
+ * design (`Spec-023 §Trust Stance`), and a shared module would be bundled into the
+ * renderer. The two ends are held together end-to-end instead — the endurance tier
+ * launches with a scenario id and asserts the console is playing that scenario, so
+ * a drift on either side fails a tier rather than silently selecting nothing.
+ */
+const FIXTURE_SCENARIO_QUERY_PARAMETER = "scenario";
+
+/**
+ * The document-URL query a fixture build opens its window with, or `""`.
+ *
+ * `typeof` rather than a bare read of the define, and that is load-bearing: the
+ * `main-unit` Vitest project evaluates this module with only the smoke define in
+ * its substitution map, so a bare identifier would be a `ReferenceError` the
+ * moment the ready continuation runs. Substitution happens before parsing, so a
+ * release build reads `typeof false === "boolean" && false` — statically false,
+ * with the environment read and the query behind it — and a fixtures build reads
+ * `typeof true === "boolean" && true`.
+ */
+function resolveFixtureScenarioQuery(): string {
+  if (!(typeof __SIDEKICKS_CONSOLE_FIXTURES__ === "boolean" && __SIDEKICKS_CONSOLE_FIXTURES__)) {
+    return "";
+  }
+  const scenarioId = process.env[FIXTURE_SCENARIO_ENV_VAR];
+  if (scenarioId === undefined || scenarioId === "") {
+    return "";
+  }
+  return `?${FIXTURE_SCENARIO_QUERY_PARAMETER}=${encodeURIComponent(scenarioId)}`;
+}
 
 // Plan-023 §Risks And Blockers: without `requestSingleInstanceLock()`, a
 // `sidekicks://invite/<token>` deep-link arriving at a second instance would
@@ -144,6 +196,11 @@ if (!gotTheLock) {
   app
     .whenReady()
     .then(() => {
+      // Test builds only, and only when the launching harness asked for it: the
+      // macOS accessory activation policy has to be in place before the first
+      // reveal could activate the application. A release bundle folds the call
+      // to nothing. See `./window-reveal.ts`.
+      installActivationPolicy(app);
       // BEFORE any window: a `BrowserWindow` constructed ahead of the handler
       // could begin a load against an unhandled scheme.
       installRendererProtocol(RENDERER_ROOT);
@@ -168,6 +225,10 @@ if (!gotTheLock) {
       // a later tick — a property of the runtime, not of this code. See
       // `WindowLoadOptions`.
       const browserWindow = createMainWindow({
+        // Empty in every build but the fixtures one, where it names the scripted
+        // session this window plays. The renderer reads it once, before its first
+        // render, and never again.
+        documentQuery: resolveFixtureScenarioQuery(),
         beforeLoad: (window) => {
           if (smokeProbeRequested) {
             // Registered here, ahead of the load, so a boot that never reaches

@@ -1,22 +1,22 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  // Type-validates the package's two executable-script directories without
-  // emitting: `build/` (run DURING `pnpm build` — `assert-webprefs.ts`) and
-  // `scripts/` (invoked BY NAME from a package script —
-  // `materialize-electron.ts`, called by `postinstall` and `test:smoke`). The
-  // production `tsconfig.json` has `rootDir: ./src` and covers neither; this
-  // sibling mirrors the `tsconfig.test.json` pattern (noEmit + isolated
-  // buildinfo) so both are typechecked without polluting the
-  // project-references graph or the production `dist/` layout.
+  // Type-validates `build/` — the code that runs DURING `pnpm build`
+  // (`assert-webprefs.ts`) — without emitting. The production `tsconfig.json`
+  // has `rootDir: ./src` and does not cover it; this sibling mirrors the
+  // `tsconfig.test.json` pattern (noEmit + isolated buildinfo) so it is
+  // typechecked without polluting the project-references graph or the
+  // production `dist/` layout.
   //
-  // `rootDir` is omitted rather than pinned to one of the two directories: with
-  // `noEmit` it constrains nothing useful, and pinning it to `./build` would
-  // make every `scripts/` file a TS6059 "not under rootDir" error. TS infers it
-  // as the longest common ancestor of the include set, exactly as
-  // `tsconfig.test.json` does for its own two-directory set.
-  //
-  // Authored at Plan-023 Phase 1 T-023p-1-3 alongside `build/assert-webprefs.ts`;
-  // widened to `scripts/` at Plan-023 Phase 1B.
+  // ONE OWNER PER DIRECTORY. This config was widened to `scripts/` at Plan-023
+  // Phase 1B and narrowed back at Phase 1C, when `tsconfig.scripts.json` was
+  // authored to own that directory. The overlap was not merely redundant: the
+  // two configs disagreed about `allowImportingTsExtensions`, which the
+  // `scripts/` harnesses require because `node --experimental-strip-types`
+  // resolves the extension it is given and rewrites no specifier. So the
+  // directory typechecked green under the config that owns it and red under the
+  // one that happened to also include it, and every explanation either file gave
+  // of its own scope was false. A second project over one directory is a second
+  // set of compiler options over it.
   "extends": "../../tsconfig.node22.json",
   "compilerOptions": {
     "noEmit": true,
@@ -30,6 +30,6 @@
     "declarationMap": false,
     "sourceMap": false
   },
-  "include": ["build/**/*", "scripts/**/*"],
+  "include": ["build/**/*"],
   "exclude": ["dist", "out", "node_modules"]
 }

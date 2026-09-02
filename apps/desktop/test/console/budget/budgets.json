@@ -1,0 +1,169 @@
+{
+  "schemaVersion": 1,
+  "source": "docs/specs/023-desktop-shell-and-renderer.md — §Console Design (Meridian) §Budgets",
+  "plan": "docs/plans/023-desktop-shell-and-renderer.md — Phase 1C (T-023p-1C-1..8), invariant I-023-14",
+  "description": "The single source of truth for every numeric budget the console is gated on. Every budget the spec's §Budgets table names appears here exactly once, whether or not this revision can measure it: a budget silently omitted is a budget nobody notices is ungated. An entry whose `status` is \"n/a\" is not measurable at this revision and names, in `producedBy`, the Plan-023 task that makes it measurable and, in `notMeasurableReason`, what is missing. Every harness that reads this file prints one line per \"n/a\" entry beside the budgets it did measure.",
+  "unitConventions": {
+    "kB": "1000 bytes (SI). The spec writes `kB`; the SI reading is also the stricter one (450 kB = 450000 B, against 450 KiB = 460800 B), so taking it costs the budget nothing and cannot make a passing measurement out of a failing one.",
+    "MB": "1000000 bytes (SI), by the same reading and the same reasoning (120 MB = 120000000 B, against 120 MiB = 125829120 B).",
+    "MiB": "1048576 bytes (binary). The spec writes `MiB` for the terminal budget explicitly, so this one is not an interpretation.",
+    "ms": "milliseconds",
+    "percentOfOneCore": "percent of a single core, averaged over the window the budget's `specTarget` names"
+  },
+  "measurementProtocol": {
+    "deterministic": "Bundle size, heap at rest, steady heap, and first-ledger-row latency against the fixture's frozen clock gate on any runner (Spec-023 §Budgets, \"Where they are measured\").",
+    "hardwareDependent": "Frame time and CPU are measured from the built bundle in the Electron shell against the fixture bridge's flagship scenario with the frozen clock, ten warm-up seconds discarded, the metric taken as the median of three runs, on the pinned CI runner class the desktop workflow names by label, with thresholds calibrated on that class at first landing with 25 % headroom and one automatic re-run before a failure counts.",
+    "referenceProfile": "The `limit` figures are the product targets on the laptop-class reference profile — eight cores, integrated GPU, one 60 Hz display — which the endurance ledger records beside the runner-calibrated thresholds so a runner regression and a product regression stay distinguishable."
+  },
+  "budgets": [
+    {
+      "id": "renderer-initial-bundle",
+      "label": "Renderer initial bundle",
+      "subject": "The gzip-compressed byte total of every asset in the renderer entry document's initial import graph under `apps/desktop/out/renderer` — the entry module scripts, the `modulepreload` graph, the entry stylesheets, and every chunk reachable from them by a static import — excluding lazy chunks (terminal, node graph, math, diagrams, browser tools), excluding source maps, and excluding the entry HTML document itself.",
+      "specTarget": "≤ 450 kB gzip, excluding lazy chunks (terminal, node graph, math, diagrams, browser tools)",
+      "limit": {
+        "comparison": "<=",
+        "value": 450,
+        "unit": "kB",
+        "canonicalValue": 450000,
+        "canonicalUnit": "bytes"
+      },
+      "status": "enforced",
+      "producedBy": "T-023p-1C-1",
+      "measuredBy": "apps/desktop/scripts/budget/measure-bundle.mts",
+      "notes": "Gated on gzip because the spec's figure is a gzip figure. Brotli is measured and reported for every asset beside it — it is what the renderer protocol handler can actually serve — but it is reported, never gated, so the gate and the spec agree byte for byte. CI enforcement of this gate is T-023p-1C-8's leg; the measurement and its budget row land here."
+    },
+    {
+      "id": "frame-time-p95-four-lanes",
+      "label": "Frame time, four lanes streaming",
+      "subject": "The 95th-percentile frame duration of the renderer while four agent lanes stream concurrently into the ledger, measured from the built bundle in the Electron shell against the fixture bridge's flagship scenario with the frozen clock.",
+      "specTarget": "p95 ≤ 16.7 ms on the reference machine",
+      "limit": {
+        "comparison": "<=",
+        "value": 16.7,
+        "unit": "ms",
+        "canonicalValue": 16.7,
+        "canonicalUnit": "ms"
+      },
+      "status": "n/a",
+      "producedBy": "T-023p-1C-2",
+      "measuredBy": null,
+      "notMeasurableReason": "There is no four-lane streaming scenario to measure. The flagship scenario, the ledger frame, the reveal engine, and the cast bar are T-023p-1C-2's; until they land there is no render path whose frames could be sampled, and a synthetic stand-in would measure the harness rather than the console.",
+      "notes": "Hardware-dependent: gates on the pinned CI runner class only, per `measurementProtocol.hardwareDependent`."
+    },
+    {
+      "id": "renderer-heap-at-rest",
+      "label": "Renderer heap, one session open at rest",
+      "subject": "Retained JavaScript heap with one session open and nothing streaming — the console's stores, projections, and persistence layer settled, after a forced garbage collection.",
+      "specTarget": "≤ 120 MB",
+      "limit": {
+        "comparison": "<=",
+        "value": 120,
+        "unit": "MB",
+        "canonicalValue": 120000000,
+        "canonicalUnit": "bytes"
+      },
+      "status": "enforced",
+      "producedBy": "T-023p-1C-8",
+      "measuredBy": "apps/desktop/test/console/endurance/heap-at-rest.test.ts",
+      "notes": "Deliberately NOT measured in a Node process. Until 2026-09-02 this row was `enforced` against `process.memoryUsage().heapUsed` in the budget CLI with a stand-in entity map retained — no Chromium, no renderer isolate, no React, no DOM, no console store — so the gate could report green over a renderer well past 120 MB, which is the one failure a budget exists to catch. It was then recorded `n/a` rather than re-pointed, because the subject was out of reach: nothing delivered events into a session store, so the only reading available was a renderer with an EMPTY session open. The fixture bridge now serves the growth port's session read and the scenario engine drives beats through the apply chokepoint into it, so the subject exists and the row is gated again — on the endurance tier, which launches the built console, opens the flagship scenario's own session, walks the frozen clock over the whole script, asserts the store admitted events through a live subscription, and reads `performance.memory.usedJSHeapSize` as the minimum over settling samples. That figure counts allocated-and-not-yet-collected bytes, so it sits at or above the retained heap this row bounds, which is the safe direction for a ceiling. The reading is a renderer isolate figure taken in the Electron shell in unobtrusive-window mode; the substrate floor recorded on 2026-09-02 with no session content was 6,564,912 B."
+    },
+    {
+      "id": "steady-heap-flagship-replay",
+      "label": "Steady heap, flagship replay",
+      "subject": "Renderer heap over a thirty-minute flagship replay — both its ceiling and its slope, since a heap that stays under the ceiling while climbing monotonically is still a leak.",
+      "specTarget": "flat over thirty minutes; ≤ 250 MB renderer heap",
+      "limit": {
+        "comparison": "<=",
+        "value": 250,
+        "unit": "MB",
+        "canonicalValue": 250000000,
+        "canonicalUnit": "bytes"
+      },
+      "additionalCriteria": [
+        "The heap is flat over the thirty-minute replay: no monotonic growth across the run's snapshot series."
+      ],
+      "status": "n/a",
+      "producedBy": "T-023p-1C-8",
+      "measuredBy": null,
+      "notMeasurableReason": "The endurance tier does not exist: no thirty-minute flagship replay, no CDP heap-snapshot helper, and no dated endurance ledger to record refutations in. The scenario it replays is additionally T-023p-1C-2's.",
+      "notes": "`Spec-023 §Console Test Tiers` places this on the endurance tier — heap snapshots captured by an own CDP helper, analyzed with memlab, results in a dated ledger."
+    },
+    {
+      "id": "idle-cpu",
+      "label": "Idle CPU, session open, nothing streaming",
+      "subject": "CPU consumed by the renderer with a session open and no stream running, averaged over sixty seconds — together with the assertion that no timer fires in that window except the refresh scheduler's deadline and the presence heartbeat.",
+      "specTarget": "≤ 0.5 % of one core averaged over sixty seconds; no timer fires except the refresh scheduler's deadline and the presence heartbeat",
+      "limit": {
+        "comparison": "<=",
+        "value": 0.5,
+        "unit": "percentOfOneCore",
+        "canonicalValue": 0.5,
+        "canonicalUnit": "percentOfOneCore"
+      },
+      "additionalCriteria": [
+        "No timer fires during the sixty-second window except the refresh scheduler's absolute deadline and the presence heartbeat."
+      ],
+      "status": "n/a",
+      "producedBy": "T-023p-1C-8",
+      "measuredBy": null,
+      "notMeasurableReason": "There is no session surface to open and no scheduler whose timers could be enumerated; the measurement runs the built bundle in the Electron shell against the flagship scenario (T-023p-1C-2) and is taken by the endurance reference run (T-023p-1C-8).",
+      "notes": "Hardware-dependent: gates on the pinned CI runner class only, per `measurementProtocol.hardwareDependent`. The timer-enumeration half is a tripwire on the architecture tier, not a number."
+    },
+    {
+      "id": "streaming-cpu-one-lane",
+      "label": "Streaming CPU, one lane",
+      "subject": "CPU consumed by the renderer while one agent lane streams into the ledger, together with the assertion that the reveal engine yields when the frame budget is spent rather than overrunning it.",
+      "specTarget": "≤ 15 % of one core on the reference machine; the reveal engine yields when the frame budget is spent",
+      "limit": {
+        "comparison": "<=",
+        "value": 15,
+        "unit": "percentOfOneCore",
+        "canonicalValue": 15,
+        "canonicalUnit": "percentOfOneCore"
+      },
+      "additionalCriteria": ["The reveal engine yields when the frame budget is spent."],
+      "status": "n/a",
+      "producedBy": "T-023p-1C-8",
+      "measuredBy": null,
+      "notMeasurableReason": "There is no reveal engine and no streaming lane. Both are T-023p-1C-2's; the measurement itself is the endurance reference run's at T-023p-1C-8.",
+      "notes": "Hardware-dependent: gates on the pinned CI runner class only, per `measurementProtocol.hardwareDependent`."
+    },
+    {
+      "id": "terminal-instance-memory",
+      "label": "Terminal instance",
+      "subject": "Retained memory of one `terminal` pane instance at the default scrollback — the `@xterm/xterm` instance, its WebGL renderer, and the pane's own state.",
+      "specTarget": "≤ 20 MiB at the default scrollback",
+      "limit": {
+        "comparison": "<=",
+        "value": 20,
+        "unit": "MiB",
+        "canonicalValue": 20971520,
+        "canonicalUnit": "bytes"
+      },
+      "status": "n/a",
+      "producedBy": "T-023p-1C-7",
+      "measuredBy": null,
+      "notMeasurableReason": "The `terminal` pane kind does not exist, and neither does the renderer pool whose per-instance cost this budget bounds. T-023p-1C-7 builds both over fixtures.",
+      "notes": "T-023p-1C-7 names this budget explicitly as the invariant it verifies (I-023-14, the per-terminal budget)."
+    },
+    {
+      "id": "time-to-first-ledger-row",
+      "label": "Time to first ledger row on launch",
+      "subject": "Elapsed time from window show to the first ledger row painted, in fixture mode against the frozen clock.",
+      "specTarget": "≤ 800 ms from window show, fixture mode",
+      "limit": {
+        "comparison": "<=",
+        "value": 800,
+        "unit": "ms",
+        "canonicalValue": 800,
+        "canonicalUnit": "ms"
+      },
+      "status": "n/a",
+      "producedBy": "T-023p-1C-2",
+      "measuredBy": null,
+      "notMeasurableReason": "There is no ledger row to paint. The ledger frame, its row primitives, and the flagship scenario the launch path replays are all T-023p-1C-2's.",
+      "notes": "Deterministic against the fixture's frozen clock, so it gates on any runner once the ledger exists — it is not one of the two hardware-dependent budgets."
+    }
+  ]
+}

@@ -102,6 +102,11 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
   // ships the probe; the default `electron-vite build` produces a release
   // artifact that tree-shakes the probe entirely. See header comment.
   const isSmokeBuild = mode === "smoke";
+  // `electron-vite build --mode=fixtures` produces the gallery/screenshot
+  // artifact, which serves the console from scripted scenarios instead of the
+  // preload bridge. Every other mode — the release build included — folds the
+  // fixture subtree away.
+  const isFixtureBuild = mode === "fixtures";
 
   return {
     main: {
@@ -112,6 +117,12 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
       // emitted code, dropping the probe body from the release bundle.
       define: {
         __SIDEKICKS_SMOKE_BUILD__: JSON.stringify(isSmokeBuild),
+        // The console's fixture gate reaches `main` too, because the scenario a
+        // fixture build plays is named by a launch environment variable that main
+        // reads and forwards onto the renderer document URL. Substituted the same
+        // way and for the same reason: a release main bundle folds the branch
+        // away, so it carries neither the environment read nor the query.
+        __SIDEKICKS_CONSOLE_FIXTURES__: JSON.stringify(isFixtureBuild),
       },
       build: {
         outDir: "out/main",
@@ -159,9 +170,61 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
           "X-Content-Type-Options": "nosniff",
         },
       },
+      // The console's fixture gate, beside the smoke gate above and for the same
+      // reason: a build-time literal, not a runtime flag.
+      //
+      // `Spec-023 §Console Design (Meridian)` §The fixture bridge makes the
+      // fixture `define`-gated. A runtime environment variable could not do this
+      // job — it would ship every scenario, the engine, and the manifest to
+      // users, charge them the bytes on every bundle-budget run, and leave a
+      // switch that flips the app into fixture data in production. As a literal,
+      // Rollup folds `if (false)` and drops the whole subtree, which the
+      // architecture tier asserts by grepping the release bundle for a scenario
+      // id.
+      //
+      // True only under `--mode=fixtures` (the gallery and screenshot builds) and
+      // in the Vitest console projects, which set the same define.
+      define: {
+        __SIDEKICKS_CONSOLE_FIXTURES__: JSON.stringify(isFixtureBuild),
+      },
       build: {
         outDir: "out/renderer",
         sourcemap: "hidden",
+        // Minified, because electron-vite is not Vite here.
+        //
+        // Vite's own production default is `minify: "esbuild"`; electron-vite
+        // OVERRIDES it to `false` for every target, on the reasoning that a
+        // desktop bundle is loaded from disk rather than over a network. That
+        // reasoning does not survive contact with this package: what shipped was
+        // the console's SOURCE TEXT — every comment in this tree, every
+        // identifier at full length — and the `renderer-initial-bundle` budget
+        // (`Spec-023 §Console Design (Meridian)` §Budgets row 1, ≤ 450 000 B
+        // gzip) was therefore gating an artifact nobody downloads. Measured on
+        // this branch: 443 585 B unminified against 244 546 B minified, so the
+        // budget was reading within 2 % of its ceiling on bytes the shipped app
+        // does not have.
+        //
+        // Source maps stay `hidden` above, so a stack trace is still resolvable
+        // by anyone holding the map and the bundle still carries no
+        // `sourceMappingURL` for anyone who is not.
+        minify: "esbuild",
+        // `.vite/manifest.json` — the chunk graph Rollup already computed to
+        // produce the chunks, written out on request. It carries `isEntry`,
+        // the STATIC `imports` of every chunk, its `dynamicImports`, its `css`,
+        // and its `assets`, which is exactly the initial-versus-lazy split
+        // `Spec-023 §Console Design (Meridian)` §Budgets row 1 bounds ("≤ 450 kB
+        // gzip, excluding lazy chunks"). `scripts/budget/measure-bundle.mts`
+        // reads it instead of re-deriving the graph from the emitted text: the
+        // bundler that made the split is the authority on it, and a second
+        // reader over minified output is a heuristic that can only ever agree
+        // with the manifest or be wrong.
+        //
+        // The manifest is build metadata, not a shipped asset — the renderer
+        // never fetches it (nothing links it, and the protocol handler serves
+        // only what `index.html` reaches) — so the budget harness excludes the
+        // whole `.vite/` directory from its inventory rather than classifying
+        // its own input.
+        manifest: true,
         rollupOptions: {
           input: {
             index: "src/renderer/index.html",

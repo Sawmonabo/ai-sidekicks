@@ -188,6 +188,26 @@ const CLI_SCRIPTS = [
     stdin: "{\n",
     env: { PR_TITLE: "chore(repo): entry-guard fixture", PR_BRANCH: "chore/entry-guard-fixture" },
   },
+  // The two console budget CLIs (`Spec-023 §Console Design (Meridian)`
+  // §Budgets; Plan-023 I-023-14). Both resolve the desktop package from
+  // `import.meta.url`, so a spaced or symlinked checkout is exactly the path
+  // this file pins, and a silent no-op is a green CI budget step over an unrun
+  // gate — for the heap CLI, whose budget is recorded ungated at this revision,
+  // over an unrun refusal that the registry has not re-declared a gate nothing
+  // measures. Both refuse an unknown argument with exit 2 — the bundle gate
+  // because it takes no arguments at all, the heap CLI through `parseArgs` —
+  // which is what makes a RUNNING script exit non-zero here regardless of
+  // whether the checkout behind the fixture symlink carries a built bundle.
+  {
+    relativePath: "apps/desktop/scripts/budget/measure-bundle.mts",
+    nodeOptions: ["--experimental-strip-types"],
+    args: () => ["--no-such-flag"],
+  },
+  {
+    relativePath: "apps/desktop/scripts/budget/measure-heap.mts",
+    nodeOptions: ["--experimental-strip-types"],
+    args: () => ["--no-such-flag"],
+  },
 ];
 
 // Node prints an ExperimentalWarning to stderr for `--experimental-strip-types`

@@ -75,6 +75,16 @@ venv/
 # Playwright MCP
 .playwright-mcp/
 
+# Browser-mode and Playwright run artifacts.
+#
+# `__screenshots__` is deliberately NOT here: the console screenshot tier keeps its
+# committed baselines there, and ignoring the directory would make every reference
+# image invisible to review. Failure captures are turned off at the config instead
+# (see `apps/desktop/vitest.config.ts`), so the directory means one thing.
+.vitest-attachments/
+playwright-report/
+test-results/
+
 # Explicitly track repo-local AI config and skills
 !.claude/
 !.claude/**

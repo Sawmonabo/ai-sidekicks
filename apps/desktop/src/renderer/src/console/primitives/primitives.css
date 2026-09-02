@@ -1,0 +1,614 @@
+/*
+ * Meridian primitives.
+ *
+ * Hand-authored, unlike `meridian.css` — that file is generated from
+ * `console/tokens/palette.ts` and carries only VALUES; this one carries only
+ * COMPOSITION and reads every value back out as a custom property. There is no
+ * literal colour below, and the two literal lengths that are not on the space scale
+ * (a 1 px hairline and a 2 px keycap lip) are optical corrections rather than
+ * layout, which is why they are not tokens.
+ *
+ * `Spec-023 §Console Design (Meridian)` governs every rule here:
+ *   • rule 1  — the ledger row: a 2 px attribution edge, a fixed gutter, one measure.
+ *   • rule 3  — the two-hue rule: amber means a person is needed, red means something
+ *               failed, one desaturated cyan on affordances, nothing else coloured.
+ *               Grep this file for `amber` and `red` and every hit is one of those
+ *               two meanings; that is the check.
+ *   • rule 4  — mono is the signature that a figure came from the wire.
+ *   • rule 5  — motion settles: 120-180 ms, ease-out, no overshoot. Every transition
+ *               below spends `--meridian-motion-quick` or `--meridian-motion-settle`.
+ *               `prefers-reduced-motion` is collapsed globally by the generated base
+ *               sheet, so nothing here re-implements it.
+ *   • rule 7  — density: secondary controls live in a row's hover footer.
+ *   • rule 8  — the five kinds of nothing render as five different shapes.
+ *   • rule 9  — the three refusal shapes: inline, card, banner.
+ */
+
+/* ------------------------------------------------------------------ shared */
+
+.meridian-visually-hidden {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/*
+ * One focus treatment for everything the primitives own. An outline rather than a
+ * box-shadow so it survives `overflow: hidden` ancestors, and `outline-offset` so it
+ * never sits on top of the control's own boundary — rule 3 puts the focus ring at
+ * 3:1 against ADJACENT colours, and a ring drawn over a border has no adjacent.
+ */
+.meridian-chip:focus-visible,
+.meridian-chord :focus-visible,
+.meridian-nothing :focus-visible,
+.meridian-refusal :focus-visible,
+.meridian-refusal__dismiss:focus-visible,
+.meridian-ledger-row :focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+/* ------------------------------------------------------------------- glyph */
+
+.meridian-glyph {
+  display: inline-block;
+  flex: none;
+  /* Optical, not layout: a 16 px square beside 14 px text sits a touch high on the
+     baseline until it is nudged down by an eighth of the em. */
+  vertical-align: -0.125em;
+}
+
+/* ----------------------------------------------------------------- figures */
+
+.meridian-figure {
+  font-variant-numeric: tabular-nums slashed-zero;
+}
+
+/*
+ * Rule 4: mono IS the provenance signature. Both classes of wire figure wear it —
+ * a byte-for-byte string and an `Intl`-formatted quantity — so a reader can tell at
+ * a glance which numbers on a screen the daemon actually sent.
+ *
+ * `user-select: text` is stated rather than inherited because a digest a person
+ * cannot select is a digest they have to retype, and console chrome elsewhere is
+ * routinely made unselectable.
+ */
+.meridian-figure--wire {
+  font-family: var(--meridian-font-mono);
+  /* Mono faces run optically larger than the sans face at the same px; a hair under
+     one em keeps a figure and its label on the same visual weight. */
+  font-size: 0.93em;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/*
+ * The console's own reading, never the wire's. Proportional and muted precisely so
+ * it cannot be mistaken for something the daemon said.
+ */
+.meridian-figure--derived {
+  color: var(--meridian-text-muted);
+}
+
+/* ------------------------------------------------------------------- chips */
+
+/*
+ * `box-sizing` is stated on every primitive that pairs a fixed size with a border.
+ * The generated base sheet sets no global `border-box` reset, and a token-driven
+ * height that silently grows by its own boundary is a row of chips that no longer
+ * shares a baseline with the text beside it.
+ */
+.meridian-chip {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  block-size: 1.375rem;
+  max-inline-size: 100%;
+  padding-inline: var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface);
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.meridian-chip__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.meridian-chip--mono .meridian-chip__label {
+  font-family: var(--meridian-font-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+}
+
+/* `neutral` is the common case and is the base rule above: no colour at all. */
+
+.meridian-chip--attention {
+  border-color: var(--meridian-amber-mark);
+  background: var(--meridian-amber-ground);
+  color: var(--meridian-amber-text);
+}
+
+.meridian-chip--failure {
+  border-color: var(--meridian-red-mark);
+  background: var(--meridian-red-ground);
+  color: var(--meridian-red-text);
+}
+
+.meridian-chip--accent {
+  border-color: var(--meridian-accent);
+  background: transparent;
+  color: var(--meridian-accent-text);
+}
+
+/* ------------------------------------------------------------------ chords */
+
+.meridian-chord {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-chord__group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.meridian-chord__key {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: 1.25rem;
+  block-size: 1.25rem;
+  padding-inline: var(--meridian-space-1);
+  border: 1px solid var(--meridian-edge-strong);
+  /* The one skeuomorphic touch in the console: a keycap has a lip, and two pixels of
+     it is the difference between "a key" and "a bordered word". */
+  border-block-end-width: 2px;
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text-muted);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  line-height: 1;
+}
+
+.meridian-chord__then {
+  margin-inline: var(--meridian-space-1);
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+/* ------------------------------------------------- the five kinds of nothing */
+
+/*
+ * Two shapes, five kinds, and the split between them is the split the markup makes:
+ * a kind supplies copy, a glyph, and a tone, and the PLACEMENT supplies the box
+ * those are carried in. So every layout rule below is scoped to one shape and every
+ * colour rule to neither — which is what lets `not-checked` keep the dotted boundary
+ * rule 8 names for it while standing in for a whole pane rather than a value.
+ *
+ * `--block`: an absence standing in for a surface that is not there. It carries only
+ * what all five blocks share; the measure each kind sits on is scoped beside it.
+ */
+.meridian-nothing--block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+/*
+ * `not-loaded`: a skeleton in the row's shape. The neutral inline-start edge is the
+ * ledger row's attribution edge with no attribution yet — which is exactly what is
+ * true while the read is in flight. Both belong to the row, so both are the block's.
+ */
+.meridian-nothing--block.meridian-nothing--not-loaded {
+  padding-block: var(--meridian-space-3);
+  padding-inline-start: var(--meridian-space-4);
+  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-edge);
+}
+
+.meridian-nothing__skeleton-bar {
+  block-size: 0.75rem;
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+  animation: meridian-skeleton-pulse 1100ms var(--meridian-ease-settle) infinite alternate;
+}
+
+@keyframes meridian-skeleton-pulse {
+  from {
+    opacity: 0.5;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+/* `empty`: a quiet line with the escape hatch. */
+.meridian-nothing--block.meridian-nothing--empty {
+  padding: var(--meridian-space-5) var(--meridian-space-4);
+}
+
+.meridian-nothing__title {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-md);
+}
+
+.meridian-nothing__detail {
+  /* A measure, not a column width: absence copy is prose and reads badly full-bleed. */
+  max-inline-size: 52ch;
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+  line-height: 1.55;
+}
+
+.meridian-nothing__action {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin-block-start: var(--meridian-space-1);
+}
+
+/* `error`: the red edge and ground are the kind's, at either shape. */
+.meridian-nothing--error {
+  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-red-mark);
+  background: var(--meridian-red-ground);
+}
+
+/* The row it becomes when it stands in for a surface. The two end-side radii only:
+   the start side is the red edge, and a radius there would round the mark itself. */
+.meridian-nothing--block.meridian-nothing--error {
+  padding: var(--meridian-space-3) var(--meridian-space-4);
+  border-start-end-radius: var(--meridian-radius-sm);
+  border-end-end-radius: var(--meridian-radius-sm);
+}
+
+.meridian-nothing--error .meridian-nothing__title,
+.meridian-nothing--error .meridian-nothing__badge-label {
+  color: var(--meridian-red-text);
+}
+
+.meridian-nothing--error .meridian-glyph {
+  color: var(--meridian-red-mark);
+}
+
+.meridian-nothing__message {
+  max-inline-size: 62ch;
+  margin: 0;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+  line-height: 1.55;
+}
+
+/*
+ * `--badge`: an absence that qualifies a value sitting beside it. Two of the five
+ * kinds are mounted here by default; all five render here when a caller says so.
+ */
+.meridian-nothing--badge {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  block-size: 1.375rem;
+  padding-inline: var(--meridian-space-2);
+  border-radius: var(--meridian-radius-sm);
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* One bar rather than three, and sized in text units because a badge has no measure
+   of its own for a percentage to be a fraction of. */
+.meridian-nothing--badge .meridian-nothing__skeleton-bar {
+  inline-size: 6ch;
+}
+
+/* Rule 8 names this one's treatment in terms: a dotted badge. Nobody asked; the
+   dotted boundary says the question is still open rather than answered "no". The
+   boundary is the kind's, so it survives into the block a whole-surface mount takes. */
+.meridian-nothing--not-checked {
+  border: 1px dotted var(--meridian-edge-strong);
+}
+
+.meridian-nothing--computing {
+  border: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface-sunken);
+}
+
+/* The two boundary-bearing kinds carry their border on all four sides, so in block
+   form the measure has to sit inside it — the other three either carry no boundary
+   or carry it on the one edge, where the block's own padding already clears it. */
+.meridian-nothing--block.meridian-nothing--not-checked,
+.meridian-nothing--block.meridian-nothing--computing {
+  box-sizing: border-box;
+  padding: var(--meridian-space-5) var(--meridian-space-4);
+  border-radius: var(--meridian-radius-sm);
+}
+
+/* --------------------------------------------------- the refusal grammar */
+
+.meridian-refusal__message {
+  margin: 0;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+  line-height: 1.55;
+}
+
+/* The code is the one red thing in a refusal: it is what the operator quotes. */
+.meridian-refusal .meridian-figure--wire {
+  color: var(--meridian-red-text);
+}
+
+.meridian-refusal .meridian-glyph {
+  flex: none;
+  color: var(--meridian-red-mark);
+}
+
+/* inline: nothing changed. It sits beside the control, and the control stays. */
+.meridian-refusal--inline {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin-block-start: var(--meridian-space-2);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-refusal--inline .meridian-refusal__message {
+  color: var(--meridian-text-muted);
+}
+
+/* card: the session's history now contains this refusal. */
+.meridian-refusal--card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-red-mark);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+}
+
+.meridian-refusal__head {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
+/*
+ * banner: what the whole room can do has changed, so it spans the frame.
+ *
+ * The span comes from being a block-level flex container, deliberately NOT from
+ * `inline-size: 100%` — with no global `border-box` reset that width plus the
+ * padding below overflows every container the banner is ever placed in.
+ */
+.meridian-refusal--banner {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-3);
+  padding: var(--meridian-space-2) var(--meridian-space-4);
+  border-block-end: 1px solid var(--meridian-edge);
+  background: var(--meridian-red-ground);
+}
+
+.meridian-refusal__body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  min-inline-size: 0;
+}
+
+.meridian-refusal__action {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-refusal__dismiss {
+  box-sizing: border-box;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  inline-size: 1.5rem;
+  block-size: 1.5rem;
+  margin-inline-start: auto;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+  transition:
+    background-color var(--meridian-motion-quick) var(--meridian-ease-settle),
+    color var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-refusal__dismiss:hover {
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+}
+
+/* The dismiss glyph is chrome, not the refusal's own red mark. */
+.meridian-refusal__dismiss .meridian-glyph {
+  color: currentcolor;
+}
+
+/* -------------------------------------------------------------- ledger row */
+
+/*
+ * Rule 1's shape, as a three-column grid: the 2 px edge, a fixed gutter, one measure.
+ * The edge spans both rows of the grid so a revealed footer does not leave a gap in
+ * the attribution — a ledger line is one line, footer or no footer.
+ */
+.meridian-ledger-row {
+  display: grid;
+  grid-template-areas:
+    "edge gutter body"
+    "edge gutter footer";
+  grid-template-columns: var(--meridian-attribution-edge) minmax(0, 9.5rem) minmax(0, 1fr);
+  column-gap: var(--meridian-space-3);
+  padding-block: var(--meridian-space-2);
+  padding-inline-end: var(--meridian-space-4);
+  transition: background-color var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-ledger-row:hover {
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-ledger-row__edge {
+  grid-area: edge;
+  border-radius: 1px;
+  background: var(--meridian-row-hue);
+}
+
+/*
+ * The four ring treatments, as four fill patterns down the edge's LENGTH.
+ *
+ * Past twelve participants the hue wheel wraps and `ParticipantRingTreatment` is the
+ * only thing keeping two people on one hue apart. A 2 px strip cannot carry a
+ * `double` border-style — CSS collapses it to a solid hairline — so varying the
+ * pattern along the edge is what preserves BOTH rule 1's width and rule 2's wrap
+ * disambiguation. Each pattern's period differs from every other, so two adjacent
+ * rows on the same hue are told apart by rhythm, not by squinting at a hairline.
+ */
+.meridian-ledger-row--dashed .meridian-ledger-row__edge {
+  background: repeating-linear-gradient(
+    to bottom,
+    var(--meridian-row-hue) 0 6px,
+    transparent 6px 10px
+  );
+}
+
+.meridian-ledger-row--double .meridian-ledger-row__edge {
+  background: repeating-linear-gradient(
+    to bottom,
+    var(--meridian-row-hue) 0 3px,
+    transparent 3px 5px,
+    var(--meridian-row-hue) 5px 8px,
+    transparent 8px 14px
+  );
+}
+
+.meridian-ledger-row--dotted .meridian-ledger-row__edge {
+  background: repeating-linear-gradient(
+    to bottom,
+    var(--meridian-row-hue) 0 2px,
+    transparent 2px 5px
+  );
+}
+
+/* No participant owns this row, so the edge reads as a boundary rather than an
+   identity. Dimmed, never coloured — a guess would be worse than an absence. */
+.meridian-ledger-row--unattributed .meridian-ledger-row__edge {
+  opacity: 0.6;
+}
+
+.meridian-ledger-row__gutter {
+  display: flex;
+  grid-area: gutter;
+  flex-direction: column;
+  gap: 2px;
+  min-inline-size: 0;
+}
+
+.meridian-ledger-row__actor {
+  overflow: hidden;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meridian-ledger-row__gutter .meridian-figure--wire {
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-ledger-row__body {
+  grid-area: body;
+  /* "Content in a single measure" — rule 1, literally. */
+  max-inline-size: 78ch;
+  min-inline-size: 0;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-md);
+  line-height: 1.55;
+}
+
+.meridian-ledger-row__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin-block-end: var(--meridian-space-1);
+}
+
+.meridian-ledger-row__kind .meridian-figure--wire {
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-ledger-row__superseded-mark {
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+/*
+ * A superseded turn is still part of the log — it is dimmed, never removed and never
+ * struck through, because the row still says what happened at the time it happened.
+ */
+.meridian-ledger-row--superseded .meridian-ledger-row__body {
+  opacity: 0.62;
+}
+
+.meridian-ledger-row--superseded .meridian-ledger-row__edge {
+  opacity: 0.45;
+}
+
+/*
+ * Rule 7: a row's secondary controls live in its hover footer, never as a second
+ * visible button. `:focus-within` is not an afterthought — without it the footer is
+ * unreachable by keyboard, and `pointer-events` is what stops an invisible control
+ * from swallowing a click. Tab reaches a `pointer-events: none` element perfectly
+ * well, so the keyboard path is unaffected by the pointer guard.
+ */
+.meridian-ledger-row__footer {
+  display: flex;
+  grid-area: footer;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin-block-start: var(--meridian-space-1);
+  opacity: 0;
+  transition: opacity var(--meridian-motion-quick) var(--meridian-ease-settle);
+  pointer-events: none;
+}
+
+.meridian-ledger-row:hover .meridian-ledger-row__footer,
+.meridian-ledger-row:focus-within .meridian-ledger-row__footer {
+  opacity: 1;
+  pointer-events: auto;
+}

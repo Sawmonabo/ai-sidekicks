@@ -112,8 +112,9 @@
 // `@ai-sidekicks/client-sdk` (the Node-side `runtimeNodeClient.ts` SDK) —
 // statically enforced via the `no-restricted-imports` rule in
 // apps/desktop/eslint.config.mjs. (The `@ai-sidekicks/client-sdk` ban is
-// by-convention at Tier 1; lint will not catch it until a renderer-targeted
-// entry lands at the Plan-023 Tier 8 hoist, per the SessionBootstrap header.)
+// structural since Plan-023 T-023p-1C-1 removed the package from this app's
+// manifest — the specifier no longer resolves here, per the SessionBootstrap
+// header.)
 
 import { useState } from "react";
 

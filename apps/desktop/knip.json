@@ -1,0 +1,68 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+
+  // Dead-code gate for `apps/desktop` (`Spec-023 §Console Libraries`, structure-enforcement
+  // row). knip resolves a set of entry points, then reports everything under `project` that no
+  // entry reaches, transitively. That is the whole claim this file makes.
+  //
+  // RUN IT FROM THE WORKSPACE ROOT — `pnpm --filter @ai-sidekicks/desktop structure:dead-code`
+  // does exactly that, via `--directory ../..`. The workspace keys below are therefore
+  // repo-root-relative. Running from the workspace root is not a preference: a package-scoped
+  // run cannot see the workspace-root `pnpm-workspace.yaml`, so every `catalog:` specifier
+  // reports unresolved, and it cannot see the root manifest, so `tsc` / `eslint` / `turbo`
+  // report as unlisted binaries. Both classes vanish here, and neither is silenced by an
+  // ignore entry.
+  //
+  // The root workspace is declared with empty globs on purpose: knip then reads its manifest
+  // for dependency resolution while contributing no findings of its own, and `--workspace
+  // apps/desktop` keeps the report scoped to this package.
+  "workspaces": {
+    ".": { "entry": [], "project": [] },
+
+    "apps/desktop": {
+      // NO `entry` DECLARATION, deliberately. knip's defaults already cover the three process
+      // entries (`src/main/index.ts`, `src/preload/index.ts`, `src/renderer/src/main.tsx`) and
+      // the two tool configs (`vitest.config.ts`, `electron.vite.config.ts`), and knip resolves
+      // the rest from this package's own manifest: a file named in a `scripts` entry is an
+      // entry, so `build/assert-webprefs.ts` and both `scripts/budget/measure-*.mts` are roots
+      // because the `build`, `budget:bundle`, and `budget:heap` scripts run them. Measured, not
+      // assumed — dropping the globs moved no file into `Unused files`.
+      //
+      // Declaring `scripts/**` as an entry glob instead would be actively worse: every helper
+      // under it becomes a root, so a dead export in `scripts/budget/budget-registry.mts` — a
+      // module nothing invokes by name — would be exempt rather than reported. It was, until
+      // this glob was removed; a planted export there is now caught.
+      //
+      // Listing the defaults again is drift the run refuses: `--treat-config-hints-as-errors`
+      // fails the gate on a redundant or unmatched pattern.
+
+      // `project` is the universe the entry set is measured against. `build/**` runs during
+      // `pnpm build`; `scripts/**` is invoked by name from a package script. Both trees are
+      // TypeScript today; the `.mjs` / `.cjs` arms stay anyway, because `apps/desktop/AGENTS.md`
+      // binds the TypeScript posture as a rule a reader follows, and a glob that could not see
+      // a JavaScript file would let one escape the gate silently rather than report it. A brace
+      // pattern is hinted on the whole pattern rather than per arm, so an arm matching nothing
+      // today costs nothing under `--treat-config-hints-as-errors`.
+      "project": [
+        "src/**/*.{ts,tsx}",
+        "build/**/*.{ts,mts,mjs,cjs}",
+        "scripts/**/*.{ts,mts,mjs,cjs}",
+        "test/**/*.{ts,tsx}"
+      ],
+
+      // The Vitest plugin reads the config and treats every project's `include` globs as
+      // entries, so a test file is a root and what it imports is reached. Without it every
+      // test file reports as an unused file and every test-only export as unused.
+      "vitest": { "config": ["vitest.config.ts"] },
+
+      // A same-file consumer counts as a consumer. Without this, every helper a module uses
+      // internally and also exports for its own co-located test reports as an unused export.
+      "ignoreExportsUsedInFile": true,
+
+      // `xdpyinfo` is an X11 host utility the Xvfb smoke helper probes with `spawnSync` on
+      // Linux runners (`test/helpers/electron-probe.ts`); it is installed by the CI job's apt
+      // step and is never a package dependency, so knip is told not to expect it in a manifest.
+      "ignoreBinaries": ["xdpyinfo"]
+    }
+  }
+}

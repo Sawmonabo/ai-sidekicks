@@ -405,38 +405,92 @@ jobs:
       # That residual is this concurrency, one level up, and it is what the two
       # steps below remove.
       #
-      # The package scripts are deliberately NOT changed: `pnpm test` in
-      # apps/desktop fans out to `test:renderer test:main-unit test:smoke`, so a
-      # developer's local command keeps its meaning and only CI's scheduling
-      # differs. The two negative filters below are both applied as exclusions
-      # rather than OR'd into a selection.
+      # The desktop step below enumerates the package's tiers one Turbo task
+      # group at a time rather than running the package's own `test`, because
+      # that is what makes the serialisation real. The two negative filters here
+      # are both applied as exclusions rather than OR'd into a selection.
       #
-      # The desktop step enumerates that fan-out one task at a time rather than
-      # running the package's own `test`, because that is what makes the
-      # serialisation real. The cost is that a vitest project added to
-      # `apps/desktop/vitest.config.ts` is NOT picked up here by construction:
-      # `main-unit` landed that way and for one push ran in `pnpm test` and in
-      # no required check, so every `src/main/**` and `build/**` unit — protocol
-      # containment, navigation policy, window hardening, startup ordering, load
-      # recovery — was unguarded on merge. A new project is added to the
-      # enumeration below in the PR that introduces it.
+      # The enumeration is deliberate and it has a known cost: a vitest project
+      # added to `apps/desktop/vitest.config.ts` is NOT picked up here by
+      # construction. `main-unit` landed that way and for one push ran in
+      # `pnpm test` and in no required check, so every `src/main/**` and
+      # `build/**` unit — protocol containment, navigation policy, window
+      # hardening, startup ordering, load recovery — was unguarded on merge.
+      # That cost is now paid by a checker rather than by a convention:
+      # `apps/desktop/test/console/architecture/ci-tier-coverage.test.ts` reads
+      # this file, resolves the real project set through `createVitest`, and
+      # fails when a project is named by no job `ci-gate` requires or is missing
+      # from the package's aggregate `test` script. A new project still joins the
+      # enumeration below in the PR that introduces it — that test is what makes
+      # forgetting it a red check instead of a silent gap.
       - name: Test (Node 22 tier — excluding control-plane and desktop)
         run: pnpm turbo run test --filter='!@ai-sidekicks/control-plane' --filter='!@ai-sidekicks/desktop' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
-      # The desktop package, alone on the runner, one vitest project at a time.
-      # `renderer` (happy-dom) and `main-unit` (node, a stubbed `electron`
-      # module, and one `node`-only spawn in `assert-webprefs.test.ts`) are both
-      # parallel-safe and neither starts a Chromium tree, but they run here
-      # anyway so the whole package lands in one place; `test:smoke` then runs
-      # with `--concurrency=1` so not even its own `build:smoke` dependency
-      # overlaps it. Nothing else is scheduled against any of the three.
-      - name: Test (desktop — renderer, main-unit, then the Electron smoke project serially)
+      # The three browser-mode console tiers drive a real Chromium through
+      # Vitest browser mode, and `pnpm install` downloads no browser. Only two of
+      # the three run on this job — the screenshot tier is pinned to its own
+      # macOS job, whose references this repository commits — but the download is
+      # one browser either way.
+      #
+      # `--with-deps` rather than a bare install: Playwright's own chromium build
+      # is not Electron's, and the supported way to satisfy its shared-library
+      # set on Ubuntu is the flag, which apt-installs exactly what the pinned
+      # revision names. Skipping it would trade a documented apt round trip for a
+      # loader error that surfaces as a red required check with no obvious cause.
+      - name: Install the Chromium build the console browser-mode tiers drive
+        run: pnpm --filter @ai-sidekicks/desktop exec playwright install --with-deps chromium
+
+      # The desktop package, alone on the runner, in the order the three build
+      # flavours allow. This mirrors `apps/desktop/package.json`'s aggregate
+      # `test` script group for group, and `ci-tier-coverage.test.ts` fails if
+      # the two drift apart.
+      #
+      # The ORDER is load-bearing rather than stylistic. `build`, `build:smoke`,
+      # and `build:fixtures` all write `apps/desktop/out/**` and differ in the
+      # `define` that decides what the console talks to, so a tier must run
+      # against the flavour its own Turbo edge produced and before the next
+      # flavour overwrites it. Groups, in order:
+      #
+      #   1. Source-only tiers — `renderer` (happy-dom), `main-unit` (node, a
+      #      stubbed `electron`, one `node`-only spawn), and the console `unit`,
+      #      `architecture`, and `assets` tiers. All parallel-safe, none starts a
+      #      Chromium tree, none builds.
+      #   2. The two browser-mode tiers, `--concurrency=1` so two headless
+      #      Chromium instances never share the runner. Neither builds.
+      #   3. The bundle tier, on the RELEASE build this job already made and
+      #      grepped above — it measures `out/renderer` against `budgets.json`
+      #      and asserts what a release bundle does not contain, so it must run
+      #      before any other flavour is written.
+      #   4. The Electron smoke project, `--concurrency=1` so not even its own
+      #      `build:smoke` dependency overlaps it.
+      #   5. The two Electron console tiers, on the FIXTURE build, one invocation
+      #      so `build:fixtures` runs once and `--concurrency=1` so only one
+      #      Electron process is alive at a time. Both drive a real window
+      #      through Playwright's `_electron` against the `$DISPLAY` the Xvfb
+      #      step above exported and the SUID sandbox helper it configured.
+      #
+      # Nothing else is scheduled against any of them.
+      - name: Test (desktop — source tiers, browser mode, then each build flavour serially)
         run: |
           set -euo pipefail
           cache_flag='${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}'
-          pnpm turbo run test:renderer --filter=@ai-sidekicks/desktop ${cache_flag}
-          pnpm turbo run test:main-unit --filter=@ai-sidekicks/desktop ${cache_flag}
+          pnpm turbo run test:renderer test:main-unit test:console-unit test:console-architecture test:console-assets --filter=@ai-sidekicks/desktop ${cache_flag}
+          pnpm turbo run test:console-browser test:console-accessibility --filter=@ai-sidekicks/desktop --concurrency=1 ${cache_flag}
+          pnpm turbo run test:console-bundle --filter=@ai-sidekicks/desktop --concurrency=1 ${cache_flag}
           pnpm turbo run test:smoke --filter=@ai-sidekicks/desktop --concurrency=1 ${cache_flag}
+          pnpm turbo run test:console-e2e test:console-endurance --filter=@ai-sidekicks/desktop --concurrency=1 ${cache_flag}
+
+      # The desktop structure gates (Plan-023 Phase 1C): `knip` for dead code, then
+      # `dependency-cruiser` for the import DAG. Both are scoped to `apps/desktop` — a desktop
+      # PR never sweeps the daemon or the control plane — and both fail this job, which
+      # `ci-gate` already depends on, so neither needs a new required check.
+      #
+      # Two tasks with `--continue` rather than one fused task: `knip` answers "does an entry
+      # point reach this?" and `dependency-cruiser` answers "is this import allowed to exist?",
+      # neither claim subsumes the other, and a sequential aggregate would hide the second
+      # leg's findings behind the first leg's exit code.
+      - name: Structure gates (apps/desktop — dead code + layering)
+        run: pnpm turbo run structure:dead-code structure:layering --filter=@ai-sidekicks/desktop --continue ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
       # Public-surface validation for the workspace libraries. Two complementary
       # linters run against the *packed* tarball (not the source tree), so they
@@ -990,10 +1044,103 @@ jobs:
           NODE
           node "${RUNNER_TEMP}/assert-native-prebuild.mjs"
 
+  # `Spec-023 §Console Test Tiers` — the console screenshot tier, on the ONE
+  # platform whose references this repository commits.
+  #
+  # Vitest keys a reference by browser AND platform, so a Linux or Windows run of
+  # this tier compares a fresh capture against a file that is not in the
+  # repository. What that does depends on the run's snapshot-update mode, and
+  # neither outcome is a gate: off CI it writes the missing reference into
+  # `__screenshots__` and fails once, so the NEXT run passes against an image
+  # nobody reviewed; on CI it fails every time, on an ephemeral checkout, forever.
+  # Committing a reference set per platform is the alternative, and it would mean
+  # every visual change reviewed three times over two images no one can
+  # regenerate locally.
+  #
+  # So the tier runs here and only here. `macos-15` rather than `macos-latest`
+  # because the reference is a rendering: font stack and rasteriser move with the
+  # image, and a floating label would silently re-point the comparison at a
+  # different renderer between one merge and the next. Moving this label is a
+  # deliberate act that comes with regenerating the references (`-u`) in the same
+  # PR — which is exactly what the tier's own fail-closed guard forces.
+  #
+  # THIS RUNNER IS THE BASELINE AUTHORITY. The committed references are the ones
+  # this job's image renders, and they are minted by running
+  # `.github/workflows/console-screenshot-baselines.yml` with `mode: regenerate`
+  # on the branch that changes them, then committing the artifact it uploads. A
+  # developer's own machine is a different macOS with a different system UI face
+  # (the console's sans stack falls through to it), so a local run is ADVISORY:
+  # green means it agrees with this image within the tier's stated pixel budget,
+  # and red on that budget alone means it does not — not that the change is
+  # wrong. Nothing but this runner mints a reference.
+  #
+  # The install is scoped to the desktop package and its workspace dependencies:
+  # this job runs one browser-mode Vitest project and needs nothing else built.
+  # `playwright install` is required because browser mode drives a real Chromium
+  # and the tier-1 job's own Chromium install does not reach this runner.
+  console-screenshot-macos:
+    name: console screenshot tier (macos-15)
+    runs-on: macos-15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        # SHA-pinned per ADR-023 §Axis 4; Renovate's helpers:pinGitHubActionDigests
+        # preset (renovate.json5) keeps this current.
+        uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
+        with:
+          version: 10.33.2
+          run_install: false
+
+      - name: Setup Node.js 22.14
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22.14"
+          cache: "pnpm"
+
+      - name: Install (desktop and its workspace dependencies only)
+        run: pnpm install --frozen-lockfile --filter "@ai-sidekicks/desktop..."
+
+      - name: Install the Chromium build browser mode drives
+        run: pnpm --filter @ai-sidekicks/desktop exec playwright install chromium
+
+      # The script pins `UPDATE_SNAPSHOT=none`, and the runner sets `CI`, so the
+      # mode is fail-closed twice over: a reference this checkout does not carry
+      # fails here and its candidate is written to the gitignored attachments
+      # directory rather than beside the committed set.
+      - name: Test (desktop — console screenshot tier)
+        run: pnpm --filter @ai-sidekicks/desktop run test:console-screenshot
+
+      # A mismatch is only actionable with the images. Vitest writes the
+      # reference / actual / diff triple into the attachments directory, which is
+      # gitignored precisely so it can be collected here instead.
+      #
+      # `include-hidden-files` is load-bearing, not belt-and-braces. The action
+      # skips any path segment beginning with a dot by default, and every file
+      # this step wants is under `.vitest-attachments/` — so without it the step
+      # runs, succeeds, and reports "No files were found with the provided path",
+      # which is what happened on run 33592834676 and is why the three mismatches
+      # on that run could not be looked at. `if-no-files-found: ignore` is kept
+      # because a failure with no attachments is a real case (the tier can fail
+      # on its own guards, which capture nothing), and it must not turn a red
+      # test into a red upload.
+      - name: Upload screenshot diffs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: console-screenshot-diffs
+          path: apps/desktop/.vitest-attachments/
+          include-hidden-files: true
+          retention-days: 14
+          if-no-files-found: ignore
+
   ci-gate:
     name: ci-gate
     runs-on: ubuntu-latest
-    needs: [test-node22, test-node24, hook-tests-macos, native-prebuilds]
+    needs: [test-node22, test-node24, hook-tests-macos, native-prebuilds, console-screenshot-macos]
     if: always()
     steps:
       - name: Aggregate required-checks status
@@ -1016,6 +1163,10 @@ jobs:
           fi
           if [[ "${{ needs.native-prebuilds.result }}" != "success" ]]; then
             echo "ci-gate: required job 'native-prebuilds' did not succeed (result=${{ needs.native-prebuilds.result }})"
+            fail=1
+          fi
+          if [[ "${{ needs.console-screenshot-macos.result }}" != "success" ]]; then
+            echo "ci-gate: required job 'console-screenshot-macos' did not succeed (result=${{ needs.console-screenshot-macos.result }})"
             fail=1
           fi
           if [[ $fail -ne 0 ]]; then

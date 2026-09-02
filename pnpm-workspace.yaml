@@ -96,3 +96,19 @@ catalogs:
     # runner bump is its own PR that edits both lines.
     vitest: 4.1.5
     "@vitest/coverage-v8": 4.1.5
+    # Plan-023 Phase 1C (T-023p-1C-1) — the console's browser tier per
+    # `Spec-023 §Console Test Tiers`. `@vitest/browser-playwright` declares the
+    # same EXACT peer on its runner (`peerDependencies: { vitest: "4.1.5" }`,
+    # verified 2026-09-01 against the published manifest) that
+    # `@vitest/coverage-v8` does, so it belongs in the lockstep set rather than
+    # carrying its own caret in `apps/desktop`. Its second peer, `playwright`,
+    # is `*` and is satisfied by that package's own `@playwright/test` pin.
+    "@vitest/browser-playwright": 4.1.5
+    # `@vitest/browser` is a transitive dependency of the provider above, but it
+    # is also declared DIRECTLY by `apps/desktop`, because the screenshot tier's
+    # `toMatchScreenshot` matcher is typed in `@vitest/browser/matchers` and a
+    # `types` entry must resolve against a package the consumer can see. Under
+    # pnpm's strict layout a transitive dependency is not visible, so without the
+    # direct declaration the tier runs and does not compile. Same exact peer on
+    # the runner, so the same lockstep set.
+    "@vitest/browser": 4.1.5

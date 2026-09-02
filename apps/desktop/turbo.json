@@ -2,16 +2,43 @@
   "$schema": "../../node_modules/turbo/schema.json",
   "extends": ["//"],
   "tasks": {
+    // --- The three build flavours ------------------------------------------
+    //
+    // All three write `out/**` and differ in exactly the `define` that decides
+    // what the console talks to and whether the main process carries its test
+    // probes. All three are therefore `cache: false`, and that is a correctness
+    // requirement rather than a preference: a Turborepo cache HIT restores the
+    // files it saved and does not empty the directory first, while a real run of
+    // `electron-vite build` does (Vite's `emptyOutDir`). So a cached restore
+    // layered over a sibling flavour's output leaves that sibling's
+    // content-hashed chunks in place beside the restored ones — measured
+    // 2026-09-02, where `test:console-bundle` replayed a cached `build` over a
+    // fixtures tree and `release-absence.test.ts` correctly found the fixture
+    // tripwire handle in the orphaned chunk. Running the build is what makes the
+    // flavour switch total.
     "build": {
       "inputs": ["src/**", "build/**", "electron.vite.config.ts", "tsconfig*.json", "package.json"],
-      "outputs": ["out/**", "dist/**", ".tsbuildinfo"]
+      "outputs": ["out/**", "dist/**", ".tsbuildinfo"],
+      "cache": false
     },
     "build:smoke": {
       "dependsOn": ["^build"],
       "inputs": ["src/**", "build/**", "electron.vite.config.ts", "tsconfig*.json", "package.json"],
-      "outputs": ["out/**", "dist/**"]
+      "outputs": ["out/**", "dist/**"],
+      "cache": false
+    },
+    "build:fixtures": {
+      // The console with its fixture bridge compiled in, for the two Electron
+      // tiers.
+      "dependsOn": ["^build"],
+      "inputs": ["src/**", "build/**", "electron.vite.config.ts", "tsconfig*.json", "package.json"],
+      "outputs": ["out/**", "dist/**"],
+      "cache": false
     },
     "typecheck": {
+      // `scripts/**` joins the input set at Plan-023 Phase 1C (T-023p-1C-1):
+      // the harnesses there are TypeScript now, and `tsconfig.scripts.json`
+      // typechecks them, so a change to one has to invalidate this task.
       "inputs": ["src/**", "test/**", "build/**", "scripts/**", "tsconfig*.json", "package.json"],
       "outputs": [".tsbuildinfo"]
     },
@@ -26,6 +53,40 @@
       ],
       "outputs": []
     },
+    // --- Structure gates (`Spec-023 §Console Libraries`, structure-enforcement row) -------
+    //
+    // Two tools, two disjoint claims, and deliberately TWO tasks rather than one fused gate.
+    // `knip` answers "does an entry point reach this?"; `dependency-cruiser` answers "is this
+    // import allowed to exist?". Neither subsumes the other — a dead module can be perfectly
+    // layered, and a layering violation can sit on a fully reachable path — and a single task
+    // running them in sequence would hide the second leg's findings behind the first leg's
+    // exit code. CI runs both with `--continue`, so one red leg never conceals the other.
+    //
+    // Cacheable, unlike the console test tiers: both legs read only files inside this package
+    // plus the workspace-root manifest and `pnpm-workspace.yaml`, and a change to either of
+    // those moves `pnpm-lock.yaml`, which Turborepo hashes globally.
+    "structure:dead-code": {
+      "inputs": [
+        "src/**",
+        "test/**",
+        "build/**",
+        "scripts/**",
+        "knip.json",
+        "vitest.config.ts",
+        "electron.vite.config.ts",
+        "tsconfig*.json",
+        "package.json"
+      ],
+      "outputs": []
+    },
+    // No `tsconfig*.json` here: the cruise resolves through an explicit extension list rather
+    // than `--ts-config`, so a tsconfig edit cannot change its result and must not bust its
+    // cache. `package.json` stays because the script that invokes it lives there.
+    "structure:layering": {
+      "inputs": ["src/**", "build/**", "scripts/**", ".dependency-cruiser.mjs", "package.json"],
+      "outputs": []
+    },
+
     "test:renderer": {
       "dependsOn": ["^build"],
       "inputs": [
@@ -66,12 +127,205 @@
     },
     "test:smoke": {
       "dependsOn": ["build:smoke"],
-      "inputs": ["test/**", "scripts/**", "vitest.config.*", "tsconfig*.json", "package.json"],
+      // Narrowed from `test/**` by Plan-023 Phase 1C: the console tiers under
+      // `test/console/**` are not this project's inputs, and leaving them here
+      // would invalidate the ~25-30 s smoke build on every console test edit.
+      // `scripts/materialize-electron.ts` is named because Phase 1B made this
+      // task run it; `scripts/**` would pull the budget harnesses in with it.
+      "inputs": [
+        "test/*.test.ts",
+        "scripts/materialize-electron.ts",
+        "vitest.config.*",
+        "tsconfig*.json",
+        "package.json"
+      ],
+      "outputs": [],
+      "cache": false
+    },
+
+    // --- Console test tiers (`Spec-023 §Console Test Tiers`) ----------------
+    //
+    // Each tier is its own task so a tier can be run, cached, and gated alone.
+    // `cache: false` throughout for the same reason the tasks above carry it:
+    // these assert against a tree state, and a cached pass would report on a
+    // tree that is no longer there.
+
+    "test:console-unit": {
+      "dependsOn": ["^build"],
+      "inputs": [
+        "src/renderer/src/console/**",
+        "vitest.config.*",
+        "tsconfig*.json",
+        "package.json"
+      ],
+      "outputs": [],
+      "cache": false
+    },
+    "test:console-architecture": {
+      // Reads source text rather than importing it, so it takes no build edge —
+      // but it reads ALL of `src`, not just the files it asserts about.
+      //
+      // `package.json` and the shared project resolver join the set because
+      // `ci-tier-coverage.test.ts` reads the package's own scripts and resolves
+      // the real Vitest projects through it. That tier also reads
+      // `.github/workflows/ci.yml`, which is outside this package and so cannot
+      // be named here; `cache: false` is what keeps that honest — a workflow edit
+      // can never be hidden behind a hash this list does not cover, because
+      // nothing here is ever restored from a cache.
+      "inputs": [
+        "src/**",
+        "test/console/architecture/**",
+        "test/console/vitest-projects.ts",
+        "vitest.config.*",
+        "package.json"
+      ],
+      "outputs": [],
+      "cache": false
+    },
+    "test:console-assets": {
+      "inputs": [
+        "src/renderer/src/console/**",
+        "test/console/assets/**",
+        "vitest.config.*",
+        "tsconfig*.json"
+      ],
+      "outputs": [],
+      "cache": false
+    },
+    "test:console-browser": {
+      "dependsOn": ["^build"],
+      "inputs": ["src/renderer/src/console/**", "test/console/browser/**", "vitest.config.*"],
+      "outputs": [],
+      "cache": false
+    },
+    "test:console-screenshot": {
+      "dependsOn": ["^build"],
+      "inputs": ["src/renderer/src/console/**", "test/console/screenshot/**", "vitest.config.*"],
+      "outputs": [],
+      "cache": false
+    },
+    "test:console-accessibility": {
+      "dependsOn": ["^build"],
+      "inputs": ["src/renderer/src/console/**", "test/console/accessibility/**", "vitest.config.*"],
+      "outputs": [],
+      "cache": false
+    },
+    "test:console-bundle": {
+      // The one console tier that measures a BUILD rather than a source tree.
+      // The `build` edge is load-bearing: the gate fails loudly when
+      // `out/renderer` is absent rather than skipping, and this edge is what
+      // makes the output present by construction.
+      "dependsOn": ["build"],
+      "inputs": [
+        "test/console/budget/**",
+        "scripts/budget/**",
+        "vitest.config.*",
+        "out/renderer/**"
+      ],
+      "outputs": [],
+      "cache": false
+    },
+    "test:console-e2e": {
+      // The one console tier that needs a FIXTURE build rather than a release
+      // one: it drives the console against the fixture bridge, which the release
+      // define folds out. The edge makes that bundle present by construction, so
+      // the tier's skip-with-a-message path stays a developer convenience rather
+      // than something CI can silently fall into.
+      "dependsOn": ["build:fixtures"],
+      "inputs": [
+        "src/renderer/src/console/**",
+        "src/main/**",
+        "test/console/e2e/**",
+        "test/console/electron-harness.ts",
+        "vitest.config.*",
+        "out/**"
+      ],
+      "outputs": [],
+      "cache": false
+    },
+    "test:console-endurance": {
+      // Same bundle, tens of seconds rather than milliseconds. Its own task
+      // rather than a slow file inside the end-to-end tier, so `test:console-e2e`
+      // stays a fast gate a person will run before pushing and the slow one is
+      // named separately — both are on the `test` aggregate, in its last group.
+      "dependsOn": ["build:fixtures"],
+      "inputs": [
+        "src/renderer/src/console/**",
+        "src/main/**",
+        "test/console/endurance/**",
+        "test/console/electron-harness.ts",
+        "vitest.config.*",
+        "out/**"
+      ],
+      "outputs": [],
+      "cache": false
+    },
+    "test:console-bench": {
+      // Not one of the nine tiers and deliberately not on the `test` aggregate:
+      // it records timings into a ledger a person reads. A benchmark that can
+      // fail a gate is a gate that fails on someone else's noisy laptop.
+      "inputs": ["test/console/bench/**", "vitest.config.*"],
+      "outputs": [],
+      "cache": false
+    },
+    // --- Scripts invoked by name (`scripts/**`) --------------------------------
+    //
+    // The three tools `package.json` declares as scripts. Each gets a task with
+    // `inputs` for the same reason every tier above does: run by name from a
+    // terminal, from CI, or from a `turbo run` that names it, with one declared
+    // input set rather than three implicit ones. All three are `cache: false` —
+    // they report on a tree or a build that is present now, and a cached pass
+    // would report on one that is not.
+
+    "budget:bundle": {
+      // Measures a BUILD, so it carries the same load-bearing edge the
+      // `test:console-bundle` tier does: the harness refuses loudly when
+      // `out/renderer` is absent rather than skipping, and this edge is what
+      // makes the output present by construction.
+      "dependsOn": ["build"],
+      "inputs": [
+        "scripts/budget/**",
+        "test/console/budget/budgets.json",
+        "out/renderer/**",
+        "package.json"
+      ],
+      "outputs": [],
+      "cache": false
+    },
+    "budget:heap": {
+      // No build edge: the row is declared `n/a` until its subject exists (see the
+      // registry's reason field), so the gate's own source and the registry are the
+      // whole input set.
+      "inputs": ["scripts/budget/**", "test/console/budget/budgets.json", "package.json"],
       "outputs": [],
       "cache": false
     },
     "test": {
-      "dependsOn": ["build:smoke"],
+      // Every tier a desktop PR is gated on, in the order the three build
+      // flavours allow, and the same order `.github/workflows/ci.yml` runs them
+      // in — a developer's `pnpm test` and the required check answer the same
+      // question. `ci-tier-coverage.test.ts` fails if the two sets drift.
+      //
+      // The ORDER is load-bearing and is why the script is a chain of `turbo run`
+      // invocations rather than one. `build`, `build:smoke`, and `build:fixtures`
+      // all write `out/**` and differ in the `define` that decides what the
+      // console talks to, so a single invocation would schedule them
+      // concurrently and hand a tier the wrong bundle: the bundle tier would
+      // measure a fixture build against a release budget, and its
+      // release-absence assertions would read a tree that legitimately contains
+      // what they refuse. Sequencing runs the source-only tiers first, then the
+      // browser-mode pair (which builds nothing), then release, smoke, and
+      // fixtures each with its own consumers.
+      //
+      // Two projects are deliberately absent and both are named, with their
+      // reason, in `ci-tier-coverage.test.ts`: `console-screenshot`, whose
+      // references are committed per platform and which runs in the pinned
+      // `console-screenshot-macos` job, and `console-bench`, which records
+      // timings into a ledger and gates nothing.
+      //
+      // No `dependsOn` of its own: every enumerated task declares the build edge
+      // it needs, and an aggregate-level edge would run a build outside the
+      // sequence above rather than inside it.
       "outputs": [],
       "cache": false
     }

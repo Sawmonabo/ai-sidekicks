@@ -1,0 +1,354 @@
+/* The frame's own styles.
+ *
+ * Every colour is a Meridian custom property, so the whole frame follows the scheme
+ * attribute without a single conditional in JSX. Every space is a step on the scale,
+ * so the rhythm is a decision made once in `tokens/palette.ts` rather than 40 times
+ * in components.
+ *
+ * The rail's width is the one hard-coded dimension here, and deliberately: it is a
+ * fixed 52px because the glyphs are 16px on a 36px hit target with equal margins,
+ * and a rail that reflowed with the type scale would move under a person's cursor
+ * when they changed the zoom.
+ */
+
+.meridian-frame {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  background: var(--meridian-ground);
+  color: var(--meridian-text);
+}
+
+.meridian-frame--auxiliary,
+.meridian-frame--bare {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* The shell's `inert` carrier while a modal overlay is open. See `AppFrame.tsx`.
+   `display: contents` for the same reason the boundary's remount carrier uses it:
+   the element exists to hold an attribute, and a box here would sit between the
+   frame's grid and the two children it places, so the rail would lose its 52px
+   track and the column its `minmax(0, 1fr)` one. Inertness is a property of the
+   node tree rather than of layout, so removing the box costs the attribute
+   nothing. */
+.meridian-frame__background {
+  display: contents;
+}
+
+.meridian-frame__column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.meridian-frame__banners {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3) var(--meridian-space-4) 0;
+}
+
+.meridian-frame__surface {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* The error boundary's remount carrier. See `ErrorBoundary.tsx` — it holds a React
+   key and must hold no box, or it truncates the surface's percentage-height chain. */
+.meridian-surface-mount {
+  display: contents;
+}
+
+/* --- Surface-scale absence ---------------------------------------------- */
+
+/*
+ * A route that resolves to no surface, composed as a deliberate state.
+ *
+ * A flex COLUMN with `justify-content: center`, not a grid with `place-items`. The
+ * grid version centres each row inside its own stretched track, which pushes the
+ * copy into the top half and the hint into the bottom half with a hundred pixels of
+ * nothing between two lines that belong together. Flex centring keeps the block
+ * whole.
+ *
+ * The extra `padding-block-end` sits the block slightly above the true centre for
+ * the reason every dialog does: dead-centre reads as low.
+ */
+.meridian-frame__absence {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+  padding: var(--meridian-space-6);
+  padding-block-end: calc(var(--meridian-space-6) * 2);
+  text-align: center;
+}
+
+/* Left-aligned inside a centred block: the title is one line and the detail is two
+   or three, and centred prose makes a reader re-find the left edge on every line. */
+.meridian-frame__absence-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  max-inline-size: 44rem;
+  text-align: start;
+}
+
+.meridian-frame__absence-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin: var(--meridian-space-5) 0 0;
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-sm);
+}
+
+/* --- Icon rail --------------------------------------------------------- */
+
+.meridian-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-block: var(--meridian-space-3);
+  border-right: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-rail__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-rail__item {
+  display: flex;
+}
+
+.meridian-rail__button {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: var(--meridian-radius-md);
+  background: transparent;
+  color: var(--meridian-text-muted);
+  cursor: default;
+  transition:
+    background-color var(--meridian-motion-quick) var(--meridian-ease-settle),
+    color var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-rail__button:hover {
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+}
+
+.meridian-rail__button:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-rail__button--current {
+  color: var(--meridian-accent-text);
+  background: var(--meridian-surface-raised);
+}
+
+/* The current-destination marker is a bar, not a fill: at 36px a filled square
+ * reads as a pressed button rather than a location, and the bar survives the
+ * two-hue rule because it is the one accent the rail is allowed. */
+.meridian-rail__button--current::before {
+  content: "";
+  position: absolute;
+  inset-block: 6px;
+  inset-inline-start: -8px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--meridian-accent);
+}
+
+/* Amber, and only here: something needs a person. */
+.meridian-rail__attention {
+  position: absolute;
+  inset-block-start: 6px;
+  inset-inline-end: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--meridian-amber-mark);
+}
+
+/* --- Surface failure ---------------------------------------------------- */
+
+.meridian-surface-failure {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  align-items: flex-start;
+  max-width: 46rem;
+  margin: var(--meridian-space-6) auto;
+  padding: var(--meridian-space-4);
+  border: 1px solid var(--meridian-red-mark);
+  border-radius: var(--meridian-radius-lg);
+  background: var(--meridian-red-ground);
+}
+
+.meridian-surface-failure__title {
+  margin: 0;
+  font-size: var(--meridian-text-md);
+  font-weight: 600;
+  color: var(--meridian-red-text);
+}
+
+.meridian-surface-failure__detail {
+  margin: 0;
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-surface-failure__action {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+  font: inherit;
+  cursor: default;
+}
+
+.meridian-surface-failure__action:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+/* --- Context picker ----------------------------------------------------- */
+
+.meridian-context-picker {
+  max-width: 40rem;
+  margin: var(--meridian-space-8) auto;
+  padding-inline: var(--meridian-space-4);
+}
+
+.meridian-context-picker__heading {
+  margin: 0 0 var(--meridian-space-4);
+  font-size: var(--meridian-text-xl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* The session already chosen, shown while the second step asks for the agent, so
+   the window never asks about a subject it has not named. */
+.meridian-context-picker__subject {
+  margin: 0 0 var(--meridian-space-4);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-context-picker__back {
+  margin-top: var(--meridian-space-4);
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+  font: inherit;
+  cursor: default;
+}
+
+.meridian-context-picker__back:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+/* --- Open-session list -------------------------------------------------- */
+
+/* One list, three surfaces: the sessions destination offers sessions to open in
+   place, and the auxiliary picker asks first which session a window should follow
+   and then which agent inside it. All three render the identical row, so the row
+   is styled once. */
+
+.meridian-choice-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-choice-list__choice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  width: 100%;
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-lg);
+  background: var(--meridian-surface);
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: default;
+  transition: border-color var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-choice-list__choice:hover {
+  border-color: var(--meridian-edge-strong);
+}
+
+.meridian-choice-list__choice:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+/* --- Sessions destination ----------------------------------------------- */
+
+.meridian-sessions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--meridian-space-4);
+  max-width: 40rem;
+  margin: var(--meridian-space-8) auto;
+  padding-inline: var(--meridian-space-4);
+}
+
+.meridian-sessions__heading {
+  margin: 0;
+  font-size: var(--meridian-text-xl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* The list is the one block that fills the measure; everything else on this
+   surface sits at its start edge. */
+.meridian-sessions .meridian-choice-list {
+  align-self: stretch;
+}
+
+.meridian-sessions__start {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+  font: inherit;
+  cursor: default;
+}
+
+.meridian-sessions__start:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-sessions__started {
+  align-self: stretch;
+}
