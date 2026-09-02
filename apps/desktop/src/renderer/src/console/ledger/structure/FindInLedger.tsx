@@ -8,9 +8,11 @@
 // THE BOUNDARY IS RENDERED, NOT REMEMBERED. `LEDGER_FIND_SCOPE_NOTE` is one string
 // in `find-model.ts` and this is its only renderer, so the field cannot ship
 // without the sentence and the sentence cannot drift from what the matcher
-// actually did. The "load earlier" affordance appears exactly when there are
-// earlier rows — offering it over a complete window would promise something the
-// press could not deliver.
+// actually did. The "load earlier" affordance appears when there are earlier rows
+// AND a caller can actually fetch them — offering it over a complete window, or
+// over a reader that has no way to page, would promise something the press could
+// not deliver. Absent rather than disabled, which is this console's rule for a
+// control whose act nobody can perform.
 //
 // COUNTS ARE THE CONSOLE'S OWN READING, not wire figures: "3 of 17" is derived by
 // this console from rows it holds, so it renders proportionally through
@@ -26,7 +28,16 @@ export interface FindInLedgerProps {
   readonly currentMatchIndex: number;
   readonly onQueryChange: (query: string) => void;
   readonly onStep: (direction: "next" | "previous") => void;
-  readonly onLoadEarlier: () => void;
+  /**
+   * Fetch the rows before the window's head.
+   *
+   * Optional, and its absence is the honest state today: no registered read pages
+   * a session's log backwards, so a caller with nothing to call supplies nothing
+   * and the affordance is not drawn. The boundary sentence is unaffected — the
+   * window is still partial, and saying so is the part that does not depend on
+   * anyone being able to do something about it.
+   */
+  readonly onLoadEarlier?: () => void;
   readonly onClose: () => void;
 }
 
@@ -36,6 +47,7 @@ export function FindInLedger(props: FindInLedgerProps): React.JSX.Element {
   const { result } = props;
   const hasQuery = result.query.length > 0;
   const hasMatches = result.matches.length > 0;
+  const onLoadEarlier = props.onLoadEarlier;
 
   return (
     <div className="meridian-find" role="search">
@@ -90,12 +102,8 @@ export function FindInLedger(props: FindInLedgerProps): React.JSX.Element {
 
       <p className="meridian-find__scope">
         <span>{LEDGER_FIND_SCOPE_NOTE}</span>
-        {result.hasEarlierRows ? (
-          <button
-            type="button"
-            className="meridian-find__load-earlier"
-            onClick={props.onLoadEarlier}
-          >
+        {result.hasEarlierRows && onLoadEarlier !== undefined ? (
+          <button type="button" className="meridian-find__load-earlier" onClick={onLoadEarlier}>
             Load earlier
           </button>
         ) : null}

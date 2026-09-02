@@ -55,8 +55,15 @@ export interface ProvenanceRailProps {
   readonly isFollowing: boolean;
   /** Jump through the ledger's scroll chokepoint. The rail never scrolls anything itself. */
   readonly onJumpToRow: (rowId: string) => void;
-  /** Ask the ledger for rows before the window's head. */
-  readonly onLoadEarlier: () => void;
+  /**
+   * Ask the ledger for rows before the window's head.
+   *
+   * Optional, because no registered read pages a session's log backwards today: a
+   * caller with nothing to call supplies nothing and no button is drawn. The
+   * dotted segment does NOT depend on it — the clip is a fact about the window and
+   * §5.4 requires it drawn whether or not anybody can act on it.
+   */
+  readonly onLoadEarlier?: () => void;
   /**
    * The session's hue allocation, for the marks §5.4 gives the actor's hue.
    *
@@ -232,7 +239,7 @@ export function ProvenanceRail(props: ProvenanceRailProps): React.JSX.Element {
         />
         {props.isFollowing ? <span className="meridian-rail__live" aria-hidden="true" /> : null}
       </div>
-      {railModel.clip.hasUnloadedExtent ? (
+      {railModel.clip.hasUnloadedExtent && onLoadEarlier !== undefined ? (
         <button type="button" className="meridian-rail__load-earlier" onClick={onLoadEarlier}>
           Load earlier
         </button>
