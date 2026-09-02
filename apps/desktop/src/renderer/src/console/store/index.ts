@@ -36,6 +36,15 @@ export { FrameStore } from "./frame-store.js";
 
 export { SessionStoreRegistry, type SessionSnapshotReader } from "./session-store-registry.js";
 
+// The refresh chokepoint, on the family door because the rule it realises binds
+// every family above this one: `Spec-023 §Console Design (Meridian)` §The eight
+// rules puts every read behind one scheduler, and a view family that could not
+// reach it through this barrel would have to arm a timer of its own — which is
+// exactly what the rule forbids. `ApplyQueue` stays off the door: its only caller
+// is `SessionStoreRegistry`, and a second one would be a second writer into the
+// apply chokepoint.
+export { RefreshScheduler, type RefreshReason } from "./scheduling.js";
+
 // `useSessionPartition` joins the door with its first cross-family consumer: the
 // composer reads the `agent`, `run`, and `channel` partitions to resolve what a
 // send is addressed to. It is the partitioned subscription rule 6 asks for — a

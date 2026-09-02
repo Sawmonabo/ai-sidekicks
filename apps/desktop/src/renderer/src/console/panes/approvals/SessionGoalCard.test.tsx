@@ -1,0 +1,176 @@
+// The goal card: no control without a role, no optimism, and clearing is its own act.
+//
+// Three of the five rules are only checkable here, because each is the ABSENCE of
+// something a card like this usually has — a control offered to everyone, a text
+// field that keeps showing what you typed after you sent it, and a single control
+// whose empty value means "clear".
+
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+
+import { SessionGoalCard } from "./SessionGoalCard.js";
+import { refuse } from "../../core/index.js";
+import { type SessionGoalProjection } from "./session-goal.js";
+
+const NO_GOAL: SessionGoalProjection = { status: "none" };
+const A_GOAL: SessionGoalProjection = { status: "set", text: "Ship the approvals pane" };
+
+function renderCard(
+  overrides: {
+    goal?: SessionGoalProjection;
+    canMutate?: boolean | undefined;
+    isMutating?: boolean;
+    onUpdate?: (text: string) => void;
+    onClear?: () => void;
+  } = {},
+): { rerender: (goal: SessionGoalProjection) => void } {
+  const props = {
+    goal: overrides.goal ?? NO_GOAL,
+    canMutate: "canMutate" in overrides ? overrides.canMutate : true,
+    isMutating: overrides.isMutating ?? false,
+    refusal: undefined,
+    onUpdate: overrides.onUpdate ?? vi.fn(),
+    onClear: overrides.onClear ?? vi.fn(),
+  };
+  const view = render(<SessionGoalCard {...props} />);
+  return {
+    rerender: (goal) => {
+      view.rerender(<SessionGoalCard {...props} goal={goal} />);
+    },
+  };
+}
+
+describe("eligibility is supplied, never derived", () => {
+  it("offers no control at all when the role has not been read", () => {
+    renderCard({ canMutate: undefined });
+    expect(screen.queryByRole("button")).toBeNull();
+    // The reading is still there — a read-only participant sees the goal, they
+    // just cannot change it.
+    expect(screen.getByText("No goal set")).not.toBeNull();
+  });
+
+  it("offers no control to a role that may not mutate", () => {
+    renderCard({ canMutate: false, goal: A_GOAL });
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.getByText("Ship the approvals pane")).not.toBeNull();
+  });
+
+  it("negative control: a role that may mutate is offered one", () => {
+    renderCard({ canMutate: true, goal: A_GOAL });
+    expect(screen.getByRole("button", { name: "Change goal" })).not.toBeNull();
+  });
+});
+
+describe("setting and clearing are two acts", () => {
+  it("names the act after the current state, and prefills from the log", () => {
+    renderCard({ goal: A_GOAL });
+    fireEvent.click(screen.getByRole("button", { name: "Change goal" }));
+    const field = screen.getByRole("textbox");
+    expect((field as HTMLTextAreaElement).value).toBe("Ship the approvals pane");
+  });
+
+  it("keeps the clear action inside the editor and never beside the reading", () => {
+    renderCard({ goal: A_GOAL });
+    expect(screen.queryByRole("button", { name: "Clear the goal" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Change goal" }));
+    expect(screen.getByRole("button", { name: "Clear the goal" })).not.toBeNull();
+  });
+
+  it("cannot clear a goal that is not set", () => {
+    renderCard({ goal: NO_GOAL });
+    fireEvent.click(screen.getByRole("button", { name: "Set a goal" }));
+    const clear = screen.getByRole("button", { name: "Clear the goal" });
+    expect((clear as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("sends the typed text on save, and calls the clear operation on clear", () => {
+    const onUpdate = vi.fn();
+    const onClear = vi.fn();
+    renderCard({ goal: A_GOAL, onUpdate, onClear });
+    fireEvent.click(screen.getByRole("button", { name: "Change goal" }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "A different goal" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save goal" }));
+    expect(onUpdate.mock.calls).toStrictEqual([["A different goal"]]);
+    fireEvent.click(screen.getByRole("button", { name: "Clear the goal" }));
+    expect(onClear).toHaveBeenCalledTimes(1);
+    // Two operations, two handlers — a clear never travels as an empty update.
+    expect(onUpdate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the field refuses on the daemon's own rule", () => {
+  it("will not send blank text, and says why", () => {
+    const onUpdate = vi.fn();
+    renderCard({ goal: A_GOAL, onUpdate });
+    fireEvent.click(screen.getByRole("button", { name: "Change goal" }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "   " } });
+    const save = screen.getByRole("button", { name: "Save goal" });
+    expect((save as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(save);
+    expect(onUpdate).not.toHaveBeenCalled();
+    expect(screen.getByText("A goal cannot be blank.")).not.toBeNull();
+  });
+
+  it("negative control: valid text enables the save and carries no complaint", () => {
+    renderCard({ goal: A_GOAL });
+    fireEvent.click(screen.getByRole("button", { name: "Change goal" }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Something sendable" } });
+    expect((screen.getByRole("button", { name: "Save goal" }) as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+    expect(screen.queryByText("A goal cannot be blank.")).toBeNull();
+  });
+});
+
+describe("nothing is optimistic", () => {
+  it("closes the editor when the log moves, not when a reply lands", () => {
+    const view = renderCard({ goal: NO_GOAL });
+    fireEvent.click(screen.getByRole("button", { name: "Set a goal" }));
+    expect(screen.getByRole("textbox")).not.toBeNull();
+    // The editor is still open across a re-render that did NOT move the fold: a
+    // reply is not a commit, and closing here would show text the log lacks.
+    view.rerender(NO_GOAL);
+    expect(screen.queryByRole("textbox")).not.toBeNull();
+    view.rerender(A_GOAL);
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.getByText("Ship the approvals pane")).not.toBeNull();
+  });
+
+  it("says the change is settling while it is in flight", () => {
+    renderCard({ goal: A_GOAL, isMutating: true });
+    expect(screen.getByText("The goal change is settling.")).not.toBeNull();
+  });
+
+  it("states the turn boundary rather than implying it", () => {
+    renderCard({ goal: A_GOAL });
+    fireEvent.click(screen.getByRole("button", { name: "Change goal" }));
+    expect(screen.getByText(/next turn boundary/u)).not.toBeNull();
+    expect(screen.getByText(/remote leg may run a turn under the previous goal/u)).not.toBeNull();
+  });
+});
+
+describe("the readings that are not a goal", () => {
+  it("says no goal is set rather than showing an empty line", () => {
+    renderCard({ goal: NO_GOAL });
+    expect(screen.getByText("No goal set")).not.toBeNull();
+  });
+
+  it("says the latest goal event could not be read", () => {
+    renderCard({ goal: { status: "unreadable" } });
+    expect(screen.getByText("The latest goal event could not be read.")).not.toBeNull();
+  });
+
+  it("renders a refusal beside the card", () => {
+    render(
+      <SessionGoalCard
+        goal={A_GOAL}
+        canMutate
+        isMutating={false}
+        refusal={refuse("session-goal", "goal_mutation_in_flight", "A goal change is settling.")}
+        onUpdate={vi.fn()}
+        onClear={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("goal_mutation_in_flight")).not.toBeNull();
+  });
+});

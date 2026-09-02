@@ -1,0 +1,513 @@
+/* The approvals pane's sheet. Imported by `panes/approvals/index.ts` — the pane's
+   single door — so a body can no more arrive without its CSS than a primitive can,
+   and the seat board six branches each replace one line in is never touched.
+
+   Every colour, space, and radius is a Meridian token. Nothing here spends a hue:
+   the pending state's amber and a refusal's red arrive through `Chip` and
+   `Refusal`, which own those two marks. */
+
+.meridian-approvals {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-5);
+  min-width: 0;
+}
+
+.meridian-approvals__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+}
+
+.meridian-approvals__heading {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.meridian-approvals__barrier-note,
+.meridian-approvals__unreadable {
+  max-width: 68ch;
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  line-height: 1.5;
+}
+
+.meridian-approvals__cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  min-width: 0;
+}
+
+/* --- one card ---------------------------------------------------------- */
+
+.meridian-approval-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+  padding: var(--meridian-space-3);
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+}
+
+.meridian-approval-card__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  min-width: 0;
+}
+
+.meridian-approval-card__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-md);
+  font-weight: 500;
+}
+
+/* Dense by design: category, actor, scope and expiry read on one screen, and the
+   descriptor and audit metadata are one click away rather than laid out flat. */
+.meridian-approval-card__facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: var(--meridian-space-2) var(--meridian-space-4);
+  margin: 0;
+}
+
+.meridian-approval-card__facts--resolved {
+  padding-top: var(--meridian-space-2);
+  border-top: 1px solid var(--meridian-edge);
+}
+
+.meridian-approval-card__fact {
+  min-width: 0;
+}
+
+.meridian-approval-card__fact dt {
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-approval-card__fact dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.meridian-approval-card__incomplete {
+  margin: 0;
+  color: var(--meridian-amber-text);
+  font-size: var(--meridian-text-xs);
+  line-height: 1.5;
+}
+
+.meridian-approval-card__disclosure-trigger,
+.meridian-callback-tools__schema-trigger {
+  padding: var(--meridian-space-1) 0;
+  color: var(--meridian-text-muted);
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.meridian-approval-card__disclosure-trigger:hover,
+.meridian-callback-tools__schema-trigger:hover {
+  color: var(--meridian-text);
+}
+
+.meridian-approval-card__disclosure-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  padding: var(--meridian-space-2);
+  background: var(--meridian-surface-sunken);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-approval-card__resource,
+.meridian-approval-card__audit {
+  display: flex;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.meridian-approval-card__remember-note {
+  max-width: 62ch;
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  line-height: 1.5;
+}
+
+.meridian-approval-card__opt-in {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-approval-card__checkbox {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  padding: 0;
+  background: var(--meridian-surface);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+  cursor: pointer;
+}
+
+.meridian-approval-card__checkbox-mark {
+  width: 0.5rem;
+  height: 0.5rem;
+  background: var(--meridian-accent);
+  border-radius: 1px;
+}
+
+.meridian-approval-card__scope-trigger,
+.meridian-approval-card__action,
+.meridian-grants__revoke,
+.meridian-grants__cancel,
+.meridian-goal__open,
+.meridian-goal__save,
+.meridian-goal__clear,
+.meridian-goal__cancel {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  color: var(--meridian-text);
+  font: inherit;
+  font-size: var(--meridian-text-sm);
+  background: var(--meridian-surface);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+  cursor: pointer;
+}
+
+.meridian-approval-card__scope-popup {
+  padding: var(--meridian-space-1);
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-approval-card__scope-item {
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border-radius: var(--meridian-radius-sm);
+  cursor: pointer;
+}
+
+/* One primary action per surface: approve carries the accent, reject is quiet
+   chrome. Reject is never red — a rejection is the console working. */
+.meridian-approval-card__actions {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+}
+
+.meridian-approval-card__action--approve {
+  color: var(--meridian-accent-text);
+  background: var(--meridian-accent);
+  border-color: var(--meridian-accent);
+}
+
+.meridian-approval-card__action:disabled,
+.meridian-goal__save:disabled,
+.meridian-goal__clear:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.meridian-approval-card__action:focus-visible,
+.meridian-grants__revoke:focus-visible,
+.meridian-grants__cancel:focus-visible,
+.meridian-goal__open:focus-visible,
+.meridian-goal__save:focus-visible,
+.meridian-goal__clear:focus-visible,
+.meridian-goal__cancel:focus-visible,
+.meridian-approval-card__disclosure-trigger:focus-visible,
+.meridian-approval-card__scope-trigger:focus-visible,
+.meridian-callback-tools__schema-trigger:focus-visible,
+.meridian-goal__field:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+/* --- the permission ask ------------------------------------------------ */
+
+.meridian-approval-ask__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  padding: var(--meridian-space-2);
+  background: var(--meridian-surface-sunken);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-approval-ask__origin,
+.meridian-approval-ask__expiry-outcome {
+  max-width: 68ch;
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  line-height: 1.5;
+}
+
+.meridian-approval-ask__input {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.meridian-approval-ask__missing {
+  margin: 0;
+  color: var(--meridian-amber-text);
+  font-size: var(--meridian-text-xs);
+}
+
+/* --- standing permissions ---------------------------------------------- */
+
+.meridian-grants__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-grants__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  padding: var(--meridian-space-2);
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+}
+
+/* A revoked rule is labelled rather than filtered out, so it reads as history:
+   quieter, never hidden. */
+.meridian-grants__row--revoked {
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-grants__line,
+.meridian-grants__detail,
+.meridian-grants__confirm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  min-width: 0;
+}
+
+.meridian-grants__detail,
+.meridian-grants__revoked,
+.meridian-grants__confirm-copy {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-grants__unreadable {
+  margin: 0;
+  color: var(--meridian-amber-text);
+  font-size: var(--meridian-text-xs);
+}
+
+/* --- execution posture -------------------------------------------------- */
+
+.meridian-posture {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+}
+
+/* Configured intent is visibly not a stamped boundary: a dashed edge says the
+   difference before any copy does. */
+.meridian-posture--intent {
+  border-style: dashed;
+}
+
+.meridian-posture__line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: center;
+}
+
+.meridian-posture__facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: var(--meridian-space-2) var(--meridian-space-4);
+  margin: 0;
+}
+
+.meridian-posture__fact dt {
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-posture__fact dd {
+  margin: 0;
+}
+
+.meridian-posture__roots,
+.meridian-posture__domains,
+.meridian-callback-tools__schema-keys {
+  margin: 0;
+  padding: 0;
+  overflow-wrap: anywhere;
+  list-style: none;
+}
+
+.meridian-posture__caveat {
+  max-width: 68ch;
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  line-height: 1.5;
+}
+
+/* --- daemon-hosted tools ------------------------------------------------ */
+
+.meridian-callback-tools {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-callback-tools__note {
+  max-width: 68ch;
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  line-height: 1.5;
+}
+
+.meridian-callback-tools__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-callback-tools__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-callback-tools__line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: center;
+}
+
+.meridian-callback-tools__description {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+}
+
+/* --- the session goal --------------------------------------------------- */
+
+.meridian-goal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+}
+
+.meridian-goal__line {
+  display: flex;
+  gap: var(--meridian-space-3);
+  align-items: baseline;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+/* One measure, clamped to one line: the goal is a heading for the session, not a
+   paragraph competing with the work. */
+.meridian-goal__text {
+  min-width: 0;
+  max-width: 72ch;
+  margin: 0;
+  overflow: hidden;
+  color: var(--meridian-text);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.meridian-goal__editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-goal__label {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-goal__field {
+  min-height: 5rem;
+  padding: var(--meridian-space-2);
+  color: var(--meridian-text);
+  font: inherit;
+  background: var(--meridian-surface);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+  resize: vertical;
+}
+
+.meridian-goal__effectiveness {
+  max-width: 68ch;
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  line-height: 1.5;
+}
+
+.meridian-goal__invalid {
+  margin: 0;
+  color: var(--meridian-red-text);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-goal__actions {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+}
+
+.meridian-goal__save {
+  color: var(--meridian-accent-text);
+  background: var(--meridian-accent);
+  border-color: var(--meridian-accent);
+}
