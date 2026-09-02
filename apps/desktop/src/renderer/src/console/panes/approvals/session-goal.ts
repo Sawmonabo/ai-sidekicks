@@ -32,6 +32,12 @@ export const SESSION_GOAL_CLEAR_METHOD = "session.goalClear";
 /** The two projection sources, wire-verbatim. */
 export const SESSION_GOAL_EVENT_KINDS = ["session.goal_updated", "session.goal_cleared"] as const;
 
+/** The same closed set as a lookup, so the fold tests membership once per entry. */
+const GOAL_EVENT_KINDS: ReadonlySet<string> = new Set<string>(SESSION_GOAL_EVENT_KINDS);
+
+/** The clearing arm, derived rather than restated, so the two kinds are declared once. */
+const [, SESSION_GOAL_CLEARED_EVENT_KIND] = SESSION_GOAL_EVENT_KINDS;
+
 /** The code point the bound rejects, written as an escape so no file carries one. */
 const NUL_CODE_POINT = "\u0000";
 
@@ -65,28 +71,66 @@ const goalPayloadSchema = z.object({ goal: z.object({ text: z.string() }) });
 /**
  * Fold the log's goal events into the current goal.
  *
- * Walks BACKWARDS and stops at the first goal event, because the fold's answer is
- * "whatever the latest one says" and reading the whole log to answer it would cost
- * the length of the session on every render.
+ * Reads EVERY goal event and ranks them, because arrival order is not authorship
+ * order. A relayed event is appended to this timeline when it reaches this node, so
+ * its local `sequence` records when it arrived here and not when it was written: a
+ * delayed update can land after one authored later and overwrite it, and a clear can
+ * lose to an update it preceded. A fold that stopped at the newest local position
+ * would answer with whichever event happened to arrive last.
+ *
+ * The ranking is the wire's `occurredAt`, newest wins, with the session's own local
+ * `sequence` breaking an exact-instant tie — a real order the store maintains rather
+ * than one this module invented, and the same two-clause rule the composer's rate
+ * readings already rank on. BOTH kinds compete in the one ranking, so a clear newer
+ * than an update wins and an update newer than a clear wins.
+ *
+ * There is no event-id tiebreak below the instant. The corpus's cross-origin rule
+ * breaks an identical instant on the envelope's `id`, and the store's projected
+ * event shape (`ConsoleSessionEvent`) carries no `id` — a fact about what this
+ * renderer is handed, not a deferral. Local `sequence` is the order it does carry.
+ *
+ * An unparseable `occurredAt` never beats a parseable one: letting an unreadable
+ * stamp overwrite a reading the console knows is real is the direction that loses
+ * information, so the fold fails closed toward the readable event.
  */
 export function foldSessionGoal(timeline: readonly ConsoleSessionEvent[]): SessionGoalProjection {
-  for (let position = timeline.length - 1; position >= 0; position -= 1) {
-    const entry = timeline[position];
-    if (entry === undefined) {
+  let winner: ConsoleSessionEvent | undefined;
+  for (const entry of timeline) {
+    if (!GOAL_EVENT_KINDS.has(entry.kind)) {
       continue;
     }
-    if (entry.kind === "session.goal_cleared") {
-      return { status: "none" };
+    if (winner === undefined || supersedes(entry, winner)) {
+      winner = entry;
     }
-    if (entry.kind !== "session.goal_updated") {
-      continue;
-    }
-    const parsed = goalPayloadSchema.safeParse(entry.payload);
-    return parsed.success
-      ? { status: "set", text: parsed.data.goal.text }
-      : { status: "unreadable" };
   }
-  return { status: "none" };
+  if (winner === undefined || winner.kind === SESSION_GOAL_CLEARED_EVENT_KIND) {
+    return { status: "none" };
+  }
+  const parsed = goalPayloadSchema.safeParse(winner.payload);
+  return parsed.success ? { status: "set", text: parsed.data.goal.text } : { status: "unreadable" };
+}
+
+/**
+ * Whether one goal event is a later reading of the register than another.
+ *
+ * Both `occurredAt` values are ISO-8601 on the wire, so both ordinarily parse; a
+ * candidate whose stamp does not answers `false` and keeps the held event, and a
+ * candidate whose stamp does parse displaces a held one whose does not. Two
+ * unreadable stamps carry no order at all, so the held reading stands.
+ */
+function supersedes(candidate: ConsoleSessionEvent, held: ConsoleSessionEvent): boolean {
+  const candidateInstant = Date.parse(candidate.occurredAt);
+  const heldInstant = Date.parse(held.occurredAt);
+  if (Number.isNaN(candidateInstant)) {
+    return false;
+  }
+  if (Number.isNaN(heldInstant)) {
+    return true;
+  }
+  if (candidateInstant === heldInstant) {
+    return candidate.sequence > held.sequence;
+  }
+  return candidateInstant > heldInstant;
 }
 
 /** Set the session's goal. */
