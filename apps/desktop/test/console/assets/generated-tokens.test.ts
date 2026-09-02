@@ -84,6 +84,25 @@ function inlineTokenVariables(source: string): Set<string> {
   return defined;
 }
 
+/**
+ * The declarations inside the TOP-LEVEL rule whose selector is exactly `selector`.
+ *
+ * Anchored to a line start, because `[data-console-scheme="light"]` also appears
+ * inside the `prefers-color-scheme` block — as the indented `:root:not(...)` guard
+ * that exists to exclude that very choice — and a substring search would read the
+ * system layer while claiming to read the explicit one.
+ */
+function topLevelRuleBody(css: string, selector: string): string {
+  const opening = `\n${selector} {\n`;
+  const start = css.indexOf(opening);
+  if (start === -1) {
+    return "";
+  }
+  const bodyStart = start + opening.length;
+  const end = css.indexOf("\n}", bodyStart);
+  return end === -1 ? "" : css.slice(bodyStart, end);
+}
+
 /** Custom-property names a stylesheet READS through `var()`. */
 function referencedTokenVariables(css: string): Set<string> {
   const referenced = new Set<string>();
@@ -141,6 +160,35 @@ describe("assets — the generated token sheet", () => {
       const variableName = tokenVariableName(participantHueTokenName(step));
       expect(css).toContain(`${variableName}: ${formatOklch(hue)};`);
     });
+  });
+
+  it("binds the browser's own UI to the chosen scheme on each explicit arm", () => {
+    // `color-scheme` decides what Chromium paints for scrollbars, form controls,
+    // spinners and the canvas — surfaces no custom property reaches. Leaving the
+    // root's `light dark` in force under an explicit choice means an operator who
+    // picks light on a dark OS gets a light document inside dark scrollbars, and
+    // the inverse mismatch is reachable the same way. The token guard already
+    // keeps the right palette; this is the other half of the same choice.
+    const css = generateMeridianCss();
+    const explicitLight = topLevelRuleBody(css, '[data-console-scheme="light"]');
+    const explicitDark = topLevelRuleBody(css, '[data-console-scheme="dark"]');
+
+    expect(explicitLight, "there should be an explicit-light rule at all").not.toBe("");
+    expect(explicitDark, "there should be an explicit-dark rule at all").not.toBe("");
+    expect(explicitLight).toContain("color-scheme: light;");
+    expect(explicitDark).toContain("color-scheme: dark;");
+    // `light dark` says "either, follow the system", which is the one thing an
+    // explicit choice is not.
+    expect(explicitLight).not.toContain("light dark");
+    expect(explicitDark).not.toContain("light dark");
+  });
+
+  it("keeps both schemes on offer only where the system is the one deciding", () => {
+    // Negative control for the case above: an explicit arm is not made correct by
+    // dropping `light dark` everywhere. With no attribute at all the root has to
+    // keep offering both, or a system-scheme window loses native dark controls.
+    const css = generateMeridianCss();
+    expect(css.slice(0, css.indexOf("@media"))).toContain("color-scheme: light dark;");
   });
 
   it("catches a planted difference, so the comparison is not vacuous", () => {

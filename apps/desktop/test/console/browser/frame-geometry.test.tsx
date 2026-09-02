@@ -13,7 +13,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { pressKeys, renderSettled } from "../console-harness.js";
+import { emulateSystemScheme, pressKeys, renderSettled } from "../console-harness.js";
 
 import {
   ConsoleRoot,
@@ -40,8 +40,11 @@ beforeEach(() => {
   applyConsoleScheme(document, "light");
 });
 
-afterEach(() => {
+afterEach(async () => {
   applyConsoleScheme(document, "system");
+  // Leave the emulated system preference where the page found it, so a later case
+  // is not measured under whichever scheme this one finished in.
+  await emulateSystemScheme("light");
 });
 
 describe("browser — the token sheet reaches the cascade", () => {
@@ -71,6 +74,30 @@ describe("browser — the token sheet reaches the cascade", () => {
     expect(dark).not.toBe(light);
     applyConsoleScheme(document, "light");
     expect(tokenValue("ground")).toBe(light);
+  });
+
+  it("hands the browser's own controls the scheme the operator chose", async () => {
+    // A custom property reaches nothing the browser paints for itself — the
+    // scrollbar, the form control, the canvas behind the document. `color-scheme`
+    // does, and only a real engine resolves it, which is why this is here and not
+    // in the unit tier.
+    //
+    // A DARK system under an explicit LIGHT choice is the case worth driving: the
+    // token guard already keeps the light palette, so with the root's `light dark`
+    // left in force the document paints light and Chromium paints its own UI dark
+    // inside it. The mirror mismatch is reachable the same way.
+    await emulateSystemScheme("dark");
+    applyConsoleScheme(document, "light");
+    expect(getComputedStyle(document.documentElement).colorScheme).toBe("light");
+
+    await emulateSystemScheme("light");
+    applyConsoleScheme(document, "dark");
+    expect(getComputedStyle(document.documentElement).colorScheme).toBe("dark");
+
+    // Negative control: with no choice expressed the root keeps offering both, so
+    // a system-scheme window still follows the OS rather than being pinned light.
+    applyConsoleScheme(document, "system");
+    expect(getComputedStyle(document.documentElement).colorScheme).toBe("light dark");
   });
 });
 
