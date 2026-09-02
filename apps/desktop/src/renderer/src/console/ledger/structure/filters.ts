@@ -1,12 +1,12 @@
 // Filters and jumps over the loaded window.
 //
-// `Spec-023 §Console Design (Meridian)` §5.19: "Filter by participant and by event
+// `Spec-023 §Console Design (Meridian)`: "Filter by participant and by event
 // family, jump to event by id, scroll to tail: renderer-local over the loaded
 // window and cursors."
 //
-// ONE RULE IS LOAD-BEARING AND IT IS NOT A CONVENIENCE. §5.19: "a filtered
-// subscription still receives `rollback_boundary` rows for any run whose rows the
-// filter admits." A rollback boundary is what marks the rows around it superseded;
+// ONE RULE IS LOAD-BEARING AND IT IS NOT A CONVENIENCE: "a filtered subscription
+// still receives `rollback_boundary` rows for any run whose rows the filter
+// admits." A rollback boundary is what marks the rows around it superseded;
 // a filter that hid the boundary while keeping its run's rows would render a
 // history that had been corrected as though it never was. So the boundary rule is
 // applied INSIDE the filter, not left to a caller to remember, and it is expressed
@@ -138,7 +138,7 @@ export type LedgerJumpOutcome =
   | { readonly status: "outside-window" };
 
 /**
- * Jump to an event by id. §5.19's second offer.
+ * Jump to an event by id — the design's second offer over this window.
  *
  * Takes the whole window and the filtered view so it can tell the two failures
  * apart — which is the only reason it takes both.
@@ -158,12 +158,35 @@ export function jumpToEventId(
 }
 
 /**
- * The window's last row, which "scroll to tail" scrolls to. §5.19's third offer.
+ * Narrow or widen one participant, from a facet the bar rendered.
  *
- * A function over the visible rows rather than a stored "at tail" flag: the tail
- * moves whenever a row lands, and a stored flag would be a second record of where
- * the log ends.
+ * A pure value in, a pure value out: the bar holds no filter of its own, so a chip
+ * press is a derivation of the next filter rather than a mutation of the current
+ * one. That is what lets the whole narrowing be driven by a test with no DOM.
  */
-export function tailRowId(visibleRows: readonly TimelineRow[]): string | undefined {
-  return visibleRows[visibleRows.length - 1]?.id;
+export function withToggledParticipant(filter: LedgerFilter, participantId: string): LedgerFilter {
+  return { ...filter, participantIds: toggledMembership(filter.participantIds, participantId) };
+}
+
+/** Narrow or widen one event family, from a facet the bar rendered. */
+export function withToggledCategory(filter: LedgerFilter, category: EventCategory): LedgerFilter {
+  return { ...filter, categories: toggledMembership(filter.categories, category) };
+}
+
+/**
+ * One axis' membership, toggled.
+ *
+ * Shared by both axes rather than written twice, because the rule is the axis-blind
+ * half: present means admitted, and pressing an admitted value widens back. The two
+ * wrappers above exist only to keep each axis' element type its own — a single
+ * axis-keyed helper would have had to widen `EventCategory` to `string` and the
+ * filter would have stopped refusing a family the contract does not carry.
+ */
+function toggledMembership<TValue extends string>(
+  values: readonly TValue[],
+  value: TValue,
+): readonly TValue[] {
+  return values.includes(value)
+    ? values.filter((candidate) => candidate !== value)
+    : [...values, value];
 }

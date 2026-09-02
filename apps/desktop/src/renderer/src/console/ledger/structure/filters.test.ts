@@ -1,6 +1,6 @@
 // Filters and jumps, and the one rule here that is not a convenience.
 //
-// §5.19's boundary rule — "a filtered subscription still receives
+// The boundary rule — "a filtered subscription still receives
 // `rollback_boundary` rows for any run whose rows the filter admits" — is the
 // case that fails silently and expensively: a filter that dropped the boundary
 // while keeping its run's rows renders a history that had been corrected as
@@ -16,7 +16,8 @@ import {
   deriveLedgerFacets,
   isLedgerFiltered,
   jumpToEventId,
-  tailRowId,
+  withToggledCategory,
+  withToggledParticipant,
 } from "./filters.js";
 import { generalRow, rollbackBoundaryRow, runRow } from "./row-fixtures.js";
 
@@ -236,20 +237,42 @@ describe("filters — jump by id tells the two failures apart", () => {
   });
 });
 
-describe("filters — the tail is read, never remembered", () => {
-  it("names the last visible row", () => {
-    expect(tailRowId(twoRunWindow())).toBe("a2");
+describe("filters — a facet press narrows, and pressing it again widens back", () => {
+  it("admits a participant, then releases the same one", () => {
+    const narrowed = withToggledParticipant(UNFILTERED_LEDGER, "agent-one");
+    expect(narrowed.participantIds).toStrictEqual(["agent-one"]);
+    expect(withToggledParticipant(narrowed, "agent-one")).toStrictEqual(UNFILTERED_LEDGER);
   });
 
-  it("negative control: an empty view has no tail", () => {
-    expect(tailRowId([])).toBeUndefined();
-  });
-
-  it("follows the filtered view rather than the whole window", () => {
-    const visible = applyLedgerFilter(twoRunWindow(), {
-      participantIds: [],
-      categories: ["session_lifecycle"],
+  it("keeps the two axes independent", () => {
+    const narrowed = withToggledCategory(
+      withToggledParticipant(UNFILTERED_LEDGER, "agent-one"),
+      "run_lifecycle",
+    );
+    expect(narrowed).toStrictEqual({
+      participantIds: ["agent-one"],
+      categories: ["run_lifecycle"],
     });
-    expect(tailRowId(visible)).toBe("s1");
+    // Negative control: releasing one axis leaves the other narrowed. A toggle that
+    // rebuilt the whole value would have cleared both and reported success.
+    expect(withToggledCategory(narrowed, "run_lifecycle").participantIds).toStrictEqual([
+      "agent-one",
+    ]);
+  });
+
+  it("admits more than one value on an axis", () => {
+    const narrowed = withToggledParticipant(
+      withToggledParticipant(UNFILTERED_LEDGER, "agent-one"),
+      "agent-two",
+    );
+    expect(narrowed.participantIds).toStrictEqual(["agent-one", "agent-two"]);
+    // Both runs' rows, both runs' boundaries, and the session row left out.
+    expect(applyLedgerFilter(twoRunWindow(), narrowed).map((row) => row.id)).toStrictEqual([
+      "a1",
+      "b1",
+      "rb-a",
+      "rb-b",
+      "a2",
+    ]);
   });
 });

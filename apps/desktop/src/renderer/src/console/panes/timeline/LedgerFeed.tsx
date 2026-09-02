@@ -62,18 +62,30 @@ import {
 import {
   ChapterHeader,
   FindInLedger,
+  LedgerFilterBar,
   ProvenanceRail,
   ReplayControls,
   SeamRow,
+  jumpToEventId,
+  type LedgerJumpOutcome,
 } from "../../ledger/structure/index.js";
 import { Nothing } from "../../primitives/index.js";
+import {
+  LedgerEventIdJump,
+  LedgerMatchesNotYetReplayedNotice,
+  LedgerMatchesOutsideWindowNotice,
+  LedgerWindowAbsences,
+} from "./LedgerFeedNotices.js";
 import { type SessionStore } from "../../store/index.js";
 import { type TimelineRowRenderer } from "../../workspace/index.js";
 import { useActorFollowSeat, useLedgerStructureActs } from "./ledger-feed-acts.js";
 import {
+  useFilteredLedgerWindow,
+  useLedgerFilter,
   useLedgerFind,
   useLedgerReplay,
   useRailGeometry,
+  useReplayAnchorRowId,
   useReplayRevealedRows,
   useVisibleLedgerWindow,
 } from "./ledger-feed-model.js";
@@ -93,7 +105,15 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   // opened is a fact about who is reading, so it is held here and handed to the
   // derivation rather than folded into it.
   const chapterDisclosure = useChapterDisclosure();
-  const ledgerWindow = useLedgerWindow(props.sessionStore, chapterDisclosure.openedTerminalRunIds);
+  const loadedWindow = useLedgerWindow(props.sessionStore, chapterDisclosure.openedTerminalRunIds);
+  // THE NARROWING RUNS ON THE LOG, BEFORE ANYTHING ELSE SEES IT. Everything below —
+  // the replay engine, the viewport, the visible window, find and the rail — is
+  // built over the narrowed model, so no piece has to remember that a filter
+  // exists. The facets the bar offers are the exception, and deliberately so: they
+  // are derived from the WHOLE window, or admitting one participant would take away
+  // the chip that widens back.
+  const ledgerFilter = useLedgerFilter(loadedWindow);
+  const ledgerWindow = useFilteredLedgerWindow(loadedWindow, ledgerFilter.filter);
   const replay = useLedgerReplay(ledgerWindow);
   // What the replay position has reached. The whole window while nobody is
   // replaying, so a ledger with the dock closed pays nothing and reconciles nothing.
@@ -117,6 +137,17 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
     viewport.snapshot.rows,
   );
   const find = useLedgerFind(visible);
+  // Memoized and short-circuited on an empty query: this is a scan of the whole
+  // loaded window, and the field is closed — with an empty query — for most of a
+  // ledger's life.
+  const findQuery = find.query.trim();
+  const eventIdJump = useMemo<LedgerJumpOutcome>(
+    () =>
+      findQuery.length === 0
+        ? { status: "outside-window" }
+        : jumpToEventId(loadedWindow.rows, visible.rows, findQuery),
+    [loadedWindow, visible, findQuery],
+  );
 
   // The STORE's wheel, which is the one the cast bar reads, handed to both surfaces
   // that colour by actor — the rows and the rail's marks — so one person wears one
@@ -193,6 +224,9 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   );
 
   const geometry = useRailGeometry(viewport.visibleRange, viewport.snapshot.rows.length);
+  // "Here", for a console that cannot draw a per-row control: the row at the top of
+  // the box, off the same range the rail's thumb is sized from.
+  const replayAnchorRowId = useReplayAnchorRowId(viewport.visibleRange, viewport.snapshot.rows);
   const jumpToRow = viewport.jumpToRow;
   const onStepFind = useCallback(
     (direction: "next" | "previous") => {
@@ -243,12 +277,14 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   const collapseAllTerminalChapters = useCallback(() => {
     collapseAllTerminal([...ledgerWindow.chapterByHeaderKey.values()]);
   }, [collapseAllTerminal, ledgerWindow]);
-  useLedgerStructureActs({
+  const structureActs = useLedgerStructureActs({
     find,
     replay,
     jumpToRow,
     jumpToTail: viewport.jumpToTail,
     collapseAllTerminalChapters,
+    ledgerFilter,
+    replayAnchorRowId,
   });
   useActorFollowSeat({ visibleRows: visible.rows, jumpToRow });
 
@@ -265,6 +301,12 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
           onClose={onCloseFind}
         />
       ) : null}
+      <LedgerFilterBar
+        facets={ledgerFilter.facets}
+        filter={ledgerFilter.filter}
+        onFilterChange={ledgerFilter.setFilter}
+      />
+      <LedgerEventIdJump outcome={eventIdJump} onJumpToRow={jumpToRow} />
       <LedgerMatchesOutsideWindowNotice count={find.beyondWindowMatchCount} />
       <LedgerMatchesNotYetReplayedNotice count={find.notYetReplayedMatchCount} />
       <div className="meridian-ledger__body">
@@ -304,6 +346,10 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
             onSpeedChange={replay.setSpeed}
             onScrub={replay.scrub}
             onJumpToNextSeam={replay.jumpToNextSeam}
+            // THE SAME ACT THE PALETTE RUNS, not a second copy: the refusal for an
+            // absent anchor lives inside it, so a control with its own callback
+            // would be a second place this console decides what to say.
+            onReplayFromRowInView={structureActs.replayFromRowInView}
           />
         </div>
       </div>
@@ -314,113 +360,5 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
         hasUnreceivedEntries={ledgerWindow.hasUnreceivedEntries}
       />
     </div>
-  );
-}
-
-/** Matches the query found in rows the cap has taken out of this window. */
-function LedgerMatchesOutsideWindowNotice(props: {
-  readonly count: number;
-}): React.JSX.Element | null {
-  if (props.count === 0) {
-    return null;
-  }
-  return (
-    <Nothing
-      kind="not-loaded"
-      placement="inline"
-      title="Some matches are outside this window."
-      detail={`${String(props.count)} more entr${props.count === 1 ? "y" : "ies"} match, in older rows this window no longer holds. The walk steps only through rows the feed can scroll to.`}
-    />
-  );
-}
-
-/** Matches the query found in rows the replay position has not reached yet. */
-function LedgerMatchesNotYetReplayedNotice(props: {
-  readonly count: number;
-}): React.JSX.Element | null {
-  if (props.count === 0) {
-    return null;
-  }
-  return (
-    <Nothing
-      kind="not-loaded"
-      placement="inline"
-      title="Some matches are ahead of the replay position."
-      detail={`${String(props.count)} more entr${props.count === 1 ? "y" : "ies"} match, in rows this replay has not reached. Scrub the dock forward to walk them.`}
-    />
-  );
-}
-
-interface LedgerWindowAbsencesProps {
-  /** Events the contract package registers no category for. */
-  readonly unprojectableEventCount: number;
-  /** Rows the log holds and this window does not, because the cap took them. */
-  readonly droppedRowCount: number;
-  /** Rows the log holds and this window does not, because replay has not reached them. */
-  readonly withheldByReplayRowCount: number;
-  /** The store recorded sequences it never received. */
-  readonly hasUnreceivedEntries: boolean;
-}
-
-/**
- * The four ways this window is not the whole session, each said out loud.
- *
- * Four separate sentences because a person's next move differs for each: an
- * unrecognised type is this build's limit, a dropped row is the window's cap, a row
- * ahead of the replay position is a control they are holding, and a sequence that
- * never arrived is the stream's. Collapsing any two would tell somebody the console
- * failed where it merely stopped holding, or the reverse — and collapsing the middle
- * two told them rows they can scrub back to in a keystroke were gone for good.
- *
- * Three of them name the read that is missing rather than offering a control for
- * it, which is what replaced the "load earlier" button: this console holds one live
- * subscription and a whole-session snapshot read, and neither takes a cursor. The
- * replay one is the exception, and it is the honest one — the control that would
- * undo it is on screen.
- */
-function LedgerWindowAbsences(props: LedgerWindowAbsencesProps): React.JSX.Element | null {
-  if (
-    props.unprojectableEventCount === 0 &&
-    props.droppedRowCount === 0 &&
-    props.withheldByReplayRowCount === 0 &&
-    !props.hasUnreceivedEntries
-  ) {
-    return null;
-  }
-  return (
-    <>
-      {props.unprojectableEventCount === 0 ? null : (
-        <Nothing
-          kind="not-checked"
-          placement="surface"
-          title="Some entries could not be placed."
-          detail={`${String(props.unprojectableEventCount)} event${props.unprojectableEventCount === 1 ? "" : "s"} arrived with a type this build does not recognise, so they are not shown.`}
-        />
-      )}
-      {props.droppedRowCount === 0 ? null : (
-        <Nothing
-          kind="not-loaded"
-          placement="surface"
-          title="Older entries are no longer in this window."
-          detail={`${String(props.droppedRowCount)} entr${props.droppedRowCount === 1 ? "y" : "ies"} left the window as the session grew. This console subscribes to the log and holds no read that fetches a range of it, so there is nothing to press here.`}
-        />
-      )}
-      {props.withheldByReplayRowCount === 0 ? null : (
-        <Nothing
-          kind="not-loaded"
-          placement="surface"
-          title="Later entries are behind the replay position."
-          detail={`${String(props.withheldByReplayRowCount)} entr${props.withheldByReplayRowCount === 1 ? "y" : "ies"} in this window come after where the replay dock is parked. Scrub forward, or play on, and they come back.`}
-        />
-      )}
-      {props.hasUnreceivedEntries ? (
-        <Nothing
-          kind="not-loaded"
-          placement="surface"
-          title="Some entries never arrived."
-          detail="The session numbered entries this window did not receive. They come back only when the whole session is read again, which the store asks for on its own; no read here fetches a range."
-        />
-      ) : null}
-    </>
   );
 }

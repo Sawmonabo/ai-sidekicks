@@ -27,6 +27,7 @@ function namedActs(name: string, fired: string[]): LedgerStructureActs {
     collapseAllTerminalChapters: () => fired.push(`${name}:collapseAllTerminalChapters`),
     toggleReplay: () => fired.push(`${name}:toggleReplay`),
     jumpToNextSeam: () => fired.push(`${name}:jumpToNextSeam`),
+    replayFromRowInView: () => fired.push(`${name}:replayFromRowInView`),
   };
 }
 
