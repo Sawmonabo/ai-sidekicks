@@ -23,12 +23,6 @@ import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts";
 
 import type { ConsoleCommand } from "../../../console/palette/index.js";
 
-/** The prefix that opens the discovery surface. */
-export const DISCOVERY_TRIGGER = "/";
-
-/** The escape that sends a message really beginning with a slash — never a trigger. */
-export const LITERAL_SLASH_ESCAPE = "//";
-
 /** One act this console performs, offered where the composer is mounted. */
 export interface ConsoleCatalogEntry {
   readonly source: "console";
@@ -56,23 +50,6 @@ export interface ProviderCatalogEntry {
 }
 
 export type CommandCatalogEntry = ConsoleCatalogEntry | ProviderCatalogEntry;
-
-/**
- * The name a person is filtering by, or `undefined` when the line opens nothing.
- *
- * `//` opens nothing: it is the send router's own escape for a message that really
- * begins with a slash, and a discovery popover over it would offer commands for text
- * that is deliberately not a command.
- */
-export function readDiscoveryPrefix(lineText: string): string | undefined {
-  const line = lineText.trimStart();
-  if (!line.startsWith(DISCOVERY_TRIGGER) || line.startsWith(LITERAL_SLASH_ESCAPE)) {
-    return undefined;
-  }
-  const afterSlash = line.slice(DISCOVERY_TRIGGER.length);
-  const firstSpace = afterSlash.search(/\s/u);
-  return firstSpace === -1 ? afterSlash : afterSlash.slice(0, firstSpace);
-}
 
 /** Compose the two sources into one list, console acts first. */
 export function composeCatalog(input: {

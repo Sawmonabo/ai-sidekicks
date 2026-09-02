@@ -6,7 +6,7 @@
 // it either, so what the line carries is what the wire supplies — id, state,
 // priority, channel, and the two timestamps — and nothing it does not.
 //
-// THE ORDER IS RENDERED, NEVER REORDERED. `queue-feed.ts` owns the fold that keeps
+// THE ORDER IS RENDERED, NEVER REORDERED. `bridge/queue-feed.ts` owns the fold that keeps
 // the snapshot's canonical FIFO order; this file maps over it. There is no sort
 // here, no drag handle, no priority stepper, and no "move to front" — V1 defers
 // queue priority overrides, so front-inserting is not an available remedy anywhere.
@@ -19,7 +19,7 @@ import { Chip, DerivedFigure, Nothing, RefusalCard, WireFigure } from "../../pri
 import { formatCount, InlineRefusal } from "../../primitives/index.js";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts";
 import { QUEUE_ROWS_RENDERED_CAP } from "./runs-bounds.js";
-import type { QueueFeed } from "./queue-feed.js";
+import type { QueueFeed } from "../../bridge/index.js";
 
 /** The one state a queue item can still be taken back from. */
 const CANCELLABLE_STATE = "queued";

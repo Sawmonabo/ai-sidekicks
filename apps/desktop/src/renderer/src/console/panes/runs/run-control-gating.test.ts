@@ -9,12 +9,11 @@
 import { describe, expect, it } from "vitest";
 import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
+import type { DeclaredDriverFlags, DriverCapabilityReadout } from "../../bridge/index.js";
 import {
   boundDriverNameForRun,
   driverCapabilityForRun,
   isControlOffered,
-  type DeclaredDriverFlags,
-  type DriverCapabilityReadout,
 } from "./run-control-gating.js";
 
 const CLAUDE_RUN = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
@@ -44,6 +43,7 @@ function readout(
       reports.map(([driverName, declared]) => [driverName, declaredFlags(declared)]),
     ),
     driverNameByRunId: new Map(bindings),
+    readRefusal: undefined,
   };
 }
 

@@ -17,6 +17,16 @@
 // dispatch, queueing two turns from one intent. The ref is set before the await and
 // cleared in `finally`, which makes the second press a no-op in the same tick.
 //
+// THE DISCLOSURE IS MADE WHERE IT IS TRUE. The store arms a sentence about unsent
+// text — "not saved between restarts" — and the composer used to render it from the
+// moment it mounted, so every composer nobody had touched carried a line about text
+// nobody had typed, on every window and in every captured pixel. `Spec-023 §Console
+// Design (Meridian)` §Persistence has the composer "say so on first focus after a
+// restart", so first focus is what ARMS it and the line holding unsent text is what
+// shows it: the sentence appears when there is something for it to be about. The
+// store's flag is still consumed at that first focus, so a window tells one composer
+// and no other repeats it.
+//
 // THE UNSENT BODY LIVES IN THE SUPPLIED `DraftStore` AND NOWHERE ELSE. The
 // workspace hands the composer seat a window-lifetime store, keyed per address; a
 // `useState` string here would be a second home for the same text, and the two
@@ -44,7 +54,8 @@ import {
   type DirectiveCaret,
   type DirectivePathLabel,
 } from "./directive-line.js";
-import { ComposerSendRouter, type ClientCommandPredicate } from "./send-router.js";
+import { ComposerSendRouter } from "./send-router.js";
+import type { ClientCommandPredicate, ProviderCommandPredicate } from "./send-resolutions.js";
 
 /** Whether the line is accepting text or is locked behind an in-flight dispatch. */
 export type SendControllerStatus = "idle" | "sending";
@@ -75,6 +86,15 @@ export interface SendControllerDependencies {
    */
   readonly recognizeClientCommand?: ClientCommandPredicate | undefined;
   /**
+   * Whether a name is one the bound provider published, for discovery only.
+   *
+   * Supplied by the same zone and read off the same holder the discovery popover
+   * renders from, so a name the list showed and a name the send path recognises are
+   * one reading. Absent, a typed provider command refuses exactly as it did before
+   * the two zones shared one.
+   */
+  readonly recognizeProviderCommand?: ProviderCommandPredicate | undefined;
+  /**
    * Runs a recognised client command, when this composer has one to run with.
    *
    * Optional because the command family is a separate zone that mounts its own
@@ -98,7 +118,7 @@ export interface SendController {
   /** The most recent sent message, so a tripped run can be resent without retyping. */
   readonly resendableText: string | undefined;
   /**
-   * The store's restart disclosure, until a composer has been focused once.
+   * The store's restart disclosure, while it is armed and there is text to lose.
    *
    * The sentence is the store's own — fixed text carrying no participant content —
    * so the composer renders what the store says rather than a second wording of it.
@@ -113,19 +133,28 @@ export interface SendController {
   recallOlder(caret: DirectiveCaret): boolean;
   /** Walk one message newer. `false` when the caret is not at the end edge. */
   recallNewer(caret: DirectiveCaret): boolean;
-  /** Called the first time the line takes focus, which is what clears the notice. */
+  /** Called when the line takes focus, which is what arms the disclosure. */
   acknowledgeRestartNotice(): void;
 }
 
 /** Build the controller for one addressed composer. */
 export function useSendController(dependencies: SendControllerDependencies): SendController {
-  const { bridge, target, draftStore, commandExecutor, recognizeClientCommand } = dependencies;
+  const {
+    bridge,
+    target,
+    draftStore,
+    commandExecutor,
+    recognizeClientCommand,
+    recognizeProviderCommand,
+  } = dependencies;
   const router = useMemo(
     () =>
-      new ComposerSendRouter(
-        recognizeClientCommand === undefined ? { bridge } : { bridge, recognizeClientCommand },
-      ),
-    [bridge, recognizeClientCommand],
+      new ComposerSendRouter({
+        bridge,
+        ...(recognizeClientCommand === undefined ? {} : { recognizeClientCommand }),
+        ...(recognizeProviderCommand === undefined ? {} : { recognizeProviderCommand }),
+      }),
+    [bridge, recognizeClientCommand, recognizeProviderCommand],
   );
   // A ref rather than state: the walk's own cursor is not rendered, and putting it
   // in state would re-render the whole bar on a keystroke that changed nothing a
@@ -138,11 +167,10 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
   const [status, setStatus] = useState<SendControllerStatus>("idle");
   const [refusal, setRefusal] = useState<ConsoleRefusal | undefined>(undefined);
   const [resendableText, setResendableText] = useState<string | undefined>(undefined);
-  // Mirrors the store's own flag so clearing it re-renders. The store stays the
-  // source: this hook never decides the notice is owed, it only reads and clears.
-  const [isRestartNoticePending, setRestartNoticePending] = useState(
-    () => draftStore.restartNoticePending,
-  );
+  // Armed by the first focus of this composer, and only where the store still owed
+  // the disclosure. The store stays the source of whether one is owed at all; this
+  // hook decides nothing except when the sentence has something to be about.
+  const [isRestartNoticeArmed, setRestartNoticeArmed] = useState(false);
 
   const draftKey = composerDraftKey(target);
   const subscribeToDraft = useCallback(
@@ -266,8 +294,13 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
   );
 
   const acknowledgeRestartNotice = useCallback(() => {
+    if (!draftStore.restartNoticePending) {
+      // Already told, in this composer or in another one this window holds. A second
+      // arming would be the window saying it twice.
+      return;
+    }
     draftStore.acknowledgeRestartNotice();
-    setRestartNoticePending(false);
+    setRestartNoticeArmed(true);
   }, [draftStore]);
 
   const resolution = useMemo(() => router.resolve(text, target), [router, text, target]);
@@ -279,7 +312,8 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     status,
     refusal,
     resendableText,
-    restartNotice: isRestartNoticePending ? draftStore.restartNoticeText : undefined,
+    restartNotice:
+      isRestartNoticeArmed && text.length > 0 ? draftStore.restartNoticeText : undefined,
     changeText,
     send,
     resend,

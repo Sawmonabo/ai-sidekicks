@@ -22,7 +22,11 @@ import { useCallback, useMemo } from "react";
 import { normalizeWireRejection } from "../../../../../shared/wire-errors.js";
 import type { ConsoleRoute } from "../../../console/routing/index.js";
 import type { CommandExecutor, CommandOutcome, DirectiveLine } from "../router/command-executor.js";
-import type { ClientCommandPredicate } from "../router/send-router.js";
+import type {
+  ClientCommandPredicate,
+  ProviderCommandPredicate,
+} from "../router/send-resolutions.js";
+import type { ProviderCommandEnumeration } from "./provider-command-holder.js";
 import {
   clientCommandRefusal,
   recognizeClientCommand,
@@ -101,24 +105,31 @@ async function settleInvocation(
 }
 
 /**
- * The two halves the send bar is handed, built together.
+ * What the send bar is handed about a typed `/name`, built in one place.
  *
- * TOGETHER, because they are one decision split in half. The router will not
- * intercept a name nothing claims, so a recogniser with no executor intercepts into a
- * refusal and an executor with no recogniser is never called — which is why the
- * controller documents them as supplied by one zone or by neither, and why one hook
- * here answers for both.
+ * The first two travel TOGETHER because they are one decision split in half: the
+ * router will not intercept a name nothing claims, so a recogniser with no executor
+ * intercepts into a refusal and an executor with no recogniser is never called. Both
+ * read the SAME surface thunk, so the predicate that claimed a name and the executor
+ * that runs it can never be looking at two different registries.
  *
- * Both halves read the SAME surface thunk, so the predicate that claimed a name and
- * the executor that runs it can never be looking at two different registries.
+ * The third answers the OTHER question a typed name raises — whether the bound
+ * provider published it — off the enumeration holder the discovery popover renders
+ * from. One holder rather than a second read, so the list a person read the name off
+ * and the path that refuses it are one reading.
  */
 export interface ComposerCommandZone {
   readonly recognizeClientCommand: ClientCommandPredicate;
   readonly commandExecutor: CommandExecutor;
+  readonly recognizeProviderCommand: ProviderCommandPredicate;
 }
 
-/** Build the send bar's recogniser and executor for one composer's route. */
-export function useComposerCommandZone(route: ConsoleRoute): ComposerCommandZone {
+/** Build the send bar's recogniser, executor, and discovery reading. */
+export function useComposerCommandZone(options: {
+  readonly route: ConsoleRoute;
+  readonly commandEnumeration: ProviderCommandEnumeration;
+}): ComposerCommandZone {
+  const { route, commandEnumeration } = options;
   const readSurface = useCallback(() => composerCommandSurface(route), [route]);
   const recognizeName = useCallback<ClientCommandPredicate>(
     (commandName) =>
@@ -131,5 +142,13 @@ export function useComposerCommandZone(route: ConsoleRoute): ComposerCommandZone
     () => createClientCommandExecutor({ readSurface }),
     [readSurface],
   );
-  return { recognizeClientCommand: recognizeName, commandExecutor };
+  const recognizePublished = useCallback<ProviderCommandPredicate>(
+    (commandName) => commandEnumeration.publishedEntryNamed(commandName),
+    [commandEnumeration],
+  );
+  return {
+    recognizeClientCommand: recognizeName,
+    commandExecutor,
+    recognizeProviderCommand: recognizePublished,
+  };
 }

@@ -24,7 +24,7 @@ import { RunsPane } from "./RunsPane.js";
 import { RunControls } from "./RunControls.js";
 import { RunStateProjection } from "./run-state-feed.js";
 import { useRunControlSurface } from "./run-control-surface.js";
-import type { DriverCapabilityReadout } from "./run-control-gating.js";
+import type { DriverCapabilityReadout } from "../../bridge/index.js";
 
 const RUN_ID = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
 // A canonical UUID: both `run.*` streams parse their registered request through
@@ -227,6 +227,7 @@ describe("controls are a fail-closed projection, never a local decision", () => 
     return {
       flagsByDriverName: new Map([["claude", flags]]),
       driverNameByRunId: new Map(),
+      readRefusal: undefined,
     };
   }
 

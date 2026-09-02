@@ -27,7 +27,7 @@
 
 import { useCallback, useId, useState } from "react";
 
-import type { ConsoleBridge } from "../../bridge/index.js";
+import type { ConsoleBridge, DriverCapabilityReadout } from "../../bridge/index.js";
 import {
   Chip,
   DerivedFigure,
@@ -39,7 +39,6 @@ import {
 import { InputAskSlot, INPUT_ASK_SLOT_CONTRACT } from "./InputAskSlot.js";
 import { InterventionHistory } from "./InterventionHistory.js";
 import { RunControls } from "./RunControls.js";
-import type { DriverCapabilityReadout } from "./run-control-gating.js";
 import type { RunControlSurface } from "./run-control-surface.js";
 import { runElapsedMilliseconds, type RunProjection, type RunStatusRow } from "./run-state-feed.js";
 import {

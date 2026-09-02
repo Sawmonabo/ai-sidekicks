@@ -19,6 +19,13 @@
 // are RETAINED BY DRIVER and resolved per run, and one driver's declaration never
 // answers for another driver's run.
 //
+// THE READ ITSELF IS THE BRIDGE'S, NOT THIS FAMILY'S. The declaration is addressed at
+// the node rather than at a run, and the composer's accessory rail gates its own
+// control on the same answer — so `bridge/driver-capability-read.ts` performs one
+// call per bridge and both families resolve against the readout it hands back. This
+// module keeps the half that is genuinely the runs pane's: which control is gated on
+// which flag, and which driver a RUN is bound to.
+//
 // WHAT NAMES A RUN'S DRIVER, AND WHAT DOES NOT. Nothing this console can read today
 // carries the pair on a run-scoped shape: `RunStateChangeEvent` and
 // `RunRolledBackEvent` (the two arms of `run.subscribeState`) and `QueueItemSummary`
@@ -41,14 +48,9 @@
 // only whether a person is shown a button for a capability the driver does not
 // have at all.
 
-import { useEffect, useState } from "react";
-import { ListCapabilitiesResultSchema, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
+import { type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
-import {
-  DRIVER_LIST_CAPABILITIES_METHOD,
-  callDaemon,
-  type ConsoleBridge,
-} from "../../bridge/index.js";
+import { declaredFlagsForDriver, type DriverCapabilityReadout } from "../../bridge/index.js";
 import { type RunControl } from "./run-control-dispatch.js";
 
 /**
@@ -68,66 +70,6 @@ export const CONTROL_CAPABILITY_GATE: Readonly<
   cancel: undefined,
   rollback: "rollback",
 };
-
-/** One driver's declared flags, exactly as its own report carried them. */
-export type DeclaredDriverFlags = Readonly<Record<DriverCapabilityFlag, boolean>>;
-
-/** What the capability read answered. Absent until the read answers. */
-export interface DriverCapabilityReadout {
-  /**
-   * One entry per reported driver, keyed by the reply's own `driverName`.
-   *
-   * Retained, never folded: the reports are separate declarations by separate
-   * drivers, and any collapse of them is an answer to a question the surface does
-   * not ask.
-   */
-  readonly flagsByDriverName: ReadonlyMap<string, DeclaredDriverFlags>;
-  /**
-   * Which driver each run is bound to, for every run a read has named a binding for.
-   *
-   * Empty today — see the header for the shapes that were checked and what each one
-   * does and does not carry. It is a map rather than a derivation so that the read
-   * which lands it changes one producer and no consumer.
-   */
-  readonly driverNameByRunId: ReadonlyMap<string, string>;
-}
-
-/**
- * Read the bound drivers' declared capability flags.
- *
- * A read that failed leaves the readout absent, which is the fail-closed direction:
- * both gated controls stay off screen. The failure is not rendered as a refusal —
- * no control was pressed, and a banner for a read nobody asked for would be the
- * console reporting its own housekeeping.
- */
-export function useDriverCapabilities(bridge: ConsoleBridge): DriverCapabilityReadout | undefined {
-  const [readout, setReadout] = useState<DriverCapabilityReadout | undefined>(undefined);
-
-  useEffect(() => {
-    let isMounted = true;
-    setReadout(undefined);
-    void callDaemon(bridge, DRIVER_LIST_CAPABILITIES_METHOD, {})
-      .then((reply) => {
-        const parsed = ListCapabilitiesResultSchema.safeParse(reply);
-        if (!isMounted || !parsed.success || parsed.data.drivers.length === 0) {
-          return;
-        }
-        const flagsByDriverName = new Map<string, DeclaredDriverFlags>();
-        for (const report of parsed.data.drivers) {
-          flagsByDriverName.set(report.driverName, report.capabilities.flags);
-        }
-        setReadout({ flagsByDriverName, driverNameByRunId: NO_RUN_BINDINGS });
-      })
-      .catch(() => {
-        // See the doc comment: a failed capability read is an absent readout.
-      });
-    return () => {
-      isMounted = false;
-    };
-  }, [bridge]);
-
-  return readout;
-}
 
 /**
  * Which driver a run is bound to, or `undefined` where the console cannot say.
@@ -169,11 +111,7 @@ export function driverCapabilityForRun(
   runId: string,
   flag: DriverCapabilityFlag,
 ): boolean | undefined {
-  const driverName = boundDriverNameForRun(readout, runId);
-  if (readout === undefined || driverName === undefined) {
-    return undefined;
-  }
-  return readout.flagsByDriverName.get(driverName)?.[flag];
+  return declaredFlagsForDriver(readout, boundDriverNameForRun(readout, runId))?.[flag];
 }
 
 /**
@@ -195,6 +133,3 @@ export function isControlOffered(
   }
   return driverCapabilityForRun(readout, runId, gate) === true;
 }
-
-/** No run has a named binding yet. Frozen so no caller writes one in place. */
-const NO_RUN_BINDINGS: ReadonlyMap<string, string> = new Map<string, string>();

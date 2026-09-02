@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 import { createFixtureBridge } from "../../bridge/index.js";
 import { RUNS_SCENARIO } from "../../bridge/scenarios/runs.js";
 import { QueueContents } from "./QueueContents.js";
-import { useQueueFeed } from "./queue-feed.js";
+import { useQueueFeed } from "../../bridge/index.js";
 
 /** A one-component harness: the real hook, the real component, the real fixture. */
 function QueueHarness(props: { readonly sessionId: string }): React.JSX.Element {

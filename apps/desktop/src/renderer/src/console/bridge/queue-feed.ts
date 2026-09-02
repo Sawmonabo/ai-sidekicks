@@ -1,14 +1,19 @@
-// The pane's queue read: the canonical snapshot, the tail that keeps it current,
-// and cancel-before-admission.
+// The session's queue read: the canonical snapshot, the tail that keeps it current,
+// and cancel-before-admission — read ONCE for every surface that wants it.
 //
 // `Spec-023 §Console Design (Meridian)` §7.4 asks for "what is waiting, what it is
 // bound to, and let a participant take an item back before it is admitted", in all
-// five states of the closed `QueueItemState`. That is a different read from the
-// composer's queue shelf, which tails `queued` alone and drops a row the moment the
-// daemon says it is no longer waiting — the shelf answers "what have I got
-// waiting", and this answers "what is in the queue, including what already left
-// it". Two questions, two folds; a shared fold would have to be parameterised by
-// which states it keeps, and every caller would then have to know both answers.
+// five states of the closed `QueueItemState`. The composer's queue shelf asks a
+// narrower question of the same rows — "what have I got waiting" — and it used to
+// ask it down a second module with the same file name, the same exported symbols and
+// its own subscription, so a session view holding the runs pane beside the composer
+// tailed `run.subscribeQueue` twice and read `run.queueList` twice for one answer.
+//
+// The difference between the two questions is a FILTER over one list and never a
+// second fold: a row the daemon has stopped calling `queued` is exactly the row the
+// shelf drops, and the shelf reads that off the canonical rows rather than off a
+// private map that deleted them. So this module holds the read, keyed by bridge and
+// session, and each surface keeps its own question.
 //
 // THREE RULES §7.4 STATES AND THIS MODULE ENCODES.
 //
@@ -23,8 +28,8 @@
 //     There is no reorder control and no priority control anywhere in this file.
 //   • **A canceled row stays visible.** A queue row is durable and never-evented —
 //     drained but never deleted — so a state that is no longer `queued` updates the
-//     row rather than removing it. That is the opposite of the shelf's rule, and it
-//     is why the two folds are separate.
+//     row rather than removing it. A surface that shows only the waiting rows
+//     filters them out at the point it renders; nothing here forgets a row.
 //   • **Client memory is never the queue of record.** Cancel does not remove a row.
 //     `run.queueCancel` answering confirms the request; the row changes state when
 //     the daemon says it did, on the snapshot or on the tail.
@@ -34,7 +39,7 @@
 // createdAt, updatedAt }`, parsed `.strict()` — has no run member, so there is
 // nothing here to render it from and this module invents none.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import {
   QueueItemListResponseSchema,
   QueueItemSummarySchema,
@@ -42,19 +47,19 @@ import {
   type QueueItemSummary,
 } from "@ai-sidekicks/contracts";
 
-import { normalizeWireRejection } from "../../../../../shared/wire-errors.js";
-import { refuse, type ConsoleRefusal } from "../../core/index.js";
+import { normalizeWireRejection } from "../../../../shared/wire-errors.js";
+import { refuse, type ConsoleRefusal } from "../core/index.js";
 import {
   QUEUE_CANCEL_METHOD,
   QUEUE_LIST_METHOD,
   QUEUE_SUBSCRIBE_STREAM,
   callDaemon,
   subscribeDaemon,
-  type ConsoleBridge,
-} from "../../bridge/index.js";
+} from "./daemon-calls.js";
+import type { ConsoleBridge } from "./console-bridge.js";
 
 /** The subsystem name every refusal this module raises carries. */
-export const QUEUE_REFUSAL_ORIGIN = "runs-queue";
+export const QUEUE_REFUSAL_ORIGIN = "session-queue";
 
 /** How the snapshot read has gone. Three answers, and none of them is an empty list. */
 export type QueueReadPhase = "reading" | "read" | "refused";
@@ -158,71 +163,100 @@ function isStrictlyNewer(candidate: QueueItemSummary, held: QueueItemSummary): b
 }
 
 /**
- * Open the queue read for one session.
+ * One session's live queue reading, and everyone watching it.
  *
- * The snapshot is taken first and the tail is opened alongside it; an emission that
- * arrives before the snapshot lands is merged into the same fold, so the ordering
- * rule holds whichever wins the race. The read is a one-shot on mount rather than
- * anything scheduled: `Spec-023` puts every refresh through
- * `console/store/scheduling.ts` and there is no refresh here to schedule — the tail
- * is what keeps the list current.
+ * A class with private fields rather than a hook's state, because every surface in
+ * the window asks the same question of the same session: the entry opens the tail
+ * and takes the snapshot once, and the second surface to arrive is handed the
+ * reading already in hand. The refusals, the fold, and the cancel path are exactly
+ * the ones each surface used to own — only where they live has moved.
  */
-export function useQueueFeed(bridge: ConsoleBridge, sessionId: string): QueueFeed {
-  const [items, setItems] = useState<readonly QueueItemSummary[]>(EMPTY_ITEMS);
-  const [phase, setPhase] = useState<QueueReadPhase>("reading");
-  const [readRefusal, setReadRefusal] = useState<ConsoleRefusal | undefined>(undefined);
-  const [pendingCancelIds, setPendingCancelIds] = useState<ReadonlySet<string>>(EMPTY_IDS);
-  const [cancelRefusalByItemId, setCancelRefusalByItemId] =
-    useState<ReadonlyMap<string, ConsoleRefusal>>(EMPTY_REFUSALS);
-  const isMounted = useRef(true);
+class SessionQueueReading {
+  readonly #bridge: ConsoleBridge;
+  readonly #sessionId: string;
+  readonly #order = new QueueOrder();
+  readonly #listeners = new Set<() => void>();
+  readonly #onIdle: () => void;
+  #closeStream: (() => void) | undefined = undefined;
+  #isOpen = false;
+  #items: readonly QueueItemSummary[] = EMPTY_ITEMS;
+  #phase: QueueReadPhase = "reading";
+  #readRefusal: ConsoleRefusal | undefined = undefined;
+  #pendingCancelIds: ReadonlySet<string> = EMPTY_IDS;
+  #cancelRefusalByItemId: ReadonlyMap<string, ConsoleRefusal> = EMPTY_REFUSALS;
+  #feed: QueueFeed;
 
-  useEffect(() => {
-    isMounted.current = true;
-    const order = new QueueOrder();
-    setItems(EMPTY_ITEMS);
-    setPhase("reading");
-    setReadRefusal(undefined);
+  public constructor(bridge: ConsoleBridge, sessionId: string, onIdle: () => void) {
+    this.#bridge = bridge;
+    this.#sessionId = sessionId;
+    this.#onIdle = onIdle;
+    this.#feed = this.#composeFeed();
+  }
+
+  /** The reading as it stands. One object for every watcher, stable between changes. */
+  public snapshot = (): QueueFeed => this.#feed;
+
+  /** Watch the reading. The first watcher opens it; the last to leave closes it. */
+  public watch(listener: () => void): () => void {
+    this.#listeners.add(listener);
+    this.#open();
+    return () => {
+      this.#listeners.delete(listener);
+      if (this.#listeners.size === 0) {
+        // The last surface left. The stream closes and the reading is forgotten, so
+        // a surface that mounts later reads afresh rather than being handed a list
+        // that stopped being updated when nobody was watching it.
+        this.#close();
+        this.#onIdle();
+      }
+    };
+  }
+
+  #open(): void {
+    if (this.#isOpen) {
+      return;
+    }
+    this.#isOpen = true;
 
     // The stream's own registered request, parsed here rather than assembled at
     // the wrapper: an id the wire's `SessionId` brand refuses is a refusal this
     // surface renders, not an unscoped subscription it opens anyway.
-    const subscribeRequest = RunQueueSubscribeRequestSchema.safeParse({ sessionId });
+    const subscribeRequest = RunQueueSubscribeRequestSchema.safeParse({
+      sessionId: this.#sessionId,
+    });
     if (!subscribeRequest.success) {
-      setPhase("refused");
-      setReadRefusal(
+      this.#settleRefused(
         refuse(
           QUEUE_REFUSAL_ORIGIN,
           "session-unreadable",
           "The queue stream is session-scoped and this pane's session did not match the registered request shape, so the console did not open it.",
         ),
       );
-      return () => {
-        isMounted.current = false;
-      };
+      return;
     }
 
-    const unsubscribe = subscribeDaemon(
-      bridge,
+    this.#closeStream = subscribeDaemon(
+      this.#bridge,
       { method: QUEUE_SUBSCRIBE_STREAM, request: subscribeRequest.data },
       (payload) => {
         const parsed = QueueItemSummarySchema.safeParse(payload);
-        if (!parsed.success || !isMounted.current) {
+        if (!parsed.success || !this.#isOpen) {
           return;
         }
-        order.merge(parsed.data);
-        setItems(order.items());
+        this.#order.merge(parsed.data);
+        this.#items = this.#order.items();
+        this.#publish();
       },
     );
 
-    void callDaemon(bridge, QUEUE_LIST_METHOD, { sessionId })
+    void callDaemon(this.#bridge, QUEUE_LIST_METHOD, { sessionId: this.#sessionId })
       .then((reply) => {
-        if (!isMounted.current) {
+        if (!this.#isOpen) {
           return;
         }
         const parsed = QueueItemListResponseSchema.safeParse(reply);
         if (!parsed.success) {
-          setPhase("refused");
-          setReadRefusal(
+          this.#settleRefused(
             refuse(
               QUEUE_REFUSAL_ORIGIN,
               "reply-unreadable",
@@ -231,63 +265,117 @@ export function useQueueFeed(bridge: ConsoleBridge, sessionId: string): QueueFee
           );
           return;
         }
-        order.seat(parsed.data.items);
-        setItems(order.items());
-        setPhase("read");
+        this.#order.seat(parsed.data.items);
+        this.#items = this.#order.items();
+        this.#phase = "read";
+        this.#publish();
       })
       .catch((rejection: unknown) => {
-        if (!isMounted.current) {
+        if (!this.#isOpen) {
           return;
         }
         const wireError = normalizeWireRejection(rejection, { total: true });
-        setPhase("refused");
-        setReadRefusal(refuse(QUEUE_REFUSAL_ORIGIN, wireError.name, wireError.message));
+        this.#settleRefused(refuse(QUEUE_REFUSAL_ORIGIN, wireError.name, wireError.message));
       });
+  }
 
-    return () => {
-      isMounted.current = false;
-      unsubscribe();
+  #close(): void {
+    this.#isOpen = false;
+    this.#closeStream?.();
+    this.#closeStream = undefined;
+  }
+
+  #cancelItem = (queueItemId: string): void => {
+    this.#pendingCancelIds = withId(this.#pendingCancelIds, queueItemId);
+    this.#publish();
+    void callDaemon(this.#bridge, QUEUE_CANCEL_METHOD, { queueItemId })
+      .then(() => {
+        // Deliberately nothing to the list. The reply confirms the request; the
+        // row's state changes when the tail says the daemon changed it.
+        this.#pendingCancelIds = withoutId(this.#pendingCancelIds, queueItemId);
+        this.#publish();
+      })
+      .catch((rejection: unknown) => {
+        const wireError = normalizeWireRejection(rejection, { total: true });
+        this.#pendingCancelIds = withoutId(this.#pendingCancelIds, queueItemId);
+        const next = new Map(this.#cancelRefusalByItemId);
+        next.set(queueItemId, refuse(QUEUE_REFUSAL_ORIGIN, wireError.name, wireError.message));
+        this.#cancelRefusalByItemId = next;
+        this.#publish();
+      });
+  };
+
+  #settleRefused(refusal: ConsoleRefusal): void {
+    this.#phase = "refused";
+    this.#readRefusal = refusal;
+    this.#publish();
+  }
+
+  #composeFeed(): QueueFeed {
+    return {
+      items: this.#items,
+      phase: this.#phase,
+      readRefusal: this.#readRefusal,
+      pendingCancelIds: this.#pendingCancelIds,
+      cancelRefusalByItemId: this.#cancelRefusalByItemId,
+      cancelItem: this.#cancelItem,
     };
-  }, [bridge, sessionId]);
+  }
 
-  const cancelItem = useCallback(
-    (queueItemId: string) => {
-      setPendingCancelIds((held) => withId(held, queueItemId));
-      void callDaemon(bridge, QUEUE_CANCEL_METHOD, { queueItemId })
-        .then(() => {
-          // Deliberately nothing to the list. The reply confirms the request; the
-          // row's state changes when the tail says the daemon changed it.
-          if (isMounted.current) {
-            setPendingCancelIds((held) => withoutId(held, queueItemId));
-          }
-        })
-        .catch((rejection: unknown) => {
-          if (!isMounted.current) {
-            return;
-          }
-          const wireError = normalizeWireRejection(rejection, { total: true });
-          setPendingCancelIds((held) => withoutId(held, queueItemId));
-          setCancelRefusalByItemId((held) => {
-            const next = new Map(held);
-            next.set(queueItemId, refuse(QUEUE_REFUSAL_ORIGIN, wireError.name, wireError.message));
-            return next;
-          });
-        });
-    },
-    [bridge],
-  );
+  #publish(): void {
+    this.#feed = this.#composeFeed();
+    for (const listener of this.#listeners) {
+      listener();
+    }
+  }
+}
 
-  return useMemo(
-    () => ({
-      items,
-      phase,
-      readRefusal,
-      pendingCancelIds,
-      cancelRefusalByItemId,
-      cancelItem,
-    }),
-    [items, phase, readRefusal, pendingCancelIds, cancelRefusalByItemId, cancelItem],
+/**
+ * Every live reading in this window, keyed by the bridge and the session.
+ *
+ * A `WeakMap` on the bridge so a closed window takes its readings with it, and the
+ * entry itself is dropped once nobody is watching — a surface that mounts later
+ * reads afresh rather than being handed a list that stopped being updated when the
+ * last watcher left.
+ */
+class SessionQueueReadings {
+  readonly #bySession = new WeakMap<ConsoleBridge, Map<string, SessionQueueReading>>();
+
+  public reading(bridge: ConsoleBridge, sessionId: string): SessionQueueReading {
+    let forBridge = this.#bySession.get(bridge);
+    if (forBridge === undefined) {
+      forBridge = new Map<string, SessionQueueReading>();
+      this.#bySession.set(bridge, forBridge);
+    }
+    const held = forBridge.get(sessionId);
+    if (held !== undefined) {
+      return held;
+    }
+    const forThisBridge = forBridge;
+    const created = new SessionQueueReading(bridge, sessionId, () => {
+      forThisBridge.delete(sessionId);
+    });
+    forBridge.set(sessionId, created);
+    return created;
+  }
+}
+
+const sessionQueueReadings = new SessionQueueReadings();
+
+/**
+ * Read one session's queue.
+ *
+ * Every surface on one bridge and session is served by one snapshot read and one
+ * tail. The watcher count is what opens and closes them, so a window with no queue
+ * surface mounted holds no subscription.
+ */
+export function useQueueFeed(bridge: ConsoleBridge, sessionId: string): QueueFeed {
+  const reading = sessionQueueReadings.reading(bridge, sessionId);
+  const subscribe = useCallback(
+    (onFeedChanged: () => void) => reading.watch(onFeedChanged),
+    [reading],
   );
+  return useSyncExternalStore(subscribe, reading.snapshot, reading.snapshot);
 }
 
 const EMPTY_ITEMS: readonly QueueItemSummary[] = Object.freeze([]);

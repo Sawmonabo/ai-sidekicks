@@ -71,6 +71,16 @@
   background: var(--meridian-surface-sunken);
 }
 
+/* The non-persistence disclosure, between the line and the row under it. Quiet, and
+   the same size as the path label beside it: it reports a property of the draft a
+   person is holding, and it is not a refusal and not an instruction. */
+.meridian-composer__notice {
+  margin-top: var(--meridian-space-1);
+  margin-bottom: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
 /* The row under the line: the path label on the left, the controls on the right.
    The label is quiet because it reports rather than instructs. */
 .meridian-composer__send-row {

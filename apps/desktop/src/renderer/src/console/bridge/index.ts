@@ -55,6 +55,19 @@ export {
 } from "./daemon-calls.js";
 export type { DaemonStreamOpen } from "./daemon-calls.js";
 
+// The declared-capability read, and the two shapes its consumers resolve against.
+// Here rather than beside either consumer because two view families gate controls on
+// it and neither may import the other — one read per bridge serves both, and a hook
+// living in one of them would make the other's copy a second call on one wire.
+export { declaredFlagsForDriver, useDriverCapabilities } from "./driver-capability-read.js";
+export type { DeclaredDriverFlags, DriverCapabilityReadout } from "./driver-capability-read.js";
+
+// The session's one queue reading. Here for the same reason the capability read is:
+// the runs pane and the composer's shelf ask two questions of one list, and each
+// used to ask its own down its own subscription.
+export { useQueueFeed } from "./queue-feed.js";
+export type { QueueFeed, QueueReadPhase } from "./queue-feed.js";
+
 export {
   SidekicksBridgeProvider,
   useBridgeResolution,

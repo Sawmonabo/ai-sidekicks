@@ -19,7 +19,7 @@
 
 import { COMPOSER_HISTORY_RECALL_CAP } from "../composer-bounds.js";
 import type { ComposerTarget } from "../chips/chip-models.js";
-import type { ComposerSendResolution } from "./send-router.js";
+import type { ComposerSendResolution } from "./send-resolutions.js";
 
 /** The two path labels the line renders under itself. Closed; derived union. */
 export const DIRECTIVE_PATH_LABELS = ["new turn", "steer"] as const;
