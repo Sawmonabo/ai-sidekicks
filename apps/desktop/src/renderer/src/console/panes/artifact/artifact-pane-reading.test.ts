@@ -13,6 +13,7 @@ import {
   readFailureRefusal,
   withReplacedRow,
   withRowRefusal,
+  withoutRow,
   withoutRowRefusal,
 } from "./artifact-pane-reading.js";
 
@@ -99,5 +100,28 @@ describe("artifact pane reading — a read that threw", () => {
     const refusal = readFailureRefusal({ secret: "do not render me" });
     expect(refusal.detail).not.toContain("do not render me");
     expect(refusal.detail).toContain("not an error");
+  });
+});
+
+describe("artifact pane reading — removing a row a delete answered for", () => {
+  it("drops the row the delete named and keeps the rest", () => {
+    const listed: ArtifactsPanelState = {
+      kind: "listed",
+      rows: [row("first", "published"), row("second", "published")],
+    };
+    const next = withoutRow(listed, "first");
+    expect(next.kind === "listed" ? next.rows.map((each) => each.id) : []).toStrictEqual([
+      "second",
+    ]);
+  });
+
+  it("negative control: a delete for a row not on the list removes nothing", () => {
+    const listed: ArtifactsPanelState = { kind: "listed", rows: [row("first", "published")] };
+    const next = withoutRow(listed, "elsewhere");
+    expect(next.kind === "listed" ? next.rows.map((each) => each.id) : []).toStrictEqual(["first"]);
+  });
+
+  it("leaves an arm that holds no rows exactly as it found it", () => {
+    expect(withoutRow({ kind: "loading" }, "first")).toStrictEqual({ kind: "loading" });
   });
 });

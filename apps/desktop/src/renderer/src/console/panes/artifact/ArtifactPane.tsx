@@ -61,6 +61,17 @@ import { useArtifactPaneReading } from "./artifact-reader.js";
 /** What a settled act says, once, when it settles. A refusal speaks in its own words. */
 const MANIFEST_RE_READ_ANNOUNCEMENT = "Manifest re-read. The row shows what the read answered.";
 
+/**
+ * What a settled delete says.
+ *
+ * It names what came back and what did not. The design wants the payload disposition
+ * reported after the act, and the reply this console can make carries no member for it
+ * — so the sentence says the manifest is gone and says the rest is unreported, rather
+ * than claiming bytes were reclaimed on no evidence at all.
+ */
+const ARTIFACT_DELETED_ANNOUNCEMENT =
+  "Artifact deleted and the list read again. The reply carries no payload disposition, so what became of the bytes is not reported.";
+
 export interface ArtifactPaneProps {
   readonly context: ConsolePaneContext;
 }
@@ -106,7 +117,7 @@ export function ArtifactPane(props: ArtifactPaneProps): React.JSX.Element {
   const deleteRow = useCallback(
     (row: ArtifactManifestRow) => {
       void deleteArtifact(row.id).then((outcome) => {
-        announceOutcome(outcome, "Artifact deleted.");
+        announceOutcome(outcome, ARTIFACT_DELETED_ANNOUNCEMENT);
       });
     },
     [announceOutcome, deleteArtifact],

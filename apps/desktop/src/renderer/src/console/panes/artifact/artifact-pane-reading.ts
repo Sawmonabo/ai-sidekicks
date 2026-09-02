@@ -118,6 +118,23 @@ export function withReplacedRow(
   };
 }
 
+/**
+ * The listed rows without the one a served delete removed.
+ *
+ * Reading the served reply rather than predicting it: the daemon answered, so the
+ * manifest is gone and the row that stood for it goes with it. The re-read that
+ * follows is what re-establishes the rest of the list.
+ */
+export function withoutRow(
+  artifacts: ArtifactsPanelState,
+  artifactId: string,
+): ArtifactsPanelState {
+  if (artifacts.kind !== "listed") {
+    return artifacts;
+  }
+  return { kind: "listed", rows: artifacts.rows.filter((listed) => listed.id !== artifactId) };
+}
+
 /** The row refusals with one act's refusal recorded against its row. */
 export function withRowRefusal(
   refusalByArtifactId: ReadonlyMap<string, ConsoleRefusal>,

@@ -69,21 +69,31 @@ const PORT_REFUSAL = {
   origin: "growth-port",
 };
 
+const LISTED_ONE_ROW = { status: "served", value: [summary("published")] };
+
 interface ActScript {
   readonly readAnswer?: unknown;
   readonly deleteAnswer?: unknown;
+  /** Supplied where a case counts the list reads or varies them between reads. */
+  readonly artifactList?: () => Promise<unknown>;
 }
 
 /** A bridge that lists one published row and answers the acts as the case scripts. */
 function bridgeListing(script: ActScript): ConsoleBridge {
   return {
     growth: {
-      artifactList: async () => ({ status: "served", value: [summary("published")] }),
+      artifactList: script.artifactList ?? (async () => LISTED_ONE_ROW),
       artifactAllowlistRead: async () => PORT_REFUSAL,
       artifactRead: async () => script.readAnswer ?? PORT_REFUSAL,
       artifactDelete: async () => script.deleteAnswer ?? PORT_REFUSAL,
     },
   } as unknown as ConsoleBridge;
+}
+
+/** The delete confirm is two steps in place; both are pressed here. */
+function confirmDelete(getByRole: ReturnType<typeof render>["getByRole"]): void {
+  fireEvent.click(getByRole("button", { name: "Delete" }));
+  fireEvent.click(getByRole("button", { name: "Delete permanently" }));
 }
 
 function renderPane(context: ConsolePaneContext): ReturnType<typeof render> {
@@ -290,5 +300,74 @@ describe("artifact pane — reading one row's manifest", () => {
     await settleAct();
     expect(container.querySelector('[role="status"]')?.textContent).toBe("");
     expect(getByRole("button", { name: "Read manifest" })).toBeDefined();
+  });
+});
+
+describe("artifact pane — deleting one row", () => {
+  it("takes the row off the list and reads the list again", async () => {
+    // The case a discarded reply fails: a served delete used to leave the manifest on
+    // screen, so a participant could keep acting on something the daemon destroyed.
+    const artifactList = vi
+      .fn<() => Promise<unknown>>()
+      .mockResolvedValueOnce(LISTED_ONE_ROW)
+      .mockResolvedValue({ status: "served", value: [] });
+    const { container, getByRole } = renderPane(
+      contextFor(ARTIFACT_ENTITY, {
+        bridge: bridgeListing({
+          artifactList,
+          deleteAnswer: { status: "served", value: undefined },
+        }),
+        sessionId: SESSION_ID,
+      }),
+    );
+    await readThrough();
+    expect(container.querySelectorAll(".meridian-artifact-row")).toHaveLength(1);
+
+    confirmDelete(getByRole);
+    await settleAct();
+    expect(container.querySelectorAll(".meridian-artifact-row")).toHaveLength(0);
+
+    // One re-read, coalesced through the same scheduler the pane's own control uses.
+    await readThrough();
+    expect(artifactList).toHaveBeenCalledTimes(2);
+  });
+
+  it("says what the delete reported and what it did not", async () => {
+    const { container, getByRole } = renderPane(
+      contextFor(ARTIFACT_ENTITY, {
+        bridge: bridgeListing({ deleteAnswer: { status: "served", value: undefined } }),
+        sessionId: SESSION_ID,
+      }),
+    );
+    await readThrough();
+    confirmDelete(getByRole);
+    await settleAct();
+
+    const spoken = container.querySelector('[role="status"]')?.textContent ?? "";
+    expect(spoken).toContain("Artifact deleted");
+    expect(spoken).toContain("no payload disposition");
+  });
+
+  it("negative control: a refused delete leaves the row and renders the refusal", async () => {
+    // Without this, a pane that removed the row optimistically would pass the case
+    // above and still be wrong about every delete the daemon turns down.
+    const artifactList = vi.fn<() => Promise<unknown>>().mockResolvedValue(LISTED_ONE_ROW);
+    const { container, getByRole } = renderPane(
+      contextFor(ARTIFACT_ENTITY, {
+        bridge: bridgeListing({ artifactList }),
+        sessionId: SESSION_ID,
+      }),
+    );
+    await readThrough();
+    confirmDelete(getByRole);
+    await settleAct();
+
+    const row = container.querySelector(".meridian-artifact-row") as HTMLElement;
+    expect(row).not.toBeNull();
+    expect(row.textContent).toContain("wire-unregistered");
+
+    // And no re-read was asked for: nothing changed, so there is nothing to re-read.
+    await readThrough();
+    expect(artifactList).toHaveBeenCalledTimes(1);
   });
 });

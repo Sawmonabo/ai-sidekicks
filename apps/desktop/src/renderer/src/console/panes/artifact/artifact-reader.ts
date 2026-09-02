@@ -54,6 +54,7 @@ import {
   readFailureRefusal,
   withReplacedRow,
   withRowRefusal,
+  withoutRow,
   withoutRowRefusal,
   type ArtifactAllowlistReading,
   type ArtifactPaneReading,
@@ -200,14 +201,19 @@ export class ArtifactPaneReader {
   /**
    * Delete one artifact, after the participant confirmed the consequence.
    *
-   * ONLY THE REFUSED ARM IS READ HERE. `bridge/growth-signatures.ts` registers
-   * `artifactDelete` as answering `void`, so a served delete carries nothing this
-   * pane could report — the wire's own reply carries `payloadDisposition`,
-   * `rePublishForeclosed`, and `deletedAt` (`api-payload-contracts.md §Plan-014`,
-   * `ArtifactDeleteResponse`) and the port registers none of the three. What a
-   * served delete DOES establish is the removal itself, and consuming that is the
-   * next commit's work rather than this one's, which only moves the refusal off the
-   * pane's own state and onto the reading.
+   * A SERVED DELETE ESTABLISHES ONE FACT, AND THAT FACT IS READ. The reply's own
+   * shape is `void` in `bridge/growth-signatures.ts`, so nothing about the bytes
+   * comes back — the wire's `ArtifactDeleteResponse` carries `payloadDisposition`,
+   * `rePublishForeclosed`, and `deletedAt` (`api-payload-contracts.md §Plan-014`)
+   * and the port registers none of the three, which is why the panel's delete
+   * receipt is left unsupplied rather than filled with a guess. What the answer
+   * DOES say is that the manifest is gone, so the row goes with it and the list is
+   * read again — leaving the row on screen would let a participant keep acting on a
+   * manifest the daemon has already destroyed.
+   *
+   * The re-read is `terminal-event` because that is what it is: an act completed
+   * and what it changed is what the next read will say. It is the same reason
+   * `repos/repo-mounts-reader.ts` gives its post-mutation re-read.
    */
   public async deleteArtifact(artifactId: string): Promise<ArtifactRowActOutcome> {
     const generation = this.#generation;
@@ -218,6 +224,12 @@ export class ArtifactPaneReader {
     if (answer.status === "unavailable") {
       return this.#recordRowRefusal(artifactId, answer);
     }
+    this.#publish({
+      ...this.#reading,
+      artifacts: withoutRow(this.#reading.artifacts, artifactId),
+      refusalByArtifactId: withoutRowRefusal(this.#reading.refusalByArtifactId, artifactId),
+    });
+    this.#scheduler.request("terminal-event");
     return { status: "settled" };
   }
 
