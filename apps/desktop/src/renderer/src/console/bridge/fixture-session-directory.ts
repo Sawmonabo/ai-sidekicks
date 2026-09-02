@@ -17,7 +17,7 @@
 import type { SessionState } from "@ai-sidekicks/contracts";
 
 import { ConsoleRefusalError, refuse } from "../core/index.js";
-import type { GrowthSessionSummary } from "./growth-values.js";
+import type { GrowthSessionSummary } from "./growth-values/index.js";
 import type { ConsoleScenario } from "./scenario.js";
 
 /** The subsystem a directory-derivation refusal names as its author. */

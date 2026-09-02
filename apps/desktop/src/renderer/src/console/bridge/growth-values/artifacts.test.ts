@@ -9,7 +9,7 @@
 //
 // WHAT THESE CASES CAN AND CANNOT PROVE. TypeScript is structural, so a value that
 // satisfies the registered shape proves the shape ADMITS it and never that the wire
-// sends it; the contract section named in `growth-values.ts` is the source, and this
+// sends it; the contract section named in `artifacts.ts` is the source, and this
 // file is what holds the mirror to the two arms a caller actually builds. The negative
 // controls are therefore the load-bearing half: each plants a shape that was reachable
 // before the registration — the bare manifest as the whole reply, an encoding outside
@@ -35,13 +35,13 @@
 
 import { describe, expect, expectTypeOf, it } from "vitest";
 
-import type { GrowthOperationSignatures } from "./growth-signatures.js";
+import type { GrowthOperationSignatures } from "../growth-signatures.js";
 import type {
   GrowthArtifactDeleteReceipt,
   GrowthArtifactPayloadDisposition,
   GrowthArtifactRead,
   GrowthArtifactSummary,
-} from "./growth-values.js";
+} from "./index.js";
 
 /** The manifest every case here reads through. Fixed; nothing below is about its values. */
 const MANIFEST: GrowthArtifactSummary = {

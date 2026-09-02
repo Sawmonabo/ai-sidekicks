@@ -16,7 +16,7 @@ import { describe, expect, it } from "vitest";
 
 import { findScenariosNaming, fixturePort } from "./fixture-growth-port.test-support.js";
 import { createFixtureBridge } from "./fixture-bridge.js";
-import type { GrowthBranchContext } from "./growth-values.js";
+import type { GrowthBranchContext } from "./growth-values/index.js";
 import type { ConsoleScenario } from "./scenario.js";
 import { CONSOLE_SCENARIOS } from "./scenarios/index.js";
 import { FLAGSHIP_SCENARIO } from "./scenarios/flagship.js";

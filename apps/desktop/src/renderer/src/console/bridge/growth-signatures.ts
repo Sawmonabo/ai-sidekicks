@@ -13,7 +13,7 @@
 // (`growth-port.ts`), because those are one construction over whatever this table
 // says. What a call ANSWERS with (`growth-outcome.ts`), because a surface narrowing
 // a result should not have to reach for the table it will never read. And the named
-// reply values (`growth-values.ts`), because several have readers this table does
+// reply values (`growth-values/`), because several have readers this table does
 // not — the fixture port constructs one and the family barrel publishes it — and a
 // table interrupted by the declarations of the things it refers to stops reading as
 // a table.
@@ -59,7 +59,7 @@ import type {
   GrowthSessionSummary,
   GrowthTerminalChunk,
   GrowthToolCall,
-} from "./growth-values.js";
+} from "./growth-values/index.js";
 import type { SessionSnapshot } from "../store/index.js";
 import type {
   WorkflowDefinitionScope,
