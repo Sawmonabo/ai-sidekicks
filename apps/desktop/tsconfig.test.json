@@ -63,6 +63,7 @@
     "node_modules",
     "src/renderer/**",
     "test/console/console-harness.tsx",
+    "test/console/repos-surfaces.tsx",
     // The architecture tier moved to `tsconfig.console-architecture-test.json` when
     // its wire-truth test started IMPORTING console source rather than reading it:
     // that pulls `store/hooks.ts` into the program, which reaches `window`. Same

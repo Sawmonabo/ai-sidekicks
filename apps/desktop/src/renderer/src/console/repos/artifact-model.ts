@@ -34,6 +34,7 @@
 //   • No nulling of a derivative's `subject`. `subject` is read and rendered; the
 //     remedy on a blocked delete is the daemon's own, and the console states it.
 
+import type { GrowthArtifactSummary } from "../bridge/index.js";
 import type { ConsoleRefusal } from "../core/index.js";
 import type { ChipTone } from "../primitives/index.js";
 
@@ -290,4 +291,55 @@ export function artifactReplicationPresentation(row: ArtifactManifestRow): Artif
 /** Who produced a row. An absent producer is the daemon, named rather than blanked. */
 export function artifactProducerLabel(row: ArtifactManifestRow): string {
   return row.createdBy ?? ARTIFACT_PRODUCER_ABSENT_LABEL;
+}
+
+/**
+ * Read one served manifest summary as a row.
+ *
+ * THIS FUNCTION USED TO BE A REFUSAL. `console/bridge/growth-values.ts` once answered
+ * `artifactList` with a four-member payload summary — `artifactId`, `name`,
+ * `byteLength`, `contentType` — and a reader that had mapped those four into the
+ * envelope below would have put a `state` and a `visibility` on screen that no read
+ * established. So a served list was refused by name instead. `GrowthArtifactSummary`
+ * now mirrors `api-payload-contracts.md §ArtifactManifest` member for member, so the
+ * mapping this comment used to forbid is the only member-for-member reading there is,
+ * and every field a row renders comes from one the reply carried.
+ *
+ * ONE MEMBER IS SPELLED DIFFERENTLY AND ONE IS NARROWED. `artifactId` becomes `id`,
+ * the name this view model has always used. And `metadata` is freeform daemon-side
+ * provenance typed `unknown` on the wire while the row renders strings, so a
+ * non-string value is rendered in its own JSON form rather than dropped: a row that
+ * silently showed fewer entries than the daemon sent would misreport the provenance
+ * it exists to show.
+ */
+export function artifactManifestRowFromSummary(
+  summary: GrowthArtifactSummary,
+): ArtifactManifestRow {
+  return {
+    id: summary.artifactId,
+    sessionId: summary.sessionId,
+    runId: summary.runId,
+    createdBy: summary.createdBy,
+    artifactType: summary.artifactType,
+    digest: summary.digest,
+    size: summary.size,
+    annotations: summary.annotations,
+    subject: summary.subject,
+    visibility: summary.visibility,
+    state: summary.state,
+    replicationStatus: summary.replicationStatus,
+    metadata: renderableMetadata(summary.metadata),
+    createdAt: summary.createdAt,
+  };
+}
+
+/** Every metadata entry, as the string a row draws for it. */
+function renderableMetadata(
+  metadata: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, string>> {
+  const rendered: Record<string, string> = {};
+  for (const [key, value] of Object.entries(metadata)) {
+    rendered[key] = typeof value === "string" ? value : JSON.stringify(value);
+  }
+  return rendered;
 }

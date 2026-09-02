@@ -5,15 +5,17 @@
 // against `artifact-ingest-and-crud`, `artifactAllowlistRead` against
 // `artifact-allowlist-and-abort`.
 //
-// THE ONE DECISION IN THIS FILE IS WHAT TO DO WITH A SERVED LIST. The growth port's
-// `artifactList` answers `GrowthArtifactSummary` — `artifactId`, `name`, `byteLength`,
-// `contentType` — and §10.4's row renders the MANIFEST ENVELOPE: `state`, `visibility`,
-// `digest`, `replicationStatus`, `createdAt`, `annotations`, `subject`. Those are not
-// the same value, and none of the missing members is derivable from the four that are
-// present. So a served list is REFUSED with the console's own code rather than mapped:
-// synthesising a `state` or a `visibility` would put a fact on screen that no read
-// established, which is the one thing rule 8 forbids outright. The refusal names the
-// gap so the day the shape lands the fix is a mapping and not an archaeology.
+// THE ONE DECISION IN THIS FILE IS WHAT TO DO WITH A SERVED LIST, AND IT HAS CHANGED.
+// The growth port's `artifactList` used to answer a four-member payload summary —
+// `artifactId`, `name`, `byteLength`, `contentType` — while §10.4's row renders the
+// MANIFEST ENVELOPE, and none of the missing members was derivable from the four that
+// were present. So a served list was REFUSED with the console's own code rather than
+// mapped, and that refusal named the gap "so the day the shape lands the fix is a
+// mapping and not an archaeology". The shape landed: `GrowthArtifactSummary` now
+// mirrors `api-payload-contracts.md §ArtifactManifest` member for member. The fix is
+// the mapping, and it lives on the model beside the vocabularies it fills
+// (`repos/artifact-model.ts:artifactManifestRowFromSummary`) rather than here, because
+// what a served row IS is a model question and this file owns only who asked.
 //
 // NO TIMER AND NO POLL. The reads run once when the pane mounts and again when the
 // participant asks, through the same act that asked the first time. `Spec-023`'s
@@ -23,24 +25,15 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { Emitter, refuse, type ConsoleRefusal, type Unsubscribe } from "../../core/index.js";
+import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../../core/index.js";
 import {
   ATTACHMENT_ALLOWLIST_DEFAULT,
   ATTACHMENT_BYTE_CAP_DEFAULT,
 } from "../../repos/attachment-model.js";
-import type { ArtifactsPanelState } from "../../repos/artifact-model.js";
-
-/** The subsystem every refusal this module raises names as its author. */
-export const ARTIFACT_READS_ORIGIN = "artifacts";
-
-/**
- * The console's own code for a reply whose shape cannot become a manifest row.
- *
- * Console-owned and deliberately outside the `artifact.*` daemon namespace, on
- * `repo-reads.ts`'s rule: a daemon refusal keeps its code verbatim, and the console
- * names only the failures that are its own to describe.
- */
-export const ARTIFACT_LIST_SHAPE_UNMAPPED_CODE = "list-shape-unmapped";
+import {
+  artifactManifestRowFromSummary,
+  type ArtifactsPanelState,
+} from "../../repos/artifact-model.js";
 
 /**
  * The effective allow-list and byte cap, with where they came from.
@@ -144,18 +137,14 @@ export class ArtifactPaneReader {
       this.#publish({ ...this.#reading, artifacts: { kind: "refused", refusal: answer } });
       return;
     }
-    // Served, and unmappable — see the header. The count is named because it is the one
-    // true thing the reply carries, and stating it keeps the refusal from reading as
-    // "the list failed" when what failed is the console's ability to render it.
+    // Served. `listed` with an empty array is a DIFFERENT arm from `not-checked` and
+    // the reply's own length is what decides between them — a read that found none is
+    // not a read nobody made.
     this.#publish({
       ...this.#reading,
       artifacts: {
-        kind: "refused",
-        refusal: refuse(
-          ARTIFACT_READS_ORIGIN,
-          ARTIFACT_LIST_SHAPE_UNMAPPED_CODE,
-          `The artifact list answered with ${String(answer.value.length)} payload summaries rather than manifest rows. A row renders state, visibility, digest, replication status, and provenance, none of which a summary carries, and the console will not supply them from nothing.`,
-        ),
+        kind: "listed",
+        rows: answer.value.map(artifactManifestRowFromSummary),
       },
     });
   }

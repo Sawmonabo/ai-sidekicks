@@ -119,7 +119,7 @@ function renderGateBody(props: ProposalGateProps): React.JSX.Element {
         kind="not-checked"
         placement="surface"
         title="No branch context has been read."
-        detail="Reading a branch context, preparing a proposal, and executing a git action are not registered on the bridge yet, so nothing has been asked for and nothing is being reported as absent."
+        detail="Nothing has asked. The branch-context read reaches the daemon through the growth port and the reader that calls it has not landed, so this is an unasked question rather than a workspace without a context."
       />
     );
   }
