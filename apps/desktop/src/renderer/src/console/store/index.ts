@@ -30,11 +30,23 @@ export { CONSOLE_ENTITY_KINDS } from "./entities.js";
 export type { ConsoleEntityKind } from "./entities.js";
 
 export { SessionStore, type SessionStoreState } from "./session-store.js";
+// The base state a read establishes. Exported because the composition root now
+// builds one — the adapter over the growth port's session read lives there, which
+// is where a family that may reach the bridge is allowed to be.
+export type { SessionSnapshot } from "./session-store.js";
 
 export type { FrameBanner } from "./frame-store.js";
 export { FrameStore } from "./frame-store.js";
 
-export { SessionStoreRegistry, type SessionSnapshotReader } from "./session-store-registry.js";
+// `SessionSnapshotRead` and `SessionSnapshotReader` now leave the family, because
+// the producer they were held back for exists: the composition root builds a reader
+// over the growth port's session read, and says so at the call site with a type
+// rather than by convention.
+export { SessionStoreRegistry } from "./session-store-registry.js";
+// `SessionSnapshotReader` stays inside the family: what a caller above needs to
+// SAY is what the registry takes, and the reader is one arm of that union rather
+// than a type anything outside names.
+export type { SessionSnapshotRead } from "./session-store-registry.js";
 
 // The refresh chokepoint, on the family door because the rule it realises binds
 // every family above this one: `Spec-023 §Console Design (Meridian)` §The eight
@@ -45,11 +57,12 @@ export { SessionStoreRegistry, type SessionSnapshotReader } from "./session-stor
 // apply chokepoint.
 export { RefreshScheduler, type RefreshReason } from "./scheduling.js";
 
-// `useSessionPartition` joins the door with its first cross-family consumer: the
+// `useSessionPartition` joins the door with its cross-family consumers: the
 // composer reads the `agent`, `run`, and `channel` partitions to resolve what a
-// send is addressed to. It is the partitioned subscription rule 6 asks for — a
-// surface that reached for `useSessionStore` with a selector of its own would be
-// the second subscription path this module exists to prevent.
+// send is addressed to, and the frame's agent step reads a session's agents. It is
+// the partitioned subscription rule 6 asks for — a surface that reached for
+// `useSessionStore` with a selector of its own would be the second subscription
+// path this module exists to prevent.
 // `useSessionStore` ships beside them for the reason stated above: it is the ONE
 // selector-shaped read of a session store, and a surface that could not reach it
 // through this door would reach for `useSyncExternalStore` and become the second
@@ -63,9 +76,14 @@ export { RefreshScheduler, type RefreshReason } from "./scheduling.js";
 // incomplete, and a third when the session simply has none of that kind. A
 // surface that could reach only the partition would have to render all three as
 // "empty", which is the collapse rule 8 forbids.
+//
+// `useOpenSessionIds` ships with them because the sessions surface and the
+// context picker each have to name which sessions are open before either can
+// read one, and the registry is the only thing that knows.
 export {
   useFrameStore,
   useLocationHash,
+  useOpenSessionIds,
   useOpenSessionStore,
   useSessionDegradedCause,
   useSessionInitialised,

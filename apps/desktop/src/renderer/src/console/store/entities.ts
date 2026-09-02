@@ -37,6 +37,13 @@ export const CONSOLE_ENTITY_KINDS = [
   "worktree",
   "artifact",
   "approval",
+  // Two workflow kinds, not one. A definition is authored, versioned, and scoped and
+  // outlives every run of it; a run is one execution of one pinned version. The
+  // builder addresses the first and the run pane the second, so filing both under
+  // one partition would have a definition edit and a run transition invalidate each
+  // other's selectors — and would give the two no way to be told apart by kind at
+  // all, which is what a partitioned store keys on.
+  "workflow-definition",
   "workflow-run",
   "browser-page",
 ] as const;

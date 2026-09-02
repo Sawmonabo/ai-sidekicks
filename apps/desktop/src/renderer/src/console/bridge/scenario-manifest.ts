@@ -22,6 +22,7 @@ import type {
   GrowthOperationId,
   GrowthPrerequisiteEntry,
 } from "./growth-entry.js";
+import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "./fixture-growth-port.js";
 import { GROWTH_OPERATIONS } from "./growth-operations.js";
 import { GROWTH_PREREQUISITES } from "./growth-prerequisites.js";
 import { GROWTH_SLATE_ROWS, type GrowthSlateRow, type GrowthSlateRowId } from "./growth-slate.js";
@@ -37,12 +38,14 @@ export { CONSOLE_SCENARIOS };
 /**
  * Growth operations the fixture has a scripted answer for.
  *
- * Empty at T-023p-1C-1 and deliberately so: every operation on the slate refuses
- * under BOTH bridges right now, which is what makes the "not checked" absence the
- * console renders today a true statement rather than a placeholder. Scenario work
- * in T-023p-1C-2 adds ids here as it scripts them.
+ * Read from `fixture-growth-port.ts` rather than listed again here. The port that
+ * IMPLEMENTS an operation and the ledger that RECORDS it serving one are two
+ * claims about one set, and two hand-written lists is how they come apart —
+ * silently, because a ledger claiming a served operation nobody implements reads
+ * exactly like a correct one.
  */
-export const FIXTURE_SERVED_GROWTH_OPERATIONS: readonly GrowthOperationId[] = [];
+export const FIXTURE_SERVED_GROWTH_OPERATIONS: readonly GrowthOperationId[] =
+  FIXTURE_SERVED_GROWTH_OPERATION_IDS;
 
 export interface ConsoleScenarioManifest {
   readonly scenarios: readonly ConsoleScenario[];

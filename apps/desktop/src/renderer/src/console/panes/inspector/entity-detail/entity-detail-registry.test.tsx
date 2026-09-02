@@ -1,7 +1,7 @@
 // One record per entity kind, and four states for every one of them.
 //
 // The cases run over `CONSOLE_ENTITY_KINDS` itself rather than over a list written
-// here: a twelfth kind added to the store's enumeration has to arrive in this file
+// here: a thirteenth kind added to the store's enumeration has to arrive in this file
 // as a failure, and a list restated beside the closed set would let it arrive as
 // nothing at all.
 //

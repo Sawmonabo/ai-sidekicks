@@ -1,9 +1,9 @@
 // The vocabulary one entity's record is written in: what a detail is handed, and
 // what it may put on a row.
 //
-// WHY FACETS ARE DATA AND NOT NODES. Eleven detail components each declare the
-// rows their kind carries. If a row were a `React.ReactNode` the eleven would each
-// pick a formatter, and eleven pickings is eleven chances to reach for `toFixed`
+// WHY FACETS ARE DATA AND NOT NODES. Twelve detail components each declare the
+// rows their kind carries. If a row were a `React.ReactNode` the twelve would each
+// pick a formatter, and twelve pickings is twelve chances to reach for `toFixed`
 // instead of `primitives/wire-figures.ts`. A facet is therefore a VALUE with a
 // closed form, and `EntityRecord.tsx` is the only module that turns one into
 // markup — which is the same chokepoint discipline the figures module itself is.
@@ -44,8 +44,8 @@ export type ProjectionDegradedCause = NonNullable<ReturnType<typeof useSessionDe
  * What every per-kind detail is handed.
  *
  * It lives beside the facet vocabulary rather than beside the registry that
- * composes the eleven details, because the registry imports all eleven and all
- * eleven import this — putting the props there would close a cycle.
+ * composes the twelve details, because the registry imports all twelve and all
+ * twelve import this — putting the props there would close a cycle.
  */
 export interface EntityDetailProps {
   /** The stored record, or `undefined` where the store holds none for this id. */

@@ -59,6 +59,27 @@ export function useOpenSessionStore(
   return useSyncExternalStore(subscribe, read, read);
 }
 
+/**
+ * The sessions this window has open, in open order.
+ *
+ * The console has no session-DIRECTORY read — no `SidekicksBridge` member lists the
+ * sessions on a node, and `Plan-023 §Console growth slate` registers no row for one
+ * either — so this registry is the only session set the renderer can name, and the
+ * two surfaces that need one (the auxiliary window's context picker and the sessions
+ * list) both read it here rather than each inventing a source.
+ *
+ * Subscribed through the registry's own change emitter, so it costs no timer and no
+ * poll, and the read returns the registry's stable array rather than building one.
+ */
+export function useOpenSessionIds(registry: SessionStoreRegistry): readonly string[] {
+  const subscribe = useCallback(
+    (onStoreChange: () => void) => registry.subscribe(onStoreChange),
+    [registry],
+  );
+  const read = useCallback(() => registry.openSessionIds, [registry]);
+  return useSyncExternalStore(subscribe, read, read);
+}
+
 /** Select from the session store. The selector must return a stored reference. */
 export function useSessionStore<TSelected>(
   store: SessionStore,

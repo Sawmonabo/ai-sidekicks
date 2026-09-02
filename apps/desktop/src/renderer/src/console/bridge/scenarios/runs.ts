@@ -3,17 +3,30 @@
 // It scripts the run-state subtypes the runs view reads — a block, an unblock, a
 // pause, and a resume — because those are the four rows most easily conflated, and
 // a fixture that only ever showed `running` would let the conflation ship. Waiting
-// is not pausing: `run.blocked` and `run.paused` are separate beats here for the
-// same reason they are separate rows there.
+// is not pausing: `run.waiting_for_approval` and `run.paused` are separate beats
+// here for the same reason they are separate rows there.
 //
 // The queue snapshot is a canned reply rather than a beat, because the queue is a
 // read and not a stream of session events. Its rows carry the closed five-value
 // item state verbatim — an admitted head that can no longer be taken back, and two
 // still waiting that can.
+//
+// `scenarios/wire-truth.ts` holds the beats below to the census
+// (`SESSION_EVENT_CATEGORY_BY_TYPE`) and to the strict payload layer
+// (`SessionEventSchema`), both in `packages/contracts/src/event.ts`. Two
+// consequences a reader will notice: the identifiers are the UUIDs the branded id
+// types declare, and a run REACHING a state is the event named for that state —
+// `run.waiting_for_approval`, `run.running`, `run.paused` — because the census
+// registers one type per run state and no separate block, unblock, or resume verb.
 
 import type { ConsoleScenario } from "../scenario.js";
 
-const SESSION_ID = "session-runs";
+// UUID v7 values whose leading bytes are this scenario's own start instant, so a
+// reader scanning a rendered id can still tell one fixture apart from another.
+const SESSION_ID = "019b7a22-2200-75e5-8510-ada11a5a44a5";
+const PARTICIPANT_YOU = "019b7a22-2200-79a4-8110-cca0117a0410";
+const AGENT_IMPLEMENTER = "019b7a22-2200-7a6e-8110-d1a4c1150401";
+const RUN_ID = "019b7a22-2200-740e-8110-d1a4c1150411";
 
 export const RUNS_SCENARIO: ConsoleScenario = {
   id: "runs",
@@ -21,7 +34,7 @@ export const RUNS_SCENARIO: ConsoleScenario = {
   purpose:
     "One run moving through block, unblock, pause, and resume beside a queue carrying a run-bound row — the vocabulary the runs pane must render without inventing a state.",
   sessionId: SESSION_ID,
-  participantIdsInJoinOrder: ["participant-you", "agent-implementer"],
+  participantIdsInJoinOrder: [PARTICIPANT_YOU, AGENT_IMPLEMENTER],
   startedAtIso: "2026-01-01T16:00:00.000Z",
   beats: [
     {
@@ -31,8 +44,11 @@ export const RUNS_SCENARIO: ConsoleScenario = {
         sequence: 1,
         kind: "session.created",
         occurredAt: "2026-01-01T16:00:00.000Z",
-        actorParticipantId: "participant-you",
-        payload: { title: "Run status" },
+        actorParticipantId: PARTICIPANT_YOU,
+        // The registered shape, verbatim. A session's display name reaches the
+        // console from the session read; the creation event carries no title, and
+        // its `.strict()` payload rejects one.
+        payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
       },
     },
     {
@@ -42,8 +58,8 @@ export const RUNS_SCENARIO: ConsoleScenario = {
         sequence: 2,
         kind: "agent.attached",
         occurredAt: "2026-01-01T16:00:00.040Z",
-        actorParticipantId: "agent-implementer",
-        payload: { agentId: "agent-implementer", displayName: "Implementer" },
+        actorParticipantId: AGENT_IMPLEMENTER,
+        payload: { agentId: AGENT_IMPLEMENTER, displayName: "Implementer" },
       },
     },
     {
@@ -53,8 +69,8 @@ export const RUNS_SCENARIO: ConsoleScenario = {
         sequence: 3,
         kind: "run.queued",
         occurredAt: "2026-01-01T16:00:00.100Z",
-        actorParticipantId: "agent-implementer",
-        payload: { runId: "run-10", agentId: "agent-implementer" },
+        actorParticipantId: AGENT_IMPLEMENTER,
+        payload: { runId: RUN_ID, agentId: AGENT_IMPLEMENTER },
       },
     },
     {
@@ -62,10 +78,10 @@ export const RUNS_SCENARIO: ConsoleScenario = {
       event: {
         sessionId: SESSION_ID,
         sequence: 4,
-        kind: "run.started",
+        kind: "run.starting",
         occurredAt: "2026-01-01T16:00:00.160Z",
-        actorParticipantId: "agent-implementer",
-        payload: { runId: "run-10" },
+        actorParticipantId: AGENT_IMPLEMENTER,
+        payload: { runId: RUN_ID },
       },
     },
     {
@@ -73,10 +89,10 @@ export const RUNS_SCENARIO: ConsoleScenario = {
       event: {
         sessionId: SESSION_ID,
         sequence: 5,
-        kind: "run.blocked",
+        kind: "run.waiting_for_approval",
         occurredAt: "2026-01-01T16:00:00.300Z",
-        actorParticipantId: "agent-implementer",
-        payload: { runId: "run-10", state: "waiting_for_approval" },
+        actorParticipantId: AGENT_IMPLEMENTER,
+        payload: { runId: RUN_ID },
       },
     },
     {
@@ -84,10 +100,12 @@ export const RUNS_SCENARIO: ConsoleScenario = {
       event: {
         sessionId: SESSION_ID,
         sequence: 6,
-        kind: "run.unblocked",
+        // The unblock is the run reaching `running` again — the census has no
+        // separate unblock verb, and inventing one would name a wire nobody serves.
+        kind: "run.running",
         occurredAt: "2026-01-01T16:00:00.520Z",
-        actorParticipantId: "participant-you",
-        payload: { runId: "run-10", state: "running" },
+        actorParticipantId: PARTICIPANT_YOU,
+        payload: { runId: RUN_ID },
       },
     },
     {
@@ -97,8 +115,8 @@ export const RUNS_SCENARIO: ConsoleScenario = {
         sequence: 7,
         kind: "run.paused",
         occurredAt: "2026-01-01T16:00:00.700Z",
-        actorParticipantId: "participant-you",
-        payload: { runId: "run-10" },
+        actorParticipantId: PARTICIPANT_YOU,
+        payload: { runId: RUN_ID },
       },
     },
     {
@@ -106,10 +124,13 @@ export const RUNS_SCENARIO: ConsoleScenario = {
       event: {
         sessionId: SESSION_ID,
         sequence: 8,
-        kind: "run.resumed",
+        // The resume, likewise: a resumed run is a run that is `running`. The pause
+        // above and this beat are two transitions into two different states, which
+        // is what keeps them distinguishable without a verb the wire does not have.
+        kind: "run.running",
         occurredAt: "2026-01-01T16:00:00.880Z",
-        actorParticipantId: "participant-you",
-        payload: { runId: "run-10" },
+        actorParticipantId: PARTICIPANT_YOU,
+        payload: { runId: RUN_ID },
       },
     },
   ],
@@ -121,7 +142,7 @@ export const RUNS_SCENARIO: ConsoleScenario = {
     {
       call: "agent.list",
       result: {
-        agents: [{ agentId: "agent-implementer", displayName: "Implementer", state: "running" }],
+        agents: [{ agentId: AGENT_IMPLEMENTER, displayName: "Implementer", state: "running" }],
       },
     },
     {

@@ -37,7 +37,7 @@
 // scenario actually playing is readable from the handle below — which is what the
 // endurance tier asserts, so a typo fails a tier rather than passing quietly.
 
-import { refuse, type ConsoleRefusal } from "../core/index.js";
+import { SCENARIO_FIXTURE_GLOBAL, refuse, type ConsoleRefusal } from "../core/index.js";
 import { CONSOLE_SCENARIOS } from "./scenario-manifest.js";
 import type { ScenarioEngine } from "./scenario.js";
 import { FIRST_RUN_SCENARIO_ID } from "./scenarios/first-run.js";
@@ -136,16 +136,17 @@ export class ScenarioSelection {
   }
 }
 
-/**
+/*
  * The property a fixture build hangs the scenario control on, for the two
  * Electron tiers.
  *
- * A constant rather than a literal written at each end, on `TRIPWIRE_FIXTURE_GLOBAL`'s
- * reasoning: the driving tier imports this string instead of retyping it, so a
- * rename is a compile error rather than a tier that reads `undefined` and reports
- * a missing property.
+ * Declared in `core/fixture-globals.ts` and re-exported here, so this installer
+ * and the release-absence sweep that proves the handle absent read one string.
+ * Re-exported rather than only imported because the driving tiers reach this
+ * module by name for it, and a retyped literal at either end would leave a tier
+ * reading `undefined` and reporting a missing property instead of a rename.
  */
-export const SCENARIO_FIXTURE_GLOBAL = "__sidekicksConsoleScenario__";
+export { SCENARIO_FIXTURE_GLOBAL };
 
 /** What a driver may do with the running scenario. Closed, and read-mostly. */
 export interface ScenarioFixtureHandle {

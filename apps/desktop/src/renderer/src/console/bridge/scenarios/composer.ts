@@ -8,10 +8,25 @@
 //
 // The beats carry wire-verbatim event kinds and nothing else. A scenario is data,
 // so an invented kind here would be an invented kind everywhere it is projected.
+// `scenarios/wire-truth.ts` holds this file to the census
+// (`SESSION_EVENT_CATEGORY_BY_TYPE`) and to the strict payload layer
+// (`SessionEventSchema`), both in `packages/contracts/src/event.ts`, which is why
+// the identifiers below are the UUIDs the branded id types declare, `session.created`
+// carries `{sessionId, config, metadata}` rather than a title, a person joining is
+// `membership.created` rather than a `participant.*` type the census does not carry,
+// and a run reaching a state is the event named for that state.
 
 import type { ConsoleScenario } from "../scenario.js";
 
-const SESSION_ID = "session-composer";
+// UUID v7 values whose leading bytes are this scenario's own start instant, so a
+// reader scanning a rendered id can still tell one fixture apart from another.
+const SESSION_ID = "019b7a11-1100-75e5-8510-ada11a5a33a5";
+const PARTICIPANT_YOU = "019b7a11-1100-79a4-8110-cca0117a0310";
+const PARTICIPANT_PRIYA = "019b7a11-1100-79a4-8120-cca0117a0320";
+const MEMBERSHIP_PRIYA = "019b7a11-1100-7e3b-8110-cca0117a0330";
+const AGENT_IMPLEMENTER = "019b7a11-1100-7a6e-8110-d1a4c1150301";
+const AGENT_REVIEWER = "019b7a11-1100-7a6e-8120-d1a4c1150302";
+const RUN_ID = "019b7a11-1100-740e-8110-d1a4c1150311";
 
 export const COMPOSER_SCENARIO: ConsoleScenario = {
   id: "composer",
@@ -20,10 +35,10 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
     "A session whose newest run is blocked on a person's next message — the state the composer's target, posture, and send resolution are read against.",
   sessionId: SESSION_ID,
   participantIdsInJoinOrder: [
-    "participant-you",
-    "participant-priya",
-    "agent-implementer",
-    "agent-reviewer",
+    PARTICIPANT_YOU,
+    PARTICIPANT_PRIYA,
+    AGENT_IMPLEMENTER,
+    AGENT_REVIEWER,
   ],
   startedAtIso: "2026-01-01T11:05:00.000Z",
   beats: [
@@ -34,8 +49,11 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
         sequence: 1,
         kind: "session.created",
         occurredAt: "2026-01-01T11:05:00.000Z",
-        actorParticipantId: "participant-you",
-        payload: { title: "Composer addressing" },
+        actorParticipantId: PARTICIPANT_YOU,
+        // The registered shape, verbatim. A session's display name reaches the
+        // console from the session read; the creation event carries no title, and
+        // its `.strict()` payload rejects one.
+        payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
       },
     },
     {
@@ -43,10 +61,17 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
       event: {
         sessionId: SESSION_ID,
         sequence: 2,
-        kind: "participant.joined",
+        // A person joining a session is a membership event: `participant.*` is not
+        // in the census at all.
+        kind: "membership.created",
         occurredAt: "2026-01-01T11:05:00.060Z",
-        actorParticipantId: "participant-priya",
-        payload: { displayName: "Priya" },
+        actorParticipantId: PARTICIPANT_PRIYA,
+        payload: {
+          membershipId: MEMBERSHIP_PRIYA,
+          participantId: PARTICIPANT_PRIYA,
+          role: "collaborator",
+          identityHandle: "priya",
+        },
       },
     },
     {
@@ -56,8 +81,8 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
         sequence: 3,
         kind: "agent.attached",
         occurredAt: "2026-01-01T11:05:00.120Z",
-        actorParticipantId: "agent-implementer",
-        payload: { agentId: "agent-implementer", displayName: "Implementer" },
+        actorParticipantId: AGENT_IMPLEMENTER,
+        payload: { agentId: AGENT_IMPLEMENTER, displayName: "Implementer" },
       },
     },
     {
@@ -67,8 +92,8 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
         sequence: 4,
         kind: "agent.attached",
         occurredAt: "2026-01-01T11:05:00.180Z",
-        actorParticipantId: "agent-reviewer",
-        payload: { agentId: "agent-reviewer", displayName: "Reviewer" },
+        actorParticipantId: AGENT_REVIEWER,
+        payload: { agentId: AGENT_REVIEWER, displayName: "Reviewer" },
       },
     },
     {
@@ -78,8 +103,8 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
         sequence: 5,
         kind: "run.queued",
         occurredAt: "2026-01-01T11:05:00.260Z",
-        actorParticipantId: "agent-implementer",
-        payload: { runId: "run-compose-01", agentId: "agent-implementer" },
+        actorParticipantId: AGENT_IMPLEMENTER,
+        payload: { runId: RUN_ID, agentId: AGENT_IMPLEMENTER },
       },
     },
     {
@@ -87,10 +112,10 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
       event: {
         sessionId: SESSION_ID,
         sequence: 6,
-        kind: "run.started",
+        kind: "run.starting",
         occurredAt: "2026-01-01T11:05:00.320Z",
-        actorParticipantId: "agent-implementer",
-        payload: { runId: "run-compose-01" },
+        actorParticipantId: AGENT_IMPLEMENTER,
+        payload: { runId: RUN_ID },
       },
     },
     {
@@ -100,10 +125,10 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
         sequence: 7,
         // Waiting is not pausing: this run is blocked on someone, and the composer
         // is where that someone answers.
-        kind: "run.blocked",
+        kind: "run.waiting_for_input",
         occurredAt: "2026-01-01T11:05:00.480Z",
-        actorParticipantId: "agent-implementer",
-        payload: { runId: "run-compose-01", state: "waiting_for_input" },
+        actorParticipantId: AGENT_IMPLEMENTER,
+        payload: { runId: RUN_ID },
       },
     },
   ],
@@ -118,8 +143,8 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
       call: "agent.list",
       result: {
         agents: [
-          { agentId: "agent-implementer", displayName: "Implementer", state: "waiting_for_input" },
-          { agentId: "agent-reviewer", displayName: "Reviewer", state: "idle" },
+          { agentId: AGENT_IMPLEMENTER, displayName: "Implementer", state: "waiting_for_input" },
+          { agentId: AGENT_REVIEWER, displayName: "Reviewer", state: "idle" },
         ],
       },
     },

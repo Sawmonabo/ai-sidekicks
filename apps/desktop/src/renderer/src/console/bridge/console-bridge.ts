@@ -13,18 +13,88 @@
 // exactly what the preload gives, `growth` is exactly what it does not.
 
 import type { SidekicksBridge } from "@ai-sidekicks/contracts";
+import { RealClock, type ConsoleClock } from "../core/index.js";
+import type { GrowthOperationId } from "./growth-entry.js";
 import type { GrowthPort } from "./growth-port.js";
 import type { ScenarioEngine } from "./scenario.js";
 
 /** Which bridge the console is running against. Rendered, never inferred. */
 export type ConsoleBridgeSource = "live" | "fixture";
 
+/**
+ * The registered daemon stream a console session is projected from.
+ *
+ * `session.subscribe` is the replay-then-tail event stream the method registry
+ * already carries, named here verbatim rather than invented: a console that
+ * subscribed to a string the daemon does not serve would get silence that is
+ * indistinguishable from a quiet session.
+ *
+ * It lives in this module rather than beside its one caller because BOTH sides of
+ * the subscribe seam need it. `frame/session-event-binder.ts` passes it to
+ * `daemon.subscribe`; `fixture-bridge.ts` has to recognise it to answer the way
+ * the daemon would. Two copies of the string would let the producer and the
+ * consumer drift apart while every test still passed.
+ */
+export const SESSION_EVENT_STREAM = "session.subscribe";
+
+/**
+ * Subscription names that carry a session's WHOLE event stream.
+ *
+ * `daemon.subscribe(name, handler)` names either one event type or a stream of
+ * them, and the two answer differently: a stream delivers every event of the
+ * session, an event type delivers only its own. Closed, and one member today —
+ * the console subscribes to nothing else.
+ */
+const WHOLE_SESSION_EVENT_STREAMS: readonly string[] = [SESSION_EVENT_STREAM];
+
+/** Does this subscription name carry a session's whole stream rather than one type? */
+export function isSessionEventStream(subscriptionName: string): boolean {
+  return WHOLE_SESSION_EVENT_STREAMS.includes(subscriptionName);
+}
+
 export interface ConsoleBridge {
   /** Exactly the preload contract. Shape-identical across both sources. */
   readonly sidekicks: SidekicksBridge;
   /** The single fixture-only seam for wires the corpus has not registered. */
   readonly growth: GrowthPort;
+  /**
+   * Which growth operations this bridge ANSWERS rather than refuses.
+   *
+   * A synchronous fact beside the asynchronous port, and it earns its place: some
+   * decisions have to be made before a call can be awaited. The composition root
+   * has to know whether a session read exists before it builds the registry that
+   * would perform one, because a registry that cannot read must not have a stream
+   * bound to it at all — and under the live bridge `daemon.subscribe` throws, so
+   * "bind and find out" is not a fallback, it is a crash inside a mount effect.
+   *
+   * Declared by the bridge that serves them, so the two cannot drift: a fixture
+   * that implements an operation and forgets to publish it here is a set that
+   * disagrees with a port, which is the disagreement `bridge-shape.test.ts` reads.
+   */
+  readonly growthServedOperations: ReadonlySet<GrowthOperationId>;
   readonly source: ConsoleBridgeSource;
   /** Present only under the fixture, so a surface can drive playback in a story. */
   readonly scenarioEngine: ScenarioEngine | undefined;
+}
+
+/**
+ * The clock every subsystem this bridge feeds has to run on.
+ *
+ * `Spec-023 §Console Design (Meridian)` §The fixture bridge: "the fixture clock is
+ * the only clock the renderer reads in fixture mode". A window whose stores kept
+ * their own `RealClock` broke that sentence without looking like it — apply
+ * coalescing and every refresh deadline ran on wall time while scenario beats
+ * advanced on frozen time, so a screenshot or an endurance step taken straight
+ * after `advance()` could observe either side of a drain depending on how fast the
+ * runner happened to be.
+ *
+ * It reads the running engine rather than the source tag, because the engine is
+ * what OWNS the frozen clock: a bridge tagged `fixture` with no engine has no
+ * frozen time to share, and answering with one would be an invented reading. The
+ * real arm mints a fresh `RealClock` per caller, which is not a second time base —
+ * every instance reads the same wall clock — and matches what each subsystem
+ * defaulted to before this seam existed.
+ */
+export function consoleClockFor(bridge: ConsoleBridge): ConsoleClock {
+  return bridge.scenarioEngine?.clock ?? new RealClock();
 }

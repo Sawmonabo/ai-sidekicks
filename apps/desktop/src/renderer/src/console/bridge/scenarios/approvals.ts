@@ -11,10 +11,21 @@
 // The lifecycle beats are opaque re-read triggers by design: the surface's rule is
 // that those five event payloads are never decoded, so the payloads here carry the
 // record identity and nothing a renderer could be tempted to read a decision out of.
+//
+// `scenarios/wire-truth.ts` holds those beats to the census
+// (`SESSION_EVENT_CATEGORY_BY_TYPE`) and to the strict payload layer
+// (`SessionEventSchema`), both in `packages/contracts/src/event.ts`. The
+// consequence visible here is the opening beat: `session.created` carries
+// `{sessionId, config, metadata}` — the registered payload — rather than a title
+// its `.strict()` schema rejects, and the session id is the UUID `SessionId`
+// declares. The `approval.*` beats are held to the census leg alone, which is
+// exactly the opacity this scenario is built on.
 
 import type { ConsoleScenario } from "../scenario.js";
 
-const SESSION_ID = "session-approvals";
+// A UUID v7 value whose leading bytes are this scenario's own start instant, so a
+// reader scanning a rendered id can still tell one fixture apart from another.
+const SESSION_ID = "019b7a33-3300-75e5-8510-ada11a5a55a5";
 
 export const APPROVALS_SCENARIO: ConsoleScenario = {
   id: "approvals",
@@ -33,7 +44,7 @@ export const APPROVALS_SCENARIO: ConsoleScenario = {
         kind: "session.created",
         occurredAt: "2026-01-01T13:30:00.000Z",
         actorParticipantId: "participant-you",
-        payload: { title: "Approvals" },
+        payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
       },
     },
     {

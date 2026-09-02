@@ -1,16 +1,16 @@
 // The persistence door.
 //
-// One chokepoint (`UiStateStore`), the adapter contract behind it and its two
-// implementations, the value-class vocabulary that decides what may be stored at
-// all, and the draft store.
+// One chokepoint (`UiStateStore`), the value-class vocabulary that decides what may
+// be stored at all, the draft store, and one of the two adapters behind the
+// chokepoint.
 //
-// WHY THE ADAPTERS ARE BEHIND THE SAME DOOR AS THE CHOKEPOINT. They are exported
-// because tests construct them and because `UiStateStore.opening()` composes them
-// — not because a surface should. A surface that reached for
-// `IndexedDbPersistenceAdapter` directly would bypass the value-class validation,
-// the byte cap, and the partition trim, which are the three things the chokepoint
-// exists to apply. The architecture tier asserts that no module outside this
-// family constructs an adapter; the door is where that rule is legible.
+// WHY ONLY ONE ADAPTER IS BEHIND THE DOOR. `MemoryPersistenceAdapter` is the one a
+// caller outside this family has a legitimate reason to construct: it is what a test
+// hands the chokepoint to drive a failure a real disk would take a real disk to
+// reproduce — a full one, most of all. `IndexedDbPersistenceAdapter` is not exported
+// at all, because the only correct way to acquire it is `UiStateStore.opening()`,
+// which composes it behind the value-class validation, the byte cap, and the
+// partition trim that the chokepoint exists to apply.
 //
 // `PERSISTENCE_GLOBAL_PARTITION` and `SCHEME_PREFERENCE_KEY` travel with the
 // adapter rather than with the store because they name a RECORD ADDRESS, and a
@@ -21,11 +21,6 @@ export { PERSISTENCE_GLOBAL_PARTITION, SCHEME_PREFERENCE_KEY } from "./adapter.j
 
 export { CONSOLE_DATABASE_NAME, UI_STATE_STORE_NAME } from "./indexeddb-adapter.js";
 
-// The in-memory adapter, which is what this door's header means by "they are
-// exported because tests construct them": a surface in another family that has to
-// drive a real durable write — a sidebar restoring its collapsed set, say — needs
-// a store with no browser storage behind it, and the alternative is a hand-rolled
-// stand-in that would pass while the real chokepoint refused.
 export { MemoryPersistenceAdapter } from "./memory-adapter.js";
 
 export { UiStateStore } from "./ui-state-store.js";

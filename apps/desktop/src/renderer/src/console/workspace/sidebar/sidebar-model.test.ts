@@ -276,7 +276,7 @@ describe("SidebarModel — a refused write is kept", () => {
     // legitimate value; the refusal is the store's, not one this test invented.
     const uiStateStore = new UiStateStore({
       adapter: new MemoryPersistenceAdapter(),
-      valueByteCap: 1,
+      recordByteCap: 1,
     });
     const model = new SidebarModel({ sessionId: SESSION_ID, uiStateStore });
     await model.restore();

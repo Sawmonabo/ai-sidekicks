@@ -41,7 +41,7 @@ There is exactly one shared layer. `src/renderer/src/shared/` is not created; a 
 - Renderer source never imports `electron`, `electron/*`, `node:*`, bare Node builtins, `@ai-sidekicks/runtime-daemon`, `@ai-sidekicks/control-plane`, or any path under `main/` or `preload/`. Declared in `eslint.config.mjs`; add a new ban there, never in a test.
 - Main and preload never import from `src/renderer/`. A value both sides need goes in `src/shared/` and is imported by both — never mirrored by hand.
 - The console families form a DAG, low to high: `core → tokens → routing → primitives → store / persistence → bridge → palette → frame → view families`. A family imports any family below it and none above it. An upward edge fails `structure:layering`; hoist the symbol down to the lowest family that needs it, never deep-import around it.
-  - `core/` holds `constants.ts`, `tripwires.ts`, `keyed-registry.ts`, `refusal.ts`, `emitter.ts`, `clock.ts`.
+  - `core/` holds `constants.ts`, `tripwires.ts`, `keyed-registry.ts`, `refusal.ts`, `emitter.ts`, `clock.ts`, `fixture-globals.ts`.
   - `routing/` holds `ConsoleRoute`, `parseRoute`, `formatRoute`, `railDestinationFor`.
   - Chord formatting lives in `primitives/chord-format.ts`; the palette consumes it.
 - Console code reaches the bridge only through `console/bridge/BridgeProvider.tsx`; `window.sidekicks` appears in no other renderer file.
@@ -87,16 +87,18 @@ There is exactly one shared layer. `src/renderer/src/shared/` is not created; a 
 - The console tiers live under `test/console/<tier>/`, one Vitest project each, globs disjoint.
 - Shared scaffolding lives once, and one home per role. Cross-process roles go in `test/helpers/` — the `vi.mock("electron")` factory in `test/helpers/electron-mock.ts`, and any second one is rejected. Console roles go in `test/console/`: `console-harness.tsx` (render harness) and `electron-harness.ts` (spawn-and-scan) are the residents; a temp-directory helper, a script runner, and a path resolver take `temp-dir.ts`, `run-script.ts`, and `paths.ts` there when first needed. A tier that hand-rolls a role another tier already has is rejected.
 - A test never reimplements the rule it checks and never drives a local stand-in for the module under test; import the real one. Every clean result has a negative control that fails.
+- Every test that launches Electron goes through `test/console/electron-harness.ts` (Playwright tiers) or `test/helpers/electron-probe.ts` (the smoke and GC probes), which set `SIDEKICKS_UNOBTRUSIVE_WINDOWS=1` so a test build never reveals a window, takes focus, or switches the operator's Space, with background throttling off and the harness witnessing the visibility state and two animation frames on every launch (`src/main/window-reveal.ts`). A test that spawns Electron any other way, and a `show()` / `showInactive()` / `focus()` call outside `window-reveal.ts`, is rejected.
 
 ## Config single-sourcing
 
 - One value, one home: budgets and their unit factors in `budgets.json`, caps in `console/core/constants.ts` with a rationale each. A threshold restated in a test that also lives in a JSON file is rejected.
-- A new Vitest project lands with all four of `vitest.config.ts`, a `test:<project>` script, a Turbo task carrying `inputs`, and a line in the aggregate `test` script — all four or none. `exclude` replaces Vitest's default rather than extending it; spread the default in.
+- A new Vitest project lands with all five of `vitest.config.ts`, a `test:<project>` script, a Turbo task carrying `inputs`, a line in the aggregate `test` script, and a line in the desktop step of `.github/workflows/ci.yml` — all five or none. `test/console/architecture/ci-tier-coverage.test.ts` enforces the last two by resolving the real project set and reading both files, so a project wired into neither is a red check rather than a silent gap. A project the aggregate deliberately omits records its reason in that test's exemption map — the two entries today are `console-screenshot`, whose references are committed per platform and which runs in its own pinned `console-screenshot-macos` job, and `console-bench`, which records timings and gates nothing. `exclude` replaces Vitest's default rather than extending it; spread the default in.
+- The aggregate `test` script and the CI desktop step run the tiers in the same order, and that order is load-bearing: `build`, `build:smoke`, and `build:fixtures` all write `out/**`, so a tier runs against the flavour its own Turbo edge produced and before the next flavour overwrites it. A group added in one place is added in the other.
 - A new `tsconfig*.json` reaches the `typecheck` script in the same commit, and no two configs write to one `outDir`. A `tsconfig` that no script and no `references` entry reaches is deleted.
 
 ## Budgets and tripwires
 
-- A budget marked `enforced` is reachable from the aggregate `test` script _and_ from a CI job. If it is not wired, its status is `n/a` naming the wiring task — never `enforced` and unrun.
+- A budget marked `enforced` is reachable from the aggregate `test` script _and_ from a CI job. If it is not wired, its status is `n/a` naming the wiring task — never `enforced` and unrun. The one `enforced` row today, `renderer-initial-bundle`, is reached through the `console-bundle` tier, which is on both.
 - Every console PR runs every tier whose subject is in-tree; an absent subject is reported `n/a`, never silently skipped. Every tripwire asserts it matched at least one site; zero matches fails.
 
 ## Pre-PR self-audit
@@ -107,5 +109,5 @@ There is exactly one shared layer. `src/renderer/src/shared/` is not created; a 
 4. Every new family: one `index.ts`; cross-family imports through barrels; no edge against the DAG.
 5. No `window.sidekicks` outside `bridge/BridgeProvider.tsx`; no `setInterval`; no second byte formatter, argument parser, or directory walker; no `export default` outside root tool configuration; no module-level `let`; no second `vi.mock("electron")` factory; no `TODO` claiming a module absent that now exists.
 6. Every closed set declared once; every new constant in `core/constants.ts` with its rationale.
-7. New Vitest project → config + `test:<project>` script + Turbo task + aggregate `test` script; its glob disjoint from every other, and every test file matched by exactly one project.
+7. New Vitest project → config + `test:<project>` script + Turbo task + aggregate `test` script + CI desktop step; its glob disjoint from every other, and every test file matched by exactly one project.
 8. Budgets and tiers actually ran; no file over about 400 lines; no identifier against the naming rule; every temporary directory removed in `afterEach`.

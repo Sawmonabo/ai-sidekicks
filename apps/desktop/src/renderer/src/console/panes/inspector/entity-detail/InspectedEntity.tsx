@@ -4,7 +4,7 @@
 // the addressed kind's partition (whose identity changes only when that kind
 // changes, so a burst on another kind re-renders nothing here), whether the store's
 // first read has answered, and whether the projection is known-incomplete. The
-// eleven details receive the answers as props and subscribe to nothing themselves
+// twelve details receive the answers as props and subscribe to nothing themselves
 // unless they COMPOSE — which two of them do, over partitions of their own.
 //
 // The dispatch is a table read and not a switch: `entity-detail-registry.ts` is
