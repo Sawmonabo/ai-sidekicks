@@ -55,6 +55,7 @@ import type {
   WorkflowPhaseOutput,
   WorkflowPhaseRunState,
   WorkflowPhaseState,
+  WorkflowRunListEntry,
   WorkflowRunSnapshot,
   WorkflowRunState,
 } from "./workflow-projection.js";
@@ -301,7 +302,11 @@ export interface GrowthOperationSignatures {
   // reads none.
   workflowRunList: {
     request: { readonly sessionId: string };
-    value: { readonly runs: readonly WorkflowRunSnapshot[] };
+    // `WorkflowRunListEntry` and not the run read's own shape: an enumeration answers
+    // with runs nobody named, and the two definition facts on that entry are what let
+    // a row read as something other than an opaque id. `workflow-projection.ts` says
+    // why no registered read can supply them after the fact.
+    value: { readonly runs: readonly WorkflowRunListEntry[] };
   };
   // gitflow
   //

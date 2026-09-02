@@ -50,7 +50,8 @@ import type { WorkflowPhaseState } from "../../bridge/index.js";
 import { Nothing, RefusalBanner } from "../../primitives/index.js";
 import { WorkflowChrome } from "../../workflows/WorkflowChrome.js";
 import { ParkBadge } from "../../workflows/ParkBadge.js";
-import { phasePark } from "../../workflows/run-list-projection.js";
+import { phasePark, parkSchedule } from "../../workflows/run-list-projection.js";
+import type { WorkflowParkedPhase } from "../../workflows/run-list-projection.js";
 import type { ConsolePaneContext } from "../../workspace/index.js";
 import { OperatorControls } from "./OperatorControls.js";
 import { unregisteredRunControl } from "./run-controls.js";
@@ -104,13 +105,16 @@ function openHumanFormFor(phases: readonly WorkflowPhaseState[]): HumanFormMount
  * reaching for a member would be two chances to disagree, and a disagreement here is
  * invisible — both would render a plausible string.
  *
- * IT IS THE PHASE ID BECAUSE NOTHING ELSE IS READABLE FROM HERE. The authored phase
- * `name` lives on the definition body, which no read reachable from this build
- * serves (the graph's own comment enumerates why). Composing a prettier label out of
- * the id — title-casing it, splitting it on separators — would put an invented name
- * on screen that is indistinguishable from an authored one. The day a definition
- * read lands, this function is the single place its `name` replaces the id, and both
- * surfaces move together.
+ * IT IS THE PHASE ID BECAUSE NOTHING ELSE IS READABLE FROM HERE. The projection
+ * carries an optional `phaseName` for surfaces that have one; the run read this pane
+ * puts is not such a surface, because the authored name lives on the definition body
+ * and no read reachable from this build serves it (the graph's own comment
+ * enumerates why). So the id travels, exactly as the wire sent it — composing a
+ * prettier label out of it, title-casing it or splitting it on separators, would put
+ * an invented name on screen that is indistinguishable from an authored one. The
+ * graph renders the same value as a node's label, so a card and a node agree by
+ * construction, and the day a definition read lands this function is the single
+ * place its `name` replaces the id and both surfaces move together.
  */
 function phaseDisplayLabel(phase: WorkflowPhaseState): string {
   return phase.phaseId;
@@ -218,11 +222,26 @@ function RunPhaseGraph(props: {
  * node by position.
  */
 function RunParks(props: { readonly phases: readonly WorkflowPhaseState[] }): React.JSX.Element {
-  const parked = props.phases.flatMap((phase) => {
+  const parked = props.phases.flatMap<WorkflowParkedPhase>((phase) => {
     const park = phasePark(phase);
+    // Classified through the projection's own `parkSchedule` rather than by handing
+    // the badge four wire members: whether a park resumes itself is not
+    // `autoResumeAt`'s presence, and a second derivation of it here would be the
+    // second authority the badge stopped being.
+    //
+    // `phaseName` is the badge's identity slot, and it is fed rather than left
+    // empty: a badge handed nothing renders nothing for it, which is the stack of
+    // indistinguishable cards this arm exists to fix.
     return park === undefined
       ? []
-      : [{ phaseId: phase.phaseId, label: phaseDisplayLabel(phase), park }];
+      : [
+          {
+            phaseId: phase.phaseId,
+            phaseName: phaseDisplayLabel(phase),
+            park,
+            schedule: parkSchedule(park),
+          },
+        ];
   });
   if (parked.length === 0) {
     return (
@@ -239,7 +258,7 @@ function RunParks(props: { readonly phases: readonly WorkflowPhaseState[] }): Re
       {parked.map((entry) => (
         // Keyed by the phase, which is the run's own identity for it, and named by
         // the same derivation the graph labels that phase's node with.
-        <ParkBadge key={entry.phaseId} park={entry.park} phaseName={entry.label} />
+        <ParkBadge key={entry.phaseId} parked={entry} />
       ))}
     </div>
   );

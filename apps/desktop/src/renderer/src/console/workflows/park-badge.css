@@ -56,9 +56,21 @@
 
 .meridian-park__schedule {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--meridian-space-1);
   align-items: baseline;
   margin: 0;
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-faint);
+}
+
+/*
+ * The malformed instant a park armed, reported beside the sentence that says nobody
+ * scheduled anything. It wraps onto its own line rather than pushing the sentence
+ * out, because the sentence is the operator's next move and this is the evidence.
+ */
+.meridian-park__unreadable {
+  display: flex;
+  gap: var(--meridian-space-1);
+  align-items: baseline;
 }
