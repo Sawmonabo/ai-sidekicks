@@ -14,16 +14,17 @@
 // in the subscription callback and not in the fold: a test that handed `QueueOrder`
 // a pre-parsed row would assert the ordering rule and never reach the schema.
 
-import { useEffect } from "react";
+import { useEffect, type ReactElement } from "react";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { QueueItemSummarySchema, type QueueItemSummary } from "@ai-sidekicks/contracts";
 
-import type { ConsoleBridge } from "../../bridge/index.js";
+import type { ConsoleBridge } from "./console-bridge.js";
 import { QueueOrder, useQueueFeed, type QueueFeed } from "./queue-feed.js";
 
 const SESSION_ID = "0a1b2c3d-4e5f-4061-8273-9a4b5c6d7e8f";
+const SECOND_SESSION_ID = "8b7a6959-4837-4726-8514-3f2e1d0c9b8a";
 const QUEUE_ITEM_ID = "7c6b5a49-3827-4615-9403-2e1d0c9b8a77";
 const QUEUE_ITEM_A = "1a2b3c4d-5e6f-4071-8283-94a5b6c7d8e9";
 const QUEUE_ITEM_B = "2b3c4d5e-6f70-4182-9394-a5b6c7d8e9f0";
@@ -52,13 +53,18 @@ function stubBridge(snapshot: readonly unknown[] = []): {
   bridge: ConsoleBridge;
   deliver: (payload: unknown) => void;
   openedStreams: string[];
+  calledMethods: string[];
 } {
   let deliverToFeed: (payload: unknown) => void = () => undefined;
   const openedStreams: string[] = [];
+  const calledMethods: string[] = [];
   const bridge = {
     sidekicks: {
       daemon: {
-        call: async (): Promise<unknown> => ({ items: snapshot }),
+        call: async (method: string): Promise<unknown> => {
+          calledMethods.push(method);
+          return { items: snapshot };
+        },
         subscribe: (stream: string, handler: (payload: unknown) => void) => {
           openedStreams.push(stream);
           deliverToFeed = handler;
@@ -71,7 +77,7 @@ function stubBridge(snapshot: readonly unknown[] = []): {
     source: "fixture",
     scenarioEngine: undefined,
   } as unknown as ConsoleBridge;
-  return { bridge, deliver: (payload) => deliverToFeed(payload), openedStreams };
+  return { bridge, deliver: (payload) => deliverToFeed(payload), openedStreams, calledMethods };
 }
 
 /** Reports the feed out of the tree, so a case reads the hook's own answer. */
@@ -122,6 +128,101 @@ async function openFeed(
     openedStreams,
   };
 }
+
+// One session's queue is read once, however many surfaces ask for it.
+//
+// The defect this replaces was two modules with the same file name, the same exported
+// symbols, and their own subscriptions: a session view holding the runs pane beside
+// the composer's shelf tailed `run.subscribeQueue` twice and read `run.queueList`
+// twice for one answer. The count is the assertion, so the negative controls below
+// show the counter is capable of reaching two — otherwise a hook that opened NOTHING
+// would pass the first case.
+
+/** Two surfaces on one bridge, each asking the hook its own question. */
+function TwoQueueSurfaces(props: {
+  readonly bridge: ConsoleBridge;
+  readonly firstSessionId: string;
+  readonly secondSessionId: string;
+}): ReactElement {
+  return (
+    <>
+      <QueueFeedProbe
+        bridge={props.bridge}
+        sessionId={props.firstSessionId}
+        onFeed={() => undefined}
+      />
+      <QueueFeedProbe
+        bridge={props.bridge}
+        sessionId={props.secondSessionId}
+        onFeed={() => undefined}
+      />
+    </>
+  );
+}
+
+describe("one session's queue is read once for every surface", () => {
+  it("opens one stream and takes one snapshot for two surfaces on one session", async () => {
+    const { bridge, openedStreams, calledMethods } = stubBridge();
+    render(
+      <TwoQueueSurfaces bridge={bridge} firstSessionId={SESSION_ID} secondSessionId={SESSION_ID} />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(openedStreams).toStrictEqual(["run.subscribeQueue"]);
+    expect(calledMethods).toStrictEqual(["run.queueList"]);
+  });
+
+  it("negative control: two sessions on one bridge are two readings", async () => {
+    const { bridge, openedStreams, calledMethods } = stubBridge();
+    render(
+      <TwoQueueSurfaces
+        bridge={bridge}
+        firstSessionId={SESSION_ID}
+        secondSessionId={SECOND_SESSION_ID}
+      />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(openedStreams).toStrictEqual(["run.subscribeQueue", "run.subscribeQueue"]);
+    expect(calledMethods).toStrictEqual(["run.queueList", "run.queueList"]);
+  });
+
+  it("negative control: two bridges are two readings of the same session", async () => {
+    // The key is the pair. One window's reading is never handed to another's bridge,
+    // which is what would happen if the readings were keyed on the session alone.
+    const first = stubBridge();
+    const second = stubBridge();
+    render(
+      <>
+        <QueueFeedProbe bridge={first.bridge} sessionId={SESSION_ID} onFeed={() => undefined} />
+        <QueueFeedProbe bridge={second.bridge} sessionId={SESSION_ID} onFeed={() => undefined} />
+      </>,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(first.openedStreams).toStrictEqual(["run.subscribeQueue"]);
+    expect(second.openedStreams).toStrictEqual(["run.subscribeQueue"]);
+  });
+
+  it("reads afresh once the last surface has left, rather than serving a stale list", async () => {
+    const { bridge, openedStreams } = stubBridge();
+    const mounted = render(
+      <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={() => undefined} />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    mounted.unmount();
+    render(<QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={() => undefined} />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(openedStreams).toStrictEqual(["run.subscribeQueue", "run.subscribeQueue"]);
+  });
+});
 
 describe("the queue feed reads the registered payload shape", () => {
   it("seats a row from a registered-shape delivery", async () => {

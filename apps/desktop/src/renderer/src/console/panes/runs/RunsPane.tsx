@@ -30,7 +30,7 @@
 
 import { useCallback, useState } from "react";
 
-import { useDriverCapabilities } from "../../bridge/index.js";
+import { useDriverCapabilities, useQueueFeed } from "../../bridge/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
 import { InlineRefusal, Nothing } from "../../primitives/index.js";
 import { useSessionPartition, type SessionStore } from "../../store/index.js";
@@ -40,7 +40,6 @@ import { QueueContents } from "./QueueContents.js";
 import { RunInterventionComposer, type ComposedControl } from "./RunInterventionComposer.js";
 import { RunRow } from "./RunRow.js";
 import { useRunControlSurface } from "./run-control-surface.js";
-import { useQueueFeed } from "./queue-feed.js";
 import { useRunStateFeed } from "./run-state-feed.js";
 
 /** Which run is being composed against, and with which of the two body controls. */
@@ -113,6 +112,15 @@ function RunsPaneBody(props: {
   return (
     <div className="meridian-runs">
       <section className="meridian-runs__section" aria-label="Runs in this session">
+        {driverCapabilities?.readRefusal === undefined ? null : (
+          // Rewind and Steer are gated on the declarations, so a read that failed
+          // takes both controls off every row. Saying so here is the difference
+          // between "no driver here declares them" and "nobody could ask".
+          <InlineRefusal
+            code={driverCapabilities.readRefusal.code}
+            detail={driverCapabilities.readRefusal.detail}
+          />
+        )}
         {stateFeed.runs.length === 0 ? (
           <NoRuns
             hasRead={stateFeed.hasRead}

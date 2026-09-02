@@ -62,6 +62,12 @@ export type { DaemonStreamOpen } from "./daemon-calls.js";
 export { declaredFlagsForDriver, useDriverCapabilities } from "./driver-capability-read.js";
 export type { DeclaredDriverFlags, DriverCapabilityReadout } from "./driver-capability-read.js";
 
+// The session's one queue reading. Here for the same reason the capability read is:
+// the runs pane and the composer's shelf ask two questions of one list, and each
+// used to ask its own down its own subscription.
+export { useQueueFeed } from "./queue-feed.js";
+export type { QueueFeed, QueueReadPhase } from "./queue-feed.js";
+
 export {
   SidekicksBridgeProvider,
   useBridgeResolution,

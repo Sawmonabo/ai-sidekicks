@@ -7,6 +7,12 @@
 // components reading the store separately would be three subscriptions to one
 // selector, and the fold is pure, so one derivation serves all three.
 //
+// THE SHELF ASKS A NARROWER QUESTION OF THE SESSION'S ONE QUEUE READING. The rows
+// still waiting are what the shelf holds; the runs pane shows the whole queue,
+// including what has left it. That is a filter over one list rather than a second
+// subscription — the composer used to open its own, so a session view holding both
+// surfaces tailed one stream twice.
+//
 // WHAT THE RAIL DOES NOT DECIDE. It never derives eligibility. The compaction
 // control is handed a capability state and a target run and renders what those say;
 // the rail does not compute whether compaction is allowed, and where it has not read
@@ -25,7 +31,7 @@
 // here, and until then the seat renders the reserved state.
 
 import { useMemo } from "react";
-import { useDriverCapabilities } from "../../../console/bridge/index.js";
+import { useDriverCapabilities, useQueueFeed } from "../../../console/bridge/index.js";
 import { RealClock } from "../../../console/core/index.js";
 import type { ComposerSeatProps } from "../../../console/workspace/index.js";
 import {
@@ -41,7 +47,7 @@ import { EditResendSlot, EDIT_RESEND_SLOT_CONTRACT } from "./EditResendSlot.js";
 import { PlusMenu } from "./PlusMenu.js";
 import { QueueShelf } from "./QueueShelf.js";
 import { RateChips } from "./RateChips.js";
-import { useQueueFeed } from "./queue-feed.js";
+import { waitingQueueRows } from "./waiting-queue.js";
 import {
   foldRateLimitReadings,
   newestCompactionBoundarySequence,
@@ -75,6 +81,10 @@ export function ComposerAccessoryRail(props: ComposerSeatProps): React.JSX.Eleme
   const rateReadings = useMemo(() => foldRateLimitReadings(timeline), [timeline]);
   const compactionBoundary = useMemo(() => newestCompactionBoundarySequence(timeline), [timeline]);
   const queueFeed = useQueueFeed(props.bridge, props.sessionStore.sessionId);
+  // The shelf's own question, asked of the session's one reading: the rows still
+  // waiting. A row the daemon has stopped calling `queued` has left the shelf, and
+  // the runs pane goes on showing it — two questions, one list, one subscription.
+  const waitingItems = useMemo(() => waitingQueueRows(queueFeed.items), [queueFeed.items]);
   const clock = props.bridge.scenarioEngine?.clock ?? HOST_CLOCK;
   const address = useComposerAddress(props.sessionStore, props.focusedPane);
   const driverCapabilities = useDriverCapabilities(props.bridge);
@@ -83,7 +93,7 @@ export function ComposerAccessoryRail(props: ComposerSeatProps): React.JSX.Eleme
   return (
     <div className="meridian-composer__rail">
       <QueueShelf
-        items={queueFeed.items}
+        items={waitingItems}
         cancelRefusalByItemId={queueFeed.cancelRefusalByItemId}
         onCancel={queueFeed.cancelItem}
       />

@@ -20,18 +20,33 @@
 // their own binding against this readout; this module supplies the readings and
 // decides nothing about which control is offered.
 //
-// FAIL-CLOSED, AND ABSENT IS NOT `false`. An unread, unparseable, or rejected reply
-// leaves the readout ABSENT, which every consumer renders as the control being off
-// screen — a different fact from a driver having declared the flag absent, and never
-// reported as one. The failure raises no banner: no control was pressed, and a
-// refusal card for a read nobody asked for is the console reporting its own
-// housekeeping.
+// FAIL-CLOSED, AND ABSENT IS NOT `false`. No declaration for a driver leaves every
+// control this readout gates off screen — a different fact from a driver having
+// declared the flag absent, and never reported as one. `declaredFlagsForDriver`
+// answers `undefined` on every such path and no consumer changes its gating.
+//
+// A FAILED READ IS SAID OUT LOUD. The read used to end in an empty `catch`, and the
+// consequence was a session view whose Rewind, Steer, and compaction controls were
+// simply not there, with nothing anywhere saying why — indistinguishable, to the
+// person looking at it, from a session where no driver declares them. So a rejection
+// and an unreadable reply both SETTLE, carrying the daemon's own refusal on the
+// readout for the surfaces to render: the flags stay absent, which is what keeps the
+// gating fail-closed, and the reason travels with them.
+//
+// A reply naming NO driver is deliberately not a refusal. It is an answered read
+// whose answer is that this node has no driver to declare anything, which is a fact
+// and not a failure.
 
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { ListCapabilitiesResultSchema, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
+import { normalizeWireRejection } from "../../../../shared/wire-errors.js";
+import { refuse, type ConsoleRefusal } from "../core/index.js";
 import { DRIVER_LIST_CAPABILITIES_METHOD, callDaemon } from "./daemon-calls.js";
 import type { ConsoleBridge } from "./console-bridge.js";
+
+/** The subsystem name every refusal this module raises carries. */
+const DRIVER_CAPABILITY_REFUSAL_ORIGIN = "driver-capabilities";
 
 /** One driver's declared flags, exactly as its own report carried them. */
 export type DeclaredDriverFlags = Readonly<Record<DriverCapabilityFlag, boolean>>;
@@ -54,10 +69,25 @@ export interface DriverCapabilityReadout {
    * changes one producer and no consumer.
    */
   readonly driverNameByRunId: ReadonlyMap<string, string>;
+  /**
+   * Why the declarations could not be read, where they could not be.
+   *
+   * Present exactly on the two failing terminals — the daemon rejected the read, or
+   * answered something the registered schema will not accept. A surface whose
+   * controls this readout gates renders it, so a control that is missing because
+   * nobody could ask says so rather than looking like a control nothing declares.
+   */
+  readonly readRefusal: ConsoleRefusal | undefined;
 }
 
 /** No run has a named binding yet. Frozen so no caller writes one in place. */
 const NO_RUN_BINDINGS: ReadonlyMap<string, string> = new Map<string, string>();
+
+/** The declarations a failed read carries: none. */
+const NO_DECLARATIONS: ReadonlyMap<string, DeclaredDriverFlags> = new Map<
+  string,
+  DeclaredDriverFlags
+>();
 
 /** One bridge's reading, and everyone waiting on it. */
 interface CapabilityReadEntry {
@@ -109,21 +139,41 @@ class DriverCapabilityReadCache {
     void callDaemon(bridge, DRIVER_LIST_CAPABILITIES_METHOD, {})
       .then((reply) => {
         const parsed = ListCapabilitiesResultSchema.safeParse(reply);
-        if (!parsed.success || parsed.data.drivers.length === 0) {
-          // A reply the registered schema will not accept, and a reply naming no
-          // driver, are both readings this console cannot resolve a binding out of.
-          // Leaving the readout absent is the fail-closed direction for both.
+        if (!parsed.success) {
+          // A reply the registered schema will not accept resolves no binding. The
+          // flags stay absent — the fail-closed direction — and the reading says why.
+          this.#settle(
+            entry,
+            this.#refused(
+              refuse(
+                DRIVER_CAPABILITY_REFUSAL_ORIGIN,
+                "reply-unreadable",
+                "The capability reply did not match the registered shape, so the console read no declarations out of it.",
+              ),
+            ),
+          );
           return;
         }
         const flagsByDriverName = new Map<string, DeclaredDriverFlags>();
         for (const report of parsed.data.drivers) {
           flagsByDriverName.set(report.driverName, report.capabilities.flags);
         }
-        this.#settle(entry, { flagsByDriverName, driverNameByRunId: NO_RUN_BINDINGS });
+        // A reply naming no driver settles with no entries and no refusal: nothing
+        // failed, and this node declares nothing.
+        this.#settle(entry, {
+          flagsByDriverName,
+          driverNameByRunId: NO_RUN_BINDINGS,
+          readRefusal: undefined,
+        });
       })
-      .catch(() => {
-        // See the header: a failed capability read is an absent readout, not a
-        // refusal card for housekeeping nobody asked for.
+      .catch((rejection: unknown) => {
+        const wireError = normalizeWireRejection(rejection, { total: true });
+        this.#settle(
+          entry,
+          this.#refused(
+            refuse(DRIVER_CAPABILITY_REFUSAL_ORIGIN, wireError.name, wireError.message),
+          ),
+        );
       });
   }
 
@@ -139,6 +189,15 @@ class DriverCapabilityReadCache {
     };
     this.#entriesByBridge.set(bridge, created);
     return created;
+  }
+
+  /** A reading that declares nothing, carrying the reason it declares nothing. */
+  #refused(readRefusal: ConsoleRefusal): DriverCapabilityReadout {
+    return {
+      flagsByDriverName: NO_DECLARATIONS,
+      driverNameByRunId: NO_RUN_BINDINGS,
+      readRefusal,
+    };
   }
 
   #settle(entry: CapabilityReadEntry, readout: DriverCapabilityReadout): void {

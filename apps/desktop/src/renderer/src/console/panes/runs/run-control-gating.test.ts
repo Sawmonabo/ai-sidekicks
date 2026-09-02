@@ -43,6 +43,7 @@ function readout(
       reports.map(([driverName, declared]) => [driverName, declaredFlags(declared)]),
     ),
     driverNameByRunId: new Map(bindings),
+    readRefusal: undefined,
   };
 }
 

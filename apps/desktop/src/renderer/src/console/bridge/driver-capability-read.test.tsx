@@ -12,6 +12,7 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
+import type { ConsoleRefusal } from "../core/index.js";
 import type { ConsoleBridge } from "./console-bridge.js";
 import {
   declaredFlagsForDriver,
@@ -73,9 +74,17 @@ function CapabilityProbe(props: {
   return <span />;
 }
 
+/** The refusal a settled reading carries, or a failure naming what was found instead. */
+function settledRefusalOf(readout: DriverCapabilityReadout | undefined): ConsoleRefusal {
+  if (readout?.readRefusal === undefined) {
+    throw new Error("the capability read settled without the refusal the case is about");
+  }
+  return readout.readRefusal;
+}
+
 /** A reading no read produces, so a probe whose callback never ran fails loudly. */
 function neverRead(): DriverCapabilityReadout {
-  return { flagsByDriverName: new Map(), driverNameByRunId: new Map() };
+  return { flagsByDriverName: new Map(), driverNameByRunId: new Map(), readRefusal: undefined };
 }
 
 describe("useDriverCapabilities — one read, every consumer", () => {
@@ -155,8 +164,8 @@ describe("useDriverCapabilities — one read, every consumer", () => {
   });
 });
 
-describe("useDriverCapabilities — the fail-closed absences", () => {
-  it("leaves the readout absent when the reply does not parse, and does not retry", async () => {
+describe("useDriverCapabilities — a read that failed says so", () => {
+  it("settles with the reason when the reply does not parse, and does not retry", async () => {
     const counted = bridgeAnswering({ drivers: [{ driverName: "claude" }] });
     let readout: DriverCapabilityReadout | undefined = neverRead();
     await act(async () => {
@@ -173,19 +182,22 @@ describe("useDriverCapabilities — the fail-closed absences", () => {
       render(<CapabilityProbe bridge={counted.bridge} onReadout={() => undefined} />);
     });
 
-    expect(readout).toBeUndefined();
+    // The gating stays fail-closed — no driver declares anything — and the reason is
+    // on the reading rather than swallowed, so a surface can say why its controls went.
+    expect(declaredFlagsForDriver(readout, "claude")).toBeUndefined();
+    expect(settledRefusalOf(readout).code).toBe("reply-unreadable");
     // One ask, not one per consumer: a read that answered unusably has still been put.
     expect(capabilityCallCount(counted)).toBe(1);
   });
 
-  it("leaves the readout absent when the daemon rejects the read", async () => {
+  it("carries the daemon's own code when the daemon rejects the read", async () => {
     const methodCalls: string[] = [];
     const bridge = {
       sidekicks: {
         daemon: {
           call: async (method: string) => {
             methodCalls.push(method);
-            throw new Error("driver.unavailable");
+            throw { code: "driver.unavailable", message: "No driver process is bound." };
           },
           subscribe: () => () => undefined,
         },
@@ -208,10 +220,33 @@ describe("useDriverCapabilities — the fail-closed absences", () => {
       );
     });
 
-    expect(readout).toBeUndefined();
+    expect(declaredFlagsForDriver(readout, "claude")).toBeUndefined();
+    expect(settledRefusalOf(readout).code).toBe("driver.unavailable");
     expect(methodCalls).toStrictEqual(["driver.listCapabilities"]);
   });
 
+  it("negative control: a reply naming no driver is answered, not refused", async () => {
+    // An empty declaration set is a fact about the node. Reporting it as a failure
+    // would put a refusal on screen for a session that is working exactly as it is.
+    const counted = bridgeAnswering({ drivers: [] });
+    let readout: DriverCapabilityReadout | undefined = neverRead();
+    await act(async () => {
+      render(
+        <CapabilityProbe
+          bridge={counted.bridge}
+          onReadout={(value) => {
+            readout = value;
+          }}
+        />,
+      );
+    });
+
+    expect(declaredFlagsForDriver(readout, "claude")).toBeUndefined();
+    expect(readout?.readRefusal).toBeUndefined();
+  });
+});
+
+describe("declaredFlagsForDriver", () => {
   it("says nothing about a driver nobody named", () => {
     expect(declaredFlagsForDriver(undefined, "claude")).toBeUndefined();
     expect(declaredFlagsForDriver(neverRead(), undefined)).toBeUndefined();

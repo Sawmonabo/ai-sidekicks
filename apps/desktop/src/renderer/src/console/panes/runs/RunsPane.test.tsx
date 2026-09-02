@@ -227,6 +227,7 @@ describe("controls are a fail-closed projection, never a local decision", () => 
     return {
       flagsByDriverName: new Map([["claude", flags]]),
       driverNameByRunId: new Map(),
+      readRefusal: undefined,
     };
   }
 
