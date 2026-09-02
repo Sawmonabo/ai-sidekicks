@@ -96,9 +96,10 @@
 //     over beats could reach a workspace and a worktree and would still have to
 //     invent both branch names — and `BranchContextReadResponse` requires them.
 //
-// So the honest answer is that there is none, and `findScenariosNamingABranch` in
-// the suite beside this file is what keeps the claim true: the day a scenario does
-// carry a branch, that test fails and this derivation is what has to change.
+// So the honest answer is that there is none, and `findScenariosNaming` in
+// `fixture-growth-port.gitflow.test.ts` beside this file is what keeps the claim
+// true: the day a scenario does carry a branch, that test fails and this derivation
+// is what has to change.
 //
 // WHY THE CALLER-IDENTITY READ IS ANSWERED FROM A FIELD AND NOT FROM JOIN ORDER
 //
