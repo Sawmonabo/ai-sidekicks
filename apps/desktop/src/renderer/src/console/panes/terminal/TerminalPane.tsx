@@ -30,10 +30,14 @@
 // own request shapes; it is not a fabricated key, it is the name of the session's
 // single shell.
 //
-// THE VIEWER IS NOT KNOWN, AND THE FOLD FAILS CLOSED ON THAT. No read tells the
-// console which participant it is looking through, so `held-by-you` is
-// unreachable here and every held lease reads as somebody else's. That is the
-// safe direction: the surface never tells a person they may type.
+// THE VIEWER IS READ, NOT ASSUMED. `callerParticipantRead` is the port's answer to
+// which entry in this session's roster this window is, and the fold takes it as the
+// input that tells `held-by-you` from `held-by-another`. It used to take a
+// hard-coded `undefined`, which made every take the claimant's own lease read as
+// somebody else's: the person the daemon had just granted the shell to kept seeing
+// Claim, could not release, and typed into nothing. While the read is out — or when
+// it is refused — the claim control is WITHHELD rather than offered on a guess, and
+// the fold still gets no viewer, so the fail-closed direction is unchanged.
 //
 // THE HOST'S REACHABILITY IS PROJECTED, NOT ASSUMED. 8.8's degraded state is a
 // holder whose node has gone offline, and the lease events carry no node — so this
@@ -55,6 +59,7 @@ import { LeaseLine, type TerminalParticipantMark } from "../../terminal/LeaseLin
 import { XtermHost } from "../../terminal/XtermHost.js";
 import { projectTerminalLease, type TerminalLeaseState } from "../../terminal/lease-model.js";
 import { projectNodePresence, resolveSoleHoldingNode } from "../../terminal/node-presence-model.js";
+import { useTerminalViewerIdentity } from "../../terminal/viewer-identity.js";
 
 /**
  * What the pane reads off the deck's context, and nothing more.
@@ -108,6 +113,7 @@ function BoundTerminalPane(props: {
   const terminalId = sessionStore.sessionId;
   const timeline = useSessionStore(sessionStore, selectTimeline);
   const outputReading = useTerminalOutputStream(bridge, terminalId);
+  const viewerIdentity = useTerminalViewerIdentity(bridge, sessionStore.sessionId);
 
   // Derivation under `useMemo`, which is where `store/hooks.ts` puts it: the
   // selector returns the stored array and the fold runs only when that array's
@@ -122,15 +128,22 @@ function BoundTerminalPane(props: {
     [timeline],
   );
 
+  // The viewer the fold compares the holder against, and only on the READ arm: a
+  // pending or refused identity passes `undefined`, which keeps every held lease at
+  // `held-by-another` and the emulator read-only. The claim control is withheld on
+  // those same two arms, so the surface never offers an act it could not attribute.
+  const viewerParticipantId =
+    viewerIdentity.status === "read" ? viewerIdentity.participantId : undefined;
+
   const lease: TerminalLeaseState = useMemo(
     () =>
       projectTerminalLease(timeline, {
-        viewerParticipantId: undefined,
+        viewerParticipantId,
         // Omitted rather than passed as `undefined`, because the member's absence is
         // what the fold reads as "nothing was checked".
         ...(holdingNode === undefined ? {} : { holdingNode }),
       }),
-    [timeline, holdingNode],
+    [timeline, holdingNode, viewerParticipantId],
   );
 
   const markFor = useMemo(() => {
@@ -156,6 +169,7 @@ function BoundTerminalPane(props: {
         sessionId={sessionStore.sessionId}
         state={lease}
         markFor={markFor}
+        viewerIdentity={viewerIdentity}
       />
       {outputReading.status === "refused" ? (
         // A REJECTED subscribe is the bridge itself failing, and a bridge that
