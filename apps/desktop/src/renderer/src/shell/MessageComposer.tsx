@@ -45,7 +45,7 @@ export function MessageComposer(props: ComposerSeatProps): React.JSX.Element {
       </p>
       <ComposerChipRail />
       <ComposerSendBar />
-      <ComposerAccessoryRail />
+      <ComposerAccessoryRail {...props} />
     </section>
   );
 }

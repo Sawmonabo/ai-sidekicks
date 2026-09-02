@@ -16,11 +16,17 @@
 
 export type { ConsoleEntityRef, ConsoleSessionEvent } from "./entities.js";
 
-export { SessionStore } from "./session-store.js";
+export { SessionStore, type SessionStoreState } from "./session-store.js";
 
 export type { FrameBanner } from "./frame-store.js";
 export { FrameStore } from "./frame-store.js";
 
 export { SessionStoreRegistry, type SessionSnapshotReader } from "./session-store-registry.js";
 
-export { useFrameStore, useLocationHash, useOpenSessionStore } from "./hooks.js";
+// `useSessionStore` ships beside the three that were already here for the reason
+// stated above: it is the ONE selector-shaped read of a session store, and a
+// surface that could not reach it through this door would reach for
+// `useSyncExternalStore` and become the second subscription path with its own
+// equality rule. `SessionStoreState` travels with it because a caller hoisting a
+// selector to module scope has to name the state it selects from.
+export { useFrameStore, useLocationHash, useOpenSessionStore, useSessionStore } from "./hooks.js";

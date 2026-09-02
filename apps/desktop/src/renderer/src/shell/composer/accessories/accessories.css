@@ -1,0 +1,244 @@
+/* The composer's accessory rail.
+ *
+ * Quiet chrome around one dense strip. Everything here is either a figure or a
+ * control, so the rules are about ALIGNMENT and BAND, never about ornament: the
+ * meter is a hairline, the chips carry one edge each, and the two seats sit at the
+ * text-faint weight so a reserved feature never competes with a live one.
+ *
+ * The two-hue rule is spent exactly twice — amber on a quota worth noticing, red on
+ * one that is nearly gone — and both come from the palette's own marks. No colour
+ * is introduced here. */
+
+.meridian-composer__rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-composer__actions {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+}
+
+/* --- Context meter ------------------------------------------------------- */
+
+.meridian-context-meter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  min-inline-size: 0;
+}
+
+.meridian-context-meter__label {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+  letter-spacing: 0.04em;
+}
+
+/* A hairline, not a gauge. The bar is a reading and the figures beside it are the
+   number — a tall bar would make the picture the primary and the figure the gloss,
+   which inverts the provenance the mono type is carrying. */
+.meridian-context-meter__track {
+  position: relative;
+  display: block;
+  inline-size: calc(var(--meridian-space-5) * 3);
+  block-size: 3px;
+  overflow: hidden;
+  background: var(--meridian-surface-sunken);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-context-meter__fill {
+  display: block;
+  block-size: 100%;
+  background: var(--meridian-edge-strong);
+  transition: inline-size var(--meridian-motion-settle) var(--meridian-ease-settle);
+}
+
+.meridian-context-meter__fill[data-above-hint="true"] {
+  background: var(--meridian-amber-mark);
+}
+
+.meridian-context-meter__figures,
+.meridian-context-meter__tokens {
+  display: flex;
+  gap: var(--meridian-space-1);
+  align-items: baseline;
+}
+
+.meridian-context-meter__unit,
+.meridian-context-meter__separator {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-context-meter__hint {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-amber-text);
+}
+
+/* --- Rate chips ---------------------------------------------------------- */
+
+.meridian-rate-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.meridian-rate-chip {
+  display: inline-flex;
+  gap: var(--meridian-space-1);
+  align-items: baseline;
+  padding: 0 var(--meridian-space-2);
+  font-size: var(--meridian-text-xs);
+  background: var(--meridian-surface-sunken);
+  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-rate-chip[data-tone="caution"] {
+  background: var(--meridian-amber-ground);
+  border-inline-start-color: var(--meridian-amber-mark);
+}
+
+.meridian-rate-chip[data-tone="urgent"] {
+  background: var(--meridian-red-ground);
+  border-inline-start-color: var(--meridian-red-mark);
+}
+
+.meridian-rate-chip__limit,
+.meridian-rate-chip__used {
+  display: inline-flex;
+  gap: var(--meridian-space-1);
+  align-items: baseline;
+}
+
+.meridian-rate-chip__unit,
+.meridian-rate-chips__fold {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/* --- Compaction ---------------------------------------------------------- */
+
+.meridian-compaction {
+  display: inline-flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+}
+
+.meridian-compaction__action,
+.meridian-step-in__action,
+.meridian-attachment-seat__action,
+.meridian-queue-shelf__cancel,
+.meridian-plus-menu__trigger {
+  display: inline-flex;
+  gap: var(--meridian-space-1);
+  align-items: center;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text);
+  cursor: pointer;
+  background: var(--meridian-surface);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-compaction__action:focus-visible,
+.meridian-step-in__action:focus-visible,
+.meridian-attachment-seat__action:focus-visible,
+.meridian-queue-shelf__cancel:focus-visible,
+.meridian-plus-menu__trigger:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+.meridian-compaction__settlement,
+.meridian-compaction__completed,
+.meridian-step-in__receipt {
+  display: inline-flex;
+  gap: var(--meridian-space-1);
+  align-items: baseline;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/* --- Queue shelf --------------------------------------------------------- */
+
+.meridian-queue-shelf {
+  padding: var(--meridian-space-2);
+  background: var(--meridian-surface-sunken);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-queue-shelf__rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.meridian-queue-shelf__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: baseline;
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-queue-shelf__fold {
+  margin: var(--meridian-space-1) 0 0;
+}
+
+/* --- Attachments and the `+` menu ---------------------------------------- */
+
+.meridian-plus-menu {
+  position: relative;
+}
+
+/* The panel is anchored above the trigger because the composer sits at the bottom
+   of the workspace: a menu opening downward would open off-screen. */
+.meridian-plus-menu__panel {
+  position: absolute;
+  inset-block-end: calc(100% + var(--meridian-space-1));
+  inset-inline-start: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  min-inline-size: calc(var(--meridian-space-5) * 6);
+  padding: var(--meridian-space-2);
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+}
+
+.meridian-attachment-seat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-attachment-seat__hint {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/* --- Reserved seats ------------------------------------------------------ */
+
+.meridian-composer__edit-resend,
+.meridian-plus-menu__workflow {
+  color: var(--meridian-text-faint);
+}
