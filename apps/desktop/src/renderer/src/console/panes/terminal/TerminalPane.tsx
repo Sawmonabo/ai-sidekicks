@@ -37,9 +37,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import { lossyStringify } from "../../../../../shared/wire-errors.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { Nothing } from "../../primitives/index.js";
+import { refusalFromRejection, type ConsoleRefusal } from "../../core/index.js";
+import { InlineRefusal, Nothing } from "../../primitives/index.js";
 import { useSessionStore, type SessionStore, type SessionStoreState } from "../../store/index.js";
 import type { ConsolePaneContext } from "../../workspace/index.js";
 import { LeaseLine, type TerminalParticipantMark } from "../../terminal/LeaseLine.js";
@@ -97,7 +97,7 @@ function BoundTerminalPane(props: {
   const { bridge, sessionStore } = props;
   const terminalId = sessionStore.sessionId;
   const timeline = useSessionStore(sessionStore, selectTimeline);
-  const outputAbsence = useTerminalOutputStream(bridge, terminalId);
+  const outputReading = useTerminalOutputStream(bridge, terminalId);
 
   // Derivation under `useMemo`, which is where `store/hooks.ts` puts it: the
   // selector returns the stored array and the fold runs only when that array's
@@ -131,15 +131,24 @@ function BoundTerminalPane(props: {
         state={lease}
         markFor={markFor}
       />
-      {/* `surface`, not `inline`: the badge form carries its detail on a `title`
-          attribute, and the sentence that keeps an empty grid from reading as "the
-          shell printed nothing" is exactly the part a tooltip would hide. */}
-      <Nothing
-        kind={outputAbsence.kind}
-        placement="surface"
-        title={outputAbsence.title}
-        detail={outputAbsence.detail}
-      />
+      {outputReading.status === "refused" ? (
+        // A REJECTED subscribe is the bridge itself failing, and a bridge that
+        // failed with `{ code, message }` — a denied permission, a transport that
+        // went away — is telling the person what to do next. The refusal grammar is
+        // what puts that code on screen verbatim; an absence would put a sentence
+        // this pane wrote where the wire's own diagnosis belongs.
+        <InlineRefusal code={outputReading.refusal.code} detail={outputReading.refusal.detail} />
+      ) : (
+        /* `surface`, not `inline`: the badge form carries its detail on a `title`
+           attribute, and the sentence that keeps an empty grid from reading as "the
+           shell printed nothing" is exactly the part a tooltip would hide. */
+        <Nothing
+          kind={outputReading.absence.kind}
+          placement="surface"
+          title={outputReading.absence.title}
+          detail={outputReading.absence.detail}
+        />
+      )}
       <XtermHost
         terminalId={terminalId}
         isWriteEnabled={lease.holding === "held-by-you"}
@@ -158,8 +167,8 @@ function BoundTerminalPane(props: {
  * is out the honest reading is that nothing has been established, which is the
  * "computing" absence rather than an empty stream.
  */
-function useTerminalOutputStream(bridge: ConsoleBridge, terminalId: string): TerminalOutputAbsence {
-  const [absence, setAbsence] = useState<TerminalOutputAbsence>(ASKING_FOR_OUTPUT);
+function useTerminalOutputStream(bridge: ConsoleBridge, terminalId: string): TerminalOutputReading {
+  const [reading, setReading] = useState<TerminalOutputReading>(ASKING_FOR_OUTPUT);
 
   useEffect(() => {
     let isMounted = true;
@@ -175,23 +184,26 @@ function useTerminalOutputStream(bridge: ConsoleBridge, terminalId: string): Ter
         if (!isMounted) {
           return;
         }
-        setAbsence(
+        setReading(
           outcome.status === "unavailable"
-            ? { kind: "not-checked", title: "No output stream", detail: outcome.detail }
-            : {
+            ? absent({ kind: "not-checked", title: "No output stream", detail: outcome.detail })
+            : absent({
                 kind: "not-checked",
                 title: "Output stream not drained",
                 detail:
                   "The stream was served, and this revision has no consumer for it. The pane closed it rather than holding a subscription nothing reads.",
-              },
+              }),
         );
       })
-      .catch((error: unknown) => {
+      .catch((failure: unknown) => {
         if (isMounted) {
-          setAbsence({
-            kind: "error",
-            title: "The output stream could not be reached.",
-            detail: error instanceof Error ? error.message : lossyStringify(error),
+          setReading({
+            status: "refused",
+            refusal: refusalFromRejection(
+              OUTPUT_STREAM_REFUSAL_ORIGIN,
+              failure,
+              OUTPUT_STREAM_REJECTION_FALLBACK,
+            ),
           });
         }
       });
@@ -200,21 +212,63 @@ function useTerminalOutputStream(bridge: ConsoleBridge, terminalId: string): Ter
     };
   }, [bridge, terminalId]);
 
-  return absence;
+  return reading;
 }
+
+/**
+ * The subsystem name every refusal this read raises itself carries.
+ *
+ * `LeaseLine`'s reason, applied to the other half of this pane: `core/refusal.ts`
+ * is the console's one normalizer, and it is what keeps the wire's own code on
+ * screen. This arm used to build its own title-plus-stringified-payload pair, so a
+ * `permission_denied` and a torn-down transport reached the operator as the same
+ * generic sentence with the actionable half serialized into JSON beside it.
+ */
+const OUTPUT_STREAM_REFUSAL_ORIGIN = "terminal-output";
+
+/**
+ * What a rejection carrying NO code of its own says instead.
+ *
+ * The normalizer spends this only on its fourth arm — a wire envelope, a console
+ * refusal, and a `ConsoleRefusalError` all keep what they came with. A codeless
+ * rejection here means the bridge never answered at all, and naming the next move
+ * beats reporting a transport's own message about a channel a person cannot see.
+ */
+const OUTPUT_STREAM_REJECTION_FALLBACK = {
+  code: "terminal-output-unreachable",
+  detail:
+    "The console asked this session's shell for its output stream and the bridge never answered. Reopening this pane asks again.",
+} as const;
 
 /** What the output line says, as data — so the effect sets a value, not a tree. */
 interface TerminalOutputAbsence {
-  readonly kind: "computing" | "not-checked" | "error";
+  readonly kind: "computing" | "not-checked";
   readonly title: string;
   /** Always present: every arm here has something to say, and a silent one would
    *  leave the reader with a state name and no next move. */
   readonly detail: string;
 }
 
-const ASKING_FOR_OUTPUT: TerminalOutputAbsence = {
+/**
+ * What the read settled as: an ABSENCE the console can describe, or a REFUSAL the
+ * wire authored.
+ *
+ * Two arms rather than a third `kind` on the absence, because they are two
+ * different renderings under rule 9 — an absence says what is not here, a refusal
+ * carries a machine-readable code the operator acts on — and folding a refusal
+ * into an absence is what threw that code away.
+ */
+type TerminalOutputReading =
+  | { readonly status: "absent"; readonly absence: TerminalOutputAbsence }
+  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
+
+function absent(absence: TerminalOutputAbsence): TerminalOutputReading {
+  return { status: "absent", absence };
+}
+
+const ASKING_FOR_OUTPUT: TerminalOutputReading = absent({
   kind: "computing",
   title: "Asking for the output stream",
   detail:
     "The console has asked the bridge whether this session's shell streams output here, and is waiting for the answer.",
-};
+});
