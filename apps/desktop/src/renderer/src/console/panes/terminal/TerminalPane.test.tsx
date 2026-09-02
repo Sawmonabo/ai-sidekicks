@@ -96,10 +96,10 @@ describe("terminal pane — a pane opened without a session", () => {
 
 describe("terminal pane — bound to a session", () => {
   it("folds the holder off the log rather than off a claim", () => {
-    // Through the first transition: a `taken` by `participant-you`.
+    // Through the first transition: a `taken` by the first participant to join.
     const region = renderPane(storeThrough(1));
     expect(region.textContent).toContain("Held by");
-    expect(region.textContent).toContain("participant-you");
+    expect(region.textContent).toContain(TERMINAL_SCENARIO.participantIdsInJoinOrder[0]);
   });
 
   it("renders the free lease the log's next transition establishes", () => {

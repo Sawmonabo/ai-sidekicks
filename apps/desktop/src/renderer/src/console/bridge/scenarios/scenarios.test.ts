@@ -197,7 +197,9 @@ describe("the terminal scenario ends held, then loses its host", () => {
     // `runToCompletion()` is the screenshot tier's entry point, so the last
     // transition is the frame a baseline pins. A held lease with a named holder is
     // the pane's busiest state; a free one is its emptiest.
-    expect(holderAfter(TERMINAL_SCENARIO.beats)).toBe("participant-you");
+    expect(holderAfter(TERMINAL_SCENARIO.beats)).toBe(
+      TERMINAL_SCENARIO.participantIdsInJoinOrder[0],
+    );
   });
 
   it("would notice a script that ended free", () => {

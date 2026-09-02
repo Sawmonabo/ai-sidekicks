@@ -50,11 +50,17 @@ import type { ConsoleScenario } from "../scenario.js";
 
 export const TERMINAL_SCENARIO_ID = "terminal";
 
-const SESSION_ID = "session-terminal";
+// Wire-declared UUIDs rather than readable placeholders: `wire-truth.ts` presents
+// each beat to the strict contract layer as the whole envelope it claims to be,
+// and an envelope whose session or actor is not the UUID the contract declares is
+// a beat no daemon could emit.
+const SESSION_ID = "019b7b30-0280-75e5-8510-ada11a5a5555";
 
-const HUMAN_PARTICIPANT_ID = "participant-you";
-const SECOND_HUMAN_PARTICIPANT_ID = "participant-priya";
-const AGENT_PARTICIPANT_ID = "agent-builder";
+const HUMAN_PARTICIPANT_ID = "019b7b30-0280-79a4-8110-cca0117a0130";
+const HUMAN_MEMBERSHIP_ID = "019b7b30-0280-7e3b-8110-cca0117a0131";
+const SECOND_HUMAN_PARTICIPANT_ID = "019b7b30-0280-79a4-8110-cca0117a0132";
+const SECOND_HUMAN_MEMBERSHIP_ID = "019b7b30-0280-7e3b-8110-cca0117a0133";
+const AGENT_PARTICIPANT_ID = "019b7b30-0280-7a6e-8100-d1a4c1150034";
 
 /**
  * The node hosting the session's one terminal. Bound because three surfaces name it
@@ -85,10 +91,12 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
         kind: "session.created",
         occurredAt: "2026-01-01T16:40:00.000Z",
         actorParticipantId: HUMAN_PARTICIPANT_ID,
-        // The shape `Spec-006` registers for its session-lifecycle category. The
-        // session's name is read off `session.list`; the lifecycle payload carries
-        // the state transition.
-        payload: { sessionId: SESSION_ID, newState: "provisioning", actor: HUMAN_PARTICIPANT_ID },
+        // The registered shape, verbatim: the new session's id plus the resolved
+        // config and metadata, both open records the corpus names no key inside. A
+        // session's name is read off `session.list`, and the lifecycle payload
+        // carries no state transition — `session.activated` below is the separate
+        // registered event that reaches `active`.
+        payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
       },
     },
     {
@@ -118,11 +126,13 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
         kind: "membership.created",
         occurredAt: "2026-01-01T16:40:00.060Z",
         actorParticipantId: HUMAN_PARTICIPANT_ID,
+        // The registered membership shape: the membership row's own id, the
+        // participant, the role from the closed role vocabulary, and the handle.
         payload: {
-          sessionId: SESSION_ID,
+          membershipId: HUMAN_MEMBERSHIP_ID,
           participantId: HUMAN_PARTICIPANT_ID,
-          newRole: "owner",
-          actor: HUMAN_PARTICIPANT_ID,
+          role: "owner",
+          identityHandle: "sawyer",
         },
       },
     },
@@ -138,10 +148,10 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
         // the lease is owner/collaborator-only, so a viewer second participant
         // could never hold it and the hand-off below would be unreachable.
         payload: {
-          sessionId: SESSION_ID,
+          membershipId: SECOND_HUMAN_MEMBERSHIP_ID,
           participantId: SECOND_HUMAN_PARTICIPANT_ID,
-          newRole: "collaborator",
-          actor: HUMAN_PARTICIPANT_ID,
+          role: "collaborator",
+          identityHandle: "priya",
         },
       },
     },
@@ -172,7 +182,9 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
         sequence: 6,
         kind: "agent.attached",
         occurredAt: "2026-01-01T16:40:00.220Z",
-        actorParticipantId: AGENT_PARTICIPANT_ID,
+        // The person who attached the agent, not the agent: an agent does not
+        // attach itself, and the envelope actor is who acted.
+        actorParticipantId: HUMAN_PARTICIPANT_ID,
         payload: {
           sessionId: SESSION_ID,
           agentId: AGENT_PARTICIPANT_ID,

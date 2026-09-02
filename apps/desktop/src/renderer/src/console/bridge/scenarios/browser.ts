@@ -49,10 +49,15 @@ import type { ConsoleScenario } from "../scenario.js";
 
 export const BROWSER_SCENARIO_ID = "browser";
 
-const SESSION_ID = "session-browser";
+// Wire-declared UUIDs rather than readable placeholders: `wire-truth.ts` presents
+// each beat to the strict contract layer as the whole envelope it claims to be,
+// and an envelope whose session or actor is not the UUID the contract declares is
+// a beat no daemon could emit.
+const SESSION_ID = "019b7b20-0280-75e5-8510-ada11a5a4444";
 
-const HUMAN_PARTICIPANT_ID = "participant-you";
-const AGENT_PARTICIPANT_ID = "agent-scout";
+const HUMAN_PARTICIPANT_ID = "019b7b20-0280-79a4-8110-cca0117a0120";
+const HUMAN_MEMBERSHIP_ID = "019b7b20-0280-7e3b-8110-cca0117a0121";
+const AGENT_PARTICIPANT_ID = "019b7b20-0280-7a6e-8100-d1a4c1150022";
 const RUN_ID = "run-browse-staging";
 
 /**
@@ -87,13 +92,12 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
         kind: "session.created",
         occurredAt: "2026-01-01T11:05:00.000Z",
         actorParticipantId: HUMAN_PARTICIPANT_ID,
-        // The shape `Spec-006` registers for its session-lifecycle category, which
-        // is not a title: a session's name is read off `session.list`, and the
-        // lifecycle payload carries the state transition. Birth lands on
-        // `provisioning`; `session.activated` below is the separate event that
-        // reaches `active`, and collapsing the two would make the provisioning frame
-        // unreachable.
-        payload: { sessionId: SESSION_ID, newState: "provisioning", actor: HUMAN_PARTICIPANT_ID },
+        // The registered shape, verbatim: the new session's id plus the resolved
+        // config and metadata, both open records the corpus names no key inside. A
+        // session's name is read off `session.list`, and the lifecycle payload
+        // carries no state transition — `session.activated` below is the separate
+        // registered event that reaches `active`.
+        payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
       },
     },
     {
@@ -124,11 +128,13 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
         kind: "membership.created",
         occurredAt: "2026-01-01T11:05:00.080Z",
         actorParticipantId: HUMAN_PARTICIPANT_ID,
+        // The registered membership shape: the membership row's own id, the
+        // participant, the role from the closed role vocabulary, and the handle.
         payload: {
-          sessionId: SESSION_ID,
+          membershipId: HUMAN_MEMBERSHIP_ID,
           participantId: HUMAN_PARTICIPANT_ID,
-          newRole: "owner",
-          actor: HUMAN_PARTICIPANT_ID,
+          role: "owner",
+          identityHandle: "sawyer",
         },
       },
     },
@@ -139,7 +145,9 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
         sequence: 4,
         kind: "agent.attached",
         occurredAt: "2026-01-01T11:05:00.160Z",
-        actorParticipantId: AGENT_PARTICIPANT_ID,
+        // The person who attached the agent, not the agent: an agent does not
+        // attach itself, and the envelope actor is who acted.
+        actorParticipantId: HUMAN_PARTICIPANT_ID,
         // The full persona `Spec-006` registers for an attach, minus the optional
         // members this session does not set. `name` and not `displayName`: the
         // registered member is `name`, and the cast bar reads whatever the wire
