@@ -20,6 +20,7 @@ import type { SidekicksBridge } from "@ai-sidekicks/contracts";
 import { RealClock, type ConsoleClock } from "../core/index.js";
 import type { GrowthOperationId } from "./growth-entry.js";
 import type { GrowthPort } from "./growth-port.js";
+import type { RuntimeNodePresenceSubscribe, RuntimeNodeRosterRead } from "./runtime-node-roster.js";
 import type { ScenarioEngine } from "./scenario.js";
 
 /** Which bridge the console is running against. Rendered, never inferred. */
@@ -45,6 +46,28 @@ export interface ConsoleBridge {
    * disagrees with a port, which is the disagreement `bridge-shape.test.ts` reads.
    */
   readonly growthServedOperations: ReadonlySet<GrowthOperationId>;
+  /**
+   * The session's runtime-node roster, over the registered control-plane read.
+   *
+   * On the bridge rather than behind the generic `sidekicks.controlPlane.call`
+   * because the fixture cannot answer this one the way it answers a scripted
+   * reply — a roster MOVES, and the scenario carries it as frames on the frozen
+   * clock. Beside the growth port rather than inside it because both this read and
+   * the subscription below are REGISTERED wires: the port refuses what the corpus
+   * has not registered, and putting a registered wire there would owe a slate row
+   * for a contract that already exists.
+   */
+  readonly runtimeNodeRosterRead: RuntimeNodeRosterRead;
+  /**
+   * Runtime-node presence transitions for one session, as an opaque change signal.
+   *
+   * Answered by both bridges through their own `daemon.subscribe`, so the rule
+   * about which registered `runtime_node.*` names a presence subscription carries
+   * is written once and read by both. It ANSWERS rather than throws: the preload's
+   * Tier-1 `daemon.subscribe` throws synchronously, and a seam that let that escape
+   * would crash inside the mount effect that opened the surface.
+   */
+  readonly runtimeNodePresenceSubscribe: RuntimeNodePresenceSubscribe;
   readonly source: ConsoleBridgeSource;
   /** Present only under the fixture, so a surface can drive playback in a story. */
   readonly scenarioEngine: ScenarioEngine | undefined;
