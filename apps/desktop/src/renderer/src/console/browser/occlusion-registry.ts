@@ -146,7 +146,12 @@ export class PaneOcclusionRegistry implements PaneOverlaySource {
         element === undefined
           ? undefined
           : new MotionFrameSampler({
-              element,
+              // An overlay yields to the motion that CARRIES it, which is the same
+              // width its start-event filter uses below. The pane's own position
+              // observer reads the document instead, because a sibling can move a
+              // pane without carrying it — an overlay's rectangle is read live on
+              // every change, so it needs no such measurement.
+              isMotionRunning: () => hasRunningMotion(element),
               clock: this.#clock,
               onFrame: () => {
                 this.#changeEmitter.emit();

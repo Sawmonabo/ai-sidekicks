@@ -11,25 +11,21 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ManualClock } from "../core/index.js";
 import {
+  hasRunningDocumentMotion,
   hasRunningMotion,
   observeElementPosition,
   observeElementResize,
   observeMotionStarts,
   sharesMotionWith,
 } from "./element-motion.js";
-import { installFakeResizeObserver, settleMutationRecords } from "./element-motion.test-support.js";
-
-function fakeAnimation(playState: AnimationPlayState): Animation {
-  return { playState } as unknown as Animation;
-}
-
-/** Give one element a Web Animations reading, or take the whole method away. */
-function withAnimations(element: Element, animations: readonly Animation[] | undefined): void {
-  Object.defineProperty(element, "getAnimations", {
-    configurable: true,
-    value: animations === undefined ? undefined : () => [...animations],
-  });
-}
+import {
+  fakeAnimation,
+  installFakeResizeObserver,
+  movingAnimation,
+  settleMutationRecords,
+  withAnimations,
+  withDocumentAnimations,
+} from "./element-motion.test-support.js";
 
 const attachedRoots: Element[] = [];
 
@@ -45,6 +41,7 @@ function attachedPair(): { readonly ancestor: HTMLElement; readonly element: HTM
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  withDocumentAnimations(undefined);
   for (const root of attachedRoots.splice(0)) {
     root.remove();
   }
@@ -159,6 +156,33 @@ describe("hasRunningMotion", () => {
   });
 });
 
+describe("hasRunningDocumentMotion", () => {
+  it("sees motion no containment test reaches, because it asks the document", () => {
+    const { ancestor, element } = attachedPair();
+    const sibling = document.createElement("div");
+    ancestor.append(sibling);
+    withAnimations(element, []);
+    withAnimations(ancestor, []);
+    withDocumentAnimations([fakeAnimation("running")]);
+
+    expect(hasRunningDocumentMotion()).toBe(true);
+    // The element-scoped reading of the same instant, which is the whole point.
+    expect(hasRunningMotion(element)).toBe(false);
+  });
+
+  it("negative control: an animation that is not running is not motion here either", () => {
+    withDocumentAnimations([fakeAnimation("finished"), fakeAnimation("paused")]);
+
+    expect(hasRunningDocumentMotion()).toBe(false);
+  });
+
+  it("reports stillness on a shim that implements no Web Animations at all", () => {
+    withDocumentAnimations(undefined);
+
+    expect(hasRunningDocumentMotion()).toBe(false);
+  });
+});
+
 // The three ways a pane moves while its own box stays exactly the shape it was.
 //
 // Each source below is a case a size observer on the element reports as nothing at
@@ -168,21 +192,6 @@ describe("hasRunningMotion", () => {
 // The last two cases are the budget: nothing is armed at rest, and nothing survives
 // the disposer.
 describe("observeElementPosition", () => {
-  /** One animation whose play state the test moves, read live through the getter. */
-  function movingAnimation(): { readonly animation: Animation; settle: () => void } {
-    let playState: AnimationPlayState = "running";
-    return {
-      animation: {
-        get playState(): AnimationPlayState {
-          return playState;
-        },
-      } as unknown as Animation,
-      settle: () => {
-        playState = "finished";
-      },
-    };
-  }
-
   it("reports a reorder of the element's ancestors, which changes no size", async () => {
     installFakeResizeObserver();
     const { ancestor, element } = attachedPair();
@@ -261,6 +270,41 @@ describe("observeElementPosition", () => {
     motion.settle();
     clock.runFrame();
     // The resting frame reports where the pane ended up, and is the last one.
+    expect(onMove).toHaveBeenCalledTimes(2);
+    expect(clock.pendingFrameCount).toBe(0);
+    detach();
+  });
+
+  it("samples a fixed-size sibling's motion, which carries the element without containing it", () => {
+    // The finding. A rail collapsing beside the pane is neither an ancestor nor a
+    // descendant, and a flex line whose boxes keep their sizes reports no resize
+    // anywhere — so the containment test this arm used to run answered "no" and the
+    // pane's rectangle went unread for the whole animation.
+    installFakeResizeObserver();
+    const clock = new ManualClock();
+    const { ancestor, element } = attachedPair();
+    const sibling = document.createElement("div");
+    ancestor.append(sibling);
+    const motion = movingAnimation();
+    withAnimations(element, []);
+    withAnimations(ancestor, []);
+    const onMove = vi.fn();
+
+    const detach = observeElementPosition({ element, clock, onMove });
+    expect(clock.pendingFrameCount).toBe(0);
+
+    withDocumentAnimations([motion.animation]);
+    sibling.dispatchEvent(new Event("transitionrun", { bubbles: true }));
+    expect(clock.pendingFrameCount).toBe(1);
+
+    clock.runFrame();
+    expect(onMove).toHaveBeenCalledTimes(1);
+    // Still animating, so the next frame is armed: the sibling is mid-collapse and
+    // the element is somewhere between where it was and where it is going.
+    expect(clock.pendingFrameCount).toBe(1);
+
+    motion.settle();
+    clock.runFrame();
     expect(onMove).toHaveBeenCalledTimes(2);
     expect(clock.pendingFrameCount).toBe(0);
     detach();
