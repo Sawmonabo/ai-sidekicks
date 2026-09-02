@@ -480,3 +480,141 @@ describe("the fixture's gitflow reads — one answers nothing, the other refuses
     }
   });
 });
+
+// The three rows that refuse under both bridges.
+//
+// The gitflow cases above are about a DISTINCTION — one operation served, one
+// refused. These are about the other half of that discipline: an operation refuses
+// when the scenario states nothing it could answer from, and the case that earns its
+// place is not the refusal (the sweep at the top of this file already covers every
+// operation's answer) but the PREMISE the refusal rests on. So each finder below
+// asserts what no scenario says, and each has a negative control that plants it.
+//
+// This is the `findScenariosNamingABranch` shape, applied to the two premises that
+// can go stale. The sidekick row has no finder because its premise cannot: a
+// definition is node-local configuration and `ConsoleScenario` models no node at
+// all, so there is no field a scenario could grow that would make one derivable.
+
+/**
+ * Members a scenario would have to carry to say which participant the window is.
+ *
+ * Not `participantIdsInJoinOrder`, which every scenario carries and which is
+ * deliberately not this fact: join order is who opened the session and who followed,
+ * on any machine, and reading the head of it as "me" is the fabrication the refusal
+ * exists to avoid.
+ */
+const VIEWER_NAMING_MEMBERS = [
+  "viewerParticipantId",
+  "callerParticipantId",
+  "selfParticipantId",
+] as const;
+
+/** Members a scenario would have to carry to state a registered callback tool. */
+const CALLBACK_TOOL_NAMING_MEMBERS = ["callbackTools", "inputSchema"] as const;
+
+/** Scenarios naming any of `members` anywhere — a beat payload or a scripted reply. */
+function findScenariosNaming(
+  scenarios: readonly ConsoleScenario[],
+  members: readonly string[],
+): readonly string[] {
+  return scenarios
+    .filter((scenario) => {
+      const serialised = JSON.stringify(scenario);
+      return members.some((member) => serialised.includes(`"${member}"`));
+    })
+    .map((scenario) => scenario.id);
+}
+
+describe("the fixture's identity and registry reads — refusing on a stated premise", () => {
+  it("plays no scenario that says which participant the window is", () => {
+    expect(findScenariosNaming(CONSOLE_SCENARIOS, VIEWER_NAMING_MEMBERS)).toStrictEqual([]);
+  });
+
+  it("negative control: reports a scenario that DOES say", () => {
+    const withViewer: ConsoleScenario = {
+      ...FLAGSHIP_SCENARIO,
+      id: "names-a-viewer",
+      replies: [
+        {
+          call: "participant.projectionRead",
+          result: { viewerParticipantId: FLAGSHIP_SCENARIO.participantIdsInJoinOrder[0] },
+        },
+      ],
+    };
+
+    expect(findScenariosNaming([withViewer], VIEWER_NAMING_MEMBERS)).toStrictEqual([
+      "names-a-viewer",
+    ]);
+  });
+
+  it("plays no scenario that states a registered callback tool", () => {
+    expect(findScenariosNaming(CONSOLE_SCENARIOS, CALLBACK_TOOL_NAMING_MEMBERS)).toStrictEqual([]);
+  });
+
+  it("negative control: reports a scenario that DOES state one", () => {
+    const withCallbackTools: ConsoleScenario = {
+      ...FLAGSHIP_SCENARIO,
+      id: "states-a-callback-tool",
+      replies: [
+        {
+          call: "session.read",
+          result: { callbackTools: [{ name: "workflow_start", inputSchema: {} }] },
+        },
+      ],
+    };
+
+    expect(findScenariosNaming([withCallbackTools], CALLBACK_TOOL_NAMING_MEMBERS)).toStrictEqual([
+      "states-a-callback-tool",
+    ]);
+  });
+
+  it("refuses all six under both bridges, each naming the row that owes its wire", async () => {
+    const liveBridge = createLiveBridge(createTier1Bridge());
+    const port = fixturePort();
+    const rows = [
+      "caller-participant-identity",
+      "callback-tool-registry-read",
+      "sidekick-definition-registry",
+    ];
+    const operationIds = (Object.keys(GROWTH_OPERATIONS) as GrowthOperationId[]).filter(
+      (operationId) => rows.includes(GROWTH_OPERATIONS[operationId].slateRow),
+    );
+
+    // Six, and the count is asserted so a row that quietly lost its operations
+    // cannot make the loop below vacuously pass.
+    expect(operationIds).toHaveLength(6);
+    for (const operationId of operationIds) {
+      for (const outcome of [
+        await callOperation(port, operationId),
+        await callOperation(liveBridge.growth, operationId),
+      ]) {
+        expect(outcome.status, operationId).toBe("unavailable");
+        if (outcome.status === "unavailable") {
+          expect(outcome.slateRow, operationId).toBe(GROWTH_OPERATIONS[operationId].slateRow);
+          // Not an empty list, an empty registry, or a null identity. Each of those
+          // is a real daemon answer to a question nobody asked here, and a surface
+          // handed one renders a checked state it never checked.
+          expect(outcome.code, operationId).toBe("wire-unregistered");
+        }
+        expect(outcome, operationId).not.toHaveProperty("value");
+      }
+    }
+  });
+
+  it("names each row's owning document, so a reader knows who owes the wire", async () => {
+    const port = fixturePort();
+
+    for (const [operationId, owner] of [
+      ["callerParticipantRead", "Authenticated Principal"],
+      ["callbackToolRegistryRead", "Spec-005"],
+      ["sidekickDefinitionList", "Spec-030"],
+    ] as const) {
+      const outcome = await callOperation(port, operationId);
+
+      expect(outcome.status).toBe("unavailable");
+      if (outcome.status === "unavailable") {
+        expect(outcome.owningDocument, operationId).toContain(owner);
+      }
+    }
+  });
+});

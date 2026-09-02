@@ -17,13 +17,13 @@
 // through the growth port.
 //
 // DELETION OBLIGATION. When `packages/contracts` registers these types, this module
-// is DELETED and `growth-port.ts` imports `AttentionItem` from the contracts package
-// instead. The slate row leaves `growth-slate.ts` and `Plan-023 §Console growth
+// is DELETED and `growth-signatures.ts` imports `AttentionItem` from the contracts
+// package instead. The slate row leaves `growth-slate.ts` and `Plan-023 §Console growth
 // slate` in the same PR, and `failure-modes.test.ts` then fails on the port entries
 // that still claim fixture-only — which is the reminder this file wants at that
 // moment.
 //
-// HOW IT IS REACHED. Through `growth-port.ts`, which types
+// HOW IT IS REACHED. Through `growth-signatures.ts`, which types
 // `attentionProjectionRead`'s value as `AttentionProjection` — so a surface that
 // narrows a served outcome already has the items and their members. This family's
 // barrel deliberately re-exports nothing from here yet: a barrel line with no
@@ -33,7 +33,7 @@
 //
 // WHAT IS DELIBERATELY NOT HERE. The notification preference pair's request and reply
 // shapes: they are the OTHER half of the same slate row and are stated inline in
-// `growth-port.ts`'s signature table beside every other operation's, because nothing
+// `growth-signatures.ts`'s table beside every other operation's, because nothing
 // projects or renders a preference yet and a named type nobody imports would be a
 // declaration minted ahead of its reader. They come here the day a surface reads one.
 

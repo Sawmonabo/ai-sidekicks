@@ -97,6 +97,39 @@
 // So the honest answer is that there is none, and `findScenariosNamingABranch` in
 // the suite beside this file is what keeps the claim true: the day a scenario does
 // carry a branch, that test fails and this derivation is what has to change.
+//
+// WHY THE IDENTITY AND REGISTRY READS REFUSE HERE TOO, AND WHY THAT IS NOT A GAP
+//
+// Three rows landed together whose operations this fixture answers none of, and each
+// refuses because a scenario states nothing it could answer FROM — not because the
+// script has not caught up.
+//
+//   • The caller's own participant identity. `ConsoleScenario` names a session, a
+//     join order, beats, replies, and a start instant, and nothing anywhere says
+//     which participant the window IS. Join order is not that fact: the first joiner
+//     is whoever opened the session, on any machine. Every available answer is a
+//     fabrication, and a fabricated identity is worse than a refusal, because a
+//     surface that reads one renders a role gate as though it had been checked. So
+//     this is exactly "not checked", which is what the refusal says.
+//
+//   • The session's callback-tool registry. A scenario can play `tool.*` beats, and
+//     folding those into a registry would answer the wrong question — a tool
+//     OBSERVED being called is not a tool REGISTERED as callable, and telling them
+//     apart is the whole reason the approvals pane wants this read. A fixture that
+//     derived one from the other would teach the pane the conflation it is meant to
+//     end. Nor is the empty list available: the registered set is legitimately
+//     withheld at spawn while the approval seam is unregistered, so `[]` is a real
+//     daemon answer, and returning it from a scenario that models no registry at all
+//     would put a true-looking value in front of a surface for a fact nobody checked.
+//
+//   • The sidekick definition registry. Definitions are node-local configuration and
+//     no scenario carries a node, so the same argument holds with nothing to weigh
+//     against it — and unlike the branch-context read there is no absence to serve
+//     either, because a node with no definitions and a node nobody asked are answers
+//     to different questions.
+//
+// `findScenariosNamingAViewer` and `findScenariosNamingACallbackTool` beside this
+// file pin the first two premises the way the branch finder pins its own.
 
 import type {
   AttentionItem,
@@ -104,11 +137,8 @@ import type {
   AttentionSeverity,
   AttentionTrigger,
 } from "./attention-projection.js";
-import {
-  createRefusingGrowthPort,
-  type GrowthPort,
-  type GrowthSessionSummary,
-} from "./growth-port.js";
+import { createRefusingGrowthPort, type GrowthPort } from "./growth-port.js";
+import type { GrowthSessionSummary } from "./growth-values.js";
 import type { ConsoleScenario, ScenarioEngine } from "./scenario.js";
 
 /**

@@ -16,20 +16,20 @@
 // slate row, and every call goes through the growth port.
 //
 // DELETION OBLIGATION. When `packages/contracts` registers these types, this module
-// is DELETED and `growth-port.ts` imports them from the contracts package instead.
-// The slate row leaves `growth-slate.ts` and `Plan-023 §Console growth slate` in the
-// same PR, and `failure-modes.test.ts` then fails on the port entries that still
+// is DELETED and `growth-signatures.ts` imports them from the contracts package
+// instead. The slate row leaves `growth-slate.ts` and `Plan-023 §Console growth slate`
+// in the same PR, and `failure-modes.test.ts` then fails on the port entries that still
 // claim fixture-only — which is the reminder this file wants at that moment.
 //
 // WHY THE VOCABULARIES ARE TUPLES AND THE NARROWINGS ARE NOT. Four of the five
 // operations that answer with a state answer with a SUBSET of one of these unions —
 // a successful cancel is only ever `cancelled`, a start is only ever `pending` or
-// `running`. Those subsets are derived in `growth-port.ts` with `Extract`, so the
+// `running`. Those subsets are derived in `growth-signatures.ts` with `Extract`, so the
 // full vocabulary keeps exactly one home here and a narrowing cannot quietly become
 // a second spelling of it.
 //
 // WHAT IS DELIBERATELY NOT HERE. The request shapes. They are stated inline in
-// `growth-port.ts`'s signature table beside every other operation's, because a
+// `growth-signatures.ts`'s table beside every other operation's, because a
 // request is read once at its call site and a named type per request would be nine
 // declarations with one reader each. A request shape comes here the day two surfaces
 // share one.
