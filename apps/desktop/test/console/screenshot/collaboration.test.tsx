@@ -249,11 +249,11 @@ describe("screenshot — the surfaces this family fills a seat with", () => {
 
   it("renders the settings nodes page with the roster its bridge served", async (context) => {
     // The page rather than the destination, for the reason the ledger above gives
-    // one level down: this page's roster is session-scoped and a settings ADDRESS
-    // carries no session, so a capture through `#/settings/nodes` would pin the
-    // "belongs to a session" absence and never the roster. Mounted with a session,
-    // over the real fixture bridge, it renders what a person opening it on a session
-    // sees — both health axes, side by side, disagreeing.
+    // one level down: this page's roster is session-scoped and a window opened
+    // straight at `#/settings/nodes` has opened none, so a capture through that
+    // address would pin the "belongs to a session" absence and never the roster.
+    // Mounted with a session, over the real fixture bridge, it renders what a person
+    // opening it on a session sees — both health axes, side by side, disagreeing.
     skipOffPinnedPlatform(context);
     await emulateSystemScheme("light");
     const bridge = createFixtureBridge({ scenario: COLLABORATION_SCENARIO });
@@ -261,7 +261,7 @@ describe("screenshot — the surfaces this family fills a seat with", () => {
     const pageContext: SettingsPageContext = {
       bridge,
       openSection: () => undefined,
-      activeSessionId: COLLABORATION_SCENARIO.sessionId,
+      retainedSessionId: COLLABORATION_SCENARIO.sessionId,
     };
     const { container } = await renderSettled(<RuntimeNodesPage context={pageContext} />);
     // Throws rather than capturing a spinner: a picture of the loading arm would
