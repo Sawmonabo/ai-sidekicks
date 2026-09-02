@@ -193,16 +193,24 @@ const WINDOW_BUDGET_MS = 5_000;
 // re-creates the original symptom. 30 s is ~2.3x that worst case and matches
 // the budget `lifecycle.gc.test.ts` already uses for the same kind of spawn.
 //
-// This is NOT the flake fix and does not stand in for one. The root cause was
-// contention between this file and `lifecycle.gc.test.ts`, fixed at the
-// scheduler (see `apps/desktop/vitest.config.ts`'s `main` project
-// `fileParallelism` comment). What remains after that fix is cross-PACKAGE
-// concurrency: turbo runs `desktop:test:smoke` alongside `desktop:test:renderer`,
-// `client-sdk:test` and `runtime-daemon:test` on the same runner, so a cold
-// Electron boot never has the box to itself. This budget is the backstop that
-// reports a stall, and `renderDiagnosticDump` is what makes the next one
-// attributable; the inner `windowMs` assertion (WINDOW_BUDGET_MS) is still the
-// load-bearing timing check and is deliberately NOT relaxed.
+// This is NOT the flake fix and does not stand in for one. The contention was
+// fixed at two levels: intra-project, where this file and `lifecycle.gc.test.ts`
+// ran concurrently (see `apps/desktop/vitest.config.ts`'s `main` project
+// `fileParallelism` comment), and cross-PACKAGE, where turbo scheduled
+// `desktop:test:smoke` alongside `runtime-daemon:test` and friends on one
+// runner (see the two test steps in `.github/workflows/ci.yml`, which now give
+// this project the box to itself). The three CI samples above were measured
+// with the first fix in place and the second not yet, which is what their 3.2x
+// spread records.
+//
+// The ceiling is kept at 30 s anyway, and deliberately not re-tightened on the
+// strength of the post-fix samples: three runs is not a distribution, a hosted
+// runner is shared infrastructure whose worst case is not ours to control, and
+// the cost of a ceiling that is too generous is a slower failure while the cost
+// of one that is too tight is the flake this file exists to end. This budget is
+// the backstop that reports a stall; `renderDiagnosticDump` is what makes the
+// next one attributable; and the inner `windowMs` assertion (WINDOW_BUDGET_MS)
+// is still the load-bearing timing check and is deliberately NOT relaxed.
 const SPAWN_TIMEOUT_MS = 30_000;
 
 // How long to wait for the X display named by `$DISPLAY` to start answering
@@ -234,6 +242,50 @@ const FORCED_DISPLAY_ENV = "SIDEKICKS_SMOKE_FORCE_DISPLAY";
 // `close` event past the vitest deadline. SIGTERM lets the shim forward and
 // the browser process exit; SIGKILL only if it does not.
 const TERMINATION_GRACE_MS = 2_000;
+
+// Wall bound for the WHOLE at-deadline diagnostic collection, and the per-probe
+// bound inside it.
+//
+// This is load-bearing, not hygiene. The collection runs two subprocess
+// readings, and before this bound existed each carried its own 5 s
+// `spawnSync` timeout — so a degraded runner (the exact case these readings
+// exist to diagnose) could spend 10 s here, plus TERMINATION_GRACE_MS, inside
+// an enclosing vitest budget that allowed only 5 s past SPAWN_TIMEOUT_MS. The
+// diagnostic path would then be killed by vitest's generic timeout before
+// `renderReadinessFailure` ever ran, and the dump this whole file exists to
+// produce would be replaced by "test timed out" — losing the evidence in
+// precisely the case that generated it.
+//
+// The probes are sub-100 ms readings in every healthy case; 1.5 s each is
+// already ~15x that, and the 3 s wall bound is what makes the arithmetic
+// below closed-form rather than a sum of independent worst cases.
+const DIAGNOSTIC_PROBE_TIMEOUT_MS = 1_500;
+const DIAGNOSTIC_BUDGET_MS = 3_000;
+
+// Slack over and above the three bounded phases, covering the spawn itself,
+// the `close` event after SIGTERM, and temp-profile cleanup.
+const TEST_TIMEOUT_SLACK_MS = 3_000;
+
+// The enclosing vitest budget, DERIVED from the phases it must contain rather
+// than hand-picked: the spawn budget, then the bounded diagnostic collection,
+// then the SIGTERM->SIGKILL grace, then slack. Every one of these is a named
+// constant, so raising any phase raises this automatically and the enclosing
+// budget cannot silently fall behind the work it encloses again.
+const BOOT_TEST_TIMEOUT_MS =
+  SPAWN_TIMEOUT_MS + DIAGNOSTIC_BUDGET_MS + TERMINATION_GRACE_MS + TEST_TIMEOUT_SLACK_MS;
+
+// Test-only override making the spawn deadline fire almost immediately, so the
+// stalled-boot path can be driven end to end without spending the real spawn
+// budget. Set ONLY by this file's forced-stall test; when it is set the spawn
+// also withholds `SIDEKICKS_SMOKE_PROBE`, so the app boots and simply never
+// emits a probe line — a real stall rather than a simulated one.
+const FORCED_STALL_ENV = "SIDEKICKS_SMOKE_FORCE_SPAWN_STALL";
+const FORCED_STALL_SPAWN_TIMEOUT_MS = 2_000;
+const FORCED_STALL_TEST_TIMEOUT_MS =
+  FORCED_STALL_SPAWN_TIMEOUT_MS +
+  DIAGNOSTIC_BUDGET_MS +
+  TERMINATION_GRACE_MS +
+  TEST_TIMEOUT_SLACK_MS;
 
 interface SmokeProbe {
   readonly ok: boolean;
@@ -275,6 +327,23 @@ interface SpawnResult {
   // Environment readings taken at spawn time and again at the deadline, so a
   // timeout is attributable from one read of the CI log.
   readonly diagnostics: readonly string[];
+  // The spawn budget this particular spawn actually ran under. Carried rather
+  // than read back from SPAWN_TIMEOUT_MS so the failure text states the deadline
+  // that really elapsed, which the forced-stall override changes.
+  readonly spawnBudgetMs: number;
+  // Whether THIS harness's deadline fired. Recorded rather than inferred from
+  // `signal`, because the inference is wrong: the direct child is the
+  // `node_modules/.bin/electron` Node shim, which CATCHES SIGTERM, forwards it
+  // to the real binary, prints "... exited with signal SIGTERM" and then exits
+  // with CODE 1 and no signal of its own. A `signal !== null` test therefore
+  // misses every deadline kill on the direct spawn path and lets the diagnosis
+  // fall through to the `exitCode === 1` arm, which reports "`app.whenReady()`
+  // rejected" — a startup failure that did not happen. (This was latent while
+  // CI wrapped each spawn in `xvfb-run`: the direct child was then a shell,
+  // which does die by signal. Moving CI to a job-level display made the shim
+  // the direct child on Linux too, so the flag is what keeps the diagnosis
+  // right on the platform the gate runs on.)
+  readonly timedOut: boolean;
 }
 
 // Resolves the X display this spawn should use, honouring the test-only
@@ -412,6 +481,20 @@ function awaitDisplayReady(display: string): string | null {
 // at-spawn capture takes the cheap readings only and leaves the boot budget
 // untouched; the at-deadline capture takes everything, because by then the
 // budget is already spent and the readings are the whole point.
+//
+// The subprocess readings share ONE wall budget (DIAGNOSTIC_BUDGET_MS) rather
+// than carrying independent per-call timeouts, so the collection's worst case
+// is a constant this file can add to the enclosing test budget instead of a
+// sum that can outgrow it. Each reading gets whatever is left, capped at
+// DIAGNOSTIC_PROBE_TIMEOUT_MS; a reading with no budget left is RECORDED as
+// skipped rather than silently omitted, because a dump that quietly drops a
+// line is exactly the failure mode this file was written to end.
+//
+// The process tree is taken FIRST because it is the perishable reading: the
+// caller runs this immediately before SIGTERM, and once the tree is gone `ps`
+// has nothing to report, while the display reading is still available
+// afterwards. Under a shared budget, ordering decides which reading survives a
+// slow runner, so the perishable one goes first.
 function captureDiagnostics(
   label: string,
   child: ChildProcess | null,
@@ -425,11 +508,34 @@ function captureDiagnostics(
     `[${label}] DISPLAY=${resolvedDisplay() ?? "<unset>"} ` +
       `spawnPath=${needsXvfb() ? "xvfb-run -a" : "direct"}`,
   ];
+  const collectionDeadline = Date.now() + DIAGNOSTIC_BUDGET_MS;
+  const remainingProbeBudgetMs = (): number =>
+    Math.min(DIAGNOSTIC_PROBE_TIMEOUT_MS, collectionDeadline - Date.now());
+
+  if (probeExternals && child?.pid !== undefined && process.platform !== "win32") {
+    // The spawn leads its own process group, so `-g <pid>` is exactly this
+    // spawn's tree and nothing else on the runner.
+    const budgetMs = remainingProbeBudgetMs();
+    if (budgetMs <= 0) {
+      readings.push(`[${label}] process tree skipped — diagnostic budget exhausted`);
+    } else {
+      const processTree = spawnSync(
+        "ps",
+        ["-o", "pid,ppid,stat,etime,comm", "-g", String(child.pid)],
+        { encoding: "utf8", timeout: budgetMs },
+      );
+      readings.push(
+        `[${label}] process tree (pgid=${String(child.pid)}):\n${processTree.stdout ?? "<unavailable>"}`,
+      );
+    }
+  }
+
   const display = resolvedDisplay();
   if (probeExternals && display !== undefined && process.platform !== "win32") {
     if (xdpyinfoMissing) {
       // No `x11-utils` on the ubuntu-24.04 runner image, so report the socket
-      // reading actually used rather than a tool reading we cannot take.
+      // reading actually used rather than a tool reading we cannot take. This
+      // arm spends no subprocess and so needs no budget check.
       const socketPath = localDisplaySocketPath(display);
       readings.push(
         `[${label}] display socket ${socketPath ?? "<unprobeable display>"} ` +
@@ -437,31 +543,21 @@ function captureDiagnostics(
           `(xdpyinfo unavailable)`,
       );
     } else {
-      const probe = spawnSync("xdpyinfo", ["-display", display], {
-        encoding: "utf8",
-        timeout: 5_000,
-      });
-      const dimensions = /dimensions:\s+(\S+)/.exec(probe.stdout ?? "")?.[1];
-      readings.push(
-        `[${label}] xdpyinfo status=${String(probe.status)} ` +
-          `dimensions=${dimensions ?? "<none>"}`,
-      );
+      const budgetMs = remainingProbeBudgetMs();
+      if (budgetMs <= 0) {
+        readings.push(`[${label}] xdpyinfo skipped — diagnostic budget exhausted`);
+      } else {
+        const probe = spawnSync("xdpyinfo", ["-display", display], {
+          encoding: "utf8",
+          timeout: budgetMs,
+        });
+        const dimensions = /dimensions:\s+(\S+)/.exec(probe.stdout ?? "")?.[1];
+        readings.push(
+          `[${label}] xdpyinfo status=${String(probe.status)} ` +
+            `dimensions=${dimensions ?? "<none>"}`,
+        );
+      }
     }
-  }
-  if (probeExternals && child?.pid !== undefined && process.platform !== "win32") {
-    // The spawn leads its own process group, so `-g <pid>` is exactly this
-    // spawn's tree and nothing else on the runner.
-    const processTree = spawnSync(
-      "ps",
-      ["-o", "pid,ppid,stat,etime,comm", "-g", String(child.pid)],
-      {
-        encoding: "utf8",
-        timeout: 5_000,
-      },
-    );
-    readings.push(
-      `[${label}] process tree (pgid=${String(child.pid)}):\n${processTree.stdout ?? "<unavailable>"}`,
-    );
   }
   return readings;
 }
@@ -533,6 +629,16 @@ function terminateElectronTree(child: ChildProcess, signal: NodeJS.Signals): voi
 function spawnElectron(): Promise<SpawnResult> {
   const startedAt = Date.now();
 
+  // Forced-stall override, set only by this file's stalled-boot test. It does
+  // two things together, and both are needed for the test to be honest: it
+  // shrinks the spawn deadline so the path runs in seconds rather than the full
+  // spawn budget, and (below) it withholds the probe opt-in so the boot really
+  // does produce no probe line. Neither substitutes a fake for the code under
+  // test — the deadline, the bounded diagnostic collection, the process-group
+  // termination and the failure renderer are all the production ones.
+  const forcedStall = process.env[FORCED_STALL_ENV] !== undefined;
+  const spawnBudgetMs = forcedStall ? FORCED_STALL_SPAWN_TIMEOUT_MS : SPAWN_TIMEOUT_MS;
+
   // Per-spawn Chromium profile — the deterministic fix for this test's
   // historical flake, and the reason it needs no retry wrapper.
   //
@@ -577,6 +683,8 @@ function spawnElectron(): Promise<SpawnResult> {
         elapsedMs: Date.now() - startedAt,
         readinessBreadcrumbs: [],
         diagnostics: captureDiagnostics("refused-before-spawn", null, false),
+        spawnBudgetMs,
+        timedOut: false,
       };
       try {
         rmSync(userDataDir, { recursive: true, force: true });
@@ -623,7 +731,11 @@ function spawnElectron(): Promise<SpawnResult> {
         // after `pnpm build`). In a smoke bundle, the runtime env-var
         // check remains as defense-in-depth so the probe never
         // auto-runs without explicit opt-in per invocation.
-        SIDEKICKS_SMOKE_PROBE: "1",
+        // Withheld under the forced-stall override: with no probe opt-in the
+        // app boots normally and simply never emits a probe line, which is a
+        // REAL stall for this harness rather than a simulated one, and is what
+        // lets the stalled-boot test drive the deadline path end to end.
+        ...(forcedStall ? {} : { SIDEKICKS_SMOKE_PROBE: "1" }),
         // Emit the corroborating readiness breadcrumbs (`dom-ready`,
         // `ready-to-show`) beside the asserted `did-finish-load`. Opt-in per
         // invocation for the same reason the probe itself is: the main process
@@ -666,9 +778,10 @@ function spawnElectron(): Promise<SpawnResult> {
     // is a debugging nightmare we cheaply avoid by buffering.
     let pending = "";
     let escalationTimer: NodeJS.Timeout | null = null;
+    let deadlineFired = false;
 
     const spawnDeadline = setTimeout(() => {
-      // The spawn timeout (SPAWN_TIMEOUT_MS) is a backstop — the in-app window
+      // The spawn timeout (`spawnBudgetMs`) is a backstop — the in-app window
       // budget (5 s) is the load-bearing assertion. If we hit this,
       // Electron is stuck and we want a non-hanging test failure.
       //
@@ -684,12 +797,13 @@ function spawnElectron(): Promise<SpawnResult> {
       // process tree is gone and `ps` has nothing left to report, which is
       // precisely the reading that would have named this flake on its first
       // occurrence instead of its fourth.
+      deadlineFired = true;
       diagnostics.push(...captureDiagnostics("at-deadline", child, true));
       terminateElectronTree(child, "SIGTERM");
       escalationTimer = setTimeout(() => {
         terminateElectronTree(child, "SIGKILL");
       }, TERMINATION_GRACE_MS);
-    }, SPAWN_TIMEOUT_MS);
+    }, spawnBudgetMs);
 
     // Single settle path so both timers and the temporary profile are
     // disposed exactly once whichever terminal event fires first.
@@ -783,6 +897,8 @@ function spawnElectron(): Promise<SpawnResult> {
         elapsedMs: Date.now() - startedAt,
         readinessBreadcrumbs,
         diagnostics,
+        spawnBudgetMs,
+        timedOut: deadlineFired,
       });
     });
 
@@ -797,6 +913,8 @@ function spawnElectron(): Promise<SpawnResult> {
         elapsedMs: Date.now() - startedAt,
         readinessBreadcrumbs,
         diagnostics,
+        spawnBudgetMs,
+        timedOut: deadlineFired,
       });
     });
   });
@@ -838,19 +956,48 @@ function diagnoseMissingProbe(result: SpawnResult): string {
   if (result.combinedOutput.includes(`${SMOKE_PROBE_TAG} executeJavaScript failed`)) {
     return "the renderer document loaded but the probe expression never evaluated in it.";
   }
-  if (result.signal !== null) {
-    // The breadcrumbs turn one timeout shape into three distinguishable ones:
+  // `did-finish-load` fired and the probe line still never arrived. That is a
+  // materially different fault from a boot that never loaded: the document IS
+  // up, the callback DID run, and what did not come back is the
+  // `executeJavaScript` round trip into the renderer. Checked ahead of the
+  // signal arm because it is the more specific reading of the same
+  // terminated-at-deadline evidence, and the generic arm below would otherwise
+  // absorb it and report "`did-finish-load` never fired" — which would be
+  // exactly false.
+  if (result.readinessBreadcrumbs.some((event) => event.includes("did-finish-load"))) {
+    return (
+      "the renderer finished loading and the probe callback ran, but the " +
+      "`executeJavaScript` round trip never resolved — so this is a hung probe " +
+      "evaluation, NOT a renderer that failed to load. Readiness reached: " +
+      `${result.readinessBreadcrumbs.join(", ")}.`
+    );
+  }
+  // Keyed on the recorded deadline, NOT on `signal !== null`. See
+  // `SpawnResult.timedOut`: on the direct spawn path the electron shim catches
+  // SIGTERM and exits with code 1, so a signal test would silently hand this
+  // case to the `exitCode === 1` arm below and report a startup failure that
+  // never happened.
+  if (result.timedOut) {
+    // The breadcrumbs turn one timeout shape into several distinguishable ones:
     // nothing at all (the browser process never got the renderer up), a
     // `dom-ready` with no `did-finish-load` (the document parsed but a
     // subresource never settled), or neither with a `ready-to-show` (the
-    // window surfaced against a document that never parsed).
+    // window surfaced against a document that never parsed). The
+    // `did-finish-load` case is split out above.
     const reached =
       result.readinessBreadcrumbs.length > 0
         ? `Readiness reached: ${result.readinessBreadcrumbs.join(", ")}.`
         : "No readiness event fired at all — the renderer never reached `dom-ready`.";
+    // How the tree actually died is itself a reading: killed by signal means the
+    // direct child took it, whereas an exit code means the shim caught SIGTERM,
+    // forwarded it, and reported the real binary's death.
+    const disposition =
+      result.signal !== null
+        ? `terminated (${result.signal})`
+        : `terminated (SIGTERM; the electron shim forwarded it and exited ${String(result.exitCode)})`;
     return (
-      `the process was still running at the ${String(SPAWN_TIMEOUT_MS)}ms deadline and was ` +
-      `terminated (${result.signal}) — \`did-finish-load\` never fired. ${reached}`
+      `the process was still running at the ${String(result.spawnBudgetMs)}ms deadline and was ` +
+      `${disposition} — \`did-finish-load\` never fired. ${reached}`
     );
   }
   if (result.exitCode === 1) {
@@ -877,7 +1024,7 @@ function diagnoseMissingProbe(result: SpawnResult): string {
 function renderReadinessFailure(result: SpawnResult): string {
   return (
     `Desktop shell never became ready: ${diagnoseMissingProbe(result)}\n` +
-    `No \`${SMOKE_PROBE_TAG}\` line arrived within ${String(SPAWN_TIMEOUT_MS)}ms.\n` +
+    `No \`${SMOKE_PROBE_TAG}\` line arrived within ${String(result.spawnBudgetMs)}ms.\n` +
     `Exit code: ${String(result.exitCode)}, signal: ${String(result.signal)}, elapsed: ${String(result.elapsedMs)}ms.\n` +
     renderDiagnosticDump(result)
   );
@@ -973,7 +1120,9 @@ describe("desktop shell substrate boot", () => {
       expect(result.exitCode).toBe(0);
       expect(result.signal).toBe(null);
     },
-    SPAWN_TIMEOUT_MS + 5_000, // Vitest timeout = spawn budget + slack.
+    // Derived, not hand-picked: spawn budget + bounded diagnostics + termination
+    // grace + slack. See BOOT_TEST_TIMEOUT_MS.
+    BOOT_TEST_TIMEOUT_MS,
   );
 
   // Negative control for the readiness path.
@@ -1022,6 +1171,94 @@ describe("desktop shell substrate boot", () => {
       // leaving the section blank.
       expect(failureMessage).toContain("<none — the renderer never reached");
     },
-    FORCED_DISPLAY_READY_TIMEOUT_MS + 15_000,
+    // Derived like the others: the forced readiness budget, the diagnostic
+    // bound, and slack. No termination grace — this path refuses before a
+    // process exists, so there is no tree to signal.
+    FORCED_DISPLAY_READY_TIMEOUT_MS + DIAGNOSTIC_BUDGET_MS + TEST_TIMEOUT_SLACK_MS,
+  );
+
+  // Negative control for the DEADLINE path's own budget.
+  //
+  // The control above breaks a precondition and never spawns Electron, so it
+  // exercises none of the machinery that runs when a boot actually stalls: the
+  // spawn deadline, the at-deadline diagnostic collection with its two real
+  // subprocess readings, the process-group SIGTERM, and the grace period before
+  // SIGKILL. That path has a budget of its own, and it used to be unpayable —
+  // two 5 s probe timeouts plus a 2 s grace inside an enclosing budget that
+  // allowed 5 s past the spawn deadline. The degraded runner these diagnostics
+  // exist for was therefore the one case where they could not be printed:
+  // vitest's generic timeout would fire first and the dump would be lost.
+  //
+  // So this test forces a REAL stall — the app boots with the probe opt-in
+  // withheld, so it runs normally and simply never emits a probe line — and
+  // asserts two things that together are the fix:
+  //
+  //   1. the failure that comes back is the harness's readiness failure with
+  //      its dump, NOT vitest's generic timeout, and
+  //   2. the whole path fits inside a budget DERIVED from the same named
+  //      constants the production path uses.
+  //
+  // It is a live control, not a tautology: restore either probe's independent
+  // 5 s timeout and the elapsed time exceeds this test's own derived budget, so
+  // vitest kills it and the assertions below never run.
+  it(
+    "bounds the stalled-boot diagnostic path inside its derived budget",
+    async () => {
+      process.env[FORCED_STALL_ENV] = "1";
+      const startedAt = Date.now();
+      let failureMessage: string;
+      let result: SpawnResult;
+      try {
+        result = await spawnElectron();
+        expect(result.probe).toBeNull();
+        failureMessage = renderReadinessFailure(result);
+      } finally {
+        delete process.env[FORCED_STALL_ENV];
+      }
+      const elapsedMs = Date.now() - startedAt;
+
+      // The spawn really did reach THIS harness's deadline — otherwise the test
+      // would be asserting about some other failure shape. Asserted on the
+      // recorded flag rather than on `signal`, for the reason `timedOut`
+      // documents: the shim exits with a code here, not a signal.
+      expect(result.timedOut).toBe(true);
+
+      // The structural claim, asserted TIGHT: the stalled path fits inside the
+      // deadline plus the diagnostic bound plus the termination grace — i.e.
+      // WITHOUT drawing on TEST_TIMEOUT_SLACK_MS at all. Deliberately not
+      // asserted against FORCED_STALL_TEST_TIMEOUT_MS, which is the same sum
+      // plus that slack: a single unbounded 5 s probe would still fit under the
+      // looser bound on a platform that runs only one of the two probes, so the
+      // loose form would be a live control on Linux and a vacuous one on macOS.
+      // This form fails on both.
+      expect(elapsedMs).toBeLessThan(
+        FORCED_STALL_SPAWN_TIMEOUT_MS + DIAGNOSTIC_BUDGET_MS + TERMINATION_GRACE_MS,
+      );
+
+      // The readiness failure, not a bare timeout: classified, and carrying the
+      // dump with the at-deadline readings in it.
+      expect(failureMessage).toContain("Desktop shell never became ready");
+      expect(failureMessage).toContain(
+        `still running at the ${String(FORCED_STALL_SPAWN_TIMEOUT_MS)}ms deadline`,
+      );
+      expect(failureMessage).not.toContain("without a recognised failure marker");
+      expect(failureMessage).toContain("--- environment ---");
+
+      // The at-deadline capture ran and its readings are present — the point of
+      // bounding it was to keep these, not merely to finish sooner.
+      expect(failureMessage).toContain("[at-deadline]");
+      if (process.platform !== "win32") {
+        expect(failureMessage).toContain("[at-deadline] process tree");
+      }
+
+      // On a healthy runner the bound is generous, so the readings are actually
+      // taken rather than skipped. (Asserted as the absence of the skip marker
+      // rather than as a regex over the tree's own text: `[\s\S]*` would happily
+      // match digits from a LATER section of the dump and quietly pass against
+      // an empty table, which is the kind of assertion this file exists to
+      // stop shipping.)
+      expect(failureMessage).not.toContain("diagnostic budget exhausted");
+    },
+    FORCED_STALL_TEST_TIMEOUT_MS,
   );
 });
