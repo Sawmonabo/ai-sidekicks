@@ -199,7 +199,7 @@
 }
 
 .meridian-settings-page__state--failed {
-  color: var(--meridian-failure);
+  color: var(--meridian-red-text);
 }
 
 .meridian-settings-page__prose {
