@@ -28,11 +28,13 @@
 //
 // HEADLESS LINUX
 //
-// A CI runner without a display server needs `xvfb-run`. `_electron.launch` takes
-// an executable path rather than a shell command, so wrapping is not available the
-// way it is for the smoke test's `spawn`. The tiers are therefore not wired into
-// the default `test` task, and CI runs them under a job that provides a display —
-// the same posture the three browser-mode tiers already take.
+// A CI runner without a display server needs an X server. `_electron.launch`
+// takes an executable path rather than a shell command, so a per-spawn
+// `xvfb-run` wrapper is not available the way it is for the smoke test's
+// `spawn` — and it is not wanted either: the tier-1 job stands one Xvfb up for
+// the whole run and exports `$DISPLAY` to every later step, which both tiers
+// inherit through `process.env`. They run in the aggregate `test` script's last
+// group and in that job's desktop step, both on the fixture build.
 
 import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";

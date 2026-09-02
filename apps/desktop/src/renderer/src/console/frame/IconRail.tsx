@@ -8,8 +8,10 @@
 // Two rules show up here in miniature:
 //
 //   • **Absent, not disabled.** A destination the window cannot reach is not
-//     rendered greyed out; it is not rendered. An auxiliary window has no rail at
-//     all rather than a rail of dead icons.
+//     rendered greyed out; it is not rendered. This rail renders exactly the
+//     entries it is handed and carries no availability flag of its own — an
+//     unreachable destination is one its caller left out — and an auxiliary window
+//     has no rail at all rather than a rail of dead icons.
 //   • **The two-hue rule.** The rail carries no colour except the accent on the
 //     current destination and, when something needs a person, one amber dot. It is
 //     the console's most-seen surface, so it is the one that most has to stay quiet.
@@ -28,8 +30,6 @@ export interface RailEntry extends RailEntryTemplate {
   readonly destination: RailDestination;
   /** True when this destination has something waiting for a person (amber). */
   readonly needsAttention?: boolean;
-  /** False hides the entry entirely — absent, never disabled. */
-  readonly isAvailable: boolean;
 }
 
 export interface IconRailProps {
@@ -39,11 +39,10 @@ export interface IconRailProps {
 }
 
 export function IconRail(props: IconRailProps): React.JSX.Element {
-  const available = props.entries.filter((entry) => entry.isAvailable);
   return (
     <nav className="meridian-rail" aria-label="Console sections">
       <ul className="meridian-rail__list">
-        {available.map((entry) => {
+        {props.entries.map((entry) => {
           const isCurrent = entry.destination === props.current;
           return (
             <li key={entry.destination} className="meridian-rail__item">
@@ -92,6 +91,10 @@ export function IconRail(props: IconRailProps): React.JSX.Element {
  */
 export const RAIL_ENTRY_TEMPLATES: Readonly<Record<RailDestination, RailEntryTemplate>> = {
   sessions: { label: "Sessions", glyph: "sessions" },
-  workspace: { label: "Workspace", glyph: "workspace" },
+  // The `workflow` glyph the pane kind already uses, rather than a plural sibling
+  // drawn beside it. One picture per concept is what makes the collection a family
+  // — the destination and the pane it opens are the same thing at two scales, and
+  // two glyphs for them would differ only by whoever drew the second one.
+  workflows: { label: "Workflows", glyph: "workflow" },
   settings: { label: "Settings", glyph: "settings" },
 };

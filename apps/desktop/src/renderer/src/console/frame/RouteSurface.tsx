@@ -1,4 +1,4 @@
-// Route in, surface out — and three ways of having nothing to show.
+// Route in, surface out — and four ways of having nothing to show.
 //
 // Resolution happens DURING RENDER, deliberately: the registry is composed at module
 // scope by the console's entry point, so a descriptor is there to be looked up on the
@@ -10,7 +10,10 @@
 //
 //   • **Not-found** — the address names nothing. The way back is the sessions list.
 //   • **A bare auxiliary route** — a WORKING window that has not been given a
-//     subject. It gets the picker, not an error.
+//     subject. It gets the picker, not an error. The picker offers the node's
+//     sessions and this window's open ones, and owns its own absence — see
+//     `ContextPicker.tsx` for why those sources, and why neither is the route's
+//     session store.
 //   • **A session still opening** — the route named a session and its store is not
 //     open yet, which is a read in flight and renders as one.
 //   • **A slot with no renderer** — reserved, not stubbed. The console says the
@@ -20,7 +23,7 @@
 import { COMMAND_PALETTE_OPEN_CHORD } from "../palette/index.js";
 import { ChordHint, Nothing } from "../primitives/index.js";
 import { isAuxiliaryRoute, needsContextPicker } from "../routing/index.js";
-import { ContextPicker, type ContextCandidate } from "./ContextPicker.js";
+import { ContextPicker } from "./ContextPicker.js";
 import {
   consoleSurfaceRegistry,
   surfaceSlotFor,
@@ -56,9 +59,16 @@ export function RouteSurface(props: RouteSurfaceProps): React.JSX.Element {
     return (
       <ContextPicker
         route={route.route}
-        candidates={readContextCandidates(context)}
-        onChoose={(sessionId) => {
-          context.frameStore.navigate({ ...route, sessionId });
+        registry={context.sessionStoreRegistry}
+        growth={context.bridge.growth}
+        onChoose={(target) => {
+          // The picker hands over a COMPLETE target, so the spread cannot build a
+          // route the hash writer will refuse. It used to hand over a session id
+          // and this line added it to whatever the route was — which on the
+          // agent-console route produced a session with no agent, a shape the
+          // shared grammar refuses by throwing, from inside the route-to-hash
+          // effect where no surface boundary catches it.
+          context.frameStore.navigate({ kind: "auxiliary", ...target });
         }}
       />
     );
@@ -122,31 +132,4 @@ export function SurfaceAbsence(props: { readonly children: React.ReactNode }): R
       </p>
     </div>
   );
-}
-
-/**
- * Sessions the picker can offer.
- *
- * `undefined` until the session store has been initialised, so the picker renders
- * "not loaded" rather than "none" — the distinction the five kinds of nothing exist
- * for. An auxiliary window has no session store until a session is chosen, which is
- * exactly the not-loaded case.
- */
-function readContextCandidates(
-  context: ConsoleSurfaceContext,
-): readonly ContextCandidate[] | undefined {
-  const { sessionStore } = context;
-  if (sessionStore === undefined) {
-    return undefined;
-  }
-  const state = sessionStore.snapshot();
-  if (!state.initialised) {
-    return undefined;
-  }
-  return Object.values(state.partitions.session).map((entity) => ({
-    sessionId: entity.id,
-    title:
-      typeof entity.body?.["title"] === "string" ? (entity.body["title"] as string) : entity.id,
-    detail: entity.state ?? "",
-  }));
 }

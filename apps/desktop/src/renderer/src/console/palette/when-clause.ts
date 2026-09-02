@@ -23,17 +23,49 @@
 // that small is what lets `whenClausesCanOverlap` decide conflicts by enumeration
 // instead of by heuristics.
 //
-// THE FAIL-CLOSED RULE THIS MODULE OWNS: an UNKNOWN CONTEXT KEY IS FALSE, never
-// undefined and never "assume true". A clause names the state under which a
-// control is safe to offer. If the frame has not supplied that key, the console
-// does not know whether the state holds — and `Spec-023 §Console Design
-// (Meridian)`'s "Absent, not disabled" and "Fail-closed projection" rules both
-// resolve an unknown to the conservative arm. Offering a control on a key nobody
-// computed would be the renderer guessing at eligibility, which is precisely what
-// that spec forbids. (The other fail-closed rule — a clause that does not parse
-// hides its command — belongs to the parser and the cache, and is stated there.)
+// THE FAIL-CLOSED RULE THIS MODULE OWNS: an UNKNOWN CONTEXT KEY IS UNKNOWN, and
+// an unknown CLAUSE is false — never "assume true". A clause names the state
+// under which a control is safe to offer. If the frame has not supplied that key,
+// the console does not know whether the state holds — and `Spec-023 §Console
+// Design (Meridian)`'s "Absent, not disabled" and "Fail-closed projection" rules
+// both resolve an unknown to the conservative arm. Offering a control on a key
+// nobody computed would be the renderer guessing at eligibility, which is
+// precisely what that spec forbids. (The other fail-closed rule — a clause that
+// does not parse hides its command — belongs to the parser and the cache, and is
+// stated there.)
+//
+// WHY UNKNOWN IS A THIRD VALUE AND NOT JUST `false`. Substituting `false` for an
+// absent key reads as fail-closed and is not: `!sessionActve` — one transposed
+// letter — then evaluates TRUE, so a misspelled identifier does not hide a
+// command, it reveals one, and both the registry and the keybinding table go on
+// to offer and run an act on a state nobody computed. Negation is the operator
+// that turns a conservative default into its opposite, so the unknown has to
+// survive it. Evaluation is therefore three-valued (strong Kleene) INSIDE the
+// module and two-valued at its boundary:
+//
+//   • `!unknown` is unknown         → `!absent` is FALSE
+//   • `unknown && x` is false when `x` is false, unknown otherwise
+//                                    → `absent && anything` is FALSE
+//   • `unknown || x` is true when `x` is true, unknown otherwise
+//                                    → `absent || knownTrue` is TRUE,
+//                                      `absent || knownFalse` is FALSE
+//   • an unknown clause collapses to `false` at {@link evaluateWhenClause}
+//
+// The one arm that still answers `true` is the disjunction a SUPPLIED key already
+// decides, and that is the point of propagating rather than refusing outright:
+// the unknown could not have changed the answer, so hiding the command would be a
+// refusal the clause never asked for. The collapse is otherwise conservative
+// rather than exact — evaluation is truth-functional, not a satisfiability check,
+// so the pathological `x || !x` over an absent `x` is a tautology that still
+// hides. Hiding a clause nobody should have written is the right side to err on.
 
-/** Context keys and their values. A key that is absent evaluates false. */
+/**
+ * Context keys and their values.
+ *
+ * A key that is absent — and a value that is not a boolean, which is the same
+ * thing once it has crossed a bridge boundary — is UNKNOWN, and a clause whose
+ * answer depends on one is false. See the fail-closed rule in the file header.
+ */
 export type WhenClauseContext = Readonly<Record<string, boolean>>;
 
 /** The parsed form of a clause. */
@@ -44,23 +76,70 @@ export type WhenClauseNode =
   | { readonly kind: "or"; readonly left: WhenClauseNode; readonly right: WhenClauseNode };
 
 /**
+ * What a clause is worth when the context may not answer every key it names.
+ *
+ * Module-private: every caller outside this file asks a yes/no question about
+ * whether to offer a control, and a third value escaping into the registry or the
+ * keybinding table would be a second thing each of them had to decide.
+ */
+type WhenClauseTruth = boolean | "unknown";
+
+/**
  * Evaluate a parsed clause.
  *
- * A key the context does not carry is FALSE — see the fail-closed rule in the
- * file header. The `=== true` comparison (rather than a truthiness test) is what
- * enforces it, and it also refuses a non-boolean that slipped past the type at a
- * bridge boundary.
+ * The boundary of the three-valued evaluation described in the file header: an
+ * answer that depends on a key the context did not supply is `false` here, and a
+ * caller therefore never sees the unknown.
  */
 export function evaluateWhenClause(node: WhenClauseNode, context: WhenClauseContext): boolean {
+  return resolveWhenClauseTruth(node, context) === true;
+}
+
+/**
+ * Strong Kleene evaluation over the clause grammar.
+ *
+ * Written as explicit truth tables rather than with `&&` / `||` because
+ * JavaScript's own operators are exactly what the two-valued version got wrong:
+ * `"unknown"` is a truthy string, so `a && b` would answer `"unknown"` for a
+ * conjunction one supplied `false` already decides, and `!a` would answer `false`
+ * for a negation whose operand nobody computed.
+ */
+function resolveWhenClauseTruth(node: WhenClauseNode, context: WhenClauseContext): WhenClauseTruth {
   switch (node.kind) {
-    case "identifier":
-      return context[node.name] === true;
-    case "not":
-      return !evaluateWhenClause(node.operand, context);
-    case "and":
-      return evaluateWhenClause(node.left, context) && evaluateWhenClause(node.right, context);
-    case "or":
-      return evaluateWhenClause(node.left, context) || evaluateWhenClause(node.right, context);
+    case "identifier": {
+      // Read once, and typed rather than compared against `true`: absent and
+      // "present but not a boolean" are one case — the context does not answer
+      // this key — and both must reach the unknown arm rather than the false one.
+      const value = context[node.name];
+      return typeof value === "boolean" ? value : "unknown";
+    }
+    case "not": {
+      const operand = resolveWhenClauseTruth(node.operand, context);
+      return operand === "unknown" ? "unknown" : !operand;
+    }
+    case "and": {
+      // Short-circuits on the only value that decides a conjunction on its own.
+      const left = resolveWhenClauseTruth(node.left, context);
+      if (left === false) {
+        return false;
+      }
+      const right = resolveWhenClauseTruth(node.right, context);
+      if (right === false) {
+        return false;
+      }
+      return left === "unknown" || right === "unknown" ? "unknown" : true;
+    }
+    case "or": {
+      const left = resolveWhenClauseTruth(node.left, context);
+      if (left === true) {
+        return true;
+      }
+      const right = resolveWhenClauseTruth(node.right, context);
+      if (right === true) {
+        return true;
+      }
+      return left === "unknown" || right === "unknown" ? "unknown" : false;
+    }
   }
 }
 
