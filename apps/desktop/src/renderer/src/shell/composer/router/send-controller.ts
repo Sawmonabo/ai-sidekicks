@@ -54,11 +54,8 @@ import {
   type DirectiveCaret,
   type DirectivePathLabel,
 } from "./directive-line.js";
-import {
-  ComposerSendRouter,
-  type ClientCommandPredicate,
-  type ProviderCommandPredicate,
-} from "./send-router.js";
+import { ComposerSendRouter } from "./send-router.js";
+import type { ClientCommandPredicate, ProviderCommandPredicate } from "./send-resolutions.js";
 
 /** Whether the line is accepting text or is locked behind an in-flight dispatch. */
 export type SendControllerStatus = "idle" | "sending";

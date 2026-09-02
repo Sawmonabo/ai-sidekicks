@@ -22,7 +22,10 @@ import { useCallback, useMemo } from "react";
 import { normalizeWireRejection } from "../../../../../shared/wire-errors.js";
 import type { ConsoleRoute } from "../../../console/routing/index.js";
 import type { CommandExecutor, CommandOutcome, DirectiveLine } from "../router/command-executor.js";
-import type { ClientCommandPredicate, ProviderCommandPredicate } from "../router/send-router.js";
+import type {
+  ClientCommandPredicate,
+  ProviderCommandPredicate,
+} from "../router/send-resolutions.js";
 import type { ProviderCommandEnumeration } from "./provider-command-holder.js";
 import {
   clientCommandRefusal,
