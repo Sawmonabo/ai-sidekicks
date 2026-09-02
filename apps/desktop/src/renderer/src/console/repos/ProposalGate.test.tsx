@@ -13,7 +13,11 @@ import { refuse } from "../core/index.js";
 import { ProposalGate } from "./ProposalGate.js";
 import type { BranchContextReading } from "./branch-context-model.js";
 import { ONE_CUMULATIVE_PROPOSAL_COPY, type PreparedProposal } from "./prepared-proposal.js";
-import { PROPOSAL_ACTIONS, type ProposalAction } from "./proposal-actions.js";
+import {
+  PROPOSAL_ACTION_PRESENTATION,
+  offeredProposalActions,
+  type ProposalAction,
+} from "./proposal-actions.js";
 import type { ProposalGateState } from "./proposal-gate-state.js";
 
 const BRANCH_CONTEXT: BranchContextReading = {
@@ -220,16 +224,39 @@ describe("ProposalGate — the prepared proposal, before any remote mutation", (
 });
 
 describe("ProposalGate — three acts, offered, never projected", () => {
-  it("offers exactly the three modelled actions", () => {
+  it("renders exactly the acts the rule offers, in that order", () => {
+    // The offered set is the model's, so this holds the DOM against it rather than
+    // against a list written twice. Each act carries its own confirm pair, opened one at
+    // a time, so the closed surface carries exactly one control per offered act.
     const { container } = render(<ProposalGate state={PREPARED_STATE} onRequestAction={vi.fn()} />);
     const actionGroup = within(within(container).getByRole("group", { name: "Git actions" }));
-    for (const action of PROPOSAL_ACTIONS) {
-      expect(actionGroup.queryAllByRole("button").length).toBeGreaterThan(0);
-      expect(action.length).toBeGreaterThan(0);
-    }
-    // Three acts, each with its own confirm pair opened one at a time, so the closed
-    // surface carries exactly three controls.
-    expect(actionGroup.getAllByRole("button")).toHaveLength(PROPOSAL_ACTIONS.length);
+    expect(actionGroup.getAllByRole("button").map((button) => button.textContent)).toStrictEqual(
+      offeredProposalActions(PREPARED_STATE).map(
+        (action) => PROPOSAL_ACTION_PRESENTATION[action].label,
+      ),
+    );
+  });
+
+  it("withholds the act that reaches the host until a proposal has been prepared", () => {
+    // `Spec-011 §Interfaces And Contracts`: a reviewable proposal exists before any
+    // remote mutation. With none prepared there is nothing to send, so the send is not
+    // offered — a confirmable Push here would approve a payload never drawn.
+    const { container } = render(
+      <ProposalGate state={{ ...PREPARED_STATE, proposal: undefined }} onRequestAction={vi.fn()} />,
+    );
+    const actionGroup = within(within(container).getByRole("group", { name: "Git actions" }));
+    expect(actionGroup.queryByRole("button", { name: "Push" })).toBeNull();
+    expect(actionGroup.getByRole("button", { name: "Prepare proposal" })).toBeDefined();
+  });
+
+  it("negative control: the same arm with a proposal prepared offers the send, after it", () => {
+    // Without this, the withholding above could be a gate that never offers the send at
+    // all. The order is asserted with it, because the offer and the sequence are one rule.
+    const { container } = render(<ProposalGate state={PREPARED_STATE} onRequestAction={vi.fn()} />);
+    const actionGroup = within(within(container).getByRole("group", { name: "Git actions" }));
+    const labels = actionGroup.getAllByRole("button").map((button) => button.textContent);
+    expect(labels).toContain("Push");
+    expect(labels.indexOf("Prepare proposal")).toBeLessThan(labels.indexOf("Push"));
   });
 
   it("states the consequence before the act and only sends on the second press", () => {

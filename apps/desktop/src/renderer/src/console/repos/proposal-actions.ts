@@ -1,9 +1,24 @@
-// The acts the change-proposal gate offers: which exist, what each one does, and what
-// each says before it is confirmed.
+// The acts the change-proposal gate offers: which exist, how far each one reaches, what
+// each says before it is confirmed, and which of them a given gate arm may offer at all.
 //
 // `Spec-023 §Console Design (Meridian)` §10.7 puts these on the gate; `Spec-011
-// §Required Behavior` names them. `ProposalGate.tsx` renders them and decides nothing
-// about them, and `proposal-gate-reader.ts` sends them without re-deciding either.
+// §Required Behavior` names them. `ProposalGate.tsx` renders what `offeredProposalActions`
+// returns and decides nothing about it, and `proposal-gate-reader.ts` sends them without
+// re-deciding either.
+//
+// THE PREPARATION GATE IS A RULE HERE AND A LAYOUT THERE. `Spec-011 §Interfaces And
+// Contracts` requires that `PRPrepare` "generate a reviewable proposal before any remote
+// mutation", which is a claim about WHICH ACTS EXIST WHEN and not only about which order
+// they are drawn in. So the offered set is a pure function of the arm below, the tuple's
+// order is the pipeline's own — record locally, prepare locally, then send — and a
+// component cannot offer a remote act the rule withholds, because it is handed a list
+// rather than the vocabulary.
+//
+// WITHHOLDING THE REMOTE ACT IS NOT AN ELIGIBILITY DERIVATION, and the distinction is the
+// same one `ProposalGate.tsx` draws for its blocking choice: the console is not
+// recomputing what the daemon would allow — every such reason stays the daemon's and
+// arrives as the refusal beside the act. It is reading a fact this surface itself
+// established, namely whether it has a reviewed proposal to send.
 //
 // NEVER, and each is a property of THIS file:
 //   • No fourth action. `PROPOSAL_ACTIONS` is closed at the three `Spec-011 §Required
@@ -11,19 +26,46 @@
 //   • No parse of a git action's `output`. There is no function here that reads it; it
 //     is diagnostic text the gate renders and the console never scrapes.
 
+import type { ProposalGateState } from "./proposal-gate-state.js";
+
 /**
- * The three `Spec-011 §Required Behavior` names, and no more.
+ * The three `Spec-011 §Required Behavior` names, and no more — in the gate's own order.
  *
  * These are what the gate offers. The wire behind them is the growth port's
  * `gitActionExecute`, whose `action` member is an untyped string because the action
  * vocabulary is unregistered — `bridge/growth-slate.ts` carries it as the
  * `gitflow-actions` row, owned by `Spec-011`. So this tuple is the console's half of
  * that seam: three offers, each of which the port refuses by name today.
+ *
+ * THE ORDER IS THE PIPELINE'S, NOT THE VOCABULARY'S. `commit` records on the head
+ * branch, `prepare-proposal` builds the payload where it can be read, and only then does
+ * `push` send anything — so a participant who works down the list has reviewed what
+ * leaves the machine before it leaves. A tuple that put the remote act first would draw
+ * a confirmable send above the thing it would send.
  */
-export const PROPOSAL_ACTIONS = ["commit", "push", "prepare-proposal"] as const;
+export const PROPOSAL_ACTIONS = ["commit", "prepare-proposal", "push"] as const;
 
 /** One modelled action. Derived, so the vocabulary is declared exactly once. */
 export type ProposalAction = (typeof PROPOSAL_ACTIONS)[number];
+
+/** How far an act's effect travels. The one axis the preparation gate turns on. */
+export const PROPOSAL_ACTION_REACHES = ["local", "remote"] as const;
+
+/** One reach. Derived, so the vocabulary is declared exactly once. */
+export type ProposalActionReach = (typeof PROPOSAL_ACTION_REACHES)[number];
+
+/**
+ * Total over `ProposalAction` by construction.
+ *
+ * Each answer is the act's own consequence sentence restated as data, so the rule below
+ * asks the table rather than naming `push`: an act added to the tuple has to say how far
+ * it reaches before it can be offered anywhere.
+ */
+export const PROPOSAL_ACTION_REACH: Readonly<Record<ProposalAction, ProposalActionReach>> = {
+  commit: "local",
+  "prepare-proposal": "local",
+  push: "remote",
+};
 
 /** What each action is called on screen and what pressing it does. */
 export interface ProposalActionPresentation {
@@ -47,13 +89,64 @@ export const PROPOSAL_ACTION_PRESENTATION: Readonly<
     consequence:
       "Records the working tree's changes on the head branch. Nothing leaves this machine.",
   },
-  push: {
-    label: "Push",
-    consequence: "Sends the head branch to the detected host.",
-  },
   "prepare-proposal": {
     label: "Prepare proposal",
     consequence:
       "Builds the proposal locally so it can be reviewed here first. Nothing is created on the host.",
   },
+  push: {
+    label: "Push",
+    consequence: "Sends the head branch to the detected host.",
+  },
 };
+
+/**
+ * Whether an arm can offer acts at all, before the proposal question is put to it.
+ *
+ * A union rather than a tuple, which is the shape the rest of this file uses: nothing
+ * iterates these two words, so a runtime tuple would exist only to be read back as a
+ * type. The set is still declared exactly once, and the table below derives from it.
+ */
+type GateArmActionAvailability = "no-acts" | "acts-offered";
+
+/**
+ * Total over `ProposalGateState["kind"]` by construction — a seventh arm does not
+ * compile until it says whether anything can be acted on from there.
+ *
+ * Five arms answer `no-acts` and each for its own reason: `not-checked`, `no-context`,
+ * and `preparing` have no branch context to act against, `refused` reports an act that
+ * did not happen, and `hosting-unavailable` is the arm whose whole content is what to do
+ * BY HAND because the host is out of reach — offering a send there would offer a send to
+ * a host the same arm says is unreachable.
+ */
+const GATE_ARM_ACTION_AVAILABILITY: Readonly<
+  Record<ProposalGateState["kind"], GateArmActionAvailability>
+> = {
+  "not-checked": "no-acts",
+  "no-context": "no-acts",
+  preparing: "no-acts",
+  prepared: "acts-offered",
+  "hosting-unavailable": "no-acts",
+  refused: "no-acts",
+};
+
+/**
+ * Which acts this arm offers, in the gate's order.
+ *
+ * THE REMOTE ACT IS WITHHELD UNTIL THERE IS SOMETHING REVIEWED TO SEND, which is
+ * `Spec-011 §Interfaces And Contracts`' rule that `PRPrepare` must generate a reviewable
+ * proposal before any remote mutation, applied to the offer rather than to the layout: a
+ * `prepared` arm carrying no proposal offers the local acts and no more, so the send
+ * cannot be confirmed against a payload that has never been on screen. Preparing again
+ * on an arm that already holds one is offered, because a proposal is cumulative over a
+ * run lineage and re-preparing it is still a local act.
+ */
+export function offeredProposalActions(state: ProposalGateState): readonly ProposalAction[] {
+  if (GATE_ARM_ACTION_AVAILABILITY[state.kind] === "no-acts") {
+    return [];
+  }
+  const hasReviewableProposal = state.kind === "prepared" && state.proposal !== undefined;
+  return PROPOSAL_ACTIONS.filter(
+    (action) => PROPOSAL_ACTION_REACH[action] === "local" || hasReviewableProposal,
+  );
+}
