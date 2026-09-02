@@ -26,7 +26,8 @@
 //     `run.subscribeState` delivers.
 //   • `wire-truth/beat-order.ts` — the tick a beat is due at and the log position it
 //     occupies.
-//   • `wire-truth/reply-uniqueness.ts` — one scripted answer per call.
+//   • `wire-truth/reply-walk.ts` — one scripted answer per call, and one spendable
+//     latency on that answer.
 //   • `wire-truth/membership.ts` — the viewer a scenario states and the roles it
 //     declares.
 //   • `wire-truth/defect.ts` — what a defect is.
@@ -39,7 +40,7 @@ import { describeBeatDefect } from "./wire-truth/beat-shape.js";
 import { findBeatOrderDefects } from "./wire-truth/beat-order.js";
 import type { ScenarioWireTruthDefect } from "./wire-truth/defect.js";
 import { describeViewerDefect, findMembershipRoleDefects } from "./wire-truth/membership.js";
-import { findDuplicateReplyCalls } from "./wire-truth/reply-uniqueness.js";
+import { findReplyDefects } from "./wire-truth/reply-walk.js";
 import type { ConsoleScenario } from "../scenario.js";
 
 export type { ScenarioWireTruthDefect };
@@ -61,7 +62,7 @@ export function findScenarioWireTruthDefects(
       }
     }
     defects.push(...findBeatOrderDefects(scenario));
-    defects.push(...findDuplicateReplyCalls(scenario));
+    defects.push(...findReplyDefects(scenario));
     const viewerDefect = describeViewerDefect(scenario);
     if (viewerDefect !== undefined) {
       defects.push(viewerDefect);
