@@ -236,6 +236,79 @@ describe("RefreshScheduler — one read per burst, and one under a stream", () =
     expect(scheduler.performCount).toBe(2);
   });
 
+  it("runs a mid-flight request at completion when its max-wait already elapsed", async () => {
+    // The absolute deadline belongs to the REQUEST, not to the timer. A request
+    // made while a slow read is outstanding is already waiting; it just has no
+    // timer yet. Dating the deadline from the read's completion made a repair
+    // queued behind an over-long read serve a further debounce interval past the
+    // absolute deadline it was already overdue against.
+    const clock = new ManualClock(0);
+    const firedAt: number[] = [];
+    let releaseInFlightRead: (() => void) | undefined;
+    const scheduler = new RefreshScheduler({
+      clock,
+      debounceMs: 120,
+      maxWaitMs: 1000,
+      perform: async () => {
+        firedAt.push(clock.now());
+        await new Promise<void>((resolve) => {
+          releaseInFlightRead = resolve;
+        });
+      },
+    });
+
+    scheduler.request("subscribe");
+    clock.advance(120);
+    expect(firedAt).toStrictEqual([120]);
+
+    // Queued at 120 against a 1000 ms max-wait, so it is due at 1120 — and the
+    // read it is queued behind does not finish until 1120 exactly.
+    scheduler.request("gap-repull");
+    clock.advance(1000);
+    releaseInFlightRead?.();
+    await settleMicrotasks();
+
+    // Overdue on arrival at the re-arm, so the delay floors at zero and the read
+    // runs on the completion tick rather than at 1240.
+    clock.advance(0);
+    expect(firedAt).toStrictEqual([120, 1120]);
+    expect(scheduler.performCount).toBe(2);
+  });
+
+  it("negative control: a mid-flight request well inside the window still debounces", async () => {
+    // Same script, a short read instead of an over-long one. Without this, a
+    // scheduler that had stopped debouncing altogether — firing every re-arm at
+    // zero delay — would pass the case above while coalescing nothing.
+    const clock = new ManualClock(0);
+    const firedAt: number[] = [];
+    let releaseInFlightRead: (() => void) | undefined;
+    const scheduler = new RefreshScheduler({
+      clock,
+      debounceMs: 120,
+      maxWaitMs: 1000,
+      perform: async () => {
+        firedAt.push(clock.now());
+        await new Promise<void>((resolve) => {
+          releaseInFlightRead = resolve;
+        });
+      },
+    });
+
+    scheduler.request("subscribe");
+    clock.advance(120);
+    scheduler.request("gap-repull");
+    clock.advance(10);
+    releaseInFlightRead?.();
+    await settleMicrotasks();
+
+    // Due at 1120 and the read completed at 130: the debounce is the binding
+    // deadline, so nothing runs on the completion tick.
+    clock.advance(0);
+    expect(firedAt).toStrictEqual([120]);
+    clock.advance(120);
+    expect(firedAt).toStrictEqual([120, 250]);
+  });
+
   it("surfaces a failed read through onError instead of swallowing it", async () => {
     const clock = new ManualClock(0);
     const failures: unknown[] = [];
