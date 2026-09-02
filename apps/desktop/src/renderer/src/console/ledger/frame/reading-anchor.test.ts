@@ -7,9 +7,13 @@
 import { describe, expect, it } from "vitest";
 
 import { READING_HOLD_REASONS, READING_MODES, ReadingAnchor } from "./reading-anchor.js";
-import type { LedgerGeometry } from "./scroll-chokepoint.js";
+import type { LedgerGeometry, LedgerGeometryCause } from "./geometry-sample.js";
 
-function geometry(scrollTop: number, isAtTail: boolean): LedgerGeometry {
+function geometry(
+  scrollTop: number,
+  isAtTail: boolean,
+  cause: LedgerGeometryCause = "scroll",
+): LedgerGeometry {
   return {
     scrollTop,
     viewportHeight: 500,
@@ -17,6 +21,7 @@ function geometry(scrollTop: number, isAtTail: boolean): LedgerGeometry {
     distanceFromTailPx: isAtTail ? 0 : 4500 - scrollTop,
     isAtTail,
     sampledAt: 0,
+    cause,
   };
 }
 
@@ -75,6 +80,36 @@ describe("the reading anchor — the three states", () => {
     const anchor = new ReadingAnchor();
     anchor.observeGeometry(geometry(1200, false));
     anchor.observeGeometry(geometry(1300, false));
+    expect(anchor.state.mode).toBe("reading");
+  });
+});
+
+describe("the reading anchor — what a resize may and may not do", () => {
+  it("keeps following when the box shrank rather than the reader moving", () => {
+    // A shorter viewport raises the distance from the tail on its own. Folding that
+    // as "the reader left the tail" stops the ledger following because the window
+    // got smaller, which is nobody's decision.
+    const anchor = new ReadingAnchor();
+    anchor.observeGeometry(geometry(4500, true));
+    anchor.observeGeometry(geometry(4500, false, "resize"));
+    expect(anchor.state.mode).toBe("following");
+  });
+
+  it("resumes following on an at-tail sample however it was produced", () => {
+    // The arms are asymmetric on purpose: arriving at the bottom is arriving,
+    // whether the log got shorter or the pane got taller.
+    const anchor = new ReadingAnchor();
+    anchor.observeGeometry(geometry(1200, false));
+    anchor.observeGeometry(geometry(4500, true, "resize"));
+    expect(anchor.state.mode).toBe("following");
+  });
+
+  it("negative control: the same not-at-tail sample from a scroll does leave the tail", () => {
+    // Without this the resize case above would pass over an anchor that had simply
+    // stopped leaving the tail at all.
+    const anchor = new ReadingAnchor();
+    anchor.observeGeometry(geometry(4500, true));
+    anchor.observeGeometry(geometry(4500, false, "scroll"));
     expect(anchor.state.mode).toBe("reading");
   });
 });

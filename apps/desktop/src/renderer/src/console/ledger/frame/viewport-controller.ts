@@ -38,13 +38,10 @@ import {
   type ScheduledHandle,
   type Unsubscribe,
 } from "../../core/index.js";
+import { type LedgerGeometry } from "./geometry-sample.js";
 import { ReadingAnchor } from "./reading-anchor.js";
 import { RowMeasurementLedger } from "./row-measurement-ledger.js";
-import {
-  LedgerScrollController,
-  type LedgerGeometry,
-  type LedgerScrollSurface,
-} from "./scroll-chokepoint.js";
+import { LedgerScrollController, type LedgerScrollSurface } from "./scroll-chokepoint.js";
 import {
   compensatesForGrowth,
   countAppendedAfter,
@@ -104,6 +101,10 @@ export class LedgerViewportController {
         this.#publish();
       }),
       this.scroll.observeOverflow(() => {
+        // A resize moves the tail without the reader touching anything, so the
+        // position is re-held before the tree is told: a follower re-glides to the
+        // bottom the new box put there, and a reader keeps the row they are on.
+        this.holdReadingPosition();
         this.#publish();
       }),
     );
@@ -212,10 +213,9 @@ export class LedgerViewportController {
    * which is the one case where the ledger moves the offset on its own, and it does
    * it only because the reader asked for it by being at the tail.
    *
-   * Called from `reconcile` only where no prune compensation ran. Its index lookup
-   * reads the virtualizer, which is still in the PRE-prune index space until React
-   * re-renders, so after a prune it would name the wrong row; the arithmetic
-   * compensation is the answer there and this is the answer everywhere else.
+   * Called from `reconcile` only where no prune compensation ran: its index lookup
+   * reads a virtualizer still in the PRE-prune offset space until React re-renders,
+   * so after a prune it would name the wrong row.
    */
   public holdReadingPosition(): void {
     const reading = this.anchor.state;

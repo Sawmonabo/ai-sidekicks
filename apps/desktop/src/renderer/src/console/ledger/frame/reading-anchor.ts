@@ -27,7 +27,7 @@
 // module that can make it happen.
 
 import { Emitter, type Unsubscribe } from "../../core/index.js";
-import { type LedgerGeometry } from "./scroll-chokepoint.js";
+import { type LedgerGeometry } from "./geometry-sample.js";
 
 /**
  * The three reading states `Spec-023 §Console Design (Meridian)` §5.7 names.
@@ -104,13 +104,20 @@ export class ReadingAnchor {
    * "following resumes on reaching the tail". Leaving it does NOT clear the anchor
    * point: the viewport captures a fresh one as it scrolls, and dropping the last
    * known point here would leave a frame with nothing to restore.
+   *
+   * The two arms are deliberately asymmetric. ARRIVING at the tail is arriving
+   * however the sample was produced — a shorter log or a taller pane both put the
+   * reader at the bottom, and they are at the bottom. LEAVING it takes a `"scroll"`
+   * sample, because a viewport that shrank raises the distance from the tail with
+   * no reader action at all, and dropping a follower out of following because the
+   * window got smaller is the ledger deciding to stop following on its own.
    */
   public observeGeometry(geometry: LedgerGeometry): void {
     if (geometry.isAtTail) {
       this.#transition("following", 0);
       return;
     }
-    if (this.#mode === "following") {
+    if (this.#mode === "following" && geometry.cause === "scroll") {
       this.#transition("reading", this.#newRowCount);
     }
   }

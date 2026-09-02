@@ -22,19 +22,25 @@
 //   • **Geometry is published, not polled.** A replayable, instance-bound
 //     subscription: a subscriber gets the last sample immediately rather than
 //     waiting for the next scroll, which is what lets a pane mount mid-stream
-//     already knowing whether it is at the tail. Nothing here arms a timer.
+//     already knowing whether it is at the tail. Nothing here arms a timer, and
+//     every sample says which of the numbers moved, because a box that changed
+//     size is not a reader who moved.
 //   • **Following costs no hit test.** The sample reads `scrollTop`,
 //     `clientHeight`, and `scrollHeight` and nothing else — no row rect, no
 //     `elementFromPoint` — because those three are the only reads a scroll event
 //     handler can afford at 60 Hz with four lanes streaming.
 //
 // Overflow measurement for clamped rows is batched and pre-paint, and the batching
-// itself is `overflow-measurement-batch.ts`': a scroll triggers none of it, so the
-// arming and the coalescing are not this module's subject. What stays here is the
-// half that is — which sink is installed, and what one pass reads.
+// is `overflow-measurement-batch.ts`': a scroll triggers none of it. What stays
+// here is which sink is installed, and what one pass reads and publishes.
 
 import { Emitter, type ConsoleClock, type Unsubscribe } from "../../core/index.js";
 import { LEDGER_GEOMETRY_EPSILON_PX, LEDGER_TAIL_TOLERANCE_PX } from "./frame-bounds.js";
+import {
+  sameSampledGeometry,
+  type LedgerGeometry,
+  type LedgerGeometryCause,
+} from "./geometry-sample.js";
 import { OverflowMeasurementBatch } from "./overflow-measurement-batch.js";
 import { WholePixelQuantizationLearner } from "./scroll-quantization.js";
 
@@ -64,21 +70,6 @@ export const LEDGER_SCROLL_CALLERS = [
 
 /** One scroll caller. Derived from the enumeration, never restated. */
 export type LedgerScrollCaller = (typeof LEDGER_SCROLL_CALLERS)[number];
-
-/**
- * The three numbers a scroll sample reads, and the two facts derived from them.
- *
- * `sampledAt` comes from the clock seam rather than `Date.now`, so a frozen
- * fixture clock names one exact frame.
- */
-export interface LedgerGeometry {
-  readonly scrollTop: number;
-  readonly viewportHeight: number;
-  readonly contentHeight: number;
-  readonly distanceFromTailPx: number;
-  readonly isAtTail: boolean;
-  readonly sampledAt: number;
-}
 
 /** What one glide did, including the arm that did nothing. */
 export interface LedgerScrollWrite {
@@ -152,13 +143,13 @@ export class LedgerScrollController {
     this.detach();
     this.#surface = surface;
     const onScroll = (): void => {
-      this.#publishGeometry();
+      this.#publishGeometry("scroll");
     };
     this.#onSurfaceScroll = onScroll;
     surface.addEventListener("scroll", onScroll, { passive: true });
     this.#overflowBatch.observeResize(surface);
     this.#overflowBatch.observeFontLoading();
-    this.#publishGeometry();
+    this.#publishGeometry("scroll");
   }
 
   /**
@@ -238,7 +229,7 @@ export class LedgerScrollController {
       surface.scrollTop = requestedScrollTop;
       const appliedScrollTop = surface.scrollTop;
       this.#quantization.observe(requestedScrollTop, appliedScrollTop);
-      this.#publishGeometry();
+      this.#publishGeometry("scroll");
       return { caller, requestedScrollTop, appliedScrollTop, wasSkipped: false };
     } finally {
       this.#writeDepth -= 1;
@@ -320,7 +311,7 @@ export class LedgerScrollController {
    * Every derived fact below comes from these three. A row rect read here would be
    * a hit test on the scroll path, which §5.8 forbids while following.
    */
-  #sampleGeometry(): LedgerGeometry | undefined {
+  #sampleGeometry(cause: LedgerGeometryCause): LedgerGeometry | undefined {
     const surface = this.#surface;
     if (surface === undefined) {
       return undefined;
@@ -336,27 +327,49 @@ export class LedgerScrollController {
       distanceFromTailPx,
       isAtTail: distanceFromTailPx <= this.#tailTolerancePx + LEDGER_GEOMETRY_EPSILON_PX,
       sampledAt: this.#clock.now(),
+      cause,
     };
   }
 
-  #publishGeometry(): void {
-    const geometry = this.#sampleGeometry();
+  /**
+   * Take a sample, record it, and emit it if it says anything new.
+   *
+   * The emit feeds the anchor and both of the library's observers, so a sample
+   * identical to the one they already hold must not wake them. The compare is the
+   * three sampled numbers within the epsilon this frame already owns; `sampledAt`
+   * and the cause are provenance and decide nothing. Returns the sample, so a
+   * caller that needs the value does not take a second one.
+   */
+  #publishGeometry(cause: LedgerGeometryCause): LedgerGeometry | undefined {
+    const geometry = this.#sampleGeometry(cause);
     if (geometry === undefined) {
-      return;
+      return undefined;
     }
+    const previous = this.#lastGeometry;
     this.#lastGeometry = geometry;
+    if (previous !== undefined && sameSampledGeometry(previous, geometry)) {
+      return geometry;
+    }
     this.#geometryEmitter.emit(geometry);
+    return geometry;
   }
 
   /**
-   * One batched pass: sample once, and hand that one sample to the sink.
+   * One batched pass: sample once, publish it, and hand the same sample to the sink.
+   *
+   * PUBLISHED and not merely handed over, because a resize reaches the box through no
+   * other door: the batch's trigger is the only notice a size change gives, and the
+   * geometry emitter is the only way a viewport height reaches the library's rect. A
+   * pass that sampled privately left the virtualizer rendering, offsetting, and
+   * computing its tail against the height the pane used to have until somebody
+   * happened to scroll. One sample serves the batch, the anchor and the rect, so the
+   * pass still reads the surface exactly three times.
    *
    * A pass on a detached controller samples nothing and calls nobody, which is what
-   * makes a frame that outlived its surface harmless rather than a read against a
-   * node React has already dropped.
+   * makes a frame that outlived its surface harmless.
    */
   #runOverflowPass(): void {
-    const geometry = this.#sampleGeometry();
+    const geometry = this.#publishGeometry("resize");
     if (geometry !== undefined) {
       this.#overflowSink?.(geometry);
     }

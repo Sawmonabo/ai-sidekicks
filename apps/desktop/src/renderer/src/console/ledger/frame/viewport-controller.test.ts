@@ -95,6 +95,7 @@ describe("the viewport controller — reconcile", () => {
       distanceFromTailPx: 3880,
       isAtTail: false,
       sampledAt: 0,
+      cause: "scroll",
     });
     controller.reconcile({ rows: syntheticRows(7), ...CALM });
     expect(controller.snapshot().reading).toMatchObject({
@@ -124,6 +125,7 @@ describe("the viewport controller — holding the reading position", () => {
       distanceFromTailPx: 3500,
       isAtTail: false,
       sampledAt: 0,
+      cause: "scroll",
     });
     controller.anchor.capture({ rowKey: "row-5", offsetWithinViewportPx: -12 });
     const followsBefore = controller.scroll.writeCount("follow-tail");
@@ -142,6 +144,7 @@ describe("the viewport controller — holding the reading position", () => {
       distanceFromTailPx: 3500,
       isAtTail: false,
       sampledAt: 0,
+      cause: "scroll",
     });
     controller.anchor.capture({ rowKey: "row-not-here", offsetWithinViewportPx: 0 });
     controller.holdReadingPosition();
@@ -157,6 +160,7 @@ describe("the viewport controller — holding the reading position", () => {
       distanceFromTailPx: 3500,
       isAtTail: false,
       sampledAt: 0,
+      cause: "scroll",
     });
     controller.jumpToTail();
     expect(controller.snapshot().reading.mode).toBe("following");
@@ -213,6 +217,53 @@ describe("the viewport controller — what a scroll does NOT cost", () => {
     expect(capturedByTheReader).toBeDefined();
     controller.scroll.glideTo("deep-link", 900);
     expect(controller.anchor.state.anchorPoint).toBe(capturedByTheReader);
+  });
+});
+
+describe("the viewport controller — a pane that changed size", () => {
+  /** A viewport parked at the bottom of its content, in the tail's own arithmetic. */
+  function surfaceAtTail(): ReturnType<typeof countingSurface> {
+    return countingSurface({ initialScrollTop: 3700, clientHeight: 300, scrollHeight: 4000 });
+  }
+
+  it("keeps a follower following, and re-glides to the tail the resize moved", () => {
+    // A shorter viewport raises the distance from the tail on its own. Without the
+    // asymmetry the anchor states, this alone would stop the ledger following.
+    const surface = surfaceAtTail();
+    const clock = new ManualClock();
+    const controller = new LedgerViewportController({ clock });
+    controller.attach(surface);
+    controller.reconcile({ rows: syntheticRows(20), ...CALM });
+    const followsBefore = controller.scroll.writeCount("follow-tail");
+
+    surface.resizeTo(150, 4000);
+    controller.scroll.requestOverflowMeasurement();
+    clock.runFrame();
+
+    expect(controller.anchor.state.mode).toBe("following");
+    expect(controller.scroll.writeCount("follow-tail")).toBe(followsBefore + 1);
+    expect(surface.scrollTop).toBe(3850);
+  });
+
+  it("negative control: a reader who had scrolled away is not dragged to the tail", () => {
+    const surface = countingSurface({
+      initialScrollTop: 500,
+      clientHeight: 300,
+      scrollHeight: 4000,
+    });
+    const clock = new ManualClock();
+    const controller = new LedgerViewportController({ clock });
+    controller.attach(surface);
+    controller.reconcile({ rows: syntheticRows(20), ...CALM });
+    controller.anchor.capture({ rowKey: "row-5", offsetWithinViewportPx: -8 });
+
+    surface.resizeTo(150, 4000);
+    controller.scroll.requestOverflowMeasurement();
+    clock.runFrame();
+
+    expect(controller.anchor.state.mode).toBe("reading");
+    expect(controller.scroll.writeCount("follow-tail")).toBe(0);
+    expect(controller.scroll.writeCount("hold-reading-position")).toBe(1);
   });
 });
 

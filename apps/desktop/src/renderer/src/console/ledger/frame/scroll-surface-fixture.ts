@@ -23,6 +23,12 @@ export interface CountingSurface extends LedgerScrollSurface {
   readonly scrollListenerCount: number;
   /** Move the offset the way a reader does, and tell the listeners about it. */
   moveTo(offset: number): void;
+  /**
+   * Change the box the surface reports, the way a window or pane resize does — and
+   * tell nobody, because a resize fires no scroll event. What notices is the
+   * controller's own overflow pass, which a caller drives on the frozen clock.
+   */
+  resizeTo(clientHeight: number, scrollHeight: number): void;
 }
 
 export interface CountingSurfaceOptions {
@@ -38,6 +44,8 @@ const DEFAULT_SCROLL_HEIGHT_PX = 4000;
 export function countingSurface(options: CountingSurfaceOptions = {}): CountingSurface {
   const scrollListeners: (() => void)[] = [];
   let scrollOffsetPx = options.initialScrollTop ?? DEFAULT_INITIAL_SCROLL_TOP_PX;
+  let viewportHeightPx = options.clientHeight ?? DEFAULT_CLIENT_HEIGHT_PX;
+  let contentHeightPx = options.scrollHeight ?? DEFAULT_SCROLL_HEIGHT_PX;
   return {
     get scrollTop(): number {
       return scrollOffsetPx;
@@ -45,8 +53,12 @@ export function countingSurface(options: CountingSurfaceOptions = {}): CountingS
     set scrollTop(next: number) {
       scrollOffsetPx = next;
     },
-    clientHeight: options.clientHeight ?? DEFAULT_CLIENT_HEIGHT_PX,
-    scrollHeight: options.scrollHeight ?? DEFAULT_SCROLL_HEIGHT_PX,
+    get clientHeight(): number {
+      return viewportHeightPx;
+    },
+    get scrollHeight(): number {
+      return contentHeightPx;
+    },
     get scrollListenerCount(): number {
       return scrollListeners.length;
     },
@@ -55,6 +67,10 @@ export function countingSurface(options: CountingSurfaceOptions = {}): CountingS
       for (const listener of [...scrollListeners]) {
         listener();
       }
+    },
+    resizeTo(clientHeight: number, scrollHeight: number): void {
+      viewportHeightPx = clientHeight;
+      contentHeightPx = scrollHeight;
     },
     addEventListener(_type: string, listener: () => void): void {
       scrollListeners.push(listener);

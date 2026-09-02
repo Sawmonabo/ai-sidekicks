@@ -27,6 +27,28 @@ import {
   MOTION_DURATIONS_MS,
   tokenVariableName,
 } from "../../../src/renderer/src/console/tokens/index.js";
+import { ManualClock } from "../../../src/renderer/src/console/core/index.js";
+import { LedgerScrollController } from "../../../src/renderer/src/console/ledger/frame/scroll-chokepoint.js";
+
+/**
+ * Wait for the platform to deliver a resize observation, then run the frame it
+ * armed. Bounded, and reports whether one arrived, so a case can assert that the
+ * real observer fired rather than assuming it.
+ */
+async function runObservedResizeFrame(clock: ManualClock): Promise<boolean> {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    if (clock.pendingFrameCount > 0) {
+      clock.runFrame();
+      return true;
+    }
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => {
+        resolve();
+      });
+    });
+  }
+  return false;
+}
 
 function tokenValue(tokenName: string): string {
   return getComputedStyle(document.documentElement)
@@ -160,5 +182,45 @@ describe("browser — the frame lays out", () => {
     // A frame wider than its own box means something inside it refuses to
     // compress — the failure that turns a console into a horizontal scroller.
     expect(frame.scrollWidth).toBeLessThanOrEqual(frame.clientWidth + 1);
+  });
+});
+
+describe("browser — a pane that changed size reaches the ledger's geometry", () => {
+  it("publishes the new viewport height from a real resize observation", async () => {
+    // The unit tier drives the measurement pass by hand. Only a real engine has a
+    // `ResizeObserver`, a layout, and a box that answers a height at all — and the
+    // whole defect this covers is a size change that no scroll event follows.
+    const scrollSurface = document.createElement("div");
+    scrollSurface.style.cssText = "overflow:auto;width:200px;height:300px";
+    const content = document.createElement("div");
+    content.style.cssText = "height:5000px";
+    scrollSurface.append(content);
+    document.body.append(scrollSurface);
+
+    const clock = new ManualClock();
+    const controller = new LedgerScrollController({ clock });
+    try {
+      controller.attach(scrollSurface);
+      const viewportHeights: number[] = [];
+      controller.subscribeToGeometry((geometry) => viewportHeights.push(geometry.viewportHeight));
+      // `observe` delivers an initial observation of its own; drain it so what
+      // follows is the resize and nothing else.
+      await runObservedResizeFrame(clock);
+      expect(viewportHeights).toStrictEqual([300]);
+
+      scrollSurface.style.height = "180px";
+      expect(await runObservedResizeFrame(clock)).toBe(true);
+      expect(viewportHeights).toStrictEqual([300, 180]);
+      expect(controller.geometry?.cause).toBe("resize");
+
+      // Negative control: a pass over a box that did not change wakes nobody, so
+      // the publication above is the size change rather than the frame.
+      controller.requestOverflowMeasurement();
+      clock.runFrame();
+      expect(viewportHeights).toStrictEqual([300, 180]);
+    } finally {
+      controller.dispose();
+      scrollSurface.remove();
+    }
   });
 });
