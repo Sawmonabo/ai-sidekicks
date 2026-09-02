@@ -54,6 +54,7 @@ import {
   FIXTURE_SERVED_GROWTH_OPERATION_IDS,
   createFixtureGrowthPort,
 } from "./fixture-growth-port.js";
+import { RUN_QUEUE_ROW_READ } from "./queue-row-source.js";
 import { projectRunStreamDelivery } from "./run-stream-projection.js";
 import { ScenarioEngine } from "./scenario-engine.js";
 import type { ConsoleScenario } from "./scenario.js";
@@ -247,7 +248,15 @@ function subscribeToScenario(
       if (!subscriptionDeliversEventKind(subscriptionName, event.kind)) {
         continue;
       }
-      const projection = projectRunStreamDelivery(subscriptionName, event);
+      // The queue stream's payload is a projection of the queue ROW, and the
+      // scenario's stand-in for the daemon's row read is the reply it scripts for
+      // that read. Resolved per beat rather than once, so a fixture whose scenario
+      // is replaced mid-subscription reads the new one's rows.
+      const projection = projectRunStreamDelivery(
+        subscriptionName,
+        event,
+        engine.replyFor(RUN_QUEUE_ROW_READ)?.result,
+      );
       if (projection === undefined) {
         deliver(event);
         continue;

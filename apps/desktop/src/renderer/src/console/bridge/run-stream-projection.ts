@@ -17,14 +17,23 @@
 // reading, and end-to-end result taken against it would have been about a frame no
 // daemon produces.
 //
-// WHERE THE MEMBERS COME FROM. Each one is sourced from the beat and nothing is
-// composed: `newState` becomes `currentState`, the envelope's `occurredAt` becomes
-// the state-change `timestamp` and the queue row's `updatedAt`, and the beat's own
-// KIND supplies the queue state through the same table that routed it here. A beat
-// that cannot supply a required member is REFUSED — loudly, by name, through the
+// WHERE THE MEMBERS COME FROM. Each one is sourced and nothing is composed:
+// `newState` becomes `currentState`, the envelope's `occurredAt` becomes the
+// state-change `timestamp` and the queue row's `updatedAt`, and the beat's own KIND
+// supplies the queue state through the same table that routed it here. A beat that
+// cannot supply a required member is REFUSED — loudly, by name, through the
 // fixture's own refusal vocabulary — rather than delivered half-built, because a
 // projection missing a required member is exactly the shape a surface renders as
 // blank and a reviewer reads as working.
+//
+// THE QUEUE STREAM HAS A SECOND SOURCE, AND HAS TO. `QueueItemSummary` is a
+// projection of the `queue_items` ROW, so it requires `priority` and `createdAt`,
+// which the registered queue payload does not carry — `Spec-006 §Queue Events` fixes
+// it at `{sessionId, queueItemId, channelId?, state}`. This module used to demand
+// those two off the beat, which refused every contract-valid queue event and made
+// the only way to pass a beat carrying members no daemon emits. The row now arrives
+// from the scenario's own `run.queueList` reply, which is the read the daemon
+// projects the summary from; `queue-row-source.ts` owns that seam.
 //
 // WHY THE CONTRACTS IMPORT IS TYPE-ONLY. The renderer's initial-bundle budget is
 // enforced, and a value import of the run-control module would pull its Zod schemas
@@ -37,7 +46,6 @@
 import type {
   ChannelId,
   QueueItemId,
-  QueueItemState,
   QueueItemSummary,
   RunId,
   RunRolledBackEvent,
@@ -47,6 +55,7 @@ import type {
 } from "@ai-sidekicks/contracts";
 
 import type { ConsoleSessionEvent } from "../store/index.js";
+import { RUN_QUEUE_ROW_READ, scriptedQueueRowFor } from "./queue-row-source.js";
 import {
   RUN_QUEUE_EVENT_STREAM,
   RUN_STATE_EVENT_STREAM,
@@ -125,12 +134,13 @@ const RUN_STATE_CHANGE_CARRIED_OPTIONAL_MEMBERS: Readonly<
 export function projectRunStreamDelivery(
   subscriptionName: string,
   event: ConsoleSessionEvent,
+  scriptedQueueRowRead?: unknown,
 ): RunStreamProjection | undefined {
   if (subscriptionName === RUN_STATE_EVENT_STREAM) {
     return projectRunStateStreamBeat(event);
   }
   if (subscriptionName === RUN_QUEUE_EVENT_STREAM) {
-    return projectRunQueueStreamBeat(event);
+    return projectRunQueueStreamBeat(event, scriptedQueueRowRead);
   }
   return undefined;
 }
@@ -248,7 +258,10 @@ function projectRollback(event: ConsoleSessionEvent): RunStreamProjection {
 }
 
 /** `QueueItemSummary` — what `run.subscribeQueue` streams for one queue row. */
-function projectRunQueueStreamBeat(event: ConsoleSessionEvent): RunStreamProjection {
+function projectRunQueueStreamBeat(
+  event: ConsoleSessionEvent,
+  scriptedQueueRowRead: unknown,
+): RunStreamProjection {
   const announcedState = runQueueStreamStateFor(event.kind);
   if (announcedState === undefined) {
     return unprojectable(
@@ -270,31 +283,42 @@ function projectRunQueueStreamBeat(event: ConsoleSessionEvent): RunStreamProject
       `announces "${announcedState}" by its kind and "${statedState}" in its payload; one beat cannot report two queue states`,
     );
   }
-  // The two members the registered summary carries and the registered EVENT payload
-  // does not: the daemon projects this shape from the queue row, and the fixture's
-  // only channel to a row is the beat. So a scenario has to script them, and a beat
-  // that does not is refused rather than answered with a made-up priority.
-  const priority = readWireCounter(payload, "priority");
+  // The row, not the beat. `QueueItemSummary` is a projection of `queue_items` and
+  // carries members the registered queue payload does not; `queue-row-source.ts`
+  // carries the whole reasoning, and the short version is that a beat asked for
+  // `priority` is a beat asked for something no daemon puts on one.
+  const queueRow = scriptedQueueRowFor(scriptedQueueRowRead, queueItemId);
+  if (queueRow === undefined) {
+    return unprojectableFor(
+      event,
+      `is about queue item "${queueItemId}", for which the scenario's \`${RUN_QUEUE_ROW_READ}\` reply carries no row — and the row is where \`priority\` and \`createdAt\` live`,
+    );
+  }
+  const priority = readWireInteger(queueRow, "priority");
   if (priority === undefined) {
-    return unprojectableFor(
-      event,
-      "names no `priority` — `QueueItemSummary` carries queue-ROW state the event payload does not, so the beat has to script it",
-    );
+    return unprojectableFor(event, "reads a queue row that names no whole-number `priority`");
   }
-  const createdAt =
-    readWireString(payload, "createdAt") ?? createdAtForBirthRow(event, announcedState);
+  const createdAt = readWireString(queueRow, "createdAt");
   if (createdAt === undefined) {
+    return unprojectableFor(event, "reads a queue row that names no `createdAt`");
+  }
+  const channelId = readWireString(queueRow, "channelId");
+  const announcedChannelId = readWireString(payload, "channelId");
+  if (announcedChannelId !== undefined && announcedChannelId !== channelId) {
     return unprojectableFor(
       event,
-      "names no `createdAt`, and only the creation row can take the beat's own `occurredAt` for it",
+      `names channel "${announcedChannelId}" while its queue row names ${
+        channelId === undefined ? "none" : `"${channelId}"`
+      }; one queue item sits in one channel`,
     );
   }
-  const channelId = readWireString(payload, "channelId");
   return {
     status: "projected",
     delivery: {
       id: queueItemId as QueueItemId,
       state: announcedState,
+      // Row members, carried through untouched — the daemon reads them off the row
+      // and so does this.
       priority,
       ...(channelId === undefined ? {} : { channelId: channelId as ChannelId }),
       createdAt,
@@ -303,14 +327,6 @@ function projectRunQueueStreamBeat(event: ConsoleSessionEvent): RunStreamProject
       updatedAt: event.occurredAt,
     },
   };
-}
-
-/** The creation row's own instant, which is the row's birth. `undefined` elsewhere. */
-function createdAtForBirthRow(
-  event: ConsoleSessionEvent,
-  announcedState: QueueItemState,
-): string | undefined {
-  return announcedState === "queued" ? event.occurredAt : undefined;
 }
 
 /** Every carried optional member the payload actually supplies, wire-verbatim. */
@@ -338,9 +354,9 @@ function readWireString(
 }
 
 /**
- * One payload member as a run counter: a non-negative integer.
+ * One member as a run counter: a non-negative integer.
  *
- * The registered shapes type `runVersion`, `targetPosition`, and `priority` as
+ * The registered shapes type `runVersion` and `targetPosition` as non-negative
  * integers, and a fractional or negative one admitted here would reach a consumer
  * at a type that says it cannot be either.
  */
@@ -348,8 +364,25 @@ function readWireCounter(
   payload: Readonly<Record<string, unknown>>,
   member: string,
 ): number | undefined {
+  const value = readWireInteger(payload, member);
+  return value !== undefined && value >= 0 ? value : undefined;
+}
+
+/**
+ * One member as a whole number of either sign.
+ *
+ * `priority` is the member that needs this and not the counter above: the column's
+ * own comment reads "higher = more urgent" and `QueueItemSummarySchema` types it
+ * `z.number().int()` without `.nonnegative()`, so a negative priority is a
+ * deliberate de-prioritization rather than a malformed value. Refusing one here
+ * would have made a legitimate row unprojectable.
+ */
+function readWireInteger(
+  payload: Readonly<Record<string, unknown>>,
+  member: string,
+): number | undefined {
   const value = payload[member];
-  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
+  return typeof value === "number" && Number.isInteger(value) ? value : undefined;
 }
 
 /** One payload member as a registered run state, or `undefined` when it is not one. */
@@ -365,7 +398,8 @@ function readRegisteredRunState(
 function unprojectableFor(event: ConsoleSessionEvent, fault: string): RunStreamProjection {
   return unprojectable(
     `the "${event.kind}" beat at sequence ${String(event.sequence)} ${fault}. ` +
-      "Script the members the registered projection names, rather than letting the stream deliver a partial shape.",
+      "Script what the registered projection reads — the beat's own registered payload, and the " +
+      "row read it projects from — rather than letting the stream deliver a partial shape.",
   );
 }
 
