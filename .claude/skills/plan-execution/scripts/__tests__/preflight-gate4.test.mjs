@@ -3887,7 +3887,18 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // invariant declared in the same diff's `## Invariants` table, so no
     // none-arm row is added and the legacy compact-inline channel is untouched;
     // Plan-023's own marker lines do not move in this fold.
-    bold: { resolved: 1052, noneArm: 158, parentResolved: 0 },
+    // 1052/158 -> 1063/158 (2026-09-01, the same amendment's Codex round-5
+    // fold): four new invariants are named on six existing marker lines.
+    // Plan-018 mints I-018-18 (the minted-once PRF evaluation input) and
+    // I-018-19 (the row-locked signature-counter advance), added to T6.1 (+2),
+    // T6.2 (+1), and T6.3 (+2); Plan-023 mints I-023-17 (PRF material stays
+    // provisional until the relying party's verdict) and I-023-18 (per-binding
+    // single-flight plus terminal cancellation), added to T-023r-4-3,
+    // T-023r-4-5, and T-023r-4-6 (+2 each). Eleven more bold resolved
+    // references on marker lines that already existed, so no marker line is
+    // added or removed, no none-arm row moves, and the legacy compact-inline
+    // channel is untouched.
+    bold: { resolved: 1063, noneArm: 158, parentResolved: 0 },
     legacy: { resolved: 64, noneArm: 3, parentResolved: 1 },
   });
 });
