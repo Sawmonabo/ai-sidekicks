@@ -7,15 +7,25 @@
 // pane renders the absence when they do not. The alternative is a pane full of
 // optional hooks, each of which would have to invent a defined-enough value to run on.
 //
-// WHAT IT OWNS: the attach form's lifetime, the dialog's open state, the attach
-// attempt's latch, and the last reply from each mutation. Nothing else — the reads
-// belong to the models and the rendering belongs to the `agents/` surfaces this
-// file composes.
+// WHAT IT OWNS: the attach form's lifetime, the dialog's open state, two mutation
+// latches, and the agent each latch's settlement belongs to. Nothing else — the reads
+// belong to the models and the rendering belongs to the `agents/` surfaces this file
+// composes.
 //
-// ONE ATTACH AT A TIME. `agent.attach` creates a durable agent, so the attempt is
-// held by `attach-attempt.ts` rather than by a pair of state variables here: the
-// latch it keeps is written synchronously, which a `useState` flag is not, and a
-// second press inside one task would otherwise reach the wire twice.
+// TWO LATCHES, ONE PER SUBJECT. `agent.attach` creates an agent and takes its own;
+// `agent.configUpdate` and `agent.detach` act on an agent that already exists, are
+// each durable — a config update can mint or supersede a pending switch — and share
+// one, because "one mutation at a time on this agent's binding" is a single rule and
+// two latches would be two answers to it. Both are held by `mutation-attempt.ts`
+// rather than by pairs of state variables here: the latch it keeps is written
+// synchronously, which a `useState` flag is not, and a second press inside one task
+// would otherwise reach the wire twice.
+//
+// A SETTLEMENT BELONGS TO THE AGENT IT WAS SUBMITTED FOR. Moving the route from one
+// agent to another keeps this component mounted, so the agent id the submission named
+// is recorded and the settlement renders only under that agent. A comparison at
+// render rather than an effect: an effect would leave one committed render showing
+// agent A's settlement under agent B.
 
 import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 
@@ -25,22 +35,17 @@ import {
   AttachSidekick,
   AttachSidekickForm,
   ProviderSwitch,
+  type AgentAttachReading,
   type AgentConsoleModels,
   type AgentSwitchSettlement,
   type ProviderAxis,
 } from "../../agents/index.js";
-import type { ConsoleRefusal } from "../../core/index.js";
-import { consoleRefusalFrom, usePushDrivenRead } from "../../collaboration/push-driven-read.js";
+import { usePushDrivenRead } from "../../collaboration/push-driven-read.js";
 import { Nothing, RefusalCard } from "../../primitives/index.js";
-import { AttachAttempt, useAttachAttempt } from "./attach-attempt.js";
+import { IDLE_MUTATION_ATTEMPT, MutationAttempt, useMutationAttempt } from "./mutation-attempt.js";
 
 /** Names a mutation's failure where the thrown value carried no refusal of its own. */
 const AGENT_MUTATION_ORIGIN = "agent-mutation";
-
-interface SwitchOutcome {
-  readonly settlement?: AgentSwitchSettlement | undefined;
-  readonly refusal?: ConsoleRefusal | undefined;
-}
 
 export interface AgentBindingColumnProps {
   readonly models: AgentConsoleModels;
@@ -62,51 +67,67 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
   const [attachForm] = useState(() => new AttachSidekickForm());
   const [, noteFormEdited] = useReducer((edits: number) => edits + 1, 0);
   const [isAttachOpen, setAttachOpen] = useState(false);
-  // The latch, held for the life of this mount. Built by an initializer for the
+  // The latches, held for the life of this mount. Built by initializers for the
   // form's reason: a body would mint a fresh one on every discarded render pass,
   // and a latch that is replaced mid-flight admits the press it exists to refuse.
-  const [attachAttempt] = useState(() => new AttachAttempt({ origin: AGENT_MUTATION_ORIGIN }));
-  const attachState = useAttachAttempt(attachAttempt);
-  const [switchOutcome, setSwitchOutcome] = useState<SwitchOutcome>({});
+  const [attachAttempt] = useState(
+    () => new MutationAttempt<AgentAttachReading>({ origin: AGENT_MUTATION_ORIGIN }),
+  );
+  const [bindingAttempt] = useState(
+    () => new MutationAttempt<AgentSwitchSettlement | undefined>({ origin: AGENT_MUTATION_ORIGIN }),
+  );
+  const attachState = useMutationAttempt(attachAttempt);
+  const bindingState = useMutationAttempt(bindingAttempt);
+  const [bindingSubjectAgentId, setBindingSubjectAgentId] = useState<string | undefined>(undefined);
 
   useEffect(() => attachForm.onChange(noteFormEdited), [attachForm, noteFormEdited]);
 
   // A press while one attach is outstanding reaches the latch and stops there —
-  // `submit` is a no-op in flight, so a double click costs one request and the
+  // `submit` admits nothing in flight, so a double click costs one request and the
   // confirmation shown is the settled reply's rather than whichever landed last.
   const submitAttach = useCallback((): void => {
-    const readiness = attachForm.readiness();
+    // The session is bound HERE rather than in the form: the models own it, and a
+    // second copy inside the form would be a second answer to the same question.
+    const readiness = attachForm.readiness(models.sessionId);
     if (readiness.status !== "ready") {
       return;
     }
     attachAttempt.submit(async () => await models.attach(readiness.request));
   }, [attachAttempt, attachForm, models]);
 
+  // The settlement published is the SETTLED reply's, never whichever landed last:
+  // one request per intended action means there is no second reply to race.
   const applySwitch = useCallback(
     (
       targetAgentId: string,
       axes: Partial<Record<ProviderAxis, string>>,
       interruptAndSwitch: boolean,
     ): void => {
-      models
-        .updateConfig(targetAgentId, axes, interruptAndSwitch)
-        .then((reply) => {
-          setSwitchOutcome({ settlement: reply.switch });
-        })
-        .catch((error: unknown) => {
-          setSwitchOutcome({ refusal: consoleRefusalFrom(error, AGENT_MUTATION_ORIGIN) });
-        });
+      const admitted = bindingAttempt.submit(async () => {
+        const reply = await models.updateConfig(targetAgentId, axes, interruptAndSwitch);
+        return reply.switch;
+      });
+      if (admitted) {
+        setBindingSubjectAgentId(targetAgentId);
+      }
     },
-    [models],
+    [bindingAttempt, models],
   );
 
+  // Detach shares the switch's latch and settles with nothing to show: a detach
+  // publishes no switch settlement, and a refusal reaches the same line a refused
+  // switch does, because both are this agent's binding refusing to move.
   const detachAgent = useCallback(
     (targetAgentId: string): void => {
-      models.detach(targetAgentId).catch((error: unknown) => {
-        setSwitchOutcome({ refusal: consoleRefusalFrom(error, AGENT_MUTATION_ORIGIN) });
+      const admitted = bindingAttempt.submit(async () => {
+        await models.detach(targetAgentId);
+        return undefined;
       });
+      if (admitted) {
+        setBindingSubjectAgentId(targetAgentId);
+      }
     },
-    [models],
+    [bindingAttempt, models],
   );
 
   const agents = rosterState.kind === "loaded" ? rosterState.value.agents : [];
@@ -115,6 +136,9 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
     [agents, agentId],
   );
   const soleAgent = shownAgents.length === 1 ? shownAgents[0] : undefined;
+  const isBindingMutating = bindingState.status === "in-flight";
+  const shownBinding =
+    bindingSubjectAgentId === soleAgent?.agentId ? bindingState : IDLE_MUTATION_ATTEMPT;
 
   return (
     <>
@@ -127,18 +151,28 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
       ) : null}
 
       {shownAgents.map((agent) => (
-        <AgentCard key={agent.agentId} agent={agent} onDetach={detachAgent} />
+        <AgentCard
+          key={agent.agentId}
+          agent={agent}
+          onDetach={detachAgent}
+          isMutating={isBindingMutating}
+        />
       ))}
 
       {soleAgent === undefined ? null : (
+        // Keyed by the agent: the draft inside is about ONE agent's binding, and a
+        // key is React's own statement that this is a different subject. A reset
+        // effect would leave one render committed with the previous agent's draft.
         <ProviderSwitch
+          key={soleAgent.agentId}
           agent={soleAgent}
           catalog={catalogState}
           onApply={(axes, interruptAndSwitch) => {
             applySwitch(soleAgent.agentId, axes, interruptAndSwitch);
           }}
-          settlement={switchOutcome.settlement}
-          refusal={switchOutcome.refusal}
+          isSubmitting={isBindingMutating}
+          settlement={shownBinding.status === "settled" ? shownBinding.settlement : undefined}
+          refusal={shownBinding.status === "refused" ? shownBinding.refusal : undefined}
         />
       )}
 
@@ -154,13 +188,14 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
         open={isAttachOpen}
         onOpenChange={setAttachOpen}
         form={attachForm}
+        sessionId={models.sessionId}
         catalog={catalogState}
         definitions={definitionsState}
         onSubmit={submitAttach}
         // The latch's own arm, projected onto the control. The form holds no flag
         // of its own, so what is disabled and what is refused cannot disagree.
         isSubmitting={attachState.status === "in-flight"}
-        confirmation={attachState.status === "attached" ? attachState.confirmation : undefined}
+        confirmation={attachState.status === "settled" ? attachState.settlement : undefined}
         refusal={attachState.status === "refused" ? attachState.refusal : undefined}
       />
     </>

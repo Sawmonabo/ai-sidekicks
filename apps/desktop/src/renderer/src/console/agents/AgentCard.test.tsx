@@ -19,6 +19,13 @@ const RUNNING: AgentRosterEntry = {
   config: { effort: "high", outputSpeed: "fast" },
 };
 
+/** Every echo axis but the allowlist, so "not reported" can only be about tools. */
+const FULLY_REPORTED = {
+  executionPostureMode: "worktree",
+  instructions: "Read before writing.",
+  goal: "Survey the repository",
+} as const;
+
 function observedTextOf(container: HTMLElement): string {
   return container.querySelector(".meridian-agent-card__observed")?.textContent ?? "";
 }
@@ -184,6 +191,46 @@ describe("agent card — the attach echo", () => {
   it("negative control: an agent attached inline shows no echo", () => {
     const { container } = render(<AgentCard agent={RUNNING} />);
     expect(container.querySelector(".meridian-agent-card__resolved")).toBeNull();
+  });
+
+  it("renders an empty allowlist as the restriction it is", () => {
+    // "No tools at all" is the applied configuration and the strictest posture the
+    // agent can have — a choice somebody made, not the daemon staying silent.
+    const { container } = render(
+      <AgentCard
+        agent={{ ...RUNNING, resolvedConfiguration: { ...FULLY_REPORTED, toolAllowlist: [] } }}
+      />,
+    );
+    const resolved = container.querySelector(".meridian-agent-card__resolved")?.textContent ?? "";
+    expect(resolved).toContain("No tools. This agent was attached with an empty allowlist.");
+    expect(resolved).not.toContain("not reported");
+  });
+
+  it("negative control: an echo omitting the member still says nothing was reported", () => {
+    // Without this, the case above would pass over a card that reported an empty
+    // allowlist for an axis the daemon never answered — the same conflation, in the
+    // other direction.
+    const { container } = render(
+      <AgentCard agent={{ ...RUNNING, resolvedConfiguration: FULLY_REPORTED }} />,
+    );
+    const resolved = container.querySelector(".meridian-agent-card__resolved")?.textContent ?? "";
+    expect(resolved).toContain("not reported");
+    expect(resolved).not.toContain("empty allowlist");
+  });
+
+  it("negative control: a populated allowlist still names its tools", () => {
+    const { container } = render(
+      <AgentCard
+        agent={{
+          ...RUNNING,
+          resolvedConfiguration: { ...FULLY_REPORTED, toolAllowlist: ["read", "write"] },
+        }}
+      />,
+    );
+    const resolved = container.querySelector(".meridian-agent-card__resolved")?.textContent ?? "";
+    expect(resolved).toContain("read");
+    expect(resolved).not.toContain("empty allowlist");
+    expect(resolved).not.toContain("not reported");
   });
 });
 

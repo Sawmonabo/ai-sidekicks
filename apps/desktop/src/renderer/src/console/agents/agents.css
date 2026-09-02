@@ -57,6 +57,12 @@
   color: var(--meridian-text-muted);
 }
 
+/* A figure the console derived rather than one the wire carried: it reads as text
+   at full weight, so a restriction somebody chose is never mistaken for an absence. */
+.meridian-agent-card__axis-derived {
+  color: var(--meridian-text);
+}
+
 .meridian-agent-card__effective,
 .meridian-agent-card__observed,
 .meridian-agent-card__pending {
@@ -187,7 +193,9 @@
 }
 
 .meridian-attach__submit:disabled,
-.meridian-attach__arm:disabled {
+.meridian-attach__arm:disabled,
+.meridian-agent-card__action:disabled,
+.meridian-switch__apply:disabled {
   cursor: not-allowed;
   color: var(--meridian-text-faint);
 }
@@ -346,7 +354,8 @@
   min-width: 0;
 }
 
-.meridian-switch__supersedes {
+.meridian-switch__supersedes,
+.meridian-switch__driver-move {
   margin: 0;
   font-size: var(--meridian-text-xs);
   color: var(--meridian-amber-text);
