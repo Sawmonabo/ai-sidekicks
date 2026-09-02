@@ -88,10 +88,15 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
       }
       return props.renderTimelineRow({
         row: projected,
+        // The STORE's wheel, which is the one the cast bar reads. A row asks the
+        // session who somebody is rather than deciding it again from the order this
+        // window happened to meet them in. `undefined` for an actor the wheel has
+        // never admitted is the honest answer: the seat renders the unattributed
+        // shape rather than being handed a colour nobody else would agree with.
         participantHue:
           projected.actor === undefined
             ? undefined
-            : ledgerWindow.hueByParticipantId.get(projected.actor),
+            : props.sessionStore.hueAllocator.assignmentFor(projected.actor),
         isSuperseded: ledgerWindow.supersededRowIds.has(projected.id),
         density: densityFor(projected.id, ledgerWindow.collapsedRowIds),
       });

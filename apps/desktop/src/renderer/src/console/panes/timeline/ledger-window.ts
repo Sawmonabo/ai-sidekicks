@@ -17,13 +17,14 @@
 // THE THREE THINGS THE LIST DECIDES AND A ROW NEVER KNOWS, which is the timeline row
 // seat's own contract:
 //
-//   • `participantHue` — allocated over a join order. This console holds no
-//     participant join log: no projector claims the membership events, so the
-//     store's participant partition is empty in every build today. What the LOG
-//     supports is the order in which it first attributes a row to somebody, which is
-//     the same order for the same log and therefore stable across replays of it. The
-//     allocator is idempotent, so re-admitting costs nothing and a re-joining
-//     participant keeps its step.
+//   • `participantHue` — allocated over a join order, and NOT here. The session
+//     store owns the wheel (`SessionStore.hueAllocator`): it admits the read's
+//     participant join log first and then every actor the log attributes a row to,
+//     which is the order rule 2 fixes. A second allocator over first-event
+//     appearance was the same algorithm over a different order, so a participant
+//     who joined early and spoke late wore one hue on their cast chip and another
+//     on their rows — which defeats hue as an identity channel exactly where it is
+//     supposed to work. The feed reads the store's assignment at the row it draws.
 //   • `isSuperseded` — a rollback ranking over the rows AROUND a row, which is
 //     `SupersededIndex`'s answer and never a member the row carries.
 //   • `density` — the list's collapse state, which is `Spec-023 §Console Design
@@ -43,7 +44,6 @@ import {
   type LedgerSeam,
 } from "../../ledger/structure/index.js";
 import { useSessionStore, type ConsoleSessionEvent, type SessionStore } from "../../store/index.js";
-import { ParticipantHueAllocator, type ParticipantHueAssignment } from "../../tokens/index.js";
 import { type TimelineRowDensity } from "../../workspace/index.js";
 
 /** Everything one render of the ledger needs, derived once per store revision. */
@@ -52,8 +52,6 @@ export interface LedgerWindowModel {
   readonly viewportRows: readonly LedgerViewportRow[];
   /** The projected row behind each viewport key. */
   readonly rowsByKey: ReadonlyMap<string, TimelineRow>;
-  /** The author's place on the wheel, by participant. Absent for an unattributed row. */
-  readonly hueByParticipantId: ReadonlyMap<string, ParticipantHueAssignment>;
   /** Which rows a rollback boundary later in the log supersedes. */
   readonly supersededRowIds: ReadonlySet<string>;
   /** Which rows are collapsed, under rule 7's terminal-chapter fold. */
@@ -94,20 +92,6 @@ function cutUnitFor(row: TimelineRow): string {
  */
 function chapterKeyFor(row: TimelineRow): string | undefined {
   return row.kind === "general" ? undefined : row.runId;
-}
-
-/** Admit every attributed actor to the wheel, in the order the log first names one. */
-function allocateHues(rows: readonly TimelineRow[]): ReadonlyMap<string, ParticipantHueAssignment> {
-  const allocator = new ParticipantHueAllocator();
-  const assignments = new Map<string, ParticipantHueAssignment>();
-  for (const row of rows) {
-    const actor = row.actor;
-    if (actor === undefined || assignments.has(actor)) {
-      continue;
-    }
-    assignments.set(actor, allocator.admit(actor));
-  }
-  return assignments;
 }
 
 /**
@@ -170,7 +154,6 @@ export function deriveLedgerWindow(
   return {
     viewportRows,
     rowsByKey,
-    hueByParticipantId: allocateHues(rows),
     supersededRowIds,
     collapsedRowIds: collapsedRowIdsOf(chapterIndex),
     railModel: new ProvenanceRailModel({ rows, hasEarlierRows }, seamIndex),

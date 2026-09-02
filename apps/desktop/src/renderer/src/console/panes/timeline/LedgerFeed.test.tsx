@@ -19,6 +19,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { SidekicksBridgeProvider, createFixtureBridge } from "../../bridge/index.js";
 import { LEDGER_QUIET_SCENARIO } from "../../bridge/scenarios/ledger-quiet.js";
 import { SessionStore } from "../../store/index.js";
+import { ParticipantHueAllocator } from "../../tokens/index.js";
+import { type TimelineRowSlotProps } from "../../workspace/index.js";
 import { LedgerFeed } from "./LedgerFeed.js";
 
 const SESSION_ID = "session-ledger-feed";
@@ -58,13 +60,25 @@ function openSessionStoreWithLog(count: number): SessionStore {
   return sessionStore;
 }
 
-/** Mount the feed under a bridge, because the ledger reads the console clock. */
-function renderFeed(sessionStore: SessionStore): HTMLElement {
+/**
+ * Mount the feed under a bridge, because the ledger reads the console clock.
+ *
+ * `onRowMounted` is how a case reads the three decisions the list makes for a row:
+ * they reach the seat as arguments and never as markup, so a case that only read
+ * the DOM could not see any of them.
+ */
+function renderFeed(
+  sessionStore: SessionStore,
+  onRowMounted?: (mount: TimelineRowSlotProps) => void,
+): HTMLElement {
   const { container } = render(
     <SidekicksBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
       <LedgerFeed
         sessionStore={sessionStore}
-        renderTimelineRow={(mount) => <p>{mount.row.summary}</p>}
+        renderTimelineRow={(mount) => {
+          onRowMounted?.(mount);
+          return <p>{mount.row.summary}</p>;
+        }}
         feedLabel="Session timeline"
       />
     </SidekicksBridgeProvider>,
@@ -102,5 +116,76 @@ describe("the ledger feed — one binding", () => {
     const feed = renderFeed(openSessionStoreWithLog(LONG_LOG_EVENT_COUNT));
     const thumb = feed.querySelector<HTMLElement>(".meridian-rail__thumb");
     expect(thumb?.style.height).toBe("100%");
+  });
+});
+
+/**
+ * Two participants whose PREFERRED wheel step is the same, so which of them takes
+ * it is decided by admission order and by nothing else.
+ *
+ * The collision is the instrument: with distinct preferred steps both orders agree
+ * and the case below would pass over either allocator.
+ */
+const EARLY_JOINER = "participant-alba";
+const LATE_JOINER = "participant-enzo";
+
+/** A store whose join order and first-event order deliberately disagree. */
+function openStoreWhereJoinOrderIsNotEventOrder(): SessionStore {
+  const sessionStore = new SessionStore({ sessionId: SESSION_ID });
+  sessionStore.initialise({
+    cursor: -1,
+    entities: [],
+    participantJoinLog: [EARLY_JOINER, LATE_JOINER],
+  });
+  sessionStore.applyBatch([
+    {
+      sessionId: SESSION_ID,
+      sequence: 0,
+      kind: "user.message",
+      occurredAt: "2026-01-01T11:00:00.000Z",
+      actorParticipantId: LATE_JOINER,
+      payload: {},
+    },
+    {
+      sessionId: SESSION_ID,
+      sequence: 1,
+      kind: "user.message",
+      occurredAt: "2026-01-01T11:00:01.000Z",
+      actorParticipantId: EARLY_JOINER,
+      payload: {},
+    },
+  ]);
+  return sessionStore;
+}
+
+describe("the ledger feed — one wheel", () => {
+  it("hands each row the hue the session store allocated", () => {
+    withLaidOutViewport();
+    const sessionStore = openStoreWhereJoinOrderIsNotEventOrder();
+    const stepByActor = new Map<string, number>();
+    renderFeed(sessionStore, (mount) => {
+      if (mount.row.actor !== undefined && mount.participantHue !== undefined) {
+        stepByActor.set(mount.row.actor, mount.participantHue.step);
+      }
+    });
+    expect(stepByActor.get(EARLY_JOINER)).toBe(
+      sessionStore.hueAllocator.assignmentFor(EARLY_JOINER)?.step,
+    );
+    expect(stepByActor.get(LATE_JOINER)).toBe(
+      sessionStore.hueAllocator.assignmentFor(LATE_JOINER)?.step,
+    );
+  });
+
+  it("negative control: allocating over first-event order gives the other answer", () => {
+    // Without this the case above would pass over a ledger that kept its own wheel,
+    // because two allocators agree wherever the two orders do. These two ids prefer
+    // the same step, so the order decides who gets it — and the orders disagree.
+    const byFirstEvent = new ParticipantHueAllocator();
+    byFirstEvent.admit(LATE_JOINER);
+    byFirstEvent.admit(EARLY_JOINER);
+    const sessionStore = openStoreWhereJoinOrderIsNotEventOrder();
+    expect(byFirstEvent.assignmentFor(EARLY_JOINER)?.step).not.toBe(
+      sessionStore.hueAllocator.assignmentFor(EARLY_JOINER)?.step,
+    );
   });
 });
