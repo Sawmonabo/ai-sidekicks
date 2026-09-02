@@ -34,8 +34,11 @@ import { useEffect, useMemo } from "react";
 import type { Unsubscribe } from "@ai-sidekicks/contracts";
 
 import { consoleClockFor, type ConsoleBridge } from "../bridge/index.js";
-import { PushDrivenRead, usePushDrivenRead } from "../collaboration/push-driven-read.js";
-import type { PushDrivenReadState } from "../collaboration/push-driven-read.js";
+import {
+  PushDrivenRead,
+  usePushDrivenRead,
+  type PushDrivenReadState,
+} from "../collaboration/push-driven-read.js";
 import type { SessionStoreRegistry } from "../store/index.js";
 import {
   AttentionPlane,
@@ -45,7 +48,7 @@ import {
 } from "./attention-plane.js";
 
 /** The subsystem name a failed attention read names itself with. */
-export const ATTENTION_READ_ORIGIN = "attention-plane";
+const ATTENTION_READ_ORIGIN = "attention-plane";
 
 /**
  * Every session projection this window holds, as one opaque change signal.

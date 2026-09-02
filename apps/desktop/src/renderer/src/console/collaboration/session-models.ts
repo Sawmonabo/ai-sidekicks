@@ -42,8 +42,8 @@
 import { useEffect, useState } from "react";
 
 import type { SessionStore } from "../store/index.js";
-import { RealClock, type ConsoleClock } from "../core/index.js";
-import type { ConsoleBridge } from "../bridge/index.js";
+import type { ConsoleClock } from "../core/index.js";
+import { consoleClockFor, type ConsoleBridge } from "../bridge/index.js";
 import { ActivityIndicatorRegistry, type ChannelActivityLabels } from "./activity-model.js";
 import { createChannelDirectory, type ChannelDirectory } from "./channel-model.js";
 import { createPresenceRoster, type PresenceRoster } from "./presence-model.js";
@@ -171,7 +171,7 @@ function buildSessionModels(
   bridge: ConsoleBridge,
   sessionStore: SessionStore,
 ): CollaborationSessionModels {
-  const clock = bridge.scenarioEngine?.clock ?? new RealClock();
+  const clock = consoleClockFor(bridge);
   return {
     sessionId: sessionStore.sessionId,
     clock,
