@@ -8,8 +8,10 @@
 //     current reading and appended to its status history.
 //   • `RunRolledBackEvent` — deliberately NOT a transition. It carries no
 //     `previousState` and no `currentState`, because a rollback is not one, and
-//     §7.1's Never list forbids fabricating one. So the fold advances the run's
-//     version and its rewind position and LEAVES THE STATE ALONE.
+//     §7.1's Never list forbids fabricating one. So the fold appends a status row
+//     carrying NEITHER STATE, advances the run's version and its rewind position,
+//     and reads the run as `paused` — which is where the rollback contract lands a
+//     confirmed rewind, for every run and not only for one this pane has not seen.
 //
 // The two arms share one stream with no wire tag and stay unambiguous structurally:
 // both registered schemas are `.strict()`, so a state change fails the rollback
@@ -42,12 +44,18 @@ import {
   type RunStateChangeEvent,
 } from "@ai-sidekicks/contracts";
 
+import { normalizeWireRejection } from "../../../../../shared/wire-errors.js";
 import {
   RUN_STATE_SUBSCRIBE_STREAM,
   subscribeDaemon,
   type ConsoleBridge,
 } from "../../bridge/index.js";
-import { refuse, type ConsoleRefusal } from "../../core/index.js";
+import {
+  isConsoleRefusal,
+  refuse,
+  type ConsoleRefusal,
+  type Unsubscribe,
+} from "../../core/index.js";
 import { useSessionInitialised, type SessionStore } from "../../store/index.js";
 import { PROJECTED_RUN_CAP, RUN_STATUS_ROW_CAP } from "./runs-bounds.js";
 import { runStatusSubtypeFor, type RunStatusSubtype, type RunStopTrigger } from "./run-status.js";
@@ -108,7 +116,11 @@ export interface RunStateFeed {
    * them current.
    */
   readonly hasRead: boolean;
-  /** Deliveries that parsed as neither arm. Counted, never guessed at. */
+  /**
+   * Deliveries that parsed as neither arm. Counted, never guessed at, and RENDERED:
+   * a live feed that is also partial is neither an absence nor a refusal, and the
+   * pane says so beside the rows rather than in place of them.
+   */
   readonly unreadableDeliveryCount: number;
   /** Why the stream could not be opened at all. Rendered rather than swallowed. */
   readonly openRefusal: ConsoleRefusal | undefined;
@@ -185,12 +197,27 @@ export class RunStateProjection {
   /**
    * A rewind, which is not a transition.
    *
-   * The run's `state` is carried forward untouched — §7.1: "Never fabricates a
-   * transition for a rewind." A run this pane has not seen a transition for still
-   * gets a row, because the rewind is real and dropping it would leave a person
-   * looking at a run whose position moved with nothing on screen saying so; its
-   * state reads `paused`, which is where `Spec-004` lands a confirmed rollback and
-   * is the only state the wire's own contract establishes for this arm.
+   * The run reads `paused` afterwards — every run, not only one this pane has not
+   * seen before. `Spec-004`'s absorption rule states it directly ("after a rollback
+   * has re-opened the run in `paused`"), and `RunRolledBackEventSchema` is
+   * `{sessionId, runId, runVersion, channelId?, targetPosition}` and strict, so the
+   * state comes from the contract rather than from a member. Carrying the held
+   * state forward instead would leave a run this pane had already seen `completed`,
+   * `failed`, or `waiting_for_approval` looking terminal or blocked indefinitely —
+   * this event is the operation's only state-stream notification — and would
+   * withhold the controls the rewound run now has.
+   *
+   * The metadata that described the pre-rewind epoch goes with it: a trigger, a
+   * clean-close marking, and a failure category all describe a run that no longer
+   * exists at this position, and rendering them beside `paused` would be reporting
+   * a stop that has been undone.
+   *
+   * Still NO fabricated transition — §7.1: "Never fabricates a transition for a
+   * rewind." The appended row keeps `subtype: "rewound"` with both states
+   * `undefined`, so the history says a rewind happened and never says from what to
+   * what. A run this pane meets through a rewind alone still gets a row, because
+   * the rewind is real and dropping it would leave a person looking at a run whose
+   * position moved with nothing on screen saying so.
    */
   #acceptRewind(event: RunRolledBackEvent): void {
     const held = this.#runsById.get(event.runId);
@@ -205,11 +232,11 @@ export class RunStateProjection {
     this.#store({
       runId: event.runId,
       runVersion: event.runVersion,
-      state: held?.state ?? "paused",
-      trigger: held?.trigger,
-      intendedClose: held?.intendedClose ?? false,
-      failureCategory: held?.failureCategory,
-      providerFailureDetail: held?.providerFailureDetail,
+      state: "paused",
+      trigger: undefined,
+      intendedClose: false,
+      failureCategory: undefined,
+      providerFailureDetail: undefined,
       rewoundToPosition: event.targetPosition,
       firstSeenAtIso: held?.firstSeenAtIso ?? UNTIMED_FIRST_SEEN,
       updatedAtIso: held?.updatedAtIso ?? UNTIMED_FIRST_SEEN,
@@ -325,24 +352,42 @@ export function useRunStateFeed(bridge: ConsoleBridge, sessionStore: SessionStor
       };
     }
 
-    const unsubscribe = subscribeDaemon(
-      bridge,
-      { method: RUN_STATE_SUBSCRIBE_STREAM, request: subscribeRequest.data },
-      (payload) => {
-        const wasReadable = fold.accept(payload);
-        if (!isMounted || !wasReadable) {
-          return;
-        }
-        setFeed({
-          runs: fold.runs(),
-          // Kept `false` here and supplied below from the store: a delivery proves
-          // a run exists, not that the read which enumerates them has completed.
-          hasRead: false,
-          unreadableDeliveryCount: fold.unreadableDeliveryCount,
-          openRefusal: undefined,
-        });
-      },
-    );
+    // The open itself can fail in this frame — the shipped live preload throws on
+    // every method — and an unopenable stream is a refusal this feed already has a
+    // field for, not an exception thrown during React's effect commit.
+    let unsubscribe: Unsubscribe;
+    try {
+      unsubscribe = subscribeDaemon(
+        bridge,
+        { method: RUN_STATE_SUBSCRIBE_STREAM, request: subscribeRequest.data },
+        (payload) => {
+          // EVERY delivery publishes, readable or not. An unreadable one raises the
+          // fold's counter, and a counter that never reached a render could not be
+          // shown at all — leaving an old reading presented as current with nothing
+          // on screen saying the stream is incomplete. `runs` is rebuilt from the
+          // same fold either way, so an unreadable delivery changes no row.
+          fold.accept(payload);
+          if (!isMounted) {
+            return;
+          }
+          setFeed({
+            runs: fold.runs(),
+            // Kept `false` here and supplied below from the store: a delivery proves
+            // a run exists, not that the read which enumerates them has completed.
+            hasRead: false,
+            unreadableDeliveryCount: fold.unreadableDeliveryCount,
+            openRefusal: undefined,
+          });
+        },
+      );
+    } catch (thrown: unknown) {
+      setFeed({ ...EMPTY_FEED, openRefusal: streamOpenRefusal(thrown) });
+      // No unsubscribe was ever handed back, so the refused path has nothing to
+      // close — it only stops deliveries that can no longer arrive from landing.
+      return () => {
+        isMounted = false;
+      };
+    }
     return () => {
       isMounted = false;
       unsubscribe();
@@ -350,6 +395,24 @@ export function useRunStateFeed(bridge: ConsoleBridge, sessionStore: SessionStor
   }, [bridge, sessionId]);
 
   return useMemo(() => ({ ...feed, hasRead: hasReadSnapshot }), [feed, hasReadSnapshot]);
+}
+
+/**
+ * The refusal an unopenable stream renders.
+ *
+ * A `ConsoleRefusalError` from the wrapper's own unscoped-open guard already
+ * carries a refusal, and re-wrapping it would replace a sentence that names the
+ * defect with one that names the exception. Anything else is a wire rejection and
+ * normalizes exactly as every other console catch boundary normalizes one, so this
+ * file grows no second normalizer.
+ */
+function streamOpenRefusal(thrown: unknown): ConsoleRefusal {
+  const carried = (thrown as { readonly refusal?: unknown } | null | undefined)?.refusal;
+  if (isConsoleRefusal(carried)) {
+    return carried;
+  }
+  const wireError = normalizeWireRejection(thrown, { total: true });
+  return refuse(RUN_STATE_REFUSAL_ORIGIN, wireError.name, wireError.message);
 }
 
 /** The reading before anything has been delivered. Frozen so no caller mutates it. */

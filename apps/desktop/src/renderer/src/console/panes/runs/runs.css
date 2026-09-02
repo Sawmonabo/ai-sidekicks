@@ -31,6 +31,17 @@
   letter-spacing: 0.06em;
 }
 
+/* The stream is open and some of what it carried could not be read. Quiet, muted,
+   and beside the rows: it qualifies the list rather than replacing it, so it takes
+   the same treatment the other partial-read notes take. */
+.meridian-runs__incomplete-stream {
+  max-width: 68ch;
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  line-height: 1.5;
+}
+
 .meridian-runs__rows {
   display: flex;
   flex-direction: column;

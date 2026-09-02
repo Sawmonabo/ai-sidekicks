@@ -20,8 +20,14 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
+import { ConsoleRefusalError, refuse } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
-import { RunStateProjection, useRunStateFeed, type RunStateFeed } from "./run-state-feed.js";
+import {
+  RUN_STATE_REFUSAL_ORIGIN,
+  RunStateProjection,
+  useRunStateFeed,
+  type RunStateFeed,
+} from "./run-state-feed.js";
 
 /** Canonical UUIDs: both registered schemas brand their ids and refuse anything else. */
 const RUN_ID = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
@@ -79,6 +85,73 @@ describe("the run-state feed reads the registered payload shapes", () => {
   });
 });
 
+/** A terminal transition carrying every piece of metadata a stop reports. */
+const TERMINAL_DELIVERY = {
+  runId: RUN_ID,
+  runVersion: 5,
+  previousState: "running",
+  currentState: "completed",
+  timestamp: "2026-09-02T09:05:00.000Z",
+  trigger: "turn_limit",
+  intendedClose: true,
+  failureCategory: "provider failure",
+  providerFailureDetail: "the provider closed the stream",
+};
+
+describe("a confirmed rewind re-opens the run", () => {
+  it("reads the run as paused and clears the metadata of the epoch it undid", () => {
+    // The rollback event is the operation's only state-stream notification, so a
+    // fold that carried the terminal forward would leave the run looking finished
+    // indefinitely and withhold every control the rewound run now has.
+    const projection = new RunStateProjection();
+    expect(projection.accept(TERMINAL_DELIVERY)).toBe(true);
+    expect(projection.accept({ ...ROLLED_BACK_DELIVERY, runVersion: 6 })).toBe(true);
+    const [run] = projection.runs();
+    expect(run?.state).toBe("paused");
+    expect(run?.trigger).toBeUndefined();
+    expect(run?.intendedClose).toBe(false);
+    expect(run?.failureCategory).toBeUndefined();
+    expect(run?.providerFailureDetail).toBeUndefined();
+  });
+
+  it("appends one rewound row that carries neither state", () => {
+    const projection = new RunStateProjection();
+    projection.accept(TERMINAL_DELIVERY);
+    projection.accept({ ...ROLLED_BACK_DELIVERY, runVersion: 6 });
+    const [run] = projection.runs();
+    expect(run?.statusRows).toHaveLength(2);
+    const rewound = run?.statusRows.at(-1);
+    expect(rewound?.subtype).toBe("rewound");
+    expect(rewound?.previousState).toBeUndefined();
+    expect(rewound?.currentState).toBeUndefined();
+    // Both anchors are the event's own, and neither is derived from the held run.
+    expect(rewound?.targetPosition).toBe(12);
+    expect(run?.rewoundToPosition).toBe(12);
+    expect(run?.runVersion).toBe(6);
+  });
+
+  it("negative control: that run reads completed with its metadata before the rewind", () => {
+    // Without this the cases above would pass over a fold whose terminal never
+    // landed, and would prove nothing about what the rewind cleared.
+    const projection = new RunStateProjection();
+    projection.accept(TERMINAL_DELIVERY);
+    const [run] = projection.runs();
+    expect(run?.state).toBe("completed");
+    expect(run?.trigger).toBe("turn_limit");
+    expect(run?.intendedClose).toBe(true);
+    expect(run?.failureCategory).toBe("provider failure");
+  });
+
+  it("reads a run met through a rewind alone as paused, unchanged", () => {
+    const projection = new RunStateProjection();
+    expect(projection.accept(ROLLED_BACK_DELIVERY)).toBe(true);
+    const [run] = projection.runs();
+    expect(run?.state).toBe("paused");
+    expect(run?.rewoundToPosition).toBe(12);
+    expect(run?.statusRows).toHaveLength(1);
+  });
+});
+
 describe("the run-state feed refuses the whole-session envelope", () => {
   it("reads no run from an envelope-shaped delivery and counts it unreadable", () => {
     const projection = new RunStateProjection();
@@ -118,21 +191,17 @@ function recordingBridge(): { bridge: ConsoleBridge; openedStreams: string[] } {
 }
 
 /**
- * Open the feed for one session and report what it answered.
+ * Mount the feed against one bridge and one store, and report what it answered.
  *
  * Composed with `createElement` rather than JSX so the module's own tests stay in
- * one file: everything else here drives the fold directly and needs no tree.
+ * one file: everything else here drives the fold directly and needs no tree. Every
+ * case that needs a tree goes through this one mount, so a bridge that fails at a
+ * different point is a different ARGUMENT rather than a second probe.
  */
-async function openStateFeed(
-  sessionId: string,
-  seed?: (store: SessionStore) => void,
-): Promise<{
-  readonly openedStreams: readonly string[];
-  readonly feed: RunStateFeed;
-}> {
-  const { bridge, openedStreams } = recordingBridge();
-  const sessionStore = new SessionStore({ sessionId });
-  seed?.(sessionStore);
+async function mountStateFeed(
+  bridge: ConsoleBridge,
+  sessionStore: SessionStore,
+): Promise<() => RunStateFeed> {
   let held: RunStateFeed | undefined;
   function StateFeedProbe(): null {
     const feed = useRunStateFeed(bridge, sessionStore);
@@ -145,10 +214,27 @@ async function openStateFeed(
   await act(async () => {
     await Promise.resolve();
   });
-  if (held === undefined) {
-    throw new Error("the run-state feed reported nothing, so there is no reading to assert");
-  }
-  return { openedStreams, feed: held };
+  return () => {
+    if (held === undefined) {
+      throw new Error("the run-state feed reported nothing, so there is no reading to assert");
+    }
+    return held;
+  };
+}
+
+/** Open the feed for one session over the recording bridge. */
+async function openStateFeed(
+  sessionId: string,
+  seed?: (store: SessionStore) => void,
+): Promise<{
+  readonly openedStreams: readonly string[];
+  readonly feed: RunStateFeed;
+}> {
+  const { bridge, openedStreams } = recordingBridge();
+  const sessionStore = new SessionStore({ sessionId });
+  seed?.(sessionStore);
+  const readFeed = await mountStateFeed(bridge, sessionStore);
+  return { openedStreams, feed: readFeed() };
 }
 
 describe("the run-state stream is opened with its registered request", () => {
@@ -198,21 +284,13 @@ describe("an empty read completes", () => {
     // `hasRead && runs.length === 0` unreachable.
     const { bridge, deliverToFeed } = deliveringBridge([STATE_CHANGE_DELIVERY]);
     const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-    let held: RunStateFeed | undefined;
-    function StateFeedProbe(): null {
-      const feed = useRunStateFeed(bridge, sessionStore);
-      useEffect(() => {
-        held = feed;
-      }, [feed]);
-      return null;
-    }
-    render(createElement(StateFeedProbe));
+    const readFeed = await mountStateFeed(bridge, sessionStore);
     await act(async () => {
       deliverToFeed();
       await Promise.resolve();
     });
-    expect(held?.runs).toHaveLength(1);
-    expect(held?.hasRead).toBe(false);
+    expect(readFeed().runs).toHaveLength(1);
+    expect(readFeed().hasRead).toBe(false);
   });
 });
 
@@ -246,3 +324,68 @@ function deliveringBridge(deliveries: readonly unknown[]): {
     },
   };
 }
+
+/** The refusal the shipped Tier-1 preload raises when a stream is opened: a throw. */
+const TIER_ONE_STUB_REFUSAL = { code: "bridge.not_wired", message: "no daemon is attached" };
+
+/** A bridge whose `daemon.subscribe` throws in the caller's own frame, as the stub does. */
+function unopenableBridge(thrown: unknown): ConsoleBridge {
+  return {
+    sidekicks: {
+      daemon: {
+        call: async (): Promise<unknown> => undefined,
+        subscribe: (): never => {
+          throw thrown;
+        },
+      },
+    },
+    growth: {},
+    growthServedOperations: new Set(),
+    source: "live",
+    scenarioEngine: undefined,
+  } as unknown as ConsoleBridge;
+}
+
+describe("a stream that cannot be opened is a refusal, not a crash", () => {
+  it("publishes the open refusal rather than throwing out of the effect commit", async () => {
+    const readFeed = await mountStateFeed(
+      unopenableBridge(TIER_ONE_STUB_REFUSAL),
+      new SessionStore({ sessionId: SESSION_ID }),
+    );
+    const feed = readFeed();
+    expect(feed.openRefusal?.origin).toBe(RUN_STATE_REFUSAL_ORIGIN);
+    expect(feed.openRefusal?.code).toBe("bridge.not_wired");
+    expect(feed.runs).toHaveLength(0);
+  });
+
+  it("renders a refusal the wrapper already raised rather than re-wrapping it", async () => {
+    // The unscoped-open guard throws a refusal that already names the defect; a
+    // second wrap would replace that sentence with one naming the exception.
+    const carried = refuse(
+      "console-daemon-stream",
+      "stream-request-unscoped",
+      "The stream is session-scoped and was opened with no session.",
+    );
+    const readFeed = await mountStateFeed(
+      unopenableBridge(new ConsoleRefusalError(carried)),
+      new SessionStore({ sessionId: SESSION_ID }),
+    );
+    expect(readFeed().openRefusal).toStrictEqual(carried);
+  });
+
+  it("still reports the read from the store rather than inventing one", async () => {
+    const sessionStore = new SessionStore({ sessionId: SESSION_ID });
+    sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    const readFeed = await mountStateFeed(unopenableBridge(TIER_ONE_STUB_REFUSAL), sessionStore);
+    expect(readFeed().hasRead).toBe(true);
+    expect(readFeed().openRefusal?.code).toBe("bridge.not_wired");
+  });
+
+  it("negative control: that bridge does throw synchronously when subscribed directly", () => {
+    // Without this the cases above would pass over a bridge that quietly answered
+    // an unsubscribe, and would prove nothing about the guard.
+    const bridge = unopenableBridge(TIER_ONE_STUB_REFUSAL);
+    const bypassed = bridge.sidekicks.daemon.subscribe as (event: string) => unknown;
+    expect(() => bypassed("run.subscribeState")).toThrow();
+  });
+});

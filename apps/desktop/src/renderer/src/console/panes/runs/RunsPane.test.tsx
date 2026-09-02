@@ -183,7 +183,7 @@ describe("the row states the wire's own figures", () => {
 });
 
 describe("the rewind arm never fabricates a transition", () => {
-  it("advances the version and leaves the state alone", () => {
+  it("advances the version and re-opens the run in paused", () => {
     // Asserted on the fold rather than through the tree, because the claim is about
     // what the projection DOES with an arm that carries no states at all.
     const fold = new RunStateProjection();
@@ -197,9 +197,12 @@ describe("the rewind arm never fabricates a transition", () => {
       }),
     ).toBe(true);
     const run = fold.runs()[0];
-    expect(run?.state).toBe("running");
+    expect(run?.state).toBe("paused");
     expect(run?.runVersion).toBe(3);
     expect(run?.rewoundToPosition).toBe(11);
+    // No transition was invented: the appended row still carries neither state.
+    expect(run?.statusRows.at(-1)?.previousState).toBeUndefined();
+    expect(run?.statusRows.at(-1)?.currentState).toBeUndefined();
   });
 
   it("negative control: a delivery that parses as neither arm is counted, not guessed", () => {
@@ -310,6 +313,43 @@ describe("controls are a fail-closed projection, never a local decision", () => 
     const container = renderControls("running", soleDriverReadout({}));
     openOverflow(container);
     expect(container.querySelector(".meridian-run-controls__action--cancel")).not.toBeNull();
+  });
+});
+
+describe("a partial stream is visible, and is neither an absence nor a refusal", () => {
+  /** A delivery that matches neither registered arm — a protocol-version mismatch. */
+  const UNREADABLE_DELIVERY = { runId: RUN_ID, state: "running", version: 7 };
+
+  it("says the stream is incomplete, with the count, once a delivery could not be read", async () => {
+    const container = await renderPane(scriptedBridge([UNREADABLE_DELIVERY]), true);
+    expect(container.textContent).toContain("could not read");
+    expect(container.querySelector(".meridian-runs__incomplete-stream")?.textContent).toContain(
+      "1 delivery",
+    );
+  });
+
+  it("keeps saying so once a later delivery reads cleanly", async () => {
+    // The point of the indication: the rows are current for what was readable and
+    // still behind for what was not, and one readable delivery does not undo that.
+    const container = await renderPane(
+      scriptedBridge([UNREADABLE_DELIVERY, transition("queued", "running", 2)]),
+      true,
+    );
+    expect(container.textContent).toContain(RUN_ID);
+    expect(container.querySelector(".meridian-runs__incomplete-stream")).not.toBeNull();
+  });
+
+  it("says nothing about the stream when every delivery read cleanly", async () => {
+    const container = await renderPane(scriptedBridge([transition("queued", "running", 2)]), true);
+    expect(container.querySelector(".meridian-runs__incomplete-stream")).toBeNull();
+  });
+
+  it("negative control: the same delivery is what the fold refuses to read", async () => {
+    // Without this the cases above would pass over a delivery the fold accepted and
+    // would prove nothing about an unreadable one reaching a render.
+    const fold = new RunStateProjection();
+    expect(fold.accept(UNREADABLE_DELIVERY)).toBe(false);
+    expect(fold.unreadableDeliveryCount).toBe(1);
   });
 });
 
