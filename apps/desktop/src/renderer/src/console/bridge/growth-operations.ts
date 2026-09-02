@@ -203,7 +203,7 @@ export const GROWTH_OPERATIONS: Readonly<Record<GrowthOperationId, GrowthOperati
     "gitflow-actions",
     "method",
     "run a git action from the repos and diffs surfaces",
-    "gitActionExecute",
+    "gitflow.gitActionExecute",
   ),
   artifactIngestBegin: op(
     "artifactIngestBegin",
@@ -310,6 +310,21 @@ export const GROWTH_OPERATIONS: Readonly<Record<GrowthOperationId, GrowthOperati
     "method",
     "set one global notification preference, over the control-plane transport",
     "attention.preferenceUpdate",
+  ),
+  // gitflow
+  gitflowBranchContextRead: op(
+    "gitflowBranchContextRead",
+    "gitflow-actions",
+    "method",
+    "read the base, head, upstream, and worktree association a writable run executes against, for the repos surface's branch-context summary",
+    "gitflow.branchContextRead",
+  ),
+  gitflowPrPrepare: op(
+    "gitflowPrPrepare",
+    "gitflow-actions",
+    "method",
+    "prepare a reviewable pull-request proposal from the recorded branch context, before any remote mutation",
+    "gitflow.prPrepare",
   ),
 };
 

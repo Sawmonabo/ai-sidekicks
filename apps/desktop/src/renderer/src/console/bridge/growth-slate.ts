@@ -163,7 +163,7 @@ const GROWTH_SLATE_ROWS_BY_ID: {
   },
   "gitflow-actions": {
     id: "gitflow-actions",
-    wire: "the git action-execute vocabulary and the gitflow error namespace",
+    wire: "the branch-context read, the PR-preparation call, the git action-execute vocabulary, and the gitflow error namespace",
     owningDocument: "Spec-011",
     consumingSurface: "repos, diffs, and pull-request surfaces",
     wireRegistered: false,

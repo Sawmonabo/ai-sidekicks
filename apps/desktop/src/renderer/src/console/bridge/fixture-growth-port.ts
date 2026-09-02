@@ -1,10 +1,11 @@
 // The growth port the fixture bridge actually serves.
 //
 // Every other growth operation refuses under both bridges, which is what makes the
-// "not checked" absence a true statement rather than a placeholder. Three do not:
+// "not checked" absence a true statement rather than a placeholder. Four do not:
 // the two the console cannot function without — a session snapshot read and a
-// session directory read — and the attention projection read, which is the only one
-// of the three the console must not compute for itself.
+// session directory read — the attention projection read, which is the only one of
+// them the console must not compute for itself, and the gitflow branch-context
+// read, whose whole answer today is that there is none.
 //
 // WHY THE TWO SESSION READS ARE SERVED AND THE REST ARE NOT
 //
@@ -71,6 +72,31 @@
 //     so the fold would have no input; it lands with the scenario that needs it.
 //   • `mention` — the event census registers no mention type at all, so there is
 //     nothing canonical to fold.
+//
+// WHY THE BRANCH-CONTEXT READ IS SERVED AND ANSWERS NOTHING
+//
+// It is served so the repos surface can render the two different kinds of nothing
+// `Spec-023 §Console Design (Meridian)` distinguishes. "Nobody asked" is the port's
+// refusal and is what a release build still renders for this wire; "we asked and
+// this workspace has no branch context" is a state the summary has to draw too, and
+// under a refusing port it was unreachable — so the surface could only ever be built
+// against half of its own empty states.
+//
+// The answer is the absence for every scenario, and that is a fact about the corpus
+// rather than a stub. Two things would have to be true for a scenario to state a
+// branch context, and neither is:
+//
+//   • `ConsoleScenario` carries no repo mount, no workspace, and no branch. Its
+//     fields are a session id, a join order, beats, replies, and a start instant.
+//   • No registered event payload names a branch. The `repo.*` / `workspace.*` /
+//     `worktree.*` family payload is `{sessionId, repoMountId?, workspaceId?,
+//     worktreeId?, state, actor?}` (`packages/contracts/src/repo.ts`), so a fold
+//     over beats could reach a workspace and a worktree and would still have to
+//     invent both branch names — and `BranchContextReadResponse` requires them.
+//
+// So the honest answer is that there is none, and `findScenariosNamingABranch` in
+// the suite beside this file is what keeps the claim true: the day a scenario does
+// carry a branch, that test fails and this derivation is what has to change.
 
 import type {
   AttentionItem,
@@ -97,6 +123,8 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS = [
   "sessionRead",
   "sessionList",
   "attentionProjectionRead",
+  // gitflow
+  "gitflowBranchContextRead",
 ] as const;
 
 /** One operation the fixture serves. Derived, so the set has exactly one home. */
@@ -150,6 +178,15 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
             // empty projection is the true answer rather than a refusal: the operation
             // IS served, and what it found for that session is nothing.
             { items: [] },
+    }),
+    // gitflow
+    gitflowBranchContextRead: async () => ({
+      status: "served",
+      // No scenario states one, and none can — see the header. Served rather than
+      // refused, because the operation IS answered here and what it found is
+      // nothing; a refusal would say the wire is missing, which under this bridge
+      // is not what happened.
+      value: { branchContext: undefined },
     }),
   };
   return { ...createRefusingGrowthPort(), ...served };

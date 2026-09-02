@@ -32,7 +32,10 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
+  BOUNDED_ENUMERATION_MAX_HEIGHT_REM,
+  BOUNDED_ENUMERATION_MAX_ROWS,
   CONSOLE_SCHEMES,
+  ENUMERATION_ROW_HEIGHT_REM,
   PARTICIPANT_HUES,
   SCHEME_COLOR_TOKENS,
   formatOklch,
@@ -101,6 +104,25 @@ function topLevelRuleBody(css: string, selector: string): string {
   const bodyStart = start + opening.length;
   const end = css.indexOf("\n}", bodyStart);
   return end === -1 ? "" : css.slice(bodyStart, end);
+}
+
+/**
+ * The one number a `rem` declaration carries, read out of the emitted sheet.
+ *
+ * The sheet is the artifact, so a length assertion that reads it is measuring
+ * what the browser will paint rather than restating the record it came from.
+ * Returns `undefined` when the property is absent, so a caller asserts on a
+ * missing declaration instead of comparing against `NaN`.
+ */
+function emittedRemValue(css: string, tokenName: string): number | undefined {
+  const matched = new RegExp(`${tokenVariableName(tokenName)}: ([\\d.]+)rem;`).exec(css);
+  return matched?.[1] === undefined ? undefined : Number(matched[1]);
+}
+
+/** The unitless multiplier a `line-height` declaration carries. */
+function emittedLineHeight(css: string): number | undefined {
+  const matched = /line-height: ([\d.]+);/.exec(css);
+  return matched?.[1] === undefined ? undefined : Number(matched[1]);
 }
 
 /** Custom-property names a stylesheet READS through `var()`. */
@@ -189,6 +211,44 @@ describe("assets — the generated token sheet", () => {
     // keep offering both, or a system-scheme window loses native dark controls.
     const css = generateMeridianCss();
     expect(css.slice(0, css.indexOf("@media"))).toContain("color-scheme: light dark;");
+  });
+
+  it("sizes an enumeration row by the line box the sheet actually paints", () => {
+    // The row is one `text-md` line box plus a `space-2` above and below it. All
+    // three inputs are read back out of the emitted sheet rather than restated
+    // here, so a change to the type scale, the spacing scale, or the body line
+    // height moves this assertion with it instead of leaving the rhythm behind.
+    const css = generateMeridianCss();
+    const bodyLineHeight = emittedLineHeight(css);
+    const bodyTextSizeRem = emittedRemValue(css, "text-md");
+    const rowPaddingRem = emittedRemValue(css, "space-2");
+
+    expect(bodyLineHeight).toBeDefined();
+    expect(bodyTextSizeRem).toBeDefined();
+    expect(rowPaddingRem).toBeDefined();
+    if (
+      bodyLineHeight === undefined ||
+      bodyTextSizeRem === undefined ||
+      rowPaddingRem === undefined
+    ) {
+      return;
+    }
+    expect(ENUMERATION_ROW_HEIGHT_REM).toBe(bodyTextSizeRem * bodyLineHeight + 2 * rowPaddingRem);
+    // Negative control: a row height that counted the line box and forgot the
+    // padding would satisfy a looser check, and would then cap six rows at a box
+    // a row and a half too short to hold them.
+    expect(ENUMERATION_ROW_HEIGHT_REM).not.toBe(bodyTextSizeRem * bodyLineHeight);
+  });
+
+  it("caps a bounded enumeration at a whole number of those rows, never a hand-picked length", () => {
+    const css = generateMeridianCss();
+
+    expect(emittedRemValue(css, "enumeration-max-height")).toBe(BOUNDED_ENUMERATION_MAX_HEIGHT_REM);
+    // The cap is a ROW count converted to a length here so no stylesheet
+    // multiplies; a length picked directly would not divide evenly.
+    expect(BOUNDED_ENUMERATION_MAX_HEIGHT_REM / ENUMERATION_ROW_HEIGHT_REM).toBe(
+      BOUNDED_ENUMERATION_MAX_ROWS,
+    );
   });
 
   it("catches a planted difference, so the comparison is not vacuous", () => {

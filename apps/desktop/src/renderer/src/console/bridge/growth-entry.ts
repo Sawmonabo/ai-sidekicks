@@ -102,7 +102,10 @@ export type GrowthOperationId =
   | "providerSessionImportSubscribe"
   | "attentionProjectionRead"
   | "attentionPreferenceRead"
-  | "attentionPreferenceUpdate";
+  | "attentionPreferenceUpdate"
+  // gitflow
+  | "gitflowBranchContextRead"
+  | "gitflowPrPrepare";
 
 export type GrowthPrerequisiteId =
   | "browserPaneKindDeclaration"
