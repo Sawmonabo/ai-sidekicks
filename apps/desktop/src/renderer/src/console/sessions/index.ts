@@ -1,12 +1,17 @@
 // The sessions family's door.
 //
 // One surface — the all-sessions list the `sessions` rail destination mounts — and
-// the stylesheet it renders through, imported here and nowhere else.
+// the stylesheet it renders through, imported here and nowhere else. The list, the
+// invitations shelf, the ordering rule, and the two durable view states behind them
+// are reached deeply from inside; a door onto a room with no other entrance is not
+// a door.
 //
 // This family REPLACES the shipped session probe's claim on the `sessions` slot.
 // The probe itself is not discarded: it is the only caller of `session.create` and
 // `session.join` that exists, so the list absorbs it into its own layout through
-// the frame's absorption helper rather than re-authoring two live calls beside it.
+// the frame's absorption helper rather than re-authoring two live calls beside it —
+// and mounts it ON THE START PRESS rather than with the surface, because the probe
+// creates from its mount effect and the route lifecycle remounts this slot.
 
 import "./sessions.css";
 

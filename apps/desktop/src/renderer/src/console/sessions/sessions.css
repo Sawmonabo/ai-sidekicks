@@ -43,6 +43,9 @@
 }
 
 .meridian-sessions__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
   min-width: 0;
   border: 1px solid var(--meridian-edge);
   border-radius: var(--meridian-radius-md);
@@ -58,19 +61,12 @@
 .meridian-sessions__aside {
   display: flex;
   flex-direction: column;
-  gap: var(--meridian-space-3);
+  gap: var(--meridian-space-5);
   min-width: 0;
   border: 1px solid var(--meridian-edge);
   border-radius: var(--meridian-radius-md);
   background: var(--meridian-surface-raised);
   padding: var(--meridian-space-4);
-}
-
-.meridian-sessions__aside-title {
-  margin: 0;
-  font-size: var(--meridian-text-md);
-  font-weight: 500;
-  color: var(--meridian-text);
 }
 
 /* Below the two-column threshold the aside stacks under the list rather than
@@ -79,4 +75,202 @@
   .meridian-sessions__body {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* The list itself: two tiers, a rule between them, and a fold under the second. */
+
+.meridian-session-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+}
+
+.meridian-session-list__divider {
+  width: 100%;
+  height: 0;
+  margin: 0;
+  border: 0;
+  border-top: 1px solid var(--meridian-edge);
+}
+
+.meridian-session-list__rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-session-list__fold-summary,
+.meridian-invite-shelf__fold-summary {
+  cursor: pointer;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-session-list__fold-summary:focus-visible,
+.meridian-invite-shelf__fold-summary:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-session-list__fold[open] > .meridian-session-list__fold-summary,
+.meridian-invite-shelf__fold[open] > .meridian-invite-shelf__fold-summary {
+  margin-bottom: var(--meridian-space-2);
+}
+
+/* One row. The tier control is REVEALED rather than added: it occupies its space
+   at all times and only its opacity changes, so a row does not reflow under the
+   pointer. The reveal fires on `:focus-within` as well as `:hover`, because a
+   control a pointer can reach and a keyboard cannot is not a control. */
+.meridian-session-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--meridian-space-3);
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface);
+}
+
+.meridian-session-row--audit-stub {
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text-faint);
+}
+
+.meridian-session-row__identity {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  min-width: 0;
+}
+
+.meridian-session-row__name {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+}
+
+.meridian-session-row__name--open {
+  cursor: pointer;
+}
+
+.meridian-session-row__name--open:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-session-row__facts,
+.meridian-session-row__participants {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-session-row__tier {
+  flex: none;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text-muted);
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-session-row:hover .meridian-session-row__tier,
+.meridian-session-row:focus-within .meridian-session-row__tier {
+  opacity: 1;
+}
+
+/* Reduced motion keeps the reveal but drops the fade, so the control still
+   appears without an animation nobody asked for. */
+@media (prefers-reduced-motion: reduce) {
+  .meridian-session-row__tier {
+    transition: none;
+  }
+}
+
+/* The invitations shelf, in the destination's right column. */
+
+.meridian-invite-shelf {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+}
+
+.meridian-invite-shelf__title {
+  margin: 0;
+  font-size: var(--meridian-text-md);
+  font-weight: 500;
+  color: var(--meridian-text);
+}
+
+.meridian-invite-shelf__rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-invite-shelf__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface);
+}
+
+.meridian-invite-shelf__row-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+}
+
+.meridian-invite-shelf__row-action,
+.meridian-sessions__start {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+  font: inherit;
+  font-size: var(--meridian-text-sm);
+  cursor: pointer;
+}
+
+.meridian-invite-shelf__row-action:focus-visible,
+.meridian-sessions__start:focus-visible,
+.meridian-session-row__tier:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-sessions__start {
+  align-self: flex-start;
+}
+
+/* What a start press mounted. Separated from the list by a rule, because it is a
+   receipt for an act rather than another region of the page. */
+.meridian-sessions__started {
+  border-top: 1px solid var(--meridian-edge);
+  padding-top: var(--meridian-space-4);
 }
