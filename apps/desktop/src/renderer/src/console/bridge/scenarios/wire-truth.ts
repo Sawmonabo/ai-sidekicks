@@ -51,8 +51,12 @@
 //     a registered state and passes every leg above, because the strict layer
 //     registers no run-lifecycle variant to hold the pair to. It reports two states
 //     at once, and the fold that consumes it would store the one the payload names
-//     under the kind the timeline renders. Read off the same module the queue leg
-//     reads, for the same reason.
+//     under the kind the timeline renders. A beat that names NO `newState` passed
+//     the same way, and is refused on the queue leg's terms: the tolerant envelope
+//     accepts the omission, so the beat reached delivery and was refused there as
+//     unprojectable while the run-lifecycle projector dropped its mutation — green
+//     here and rendering nothing. Read off the same module the queue leg reads,
+//     for the same reason.
 //   • The rollback payload's own session. `run.rolled_back` is the one run-lifecycle
 //     payload that carries `sessionId`, and it carries it because the durable row is
 //     what the timeline's boundary entry refines against the envelope — outer
@@ -267,11 +271,11 @@ function describeQueueStateDefect(beat: ScenarioBeat): string | undefined {
 }
 
 /**
- * A run beat whose payload names a different state than its kind announces.
+ * A run beat that names no state, or names a different one than its kind announces.
  *
  * The transition-table leg above catches a beat that claims a run moved to the
  * state it was already in; this one catches the beat that claims two states at
- * once. `run.running` carrying `newState: "failed"` names a registered kind and a
+ * once, and the one that claims none. `run.running` carrying `newState: "failed"` names a registered kind and a
  * registered state, passes the census, passes the envelope, and passes the strict
  * layer — which registers no run-lifecycle payload variant to hold it to — so
  * before this leg the only thing that read the pair was the projector consuming
@@ -291,8 +295,23 @@ function describeRunStateDefect(beat: ScenarioBeat): string | undefined {
     return undefined;
   }
   const statedState = beat.event.payload?.["newState"];
-  if (statedState === undefined || statedState === announcedState) {
+  if (statedState === announcedState) {
     return undefined;
+  }
+  if (statedState === undefined) {
+    // Absence is a defect, on the queue leg's terms exactly. The tolerant envelope
+    // accepts a run-lifecycle payload with no `newState` and the strict layer
+    // registers no variant to reject it, so this beat passed every leg above —
+    // and then `run-stream-projection.ts` refuses it as `beat-unprojectable` at
+    // delivery while the run-lifecycle projector drops its mutation. A scenario
+    // that passes the gate and produces nothing on either consumer is the exact
+    // shape this predicate exists to keep off a family branch.
+    return (
+      "this beat names no `newState`, which is the member the run-state stream " +
+      "projects into the registered `currentState` and the member the run-lifecycle " +
+      "projector folds. Name the state this run moved to — " +
+      `\`"${announcedState}"\`, which is what its kind announces.`
+    );
   }
   return (
     `this beat announces "${announcedState}" by its kind and ` +
