@@ -3,9 +3,9 @@
 // `Spec-023 §Main Process Responsibilities` requires a platform-appropriate menu
 // bar (macOS app menu; Windows/Linux window menu). This module builds it from a
 // template of platform-default roles plus a `Window` submenu whose auxiliary
-// entries come from the SHARED implemented-route list in
-// `../shared/auxiliary-routes.ts` — never from the route type. The menu-bar path
-// is the one that ships first
+// entries come from the SHARED bare-launchable route list in
+// `../shared/auxiliary-routes.ts` — never from the route type, and never from
+// the wider implemented set. The menu-bar path is the one that ships first
 // because it needs no new bridge namespace: opening an auxiliary window is a
 // main-process act, so nothing here crosses the preload boundary. A
 // renderer-initiated detach rides the window-control namespace on
@@ -14,17 +14,29 @@
 // Copy follows `Spec-023 §Console Design (Meridian)` §Copy: sentence case, no
 // exclamation marks, no capability claimed that the code does not implement.
 //
-// Implemented-set-derived, and that is the point. Phase 1B ships the
-// main-process half of an auxiliary window; the renderer route bodies are Phase
-// 1C's T-023p-1C-2 / T-023p-1C-4. An entry offered before its route exists opens
-// a hardened window onto a hash route with nothing behind it — a blank frame the
-// user has to close, from a menu that claimed it did something. So
-// `IMPLEMENTED_AUXILIARY_ROUTES` is empty at Phase 1B and this menu renders no
-// auxiliary entry, and each entry appears as its own route body lands in the
-// same commit as its entry in that list. That list is shared rather than a
-// main-process registry for the reason its own header gives: a renderer route
-// module cannot register itself into main-process state, so a registry is a gate
-// nothing ever opens.
+// Bare-launchable-set-derived, and the narrower set is the point. Every entry
+// this menu builds calls `createAuxiliaryWindow({ route })` with NO context, so
+// the question it must answer is not "does this route have a body" but "can a
+// window opened with nothing be given a subject". Those are two claims, and
+// `../shared/auxiliary-routes.ts` now holds them as two lists: a route body
+// landing puts a route in the implemented set, which is what the detach path
+// needs, and only a read that a context-less window can actually reach puts it
+// in `BARE_LAUNCHABLE_AUXILIARY_ROUTES`, which is what this menu reads.
+//
+// An entry offered without either is the same defect in two shapes. Before a
+// route body exists it opens a hash route with nothing behind it — a blank frame
+// the user has to close. With a body but no reachable read it opens the context
+// picker, which finds an empty store registry and a refused session directory
+// and stops at the honest not-checked absence — a window that works and can
+// never be given a subject. Both are the capability-claimed-but-not-implemented
+// shape `Spec-023 §Console Design (Meridian)` §Copy forbids, so this menu
+// renders no auxiliary entry while the bare-launchable list is empty, and each
+// entry appears in the same commit as the read that makes its bare launch
+// answerable.
+//
+// Both lists are shared rather than a main-process registry for the reason their
+// module's header gives: a renderer route module cannot register itself into
+// main-process state, so a registry is a gate nothing ever opens.
 //
 // The `Window` submenu itself is NOT omitted when that list is empty. Its
 // other items are `minimize` / `zoom` / `front` / `close` — platform window
@@ -35,12 +47,12 @@
 // entries and the separator that introduces them, so the submenu never renders a
 // leading or doubled divider around nothing.
 //
-// Both entries open the BARE route — `createAuxiliaryWindow({ route })` with no
+// Every entry opens the BARE route — `createAuxiliaryWindow({ route })` with no
 // pane context. A menu bar has no pane to read a session or agent from, and
 // guessing one (the most recent session, say) would put a window on a subject
-// the user did not choose. The auxiliary renderer's own context picker is
-// Phase 1C's; until it lands, a bare window is an honest empty state and not a
-// wrong one.
+// the user did not choose. That is exactly why membership is gated on the
+// bare-launchable list: the auxiliary renderer's context picker has landed, and
+// what it still lacks is a candidate source a context-less window can reach.
 //
 // `registerMenuSection` is the second seam (Codex closing round). An owning plan
 // EXTENDs this menu with its own section rather than editing this template:
@@ -57,7 +69,7 @@ import { Menu, type MenuItemConstructorOptions } from "electron";
 
 import {
   AUXILIARY_ROUTE_LABELS,
-  IMPLEMENTED_AUXILIARY_ROUTES,
+  BARE_LAUNCHABLE_AUXILIARY_ROUTES,
   type AuxiliaryRouteName,
 } from "../shared/auxiliary-routes.js";
 import { createAuxiliaryWindow } from "./auxiliary-window.js";
@@ -71,10 +83,11 @@ const IS_MACOS = process.platform === "darwin";
  * renderer bundle and to the window factory; shipping it through the shared
  * module would put a menu-bar string into a browser bundle that has no menu bar.
  *
- * A TOTAL `Record` over the closed route set, so adding a route is a compile
- * error here until its shortcut is decided — the same forcing function the
- * shared label record and the window factory's geometry record apply at the
- * other two sites a new route needs a decision.
+ * A TOTAL `Record` over the closed route set — over the ROUTE set and not over
+ * the bare-launchable subset, so adding a route is a compile error here until
+ * its shortcut is decided even while its entry is not yet offered. That is the
+ * same forcing function the shared label record and the window factory's
+ * geometry record apply at the other two sites a new route needs a decision.
  */
 const AUXILIARY_MENU_ACCELERATORS: Record<AuxiliaryRouteName, string> = {
   timeline: "CmdOrCtrl+Shift+T",
@@ -167,7 +180,7 @@ export function registerMenuSection(section: MenuSection): void {
 }
 
 function buildAuxiliaryMenuItems(): MenuItemConstructorOptions[] {
-  const items: MenuItemConstructorOptions[] = IMPLEMENTED_AUXILIARY_ROUTES.map((route) => ({
+  const items: MenuItemConstructorOptions[] = BARE_LAUNCHABLE_AUXILIARY_ROUTES.map((route) => ({
     label: AUXILIARY_ROUTE_LABELS[route],
     accelerator: AUXILIARY_MENU_ACCELERATORS[route],
     click: () => {
